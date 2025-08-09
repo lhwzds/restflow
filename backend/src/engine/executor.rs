@@ -1,5 +1,5 @@
 use crate::core::workflow::{Node, NodeType, Workflow};
-use serde_json::Value;
+use serde_json::{Value, json};
 use std::collections::HashMap;
 
 pub struct WorkflowExecutor {
@@ -31,11 +31,33 @@ impl WorkflowExecutor {
             NodeType::HttpRequest => {
                 let url = node.config["url"].as_str().ok_or("No URL")?;
 
-                println!("Call URL {url}");
+                let method = node.config["method"]
+                    .as_str()
+                    .ok_or("Method missing in config")?;
+                let client = reqwest::Client::new();
+                let response = match method {
+                    "GET" => client
+                        .get(url)
+                        .send()
+                        .await
+                        .map_err(|e| format!("Get request failed {e}"))?
+                        .text()
+                        .await
+                        .map_err(|e| format!("Get text failed {e}"))?,
+                    "POST" => client
+                        .post(url)
+                        .send()
+                        .await
+                        .map_err(|e| format!("Post request failed {e}"))?
+                        .text()
+                        .await
+                        .map_err(|e| format!("Get text failed {e}"))?,
+                    _ => return Err(format!("Http method {method} not implemented")),
+                };
 
                 Ok(serde_json::json!({
                     "status": 200,
-                    "body": format!("Response from{url}")
+                    "body": response
                 }))
             }
             _ => Err(format!(
