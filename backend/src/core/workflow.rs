@@ -5,7 +5,7 @@ pub struct Workflow {
     pub id: String,
     pub name: String,
     pub nodes: Vec<Node>,
-    pub edge: Vec<Edge>,
+    pub edges: Vec<Edge>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
