@@ -1,5 +1,5 @@
 use crate::core::workflow::{Node, NodeType, Workflow};
-use serde_json::{Value, json};
+use serde_json::Value;
 use std::collections::HashMap;
 
 pub struct WorkflowExecutor {
