@@ -11,7 +11,7 @@ impl WorkflowExecutor {
         Self { workflow }
     }
 
-    pub async fn execute(&self) -> Result<Value, String> {
+    pub async fn execute_workflow(&self) -> Result<Value, String> {
         let mut results = HashMap::new();
 
         for node in &self.workflow.nodes {
