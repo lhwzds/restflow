@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-axum = "0.8.4"
+axum = { version = "0.8.4", features = ["macros"] }
 redb = "3.0"
 reqwest = "0.12.22"
 serde = { version = "1.0.219", features = ["derive"] }
