@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { BaseEdge, EdgeLabelRenderer, getBezierPath, type EdgeProps } from '@vue-flow/core';
-import { computed } from 'vue';
+import { BaseEdge, EdgeLabelRenderer, type EdgeProps, getBezierPath } from '@vue-flow/core'
+import { computed } from 'vue'
 
 const props = defineProps<EdgeProps>()
 
@@ -12,10 +12,8 @@ defineOptions({
 </script>
 
 <template>
-  <!-- You can use the `BaseEdge` component to create your own custom edge more easily -->
   <BaseEdge :path="path[0]" />
 
-  <!-- Use the `EdgeLabelRenderer` to escape the SVG world of edges and render your own custom label in a `<div>` ctx -->
   <EdgeLabelRenderer>
     <div
       :style="{
