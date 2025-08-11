@@ -6,7 +6,7 @@ interface Props {
   gap?: number
 }
 
-const props = withDefaults(defineProps<Props>(), {
+withDefaults(defineProps<Props>(), {
   showText: true,
   iconSize: 32,
   textSize: 22,
