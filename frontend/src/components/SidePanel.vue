@@ -1,0 +1,131 @@
+<script setup lang="ts">
+import { DataAnalysis, Expand, Fold, Setting, Share } from '@element-plus/icons-vue'
+import { ElAside, ElButton, ElIcon, ElMenu, ElMenuItem } from 'element-plus'
+import { computed, ref } from 'vue'
+import RestFlowLogo from './RestFlowLogo.vue'
+
+// Control panel collapse state
+const isCollapsed = ref(false)
+
+// Current active menu
+const activeMenu = ref('overview')
+
+// Computed width based on collapse state
+const panelWidth = computed(() => (isCollapsed.value ? '64px' : '200px'))
+
+// Toggle collapse state
+const toggleCollapse = () => {
+  isCollapsed.value = !isCollapsed.value
+}
+
+// Handle menu selection
+const handleMenuSelect = (index: string) => {
+  activeMenu.value = index
+}
+</script>
+
+<template>
+  <el-aside :width="panelWidth" class="side-panel">
+    <div class="panel-header" :class="{ collapsed: isCollapsed }">
+      <RestFlowLogo :show-text="!isCollapsed" :icon-size="32" :text-size="20" :gap="8" />
+      <el-button
+        v-if="!isCollapsed"
+        :icon="Fold"
+        size="large"
+        text
+        @click="toggleCollapse"
+        class="collapse-btn"
+      />
+    </div>
+
+    <div v-if="isCollapsed" class="collapsed-btn-container">
+      <el-button :icon="Expand" size="large" text @click="toggleCollapse" class="expand-btn" />
+    </div>
+
+    <!-- Menu -->
+    <el-menu
+      :default-active="activeMenu"
+      class="panel-menu"
+      :collapse="isCollapsed"
+      @select="handleMenuSelect"
+    >
+      <el-menu-item index="overview">
+        <el-icon><DataAnalysis /></el-icon>
+        <template #title>Overview</template>
+      </el-menu-item>
+
+      <el-menu-item index="workflow">
+        <el-icon><Share /></el-icon>
+        <template #title>Workflow</template>
+      </el-menu-item>
+
+      <el-menu-item index="agent">
+        <el-icon><Setting /></el-icon>
+        <template #title>Agent</template>
+      </el-menu-item>
+    </el-menu>
+  </el-aside>
+</template>
+
+<style scoped>
+.side-panel {
+  background-color: #fff;
+  border-right: 1px solid #e4e7ed;
+  transition: width 0.3s ease;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px;
+  border-bottom: 1px solid #e4e7ed;
+  height: 50px;
+}
+
+.panel-header.collapsed {
+  justify-content: center;
+  border-bottom: none;
+  height: 32px;
+  padding: 16px 0 0 0;
+}
+
+.collapse-btn {
+  margin-left: auto;
+  padding: 4px 8px;
+}
+
+.collapsed-btn-container {
+  display: flex;
+  justify-content: center;
+  padding: 4px 0 4px 0;
+  border-bottom: 1px solid #e4e7ed;
+}
+
+.expand-btn {
+  padding: 4px 8px;
+}
+
+.panel-menu {
+  flex: 1;
+  border: none;
+}
+
+.panel-menu:not(.el-menu--collapse) {
+  width: 200px;
+}
+
+.el-menu-item {
+  height: 48px;
+  line-height: 48px;
+}
+
+.el-menu-item.is-active {
+  background-color: #ecf5ff;
+  color: #409eff;
+}
+</style>
