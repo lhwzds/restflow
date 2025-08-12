@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="frontend/assets/restflow.svg" alt="RestFlow Logo" width="120" height="120" />
+  <img src="frontend/src/assets/restflow.svg" alt="RestFlow Logo" width="120" height="120" />
   
   # RestFlow
   
