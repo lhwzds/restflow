@@ -1,4 +1,5 @@
 use crate::core::workflow::{Node, NodeType, Workflow};
+use crate::node::agent::AgentNode;
 use serde_json::Value;
 use std::collections::HashMap;
 
@@ -58,6 +59,47 @@ impl WorkflowExecutor {
                 Ok(serde_json::json!({
                     "status": 200,
                     "body": response
+                }))
+            }
+            NodeType::Agent => {
+                let model = node.config["model"]
+                    .as_str()
+                    .ok_or("Model missing in config")?
+                    .to_string();
+
+                let prompt = node.config["prompt"]
+                    .as_str()
+                    .ok_or("Prompt missing in config")?
+                    .to_string();
+
+                let temperature = node.config["temperature"]
+                    .as_f64()
+                    .ok_or("Temperature missing in config")?;
+
+                let api_key = node.config["api_key"].as_str().map(|s| s.to_string());
+
+                let input = node.config["input"].as_str().unwrap_or("Hello");
+
+                let agent = AgentNode::new(model, prompt, temperature, api_key);
+
+                let response = agent
+                    .execute(input)
+                    .await
+                    .map_err(|e| format!("Agent failed {e}"))?;
+
+                Ok(serde_json::json!({
+                    "response": response
+                }))
+            }
+            NodeType::Print => {
+                let message = node.config["message"]
+                    .as_str()
+                    .unwrap_or("No message provided");
+
+                println!("{}", message);
+
+                Ok(serde_json::json!({
+                    "printed": message
                 }))
             }
             _ => Err(format!(
