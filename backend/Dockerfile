@@ -1,6 +1,6 @@
 FROM rustlang/rust:nightly-alpine AS builder
 
-RUN apk add --no-cache musl-dev pkgconfig openssl-dev
+RUN apk add --no-cache musl-dev pkgconfig openssl-dev openssl-libs-static
 
 WORKDIR /app
 

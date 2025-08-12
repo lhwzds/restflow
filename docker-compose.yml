@@ -3,31 +3,23 @@ services:
     build: ./backend
     container_name: restflow-backend
     environment:
-      DATABASE_URL: postgresql://restflow:restflow@postgres:5432/restflow
       RUST_LOG: info
     ports:
       - "3000:3000"
-    depends_on:
-      postgres:
-        condition: service_healthy
+    volumes:
+      - restflow_data:/app
     restart: unless-stopped
 
-  postgres:
-    image: postgres:17-alpine
-    container_name: restflow-db
-    environment:
-      POSTGRES_USER: restflow
-      POSTGRES_PASSWORD: restflow
-      POSTGRES_DB: restflow
+  frontend:
+    build: ./frontend
+    container_name: restflow-frontend
     ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U restflow"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
+      - "5173:5173"
+    depends_on:
+      - backend
+    environment:
+      - VITE_API_URL=http://localhost:3000
+    restart: unless-stopped
 
 volumes:
-  postgres_data:
+  restflow_data:
