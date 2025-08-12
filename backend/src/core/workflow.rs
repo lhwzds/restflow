@@ -23,6 +23,8 @@ pub struct Edge {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum NodeType {
+    Agent,
     HttpRequest,
     Print,
+    DataTransform,
 }
