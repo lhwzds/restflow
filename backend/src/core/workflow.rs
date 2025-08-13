@@ -23,6 +23,7 @@ pub struct Edge {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum NodeType {
+    ManualTrigger,
     Agent,
     HttpRequest,
     Print,
