@@ -1,79 +1,215 @@
 <script setup lang="ts">
 import { Background } from '@vue-flow/background'
-import type { Edge, Node } from '@vue-flow/core'
-import { VueFlow } from '@vue-flow/core'
-import { ref } from 'vue'
-import SpecialEdge from './SpecialEdge.vue'
-import SpecialNode from './SpecialNode.vue'
+import { Controls } from '@vue-flow/controls'
+import type { Connection, Edge } from '@vue-flow/core'
+import { VueFlow, useVueFlow } from '@vue-flow/core'
+import { MiniMap } from '@vue-flow/minimap'
+import { computed, ref } from 'vue'
+import { useWorkflowStore } from '../stores/workflowStore'
+import AgentNode from './nodes/AgentNode.vue'
+import HttpNode from './nodes/HttpNode.vue'
+import ManualTriggerNode from './nodes/ManualTriggerNode.vue'
+import NodeToolbar from './NodeToolbar.vue'
 
-const nodes = ref<Node[]>([
-  {
-    id: '1',
-    type: 'input',
-    position: { x: 250, y: 5 },
-    data: { label: 'Node 1' },
-  },
+// Use Pinia store
+const workflowStore = useWorkflowStore()
 
-  {
-    id: '2',
-    position: { x: 100, y: 100 },
-    data: { label: 'Node 2' },
+// Use store state as refs
+const nodes = computed({
+  get: () => workflowStore.nodes,
+  set: (value) => {
+    workflowStore.nodes = value
   },
+})
 
-  {
-    id: '3',
-    type: 'output',
-    position: { x: 400, y: 200 },
-    data: { label: 'Node 3' },
+const edges = computed({
+  get: () => workflowStore.edges,
+  set: (value) => {
+    workflowStore.edges = value
   },
-  {
-    id: '4',
-    type: 'special',
-    position: { x: 600, y: 100 },
-    data: {
-      label: 'Node 4',
-      hello: 'world',
-    },
-  },
-])
+})
 
-const edges = ref<Edge[]>([
-  {
-    id: 'e1->2',
-    source: '1',
-    target: '2',
-  },
+const isExecuting = computed(() => workflowStore.isExecuting)
 
-  {
-    id: 'e2->3',
-    source: '2',
-    target: '3',
+// Use VueFlow hooks for interaction
+const {
+  project,
+  vueFlowRef,
+  addNodes,
+  addEdges,
+  onConnect,
+  onPaneContextMenu,
+  onNodeContextMenu,
+  removeNodes,
+  removeEdges,
+} = useVueFlow()
+
+// Handle connections between nodes
+onConnect((connection: Connection) => {
+  const newEdge: Edge = {
+    id: `e${connection.source}->${connection.target}`,
+    source: connection.source!,
+    target: connection.target!,
     animated: true,
-  },
-  {
-    id: 'e3->4',
-    type: 'special',
-    source: '3',
-    target: '4',
-    data: {
-      hello: 'world',
-    },
-  },
-])
+  }
+  workflowStore.addEdge(newEdge)
+})
+
+// Handle drag and drop
+const handleDrop = (event: DragEvent) => {
+  event.preventDefault()
+
+  const data = event.dataTransfer?.getData('application/vueflow')
+  if (!data) return
+
+  const template = JSON.parse(data)
+  const position = project({
+    x: event.clientX - vueFlowRef.value!.getBoundingClientRect().left,
+    y: event.clientY - vueFlowRef.value!.getBoundingClientRect().top,
+  })
+
+  addNodeAtPosition(template, position)
+}
+
+const handleDragOver = (event: DragEvent) => {
+  event.preventDefault()
+  if (event.dataTransfer) {
+    event.dataTransfer.dropEffect = 'move'
+  }
+}
+
+// Add node at specific position
+const addNodeAtPosition = (template: any, position: { x: number; y: number }) => {
+  const newNode = workflowStore.createNode(template, position)
+  // Also add to VueFlow for visual update
+  addNodes([newNode])
+}
+
+// Handle toolbar click to add node
+const handleAddNode = (template: any) => {
+  // Add node at center of canvas with slight randomization
+  const position = {
+    x: 250 + Math.random() * 100,
+    y: 150 + Math.random() * 100,
+  }
+  addNodeAtPosition(template, position)
+}
+
+// Context menu state
+const contextMenu = ref({
+  show: false,
+  x: 0,
+  y: 0,
+  nodeId: null as string | null,
+})
+
+// Canvas context menu
+onPaneContextMenu((event: MouseEvent) => {
+  event.preventDefault()
+  contextMenu.value = {
+    show: true,
+    x: event.clientX,
+    y: event.clientY,
+    nodeId: null,
+  }
+})
+
+// Node context menu
+onNodeContextMenu(({ event, node }) => {
+  event.preventDefault()
+
+  // Handle both mouse and touch events
+  const x = 'clientX' in event ? event.clientX : (event as TouchEvent).touches[0]?.clientX || 0
+  const y = 'clientY' in event ? event.clientY : (event as TouchEvent).touches[0]?.clientY || 0
+
+  contextMenu.value = {
+    show: true,
+    x,
+    y,
+    nodeId: node.id,
+  }
+})
+
+// Delete node
+const deleteNode = () => {
+  if (contextMenu.value.nodeId) {
+    workflowStore.removeNode(contextMenu.value.nodeId)
+    // Also remove from VueFlow
+    removeNodes([contextMenu.value.nodeId])
+  }
+  contextMenu.value.show = false
+}
+
+// Clear canvas
+const clearCanvas = () => {
+  workflowStore.clearCanvas()
+  contextMenu.value.show = false
+}
+
+// Close context menu when clicking elsewhere
+const handlePaneClick = () => {
+  contextMenu.value.show = false
+}
+
+// Execute workflow
+const executeWorkflow = async () => {
+  if (!workflowStore.hasNodes) {
+    alert('Add some nodes first!')
+    return
+  }
+
+  try {
+    const result = await workflowStore.executeWorkflow()
+    console.log('Execution result:', result)
+    alert('Workflow execution success!')
+  } catch (error) {
+    console.error('Execution failed:', error)
+    alert(`Workflow execution failed!`)
+  }
+}
 </script>
 
 <template>
-  <div class="workflow-editor">
-    <VueFlow :nodes="nodes" :edges="edges">
+  <div class="workflow-editor" @click="handlePaneClick">
+    <!-- Node Toolbar -->
+    <NodeToolbar @add-node="handleAddNode" />
+
+    <!-- Execute Button -->
+    <button class="execute-button" @click="executeWorkflow" :disabled="isExecuting">
+      {{ isExecuting ? 'Executing...' : '▶️ Execute workflow' }}
+    </button>
+
+    <!-- Workflow Canvas -->
+    <VueFlow :nodes="nodes" :edges="edges" @drop="handleDrop" @dragover="handleDragOver">
       <Background />
-      <template #node-special="specialNodeProps">
-        <SpecialNode v-bind="specialNodeProps" />
+      <Controls />
+      <MiniMap />
+
+      <!-- Manual Trigger Node Template -->
+      <template #node-manual-trigger="manualTriggerNodeProps">
+        <ManualTriggerNode v-bind="manualTriggerNodeProps" />
       </template>
 
-      <template #edge-special="specialEdgeProps">
-        <SpecialEdge v-bind="specialEdgeProps" />
+      <!-- Agent Node Template -->
+      <template #node-agent="agentNodeProps">
+        <AgentNode v-bind="agentNodeProps" />
+      </template>
+
+      <!-- HTTP Node Template -->
+      <template #node-http="httpNodeProps">
+        <HttpNode v-bind="httpNodeProps" />
       </template>
     </VueFlow>
+
+    <!-- Context Menu -->
+    <div
+      v-if="contextMenu.show"
+      class="context-menu"
+      :style="{ left: contextMenu.x + 'px', top: contextMenu.y + 'px' }"
+    >
+      <div v-if="contextMenu.nodeId" class="menu-item" @click="deleteNode">Delete Node</div>
+      <div class="menu-item" @click="clearCanvas">Clear Canvas</div>
+    </div>
   </div>
 </template>
 
@@ -81,5 +217,57 @@ const edges = ref<Edge[]>([
 .workflow-editor {
   width: 100%;
   height: 100%;
+  position: relative;
+}
+
+.context-menu {
+  position: fixed;
+  background: white;
+  border-radius: 6px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+  padding: 4px;
+  z-index: 1000;
+  min-width: 120px;
+}
+
+.menu-item {
+  padding: 8px 12px;
+  cursor: pointer;
+  border-radius: 4px;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.menu-item:hover {
+  background: #8d8b8b;
+}
+
+.execute-button {
+  position: absolute;
+  top: 10px;
+  right: 250px;
+  background: linear-gradient(135deg, #48bb78 0%, #38a169 100%);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  padding: 12px 24px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+  z-index: 10;
+  transition: all 0.2s;
+}
+
+.execute-button:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.execute-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 </style>
