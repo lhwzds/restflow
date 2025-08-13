@@ -12,6 +12,7 @@ use engine::executor::WorkflowExecutor;
 use serde::Serialize;
 use std::sync::Arc;
 use storage::db::WorkflowStorage;
+use tower_http::cors::{CorsLayer, Any};
 
 #[derive(Serialize)]
 struct Health {
@@ -165,6 +166,12 @@ async fn main() {
     let storage =
         Arc::new(WorkflowStorage::new("restflow.db").expect("Failed to initialize storage"));
 
+    // Configure CORS
+    let cors = CorsLayer::new()
+        .allow_origin(Any)
+        .allow_methods(Any)
+        .allow_headers(Any);
+
     let app = Router::new()
         .route("/health", get(health))
         .route("/api/workflow/list", get(list_workflows))
@@ -174,6 +181,7 @@ async fn main() {
         .route("/api/workflow/delete/{id}", delete(delete_workflow))
         .route("/api/workflow/execute", post(execute_workflow))
         .route("/api/workflow/execute/{id}", post(execute_workflow_by_id))
+        .layer(cors)
         .with_state(storage);
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000")
