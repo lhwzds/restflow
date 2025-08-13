@@ -29,6 +29,15 @@ impl WorkflowExecutor {
 
     pub async fn execute_node(&self, node: &Node) -> Result<Value, String> {
         match node.node_type {
+            NodeType::ManualTrigger => {
+                // Manual trigger doesn't execute any logic, just marks entry point
+                println!("Manual trigger node {} executed", node.id);
+                Ok(serde_json::json!({
+                    "status": "triggered",
+                    "node_id": node.id,
+                    "timestamp": chrono::Utc::now().to_rfc3339()
+                }))
+            }
             NodeType::HttpRequest => {
                 let url = node.config["url"].as_str().ok_or("No URL")?;
 
