@@ -1,16 +1,16 @@
 <script setup lang="ts">
 import { Background } from '@vue-flow/background'
-import { Controls } from '@vue-flow/controls'
+import { ControlButton, Controls } from '@vue-flow/controls'
 import type { Connection, Edge } from '@vue-flow/core'
 import { VueFlow, useVueFlow } from '@vue-flow/core'
 import { MiniMap } from '@vue-flow/minimap'
 import { computed, ref } from 'vue'
 import { useWorkflowStore } from '../stores/workflowStore'
+import Icon from './Icon.vue'
 import AgentNode from './nodes/AgentNode.vue'
 import HttpNode from './nodes/HttpNode.vue'
 import ManualTriggerNode from './nodes/ManualTriggerNode.vue'
 import NodeToolbar from './NodeToolbar.vue'
-
 // Use Pinia store
 const workflowStore = useWorkflowStore()
 
@@ -42,6 +42,8 @@ const {
   onNodeContextMenu,
   removeNodes,
   removeEdges,
+  setViewport,
+  toObject,
 } = useVueFlow()
 
 // Handle connections between nodes
@@ -167,6 +169,18 @@ const executeWorkflow = async () => {
     alert(`Workflow execution failed!`)
   }
 }
+
+const dark = ref(false)
+
+function toggleDarkMode() {
+  dark.value = !dark.value
+}
+function resetTransform() {
+  setViewport({ x: 0, y: 0, zoom: 1 })
+}
+function logToObject() {
+  console.log(toObject())
+}
 </script>
 
 <template>
@@ -180,10 +194,36 @@ const executeWorkflow = async () => {
     </button>
 
     <!-- Workflow Canvas -->
-    <VueFlow :nodes="nodes" :edges="edges" @drop="handleDrop" @dragover="handleDragOver">
-      <Background />
-      <Controls />
+    <VueFlow
+      :nodes="nodes"
+      :edges="edges"
+      class="basic-flow"
+      :class="{ dark }"
+      :default-viewport="{ zoom: 1.5 }"
+      :min-zoom="0.2"
+      :max-zoom="4"
+      @drop="handleDrop"
+      @dragover="handleDragOver"
+    >
+      <!-- <Background /> -->
+
+      <Background pattern-color="#aaa" :gap="16" />
       <MiniMap />
+
+      <Controls position="bottom-right">
+        <ControlButton title="Reset Transform" @click="resetTransform">
+          <Icon name="reset" />
+        </ControlButton>
+
+        <ControlButton title="Toggle Dark Mode" @click="toggleDarkMode">
+          <Icon v-if="dark" name="sun" />
+          <Icon v-else name="moon" />
+        </ControlButton>
+
+        <ControlButton title="Log `toObject`" @click="logToObject">
+          <Icon name="log" />
+        </ControlButton>
+      </Controls>
 
       <!-- Manual Trigger Node Template -->
       <template #node-manual-trigger="manualTriggerNodeProps">
@@ -246,8 +286,9 @@ const executeWorkflow = async () => {
 
 .execute-button {
   position: absolute;
-  top: 10px;
-  right: 250px;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
   background: linear-gradient(135deg, #48bb78 0%, #38a169 100%);
   color: white;
   border: none;
@@ -262,12 +303,75 @@ const executeWorkflow = async () => {
 }
 
 .execute-button:hover:not(:disabled) {
-  transform: translateY(-2px);
+  transform: translateX(-50%) translateY(-2px);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
 }
 
 .execute-button:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+
+.vue-flow__minimap {
+  bottom: 35px;
+}
+
+.basic-flow.dark {
+  background: #2d3748;
+  color: #fffffb;
+}
+
+.basic-flow.dark .vue-flow__node {
+  background: #4a5568;
+  color: #fffffb;
+}
+
+.basic-flow.dark .vue-flow__node.selected {
+  background: #333;
+  box-shadow: 0 0 0 2px #2563eb;
+}
+
+.basic-flow .vue-flow__controls {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.basic-flow.dark .vue-flow__controls {
+  border: 1px solid #fffffb;
+  background: #2d3748;
+}
+
+.basic-flow .vue-flow__controls .vue-flow__controls-button {
+  border: none;
+  border-right: 1px solid #eee;
+}
+
+.basic-flow .vue-flow__controls .vue-flow__controls-button svg {
+  height: 100%;
+  width: 100%;
+}
+
+.basic-flow.dark .vue-flow__controls .vue-flow__controls-button {
+  background: #333;
+  fill: #fffffb;
+  border: none;
+  color: #fffffb;
+}
+
+.basic-flow.dark .vue-flow__controls .vue-flow__controls-button:hover {
+  background: #4d4d4d;
+}
+
+.basic-flow.dark .vue-flow__controls .vue-flow__controls-button:last-child {
+  border-right: none;
+}
+
+.basic-flow.dark .vue-flow__edge-textbg {
+  fill: #292524;
+}
+
+.basic-flow.dark .vue-flow__edge-text {
+  fill: #fffffb;
 }
 </style>
