@@ -2,6 +2,7 @@ mod core;
 mod engine;
 mod node;
 mod storage;
+mod static_assets;
 use axum::{
     Json, Router,
     extract::{Path, State},
@@ -181,6 +182,7 @@ async fn main() {
         .route("/api/workflow/delete/{id}", delete(delete_workflow))
         .route("/api/workflow/execute", post(execute_workflow))
         .route("/api/workflow/execute/{id}", post(execute_workflow_by_id))
+        .fallback(static_assets::static_handler)
         .layer(cors)
         .with_state(storage);
 
