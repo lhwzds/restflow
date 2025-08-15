@@ -1,25 +1,9 @@
 services:
-  backend:
-    build: ./backend
-    container_name: restflow-backend
-    environment:
-      RUST_LOG: info
+  restflow:
+    build: .
+    container_name: restflow
     ports:
       - "3000:3000"
-    volumes:
-      - restflow_data:/app
     restart: unless-stopped
-
-  frontend:
-    build: ./frontend
-    container_name: restflow-frontend
-    ports:
-      - "5173:5173"
-    depends_on:
-      - backend
     environment:
-      - VITE_API_URL=http://localhost:3000
-    restart: unless-stopped
-
-volumes:
-  restflow_data:
+      - RUST_LOG=info

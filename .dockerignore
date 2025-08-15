@@ -1,0 +1,33 @@
+# Git
+.git
+.gitignore
+
+# Node
+frontend/node_modules
+frontend/.pnpm-store
+frontend/npm-debug.log
+frontend/.env.local
+frontend/.env.*.local
+
+# Rust
+backend/target
+**/*.rs.bk
+*.pdb
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Documentation
+*.md
+LICENSE
+
+# Build artifacts (we'll rebuild in Docker)
+frontend/dist
+backend/target

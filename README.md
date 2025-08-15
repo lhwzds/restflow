@@ -10,12 +10,12 @@
 
 ## Quick Start
 
-### Using Docker Compose
+### Start with docker
 
 ```bash
 
-docker-compose up --build
+ docker compose up -d --build
 
 ```
 
-Access at http://localhost:5173
+Access at http://localhost:3000

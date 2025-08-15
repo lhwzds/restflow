@@ -16,11 +16,11 @@ import NodeToolbar from './NodeToolbar.vue'
 
 // Use Pinia store and composables
 const workflowStore = useWorkflowStore()
-const { isExecuting, executionError } = storeToRefs(workflowStore)
+const { isExecuting } = storeToRefs(workflowStore)
 const { handleDrop, handleDragOver } = useDragAndDrop()
 
 // Use VueFlow hooks for interaction
-const { project, vueFlowRef, onConnect, onPaneContextMenu, onNodeContextMenu, setViewport } =
+const { onConnect, onPaneContextMenu, onNodeContextMenu, setViewport } =
   useVueFlow()
 
 // Handle connections between nodes
