@@ -4,47 +4,24 @@ import { ControlButton, Controls } from '@vue-flow/controls'
 import type { Connection, Edge } from '@vue-flow/core'
 import { VueFlow, useVueFlow } from '@vue-flow/core'
 import { MiniMap } from '@vue-flow/minimap'
-import { computed, ref } from 'vue'
+import { storeToRefs } from 'pinia'
+import { reactive } from 'vue'
+import { useDragAndDrop } from '../composables/useDragAndDrop'
 import { useWorkflowStore } from '../stores/workflowStore'
 import Icon from './Icon.vue'
 import AgentNode from './nodes/AgentNode.vue'
 import HttpNode from './nodes/HttpNode.vue'
 import ManualTriggerNode from './nodes/ManualTriggerNode.vue'
 import NodeToolbar from './NodeToolbar.vue'
-// Use Pinia store
+
+// Use Pinia store and composables
 const workflowStore = useWorkflowStore()
-
-// Use store state as refs
-const nodes = computed({
-  get: () => workflowStore.nodes,
-  set: (value) => {
-    workflowStore.nodes = value
-  },
-})
-
-const edges = computed({
-  get: () => workflowStore.edges,
-  set: (value) => {
-    workflowStore.edges = value
-  },
-})
-
-const isExecuting = computed(() => workflowStore.isExecuting)
+const { isExecuting, executionError } = storeToRefs(workflowStore)
+const { handleDrop, handleDragOver } = useDragAndDrop()
 
 // Use VueFlow hooks for interaction
-const {
-  project,
-  vueFlowRef,
-  addNodes,
-  addEdges,
-  onConnect,
-  onPaneContextMenu,
-  onNodeContextMenu,
-  removeNodes,
-  removeEdges,
-  setViewport,
-  toObject,
-} = useVueFlow()
+const { project, vueFlowRef, onConnect, onPaneContextMenu, onNodeContextMenu, setViewport } =
+  useVueFlow()
 
 // Handle connections between nodes
 onConnect((connection: Connection) => {
@@ -57,34 +34,9 @@ onConnect((connection: Connection) => {
   workflowStore.addEdge(newEdge)
 })
 
-// Handle drag and drop
-const handleDrop = (event: DragEvent) => {
-  event.preventDefault()
-
-  const data = event.dataTransfer?.getData('application/vueflow')
-  if (!data) return
-
-  const template = JSON.parse(data)
-  const position = project({
-    x: event.clientX - vueFlowRef.value!.getBoundingClientRect().left,
-    y: event.clientY - vueFlowRef.value!.getBoundingClientRect().top,
-  })
-
-  addNodeAtPosition(template, position)
-}
-
-const handleDragOver = (event: DragEvent) => {
-  event.preventDefault()
-  if (event.dataTransfer) {
-    event.dataTransfer.dropEffect = 'move'
-  }
-}
-
-// Add node at specific position
+// Add node at specific position (for toolbar clicks)
 const addNodeAtPosition = (template: any, position: { x: number; y: number }) => {
-  const newNode = workflowStore.createNode(template, position)
-  // Also add to VueFlow for visual update
-  addNodes([newNode])
+  workflowStore.createNode(template, position)
 }
 
 // Handle toolbar click to add node
@@ -97,8 +49,8 @@ const handleAddNode = (template: any) => {
   addNodeAtPosition(template, position)
 }
 
-// Context menu state
-const contextMenu = ref({
+// Context menu state - simplified
+const contextMenu = reactive({
   show: false,
   x: 0,
   y: 0,
@@ -108,78 +60,59 @@ const contextMenu = ref({
 // Canvas context menu
 onPaneContextMenu((event: MouseEvent) => {
   event.preventDefault()
-  contextMenu.value = {
+  Object.assign(contextMenu, {
     show: true,
     x: event.clientX,
     y: event.clientY,
     nodeId: null,
-  }
+  })
 })
 
 // Node context menu
 onNodeContextMenu(({ event, node }) => {
   event.preventDefault()
-
-  // Handle both mouse and touch events
   const x = 'clientX' in event ? event.clientX : (event as TouchEvent).touches[0]?.clientX || 0
   const y = 'clientY' in event ? event.clientY : (event as TouchEvent).touches[0]?.clientY || 0
 
-  contextMenu.value = {
+  Object.assign(contextMenu, {
     show: true,
     x,
     y,
     nodeId: node.id,
-  }
+  })
 })
 
-// Delete node
-const deleteNode = () => {
-  if (contextMenu.value.nodeId) {
-    workflowStore.removeNode(contextMenu.value.nodeId)
-    // Also remove from VueFlow
-    removeNodes([contextMenu.value.nodeId])
+// Handle delete node from context menu
+const handleDeleteNode = () => {
+  if (contextMenu.nodeId) {
+    workflowStore.removeNode(contextMenu.nodeId)
   }
-  contextMenu.value.show = false
+  contextMenu.show = false
 }
 
-// Clear canvas
-const clearCanvas = () => {
+// Handle clear canvas from context menu
+const handleClearCanvas = () => {
   workflowStore.clearCanvas()
-  contextMenu.value.show = false
+  contextMenu.show = false
 }
 
 // Close context menu when clicking elsewhere
 const handlePaneClick = () => {
-  contextMenu.value.show = false
+  contextMenu.show = false
 }
 
 // Execute workflow
 const executeWorkflow = async () => {
-  if (!workflowStore.hasNodes) {
-    alert('Add some nodes first!')
-    return
-  }
-
   try {
-    const result = await workflowStore.executeWorkflow()
-    console.log('Execution result:', result)
+    await workflowStore.executeWorkflow()
     alert('Workflow execution success!')
   } catch (error) {
-    console.error('Execution failed:', error)
-    alert(`Workflow execution failed!`)
+    alert(`Workflow execution failed: ${workflowStore.executionError || 'Unknown error'}`)
   }
 }
 
-const dark = ref(false)
-
-function toggleDarkMode() {
-  dark.value = !dark.value
-}
 function resetTransform() {
   setViewport({ x: 0, y: 0, zoom: 1 })
-}
-function logToObject() {
-  console.log(toObject())
 }
 </script>
 
@@ -195,13 +128,13 @@ function logToObject() {
 
     <!-- Workflow Canvas -->
     <VueFlow
-      :nodes="nodes"
-      :edges="edges"
+      v-model:nodes="workflowStore.nodes"
+      v-model:edges="workflowStore.edges"
       class="basic-flow"
-      :class="{ dark }"
       :default-viewport="{ zoom: 1.5 }"
       :min-zoom="0.2"
       :max-zoom="4"
+      fit-view-on-init
       @drop="handleDrop"
       @dragover="handleDragOver"
     >
@@ -213,15 +146,6 @@ function logToObject() {
       <Controls position="bottom-right">
         <ControlButton title="Reset Transform" @click="resetTransform">
           <Icon name="reset" />
-        </ControlButton>
-
-        <ControlButton title="Toggle Dark Mode" @click="toggleDarkMode">
-          <Icon v-if="dark" name="sun" />
-          <Icon v-else name="moon" />
-        </ControlButton>
-
-        <ControlButton title="Log `toObject`" @click="logToObject">
-          <Icon name="log" />
         </ControlButton>
       </Controls>
 
@@ -247,8 +171,8 @@ function logToObject() {
       class="context-menu"
       :style="{ left: contextMenu.x + 'px', top: contextMenu.y + 'px' }"
     >
-      <div v-if="contextMenu.nodeId" class="menu-item" @click="deleteNode">Delete Node</div>
-      <div class="menu-item" @click="clearCanvas">Clear Canvas</div>
+      <div v-if="contextMenu.nodeId" class="menu-item" @click="handleDeleteNode">Delete Node</div>
+      <div class="menu-item" @click="handleClearCanvas">Clear Canvas</div>
     </div>
   </div>
 </template>
@@ -316,30 +240,10 @@ function logToObject() {
   bottom: 35px;
 }
 
-.basic-flow.dark {
-  background: #2d3748;
-  color: #fffffb;
-}
-
-.basic-flow.dark .vue-flow__node {
-  background: #4a5568;
-  color: #fffffb;
-}
-
-.basic-flow.dark .vue-flow__node.selected {
-  background: #333;
-  box-shadow: 0 0 0 2px #2563eb;
-}
-
 .basic-flow .vue-flow__controls {
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
-}
-
-.basic-flow.dark .vue-flow__controls {
-  border: 1px solid #fffffb;
-  background: #2d3748;
 }
 
 .basic-flow .vue-flow__controls .vue-flow__controls-button {
@@ -352,26 +256,7 @@ function logToObject() {
   width: 100%;
 }
 
-.basic-flow.dark .vue-flow__controls .vue-flow__controls-button {
-  background: #333;
-  fill: #fffffb;
-  border: none;
-  color: #fffffb;
-}
-
-.basic-flow.dark .vue-flow__controls .vue-flow__controls-button:hover {
-  background: #4d4d4d;
-}
-
-.basic-flow.dark .vue-flow__controls .vue-flow__controls-button:last-child {
+.basic-flow .vue-flow__controls .vue-flow__controls-button:last-child {
   border-right: none;
-}
-
-.basic-flow.dark .vue-flow__edge-textbg {
-  fill: #292524;
-}
-
-.basic-flow.dark .vue-flow__edge-text {
-  fill: #fffffb;
 }
 </style>
