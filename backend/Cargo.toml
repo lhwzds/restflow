@@ -8,6 +8,7 @@ axum = { version = "0.8.4", features = ["macros"] }
 chrono = "0.4.41"
 mime_guess = "2.0.5"
 redb = "3.0"
+regex = "1.11.1"
 reqwest = "0.12.22"
 rig-core = "0.17.1"
 rust-embed = { version = "8.7.2", features = ["include-exclude", "interpolate-folder-path"] }
@@ -16,3 +17,4 @@ serde_json = "1.0.142"
 tokio = { version = "1.47.1", features = ["full"] }
 tower = "0.5.2"
 tower-http = { version = "0.6.6", features = ["cors", "fs"] }
+uuid = { version = "1.18.0", features = ["v4", "serde"] }

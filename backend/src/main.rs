@@ -123,7 +123,7 @@ async fn delete_workflow(
 // POST /api/workflow/execute
 // Body: JSON workflow object
 async fn execute_workflow(Json(workflow): Json<Workflow>) -> Json<serde_json::Value> {
-    let executor = WorkflowExecutor::new(workflow);
+    let mut executor = WorkflowExecutor::new(workflow);
 
     match executor.execute_workflow().await {
         Ok(result) => Json(result),
@@ -142,7 +142,7 @@ async fn execute_workflow_by_id(
 ) -> Json<serde_json::Value> {
     match storage.get_workflow(&id) {
         Ok(Some(workflow)) => {
-            let executor = WorkflowExecutor::new(workflow);
+            let mut executor = WorkflowExecutor::new(workflow);
             match executor.execute_workflow().await {
                 Ok(result) => Json(result),
                 Err(e) => Json(serde_json::json!({
@@ -167,7 +167,6 @@ async fn main() {
     let storage =
         Arc::new(WorkflowStorage::new("restflow.db").expect("Failed to initialize storage"));
 
-    // Configure CORS
     let cors = CorsLayer::new()
         .allow_origin(Any)
         .allow_methods(Any)
