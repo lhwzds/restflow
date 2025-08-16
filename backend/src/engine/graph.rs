@@ -21,12 +21,13 @@ impl WorkflowGraph {
         }
 
         for edge in &workflow.edges {
-            adjacency
-                .get_mut(&edge.from)
-                .unwrap()
-                .push(edge.to.clone());
+            if let Some(adj) = adjacency.get_mut(&edge.from) {
+                adj.push(edge.to.clone());
+            }
             
-            *in_degree.get_mut(&edge.to).unwrap() += 1;
+            if let Some(deg) = in_degree.get_mut(&edge.to) {
+                *deg += 1;
+            }
         }
 
         Self {
@@ -53,10 +54,11 @@ impl WorkflowGraph {
 
             if let Some(neighbors) = self.adjacency.get(&node_id) {
                 for neighbor in neighbors {
-                    let degree = in_degree.get_mut(neighbor).unwrap();
-                    *degree -= 1;
-                    if *degree == 0 {
-                        queue.push_back(neighbor.clone());
+                    if let Some(degree) = in_degree.get_mut(neighbor) {
+                        *degree -= 1;
+                        if *degree == 0 {
+                            queue.push_back(neighbor.clone());
+                        }
                     }
                 }
             }
@@ -92,7 +94,9 @@ impl WorkflowGraph {
                 
                 if let Some(neighbors) = self.adjacency.get(node_id) {
                     for neighbor in neighbors {
-                        *in_degree.get_mut(neighbor).unwrap() -= 1;
+                        if let Some(deg) = in_degree.get_mut(neighbor) {
+                            *deg -= 1;
+                        }
                     }
                 }
             }
