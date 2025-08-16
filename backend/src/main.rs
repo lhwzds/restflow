@@ -1,11 +1,12 @@
 mod core;
 mod engine;
 mod node;
-mod storage;
 mod static_assets;
+mod storage;
 use axum::{
     Json, Router,
     extract::{Path, State},
+    http::{Method, header},
     routing::{delete, get, post, put},
 };
 use core::workflow::Workflow;
@@ -13,7 +14,7 @@ use engine::executor::WorkflowExecutor;
 use serde::Serialize;
 use std::sync::Arc;
 use storage::db::WorkflowStorage;
-use tower_http::cors::{CorsLayer, Any};
+use tower_http::cors::CorsLayer;
 
 #[derive(Serialize)]
 struct Health {
@@ -168,9 +169,19 @@ async fn main() {
         Arc::new(WorkflowStorage::new("restflow.db").expect("Failed to initialize storage"));
 
     let cors = CorsLayer::new()
-        .allow_origin(Any)
-        .allow_methods(Any)
-        .allow_headers(Any);
+        .allow_origin([
+            "http://localhost:3000".parse().unwrap(),
+            "http://localhost:5173".parse().unwrap(),
+        ])
+        .allow_methods([
+            Method::GET,
+            Method::POST,
+            Method::PUT,
+            Method::DELETE,
+            Method::OPTIONS,
+        ])
+        .allow_headers([header::CONTENT_TYPE, header::AUTHORIZATION])
+        .allow_credentials(true);
 
     let app = Router::new()
         .route("/health", get(health))

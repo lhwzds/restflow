@@ -1,6 +1,17 @@
+use once_cell::sync::Lazy;
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
+
+// Compile regex once at first use, then reuse for performance
+// Pattern: {{variable_name}} or {{node_id.field.subfield}}
+// \{\{  - Match literal {{
+// ([^}]+) - Capture group: one or more non-} characters (the variable path)
+// \}\} - Match literal }}
+static INTERPOLATION_REGEX: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"\{\{([^}]+)\}\}").expect("Invalid regex")
+});
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExecutionContext {
@@ -43,8 +54,7 @@ impl ExecutionContext {
             Value::String(s) => {
                 let mut result = s.clone();
 
-                let re = regex::Regex::new(r"\{\{([^}]+)\}\}").unwrap();
-                for cap in re.captures_iter(s) {
+                for cap in INTERPOLATION_REGEX.captures_iter(s) {
                     if let Some(var_path) = cap.get(1) {
                         let path = var_path.as_str();
                         if let Some(replacement) = self.resolve_path(path) {
@@ -71,52 +81,46 @@ impl ExecutionContext {
 
     fn resolve_path(&self, path: &str) -> Option<Value> {
         let parts: Vec<&str> = path.split('.').collect();
-
         if parts.is_empty() {
             return None;
         }
 
-        if let Some(output) = self.node_outputs.get(parts[0]) {
-            if parts.len() == 1 {
-                return Some(output.clone());
+        // TODO: Improve with explicit namespaces to avoid conflicts
+        // Current: {{node_id}} - ambiguous, could be node output or variable
+        // Better: {{node.http1.body}}, {{var.counter}}, {{config.api_key}}
+        // This would prevent naming conflicts and make data sources explicit
+        
+        // Try node_outputs first, then variables, then global_config
+        let (root, start_idx) = if let Some(output) = self.node_outputs.get(parts[0]) {
+            (output, 1)
+        } else if let Some(var) = self.variables.get(parts[0]) {
+            (var, 1)
+        } else if parts[0] == "config" && parts.len() > 1 {
+            // Handle config.key pattern
+            if let Some(config_val) = self.global_config.get(parts[1]) {
+                (config_val, 2)
+            } else {
+                return None;
             }
+        } else {
+            return None;
+        };
 
-            let mut current = output;
-            for part in &parts[1..] {
-                match current {
-                    Value::Object(map) => {
-                        if let Some(next) = map.get(*part) {
-                            current = next;
-                        } else {
-                            return None;
-                        }
-                    }
-                    _ => return None,
-                }
-            }
-            return Some(current.clone());
+        // Return root if no nested path
+        if parts.len() == start_idx {
+            return Some(root.clone());
         }
 
-        if let Some(var) = self.variables.get(parts[0]) {
-            if parts.len() == 1 {
-                return Some(var.clone());
-            }
-            let mut current = var;
-            for part in &parts[1..] {
-                match current {
-                    Value::Object(map) => {
-                        if let Some(next) = map.get(*part) {
-                            current = next;
-                        } else {
-                            return None;
-                        }
-                    }
-                    _ => return None,
+        // Navigate nested fields
+        let mut current = root;
+        for part in &parts[start_idx..] {
+            match current {
+                Value::Object(map) => {
+                    current = map.get(*part)?;
                 }
+                _ => return None,
             }
-            return Some(current.clone());
         }
-
-        None
+        Some(current.clone())
     }
 }
