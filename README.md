@@ -3,7 +3,7 @@
   
   # RestFlow
   
-  **Workflows that work while you REST**
+  **Workflows work while you REST**
   
   [![Status](https://img.shields.io/badge/status-prototype-orange)](https://github.com/lhwzds/restflow)
   [![Rust](https://img.shields.io/badge/rust-1.82%2B-dea584)](https://www.rust-lang.org/)
