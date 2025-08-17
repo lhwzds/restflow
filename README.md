@@ -10,7 +10,7 @@
   [![Vue 3](https://img.shields.io/badge/vue-3.x-4fc08d)](https://vuejs.org/)
   [![Single Binary](https://img.shields.io/badge/deploy-single%20binary-blue)](https://github.com/lhwzds/restflow)
   
-  A Rust-powered workflow automation platform with AI agents that compiles everything - backend, frontend, database, and AI capabilities - into a single binary executable. No external databases, no multiple services, just one binary.
+  A Rust-powered AI agent workflow automation platform  
 </div>
 
 > ⚠️ **Pre-alpha Software**  
