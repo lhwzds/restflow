@@ -1,6 +1,6 @@
 use rig::{agent::AgentBuilder, client::CompletionClient, completion::Prompt, providers::openai};
 use serde::{Deserialize, Serialize};
-use crate::tools::AddTool;
+use crate::tools::{AddTool, GetTimeTool};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentNode {
@@ -8,6 +8,7 @@ pub struct AgentNode {
     pub prompt: String,
     pub temperature: f64,
     pub api_key: Option<String>,
+    pub tools: Option<Vec<String>>,  // Tool names to enable
 }
 
 impl AgentNode {
@@ -17,6 +18,7 @@ impl AgentNode {
             prompt,
             temperature,
             api_key,
+            tools: None,
         }
     }
 
@@ -30,13 +32,32 @@ impl AgentNode {
 
         let model = openai.completion_model(&self.model);
 
-        // Build agent with AddTool
-        let agent = AgentBuilder::new(model)
+        // Build agent with selected tools
+        let mut builder = AgentBuilder::new(model)
             .preamble(&self.prompt)
-            .temperature(self.temperature)
-            .tool(AddTool)  // Always include AddTool
-            .build();
+            .temperature(self.temperature);
 
+        // Add tools based on configuration
+        if let Some(ref tool_names) = self.tools {
+            println!("🔧 Configuring tools for agent: {:?}", tool_names);
+            for tool_name in tool_names {
+                match tool_name.as_str() {
+                    "add" => {
+                        builder = builder.tool(AddTool);
+                        println!("✅ Added tool: add");
+                    }
+                    "get_current_time" => {
+                        builder = builder.tool(GetTimeTool);
+                        println!("✅ Added tool: get_current_time");
+                    }
+                    unknown => {
+                        println!("⚠️ Unknown tool: {}", unknown);
+                    }
+                }
+            }
+        }
+
+        let agent = builder.build();
         let response = agent.prompt(input).await?;
 
         Ok(response)
