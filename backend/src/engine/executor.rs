@@ -149,7 +149,22 @@ impl WorkflowExecutor {
 
                 let input = config["input"].as_str().unwrap_or("Hello");
 
-                let agent = AgentNode::new(model, prompt, temperature, api_key);
+                // Extract tools array if present
+                let tools = config["tools"]
+                    .as_array()
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|v| v.as_str().map(String::from))
+                            .collect()
+                    });
+
+                let agent = AgentNode {
+                    model,
+                    prompt,
+                    temperature,
+                    api_key,
+                    tools,
+                };
 
                 let response = agent
                     .execute(input)
