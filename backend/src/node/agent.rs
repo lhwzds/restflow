@@ -1,5 +1,6 @@
 use rig::{agent::AgentBuilder, client::CompletionClient, completion::Prompt, providers::openai};
 use serde::{Deserialize, Serialize};
+use crate::tools::AddTool;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentNode {
@@ -29,9 +30,11 @@ impl AgentNode {
 
         let model = openai.completion_model(&self.model);
 
+        // Build agent with AddTool
         let agent = AgentBuilder::new(model)
             .preamble(&self.prompt)
             .temperature(self.temperature)
+            .tool(AddTool)  // Always include AddTool
             .build();
 
         let response = agent.prompt(input).await?;
