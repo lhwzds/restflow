@@ -5,13 +5,14 @@ import type { Connection, Edge } from '@vue-flow/core'
 import { VueFlow, useVueFlow } from '@vue-flow/core'
 import { MiniMap } from '@vue-flow/minimap'
 import { storeToRefs } from 'pinia'
-import { reactive } from 'vue'
+import { reactive, ref } from 'vue'
 import { useDragAndDrop } from '../composables/useDragAndDrop'
 import { useWorkflowStore } from '../stores/workflowStore'
 import Icon from './Icon.vue'
 import AgentNode from './nodes/AgentNode.vue'
 import HttpNode from './nodes/HttpNode.vue'
 import ManualTriggerNode from './nodes/ManualTriggerNode.vue'
+import NodeConfigPanel from './NodeConfigPanel.vue'
 import NodeToolbar from './NodeToolbar.vue'
 
 // Use Pinia store and composables
@@ -20,8 +21,11 @@ const { isExecuting } = storeToRefs(workflowStore)
 const { handleDrop, handleDragOver } = useDragAndDrop()
 
 // Use VueFlow hooks for interaction
-const { onConnect, onPaneContextMenu, onNodeContextMenu, setViewport } =
+const { onConnect, onPaneContextMenu, onNodeContextMenu, onNodeDoubleClick, setViewport, updateNode } =
   useVueFlow()
+
+// Selected node for configuration panel
+const selectedNode = ref<any>(null)
 
 // Handle connections between nodes
 onConnect((connection: Connection) => {
@@ -33,6 +37,22 @@ onConnect((connection: Connection) => {
   }
   workflowStore.addEdge(newEdge)
 })
+
+// Handle node double click to open config panel
+onNodeDoubleClick(({ node }) => {
+  selectedNode.value = node
+})
+
+// Handle node update from config panel
+const handleNodeUpdate = (updatedNode: any) => {
+  updateNode(updatedNode.id, updatedNode)
+  workflowStore.updateNodeData(updatedNode.id, updatedNode.data)
+}
+
+// Close config panel
+const closeConfigPanel = () => {
+  selectedNode.value = null
+}
 
 // Add node at specific position (for toolbar clicks)
 const addNodeAtPosition = (template: any, position: { x: number; y: number }) => {
@@ -174,6 +194,13 @@ function resetTransform() {
       <div v-if="contextMenu.nodeId" class="menu-item" @click="handleDeleteNode">Delete Node</div>
       <div class="menu-item" @click="handleClearCanvas">Clear Canvas</div>
     </div>
+
+    <!-- Node Configuration Panel -->
+    <NodeConfigPanel 
+      :node="selectedNode" 
+      @update="handleNodeUpdate"
+      @close="closeConfigPanel"
+    />
   </div>
 </template>
 

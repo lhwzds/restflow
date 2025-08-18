@@ -29,8 +29,11 @@ const nodeTemplates = ref<NodeTemplate[]>([
     defaultData: {
       label: 'AI Agent',
       model: 'gpt-4.1',
-      prompt: 'You are a ai agent',
+      prompt: 'You are a helpful assistant',
       temperature: 0.7,
+      input: '',
+      api_key: '',
+      tools: [],
     },
   },
   {
