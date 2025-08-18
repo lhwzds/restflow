@@ -18,7 +18,6 @@ const props = defineProps<NodeProps<AgentNodeData>>()
 <template>
   <div class="agent-node">
     <Handle type="target" :position="Position.Left" />
-    <Handle type="source" :position="Position.Bottom" />
 
     <div class="node-content">
       <div class="node-icon">🤖</div>
