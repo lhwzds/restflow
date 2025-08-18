@@ -7,6 +7,9 @@ interface AgentNodeData {
   model?: string
   prompt?: string
   temperature?: number
+  api_key?: string
+  input?: string
+  tools?: string[]
 }
 
 const props = defineProps<NodeProps<AgentNodeData>>()

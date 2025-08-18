@@ -90,6 +90,14 @@ export const useWorkflowStore = defineStore('workflow', {
       this.executionResult = null
     },
 
+    // Update node data
+    updateNodeData(nodeId: string, data: any) {
+      const node = this.nodes.find((n) => n.id === nodeId)
+      if (node) {
+        node.data = { ...node.data, ...data }
+      }
+    },
+
     // Duplicate a node
     duplicateNode(nodeId: string, offset = { x: 50, y: 50 }) {
       const node = this.nodes.find((n) => n.id === nodeId)
