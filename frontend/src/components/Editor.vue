@@ -173,17 +173,17 @@ function resetTransform() {
       </Controls>
 
       <!-- Manual Trigger Node Template -->
-      <template #node-manual-trigger="manualTriggerNodeProps">
+      <template #node-ManualTrigger="manualTriggerNodeProps">
         <ManualTriggerNode v-bind="manualTriggerNodeProps" />
       </template>
 
       <!-- Agent Node Template -->
-      <template #node-agent="agentNodeProps">
+      <template #node-Agent="agentNodeProps">
         <AgentNode v-bind="agentNodeProps" />
       </template>
 
       <!-- HTTP Node Template -->
-      <template #node-http="httpNodeProps">
+      <template #node-HttpRequest="httpNodeProps">
         <HttpNode v-bind="httpNodeProps" />
       </template>
     </VueFlow>
