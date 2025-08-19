@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
+import { NODE_TYPES } from '../constants/nodeTypes'
 
 interface NodeTemplate {
   type: string
@@ -14,7 +15,7 @@ const emit = defineEmits<{
 
 const nodeTemplates = ref<NodeTemplate[]>([
   {
-    type: 'manual-trigger',
+    type: NODE_TYPES.MANUAL_TRIGGER,
     label: 'Manual Trigger',
     icon: '▶️',
     defaultData: {
@@ -23,7 +24,7 @@ const nodeTemplates = ref<NodeTemplate[]>([
     },
   },
   {
-    type: 'agent',
+    type: NODE_TYPES.AGENT,
     label: 'AI Agent',
     icon: '🤖',
     defaultData: {
@@ -37,7 +38,7 @@ const nodeTemplates = ref<NodeTemplate[]>([
     },
   },
   {
-    type: 'http',
+    type: NODE_TYPES.HTTP_REQUEST,
     label: 'HTTP Request',
     icon: '🌐',
     defaultData: {

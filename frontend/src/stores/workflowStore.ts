@@ -1,6 +1,7 @@
 import type { Edge, Node } from '@vue-flow/core'
 import { defineStore } from 'pinia'
 import { workflowService } from '../services/workflowService'
+import { NODE_TYPES } from '../constants/nodeTypes'
 
 interface WorkflowState {
   nodes: Node[]
@@ -27,7 +28,7 @@ export const useWorkflowStore = defineStore('workflow', {
     },
 
     hasTriggerNode(): boolean {
-      return this.nodes.some((node) => node.type === 'manual-trigger')
+      return this.nodes.some((node) => node.type === NODE_TYPES.MANUAL_TRIGGER)
     },
 
     canExecute(): boolean {
@@ -142,6 +143,30 @@ export const useWorkflowStore = defineStore('workflow', {
     // Clear execution error
     clearExecutionError() {
       this.executionError = null
+    },
+
+    // Load workflow data
+    loadWorkflow(nodes: Node[], edges: Edge[]) {
+      this.nodes = nodes || []
+      this.edges = edges || []
+      this.executionError = null
+      this.executionResult = null
+    },
+
+    // Set nodes
+    setNodes(nodes: Node[]) {
+      this.nodes = nodes
+    },
+
+    // Set edges
+    setEdges(edges: Edge[]) {
+      this.edges = edges
+    },
+
+    // Update entire workflow
+    updateWorkflow(nodes: Node[], edges: Edge[]) {
+      this.nodes = nodes
+      this.edges = edges
     },
   },
 })

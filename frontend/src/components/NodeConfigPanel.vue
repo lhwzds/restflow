@@ -2,6 +2,7 @@
 import type { Node } from '@vue-flow/core'
 import { ref, watch } from 'vue'
 import { AgentConfigForm, HttpConfigForm, TriggerConfigForm } from '../nodes'
+import { NODE_TYPES } from '../constants/nodeTypes'
 
 interface Props {
   node: Node | null
@@ -61,21 +62,21 @@ const handleFormUpdate = (data: any) => {
 
       <!-- Agent Node Configuration -->
       <AgentConfigForm 
-        v-if="node.type === 'agent'"
+        v-if="node.type === NODE_TYPES.AGENT"
         :modelValue="nodeData"
         @update:modelValue="handleFormUpdate"
       />
 
       <!-- HTTP Node Configuration -->
       <HttpConfigForm 
-        v-if="node.type === 'http'"
+        v-if="node.type === NODE_TYPES.HTTP_REQUEST"
         :modelValue="nodeData"
         @update:modelValue="handleFormUpdate"
       />
 
       <!-- Manual Trigger Node -->
       <TriggerConfigForm 
-        v-if="node.type === 'manual-trigger'"
+        v-if="node.type === NODE_TYPES.MANUAL_TRIGGER"
         :modelValue="nodeData"
         @update:modelValue="handleFormUpdate"
       />
