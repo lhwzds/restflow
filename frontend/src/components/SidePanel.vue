@@ -1,14 +1,18 @@
 <script setup lang="ts">
 import { DataAnalysis, Expand, Fold, Setting, Share } from '@element-plus/icons-vue'
 import { ElAside, ElButton, ElIcon, ElMenu, ElMenuItem } from 'element-plus'
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import RestFlowLogo from './RestFlowLogo.vue'
+
+const route = useRoute()
+const router = useRouter()
 
 // Control panel collapse state
 const isCollapsed = ref(false)
 
 // Current active menu
-const activeMenu = ref('overview')
+const activeMenu = ref('workflows')
 
 // Computed width based on collapse state
 const panelWidth = computed(() => (isCollapsed.value ? '64px' : '200px'))
@@ -21,7 +25,33 @@ const toggleCollapse = () => {
 // Handle menu selection
 const handleMenuSelect = (index: string) => {
   activeMenu.value = index
+  
+  // Navigate to the corresponding route
+  switch (index) {
+    case 'workflows':
+      router.push('/workflows')
+      break
+    case 'workflow':
+      router.push('/workflow')
+      break
+    case 'agents':
+      router.push('/agents')
+      break
+  }
 }
+
+// Watch route changes to update active menu
+watch(
+  () => route.path,
+  (path) => {
+    if (path.startsWith('/workflow')) {
+      activeMenu.value = path === '/workflows' ? 'workflows' : 'workflow'
+    } else if (path.startsWith('/agents')) {
+      activeMenu.value = 'agents'
+    }
+  },
+  { immediate: true }
+)
 </script>
 
 <template>
@@ -49,19 +79,19 @@ const handleMenuSelect = (index: string) => {
       :collapse="isCollapsed"
       @select="handleMenuSelect"
     >
-      <el-menu-item index="overview">
+      <el-menu-item index="workflows">
         <el-icon><DataAnalysis /></el-icon>
-        <template #title>Overview</template>
+        <template #title>Workflows</template>
       </el-menu-item>
 
       <el-menu-item index="workflow">
         <el-icon><Share /></el-icon>
-        <template #title>Workflow</template>
+        <template #title>Editor</template>
       </el-menu-item>
 
-      <el-menu-item index="agent">
+      <el-menu-item index="agents">
         <el-icon><Setting /></el-icon>
-        <template #title>Agent</template>
+        <template #title>Agents</template>
       </el-menu-item>
     </el-menu>
   </el-aside>

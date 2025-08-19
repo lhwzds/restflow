@@ -11,13 +11,15 @@ import '@vue-flow/minimap/dist/style.css'
 // Element Plus styles
 import 'element-plus/dist/index.css'
 
-// App
+// App and Router
 import App from './App.vue'
+import router from './router'
 import './style.css'
 
 const app = createApp(App)
 const pinia = createPinia()
 
 app.use(pinia)
+app.use(router)
 app.use(ElementPlus)
 app.mount('#app')

@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { ElContainer, ElMain } from 'element-plus'
-import WorkflowEditor from './components/WorkflowEditor.vue'
 import SidePanel from './components/SidePanel.vue'
 </script>
 
@@ -9,7 +8,7 @@ import SidePanel from './components/SidePanel.vue'
     <SidePanel />
     
     <el-main style="padding: 0">
-      <WorkflowEditor />
+      <router-view />
     </el-main>
   </el-container>
 </template>
