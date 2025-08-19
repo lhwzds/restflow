@@ -7,9 +7,9 @@ import { MiniMap } from '@vue-flow/minimap'
 import { storeToRefs } from 'pinia'
 import { reactive, ref } from 'vue'
 import { useDragAndDrop } from '../composables/useDragAndDrop'
+import { AgentNode, HttpNode, ManualTriggerNode } from '../nodes'
 import { useWorkflowStore } from '../stores/workflowStore'
 import Icon from './Icon.vue'
-import { AgentNode, HttpNode, ManualTriggerNode } from '../nodes'
 import NodeConfigPanel from './NodeConfigPanel.vue'
 import NodeToolbar from './NodeToolbar.vue'
 
@@ -19,8 +19,14 @@ const { isExecuting } = storeToRefs(workflowStore)
 const { handleDrop, handleDragOver } = useDragAndDrop()
 
 // Use VueFlow hooks for interaction
-const { onConnect, onPaneContextMenu, onNodeContextMenu, onNodeDoubleClick, setViewport, updateNode } =
-  useVueFlow()
+const {
+  onConnect,
+  onPaneContextMenu,
+  onNodeContextMenu,
+  onNodeDoubleClick,
+  setViewport,
+  updateNode,
+} = useVueFlow()
 
 // Selected node for configuration panel
 const selectedNode = ref<any>(null)
@@ -152,7 +158,6 @@ function resetTransform() {
       :default-viewport="{ zoom: 1.5 }"
       :min-zoom="0.2"
       :max-zoom="4"
-      fit-view-on-init
       @drop="handleDrop"
       @dragover="handleDragOver"
     >
@@ -194,11 +199,7 @@ function resetTransform() {
     </div>
 
     <!-- Node Configuration Panel -->
-    <NodeConfigPanel 
-      :node="selectedNode" 
-      @update="handleNodeUpdate"
-      @close="closeConfigPanel"
-    />
+    <NodeConfigPanel :node="selectedNode" @update="handleNodeUpdate" @close="closeConfigPanel" />
   </div>
 </template>
 
