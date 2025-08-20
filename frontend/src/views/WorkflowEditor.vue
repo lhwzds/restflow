@@ -88,6 +88,7 @@ const performSave = async () => {
 
 // Navigation
 const goBack = () => {
+  // Navigation guard in useUnsavedChanges will handle confirmation
   router.push('/workflows')
 }
 
@@ -105,13 +106,19 @@ const handleImport = () => {
 // Initialization
 onMounted(async () => {
   if (route.params.id) {
+    // Loading existing workflow
+    isInitializing.value = true
     const result = await loadWorkflow(route.params.id as string)
     if (result.success) {
+      // Wait for Vue to finish updating
       await nextTick()
+      // Force mark as saved after load
       unsavedChanges.markAsSaved()
-      setTimeout(() => {
-        isInitializing.value = false
-      }, 100)
+      // Give extra time for any async updates
+      await new Promise(resolve => setTimeout(resolve, 200))
+      isInitializing.value = false
+      // Double-check and reset if needed
+      unsavedChanges.markAsSaved()
     } else {
       router.push('/workflows')
     }
@@ -122,12 +129,13 @@ onMounted(async () => {
       name: 'Untitled Workflow',
     }
     await nextTick()
+    isInitializing.value = false
     // New workflows should be marked as unsaved
     unsavedChanges.markAsDirty()
-    isInitializing.value = false
   }
 })
 
+// Watch for changes after initialization
 watch(
   [() => workflowStore.nodes, () => workflowStore.edges],
   () => {

@@ -1,92 +1,30 @@
-import { computed, onBeforeUnmount, ref, watch, type WatchSource } from 'vue'
+import { onBeforeUnmount, ref } from 'vue'
 import { onBeforeRouteLeave } from 'vue-router'
 
-export interface UnsavedChangesOptions {
-  message?: string
-  watchSource?: WatchSource | WatchSource[]
-  immediate?: boolean
-}
-
-export function useUnsavedChanges(options: UnsavedChangesOptions = {}) {
-  const {
-    message = 'You have unsaved changes. Are you sure you want to leave?',
-    watchSource,
-    immediate = false,
-  } = options
-
-  const hasChanges = ref(immediate)
-
-  /**
-   * Mark changes as saved
-   */
-  const markAsSaved = () => {
-    hasChanges.value = false
-  }
-
-  /**
-   * Mark changes as dirty (unsaved)
-   */
-  const markAsDirty = () => {
-    hasChanges.value = true
-  }
-
-  /**
-   * Reset the state
-   */
-  const reset = () => {
-    hasChanges.value = false
-  }
-
-  /**
-   * Set up watchers if watchSource is provided
-   */
-  if (watchSource) {
-    const stopWatcher = watch(
-      watchSource,
-      () => {
-        if (!hasChanges.value) {
-          markAsDirty()
-        }
-      },
-      { deep: true },
-    )
-
-    // Clean up watcher on unmount
-    onBeforeUnmount(() => {
-      stopWatcher()
-    })
-  }
-
-  /**
-   * Handle browser beforeunload event
-   */
-  const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+export function useUnsavedChanges() {
+  const hasChanges = ref(false)
+  
+  // Simple state management
+  const markAsDirty = () => { hasChanges.value = true }
+  const markAsSaved = () => { hasChanges.value = false }
+  
+  // Browser navigation prevention
+  const handleBeforeUnload = (e: BeforeUnloadEvent) => {
     if (hasChanges.value) {
-      event.preventDefault()
-      event.returnValue = message
-      return message
+      e.preventDefault()
+      e.returnValue = ''
+      return ''
     }
   }
-
-  /**
-   * Register/unregister browser navigation prevention
-   */
-  const registerBrowserPrevention = () => {
-    window.addEventListener('beforeunload', handleBeforeUnload)
-  }
-
-  const unregisterBrowserPrevention = () => {
-    window.removeEventListener('beforeunload', handleBeforeUnload)
-  }
-
-  /**
-   * Set up Vue Router navigation guard if available
-   */
+  
+  // Register browser event
+  window.addEventListener('beforeunload', handleBeforeUnload)
+  
+  // Vue Router navigation guard
   try {
     onBeforeRouteLeave((to, from, next) => {
       if (hasChanges.value) {
-        const answer = window.confirm(message)
-        if (answer) {
+        if (window.confirm('You have unsaved changes. Are you sure you want to leave?')) {
           next()
         } else {
           next(false)
@@ -96,103 +34,17 @@ export function useUnsavedChanges(options: UnsavedChangesOptions = {}) {
       }
     })
   } catch {
-    // onBeforeRouteLeave is only available in setup context of a component with router
-    // Silently ignore if not available
+    // Not in a route component, ignore
   }
-
-  /**
-   * Enable navigation prevention
-   */
-  const enable = () => {
-    registerBrowserPrevention()
-  }
-
-  /**
-   * Disable navigation prevention
-   */
-  const disable = () => {
-    unregisterBrowserPrevention()
-    reset()
-  }
-
-  // Auto-register on mount
-  enable()
-
-  // Clean up on unmount
+  
+  // Cleanup
   onBeforeUnmount(() => {
-    disable()
+    window.removeEventListener('beforeunload', handleBeforeUnload)
   })
-
+  
   return {
-    // Simplified API - single state
-    hasChanges: computed(() => hasChanges.value),
-    isDirty: computed(() => hasChanges.value), // Backward compatibility
-    isSaved: computed(() => !hasChanges.value), // Backward compatibility
-    markAsSaved,
+    hasChanges,
     markAsDirty,
-    reset,
-    enable,
-    disable,
-  }
-}
-
-/**
- * Composable for tracking unsaved changes with a custom confirm dialog
- */
-export function useUnsavedChangesWithDialog(
-  options: UnsavedChangesOptions & {
-    onConfirm?: () => void | Promise<void>
-    onCancel?: () => void
-  } = {},
-) {
-  const { onConfirm, onCancel, ...baseOptions } = options
-  const base = useUnsavedChanges(baseOptions)
-  const showDialog = ref(false)
-  const pendingNavigation = ref<() => void>()
-
-  /**
-   * Show confirmation dialog
-   */
-  const confirmNavigation = async (): Promise<boolean> => {
-    if (!base.hasChanges.value) {
-      return true
-    }
-
-    return new Promise((resolve) => {
-      showDialog.value = true
-      pendingNavigation.value = () => {
-        showDialog.value = false
-        resolve(true)
-        onConfirm?.()
-      }
-    })
-  }
-
-  /**
-   * Handle dialog confirmation
-   */
-  const handleConfirm = async () => {
-    if (pendingNavigation.value) {
-      await onConfirm?.()
-      pendingNavigation.value()
-      pendingNavigation.value = undefined
-    }
-  }
-
-  /**
-   * Handle dialog cancellation
-   */
-  const handleCancel = () => {
-    showDialog.value = false
-    pendingNavigation.value = undefined
-    onCancel?.()
-  }
-
-  return {
-    ...base,
-    showDialog: computed(() => showDialog.value),
-    confirmNavigation,
-    handleConfirm,
-    handleCancel,
+    markAsSaved,
   }
 }
