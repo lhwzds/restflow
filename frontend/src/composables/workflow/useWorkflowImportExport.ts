@@ -18,14 +18,13 @@ export function useWorkflowImportExport(options: ImportExportOptions = {}) {
   /**
    * Export workflow to JSON file
    */
-  const exportWorkflow = (name: string, description?: string) => {
+  const exportWorkflow = (name: string) => {
     let url: string | null = null
     try {
       isExporting.value = true
 
       const data = {
         name,
-        description,
         nodes: workflowStore.nodes,
         edges: workflowStore.edges,
         exportedAt: new Date().toISOString(),
@@ -156,11 +155,10 @@ export function useWorkflowImportExport(options: ImportExportOptions = {}) {
   /**
    * Export workflow to clipboard
    */
-  const copyToClipboard = async (name: string, description?: string) => {
+  const copyToClipboard = async (name: string) => {
     try {
       const data = {
         name,
-        description,
         nodes: workflowStore.nodes,
         edges: workflowStore.edges,
         exportedAt: new Date().toISOString(),
