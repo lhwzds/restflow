@@ -86,7 +86,7 @@ export function useWorkflowImportExport(options: ImportExportOptions = {}) {
           const { nodes, edges } = convertFromBackendFormat(data)
           
           // Update store
-          workflowStore.updateWorkflow(nodes, edges)
+          workflowStore.loadWorkflow(nodes, edges)
 
           ElMessage.success('Workflow imported successfully')
           options.onImportSuccess?.(data)
@@ -138,7 +138,7 @@ export function useWorkflowImportExport(options: ImportExportOptions = {}) {
       }
 
       const { nodes, edges } = convertFromBackendFormat(data)
-      workflowStore.updateWorkflow(nodes, edges)
+      workflowStore.loadWorkflow(nodes, edges)
 
       ElMessage.success('Workflow imported successfully')
       options.onImportSuccess?.(data)
@@ -187,7 +187,7 @@ export function useWorkflowImportExport(options: ImportExportOptions = {}) {
       }
 
       const { nodes, edges } = convertFromBackendFormat(data)
-      workflowStore.updateWorkflow(nodes, edges)
+      workflowStore.loadWorkflow(nodes, edges)
 
       ElMessage.success('Workflow pasted from clipboard')
       options.onImportSuccess?.(data)

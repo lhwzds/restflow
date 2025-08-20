@@ -36,34 +36,13 @@ export const useWorkflowStore = defineStore('workflow', {
   actions: {
     // Add a single node
     addNode(node: Node) {
-      console.log('Store: Adding node', node)
       this.nodes.push(node)
-      console.log('Store: Total nodes', this.nodes.length)
     },
 
-    // Add multiple nodes
-    addNodes(newNodes: Node[]) {
-      this.nodes.push(...newNodes)
-    },
-
-    // Remove a node
+    // Remove a node and its edges
     removeNode(nodeId: string) {
-      const index = this.nodes.findIndex((n) => n.id === nodeId)
-      if (index > -1) {
-        this.nodes.splice(index, 1)
-        // Also remove related edges
-        this.edges = this.edges.filter((e) => e.source !== nodeId && e.target !== nodeId)
-      }
-    },
-
-    // Remove multiple nodes
-    removeNodes(nodeIds: string[]) {
-      // Remove all nodes in one operation
-      this.nodes = this.nodes.filter((n) => !nodeIds.includes(n.id))
-      // Remove all related edges
-      this.edges = this.edges.filter(
-        (e) => !nodeIds.includes(e.source) && !nodeIds.includes(e.target),
-      )
+      this.nodes = this.nodes.filter((n) => n.id !== nodeId)
+      this.edges = this.edges.filter((e) => e.source !== nodeId && e.target !== nodeId)
     },
 
     // Add an edge
@@ -71,17 +50,12 @@ export const useWorkflowStore = defineStore('workflow', {
       this.edges.push(edge)
     },
 
-    // Remove edges
-    removeEdges(edgeIds: string[]) {
-      this.edges = this.edges.filter((e) => !edgeIds.includes(e.id))
-    },
 
     // Clear all nodes and edges
     clearCanvas() {
       this.nodes = []
       this.edges = []
-      this.executionError = null
-      this.executionResult = null
+      this.clearExecutionState()
     },
 
     // Update node data
@@ -101,32 +75,14 @@ export const useWorkflowStore = defineStore('workflow', {
 
     // Clear execution state
     clearExecutionState() {
-      this.executionResult = null
-      this.executionError = null
+      this.setExecutionState(false, null, null)
     },
 
     // Load workflow data
     loadWorkflow(nodes: Node[], edges: Edge[]) {
       this.nodes = nodes || []
       this.edges = edges || []
-      this.executionError = null
-      this.executionResult = null
-    },
-
-    // Set nodes
-    setNodes(nodes: Node[]) {
-      this.nodes = nodes
-    },
-
-    // Set edges
-    setEdges(edges: Edge[]) {
-      this.edges = edges
-    },
-
-    // Update entire workflow
-    updateWorkflow(nodes: Node[], edges: Edge[]) {
-      this.nodes = nodes
-      this.edges = edges
+      this.clearExecutionState()
     },
   },
 })
