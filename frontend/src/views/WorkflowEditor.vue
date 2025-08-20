@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ArrowLeft, Check, Document, FolderOpened } from '@element-plus/icons-vue'
 import { ElButton, ElDialog, ElForm, ElFormItem, ElInput, ElPageHeader, ElTag } from 'element-plus'
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import Editor from '../components/Editor.vue'
 import { useKeyboardShortcuts } from '../composables/shared/useKeyboardShortcuts'
@@ -32,7 +32,6 @@ const saveDialogVisible = ref(false)
 
 // Initialize without marking as unsaved
 const unsavedChanges = useUnsavedChanges()
-const isInitializing = ref(true)
 
 // Computed properties
 const workflowName = computed(() => currentWorkflowMeta.value.name || 'Untitled Workflow')
@@ -94,21 +93,33 @@ const handleImport = () => {
   importWorkflow()
 }
 
+// Track if VueFlow is ready
+const isFlowReady = ref(false)
+
+// Handle VueFlow ready event
+const onFlowReady = () => {
+  isFlowReady.value = true
+  
+  // Set up change detection only after VueFlow is ready
+  watch(
+    [() => workflowStore.nodes, () => workflowStore.edges],
+    () => {
+      // Only mark as dirty if flow is ready (to avoid initial setup changes)
+      if (isFlowReady.value) {
+        unsavedChanges.markAsDirty()
+      }
+    },
+    { deep: true }
+  )
+}
+
 // Initialization
 onMounted(async () => {
   if (route.params.id) {
     // Loading existing workflow
-    isInitializing.value = true
     const result = await loadWorkflow(route.params.id as string)
     if (result.success) {
-      // Wait for Vue to finish updating
-      await nextTick()
-      // Force mark as saved after load
-      unsavedChanges.markAsSaved()
-      // Give extra time for any async updates
-      await new Promise((resolve) => setTimeout(resolve, 200))
-      isInitializing.value = false
-      // Double-check and reset if needed
+      // Mark as saved after load
       unsavedChanges.markAsSaved()
     } else {
       router.push('/workflows')
@@ -119,23 +130,11 @@ onMounted(async () => {
     currentWorkflowMeta.value = {
       name: 'Untitled Workflow',
     }
-    await nextTick()
-    isInitializing.value = false
-    // New workflows should be marked as unsaved
+    
+    // Mark new workflows as unsaved
     unsavedChanges.markAsDirty()
   }
 })
-
-// Watch for changes after initialization
-watch(
-  [() => workflowStore.nodes, () => workflowStore.edges],
-  () => {
-    if (!isInitializing.value) {
-      unsavedChanges.markAsDirty()
-    }
-  },
-  { deep: true },
-)
 </script>
 
 <template>
@@ -165,7 +164,7 @@ watch(
     </ElPageHeader>
 
     <div class="editor-container">
-      <Editor />
+      <Editor @ready="onFlowReady" />
     </div>
 
     <!-- Save Dialog for new workflows -->
