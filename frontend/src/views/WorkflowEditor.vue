@@ -6,66 +6,57 @@ import {
   ElForm,
   ElFormItem,
   ElInput,
-  ElMessage,
   ElPageHeader,
   ElTag,
 } from 'element-plus'
-import { onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import Editor from '../components/Editor.vue'
-import { convertFromBackendFormat, workflowService } from '../services/workflowService'
+import { useKeyboardShortcuts } from '../composables/shared/useKeyboardShortcuts'
+import { useUnsavedChanges } from '../composables/shared/useUnsavedChanges'
+import { useWorkflowImportExport } from '../composables/workflow/useWorkflowImportExport'
+import { useWorkflowPersistence } from '../composables/workflow/useWorkflowPersistence'
 import { useWorkflowStore } from '../stores/workflowStore'
 
 const route = useRoute()
 const router = useRouter()
 const workflowStore = useWorkflowStore()
 
-const workflowId = ref<string>('')
-const workflowName = ref<string>('Untitled Workflow')
-const workflowDescription = ref<string>('')
-const saveDialogVisible = ref(false)
-const isSaved = ref(true)
-const hasUnsavedChanges = ref(false)
+// Composables
+const {
+  currentWorkflowId,
+  currentWorkflowMeta,
+  isLoading,
+  isSaving,
+  loadWorkflow,
+  saveWorkflow,
+  quickSave,
+} = useWorkflowPersistence()
 
-// Watch for changes in nodes and edges
-watch(
-  [() => workflowStore.nodes, () => workflowStore.edges],
-  () => {
-    if (isSaved.value) {
-      isSaved.value = false
-      hasUnsavedChanges.value = true
+const { exportWorkflow, importWorkflow } = useWorkflowImportExport({
+  onImportSuccess: (data) => {
+    if (data.name) {
+      currentWorkflowMeta.value.name = data.name
+      currentWorkflowMeta.value.description = data.description || ''
     }
+    unsavedChanges.markAsDirty()
   },
-  { deep: true },
-)
+})
 
-const loadWorkflow = async (id: string) => {
-  try {
-    const workflow = await workflowService.get(id)
+const unsavedChanges = useUnsavedChanges({
+  watchSource: [() => workflowStore.nodes, () => workflowStore.edges],
+})
 
-    if (workflow) {
-      workflowName.value = workflow.name
-      workflowDescription.value = workflow.description || ''
+// Local state
+const saveDialogVisible = ref(false)
 
-      // Convert backend format to VueFlow format
-      const { nodes, edges } = convertFromBackendFormat(workflow)
+// Computed properties
+const workflowName = computed(() => currentWorkflowMeta.value.name || 'Untitled Workflow')
+const workflowDescription = computed(() => currentWorkflowMeta.value.description || '')
 
-      workflowStore.loadWorkflow(nodes, edges)
-      isSaved.value = true
-      hasUnsavedChanges.value = false
-    } else {
-      ElMessage.error('Workflow not found')
-      router.push('/workflows')
-    }
-  } catch (error) {
-    console.error('Failed to load workflow:', error)
-    ElMessage.error('Failed to load workflow')
-    router.push('/workflows')
-  }
-}
-
-const saveWorkflow = () => {
-  if (!workflowId.value) {
+// Save workflow
+const handleSave = () => {
+  if (!currentWorkflowId.value) {
     // New workflow - show dialog
     saveDialogVisible.value = true
   } else {
@@ -74,52 +65,41 @@ const saveWorkflow = () => {
   }
 }
 
+// Keyboard shortcuts
+useKeyboardShortcuts({
+  'ctrl+s': handleSave,
+  'meta+s': handleSave,
+})
+
 const performSave = async () => {
-  if (!workflowName.value.trim()) {
-    ElMessage.error('Please enter a workflow name')
+  const meta = {
+    name: currentWorkflowMeta.value.name,
+    description: currentWorkflowMeta.value.description,
+  }
+
+  if (!meta.name?.trim()) {
     return
   }
 
-  try {
-    if (!workflowId.value) {
-      // Create new workflow
-      const response = await workflowService.createFromVueFlow(
-        workflowStore.nodes,
-        workflowStore.edges,
-        {
-          name: workflowName.value,
-          description: workflowDescription.value,
-        },
-      )
+  const result = await saveWorkflow(workflowStore.nodes, workflowStore.edges, {
+    meta,
+    showMessage: true,
+  })
 
-      // Extract ID from response
-      workflowId.value = response.id || `workflow-${Date.now()}`
-
-      // Update URL to include the new workflow ID
-      router.replace(`/workflow/${workflowId.value}`)
-
-      ElMessage.success('Workflow created successfully')
-    } else {
-      // Update existing workflow
-      await workflowService.update(workflowId.value, workflowStore.nodes, workflowStore.edges, {
-        name: workflowName.value,
-        description: workflowDescription.value,
-      })
-
-      ElMessage.success('Workflow updated successfully')
-    }
-
-    isSaved.value = true
-    hasUnsavedChanges.value = false
+  if (result.success) {
+    unsavedChanges.markAsSaved()
     saveDialogVisible.value = false
-  } catch (error) {
-    console.error('Failed to save workflow:', error)
-    ElMessage.error('Failed to save workflow')
+
+    // Update URL for new workflows
+    if (!route.params.id && result.id) {
+      router.replace(`/workflow/${result.id}`)
+    }
   }
 }
 
+// Navigation
 const goBack = () => {
-  if (hasUnsavedChanges.value) {
+  if (unsavedChanges.isDirty.value) {
     if (confirm('You have unsaved changes. Are you sure you want to leave?')) {
       router.push('/workflows')
     }
@@ -128,87 +108,36 @@ const goBack = () => {
   }
 }
 
-const exportWorkflow = () => {
-  const data = {
-    name: workflowName.value,
-    description: workflowDescription.value,
-    nodes: workflowStore.nodes,
-    edges: workflowStore.edges,
-    exportedAt: new Date().toISOString(),
-  }
-
-  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
-  const url = URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = url
-  link.download = `${workflowName.value.replace(/\s+/g, '-').toLowerCase()}.json`
-  link.click()
-  URL.revokeObjectURL(url)
-
-  ElMessage.success('Workflow exported successfully')
+// Export/Import handlers
+const handleExport = () => {
+  exportWorkflow(
+    currentWorkflowMeta.value.name || 'workflow',
+    currentWorkflowMeta.value.description
+  )
 }
 
-const importWorkflow = () => {
-  const input = document.createElement('input')
-  input.type = 'file'
-  input.accept = '.json'
-  input.onchange = async (e: Event) => {
-    const file = (e.target as HTMLInputElement).files?.[0]
-    if (!file) return
-
-    try {
-      const text = await file.text()
-      const data = JSON.parse(text)
-
-      if (data.nodes && data.edges) {
-        const { nodes, edges } = convertFromBackendFormat(data)
-        workflowStore.updateWorkflow(nodes, edges)
-
-        if (data.name) {
-          workflowName.value = data.name
-          workflowDescription.value = data.description || ''
-        }
-
-        hasUnsavedChanges.value = true
-        isSaved.value = false
-        ElMessage.success('Workflow imported successfully')
-      } else {
-        ElMessage.error('Invalid workflow file format')
-      }
-    } catch (error) {
-      ElMessage.error('Failed to import workflow')
-    }
-  }
-  input.click()
+const handleImport = () => {
+  importWorkflow()
 }
 
-// Keyboard shortcuts
-const handleKeyDown = (e: KeyboardEvent) => {
-  // Ctrl/Cmd + S to save
-  if ((e.ctrlKey || e.metaKey) && e.key === 's') {
-    e.preventDefault()
-    saveWorkflow()
-  }
-}
-
-// Lifecycle hooks - combined initialization
+// Initialization
 onMounted(async () => {
-  // Load workflow or initialize new one
   if (route.params.id) {
-    workflowId.value = route.params.id as string
-    await loadWorkflow(workflowId.value)
+    const result = await loadWorkflow(route.params.id as string)
+    if (result.success) {
+      unsavedChanges.markAsSaved()
+    } else {
+      router.push('/workflows')
+    }
   } else {
     // New workflow
     workflowStore.clearCanvas()
-    isSaved.value = false
+    currentWorkflowMeta.value = {
+      name: 'Untitled Workflow',
+      description: '',
+    }
+    unsavedChanges.markAsDirty()
   }
-
-  // Add keyboard shortcuts
-  document.addEventListener('keydown', handleKeyDown)
-})
-
-onUnmounted(() => {
-  document.removeEventListener('keydown', handleKeyDown)
 })
 </script>
 
@@ -221,15 +150,15 @@ onUnmounted(() => {
       <template #content>
         <div class="header-content">
           <span class="workflow-name">{{ workflowName }}</span>
-          <ElTag v-if="!isSaved" type="warning" size="small">Unsaved</ElTag>
+          <ElTag v-if="unsavedChanges.isDirty.value" type="warning" size="small">Unsaved</ElTag>
         </div>
       </template>
       <template #extra>
         <div class="header-actions">
-          <ElButton v-if="isSaved" type="success" :icon="Check" disabled>Saved</ElButton>
-          <ElButton v-else type="primary" @click="saveWorkflow">Save (Ctrl+S)</ElButton>
-          <ElButton :icon="FolderOpened" @click="importWorkflow">Import</ElButton>
-          <ElButton :icon="Document" @click="exportWorkflow">Export</ElButton>
+          <ElButton v-if="!unsavedChanges.isDirty.value" type="success" :icon="Check" disabled>Saved</ElButton>
+          <ElButton v-else type="primary" @click="handleSave" :loading="isSaving">Save (Ctrl+S)</ElButton>
+          <ElButton :icon="FolderOpened" @click="handleImport">Import</ElButton>
+          <ElButton :icon="Document" @click="handleExport">Export</ElButton>
         </div>
       </template>
     </ElPageHeader>
@@ -248,14 +177,14 @@ onUnmounted(() => {
       <ElForm label-width="100px">
         <ElFormItem label="Name" required>
           <ElInput
-            v-model="workflowName"
+            v-model="currentWorkflowMeta.name"
             placeholder="Enter workflow name"
             @keyup.enter="performSave"
           />
         </ElFormItem>
         <ElFormItem label="Description">
           <ElInput
-            v-model="workflowDescription"
+            v-model="currentWorkflowMeta.description"
             type="textarea"
             :rows="3"
             placeholder="Enter workflow description (optional)"
