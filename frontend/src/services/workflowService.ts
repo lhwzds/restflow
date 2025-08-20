@@ -96,7 +96,19 @@ export const workflowService = {
     return response.data
   },
 
-  // Save workflow
+  // Create new workflow
+  async create(data: any) {
+    const response = await apiClient.post('/create', data)
+    return response.data
+  },
+
+  // Update existing workflow  
+  async update(id: string, data: any) {
+    const response = await apiClient.put(`/update/${id}`, data)
+    return response.data
+  },
+
+  // Save workflow (auto-detect create vs update)
   async save(data: any) {
     const id = data.id
     const endpoint = id ? `/update/${id}` : '/create'

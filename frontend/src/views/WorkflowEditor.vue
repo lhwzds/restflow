@@ -15,15 +15,8 @@ const router = useRouter()
 const workflowStore = useWorkflowStore()
 
 // Composables
-const {
-  currentWorkflowId,
-  currentWorkflowMeta,
-  isLoading,
-  isSaving,
-  loadWorkflow,
-  saveWorkflow,
-  quickSave,
-} = useWorkflowPersistence()
+const { currentWorkflowId, currentWorkflowMeta, isSaving, loadWorkflow, saveWorkflow } =
+  useWorkflowPersistence()
 
 const { exportWorkflow, importWorkflow } = useWorkflowImportExport({
   onImportSuccess: (data) => {
@@ -94,9 +87,7 @@ const goBack = () => {
 
 // Export/Import handlers
 const handleExport = () => {
-  exportWorkflow(
-    currentWorkflowMeta.value.name || 'workflow'
-  )
+  exportWorkflow(currentWorkflowMeta.value.name || 'workflow')
 }
 
 const handleImport = () => {
@@ -115,7 +106,7 @@ onMounted(async () => {
       // Force mark as saved after load
       unsavedChanges.markAsSaved()
       // Give extra time for any async updates
-      await new Promise(resolve => setTimeout(resolve, 200))
+      await new Promise((resolve) => setTimeout(resolve, 200))
       isInitializing.value = false
       // Double-check and reset if needed
       unsavedChanges.markAsSaved()

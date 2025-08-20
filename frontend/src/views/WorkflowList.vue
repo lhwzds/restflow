@@ -52,7 +52,7 @@ const displayWorkflows = computed(() => {
     ...w,
     createdAt: w.created_at || new Date().toISOString(),
     updatedAt: w.updated_at || new Date().toISOString(),
-    nodeCount: 0, // Backend doesn't return node count yet
+    nodeCount: w.nodes?.length || 0, // Get actual node count from workflow data
     status: 'draft' as const,
   }))
 })
@@ -155,9 +155,10 @@ const getStatusColor = (status: string) => {
             <div class="card-header">
               <div class="workflow-title">
                 <h3>{{ workflow.name }}</h3>
-                <ElTag :type="getStatusColor(workflow.status)" size="small">
+                <!-- Status tag temporarily disabled -->
+                <!-- <ElTag :type="getStatusColor(workflow.status)" size="small">
                   {{ workflow.status }}
-                </ElTag>
+                </ElTag> -->
               </div>
               <div class="card-actions">
                 <ElTooltip content="Open Editor">

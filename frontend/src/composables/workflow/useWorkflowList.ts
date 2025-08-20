@@ -102,14 +102,11 @@ export function useWorkflowList() {
         ...sourceWorkflow,
         id: `workflow-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`,
         name: newName || `${sourceWorkflow.name} (Copy)`,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
       }
 
-      const response = await workflowService.save(duplicateData)
+      const response = await workflowService.create(duplicateData)
       ElMessage.success('Workflow duplicated successfully')
 
-      // Reload list to include new workflow
       await loadWorkflows()
 
       return { success: true, data: response }
@@ -173,9 +170,7 @@ export function useWorkflowList() {
     // Apply search filter
     if (searchQuery.value) {
       const query = searchQuery.value.toLowerCase()
-      result = result.filter(
-        (w) => w.name.toLowerCase().includes(query),
-      )
+      result = result.filter((w) => w.name.toLowerCase().includes(query))
     }
 
     // Apply sorting
