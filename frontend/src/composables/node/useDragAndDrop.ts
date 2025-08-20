@@ -1,5 +1,5 @@
 import { useVueFlow } from '@vue-flow/core'
-import { useWorkflowStore } from '../stores/workflowStore'
+import { useWorkflowStore } from '../../stores/workflowStore'
 
 export function useDragAndDrop() {
   const { project, vueFlowRef } = useVueFlow()

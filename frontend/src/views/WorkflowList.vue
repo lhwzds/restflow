@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Delete, DocumentCopy, Edit, EditPen, Plus } from '@element-plus/icons-vue'
+import { Delete, DocumentCopy, Edit, EditPen, Plus, Search } from '@element-plus/icons-vue'
 import {
   ElButton,
   ElCard,
@@ -10,67 +10,54 @@ import {
   ElFormItem,
   ElInput,
   ElMessage,
-  ElMessageBox,
   ElRow,
   ElTag,
   ElTooltip,
 } from 'element-plus'
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { workflowService } from '../services/workflowService'
-
-interface Workflow {
-  id: string
-  name: string
-  description?: string
-  createdAt: string
-  updatedAt: string
-  nodeCount: number
-  status: 'draft' | 'published' | 'archived'
-}
+import { useWorkflowList } from '../composables/workflow/useWorkflowList'
 
 const router = useRouter()
-const workflows = ref<Workflow[]>([])
-const loading = ref(false)
+
+// Use composable for workflow list management
+const {
+  workflows,
+  isLoading,
+  filteredWorkflows,
+  searchQuery,
+  loadWorkflows,
+  deleteWorkflow,
+  duplicateWorkflow,
+  renameWorkflow,
+  setSearchQuery,
+} = useWorkflowList()
+
+// Local dialog state
 const dialogVisible = ref(false)
 const isEditing = ref(false)
-const currentWorkflow = ref<Partial<Workflow>>({
+const currentWorkflow = ref<{ id?: string; name: string; description?: string }>({
   name: '',
   description: '',
 })
 
-onMounted(() => {
-  loadWorkflows()
+// Initialize on mount
+onMounted(async () => {
+  await loadWorkflows()
 })
 
-const loadWorkflows = async () => {
-  loading.value = true
-  try {
-    const response = await workflowService.list()
-    if (response.status === 'success' && response.data) {
-      workflows.value = response.data.map((w: any) => ({
-        id: w.id,
-        name: w.name,
-        description: w.description,
-        createdAt: w.created_at || new Date().toISOString(),
-        updatedAt: w.updated_at || new Date().toISOString(),
-        nodeCount: w.nodes?.length || 0,
-        status: 'draft',
-      }))
-    } else {
-      workflows.value = []
-    }
-  } catch (error) {
-    console.error('Failed to load workflows:', error)
-    ElMessage.error('Failed to load workflows from server')
-    workflows.value = []
-  } finally {
-    loading.value = false
-  }
-}
+// Computed properties for display
+const displayWorkflows = computed(() => {
+  return filteredWorkflows.value.map(w => ({
+    ...w,
+    createdAt: w.created_at || new Date().toISOString(),
+    updatedAt: w.updated_at || new Date().toISOString(),
+    nodeCount: 0, // Backend doesn't return node count yet
+    status: 'draft' as const,
+  }))
+})
 
-// saveWorkflows removed - using backend API instead
-
+// Dialog handlers
 const createWorkflow = () => {
   isEditing.value = false
   currentWorkflow.value = {
@@ -80,101 +67,45 @@ const createWorkflow = () => {
   dialogVisible.value = true
 }
 
-const editWorkflow = (workflow: Workflow) => {
+const editWorkflowName = (workflow: any) => {
   isEditing.value = true
-  currentWorkflow.value = { ...workflow }
+  currentWorkflow.value = {
+    id: workflow.id,
+    name: workflow.name,
+    description: workflow.description,
+  }
   dialogVisible.value = true
 }
 
 const saveWorkflow = async () => {
-  if (!currentWorkflow.value.name) {
+  if (!currentWorkflow.value.name?.trim()) {
     ElMessage.error('Please enter a workflow name')
     return
   }
 
-  try {
-    if (isEditing.value && currentWorkflow.value.id) {
-      // Update existing workflow
-      await workflowService.update(
-        currentWorkflow.value.id,
-        [], // Empty nodes for now
-        [], // Empty edges for now
-        {
-          name: currentWorkflow.value.name,
-          description: currentWorkflow.value.description,
-        }
-      )
-      ElMessage.success('Workflow updated successfully')
-    } else {
-      // Create new workflow
-      await workflowService.createFromVueFlow(
-        [], // Empty nodes for now
-        [], // Empty edges for now
-        {
-          name: currentWorkflow.value.name!,
-          description: currentWorkflow.value.description,
-        }
-      )
-      ElMessage.success('Workflow created successfully')
+  if (isEditing.value && currentWorkflow.value.id) {
+    // Rename workflow
+    const result = await renameWorkflow(currentWorkflow.value.id, currentWorkflow.value.name)
+    if (result.success) {
+      dialogVisible.value = false
     }
-    
-    dialogVisible.value = false
-    await loadWorkflows() // Reload the list
-  } catch (error) {
-    console.error('Failed to save workflow:', error)
-    ElMessage.error(isEditing.value ? 'Failed to update workflow' : 'Failed to create workflow')
+  } else {
+    // Create new workflow and navigate to editor
+    router.push(`/workflow?name=${encodeURIComponent(currentWorkflow.value.name)}&description=${encodeURIComponent(currentWorkflow.value.description || '')}`)
   }
 }
 
-const openWorkflow = (workflow: Workflow) => {
+const openWorkflow = (workflow: any) => {
   router.push(`/workflow/${workflow.id}`)
 }
 
-const duplicateWorkflow = async (workflow: Workflow) => {
-  try {
-    // Get the workflow data from backend
-    const originalData = await workflowService.get(workflow.id)
-    
-    // Create a copy with new name using raw backend format
-    const duplicateData = {
-      ...originalData,
-      id: `workflow-${Date.now()}`,
-      name: `${workflow.name} (Copy)`,
-      description: workflow.description,
-    }
-    
-    await workflowService.create(duplicateData)
-    
-    ElMessage.success('Workflow duplicated successfully')
-    await loadWorkflows() // Reload the list
-  } catch (error) {
-    console.error('Failed to duplicate workflow:', error)
-    ElMessage.error('Failed to duplicate workflow')
-  }
+const handleDuplicate = async (workflow: any) => {
+  await duplicateWorkflow(workflow.id, `${workflow.name} (Copy)`)
 }
 
-const deleteWorkflow = async (workflow: Workflow) => {
-  try {
-    await ElMessageBox.confirm(
-      `Are you sure you want to delete workflow "${workflow.name}"?`,
-      'Delete Workflow',
-      {
-        confirmButtonText: 'Delete',
-        cancelButtonText: 'Cancel',
-        type: 'warning',
-      },
-    )
-
-    await workflowService.delete(workflow.id)
-    ElMessage.success('Workflow deleted successfully')
-    await loadWorkflows() // Reload the list
-  } catch (error: any) {
-    if (error !== 'cancel') {
-      console.error('Failed to delete workflow:', error)
-      ElMessage.error('Failed to delete workflow')
-    }
-    // User cancelled - do nothing
-  }
+const handleDelete = async (workflow: any) => {
+  await deleteWorkflow(workflow.id, `Are you sure you want to delete workflow "${workflow.name}"?`)
+  await loadWorkflows()
 }
 
 const getStatusColor = (status: string) => {
@@ -193,17 +124,34 @@ const getStatusColor = (status: string) => {
   <div class="workflow-list">
     <div class="page-header">
       <h1>Workflows</h1>
-      <ElButton type="primary" :icon="Plus" @click="createWorkflow">New Workflow</ElButton>
+      <div class="header-actions">
+        <ElInput
+          v-model="searchQuery"
+          placeholder="Search workflows by name or description..."
+          :prefix-icon="Search"
+          clearable
+          class="search-input"
+          @input="setSearchQuery"
+        />
+        <ElButton type="primary" :icon="Plus" @click="createWorkflow">New Workflow</ElButton>
+      </div>
     </div>
 
-    <div v-if="workflows.length === 0" class="empty-state">
-      <ElEmpty description="No workflows yet">
-        <ElButton type="primary" @click="createWorkflow">Create your first workflow</ElButton>
+    <!-- Search results info -->
+    <div v-if="searchQuery" class="search-info">
+      <span>Found {{ displayWorkflows.length }} workflow(s) matching "{{ searchQuery }}"</span>
+      <ElButton link @click="searchQuery = ''">Clear</ElButton>
+    </div>
+
+    <div v-if="displayWorkflows.length === 0 && !isLoading" class="empty-state">
+      <ElEmpty :description="searchQuery ? 'No workflows found matching your search' : 'No workflows yet'">
+        <ElButton v-if="!searchQuery" type="primary" @click="createWorkflow">Create your first workflow</ElButton>
+        <ElButton v-else @click="searchQuery = ''">Clear search</ElButton>
       </ElEmpty>
     </div>
 
     <ElRow v-else :gutter="20" class="workflow-grid">
-      <ElCol v-for="workflow in workflows" :key="workflow.id" :span="8">
+      <ElCol v-for="workflow in displayWorkflows" :key="workflow.id" :span="8">
         <ElCard class="workflow-card" shadow="hover">
           <template #header>
             <div class="card-header">
@@ -218,14 +166,14 @@ const getStatusColor = (status: string) => {
                   <ElButton :icon="EditPen" circle size="small" @click="openWorkflow(workflow)" />
                 </ElTooltip>
                 <ElTooltip content="Rename">
-                  <ElButton :icon="Edit" circle size="small" @click="editWorkflow(workflow)" />
+                  <ElButton :icon="Edit" circle size="small" @click="editWorkflowName(workflow)" />
                 </ElTooltip>
                 <ElTooltip content="Duplicate">
                   <ElButton
                     :icon="DocumentCopy"
                     circle
                     size="small"
-                    @click="duplicateWorkflow(workflow)"
+                    @click="handleDuplicate(workflow)"
                   />
                 </ElTooltip>
                 <ElTooltip content="Delete">
@@ -234,7 +182,7 @@ const getStatusColor = (status: string) => {
                     circle
                     size="small"
                     type="danger"
-                    @click="deleteWorkflow(workflow)"
+                    @click="handleDelete(workflow)"
                   />
                 </ElTooltip>
               </div>
@@ -244,7 +192,7 @@ const getStatusColor = (status: string) => {
             <p class="description">{{ workflow.description || 'No description' }}</p>
             <div class="metadata">
               <span>{{ workflow.nodeCount }} nodes</span>
-              <span>Updated {{ new Date(workflow.updatedAt).toLocaleDateString() }}</span>
+              <span>Updated {{ new Date(workflow.updated_at || workflow.updatedAt).toLocaleDateString() }}</span>
             </div>
           </div>
         </ElCard>
@@ -291,6 +239,28 @@ const getStatusColor = (status: string) => {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 30px;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.search-input {
+  width: 300px;
+}
+
+.search-info {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  background-color: #f0f2f5;
+  border-radius: 4px;
+  margin-bottom: 20px;
+  font-size: 14px;
+  color: #606266;
 }
 
 .page-header h1 {

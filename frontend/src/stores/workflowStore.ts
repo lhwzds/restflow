@@ -72,6 +72,16 @@ export const useWorkflowStore = defineStore('workflow', {
       }
     },
 
+    // Remove multiple nodes (batch operation)
+    removeNodes(nodeIds: string[]) {
+      // Remove all nodes in one operation
+      this.nodes = this.nodes.filter((n) => !nodeIds.includes(n.id))
+      // Remove all related edges
+      this.edges = this.edges.filter(
+        (e) => !nodeIds.includes(e.source) && !nodeIds.includes(e.target)
+      )
+    },
+
     // Add an edge
     addEdge(edge: Edge) {
       this.edges.push(edge)
