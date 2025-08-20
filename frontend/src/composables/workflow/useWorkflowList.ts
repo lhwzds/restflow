@@ -1,7 +1,8 @@
-import { ElMessage, ElMessageBox } from 'element-plus'
-import { computed, ref, watchEffect } from 'vue'
 import { useDebounceFn } from '@vueuse/core'
-import { workflowService, type WorkflowMeta } from '../../services/workflowService'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { computed, ref } from 'vue'
+import { workflowService } from '../../services/workflowService'
+import { useWorkflowExecution } from './useWorkflowExecution'
 
 export interface Workflow {
   id: string
@@ -67,21 +68,21 @@ export function useWorkflowList() {
           cancelButtonText: 'Cancel',
           type: 'warning',
           confirmButtonClass: 'el-button--danger',
-        }
+        },
       )
 
       await workflowService.delete(id)
       ElMessage.success('Workflow deleted successfully')
-      
-      // Remove from local list
-      workflows.value = workflows.value.filter(w => w.id !== id)
-      
+
+      // Reload to ensure consistency
+      await loadWorkflows()
+
       return { success: true }
     } catch (error) {
       if (error === 'cancel') {
         return { success: false, cancelled: true }
       }
-      
+
       console.error('Failed to delete workflow:', error)
       ElMessage.error('Failed to delete workflow')
       return { success: false, error }
@@ -100,18 +101,18 @@ export function useWorkflowList() {
 
       const duplicateData = {
         ...sourceWorkflow,
-        id: `workflow-${Date.now()}`,
+        id: `workflow-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`,
         name: newName || `${sourceWorkflow.name} (Copy)`,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       }
 
-      const response = await workflowService.create(duplicateData)
+      const response = await workflowService.save(duplicateData)
       ElMessage.success('Workflow duplicated successfully')
-      
+
       // Reload list to include new workflow
       await loadWorkflows()
-      
+
       return { success: true, data: response }
     } catch (error) {
       console.error('Failed to duplicate workflow:', error)
@@ -136,19 +137,17 @@ export function useWorkflowList() {
         throw new Error('Workflow not found')
       }
 
-      // Update with new name
-      await workflowService.update(id, workflow.nodes, workflow.edges, {
+      const updatedWorkflow = {
         ...workflow,
         name: newName,
-      })
+      }
+
+      await workflowService.save(updatedWorkflow)
 
       ElMessage.success('Workflow renamed successfully')
-      
-      // Update local list
-      const index = workflows.value.findIndex(w => w.id === id)
-      if (index !== -1) {
-        workflows.value[index].name = newName
-      }
+
+      // Reload to ensure consistency
+      await loadWorkflows()
 
       return { success: true }
     } catch (error) {
@@ -161,16 +160,9 @@ export function useWorkflowList() {
   /**
    * Execute workflow by ID
    */
+  const { executeWorkflowById } = useWorkflowExecution()
   const executeWorkflow = async (id: string) => {
-    try {
-      const result = await workflowService.executeById(id)
-      ElMessage.success('Workflow executed successfully')
-      return { success: true, data: result }
-    } catch (error) {
-      console.error('Failed to execute workflow:', error)
-      ElMessage.error('Failed to execute workflow')
-      return { success: false, error }
-    }
+    return executeWorkflowById(id)
   }
 
   /**
@@ -183,16 +175,14 @@ export function useWorkflowList() {
     if (searchQuery.value) {
       const query = searchQuery.value.toLowerCase()
       result = result.filter(
-        w =>
-          w.name.toLowerCase().includes(query) ||
-          w.description?.toLowerCase().includes(query)
+        (w) => w.name.toLowerCase().includes(query) || w.description?.toLowerCase().includes(query),
       )
     }
 
     // Apply sorting
     result.sort((a, b) => {
       let compareValue = 0
-      
+
       switch (sortBy.value) {
         case 'name':
           compareValue = a.name.localeCompare(b.name)
@@ -223,7 +213,7 @@ export function useWorkflowList() {
    * Get workflow by ID from local cache
    */
   const getWorkflowById = (id: string) => {
-    return workflows.value.find(w => w.id === id)
+    return workflows.value.find((w) => w.id === id)
   }
 
   /**
@@ -238,7 +228,7 @@ export function useWorkflowList() {
    */
   const setSortOptions = (
     field: 'name' | 'created_at' | 'updated_at',
-    order: 'asc' | 'desc' = 'asc'
+    order: 'asc' | 'desc' = 'asc',
   ): void => {
     sortBy.value = field
     sortOrder.value = order

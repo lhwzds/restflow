@@ -1,7 +1,11 @@
 import type { Edge, Node } from '@vue-flow/core'
 import { ElMessage } from 'element-plus'
 import { onUnmounted, ref } from 'vue'
-import { convertFromBackendFormat, workflowService, type WorkflowMeta } from '../../services/workflowService'
+import {
+  convertFromBackendFormat,
+  workflowService,
+  type WorkflowMeta,
+} from '../../services/workflowService'
 import { useWorkflowStore } from '../../stores/workflowStore'
 
 export interface SaveOptions {
@@ -15,14 +19,14 @@ export interface LoadOptions {
 
 export function useWorkflowPersistence() {
   const workflowStore = useWorkflowStore()
-  
+
   // State
   const isLoading = ref(false)
   const isSaving = ref(false)
   const lastSavedAt = ref<Date | null>(null)
   const currentWorkflowId = ref<string | null>(null)
   const currentWorkflowMeta = ref<Partial<WorkflowMeta>>({})
-  
+
   // Auto-save timer - scoped to this composable instance
   let autoSaveTimer: ReturnType<typeof setInterval> | null = null
 
@@ -37,11 +41,11 @@ export function useWorkflowPersistence() {
     }
 
     const { showMessage = true } = options
-    
+
     isLoading.value = true
     try {
       const workflow = await workflowService.get(id)
-      
+
       if (!workflow) {
         throw new Error('Workflow not found')
       }
@@ -49,7 +53,7 @@ export function useWorkflowPersistence() {
       // Convert and load into store
       const { nodes, edges } = convertFromBackendFormat(workflow)
       workflowStore.loadWorkflow(nodes, edges)
-      
+
       // Update current workflow info
       currentWorkflowId.value = workflow.id
       currentWorkflowMeta.value = {
@@ -70,11 +74,11 @@ export function useWorkflowPersistence() {
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to load workflow'
       console.error('Failed to load workflow:', error)
-      
+
       if (showMessage) {
         ElMessage.error(message)
       }
-      
+
       return {
         success: false,
         error: message,
@@ -87,11 +91,7 @@ export function useWorkflowPersistence() {
   /**
    * Save workflow (create or update) with validation
    */
-  const saveWorkflow = async (
-    nodes: Node[],
-    edges: Edge[],
-    options: SaveOptions = {}
-  ) => {
+  const saveWorkflow = async (nodes: Node[], edges: Edge[], options: SaveOptions = {}) => {
     // Input validation
     if (!Array.isArray(nodes) || !Array.isArray(edges)) {
       const error = 'Invalid nodes or edges data'
@@ -115,27 +115,26 @@ export function useWorkflowPersistence() {
     isSaving.value = true
     try {
       let response
-      
-      if (currentWorkflowId.value) {
-        // Update existing workflow
-        response = await workflowService.update(
-          currentWorkflowId.value,
-          nodes,
-          edges,
-          workflowMeta
+
+      if (!currentWorkflowId.value) {
+        currentWorkflowId.value = `workflow-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`
+      }
+
+      const workflowData = {
+        ...workflowMeta,
+        id: currentWorkflowId.value,
+        nodes,
+        edges,
+      }
+
+      response = await workflowService.save(workflowData)
+
+      if (showMessage) {
+        ElMessage.success(
+          currentWorkflowId.value
+            ? 'Workflow updated successfully'
+            : 'Workflow created successfully',
         )
-        
-        if (showMessage) {
-          ElMessage.success('Workflow updated successfully')
-        }
-      } else {
-        // Create new workflow
-        response = await workflowService.createFromVueFlow(nodes, edges, workflowMeta)
-        currentWorkflowId.value = response.id
-        
-        if (showMessage) {
-          ElMessage.success('Workflow created successfully')
-        }
       }
 
       // Update metadata and timestamp
@@ -150,11 +149,11 @@ export function useWorkflowPersistence() {
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to save workflow'
       console.error('Failed to save workflow:', error)
-      
+
       if (showMessage) {
         ElMessage.error(message)
       }
-      
+
       return {
         success: false,
         error: message,
@@ -197,7 +196,7 @@ export function useWorkflowPersistence() {
 
     const previousId = currentWorkflowId.value
     currentWorkflowId.value = null // Force create new
-    
+
     const result = await saveWorkflow(workflowStore.nodes, workflowStore.edges, {
       showMessage: true,
       meta: { name, description },
@@ -215,7 +214,7 @@ export function useWorkflowPersistence() {
    * Auto-save functionality with proper cleanup
    */
   let isAutoSaving = false
-  
+
   const enableAutoSave = (intervalMs = 60000) => {
     if (intervalMs < 10000) {
       console.warn('Auto-save interval too short, using minimum of 10 seconds')
@@ -223,7 +222,7 @@ export function useWorkflowPersistence() {
     }
 
     disableAutoSave() // Clear any existing timer
-    
+
     autoSaveTimer = setInterval(async () => {
       // Prevent overlapping auto-saves
       if (currentWorkflowId.value && !isSaving.value && !isAutoSaving) {
@@ -274,7 +273,7 @@ export function useWorkflowPersistence() {
     lastSavedAt,
     currentWorkflowId,
     currentWorkflowMeta,
-    
+
     // Methods
     loadWorkflow,
     saveWorkflow,
@@ -282,7 +281,7 @@ export function useWorkflowPersistence() {
     quickSave,
     saveAsNew,
     checkWorkflowExists,
-    
+
     // Auto-save
     enableAutoSave,
     disableAutoSave,
