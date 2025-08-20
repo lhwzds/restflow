@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ArrowLeft, Check, Document, FolderOpened } from '@element-plus/icons-vue'
-import { ElButton, ElDialog, ElForm, ElFormItem, ElInput, ElPageHeader, ElTag } from 'element-plus'
+import { ElButton, ElDialog, ElForm, ElFormItem, ElInput, ElMessage, ElPageHeader, ElTag } from 'element-plus'
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import Editor from '../components/Editor.vue'
@@ -36,34 +36,23 @@ const unsavedChanges = useUnsavedChanges()
 // Computed properties
 const workflowName = computed(() => currentWorkflowMeta.value.name || 'Untitled Workflow')
 
-// Save workflow
-const handleSave = () => {
-  if (!currentWorkflowId.value) {
-    // New workflow - show dialog
+// Save workflow (combined logic)
+const handleSave = async () => {
+  // Show dialog if new workflow without name
+  if (!currentWorkflowId.value && !currentWorkflowMeta.value.name?.trim()) {
     saveDialogVisible.value = true
-  } else {
-    // Existing workflow - save directly
-    performSave()
-  }
-}
-
-// Keyboard shortcuts
-useKeyboardShortcuts({
-  'ctrl+s': handleSave,
-  'meta+s': handleSave,
-})
-
-const performSave = async () => {
-  const meta = {
-    name: currentWorkflowMeta.value.name,
-  }
-
-  if (!meta.name?.trim()) {
     return
   }
 
+  // Validate name
+  if (!currentWorkflowMeta.value.name?.trim()) {
+    ElMessage.error('Please provide a workflow name')
+    return
+  }
+
+  // Save workflow
   const result = await saveWorkflow(workflowStore.nodes, workflowStore.edges, {
-    meta,
+    meta: { name: currentWorkflowMeta.value.name },
     showMessage: true,
   })
 
@@ -77,6 +66,12 @@ const performSave = async () => {
     }
   }
 }
+
+// Keyboard shortcuts
+useKeyboardShortcuts({
+  'ctrl+s': handleSave,
+  'meta+s': handleSave,
+})
 
 // Navigation
 const goBack = () => {
@@ -93,22 +88,12 @@ const handleImport = () => {
   importWorkflow()
 }
 
-// Track if VueFlow is ready
-const isFlowReady = ref(false)
-
-// Handle VueFlow ready event
+// Handle VueFlow ready event - set up change tracking after VueFlow initializes
 const onFlowReady = () => {
-  isFlowReady.value = true
-  
   // Set up change detection only after VueFlow is ready
   watch(
     [() => workflowStore.nodes, () => workflowStore.edges],
-    () => {
-      // Only mark as dirty if flow is ready (to avoid initial setup changes)
-      if (isFlowReady.value) {
-        unsavedChanges.markAsDirty()
-      }
-    },
+    () => unsavedChanges.markAsDirty(),
     { deep: true }
   )
 }
@@ -179,13 +164,13 @@ onMounted(async () => {
           <ElInput
             v-model="currentWorkflowMeta.name"
             placeholder="Enter workflow name"
-            @keyup.enter="performSave"
+            @keyup.enter="handleSave"
           />
         </ElFormItem>
       </ElForm>
       <template #footer>
         <ElButton @click="saveDialogVisible = false">Cancel</ElButton>
-        <ElButton type="primary" @click="performSave">Save</ElButton>
+        <ElButton type="primary" @click="handleSave">Save</ElButton>
       </template>
     </ElDialog>
   </div>

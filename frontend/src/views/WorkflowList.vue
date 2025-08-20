@@ -53,7 +53,6 @@ const displayWorkflows = computed(() => {
     createdAt: w.created_at || new Date().toISOString(),
     updatedAt: w.updated_at || new Date().toISOString(),
     nodeCount: w.nodes?.length || 0, // Get actual node count from workflow data
-    status: 'draft' as const,
   }))
 })
 
@@ -106,16 +105,6 @@ const handleDelete = async (workflow: any) => {
   await loadWorkflows()
 }
 
-const getStatusColor = (status: string) => {
-  switch (status) {
-    case 'published':
-      return 'success'
-    case 'archived':
-      return 'info'
-    default:
-      return 'warning'
-  }
-}
 </script>
 
 <template>
@@ -156,9 +145,6 @@ const getStatusColor = (status: string) => {
               <div class="workflow-title">
                 <h3>{{ workflow.name }}</h3>
                 <!-- Status tag temporarily disabled -->
-                <!-- <ElTag :type="getStatusColor(workflow.status)" size="small">
-                  {{ workflow.status }}
-                </ElTag> -->
               </div>
               <div class="card-actions">
                 <ElTooltip content="Open Editor">

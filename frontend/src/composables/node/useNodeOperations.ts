@@ -112,11 +112,11 @@ export function useNodeOperations() {
   }
 
   /**
-   * Delete multiple nodes (batch operation for better performance)
+   * Delete multiple nodes
    */
   const deleteNodes = (nodeIds: string[]) => {
-    // Batch delete to avoid multiple store updates
-    workflowStore.removeNodes(nodeIds)
+    // Delete each node
+    nodeIds.forEach(nodeId => workflowStore.removeNode(nodeId))
     
     // Clear selection if any deleted nodes were selected
     if (nodeIds.includes(selectedNodeId.value || '')) {
