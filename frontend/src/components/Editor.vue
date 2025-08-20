@@ -28,12 +28,23 @@ const {
   onPaneContextMenu,
   onNodeContextMenu,
   onNodeDoubleClick,
+  onPaneReady,
   setViewport,
   updateNode,
 } = useVueFlow()
 
 // Selected node for configuration panel
 const selectedNode = ref<any>(null)
+
+// Emit event when VueFlow is ready
+const emit = defineEmits<{
+  ready: []
+}>()
+
+// Notify parent when pane is ready
+onPaneReady(() => {
+  emit('ready')
+})
 
 // Handle connections between nodes
 onConnect((connection: Connection) => {
