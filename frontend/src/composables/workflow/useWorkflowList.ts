@@ -7,7 +7,6 @@ import { useWorkflowExecution } from './useWorkflowExecution'
 export interface Workflow {
   id: string
   name: string
-  description?: string
   created_at?: string
   updated_at?: string
   nodes?: any[]
@@ -175,7 +174,7 @@ export function useWorkflowList() {
     if (searchQuery.value) {
       const query = searchQuery.value.toLowerCase()
       result = result.filter(
-        (w) => w.name.toLowerCase().includes(query) || w.description?.toLowerCase().includes(query),
+        (w) => w.name.toLowerCase().includes(query),
       )
     }
 

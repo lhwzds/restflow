@@ -62,7 +62,6 @@ const createWorkflow = () => {
   isEditing.value = false
   currentWorkflow.value = {
     name: '',
-    description: '',
   }
   dialogVisible.value = true
 }
@@ -72,7 +71,6 @@ const editWorkflowName = (workflow: any) => {
   currentWorkflow.value = {
     id: workflow.id,
     name: workflow.name,
-    description: workflow.description,
   }
   dialogVisible.value = true
 }
@@ -91,7 +89,7 @@ const saveWorkflow = async () => {
     }
   } else {
     // Create new workflow and navigate to editor
-    router.push(`/workflow?name=${encodeURIComponent(currentWorkflow.value.name)}&description=${encodeURIComponent(currentWorkflow.value.description || '')}`)
+    router.push(`/workflow?name=${encodeURIComponent(currentWorkflow.value.name)}`)
   }
 }
 
@@ -189,7 +187,6 @@ const getStatusColor = (status: string) => {
             </div>
           </template>
           <div class="workflow-info">
-            <p class="description">{{ workflow.description || 'No description' }}</p>
             <div class="metadata">
               <span>{{ workflow.nodeCount }} nodes</span>
               <span>Updated {{ new Date(workflow.updated_at || workflow.updatedAt).toLocaleDateString() }}</span>
@@ -207,14 +204,6 @@ const getStatusColor = (status: string) => {
       <ElForm :model="currentWorkflow" label-width="100px">
         <ElFormItem label="Name" required>
           <ElInput v-model="currentWorkflow.name" placeholder="Enter workflow name" />
-        </ElFormItem>
-        <ElFormItem label="Description">
-          <ElInput
-            v-model="currentWorkflow.description"
-            type="textarea"
-            :rows="3"
-            placeholder="Enter workflow description (optional)"
-          />
         </ElFormItem>
       </ElForm>
       <template #footer>

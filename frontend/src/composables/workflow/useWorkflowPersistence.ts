@@ -58,7 +58,6 @@ export function useWorkflowPersistence() {
       currentWorkflowId.value = workflow.id
       currentWorkflowMeta.value = {
         name: workflow.name,
-        description: workflow.description,
         created_at: workflow.created_at,
         updated_at: workflow.updated_at,
       }
@@ -170,7 +169,6 @@ export function useWorkflowPersistence() {
     currentWorkflowId.value = null
     currentWorkflowMeta.value = {
       name: 'Untitled Workflow',
-      description: '',
     }
     lastSavedAt.value = null
     workflowStore.clearCanvas()
@@ -188,7 +186,7 @@ export function useWorkflowPersistence() {
   /**
    * Save as new workflow (duplicate)
    */
-  const saveAsNew = async (name: string, description?: string) => {
+  const saveAsNew = async (name: string) => {
     if (!name?.trim()) {
       ElMessage.error('Please provide a workflow name')
       return { success: false, error: 'Name is required' }
@@ -199,7 +197,7 @@ export function useWorkflowPersistence() {
 
     const result = await saveWorkflow(workflowStore.nodes, workflowStore.edges, {
       showMessage: true,
-      meta: { name, description },
+      meta: { name },
     })
 
     if (!result.success) {

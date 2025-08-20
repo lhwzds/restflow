@@ -15,7 +15,6 @@ const apiClient = axios.create({
 export interface WorkflowMeta {
   id: string
   name: string
-  description?: string
   created_at?: string
   updated_at?: string
 }
@@ -62,7 +61,6 @@ export const convertToBackendFormat = (
   return {
     id: meta?.id || `workflow-${Date.now()}`,
     name: meta?.name || 'My Workflow',
-    description: meta?.description,
     nodes: workflowNodes,
     edges: workflowEdges,
   }

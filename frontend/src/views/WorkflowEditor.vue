@@ -29,7 +29,6 @@ const { exportWorkflow, importWorkflow } = useWorkflowImportExport({
   onImportSuccess: (data) => {
     if (data.name) {
       currentWorkflowMeta.value.name = data.name
-      currentWorkflowMeta.value.description = data.description || ''
     }
     unsavedChanges.markAsDirty()
   },
@@ -44,7 +43,6 @@ const isInitializing = ref(true)
 
 // Computed properties
 const workflowName = computed(() => currentWorkflowMeta.value.name || 'Untitled Workflow')
-const workflowDescription = computed(() => currentWorkflowMeta.value.description || '')
 
 // Save workflow
 const handleSave = () => {
@@ -66,7 +64,6 @@ useKeyboardShortcuts({
 const performSave = async () => {
   const meta = {
     name: currentWorkflowMeta.value.name,
-    description: currentWorkflowMeta.value.description,
   }
 
   if (!meta.name?.trim()) {
@@ -97,8 +94,7 @@ const goBack = () => {
 // Export/Import handlers
 const handleExport = () => {
   exportWorkflow(
-    currentWorkflowMeta.value.name || 'workflow',
-    currentWorkflowMeta.value.description,
+    currentWorkflowMeta.value.name || 'workflow'
   )
 }
 
@@ -124,7 +120,6 @@ onMounted(async () => {
     workflowStore.clearCanvas()
     currentWorkflowMeta.value = {
       name: 'Untitled Workflow',
-      description: '',
     }
     await nextTick()
     // New workflows should be marked as unsaved
@@ -187,14 +182,6 @@ watch(
             v-model="currentWorkflowMeta.name"
             placeholder="Enter workflow name"
             @keyup.enter="performSave"
-          />
-        </ElFormItem>
-        <ElFormItem label="Description">
-          <ElInput
-            v-model="currentWorkflowMeta.description"
-            type="textarea"
-            :rows="3"
-            placeholder="Enter workflow description (optional)"
           />
         </ElFormItem>
       </ElForm>
