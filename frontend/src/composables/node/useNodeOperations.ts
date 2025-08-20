@@ -14,7 +14,9 @@ export function useNodeOperations() {
   const workflowStore = useWorkflowStore()
   const selectedNodeId = ref<string | null>(null)
   const copiedNode = ref<Node | null>(null)
-  const nodeIdCounter = ref(1)
+  
+  // Single source of truth for node ID generation
+  const nodeIdCounter = ref(Date.now())
 
   /**
    * Get node by ID
@@ -38,14 +40,21 @@ export function useNodeOperations() {
   }
 
   /**
-   * Create a new node
+   * Generate unique node ID
+   */
+  const generateNodeId = (): string => {
+    return `node-${nodeIdCounter.value++}-${Math.random().toString(36).substring(2, 9)}`
+  }
+
+  /**
+   * Create a new node - business logic for node creation
    */
   const createNode = (
     template: NodeTemplate,
     position: { x: number; y: number }
   ): Node => {
     const newNode: Node = {
-      id: `node-${Date.now()}-${nodeIdCounter.value++}`,
+      id: generateNodeId(),
       type: template.type,
       position,
       data: {

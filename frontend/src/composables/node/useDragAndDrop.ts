@@ -1,9 +1,9 @@
 import { useVueFlow } from '@vue-flow/core'
-import { useWorkflowStore } from '../../stores/workflowStore'
+import { useNodeOperations } from './useNodeOperations'
 
 export function useDragAndDrop() {
   const { project, vueFlowRef } = useVueFlow()
-  const workflowStore = useWorkflowStore()
+  const { createNode } = useNodeOperations()
   
   const handleDragOver = (event: DragEvent) => {
     event.preventDefault()
@@ -24,7 +24,7 @@ export function useDragAndDrop() {
       y: event.clientY - vueFlowRef.value!.getBoundingClientRect().top,
     })
     
-    workflowStore.createNode(template, position)
+    createNode(template, position)
   }
   
   return {

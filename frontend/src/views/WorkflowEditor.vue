@@ -1,15 +1,7 @@
 <script setup lang="ts">
 import { ArrowLeft, Check, Document, FolderOpened } from '@element-plus/icons-vue'
-import {
-  ElButton,
-  ElDialog,
-  ElForm,
-  ElFormItem,
-  ElInput,
-  ElPageHeader,
-  ElTag,
-} from 'element-plus'
-import { computed, onMounted, ref } from 'vue'
+import { ElButton, ElDialog, ElForm, ElFormItem, ElInput, ElPageHeader, ElTag } from 'element-plus'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import Editor from '../components/Editor.vue'
 import { useKeyboardShortcuts } from '../composables/shared/useKeyboardShortcuts'
@@ -43,12 +35,12 @@ const { exportWorkflow, importWorkflow } = useWorkflowImportExport({
   },
 })
 
-const unsavedChanges = useUnsavedChanges({
-  watchSource: [() => workflowStore.nodes, () => workflowStore.edges],
-})
-
 // Local state
 const saveDialogVisible = ref(false)
+
+// Initialize without marking as unsaved
+const unsavedChanges = useUnsavedChanges()
+const isInitializing = ref(true)
 
 // Computed properties
 const workflowName = computed(() => currentWorkflowMeta.value.name || 'Untitled Workflow')
@@ -99,20 +91,14 @@ const performSave = async () => {
 
 // Navigation
 const goBack = () => {
-  if (unsavedChanges.isDirty.value) {
-    if (confirm('You have unsaved changes. Are you sure you want to leave?')) {
-      router.push('/workflows')
-    }
-  } else {
-    router.push('/workflows')
-  }
+  router.push('/workflows')
 }
 
 // Export/Import handlers
 const handleExport = () => {
   exportWorkflow(
     currentWorkflowMeta.value.name || 'workflow',
-    currentWorkflowMeta.value.description
+    currentWorkflowMeta.value.description,
   )
 }
 
@@ -125,7 +111,11 @@ onMounted(async () => {
   if (route.params.id) {
     const result = await loadWorkflow(route.params.id as string)
     if (result.success) {
+      await nextTick()
       unsavedChanges.markAsSaved()
+      setTimeout(() => {
+        isInitializing.value = false
+      }, 100)
     } else {
       router.push('/workflows')
     }
@@ -136,9 +126,22 @@ onMounted(async () => {
       name: 'Untitled Workflow',
       description: '',
     }
+    await nextTick()
+    // New workflows should be marked as unsaved
     unsavedChanges.markAsDirty()
+    isInitializing.value = false
   }
 })
+
+watch(
+  [() => workflowStore.nodes, () => workflowStore.edges],
+  () => {
+    if (!isInitializing.value) {
+      unsavedChanges.markAsDirty()
+    }
+  },
+  { deep: true },
+)
 </script>
 
 <template>
@@ -150,13 +153,17 @@ onMounted(async () => {
       <template #content>
         <div class="header-content">
           <span class="workflow-name">{{ workflowName }}</span>
-          <ElTag v-if="unsavedChanges.isDirty.value" type="warning" size="small">Unsaved</ElTag>
+          <ElTag v-if="unsavedChanges.hasChanges.value" type="warning" size="small">Unsaved</ElTag>
         </div>
       </template>
       <template #extra>
         <div class="header-actions">
-          <ElButton v-if="!unsavedChanges.isDirty.value" type="success" :icon="Check" disabled>Saved</ElButton>
-          <ElButton v-else type="primary" @click="handleSave" :loading="isSaving">Save (Ctrl+S)</ElButton>
+          <ElButton v-if="!unsavedChanges.hasChanges.value" type="success" :icon="Check" disabled
+            >Saved</ElButton
+          >
+          <ElButton v-else type="primary" @click="handleSave" :loading="isSaving"
+            >Save (Ctrl+S)</ElButton
+          >
           <ElButton :icon="FolderOpened" @click="handleImport">Import</ElButton>
           <ElButton :icon="Document" @click="handleExport">Export</ElButton>
         </div>

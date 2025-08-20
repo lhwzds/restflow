@@ -1,4 +1,4 @@
-import { computed, onBeforeUnmount, ref, watch, type Ref, type WatchSource } from 'vue'
+import { computed, onBeforeUnmount, ref, watch, type WatchSource } from 'vue'
 import { onBeforeRouteLeave } from 'vue-router'
 
 export interface UnsavedChangesOptions {
@@ -14,34 +14,27 @@ export function useUnsavedChanges(options: UnsavedChangesOptions = {}) {
     immediate = false,
   } = options
 
-  const isDirty = ref(immediate)
-  const isSaved = ref(!immediate)
-
-  // Track if we should prevent navigation
-  const preventNavigation = computed(() => isDirty.value && !isSaved.value)
+  const hasChanges = ref(immediate)
 
   /**
    * Mark changes as saved
    */
   const markAsSaved = () => {
-    isDirty.value = false
-    isSaved.value = true
+    hasChanges.value = false
   }
 
   /**
    * Mark changes as dirty (unsaved)
    */
   const markAsDirty = () => {
-    isDirty.value = true
-    isSaved.value = false
+    hasChanges.value = true
   }
 
   /**
    * Reset the state
    */
   const reset = () => {
-    isDirty.value = false
-    isSaved.value = true
+    hasChanges.value = false
   }
 
   /**
@@ -51,11 +44,11 @@ export function useUnsavedChanges(options: UnsavedChangesOptions = {}) {
     const stopWatcher = watch(
       watchSource,
       () => {
-        if (isSaved.value) {
+        if (!hasChanges.value) {
           markAsDirty()
         }
       },
-      { deep: true }
+      { deep: true },
     )
 
     // Clean up watcher on unmount
@@ -68,7 +61,7 @@ export function useUnsavedChanges(options: UnsavedChangesOptions = {}) {
    * Handle browser beforeunload event
    */
   const handleBeforeUnload = (event: BeforeUnloadEvent) => {
-    if (preventNavigation.value) {
+    if (hasChanges.value) {
       event.preventDefault()
       event.returnValue = message
       return message
@@ -91,7 +84,7 @@ export function useUnsavedChanges(options: UnsavedChangesOptions = {}) {
    */
   try {
     onBeforeRouteLeave((to, from, next) => {
-      if (preventNavigation.value) {
+      if (hasChanges.value) {
         const answer = window.confirm(message)
         if (answer) {
           next()
@@ -131,9 +124,10 @@ export function useUnsavedChanges(options: UnsavedChangesOptions = {}) {
   })
 
   return {
-    isDirty: computed(() => isDirty.value),
-    isSaved: computed(() => isSaved.value),
-    preventNavigation,
+    // Simplified API - single state
+    hasChanges: computed(() => hasChanges.value),
+    isDirty: computed(() => hasChanges.value), // Backward compatibility
+    isSaved: computed(() => !hasChanges.value), // Backward compatibility
     markAsSaved,
     markAsDirty,
     reset,
@@ -149,7 +143,7 @@ export function useUnsavedChangesWithDialog(
   options: UnsavedChangesOptions & {
     onConfirm?: () => void | Promise<void>
     onCancel?: () => void
-  } = {}
+  } = {},
 ) {
   const { onConfirm, onCancel, ...baseOptions } = options
   const base = useUnsavedChanges(baseOptions)
@@ -160,7 +154,7 @@ export function useUnsavedChangesWithDialog(
    * Show confirmation dialog
    */
   const confirmNavigation = async (): Promise<boolean> => {
-    if (!base.preventNavigation.value) {
+    if (!base.hasChanges.value) {
       return true
     }
 

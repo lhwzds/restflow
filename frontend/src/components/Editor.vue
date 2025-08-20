@@ -7,6 +7,8 @@ import { MiniMap } from '@vue-flow/minimap'
 import { storeToRefs } from 'pinia'
 import { reactive, ref } from 'vue'
 import { useDragAndDrop } from '../composables/node/useDragAndDrop'
+import { useNodeOperations } from '../composables/node/useNodeOperations'
+import { useWorkflowExecution } from '../composables/workflow/useWorkflowExecution'
 import { AgentNode, HttpNode, ManualTriggerNode } from '../nodes'
 import { useWorkflowStore } from '../stores/workflowStore'
 import Icon from './Icon.vue'
@@ -17,6 +19,8 @@ import NodeToolbar from './NodeToolbar.vue'
 const workflowStore = useWorkflowStore()
 const { isExecuting } = storeToRefs(workflowStore)
 const { handleDrop, handleDragOver } = useDragAndDrop()
+const { createNode } = useNodeOperations()
+const { executeCurrentWorkflow } = useWorkflowExecution()
 
 // Use VueFlow hooks for interaction
 const {
@@ -60,7 +64,7 @@ const closeConfigPanel = () => {
 
 // Add node at specific position (for toolbar clicks)
 const addNodeAtPosition = (template: any, position: { x: number; y: number }) => {
-  workflowStore.createNode(template, position)
+  createNode(template, position)
 }
 
 // Handle toolbar click to add node
@@ -127,11 +131,11 @@ const handlePaneClick = () => {
 
 // Execute workflow
 const executeWorkflow = async () => {
-  try {
-    await workflowStore.executeWorkflow()
+  const result = await executeCurrentWorkflow()
+  if (result.success) {
     alert('Workflow execution success!')
-  } catch (error) {
-    alert(`Workflow execution failed: ${workflowStore.executionError || 'Unknown error'}`)
+  } else {
+    alert(`Workflow execution failed: ${result.error}`)
   }
 }
 

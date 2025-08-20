@@ -70,17 +70,19 @@ export const convertToBackendFormat = (
 
 // API methods
 export const workflowService = {
-  // Execute workflow
-  async execute(nodes: Node[], edges: Edge[], meta?: Partial<WorkflowMeta>) {
-    const workflow = convertToBackendFormat(nodes, edges, meta)
+  async execute(
+    workflowOrId: string | { nodes: Node[]; edges: Edge[]; meta?: Partial<WorkflowMeta> },
+  ) {
+    if (typeof workflowOrId === 'string') {
+      const response = await apiClient.post(`/execute/${workflowOrId}`)
+      return response.data
+    }
+    const workflow = convertToBackendFormat(
+      workflowOrId.nodes,
+      workflowOrId.edges,
+      workflowOrId.meta,
+    )
     const response = await apiClient.post('/execute', workflow)
-    return response.data
-  },
-
-  // Create workflow from VueFlow format
-  async createFromVueFlow(nodes: Node[], edges: Edge[], meta?: Partial<WorkflowMeta>) {
-    const workflow = convertToBackendFormat(nodes, edges, meta)
-    const response = await apiClient.post('/create', workflow)
     return response.data
   },
 
@@ -96,28 +98,27 @@ export const workflowService = {
     return response.data
   },
 
-  // Update workflow
-  async update(id: string, nodes: Node[], edges: Edge[], meta?: Partial<WorkflowMeta>) {
-    const workflow = convertToBackendFormat(nodes, edges, { ...meta, id })
-    const response = await apiClient.put(`/update/${id}`, workflow)
+  // Save workflow
+  async save(data: any) {
+    const id = data.id
+    const endpoint = id ? `/update/${id}` : '/create'
+    const method = id ? 'put' : 'post'
+
+    // Check if nodes are already in backend format
+    const isBackendFormat = data.nodes?.[0]?.node_type !== undefined
+
+    const payload =
+      data.nodes && Array.isArray(data.nodes) && !isBackendFormat
+        ? convertToBackendFormat(data.nodes, data.edges, data)
+        : data
+
+    const response = await apiClient[method](endpoint, payload)
     return response.data
   },
 
   // Delete workflow
   async delete(id: string) {
     const response = await apiClient.delete(`/delete/${id}`)
-    return response.data
-  },
-
-  // Execute workflow by ID
-  async executeById(id: string) {
-    const response = await apiClient.post(`/execute/${id}`)
-    return response.data
-  },
-
-  // Create workflow directly
-  async create(workflowData: any) {
-    const response = await apiClient.post('/create', workflowData)
     return response.data
   },
 }
