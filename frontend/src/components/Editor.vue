@@ -7,7 +7,9 @@ import { MiniMap } from '@vue-flow/minimap'
 import { storeToRefs } from 'pinia'
 import { reactive, ref } from 'vue'
 import { useDragAndDrop } from '../composables/node/useDragAndDrop'
+import { useEdgeOperations } from '../composables/node/useEdgeOperations'
 import { useNodeOperations } from '../composables/node/useNodeOperations'
+import { useVueFlowHandlers } from '../composables/workflow/useVueFlowHandlers'
 import { useWorkflowExecution } from '../composables/workflow/useWorkflowExecution'
 import { AgentNode, HttpNode, ManualTriggerNode } from '../nodes'
 import { useWorkflowStore } from '../stores/workflowStore'
@@ -19,7 +21,9 @@ import NodeToolbar from './NodeToolbar.vue'
 const workflowStore = useWorkflowStore()
 const { isExecuting } = storeToRefs(workflowStore)
 const { handleDrop, handleDragOver } = useDragAndDrop()
-const { createNode } = useNodeOperations()
+const { createNode, updateNodePosition, deleteNode, clearAll } = useNodeOperations()
+const { addEdge } = useEdgeOperations()
+const { handleEdgesChange, handleNodesChange } = useVueFlowHandlers()
 const { executeCurrentWorkflow } = useWorkflowExecution()
 
 // Use VueFlow hooks for interaction
@@ -28,6 +32,7 @@ const {
   onPaneContextMenu,
   onNodeContextMenu,
   onNodeDoubleClick,
+  onNodeDragStop,
   onPaneReady,
   setViewport,
   updateNode,
@@ -54,12 +59,17 @@ onConnect((connection: Connection) => {
     target: connection.target!,
     animated: true,
   }
-  workflowStore.addEdge(newEdge)
+  addEdge(newEdge)
 })
 
 // Handle node double click to open config panel
 onNodeDoubleClick(({ node }) => {
   selectedNode.value = node
+})
+
+// Handle node drag stop to mark as dirty
+onNodeDragStop(({ node }) => {
+  updateNodePosition(node.id, node.position)
 })
 
 // Handle node update from config panel
@@ -124,14 +134,14 @@ onNodeContextMenu(({ event, node }) => {
 // Handle delete node from context menu
 const handleDeleteNode = () => {
   if (contextMenu.nodeId) {
-    workflowStore.removeNode(contextMenu.nodeId)
+    deleteNode(contextMenu.nodeId)
   }
   contextMenu.show = false
 }
 
 // Handle clear canvas from context menu
 const handleClearCanvas = () => {
-  workflowStore.clearCanvas()
+  clearAll()
   contextMenu.show = false
 }
 
@@ -175,6 +185,8 @@ function resetTransform() {
       :max-zoom="4"
       @drop="handleDrop"
       @dragover="handleDragOver"
+      @edges-change="handleEdgesChange"
+      @nodes-change="handleNodesChange"
     >
       <!-- <Background /> -->
 

@@ -25,7 +25,7 @@ const toggleCollapse = () => {
 // Handle menu selection
 const handleMenuSelect = (index: string) => {
   activeMenu.value = index
-  
+
   // Navigate to the corresponding route
   switch (index) {
     case 'workflows':
@@ -50,7 +50,7 @@ watch(
       activeMenu.value = 'agents'
     }
   },
-  { immediate: true }
+  { immediate: true },
 )
 </script>
 
