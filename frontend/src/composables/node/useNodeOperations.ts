@@ -17,6 +17,12 @@ export function useNodeOperations() {
   
   // Single source of truth for node ID generation
   const nodeIdCounter = ref(Date.now())
+  
+  // Expose reactive references for v-model binding
+  const nodes = computed({
+    get: () => workflowStore.nodes,
+    set: (value) => { workflowStore.nodes = value }
+  })
 
   /**
    * Get node by ID
@@ -301,6 +307,7 @@ export function useNodeOperations() {
 
   return {
     // State
+    nodes,
     selectedNodeId,
     selectedNode,
     copiedNode,

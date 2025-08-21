@@ -1,8 +1,15 @@
 import type { Edge } from '@vue-flow/core'
+import { computed } from 'vue'
 import { useWorkflowStore } from '../../stores/workflowStore'
 
 export function useEdgeOperations() {
   const workflowStore = useWorkflowStore()
+  
+  // Expose reactive references for v-model binding
+  const edges = computed({
+    get: () => workflowStore.edges,
+    set: (value) => { workflowStore.edges = value }
+  })
 
   /**
    * Add a new edge
@@ -43,6 +50,7 @@ export function useEdgeOperations() {
   }
 
   return {
+    edges,
     addEdge,
     removeEdge,
     removeEdges,
