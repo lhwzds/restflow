@@ -4,27 +4,25 @@ import { ControlButton, Controls } from '@vue-flow/controls'
 import type { Connection, Edge } from '@vue-flow/core'
 import { VueFlow, useVueFlow } from '@vue-flow/core'
 import { MiniMap } from '@vue-flow/minimap'
-import { storeToRefs } from 'pinia'
-import { reactive, ref } from 'vue'
+import { ref } from 'vue'
 import { useDragAndDrop } from '../composables/node/useDragAndDrop'
 import { useEdgeOperations } from '../composables/node/useEdgeOperations'
 import { useNodeOperations } from '../composables/node/useNodeOperations'
+import { useContextMenu } from '../composables/ui/useContextMenu'
 import { useVueFlowHandlers } from '../composables/workflow/useVueFlowHandlers'
 import { useWorkflowExecution } from '../composables/workflow/useWorkflowExecution'
 import { AgentNode, HttpNode, ManualTriggerNode } from '../nodes'
-import { useWorkflowStore } from '../stores/workflowStore'
 import Icon from './Icon.vue'
 import NodeConfigPanel from './NodeConfigPanel.vue'
 import NodeToolbar from './NodeToolbar.vue'
 
-// Use Pinia store and composables
-const workflowStore = useWorkflowStore()
-const { isExecuting } = storeToRefs(workflowStore)
+// Use composables
 const { handleDrop, handleDragOver } = useDragAndDrop()
-const { createNode, updateNodePosition, deleteNode, clearAll } = useNodeOperations()
-const { addEdge } = useEdgeOperations()
+const { nodes, createNode, updateNodePosition, deleteNode, clearAll, updateNodeData } =
+  useNodeOperations()
+const { edges, addEdge } = useEdgeOperations()
 const { handleEdgesChange, handleNodesChange } = useVueFlowHandlers()
-const { executeCurrentWorkflow } = useWorkflowExecution()
+const { isExecuting, executeCurrentWorkflow } = useWorkflowExecution()
 
 // Use VueFlow hooks for interaction
 const {
@@ -33,23 +31,11 @@ const {
   onNodeContextMenu,
   onNodeDoubleClick,
   onNodeDragStop,
-  onPaneReady,
   setViewport,
-  updateNode,
 } = useVueFlow()
 
 // Selected node for configuration panel
 const selectedNode = ref<any>(null)
-
-// Emit event when VueFlow is ready
-const emit = defineEmits<{
-  ready: []
-}>()
-
-// Notify parent when pane is ready
-onPaneReady(() => {
-  emit('ready')
-})
 
 // Handle connections between nodes
 onConnect((connection: Connection) => {
@@ -72,20 +58,9 @@ onNodeDragStop(({ node }) => {
   updateNodePosition(node.id, node.position)
 })
 
-// Handle node update from config panel
-const handleNodeUpdate = (updatedNode: any) => {
-  updateNode(updatedNode.id, updatedNode)
-  workflowStore.updateNodeData(updatedNode.id, updatedNode.data)
-}
-
 // Close config panel
 const closeConfigPanel = () => {
   selectedNode.value = null
-}
-
-// Add node at specific position (for toolbar clicks)
-const addNodeAtPosition = (template: any, position: { x: number; y: number }) => {
-  createNode(template, position)
 }
 
 // Handle toolbar click to add node
@@ -95,59 +70,35 @@ const handleAddNode = (template: any) => {
     x: 250 + Math.random() * 100,
     y: 150 + Math.random() * 100,
   }
-  addNodeAtPosition(template, position)
+  createNode(template, position)
 }
 
-// Context menu state - simplified
-const contextMenu = reactive({
-  show: false,
-  x: 0,
-  y: 0,
-  nodeId: null as string | null,
-})
+// Context menu management
+const { state: contextMenu, show: showContextMenu, hide: hideContextMenu } = useContextMenu()
 
 // Canvas context menu
-onPaneContextMenu((event: MouseEvent) => {
-  event.preventDefault()
-  Object.assign(contextMenu, {
-    show: true,
-    x: event.clientX,
-    y: event.clientY,
-    nodeId: null,
-  })
-})
+onPaneContextMenu((event: MouseEvent) => showContextMenu(event))
 
 // Node context menu
-onNodeContextMenu(({ event, node }) => {
-  event.preventDefault()
-  const x = 'clientX' in event ? event.clientX : (event as TouchEvent).touches[0]?.clientX || 0
-  const y = 'clientY' in event ? event.clientY : (event as TouchEvent).touches[0]?.clientY || 0
-
-  Object.assign(contextMenu, {
-    show: true,
-    x,
-    y,
-    nodeId: node.id,
-  })
-})
+onNodeContextMenu(({ event, node }) => showContextMenu(event, node.id))
 
 // Handle delete node from context menu
 const handleDeleteNode = () => {
   if (contextMenu.nodeId) {
     deleteNode(contextMenu.nodeId)
   }
-  contextMenu.show = false
+  hideContextMenu()
 }
 
 // Handle clear canvas from context menu
 const handleClearCanvas = () => {
   clearAll()
-  contextMenu.show = false
+  hideContextMenu()
 }
 
 // Close context menu when clicking elsewhere
 const handlePaneClick = () => {
-  contextMenu.show = false
+  hideContextMenu()
 }
 
 // Execute workflow
@@ -177,8 +128,8 @@ function resetTransform() {
 
     <!-- Workflow Canvas -->
     <VueFlow
-      v-model:nodes="workflowStore.nodes"
-      v-model:edges="workflowStore.edges"
+      v-model:nodes="nodes"
+      v-model:edges="edges"
       class="basic-flow"
       :default-viewport="{ zoom: 1.5 }"
       :min-zoom="0.2"
@@ -226,7 +177,11 @@ function resetTransform() {
     </div>
 
     <!-- Node Configuration Panel -->
-    <NodeConfigPanel :node="selectedNode" @update="handleNodeUpdate" @close="closeConfigPanel" />
+    <NodeConfigPanel
+      :node="selectedNode"
+      @update="(node: any) => updateNodeData(node.id, node.data)"
+      @close="closeConfigPanel"
+    />
   </div>
 </template>
 
