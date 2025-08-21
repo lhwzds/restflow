@@ -8,6 +8,7 @@ interface WorkflowState {
   isExecuting: boolean
   executionResult: any
   executionError: string | null
+  hasUnsavedChanges: boolean
 }
 
 export const useWorkflowStore = defineStore('workflow', {
@@ -17,6 +18,7 @@ export const useWorkflowStore = defineStore('workflow', {
     isExecuting: false,
     executionResult: null,
     executionError: null,
+    hasUnsavedChanges: false,
   }),
 
   getters: {
@@ -37,24 +39,33 @@ export const useWorkflowStore = defineStore('workflow', {
     // Add a single node
     addNode(node: Node) {
       this.nodes.push(node)
+      this.hasUnsavedChanges = true
     },
 
     // Remove a node and its edges
     removeNode(nodeId: string) {
       this.nodes = this.nodes.filter((n) => n.id !== nodeId)
       this.edges = this.edges.filter((e) => e.source !== nodeId && e.target !== nodeId)
+      this.hasUnsavedChanges = true
     },
 
     // Add an edge
     addEdge(edge: Edge) {
       this.edges.push(edge)
+      this.hasUnsavedChanges = true
     },
 
+    // Remove an edge
+    removeEdge(edgeId: string) {
+      this.edges = this.edges.filter((e) => e.id !== edgeId)
+      this.hasUnsavedChanges = true
+    },
 
     // Clear all nodes and edges
     clearCanvas() {
       this.nodes = []
       this.edges = []
+      this.hasUnsavedChanges = false
       this.clearExecutionState()
     },
 
@@ -63,6 +74,7 @@ export const useWorkflowStore = defineStore('workflow', {
       const node = this.nodes.find((n) => n.id === nodeId)
       if (node) {
         node.data = { ...node.data, ...data }
+        this.hasUnsavedChanges = true
       }
     },
 
@@ -82,7 +94,18 @@ export const useWorkflowStore = defineStore('workflow', {
     loadWorkflow(nodes: Node[], edges: Edge[]) {
       this.nodes = nodes || []
       this.edges = edges || []
+      this.hasUnsavedChanges = false
       this.clearExecutionState()
+    },
+
+    // Mark as saved
+    markAsSaved() {
+      this.hasUnsavedChanges = false
+    },
+
+    // Mark as dirty
+    markAsDirty() {
+      this.hasUnsavedChanges = true
     },
   },
 })

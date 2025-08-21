@@ -1,7 +1,16 @@
 <script setup lang="ts">
 import { ArrowLeft, Check, Document, FolderOpened } from '@element-plus/icons-vue'
-import { ElButton, ElDialog, ElForm, ElFormItem, ElInput, ElMessage, ElPageHeader, ElTag } from 'element-plus'
-import { computed, onMounted, ref, watch } from 'vue'
+import {
+  ElButton,
+  ElDialog,
+  ElForm,
+  ElFormItem,
+  ElInput,
+  ElMessage,
+  ElPageHeader,
+  ElTag,
+} from 'element-plus'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import Editor from '../components/Editor.vue'
 import { useKeyboardShortcuts } from '../composables/shared/useKeyboardShortcuts'
@@ -30,7 +39,7 @@ const { exportWorkflow, importWorkflow } = useWorkflowImportExport({
 // Local state
 const saveDialogVisible = ref(false)
 
-// Initialize without marking as unsaved
+// Use unsaved changes composable
 const unsavedChanges = useUnsavedChanges()
 
 // Computed properties
@@ -62,6 +71,7 @@ const handleSave = async () => {
 
     // Update URL for new workflows
     if (!route.params.id && result.id) {
+      currentWorkflowId.value = result.id
       router.replace(`/workflow/${result.id}`)
     }
   }
@@ -88,37 +98,53 @@ const handleImport = () => {
   importWorkflow()
 }
 
-// Handle VueFlow ready event - set up change tracking after VueFlow initializes
-const onFlowReady = () => {
-  // Set up change detection only after VueFlow is ready
-  watch(
-    [() => workflowStore.nodes, () => workflowStore.edges],
-    () => unsavedChanges.markAsDirty(),
-    { deep: true }
-  )
-}
+// Initialize workflow based on route
+const initializeWorkflow = async () => {
+  const workflowId = route.params.id as string
 
-// Initialization
-onMounted(async () => {
-  if (route.params.id) {
-    // Loading existing workflow
-    const result = await loadWorkflow(route.params.id as string)
+  if (workflowId) {
+    const result = await loadWorkflow(workflowId)
     if (result.success) {
-      // Mark as saved after load
       unsavedChanges.markAsSaved()
     } else {
       router.push('/workflows')
     }
   } else {
-    // New workflow
     workflowStore.clearCanvas()
     currentWorkflowMeta.value = {
       name: 'Untitled Workflow',
     }
-    
-    // Mark new workflows as unsaved
-    unsavedChanges.markAsDirty()
+    currentWorkflowId.value = null
+    unsavedChanges.markAsSaved() // Start with saved state for new workflow
   }
+}
+
+// Watch for route changes to reinitialize
+watch(
+  () => route.params.id,
+  (newId, oldId) => {
+    if (newId !== oldId) {
+      if (!oldId && newId === currentWorkflowId.value) {
+        // From new workflow to saved workflow after save
+        return
+      }
+      initializeWorkflow()
+    }
+  },
+)
+
+// Initial mount
+onMounted(() => {
+  initializeWorkflow()
+})
+
+// Clean up on unmount
+onUnmounted(() => {
+  // Clear everything when leaving workflow editor
+  workflowStore.clearCanvas()
+  currentWorkflowId.value = null
+  currentWorkflowMeta.value = {}
+  unsavedChanges.markAsSaved()
 })
 </script>
 
@@ -149,7 +175,7 @@ onMounted(async () => {
     </ElPageHeader>
 
     <div class="editor-container">
-      <Editor @ready="onFlowReady" />
+      <Editor />
     </div>
 
     <!-- Save Dialog for new workflows -->
