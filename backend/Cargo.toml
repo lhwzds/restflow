@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 anyhow = "1.0.99"
+async-trait = "0.1.89"
 axum = { version = "0.8.4", features = ["macros"] }
 chrono = "0.4.41"
 mime_guess = "2.0.5"

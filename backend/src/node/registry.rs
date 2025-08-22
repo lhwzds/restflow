@@ -1,0 +1,124 @@
+use std::collections::HashMap;
+use std::sync::Arc;
+use async_trait::async_trait;
+use serde_json::Value;
+use crate::core::workflow::NodeType;
+use crate::engine::context::ExecutionContext;
+
+#[async_trait]
+pub trait NodeExecutor: Send + Sync {
+    async fn execute(&self, config: &Value, context: &mut ExecutionContext) -> Result<Value, String>;
+}
+
+pub struct NodeRegistry {
+    executors: HashMap<NodeType, Arc<dyn NodeExecutor>>,
+}
+
+impl NodeRegistry {
+    pub fn new() -> Self {
+        let mut registry = Self {
+            executors: HashMap::new(),
+        };
+        
+        registry.register(NodeType::ManualTrigger, Arc::new(ManualTriggerExecutor));
+        registry.register(NodeType::HttpRequest, Arc::new(HttpRequestExecutor));
+        registry.register(NodeType::Print, Arc::new(PrintExecutor));
+        registry.register(NodeType::Agent, Arc::new(AgentExecutor));
+        
+        registry
+    }
+    
+    pub fn register(&mut self, node_type: NodeType, executor: Arc<dyn NodeExecutor>) {
+        self.executors.insert(node_type, executor);
+    }
+    
+    pub fn get(&self, node_type: &NodeType) -> Option<Arc<dyn NodeExecutor>> {
+        self.executors.get(node_type).cloned()
+    }
+}
+
+struct ManualTriggerExecutor;
+
+#[async_trait]
+impl NodeExecutor for ManualTriggerExecutor {
+    async fn execute(&self, _config: &Value, _context: &mut ExecutionContext) -> Result<Value, String> {
+        Ok(serde_json::json!({
+            "status": "triggered",
+            "timestamp": chrono::Utc::now().to_rfc3339()
+        }))
+    }
+}
+
+struct HttpRequestExecutor;
+
+#[async_trait]
+impl NodeExecutor for HttpRequestExecutor {
+    async fn execute(&self, config: &Value, _context: &mut ExecutionContext) -> Result<Value, String> {
+        let url = config["url"].as_str().ok_or("URL not found in config")?;
+        let method = config["method"].as_str().unwrap_or("GET");
+        
+        let client = reqwest::Client::new();
+        let response = match method {
+            "GET" => self.send_get(client, url).await?,
+            "POST" => self.send_post(client, url).await?,
+            _ => return Err(format!("Unsupported HTTP method: {}", method)),
+        };
+        
+        Ok(serde_json::json!({
+            "status": 200,
+            "body": response
+        }))
+    }
+}
+
+impl HttpRequestExecutor {
+    async fn send_get(&self, client: reqwest::Client, url: &str) -> Result<String, String> {
+        client.get(url)
+            .send().await
+            .and_then(|r| r.error_for_status())
+            .map_err(|e| format!("GET request failed: {}", e))?
+            .text().await
+            .map_err(|e| format!("Failed to read response body: {}", e))
+    }
+    
+    async fn send_post(&self, client: reqwest::Client, url: &str) -> Result<String, String> {
+        client.post(url)
+            .send().await
+            .and_then(|r| r.error_for_status())
+            .map_err(|e| format!("POST request failed: {}", e))?
+            .text().await
+            .map_err(|e| format!("Failed to read response body: {}", e))
+    }
+}
+
+struct PrintExecutor;
+
+#[async_trait]
+impl NodeExecutor for PrintExecutor {
+    async fn execute(&self, config: &Value, _context: &mut ExecutionContext) -> Result<Value, String> {
+        let message = config["message"].as_str().unwrap_or("No message provided");
+        println!("{}", message);
+        
+        Ok(serde_json::json!({
+            "printed": message
+        }))
+    }
+}
+
+struct AgentExecutor;
+
+#[async_trait]
+impl NodeExecutor for AgentExecutor {
+    async fn execute(&self, config: &Value, _context: &mut ExecutionContext) -> Result<Value, String> {
+        use crate::node::agent::AgentNode;
+        
+        let agent = AgentNode::from_config(config)?;
+        let input = config["input"].as_str().unwrap_or("Hello");
+        let response = agent.execute(input).await
+            .map_err(|e| format!("Agent execution failed: {}", e))?;
+        
+        Ok(serde_json::json!({
+            "response": response
+        }))
+    }
+}
