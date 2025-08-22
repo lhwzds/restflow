@@ -29,7 +29,7 @@ pub struct Edge {
     pub to: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum NodeType {
     ManualTrigger,
     Agent,

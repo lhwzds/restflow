@@ -22,6 +22,40 @@ impl AgentNode {
         }
     }
 
+    pub fn from_config(config: &serde_json::Value) -> Result<Self, String> {
+        let model = config["model"]
+            .as_str()
+            .ok_or("Model missing in config")?
+            .to_string();
+
+        let prompt = config["prompt"]
+            .as_str()
+            .ok_or("Prompt missing in config")?
+            .to_string();
+
+        let temperature = config["temperature"]
+            .as_f64()
+            .ok_or("Temperature missing in config")?;
+
+        let api_key = config["api_key"].as_str().map(|s| s.to_string());
+
+        let tools = config["tools"]
+            .as_array()
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            });
+
+        Ok(Self {
+            model,
+            prompt,
+            temperature,
+            api_key,
+            tools,
+        })
+    }
+
     pub async fn execute(&self, input: &str) -> Result<String, Box<dyn std::error::Error>> {
         let api_key = self
             .api_key
