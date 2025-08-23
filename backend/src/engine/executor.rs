@@ -5,6 +5,7 @@ use crate::storage::{Storage, WorkflowTask};
 use serde_json::Value;
 use std::sync::Arc;
 use tokio::task::JoinSet;
+use uuid::Uuid;
 
 pub struct WorkflowExecutor {
     workflow: Workflow,
@@ -53,7 +54,7 @@ impl WorkflowExecutor {
             });
         }
         
-        self.collect_task_results(tasks).await
+        self.await_and_merge_results(tasks).await
     }
 
     async fn execute_node(
@@ -70,7 +71,8 @@ impl WorkflowExecutor {
         executor.execute(&config, context).await
     }
 
-    async fn collect_task_results(&mut self, mut tasks: JoinSet<(String, Result<Value, String>, ExecutionContext)>) -> Result<(), String> {
+    // KISS: Wait for parallel nodes to complete and merge their results
+    async fn await_and_merge_results(&mut self, mut tasks: JoinSet<(String, Result<Value, String>, ExecutionContext)>) -> Result<(), String> {
         while let Some(result) = tasks.join_next().await {
             let (node_id, execution_result, node_context) = result
                 .map_err(|e| format!("Task join error: {}", e))?;
@@ -127,6 +129,7 @@ impl WorkflowExecutor {
 pub struct AsyncWorkflowExecutor {
     storage: Arc<Storage>,
     running: Arc<tokio::sync::Mutex<bool>>,
+    registry: Arc<crate::node::registry::NodeRegistry>,  // KISS: Reuse registry
 }
 
 impl AsyncWorkflowExecutor {
@@ -134,6 +137,7 @@ impl AsyncWorkflowExecutor {
         Self {
             storage,
             running: Arc::new(tokio::sync::Mutex::new(false)),
+            registry: Arc::new(crate::node::registry::NodeRegistry::new()),
         }
     }
 
@@ -164,12 +168,13 @@ impl AsyncWorkflowExecutor {
     async fn spawn_worker(&self) {
         let storage = self.storage.clone();
         let running = self.running.clone();
+        let registry = self.registry.clone();
 
         tokio::spawn(async move {
             println!("Async workflow executor started");
             
             while *running.lock().await {
-                if let Err(e) = Self::process_next_task(&storage).await {
+                if let Err(e) = Self::process_next_task(&storage, &registry).await {
                     eprintln!("Error processing task: {}", e);
                     tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
                 }
@@ -179,32 +184,80 @@ impl AsyncWorkflowExecutor {
         });
     }
 
-    async fn process_next_task(storage: &Arc<Storage>) -> Result<(), String> {
+    async fn process_next_task(storage: &Arc<Storage>, registry: &Arc<crate::node::registry::NodeRegistry>) -> Result<(), String> {
         let task = storage.queue.pop().await
             .map_err(|e| format!("Failed to get task: {}", e))?;
         
         println!("Processing task: {}", task.id);
         
         let storage_clone = storage.clone();
+        let registry_clone = registry.clone();
         tokio::spawn(async move {
-            Self::execute_task(storage_clone, task).await;
+            Self::execute_task(storage_clone, task, registry_clone).await;
         });
         
         Ok(())
     }
 
-    async fn execute_task(storage: Arc<Storage>, task: WorkflowTask) {
-        let result = Self::run_workflow(&storage, &task.workflow_id).await;
+    async fn execute_task(storage: Arc<Storage>, task: WorkflowTask, registry: Arc<crate::node::registry::NodeRegistry>) {
+        // All tasks are node tasks - execute and chain
+        let result = Self::execute_and_queue_next(
+            storage.clone(),
+            task.node,
+            task.workflow,
+            task.execution_id,
+            task.context,
+            task.input,
+            registry
+        ).await;
+        
         Self::update_task_status(storage, task.id, result).await;
     }
 
-    async fn run_workflow(storage: &Arc<Storage>, workflow_id: &str) -> Result<Value, String> {
-        let workflow = storage.workflows.get_workflow(workflow_id)
-            .map_err(|e| format!("Failed to load workflow: {}", e))?
-            .ok_or_else(|| format!("Workflow {} not found", workflow_id))?;
+    // KISS: Execute node and queue downstream nodes that are ready
+    async fn execute_and_queue_next(
+        storage: Arc<Storage>,
+        node: Node,
+        workflow: Workflow,
+        execution_id: String,
+        mut context: ExecutionContext,
+        _input: Value,
+        registry: Arc<crate::node::registry::NodeRegistry>
+    ) -> Result<Value, String> {
+        // Execute the node
+        let executor = registry.get(&node.node_type)
+            .ok_or_else(|| format!("No executor for node type: {:?}", node.node_type))?;
         
-        let mut executor = WorkflowExecutor::new(workflow);
-        executor.execute().await
+        let config = context.interpolate_value(&node.config);
+        let output = executor.execute(&config, &mut context).await?;
+        
+        // Update context with node output
+        context.set_node_output(node.id.clone(), output.clone());
+        
+        // Find downstream nodes
+        let graph = WorkflowGraph::from_workflow(&workflow);
+        let downstream_nodes = graph.get_downstream_nodes(&node.id);
+        
+        // Queue downstream nodes if their dependencies are met
+        for downstream_id in downstream_nodes {
+            if let Some(downstream_node) = graph.get_node(&downstream_id) {
+                // Check if all dependencies are satisfied
+                let dependencies = graph.get_dependencies(&downstream_id);
+                let all_deps_met = dependencies.iter().all(|dep| context.node_outputs.contains_key(dep));
+                
+                if all_deps_met {
+                    storage.queue.push(
+                        execution_id.clone(),
+                        downstream_node.clone(),
+                        workflow.clone(),
+                        context.clone(),
+                        Value::Null  // Downstream nodes get input from context
+                    ).map_err(|e| format!("Failed to queue downstream node: {}", e))?;
+                }
+            }
+        }
+        
+        Ok(output)
     }
 
     async fn update_task_status(storage: Arc<Storage>, task_id: String, result: Result<Value, String>) {
@@ -225,8 +278,44 @@ impl AsyncWorkflowExecutor {
     }
 
     pub async fn submit(&self, workflow_id: String, input: Value) -> Result<String, String> {
-        self.storage.queue.push(workflow_id, input)
-            .map_err(|e| format!("Failed to submit task: {}", e))
+        // Load workflow
+        let workflow = self.storage.workflows.get_workflow(&workflow_id)
+            .map_err(|e| format!("Failed to load workflow: {}", e))?
+            .ok_or_else(|| format!("Workflow {} not found", workflow_id))?;
+        
+        // Decompose workflow into start node tasks
+        let execution_id = Uuid::new_v4().to_string();
+        let graph = WorkflowGraph::from_workflow(&workflow);
+        let start_nodes = graph.get_nodes_with_no_dependencies();
+        
+        if start_nodes.is_empty() {
+            return Err("No start nodes found in workflow".to_string());
+        }
+        
+        // Create initial context
+        let mut context = ExecutionContext::new(execution_id.clone());
+        context.set_variable("input".to_string(), input.clone());
+        
+        // Push start nodes to queue
+        for node_id in start_nodes {
+            if let Some(node) = graph.get_node(&node_id) {
+                self.storage.queue.push(
+                    execution_id.clone(),
+                    node.clone(),
+                    workflow.clone(),
+                    context.clone(),
+                    input.clone()
+                ).map_err(|e| format!("Failed to queue node: {}", e))?;
+            }
+        }
+        
+        Ok(execution_id)
+    }
+    
+    pub async fn submit_node(&self, node: Node, input: Value) -> Result<String, String> {
+        // Submit single node for execution
+        self.storage.queue.push_single_node(node, input)
+            .map_err(|e| format!("Failed to submit node: {}", e))
     }
 
     pub async fn get_task_status(&self, task_id: &str) -> Result<Option<WorkflowTask>, String> {

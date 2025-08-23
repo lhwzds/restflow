@@ -5,9 +5,12 @@ use serde_json::Value;
 use std::sync::Arc;
 use tokio::sync::Notify;
 use uuid::Uuid;
+use crate::core::workflow::{Node, Workflow};
+use crate::engine::context::ExecutionContext;
 
-// Database tables for task queue
-const PENDING_QUEUE: TableDefinition<u64, &[u8]> = TableDefinition::new("pending");
+// KISS: Three-table design achieves O(1) pop vs single table's O(n) scan - simpler and faster
+
+const PENDING: TableDefinition<u64, &[u8]> = TableDefinition::new("pending");
 const PROCESSING: TableDefinition<&str, &[u8]> = TableDefinition::new("processing");
 const COMPLETED: TableDefinition<&str, &[u8]> = TableDefinition::new("completed");
 
@@ -22,10 +25,14 @@ pub enum TaskStatus {
     Failed,
 }
 
+// KISS: Everything is a node task - workflows are just decomposed at submission
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkflowTask {
     pub id: String,
-    pub workflow_id: String,
+    pub execution_id: String,  // Groups nodes from same workflow execution
+    pub node: Node,            // The node to execute
+    pub workflow: Workflow,    // Complete workflow for finding downstream nodes
+    pub context: ExecutionContext,  // Accumulated execution context
     pub status: TaskStatus,
     pub created_at: i64,
     pub started_at: Option<i64>,
@@ -36,11 +43,20 @@ pub struct WorkflowTask {
 }
 
 impl WorkflowTask {
-    /// Create a new workflow task
-    pub fn new(workflow_id: String, input: Value) -> Self {
+    /// Create a node task
+    pub fn new(
+        execution_id: String,
+        node: Node,
+        workflow: Workflow,
+        context: ExecutionContext,
+        input: Value,
+    ) -> Self {
         Self {
             id: Uuid::new_v4().to_string(),
-            workflow_id,
+            execution_id,
+            node,
+            workflow,
+            context,
             status: TaskStatus::Pending,
             created_at: chrono::Utc::now().timestamp(),
             started_at: None,
@@ -50,19 +66,35 @@ impl WorkflowTask {
             error: None,
         }
     }
+    
+    /// Create a single node task for standalone execution
+    pub fn new_single_node(node: Node, input: Value) -> Self {
+        // For single node, create a minimal workflow
+        let workflow = Workflow {
+            id: format!("single-{}", node.id),
+            name: format!("Single Node: {}", node.id),
+            nodes: vec![node.clone()],
+            edges: vec![],
+        };
+        
+        let execution_id = Uuid::new_v4().to_string();
+        let context = ExecutionContext::new(execution_id.clone());
+        
+        Self::new(execution_id, node, workflow, context, input)
+    }
 }
 
-pub struct SimpleTaskQueue {
+pub struct TaskQueue {
     db: Arc<Database>,
     notify: Arc<Notify>,
 }
 
-impl SimpleTaskQueue {
+impl TaskQueue {
     /// Create a new task queue instance
     pub fn new(db: Arc<Database>) -> Result<Self> {
         // Ensure tables exist
         let write_txn = db.begin_write()?;
-        write_txn.open_table(PENDING_QUEUE)?;
+        write_txn.open_table(PENDING)?;
         write_txn.open_table(PROCESSING)?;
         write_txn.open_table(COMPLETED)?;
         write_txn.commit()?;
@@ -73,23 +105,47 @@ impl SimpleTaskQueue {
         })
     }
 
-    /// Add a new task to the queue
-    pub fn push(&self, workflow_id: String, input: Value) -> Result<String> {
-        let task = WorkflowTask::new(workflow_id, input);
+    /// Add a node task to the queue
+    pub fn push(&self, 
+        execution_id: String,
+        node: Node, 
+        workflow: Workflow, 
+        context: ExecutionContext, 
+        input: Value
+    ) -> Result<String> {
+        let task = WorkflowTask::new(execution_id, node, workflow, context, input);
         let task_id = task.id.clone();
 
         let write_txn = self.db.begin_write()?;
         {
-            let mut table = write_txn.open_table(PENDING_QUEUE)?;
+            let mut table = write_txn.open_table(PENDING)?;
             
-            // Use timestamp as priority for FIFO ordering
             let priority = chrono::Utc::now().timestamp_millis() as u64;
             let serialized = serde_json::to_vec(&task)?;
             table.insert(priority, serialized.as_slice())?;
         }
         write_txn.commit()?;
         
-        // Notify waiting consumers
+        self.notify.notify_one();
+        
+        Ok(task_id)
+    }
+    
+    /// Add a single node task for standalone execution  
+    pub fn push_single_node(&self, node: Node, input: Value) -> Result<String> {
+        let task = WorkflowTask::new_single_node(node, input);
+        let task_id = task.id.clone();
+
+        let write_txn = self.db.begin_write()?;
+        {
+            let mut table = write_txn.open_table(PENDING)?;
+            
+            let priority = chrono::Utc::now().timestamp_millis() as u64;
+            let serialized = serde_json::to_vec(&task)?;
+            table.insert(priority, serialized.as_slice())?;
+        }
+        write_txn.commit()?;
+        
         self.notify.notify_one();
         
         Ok(task_id)
@@ -115,7 +171,7 @@ impl SimpleTaskQueue {
         
         // Get first pending task
         let task = {
-            let pending = write_txn.open_table(PENDING_QUEUE)?;
+            let pending = write_txn.open_table(PENDING)?;
             if let Some((key, value)) = pending.first()? {
                 let task: WorkflowTask = serde_json::from_slice(value.value())?;
                 Some((key.value(), task))
@@ -132,7 +188,7 @@ impl SimpleTaskQueue {
             
             // Remove from pending
             {
-                let mut pending = write_txn.open_table(PENDING_QUEUE)?;
+                let mut pending = write_txn.open_table(PENDING)?;
                 pending.remove(&key)?;
             }
             
@@ -224,7 +280,7 @@ impl SimpleTaskQueue {
         }
         
         // Check pending table (requires iteration)
-        let pending = read_txn.open_table(PENDING_QUEUE)?;
+        let pending = read_txn.open_table(PENDING)?;
         for entry in pending.iter()? {
             let (_, value) = entry?;
             let task: WorkflowTask = serde_json::from_slice(value.value())?;
@@ -243,7 +299,7 @@ impl SimpleTaskQueue {
         
         // Check pending tasks
         if status.is_none() || status == Some(TaskStatus::Pending) {
-            let pending = read_txn.open_table(PENDING_QUEUE)?;
+            let pending = read_txn.open_table(PENDING)?;
             for entry in pending.iter()? {
                 let (_, value) = entry?;
                 let task: WorkflowTask = serde_json::from_slice(value.value())?;
@@ -319,7 +375,7 @@ impl SimpleTaskQueue {
                 task.status = TaskStatus::Pending;
                 task.started_at = None;
                 
-                let mut pending = write_txn.open_table(PENDING_QUEUE)?;
+                let mut pending = write_txn.open_table(PENDING)?;
                 let priority = chrono::Utc::now().timestamp_millis() as u64;
                 let serialized = serde_json::to_vec(&task)?;
                 pending.insert(priority, serialized.as_slice())?;
@@ -344,7 +400,7 @@ impl SimpleTaskQueue {
         workflow_id: Option<&str>,
         status: Option<&TaskStatus>,
     ) -> bool {
-        workflow_id.map_or(true, |id| task.workflow_id == id)
+        workflow_id.map_or(true, |id| task.workflow.id == id)
             && status.map_or(true, |s| &task.status == s)
     }
 }

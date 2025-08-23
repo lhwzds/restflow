@@ -124,8 +124,17 @@ impl WorkflowGraph {
         }
         deps
     }
-
-    pub fn get_dependents(&self, node_id: &str) -> Vec<String> {
+    
+    pub fn get_nodes_with_no_dependencies(&self) -> Vec<String> {
+        self.in_degree
+            .iter()
+            .filter(|(_, degree)| **degree == 0)
+            .map(|(id, _)| id.clone())
+            .collect()
+    }
+    
+    // KISS: Single method for getting downstream nodes (removed duplicate get_dependents)
+    pub fn get_downstream_nodes(&self, node_id: &str) -> Vec<String> {
         self.adjacency
             .get(node_id)
             .cloned()

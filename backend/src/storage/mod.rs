@@ -1,16 +1,16 @@
-pub mod simple_queue;
+pub mod queue;
 pub mod workflow;
 
 use redb::Database;
 use std::sync::Arc;
 
-pub use simple_queue::{SimpleTaskQueue, TaskStatus, WorkflowTask};
+pub use queue::{TaskQueue, TaskStatus, WorkflowTask};
 pub use workflow::WorkflowStorage;
 
 pub struct Storage {
     db: Arc<Database>,
     pub workflows: WorkflowStorage,
-    pub queue: SimpleTaskQueue,
+    pub queue: TaskQueue,
 }
 
 impl Storage {
@@ -22,7 +22,7 @@ impl Storage {
         write_txn.commit()?;
 
         let workflows = WorkflowStorage::new(db.clone());
-        let queue = SimpleTaskQueue::new(db.clone())?;
+        let queue = TaskQueue::new(db.clone())?;
 
         Ok(Self {
             db,
