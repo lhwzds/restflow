@@ -1,7 +1,9 @@
-use crate::core::workflow::{Node, Workflow};
+use crate::models::{Node, Workflow};
 use crate::engine::context::ExecutionContext;
 use crate::engine::graph::WorkflowGraph;
-use crate::storage::{Storage, WorkflowTask};
+use crate::engine::scheduler::Scheduler;
+use crate::models::WorkflowTask;
+use crate::storage::Storage;
 use serde_json::Value;
 use std::sync::Arc;
 use tokio::task::JoinSet;
@@ -131,6 +133,7 @@ impl WorkflowExecutor {
 
 pub struct AsyncWorkflowExecutor {
     storage: Arc<Storage>,
+    scheduler: Arc<Scheduler>,
     running: Arc<tokio::sync::Mutex<bool>>,
     registry: Arc<crate::node::registry::NodeRegistry>,  // KISS: Reuse registry
     num_workers: usize,  // Number of concurrent workers
@@ -142,8 +145,10 @@ impl AsyncWorkflowExecutor {
     }
     
     pub fn with_workers(storage: Arc<Storage>, num_workers: usize) -> Self {
+        let scheduler = Arc::new(Scheduler::new(storage.queue.clone()));
         Self {
             storage,
+            scheduler,
             running: Arc::new(tokio::sync::Mutex::new(false)),
             registry: Arc::new(crate::node::registry::NodeRegistry::new()),
             num_workers: num_workers.max(1),  // At least 1 worker
@@ -169,7 +174,7 @@ impl AsyncWorkflowExecutor {
     }
 
     fn recover_stalled_tasks(&self) {
-        if let Err(e) = self.storage.queue.recover_stalled_tasks() {
+        if let Err(e) = self.scheduler.recover_stalled_tasks() {
             eprintln!("Failed to recover stalled tasks: {}", e);
         }
     }
@@ -181,6 +186,7 @@ impl AsyncWorkflowExecutor {
             let worker = Worker::new(
                 worker_id,
                 self.storage.clone(),
+                self.scheduler.clone(),
                 self.registry.clone(),
                 self.running.clone()
             );
@@ -191,27 +197,26 @@ impl AsyncWorkflowExecutor {
         }
     }
 
-    async fn execute_task(storage: Arc<Storage>, task: WorkflowTask, registry: Arc<crate::node::registry::NodeRegistry>) {
+    async fn execute_task(_storage: Arc<Storage>, scheduler: Arc<Scheduler>, task: WorkflowTask, registry: Arc<crate::node::registry::NodeRegistry>) {
         // Execute the node
         let result = Self::execute_node(&task.node, &task.context, &registry).await;
         
         // Handle the result and queue downstream tasks if successful
         match result {
             Ok(output) => {
-                let chain_result = Self::queue_downstream_tasks(
-                    storage.clone(),
+                let chain_result = scheduler.queue_downstream_tasks(
                     &task,
                     output.clone()
-                ).await;
+                );
                 
                 // Report success even if chaining fails (task itself succeeded)
                 if let Err(e) = chain_result {
                     eprintln!("Failed to queue downstream tasks: {}", e);
                 }
-                Self::update_task_status(storage, task.id, Ok(output)).await;
+                Self::update_task_status(scheduler, task.id.clone(), Ok(output)).await;
             }
             Err(e) => {
-                Self::update_task_status(storage, task.id, Err(e)).await;
+                Self::update_task_status(scheduler, task.id.clone(), Err(e)).await;
             }
         }
     }
@@ -232,56 +237,15 @@ impl AsyncWorkflowExecutor {
         Ok(output)
     }
 
-    // KISS: Handle downstream task queueing separately
-    async fn queue_downstream_tasks(
-        storage: Arc<Storage>,
-        task: &WorkflowTask,
-        output: Value
-    ) -> Result<(), String> {
-        // Update context with node output
-        let mut context = task.context.clone();
-        context.set_node_output(task.node.id.clone(), output);
-        
-        // Find and queue ready downstream nodes
-        let graph = WorkflowGraph::from_workflow(&task.workflow);
-        let downstream_nodes = graph.get_downstream_nodes(&task.node.id);
-        
-        for downstream_id in downstream_nodes {
-            if let Some(downstream_node) = graph.get_node(&downstream_id) {
-                if Self::are_dependencies_met(&graph, &downstream_id, &context) {
-                    storage.queue.push(
-                        task.execution_id.clone(),
-                        downstream_node.clone(),
-                        task.workflow.clone(),
-                        context.clone(),
-                        Value::Null
-                    ).map_err(|e| format!("Failed to queue downstream node: {}", e))?;
-                }
-            }
-        }
-        
-        Ok(())
-    }
 
-    // KISS: Simple dependency check
-    fn are_dependencies_met(
-        graph: &WorkflowGraph,
-        node_id: &str,
-        context: &ExecutionContext
-    ) -> bool {
-        graph.get_dependencies(node_id)
-            .iter()
-            .all(|dep| context.node_outputs.contains_key(dep))
-    }
-
-    async fn update_task_status(storage: Arc<Storage>, task_id: String, result: Result<Value, String>) {
+    async fn update_task_status(scheduler: Arc<Scheduler>, task_id: String, result: Result<Value, String>) {
         match result {
             Ok(output) => {
-                let _ = storage.queue.complete(&task_id, output);
+                let _ = scheduler.complete_task(&task_id, output);
                 println!("Task {} completed successfully", task_id);
             }
             Err(error) => {
-                let _ = storage.queue.fail(&task_id, error.clone());
+                let _ = scheduler.fail_task(&task_id, error.clone());
                 eprintln!("Task {} failed: {}", task_id, error);
             }
         }
@@ -313,7 +277,7 @@ impl AsyncWorkflowExecutor {
         // Push start nodes to queue
         for node_id in start_nodes {
             if let Some(node) = graph.get_node(&node_id) {
-                self.storage.queue.push(
+                self.scheduler.push_task(
                     execution_id.clone(),
                     node.clone(),
                     workflow.clone(),
@@ -328,34 +292,34 @@ impl AsyncWorkflowExecutor {
     
     pub async fn submit_node(&self, node: Node, input: Value) -> Result<String, String> {
         // Submit single node for execution
-        self.storage.queue.push_single_node(node, input)
+        self.scheduler.push_single_node(node, input)
             .map_err(|e| format!("Failed to submit node: {}", e))
     }
 
     pub async fn get_task_status(&self, task_id: &str) -> Result<Option<WorkflowTask>, String> {
-        self.storage.queue.get_task(task_id)
+        self.scheduler.get_task(task_id)
             .map_err(|e| format!("Failed to get task status: {}", e))
     }
     
     pub async fn get_execution_status(&self, execution_id: &str) -> Result<Vec<WorkflowTask>, String> {
-        self.storage.queue.get_tasks_by_execution(execution_id)
+        self.scheduler.get_tasks_by_execution(execution_id)
             .map_err(|e| format!("Failed to get execution status: {}", e))
     }
 
     pub async fn list_tasks(
         &self,
         workflow_id: Option<&str>,
-        status: Option<crate::storage::TaskStatus>,
+        status: Option<crate::models::TaskStatus>,
     ) -> Result<Vec<WorkflowTask>, String> {
-        self.storage.queue.list_tasks(workflow_id, status)
+        self.scheduler.list_tasks(workflow_id, status)
             .map_err(|e| format!("Failed to list tasks: {}", e))
     }
 }
 
-// KISS: Independent Worker struct for cleaner separation of concerns
 struct Worker {
     id: usize,
     storage: Arc<Storage>,
+    scheduler: Arc<Scheduler>,
     registry: Arc<crate::node::registry::NodeRegistry>,
     running: Arc<Mutex<bool>>,
 }
@@ -364,10 +328,11 @@ impl Worker {
     fn new(
         id: usize,
         storage: Arc<Storage>,
+        scheduler: Arc<Scheduler>,
         registry: Arc<crate::node::registry::NodeRegistry>,
         running: Arc<Mutex<bool>>
     ) -> Self {
-        Self { id, storage, registry, running }
+        Self { id, storage, scheduler, registry, running }
     }
     
     async fn run(&self) {
@@ -388,12 +353,12 @@ impl Worker {
     }
     
     async fn process_next_task(&self) -> Result<(), String> {
-        let task = self.storage.queue.pop().await
+        let task = self.scheduler.pop_task().await
             .map_err(|e| format!("Failed to get task: {}", e))?;
         
         println!("Worker {} processing task: {} (node: {})", self.id, task.id, task.node.id);
         
-        AsyncWorkflowExecutor::execute_task(self.storage.clone(), task, self.registry.clone()).await;
+        AsyncWorkflowExecutor::execute_task(self.storage.clone(), self.scheduler.clone(), task, self.registry.clone()).await;
         
         Ok(())
     }

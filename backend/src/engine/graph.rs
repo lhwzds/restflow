@@ -1,4 +1,4 @@
-use crate::core::workflow::{Edge, Node, Workflow};
+use crate::models::{Edge, Node, Workflow};
 use std::collections::{HashMap, HashSet, VecDeque};
 
 pub struct WorkflowGraph {
