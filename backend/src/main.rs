@@ -16,7 +16,7 @@ use core::workflow::Workflow;
 use engine::executor::{AsyncWorkflowExecutor, WorkflowExecutor};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use storage::{Storage, TaskStatus};
+use storage::{Storage, TaskStatus, SystemConfig};
 use tower_http::cors::CorsLayer;
 
 #[derive(Serialize)]
@@ -159,9 +159,9 @@ async fn submit_workflow(
     match storage.workflows.get_workflow(&id) {
         Ok(Some(_)) => {
             match executor.submit(id, req.input).await {
-                Ok(task_id) => Json(serde_json::json!({
+                Ok(execution_id) => Json(serde_json::json!({
                     "status": "success",
-                    "task_id": task_id,
+                    "execution_id": execution_id,
                     "message": "Workflow submitted to queue"
                 })),
                 Err(e) => Json(serde_json::json!({
@@ -177,6 +177,46 @@ async fn submit_workflow(
         Err(e) => Json(serde_json::json!({
             "status": "error",
             "message": format!("Failed to get workflow: {}", e)
+        })),
+    }
+}
+
+// GET /api/execution/{id}
+async fn get_execution_status(
+    State((_, executor)): State<(Arc<Storage>, Arc<AsyncWorkflowExecutor>)>,
+    Path(execution_id): Path<String>,
+) -> Json<serde_json::Value> {
+    match executor.get_execution_status(&execution_id).await {
+        Ok(tasks) => {
+            // Calculate overall execution status
+            let has_failed = tasks.iter().any(|t| t.status == TaskStatus::Failed);
+            let has_running = tasks.iter().any(|t| t.status == TaskStatus::Running);
+            let has_pending = tasks.iter().any(|t| t.status == TaskStatus::Pending);
+            let all_completed = tasks.iter().all(|t| t.status == TaskStatus::Completed);
+            
+            let execution_status = if has_failed {
+                "failed"
+            } else if has_running {
+                "running"
+            } else if has_pending {
+                "pending"
+            } else if all_completed {
+                "completed"
+            } else {
+                "unknown"
+            };
+            
+            Json(serde_json::json!({
+                "status": "success",
+                "execution_id": execution_id,
+                "execution_status": execution_status,
+                "tasks": tasks,
+                "task_count": tasks.len()
+            }))
+        }
+        Err(e) => Json(serde_json::json!({
+            "status": "error",
+            "message": format!("Failed to get execution: {}", e)
         })),
     }
 }
@@ -204,6 +244,31 @@ async fn get_task_status(
 struct ListTasksQuery {
     workflow_id: Option<String>,
     status: Option<String>,
+}
+
+// GET /api/config
+async fn get_config(
+    State((storage, _)): State<(Arc<Storage>, Arc<AsyncWorkflowExecutor>)>,
+) -> Json<serde_json::Value> {
+    match storage.config.get_config() {
+        Ok(Some(config)) => success(serde_json::json!(config)),
+        Ok(None) => success(serde_json::json!(SystemConfig::default())),
+        Err(e) => error(format!("Failed to get config: {}", e)),
+    }
+}
+
+// PUT /api/config
+async fn update_config(
+    State((storage, _)): State<(Arc<Storage>, Arc<AsyncWorkflowExecutor>)>,
+    Json(config): Json<SystemConfig>,
+) -> Json<serde_json::Value> {
+    match storage.config.update_config(config) {
+        Ok(_) => success_with_message(
+            serde_json::json!({"status": "success"}),
+            "Configuration updated successfully. Restart required for worker count changes.".to_string()
+        ),
+        Err(e) => error(format!("Failed to update config: {}", e)),
+    }
 }
 
 async fn list_tasks(
@@ -236,7 +301,13 @@ async fn main() {
     let storage =
         Arc::new(Storage::new("restflow.db").expect("Failed to initialize storage"));
     
-    let async_executor = Arc::new(AsyncWorkflowExecutor::new(storage.clone()));
+    // Get worker count from database configuration
+    let num_workers = storage.config.get_worker_count()
+        .unwrap_or(4);
+    
+    println!("Starting RestFlow with {} workers (from config)", num_workers);
+    
+    let async_executor = Arc::new(AsyncWorkflowExecutor::with_workers(storage.clone(), num_workers));
     async_executor.start().await;
 
     let cors = CorsLayer::new()
@@ -266,8 +337,10 @@ async fn main() {
         .route("/api/workflow/execute", post(execute_workflow))
         .route("/api/workflow/execute/{id}", post(execute_workflow_by_id))
         .route("/api/workflow/submit/{id}", post(submit_workflow))
-        .route("/api/task/{id}", get(get_task_status))
-        .route("/api/tasks", get(list_tasks))
+        .route("/api/execution/get/{id}", get(get_execution_status))
+        .route("/api/task/get/{id}", get(get_task_status))
+        .route("/api/task/list", get(list_tasks))
+        .route("/api/config", get(get_config).put(update_config))
         .fallback(static_assets::static_handler)
         .layer(cors)
         .with_state(shared_state);

@@ -14,8 +14,8 @@ const PENDING: TableDefinition<u64, &[u8]> = TableDefinition::new("pending");
 const PROCESSING: TableDefinition<&str, &[u8]> = TableDefinition::new("processing");
 const COMPLETED: TableDefinition<&str, &[u8]> = TableDefinition::new("completed");
 
-// Task is considered stalled after 5 minutes
-const TASK_STALL_TIMEOUT_SECONDS: i64 = 300;
+// KISS: Configuration constants
+const DEFAULT_STALL_TIMEOUT_SECONDS: i64 = 300; // 5 minutes
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum TaskStatus {
@@ -261,6 +261,46 @@ impl TaskQueue {
         Ok(())
     }
 
+    /// Get tasks by execution ID from all tables
+    pub fn get_tasks_by_execution(&self, execution_id: &str) -> Result<Vec<WorkflowTask>> {
+        let read_txn = self.db.begin_read()?;
+        let mut tasks = Vec::new();
+        
+        // Check pending table
+        let pending = read_txn.open_table(PENDING)?;
+        for entry in pending.iter()? {
+            let (_, value) = entry?;
+            let task: WorkflowTask = serde_json::from_slice(value.value())?;
+            if task.execution_id == execution_id {
+                tasks.push(task);
+            }
+        }
+        
+        // Check processing table
+        let processing = read_txn.open_table(PROCESSING)?;
+        for entry in processing.iter()? {
+            let (_, value) = entry?;
+            let task: WorkflowTask = serde_json::from_slice(value.value())?;
+            if task.execution_id == execution_id {
+                tasks.push(task);
+            }
+        }
+        
+        // Check completed table
+        let completed = read_txn.open_table(COMPLETED)?;
+        for entry in completed.iter()? {
+            let (_, value) = entry?;
+            let task: WorkflowTask = serde_json::from_slice(value.value())?;
+            if task.execution_id == execution_id {
+                tasks.push(task);
+            }
+        }
+        
+        // Sort by creation time
+        tasks.sort_by(|a, b| a.created_at.cmp(&b.created_at));
+        Ok(tasks)
+    }
+    
     /// Get a task by ID from any table
     pub fn get_task(&self, task_id: &str) -> Result<Option<WorkflowTask>> {
         let read_txn = self.db.begin_read()?;
@@ -354,7 +394,7 @@ impl TaskQueue {
                 // Check if task has been processing too long
                 let now = chrono::Utc::now().timestamp();
                 if let Some(started_at) = task.started_at {
-                    if now - started_at > TASK_STALL_TIMEOUT_SECONDS {
+                    if now - started_at > DEFAULT_STALL_TIMEOUT_SECONDS {
                         tasks.push((key.value().to_string(), task));
                     }
                 }
