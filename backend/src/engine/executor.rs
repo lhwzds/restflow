@@ -5,7 +5,10 @@ use crate::storage::{Storage, WorkflowTask};
 use serde_json::Value;
 use std::sync::Arc;
 use tokio::task::JoinSet;
+use tokio::sync::Mutex;
 use uuid::Uuid;
+
+const QUEUE_POLL_INTERVAL_MS: u64 = 100;
 
 pub struct WorkflowExecutor {
     workflow: Workflow,
@@ -130,14 +133,20 @@ pub struct AsyncWorkflowExecutor {
     storage: Arc<Storage>,
     running: Arc<tokio::sync::Mutex<bool>>,
     registry: Arc<crate::node::registry::NodeRegistry>,  // KISS: Reuse registry
+    num_workers: usize,  // Number of concurrent workers
 }
 
 impl AsyncWorkflowExecutor {
     pub fn new(storage: Arc<Storage>) -> Self {
+        Self::with_workers(storage, 1)  // Default to 1 worker
+    }
+    
+    pub fn with_workers(storage: Arc<Storage>, num_workers: usize) -> Self {
         Self {
             storage,
             running: Arc::new(tokio::sync::Mutex::new(false)),
             registry: Arc::new(crate::node::registry::NodeRegistry::new()),
+            num_workers: num_workers.max(1),  // At least 1 worker
         }
     }
 
@@ -147,7 +156,7 @@ impl AsyncWorkflowExecutor {
         }
 
         self.recover_stalled_tasks();
-        self.spawn_worker().await;
+        self.spawn_workers().await;
     }
 
     async fn try_start(&self) -> bool {
@@ -165,99 +174,104 @@ impl AsyncWorkflowExecutor {
         }
     }
 
-    async fn spawn_worker(&self) {
-        let storage = self.storage.clone();
-        let running = self.running.clone();
-        let registry = self.registry.clone();
-
-        tokio::spawn(async move {
-            println!("Async workflow executor started");
+    async fn spawn_workers(&self) {
+        println!("Starting {} workers", self.num_workers);
+        
+        for worker_id in 0..self.num_workers {
+            let worker = Worker::new(
+                worker_id,
+                self.storage.clone(),
+                self.registry.clone(),
+                self.running.clone()
+            );
             
-            while *running.lock().await {
-                if let Err(e) = Self::process_next_task(&storage, &registry).await {
-                    eprintln!("Error processing task: {}", e);
-                    tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
-                }
-            }
-            
-            println!("Async workflow executor stopped");
-        });
-    }
-
-    async fn process_next_task(storage: &Arc<Storage>, registry: &Arc<crate::node::registry::NodeRegistry>) -> Result<(), String> {
-        let task = storage.queue.pop().await
-            .map_err(|e| format!("Failed to get task: {}", e))?;
-        
-        println!("Processing task: {}", task.id);
-        
-        let storage_clone = storage.clone();
-        let registry_clone = registry.clone();
-        tokio::spawn(async move {
-            Self::execute_task(storage_clone, task, registry_clone).await;
-        });
-        
-        Ok(())
+            tokio::spawn(async move {
+                worker.run().await;
+            });
+        }
     }
 
     async fn execute_task(storage: Arc<Storage>, task: WorkflowTask, registry: Arc<crate::node::registry::NodeRegistry>) {
-        // All tasks are node tasks - execute and chain
-        let result = Self::execute_and_queue_next(
-            storage.clone(),
-            task.node,
-            task.workflow,
-            task.execution_id,
-            task.context,
-            task.input,
-            registry
-        ).await;
+        // Execute the node
+        let result = Self::execute_node(&task.node, &task.context, &registry).await;
         
-        Self::update_task_status(storage, task.id, result).await;
+        // Handle the result and queue downstream tasks if successful
+        match result {
+            Ok(output) => {
+                let chain_result = Self::queue_downstream_tasks(
+                    storage.clone(),
+                    &task,
+                    output.clone()
+                ).await;
+                
+                // Report success even if chaining fails (task itself succeeded)
+                if let Err(e) = chain_result {
+                    eprintln!("Failed to queue downstream tasks: {}", e);
+                }
+                Self::update_task_status(storage, task.id, Ok(output)).await;
+            }
+            Err(e) => {
+                Self::update_task_status(storage, task.id, Err(e)).await;
+            }
+        }
     }
 
-    // KISS: Execute node and queue downstream nodes that are ready
-    async fn execute_and_queue_next(
-        storage: Arc<Storage>,
-        node: Node,
-        workflow: Workflow,
-        execution_id: String,
-        mut context: ExecutionContext,
-        _input: Value,
-        registry: Arc<crate::node::registry::NodeRegistry>
+    // KISS: Pure node execution logic
+    async fn execute_node(
+        node: &Node,
+        context: &ExecutionContext,
+        registry: &Arc<crate::node::registry::NodeRegistry>
     ) -> Result<Value, String> {
-        // Execute the node
         let executor = registry.get(&node.node_type)
             .ok_or_else(|| format!("No executor for node type: {:?}", node.node_type))?;
         
-        let config = context.interpolate_value(&node.config);
-        let output = executor.execute(&config, &mut context).await?;
+        let mut ctx = context.clone();
+        let config = ctx.interpolate_value(&node.config);
+        let output = executor.execute(&config, &mut ctx).await?;
         
+        Ok(output)
+    }
+
+    // KISS: Handle downstream task queueing separately
+    async fn queue_downstream_tasks(
+        storage: Arc<Storage>,
+        task: &WorkflowTask,
+        output: Value
+    ) -> Result<(), String> {
         // Update context with node output
-        context.set_node_output(node.id.clone(), output.clone());
+        let mut context = task.context.clone();
+        context.set_node_output(task.node.id.clone(), output);
         
-        // Find downstream nodes
-        let graph = WorkflowGraph::from_workflow(&workflow);
-        let downstream_nodes = graph.get_downstream_nodes(&node.id);
+        // Find and queue ready downstream nodes
+        let graph = WorkflowGraph::from_workflow(&task.workflow);
+        let downstream_nodes = graph.get_downstream_nodes(&task.node.id);
         
-        // Queue downstream nodes if their dependencies are met
         for downstream_id in downstream_nodes {
             if let Some(downstream_node) = graph.get_node(&downstream_id) {
-                // Check if all dependencies are satisfied
-                let dependencies = graph.get_dependencies(&downstream_id);
-                let all_deps_met = dependencies.iter().all(|dep| context.node_outputs.contains_key(dep));
-                
-                if all_deps_met {
+                if Self::are_dependencies_met(&graph, &downstream_id, &context) {
                     storage.queue.push(
-                        execution_id.clone(),
+                        task.execution_id.clone(),
                         downstream_node.clone(),
-                        workflow.clone(),
+                        task.workflow.clone(),
                         context.clone(),
-                        Value::Null  // Downstream nodes get input from context
+                        Value::Null
                     ).map_err(|e| format!("Failed to queue downstream node: {}", e))?;
                 }
             }
         }
         
-        Ok(output)
+        Ok(())
+    }
+
+    // KISS: Simple dependency check
+    fn are_dependencies_met(
+        graph: &WorkflowGraph,
+        node_id: &str,
+        context: &ExecutionContext
+    ) -> bool {
+        graph.get_dependencies(node_id)
+            .iter()
+            .all(|dep| context.node_outputs.contains_key(dep))
     }
 
     async fn update_task_status(storage: Arc<Storage>, task_id: String, result: Result<Value, String>) {
@@ -322,6 +336,11 @@ impl AsyncWorkflowExecutor {
         self.storage.queue.get_task(task_id)
             .map_err(|e| format!("Failed to get task status: {}", e))
     }
+    
+    pub async fn get_execution_status(&self, execution_id: &str) -> Result<Vec<WorkflowTask>, String> {
+        self.storage.queue.get_tasks_by_execution(execution_id)
+            .map_err(|e| format!("Failed to get execution status: {}", e))
+    }
 
     pub async fn list_tasks(
         &self,
@@ -330,5 +349,52 @@ impl AsyncWorkflowExecutor {
     ) -> Result<Vec<WorkflowTask>, String> {
         self.storage.queue.list_tasks(workflow_id, status)
             .map_err(|e| format!("Failed to list tasks: {}", e))
+    }
+}
+
+// KISS: Independent Worker struct for cleaner separation of concerns
+struct Worker {
+    id: usize,
+    storage: Arc<Storage>,
+    registry: Arc<crate::node::registry::NodeRegistry>,
+    running: Arc<Mutex<bool>>,
+}
+
+impl Worker {
+    fn new(
+        id: usize,
+        storage: Arc<Storage>,
+        registry: Arc<crate::node::registry::NodeRegistry>,
+        running: Arc<Mutex<bool>>
+    ) -> Self {
+        Self { id, storage, registry, running }
+    }
+    
+    async fn run(&self) {
+        println!("Worker {} started", self.id);
+        
+        while *self.running.lock().await {
+            if let Err(e) = self.process_next_task().await {
+                // Only log error if it's not a queue empty error
+                if !e.contains("Failed to get task") {
+                    eprintln!("Worker {} error: {}", self.id, e);
+                }
+                // Brief sleep to avoid busy waiting when queue is empty
+                tokio::time::sleep(tokio::time::Duration::from_millis(QUEUE_POLL_INTERVAL_MS)).await;
+            }
+        }
+        
+        println!("Worker {} stopped", self.id);
+    }
+    
+    async fn process_next_task(&self) -> Result<(), String> {
+        let task = self.storage.queue.pop().await
+            .map_err(|e| format!("Failed to get task: {}", e))?;
+        
+        println!("Worker {} processing task: {} (node: {})", self.id, task.id, task.node.id);
+        
+        AsyncWorkflowExecutor::execute_task(self.storage.clone(), task, self.registry.clone()).await;
+        
+        Ok(())
     }
 }
