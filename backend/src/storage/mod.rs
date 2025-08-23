@@ -1,11 +1,11 @@
-pub mod queue;
+pub mod task_queue;
 pub mod workflow;
 pub mod config;
 
 use redb::Database;
 use std::sync::Arc;
 
-pub use queue::{TaskQueue, TaskStatus, WorkflowTask};
+pub use task_queue::TaskQueue;
 pub use workflow::WorkflowStorage;
 pub use config::{ConfigStorage, SystemConfig};
 

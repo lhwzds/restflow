@@ -1,6 +1,6 @@
 mod api_response;
-mod core;
 mod engine;
+mod models;
 mod node;
 mod static_assets;
 mod storage;
@@ -12,11 +12,12 @@ use axum::{
     http::{Method, header},
     routing::{delete, get, post, put},
 };
-use core::workflow::Workflow;
+use models::Workflow;
 use engine::executor::{AsyncWorkflowExecutor, WorkflowExecutor};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use storage::{Storage, TaskStatus, SystemConfig};
+use models::TaskStatus;
+use storage::{Storage, SystemConfig};
 use tower_http::cors::CorsLayer;
 
 #[derive(Serialize)]

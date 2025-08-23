@@ -1,4 +1,4 @@
-use crate::core::workflow::Workflow;
+use crate::models::Workflow;
 use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
 use std::sync::Arc;
 

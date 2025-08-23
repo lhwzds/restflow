@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use async_trait::async_trait;
 use serde_json::Value;
-use crate::core::workflow::NodeType;
+use crate::models::NodeType;
 use crate::engine::context::ExecutionContext;
 
 #[async_trait]
