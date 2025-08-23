@@ -329,18 +329,27 @@ async fn main() {
     
     let app = Router::new()
         .route("/health", get(health))
+        
+        // Workflow management 
         .route("/api/workflow/list", get(list_workflows))
         .route("/api/workflow/create", post(create_workflow))
         .route("/api/workflow/get/{id}", get(get_workflow))
         .route("/api/workflow/update/{id}", put(update_workflow))
         .route("/api/workflow/delete/{id}", delete(delete_workflow))
-        .route("/api/workflow/execute", post(execute_workflow))
-        .route("/api/workflow/execute/{id}", post(execute_workflow_by_id))
-        .route("/api/workflow/submit/{id}", post(submit_workflow))
-        .route("/api/execution/get/{id}", get(get_execution_status))
-        .route("/api/task/get/{id}", get(get_task_status))
+        
+        // Execution operations
+        .route("/api/execution/sync/run", post(execute_workflow))              
+        .route("/api/execution/sync/run-workflow/{workflow_id}", post(execute_workflow_by_id))  
+        .route("/api/execution/async/submit/{workflow_id}", post(submit_workflow)) 
+        .route("/api/execution/status/{execution_id}", get(get_execution_status)) 
+        
+        // Query single task 
+        .route("/api/task/status/{task_id}", get(get_task_status))                
         .route("/api/task/list", get(list_tasks))
+        
+        // System configuration
         .route("/api/config", get(get_config).put(update_config))
+        
         .fallback(static_assets::static_handler)
         .layer(cors)
         .with_state(shared_state);
