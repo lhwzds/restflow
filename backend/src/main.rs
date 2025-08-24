@@ -1,3 +1,4 @@
+mod api;
 mod api_response;
 mod engine;
 mod models;
@@ -5,517 +6,65 @@ mod node;
 mod static_assets;
 mod storage;
 mod tools;
-use api_response::{error, not_found, success, success_with_message};
+
+use api::{
+    workflows::*, triggers::*, tasks::*, config::*
+};
 use axum::{
-    Json, Router,
-    extract::{Path, State},
+    Router,
     http::{Method, header},
     routing::{delete, get, post, put},
 };
-use models::{Workflow, TaskRecord};
-use engine::executor::{AsyncWorkflowExecutor, WorkflowExecutor};
-use engine::trigger_manager::{TriggerManager, WebhookResponse};
-use serde::{Deserialize, Serialize};
+use engine::executor::AsyncWorkflowExecutor;
+use engine::trigger_manager::TriggerManager;
+use storage::Storage;
 use std::sync::Arc;
-use std::collections::HashMap;
-use models::TaskStatus;
-use storage::{Storage, SystemConfig};
 use tower_http::cors::CorsLayer;
 
-#[derive(Serialize)]
+#[derive(serde::Serialize)]
 struct Health {
     status: String,
 }
 
-// Health check endpoint
-async fn health() -> Json<Health> {
-    Json(Health {
+async fn health() -> axum::Json<Health> {
+    axum::Json(Health {
         status: "restflow is working!".to_string(),
     })
 }
 
-// List all workflows
-// GET /api/workflow/list
-async fn list_workflows(State((storage, _, _)): State<(Arc<Storage>, Arc<AsyncWorkflowExecutor>, Arc<TriggerManager>)>) -> Json<serde_json::Value> {
-    storage.workflows.list_workflows()
-        .map(success)
-        .unwrap_or_else(|e| error(format!("Failed to list workflows: {}", e)))
-}
-
-// Create a new workflow
-// POST /api/workflow/create
-// Body: JSON workflow object
-async fn create_workflow(
-    State((storage, _, _)): State<(Arc<Storage>, Arc<AsyncWorkflowExecutor>, Arc<TriggerManager>)>,
-    Json(workflow): Json<Workflow>,
-) -> Json<serde_json::Value> {
-    storage.workflows.create_workflow(&workflow)
-        .map(|_| success_with_message(
-            serde_json::json!({"id": workflow.id}),
-            format!("Workflow {} saved!", workflow.name)
-        ))
-        .unwrap_or_else(|e| error(format!("Failed to save workflow: {}", e)))
-}
-
-// Get workflow by ID
-// GET /api/workflow/get/{id}
-async fn get_workflow(
-    State((storage, _, _)): State<(Arc<Storage>, Arc<AsyncWorkflowExecutor>, Arc<TriggerManager>)>,
-    Path(id): Path<String>,
-) -> Json<serde_json::Value> {
-    storage.workflows.get_workflow(&id)
-        .map(|opt| opt
-            .map(|w| Json(serde_json::json!(w)))
-            .unwrap_or_else(|| not_found("Workflow not found".to_string())))
-        .unwrap_or_else(|e| error(format!("Failed to get workflow: {}", e)))
-}
-
-// Update existing workflow
-// PUT /api/workflow/update/{id}
-// Body: JSON workflow object
-async fn update_workflow(
-    State((storage, _, _)): State<(Arc<Storage>, Arc<AsyncWorkflowExecutor>, Arc<TriggerManager>)>,
-    Path(id): Path<String>,
-    Json(workflow): Json<Workflow>,
-) -> Json<serde_json::Value> {
-    storage.workflows.update_workflow(&id, &workflow)
-        .map(|_| success_with_message(
-            serde_json::json!({}),
-            format!("Workflow {} updated!", id)
-        ))
-        .unwrap_or_else(|e| error(format!("Failed to update workflow: {}", e)))
-}
-
-// Delete workflow by ID
-// DELETE /api/workflow/delete/{id}
-async fn delete_workflow(
-    State((storage, _, _)): State<(Arc<Storage>, Arc<AsyncWorkflowExecutor>, Arc<TriggerManager>)>,
-    Path(id): Path<String>,
-) -> Json<serde_json::Value> {
-    storage.workflows.delete_workflow(&id)
-        .map(|_| success_with_message(
-            serde_json::json!({}),
-            format!("Workflow {} deleted!", id)
-        ))
-        .unwrap_or_else(|e| error(format!("Failed to delete workflow: {}", e)))
-}
-
-// Execute workflow directly
-// POST /api/workflow/execute
-// Body: JSON workflow object
-async fn execute_workflow(Json(workflow): Json<Workflow>) -> Json<serde_json::Value> {
-    let mut executor = WorkflowExecutor::new(workflow);
-
-    match executor.execute().await {
-        Ok(result) => Json(result),
-        Err(e) => Json(serde_json::json!({
-            "status": "error",
-            "message": e
-        })),
-    }
-}
-
-// Execute workflow by ID
-// POST /api/workflow/execute/{id}
-async fn execute_workflow_by_id(
-    State((storage, _, _)): State<(Arc<Storage>, Arc<AsyncWorkflowExecutor>, Arc<TriggerManager>)>,
-    Path(id): Path<String>,
-) -> Json<serde_json::Value> {
-    match storage.workflows.get_workflow(&id) {
-        Ok(Some(workflow)) => {
-            let mut executor = WorkflowExecutor::new(workflow);
-            match executor.execute().await {
-                Ok(result) => Json(result),
-                Err(e) => Json(serde_json::json!({
-                    "status": "error",
-                    "message": e
-                })),
-            }
-        }
-        Ok(None) => Json(serde_json::json!({
-            "status": "error",
-            "message": "Workflow not found"
-        })),
-        Err(e) => Json(serde_json::json!({
-            "status": "error",
-            "message": format!("Failed to get workflow: {}", e)
-        })),
-    }
-}
-
-// POST /api/workflow/submit/{id}
-#[derive(Deserialize)]
-struct SubmitRequest {
-    #[serde(default = "default_input")]
-    input: serde_json::Value,
-}
-
-fn default_input() -> serde_json::Value {
-    serde_json::json!({})
-}
-
-async fn submit_workflow(
-    State((storage, executor, _)): State<(Arc<Storage>, Arc<AsyncWorkflowExecutor>, Arc<TriggerManager>)>,
-    Path(id): Path<String>,
-    Json(req): Json<SubmitRequest>,
-) -> Json<serde_json::Value> {
-    match storage.workflows.get_workflow(&id) {
-        Ok(Some(_)) => {
-            match executor.submit(id, req.input).await {
-                Ok(execution_id) => Json(serde_json::json!({
-                    "status": "success",
-                    "execution_id": execution_id,
-                    "message": "Workflow submitted to queue"
-                })),
-                Err(e) => Json(serde_json::json!({
-                    "status": "error",
-                    "message": format!("Failed to submit workflow: {}", e)
-                })),
-            }
-        }
-        Ok(None) => Json(serde_json::json!({
-            "status": "error",
-            "message": "Workflow not found"
-        })),
-        Err(e) => Json(serde_json::json!({
-            "status": "error",
-            "message": format!("Failed to get workflow: {}", e)
-        })),
-    }
-}
-
-// GET /api/execution/{id}
-async fn get_execution_status(
-    State((_, executor, _)): State<(Arc<Storage>, Arc<AsyncWorkflowExecutor>, Arc<TriggerManager>)>,
-    Path(execution_id): Path<String>,
-) -> Json<serde_json::Value> {
-    match executor.get_execution_status(&execution_id).await {
-        Ok(tasks) => {
-            // Calculate overall execution status
-            let has_failed = tasks.iter().any(|t| t.status == TaskStatus::Failed);
-            let has_running = tasks.iter().any(|t| t.status == TaskStatus::Running);
-            let has_pending = tasks.iter().any(|t| t.status == TaskStatus::Pending);
-            let all_completed = tasks.iter().all(|t| t.status == TaskStatus::Completed);
-            
-            let execution_status = if has_failed {
-                "failed"
-            } else if has_running {
-                "running"
-            } else if has_pending {
-                "pending"
-            } else if all_completed {
-                "completed"
-            } else {
-                "unknown"
-            };
-            
-            // Convert tasks with decoded context
-            let tasks_json: Vec<serde_json::Value> = tasks.iter().map(|task| {
-                let context_json = serde_json::from_slice::<serde_json::Value>(&task.context_data)
-                    .unwrap_or_else(|_| serde_json::json!({
-                        "error": "Failed to deserialize context",
-                        "raw_bytes": task.context_data.len()
-                    }));
-                
-                serde_json::json!({
-                    "id": task.id,
-                    "execution_id": task.execution_id,
-                    "workflow_id": task.workflow_id,
-                    "node_id": task.node_id,
-                    "status": task.status,
-                    "created_at": task.created_at,
-                    "started_at": task.started_at,
-                    "completed_at": task.completed_at,
-                    "input": task.input,
-                    "output": task.output,
-                    "error": task.error,
-                    "context": context_json
-                })
-            }).collect();
-            
-            Json(serde_json::json!({
-                "status": "success",
-                "execution_id": execution_id,
-                "execution_status": execution_status,
-                "tasks": tasks_json,
-                "task_count": tasks_json.len()
-            }))
-        }
-        Err(e) => Json(serde_json::json!({
-            "status": "error",
-            "message": format!("Failed to get execution: {}", e)
-        })),
-    }
-}
-
-// GET /api/task/{id}
-async fn get_task_status(
-    State((_, executor, _)): State<(Arc<Storage>, Arc<AsyncWorkflowExecutor>, Arc<TriggerManager>)>,
-    Path(task_id): Path<String>,
-) -> Json<serde_json::Value> {
-    match executor.get_task_status(&task_id).await {
-        Ok(Some(task)) => {
-            // Deserialize context_data for display
-            let context_json = serde_json::from_slice::<serde_json::Value>(&task.context_data)
-                .unwrap_or_else(|_| serde_json::json!({
-                    "error": "Failed to deserialize context",
-                    "raw_bytes": task.context_data.len()
-                }));
-            
-            Json(serde_json::json!({
-                "id": task.id,
-                "execution_id": task.execution_id,
-                "workflow_id": task.workflow_id,
-                "node_id": task.node_id,
-                "status": task.status,
-                "created_at": task.created_at,
-                "started_at": task.started_at,
-                "completed_at": task.completed_at,
-                "input": task.input,
-                "output": task.output,
-                "error": task.error,
-                "context": context_json
-            }))
-        },
-        Ok(None) => Json(serde_json::json!({
-            "status": "error",
-            "message": "Task not found"
-        })),
-        Err(e) => Json(serde_json::json!({
-            "status": "error",
-            "message": format!("Failed to get task: {}", e)
-        })),
-    }
-}
-
-// GET /api/tasks?workflow_id=xxx&status=xxx
-#[derive(Deserialize)]
-struct ListTasksQuery {
-    workflow_id: Option<String>,
-    status: Option<String>,
-}
-
-// GET /api/config
-async fn get_config(
-    State((storage, _, _)): State<(Arc<Storage>, Arc<AsyncWorkflowExecutor>, Arc<TriggerManager>)>,
-) -> Json<serde_json::Value> {
-    match storage.config.get_config() {
-        Ok(Some(config)) => success(serde_json::json!(config)),
-        Ok(None) => success(serde_json::json!(SystemConfig::default())),
-        Err(e) => error(format!("Failed to get config: {}", e)),
-    }
-}
-
-// PUT /api/config
-async fn update_config(
-    State((storage, _, _)): State<(Arc<Storage>, Arc<AsyncWorkflowExecutor>, Arc<TriggerManager>)>,
-    Json(config): Json<SystemConfig>,
-) -> Json<serde_json::Value> {
-    match storage.config.update_config(config) {
-        Ok(_) => success_with_message(
-            serde_json::json!({"status": "success"}),
-            "Configuration updated successfully. Restart required for worker count changes.".to_string()
-        ),
-        Err(e) => error(format!("Failed to update config: {}", e)),
-    }
-}
-
-async fn list_tasks(
-    State((_, executor, _)): State<(Arc<Storage>, Arc<AsyncWorkflowExecutor>, Arc<TriggerManager>)>,
-    axum::extract::Query(query): axum::extract::Query<ListTasksQuery>,
-) -> Json<serde_json::Value> {
-    let status = query.status.and_then(|s| match s.as_str() {
-        "pending" => Some(TaskStatus::Pending),
-        "running" => Some(TaskStatus::Running),
-        "completed" => Some(TaskStatus::Completed),
-        "failed" => Some(TaskStatus::Failed),
-        _ => None,
-    });
-    
-    match executor.list_tasks(query.workflow_id.as_deref(), status).await {
-        Ok(tasks) => {
-            // Convert tasks with decoded context
-            let tasks_json: Vec<serde_json::Value> = tasks.iter().map(|task| {
-                let context_json = serde_json::from_slice::<serde_json::Value>(&task.context_data)
-                    .unwrap_or_else(|_| serde_json::json!({
-                        "error": "Failed to deserialize context",
-                        "raw_bytes": task.context_data.len()
-                    }));
-                
-                serde_json::json!({
-                    "id": task.id,
-                    "execution_id": task.execution_id,
-                    "workflow_id": task.workflow_id,
-                    "node_id": task.node_id,
-                    "status": task.status,
-                    "created_at": task.created_at,
-                    "started_at": task.started_at,
-                    "completed_at": task.completed_at,
-                    "input": task.input,
-                    "output": task.output,
-                    "error": task.error,
-                    "context": context_json
-                })
-            }).collect();
-            
-            Json(serde_json::json!({
-                "status": "success",
-                "data": tasks_json
-            }))
-        },
-        Err(e) => Json(serde_json::json!({
-            "status": "error",
-            "message": format!("Failed to list tasks: {}", e)
-        })),
-    }
-}
-
-// PUT /api/workflow/{id}/activate
-async fn activate_workflow(
-    State((_, _, trigger_manager)): State<(Arc<Storage>, Arc<AsyncWorkflowExecutor>, Arc<TriggerManager>)>,
-    Path(workflow_id): Path<String>,
-) -> Json<serde_json::Value> {
-    match trigger_manager.activate_workflow(&workflow_id).await {
-        Ok(trigger) => {
-            let webhook_url = if matches!(trigger.trigger_config, models::TriggerConfig::Webhook { .. }) {
-                Some(format!("/api/triggers/webhook/{}", trigger.id))
-            } else {
-                None
-            };
-            
-            Json(serde_json::json!({
-                "status": "success",
-                "trigger_id": trigger.id,
-                "webhook_url": webhook_url,
-                "message": "Workflow trigger activated successfully"
-            }))
-        }
-        Err(e) => Json(serde_json::json!({
-            "status": "error",
-            "message": format!("Failed to activate workflow: {}", e)
-        })),
-    }
-}
-
-// PUT /api/workflow/{id}/deactivate
-async fn deactivate_workflow(
-    State((_, _, trigger_manager)): State<(Arc<Storage>, Arc<AsyncWorkflowExecutor>, Arc<TriggerManager>)>,
-    Path(workflow_id): Path<String>,
-) -> Json<serde_json::Value> {
-    match trigger_manager.deactivate_workflow(&workflow_id).await {
-        Ok(_) => Json(serde_json::json!({
-            "status": "success",
-            "message": "Workflow trigger deactivated successfully"
-        })),
-        Err(e) => Json(serde_json::json!({
-            "status": "error",
-            "message": format!("Failed to deactivate workflow: {}", e)
-        })),
-    }
-}
-
-// GET /api/workflow/{id}/trigger-status
-async fn get_workflow_trigger_status(
-    State((_, _, trigger_manager)): State<(Arc<Storage>, Arc<AsyncWorkflowExecutor>, Arc<TriggerManager>)>,
-    Path(workflow_id): Path<String>,
-) -> Json<serde_json::Value> {
-    match trigger_manager.get_trigger_status(&workflow_id).await {
-        Ok(Some(status)) => Json(serde_json::json!({
-            "status": "success",
-            "data": status
-        })),
-        Ok(None) => Json(serde_json::json!({
-            "status": "success",
-            "data": null,
-            "message": "No trigger configured for this workflow"
-        })),
-        Err(e) => Json(serde_json::json!({
-            "status": "error",
-            "message": format!("Failed to get trigger status: {}", e)
-        })),
-    }
-}
-
-// POST /api/workflow/{id}/test
-async fn test_workflow_trigger(
-    State((_, executor, _)): State<(Arc<Storage>, Arc<AsyncWorkflowExecutor>, Arc<TriggerManager>)>,
-    Path(workflow_id): Path<String>,
-    Json(payload): Json<serde_json::Value>,
-) -> Json<serde_json::Value> {
-    match executor.submit(workflow_id, payload).await {
-        Ok(execution_id) => Json(serde_json::json!({
-            "status": "success",
-            "execution_id": execution_id,
-            "message": "Test execution started"
-        })),
-        Err(e) => Json(serde_json::json!({
-            "status": "error",
-            "message": format!("Failed to test workflow: {}", e)
-        })),
-    }
-}
-
-// Webhook handler - matches any HTTP method
-async fn handle_webhook_trigger(
-    State((_, _, trigger_manager)): State<(Arc<Storage>, Arc<AsyncWorkflowExecutor>, Arc<TriggerManager>)>,
-    Path(webhook_id): Path<String>,
-    method: Method,
-    headers: axum::http::HeaderMap,
-    body: String,
-) -> Json<serde_json::Value> {
-    // Convert headers to HashMap
-    let mut header_map = HashMap::new();
-    for (key, value) in headers.iter() {
-        if let Ok(v) = value.to_str() {
-            header_map.insert(key.as_str().to_string(), v.to_string());
-        }
-    }
-    
-    // Parse body as JSON, or wrap in object if not valid JSON
-    let body_json: serde_json::Value = serde_json::from_str(&body)
-        .unwrap_or_else(|_| serde_json::json!({ "raw": body }));
-    
-    match trigger_manager.handle_webhook(&webhook_id, method.as_str(), header_map, body_json).await {
-        Ok(WebhookResponse::Async { execution_id }) => {
-            Json(serde_json::json!({
-                "status": "success",
-                "execution_id": execution_id,
-                "message": "Workflow execution started"
-            }))
-        }
-        Ok(WebhookResponse::Sync { result }) => {
-            Json(result)
-        }
-        Err(e) => Json(serde_json::json!({
-            "status": "error",
-            "message": format!("{}", e)
-        })),
-    }
-}
-
 #[tokio::main]
 async fn main() {
-    let storage =
-        Arc::new(Storage::new("restflow.db").expect("Failed to initialize storage"));
+    let storage = Arc::new(
+        Storage::new("restflow.db").expect("Failed to initialize storage")
+    );
     
     // Get worker count from database configuration
     let num_workers = storage.config.get_worker_count()
         .unwrap_or(4);
     
-    println!("Starting RestFlow with {} workers (from config)", num_workers);
+    println!("Starting RestFlow with {} workers", num_workers);
     
-    let async_executor = Arc::new(AsyncWorkflowExecutor::with_workers(storage.clone(), num_workers));
+    // Create and start async executor
+    let async_executor = Arc::new(AsyncWorkflowExecutor::with_workers(
+        storage.clone(),
+        num_workers
+    ));
     async_executor.start().await;
     
-    // Create TriggerManager
-    let trigger_manager = Arc::new(TriggerManager::new(storage.clone(), async_executor.clone()));
-    trigger_manager.init().await.expect("Failed to initialize TriggerManager");
-
+    // Create trigger manager
+    let trigger_manager = Arc::new(TriggerManager::new(
+        storage.clone(),
+        async_executor.clone()
+    ));
+    
+    // Initialize trigger manager (load active triggers)
+    if let Err(e) = trigger_manager.init().await {
+        eprintln!("Failed to initialize trigger manager: {}", e);
+    }
+    
+    // Configure CORS
     let cors = CorsLayer::new()
-        .allow_origin([
-            "http://localhost:3000".parse().unwrap(),
-            "http://localhost:5173".parse().unwrap(),
-        ])
+        .allow_origin(["http://localhost:5173".parse().unwrap()])
         .allow_methods([
             Method::GET,
             Method::POST,
@@ -544,9 +93,10 @@ async fn main() {
         .route("/api/execution/async/submit/{workflow_id}", post(submit_workflow)) 
         .route("/api/execution/status/{execution_id}", get(get_execution_status)) 
         
-        // Query single task 
+        // Task operations
         .route("/api/task/status/{task_id}", get(get_task_status))                
         .route("/api/task/list", get(list_tasks))
+        .route("/api/node/execute", post(execute_node))
         
         // System configuration
         .route("/api/config", get(get_config).put(update_config))
@@ -577,5 +127,5 @@ async fn main() {
 
     axum::serve(listener, app)
         .await
-        .expect("Failed to run axum server");
+        .expect("Failed to start server");
 }
