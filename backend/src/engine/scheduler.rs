@@ -55,6 +55,7 @@ impl Scheduler {
             name: format!("Single Node: {}", node.id),
             nodes: vec![node.clone()],
             edges: vec![],
+            trigger_config: None,
         };
         
         // Store the workflow first

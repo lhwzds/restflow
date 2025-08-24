@@ -18,6 +18,8 @@ pub struct Position {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum NodeType {
     ManualTrigger,
+    WebhookTrigger,
+    ScheduleTrigger,
     Agent,
     HttpRequest,
     Print,

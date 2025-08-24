@@ -21,6 +21,8 @@ impl NodeRegistry {
         };
         
         registry.register(NodeType::ManualTrigger, Arc::new(ManualTriggerExecutor));
+        registry.register(NodeType::WebhookTrigger, Arc::new(WebhookTriggerExecutor));
+        registry.register(NodeType::ScheduleTrigger, Arc::new(ScheduleTriggerExecutor));
         registry.register(NodeType::HttpRequest, Arc::new(HttpRequestExecutor));
         registry.register(NodeType::Print, Arc::new(PrintExecutor));
         registry.register(NodeType::Agent, Arc::new(AgentExecutor));
@@ -43,8 +45,32 @@ struct ManualTriggerExecutor;
 impl NodeExecutor for ManualTriggerExecutor {
     async fn execute(&self, _config: &Value, _context: &mut ExecutionContext) -> Result<Value, String> {
         Ok(serde_json::json!({
-            "status": "triggered",
-            "timestamp": chrono::Utc::now().to_rfc3339()
+            "type": "manual",
+            "triggered_at": chrono::Utc::now().to_rfc3339()
+        }))
+    }
+}
+
+struct WebhookTriggerExecutor;
+
+#[async_trait]
+impl NodeExecutor for WebhookTriggerExecutor {
+    async fn execute(&self, _config: &Value, _context: &mut ExecutionContext) -> Result<Value, String> {
+        Ok(serde_json::json!({
+            "type": "webhook",
+            "triggered_at": chrono::Utc::now().to_rfc3339()
+        }))
+    }
+}
+
+struct ScheduleTriggerExecutor;
+
+#[async_trait]
+impl NodeExecutor for ScheduleTriggerExecutor {
+    async fn execute(&self, _config: &Value, _context: &mut ExecutionContext) -> Result<Value, String> {
+        Ok(serde_json::json!({
+            "type": "schedule",
+            "triggered_at": chrono::Utc::now().to_rfc3339()
         }))
     }
 }
