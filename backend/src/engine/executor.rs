@@ -29,6 +29,10 @@ impl WorkflowExecutor {
         }
     }
 
+    pub fn set_input(&mut self, input: Value) {
+        self.context.set_variable("input".to_string(), input);
+    }
+    
     pub async fn execute(&mut self) -> Result<Value, String> {
         let groups = self.graph.get_parallel_groups()?;
         
@@ -67,6 +71,16 @@ impl WorkflowExecutor {
         context: &mut ExecutionContext,
         registry: Arc<crate::node::registry::NodeRegistry>,
     ) -> Result<Value, String> {
+        use crate::models::NodeType;
+        
+        // Skip trigger nodes - they are just configuration
+        if matches!(node.node_type, 
+            NodeType::ManualTrigger | NodeType::WebhookTrigger | NodeType::ScheduleTrigger
+        ) {
+            println!("Skipping trigger node: {} (type: {:?})", node.id, node.node_type);
+            return Ok(serde_json::json!({"skipped": true}));
+        }
+        
         println!("Executing node: {} (type: {:?})", node.id, node.node_type);
         
         let executor = registry.get(&node.node_type)
@@ -274,16 +288,39 @@ impl AsyncWorkflowExecutor {
         let mut context = ExecutionContext::new(execution_id.clone());
         context.set_variable("input".to_string(), input.clone());
         
-        // Push start nodes to queue
+        // Push start nodes to queue (skip trigger nodes)
         for node_id in start_nodes {
             if let Some(node) = graph.get_node(&node_id) {
-                self.scheduler.push_task(
-                    execution_id.clone(),
-                    node.clone(),
-                    workflow.clone(),
-                    context.clone(),
-                    input.clone()
-                ).map_err(|e| format!("Failed to queue node: {}", e))?;
+                use crate::models::NodeType;
+                
+                // Skip trigger nodes - they are just configuration entry points
+                // When workflow is triggered, we start from the actual business nodes
+                if matches!(node.node_type, 
+                    NodeType::ManualTrigger | NodeType::WebhookTrigger | NodeType::ScheduleTrigger
+                ) {
+                    // Find downstream nodes of this trigger and queue them instead
+                    let downstream = graph.get_downstream_nodes(&node_id);
+                    for downstream_id in downstream {
+                        if let Some(downstream_node) = graph.get_node(&downstream_id) {
+                            self.scheduler.push_task(
+                                execution_id.clone(),
+                                downstream_node.clone(),
+                                workflow.clone(),
+                                context.clone(),
+                                input.clone()
+                            ).map_err(|e| format!("Failed to queue node: {}", e))?;
+                        }
+                    }
+                } else {
+                    // Non-trigger node, queue normally
+                    self.scheduler.push_task(
+                        execution_id.clone(),
+                        node.clone(),
+                        workflow.clone(),
+                        context.clone(),
+                        input.clone()
+                    ).map_err(|e| format!("Failed to queue node: {}", e))?;
+                }
             }
         }
         

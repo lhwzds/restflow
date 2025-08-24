@@ -14,8 +14,10 @@ use axum::{
 };
 use models::{Workflow, TaskRecord};
 use engine::executor::{AsyncWorkflowExecutor, WorkflowExecutor};
+use engine::trigger_manager::{TriggerManager, WebhookResponse};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use std::collections::HashMap;
 use models::TaskStatus;
 use storage::{Storage, SystemConfig};
 use tower_http::cors::CorsLayer;
@@ -34,7 +36,7 @@ async fn health() -> Json<Health> {
 
 // List all workflows
 // GET /api/workflow/list
-async fn list_workflows(State((storage, _)): State<(Arc<Storage>, Arc<AsyncWorkflowExecutor>)>) -> Json<serde_json::Value> {
+async fn list_workflows(State((storage, _, _)): State<(Arc<Storage>, Arc<AsyncWorkflowExecutor>, Arc<TriggerManager>)>) -> Json<serde_json::Value> {
     storage.workflows.list_workflows()
         .map(success)
         .unwrap_or_else(|e| error(format!("Failed to list workflows: {}", e)))
@@ -44,7 +46,7 @@ async fn list_workflows(State((storage, _)): State<(Arc<Storage>, Arc<AsyncWorkf
 // POST /api/workflow/create
 // Body: JSON workflow object
 async fn create_workflow(
-    State((storage, _)): State<(Arc<Storage>, Arc<AsyncWorkflowExecutor>)>,
+    State((storage, _, _)): State<(Arc<Storage>, Arc<AsyncWorkflowExecutor>, Arc<TriggerManager>)>,
     Json(workflow): Json<Workflow>,
 ) -> Json<serde_json::Value> {
     storage.workflows.create_workflow(&workflow)
@@ -58,7 +60,7 @@ async fn create_workflow(
 // Get workflow by ID
 // GET /api/workflow/get/{id}
 async fn get_workflow(
-    State((storage, _)): State<(Arc<Storage>, Arc<AsyncWorkflowExecutor>)>,
+    State((storage, _, _)): State<(Arc<Storage>, Arc<AsyncWorkflowExecutor>, Arc<TriggerManager>)>,
     Path(id): Path<String>,
 ) -> Json<serde_json::Value> {
     storage.workflows.get_workflow(&id)
@@ -72,7 +74,7 @@ async fn get_workflow(
 // PUT /api/workflow/update/{id}
 // Body: JSON workflow object
 async fn update_workflow(
-    State((storage, _)): State<(Arc<Storage>, Arc<AsyncWorkflowExecutor>)>,
+    State((storage, _, _)): State<(Arc<Storage>, Arc<AsyncWorkflowExecutor>, Arc<TriggerManager>)>,
     Path(id): Path<String>,
     Json(workflow): Json<Workflow>,
 ) -> Json<serde_json::Value> {
@@ -87,7 +89,7 @@ async fn update_workflow(
 // Delete workflow by ID
 // DELETE /api/workflow/delete/{id}
 async fn delete_workflow(
-    State((storage, _)): State<(Arc<Storage>, Arc<AsyncWorkflowExecutor>)>,
+    State((storage, _, _)): State<(Arc<Storage>, Arc<AsyncWorkflowExecutor>, Arc<TriggerManager>)>,
     Path(id): Path<String>,
 ) -> Json<serde_json::Value> {
     storage.workflows.delete_workflow(&id)
@@ -116,7 +118,7 @@ async fn execute_workflow(Json(workflow): Json<Workflow>) -> Json<serde_json::Va
 // Execute workflow by ID
 // POST /api/workflow/execute/{id}
 async fn execute_workflow_by_id(
-    State((storage, _)): State<(Arc<Storage>, Arc<AsyncWorkflowExecutor>)>,
+    State((storage, _, _)): State<(Arc<Storage>, Arc<AsyncWorkflowExecutor>, Arc<TriggerManager>)>,
     Path(id): Path<String>,
 ) -> Json<serde_json::Value> {
     match storage.workflows.get_workflow(&id) {
@@ -153,7 +155,7 @@ fn default_input() -> serde_json::Value {
 }
 
 async fn submit_workflow(
-    State((storage, executor)): State<(Arc<Storage>, Arc<AsyncWorkflowExecutor>)>,
+    State((storage, executor, _)): State<(Arc<Storage>, Arc<AsyncWorkflowExecutor>, Arc<TriggerManager>)>,
     Path(id): Path<String>,
     Json(req): Json<SubmitRequest>,
 ) -> Json<serde_json::Value> {
@@ -184,7 +186,7 @@ async fn submit_workflow(
 
 // GET /api/execution/{id}
 async fn get_execution_status(
-    State((_, executor)): State<(Arc<Storage>, Arc<AsyncWorkflowExecutor>)>,
+    State((_, executor, _)): State<(Arc<Storage>, Arc<AsyncWorkflowExecutor>, Arc<TriggerManager>)>,
     Path(execution_id): Path<String>,
 ) -> Json<serde_json::Value> {
     match executor.get_execution_status(&execution_id).await {
@@ -248,7 +250,7 @@ async fn get_execution_status(
 
 // GET /api/task/{id}
 async fn get_task_status(
-    State((_, executor)): State<(Arc<Storage>, Arc<AsyncWorkflowExecutor>)>,
+    State((_, executor, _)): State<(Arc<Storage>, Arc<AsyncWorkflowExecutor>, Arc<TriggerManager>)>,
     Path(task_id): Path<String>,
 ) -> Json<serde_json::Value> {
     match executor.get_task_status(&task_id).await {
@@ -295,7 +297,7 @@ struct ListTasksQuery {
 
 // GET /api/config
 async fn get_config(
-    State((storage, _)): State<(Arc<Storage>, Arc<AsyncWorkflowExecutor>)>,
+    State((storage, _, _)): State<(Arc<Storage>, Arc<AsyncWorkflowExecutor>, Arc<TriggerManager>)>,
 ) -> Json<serde_json::Value> {
     match storage.config.get_config() {
         Ok(Some(config)) => success(serde_json::json!(config)),
@@ -306,7 +308,7 @@ async fn get_config(
 
 // PUT /api/config
 async fn update_config(
-    State((storage, _)): State<(Arc<Storage>, Arc<AsyncWorkflowExecutor>)>,
+    State((storage, _, _)): State<(Arc<Storage>, Arc<AsyncWorkflowExecutor>, Arc<TriggerManager>)>,
     Json(config): Json<SystemConfig>,
 ) -> Json<serde_json::Value> {
     match storage.config.update_config(config) {
@@ -319,7 +321,7 @@ async fn update_config(
 }
 
 async fn list_tasks(
-    State((_, executor)): State<(Arc<Storage>, Arc<AsyncWorkflowExecutor>)>,
+    State((_, executor, _)): State<(Arc<Storage>, Arc<AsyncWorkflowExecutor>, Arc<TriggerManager>)>,
     axum::extract::Query(query): axum::extract::Query<ListTasksQuery>,
 ) -> Json<serde_json::Value> {
     let status = query.status.and_then(|s| match s.as_str() {
@@ -368,6 +370,128 @@ async fn list_tasks(
     }
 }
 
+// PUT /api/workflow/{id}/activate
+async fn activate_workflow(
+    State((_, _, trigger_manager)): State<(Arc<Storage>, Arc<AsyncWorkflowExecutor>, Arc<TriggerManager>)>,
+    Path(workflow_id): Path<String>,
+) -> Json<serde_json::Value> {
+    match trigger_manager.activate_workflow(&workflow_id).await {
+        Ok(trigger) => {
+            let webhook_url = if matches!(trigger.trigger_config, models::TriggerConfig::Webhook { .. }) {
+                Some(format!("/api/triggers/webhook/{}", trigger.id))
+            } else {
+                None
+            };
+            
+            Json(serde_json::json!({
+                "status": "success",
+                "trigger_id": trigger.id,
+                "webhook_url": webhook_url,
+                "message": "Workflow trigger activated successfully"
+            }))
+        }
+        Err(e) => Json(serde_json::json!({
+            "status": "error",
+            "message": format!("Failed to activate workflow: {}", e)
+        })),
+    }
+}
+
+// PUT /api/workflow/{id}/deactivate
+async fn deactivate_workflow(
+    State((_, _, trigger_manager)): State<(Arc<Storage>, Arc<AsyncWorkflowExecutor>, Arc<TriggerManager>)>,
+    Path(workflow_id): Path<String>,
+) -> Json<serde_json::Value> {
+    match trigger_manager.deactivate_workflow(&workflow_id).await {
+        Ok(_) => Json(serde_json::json!({
+            "status": "success",
+            "message": "Workflow trigger deactivated successfully"
+        })),
+        Err(e) => Json(serde_json::json!({
+            "status": "error",
+            "message": format!("Failed to deactivate workflow: {}", e)
+        })),
+    }
+}
+
+// GET /api/workflow/{id}/trigger-status
+async fn get_workflow_trigger_status(
+    State((_, _, trigger_manager)): State<(Arc<Storage>, Arc<AsyncWorkflowExecutor>, Arc<TriggerManager>)>,
+    Path(workflow_id): Path<String>,
+) -> Json<serde_json::Value> {
+    match trigger_manager.get_trigger_status(&workflow_id).await {
+        Ok(Some(status)) => Json(serde_json::json!({
+            "status": "success",
+            "data": status
+        })),
+        Ok(None) => Json(serde_json::json!({
+            "status": "success",
+            "data": null,
+            "message": "No trigger configured for this workflow"
+        })),
+        Err(e) => Json(serde_json::json!({
+            "status": "error",
+            "message": format!("Failed to get trigger status: {}", e)
+        })),
+    }
+}
+
+// POST /api/workflow/{id}/test
+async fn test_workflow_trigger(
+    State((_, executor, _)): State<(Arc<Storage>, Arc<AsyncWorkflowExecutor>, Arc<TriggerManager>)>,
+    Path(workflow_id): Path<String>,
+    Json(payload): Json<serde_json::Value>,
+) -> Json<serde_json::Value> {
+    match executor.submit(workflow_id, payload).await {
+        Ok(execution_id) => Json(serde_json::json!({
+            "status": "success",
+            "execution_id": execution_id,
+            "message": "Test execution started"
+        })),
+        Err(e) => Json(serde_json::json!({
+            "status": "error",
+            "message": format!("Failed to test workflow: {}", e)
+        })),
+    }
+}
+
+// Webhook handler - matches any HTTP method
+async fn handle_webhook_trigger(
+    State((_, _, trigger_manager)): State<(Arc<Storage>, Arc<AsyncWorkflowExecutor>, Arc<TriggerManager>)>,
+    Path(webhook_id): Path<String>,
+    method: Method,
+    headers: axum::http::HeaderMap,
+    body: String,
+) -> Json<serde_json::Value> {
+    // Convert headers to HashMap
+    let mut header_map = HashMap::new();
+    for (key, value) in headers.iter() {
+        if let Ok(v) = value.to_str() {
+            header_map.insert(key.as_str().to_string(), v.to_string());
+        }
+    }
+    
+    // Parse body as JSON, or wrap in object if not valid JSON
+    let body_json: serde_json::Value = serde_json::from_str(&body)
+        .unwrap_or_else(|_| serde_json::json!({ "raw": body }));
+    
+    match trigger_manager.handle_webhook(&webhook_id, method.as_str(), header_map, body_json).await {
+        Ok(WebhookResponse::Async { execution_id }) => {
+            Json(serde_json::json!({
+                "status": "success",
+                "execution_id": execution_id,
+                "message": "Workflow execution started"
+            }))
+        }
+        Ok(WebhookResponse::Sync { result }) => {
+            Json(result)
+        }
+        Err(e) => Json(serde_json::json!({
+            "status": "error",
+            "message": format!("{}", e)
+        })),
+    }
+}
 
 #[tokio::main]
 async fn main() {
@@ -382,6 +506,10 @@ async fn main() {
     
     let async_executor = Arc::new(AsyncWorkflowExecutor::with_workers(storage.clone(), num_workers));
     async_executor.start().await;
+    
+    // Create TriggerManager
+    let trigger_manager = Arc::new(TriggerManager::new(storage.clone(), async_executor.clone()));
+    trigger_manager.init().await.expect("Failed to initialize TriggerManager");
 
     let cors = CorsLayer::new()
         .allow_origin([
@@ -398,7 +526,7 @@ async fn main() {
         .allow_headers([header::CONTENT_TYPE, header::AUTHORIZATION])
         .allow_credentials(true);
 
-    let shared_state = (storage.clone(), async_executor);
+    let shared_state = (storage.clone(), async_executor, trigger_manager);
     
     let app = Router::new()
         .route("/health", get(health))
@@ -422,6 +550,20 @@ async fn main() {
         
         // System configuration
         .route("/api/config", get(get_config).put(update_config))
+        
+        // Trigger management
+        .route("/api/workflow/{id}/activate", put(activate_workflow))
+        .route("/api/workflow/{id}/deactivate", put(deactivate_workflow))
+        .route("/api/workflow/{id}/trigger-status", get(get_workflow_trigger_status))
+        .route("/api/workflow/{id}/test", post(test_workflow_trigger))
+        
+        // Webhook endpoint (accepts any HTTP method)
+        .route("/api/triggers/webhook/{webhook_id}", 
+            get(handle_webhook_trigger)
+            .post(handle_webhook_trigger)
+            .put(handle_webhook_trigger)
+            .delete(handle_webhook_trigger)
+            .patch(handle_webhook_trigger))
         
         .fallback(static_assets::static_handler)
         .layer(cors)
