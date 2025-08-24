@@ -71,12 +71,8 @@ impl WorkflowExecutor {
         context: &mut ExecutionContext,
         registry: Arc<crate::node::registry::NodeRegistry>,
     ) -> Result<Value, String> {
-        use crate::models::NodeType;
-        
         // Skip trigger nodes - they are just configuration
-        if matches!(node.node_type, 
-            NodeType::ManualTrigger | NodeType::WebhookTrigger | NodeType::ScheduleTrigger
-        ) {
+        if node.is_trigger() {
             println!("Skipping trigger node: {} (type: {:?})", node.id, node.node_type);
             return Ok(serde_json::json!({"skipped": true}));
         }
@@ -291,13 +287,9 @@ impl AsyncWorkflowExecutor {
         // Push start nodes to queue (skip trigger nodes)
         for node_id in start_nodes {
             if let Some(node) = graph.get_node(&node_id) {
-                use crate::models::NodeType;
-                
                 // Skip trigger nodes - they are just configuration entry points
                 // When workflow is triggered, we start from the actual business nodes
-                if matches!(node.node_type, 
-                    NodeType::ManualTrigger | NodeType::WebhookTrigger | NodeType::ScheduleTrigger
-                ) {
+                if node.is_trigger() {
                     // Find downstream nodes of this trigger and queue them instead
                     let downstream = graph.get_downstream_nodes(&node_id);
                     for downstream_id in downstream {

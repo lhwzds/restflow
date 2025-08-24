@@ -80,10 +80,7 @@ impl Workflow {
     
     /// Check if workflow has a trigger node
     pub fn has_trigger_node(&self) -> bool {
-        self.nodes.iter().any(|node| matches!(
-            node.node_type,
-            NodeType::ManualTrigger | NodeType::WebhookTrigger | NodeType::ScheduleTrigger
-        ))
+        self.nodes.iter().any(|node| node.is_trigger())
     }
 }
 

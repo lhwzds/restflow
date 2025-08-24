@@ -9,6 +9,16 @@ pub struct Node {
     pub position: Option<Position>,
 }
 
+impl Node {
+    /// Check if this node is a trigger node
+    pub fn is_trigger(&self) -> bool {
+        matches!(
+            self.node_type,
+            NodeType::ManualTrigger | NodeType::WebhookTrigger | NodeType::ScheduleTrigger
+        )
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Position {
     pub x: f64,
