@@ -12,7 +12,7 @@ use axum::{
     http::{Method, header},
     routing::{delete, get, post, put},
 };
-use models::Workflow;
+use models::{Workflow, TaskRecord};
 use engine::executor::{AsyncWorkflowExecutor, WorkflowExecutor};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -207,12 +207,36 @@ async fn get_execution_status(
                 "unknown"
             };
             
+            // Convert tasks with decoded context
+            let tasks_json: Vec<serde_json::Value> = tasks.iter().map(|task| {
+                let context_json = serde_json::from_slice::<serde_json::Value>(&task.context_data)
+                    .unwrap_or_else(|_| serde_json::json!({
+                        "error": "Failed to deserialize context",
+                        "raw_bytes": task.context_data.len()
+                    }));
+                
+                serde_json::json!({
+                    "id": task.id,
+                    "execution_id": task.execution_id,
+                    "workflow_id": task.workflow_id,
+                    "node_id": task.node_id,
+                    "status": task.status,
+                    "created_at": task.created_at,
+                    "started_at": task.started_at,
+                    "completed_at": task.completed_at,
+                    "input": task.input,
+                    "output": task.output,
+                    "error": task.error,
+                    "context": context_json
+                })
+            }).collect();
+            
             Json(serde_json::json!({
                 "status": "success",
                 "execution_id": execution_id,
                 "execution_status": execution_status,
-                "tasks": tasks,
-                "task_count": tasks.len()
+                "tasks": tasks_json,
+                "task_count": tasks_json.len()
             }))
         }
         Err(e) => Json(serde_json::json!({
@@ -228,7 +252,29 @@ async fn get_task_status(
     Path(task_id): Path<String>,
 ) -> Json<serde_json::Value> {
     match executor.get_task_status(&task_id).await {
-        Ok(Some(task)) => Json(serde_json::json!(task)),
+        Ok(Some(task)) => {
+            // Deserialize context_data for display
+            let context_json = serde_json::from_slice::<serde_json::Value>(&task.context_data)
+                .unwrap_or_else(|_| serde_json::json!({
+                    "error": "Failed to deserialize context",
+                    "raw_bytes": task.context_data.len()
+                }));
+            
+            Json(serde_json::json!({
+                "id": task.id,
+                "execution_id": task.execution_id,
+                "workflow_id": task.workflow_id,
+                "node_id": task.node_id,
+                "status": task.status,
+                "created_at": task.created_at,
+                "started_at": task.started_at,
+                "completed_at": task.completed_at,
+                "input": task.input,
+                "output": task.output,
+                "error": task.error,
+                "context": context_json
+            }))
+        },
         Ok(None) => Json(serde_json::json!({
             "status": "error",
             "message": "Task not found"
@@ -285,10 +331,36 @@ async fn list_tasks(
     });
     
     match executor.list_tasks(query.workflow_id.as_deref(), status).await {
-        Ok(tasks) => Json(serde_json::json!({
-            "status": "success",
-            "data": tasks
-        })),
+        Ok(tasks) => {
+            // Convert tasks with decoded context
+            let tasks_json: Vec<serde_json::Value> = tasks.iter().map(|task| {
+                let context_json = serde_json::from_slice::<serde_json::Value>(&task.context_data)
+                    .unwrap_or_else(|_| serde_json::json!({
+                        "error": "Failed to deserialize context",
+                        "raw_bytes": task.context_data.len()
+                    }));
+                
+                serde_json::json!({
+                    "id": task.id,
+                    "execution_id": task.execution_id,
+                    "workflow_id": task.workflow_id,
+                    "node_id": task.node_id,
+                    "status": task.status,
+                    "created_at": task.created_at,
+                    "started_at": task.started_at,
+                    "completed_at": task.completed_at,
+                    "input": task.input,
+                    "output": task.output,
+                    "error": task.error,
+                    "context": context_json
+                })
+            }).collect();
+            
+            Json(serde_json::json!({
+                "status": "success",
+                "data": tasks_json
+            }))
+        },
         Err(e) => Json(serde_json::json!({
             "status": "error",
             "message": format!("Failed to list tasks: {}", e)

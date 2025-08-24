@@ -1,5 +1,3 @@
-use crate::models::{Node, Workflow};
-use crate::engine::context::ExecutionContext;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
@@ -12,13 +10,13 @@ pub enum TaskStatus {
     Failed,
 }
 
+/// Lightweight task record for storage - only IDs and essential data
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct WorkflowTask {
+pub struct TaskRecord {
     pub id: String,
-    pub execution_id: String,  
-    pub node: Node,            
-    pub workflow: Workflow,   
-    pub context: ExecutionContext,  
+    pub execution_id: String,
+    pub workflow_id: String,
+    pub node_id: String,
     pub status: TaskStatus,
     pub created_at: i64,
     pub started_at: Option<i64>,
@@ -26,22 +24,24 @@ pub struct WorkflowTask {
     pub input: Value,
     pub output: Option<Value>,
     pub error: Option<String>,
+    
+    // Store serialized context to avoid loading it separately
+    pub context_data: Vec<u8>,
 }
 
-impl WorkflowTask {
+impl TaskRecord {
     pub fn new(
         execution_id: String,
-        node: Node,
-        workflow: Workflow,
-        context: ExecutionContext,
+        workflow_id: String,
+        node_id: String,
         input: Value,
+        context_data: Vec<u8>,
     ) -> Self {
         Self {
             id: Uuid::new_v4().to_string(),
             execution_id,
-            node,
-            workflow,
-            context,
+            workflow_id,
+            node_id,
             status: TaskStatus::Pending,
             created_at: chrono::Utc::now().timestamp(),
             started_at: None,
@@ -49,20 +49,61 @@ impl WorkflowTask {
             input,
             output: None,
             error: None,
+            context_data,
         }
     }
+}
 
-    pub fn new_single_node(node: Node, input: Value) -> Self {
-        let workflow = Workflow {
-            id: format!("single-{}", node.id),
-            name: format!("Single Node: {}", node.id),
-            nodes: vec![node.clone()],
-            edges: vec![],
-        };
+/// Runtime task with full data for execution
+#[derive(Debug, Clone)]
+pub struct WorkflowTask {
+    pub record: TaskRecord,
+    pub node: crate::models::Node,
+    pub workflow: crate::models::Workflow,
+    pub context: crate::engine::context::ExecutionContext,
+}
+
+impl WorkflowTask {
+    /// Create from TaskRecord by loading workflow and node
+    pub fn from_record(
+        record: TaskRecord,
+        workflow: crate::models::Workflow,
+        context: crate::engine::context::ExecutionContext,
+    ) -> Result<Self, String> {
+        // Find the node in the workflow
+        let node = workflow
+            .nodes
+            .iter()
+            .find(|n| n.id == record.node_id)
+            .ok_or_else(|| format!("Node {} not found in workflow", record.node_id))?
+            .clone();
         
-        let execution_id = Uuid::new_v4().to_string();
-        let context = ExecutionContext::new(execution_id.clone());
+        Ok(Self {
+            record,
+            node,
+            workflow,
+            context,
+        })
+    }
+    
+    /// Convert to TaskRecord for storage
+    pub fn to_record(&self) -> Result<TaskRecord, String> {
+        let context_data = serde_json::to_vec(&self.context)
+            .map_err(|e| format!("Failed to serialize context: {}", e))?;
         
-        Self::new(execution_id, node, workflow, context, input)
+        Ok(TaskRecord {
+            id: self.record.id.clone(),
+            execution_id: self.record.execution_id.clone(),
+            workflow_id: self.workflow.id.clone(),
+            node_id: self.node.id.clone(),
+            status: self.record.status.clone(),
+            created_at: self.record.created_at,
+            started_at: self.record.started_at,
+            completed_at: self.record.completed_at,
+            input: self.record.input.clone(),
+            output: self.record.output.clone(),
+            error: self.record.error.clone(),
+            context_data,
+        })
     }
 }
