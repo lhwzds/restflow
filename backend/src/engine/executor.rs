@@ -145,7 +145,7 @@ impl AsyncWorkflowExecutor {
     }
     
     pub fn with_workers(storage: Arc<Storage>, num_workers: usize) -> Self {
-        let scheduler = Arc::new(Scheduler::new(storage.queue.clone()));
+        let scheduler = Arc::new(Scheduler::new(storage.queue.clone(), storage.clone()));
         Self {
             storage,
             scheduler,
@@ -213,10 +213,10 @@ impl AsyncWorkflowExecutor {
                 if let Err(e) = chain_result {
                     eprintln!("Failed to queue downstream tasks: {}", e);
                 }
-                Self::update_task_status(scheduler, task.id.clone(), Ok(output)).await;
+                Self::update_task_status(scheduler, task.record.id.clone(), Ok(output)).await;
             }
             Err(e) => {
-                Self::update_task_status(scheduler, task.id.clone(), Err(e)).await;
+                Self::update_task_status(scheduler, task.record.id.clone(), Err(e)).await;
             }
         }
     }
@@ -296,12 +296,12 @@ impl AsyncWorkflowExecutor {
             .map_err(|e| format!("Failed to submit node: {}", e))
     }
 
-    pub async fn get_task_status(&self, task_id: &str) -> Result<Option<WorkflowTask>, String> {
+    pub async fn get_task_status(&self, task_id: &str) -> Result<Option<crate::models::TaskRecord>, String> {
         self.scheduler.get_task(task_id)
             .map_err(|e| format!("Failed to get task status: {}", e))
     }
     
-    pub async fn get_execution_status(&self, execution_id: &str) -> Result<Vec<WorkflowTask>, String> {
+    pub async fn get_execution_status(&self, execution_id: &str) -> Result<Vec<crate::models::TaskRecord>, String> {
         self.scheduler.get_tasks_by_execution(execution_id)
             .map_err(|e| format!("Failed to get execution status: {}", e))
     }
@@ -310,7 +310,7 @@ impl AsyncWorkflowExecutor {
         &self,
         workflow_id: Option<&str>,
         status: Option<crate::models::TaskStatus>,
-    ) -> Result<Vec<WorkflowTask>, String> {
+    ) -> Result<Vec<crate::models::TaskRecord>, String> {
         self.scheduler.list_tasks(workflow_id, status)
             .map_err(|e| format!("Failed to list tasks: {}", e))
     }
@@ -356,7 +356,7 @@ impl Worker {
         let task = self.scheduler.pop_task().await
             .map_err(|e| format!("Failed to get task: {}", e))?;
         
-        println!("Worker {} processing task: {} (node: {})", self.id, task.id, task.node.id);
+        println!("Worker {} processing task: {} (node: {})", self.id, task.record.id, task.node.id);
         
         AsyncWorkflowExecutor::execute_task(self.storage.clone(), self.scheduler.clone(), task, self.registry.clone()).await;
         
