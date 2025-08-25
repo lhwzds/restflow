@@ -74,7 +74,7 @@ async fn main() {
         .allow_headers([header::CONTENT_TYPE, header::AUTHORIZATION])
         .allow_credentials(true);
 
-    let shared_state = (storage.clone(), async_executor, trigger_manager);
+    let shared_state = api::AppState::new(storage.clone(), async_executor, trigger_manager);
     
     let app = Router::new()
         .route("/health", get(health))

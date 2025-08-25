@@ -1,21 +1,17 @@
-use crate::engine::executor::{AsyncWorkflowExecutor, WorkflowExecutor};
-use crate::engine::trigger_manager::TriggerManager;
+use crate::api::state::AppState;
+use crate::engine::executor::WorkflowExecutor;
 use crate::models::Workflow;
-use crate::storage::Storage;
 use axum::{
     extract::{Path, State},
     Json,
 };
 use serde_json::Value;
-use std::sync::Arc;
-
-pub type AppState = (Arc<Storage>, Arc<AsyncWorkflowExecutor>, Arc<TriggerManager>);
 
 // GET /api/workflow/list
 pub async fn list_workflows(
-    State((storage, _, _)): State<AppState>,
+    State(state): State<AppState>,
 ) -> Json<Value> {
-    match storage.workflows.list_workflows() {
+    match state.storage.workflows.list_workflows() {
         Ok(workflows) => Json(serde_json::json!({
             "status": "success",
             "data": workflows
@@ -29,10 +25,10 @@ pub async fn list_workflows(
 
 // POST /api/workflow/create
 pub async fn create_workflow(
-    State((storage, _, _)): State<AppState>,
+    State(state): State<AppState>,
     Json(workflow): Json<Workflow>,
 ) -> Json<Value> {
-    match storage.workflows.create_workflow(&workflow) {
+    match state.storage.workflows.create_workflow(&workflow) {
         Ok(_) => Json(serde_json::json!({
             "status": "success",
             "message": format!("Workflow {} saved!", workflow.name),
@@ -47,10 +43,10 @@ pub async fn create_workflow(
 
 // GET /api/workflow/get/{id}
 pub async fn get_workflow(
-    State((storage, _, _)): State<AppState>,
+    State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Json<Value> {
-    match storage.workflows.get_workflow(&id) {
+    match state.storage.workflows.get_workflow(&id) {
         Ok(workflow) => Json(serde_json::json!(workflow)),
         Err(e) => Json(serde_json::json!({
             "status": "error",
@@ -61,11 +57,11 @@ pub async fn get_workflow(
 
 // PUT /api/workflow/update/{id}
 pub async fn update_workflow(
-    State((storage, _, _)): State<AppState>,
+    State(state): State<AppState>,
     Path(id): Path<String>,
     Json(workflow): Json<Workflow>,
 ) -> Json<Value> {
-    match storage.workflows.update_workflow(&id, &workflow) {
+    match state.storage.workflows.update_workflow(&id, &workflow) {
         Ok(_) => Json(serde_json::json!({
             "status": "success",
             "message": format!("Workflow {} updated!", id),
@@ -80,10 +76,10 @@ pub async fn update_workflow(
 
 // DELETE /api/workflow/delete/{id}
 pub async fn delete_workflow(
-    State((storage, _, _)): State<AppState>,
+    State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Json<Value> {
-    match storage.workflows.delete_workflow(&id) {
+    match state.storage.workflows.delete_workflow(&id) {
         Ok(_) => Json(serde_json::json!({
             "status": "success",
             "message": format!("Workflow {} deleted!", id),
@@ -98,7 +94,7 @@ pub async fn delete_workflow(
 
 // POST /api/execution/sync/run
 pub async fn execute_workflow(
-    State((_, _executor, _)): State<AppState>,
+    State(_state): State<AppState>,
     Json(mut workflow): Json<Workflow>,
 ) -> Json<Value> {
     workflow.id = format!("inline-{}", uuid::Uuid::new_v4());
@@ -118,11 +114,11 @@ pub async fn execute_workflow(
 
 // POST /api/execution/sync/run-workflow/{workflow_id}
 pub async fn execute_workflow_by_id(
-    State((storage, _, _)): State<AppState>,
+    State(state): State<AppState>,
     Path(workflow_id): Path<String>,
     Json(input): Json<Value>,
 ) -> Json<Value> {
-    match storage.workflows.get_workflow(&workflow_id) {
+    match state.storage.workflows.get_workflow(&workflow_id) {
         Ok(workflow) => {
             let mut wf_executor = WorkflowExecutor::new(workflow);
             wf_executor.set_input(input);
@@ -146,11 +142,11 @@ pub async fn execute_workflow_by_id(
 
 // POST /api/execution/async/submit/{workflow_id}
 pub async fn submit_workflow(
-    State((_, executor, _)): State<AppState>,
+    State(state): State<AppState>,
     Path(workflow_id): Path<String>,
     Json(input): Json<Value>,
 ) -> Json<Value> {
-    match executor.submit(workflow_id.clone(), input).await {
+    match state.executor.submit(workflow_id.clone(), input).await {
         Ok(execution_id) => Json(serde_json::json!({
             "status": "success",
             "data": {
