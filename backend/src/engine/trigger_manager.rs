@@ -1,6 +1,6 @@
 use crate::models::{ActiveTrigger, TriggerConfig, AuthConfig, ResponseMode};
 use crate::storage::Storage;
-use crate::engine::executor::AsyncWorkflowExecutor;
+use crate::engine::executor::WorkflowExecutor;
 use std::sync::Arc;
 use std::collections::HashMap;
 use serde_json::Value;
@@ -8,11 +8,11 @@ use anyhow::{Result, anyhow};
 
 pub struct TriggerManager {
     storage: Arc<Storage>,
-    executor: Arc<AsyncWorkflowExecutor>,
+    executor: Arc<WorkflowExecutor>,
 }
 
 impl TriggerManager {
-    pub fn new(storage: Arc<Storage>, executor: Arc<AsyncWorkflowExecutor>) -> Self {
+    pub fn new(storage: Arc<Storage>, executor: Arc<WorkflowExecutor>) -> Self {
         Self {
             storage,
             executor,
@@ -34,7 +34,7 @@ impl TriggerManager {
     // Activate workflow trigger
     pub async fn activate_workflow(&self, workflow_id: &str) -> Result<ActiveTrigger> {
 
-        if let Some(existing) = self.storage.triggers.get_active_trigger_by_workflow(workflow_id)? {
+        if let Some(_existing) = self.storage.triggers.get_active_trigger_by_workflow(workflow_id)? {
             return Err(anyhow!("Workflow {} already has an active trigger", workflow_id));
         }
         
@@ -120,7 +120,7 @@ impl TriggerManager {
                         .map_err(|e| anyhow!("Failed to load workflow: {}", e))?;
                     
                     // Create executor and execute synchronously
-                    let mut executor = WorkflowExecutor::new(workflow);
+                    let mut executor = WorkflowExecutor::new_sync(workflow);
                     executor.set_input(input);
                     
                     let result = executor.execute().await
