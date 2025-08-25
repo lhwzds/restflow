@@ -1,4 +1,4 @@
-use crate::models::{Node, Workflow, TaskRecord, TaskStatus, WorkflowTask};
+use crate::models::{Node, Workflow, Task, TaskStatus};
 use crate::engine::context::ExecutionContext;
 use crate::engine::graph::WorkflowGraph;
 use crate::storage::{Storage, TaskQueue};
@@ -27,21 +27,18 @@ impl Scheduler {
         context: ExecutionContext,
         input: Value,
     ) -> Result<String> {
-        // Serialize context for storage
-        let context_data = serde_json::to_vec(&context)?;
-        
-        // Create lightweight TaskRecord
-        let record = TaskRecord::new(
+        // Create unified Task
+        let task = Task::new(
             execution_id,
             workflow.id.clone(),
             node.id.clone(),
             input,
-            context_data,
+            context,
         );
-        let task_id = record.id.clone();
+        let task_id = task.id.clone();
 
-        let priority = chrono::Utc::now().timestamp_millis() as u64;
-        let serialized = serde_json::to_vec(&record)?;
+        let priority = task.priority();
+        let serialized = serde_json::to_vec(&task)?;
         self.queue.insert_pending(priority, &serialized)?;
 
         Ok(task_id)
@@ -49,41 +46,19 @@ impl Scheduler {
 
     /// Add a single node task for standalone execution
     pub fn push_single_node(&self, node: Node, input: Value) -> Result<String> {
-        // Create a minimal workflow for single node
-        let workflow = Workflow {
-            id: format!("single-{}", node.id),
-            name: format!("Single Node: {}", node.id),
-            nodes: vec![node.clone()],
-            edges: vec![],
-            trigger_config: None,
-        };
-        
-        // Store the workflow first
-        self.storage.workflows.create_workflow(&workflow)
-            .map_err(|e| anyhow::anyhow!("Failed to create workflow: {}", e))?;
-        
-        let execution_id = uuid::Uuid::new_v4().to_string();
-        let context = ExecutionContext::new(execution_id.clone());
-        let context_data = serde_json::to_vec(&context)?;
-        
-        let record = TaskRecord::new(
-            execution_id,
-            workflow.id.clone(),
-            node.id.clone(),
-            input,
-            context_data,
-        );
-        let task_id = record.id.clone();
+        // Create task for single node
+        let task = Task::for_single_node(node, input);
+        let task_id = task.id.clone();
 
-        let priority = chrono::Utc::now().timestamp_millis() as u64;
-        let serialized = serde_json::to_vec(&record)?;
+        let priority = task.priority();
+        let serialized = serde_json::to_vec(&task)?;
         self.queue.insert_pending(priority, &serialized)?;
 
         Ok(task_id)
     }
 
     /// Pop a task from the queue (blocks until task available)
-    pub async fn pop_task(&self) -> Result<WorkflowTask> {
+    pub async fn pop_task(&self) -> Result<Task> {
         loop {
             match self.try_pop_task()? {
                 Some(task) => return Ok(task),
@@ -96,29 +71,17 @@ impl Scheduler {
     }
 
     /// Try to pop a task without blocking
-    fn try_pop_task(&self) -> Result<Option<WorkflowTask>> {
+    fn try_pop_task(&self) -> Result<Option<Task>> {
         // Get first pending task
         if let Some((priority, data)) = self.queue.get_first_pending()? {
-            let mut record: TaskRecord = serde_json::from_slice(&data)?;
-            
-            // Load workflow from storage
-            let workflow = self.storage.workflows.get_workflow(&record.workflow_id)
-                .map_err(|e| anyhow::anyhow!("Failed to get workflow: {}", e))?;
-            
-            // Deserialize context
-            let context: ExecutionContext = serde_json::from_slice(&record.context_data)?;
+            let mut task: Task = serde_json::from_slice(&data)?;
             
             // Update task status
-            record.status = TaskStatus::Running;
-            record.started_at = Some(chrono::Utc::now().timestamp());
-            
-            // Create runtime WorkflowTask
-            let task = WorkflowTask::from_record(record.clone(), workflow, context)
-                .map_err(|e| anyhow::anyhow!(e))?;
+            task.start();
             
             // Move to processing
-            let serialized = serde_json::to_vec(&record)?;
-            self.queue.move_to_processing(priority, &record.id, &serialized)?;
+            let serialized = serde_json::to_vec(&task)?;
+            self.queue.move_to_processing(priority, &task.id, &serialized)?;
             
             Ok(Some(task))
         } else {
@@ -144,16 +107,26 @@ impl Scheduler {
         output: Option<Value>,
         error: Option<String>,
     ) -> Result<()> {
-        // Get task record from processing
+        // Get task from processing
         if let Some(data) = self.queue.get_from_processing(task_id)? {
-            let mut record: TaskRecord = serde_json::from_slice(&data)?;
-            record.status = status;
-            record.completed_at = Some(chrono::Utc::now().timestamp());
-            record.output = output;
-            record.error = error;
+            let mut task: Task = serde_json::from_slice(&data)?;
             
-            // Move to completed (lightweight record without workflow)
-            let serialized = serde_json::to_vec(&record)?;
+            match status {
+                TaskStatus::Completed => {
+                    if let Some(output) = output {
+                        task.complete(output);
+                    }
+                }
+                TaskStatus::Failed => {
+                    if let Some(error) = error {
+                        task.fail(error);
+                    }
+                }
+                _ => {}
+            }
+            
+            // Move to completed
+            let serialized = serde_json::to_vec(&task)?;
             self.queue.move_to_completed(task_id, &serialized)?;
         }
         
@@ -161,28 +134,28 @@ impl Scheduler {
     }
 
     /// Get task records by execution ID from all tables
-    pub fn get_tasks_by_execution(&self, execution_id: &str) -> Result<Vec<TaskRecord>> {
+    pub fn get_tasks_by_execution(&self, execution_id: &str) -> Result<Vec<Task>> {
         let mut tasks = Vec::new();
         
         // Check all three tables
         for data in self.queue.get_all_pending()? {
-            let record: TaskRecord = serde_json::from_slice(&data)?;
-            if record.execution_id == execution_id {
-                tasks.push(record);
+            let task: Task = serde_json::from_slice(&data)?;
+            if task.execution_id == execution_id {
+                tasks.push(task);
             }
         }
         
         for data in self.queue.get_all_processing()? {
-            let record: TaskRecord = serde_json::from_slice(&data)?;
-            if record.execution_id == execution_id {
-                tasks.push(record);
+            let task: Task = serde_json::from_slice(&data)?;
+            if task.execution_id == execution_id {
+                tasks.push(task);
             }
         }
         
         for data in self.queue.get_all_completed()? {
-            let record: TaskRecord = serde_json::from_slice(&data)?;
-            if record.execution_id == execution_id {
-                tasks.push(record);
+            let task: Task = serde_json::from_slice(&data)?;
+            if task.execution_id == execution_id {
+                tasks.push(task);
             }
         }
         
@@ -191,26 +164,26 @@ impl Scheduler {
         Ok(tasks)
     }
 
-    /// Get a task record by ID from any table
-    pub fn get_task(&self, task_id: &str) -> Result<Option<TaskRecord>> {
+    /// Get a task by ID from any table
+    pub fn get_task(&self, task_id: &str) -> Result<Option<Task>> {
         if let Some(data) = self.queue.get_from_any_table(task_id)? {
-            let record: TaskRecord = serde_json::from_slice(&data)?;
-            Ok(Some(record))
+            let task: Task = serde_json::from_slice(&data)?;
+            Ok(Some(task))
         } else {
             Ok(None)
         }
     }
 
-    /// List task records with optional filters
-    pub fn list_tasks(&self, workflow_id: Option<&str>, status: Option<TaskStatus>) -> Result<Vec<TaskRecord>> {
+    /// List tasks with optional filters
+    pub fn list_tasks(&self, workflow_id: Option<&str>, status: Option<TaskStatus>) -> Result<Vec<Task>> {
         let mut tasks = Vec::new();
         
         // Check pending tasks
         if status.is_none() || status == Some(TaskStatus::Pending) {
             for data in self.queue.get_all_pending()? {
-                let record: TaskRecord = serde_json::from_slice(&data)?;
-                if Self::matches_record_filter(&record, workflow_id, None) {
-                    tasks.push(record);
+                let task: Task = serde_json::from_slice(&data)?;
+                if Self::matches_task_filter(&task, workflow_id, None) {
+                    tasks.push(task);
                 }
             }
         }
@@ -218,9 +191,9 @@ impl Scheduler {
         // Check running tasks
         if status.is_none() || status == Some(TaskStatus::Running) {
             for data in self.queue.get_all_processing()? {
-                let record: TaskRecord = serde_json::from_slice(&data)?;
-                if Self::matches_record_filter(&record, workflow_id, None) {
-                    tasks.push(record);
+                let task: Task = serde_json::from_slice(&data)?;
+                if Self::matches_task_filter(&task, workflow_id, None) {
+                    tasks.push(task);
                 }
             }
         }
@@ -228,9 +201,9 @@ impl Scheduler {
         // Check completed tasks
         if status.is_none() || matches!(status, Some(TaskStatus::Completed) | Some(TaskStatus::Failed)) {
             for data in self.queue.get_all_completed()? {
-                let record: TaskRecord = serde_json::from_slice(&data)?;
-                if Self::matches_record_filter(&record, workflow_id, status.as_ref()) {
-                    tasks.push(record);
+                let task: Task = serde_json::from_slice(&data)?;
+                if Self::matches_task_filter(&task, workflow_id, status.as_ref()) {
+                    tasks.push(task);
                 }
             }
         }
@@ -247,19 +220,19 @@ impl Scheduler {
         
         // Find and recover stalled tasks
         for data in self.queue.get_all_processing()? {
-            let mut record: TaskRecord = serde_json::from_slice(&data)?;
+            let mut task: Task = serde_json::from_slice(&data)?;
             
             // Check if task has been processing too long
-            if let Some(started_at) = record.started_at {
+            if let Some(started_at) = task.started_at {
                 if now - started_at > DEFAULT_STALL_TIMEOUT_SECONDS {
                     // Reset status and move back to pending
-                    record.status = TaskStatus::Pending;
-                    record.started_at = None;
+                    task.status = TaskStatus::Pending;
+                    task.started_at = None;
                     
-                    let priority = chrono::Utc::now().timestamp_millis() as u64;
-                    let serialized = serde_json::to_vec(&record)?;
+                    let priority = task.priority();
+                    let serialized = serde_json::to_vec(&task)?;
                     
-                    self.queue.remove_from_processing(&record.id)?;
+                    self.queue.remove_from_processing(&task.id)?;
                     self.queue.insert_pending(priority, &serialized)?;
                     
                     recovered += 1;
@@ -284,24 +257,27 @@ impl Scheduler {
     /// Queue downstream tasks after a node completes
     pub fn queue_downstream_tasks(
         &self,
-        task: &WorkflowTask,
+        task: &Task,
         output: Value,
     ) -> Result<()> {
+        // Get workflow from task
+        let workflow = task.get_workflow(&self.storage)?;
+        
         // Update context with node output
         let mut context = task.context.clone();
-        context.set_node_output(task.node.id.clone(), output);
+        context.set_node_output(task.node_id.clone(), output);
         
         // Find and queue ready downstream nodes
-        let graph = WorkflowGraph::from_workflow(&task.workflow);
-        let downstream_nodes = graph.get_downstream_nodes(&task.node.id);
+        let graph = WorkflowGraph::from_workflow(&workflow);
+        let downstream_nodes = graph.get_downstream_nodes(&task.node_id);
         
         for downstream_id in downstream_nodes {
             if let Some(downstream_node) = graph.get_node(&downstream_id) {
                 if Self::are_dependencies_met(&graph, &downstream_id, &context) {
                     self.push_task(
-                        task.record.execution_id.clone(),
+                        task.execution_id.clone(),
                         downstream_node.clone(),
-                        task.workflow.clone(),
+                        (*workflow).clone(),
                         context.clone(),
                         Value::Null,
                     )?;
@@ -312,13 +288,13 @@ impl Scheduler {
         Ok(())
     }
 
-    /// Helper to check if task record matches filters
-    fn matches_record_filter(
-        record: &TaskRecord,
+    /// Helper to check if task matches filters
+    fn matches_task_filter(
+        task: &Task,
         workflow_id: Option<&str>,
         status: Option<&TaskStatus>,
     ) -> bool {
-        workflow_id.map_or(true, |id| record.workflow_id == id)
-            && status.map_or(true, |s| &record.status == s)
+        workflow_id.map_or(true, |id| task.workflow_id == id)
+            && status.map_or(true, |s| &task.status == s)
     }
 }

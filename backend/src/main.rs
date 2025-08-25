@@ -14,7 +14,7 @@ use axum::{
     http::{Method, header},
     routing::{delete, get, post, put},
 };
-use engine::executor::AsyncWorkflowExecutor;
+use engine::executor::WorkflowExecutor;
 use engine::trigger_manager::TriggerManager;
 use storage::Storage;
 use std::sync::Arc;
@@ -43,20 +43,20 @@ async fn main() {
     
     println!("Starting RestFlow with {} workers", num_workers);
     
-    // Create and start async executor
-    let async_executor = Arc::new(AsyncWorkflowExecutor::with_workers(
+    // Create and start workflow executor in async mode
+    let executor = Arc::new(WorkflowExecutor::new_async(
         storage.clone(),
         num_workers
     ));
-    async_executor.start().await;
+    executor.start().await;
     
     // Create trigger manager
     let trigger_manager = Arc::new(TriggerManager::new(
         storage.clone(),
-        async_executor.clone()
+        executor.clone()
     ));
     
-    // Initialize trigger manager (load active triggers)
+    // Initialize trigger manager
     if let Err(e) = trigger_manager.init().await {
         eprintln!("Failed to initialize trigger manager: {}", e);
     }
@@ -74,7 +74,7 @@ async fn main() {
         .allow_headers([header::CONTENT_TYPE, header::AUTHORIZATION])
         .allow_credentials(true);
 
-    let shared_state = api::AppState::new(storage.clone(), async_executor, trigger_manager);
+    let shared_state = api::AppState::new(storage.clone(), executor, trigger_manager);
     
     let app = Router::new()
         .route("/health", get(health))
