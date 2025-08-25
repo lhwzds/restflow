@@ -1,5 +1,6 @@
 use rig::{agent::AgentBuilder, client::CompletionClient, completion::Prompt, providers::openai};
 use serde::{Deserialize, Serialize};
+use anyhow::Result;
 use crate::tools::{AddTool, GetTimeTool};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -22,20 +23,20 @@ impl AgentNode {
         }
     }
 
-    pub fn from_config(config: &serde_json::Value) -> Result<Self, String> {
+    pub fn from_config(config: &serde_json::Value) -> Result<Self> {
         let model = config["model"]
             .as_str()
-            .ok_or("Model missing in config")?
+            .ok_or_else(|| anyhow::anyhow!("Model missing in config"))?
             .to_string();
 
         let prompt = config["prompt"]
             .as_str()
-            .ok_or("Prompt missing in config")?
+            .ok_or_else(|| anyhow::anyhow!("Prompt missing in config"))?
             .to_string();
 
         let temperature = config["temperature"]
             .as_f64()
-            .ok_or("Temperature missing in config")?;
+            .ok_or_else(|| anyhow::anyhow!("Temperature missing in config"))?;
 
         let api_key = config["api_key"].as_str().map(|s| s.to_string());
 
@@ -56,11 +57,11 @@ impl AgentNode {
         })
     }
 
-    pub async fn execute(&self, input: &str) -> Result<String, Box<dyn std::error::Error>> {
+    pub async fn execute(&self, input: &str) -> Result<String> {
         let api_key = self
             .api_key
             .clone()
-            .ok_or("API key not found. Please provide api key.")?;
+            .ok_or_else(|| anyhow::anyhow!("API key not found. Please provide api key"))?;
 
         let openai = openai::Client::new(&api_key);
 

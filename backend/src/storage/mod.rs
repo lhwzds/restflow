@@ -3,6 +3,7 @@ pub mod workflow;
 pub mod config;
 pub mod trigger;
 
+use anyhow::Result;
 use redb::Database;
 use std::sync::Arc;
 
@@ -20,21 +21,13 @@ pub struct Storage {
 }
 
 impl Storage {
-    pub fn new(path: &str) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+    pub fn new(path: &str) -> Result<Self> {
         let db = Arc::new(Database::create(path)?);
 
-        let write_txn = db.begin_write()?;
-        write_txn.open_table(workflow::WORKFLOW_TABLE)?;
-        write_txn.open_table(trigger::ACTIVE_TRIGGERS_TABLE)?;
-        write_txn.commit()?;
-
-        let workflows = WorkflowStorage::new(db.clone());
+        let workflows = WorkflowStorage::new(db.clone())?;
         let queue = TaskQueue::new(db.clone())?;
-        let config = ConfigStorage::new(db.clone());
-        let triggers = TriggerStorage::new(db.clone());
-        
-        // Initialize config table and defaults
-        config.init()?;
+        let config = ConfigStorage::new(db.clone())?;
+        let triggers = TriggerStorage::new(db.clone())?;
 
         Ok(Self {
             db,

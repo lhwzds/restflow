@@ -39,8 +39,7 @@ impl TriggerManager {
         }
         
         let workflow = self.storage.workflows.get_workflow(workflow_id)
-            .map_err(|e| anyhow!("Failed to get workflow: {}", e))?
-            .ok_or_else(|| anyhow!("Workflow {} not found", workflow_id))?;
+            .map_err(|e| anyhow!("Failed to get workflow: {}", e))?;
         
         let trigger_config = workflow.extract_trigger_config()
             .ok_or_else(|| anyhow!("Workflow {} has no trigger configuration", workflow_id))?;
@@ -118,8 +117,7 @@ impl TriggerManager {
                     
                     // Load workflow
                     let workflow = self.storage.workflows.get_workflow(&workflow_id)
-                        .map_err(|e| anyhow!("Failed to load workflow: {}", e))?
-                        .ok_or_else(|| anyhow!("Workflow {} not found", workflow_id))?;
+                        .map_err(|e| anyhow!("Failed to load workflow: {}", e))?;
                     
                     // Create executor and execute synchronously
                     let mut executor = WorkflowExecutor::new(workflow);
@@ -188,8 +186,7 @@ impl TriggerManager {
     // Get workflow trigger status
     pub async fn get_trigger_status(&self, workflow_id: &str) -> Result<Option<TriggerStatus>> {
         let workflow = self.storage.workflows.get_workflow(workflow_id)
-            .map_err(|e| anyhow!("Failed to get workflow: {}", e))?
-            .ok_or_else(|| anyhow!("Workflow {} not found", workflow_id))?;
+            .map_err(|e| anyhow!("Failed to get workflow: {}", e))?;
         
         if let Some(trigger) = self.storage.triggers.get_active_trigger_by_workflow(workflow_id)? {
             let webhook_url = if matches!(trigger.trigger_config, TriggerConfig::Webhook { .. }) {

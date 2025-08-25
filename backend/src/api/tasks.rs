@@ -1,4 +1,3 @@
-use crate::api_response::{error, not_found, success};
 use crate::engine::executor::AsyncWorkflowExecutor;
 use crate::engine::trigger_manager::TriggerManager;
 use crate::models::{Node, TaskStatus};
@@ -26,8 +25,14 @@ pub async fn get_execution_status(
     Path(execution_id): Path<String>,
 ) -> Json<Value> {
     match executor.get_execution_status(&execution_id).await {
-        Ok(tasks) => success(tasks),
-        Err(e) => error(format!("Failed to get execution status: {}", e)),
+        Ok(tasks) => Json(serde_json::json!({
+            "status": "success",
+            "data": tasks
+        })),
+        Err(e) => Json(serde_json::json!({
+            "status": "error",
+            "message": format!("Failed to get execution status: {}", e)
+        })),
     }
 }
 
@@ -37,9 +42,14 @@ pub async fn get_task_status(
     Path(task_id): Path<String>,
 ) -> Json<Value> {
     match executor.get_task_status(&task_id).await {
-        Ok(Some(task)) => success(task),
-        Ok(None) => not_found("Task not found".to_string()),
-        Err(e) => error(format!("Failed to get task status: {}", e)),
+        Ok(task) => Json(serde_json::json!({
+            "status": "success",
+            "data": task
+        })),
+        Err(e) => Json(serde_json::json!({
+            "status": "error",
+            "message": e.to_string()
+        })),
     }
 }
 
@@ -62,9 +72,15 @@ pub async fn list_tasks(
                     .collect();
             }
             
-            success(filtered)
+            Json(serde_json::json!({
+                "status": "success",
+                "data": filtered
+            }))
         }
-        Err(e) => error(format!("Failed to list tasks: {}", e)),
+        Err(e) => Json(serde_json::json!({
+            "status": "error",
+            "message": format!("Failed to list tasks: {}", e)
+        })),
     }
 }
 
@@ -74,10 +90,16 @@ pub async fn execute_node(
     Json(node): Json<Node>,
 ) -> Json<Value> {
     match executor.submit_node(node, serde_json::json!({})).await {
-        Ok(task_id) => success(serde_json::json!({
-            "task_id": task_id,
-            "message": "Node execution started"
+        Ok(task_id) => Json(serde_json::json!({
+            "status": "success",
+            "data": {
+                "task_id": task_id,
+                "message": "Node execution started"
+            }
         })),
-        Err(e) => error(format!("Failed to execute node: {}", e)),
+        Err(e) => Json(serde_json::json!({
+            "status": "error",
+            "message": format!("Failed to execute node: {}", e)
+        })),
     }
 }

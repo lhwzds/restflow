@@ -12,8 +12,13 @@ pub struct TriggerStorage {
 }
 
 impl TriggerStorage {
-    pub fn new(db: Arc<Database>) -> Self {
-        Self { db }
+    pub fn new(db: Arc<Database>) -> Result<Self> {
+        // Create table if not exists
+        let write_txn = db.begin_write()?;
+        write_txn.open_table(ACTIVE_TRIGGERS_TABLE)?;
+        write_txn.commit()?;
+        
+        Ok(Self { db })
     }
     
     // Activate trigger

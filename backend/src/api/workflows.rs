@@ -1,4 +1,3 @@
-use crate::api_response::{error, not_found, success, success_with_message};
 use crate::engine::executor::{AsyncWorkflowExecutor, WorkflowExecutor};
 use crate::engine::trigger_manager::TriggerManager;
 use crate::models::Workflow;
@@ -16,9 +15,16 @@ pub type AppState = (Arc<Storage>, Arc<AsyncWorkflowExecutor>, Arc<TriggerManage
 pub async fn list_workflows(
     State((storage, _, _)): State<AppState>,
 ) -> Json<Value> {
-    storage.workflows.list_workflows()
-        .map(success)
-        .unwrap_or_else(|e| error(format!("Failed to list workflows: {}", e)))
+    match storage.workflows.list_workflows() {
+        Ok(workflows) => Json(serde_json::json!({
+            "status": "success",
+            "data": workflows
+        })),
+        Err(e) => Json(serde_json::json!({
+            "status": "error",
+            "message": format!("Failed to list workflows: {}", e)
+        }))
+    }
 }
 
 // POST /api/workflow/create
@@ -26,12 +32,17 @@ pub async fn create_workflow(
     State((storage, _, _)): State<AppState>,
     Json(workflow): Json<Workflow>,
 ) -> Json<Value> {
-    storage.workflows.create_workflow(&workflow)
-        .map(|_| success_with_message(
-            serde_json::json!({"id": workflow.id}),
-            format!("Workflow {} saved!", workflow.name)
-        ))
-        .unwrap_or_else(|e| error(format!("Failed to save workflow: {}", e)))
+    match storage.workflows.create_workflow(&workflow) {
+        Ok(_) => Json(serde_json::json!({
+            "status": "success",
+            "message": format!("Workflow {} saved!", workflow.name),
+            "data": {"id": workflow.id}
+        })),
+        Err(e) => Json(serde_json::json!({
+            "status": "error",
+            "message": format!("Failed to save workflow: {}", e)
+        }))
+    }
 }
 
 // GET /api/workflow/get/{id}
@@ -39,11 +50,13 @@ pub async fn get_workflow(
     State((storage, _, _)): State<AppState>,
     Path(id): Path<String>,
 ) -> Json<Value> {
-    storage.workflows.get_workflow(&id)
-        .map(|opt| opt
-            .map(|w| Json(serde_json::json!(w)))
-            .unwrap_or_else(|| not_found("Workflow not found".to_string())))
-        .unwrap_or_else(|e| error(format!("Failed to get workflow: {}", e)))
+    match storage.workflows.get_workflow(&id) {
+        Ok(workflow) => Json(serde_json::json!(workflow)),
+        Err(e) => Json(serde_json::json!({
+            "status": "error",
+            "message": e.to_string()
+        }))
+    }
 }
 
 // PUT /api/workflow/update/{id}
@@ -52,12 +65,17 @@ pub async fn update_workflow(
     Path(id): Path<String>,
     Json(workflow): Json<Workflow>,
 ) -> Json<Value> {
-    storage.workflows.update_workflow(&id, &workflow)
-        .map(|_| success_with_message(
-            serde_json::json!({}),
-            format!("Workflow {} updated!", id)
-        ))
-        .unwrap_or_else(|e| error(format!("Failed to update workflow: {}", e)))
+    match storage.workflows.update_workflow(&id, &workflow) {
+        Ok(_) => Json(serde_json::json!({
+            "status": "success",
+            "message": format!("Workflow {} updated!", id),
+            "data": {}
+        })),
+        Err(e) => Json(serde_json::json!({
+            "status": "error",
+            "message": format!("Failed to update workflow: {}", e)
+        }))
+    }
 }
 
 // DELETE /api/workflow/delete/{id}
@@ -65,12 +83,17 @@ pub async fn delete_workflow(
     State((storage, _, _)): State<AppState>,
     Path(id): Path<String>,
 ) -> Json<Value> {
-    storage.workflows.delete_workflow(&id)
-        .map(|_| success_with_message(
-            serde_json::json!({}),
-            format!("Workflow {} deleted!", id)
-        ))
-        .unwrap_or_else(|e| error(format!("Failed to delete workflow: {}", e)))
+    match storage.workflows.delete_workflow(&id) {
+        Ok(_) => Json(serde_json::json!({
+            "status": "success",
+            "message": format!("Workflow {} deleted!", id),
+            "data": {}
+        })),
+        Err(e) => Json(serde_json::json!({
+            "status": "error",
+            "message": format!("Failed to delete workflow: {}", e)
+        }))
+    }
 }
 
 // POST /api/execution/sync/run
@@ -82,8 +105,14 @@ pub async fn execute_workflow(
     
     let mut wf_executor = WorkflowExecutor::new(workflow);
     match wf_executor.execute().await {
-        Ok(output) => success(output),
-        Err(e) => error(format!("Workflow execution failed: {}", e)),
+        Ok(output) => Json(serde_json::json!({
+            "status": "success",
+            "data": output
+        })),
+        Err(e) => Json(serde_json::json!({
+            "status": "error",
+            "message": format!("Workflow execution failed: {}", e)
+        })),
     }
 }
 
@@ -94,16 +123,24 @@ pub async fn execute_workflow_by_id(
     Json(input): Json<Value>,
 ) -> Json<Value> {
     match storage.workflows.get_workflow(&workflow_id) {
-        Ok(Some(workflow)) => {
+        Ok(workflow) => {
             let mut wf_executor = WorkflowExecutor::new(workflow);
             wf_executor.set_input(input);
             match wf_executor.execute().await {
-                Ok(output) => success(output),
-                Err(e) => error(format!("Workflow execution failed: {}", e)),
+                Ok(output) => Json(serde_json::json!({
+                    "status": "success",
+                    "data": output
+                })),
+                Err(e) => Json(serde_json::json!({
+                    "status": "error",
+                    "message": format!("Workflow execution failed: {}", e)
+                })),
             }
         }
-        Ok(None) => not_found(format!("Workflow {} not found", workflow_id)),
-        Err(e) => error(format!("Failed to get workflow: {}", e)),
+        Err(e) => Json(serde_json::json!({
+            "status": "error",
+            "message": e.to_string()
+        })),
     }
 }
 
@@ -114,10 +151,16 @@ pub async fn submit_workflow(
     Json(input): Json<Value>,
 ) -> Json<Value> {
     match executor.submit(workflow_id.clone(), input).await {
-        Ok(execution_id) => success(serde_json::json!({
-            "execution_id": execution_id,
-            "workflow_id": workflow_id,
+        Ok(execution_id) => Json(serde_json::json!({
+            "status": "success",
+            "data": {
+                "execution_id": execution_id,
+                "workflow_id": workflow_id,
+            }
         })),
-        Err(e) => error(format!("Failed to submit workflow: {}", e)),
+        Err(e) => Json(serde_json::json!({
+            "status": "error",
+            "message": format!("Failed to submit workflow: {}", e)
+        })),
     }
 }

@@ -1,4 +1,3 @@
-use crate::api_response::{error, success};
 use crate::engine::trigger_manager::{TriggerManager, WebhookResponse};
 use crate::storage::Storage;
 use crate::engine::executor::AsyncWorkflowExecutor;
@@ -33,7 +32,10 @@ pub async fn activate_workflow(
                 "message": "Workflow trigger activated successfully"
             }))
         }
-        Err(e) => error(format!("Failed to activate workflow: {}", e)),
+        Err(e) => Json(serde_json::json!({
+            "status": "error",
+            "message": format!("Failed to activate workflow: {}", e)
+        })),
     }
 }
 
@@ -47,7 +49,10 @@ pub async fn deactivate_workflow(
             "status": "success",
             "message": "Workflow trigger deactivated successfully"
         })),
-        Err(e) => error(format!("Failed to deactivate workflow: {}", e)),
+        Err(e) => Json(serde_json::json!({
+            "status": "error",
+            "message": format!("Failed to deactivate workflow: {}", e)
+        })),
     }
 }
 
@@ -57,13 +62,19 @@ pub async fn get_workflow_trigger_status(
     Path(workflow_id): Path<String>,
 ) -> Json<Value> {
     match trigger_manager.get_trigger_status(&workflow_id).await {
-        Ok(Some(status)) => success(status),
+        Ok(Some(status)) => Json(serde_json::json!({
+            "status": "success",
+            "data": status
+        })),
         Ok(None) => Json(serde_json::json!({
             "status": "success",
             "data": null,
             "message": "No trigger configured for this workflow"
         })),
-        Err(e) => error(format!("Failed to get trigger status: {}", e)),
+        Err(e) => Json(serde_json::json!({
+            "status": "error",
+            "message": format!("Failed to get trigger status: {}", e)
+        })),
     }
 }
 
@@ -79,7 +90,10 @@ pub async fn test_workflow_trigger(
             "execution_id": execution_id,
             "message": "Test execution started"
         })),
-        Err(e) => error(format!("Failed to test workflow: {}", e)),
+        Err(e) => Json(serde_json::json!({
+            "status": "error",
+            "message": format!("Failed to test workflow: {}", e)
+        })),
     }
 }
 
@@ -114,6 +128,9 @@ pub async fn handle_webhook_trigger(
         Ok(WebhookResponse::Sync { result }) => {
             Json(result)
         }
-        Err(e) => error(format!("{}", e)),
+        Err(e) => Json(serde_json::json!({
+            "status": "error",
+            "message": format!("{}", e)
+        })),
     }
 }

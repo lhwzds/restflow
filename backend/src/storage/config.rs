@@ -66,22 +66,20 @@ pub struct ConfigStorage {
 }
 
 impl ConfigStorage {
-    pub fn new(db: Arc<Database>) -> Self {
-        Self { db }
-    }
-
-    /// Initialize config table and set defaults if not exists
-    pub fn init(&self) -> Result<()> {
-        let write_txn = self.db.begin_write()?;
+    pub fn new(db: Arc<Database>) -> Result<Self> {
+        // Create table
+        let write_txn = db.begin_write()?;
         write_txn.open_table(CONFIG_TABLE)?;
         write_txn.commit()?;
-
+        
+        let storage = Self { db };
+        
         // Set default config if not exists
-        if self.get_config()?.is_none() {
-            self.update_config(SystemConfig::default())?;
+        if storage.get_config()?.is_none() {
+            storage.update_config(SystemConfig::default())?;
         }
-
-        Ok(())
+        
+        Ok(storage)
     }
 
     /// Get system configuration

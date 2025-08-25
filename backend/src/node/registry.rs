@@ -1,13 +1,14 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use async_trait::async_trait;
+use anyhow::Result;
 use serde_json::Value;
 use crate::models::NodeType;
 use crate::engine::context::ExecutionContext;
 
 #[async_trait]
 pub trait NodeExecutor: Send + Sync {
-    async fn execute(&self, config: &Value, context: &mut ExecutionContext) -> Result<Value, String>;
+    async fn execute(&self, config: &Value, context: &mut ExecutionContext) -> Result<Value>;
 }
 
 pub struct NodeRegistry {
@@ -43,7 +44,7 @@ struct ManualTriggerExecutor;
 
 #[async_trait]
 impl NodeExecutor for ManualTriggerExecutor {
-    async fn execute(&self, _config: &Value, _context: &mut ExecutionContext) -> Result<Value, String> {
+    async fn execute(&self, _config: &Value, _context: &mut ExecutionContext) -> Result<Value> {
         Ok(serde_json::json!({
             "type": "manual",
             "triggered_at": chrono::Utc::now().to_rfc3339()
@@ -55,7 +56,7 @@ struct WebhookTriggerExecutor;
 
 #[async_trait]
 impl NodeExecutor for WebhookTriggerExecutor {
-    async fn execute(&self, _config: &Value, _context: &mut ExecutionContext) -> Result<Value, String> {
+    async fn execute(&self, _config: &Value, _context: &mut ExecutionContext) -> Result<Value> {
         Ok(serde_json::json!({
             "type": "webhook",
             "triggered_at": chrono::Utc::now().to_rfc3339()
@@ -67,7 +68,7 @@ struct ScheduleTriggerExecutor;
 
 #[async_trait]
 impl NodeExecutor for ScheduleTriggerExecutor {
-    async fn execute(&self, _config: &Value, _context: &mut ExecutionContext) -> Result<Value, String> {
+    async fn execute(&self, _config: &Value, _context: &mut ExecutionContext) -> Result<Value> {
         Ok(serde_json::json!({
             "type": "schedule",
             "triggered_at": chrono::Utc::now().to_rfc3339()
@@ -79,15 +80,15 @@ struct HttpRequestExecutor;
 
 #[async_trait]
 impl NodeExecutor for HttpRequestExecutor {
-    async fn execute(&self, config: &Value, _context: &mut ExecutionContext) -> Result<Value, String> {
-        let url = config["url"].as_str().ok_or("URL not found in config")?;
+    async fn execute(&self, config: &Value, _context: &mut ExecutionContext) -> Result<Value> {
+        let url = config["url"].as_str().ok_or_else(|| anyhow::anyhow!("URL not found in config"))?;
         let method = config["method"].as_str().unwrap_or("GET");
         
         let client = reqwest::Client::new();
         let response = match method {
             "GET" => self.send_get(client, url).await?,
             "POST" => self.send_post(client, url).await?,
-            _ => return Err(format!("Unsupported HTTP method: {}", method)),
+            _ => return Err(anyhow::anyhow!("Unsupported HTTP method: {}", method)),
         };
         
         Ok(serde_json::json!({
@@ -98,22 +99,22 @@ impl NodeExecutor for HttpRequestExecutor {
 }
 
 impl HttpRequestExecutor {
-    async fn send_get(&self, client: reqwest::Client, url: &str) -> Result<String, String> {
+    async fn send_get(&self, client: reqwest::Client, url: &str) -> Result<String> {
         client.get(url)
             .send().await
             .and_then(|r| r.error_for_status())
-            .map_err(|e| format!("GET request failed: {}", e))?
+            .map_err(|e| anyhow::anyhow!("GET request failed: {}", e))?
             .text().await
-            .map_err(|e| format!("Failed to read response body: {}", e))
+            .map_err(|e| anyhow::anyhow!("Failed to read response body: {}", e))
     }
     
-    async fn send_post(&self, client: reqwest::Client, url: &str) -> Result<String, String> {
+    async fn send_post(&self, client: reqwest::Client, url: &str) -> Result<String> {
         client.post(url)
             .send().await
             .and_then(|r| r.error_for_status())
-            .map_err(|e| format!("POST request failed: {}", e))?
+            .map_err(|e| anyhow::anyhow!("POST request failed: {}", e))?
             .text().await
-            .map_err(|e| format!("Failed to read response body: {}", e))
+            .map_err(|e| anyhow::anyhow!("Failed to read response body: {}", e))
     }
 }
 
@@ -121,7 +122,7 @@ struct PrintExecutor;
 
 #[async_trait]
 impl NodeExecutor for PrintExecutor {
-    async fn execute(&self, config: &Value, _context: &mut ExecutionContext) -> Result<Value, String> {
+    async fn execute(&self, config: &Value, _context: &mut ExecutionContext) -> Result<Value> {
         let message = config["message"].as_str().unwrap_or("No message provided");
         println!("{}", message);
         
@@ -135,13 +136,13 @@ struct AgentExecutor;
 
 #[async_trait]
 impl NodeExecutor for AgentExecutor {
-    async fn execute(&self, config: &Value, _context: &mut ExecutionContext) -> Result<Value, String> {
+    async fn execute(&self, config: &Value, _context: &mut ExecutionContext) -> Result<Value> {
         use crate::node::agent::AgentNode;
         
         let agent = AgentNode::from_config(config)?;
         let input = config["input"].as_str().unwrap_or("Hello");
         let response = agent.execute(input).await
-            .map_err(|e| format!("Agent execution failed: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("Agent execution failed: {}", e))?;
         
         Ok(serde_json::json!({
             "response": response
