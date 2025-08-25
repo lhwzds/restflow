@@ -1,16 +1,11 @@
-use crate::engine::executor::AsyncWorkflowExecutor;
-use crate::engine::trigger_manager::TriggerManager;
+use crate::api::state::AppState;
 use crate::models::{Node, TaskStatus};
-use crate::storage::Storage;
 use axum::{
     extract::{Path, Query, State},
     Json,
 };
 use serde::Deserialize;
 use serde_json::Value;
-use std::sync::Arc;
-
-pub type AppState = (Arc<Storage>, Arc<AsyncWorkflowExecutor>, Arc<TriggerManager>);
 
 #[derive(Deserialize)]
 pub struct TaskListQuery {
@@ -21,10 +16,10 @@ pub struct TaskListQuery {
 
 // GET /api/execution/status/{execution_id}
 pub async fn get_execution_status(
-    State((_, executor, _)): State<AppState>,
+    State(state): State<AppState>,
     Path(execution_id): Path<String>,
 ) -> Json<Value> {
-    match executor.get_execution_status(&execution_id).await {
+    match state.executor.get_execution_status(&execution_id).await {
         Ok(tasks) => Json(serde_json::json!({
             "status": "success",
             "data": tasks
@@ -38,10 +33,10 @@ pub async fn get_execution_status(
 
 // GET /api/task/status/{task_id}
 pub async fn get_task_status(
-    State((_, executor, _)): State<AppState>,
+    State(state): State<AppState>,
     Path(task_id): Path<String>,
 ) -> Json<Value> {
-    match executor.get_task_status(&task_id).await {
+    match state.executor.get_task_status(&task_id).await {
         Ok(task) => Json(serde_json::json!({
             "status": "success",
             "data": task
@@ -55,13 +50,13 @@ pub async fn get_task_status(
 
 // GET /api/task/list
 pub async fn list_tasks(
-    State((_, executor, _)): State<AppState>,
+    State(state): State<AppState>,
     Query(params): Query<TaskListQuery>,
 ) -> Json<Value> {
     let _limit = params.limit.unwrap_or(100) as usize;
     let status_filter = params.status.clone();
     
-    match executor.list_tasks(None, status_filter).await {
+    match state.executor.list_tasks(None, status_filter).await {
         Ok(tasks) => {
             let mut filtered = tasks;
             
@@ -86,10 +81,10 @@ pub async fn list_tasks(
 
 // POST /api/node/execute
 pub async fn execute_node(
-    State((_, executor, _)): State<AppState>,
+    State(state): State<AppState>,
     Json(node): Json<Node>,
 ) -> Json<Value> {
-    match executor.submit_node(node, serde_json::json!({})).await {
+    match state.executor.submit_node(node, serde_json::json!({})).await {
         Ok(task_id) => Json(serde_json::json!({
             "status": "success",
             "data": {
