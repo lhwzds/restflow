@@ -1,4 +1,5 @@
 use crate::models::{Edge, Node, Workflow};
+use anyhow::Result;
 use std::collections::{HashMap, HashSet, VecDeque};
 
 pub struct WorkflowGraph {
@@ -38,7 +39,7 @@ impl WorkflowGraph {
         }
     }
 
-    pub fn get_execution_order(&self) -> Result<Vec<String>, String> {
+    pub fn get_execution_order(&self) -> Result<Vec<String>> {
         let mut queue = VecDeque::new();
         let mut in_degree = self.in_degree.clone();
         let mut result = Vec::new();
@@ -65,13 +66,13 @@ impl WorkflowGraph {
         }
 
         if result.len() != self.nodes.len() {
-            return Err("Workflow contains cycles".to_string());
+            return Err(anyhow::anyhow!("Workflow contains cycles"));
         }
 
         Ok(result)
     }
 
-    pub fn get_parallel_groups(&self) -> Result<Vec<Vec<String>>, String> {
+    pub fn get_parallel_groups(&self) -> Result<Vec<Vec<String>>> {
         let mut groups = Vec::new();
         let mut processed = HashSet::new();
         let mut in_degree = self.in_degree.clone();
@@ -105,7 +106,7 @@ impl WorkflowGraph {
         }
 
         if processed.len() != self.nodes.len() {
-            return Err("Workflow contains cycles or unreachable nodes".to_string());
+            return Err(anyhow::anyhow!("Workflow contains cycles or unreachable nodes"));
         }
 
         Ok(groups)

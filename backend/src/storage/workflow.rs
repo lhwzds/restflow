@@ -1,4 +1,5 @@
 use crate::models::Workflow;
+use anyhow::Result;
 use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
 use std::sync::Arc;
 
@@ -9,11 +10,16 @@ pub struct WorkflowStorage {
 }
 
 impl WorkflowStorage {
-    pub fn new(db: Arc<Database>) -> Self {
-        Self { db }
+    pub fn new(db: Arc<Database>) -> Result<Self> {
+        // Create table if not exists
+        let write_txn = db.begin_write()?;
+        write_txn.open_table(WORKFLOW_TABLE)?;
+        write_txn.commit()?;
+        
+        Ok(Self { db })
     }
 
-    pub fn create_workflow(&self, workflow: &Workflow) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub fn create_workflow(&self, workflow: &Workflow) -> Result<()> {
         let write_txn = self.db.begin_write()?;
         {
             let mut table = write_txn.open_table(WORKFLOW_TABLE)?;
@@ -24,19 +30,19 @@ impl WorkflowStorage {
         Ok(())
     }
 
-    pub fn get_workflow(&self, id: &str) -> Result<Option<Workflow>, Box<dyn std::error::Error + Send + Sync>> {
+    pub fn get_workflow(&self, id: &str) -> Result<Workflow> {
         let read_txn = self.db.begin_read()?;
         let table = read_txn.open_table(WORKFLOW_TABLE)?;
 
         if let Some(value) = table.get(id)? {
             let workflow: Workflow = serde_json::from_slice(value.value())?;
-            Ok(Some(workflow))
+            Ok(workflow)
         } else {
-            Ok(None)
+            Err(anyhow::anyhow!("Workflow {} not found", id))
         }
     }
 
-    pub fn list_workflows(&self) -> Result<Vec<Workflow>, Box<dyn std::error::Error + Send + Sync>> {
+    pub fn list_workflows(&self) -> Result<Vec<Workflow>> {
         let read_txn = self.db.begin_read()?;
         let table = read_txn.open_table(WORKFLOW_TABLE)?;
 
@@ -54,13 +60,13 @@ impl WorkflowStorage {
         &self,
         id: &str,
         workflow: &Workflow,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<()> {
         let write_txn = self.db.begin_write()?;
         {
             let mut table = write_txn.open_table(WORKFLOW_TABLE)?;
 
             if table.get(id)?.is_none() {
-                return Err("Workflow not found".into());
+                return Err(anyhow::anyhow!("Workflow not found"));
             }
 
             let json_bytes = serde_json::to_vec(workflow)?;
@@ -70,13 +76,13 @@ impl WorkflowStorage {
         Ok(())
     }
 
-    pub fn delete_workflow(&self, id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub fn delete_workflow(&self, id: &str) -> Result<()> {
         let write_txn = self.db.begin_write()?;
         {
             let mut table = write_txn.open_table(WORKFLOW_TABLE)?;
 
             if table.get(id)?.is_none() {
-                return Err("Workflow not found".into());
+                return Err(anyhow::anyhow!("Workflow not found"));
             }
 
             table.remove(id)?;

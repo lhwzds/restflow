@@ -103,8 +103,7 @@ impl Scheduler {
             
             // Load workflow from storage
             let workflow = self.storage.workflows.get_workflow(&record.workflow_id)
-                .map_err(|e| anyhow::anyhow!("Failed to get workflow: {}", e))?
-                .ok_or_else(|| anyhow::anyhow!("Workflow {} not found", record.workflow_id))?;
+                .map_err(|e| anyhow::anyhow!("Failed to get workflow: {}", e))?;
             
             // Deserialize context
             let context: ExecutionContext = serde_json::from_slice(&record.context_data)?;

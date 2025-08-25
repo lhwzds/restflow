@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use anyhow::Result;
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -69,13 +70,13 @@ impl WorkflowTask {
         record: TaskRecord,
         workflow: crate::models::Workflow,
         context: crate::engine::context::ExecutionContext,
-    ) -> Result<Self, String> {
+    ) -> Result<Self> {
         // Find the node in the workflow
         let node = workflow
             .nodes
             .iter()
             .find(|n| n.id == record.node_id)
-            .ok_or_else(|| format!("Node {} not found in workflow", record.node_id))?
+            .ok_or_else(|| anyhow::anyhow!("Node {} not found in workflow", record.node_id))?
             .clone();
         
         Ok(Self {
@@ -87,9 +88,9 @@ impl WorkflowTask {
     }
     
     /// Convert to TaskRecord for storage
-    pub fn to_record(&self) -> Result<TaskRecord, String> {
+    pub fn to_record(&self) -> Result<TaskRecord> {
         let context_data = serde_json::to_vec(&self.context)
-            .map_err(|e| format!("Failed to serialize context: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("Failed to serialize context: {}", e))?;
         
         Ok(TaskRecord {
             id: self.record.id.clone(),

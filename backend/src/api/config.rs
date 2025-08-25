@@ -1,4 +1,3 @@
-use crate::api_response::{error, success};
 use crate::engine::executor::AsyncWorkflowExecutor;
 use crate::engine::trigger_manager::TriggerManager;
 use crate::storage::{Storage, SystemConfig};
@@ -16,9 +15,18 @@ pub async fn get_config(
     State((storage, _, _)): State<AppState>,
 ) -> Json<Value> {
     match storage.config.get_config() {
-        Ok(Some(config)) => success(config),
-        Ok(None) => success(SystemConfig::default()),
-        Err(e) => error(format!("Failed to get config: {}", e)),
+        Ok(Some(config)) => Json(serde_json::json!({
+            "status": "success",
+            "data": config
+        })),
+        Ok(None) => Json(serde_json::json!({
+            "status": "success",
+            "data": SystemConfig::default()
+        })),
+        Err(e) => Json(serde_json::json!({
+            "status": "error",
+            "message": format!("Failed to get config: {}", e)
+        })),
     }
 }
 
@@ -32,6 +40,9 @@ pub async fn update_config(
             "status": "success",
             "message": "Configuration updated successfully"
         })),
-        Err(e) => error(format!("Failed to update config: {}", e)),
+        Err(e) => Json(serde_json::json!({
+            "status": "error",
+            "message": format!("Failed to update config: {}", e)
+        })),
     }
 }
