@@ -18,6 +18,7 @@ pub async fn activate_workflow(
             let trigger_info: Vec<_> = triggers.iter().map(|trigger| {
                 let webhook_url = if matches!(trigger.trigger_config, crate::models::TriggerConfig::Webhook { .. }) {
                     Some(format!("/api/triggers/webhook/{}", trigger.id))
+                } else {
                     None
                 };
                 

@@ -1,6 +1,5 @@
 import type { Edge, Node } from '@vue-flow/core'
 import { defineStore } from 'pinia'
-import { NODE_TYPES } from '../constants/nodeTypes'
 
 interface WorkflowState {
   nodes: Node[]
@@ -24,10 +23,6 @@ export const useWorkflowStore = defineStore('workflow', {
   getters: {
     hasNodes(): boolean {
       return this.nodes.length > 0
-    },
-
-    hasTriggerNode(): boolean {
-      return this.nodes.some((node) => node.type === NODE_TYPES.MANUAL_TRIGGER)
     },
 
     canExecute(): boolean {

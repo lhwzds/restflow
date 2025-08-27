@@ -3,7 +3,6 @@ import axios from 'axios'
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000'
 
-// Create axios instance
 const apiClient = axios.create({
   baseURL: `${API_BASE_URL}/api/workflow`,
   headers: {
@@ -11,7 +10,6 @@ const apiClient = axios.create({
   },
 })
 
-// Workflow metadata interface
 export interface WorkflowMeta {
   id: string
   name: string
@@ -131,4 +129,31 @@ export const workflowService = {
     const response = await apiClient.delete(`/delete/${id}`)
     return response.data
   },
+
+  // Trigger management
+  async activate(id: string) {
+    const response = await apiClient.put(`/${id}/activate`)
+    return response.data
+  },
+
+  async deactivate(id: string) {
+    const response = await apiClient.put(`/${id}/deactivate`)
+    return response.data
+  },
+
+  async getTriggerStatus(id: string) {
+    const response = await apiClient.get(`/${id}/trigger-status`)
+    // Extract data from response and map is_active to active
+    if (response.data?.data) {
+      const status = response.data.data
+      return {
+        active: status.is_active || false,
+        trigger_type: status.trigger_config?.type,
+        webhook_url: status.webhook_url,
+        last_triggered: status.last_triggered_at,
+      }
+    }
+    return null
+  },
+
 }
