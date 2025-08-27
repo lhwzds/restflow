@@ -62,7 +62,7 @@ export function useWorkflowExecution() {
   }
 
   /**
-   * Execute workflow by ID
+   * Execute workflow by ID (sync execution)
    */
   const executeWorkflowById = async (workflowId: string) => {
     if (!workflowId) {
@@ -94,9 +94,6 @@ export function useWorkflowExecution() {
     }
   }
 
-  /**
-   * Clear execution results
-   */
   const clearExecutionResults = () => {
     executionResult.value = null
     executionError.value = null

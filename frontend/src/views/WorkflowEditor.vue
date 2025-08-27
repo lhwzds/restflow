@@ -1,5 +1,13 @@
 <script setup lang="ts">
-import { ArrowLeft, Check, Document, FolderOpened } from '@element-plus/icons-vue'
+import { 
+  ArrowLeft, 
+  Check, 
+  Document, 
+  FolderOpened,
+  Connection,
+  SwitchButton,
+  VideoPlay
+} from '@element-plus/icons-vue'
 import {
   ElButton,
   ElDialog,
@@ -9,6 +17,8 @@ import {
   ElMessage,
   ElPageHeader,
   ElTag,
+  ElTooltip,
+  ElSwitch,
 } from 'element-plus'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -17,6 +27,7 @@ import { useKeyboardShortcuts } from '../composables/shared/useKeyboardShortcuts
 import { useUnsavedChanges } from '../composables/shared/useUnsavedChanges'
 import { useWorkflowImportExport } from '../composables/workflow/useWorkflowImportExport'
 import { useWorkflowPersistence } from '../composables/workflow/useWorkflowPersistence'
+import { useWorkflowTriggers } from '../composables/workflow/useWorkflowTriggers'
 import { useWorkflowStore } from '../stores/workflowStore'
 
 const route = useRoute()
@@ -35,6 +46,14 @@ const { exportWorkflow, importWorkflow } = useWorkflowImportExport({
     unsavedChanges.markAsDirty()
   },
 })
+
+const { 
+  loading: triggerLoading,
+  triggerStatus,
+  hasTriggerNode,
+  fetchTriggerStatus,
+  toggleTriggerStatus
+} = useWorkflowTriggers()
 
 // Local state
 const saveDialogVisible = ref(false)
@@ -97,6 +116,17 @@ const handleExport = () => {
 const handleImport = () => {
   importWorkflow()
 }
+
+// Trigger handlers
+const handleToggleTrigger = async () => {
+  if (!currentWorkflowId.value) {
+    ElMessage.warning('Please save the workflow first')
+    return
+  }
+  
+  await toggleTriggerStatus(currentWorkflowId.value)
+}
+
 
 // Initialize workflow based on route
 const initializeWorkflow = async () => {
