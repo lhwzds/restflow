@@ -5,6 +5,7 @@ use std::sync::Arc;
 use std::collections::HashMap;
 use serde_json::Value;
 use anyhow::{Result, anyhow};
+use ts_rs::TS;
 
 pub struct TriggerManager {
     storage: Arc<Storage>,
@@ -241,7 +242,8 @@ pub enum WebhookResponse {
     Sync { result: Value },
 }
 
-#[derive(Debug, serde::Serialize)]
+#[derive(Debug, serde::Serialize, TS)]
+#[ts(export)]
 pub struct TriggerStatus {
     pub is_active: bool,
     pub trigger_config: TriggerConfig,

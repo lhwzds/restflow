@@ -3,6 +3,7 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
+use ts_rs::TS;
 
 // Compile regex once at first use, then reuse for performance
 // Pattern: {{variable_name}} or {{node_id.field.subfield}}
@@ -13,12 +14,15 @@ static INTERPOLATION_REGEX: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"\{\{([^}]+)\}\}").expect("Invalid regex")
 });
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct ExecutionContext {
     pub workflow_id: String,
     pub execution_id: String,
     pub variables: HashMap<String, Value>,
+    #[ts(type = "Record<string, any>")]
     pub node_outputs: HashMap<String, Value>,
+    #[ts(type = "Record<string, any>")]
     pub global_config: HashMap<String, Value>,
 }
 

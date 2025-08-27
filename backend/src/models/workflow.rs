@@ -1,8 +1,10 @@
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 use super::node::Node;
 use super::trigger::TriggerConfig;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct Workflow {
     pub id: String,
     pub name: String,
@@ -37,7 +39,8 @@ impl Workflow {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct Edge {
     pub from: String,
     pub to: String,
