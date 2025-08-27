@@ -14,18 +14,25 @@ pub async fn activate_workflow(
     Path(workflow_id): Path<String>,
 ) -> Json<Value> {
     match state.trigger_manager.activate_workflow(&workflow_id).await {
-        Ok(trigger) => {
-            let webhook_url = if matches!(trigger.trigger_config, crate::models::TriggerConfig::Webhook { .. }) {
-                Some(format!("/api/triggers/webhook/{}", trigger.id))
-            } else {
-                None
-            };
+        Ok(triggers) => {
+            let trigger_info: Vec<_> = triggers.iter().map(|trigger| {
+                let webhook_url = if matches!(trigger.trigger_config, crate::models::TriggerConfig::Webhook { .. }) {
+                    Some(format!("/api/triggers/webhook/{}", trigger.id))
+                    None
+                };
+                
+                serde_json::json!({
+                    "trigger_id": trigger.id,
+                    "webhook_url": webhook_url,
+                    "config": trigger.trigger_config
+                })
+            }).collect();
             
             Json(serde_json::json!({
                 "status": "success",
-                "trigger_id": trigger.id,
-                "webhook_url": webhook_url,
-                "message": "Workflow trigger activated successfully"
+                "triggers": trigger_info,
+                "count": triggers.len(),
+                "message": format!("{} trigger(s) activated successfully", triggers.len())
             }))
         }
         Err(e) => Json(serde_json::json!({

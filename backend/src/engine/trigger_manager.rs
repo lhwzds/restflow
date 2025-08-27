@@ -31,26 +31,39 @@ impl TriggerManager {
         Ok(())
     }
     
-    // Activate workflow trigger
-    pub async fn activate_workflow(&self, workflow_id: &str) -> Result<ActiveTrigger> {
-
-        if let Some(_existing) = self.storage.triggers.get_active_trigger_by_workflow(workflow_id)? {
-            return Err(anyhow!("Workflow {} already has an active trigger", workflow_id));
-        }
-        
+    // Activate all triggers in a workflow
+    pub async fn activate_workflow(&self, workflow_id: &str) -> Result<Vec<ActiveTrigger>> {
         let workflow = self.storage.workflows.get_workflow(workflow_id)
             .map_err(|e| anyhow!("Failed to get workflow: {}", e))?;
         
-        let trigger_config = workflow.extract_trigger_config()
-            .ok_or_else(|| anyhow!("Workflow {} has no trigger configuration", workflow_id))?;
+        let trigger_configs = workflow.extract_trigger_configs();
         
-        let active_trigger = ActiveTrigger::new(workflow_id.to_string(), trigger_config.clone());
+        if trigger_configs.is_empty() {
+            return Err(anyhow!("Workflow {} has no trigger nodes", workflow_id));
+        }
         
-        self.storage.triggers.activate_trigger(&active_trigger)?;
+        let mut activated_triggers = Vec::new();
         
-        println!("Activated trigger for workflow {}: {:?}", workflow_id, trigger_config);
+        for (node_id, trigger_config) in trigger_configs {
+            // Check if this specific trigger is already active
+            let trigger_id = format!("{}_{}", workflow_id, node_id);
+            let existing = self.storage.triggers.get_active_trigger(&trigger_id)?;
+            if existing.is_some() {
+                println!("Trigger {} already active", trigger_id);
+                continue;
+            }
+            
+            let mut active_trigger = ActiveTrigger::new(workflow_id.to_string(), trigger_config.clone());
+            // Store node_id in the trigger for reference
+            active_trigger.id = trigger_id;
+            
+            self.storage.triggers.activate_trigger(&active_trigger)?;
+            
+            println!("Activated trigger for node {} in workflow {}: {:?}", node_id, workflow_id, trigger_config);
+            activated_triggers.push(active_trigger);
+        }
         
-        Ok(active_trigger)
+        Ok(activated_triggers)
     }
     
     // Deactivate workflow trigger
@@ -203,17 +216,21 @@ impl TriggerManager {
                 last_triggered_at: trigger.last_triggered_at,
                 activated_at: trigger.activated_at,
             }))
-        } else if let Some(config) = workflow.trigger_config {
-            Ok(Some(TriggerStatus {
-                is_active: false,
-                trigger_config: config,
-                webhook_url: None,
-                trigger_count: 0,
-                last_triggered_at: None,
-                activated_at: 0,
-            }))
         } else {
-            Ok(None)
+            // Check if workflow has any trigger nodes
+            let configs = workflow.extract_trigger_configs();
+            if let Some((_, config)) = configs.first() {
+                Ok(Some(TriggerStatus {
+                    is_active: false,
+                    trigger_config: config.clone(),
+                    webhook_url: None,
+                    trigger_count: 0,
+                    last_triggered_at: None,
+                    activated_at: 0,
+                }))
+            } else {
+                Ok(None)
+            }
         }
     }
 }
