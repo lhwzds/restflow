@@ -1,10 +1,13 @@
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 use super::trigger::{TriggerConfig, ResponseMode, AuthConfig};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct Node {
     pub id: String,
     pub node_type: NodeType,
+    #[ts(type = "any")]
     pub config: serde_json::Value,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub position: Option<Position>,
@@ -104,13 +107,15 @@ impl Node {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct Position {
     pub x: f64,
     pub y: f64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, TS)]
+#[ts(export)]
 pub enum NodeType {
     ManualTrigger,
     WebhookTrigger,

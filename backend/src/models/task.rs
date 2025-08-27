@@ -3,12 +3,14 @@ use serde_json::Value;
 use std::sync::Arc;
 use once_cell::sync::OnceCell;
 use uuid::Uuid;
+use ts_rs::TS;
 use crate::models::{Node, Workflow};
 use crate::engine::context::ExecutionContext;
 use crate::storage::Storage;
 use anyhow::Result;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
+#[ts(export)]
 pub enum TaskStatus {
     Pending,
     Running,
@@ -17,7 +19,8 @@ pub enum TaskStatus {
 }
 
 /// Unified task structure that replaces both TaskRecord and WorkflowTask
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct Task {
     // Core fields (always persisted)
     pub id: String,
@@ -28,7 +31,9 @@ pub struct Task {
     pub created_at: i64,
     pub started_at: Option<i64>,
     pub completed_at: Option<i64>,
+    #[ts(type = "any")]
     pub input: Value,
+    #[ts(type = "any")]
     pub output: Option<Value>,
     pub error: Option<String>,
     
@@ -37,8 +42,10 @@ pub struct Task {
     
     // Runtime data (lazy-loaded, not serialized)
     #[serde(skip)]
+    #[ts(skip)]
     node: OnceCell<Node>,
     #[serde(skip)]
+    #[ts(skip)]
     workflow: OnceCell<Arc<Workflow>>,
 }
 

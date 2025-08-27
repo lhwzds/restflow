@@ -1,8 +1,10 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use ts_rs::TS;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
 #[serde(tag = "type", rename_all = "lowercase")]
+#[ts(export)]
 pub enum TriggerConfig {
     Manual,
     Webhook {
@@ -14,12 +16,14 @@ pub enum TriggerConfig {
     Schedule {
         cron: String,
         timezone: Option<String>,
+        #[ts(type = "any")]
         payload: Option<Value>,
     },
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
 #[serde(tag = "type")]
+#[ts(export)]
 pub enum AuthConfig {
     None,
     ApiKey { 
@@ -32,14 +36,16 @@ pub enum AuthConfig {
     },
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
+#[ts(export)]
 pub enum ResponseMode {
     Async,     // Return execution_id immediately
     Sync,      // Wait for completion and return result
 }
 
 // Store active trigger information
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct ActiveTrigger {
     pub id: String,
     pub workflow_id: String,
