@@ -1,8 +1,7 @@
-import type { Edge, Node } from '@vue-flow/core'
 import { ElMessage } from 'element-plus'
 import { ref } from 'vue'
-import { convertFromBackendFormat } from '../../services/workflowService'
 import { useWorkflowStore } from '../../stores/workflowStore'
+import { useWorkflowConverter } from './useWorkflowConverter'
 
 export interface ImportExportOptions {
   onImportSuccess?: (data: any) => void
@@ -61,7 +60,7 @@ export function useWorkflowImportExport(options: ImportExportOptions = {}) {
       const input = document.createElement('input')
       input.type = 'file'
       input.accept = '.json'
-      
+
       input.onchange = async (event: Event) => {
         const file = (event.target as HTMLInputElement).files?.[0]
         if (!file) {
@@ -83,8 +82,9 @@ export function useWorkflowImportExport(options: ImportExportOptions = {}) {
           }
 
           // Convert from backend format (our standard export format)
+          const { convertFromBackendFormat } = useWorkflowConverter()
           const { nodes, edges } = convertFromBackendFormat(data)
-          
+
           // Update store
           workflowStore.loadWorkflow(nodes, edges)
 
@@ -93,7 +93,7 @@ export function useWorkflowImportExport(options: ImportExportOptions = {}) {
           resolve()
         } catch (error) {
           const err = error instanceof Error ? error : new Error('Failed to import workflow')
-          
+
           // Provide more specific error messages
           if (err.message.includes('JSON')) {
             ElMessage.error('Invalid file format. Please select a valid workflow JSON file.')
@@ -102,7 +102,7 @@ export function useWorkflowImportExport(options: ImportExportOptions = {}) {
           } else {
             ElMessage.error(`Failed to import workflow: ${err.message}`)
           }
-          
+
           options.onError?.(err)
           reject(err)
         } finally {
@@ -137,6 +137,7 @@ export function useWorkflowImportExport(options: ImportExportOptions = {}) {
         throw new Error('Invalid workflow file format')
       }
 
+      const { convertFromBackendFormat } = useWorkflowConverter()
       const { nodes, edges } = convertFromBackendFormat(data)
       workflowStore.loadWorkflow(nodes, edges)
 
@@ -186,6 +187,7 @@ export function useWorkflowImportExport(options: ImportExportOptions = {}) {
         throw new Error('Invalid workflow data in clipboard')
       }
 
+      const { convertFromBackendFormat } = useWorkflowConverter()
       const { nodes, edges } = convertFromBackendFormat(data)
       workflowStore.loadWorkflow(nodes, edges)
 

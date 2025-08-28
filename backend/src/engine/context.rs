@@ -10,15 +10,15 @@ use ts_rs::TS;
 // \{\{  - Match literal {{
 // ([^}]+) - Capture group: one or more non-} characters (the variable path)
 // \}\} - Match literal }}
-static INTERPOLATION_REGEX: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"\{\{([^}]+)\}\}").expect("Invalid regex")
-});
+static INTERPOLATION_REGEX: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"\{\{([^}]+)\}\}").expect("Invalid regex"));
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct ExecutionContext {
     pub workflow_id: String,
     pub execution_id: String,
+    #[ts(type = "Record<string, any>")]
     pub variables: HashMap<String, Value>,
     #[ts(type = "Record<string, any>")]
     pub node_outputs: HashMap<String, Value>,
@@ -93,7 +93,7 @@ impl ExecutionContext {
         // Current: {{node_id}} - ambiguous, could be node output or variable
         // Better: {{node.http1.body}}, {{var.counter}}, {{config.api_key}}
         // This would prevent naming conflicts and make data sources explicit
-        
+
         // Try node_outputs first, then variables, then global_config
         let (root, start_idx) = if let Some(output) = self.node_outputs.get(parts[0]) {
             (output, 1)

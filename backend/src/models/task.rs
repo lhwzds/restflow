@@ -1,13 +1,13 @@
+use crate::engine::context::ExecutionContext;
+use crate::models::{Node, Workflow};
+use crate::storage::Storage;
+use anyhow::Result;
+use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
-use once_cell::sync::OnceCell;
-use uuid::Uuid;
 use ts_rs::TS;
-use crate::models::{Node, Workflow};
-use crate::engine::context::ExecutionContext;
-use crate::storage::Storage;
-use anyhow::Result;
+use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
 #[ts(export)]
@@ -36,10 +36,10 @@ pub struct Task {
     #[ts(type = "any")]
     pub output: Option<Value>,
     pub error: Option<String>,
-    
+
     // Execution context (serialized and stored)
     pub context: ExecutionContext,
-    
+
     // Runtime data (lazy-loaded, not serialized)
     #[serde(skip)]
     #[ts(skip)]
@@ -75,66 +75,60 @@ impl Task {
             workflow: OnceCell::new(),
         }
     }
-    
+
     /// Get the node for this task (lazy-loaded)
     pub fn get_node(&self, storage: &Storage) -> Result<&Node> {
         self.node.get_or_try_init(|| {
             let workflow = self.get_workflow(storage)?;
-            workflow.nodes
+            workflow
+                .nodes
                 .iter()
                 .find(|n| n.id == self.node_id)
                 .cloned()
                 .ok_or_else(|| anyhow::anyhow!("Node {} not found in workflow", self.node_id))
         })
     }
-    
+
     /// Get the workflow for this task (lazy-loaded and shared)
     pub fn get_workflow(&self, storage: &Storage) -> Result<Arc<Workflow>> {
-        self.workflow.get_or_try_init(|| {
-            Ok(Arc::new(storage.workflows.get_workflow(&self.workflow_id)?))
-        }).map(|w| w.clone())
+        self.workflow
+            .get_or_try_init(|| Ok(Arc::new(storage.workflows.get_workflow(&self.workflow_id)?)))
+            .map(|w| w.clone())
     }
-    
+
     /// Mark task as running
     pub fn start(&mut self) {
         self.status = TaskStatus::Running;
         self.started_at = Some(chrono::Utc::now().timestamp());
     }
-    
+
     /// Mark task as completed
     pub fn complete(&mut self, output: Value) {
         self.status = TaskStatus::Completed;
         self.completed_at = Some(chrono::Utc::now().timestamp());
         self.output = Some(output);
     }
-    
+
     /// Mark task as failed
     pub fn fail(&mut self, error: String) {
         self.status = TaskStatus::Failed;
         self.completed_at = Some(chrono::Utc::now().timestamp());
         self.error = Some(error);
     }
-    
-    
+
     /// Create a task for a single node execution (no workflow context)
     pub fn for_single_node(node: Node, input: Value) -> Self {
         let execution_id = Uuid::new_v4().to_string();
         let workflow_id = format!("single-node-{}", node.id);
         let context = ExecutionContext::new(execution_id.clone());
-        
-        let task = Self::new(
-            execution_id,
-            workflow_id,
-            node.id.clone(),
-            input,
-            context,
-        );
-        
+
+        let task = Self::new(execution_id, workflow_id, node.id.clone(), input, context);
+
         // Pre-populate the node since we already have it
         let _ = task.node.set(node);
         task
     }
-    
+
     /// Get priority for queue ordering (lower timestamp = higher priority)
     pub fn priority(&self) -> u64 {
         self.created_at as u64

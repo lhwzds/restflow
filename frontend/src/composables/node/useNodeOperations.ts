@@ -1,6 +1,6 @@
 import type { Edge, Node } from '@vue-flow/core'
 import { computed, ref } from 'vue'
-import { NODE_TYPES } from '../../constants/nodeTypes'
+import { NODE_TYPES } from './useNodeHelpers'
 import { useWorkflowStore } from '../../stores/workflowStore'
 
 export interface NodeTemplate {
@@ -70,7 +70,6 @@ export function useNodeOperations() {
     }
 
     workflowStore.addNode(newNode)
-    // Store automatically marks as dirty
     return newNode
   }
 
@@ -90,7 +89,6 @@ export function useNodeOperations() {
    */
   const updateNodeData = (nodeId: string, data: Partial<Node['data']>) => {
     workflowStore.updateNodeData(nodeId, data)
-    // Store automatically marks as dirty
   }
 
   /**
@@ -118,16 +116,13 @@ export function useNodeOperations() {
     if (selectedNodeId.value === nodeId) {
       selectedNodeId.value = null
     }
-    // Store automatically marks as dirty
   }
 
   /**
    * Delete multiple nodes
    */
   const deleteNodes = (nodeIds: string[]) => {
-    // Delete each node
     nodeIds.forEach(nodeId => workflowStore.removeNode(nodeId))
-    // Store automatically marks as dirty
     
     // Clear selection if any deleted nodes were selected
     if (nodeIds.includes(selectedNodeId.value || '')) {
@@ -302,7 +297,6 @@ export function useNodeOperations() {
     selectedNodeId.value = null
     copiedNode.value = null
     nodeIdCounter.value = 1
-    // Store automatically marks as dirty
   }
 
   return {

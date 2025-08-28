@@ -1,17 +1,9 @@
 import { useDebounceFn } from '@vueuse/core'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { computed, ref } from 'vue'
-import { workflowService } from '../../services/workflowService'
+import * as workflowsApi from '../../api/workflows'
+import type { Workflow } from '@/types/generated/Workflow'
 import { useWorkflowExecution } from './useWorkflowExecution'
-
-export interface Workflow {
-  id: string
-  name: string
-  created_at?: string
-  updated_at?: string
-  nodes?: any[]
-  edges?: any[]
-}
 
 export interface FilterOptions {
   searchQuery?: string
@@ -33,16 +25,8 @@ export function useWorkflowList() {
   const loadWorkflows = async () => {
     isLoading.value = true
     try {
-      const response = await workflowService.list()
-      // Ensure response is an array
-      if (response?.status === 'success' && Array.isArray(response.data)) {
-        workflows.value = response.data
-      } else if (Array.isArray(response)) {
-        workflows.value = response
-      } else {
-        workflows.value = []
-        console.warn('Unexpected response format from workflow list API:', response)
-      }
+      const response = await workflowsApi.listWorkflows()
+      workflows.value = response
       return { success: true, data: workflows.value }
     } catch (error) {
       console.error('Failed to load workflows:', error)
@@ -70,7 +54,7 @@ export function useWorkflowList() {
         },
       )
 
-      await workflowService.delete(id)
+      await workflowsApi.deleteWorkflow(id)
       ElMessage.success('Workflow deleted successfully')
 
       // Reload to ensure consistency
@@ -93,7 +77,7 @@ export function useWorkflowList() {
    */
   const duplicateWorkflow = async (id: string, newName?: string) => {
     try {
-      const sourceWorkflow = await workflowService.get(id)
+      const sourceWorkflow = await workflowsApi.getWorkflow(id)
       if (!sourceWorkflow) {
         throw new Error('Source workflow not found')
       }
@@ -104,7 +88,8 @@ export function useWorkflowList() {
         name: newName || `${sourceWorkflow.name} (Copy)`,
       }
 
-      const response = await workflowService.create(duplicateData)
+      await workflowsApi.createWorkflow(duplicateData)
+      const response = duplicateData
       ElMessage.success('Workflow duplicated successfully')
 
       await loadWorkflows()
@@ -128,7 +113,7 @@ export function useWorkflowList() {
 
     try {
       // Get current workflow data
-      const workflow = await workflowService.get(id)
+      const workflow = await workflowsApi.getWorkflow(id)
       if (!workflow) {
         throw new Error('Workflow not found')
       }
@@ -138,7 +123,7 @@ export function useWorkflowList() {
         name: newName,
       }
 
-      await workflowService.save(updatedWorkflow)
+      await workflowsApi.updateWorkflow(updatedWorkflow.id, updatedWorkflow)
 
       ElMessage.success('Workflow renamed successfully')
 

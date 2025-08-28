@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { NODE_TYPES } from '../constants/nodeTypes'
+import { NODE_TYPES } from '../composables/node/useNodeHelpers'
 
 interface NodeTemplate {
   type: string
