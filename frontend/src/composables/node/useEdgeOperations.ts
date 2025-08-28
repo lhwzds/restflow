@@ -16,7 +16,6 @@ export function useEdgeOperations() {
    */
   const addEdge = (edge: Edge) => {
     workflowStore.addEdge(edge)
-    // Store automatically marks as dirty
   }
 
   /**
@@ -24,7 +23,6 @@ export function useEdgeOperations() {
    */
   const removeEdge = (edgeId: string) => {
     workflowStore.removeEdge(edgeId)
-    // Store automatically marks as dirty
   }
 
   /**
@@ -32,7 +30,6 @@ export function useEdgeOperations() {
    */
   const removeEdges = (edgeIds: string[]) => {
     edgeIds.forEach(id => workflowStore.removeEdge(id))
-    // Store automatically marks as dirty
   }
 
   /**

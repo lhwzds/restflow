@@ -1,16 +1,14 @@
 import type { Edge, Node } from '@vue-flow/core'
 import { ElMessage } from 'element-plus'
 import { onUnmounted, ref } from 'vue'
-import {
-  convertFromBackendFormat,
-  workflowService,
-  type WorkflowMeta,
-} from '../../services/workflowService'
+import * as workflowsApi from '../../api/workflows'
+import type { Workflow } from '@/types/generated/Workflow'
 import { useWorkflowStore } from '../../stores/workflowStore'
+import { useWorkflowConverter } from './useWorkflowConverter'
 
 export interface SaveOptions {
   showMessage?: boolean
-  meta?: Partial<WorkflowMeta>
+  meta?: Partial<Workflow>
 }
 
 export interface LoadOptions {
@@ -25,7 +23,7 @@ export function useWorkflowPersistence() {
   const isSaving = ref(false)
   const lastSavedAt = ref<Date | null>(null)
   const currentWorkflowId = ref<string | null>(null)
-  const currentWorkflowMeta = ref<Partial<WorkflowMeta>>({})
+  const currentWorkflowMeta = ref<Partial<Workflow>>({})
 
   // Auto-save timer - scoped to this composable instance
   let autoSaveTimer: ReturnType<typeof setInterval> | null = null
@@ -44,13 +42,14 @@ export function useWorkflowPersistence() {
 
     isLoading.value = true
     try {
-      const workflow = await workflowService.get(id)
+      const workflow = await workflowsApi.getWorkflow(id)
 
       if (!workflow) {
         throw new Error('Workflow not found')
       }
 
       // Convert and load into store
+      const { convertFromBackendFormat } = useWorkflowConverter()
       const { nodes, edges } = convertFromBackendFormat(workflow)
       workflowStore.loadWorkflow(nodes, edges)
 
@@ -126,7 +125,14 @@ export function useWorkflowPersistence() {
         edges,
       }
 
-      response = await workflowService.save(workflowData)
+      const { convertToBackendFormat } = useWorkflowConverter()
+      const workflow = convertToBackendFormat(nodes, edges, workflowData)
+      
+      if (workflow.id && workflow.id !== `workflow-${Date.now()}`) {
+        response = await workflowsApi.updateWorkflow(workflow.id, workflow)
+      } else {
+        response = await workflowsApi.createWorkflow(workflow)
+      }
 
       if (showMessage) {
         ElMessage.success(
@@ -252,7 +258,7 @@ export function useWorkflowPersistence() {
     }
 
     try {
-      const workflow = await workflowService.get(id)
+      const workflow = await workflowsApi.getWorkflow(id)
       return !!workflow
     } catch {
       return false

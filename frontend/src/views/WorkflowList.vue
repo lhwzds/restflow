@@ -17,7 +17,7 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useWorkflowList } from '../composables/workflow/useWorkflowList'
 import { useWorkflowTriggers } from '../composables/workflow/useWorkflowTriggers'
-import { isNodeATrigger } from '../constants/nodeTypes'
+import { isNodeATrigger } from '../composables/node/useNodeHelpers'
 
 const router = useRouter()
 
@@ -33,12 +33,12 @@ const {
   setSearchQuery,
 } = useWorkflowList()
 
-const { 
-  triggerStatusMap, 
-  fetchAllTriggerStatuses, 
-  getTriggerStatus, 
-  activateTrigger, 
-  deactivateTrigger 
+const {
+  triggerStatusMap,
+  fetchAllTriggerStatuses,
+  getTriggerStatus,
+  activateTrigger,
+  deactivateTrigger,
 } = useWorkflowTriggers()
 
 const newWorkflowName = ref('')
@@ -72,7 +72,7 @@ const handleKeyDown = (event: KeyboardEvent) => {
 onMounted(async () => {
   await loadWorkflows()
   // Batch fetch trigger status for all workflows
-  await fetchAllTriggerStatuses(workflows.value.map(w => w.id))
+  await fetchAllTriggerStatuses(workflows.value.map((w) => w.id))
 
   // Add keyboard event listener
   document.addEventListener('keydown', handleKeyDown)
@@ -149,7 +149,7 @@ const handleRenameKeydown = (event: KeyboardEvent, workflowId: string) => {
 }
 
 const selectWorkflow = (workflow: any, event?: MouseEvent) => {
-  // 防止事件冒泡
+  // Prevent event bubbling
   event?.stopPropagation()
   selectedWorkflowId.value = selectedWorkflowId.value === workflow.id ? null : workflow.id
 }
@@ -216,7 +216,8 @@ const hasTrigger = (workflow: any) => {
     <!-- Help text at the top -->
     <div v-if="displayWorkflows.length > 0" class="help-text">
       <span
-        >💡 Tip: Click to select • Double-click to open • Ctrl+C/V to copy/paste • Click ✏️ to rename</span
+        >💡 Tip: Click to select • Double-click to open • Ctrl+C/V to copy/paste • Click ✏️ to
+        rename</span
       >
     </div>
 

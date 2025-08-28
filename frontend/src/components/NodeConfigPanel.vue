@@ -2,7 +2,7 @@
 import type { Node } from '@vue-flow/core'
 import { ref, watch } from 'vue'
 import { AgentConfigForm, HttpConfigForm, TriggerConfigForm } from '../nodes'
-import { NODE_TYPES } from '../constants/nodeTypes'
+import { NODE_TYPES } from '../composables/node/useNodeHelpers'
 
 interface Props {
   node: Node | null
