@@ -4,7 +4,7 @@ import { useWorkflowStore } from '../../stores/workflowStore'
 import { useWorkflowConverter } from './useWorkflowConverter'
 
 export interface ImportExportOptions {
-  onImportSuccess?: (data: any) => void
+  onImportSuccess?: (data: { name: string; nodes: any[]; edges: any[] }) => void
   onExportSuccess?: () => void
   onError?: (error: Error) => void
 }

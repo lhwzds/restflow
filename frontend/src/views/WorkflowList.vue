@@ -18,6 +18,19 @@ import { useRouter } from 'vue-router'
 import { useWorkflowList } from '../composables/workflow/useWorkflowList'
 import { useWorkflowTriggers } from '../composables/workflow/useWorkflowTriggers'
 import { isNodeATrigger } from '../composables/node/useNodeHelpers'
+import type { Workflow } from '@/types/generated/Workflow'
+
+// Local type definitions - simple and clear
+interface WorkflowWithTimestamps extends Workflow {
+  created_at?: string
+  updated_at?: string
+}
+
+interface DisplayWorkflow extends WorkflowWithTimestamps {
+  createdAt: string
+  updatedAt: string
+  nodeCount: number
+}
 
 const router = useRouter()
 
@@ -34,7 +47,6 @@ const {
 } = useWorkflowList()
 
 const {
-  triggerStatusMap,
   fetchAllTriggerStatuses,
   getTriggerStatus,
   activateTrigger,
@@ -46,7 +58,7 @@ const dialogVisible = ref(false)
 const editingWorkflowId = ref<string | null>(null)
 const editingName = ref('')
 const selectedWorkflowId = ref<string | null>(null)
-const copiedWorkflow = ref<any>(null)
+const copiedWorkflow = ref<Workflow | null>(null)
 
 const handleKeyDown = (event: KeyboardEvent) => {
   // Ctrl+C or Cmd+C to copy
@@ -82,13 +94,16 @@ onUnmounted(() => {
   document.removeEventListener('keydown', handleKeyDown)
 })
 
-const displayWorkflows = computed(() => {
-  return filteredWorkflows.value.map((w) => ({
-    ...w,
-    createdAt: w.created_at || new Date().toISOString(),
-    updatedAt: w.updated_at || new Date().toISOString(),
-    nodeCount: w.nodes?.length || 0, // Get actual node count from workflow data
-  }))
+const displayWorkflows = computed<DisplayWorkflow[]>(() => {
+  return filteredWorkflows.value.map((w) => {
+    const workflow = w as WorkflowWithTimestamps
+    return {
+      ...workflow,
+      createdAt: workflow.created_at || new Date().toISOString(),
+      updatedAt: workflow.updated_at || new Date().toISOString(),
+      nodeCount: workflow.nodes?.length || 0,
+    }
+  })
 })
 
 const createWorkflow = () => {
@@ -106,7 +121,7 @@ const saveWorkflow = () => {
   dialogVisible.value = false
 }
 
-const startRename = (workflow: any, event: MouseEvent) => {
+const startRename = (workflow: DisplayWorkflow, event: MouseEvent) => {
   event.stopPropagation()
   event.preventDefault()
   editingWorkflowId.value = workflow.id
@@ -148,25 +163,25 @@ const handleRenameKeydown = (event: KeyboardEvent, workflowId: string) => {
   }
 }
 
-const selectWorkflow = (workflow: any, event?: MouseEvent) => {
+const selectWorkflow = (workflow: DisplayWorkflow, event?: MouseEvent) => {
   // Prevent event bubbling
   event?.stopPropagation()
   selectedWorkflowId.value = selectedWorkflowId.value === workflow.id ? null : workflow.id
 }
 
-const handleDoubleClick = (workflow: any, event: MouseEvent) => {
+const handleDoubleClick = (workflow: DisplayWorkflow, event: MouseEvent) => {
   event.stopPropagation()
   router.push(`/workflow/${workflow.id}`)
 }
 
-const handleDelete = async (workflow: any, event: MouseEvent) => {
+const handleDelete = async (workflow: DisplayWorkflow, event: MouseEvent) => {
   event.stopPropagation()
   event.preventDefault()
   await deleteWorkflow(workflow.id, `Are you sure you want to delete "${workflow.name}"?`)
   await loadWorkflows()
 }
 
-const handleToggleTrigger = async (workflow: any, value: boolean) => {
+const handleToggleTrigger = async (workflow: DisplayWorkflow, value: boolean) => {
   if (value) {
     await activateTrigger(workflow.id)
   } else {
@@ -174,7 +189,7 @@ const handleToggleTrigger = async (workflow: any, value: boolean) => {
   }
 }
 
-const hasTrigger = (workflow: any) => {
+const hasTrigger = (workflow: DisplayWorkflow) => {
   return workflow.nodes?.some(isNodeATrigger)
 }
 </script>
@@ -260,18 +275,18 @@ const hasTrigger = (workflow: any) => {
                 <ElTooltip
                   v-if="hasTrigger(workflow)"
                   :content="
-                    getTriggerStatus(workflow.id).active ? 'Pause trigger' : 'Start trigger'
+                    getTriggerStatus(workflow.id)?.is_active ? 'Pause trigger' : 'Start trigger'
                   "
                 >
                   <ElButton
-                    :icon="getTriggerStatus(workflow.id).active ? VideoPause : VideoPlay"
+                    :icon="getTriggerStatus(workflow.id)?.is_active ? VideoPause : VideoPlay"
                     circle
                     plain
-                    :type="getTriggerStatus(workflow.id).active ? 'success' : 'warning'"
+                    :type="getTriggerStatus(workflow.id)?.is_active ? 'success' : 'warning'"
                     size="small"
                     class="trigger-btn"
                     @click.stop="
-                      handleToggleTrigger(workflow, !getTriggerStatus(workflow.id).active)
+                      handleToggleTrigger(workflow, !getTriggerStatus(workflow.id)?.is_active)
                     "
                   />
                 </ElTooltip>
@@ -294,7 +309,7 @@ const hasTrigger = (workflow: any) => {
               <span class="dot">•</span>
               <span
                 >Updated
-                {{ new Date(workflow.updated_at || workflow.updatedAt).toLocaleDateString() }}</span
+                {{ new Date(workflow.updatedAt).toLocaleDateString() }}</span
               >
             </div>
           </div>

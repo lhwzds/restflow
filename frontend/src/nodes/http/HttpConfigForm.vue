@@ -1,17 +1,24 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 
+interface HttpConfig {
+  url?: string
+  method?: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH'
+  headers?: string
+  body?: string
+}
+
 interface Props {
-  modelValue: any
+  modelValue: HttpConfig
 }
 
 const props = defineProps<Props>()
 const emit = defineEmits<{
-  'update:modelValue': [value: any]
+  'update:modelValue': [value: HttpConfig]
 }>()
 
 // Local copy of data
-const localData = ref<any>({})
+const localData = ref<HttpConfig>({})
 
 watch(
   () => props.modelValue,

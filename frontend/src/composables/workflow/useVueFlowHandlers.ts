@@ -1,9 +1,10 @@
 import { useWorkflowStore } from '../../stores/workflowStore'
+import type { EdgeChange, NodeChange } from '@vue-flow/core'
 
 export function useVueFlowHandlers() {
   const workflowStore = useWorkflowStore()
 
-  const handleEdgesChange = (changes: any[]) => {
+  const handleEdgesChange = (changes: EdgeChange[]) => {
     const hasRemoval = changes.some((change) => change.type === 'remove')
 
     if (hasRemoval) {
@@ -11,7 +12,7 @@ export function useVueFlowHandlers() {
     }
   }
 
-  const handleNodesChange = (changes: any[]) => {
+  const handleNodesChange = (changes: NodeChange[]) => {
     const hasRemoval = changes.some((change) => change.type === 'remove')
 
     if (hasRemoval) {

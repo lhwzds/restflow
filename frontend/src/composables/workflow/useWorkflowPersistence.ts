@@ -1,6 +1,6 @@
 import type { Edge, Node } from '@vue-flow/core'
 import { ElMessage } from 'element-plus'
-import { onUnmounted, ref } from 'vue'
+import { onUnmounted, ref, computed } from 'vue'
 import * as workflowsApi from '../../api/workflows'
 import type { Workflow } from '@/types/generated/Workflow'
 import { useWorkflowStore } from '../../stores/workflowStore'
@@ -22,8 +22,12 @@ export function useWorkflowPersistence() {
   const isLoading = ref(false)
   const isSaving = ref(false)
   const lastSavedAt = ref<Date | null>(null)
-  const currentWorkflowId = ref<string | null>(null)
-  const currentWorkflowMeta = ref<Partial<Workflow>>({})
+  
+  // Use workflow metadata from store
+  const currentWorkflowId = computed(() => workflowStore.currentWorkflowId)
+  const currentWorkflowMeta = computed(() => ({
+    name: workflowStore.currentWorkflowName
+  }))
 
   // Auto-save timer - scoped to this composable instance
   let autoSaveTimer: ReturnType<typeof setInterval> | null = null
@@ -53,13 +57,8 @@ export function useWorkflowPersistence() {
       const { nodes, edges } = convertFromBackendFormat(workflow)
       workflowStore.loadWorkflow(nodes, edges)
 
-      // Update current workflow info
-      currentWorkflowId.value = workflow.id
-      currentWorkflowMeta.value = {
-        name: workflow.name,
-        created_at: workflow.created_at,
-        updated_at: workflow.updated_at,
-      }
+      // Update current workflow info in store
+      workflowStore.setWorkflowMetadata(workflow.id, workflow.name)
 
       if (showMessage) {
         ElMessage.success('Workflow loaded successfully')
@@ -100,12 +99,9 @@ export function useWorkflowPersistence() {
     const { showMessage = true, meta = {} } = options
 
     // Merge with current meta
-    const workflowMeta = {
-      ...currentWorkflowMeta.value,
-      ...meta,
-    }
+    const workflowName = meta.name || workflowStore.currentWorkflowName
 
-    if (!workflowMeta.name?.trim()) {
+    if (!workflowName?.trim()) {
       ElMessage.error('Please provide a workflow name')
       return { success: false, error: 'Name is required' }
     }
@@ -113,43 +109,45 @@ export function useWorkflowPersistence() {
     isSaving.value = true
     try {
       let response
+      let workflowId = workflowStore.currentWorkflowId
 
-      if (!currentWorkflowId.value) {
-        currentWorkflowId.value = `workflow-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`
-      }
-
-      const workflowData = {
-        ...workflowMeta,
-        id: currentWorkflowId.value,
-        nodes,
-        edges,
+      if (!workflowId) {
+        workflowId = `workflow-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`
       }
 
       const { convertToBackendFormat } = useWorkflowConverter()
-      const workflow = convertToBackendFormat(nodes, edges, workflowData)
+      const workflow = convertToBackendFormat(nodes, edges, {
+        name: workflowName,
+        id: workflowId,
+      })
       
-      if (workflow.id && workflow.id !== `workflow-${Date.now()}`) {
-        response = await workflowsApi.updateWorkflow(workflow.id, workflow)
+      const isUpdate = workflowStore.currentWorkflowId !== null
+      let resultId = workflowId
+      
+      if (isUpdate) {
+        await workflowsApi.updateWorkflow(workflow.id, workflow)
+        response = { id: workflow.id }
       } else {
         response = await workflowsApi.createWorkflow(workflow)
+        resultId = response.id
       }
 
       if (showMessage) {
         ElMessage.success(
-          currentWorkflowId.value
+          isUpdate
             ? 'Workflow updated successfully'
             : 'Workflow created successfully',
         )
       }
 
-      // Update metadata and timestamp
-      currentWorkflowMeta.value = workflowMeta
+      // Update metadata in store
+      workflowStore.setWorkflowMetadata(resultId, workflowName)
       lastSavedAt.value = new Date()
 
       return {
         success: true,
         data: response,
-        id: response.id,
+        id: resultId,
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to save workflow'
@@ -172,10 +170,7 @@ export function useWorkflowPersistence() {
    * Create a new workflow (reset current)
    */
   const createNewWorkflow = () => {
-    currentWorkflowId.value = null
-    currentWorkflowMeta.value = {
-      name: 'Untitled Workflow',
-    }
+    workflowStore.setWorkflowMetadata(null, 'Untitled Workflow')
     lastSavedAt.value = null
     workflowStore.clearCanvas()
   }
@@ -198,8 +193,9 @@ export function useWorkflowPersistence() {
       return { success: false, error: 'Name is required' }
     }
 
-    const previousId = currentWorkflowId.value
-    currentWorkflowId.value = null // Force create new
+    const previousId = workflowStore.currentWorkflowId
+    const previousName = workflowStore.currentWorkflowName
+    workflowStore.setWorkflowMetadata(null, name) // Force create new
 
     const result = await saveWorkflow(workflowStore.nodes, workflowStore.edges, {
       showMessage: true,
@@ -207,8 +203,8 @@ export function useWorkflowPersistence() {
     })
 
     if (!result.success) {
-      // Restore previous ID if save failed
-      currentWorkflowId.value = previousId
+      // Restore previous metadata if save failed
+      workflowStore.setWorkflowMetadata(previousId, previousName)
     }
 
     return result
@@ -229,7 +225,7 @@ export function useWorkflowPersistence() {
 
     autoSaveTimer = setInterval(async () => {
       // Prevent overlapping auto-saves
-      if (currentWorkflowId.value && !isSaving.value && !isAutoSaving) {
+      if (workflowStore.currentWorkflowId && !isSaving.value && !isAutoSaving) {
         isAutoSaving = true
         try {
           await saveWorkflow(workflowStore.nodes, workflowStore.edges, {

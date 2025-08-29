@@ -27,7 +27,7 @@ export function useUnsavedChanges() {
 
   // Vue Router navigation guard
   try {
-    onBeforeRouteLeave((to, from, next) => {
+    onBeforeRouteLeave((_to, _from, next) => {
       if (hasChanges.value) {
         if (window.confirm('You have unsaved changes. Are you sure you want to leave?')) {
           markAsSaved() // Reset state when user confirms leaving

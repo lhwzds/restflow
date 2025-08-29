@@ -1,6 +1,7 @@
 import { apiClient } from './config'
 import type { Workflow } from '@/types/generated/Workflow'
 import type { ExecutionContext } from '@/types/generated/ExecutionContext'
+import type { Task } from '@/types/generated/Task'
 
 export const listWorkflows = async (): Promise<Workflow[]> => {
   const response = await apiClient.get<{ status: string; data: Workflow[] }>('/api/workflow/list')
@@ -53,7 +54,7 @@ export const executeSyncRunById = async (id: string): Promise<ExecutionContext> 
 
 export const executeAsyncSubmit = async (
   id: string,
-  initialVariables?: Record<string, any>
+  initialVariables?: any
 ): Promise<{ execution_id: string }> => {
   const response = await apiClient.post<{
     status: string
@@ -62,20 +63,10 @@ export const executeAsyncSubmit = async (
   return response.data.data
 }
 
-export const getExecutionStatus = async (id: string): Promise<{
-  execution_id: string
-  status: string
-  result?: any
-  error?: string
-}> => {
+export const getExecutionStatus = async (id: string): Promise<Task[]> => {
   const response = await apiClient.get<{
     status: string
-    data: {
-      execution_id: string
-      status: string
-      result?: any
-      error?: string
-    }
+    data: Task[]
   }>(`/api/execution/status/${id}`)
   return response.data.data
 }

@@ -1,4 +1,9 @@
 import type { NodeType } from '@/types/generated/NodeType'
+import type { Node as VueFlowNode } from '@vue-flow/core'
+import type { Node as BackendNode } from '@/types/generated/Node'
+
+// Union type to handle different node formats
+type AnyNode = VueFlowNode | BackendNode | { type?: string; node_type?: NodeType }
 
 // Trigger node types
 const TRIGGER_TYPES: NodeType[] = [
@@ -11,8 +16,9 @@ export function useNodeHelpers() {
   /**
    * Check if a node is a trigger type
    */
-  const isNodeATrigger = (node: any): boolean => {
-    const nodeType = node?.type || node?.node_type
+  const isNodeATrigger = (node: AnyNode): boolean => {
+    // Handle different node formats
+    const nodeType = (node as any)?.type || (node as any)?.node_type
     return nodeType ? TRIGGER_TYPES.includes(nodeType as NodeType) : false
   }
 
@@ -48,7 +54,7 @@ export function useNodeHelpers() {
 }
 
 // Export standalone function for backwards compatibility
-export const isNodeATrigger = (node: any): boolean => {
+export const isNodeATrigger = (node: AnyNode): boolean => {
   const { isNodeATrigger: checkTrigger } = useNodeHelpers()
   return checkTrigger(node)
 }

@@ -1,13 +1,22 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 
+interface AgentConfig {
+  model?: string
+  prompt?: string
+  temperature?: number
+  tools?: string[]
+  input?: string
+  api_key?: string
+}
+
 interface Props {
-  modelValue: any
+  modelValue: AgentConfig
 }
 
 const props = defineProps<Props>()
 const emit = defineEmits<{
-  'update:modelValue': [value: any]
+  'update:modelValue': [value: AgentConfig]
 }>()
 
 // Available tools
@@ -17,7 +26,7 @@ const availableTools = [
 ]
 
 // Local copy of data
-const localData = ref<any>({})
+const localData = ref<AgentConfig>({})
 
 watch(
   () => props.modelValue,
