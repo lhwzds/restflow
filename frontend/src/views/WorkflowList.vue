@@ -15,8 +15,8 @@ import {
 } from 'element-plus'
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { useWorkflowList } from '../composables/workflow/useWorkflowList'
-import { useWorkflowTriggers } from '../composables/workflow/useWorkflowTriggers'
+import { useWorkflowList } from '../composables/list/useWorkflowList'
+import { useWorkflowTriggers } from '../composables/triggers/useWorkflowTriggers'
 import { isNodeATrigger } from '../composables/node/useNodeHelpers'
 import type { Workflow } from '@/types/generated/Workflow'
 

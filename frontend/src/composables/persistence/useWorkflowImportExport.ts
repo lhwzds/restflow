@@ -1,7 +1,7 @@
 import { ElMessage } from 'element-plus'
 import { ref } from 'vue'
 import { useWorkflowStore } from '../../stores/workflowStore'
-import { useWorkflowConverter } from './useWorkflowConverter'
+import { useWorkflowConverter } from '../editor/useWorkflowConverter'
 
 export interface ImportExportOptions {
   onImportSuccess?: (data: { name: string; nodes: any[]; edges: any[] }) => void

@@ -3,7 +3,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { computed, ref } from 'vue'
 import * as workflowsApi from '../../api/workflows'
 import type { Workflow } from '@/types/generated/Workflow'
-import { useAsyncWorkflowExecution } from './useAsyncWorkflowExecution'
+import { useAsyncWorkflowExecution } from '../execution/useAsyncWorkflowExecution'
 
 export interface FilterOptions {
   searchQuery?: string

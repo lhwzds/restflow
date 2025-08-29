@@ -20,8 +20,8 @@ import { useRoute, useRouter } from 'vue-router'
 import Editor from '../components/Editor.vue'
 import { useKeyboardShortcuts } from '../composables/shared/useKeyboardShortcuts'
 import { useUnsavedChanges } from '../composables/shared/useUnsavedChanges'
-import { useWorkflowImportExport } from '../composables/workflow/useWorkflowImportExport'
-import { useWorkflowPersistence } from '../composables/workflow/useWorkflowPersistence'
+import { useWorkflowImportExport } from '../composables/persistence/useWorkflowImportExport'
+import { useWorkflowPersistence } from '../composables/persistence/useWorkflowPersistence'
 import { useWorkflowStore } from '../stores/workflowStore'
 
 const route = useRoute()

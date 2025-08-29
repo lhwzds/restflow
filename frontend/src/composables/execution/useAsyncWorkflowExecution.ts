@@ -3,7 +3,7 @@ import { ref, onUnmounted } from 'vue'
 import * as workflowsApi from '../../api/workflows'
 import { useWorkflowStore } from '../../stores/workflowStore'
 import { useExecutionStore } from '../../stores/executionStore'
-import { useWorkflowPersistence } from './useWorkflowPersistence'
+import { useWorkflowPersistence } from '../persistence/useWorkflowPersistence'
 import type { Task } from '@/types/generated/Task'
 
 export function useAsyncWorkflowExecution() {
