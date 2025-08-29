@@ -4,7 +4,7 @@ import { onUnmounted, ref, computed } from 'vue'
 import * as workflowsApi from '../../api/workflows'
 import type { Workflow } from '@/types/generated/Workflow'
 import { useWorkflowStore } from '../../stores/workflowStore'
-import { useWorkflowConverter } from './useWorkflowConverter'
+import { useWorkflowConverter } from '../editor/useWorkflowConverter'
 
 export interface SaveOptions {
   showMessage?: boolean
