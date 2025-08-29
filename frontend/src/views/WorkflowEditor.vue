@@ -3,10 +3,7 @@ import {
   ArrowLeft, 
   Check, 
   Document, 
-  FolderOpened,
-  Connection,
-  SwitchButton,
-  VideoPlay
+  FolderOpened
 } from '@element-plus/icons-vue'
 import {
   ElButton,
@@ -16,9 +13,7 @@ import {
   ElInput,
   ElMessage,
   ElPageHeader,
-  ElTag,
-  ElTooltip,
-  ElSwitch,
+  ElTag
 } from 'element-plus'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -27,7 +22,6 @@ import { useKeyboardShortcuts } from '../composables/shared/useKeyboardShortcuts
 import { useUnsavedChanges } from '../composables/shared/useUnsavedChanges'
 import { useWorkflowImportExport } from '../composables/workflow/useWorkflowImportExport'
 import { useWorkflowPersistence } from '../composables/workflow/useWorkflowPersistence'
-import { useWorkflowTriggers } from '../composables/workflow/useWorkflowTriggers'
 import { useWorkflowStore } from '../stores/workflowStore'
 
 const route = useRoute()
@@ -35,52 +29,38 @@ const router = useRouter()
 const workflowStore = useWorkflowStore()
 
 // Composables
-const { currentWorkflowId, currentWorkflowMeta, isSaving, loadWorkflow, saveWorkflow } =
+const { currentWorkflowMeta, isSaving, loadWorkflow, saveWorkflow } =
   useWorkflowPersistence()
 
 const { exportWorkflow, importWorkflow } = useWorkflowImportExport({
   onImportSuccess: (data) => {
     if (data.name) {
-      currentWorkflowMeta.value.name = data.name
+      workflowStore.setWorkflowMetadata(workflowStore.currentWorkflowId, data.name)
     }
     unsavedChanges.markAsDirty()
   },
 })
 
-const { 
-  loading: triggerLoading,
-  triggerStatus,
-  hasTriggerNode,
-  fetchTriggerStatus,
-  toggleTriggerStatus
-} = useWorkflowTriggers()
 
-// Local state
 const saveDialogVisible = ref(false)
-
-// Use unsaved changes composable
 const unsavedChanges = useUnsavedChanges()
-
-// Computed properties
 const workflowName = computed(() => currentWorkflowMeta.value.name || 'Untitled Workflow')
-
-// Save workflow (combined logic)
 const handleSave = async () => {
   // Show dialog if new workflow without name
-  if (!currentWorkflowId.value && !currentWorkflowMeta.value.name?.trim()) {
+  if (!workflowStore.currentWorkflowId && !workflowStore.currentWorkflowName?.trim()) {
     saveDialogVisible.value = true
     return
   }
 
   // Validate name
-  if (!currentWorkflowMeta.value.name?.trim()) {
+  if (!workflowStore.currentWorkflowName?.trim()) {
     ElMessage.error('Please provide a workflow name')
     return
   }
 
   // Save workflow
   const result = await saveWorkflow(workflowStore.nodes, workflowStore.edges, {
-    meta: { name: currentWorkflowMeta.value.name },
+    meta: { name: workflowStore.currentWorkflowName },
     showMessage: true,
   })
 
@@ -90,45 +70,30 @@ const handleSave = async () => {
 
     // Update URL for new workflows
     if (!route.params.id && result.id) {
-      currentWorkflowId.value = result.id
       router.replace(`/workflow/${result.id}`)
     }
   }
 }
 
-// Keyboard shortcuts
 useKeyboardShortcuts({
   'ctrl+s': handleSave,
   'meta+s': handleSave,
 })
 
-// Navigation
 const goBack = () => {
-  // Navigation guard in useUnsavedChanges will handle confirmation
   router.push('/workflows')
 }
 
-// Export/Import handlers
 const handleExport = () => {
-  exportWorkflow(currentWorkflowMeta.value.name || 'workflow')
+  exportWorkflow(workflowStore.currentWorkflowName || 'workflow')
 }
 
 const handleImport = () => {
   importWorkflow()
 }
 
-// Trigger handlers
-const handleToggleTrigger = async () => {
-  if (!currentWorkflowId.value) {
-    ElMessage.warning('Please save the workflow first')
-    return
-  }
-  
-  await toggleTriggerStatus(currentWorkflowId.value)
-}
 
 
-// Initialize workflow based on route
 const initializeWorkflow = async () => {
   const workflowId = route.params.id as string
 
@@ -141,20 +106,16 @@ const initializeWorkflow = async () => {
     }
   } else {
     workflowStore.clearCanvas()
-    currentWorkflowMeta.value = {
-      name: 'Untitled Workflow',
-    }
-    currentWorkflowId.value = null
+    workflowStore.setWorkflowMetadata(null, 'Untitled Workflow')
     unsavedChanges.markAsSaved() // Start with saved state for new workflow
   }
 }
 
-// Watch for route changes to reinitialize
 watch(
   () => route.params.id,
   (newId, oldId) => {
     if (newId !== oldId) {
-      if (!oldId && newId === currentWorkflowId.value) {
+      if (!oldId && newId === workflowStore.currentWorkflowId) {
         // From new workflow to saved workflow after save
         return
       }
@@ -163,17 +124,12 @@ watch(
   },
 )
 
-// Initial mount
 onMounted(() => {
   initializeWorkflow()
 })
 
-// Clean up on unmount
 onUnmounted(() => {
-  // Clear everything when leaving workflow editor
   workflowStore.clearCanvas()
-  currentWorkflowId.value = null
-  currentWorkflowMeta.value = {}
   unsavedChanges.markAsSaved()
 })
 </script>
@@ -218,7 +174,7 @@ onUnmounted(() => {
       <ElForm label-width="100px">
         <ElFormItem label="Name" required>
           <ElInput
-            v-model="currentWorkflowMeta.name"
+            v-model="workflowStore.currentWorkflowName"
             placeholder="Enter workflow name"
             @keyup.enter="handleSave"
           />

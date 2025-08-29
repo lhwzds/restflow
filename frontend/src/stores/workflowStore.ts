@@ -4,29 +4,23 @@ import { defineStore } from 'pinia'
 interface WorkflowState {
   nodes: Node[]
   edges: Edge[]
-  isExecuting: boolean
-  executionResult: any
-  executionError: string | null
   hasUnsavedChanges: boolean
+  currentWorkflowId: string | null
+  currentWorkflowName: string
 }
 
 export const useWorkflowStore = defineStore('workflow', {
   state: (): WorkflowState => ({
     nodes: [],
     edges: [],
-    isExecuting: false,
-    executionResult: null,
-    executionError: null,
     hasUnsavedChanges: false,
+    currentWorkflowId: null,
+    currentWorkflowName: 'Untitled Workflow',
   }),
 
   getters: {
     hasNodes(): boolean {
       return this.nodes.length > 0
-    },
-
-    canExecute(): boolean {
-      return this.hasNodes && !this.isExecuting
     },
   },
 
@@ -56,7 +50,8 @@ export const useWorkflowStore = defineStore('workflow', {
       this.nodes = []
       this.edges = []
       this.hasUnsavedChanges = false
-      this.clearExecutionState()
+      this.currentWorkflowId = null
+      this.currentWorkflowName = 'Untitled Workflow'
     },
 
     updateNodeData(nodeId: string, data: any) {
@@ -67,21 +62,11 @@ export const useWorkflowStore = defineStore('workflow', {
       }
     },
 
-    setExecutionState(isExecuting: boolean, result: any = null, error: string | null = null) {
-      this.isExecuting = isExecuting
-      this.executionResult = result
-      this.executionError = error
-    },
-
-    clearExecutionState() {
-      this.setExecutionState(false, null, null)
-    },
 
     loadWorkflow(nodes: Node[], edges: Edge[]) {
       this.nodes = nodes || []
       this.edges = edges || []
       this.hasUnsavedChanges = false
-      this.clearExecutionState()
     },
 
     markAsSaved() {
@@ -90,6 +75,12 @@ export const useWorkflowStore = defineStore('workflow', {
 
     markAsDirty() {
       this.hasUnsavedChanges = true
+    },
+
+    // Set workflow metadata
+    setWorkflowMetadata(id: string | null, name: string) {
+      this.currentWorkflowId = id
+      this.currentWorkflowName = name
     },
   },
 })

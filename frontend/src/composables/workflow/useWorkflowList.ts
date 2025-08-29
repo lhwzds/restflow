@@ -3,7 +3,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { computed, ref } from 'vue'
 import * as workflowsApi from '../../api/workflows'
 import type { Workflow } from '@/types/generated/Workflow'
-import { useWorkflowExecution } from './useWorkflowExecution'
+import { useAsyncWorkflowExecution } from './useAsyncWorkflowExecution'
 
 export interface FilterOptions {
   searchQuery?: string
@@ -141,9 +141,10 @@ export function useWorkflowList() {
   /**
    * Execute workflow by ID
    */
-  const { executeWorkflowById } = useWorkflowExecution()
-  const executeWorkflow = async (id: string) => {
-    return executeWorkflowById(id)
+  const { startAsyncExecution } = useAsyncWorkflowExecution()
+  const executeWorkflow = async (_id: string) => {
+    // This function is not used anymore since we use async execution directly
+    return startAsyncExecution()
   }
 
   /**
@@ -167,10 +168,10 @@ export function useWorkflowList() {
           compareValue = a.name.localeCompare(b.name)
           break
         case 'created_at':
-          compareValue = (a.created_at || '').localeCompare(b.created_at || '')
+          compareValue = ((a as any).created_at || '').localeCompare((b as any).created_at || '')
           break
         case 'updated_at':
-          compareValue = (a.updated_at || '').localeCompare(b.updated_at || '')
+          compareValue = ((a as any).updated_at || '').localeCompare((b as any).updated_at || '')
           break
       }
 

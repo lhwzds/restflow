@@ -10,34 +10,34 @@ import { useEdgeOperations } from '../composables/node/useEdgeOperations'
 import { useNodeOperations } from '../composables/node/useNodeOperations'
 import { useContextMenu } from '../composables/ui/useContextMenu'
 import { useVueFlowHandlers } from '../composables/workflow/useVueFlowHandlers'
-import { useWorkflowExecution } from '../composables/workflow/useWorkflowExecution'
+import { useAsyncWorkflowExecution } from '../composables/workflow/useAsyncWorkflowExecution'
 import { AgentNode, HttpNode, ManualTriggerNode } from '../nodes'
+import { useExecutionStore } from '../stores/executionStore'
 import Icon from './Icon.vue'
 import NodeConfigPanel from './NodeConfigPanel.vue'
 import NodeToolbar from './NodeToolbar.vue'
+import ExecutionPanel from './ExecutionPanel.vue'
 
-// Use composables
 const { handleDrop, handleDragOver } = useDragAndDrop()
 const { nodes, createNode, updateNodePosition, deleteNode, clearAll, updateNodeData } =
   useNodeOperations()
 const { edges, addEdge } = useEdgeOperations()
 const { handleEdgesChange, handleNodesChange } = useVueFlowHandlers()
-const { isExecuting, executeCurrentWorkflow } = useWorkflowExecution()
+const { isExecuting, startAsyncExecution } = useAsyncWorkflowExecution()
+const executionStore = useExecutionStore()
 
-// Use VueFlow hooks for interaction
 const {
   onConnect,
   onPaneContextMenu,
   onNodeContextMenu,
+  onNodeClick,
   onNodeDoubleClick,
   onNodeDragStop,
   setViewport,
 } = useVueFlow()
 
-// Selected node for configuration panel
 const selectedNode = ref<any>(null)
 
-// Handle connections between nodes
 onConnect((connection: Connection) => {
   const newEdge: Edge = {
     id: `e${connection.source}->${connection.target}`,
@@ -48,24 +48,28 @@ onConnect((connection: Connection) => {
   addEdge(newEdge)
 })
 
-// Handle node double click to open config panel
+onNodeClick(({ node }) => {
+  if (executionStore.hasResults) {
+    executionStore.selectNode(node.id)
+    if (!executionStore.panelState.isOpen) {
+      executionStore.openPanel()
+    }
+  }
+})
+
 onNodeDoubleClick(({ node }) => {
   selectedNode.value = node
 })
 
-// Handle node drag stop to mark as dirty
 onNodeDragStop(({ node }) => {
   updateNodePosition(node.id, node.position)
 })
 
-// Close config panel
 const closeConfigPanel = () => {
   selectedNode.value = null
 }
 
-// Handle toolbar click to add node
-const handleAddNode = (template: any) => {
-  // Add node at center of canvas with slight randomization
+const handleAddNode = (template: { type: string; defaultData: any }) => {
   const position = {
     x: 250 + Math.random() * 100,
     y: 150 + Math.random() * 100,
@@ -73,16 +77,12 @@ const handleAddNode = (template: any) => {
   createNode(template, position)
 }
 
-// Context menu management
 const { state: contextMenu, show: showContextMenu, hide: hideContextMenu } = useContextMenu()
 
-// Canvas context menu
 onPaneContextMenu((event: MouseEvent) => showContextMenu(event))
 
-// Node context menu
 onNodeContextMenu(({ event, node }) => showContextMenu(event, node.id))
 
-// Handle delete node from context menu
 const handleDeleteNode = () => {
   if (contextMenu.nodeId) {
     deleteNode(contextMenu.nodeId)
@@ -90,25 +90,18 @@ const handleDeleteNode = () => {
   hideContextMenu()
 }
 
-// Handle clear canvas from context menu
 const handleClearCanvas = () => {
   clearAll()
   hideContextMenu()
 }
 
-// Close context menu when clicking elsewhere
 const handlePaneClick = () => {
   hideContextMenu()
 }
 
-// Execute workflow
 const executeWorkflow = async () => {
-  const result = await executeCurrentWorkflow()
-  if (result.success) {
-    alert('Workflow execution success!')
-  } else {
-    alert(`Workflow execution failed: ${result.error}`)
-  }
+  executionStore.openPanel()
+  await startAsyncExecution()
 }
 
 function resetTransform() {
@@ -118,12 +111,14 @@ function resetTransform() {
 
 <template>
   <div class="workflow-editor" @click="handlePaneClick">
-    <!-- Node Toolbar -->
-    <NodeToolbar @add-node="handleAddNode" />
+    <!-- Main canvas area -->
+    <div class="canvas-container" :class="{ 'with-panel': executionStore.panelState.isOpen }">
+      <!-- Node Toolbar -->
+      <NodeToolbar @add-node="handleAddNode" />
 
     <!-- Execute Button -->
     <button class="execute-button" @click="executeWorkflow" :disabled="isExecuting">
-      {{ isExecuting ? 'Executing...' : '▶️ Execute workflow' }}
+      {{ isExecuting ? 'Executing...' : '▶️ Execute Workflow' }}
     </button>
 
     <!-- Workflow Canvas -->
@@ -139,7 +134,6 @@ function resetTransform() {
       @edges-change="handleEdgesChange"
       @nodes-change="handleNodesChange"
     >
-      <!-- <Background /> -->
 
       <Background pattern-color="#aaa" :gap="16" />
       <MiniMap />
@@ -182,6 +176,10 @@ function resetTransform() {
       @update="(node: any) => updateNodeData(node.id, node.data)"
       @close="closeConfigPanel"
     />
+    
+    <!-- Execution Results Panel (inside canvas container) -->
+    <ExecutionPanel />
+    </div>
   </div>
 </template>
 
@@ -190,6 +188,13 @@ function resetTransform() {
   width: 100%;
   height: 100%;
   position: relative;
+}
+
+.canvas-container {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  overflow: hidden;
 }
 
 .context-menu {
@@ -230,7 +235,7 @@ function resetTransform() {
   font-weight: 600;
   cursor: pointer;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
-  z-index: 10;
+  z-index: 60;
   transition: all 0.2s;
 }
 

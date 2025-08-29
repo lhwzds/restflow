@@ -18,7 +18,10 @@ export function useWorkflowTriggers() {
 
   // Unified error handling helper
   const handleError = (error: any, defaultMessage: string) => {
-    const message = error?.response?.data?.error || error?.message || defaultMessage
+    const message = 
+      error?.response?.data?.error || 
+      error?.message || 
+      defaultMessage
     console.error(defaultMessage, error)
     ElMessage.error(message)
     return message
@@ -34,7 +37,7 @@ export function useWorkflowTriggers() {
         triggerStatusMap.value.set(workflowId, response)
       }
       return response
-    } catch (error: any) {
+    } catch (error) {
       handleError(error, 'Failed to fetch trigger status')
       return null
     } finally {
@@ -57,7 +60,7 @@ export function useWorkflowTriggers() {
       await fetchTriggerStatus(workflowId)
 
       return true
-    } catch (error: any) {
+    } catch (error) {
       handleError(error, 'Failed to activate trigger')
       return false
     } finally {
@@ -90,7 +93,7 @@ export function useWorkflowTriggers() {
         return true
       }
       return false
-    } catch (error: any) {
+    } catch (error) {
       if (error !== 'cancel') {
         handleError(error, 'Failed to deactivate trigger')
       }
