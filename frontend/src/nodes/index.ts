@@ -8,6 +8,7 @@ export const nodeTypeMap: Record<string, string> = {
   agent: 'Agent',
   http: 'HttpRequest',
   'manual-trigger': 'ManualTrigger',
+  'webhook-trigger': 'WebhookTrigger',
   print: 'Print',
   'data-transform': 'DataTransform',
 }

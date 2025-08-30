@@ -1,0 +1,234 @@
+// ===========================
+// Node-specific mixins - shared node styles only
+// ===========================
+
+// 1. Base node container
+@mixin node-base($width: 120px, $min-height: 80px) {
+  width: $width;
+  min-height: $min-height;
+  position: relative;
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  
+  &:hover {
+    transform: translateY(-2px);
+  }
+}
+
+// 2. Node glass effect
+@mixin node-glass($primary-color, $light-tint) {
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.98),
+    $light-tint
+  );
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba($primary-color, 0.2);
+  box-shadow: 
+    0 4px 16px rgba($primary-color, 0.15),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.5);
+}
+
+// 3. Node execution states
+@mixin node-execution-states() {
+  &.execution-running {
+    // Simple pulse effect for running state
+    animation: pulse-subtle 2s ease-in-out infinite;
+  }
+  
+  &.execution-completed {
+    .node-body {
+      border-color: rgba(#67c73a, 0.4);
+      box-shadow: 
+        0 4px 16px rgba(#67c73a, 0.25),
+        inset 0 0 0 1px rgba(#67c73a, 0.2);
+        
+      &::before {
+        background: #67c73a;
+      }
+    }
+  }
+  
+  &.execution-failed {
+    .node-body {
+      border-color: #f56c6c;
+      background: linear-gradient(
+        135deg,
+        rgba(254, 242, 242, 0.98),
+        rgba(254, 226, 226, 0.95)
+      );
+      box-shadow: 
+        0 4px 16px rgba(239, 68, 68, 0.2),
+        inset 0 0 0 1px rgba(239, 68, 68, 0.2);
+        
+      &::before {
+        background: #f56c6c;
+      }
+    }
+  }
+}
+
+// Node animations
+@keyframes pulse-subtle {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.8;
+  }
+}
+
+// Pulse effect (for trigger nodes)
+@keyframes pulse {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.4;
+  }
+  50% {
+    transform: scale(1.3);
+    opacity: 0;
+  }
+}
+
+// 4. Node handle styles
+@mixin node-handle($color) {
+  .custom-handle {
+    width: 8px;
+    height: 8px;
+    background: white;
+    border: 2px solid $color;
+    
+    &:hover {
+      width: 10px;
+      height: 10px;
+      border-width: 3px;
+    }
+  }
+}
+
+// 5. Node text styles
+@mixin node-text() {
+  .node-label {
+    color: #1f2937;
+    font-weight: 600;
+    font-size: 13px;
+    line-height: 1.3;
+  }
+  
+  .node-description,
+  .node-path {
+    color: #6b7280;
+    font-size: 10px;
+    line-height: 1.3;
+    margin-top: 2px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  
+  .node-path {
+    font-family: 'Monaco', 'Consolas', monospace;
+  }
+  
+  .execution-time {
+    position: absolute;
+    bottom: -18px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 9px;
+    color: #6b7280;
+    background: white;
+    padding: 2px 6px;
+    border-radius: 4px;
+    white-space: nowrap;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  }
+}
+
+// 6. Node top bar (trigger nodes)
+@mixin node-top-bar($color) {
+  &::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, 
+      $color,
+      lighten($color, 5%)
+    );
+  }
+}
+
+// 7. Node icon container
+@mixin node-icon($size: 36px, $color: null) {
+  width: $size;
+  height: $size;
+  border-radius: 10px;
+  background: if($color, linear-gradient(135deg, $color, darken($color, 5%)), currentColor);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  position: relative;
+  z-index: 2;
+}
+
+// 8. Trigger node specific mixin
+@mixin trigger-node($node-color, $node-color-light, $width: 140px, $height: 75px) {
+  @include node-base($width, $height);
+  @include node-execution-states();
+  @include node-handle($node-color);
+  @include node-text();
+  
+  &:hover {
+    .pulse-effect {
+      animation: pulse 2s ease-in-out infinite;
+    }
+  }
+  
+  .node-body {
+    width: 100%;
+    height: 100%;
+    position: relative;
+    border-radius: 14px;
+    overflow: hidden;
+    
+    @include node-glass($node-color, $node-color-light);
+    @include node-top-bar($node-color);
+  }
+  
+  .glass-layer {
+    padding: 12px 14px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  
+  .trigger-indicator {
+    position: relative;
+    flex-shrink: 0;
+  }
+  
+  .trigger-icon {
+    @include node-icon(36px, $node-color);
+  }
+  
+  .pulse-effect {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    background: linear-gradient(135deg, $node-color, lighten($node-color, 5%));
+    opacity: 0.4;
+    z-index: 1;
+  }
+  
+  .node-info {
+    flex: 1;
+    min-width: 0;
+  }
+}

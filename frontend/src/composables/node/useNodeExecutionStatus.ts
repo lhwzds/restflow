@@ -19,7 +19,8 @@ export function useNodeExecutionStatus() {
     const status = getNodeStatus(nodeId)
     if (!status) return ''
     
-    return `execution-${status}`
+    // Convert status to lowercase for CSS class names
+    return `execution-${status.toLowerCase()}`
   }
 
   /**
