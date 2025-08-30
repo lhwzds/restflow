@@ -1,4 +1,3 @@
-import { ref, watchEffect } from 'vue'
 import { useDark, useToggle } from '@vueuse/core'
 
 export function useTheme() {
