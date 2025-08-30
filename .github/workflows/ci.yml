@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Build and start RestFlow
+      run: docker compose up -d --build
+    
+    - name: Wait for service
+      run: |
+        echo "Waiting for RestFlow..."
+        for i in {1..5}; do
+          if curl -f http://localhost:3000 2>/dev/null; then
+            echo "✅ RestFlow is running!"
+            exit 0
+          fi
+          echo "Attempt $i/5..."
+          sleep 2
+        done
+        echo "❌ RestFlow failed to start"
+        docker compose logs
+        exit 1
+    
+    - name: Show logs on failure
+      if: failure()
+      run: docker compose logs
