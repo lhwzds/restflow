@@ -3,19 +3,21 @@
   
   # RestFlow
   
-  **Workflows work while you REST**
+  **🦀 Let your workflows run while you rest**
   
   [![Status](https://img.shields.io/badge/status-prototype-orange)](https://github.com/lhwzds/restflow)
   [![Rust](https://img.shields.io/badge/rust-1.82%2B-dea584)](https://www.rust-lang.org/)
   [![Vue 3](https://img.shields.io/badge/vue-3.x-4fc08d)](https://vuejs.org/)
   [![Single Binary](https://img.shields.io/badge/deploy-single%20binary-blue)](https://github.com/lhwzds/restflow)
   
-  A Rust-powered AI agent workflow automation platform  
+  Built with Rust for blazing-fast automation with AI agents  
 </div>
 
-> ⚠️ **Pre-alpha Software**  
-> RestFlow is in early development. Core features are incomplete.  
-> For experimental use only.
+*Currently in early development*
+
+## Workflow Editor
+
+![RestFlow Workflow Editor](./docs/images/workflow-editor.png)
 
 ## Quick Start
 
