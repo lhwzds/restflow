@@ -84,7 +84,7 @@ const handleFormUpdate = (data: any) => {
   </div>
 </template>
 
-<style scoped>
+<style lang="scss" scoped>
 .config-panel {
   position: absolute;
   right: 0;

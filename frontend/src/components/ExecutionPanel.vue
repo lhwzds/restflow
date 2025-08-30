@@ -299,7 +299,7 @@ onUnmounted(() => {
   </div>
 </template>
 
-<style scoped>
+<style lang="scss" scoped>
 .execution-panel {
   position: absolute;
   bottom: 0;

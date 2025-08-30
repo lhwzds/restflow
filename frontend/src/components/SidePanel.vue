@@ -97,7 +97,7 @@ watch(
   </el-aside>
 </template>
 
-<style scoped>
+<style lang="scss" scoped>
 .side-panel {
   background-color: #fff;
   border-right: 1px solid #e4e7ed;
@@ -155,7 +155,7 @@ watch(
 }
 
 .el-menu-item.is-active {
-  background-color: #ecf5ff;
-  color: #409eff;
+  background-color: var(--rf-color-primary-bg-light);
+  color: var(--rf-color-primary);
 }
 </style>

@@ -335,7 +335,7 @@ const hasTrigger = (workflow: DisplayWorkflow) => {
   </div>
 </template>
 
-<style scoped>
+<style lang="scss" scoped>
 .workflow-list {
   padding: 20px;
   height: 100%;
@@ -402,8 +402,8 @@ const hasTrigger = (workflow: DisplayWorkflow) => {
 }
 
 .workflow-card.selected {
-  border: 2px solid #409eff;
-  background-color: #f0f9ff;
+  border: 2px solid var(--rf-color-primary);
+  background-color: var(--rf-color-primary-bg-lighter);
 }
 
 .card-content {
@@ -442,7 +442,7 @@ const hasTrigger = (workflow: DisplayWorkflow) => {
 }
 
 .edit-icon:hover {
-  background-color: #f0f9ff;
+  background-color: var(--rf-color-primary-bg-lighter);
 }
 
 .rename-input-wrapper {
@@ -452,7 +452,7 @@ const hasTrigger = (workflow: DisplayWorkflow) => {
 
 .rename-input-wrapper :deep(.el-input__wrapper) {
   background-color: #ffffff;
-  box-shadow: 0 0 0 1px #409eff inset;
+  box-shadow: 0 0 0 1px var(--rf-color-primary) inset;
 }
 
 .rename-input-wrapper :deep(.el-input__inner) {
@@ -496,12 +496,12 @@ const hasTrigger = (workflow: DisplayWorkflow) => {
 .help-text {
   margin-bottom: 20px;
   padding: 10px 16px;
-  background: linear-gradient(135deg, #f0f9ff 0%, #ecf5ff 100%);
-  border: 1px solid #d9ecff;
+  background: linear-gradient(135deg, var(--rf-color-primary-bg-lighter) 0%, var(--rf-color-primary-bg-light) 100%);
+  border: 1px solid var(--rf-color-primary-bg);
   border-radius: 6px;
   text-align: center;
   font-size: 13px;
-  color: #409eff;
+  color: var(--rf-color-primary);
   animation: fadeIn 0.3s ease-in;
 }
 

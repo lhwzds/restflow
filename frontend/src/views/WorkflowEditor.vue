@@ -188,7 +188,7 @@ onUnmounted(() => {
   </div>
 </template>
 
-<style scoped>
+<style lang="scss" scoped>
 .workflow-editor-page {
   height: 100vh;
   display: flex;

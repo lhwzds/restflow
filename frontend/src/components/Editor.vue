@@ -183,7 +183,7 @@ function resetTransform() {
   </div>
 </template>
 
-<style scoped>
+<style lang="scss" scoped>
 .workflow-editor {
   width: 100%;
   height: 100%;
@@ -218,7 +218,7 @@ function resetTransform() {
 }
 
 .menu-item:hover {
-  background: #8d8b8b;
+  background: var(--rf-color-border-lighter);
 }
 
 .execute-button {
