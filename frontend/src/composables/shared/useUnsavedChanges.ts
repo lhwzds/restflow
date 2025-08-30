@@ -1,17 +1,11 @@
-import { onBeforeUnmount } from 'vue'
+import { onBeforeUnmount, computed } from 'vue'
 import { onBeforeRouteLeave } from 'vue-router'
-import { computed } from 'vue'
 import { useWorkflowStore } from '../../stores/workflowStore'
 
 export function useUnsavedChanges() {
   const workflowStore = useWorkflowStore()
   
-  // Use store's state
   const hasChanges = computed(() => workflowStore.hasUnsavedChanges)
-  
-  // Delegate to store
-  const markAsDirty = () => workflowStore.markAsDirty()
-  const markAsSaved = () => workflowStore.markAsSaved()
 
   // Browser navigation prevention
   const handleBeforeUnload = (e: BeforeUnloadEvent) => {
@@ -30,7 +24,7 @@ export function useUnsavedChanges() {
     onBeforeRouteLeave((_to, _from, next) => {
       if (hasChanges.value) {
         if (window.confirm('You have unsaved changes. Are you sure you want to leave?')) {
-          markAsSaved() // Reset state when user confirms leaving
+          workflowStore.markAsSaved()
           next()
         } else {
           next(false)
@@ -50,7 +44,7 @@ export function useUnsavedChanges() {
 
   return {
     hasChanges,
-    markAsDirty,
-    markAsSaved,
+    markAsDirty: workflowStore.markAsDirty,
+    markAsSaved: workflowStore.markAsSaved,
   }
 }
