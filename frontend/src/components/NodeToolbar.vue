@@ -107,13 +107,11 @@ const handleClick = (template: NodeTemplate) => {
   position: absolute;
   right: 10px;
   top: 10px;
-  background: rgba(255, 255, 255, 0.98);
+  background: var(--rf-color-bg-container);
   backdrop-filter: blur(16px);
-  border: 1px solid rgba(var(--rf-color-primary-rgb), 0.1);
+  border: 1px solid var(--rf-color-border-base);
   border-radius: 12px;
-  box-shadow: 
-    0 4px 16px rgba(0, 0, 0, 0.08),
-    inset 0 0 0 1px rgba(255, 255, 255, 0.5);
+  box-shadow: var(--rf-shadow-card);
   padding: 16px;
   width: 220px;
   z-index: 10;
@@ -123,7 +121,7 @@ const handleClick = (template: NodeTemplate) => {
   margin: 0 0 12px 0;
   font-size: 14px;
   font-weight: 600;
-  color: #2d3748;
+  color: var(--rf-color-text-primary);
 }
 
 .node-list {
@@ -137,8 +135,8 @@ const handleClick = (template: NodeTemplate) => {
   align-items: center;
   gap: 10px;
   padding: 10px;
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.98), rgba(255, 250, 247, 0.95));
-  border: 2px solid rgba(var(--rf-color-primary-rgb), 0.15);
+  background: var(--rf-color-bg-secondary);
+  border: 2px solid var(--rf-color-border-lighter);
   border-radius: 8px;
   cursor: move;
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
@@ -146,10 +144,10 @@ const handleClick = (template: NodeTemplate) => {
 }
 
 .node-item:hover {
-  background: linear-gradient(135deg, rgba(255, 255, 255, 1), rgba(255, 245, 240, 0.98));
-  border-color: rgba(var(--rf-color-primary-rgb), 0.3);
+  background: var(--rf-color-primary-bg-lighter);
+  border-color: var(--rf-color-primary);
   transform: translateX(2px);
-  box-shadow: 0 2px 8px rgba(var(--rf-color-primary-rgb), 0.1);
+  box-shadow: var(--rf-shadow-base);
 }
 
 .node-item:active {
@@ -175,13 +173,13 @@ const handleClick = (template: NodeTemplate) => {
 .node-label {
   font-size: 13px;
   font-weight: 500;
-  color: #4a5568;
+  color: var(--rf-color-text-regular);
 }
 
 .toolbar-hint {
   margin-top: 12px;
   font-size: 11px;
-  color: #718096;
+  color: var(--rf-color-text-secondary);
   text-align: center;
 }
 </style>

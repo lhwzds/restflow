@@ -19,13 +19,11 @@ import { useExecutionPanelResize } from '../composables/ui/useExecutionPanelResi
 
 const executionStore = useExecutionStore()
 
-// Panel ref
 const panelRef = ref<HTMLElement>()
 
-// Use composables
+// Hook for handling panel resize with drag-and-drop functionality
 const { isResizing, startResize, stopResize } = useExecutionPanelResize(panelRef)
 
-// Computed
 const isOpen = computed(() => executionStore.panelState.isOpen)
 const panelHeight = computed(() => {
   if (!isOpen.value) return '48px'
@@ -36,7 +34,6 @@ const executionSummary = computed(() => executionStore.executionSummary)
 const selectedResult = computed(() => executionStore.selectedNodeResult)
 const hasResults = computed(() => executionStore.hasResults)
 
-// Methods
 const togglePanel = () => {
   executionStore.togglePanel()
 }
@@ -45,7 +42,6 @@ const closePanel = () => {
   executionStore.closePanel()
 }
 
-// Format JSON for display
 const formatJson = (data: any): string => {
   if (data === undefined || data === null) return 'null'
   if (typeof data === 'string') return data
@@ -56,7 +52,6 @@ const formatJson = (data: any): string => {
   }
 }
 
-// Copy to clipboard
 const copyToClipboard = async (text: string) => {
   try {
     await navigator.clipboard.writeText(text)
@@ -66,7 +61,7 @@ const copyToClipboard = async (text: string) => {
   }
 }
 
-// Keyboard shortcuts
+// Keyboard shortcuts for panel control (Ctrl/Cmd+J toggle, Esc close)
 useKeyboardShortcuts({
   'ctrl+j': togglePanel,
   'meta+j': togglePanel,
@@ -75,7 +70,6 @@ useKeyboardShortcuts({
   }
 })
 
-// Format timestamp
 const formatTimestamp = (timestamp?: number) => {
   if (!timestamp) return 'N/A'
   const date = new Date(timestamp)
@@ -86,7 +80,6 @@ const formatTimestamp = (timestamp?: number) => {
   return `${hours}:${minutes}:${seconds}.${ms}`
 }
 
-// Get status type for ElTag
 const getStatusType = (status?: string) => {
   switch (status) {
     case 'Completed': return 'success'
@@ -98,7 +91,6 @@ const getStatusType = (status?: string) => {
   }
 }
 
-// Cleanup on unmount
 onUnmounted(() => {
   if (isResizing.value) {
     stopResize()
@@ -116,7 +108,6 @@ onUnmounted(() => {
     }"
     :style="{ height: panelHeight }"
   >
-    <!-- Resize handle -->
     <div 
       v-if="isOpen"
       class="resize-handle"
@@ -125,7 +116,6 @@ onUnmounted(() => {
       <div class="handle-bar"></div>
     </div>
     
-    <!-- Panel Header -->
     <div class="panel-header" @dblclick="togglePanel">
       <div class="header-left">
         <ElButton
@@ -138,13 +128,11 @@ onUnmounted(() => {
         
         <span class="header-title">Execution Results</span>
         
-        <!-- Execution indicator -->
         <div v-if="executionStore.isExecuting" class="execution-indicator">
           <span class="execution-dot"></span>
           <span class="execution-text">Executing...</span>
         </div>
         
-        <!-- Summary tags -->
         <div v-if="executionSummary && !executionStore.isExecuting" class="summary-tags">
           <ElTag v-if="executionSummary.success > 0" type="success" size="small">
             ✅ {{ executionSummary.success }}
@@ -173,9 +161,7 @@ onUnmounted(() => {
       </div>
     </div>
     
-    <!-- Panel Body -->
     <div v-if="isOpen" class="panel-body">
-      <!-- No results state -->
       <div v-if="!hasResults" class="empty-state">
         <ElEmpty description="Execute workflow to see results here">
           <template #image>
@@ -184,7 +170,6 @@ onUnmounted(() => {
         </ElEmpty>
       </div>
       
-      <!-- Selected node result -->
       <div v-else-if="selectedResult" class="result-container">
         <ElCard class="result-card">
           <template #header>
@@ -207,7 +192,6 @@ onUnmounted(() => {
             </div>
           </template>
           
-          <!-- Execution details -->
           <ElDescriptions :column="3" border size="small">
             <ElDescriptionsItem label="Status">
               <ElTag :type="getStatusType(selectedResult.status)" size="small">
@@ -228,7 +212,6 @@ onUnmounted(() => {
             </ElDescriptionsItem>
           </ElDescriptions>
           
-          <!-- Input/Output/Error display -->
           <div class="result-content">
             <ElCollapse 
               v-if="selectedResult.input || selectedResult.output || selectedResult.error" 
@@ -277,7 +260,6 @@ onUnmounted(() => {
               </ElCollapseItem>
             </ElCollapse>
             
-            <!-- Empty state for pending/running without data -->
             <div v-else-if="selectedResult.status === 'Pending' || selectedResult.status === 'Running'" class="status-message">
               <ElTag :type="getStatusType(selectedResult.status)" effect="plain">
                 {{ selectedResult.status === 'Pending' ? 'Waiting' : 'Running...' }}
@@ -287,7 +269,6 @@ onUnmounted(() => {
         </ElCard>
       </div>
       
-      <!-- No selection prompt -->
       <div v-else class="selection-prompt">
         <ElEmpty description="Click on a node to view its execution result">
           <template #image>
@@ -305,9 +286,9 @@ onUnmounted(() => {
   bottom: 0;
   left: 0;
   right: 0;
-  background: white;
-  border-top: 1px solid #e2e8f0;
-  box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.1);
+  background: var(--rf-color-bg-container);
+  border-top: 1px solid var(--rf-color-border-base);
+  box-shadow: var(--rf-shadow-panel);
   transition: height 0.3s ease;
   z-index: 50;
   display: flex;
@@ -340,7 +321,7 @@ onUnmounted(() => {
   transform: translateX(-50%);
   width: 40px;
   height: 3px;
-  background: #cbd5e1;
+  background: var(--rf-color-border-lighter);
   border-radius: 2px;
   opacity: 0;
   transition: opacity 0.2s;
@@ -351,8 +332,8 @@ onUnmounted(() => {
   justify-content: space-between;
   align-items: center;
   padding: 12px 16px;
-  background: #f8fafc;
-  border-bottom: 1px solid #e2e8f0;
+  background: var(--rf-color-bg-secondary);
+  border-bottom: 1px solid var(--rf-color-border-base);
   cursor: pointer;
   user-select: none;
   flex-shrink: 0;
@@ -367,7 +348,7 @@ onUnmounted(() => {
 .header-title {
   font-weight: 600;
   font-size: 14px;
-  color: #1e293b;
+  color: var(--rf-color-text-primary);
 }
 
 .summary-tags {
@@ -385,16 +366,17 @@ onUnmounted(() => {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #3b82f6;
+  background: var(--rf-color-info);
   animation: pulse-dot 1.5s infinite;
 }
 
 .execution-text {
   font-size: 12px;
-  color: #3b82f6;
+  color: var(--rf-color-info);
   font-weight: 500;
 }
 
+// Pulsing animation for execution indicator - visual feedback that workflow is running
 @keyframes pulse-dot {
   0%, 100% {
     opacity: 1;
@@ -414,7 +396,7 @@ onUnmounted(() => {
 
 .keyboard-hint {
   font-size: 12px;
-  color: #94a3b8;
+  color: var(--rf-color-text-secondary);
 }
 
 .panel-body {
@@ -462,11 +444,11 @@ onUnmounted(() => {
 .node-id {
   font-size: 16px;
   font-weight: 600;
-  color: #1e293b;
+  color: var(--rf-color-text-primary);
 }
 
 .duration {
-  color: #3b82f6;
+  color: var(--rf-color-info);
   font-weight: 600;
 }
 
@@ -481,10 +463,10 @@ onUnmounted(() => {
   font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
   font-size: 12px;
   line-height: 1.5;
-  color: #334155;
+  color: var(--rf-color-text-regular);
   white-space: pre-wrap;
   word-break: break-all;
-  background: #f8fafc;
+  background: var(--rf-color-bg-secondary);
   padding: 12px;
   border-radius: 4px;
 }
@@ -503,8 +485,8 @@ onUnmounted(() => {
   font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
   font-size: 12px;
   line-height: 1.5;
-  color: #475569;
-  border-bottom: 1px solid #e2e8f0;
+  color: var(--rf-color-text-regular);
+  border-bottom: 1px solid var(--rf-color-border-base);
 }
 
 .log-entry:last-child {

@@ -14,10 +14,8 @@ const emit = defineEmits<{
   close: []
 }>()
 
-// Local copy of node data for editing
 const nodeData = ref<any>({})
 
-// Watch for node changes
 watch(
   () => props.node,
   (newNode) => {
@@ -28,7 +26,6 @@ watch(
   { immediate: true },
 )
 
-// Update node data
 const updateNode = () => {
   if (props.node) {
     const updatedNode = {
@@ -39,7 +36,6 @@ const updateNode = () => {
   }
 }
 
-// Handle form data update
 const handleFormUpdate = (data: any) => {
   nodeData.value = { ...nodeData.value, ...data }
   updateNode()
@@ -54,27 +50,23 @@ const handleFormUpdate = (data: any) => {
     </div>
 
     <div class="panel-content">
-      <!-- Common fields -->
       <div class="form-group">
         <label>Label</label>
         <input v-model="nodeData.label" @input="updateNode" placeholder="Node label" />
       </div>
 
-      <!-- Agent Node Configuration -->
       <AgentConfigForm 
         v-if="node.type === NODE_TYPES.AGENT"
         :modelValue="nodeData"
         @update:modelValue="handleFormUpdate"
       />
 
-      <!-- HTTP Node Configuration -->
       <HttpConfigForm 
         v-if="node.type === NODE_TYPES.HTTP_REQUEST"
         :modelValue="nodeData"
         @update:modelValue="handleFormUpdate"
       />
 
-      <!-- Manual Trigger Node -->
       <TriggerConfigForm 
         v-if="node.type === NODE_TYPES.MANUAL_TRIGGER"
         :modelValue="nodeData"
@@ -91,8 +83,8 @@ const handleFormUpdate = (data: any) => {
   top: 0;
   width: 320px;
   height: 100%;
-  background: white;
-  border-left: 1px solid #e2e8f0;
+  background: var(--rf-color-bg-container);
+  border-left: 1px solid var(--rf-color-border-base);
   box-shadow: -2px 0 8px rgba(0, 0, 0, 0.1);
   z-index: 1000;
   display: flex;
@@ -104,7 +96,7 @@ const handleFormUpdate = (data: any) => {
   justify-content: space-between;
   align-items: center;
   padding: 16px;
-  border-bottom: 1px solid #e2e8f0;
+  border-bottom: 1px solid var(--rf-color-border-base);
 }
 
 .panel-header h3 {
@@ -118,7 +110,7 @@ const handleFormUpdate = (data: any) => {
   border: none;
   font-size: 24px;
   cursor: pointer;
-  color: #64748b;
+  color: var(--rf-color-text-secondary);
   padding: 0;
   width: 32px;
   height: 32px;
@@ -130,7 +122,7 @@ const handleFormUpdate = (data: any) => {
 }
 
 .close-btn:hover {
-  background-color: #f1f5f9;
+  background-color: var(--rf-color-bg-page);
 }
 
 .panel-content {
@@ -148,13 +140,13 @@ const handleFormUpdate = (data: any) => {
   margin-bottom: 6px;
   font-size: 14px;
   font-weight: 500;
-  color: #475569;
+  color: var(--rf-color-text-regular);
 }
 
 .form-group input {
   width: 100%;
   padding: 8px 12px;
-  border: 1px solid #cbd5e1;
+  border: 1px solid var(--rf-color-border-lighter);
   border-radius: 6px;
   font-size: 14px;
   transition: border-color 0.2s;
@@ -162,7 +154,7 @@ const handleFormUpdate = (data: any) => {
 
 .form-group input:focus {
   outline: none;
-  border-color: #6366f1;
+  border-color: var(--rf-color-border-focus);
   box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
 }
 </style>

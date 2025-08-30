@@ -1,12 +1,15 @@
 <script setup lang="ts">
 import { ElEmpty } from 'element-plus'
+import HeaderBar from '../components/HeaderBar.vue'
 </script>
 
 <template>
   <div class="agent-management">
-    <div class="page-header">
-      <h1>Agent Management</h1>
-    </div>
+    <HeaderBar title="Agent Management">
+      <template #actions>
+        <!-- Future actions can be added here -->
+      </template>
+    </HeaderBar>
 
     <!-- TODO : implement agent management features -->
     <ElEmpty description="Agent management coming soon">
@@ -19,15 +22,7 @@ import { ElEmpty } from 'element-plus'
 .agent-management {
   padding: 20px;
   height: 100%;
+  background-color: var(--rf-color-bg-page);
 }
 
-.page-header {
-  margin-bottom: 30px;
-}
-
-.page-header h1 {
-  margin: 0;
-  font-size: 28px;
-  font-weight: 600;
-}
 </style>

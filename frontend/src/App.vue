@@ -7,12 +7,15 @@ import SidePanel from './components/SidePanel.vue'
   <el-container style="height: 100vh">
     <SidePanel />
     
-    <el-main style="padding: 0">
+    <el-main class="app-main">
       <router-view />
     </el-main>
   </el-container>
 </template>
 
 <style lang="scss">
-/* Global styles if needed */
+.app-main {
+  padding: 0;
+  background-color: var(--rf-color-bg-page);
+}
 </style>

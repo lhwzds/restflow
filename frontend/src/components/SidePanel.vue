@@ -99,8 +99,8 @@ watch(
 
 <style lang="scss" scoped>
 .side-panel {
-  background-color: #fff;
-  border-right: 1px solid #e4e7ed;
+  background-color: var(--rf-color-bg-container, #fff);
+  border-right: 1px solid var(--rf-color-border-base);
   transition: width 0.3s ease;
   display: flex;
   flex-direction: column;
@@ -113,7 +113,7 @@ watch(
   align-items: center;
   justify-content: space-between;
   padding: 10px;
-  border-bottom: 1px solid #e4e7ed;
+  border-bottom: 1px solid var(--rf-color-border-base);
   height: 50px;
 }
 
@@ -133,7 +133,7 @@ watch(
   display: flex;
   justify-content: center;
   padding: 4px 0 4px 0;
-  border-bottom: 1px solid #e4e7ed;
+  border-bottom: 1px solid var(--rf-color-border-base);
 }
 
 .expand-btn {

@@ -16,19 +16,21 @@
   }
 }
 
-// 2. Node glass effect
-@mixin node-glass($primary-color, $light-tint) {
+// 2. Node glass effect - creates a modern glassmorphism aesthetic
+// Combines translucent background with backdrop blur for depth perception
+@mixin node-glass($primary-color) {
+  // Use CSS variables for theming
   background: linear-gradient(
     135deg,
-    rgba(255, 255, 255, 0.98),
-    $light-tint
+    var(--rf-node-bg-primary),
+    var(--rf-node-bg-secondary)
   );
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
   border: 1px solid rgba($primary-color, 0.2);
   box-shadow: 
     0 4px 16px rgba($primary-color, 0.15),
-    inset 0 0 0 1px rgba(255, 255, 255, 0.5);
+    inset 0 0 0 1px var(--rf-node-border-inset);
 }
 
 // 3. Node execution states
@@ -62,6 +64,14 @@
       box-shadow: 
         0 4px 16px rgba(239, 68, 68, 0.2),
         inset 0 0 0 1px rgba(239, 68, 68, 0.2);
+        
+      :global(html.dark) & {
+        background: linear-gradient(
+          135deg,
+          rgba(239, 68, 68, 0.15),
+          rgba(239, 68, 68, 0.1)
+        );
+      }
         
       &::before {
         background: #f56c6c;
@@ -97,7 +107,7 @@
   .custom-handle {
     width: 8px;
     height: 8px;
-    background: white;
+    background: var(--rf-color-bg-container);
     border: 2px solid $color;
     
     &:hover {
@@ -111,7 +121,7 @@
 // 5. Node text styles
 @mixin node-text() {
   .node-label {
-    color: #1f2937;
+    color: var(--rf-color-text-primary);
     font-weight: 600;
     font-size: 13px;
     line-height: 1.3;
@@ -119,7 +129,7 @@
   
   .node-description,
   .node-path {
-    color: #6b7280;
+    color: var(--rf-color-text-secondary);
     font-size: 10px;
     line-height: 1.3;
     margin-top: 2px;
@@ -138,12 +148,12 @@
     left: 50%;
     transform: translateX(-50%);
     font-size: 9px;
-    color: #6b7280;
-    background: white;
+    color: var(--rf-color-text-secondary);
+    background: var(--rf-color-bg-container);
     padding: 2px 6px;
     border-radius: 4px;
     white-space: nowrap;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    box-shadow: var(--rf-shadow-sm);
   }
 }
 
@@ -158,7 +168,7 @@
     height: 2px;
     background: linear-gradient(90deg, 
       $color,
-      color.adjust($color, $lightness: 5%)
+      color.adjust($color, $lightness: 5%)  // Subtle gradient for visual depth
     );
   }
 }
@@ -197,7 +207,7 @@
     border-radius: 14px;
     overflow: hidden;
     
-    @include node-glass($node-color, $node-color-light);
+    @include node-glass($node-color);
     @include node-top-bar($node-color);
   }
   
