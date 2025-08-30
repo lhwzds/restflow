@@ -24,6 +24,18 @@ const nodeTemplates = ref<NodeTemplate[]>([
     },
   },
   {
+    type: NODE_TYPES.WEBHOOK_TRIGGER,
+    label: 'Webhook',
+    icon: '🔗',
+    defaultData: {
+      label: 'Webhook',
+      path: '/webhook/endpoint',
+      auth: {
+        type: 'none',
+      },
+    },
+  },
+  {
     type: NODE_TYPES.AGENT,
     label: 'AI Agent',
     icon: '🤖',

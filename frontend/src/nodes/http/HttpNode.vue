@@ -2,6 +2,7 @@
 import type { NodeProps } from '@vue-flow/core'
 import { Handle, Position } from '@vue-flow/core'
 import { computed } from 'vue'
+import { Globe, Send } from 'lucide-vue-next'
 import { useNodeExecutionStatus } from '../../composables/node/useNodeExecutionStatus'
 
 interface HttpNodeData {
@@ -14,7 +15,6 @@ const props = defineProps<NodeProps<HttpNodeData>>()
 
 const { 
   getNodeStatusClass, 
-  getNodeStatusIcon, 
   getNodeOutputPreview,
   getNodeExecutionTime,
   formatExecutionTime,
@@ -22,7 +22,6 @@ const {
 } = useNodeExecutionStatus()
 
 const statusClass = computed(() => getNodeStatusClass(props.id))
-const statusIcon = computed(() => getNodeStatusIcon(props.id))
 const outputPreview = computed(() => getNodeOutputPreview(props.id, 30))
 const executionTime = computed(() => {
   const time = getNodeExecutionTime(props.id)
@@ -33,133 +32,128 @@ const hasError = computed(() => hasNodeError(props.id))
 
 <template>
   <div class="http-node" :class="statusClass">
-    <Handle type="target" :position="Position.Left" />
+    <Handle type="target" :position="Position.Left" class="custom-handle input-handle" />
 
-    <div class="node-content">
-      <div class="node-icon">🌐</div>
-      <div class="node-label">{{ props.data?.label || 'HTTP Request' }}</div>
-      
-      <!-- Status indicator -->
-      <div v-if="statusIcon" class="status-indicator">
-        {{ statusIcon }}
+    <div class="glass-layer">
+      <div class="node-header">
+        <div class="node-icon">
+          <Globe :size="24" />
+          <Send :size="12" class="icon-decoration" />
+        </div>
+        <div class="node-label">{{ props.data?.label || 'HTTP Request' }}</div>
       </div>
       
-      <!-- Execution time -->
-      <div v-if="executionTime" class="execution-time">
-        {{ executionTime }}
+      <!-- Method info -->
+      <div v-if="props.data?.method" class="method-badge">
+        {{ props.data.method }}
       </div>
       
-      <!-- Output preview -->
-      <div v-if="outputPreview && !hasError" class="output-preview" :title="outputPreview">
-        {{ outputPreview }}
-      </div>
     </div>
 
-    <Handle type="source" :position="Position.Right" />
+    <!-- Output preview -->
+    <div v-if="outputPreview && !hasError" class="output-preview" :title="outputPreview">
+      {{ outputPreview }}
+    </div>
+    
+    <!-- Execution time -->
+    <div v-if="executionTime" class="execution-time">
+      {{ executionTime }}
+    </div>
+
+    <Handle type="source" :position="Position.Right" class="custom-handle output-handle" />
   </div>
 </template>
 
 <style lang="scss" scoped>
+@import '@/styles/nodes/base';
+
+// Node-specific colors
+$node-color: #3b82f6;
+$node-color-light: rgba(239, 246, 255, 0.85);
+
 .http-node {
-  background: linear-gradient(135deg, #56ccf2 0%, #2f80ed 100%);
-  border-radius: 8px;
-  border: 2px solid #2b6cb0;
+  @include node-base(120px, 80px);
+  @include node-glass($node-color, $node-color-light);
+  @include node-execution-states();
+  @include node-handle($node-color);
+  @include node-text();
+  
+  border-radius: 12px;
+  padding: 0;
+  
+  &:hover {
+    box-shadow: 
+      0 6px 20px rgba($node-color, 0.3),
+      inset 0 0 0 1px rgba($node-color, 0.2);
+  }
+  
+}
+
+.glass-layer {
   padding: 12px;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-  width: 80px;
-  height: 80px;
-  border-radius: 45%;
   position: relative;
-  transition: all 0.3s ease;
 }
 
-/* Execution status styles */
-.http-node.execution-running {
-  animation: pulse 1.5s infinite;
-  border-color: var(--rf-color-info);
-}
-
-.http-node.execution-success {
-  border-color: var(--rf-color-success);
-  border-width: 3px;
-}
-
-.http-node.execution-error {
-  border-color: var(--rf-color-danger);
-  border-width: 3px;
-  background: linear-gradient(135deg, var(--rf-color-danger) 0%, #dc2626 100%);
-}
-
-@keyframes pulse {
-  0%, 100% {
-    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-  }
-  50% {
-    box-shadow: 0 0 20px rgba(59, 130, 246, 0.5);
-  }
-}
-
-.node-content {
+.node-header {
   display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: 4px;
+  gap: 8px;
+  margin-bottom: 8px;
 }
 
 .node-icon {
-  font-size: 24px;
+  position: relative;
+  @include node-icon(32px, $node-color);
+  border-radius: 8px;
+  
+  .icon-decoration {
+    position: absolute;
+    top: -2px;
+    right: -2px;
+    color: #60a5fa;
+  }
 }
 
 .node-label {
-  color: white;
-  font-weight: 600;
-  font-size: 12px;
-  text-align: center;
+  flex: 1;
 }
 
-.status-indicator {
-  position: absolute;
-  top: -5px;
-  right: -5px;
-  font-size: 16px;
-  background: white;
-  border-radius: 50%;
-  width: 24px;
-  height: 24px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-}
-
-.execution-time {
-  position: absolute;
-  bottom: -20px;
-  left: 50%;
-  transform: translateX(-50%);
+.method-badge {
   font-size: 10px;
-  color: #64748b;
-  background: white;
+  color: $node-color;
+  background: rgba($node-color, 0.08);
   padding: 2px 6px;
-  border-radius: 3px;
-  white-space: nowrap;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  border-radius: 4px;
+  display: inline-block;
+  font-weight: 600;
+  text-transform: uppercase;
 }
+
 
 .output-preview {
   position: absolute;
-  bottom: -35px;
-  left: 50%;
-  transform: translateX(-50%);
-  font-size: 10px;
-  color: #475569;
-  background: #f1f5f9;
-  padding: 2px 8px;
-  border-radius: 3px;
-  max-width: 120px;
+  bottom: -18px;
+  left: 0;
+  font-size: 9px;
+  color: #4b5563;
+  background: rgba(255, 255, 255, 0.9);
+  padding: 2px 6px;
+  border-radius: 4px;
+  max-width: 80px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+// Handle positioning
+.custom-handle {
+  &.input-handle {
+    left: -4px;
+  }
+  
+  &.output-handle {
+    right: -4px;
+  }
 }
 </style>

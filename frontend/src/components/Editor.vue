@@ -11,7 +11,7 @@ import { useNodeOperations } from '../composables/node/useNodeOperations'
 import { useContextMenu } from '../composables/ui/useContextMenu'
 import { useVueFlowHandlers } from '../composables/editor/useVueFlowHandlers'
 import { useAsyncWorkflowExecution } from '../composables/execution/useAsyncWorkflowExecution'
-import { AgentNode, HttpNode, ManualTriggerNode } from '../nodes'
+import { AgentNode, HttpNode, ManualTriggerNode, WebhookTriggerNode } from '../nodes'
 import { useExecutionStore } from '../stores/executionStore'
 import Icon from './Icon.vue'
 import NodeConfigPanel from './NodeConfigPanel.vue'
@@ -147,6 +147,11 @@ function resetTransform() {
       <!-- Manual Trigger Node Template -->
       <template #node-ManualTrigger="manualTriggerNodeProps">
         <ManualTriggerNode v-bind="manualTriggerNodeProps" />
+      </template>
+
+      <!-- Webhook Trigger Node Template -->
+      <template #node-WebhookTrigger="webhookTriggerNodeProps">
+        <WebhookTriggerNode v-bind="webhookTriggerNodeProps" />
       </template>
 
       <!-- Agent Node Template -->
