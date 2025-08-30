@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { Close, EditPen, Plus, Search, VideoPause, VideoPlay } from '@element-plus/icons-vue'
+import HeaderBar from '../components/HeaderBar.vue'
 import {
   ElButton,
   ElCard,
@@ -86,7 +87,6 @@ onMounted(async () => {
   // Batch fetch trigger status for all workflows
   await fetchAllTriggerStatuses(workflows.value.map((w) => w.id))
 
-  // Add keyboard event listener
   document.addEventListener('keydown', handleKeyDown)
 })
 
@@ -116,7 +116,6 @@ const saveWorkflow = () => {
     ElMessage.error('Please enter a workflow name')
     return
   }
-  // Create new workflow and navigate to editor
   router.push(`/workflow?name=${encodeURIComponent(newWorkflowName.value)}`)
   dialogVisible.value = false
 }
@@ -164,7 +163,6 @@ const handleRenameKeydown = (event: KeyboardEvent, workflowId: string) => {
 }
 
 const selectWorkflow = (workflow: DisplayWorkflow, event?: MouseEvent) => {
-  // Prevent event bubbling
   event?.stopPropagation()
   selectedWorkflowId.value = selectedWorkflowId.value === workflow.id ? null : workflow.id
 }
@@ -196,9 +194,8 @@ const hasTrigger = (workflow: DisplayWorkflow) => {
 
 <template>
   <div class="workflow-list">
-    <div class="page-header">
-      <h1>Workflows</h1>
-      <div class="header-actions">
+    <HeaderBar title="Workflows">
+      <template #actions>
         <ElInput
           v-model="searchQuery"
           placeholder="Search workflows by name or description..."
@@ -208,10 +205,9 @@ const hasTrigger = (workflow: DisplayWorkflow) => {
           @input="setSearchQuery"
         />
         <ElButton type="primary" :icon="Plus" @click="createWorkflow">New Workflow</ElButton>
-      </div>
-    </div>
+      </template>
+    </HeaderBar>
 
-    <!-- Search results info -->
     <div v-if="searchQuery" class="search-info">
       <span>Found {{ displayWorkflows.length }} workflow(s) matching "{{ searchQuery }}"</span>
       <ElButton link @click="searchQuery = ''">Clear</ElButton>
@@ -228,7 +224,6 @@ const hasTrigger = (workflow: DisplayWorkflow) => {
       </ElEmpty>
     </div>
 
-    <!-- Help text at the top -->
     <div v-if="displayWorkflows.length > 0" class="help-text">
       <span
         >💡 Tip: Click to select • Double-click to open • Ctrl+C/V to copy/paste • Click ✏️ to
@@ -340,6 +335,7 @@ const hasTrigger = (workflow: DisplayWorkflow) => {
   padding: 20px;
   height: 100%;
   overflow-y: auto;
+  background-color: var(--rf-color-bg-page);
 }
 
 .page-header {
@@ -364,18 +360,13 @@ const hasTrigger = (workflow: DisplayWorkflow) => {
   justify-content: space-between;
   align-items: center;
   padding: 12px 16px;
-  background-color: #f0f2f5;
+  background-color: var(--rf-color-bg-overlay);
   border-radius: 4px;
   margin-bottom: 20px;
   font-size: 14px;
-  color: #606266;
+  color: var(--rf-color-text-regular);
 }
 
-.page-header h1 {
-  margin: 0;
-  font-size: 28px;
-  font-weight: 600;
-}
 
 .empty-state {
   display: flex;
@@ -392,13 +383,13 @@ const hasTrigger = (workflow: DisplayWorkflow) => {
   margin-bottom: 20px;
   transition: all 0.2s;
   cursor: pointer;
-  border: 1px solid #dcdfe6;
-  background-color: #ffffff;
+  border: 1px solid var(--rf-color-border-base);
+  background-color: var(--rf-color-bg-container);
 }
 
 .workflow-card:hover {
   transform: translateY(-2px);
-  border-color: #c0c4cc;
+  border-color: var(--rf-color-border-light);
 }
 
 .workflow-card.selected {
@@ -428,7 +419,7 @@ const hasTrigger = (workflow: DisplayWorkflow) => {
   margin: 0;
   font-size: 18px;
   font-weight: 600;
-  color: #303133;
+  color: var(--rf-color-text-primary);
   transition: color 0.2s;
 }
 
@@ -451,7 +442,7 @@ const hasTrigger = (workflow: DisplayWorkflow) => {
 }
 
 .rename-input-wrapper :deep(.el-input__wrapper) {
-  background-color: #ffffff;
+  background-color: var(--rf-color-bg-container);
   box-shadow: 0 0 0 1px var(--rf-color-primary) inset;
 }
 
@@ -485,12 +476,12 @@ const hasTrigger = (workflow: DisplayWorkflow) => {
   display: flex;
   align-items: center;
   font-size: 12px;
-  color: #909399;
+  color: var(--rf-color-text-secondary);
   gap: 8px;
 }
 
 .metadata .dot {
-  color: #dcdfe6;
+  color: var(--rf-color-border-base);
 }
 
 .help-text {

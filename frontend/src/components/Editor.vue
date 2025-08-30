@@ -100,6 +100,7 @@ const handlePaneClick = () => {
 }
 
 const executeWorkflow = async () => {
+  // Open panel first to show execution progress in real-time
   executionStore.openPanel()
   await startAsyncExecution()
 }
@@ -111,17 +112,13 @@ function resetTransform() {
 
 <template>
   <div class="workflow-editor" @click="handlePaneClick">
-    <!-- Main canvas area -->
     <div class="canvas-container" :class="{ 'with-panel': executionStore.panelState.isOpen }">
-      <!-- Node Toolbar -->
       <NodeToolbar @add-node="handleAddNode" />
 
-    <!-- Execute Button -->
     <button class="execute-button" @click="executeWorkflow" :disabled="isExecuting">
       {{ isExecuting ? 'Executing...' : '▶️ Execute Workflow' }}
     </button>
 
-    <!-- Workflow Canvas -->
     <VueFlow
       v-model:nodes="nodes"
       v-model:edges="edges"
@@ -135,7 +132,7 @@ function resetTransform() {
       @nodes-change="handleNodesChange"
     >
 
-      <Background pattern-color="#aaa" :gap="16" />
+      <Background />
       <MiniMap />
 
       <Controls position="bottom-right">
@@ -144,28 +141,23 @@ function resetTransform() {
         </ControlButton>
       </Controls>
 
-      <!-- Manual Trigger Node Template -->
       <template #node-ManualTrigger="manualTriggerNodeProps">
         <ManualTriggerNode v-bind="manualTriggerNodeProps" />
       </template>
 
-      <!-- Webhook Trigger Node Template -->
       <template #node-WebhookTrigger="webhookTriggerNodeProps">
         <WebhookTriggerNode v-bind="webhookTriggerNodeProps" />
       </template>
 
-      <!-- Agent Node Template -->
       <template #node-Agent="agentNodeProps">
         <AgentNode v-bind="agentNodeProps" />
       </template>
 
-      <!-- HTTP Node Template -->
       <template #node-HttpRequest="httpNodeProps">
         <HttpNode v-bind="httpNodeProps" />
       </template>
     </VueFlow>
 
-    <!-- Context Menu -->
     <div
       v-if="contextMenu.show"
       class="context-menu"
@@ -175,14 +167,12 @@ function resetTransform() {
       <div class="menu-item" @click="handleClearCanvas">Clear Canvas</div>
     </div>
 
-    <!-- Node Configuration Panel -->
     <NodeConfigPanel
       :node="selectedNode"
       @update="(node: any) => updateNodeData(node.id, node.data)"
       @close="closeConfigPanel"
     />
     
-    <!-- Execution Results Panel (inside canvas container) -->
     <ExecutionPanel />
     </div>
   </div>
@@ -193,6 +183,7 @@ function resetTransform() {
   width: 100%;
   height: 100%;
   position: relative;
+  background-color: var(--rf-color-bg-page);
 }
 
 .canvas-container {
@@ -200,6 +191,7 @@ function resetTransform() {
   height: 100%;
   position: relative;
   overflow: hidden;
+  background-color: var(--rf-color-bg-page);
 }
 
 .context-menu {
@@ -256,17 +248,34 @@ function resetTransform() {
 
 .vue-flow__minimap {
   bottom: 35px;
+  background: var(--rf-color-bg-container);
+  border: 1px solid var(--rf-color-border-base);
+}
+
+.basic-flow {
+  background-color: var(--rf-color-bg-page);
 }
 
 .basic-flow .vue-flow__controls {
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
+  background: var(--rf-color-bg-container);
+  border: 1px solid var(--rf-color-border-base);
+  border-radius: var(--rf-radius-base);
+  box-shadow: var(--rf-shadow-base);
 }
 
 .basic-flow .vue-flow__controls .vue-flow__controls-button {
   border: none;
-  border-right: 1px solid #eee;
+  border-right: 1px solid var(--rf-color-border-lighter);
+  background: var(--rf-color-bg-container);
+  color: var(--rf-color-text-regular);
+}
+
+.basic-flow .vue-flow__controls .vue-flow__controls-button:hover {
+  background-color: var(--rf-color-primary-bg-lighter);
+  color: var(--rf-color-primary);
 }
 
 .basic-flow .vue-flow__controls .vue-flow__controls-button svg {

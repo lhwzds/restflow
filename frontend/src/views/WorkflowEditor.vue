@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { 
-  ArrowLeft, 
   Check, 
   Document, 
   FolderOpened
 } from '@element-plus/icons-vue'
+import HeaderBar from '../components/HeaderBar.vue'
 import {
   ElButton,
   ElDialog,
@@ -12,7 +12,6 @@ import {
   ElFormItem,
   ElInput,
   ElMessage,
-  ElPageHeader,
   ElTag
 } from 'element-plus'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
@@ -136,29 +135,16 @@ onUnmounted(() => {
 
 <template>
   <div class="workflow-editor-page">
-    <ElPageHeader @back="goBack" class="page-header">
-      <template #icon>
-        <ArrowLeft />
+    <HeaderBar :title="workflowName || 'Workflow Editor'">
+      <template #actions>
+        <ElButton @click="goBack">Back</ElButton>
+        <ElTag v-if="unsavedChanges.hasChanges.value" type="warning" size="small">Unsaved</ElTag>
+        <ElButton v-if="!unsavedChanges.hasChanges.value" type="success" :icon="Check" disabled>Saved</ElButton>
+        <ElButton v-else type="primary" @click="handleSave" :loading="isSaving">Save (Ctrl+S)</ElButton>
+        <ElButton :icon="FolderOpened" @click="handleImport">Import</ElButton>
+        <ElButton :icon="Document" @click="handleExport">Export</ElButton>
       </template>
-      <template #content>
-        <div class="header-content">
-          <span class="workflow-name">{{ workflowName }}</span>
-          <ElTag v-if="unsavedChanges.hasChanges.value" type="warning" size="small">Unsaved</ElTag>
-        </div>
-      </template>
-      <template #extra>
-        <div class="header-actions">
-          <ElButton v-if="!unsavedChanges.hasChanges.value" type="success" :icon="Check" disabled
-            >Saved</ElButton
-          >
-          <ElButton v-else type="primary" @click="handleSave" :loading="isSaving"
-            >Save (Ctrl+S)</ElButton
-          >
-          <ElButton :icon="FolderOpened" @click="handleImport">Import</ElButton>
-          <ElButton :icon="Document" @click="handleExport">Export</ElButton>
-        </div>
-      </template>
-    </ElPageHeader>
+    </HeaderBar>
 
     <div class="editor-container">
       <Editor />
