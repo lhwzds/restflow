@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import { ref } from 'vue'
+import type { Component } from 'vue'
+import { PlayCircle, Webhook, Bot, Globe } from 'lucide-vue-next'
 import { NODE_TYPES } from '../composables/node/useNodeHelpers'
 
 interface NodeTemplate {
   type: string
   label: string
-  icon: string
+  icon: Component
+  iconColor: string
   defaultData: any
 }
 
@@ -17,7 +20,8 @@ const nodeTemplates = ref<NodeTemplate[]>([
   {
     type: NODE_TYPES.MANUAL_TRIGGER,
     label: 'Manual Trigger',
-    icon: '▶️',
+    icon: PlayCircle,
+    iconColor: '#22c55e', // Green - same as ManualTriggerNode
     defaultData: {
       label: 'Manual Trigger',
       description: 'Start workflow manually',
@@ -26,7 +30,8 @@ const nodeTemplates = ref<NodeTemplate[]>([
   {
     type: NODE_TYPES.WEBHOOK_TRIGGER,
     label: 'Webhook',
-    icon: '🔗',
+    icon: Webhook,
+    iconColor: '#ff6b35', // Orange - same as WebhookTriggerNode
     defaultData: {
       label: 'Webhook',
       path: '/webhook/endpoint',
@@ -38,7 +43,8 @@ const nodeTemplates = ref<NodeTemplate[]>([
   {
     type: NODE_TYPES.AGENT,
     label: 'AI Agent',
-    icon: '🤖',
+    icon: Bot,
+    iconColor: '#667eea', // Purple - same as AgentNode
     defaultData: {
       label: 'AI Agent',
       model: 'gpt-4.1',
@@ -52,7 +58,8 @@ const nodeTemplates = ref<NodeTemplate[]>([
   {
     type: NODE_TYPES.HTTP_REQUEST,
     label: 'HTTP Request',
-    icon: '🌐',
+    icon: Globe,
+    iconColor: '#3b82f6', // Blue - same as HttpNode
     defaultData: {
       label: 'HTTP Request',
       method: 'GET',
@@ -85,7 +92,9 @@ const handleClick = (template: NodeTemplate) => {
         @dragstart="handleDragStart($event, template)"
         @click="handleClick(template)"
       >
-        <span class="node-icon">{{ template.icon }}</span>
+        <div class="node-icon" :style="{ background: `linear-gradient(135deg, ${template.iconColor}, ${template.iconColor})` }">
+          <component :is="template.icon" :size="20" />
+        </div>
         <span class="node-label">{{ template.label }}</span>
       </div>
     </div>
@@ -98,11 +107,15 @@ const handleClick = (template: NodeTemplate) => {
   position: absolute;
   right: 10px;
   top: 10px;
-  background: white;
-  border-radius: 8px;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+  background: rgba(255, 255, 255, 0.98);
+  backdrop-filter: blur(16px);
+  border: 1px solid rgba(var(--rf-color-primary-rgb), 0.1);
+  border-radius: 12px;
+  box-shadow: 
+    0 4px 16px rgba(0, 0, 0, 0.08),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.5);
   padding: 16px;
-  width: 200px;
+  width: 220px;
   z-index: 10;
 }
 
@@ -124,17 +137,19 @@ const handleClick = (template: NodeTemplate) => {
   align-items: center;
   gap: 10px;
   padding: 10px;
-  background: #f7fafc;
-  border: 2px solid #e2e8f0;
-  border-radius: 6px;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.98), rgba(255, 250, 247, 0.95));
+  border: 2px solid rgba(var(--rf-color-primary-rgb), 0.15);
+  border-radius: 8px;
   cursor: move;
-  transition: all 0.2s;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  backdrop-filter: blur(8px);
 }
 
 .node-item:hover {
-  background: #edf2f7;
-  border-color: #cbd5e0;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 1), rgba(255, 245, 240, 0.98));
+  border-color: rgba(var(--rf-color-primary-rgb), 0.3);
   transform: translateX(2px);
+  box-shadow: 0 2px 8px rgba(var(--rf-color-primary-rgb), 0.1);
 }
 
 .node-item:active {
@@ -142,7 +157,19 @@ const handleClick = (template: NodeTemplate) => {
 }
 
 .node-icon {
-  font-size: 20px;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  color: white;
+  flex-shrink: 0;
+  
+  :deep(svg) {
+    width: 20px;
+    height: 20px;
+  }
 }
 
 .node-label {

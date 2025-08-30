@@ -56,7 +56,7 @@ const executionTime = computed(() => {
 </template>
 
 <style lang="scss" scoped>
-@import '@/styles/nodes/base';
+@use '@/styles/nodes/base' as *;
 
 // Node-specific colors
 $node-color: #22c55e;
