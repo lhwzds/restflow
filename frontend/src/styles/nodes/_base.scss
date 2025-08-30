@@ -2,6 +2,8 @@
 // Node-specific mixins - shared node styles only
 // ===========================
 
+@use 'sass:color';
+
 // 1. Base node container
 @mixin node-base($width: 120px, $min-height: 80px) {
   width: $width;
@@ -156,7 +158,7 @@
     height: 2px;
     background: linear-gradient(90deg, 
       $color,
-      lighten($color, 5%)
+      color.adjust($color, $lightness: 5%)
     );
   }
 }
@@ -166,7 +168,7 @@
   width: $size;
   height: $size;
   border-radius: 10px;
-  background: if($color, linear-gradient(135deg, $color, darken($color, 5%)), currentColor);
+  background: if($color, linear-gradient(135deg, $color, color.adjust($color, $lightness: -5%)), currentColor);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -222,7 +224,7 @@
     width: 36px;
     height: 36px;
     border-radius: 10px;
-    background: linear-gradient(135deg, $node-color, lighten($node-color, 5%));
+    background: linear-gradient(135deg, $node-color, color.adjust($node-color, $lightness: 5%));
     opacity: 0.4;
     z-index: 1;
   }

@@ -65,7 +65,7 @@ const hasError = computed(() => hasNodeError(props.id))
 </template>
 
 <style lang="scss" scoped>
-@import '@/styles/nodes/base';
+@use '@/styles/nodes/base' as *;
 
 // Node-specific colors
 $node-color: #3b82f6;
