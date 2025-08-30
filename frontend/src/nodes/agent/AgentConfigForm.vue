@@ -141,7 +141,7 @@ const isToolSelected = (toolId: string) => {
   </div>
 </template>
 
-<style scoped>
+<style lang="scss" scoped>
 .form-group {
   margin-bottom: 20px;
 }

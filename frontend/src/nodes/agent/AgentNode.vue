@@ -63,7 +63,7 @@ const hasError = computed(() => hasNodeError(props.id))
   </div>
 </template>
 
-<style scoped>
+<style lang="scss" scoped>
 .agent-node {
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   border-radius: 8px;
@@ -80,18 +80,18 @@ const hasError = computed(() => hasNodeError(props.id))
 /* Execution status styles */
 .agent-node.execution-running {
   animation: pulse 1.5s infinite;
-  border-color: #3b82f6;
+  border-color: var(--rf-color-info);
 }
 
 .agent-node.execution-success {
-  border-color: #10b981;
+  border-color: var(--rf-color-success);
   border-width: 3px;
 }
 
 .agent-node.execution-error {
-  border-color: #ef4444;
+  border-color: var(--rf-color-danger);
   border-width: 3px;
-  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+  background: linear-gradient(135deg, var(--rf-color-danger) 0%, #dc2626 100%);
 }
 
 @keyframes pulse {

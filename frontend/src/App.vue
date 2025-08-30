@@ -13,6 +13,6 @@ import SidePanel from './components/SidePanel.vue'
   </el-container>
 </template>
 
-<style>
+<style lang="scss">
 /* Global styles if needed */
 </style>

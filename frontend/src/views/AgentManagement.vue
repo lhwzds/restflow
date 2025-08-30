@@ -15,7 +15,7 @@ import { ElEmpty } from 'element-plus'
   </div>
 </template>
 
-<style scoped>
+<style lang="scss" scoped>
 .agent-management {
   padding: 20px;
   height: 100%;

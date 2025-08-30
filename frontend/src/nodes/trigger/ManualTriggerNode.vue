@@ -49,7 +49,7 @@ const executionTime = computed(() => {
   </div>
 </template>
 
-<style scoped>
+<style lang="scss" scoped>
 .manual-trigger-node {
   background: linear-gradient(135deg, #48bb78 0%, #38a169 100%);
   border-radius: 40%;
@@ -66,18 +66,18 @@ const executionTime = computed(() => {
 /* Execution status styles */
 .manual-trigger-node.execution-running {
   animation: pulse 1.5s infinite;
-  border-color: #3b82f6;
+  border-color: var(--rf-color-info);
 }
 
 .manual-trigger-node.execution-success {
-  border-color: #10b981;
+  border-color: var(--rf-color-success);
   border-width: 3px;
 }
 
 .manual-trigger-node.execution-error {
-  border-color: #ef4444;
+  border-color: var(--rf-color-danger);
   border-width: 3px;
-  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+  background: linear-gradient(135deg, var(--rf-color-danger) 0%, #dc2626 100%);
 }
 
 @keyframes pulse {

@@ -81,7 +81,7 @@ const handleClick = (template: NodeTemplate) => {
   </div>
 </template>
 
-<style scoped>
+<style lang="scss" scoped>
 .node-toolbar {
   position: absolute;
   right: 10px;

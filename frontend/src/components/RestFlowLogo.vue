@@ -43,7 +43,7 @@ withDefaults(defineProps<Props>(), {
   </div>
 </template>
 
-<style scoped>
+<style lang="scss" scoped>
 .restflow-logo {
   display: flex;
   align-items: center;
