@@ -2,7 +2,7 @@
 import { ref } from 'vue'
 import type { Component } from 'vue'
 import { PlayCircle, Webhook, Bot, Globe } from 'lucide-vue-next'
-import { NODE_TYPES } from '../composables/node/useNodeHelpers'
+import { NODE_TYPES } from '../../composables/node/useNodeHelpers'
 
 interface NodeTemplate {
   type: string
