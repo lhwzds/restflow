@@ -61,10 +61,10 @@ withDefaults(defineProps<Props>(), {
 }
 
 .text-rest {
-  color: #ff7f00;
+  color: var(--rf-color-primary, #ff7f00);
 }
 
 .text-flow {
-  color: #303133;
+  color: var(--rf-color-text-primary);
 }
 </style>

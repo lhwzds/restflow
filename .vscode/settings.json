@@ -18,8 +18,13 @@
   "rust-analyzer.imports.prefix": "plain",
   "editor.formatOnSave": true,
   "editor.codeActionsOnSave": {
-    "source.organizeImports": "explicit"
+    "source.organizeImports": "never"
   },
+
+  "typescript.tsdk": "./frontend/node_modules/typescript/lib",
+  "typescript.validate.enable": true,
+
+  "problems.showCurrentInStatus": true,
   "[javascript]": {
     "editor.defaultFormatter": "esbenp.prettier-vscode",
     "editor.formatOnSave": true
