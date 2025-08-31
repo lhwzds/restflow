@@ -15,9 +15,9 @@ import {
   ElTooltip,
 } from 'element-plus'
 import { computed, onUnmounted, ref } from 'vue'
-import { useKeyboardShortcuts } from '../composables/shared/useKeyboardShortcuts'
-import { useExecutionPanelResize } from '../composables/ui/useExecutionPanelResize'
-import { useExecutionStore } from '../stores/executionStore'
+import { useKeyboardShortcuts } from '../../composables/shared/useKeyboardShortcuts'
+import { useExecutionPanelResize } from '../../composables/ui/useExecutionPanelResize'
+import { useExecutionStore } from '../../stores/executionStore'
 
 const executionStore = useExecutionStore()
 

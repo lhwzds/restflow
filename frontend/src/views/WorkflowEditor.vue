@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { Check, Document, FolderOpened } from '@element-plus/icons-vue'
-import { ElButton, ElDialog, ElForm, ElFormItem, ElInput, ElMessage, ElTag, ElTooltip } from 'element-plus'
+import { ElDialog, ElForm, ElFormItem, ElInput, ElMessage } from 'element-plus'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import Editor from '../components/Editor.vue'
+import Editor from '../components/workflow-editor/Editor.vue'
+import EditorHeader from '../components/workflow-editor/EditorHeader.vue'
 import HeaderBar from '../components/HeaderBar.vue'
 import { useWorkflowImportExport } from '../composables/persistence/useWorkflowImportExport'
 import { useWorkflowPersistence } from '../composables/persistence/useWorkflowPersistence'
@@ -125,24 +125,14 @@ onUnmounted(() => {
   <div class="workflow-editor-page">
     <HeaderBar :title="workflowName || 'Workflow Editor'">
       <template #actions>
-        <ElTooltip content="Go back to workflow list" placement="bottom">
-          <ElButton @click="goBack">Back</ElButton>
-        </ElTooltip>
-        <ElTag v-if="unsavedChanges.hasChanges.value" type="warning" size="small">Unsaved</ElTag>
-        <ElButton v-if="!unsavedChanges.hasChanges.value" type="success" :icon="Check" disabled
-          >Saved</ElButton
-        >
-        <ElTooltip v-else content="Save workflow (Ctrl+S)" placement="bottom">
-          <ElButton type="primary" @click="handleSave" :loading="isSaving">
-            Save
-          </ElButton>
-        </ElTooltip>
-        <ElTooltip content="Import workflow (Ctrl+O)" placement="bottom">
-          <ElButton :icon="FolderOpened" @click="handleImport">Import</ElButton>
-        </ElTooltip>
-        <ElTooltip content="Export workflow (Ctrl+E)" placement="bottom">
-          <ElButton :icon="Document" @click="handleExport">Export</ElButton>
-        </ElTooltip>
+        <EditorHeader
+          :has-unsaved-changes="unsavedChanges.hasChanges.value"
+          :is-saving="isSaving"
+          @back="goBack"
+          @save="handleSave"
+          @import="handleImport"
+          @export="handleExport"
+        />
       </template>
     </HeaderBar>
 
