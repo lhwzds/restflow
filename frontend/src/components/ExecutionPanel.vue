@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ArrowDown, ArrowUp, Close, CopyDocument, Delete } from '@element-plus/icons-vue'
+import { CheckCircle, XCircle, SkipForward, Clock, BarChart2, MousePointer } from 'lucide-vue-next'
 import {
   ElAlert,
   ElButton,
@@ -159,16 +160,20 @@ onUnmounted(() => {
 
         <div v-if="executionSummary && !executionStore.isExecuting" class="summary-tags">
           <ElTag v-if="executionSummary.success > 0" type="success" size="small">
-            ✅ {{ executionSummary.success }}
+            <CheckCircle :size="14" style="vertical-align: middle; margin-right: 4px" />
+            {{ executionSummary.success }}
           </ElTag>
           <ElTag v-if="executionSummary.failed > 0" type="danger" size="small">
-            ❌ {{ executionSummary.failed }}
+            <XCircle :size="14" style="vertical-align: middle; margin-right: 4px" />
+            {{ executionSummary.failed }}
           </ElTag>
           <ElTag v-if="executionSummary.skipped > 0" type="info" size="small">
-            ⏭️ {{ executionSummary.skipped }}
+            <SkipForward :size="14" style="vertical-align: middle; margin-right: 4px" />
+            {{ executionSummary.skipped }}
           </ElTag>
           <ElTag v-if="executionSummary.totalTime" type="warning" size="small">
-            ⏱️ {{ (executionSummary.totalTime / 1000).toFixed(2) }}s
+            <Clock :size="14" style="vertical-align: middle; margin-right: 4px" />
+            {{ (executionSummary.totalTime / 1000).toFixed(2) }}s
           </ElTag>
         </div>
       </div>
@@ -193,7 +198,9 @@ onUnmounted(() => {
       <div v-if="!hasResults" class="empty-state">
         <ElEmpty description="Execute workflow to see results here">
           <template #image>
-            <div class="empty-icon">📊</div>
+            <div class="empty-icon">
+              <BarChart2 :size="48" />
+            </div>
           </template>
         </ElEmpty>
       </div>
@@ -303,7 +310,9 @@ onUnmounted(() => {
       <div v-else class="selection-prompt">
         <ElEmpty description="Click on a node to view its execution result">
           <template #image>
-            <div class="prompt-icon">👆</div>
+            <div class="prompt-icon">
+              <MousePointer :size="48" />
+            </div>
           </template>
         </ElEmpty>
       </div>

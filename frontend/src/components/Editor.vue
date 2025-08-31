@@ -5,13 +5,14 @@ import type { Connection, Edge } from '@vue-flow/core'
 import { VueFlow, useVueFlow } from '@vue-flow/core'
 import { MiniMap } from '@vue-flow/minimap'
 import { ElTooltip } from 'element-plus'
+import { Play } from 'lucide-vue-next'
 import { ref } from 'vue'
 import { useVueFlowHandlers } from '../composables/editor/useVueFlowHandlers'
 import { useAsyncWorkflowExecution } from '../composables/execution/useAsyncWorkflowExecution'
 import { useDragAndDrop } from '../composables/node/useDragAndDrop'
-import { useKeyboardShortcuts } from '../composables/shared/useKeyboardShortcuts'
 import { useEdgeOperations } from '../composables/node/useEdgeOperations'
 import { useNodeOperations } from '../composables/node/useNodeOperations'
+import { useKeyboardShortcuts } from '../composables/shared/useKeyboardShortcuts'
 import { useContextMenu } from '../composables/ui/useContextMenu'
 import { AgentNode, HttpNode, ManualTriggerNode, WebhookTriggerNode } from '../nodes'
 import { useExecutionStore } from '../stores/executionStore'
@@ -112,7 +113,7 @@ function resetTransform() {
 }
 
 useKeyboardShortcuts({
-  'f5': () => {
+  f5: () => {
     if (!isExecuting.value) {
       executeWorkflow()
     }
@@ -127,7 +128,8 @@ useKeyboardShortcuts({
 
       <ElTooltip content="Run the workflow (F5)" placement="top">
         <button class="execute-button" @click="executeWorkflow" :disabled="isExecuting">
-          {{ isExecuting ? 'Executing...' : '▶️ Execute Workflow' }}
+          <Play :size="16" style="vertical-align: middle; margin-right: 6px" />
+          {{ isExecuting ? 'Executing...' : 'Execute Workflow' }}
         </button>
       </ElTooltip>
 
