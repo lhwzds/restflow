@@ -1,26 +1,14 @@
 <script setup lang="ts">
-import { 
-  Check, 
-  Document, 
-  FolderOpened
-} from '@element-plus/icons-vue'
-import HeaderBar from '../components/HeaderBar.vue'
-import {
-  ElButton,
-  ElDialog,
-  ElForm,
-  ElFormItem,
-  ElInput,
-  ElMessage,
-  ElTag
-} from 'element-plus'
+import { Check, Document, FolderOpened } from '@element-plus/icons-vue'
+import { ElButton, ElDialog, ElForm, ElFormItem, ElInput, ElMessage, ElTag, ElTooltip } from 'element-plus'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import Editor from '../components/Editor.vue'
-import { useKeyboardShortcuts } from '../composables/shared/useKeyboardShortcuts'
-import { useUnsavedChanges } from '../composables/shared/useUnsavedChanges'
+import HeaderBar from '../components/HeaderBar.vue'
 import { useWorkflowImportExport } from '../composables/persistence/useWorkflowImportExport'
 import { useWorkflowPersistence } from '../composables/persistence/useWorkflowPersistence'
+import { useKeyboardShortcuts } from '../composables/shared/useKeyboardShortcuts'
+import { useUnsavedChanges } from '../composables/shared/useUnsavedChanges'
 import { useWorkflowStore } from '../stores/workflowStore'
 
 const route = useRoute()
@@ -28,8 +16,7 @@ const router = useRouter()
 const workflowStore = useWorkflowStore()
 
 // Composables
-const { currentWorkflowMeta, isSaving, loadWorkflow, saveWorkflow } =
-  useWorkflowPersistence()
+const { currentWorkflowMeta, isSaving, loadWorkflow, saveWorkflow } = useWorkflowPersistence()
 
 const { exportWorkflow, importWorkflow } = useWorkflowImportExport({
   onImportSuccess: (data) => {
@@ -39,7 +26,6 @@ const { exportWorkflow, importWorkflow } = useWorkflowImportExport({
     unsavedChanges.markAsDirty()
   },
 })
-
 
 const saveDialogVisible = ref(false)
 const unsavedChanges = useUnsavedChanges()
@@ -74,11 +60,6 @@ const handleSave = async () => {
   }
 }
 
-useKeyboardShortcuts({
-  'ctrl+s': handleSave,
-  'meta+s': handleSave,
-})
-
 const goBack = () => {
   router.push('/workflows')
 }
@@ -91,7 +72,14 @@ const handleImport = () => {
   importWorkflow()
 }
 
-
+useKeyboardShortcuts({
+  'ctrl+s': handleSave,
+  'meta+s': handleSave,
+  'ctrl+o': handleImport,
+  'meta+o': handleImport,
+  'ctrl+e': handleExport,
+  'meta+e': handleExport,
+})
 
 const initializeWorkflow = async () => {
   const workflowId = route.params.id as string
@@ -137,12 +125,24 @@ onUnmounted(() => {
   <div class="workflow-editor-page">
     <HeaderBar :title="workflowName || 'Workflow Editor'">
       <template #actions>
-        <ElButton @click="goBack">Back</ElButton>
+        <ElTooltip content="Go back to workflow list" placement="bottom">
+          <ElButton @click="goBack">Back</ElButton>
+        </ElTooltip>
         <ElTag v-if="unsavedChanges.hasChanges.value" type="warning" size="small">Unsaved</ElTag>
-        <ElButton v-if="!unsavedChanges.hasChanges.value" type="success" :icon="Check" disabled>Saved</ElButton>
-        <ElButton v-else type="primary" @click="handleSave" :loading="isSaving">Save (Ctrl+S)</ElButton>
-        <ElButton :icon="FolderOpened" @click="handleImport">Import</ElButton>
-        <ElButton :icon="Document" @click="handleExport">Export</ElButton>
+        <ElButton v-if="!unsavedChanges.hasChanges.value" type="success" :icon="Check" disabled
+          >Saved</ElButton
+        >
+        <ElTooltip v-else content="Save workflow (Ctrl+S)" placement="bottom">
+          <ElButton type="primary" @click="handleSave" :loading="isSaving">
+            Save
+          </ElButton>
+        </ElTooltip>
+        <ElTooltip content="Import workflow (Ctrl+O)" placement="bottom">
+          <ElButton :icon="FolderOpened" @click="handleImport">Import</ElButton>
+        </ElTooltip>
+        <ElTooltip content="Export workflow (Ctrl+E)" placement="bottom">
+          <ElButton :icon="Document" @click="handleExport">Export</ElButton>
+        </ElTooltip>
       </template>
     </HeaderBar>
 
@@ -150,7 +150,6 @@ onUnmounted(() => {
       <Editor />
     </div>
 
-    <!-- Save Dialog for new workflows -->
     <ElDialog
       v-model="saveDialogVisible"
       title="Save Workflow"

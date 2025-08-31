@@ -117,7 +117,6 @@ useKeyboardShortcuts({
       executeWorkflow()
     }
   },
-  'r': resetTransform,
 })
 </script>
 
@@ -126,7 +125,7 @@ useKeyboardShortcuts({
     <div class="canvas-container" :class="{ 'with-panel': executionStore.panelState.isOpen }">
       <NodeToolbar @add-node="handleAddNode" />
 
-      <ElTooltip content="Run the workflow (F5)" placement="left">
+      <ElTooltip content="Run the workflow (F5)" placement="top">
         <button class="execute-button" @click="executeWorkflow" :disabled="isExecuting">
           {{ isExecuting ? 'Executing...' : '▶️ Execute Workflow' }}
         </button>
