@@ -16,7 +16,7 @@ export function useWorkflowList() {
   const workflows = ref<Workflow[]>([])
   const isLoading = ref(false)
   const searchQuery = ref('')
-  const sortBy = ref<'name' | 'created_at' | 'updated_at'>('updated_at')
+  const sortBy = ref<'name'>('name')
   const sortOrder = ref<'asc' | 'desc'>('desc')
 
   /**
@@ -163,17 +163,8 @@ export function useWorkflowList() {
     result.sort((a, b) => {
       let compareValue = 0
 
-      switch (sortBy.value) {
-        case 'name':
-          compareValue = a.name.localeCompare(b.name)
-          break
-        case 'created_at':
-          compareValue = ((a as any).created_at || '').localeCompare((b as any).created_at || '')
-          break
-        case 'updated_at':
-          compareValue = ((a as any).updated_at || '').localeCompare((b as any).updated_at || '')
-          break
-      }
+      // Sort by name (only available sort field)
+      compareValue = a.name.localeCompare(b.name)
 
       return sortOrder.value === 'asc' ? compareValue : -compareValue
     })
@@ -207,7 +198,7 @@ export function useWorkflowList() {
    * Update sort options
    */
   const setSortOptions = (
-    field: 'name' | 'created_at' | 'updated_at',
+    field: 'name',
     order: 'asc' | 'desc' = 'asc',
   ): void => {
     sortBy.value = field

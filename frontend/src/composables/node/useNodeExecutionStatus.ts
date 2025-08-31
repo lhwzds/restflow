@@ -98,25 +98,6 @@ export function useNodeExecutionStatus() {
   }
 
   /**
-   * Get status icon for node
-   */
-  const getNodeStatusIcon = (nodeId: string): string => {
-    const status = getNodeStatus(nodeId)
-    switch (status) {
-      case 'Completed':
-        return '✅'
-      case 'Failed':
-        return '❌'
-      case 'Running':
-        return '⏳'
-      case 'skipped':
-        return '⏭️'
-      default:
-        return ''
-    }
-  }
-
-  /**
    * Check if execution is currently running
    */
   const isExecuting = computed(() => executionStore.isExecuting)
@@ -141,7 +122,6 @@ export function useNodeExecutionStatus() {
     
     // Formatting
     formatExecutionTime,
-    getNodeStatusIcon,
     
     // Global state
     isExecuting,
