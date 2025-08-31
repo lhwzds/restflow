@@ -64,7 +64,7 @@ impl Task {
             workflow_id,
             node_id,
             status: TaskStatus::Pending,
-            created_at: chrono::Utc::now().timestamp(),
+            created_at: chrono::Utc::now().timestamp_millis(),
             started_at: None,
             completed_at: None,
             input,
@@ -99,20 +99,20 @@ impl Task {
     /// Mark task as running
     pub fn start(&mut self) {
         self.status = TaskStatus::Running;
-        self.started_at = Some(chrono::Utc::now().timestamp());
+        self.started_at = Some(chrono::Utc::now().timestamp_millis());
     }
 
     /// Mark task as completed
     pub fn complete(&mut self, output: Value) {
         self.status = TaskStatus::Completed;
-        self.completed_at = Some(chrono::Utc::now().timestamp());
+        self.completed_at = Some(chrono::Utc::now().timestamp_millis());
         self.output = Some(output);
     }
 
     /// Mark task as failed
     pub fn fail(&mut self, error: String) {
         self.status = TaskStatus::Failed;
-        self.completed_at = Some(chrono::Utc::now().timestamp());
+        self.completed_at = Some(chrono::Utc::now().timestamp_millis());
         self.error = Some(error);
     }
 

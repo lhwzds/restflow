@@ -1,45 +1,55 @@
 <script setup lang="ts">
-import { computed, ref, onUnmounted } from 'vue'
-import { 
-  ElCard, 
-  ElButton, 
-  ElTag, 
-  ElDescriptions, 
-  ElDescriptionsItem,
+import { ArrowDown, ArrowUp, Close, CopyDocument, Delete } from '@element-plus/icons-vue'
+import {
+  ElAlert,
+  ElButton,
+  ElCard,
   ElCollapse,
   ElCollapseItem,
+  ElDescriptions,
+  ElDescriptionsItem,
   ElEmpty,
-  ElAlert
+  ElMessage,
+  ElTag,
+  ElTooltip,
 } from 'element-plus'
-import { ArrowDown, ArrowUp, Close, CopyDocument } from '@element-plus/icons-vue'
-import { ElMessage } from 'element-plus'
-import { useExecutionStore } from '../stores/executionStore'
+import { computed, onUnmounted, ref } from 'vue'
 import { useKeyboardShortcuts } from '../composables/shared/useKeyboardShortcuts'
 import { useExecutionPanelResize } from '../composables/ui/useExecutionPanelResize'
+import { useExecutionStore } from '../stores/executionStore'
 
 const executionStore = useExecutionStore()
 
 const panelRef = ref<HTMLElement>()
 
-// Hook for handling panel resize with drag-and-drop functionality
 const { isResizing, startResize, stopResize } = useExecutionPanelResize(panelRef)
 
 const isOpen = computed(() => executionStore.panelState.isOpen)
 const panelHeight = computed(() => {
   if (!isOpen.value) return '48px'
-  return `${executionStore.panelState.height}%`
+  const height = executionStore.panelState.height
+  return height === 0 ? '48px' : `${height}%`
 })
 
 const executionSummary = computed(() => executionStore.executionSummary)
 const selectedResult = computed(() => executionStore.selectedNodeResult)
 const hasResults = computed(() => executionStore.hasResults)
 
-const togglePanel = () => {
-  executionStore.togglePanel()
+const expandPanel = () => {
+  executionStore.expandHeight()
+}
+
+const shrinkPanel = () => {
+  executionStore.shrinkHeight()
 }
 
 const closePanel = () => {
   executionStore.closePanel()
+}
+
+const clearResults = () => {
+  executionStore.clearExecution()
+  ElMessage.success('Execution results cleared')
 }
 
 const formatJson = (data: any): string => {
@@ -61,13 +71,14 @@ const copyToClipboard = async (text: string) => {
   }
 }
 
-// Keyboard shortcuts for panel control (Ctrl/Cmd+J toggle, Esc close)
 useKeyboardShortcuts({
-  'ctrl+j': togglePanel,
-  'meta+j': togglePanel,
-  'escape': () => {
+  'ctrl+j': expandPanel,
+  'meta+j': expandPanel,
+  'ctrl+shift+j': shrinkPanel,
+  'meta+shift+j': shrinkPanel,
+  escape: () => {
     if (isOpen.value) closePanel()
-  }
+  },
 })
 
 const formatTimestamp = (timestamp?: number) => {
@@ -82,12 +93,18 @@ const formatTimestamp = (timestamp?: number) => {
 
 const getStatusType = (status?: string) => {
   switch (status) {
-    case 'Completed': return 'success'
-    case 'Failed': return 'danger'
-    case 'Running': return 'primary'
-    case 'Pending': return 'warning'
-    case 'skipped': return 'info'
-    default: return 'info'
+    case 'Completed':
+      return 'success'
+    case 'Failed':
+      return 'danger'
+    case 'Running':
+      return 'primary'
+    case 'Pending':
+      return 'warning'
+    case 'skipped':
+      return 'info'
+    default:
+      return 'info'
   }
 }
 
@@ -99,40 +116,47 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div 
+  <div
     ref="panelRef"
     class="execution-panel"
-    :class="{ 
+    :class="{
       'is-open': isOpen,
-      'is-resizing': isResizing 
+      'is-resizing': isResizing,
     }"
     :style="{ height: panelHeight }"
   >
-    <div 
-      v-if="isOpen"
-      class="resize-handle"
-      @mousedown="startResize"
-    >
+    <div v-if="isOpen && executionStore.panelState.height > 0" class="resize-handle" @mousedown="startResize">
       <div class="handle-bar"></div>
     </div>
-    
-    <div class="panel-header" @dblclick="togglePanel">
+
+    <div class="panel-header">
       <div class="header-left">
-        <ElButton
-          :icon="isOpen ? ArrowDown : ArrowUp"
-          circle
-          size="small"
-          text
-          @click="togglePanel"
-        />
-        
+        <div class="height-controls">
+          <ElTooltip content="Expand (Ctrl+J)" placement="bottom">
+            <ElButton
+              :icon="ArrowUp"
+              circle
+              text
+              @click="expandPanel"
+            />
+          </ElTooltip>
+          <ElTooltip content="Shrink (Ctrl+Shift+J)" placement="bottom">
+            <ElButton 
+              :icon="ArrowDown" 
+              circle 
+              text 
+              @click="shrinkPanel" 
+            />
+          </ElTooltip>
+        </div>
+
         <span class="header-title">Execution Results</span>
-        
+
         <div v-if="executionStore.isExecuting" class="execution-indicator">
           <span class="execution-dot"></span>
           <span class="execution-text">Executing...</span>
         </div>
-        
+
         <div v-if="executionSummary && !executionStore.isExecuting" class="summary-tags">
           <ElTag v-if="executionSummary.success > 0" type="success" size="small">
             ✅ {{ executionSummary.success }}
@@ -148,20 +172,24 @@ onUnmounted(() => {
           </ElTag>
         </div>
       </div>
-      
+
       <div class="header-right">
-        <span class="keyboard-hint">Ctrl+J to toggle • Click node to view result</span>
-        <ElButton
-          :icon="Close"
-          circle
-          size="small"
-          text
-          @click="closePanel"
-        />
+        <span class="keyboard-hint">Click node to view result</span>
+        <ElTooltip v-if="hasResults && !executionStore.isExecuting" content="Clear all results" placement="bottom">
+          <ElButton
+            :icon="Delete"
+            circle
+            text
+            @click="clearResults"
+          />
+        </ElTooltip>
+        <ElTooltip content="Close panel (Esc)" placement="bottom">
+          <ElButton :icon="Close" circle text @click="closePanel" />
+        </ElTooltip>
       </div>
     </div>
-    
-    <div v-if="isOpen" class="panel-body">
+
+    <div v-if="isOpen && executionStore.panelState.height > 0" class="panel-body">
       <div v-if="!hasResults" class="empty-state">
         <ElEmpty description="Execute workflow to see results here">
           <template #image>
@@ -169,7 +197,7 @@ onUnmounted(() => {
           </template>
         </ElEmpty>
       </div>
-      
+
       <div v-else-if="selectedResult" class="result-container">
         <ElCard class="result-card">
           <template #header>
@@ -191,7 +219,7 @@ onUnmounted(() => {
               </ElButton>
             </div>
           </template>
-          
+
           <ElDescriptions :column="3" border size="small">
             <ElDescriptionsItem label="Status">
               <ElTag :type="getStatusType(selectedResult.status)" size="small">
@@ -211,10 +239,10 @@ onUnmounted(() => {
               <span v-else>-</span>
             </ElDescriptionsItem>
           </ElDescriptions>
-          
+
           <div class="result-content">
-            <ElCollapse 
-              v-if="selectedResult.input || selectedResult.output || selectedResult.error" 
+            <ElCollapse
+              v-if="selectedResult.input || selectedResult.output || selectedResult.error"
               :model-value="['input', 'output', 'error']"
             >
               <ElCollapseItem v-if="selectedResult.input" title="Input" name="input">
@@ -231,7 +259,7 @@ onUnmounted(() => {
                   <pre class="json-content">{{ formatJson(selectedResult.input) }}</pre>
                 </div>
               </ElCollapseItem>
-              
+
               <ElCollapseItem v-if="selectedResult.output" title="Output" name="output">
                 <div class="data-section">
                   <ElButton
@@ -246,21 +274,24 @@ onUnmounted(() => {
                   <pre class="json-content">{{ formatJson(selectedResult.output) }}</pre>
                 </div>
               </ElCollapseItem>
-              
+
               <ElCollapseItem v-if="selectedResult.error" title="Error" name="error">
                 <ElAlert type="error" :closable="false" show-icon>
                   <pre class="error-content">{{ selectedResult.error }}</pre>
                 </ElAlert>
               </ElCollapseItem>
-              
+
               <ElCollapseItem v-if="selectedResult.logs?.length" title="Logs" name="logs">
                 <div v-for="(log, index) in selectedResult.logs" :key="index" class="log-entry">
                   {{ log }}
                 </div>
               </ElCollapseItem>
             </ElCollapse>
-            
-            <div v-else-if="selectedResult.status === 'Pending' || selectedResult.status === 'Running'" class="status-message">
+
+            <div
+              v-else-if="selectedResult.status === 'Pending' || selectedResult.status === 'Running'"
+              class="status-message"
+            >
               <ElTag :type="getStatusType(selectedResult.status)" effect="plain">
                 {{ selectedResult.status === 'Pending' ? 'Waiting' : 'Running...' }}
               </ElTag>
@@ -268,7 +299,7 @@ onUnmounted(() => {
           </div>
         </ElCard>
       </div>
-      
+
       <div v-else class="selection-prompt">
         <ElEmpty description="Click on a node to view its execution result">
           <template #image>
@@ -345,6 +376,11 @@ onUnmounted(() => {
   gap: 12px;
 }
 
+.height-controls {
+  display: flex;
+  gap: 4px;
+}
+
 .header-title {
   font-weight: 600;
   font-size: 14px;
@@ -376,9 +412,9 @@ onUnmounted(() => {
   font-weight: 500;
 }
 
-// Pulsing animation for execution indicator - visual feedback that workflow is running
 @keyframes pulse-dot {
-  0%, 100% {
+  0%,
+  100% {
     opacity: 1;
     transform: scale(1);
   }
