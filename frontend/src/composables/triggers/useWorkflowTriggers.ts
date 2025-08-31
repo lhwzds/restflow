@@ -117,8 +117,8 @@ export function useWorkflowTriggers() {
     }
   }
 
-  const getTriggerStatus = (workflowId: string): TriggerStatus | null => {
-    return triggerStatusMap.value.get(workflowId) || null
+  const getTriggerStatus = (workflowId: string): TriggerStatus | undefined => {
+    return triggerStatusMap.value.get(workflowId) || undefined
   }
 
   const fetchAllTriggerStatuses = async (workflowIds: string[]) => {
