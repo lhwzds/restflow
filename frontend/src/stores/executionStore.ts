@@ -27,14 +27,9 @@ export interface ExecutionSummary {
 }
 
 interface ExecutionState {
-  // Current execution
   currentExecutionId: string | null
   isExecuting: boolean
-  
-  // Node results
   nodeResults: Map<string, NodeExecutionResult>
-  
-  // Panel state
   panelState: {
     isOpen: boolean
     height: number // percentage (0-100)
@@ -195,6 +190,35 @@ export const useExecutionStore = defineStore('execution', {
         this.panelState.selectedNodeId = this.sortedNodeResults[0]?.nodeId || null
       }
     },
+    
+    expandHeight() {
+      this.adjustPanelHeight('up')
+    },
+    
+    shrinkHeight() {
+      this.adjustPanelHeight('down')
+    },
+
+    adjustPanelHeight(direction: 'up' | 'down') {
+      const heights = [0, 35, 50, 100]
+      const currentIndex = heights.indexOf(this.panelState.height)
+      
+      let newIndex: number
+      if (currentIndex === -1) {
+        newIndex = 1
+      } else {
+        newIndex = direction === 'up' 
+          ? Math.min(currentIndex + 1, heights.length - 1)
+          : Math.max(currentIndex - 1, 0)
+      }
+      
+      this.panelState.height = heights[newIndex]
+      this.panelState.isOpen = true
+      
+      if (this.panelState.height > 0 && !this.panelState.selectedNodeId && this.nodeResults.size > 0) {
+        this.panelState.selectedNodeId = this.sortedNodeResults[0]?.nodeId || null
+      }
+    },
 
     openPanel() {
       this.panelState.isOpen = true
@@ -205,8 +229,8 @@ export const useExecutionStore = defineStore('execution', {
     },
 
     setPanelHeight(height: number) {
-      // Clamp between 25% and 60%
-      this.panelState.height = Math.min(60, Math.max(25, height))
+      // Clamp between 10% and 100%
+      this.panelState.height = Math.min(100, Math.max(10, height))
     },
 
     selectNode(nodeId: string | null) {
@@ -217,7 +241,6 @@ export const useExecutionStore = defineStore('execution', {
       this.panelState.viewMode = mode
     },
 
-    // Get node execution status for styling
     getNodeStatus(nodeId: string): NodeExecutionStatus | null {
       const result = this.nodeResults.get(nodeId)
       return result?.status || null
@@ -240,8 +263,8 @@ export const useExecutionStore = defineStore('execution', {
           input: task.input,
           output: task.output,
           error: task.error || undefined,
-          startTime: task.started_at ? Number(task.started_at) * 1000 : undefined,
-          endTime: task.completed_at ? Number(task.completed_at) * 1000 : undefined,
+          startTime: task.started_at ? Number(task.started_at) : undefined,
+          endTime: task.completed_at ? Number(task.completed_at) : undefined,
         })
       })
     },

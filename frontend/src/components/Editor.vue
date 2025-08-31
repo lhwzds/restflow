@@ -4,19 +4,21 @@ import { ControlButton, Controls } from '@vue-flow/controls'
 import type { Connection, Edge } from '@vue-flow/core'
 import { VueFlow, useVueFlow } from '@vue-flow/core'
 import { MiniMap } from '@vue-flow/minimap'
+import { ElTooltip } from 'element-plus'
 import { ref } from 'vue'
+import { useVueFlowHandlers } from '../composables/editor/useVueFlowHandlers'
+import { useAsyncWorkflowExecution } from '../composables/execution/useAsyncWorkflowExecution'
 import { useDragAndDrop } from '../composables/node/useDragAndDrop'
+import { useKeyboardShortcuts } from '../composables/shared/useKeyboardShortcuts'
 import { useEdgeOperations } from '../composables/node/useEdgeOperations'
 import { useNodeOperations } from '../composables/node/useNodeOperations'
 import { useContextMenu } from '../composables/ui/useContextMenu'
-import { useVueFlowHandlers } from '../composables/editor/useVueFlowHandlers'
-import { useAsyncWorkflowExecution } from '../composables/execution/useAsyncWorkflowExecution'
 import { AgentNode, HttpNode, ManualTriggerNode, WebhookTriggerNode } from '../nodes'
 import { useExecutionStore } from '../stores/executionStore'
+import ExecutionPanel from './ExecutionPanel.vue'
 import Icon from './Icon.vue'
 import NodeConfigPanel from './NodeConfigPanel.vue'
 import NodeToolbar from './NodeToolbar.vue'
-import ExecutionPanel from './ExecutionPanel.vue'
 
 const { handleDrop, handleDragOver } = useDragAndDrop()
 const { nodes, createNode, updateNodePosition, deleteNode, clearAll, updateNodeData } =
@@ -108,6 +110,15 @@ const executeWorkflow = async () => {
 function resetTransform() {
   setViewport({ x: 0, y: 0, zoom: 1 })
 }
+
+useKeyboardShortcuts({
+  'f5': () => {
+    if (!isExecuting.value) {
+      executeWorkflow()
+    }
+  },
+  'r': resetTransform,
+})
 </script>
 
 <template>
@@ -115,65 +126,67 @@ function resetTransform() {
     <div class="canvas-container" :class="{ 'with-panel': executionStore.panelState.isOpen }">
       <NodeToolbar @add-node="handleAddNode" />
 
-    <button class="execute-button" @click="executeWorkflow" :disabled="isExecuting">
-      {{ isExecuting ? 'Executing...' : '▶️ Execute Workflow' }}
-    </button>
+      <ElTooltip content="Run the workflow (F5)" placement="left">
+        <button class="execute-button" @click="executeWorkflow" :disabled="isExecuting">
+          {{ isExecuting ? 'Executing...' : '▶️ Execute Workflow' }}
+        </button>
+      </ElTooltip>
 
-    <VueFlow
-      v-model:nodes="nodes"
-      v-model:edges="edges"
-      class="basic-flow"
-      :default-viewport="{ zoom: 1.5 }"
-      :min-zoom="0.2"
-      :max-zoom="4"
-      @drop="handleDrop"
-      @dragover="handleDragOver"
-      @edges-change="handleEdgesChange"
-      @nodes-change="handleNodesChange"
-    >
+      <VueFlow
+        v-model:nodes="nodes"
+        v-model:edges="edges"
+        class="basic-flow"
+        :default-viewport="{ zoom: 1.5 }"
+        :min-zoom="0.2"
+        :max-zoom="4"
+        @drop="handleDrop"
+        @dragover="handleDragOver"
+        @edges-change="handleEdgesChange"
+        @nodes-change="handleNodesChange"
+      >
+        <Background />
 
-      <Background />
-      <MiniMap />
+        <MiniMap position="bottom-right" />
 
-      <Controls position="bottom-right">
-        <ControlButton title="Reset Transform" @click="resetTransform">
-          <Icon name="reset" />
-        </ControlButton>
-      </Controls>
+        <Controls position="bottom-right" :style="{ bottom: '200px' }">
+          <ControlButton @click="resetTransform">
+            <Icon name="reset" />
+          </ControlButton>
+        </Controls>
 
-      <template #node-ManualTrigger="manualTriggerNodeProps">
-        <ManualTriggerNode v-bind="manualTriggerNodeProps" />
-      </template>
+        <template #node-ManualTrigger="manualTriggerNodeProps">
+          <ManualTriggerNode v-bind="manualTriggerNodeProps" />
+        </template>
 
-      <template #node-WebhookTrigger="webhookTriggerNodeProps">
-        <WebhookTriggerNode v-bind="webhookTriggerNodeProps" />
-      </template>
+        <template #node-WebhookTrigger="webhookTriggerNodeProps">
+          <WebhookTriggerNode v-bind="webhookTriggerNodeProps" />
+        </template>
 
-      <template #node-Agent="agentNodeProps">
-        <AgentNode v-bind="agentNodeProps" />
-      </template>
+        <template #node-Agent="agentNodeProps">
+          <AgentNode v-bind="agentNodeProps" />
+        </template>
 
-      <template #node-HttpRequest="httpNodeProps">
-        <HttpNode v-bind="httpNodeProps" />
-      </template>
-    </VueFlow>
+        <template #node-HttpRequest="httpNodeProps">
+          <HttpNode v-bind="httpNodeProps" />
+        </template>
+      </VueFlow>
 
-    <div
-      v-if="contextMenu.show"
-      class="context-menu"
-      :style="{ left: contextMenu.x + 'px', top: contextMenu.y + 'px' }"
-    >
-      <div v-if="contextMenu.nodeId" class="menu-item" @click="handleDeleteNode">Delete Node</div>
-      <div class="menu-item" @click="handleClearCanvas">Clear Canvas</div>
-    </div>
+      <div
+        v-if="contextMenu.show"
+        class="context-menu"
+        :style="{ left: contextMenu.x + 'px', top: contextMenu.y + 'px' }"
+      >
+        <div v-if="contextMenu.nodeId" class="menu-item" @click="handleDeleteNode">Delete Node</div>
+        <div class="menu-item" @click="handleClearCanvas">Clear Canvas</div>
+      </div>
 
-    <NodeConfigPanel
-      :node="selectedNode"
-      @update="(node: any) => updateNodeData(node.id, node.data)"
-      @close="closeConfigPanel"
-    />
-    
-    <ExecutionPanel />
+      <NodeConfigPanel
+        :node="selectedNode"
+        @update="(node: any) => updateNodeData(node.id, node.data)"
+        @close="closeConfigPanel"
+      />
+
+      <ExecutionPanel />
     </div>
   </div>
 </template>
@@ -192,6 +205,38 @@ function resetTransform() {
   position: relative;
   overflow: hidden;
   background-color: var(--rf-color-bg-page);
+
+  :deep(.vue-flow__controls) {
+    background: var(--rf-color-bg-container);
+    box-shadow: var(--rf-shadow-base);
+    border: 1px solid var(--rf-color-border-base);
+
+    .vue-flow__controls-button,
+    button[type='button'] {
+      background: var(--rf-color-bg-container);
+      border: 1px solid var(--rf-color-border-base);
+      border-bottom: 2px solid transparent;
+      color: var(--rf-color-text-regular);
+      transition:
+        border-bottom-color 0.2s,
+        background 0.2s;
+
+      &:hover:not(:disabled) {
+        background: var(--rf-color-bg-secondary);
+        border-bottom-color: var(--rf-color-primary);
+        color: var(--rf-color-text-regular); // Keep text/icon color unchanged
+      }
+
+      &:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+
+      svg {
+        fill: currentColor;
+      }
+    }
+  }
 }
 
 .context-menu {

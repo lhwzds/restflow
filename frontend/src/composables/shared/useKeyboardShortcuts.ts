@@ -13,11 +13,9 @@ export interface ShortcutConfig {
 export function useKeyboardShortcuts(shortcuts: Record<string, () => void> | ShortcutConfig[]) {
   const normalizedShortcuts: ShortcutConfig[] = []
 
-  // Normalize shortcuts format
   if (Array.isArray(shortcuts)) {
     normalizedShortcuts.push(...shortcuts)
   } else {
-    // Convert simple format to ShortcutConfig format
     for (const [combo, handler] of Object.entries(shortcuts)) {
       const parts = combo.toLowerCase().split('+')
       const config: ShortcutConfig = {
@@ -41,12 +39,14 @@ export function useKeyboardShortcuts(shortcuts: Record<string, () => void> | Sho
     for (const shortcut of normalizedShortcuts) {
       const ctrlOrMeta = shortcut.ctrl || shortcut.meta
       const isCtrlPressed = event.ctrlKey || event.metaKey
+      const matchesShift = shortcut.shift ? event.shiftKey : !event.shiftKey
+      const matchesAlt = shortcut.alt ? event.altKey : !event.altKey
 
       if (
         shortcut.key === event.key.toLowerCase() &&
         (!ctrlOrMeta || isCtrlPressed === true) &&
-        (!shortcut.shift || event.shiftKey === shortcut.shift) &&
-        (!shortcut.alt || event.altKey === shortcut.alt)
+        matchesShift &&
+        matchesAlt
       ) {
         if (shortcut.preventDefault !== false) {
           event.preventDefault()

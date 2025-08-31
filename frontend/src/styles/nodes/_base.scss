@@ -1,10 +1,7 @@
-// ===========================
-// Node-specific mixins - shared node styles only
-// ===========================
+// Node-specific mixins
 
 @use 'sass:color';
 
-// 1. Base node container
 @mixin node-base($width: 120px, $min-height: 80px) {
   width: $width;
   min-height: $min-height;
@@ -16,7 +13,7 @@
   }
 }
 
-// 2. Node glass effect - creates a modern glassmorphism aesthetic
+// Creates a modern glassmorphism aesthetic
 // Combines translucent background with backdrop blur for depth perception
 @mixin node-glass($primary-color) {
   // Use CSS variables for theming
@@ -33,7 +30,6 @@
     inset 0 0 0 1px var(--rf-node-border-inset);
 }
 
-// 3. Node execution states
 @mixin node-execution-states() {
   &.execution-running {
     // Simple pulse effect for running state
@@ -102,7 +98,6 @@
   }
 }
 
-// 4. Node handle styles
 @mixin node-handle($color) {
   .custom-handle {
     width: 8px;
@@ -118,7 +113,6 @@
   }
 }
 
-// 5. Node text styles
 @mixin node-text() {
   .node-label {
     color: var(--rf-color-text-primary);
@@ -157,7 +151,6 @@
   }
 }
 
-// 6. Node top bar (trigger nodes)
 @mixin node-top-bar($color) {
   &::before {
     content: '';
@@ -173,7 +166,6 @@
   }
 }
 
-// 7. Node icon container
 @mixin node-icon($size: 36px, $color: null) {
   width: $size;
   height: $size;
@@ -187,7 +179,6 @@
   z-index: 2;
 }
 
-// 8. Trigger node specific mixin
 @mixin trigger-node($node-color, $node-color-light, $width: 140px, $height: 75px) {
   @include node-base($width, $height);
   @include node-execution-states();

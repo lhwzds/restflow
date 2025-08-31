@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { DataAnalysis, Expand, Fold, Setting, Share } from '@element-plus/icons-vue'
+import { DataAnalysis, Expand, Fold, Setting } from '@element-plus/icons-vue'
 import { ElAside, ElButton, ElIcon, ElMenu, ElMenuItem } from 'element-plus'
 import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -8,35 +8,26 @@ import RestFlowLogo from './RestFlowLogo.vue'
 const route = useRoute()
 const router = useRouter()
 
-// Control panel collapse state
 const isCollapsed = ref(false)
 
-// Computed active menu based on current route
 const activeMenu = computed(() => {
   const path = route.path
   if (path === '/workflows') return 'workflows'
-  if (path.startsWith('/workflow')) return 'workflow'
+  if (path.startsWith('/workflow')) return 'workflows' // Editor is part of workflows
   if (path.startsWith('/agents')) return 'agents'
   return 'workflows'
 })
 
-// Computed width based on collapse state
 const panelWidth = computed(() => (isCollapsed.value ? '64px' : '200px'))
 
-// Toggle collapse state
 const toggleCollapse = () => {
   isCollapsed.value = !isCollapsed.value
 }
 
-// Handle menu selection
 const handleMenuSelect = (index: string) => {
-  // Navigate to the corresponding route
   switch (index) {
     case 'workflows':
       router.push('/workflows')
-      break
-    case 'workflow':
-      router.push('/workflow')
       break
     case 'agents':
       router.push('/agents')
@@ -73,11 +64,6 @@ const handleMenuSelect = (index: string) => {
       <el-menu-item index="workflows">
         <el-icon><DataAnalysis /></el-icon>
         <template #title>Workflows</template>
-      </el-menu-item>
-
-      <el-menu-item index="workflow">
-        <el-icon><Share /></el-icon>
-        <template #title>Editor</template>
       </el-menu-item>
 
       <el-menu-item index="agents">

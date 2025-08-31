@@ -46,7 +46,6 @@ const executionTime = computed(() => {
       
     </div>
     
-    <!-- Execution time -->
     <div v-if="executionTime" class="execution-time">
       {{ executionTime }}
     </div>
@@ -58,7 +57,6 @@ const executionTime = computed(() => {
 <style lang="scss" scoped>
 @use '@/styles/nodes/base' as *;
 
-// Node-specific colors
 $node-color: #22c55e;
 $node-color-light: rgba(236, 253, 245, 0.95);
 

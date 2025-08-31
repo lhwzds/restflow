@@ -21,7 +21,7 @@ const nodeTemplates = ref<NodeTemplate[]>([
     type: NODE_TYPES.MANUAL_TRIGGER,
     label: 'Manual Trigger',
     icon: PlayCircle,
-    iconColor: '#22c55e', // Green - same as ManualTriggerNode
+    iconColor: '#22c55e',
     defaultData: {
       label: 'Manual Trigger',
       description: 'Start workflow manually',
@@ -31,7 +31,7 @@ const nodeTemplates = ref<NodeTemplate[]>([
     type: NODE_TYPES.WEBHOOK_TRIGGER,
     label: 'Webhook',
     icon: Webhook,
-    iconColor: '#ff6b35', // Orange - same as WebhookTriggerNode
+    iconColor: '#ff6b35',
     defaultData: {
       label: 'Webhook',
       path: '/webhook/endpoint',
@@ -44,7 +44,7 @@ const nodeTemplates = ref<NodeTemplate[]>([
     type: NODE_TYPES.AGENT,
     label: 'AI Agent',
     icon: Bot,
-    iconColor: '#667eea', // Purple - same as AgentNode
+    iconColor: '#667eea',
     defaultData: {
       label: 'AI Agent',
       model: 'gpt-4.1',
@@ -59,7 +59,7 @@ const nodeTemplates = ref<NodeTemplate[]>([
     type: NODE_TYPES.HTTP_REQUEST,
     label: 'HTTP Request',
     icon: Globe,
-    iconColor: '#3b82f6', // Blue - same as HttpNode
+    iconColor: '#3b82f6',
     defaultData: {
       label: 'HTTP Request',
       method: 'GET',
