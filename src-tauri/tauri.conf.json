@@ -2,7 +2,7 @@
   "$schema": "../frontend/node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "RestFlow",
   "version": "0.1.0",
-  "identifier": "com.restflow.app",
+  "identifier": "com.restflow.desktop",
   "build": {
     "frontendDist": "../frontend/dist",
     "devUrl": "http://localhost:5173",
