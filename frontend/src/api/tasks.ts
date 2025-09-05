@@ -1,14 +1,23 @@
 import { apiClient } from './config'
+import { isTauri, invokeCommand } from './utils'
 import type { Task } from '@/types/generated/Task'
 import type { TaskStatus } from '@/types/generated/TaskStatus'
 
-// GET /api/task/status/{id}
 export const getTaskStatus = async (id: string): Promise<{
   id: string
   status: TaskStatus
   result?: any
   error?: string
 }> => {
+  if (isTauri()) {
+    const task = await invokeCommand<Task>('get_task_status', { task_id: id })
+    return {
+      id: task.id,
+      status: task.status,
+      result: task.output,
+      error: task.error || undefined
+    }
+  }
   const response = await apiClient.get<{
     status: string
     data: {
@@ -21,7 +30,6 @@ export const getTaskStatus = async (id: string): Promise<{
   return response.data.data
 }
 
-// GET /api/task/list
 export const listTasks = async (params?: {
   execution_id?: string
   workflow_id?: string
@@ -29,6 +37,13 @@ export const listTasks = async (params?: {
   limit?: number
   offset?: number
 }): Promise<Task[]> => {
+  if (isTauri()) {
+    return invokeCommand<Task[]>('list_tasks', {
+      execution_id: params?.execution_id,
+      status: params?.status,
+      limit: params?.limit || 100
+    })
+  }
   const response = await apiClient.get<{
     status: string
     data: Task[]
@@ -36,27 +51,33 @@ export const listTasks = async (params?: {
   return response.data.data
 }
 
-// GET /api/task/execution/{execution_id}
 export const getTasksByExecutionId = async (executionId: string): Promise<Task[]> => {
+  return listTasks({ execution_id: executionId })
+}
+
+export const getExecutionStatus = async (executionId: string): Promise<Task[]> => {
+  if (isTauri()) {
+    return invokeCommand<Task[]>('get_execution_status', {
+      execution_id: executionId
+    })
+  }
   const response = await apiClient.get<{
     status: string
     data: Task[]
-  }>(`/api/task/execution/${executionId}`)
+  }>(`/api/execution/status/${executionId}`)
   return response.data.data
 }
 
-// POST /api/task/retry/{id}
-export const retryTask = async (id: string): Promise<void> => {
-  await apiClient.post<{
+export const executeNode = async (node: any, input: any = {}): Promise<string> => {
+  if (isTauri()) {
+    return invokeCommand<string>('execute_node', {
+      node,
+      input
+    })
+  }
+  const response = await apiClient.post<{
     status: string
-    message: string
-  }>(`/api/task/retry/${id}`)
-}
-
-// POST /api/task/cancel/{id}
-export const cancelTask = async (id: string): Promise<void> => {
-  await apiClient.post<{
-    status: string
-    message: string
-  }>(`/api/task/cancel/${id}`)
+    data: { task_id: string }
+  }>('/api/node/execute', node)
+  return response.data.data.task_id
 }

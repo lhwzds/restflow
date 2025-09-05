@@ -1,6 +1,7 @@
 import { ElMessage } from 'element-plus'
 import { ref, onUnmounted } from 'vue'
 import * as workflowsApi from '../../api/workflows'
+import * as tasksApi from '../../api/tasks'
 import { useWorkflowStore } from '../../stores/workflowStore'
 import { useExecutionStore } from '../../stores/executionStore'
 import { useWorkflowPersistence } from '../persistence/useWorkflowPersistence'
@@ -80,7 +81,7 @@ export function useAsyncWorkflowExecution() {
 
       try {
         // API returns an array of tasks for the execution
-        const tasks: Task[] = await workflowsApi.getExecutionStatus(executionId.value)
+        const tasks: Task[] = await tasksApi.getExecutionStatus(executionId.value)
         
         // Update all tasks at once using the new method
         executionStore.updateFromTasks(tasks)

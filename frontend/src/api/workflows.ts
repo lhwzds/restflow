@@ -1,14 +1,21 @@
 import { apiClient } from './config'
+import { isTauri, invokeCommand } from './utils'
 import type { Workflow } from '@/types/generated/Workflow'
 import type { ExecutionContext } from '@/types/generated/ExecutionContext'
-import type { Task } from '@/types/generated/Task'
 
 export const listWorkflows = async (): Promise<Workflow[]> => {
+  if (isTauri()) {
+    return invokeCommand<Workflow[]>('list_workflows')
+  }
   const response = await apiClient.get<{ status: string; data: Workflow[] }>('/api/workflow/list')
   return response.data.data
 }
 
 export const createWorkflow = async (workflow: Workflow): Promise<{ id: string }> => {
+  if (isTauri()) {
+    const result = await invokeCommand<Workflow>('create_workflow', { workflow })
+    return { id: result.id }
+  }
   const response = await apiClient.post<{
     status: string
     message: string
@@ -18,11 +25,18 @@ export const createWorkflow = async (workflow: Workflow): Promise<{ id: string }
 }
 
 export const getWorkflow = async (id: string): Promise<Workflow> => {
+  if (isTauri()) {
+    return invokeCommand<Workflow>('get_workflow', { id })
+  }
   const response = await apiClient.get<Workflow>(`/api/workflow/get/${id}`)
   return response.data
 }
 
 export const updateWorkflow = async (id: string, workflow: Workflow): Promise<void> => {
+  if (isTauri()) {
+    await invokeCommand('update_workflow', { id, workflow })
+    return
+  }
   await apiClient.put<{
     status: string
     message: string
@@ -30,6 +44,10 @@ export const updateWorkflow = async (id: string, workflow: Workflow): Promise<vo
 }
 
 export const deleteWorkflow = async (id: string): Promise<void> => {
+  if (isTauri()) {
+    await invokeCommand('delete_workflow', { id })
+    return
+  }
   await apiClient.delete<{
     status: string
     message: string
@@ -37,6 +55,14 @@ export const deleteWorkflow = async (id: string): Promise<void> => {
 }
 
 export const executeSyncRun = async (workflow: Workflow): Promise<ExecutionContext> => {
+  if (isTauri()) {
+    // For inline workflow execution, we need to create it first in Tauri mode
+    const { id } = await createWorkflow(workflow)
+    return invokeCommand<ExecutionContext>('execute_workflow_sync', { 
+      workflow_id: id, 
+      input: {} 
+    })
+  }
   const response = await apiClient.post<{
     status: string
     data: ExecutionContext
@@ -44,11 +70,17 @@ export const executeSyncRun = async (workflow: Workflow): Promise<ExecutionConte
   return response.data.data
 }
 
-export const executeSyncRunById = async (id: string): Promise<ExecutionContext> => {
+export const executeSyncRunById = async (id: string, input: any = {}): Promise<ExecutionContext> => {
+  if (isTauri()) {
+    return invokeCommand<ExecutionContext>('execute_workflow_sync', { 
+      workflow_id: id, 
+      input 
+    })
+  }
   const response = await apiClient.post<{
     status: string
     data: ExecutionContext
-  }>(`/api/execution/sync/run-workflow/${id}`)
+  }>(`/api/execution/sync/run-workflow/${id}`, { input })
   return response.data.data
 }
 
@@ -56,6 +88,13 @@ export const executeAsyncSubmit = async (
   id: string,
   initialVariables?: any
 ): Promise<{ execution_id: string }> => {
+  if (isTauri()) {
+    const taskId = await invokeCommand<string>('submit_workflow', { 
+      workflow_id: id, 
+      input: initialVariables || {} 
+    })
+    return { execution_id: taskId }
+  }
   const response = await apiClient.post<{
     status: string
     data: { execution_id: string }
@@ -63,10 +102,3 @@ export const executeAsyncSubmit = async (
   return response.data.data
 }
 
-export const getExecutionStatus = async (id: string): Promise<Task[]> => {
-  const response = await apiClient.get<{
-    status: string
-    data: Task[]
-  }>(`/api/execution/status/${id}`)
-  return response.data.data
-}
