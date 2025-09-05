@@ -1,11 +1,7 @@
-mod api;
-mod engine;
-mod models;
-mod node;
 mod static_assets;
-mod storage;
-mod tools;
 
+use backend::{AppCore, api};
+use std::sync::Arc;
 use api::{
     workflows::*, triggers::*, tasks::*, config::*
 };
@@ -14,10 +10,6 @@ use axum::{
     http::{Method, header},
     routing::{delete, get, post, put},
 };
-use engine::executor::WorkflowExecutor;
-use engine::trigger_manager::TriggerManager;
-use storage::Storage;
-use std::sync::Arc;
 use tower_http::cors::CorsLayer;
 
 #[derive(serde::Serialize)]
@@ -33,33 +25,14 @@ async fn health() -> axum::Json<Health> {
 
 #[tokio::main]
 async fn main() {
-    let storage = Arc::new(
-        Storage::new("restflow.db").expect("Failed to initialize storage")
+    // Use AppCore for unified initialization
+    let core = Arc::new(
+        AppCore::new("restflow.db")
+            .await
+            .expect("Failed to initialize app core")
     );
     
-    // Get worker count from database configuration
-    let num_workers = storage.config.get_worker_count()
-        .unwrap_or(4);
-    
-    println!("Starting RestFlow with {} workers", num_workers);
-    
-    // Create and start workflow executor in async mode
-    let executor = Arc::new(WorkflowExecutor::new_async(
-        storage.clone(),
-        num_workers
-    ));
-    executor.start().await;
-    
-    // Create trigger manager
-    let trigger_manager = Arc::new(TriggerManager::new(
-        storage.clone(),
-        executor.clone()
-    ));
-    
-    // Initialize trigger manager
-    if let Err(e) = trigger_manager.init().await {
-        eprintln!("Failed to initialize trigger manager: {}", e);
-    }
+    println!("Starting RestFlow server");
     
     // Configure CORS
     let cors = CorsLayer::new()
@@ -74,7 +47,8 @@ async fn main() {
         .allow_headers([header::CONTENT_TYPE, header::AUTHORIZATION])
         .allow_credentials(true);
 
-    let shared_state = api::AppState::new(storage.clone(), executor, trigger_manager);
+    // AppState is now just an alias for Arc<AppCore>
+    let shared_state = core.clone();
     
     let app = Router::new()
         .route("/health", get(health))

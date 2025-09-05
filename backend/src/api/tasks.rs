@@ -14,7 +14,6 @@ pub struct TaskListQuery {
     limit: Option<u32>,
 }
 
-// GET /api/execution/status/{execution_id}
 pub async fn get_execution_status(
     State(state): State<AppState>,
     Path(execution_id): Path<String>,
@@ -31,7 +30,6 @@ pub async fn get_execution_status(
     }
 }
 
-// GET /api/task/status/{task_id}
 pub async fn get_task_status(
     State(state): State<AppState>,
     Path(task_id): Path<String>,
@@ -48,7 +46,6 @@ pub async fn get_task_status(
     }
 }
 
-// GET /api/task/list
 pub async fn list_tasks(
     State(state): State<AppState>,
     Query(params): Query<TaskListQuery>,
@@ -79,7 +76,6 @@ pub async fn list_tasks(
     }
 }
 
-// POST /api/node/execute
 pub async fn execute_node(
     State(state): State<AppState>,
     Json(node): Json<Node>,
