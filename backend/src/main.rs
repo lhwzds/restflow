@@ -3,7 +3,7 @@ mod static_assets;
 use backend::{AppCore, api};
 use std::sync::Arc;
 use api::{
-    workflows::*, triggers::*, tasks::*, config::*
+    workflows::*, triggers::*, tasks::*, config::*, python::*
 };
 use axum::{
     Router,
@@ -87,6 +87,10 @@ async fn main() {
             .put(handle_webhook_trigger)
             .delete(handle_webhook_trigger)
             .patch(handle_webhook_trigger))
+        
+        // Python integration endpoints (simplified for internal use)
+        .route("/api/python/execute", post(execute_script))
+        .route("/api/python/scripts", get(list_scripts))
         
         .fallback(static_assets::static_handler)
         .layer(cors)

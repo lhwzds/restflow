@@ -1,2 +1,12 @@
 .DS_Store
 /target/
+
+# Python environment
+/python/.venv/
+/python/scripts/  # User scripts (runtime generated)
+/.uv/  # uv binary
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class

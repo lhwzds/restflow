@@ -9,6 +9,9 @@ async-trait = "0.1.89"
 axum = { version = "0.8.4", features = ["macros"] }
 base64 = "0.22.1"
 chrono = "0.4.41"
+dirs = "6.0.0"
+flate2 = "1.1.2"
+hex = "0.4.3"
 mime_guess = "2.0.5"
 once_cell = "1.21.3"
 redb = "3.0"
@@ -18,9 +21,13 @@ rig-core = "0.17.1"
 rust-embed = { version = "8.7.2", features = ["include-exclude", "interpolate-folder-path"] }
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.142"
+sha2 = "0.10.9"
+tar = "0.4.44"
+tempfile = "3.21.0"
 thiserror = "2.0.15"
 tokio = { version = "1.47.1", features = ["full"] }
 tower = "0.5.2"
 tower-http = { version = "0.6.6", features = ["cors", "fs"] }
 ts-rs = "11.0"
 uuid = { version = "1.18.0", features = ["v4", "serde"] }
+zip = "5.0.0"

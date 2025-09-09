@@ -5,6 +5,7 @@ pub mod node;
 pub mod tools;
 pub mod api;
 pub mod services;
+pub mod python;
 
 pub use models::*;
 
@@ -12,12 +13,14 @@ use engine::executor::WorkflowExecutor;
 use engine::trigger_manager::TriggerManager;
 use storage::Storage;
 use std::sync::Arc;
+use once_cell::sync::OnceCell;
 
 /// Core application state shared between server and Tauri modes
 pub struct AppCore {
     pub storage: Arc<Storage>,
     pub executor: Arc<WorkflowExecutor>,
     pub trigger_manager: Arc<TriggerManager>,
+    pub python_manager: OnceCell<Arc<python::PythonManager>>,
 }
 
 impl AppCore {
@@ -51,6 +54,27 @@ impl AppCore {
             storage,
             executor,
             trigger_manager,
+            python_manager: OnceCell::new(),
         })
+    }
+    
+    /// Get or initialize Python manager
+    pub async fn get_python_manager(&self) -> anyhow::Result<Arc<python::PythonManager>> {
+        if let Some(manager) = self.python_manager.get() {
+            return Ok(manager.clone());
+        }
+        
+        // Initialize Python manager lazily
+        let manager = python::PythonManager::new().await?;
+        
+        // Try to set it, but if another thread already set it, use that one
+        let _ = self.python_manager.set(manager.clone());
+        
+        Ok(self.python_manager.get().unwrap().clone())
+    }
+    
+    /// Check if Python is available
+    pub fn is_python_ready(&self) -> bool {
+        self.python_manager.get().map(|m| m.is_ready()).unwrap_or(false)
     }
 }
