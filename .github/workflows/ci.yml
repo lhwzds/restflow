@@ -104,7 +104,7 @@ jobs:
           npm ci
 
       - name: Install Tauri CLI
-        run: cargo install tauri-cli --version "^2"
+        run: cargo install tauri-cli --version "^2" --force
 
       - name: Build Tauri app (Release)
         run: cargo tauri build
