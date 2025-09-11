@@ -103,13 +103,24 @@ jobs:
           cd frontend
           npm ci
 
-      - name: Install Tauri CLI
+      - name: Install Tauri CLI (Unix)
+        if: matrix.platform != 'windows-latest'
         run: |
           if ! command -v cargo-tauri &> /dev/null; then
             cargo install tauri-cli --version "^2"
           else
             echo "Tauri CLI already installed"
           fi
+
+      - name: Install Tauri CLI (Windows)
+        if: matrix.platform == 'windows-latest'
+        run: |
+          if (!(Get-Command cargo-tauri -ErrorAction SilentlyContinue)) {
+            cargo install tauri-cli --version "^2"
+          } else {
+            echo "Tauri CLI already installed"
+          }
+        shell: powershell
 
       - name: Build Tauri app (Release)
         run: cargo tauri build
