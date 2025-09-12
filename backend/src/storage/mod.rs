@@ -1,16 +1,18 @@
-pub mod task_queue;
-pub mod workflow;
+pub mod agent;
 pub mod config;
+pub mod task_queue;
 pub mod trigger;
+pub mod workflow;
 
 use anyhow::Result;
 use redb::Database;
 use std::sync::Arc;
 
-pub use task_queue::TaskQueue;
-pub use workflow::WorkflowStorage;
+pub use agent::AgentStorage;
 pub use config::{ConfigStorage, SystemConfig};
+pub use task_queue::TaskQueue;
 pub use trigger::TriggerStorage;
+pub use workflow::WorkflowStorage;
 
 pub struct Storage {
     db: Arc<Database>,
