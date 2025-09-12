@@ -1,8 +1,10 @@
 use crate::node::agent::AgentNode;
 use anyhow::Result;
-use redb::{Database, ReadableDatabase, TableDefinition};
+use base64::read;
+use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use std::vec;
 use uuid::Uuid;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -36,10 +38,33 @@ impl AgentStorage {
         {
             let mut table = write_txn.open_table(AGENT_TABLE)?;
             let json_bytes = serde_json::to_vec(&stored_agent)?;
-            table.insert(stored_agent.id.as_str(), &json_bytes.as_slice())?;
+            table.insert(stored_agent.id.as_str(), json_bytes.as_slice())?;
         }
         write_txn.commit()?;
 
         Ok(stored_agent)
+    }
+
+    pub fn get_agent(&self, id: String) -> Result<Option<StoredAgent>> {
+        let read_txn = self.db.begin_read()?;
+        let table = read_txn.open_table(AGENT_TABLE)?;
+        if let Some(value) = table.get(id.as_str())? {
+            let agent: StoredAgent = serde_json::from_slice(value.value())?;
+            Ok(Some(agent))
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub fn list_agents(&self) -> Result<Vec<StoredAgent>> {
+        let read_txn = self.db.begin_read()?;
+        let table = read_txn.open_table(AGENT_TABLE)?;
+        let mut agents = Vec::new();
+        for item in table.iter()? {
+            let (_, value) = item?;
+            let agent: StoredAgent = serde_json::from_slice(value.value())?;
+            agents.push(agent);
+        }
+        Ok(agents)
     }
 }
