@@ -3,7 +3,6 @@ use anyhow::Result;
 use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use std::vec;
 use uuid::Uuid;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

@@ -30,6 +30,9 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-test-
 
+      - name: Create frontend dist directory for tests
+        run: mkdir -p frontend/dist
+
       - name: Run backend tests
         run: |
           cd backend
