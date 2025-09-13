@@ -36,8 +36,7 @@ jobs:
       - name: Check for security vulnerabilities
         run: |
           cargo install cargo-audit
-          cd backend
-          cargo audit
+          cargo audit --deny warnings
 
       - name: Run backend tests
         run: |
@@ -156,5 +155,10 @@ jobs:
           }
         shell: powershell
 
-      - name: Build Tauri app (Release)
-        run: cargo tauri build
+      - name: Build Tauri app (macOS, app only)
+        if: matrix.platform == 'macos-latest'
+        run: cargo tauri build --bundles app --verbose
+
+      - name: Build Tauri app (other platforms)
+        if: matrix.platform != 'macos-latest'
+        run: cargo tauri build --verbose
