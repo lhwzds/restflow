@@ -114,8 +114,11 @@ jobs:
       - name: Cache Tauri CLI
         uses: actions/cache@v4
         with:
-          path: ~/.cargo/bin/cargo-tauri
-          key: ${{ runner.os }}-tauri-cli-v2
+          path: |
+            ~/.cargo/bin/cargo-tauri*
+          key: ${{ runner.os }}-tauri-cli-v2-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-tauri-cli-v2-
 
       - name: Install Linux dependencies
         if: matrix.platform == 'ubuntu-latest'
@@ -147,7 +150,7 @@ jobs:
         if: matrix.platform == 'windows-latest'
         run: |
           if (!(Get-Command cargo-tauri -ErrorAction SilentlyContinue)) {
-            cargo install tauri-cli --version "^2"
+            cargo install tauri-cli --version "^2" --locked
           } else {
             echo "Tauri CLI already installed"
           }
