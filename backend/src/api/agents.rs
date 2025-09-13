@@ -1,8 +1,8 @@
 use crate::api::state::AppState;
 use crate::node::agent::AgentNode;
 use axum::{
-    extract::{Path, State},
     Json,
+    extract::{Path, State},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -25,9 +25,7 @@ pub struct ExecuteAgentRequest {
 }
 
 // GET /api/agents
-pub async fn list_agents(
-    State(state): State<AppState>,
-) -> Json<Value> {
+pub async fn list_agents(State(state): State<AppState>) -> Json<Value> {
     match state.storage.agents.list_agents() {
         Ok(agents) => Json(serde_json::json!({
             "status": "success",
@@ -36,15 +34,12 @@ pub async fn list_agents(
         Err(e) => Json(serde_json::json!({
             "status": "error",
             "message": format!("Failed to list agents: {}", e)
-        }))
+        })),
     }
 }
 
 // GET /api/agents/{id}
-pub async fn get_agent(
-    State(state): State<AppState>,
-    Path(id): Path<String>,
-) -> Json<Value> {
+pub async fn get_agent(State(state): State<AppState>, Path(id): Path<String>) -> Json<Value> {
     match state.storage.agents.get_agent(id.clone()) {
         Ok(Some(agent)) => Json(serde_json::json!({
             "status": "success",
@@ -57,7 +52,7 @@ pub async fn get_agent(
         Err(e) => Json(serde_json::json!({
             "status": "error",
             "message": format!("Failed to get agent: {}", e)
-        }))
+        })),
     }
 }
 
@@ -66,7 +61,11 @@ pub async fn create_agent(
     State(state): State<AppState>,
     Json(request): Json<CreateAgentRequest>,
 ) -> Json<Value> {
-    match state.storage.agents.insert_agent(request.name, request.agent) {
+    match state
+        .storage
+        .agents
+        .insert_agent(request.name, request.agent)
+    {
         Ok(stored_agent) => Json(serde_json::json!({
             "status": "success",
             "message": "Agent created successfully",
@@ -75,7 +74,7 @@ pub async fn create_agent(
         Err(e) => Json(serde_json::json!({
             "status": "error",
             "message": format!("Failed to create agent: {}", e)
-        }))
+        })),
     }
 }
 
@@ -85,41 +84,54 @@ pub async fn update_agent(
     Path(id): Path<String>,
     Json(request): Json<UpdateAgentRequest>,
 ) -> Json<Value> {
-    match state.storage.agents.update_agent(id.clone(), request.name, request.agent) {
-        Ok(Some(agent)) => Json(serde_json::json!({
+    match state
+        .storage
+        .agents
+        .update_agent(id.clone(), request.name, request.agent)
+    {
+        Ok(agent) => Json(serde_json::json!({
             "status": "success",
             "message": "Agent updated successfully",
             "data": agent
         })),
-        Ok(None) => Json(serde_json::json!({
-            "status": "error",
-            "message": format!("Agent {} not found", id)
-        })),
-        Err(e) => Json(serde_json::json!({
-            "status": "error",
-            "message": format!("Failed to update agent: {}", e)
-        }))
+        Err(e) => {
+            let error_msg = e.to_string();
+            if error_msg.contains("not found") {
+                Json(serde_json::json!({
+                    "status": "error",
+                    "message": error_msg
+                }))
+            } else {
+                Json(serde_json::json!({
+                    "status": "error",
+                    "message": format!("Failed to update agent: {}", e)
+                }))
+            }
+        }
     }
 }
 
 // DELETE /api/agents/{id}
-pub async fn delete_agent(
-    State(state): State<AppState>,
-    Path(id): Path<String>,
-) -> Json<Value> {
+pub async fn delete_agent(State(state): State<AppState>, Path(id): Path<String>) -> Json<Value> {
     match state.storage.agents.delete_agent(id.clone()) {
-        Ok(true) => Json(serde_json::json!({
+        Ok(()) => Json(serde_json::json!({
             "status": "success",
             "message": format!("Agent {} deleted successfully", id)
         })),
-        Ok(false) => Json(serde_json::json!({
-            "status": "error",
-            "message": format!("Agent {} not found", id)
-        })),
-        Err(e) => Json(serde_json::json!({
-            "status": "error",
-            "message": format!("Failed to delete agent: {}", e)
-        }))
+        Err(e) => {
+            let error_msg = e.to_string();
+            if error_msg.contains("not found") {
+                Json(serde_json::json!({
+                    "status": "error",
+                    "message": error_msg
+                }))
+            } else {
+                Json(serde_json::json!({
+                    "status": "error",
+                    "message": format!("Failed to delete agent: {}", e)
+                }))
+            }
+        }
     }
 }
 
@@ -132,14 +144,18 @@ pub async fn execute_agent(
     // Get the agent
     let agent = match state.storage.agents.get_agent(id.clone()) {
         Ok(Some(agent)) => agent,
-        Ok(None) => return Json(serde_json::json!({
-            "status": "error",
-            "message": format!("Agent {} not found", id)
-        })),
-        Err(e) => return Json(serde_json::json!({
-            "status": "error",
-            "message": format!("Failed to get agent: {}", e)
-        }))
+        Ok(None) => {
+            return Json(serde_json::json!({
+                "status": "error",
+                "message": format!("Agent {} not found", id)
+            }));
+        }
+        Err(e) => {
+            return Json(serde_json::json!({
+                "status": "error",
+                "message": format!("Failed to get agent: {}", e)
+            }));
+        }
     };
 
     // Execute the agent
@@ -153,29 +169,24 @@ pub async fn execute_agent(
         Err(e) => Json(serde_json::json!({
             "status": "error",
             "message": format!("Failed to execute agent: {}", e)
-        }))
+        })),
     }
 }
 
 // POST /api/agents/execute-inline
-pub async fn execute_agent_inline(
-    Json(agent_with_input): Json<Value>,
-) -> Json<Value> {
+pub async fn execute_agent_inline(Json(agent_with_input): Json<Value>) -> Json<Value> {
     // Parse the agent configuration
-    let agent = match serde_json::from_value::<AgentNode>(
-        agent_with_input["agent"].clone()
-    ) {
+    let agent = match serde_json::from_value::<AgentNode>(agent_with_input["agent"].clone()) {
         Ok(a) => a,
-        Err(e) => return Json(serde_json::json!({
-            "status": "error",
-            "message": format!("Invalid agent configuration: {}", e)
-        }))
+        Err(e) => {
+            return Json(serde_json::json!({
+                "status": "error",
+                "message": format!("Invalid agent configuration: {}", e)
+            }));
+        }
     };
 
-    let input = agent_with_input["input"]
-        .as_str()
-        .unwrap_or("")
-        .to_string();
+    let input = agent_with_input["input"].as_str().unwrap_or("").to_string();
 
     // Execute the agent
     match agent.execute(&input).await {
@@ -188,6 +199,6 @@ pub async fn execute_agent_inline(
         Err(e) => Json(serde_json::json!({
             "status": "error",
             "message": format!("Failed to execute agent: {}", e)
-        }))
+        })),
     }
 }

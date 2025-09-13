@@ -191,7 +191,7 @@ async fn update_agent(
 }
 
 #[tauri::command(rename_all = "snake_case")]
-async fn delete_agent(id: String, core: State<'_, Arc<AppCore>>) -> Result<bool, String> {
+async fn delete_agent(id: String, core: State<'_, Arc<AppCore>>) -> Result<(), String> {
     services::agent::delete_agent(&core, &id).await
 }
 

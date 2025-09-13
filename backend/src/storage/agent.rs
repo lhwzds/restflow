@@ -94,14 +94,15 @@ impl AgentStorage {
         Ok(existing_agent)
     }
 
-    pub fn delete_agent(&self, id: String) -> Result<bool> {
+    pub fn delete_agent(&self, id: String) -> Result<()> {
         let write_txn = self.db.begin_write()?;
-        let deleted = {
+        {
             let mut table = write_txn.open_table(AGENT_TABLE)?;
-            table.remove(id.as_str())?.is_some()
-        };
+            table.remove(id.as_str())?
+                .ok_or_else(|| anyhow::anyhow!("Agent {} not found", id))?;
+        }
         write_txn.commit()?;
-        Ok(deleted)
+        Ok(())
     }
 }
 
@@ -181,7 +182,6 @@ mod tests {
             .unwrap();
         let updated = storage
             .update_agent(stored.id.clone(), Some("Updated Name".to_string()), None)
-            .unwrap()
             .unwrap();
 
         assert_eq!(updated.name, "Updated Name");
@@ -192,7 +192,6 @@ mod tests {
 
         let updated2 = storage
             .update_agent(stored.id.clone(), None, Some(new_agent_node))
-            .unwrap()
             .unwrap();
 
         assert_eq!(updated2.name, "Updated Name");
@@ -209,14 +208,14 @@ mod tests {
         let stored = storage
             .insert_agent("To Delete".to_string(), create_test_agent_node())
             .unwrap();
-        let deleted = storage.delete_agent(stored.id.clone()).unwrap();
-        assert!(deleted);
+        storage.delete_agent(stored.id.clone()).unwrap();
 
         let retrieved = storage.get_agent(stored.id.clone()).unwrap();
         assert!(retrieved.is_none());
 
-        let deleted_again = storage.delete_agent(stored.id).unwrap();
-        assert!(!deleted_again);
+        let deleted_again = storage.delete_agent(stored.id);
+        assert!(deleted_again.is_err());
+        assert!(deleted_again.unwrap_err().to_string().contains("not found"));
     }
 
     #[test]
