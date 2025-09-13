@@ -21,8 +21,8 @@ uuid = { version = "1.18.0", features = ["v4", "serde"] }
 chrono = "0.4.41"
 
 # Tauri dependencies
-tauri = { version = "2.0.0-rc.17" }
-tauri-build = { version = "2.0.0-rc.13" }
+tauri = { version = "2.8.5" }
+tauri-build = { version = "2.4.1" }
 
 [profile.release]
 # Optimize release builds

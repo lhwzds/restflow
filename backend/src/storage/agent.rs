@@ -71,10 +71,10 @@ impl AgentStorage {
         id: String,
         name: Option<String>,
         agent: Option<AgentNode>,
-    ) -> Result<Option<StoredAgent>> {
+    ) -> Result<StoredAgent> {
         let mut existing_agent = self
             .get_agent(id.clone())?
-            .ok_or_else(|| anyhow::anyhow!("Agent {}not found", id))?;
+            .ok_or_else(|| anyhow::anyhow!("Agent {} not found", id))?;
         if let Some(new_name) = name {
             existing_agent.name = new_name;
         };
@@ -91,7 +91,7 @@ impl AgentStorage {
         }
         write_txn.commit()?;
 
-        Ok(Some(existing_agent))
+        Ok(existing_agent)
     }
 
     pub fn delete_agent(&self, id: String) -> Result<bool> {
