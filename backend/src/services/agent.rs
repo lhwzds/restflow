@@ -18,19 +18,18 @@ pub async fn create_agent(core: &Arc<AppCore>, name: String, agent: AgentNode) -
 }
 
 pub async fn update_agent(
-    core: &Arc<AppCore>, 
-    id: &str, 
-    name: Option<String>, 
+    core: &Arc<AppCore>,
+    id: &str,
+    name: Option<String>,
     agent: Option<AgentNode>
 ) -> Result<StoredAgent, String> {
     core.storage.agents.update_agent(id.to_string(), name, agent)
-        .map_err(|e| format!("Failed to update agent: {}", e))?
-        .ok_or_else(|| format!("Agent {} not found", id))
+        .map_err(|e| e.to_string())
 }
 
-pub async fn delete_agent(core: &Arc<AppCore>, id: &str) -> Result<bool, String> {
+pub async fn delete_agent(core: &Arc<AppCore>, id: &str) -> Result<(), String> {
     core.storage.agents.delete_agent(id.to_string())
-        .map_err(|e| format!("Failed to delete agent: {}", e))
+        .map_err(|e| e.to_string())
 }
 
 pub async fn execute_agent(
