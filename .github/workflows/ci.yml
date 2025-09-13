@@ -33,6 +33,12 @@ jobs:
       - name: Create frontend dist directory for tests
         run: mkdir -p frontend/dist
 
+      - name: Check for security vulnerabilities
+        run: |
+          cargo install cargo-audit --locked
+          cd backend
+          cargo audit
+
       - name: Run backend tests
         run: |
           cd backend
