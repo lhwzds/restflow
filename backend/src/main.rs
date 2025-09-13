@@ -3,7 +3,7 @@ mod static_assets;
 use backend::{AppCore, api};
 use std::sync::Arc;
 use api::{
-    workflows::*, triggers::*, tasks::*, config::*, python::*
+    workflows::*, triggers::*, tasks::*, config::*, python::*, agents::*
 };
 use axum::{
     Router,
@@ -91,6 +91,12 @@ async fn main() {
         // Python integration endpoints (simplified for internal use)
         .route("/api/python/execute", post(execute_script))
         .route("/api/python/scripts", get(list_scripts))
+        
+        // Agent management endpoints
+        .route("/api/agents", get(list_agents).post(create_agent))
+        .route("/api/agents/{id}", get(get_agent).put(update_agent).delete(delete_agent))
+        .route("/api/agents/{id}/execute", post(execute_agent))
+        .route("/api/agents/execute-inline", post(execute_agent_inline))
         
         .fallback(static_assets::static_handler)
         .layer(cors)

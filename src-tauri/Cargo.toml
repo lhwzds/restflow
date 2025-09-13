@@ -17,8 +17,8 @@ backend = { path = "../backend" }
 
 # Tauri and plugins
 tauri.workspace = true
-tauri-plugin-log = "2.0.0-rc"
-tauri-plugin-shell = "2.0.0-rc"
+tauri-plugin-log = "2.6.0"
+tauri-plugin-shell = "2.3.1"
 
 # Use workspace dependencies
 serde.workspace = true
