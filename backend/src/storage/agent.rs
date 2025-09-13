@@ -1,6 +1,5 @@
 use crate::node::agent::AgentNode;
 use anyhow::Result;
-use base64::read;
 use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -104,5 +103,148 @@ impl AgentStorage {
         };
         write_txn.commit()?;
         Ok(deleted)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    fn create_test_agent_node() -> AgentNode {
+        AgentNode {
+            model: "gpt-4.1".to_string(),
+            prompt: "You are a helpful assistant".to_string(),
+            temperature: 0.7,
+            api_key: Some("test_key".to_string()),
+            tools: Some(vec!["add".to_string()]),
+        }
+    }
+
+    #[test]
+    fn test_insert_and_get_agent() {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test.db");
+        let db = Arc::new(Database::create(db_path).unwrap());
+        let storage = AgentStorage::new(db).unwrap();
+
+        let agent_node = create_test_agent_node();
+        let stored = storage
+            .insert_agent("Test Agent".to_string(), agent_node)
+            .unwrap();
+
+        assert!(!stored.id.is_empty());
+        assert_eq!(stored.name, "Test Agent");
+
+        let retrieved = storage.get_agent(stored.id.clone()).unwrap();
+        assert!(retrieved.is_some());
+
+        let agent = retrieved.unwrap();
+        assert_eq!(agent.name, "Test Agent");
+        assert_eq!(agent.agent.model, "gpt-4.1");
+    }
+
+    #[test]
+    fn test_list_agents() {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test.db");
+        let db = Arc::new(Database::create(db_path).unwrap());
+        let storage = AgentStorage::new(db).unwrap();
+
+        storage
+            .insert_agent("Agent 1".to_string(), create_test_agent_node())
+            .unwrap();
+        storage
+            .insert_agent("Agent 2".to_string(), create_test_agent_node())
+            .unwrap();
+        storage
+            .insert_agent("Agent 3".to_string(), create_test_agent_node())
+            .unwrap();
+
+        let agents = storage.list_agents().unwrap();
+        assert_eq!(agents.len(), 3);
+
+        let names: Vec<String> = agents.iter().map(|a| a.name.clone()).collect();
+        assert!(names.contains(&"Agent 1".to_string()));
+        assert!(names.contains(&"Agent 2".to_string()));
+        assert!(names.contains(&"Agent 3".to_string()));
+    }
+
+    #[test]
+    fn test_update_agent() {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test.db");
+        let db = Arc::new(Database::create(db_path).unwrap());
+        let storage = AgentStorage::new(db).unwrap();
+
+        let stored = storage
+            .insert_agent("Original Name".to_string(), create_test_agent_node())
+            .unwrap();
+        let updated = storage
+            .update_agent(stored.id.clone(), Some("Updated Name".to_string()), None)
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(updated.name, "Updated Name");
+        assert_eq!(updated.agent.model, "gpt-4.1");
+
+        let mut new_agent_node = create_test_agent_node();
+        new_agent_node.temperature = 0.9;
+
+        let updated2 = storage
+            .update_agent(stored.id.clone(), None, Some(new_agent_node))
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(updated2.name, "Updated Name");
+        assert_eq!(updated2.agent.temperature, 0.9);
+    }
+
+    #[test]
+    fn test_delete_agent() {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test.db");
+        let db = Arc::new(Database::create(db_path).unwrap());
+        let storage = AgentStorage::new(db).unwrap();
+
+        let stored = storage
+            .insert_agent("To Delete".to_string(), create_test_agent_node())
+            .unwrap();
+        let deleted = storage.delete_agent(stored.id.clone()).unwrap();
+        assert!(deleted);
+
+        let retrieved = storage.get_agent(stored.id.clone()).unwrap();
+        assert!(retrieved.is_none());
+
+        let deleted_again = storage.delete_agent(stored.id).unwrap();
+        assert!(!deleted_again);
+    }
+
+    #[test]
+    fn test_get_nonexistent_agent() {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test.db");
+        let db = Arc::new(Database::create(db_path).unwrap());
+        let storage = AgentStorage::new(db).unwrap();
+
+        let result = storage.get_agent("nonexistent".to_string()).unwrap();
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_update_nonexistent_agent() {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test.db");
+        let db = Arc::new(Database::create(db_path).unwrap());
+        let storage = AgentStorage::new(db).unwrap();
+
+        let result = storage.update_agent(
+            "nonexistent".to_string(),
+            Some("New Name".to_string()),
+            None,
+        );
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("not found"));
     }
 }

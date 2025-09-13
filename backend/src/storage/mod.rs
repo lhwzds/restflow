@@ -20,6 +20,7 @@ pub struct Storage {
     pub queue: TaskQueue,
     pub config: ConfigStorage,
     pub triggers: TriggerStorage,
+    pub agents: AgentStorage,
 }
 
 impl Storage {
@@ -30,6 +31,7 @@ impl Storage {
         let queue = TaskQueue::new(db.clone())?;
         let config = ConfigStorage::new(db.clone())?;
         let triggers = TriggerStorage::new(db.clone())?;
+        let agents = AgentStorage::new(db.clone())?;
 
         Ok(Self {
             db,
@@ -37,6 +39,7 @@ impl Storage {
             queue,
             config,
             triggers,
+            agents,
         })
     }
 
