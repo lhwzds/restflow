@@ -67,4 +67,42 @@ impl AgentStorage {
         }
         Ok(agents)
     }
+
+    pub fn update_agent(
+        &self,
+        id: String,
+        name: Option<String>,
+        agent: Option<AgentNode>,
+    ) -> Result<Option<StoredAgent>> {
+        let mut existing_agent = self
+            .get_agent(id.clone())?
+            .ok_or_else(|| anyhow::anyhow!("Agent {}not found", id))?;
+        if let Some(new_name) = name {
+            existing_agent.name = new_name;
+        };
+
+        if let Some(new_agent) = agent {
+            existing_agent.agent = new_agent;
+        };
+
+        let write_txn = self.db.begin_write()?;
+        {
+            let mut table = write_txn.open_table(AGENT_TABLE)?;
+            let json_bytes = serde_json::to_vec(&existing_agent)?;
+            table.insert(existing_agent.id.as_str(), json_bytes.as_slice())?;
+        }
+        write_txn.commit()?;
+
+        Ok(Some(existing_agent))
+    }
+
+    pub fn delete_agent(&self, id: String) -> Result<bool> {
+        let write_txn = self.db.begin_write()?;
+        let deleted = {
+            let mut table = write_txn.open_table(AGENT_TABLE)?;
+            table.remove(id.as_str())?.is_some()
+        };
+        write_txn.commit()?;
+        Ok(deleted)
+    }
 }
