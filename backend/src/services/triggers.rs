@@ -1,37 +1,38 @@
 use crate::{AppCore, engine::trigger_manager::{WebhookResponse, TriggerStatus}, models::ActiveTrigger};
+use anyhow::{Result, Context};
 use serde_json::Value;
 use std::sync::Arc;
 use std::collections::HashMap;
 
 // Trigger management functions
 
-pub async fn activate_workflow(core: &Arc<AppCore>, workflow_id: &str) -> Result<(), String> {
+pub async fn activate_workflow(core: &Arc<AppCore>, workflow_id: &str) -> Result<()> {
     core.trigger_manager.activate_workflow(workflow_id).await
-        .map_err(|e| format!("Failed to activate workflow: {}", e))?;
+        .with_context(|| format!("Failed to activate workflow {}", workflow_id))?;
     Ok(())
 }
 
-pub async fn deactivate_workflow(core: &Arc<AppCore>, workflow_id: &str) -> Result<(), String> {
+pub async fn deactivate_workflow(core: &Arc<AppCore>, workflow_id: &str) -> Result<()> {
     core.trigger_manager.deactivate_workflow(workflow_id).await
-        .map_err(|e| format!("Failed to deactivate workflow: {}", e))
+        .with_context(|| format!("Failed to deactivate workflow {}", workflow_id))
 }
 
 pub async fn get_workflow_trigger_status(
-    core: &Arc<AppCore>, 
+    core: &Arc<AppCore>,
     workflow_id: &str
-) -> Result<Option<TriggerStatus>, String> {
+) -> Result<Option<TriggerStatus>> {
     core.trigger_manager.get_trigger_status(workflow_id).await
-        .map_err(|e| format!("Failed to get trigger status: {}", e))
+        .with_context(|| format!("Failed to get trigger status for workflow {}", workflow_id))
 }
 
 pub async fn test_workflow_trigger(
     core: &Arc<AppCore>,
     workflow_id: &str,
     test_input: Value
-) -> Result<String, String> {
+) -> Result<String> {
     // Use async submission for consistency with API layer
     core.executor.submit(workflow_id.to_string(), test_input).await
-        .map_err(|e| format!("Test execution failed: {}", e))
+        .with_context(|| format!("Test execution failed for workflow {}", workflow_id))
 }
 
 pub async fn handle_webhook_trigger(
@@ -40,13 +41,13 @@ pub async fn handle_webhook_trigger(
     method: &str,
     headers: HashMap<String, String>,
     body: Value
-) -> Result<WebhookResponse, String> {
+) -> Result<WebhookResponse> {
     // Use the trigger manager to handle webhook properly
     core.trigger_manager.handle_webhook(webhook_id, method, headers, body).await
-        .map_err(|e| format!("Webhook handling failed: {}", e))
+        .with_context(|| format!("Webhook handling failed for {}", webhook_id))
 }
 
-pub async fn list_active_triggers(core: &Arc<AppCore>) -> Result<Vec<ActiveTrigger>, String> {
+pub async fn list_active_triggers(core: &Arc<AppCore>) -> Result<Vec<ActiveTrigger>> {
     core.storage.triggers.list_active_triggers()
-        .map_err(|e| format!("Failed to list active triggers: {}", e))
+        .context("Failed to list active triggers")
 }

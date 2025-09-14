@@ -1,12 +1,13 @@
 use crate::{AppCore, storage::config::SystemConfig};
+use anyhow::{Result, Context};
 use std::sync::Arc;
 
 // Get complete system configuration
-pub async fn get_config(core: &Arc<AppCore>) -> Result<SystemConfig, String> {
-    match core.storage.config.get_config() {
-        Ok(Some(config)) => Ok(config),
-        Ok(None) => Ok(SystemConfig::default()),
-        Err(e) => Err(format!("Failed to get config: {}", e)),
+pub async fn get_config(core: &Arc<AppCore>) -> Result<SystemConfig> {
+    match core.storage.config.get_config()
+        .context("Failed to get config")? {
+        Some(config) => Ok(config),
+        None => Ok(SystemConfig::default()),
     }
 }
 
@@ -14,12 +15,12 @@ pub async fn get_config(core: &Arc<AppCore>) -> Result<SystemConfig, String> {
 pub async fn update_config(
     core: &Arc<AppCore>,
     config: SystemConfig
-) -> Result<(), String> {
+) -> Result<()> {
     // Validate configuration before updating
     config.validate()
-        .map_err(|e| format!("Invalid configuration: {}", e))?;
-    
+        .context("Invalid configuration")?;
+
     // Update configuration
     core.storage.config.update_config(config)
-        .map_err(|e| format!("Failed to update config: {}", e))
+        .context("Failed to update config")
 }
