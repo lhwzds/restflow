@@ -1,5 +1,6 @@
 pub mod agent;
 pub mod config;
+pub mod secrets;
 pub mod task_queue;
 pub mod trigger;
 pub mod workflow;
@@ -10,6 +11,7 @@ use std::sync::Arc;
 
 pub use agent::AgentStorage;
 pub use config::{ConfigStorage, SystemConfig};
+pub use secrets::SecretStorage;
 pub use task_queue::TaskQueue;
 pub use trigger::TriggerStorage;
 pub use workflow::WorkflowStorage;
@@ -21,6 +23,7 @@ pub struct Storage {
     pub config: ConfigStorage,
     pub triggers: TriggerStorage,
     pub agents: AgentStorage,
+    pub secrets: SecretStorage,
 }
 
 impl Storage {
@@ -32,6 +35,7 @@ impl Storage {
         let config = ConfigStorage::new(db.clone())?;
         let triggers = TriggerStorage::new(db.clone())?;
         let agents = AgentStorage::new(db.clone())?;
+        let secrets = SecretStorage::new(db.clone())?;
 
         Ok(Self {
             db,
@@ -40,6 +44,7 @@ impl Storage {
             config,
             triggers,
             agents,
+            secrets,
         })
     }
 
