@@ -123,6 +123,19 @@
 
 /* Dark mode overrides */
 html.dark {
+  /* Override Element Plus primary color in dark mode */
+  --el-color-primary: #ff7d4d;
+  --el-color-primary-light-1: #ff8f66;
+  --el-color-primary-light-2: #ffa17e;
+  --el-color-primary-light-3: #ffb396;
+  --el-color-primary-light-4: #ffc5ae;
+  --el-color-primary-light-5: #ffd7c7;
+  --el-color-primary-light-6: #ffe9df;
+  --el-color-primary-light-7: #fff5f0;
+  --el-color-primary-light-8: #fffbf8;
+  --el-color-primary-light-9: #fffefe;
+  --el-color-primary-dark-2: #ff6b35;
+
   /* Primary color stays vibrant in dark mode */
   --rf-color-primary: #ff7d4d;
   --rf-color-primary-hover: #ff8f66;
