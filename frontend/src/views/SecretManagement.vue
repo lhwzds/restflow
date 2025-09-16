@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Plus, Search, CircleCheck, CircleClose, Delete, Edit } from '@element-plus/icons-vue'
-import HeaderBar from '../components/HeaderBar.vue'
+import HeaderBar from '../components/shared/HeaderBar.vue'
 import {
   ElButton,
   ElTable,

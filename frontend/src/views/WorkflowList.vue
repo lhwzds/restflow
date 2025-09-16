@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { Plus, Search } from '@element-plus/icons-vue'
 import { Lightbulb } from 'lucide-vue-next'
-import HeaderBar from '../components/HeaderBar.vue'
+import HeaderBar from '../components/shared/HeaderBar.vue'
 import WorkflowCard from '../components/workflow-list/WorkflowCard.vue'
 import WorkflowEmptyState from '../components/workflow-list/WorkflowEmptyState.vue'
 import NewWorkflowDialog from '../components/workflow-list/NewWorkflowDialog.vue'
