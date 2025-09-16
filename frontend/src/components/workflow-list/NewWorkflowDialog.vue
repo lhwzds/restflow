@@ -51,7 +51,7 @@ function handleCancel() {
     width="500px"
     :close-on-click-modal="false"
   >
-    <ElForm label-width="80px">
+    <ElForm label-width="80px" @submit.prevent>
       <ElFormItem label="Name" required>
         <ElInput
           v-model="workflowName"
