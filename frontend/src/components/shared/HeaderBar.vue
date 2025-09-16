@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ElHeader, ElButton } from 'element-plus'
 import { Sun, Moon } from 'lucide-vue-next'
-import { useTheme } from '../composables/useTheme'
+import { useTheme } from '../../composables/useTheme'
 
 defineProps<{
   title: string

@@ -17,7 +17,7 @@ import { useContextMenu } from '../../composables/ui/useContextMenu'
 import { AgentNode, HttpNode, ManualTriggerNode, WebhookTriggerNode } from '../../nodes'
 import { useExecutionStore } from '../../stores/executionStore'
 import ExecutionPanel from './ExecutionPanel.vue'
-import Icon from '../Icon.vue'
+import Icon from '../shared/Icon.vue'
 import NodeConfigPanel from './NodeConfigPanel.vue'
 import NodeToolbar from './NodeToolbar.vue'
 
