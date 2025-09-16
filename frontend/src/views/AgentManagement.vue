@@ -11,10 +11,12 @@ import HeaderBar from '../components/HeaderBar.vue'
       </template>
     </HeaderBar>
 
-    <!-- TODO : implement agent management features -->
-    <ElEmpty description="Agent management coming soon">
-      <span>This feature is under development</span>
-    </ElEmpty>
+    <!-- Empty State -->
+    <div class="empty-state">
+      <ElEmpty description="Agent management coming soon">
+        <span>This feature is under development</span>
+      </ElEmpty>
+    </div>
   </div>
 </template>
 
@@ -22,7 +24,14 @@ import HeaderBar from '../components/HeaderBar.vue'
 .agent-management {
   padding: 20px;
   height: 100%;
+  overflow-y: auto;
   background-color: var(--rf-color-bg-page);
 }
 
+.empty-state {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 60vh;
+}
 </style>

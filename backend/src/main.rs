@@ -3,7 +3,7 @@ mod static_assets;
 use backend::{AppCore, api};
 use std::sync::Arc;
 use api::{
-    workflows::*, triggers::*, tasks::*, config::*, python::*, agents::*
+    workflows::*, triggers::*, tasks::*, config::*, python::*, agents::*, secrets::*
 };
 use axum::{
     Router,
@@ -97,7 +97,11 @@ async fn main() {
         .route("/api/agents/{id}", get(get_agent).put(update_agent).delete(delete_agent))
         .route("/api/agents/{id}/execute", post(execute_agent))
         .route("/api/agents/execute-inline", post(execute_agent_inline))
-        
+
+        // Secret management endpoints
+        .route("/api/secrets", get(list_secrets).post(create_secret))
+        .route("/api/secrets/{key}", put(update_secret).delete(delete_secret))
+
         .fallback(static_assets::static_handler)
         .layer(cors)
         .with_state(shared_state);
