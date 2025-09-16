@@ -26,12 +26,14 @@ import HeaderBar from '../components/HeaderBar.vue'
   height: 100%;
   overflow-y: auto;
   background-color: var(--rf-color-bg-page);
+  box-sizing: border-box;
+  overflow-x: hidden;
 }
 
 .empty-state {
   display: flex;
   justify-content: center;
   align-items: center;
-  height: 60vh;
+  min-height: 300px;
 }
 </style>
