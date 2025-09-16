@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ElContainer, ElMain } from 'element-plus'
-import SidePanel from './components/SidePanel.vue'
+import SidePanel from './components/shared/SidePanel.vue'
 </script>
 
 <template>

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ElEmpty } from 'element-plus'
-import HeaderBar from '../components/HeaderBar.vue'
+import HeaderBar from '../components/shared/HeaderBar.vue'
 </script>
 
 <template>
