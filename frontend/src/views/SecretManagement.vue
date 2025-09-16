@@ -348,6 +348,7 @@ function formatKeyOnBlur() {
   border-radius: 8px;
   padding: 16px;
   box-shadow: var(--rf-shadow-sm);
+  margin-top: 20px;
   margin-bottom: 20px;
 }
 
