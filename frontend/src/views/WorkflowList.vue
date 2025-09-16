@@ -132,6 +132,8 @@ function hasTrigger(workflow: Workflow): boolean {
   height: 100%;
   overflow-y: auto;
   background-color: var(--rf-color-bg-page);
+  box-sizing: border-box;
+  overflow-x: hidden;
 }
 
 .search-input {
