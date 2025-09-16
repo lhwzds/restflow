@@ -1,0 +1,43 @@
+import { apiClient } from './config'
+import { isTauri, invokeCommand } from './utils'
+import type { Secret } from '@/types/generated/Secret'
+
+// List all secrets (returns keys only, not values)
+export async function listSecrets(): Promise<Secret[]> {
+  if (isTauri()) {
+    return invokeCommand<Secret[]>('list_secrets')
+  }
+  const response = await apiClient.get<Secret[]>('/api/secrets')
+  return response.data
+}
+
+export async function createSecret(key: string, value: string, description?: string): Promise<void> {
+  if (isTauri()) {
+    await invokeCommand('create_secret', { key, value, description })
+    return
+  }
+  await apiClient.post('/api/secrets', {
+    key,
+    value,
+    description
+  })
+}
+
+export async function updateSecret(key: string, value: string, description?: string): Promise<void> {
+  if (isTauri()) {
+    await invokeCommand('update_secret', { key, value, description })
+    return
+  }
+  await apiClient.put(`/api/secrets/${key}`, {
+    value,
+    description
+  })
+}
+
+export async function deleteSecret(key: string): Promise<void> {
+  if (isTauri()) {
+    await invokeCommand('delete_secret', { key })
+    return
+  }
+  await apiClient.delete(`/api/secrets/${key}`)
+}

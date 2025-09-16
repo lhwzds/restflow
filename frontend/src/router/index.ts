@@ -25,6 +25,12 @@ const router = createRouter({
       component: () => import('../views/AgentManagement.vue'),
       meta: { title: 'Agent Management' },
     },
+    {
+      path: '/secrets',
+      name: 'secrets',
+      component: () => import('../views/SecretManagement.vue'),
+      meta: { title: 'Secrets Management' },
+    },
   ],
 })
 

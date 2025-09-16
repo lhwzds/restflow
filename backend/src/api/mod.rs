@@ -5,5 +5,6 @@ pub mod config;
 pub mod state;
 pub mod python;
 pub mod agents;
+pub mod secrets;
 
 pub use state::AppState;
