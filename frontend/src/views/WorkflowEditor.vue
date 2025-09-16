@@ -166,36 +166,26 @@ onUnmounted(() => {
 <style lang="scss" scoped>
 .workflow-editor-page {
   height: 100vh;
+  background-color: var(--rf-color-bg-page);
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
+  position: relative;
 }
 
-.page-header {
-  padding: 12px 20px;
-  border-bottom: 1px solid #e4e7ed;
-  background: white;
-  flex-shrink: 0;
-}
-
-.header-content {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.workflow-name {
-  font-size: 18px;
-  font-weight: 600;
-}
-
-.header-actions {
-  display: flex;
-  gap: 12px;
+.header-bar {
+  position: absolute;
+  top: 20px;
+  left: 20px;
+  right: 20px;
+  z-index: 100;
 }
 
 .editor-container {
   flex: 1;
   overflow: hidden;
   position: relative;
+  margin-top: 60px;
+  padding-top: 20px;
 }
 </style>
