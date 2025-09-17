@@ -34,18 +34,18 @@ async fn main() {
     
     println!("Starting RestFlow server");
     
-    // Configure CORS
+    // Configure CORS 
     let cors = CorsLayer::new()
-        .allow_origin(["http://localhost:5173".parse().unwrap()])
+        .allow_origin(tower_http::cors::Any)
         .allow_methods([
             Method::GET,
             Method::POST,
             Method::PUT,
             Method::DELETE,
             Method::OPTIONS,
+            Method::PATCH,
         ])
-        .allow_headers([header::CONTENT_TYPE, header::AUTHORIZATION])
-        .allow_credentials(true);
+        .allow_headers([header::CONTENT_TYPE, header::AUTHORIZATION]);
 
     // AppState is now just an alias for Arc<AppCore>
     let shared_state = core.clone();
