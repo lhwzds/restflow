@@ -15,5 +15,17 @@ export default defineConfig({
         additionalData: `@use "@/styles/element/index.scss" as *;`,
       }
     }
+  },
+  server: {
+    proxy: {
+      '/api': {
+        target: 'http://localhost:3000',
+        changeOrigin: true
+      },
+      '/health': {
+        target: 'http://localhost:3000',
+        changeOrigin: true
+      }
+    }
   }
 })
