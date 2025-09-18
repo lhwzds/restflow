@@ -1,9 +1,11 @@
 use rig::{agent::AgentBuilder, client::CompletionClient, completion::Prompt, providers::openai};
 use serde::{Deserialize, Serialize};
 use anyhow::Result;
+use ts_rs::TS;
 use crate::tools::{AddTool, GetTimeTool};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct AgentNode {
     pub model: String,
     pub prompt: String,

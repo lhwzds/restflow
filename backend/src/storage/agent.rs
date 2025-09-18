@@ -3,13 +3,19 @@ use anyhow::Result;
 use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use ts_rs::TS;
 use uuid::Uuid;
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, TS)]
+#[ts(export)]
 pub struct StoredAgent {
     pub id: String,
     pub name: String,
     pub agent: AgentNode,
+    #[ts(optional)]
+    pub created_at: Option<i64>,
+    #[ts(optional)]
+    pub updated_at: Option<i64>,
 }
 const AGENT_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("agents");
 
@@ -27,10 +33,16 @@ impl AgentStorage {
         Ok(Self { db })
     }
     pub fn insert_agent(&self, name: String, agent: AgentNode) -> Result<StoredAgent> {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)?
+            .as_millis() as i64;
+
         let stored_agent = StoredAgent {
             id: Uuid::new_v4().to_string(),
             name,
             agent,
+            created_at: Some(now),
+            updated_at: Some(now),
         };
         let write_txn = self.db.begin_write()?;
         {
@@ -82,6 +94,12 @@ impl AgentStorage {
         if let Some(new_agent) = agent {
             existing_agent.agent = new_agent;
         };
+
+
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)?
+            .as_millis() as i64;
+        existing_agent.updated_at = Some(now);
 
         let write_txn = self.db.begin_write()?;
         {
