@@ -7,7 +7,7 @@ interface Props {
   itemName?: string
 }
 
-const props = withDefaults(defineProps<Props>(), {
+withDefaults(defineProps<Props>(), {
   itemName: 'item'
 })
 

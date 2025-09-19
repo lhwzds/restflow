@@ -121,8 +121,8 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <PageLayout variant="fullheight" no-padding>
-    <HeaderBar :title="workflowName || 'Workflow Editor'">
+  <PageLayout class="workflow-editor-page" variant="fullheight" no-padding>
+    <HeaderBar class="workflow-header" :title="workflowName || 'Workflow Editor'">
       <template #actions>
         <EditorHeader
           :has-unsaved-changes="unsavedChanges.hasChanges.value"
@@ -163,9 +163,70 @@ onUnmounted(() => {
 </template>
 
 <style lang="scss" scoped>
+.workflow-editor-page {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--rf-color-bg-page);
+  position: relative;
+  box-sizing: border-box;
+}
+
 .editor-container {
   flex: 1;
   overflow: hidden;
   position: relative;
+  display: flex;
+  flex-direction: column;
+  padding: calc(60px + var(--rf-spacing-2xl, 40px)) var(--rf-spacing-xl, 24px) var(--rf-spacing-xl, 24px);
+}
+
+.editor-container :deep(.workflow-editor) {
+  flex: 1;
+}
+
+:deep(.page-layout__header) {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 0;
+  padding: 0;
+  border: none;
+  pointer-events: none;
+}
+
+:deep(.page-layout__header > *) {
+  pointer-events: auto;
+}
+
+.workflow-editor-page :deep(.workflow-header) {
+  position: absolute;
+  top: var(--rf-spacing-xl);
+  left: var(--rf-spacing-xl);
+  right: var(--rf-spacing-xl);
+  z-index: 10;
+  border-radius: var(--rf-radius-large);
+  border: 1px solid var(--rf-color-border-light);
+  background: var(--rf-color-bg-container);
+  background: color-mix(in srgb, var(--rf-color-bg-container) 92%, transparent);
+  box-shadow: var(--rf-shadow-xl, 0 12px 24px rgba(0, 0, 0, 0.15));
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+.workflow-editor-page :deep(.workflow-header:hover) {
+  box-shadow: var(--rf-shadow-xl, 0 16px 32px rgba(0, 0, 0, 0.2));
+  transform: translateY(-1px);
+}
+
+:global(html.dark) .workflow-editor-page :deep(.workflow-header) {
+  border: 1px solid var(--rf-color-border-light);
+  background: color-mix(in srgb, var(--rf-color-bg-container) 94%, transparent);
+  box-shadow: var(--rf-shadow-xl, 0 16px 44px rgba(0, 0, 0, 0.45));
+}
+
+:global(html.dark) .workflow-editor-page :deep(.workflow-header:hover) {
+  box-shadow: var(--rf-shadow-xl, 0 20px 52px rgba(0, 0, 0, 0.55));
 }
 </style>
