@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { ElButton, ElInput, ElDialog, ElForm, ElFormItem, ElSelect, ElOption, ElSlider, ElMessage, ElEmpty, ElRow, ElCol } from 'element-plus'
-import { Plus, Search, ArrowLeft } from '@element-plus/icons-vue'
+import { Plus, Search } from '@element-plus/icons-vue'
 import HeaderBar from '../components/shared/HeaderBar.vue'
+import PageLayout from '../components/shared/PageLayout.vue'
+import PageHeader from '../components/shared/PageHeader.vue'
 import AgentCard from '../components/agents/AgentCard.vue'
 import AgentConfigPanel from '../components/agents/AgentConfigPanel.vue'
 import AgentChatPanel from '../components/agents/AgentChatPanel.vue'
@@ -11,7 +13,6 @@ import { useAgentOperations } from '../composables/agents/useAgentOperations'
 import { useAgentPanelResize } from '../composables/agents/useAgentPanelResize'
 import type { AgentNode } from '@/types/generated/AgentNode'
 
-// Composables
 const {
   searchQuery,
   selectedAgent,
@@ -21,9 +22,9 @@ const {
 } = useAgentsList()
 
 const { createAgent, updateAgent, deleteAgent } = useAgentOperations()
+// Panel resizing for split view - allows adjustable config/chat panel widths
 const { panelWidth, startDragging } = useAgentPanelResize()
 
-// Create new Agent dialog
 const showCreateDialog = ref(false)
 const createForm = ref<AgentNode>({
   model: 'gpt-4.1',
@@ -34,19 +35,16 @@ const createForm = ref<AgentNode>({
 })
 const createFormName = ref('')
 
-// Available model list
 const availableModels = [
   { label: 'GPT-4.1', value: 'gpt-4.1' },
   { label: 'Claude Sonnet 4', value: 'claude-sonnet-4' },
   { label: 'DeepSeek V3', value: 'deepseek-v3' },
 ]
 
-// Load agents
 onMounted(() => {
   loadAgents()
 })
 
-// Create new Agent
 async function handleCreate() {
   if (!createFormName.value.trim()) {
     ElMessage.error('Please enter Agent name')
@@ -61,7 +59,6 @@ async function handleCreate() {
     await createAgent(createFormName.value, createForm.value)
     showCreateDialog.value = false
 
-    // Reset form
     createFormName.value = ''
     createForm.value = {
       model: 'gpt-4.1',
@@ -71,47 +68,50 @@ async function handleCreate() {
       tools: null
     }
 
-    // Reload list
     await loadAgents()
   } catch (error) {
-    // Error already handled in composable
+    // Handled by composable
   }
 }
 
-// Update Agent
 async function handleUpdate(id: string, updates: any) {
   try {
     await updateAgent(id, updates)
-    // Reload list
     await loadAgents()
   } catch (error) {
-    // Error already handled in composable
+    // Handled by composable
   }
 }
 
-// Delete Agent
 async function handleDelete(id: string) {
   try {
     await deleteAgent(id)
     selectAgent(null)
-    // Reload list
     await loadAgents()
   } catch (error) {
-    // Error already handled in composable
+    // Handled by composable
   }
 }
 
-// Back to list
 function backToList() {
   selectAgent(null)
 }
 </script>
 
 <template>
-  <div class="agent-management">
-    <!-- Card grid view (unselected state) -->
-    <template v-if="!selectedAgent">
-      <HeaderBar title="Agent Management">
+  <PageLayout :variant="selectedAgent ? 'split' : 'default'" :no-padding="!!selectedAgent">
+    <template v-if="selectedAgent" #header>
+      <PageHeader
+        :title="selectedAgent.name"
+        :subtitle="`${selectedAgent.agent.model} Agent`"
+        :show-back="true"
+        :back-to="backToList"
+      />
+    </template>
+
+    <div class="agent-management">
+      <div v-if="!selectedAgent" class="agent-management__list">
+        <HeaderBar title="Agent Management">
         <template #actions>
           <ElInput
             v-model="searchQuery"
@@ -128,10 +128,9 @@ function backToList() {
             New Agent
           </ElButton>
         </template>
-      </HeaderBar>
+        </HeaderBar>
 
-      <!-- Agents grid -->
-      <div v-if="filteredAgents.length > 0" class="agents-grid">
+        <div v-if="filteredAgents.length > 0" class="agents-grid">
         <ElRow :gutter="16">
           <ElCol
             v-for="agent in filteredAgents"
@@ -149,68 +148,54 @@ function backToList() {
             />
           </ElCol>
         </ElRow>
-      </div>
-
-      <!-- Empty state -->
-      <div v-else class="empty-state">
-        <ElEmpty
-          :description="searchQuery ? 'No matching Agents found' : 'No Agents created yet'"
-        >
-          <ElButton
-            v-if="!searchQuery"
-            type="primary"
-            @click="showCreateDialog = true"
-          >
-            Create First Agent
-          </ElButton>
-          <ElButton
-            v-else
-            @click="searchQuery = ''"
-          >
-            Clear Search
-          </ElButton>
-        </ElEmpty>
-      </div>
-    </template>
-
-    <!-- Split screen view (selected state) -->
-    <template v-else>
-      <div class="detail-header">
-        <ElButton
-          :icon="ArrowLeft"
-          @click="backToList"
-        >
-          Back to List
-        </ElButton>
-      </div>
-
-      <div class="split-container">
-        <!-- Left configuration panel -->
-        <div
-          class="config-panel"
-          :style="{ width: `${panelWidth}px` }"
-        >
-          <AgentConfigPanel
-            :agent="selectedAgent"
-            @update="handleUpdate"
-            @delete="handleDelete"
-          />
         </div>
 
-        <!-- Draggable splitter -->
-        <div
-          class="splitter"
-          @mousedown="startDragging"
-        />
+        <div v-else class="empty-state">
+          <ElEmpty
+            :description="searchQuery ? 'No matching Agents found' : 'No Agents created yet'"
+          >
+            <ElButton
+              v-if="!searchQuery"
+              type="primary"
+              @click="showCreateDialog = true"
+            >
+              Create First Agent
+            </ElButton>
+            <ElButton
+              v-else
+              @click="searchQuery = ''"
+            >
+              Clear Search
+            </ElButton>
+          </ElEmpty>
+        </div>
+      </div>
 
-        <!-- Right chat panel -->
+      <div v-else class="agent-management__detail">
+        <div class="split-container">
+      <div
+        class="config-panel"
+        :style="{ width: `${panelWidth}px` }"
+      >
+        <AgentConfigPanel
+          :agent="selectedAgent"
+          @update="handleUpdate"
+          @delete="handleDelete"
+        />
+      </div>
+
+      <div
+        class="splitter"
+        @mousedown="startDragging"
+      />
+
         <div class="chat-panel">
           <AgentChatPanel :agent="selectedAgent" />
         </div>
       </div>
-    </template>
+      </div>
+    </div>
 
-    <!-- Create Agent Dialog -->
     <ElDialog
       v-model="showCreateDialog"
       title="Create New Agent"
@@ -269,66 +254,60 @@ function backToList() {
         <ElButton type="primary" @click="handleCreate">Create</ElButton>
       </template>
     </ElDialog>
-  </div>
+  </PageLayout>
 </template>
 
 <style lang="scss" scoped>
 .agent-management {
-  padding: 20px;
-  height: 100%;
-  overflow-y: auto;
-  background-color: var(--rf-color-bg-page);
-  box-sizing: border-box;
-  overflow-x: hidden;
+  flex: 1;
+  min-height: 0;
 
-  .search-input {
-    width: 300px;
-  }
-
-  // Card grid layout
-  .agents-grid {
-    margin-top: 20px;
-
-    // Fix Element Plus row layout
-    :deep(.el-row) {
-      display: flex;
-      flex-wrap: wrap;
-      margin-left: -8px;
-      margin-right: -8px;
+  &__list {
+    .search-input {
+      width: 300px;
     }
 
-    // Ensure proper column spacing
-    .agent-col {
-      margin-bottom: 16px;
-      display: flex;
+    .agents-grid {
+      margin-top: 20px;
 
-      // Fix height issue by making card fill column
-      .agent-card {
-        width: 100%;
+      /* Element Plus row layout fix */
+      :deep(.el-row) {
+        display: flex;
+        flex-wrap: wrap;
+        margin-left: -8px;
+        margin-right: -8px;
+      }
+
+      .agent-col {
+        margin-bottom: 16px;
+        display: flex;
+
+        .agent-card {
+          width: 100%;
+        }
       }
     }
+
+    .empty-state {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 400px;
+      margin-top: 20px;
+    }
   }
 
-  .empty-state {
+  &__detail {
+    flex: 1;
+    min-height: 0;
     display: flex;
-    justify-content: center;
-    align-items: center;
-    min-height: 400px;
-    margin-top: 20px;
-  }
-
-  // Detail view
-  .detail-header {
-    margin: -20px -20px 20px -20px;
-    padding: 12px 20px;
-    background: var(--rf-color-bg-container);
-    border-bottom: 1px solid var(--rf-color-border-lighter);
+    flex-direction: column;
   }
 
   .split-container {
     display: flex;
-    height: calc(100vh - 200px);
-    margin: 0 -20px;
+    height: 100%;
+    align-items: stretch;
 
     .config-panel {
       background: var(--rf-color-bg-container);
@@ -341,6 +320,7 @@ function backToList() {
       background: var(--rf-color-border-base);
       cursor: ew-resize;
       flex-shrink: 0;
+      align-self: stretch;
       transition: background 0.2s;
 
       &:hover {
@@ -355,17 +335,14 @@ function backToList() {
     .chat-panel {
       flex: 1;
       overflow: hidden;
+      display: flex;
+      min-width: 0;
     }
   }
 }
 
-// Dark mode adaptation
 html.dark {
   .agent-management {
-    .detail-header {
-      background-color: var(--rf-color-bg-container);
-    }
-
     .split-container {
       .config-panel {
         background-color: var(--rf-color-bg-container);

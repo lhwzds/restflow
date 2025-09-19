@@ -5,6 +5,7 @@ import { useRoute, useRouter } from 'vue-router'
 import Editor from '../components/workflow-editor/Editor.vue'
 import EditorHeader from '../components/workflow-editor/EditorHeader.vue'
 import HeaderBar from '../components/shared/HeaderBar.vue'
+import PageLayout from '../components/shared/PageLayout.vue'
 import { useWorkflowImportExport } from '../composables/persistence/useWorkflowImportExport'
 import { useWorkflowPersistence } from '../composables/persistence/useWorkflowPersistence'
 import { useKeyboardShortcuts } from '../composables/shared/useKeyboardShortcuts'
@@ -15,7 +16,6 @@ const route = useRoute()
 const router = useRouter()
 const workflowStore = useWorkflowStore()
 
-// Composables
 const { currentWorkflowMeta, isSaving, loadWorkflow, saveWorkflow } = useWorkflowPersistence()
 
 const { exportWorkflow, importWorkflow } = useWorkflowImportExport({
@@ -31,19 +31,16 @@ const saveDialogVisible = ref(false)
 const unsavedChanges = useUnsavedChanges()
 const workflowName = computed(() => currentWorkflowMeta.value.name || 'Untitled Workflow')
 const handleSave = async () => {
-  // Show dialog if new workflow without name
   if (!workflowStore.currentWorkflowId && !workflowStore.currentWorkflowName?.trim()) {
     saveDialogVisible.value = true
     return
   }
 
-  // Validate name
   if (!workflowStore.currentWorkflowName?.trim()) {
     ElMessage.error('Please provide a workflow name')
     return
   }
 
-  // Save workflow
   const result = await saveWorkflow(workflowStore.nodes, workflowStore.edges, {
     meta: { name: workflowStore.currentWorkflowName },
     showMessage: true,
@@ -53,7 +50,7 @@ const handleSave = async () => {
     unsavedChanges.markAsSaved()
     saveDialogVisible.value = false
 
-    // Update URL for new workflows
+    // Navigate to saved workflow URL after initial save
     if (!route.params.id && result.id) {
       router.replace(`/workflow/${result.id}`)
     }
@@ -72,6 +69,7 @@ const handleImport = () => {
   importWorkflow()
 }
 
+// Register keyboard shortcuts for common operations
 useKeyboardShortcuts({
   'ctrl+s': handleSave,
   'meta+s': handleSave,
@@ -94,16 +92,17 @@ const initializeWorkflow = async () => {
   } else {
     workflowStore.clearCanvas()
     workflowStore.setWorkflowMetadata(null, 'Untitled Workflow')
-    unsavedChanges.markAsSaved() // Start with saved state for new workflow
+    unsavedChanges.markAsSaved() // New workflows start in saved state
   }
 }
 
+// Handle route changes to load different workflows
 watch(
   () => route.params.id,
   (newId, oldId) => {
     if (newId !== oldId) {
       if (!oldId && newId === workflowStore.currentWorkflowId) {
-        // From new workflow to saved workflow after save
+        // Prevent reinitialization when URL updates after save
         return
       }
       initializeWorkflow()
@@ -122,7 +121,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="workflow-editor-page">
+  <PageLayout variant="fullheight" no-padding>
     <HeaderBar :title="workflowName || 'Workflow Editor'">
       <template #actions>
         <EditorHeader
@@ -160,32 +159,13 @@ onUnmounted(() => {
         <ElButton type="primary" @click="handleSave">Save</ElButton>
       </template>
     </ElDialog>
-  </div>
+  </PageLayout>
 </template>
 
 <style lang="scss" scoped>
-.workflow-editor-page {
-  height: 100vh;
-  background-color: var(--rf-color-bg-page);
-  box-sizing: border-box;
-  display: flex;
-  flex-direction: column;
-  position: relative;
-}
-
-.header-bar {
-  position: absolute;
-  top: 20px;
-  left: 20px;
-  right: 20px;
-  z-index: 100;
-}
-
 .editor-container {
   flex: 1;
   overflow: hidden;
   position: relative;
-  margin-top: 60px;
-  padding-top: 20px;
 }
 </style>

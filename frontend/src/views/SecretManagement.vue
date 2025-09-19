@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { Plus, Search, CircleCheck, CircleClose, Delete, Edit } from '@element-plus/icons-vue'
 import HeaderBar from '../components/shared/HeaderBar.vue'
+import PageLayout from '../components/shared/PageLayout.vue'
 import {
   ElButton,
   ElTable,
@@ -18,7 +19,6 @@ import type { Secret } from '@/types/generated/Secret'
 const { isLoading, searchQuery, filteredSecrets, loadSecrets } = useSecretsList()
 const { createSecret, updateSecret, deleteSecret } = useSecretOperations()
 
-// Simplified unified edit state
 interface EditState {
   mode: 'idle' | 'creating' | 'editing'
   targetKey?: string
@@ -42,7 +42,7 @@ const editState = reactive<EditState>({
   editData: {},
 })
 
-// Computed table data that includes new row when creating
+// Merge new row with existing secrets for unified table rendering
 const tableData = computed(() => {
   if (editState.mode === 'creating' && editState.newRow) {
     return [editState.newRow, ...filteredSecrets.value]
@@ -54,23 +54,20 @@ onMounted(() => {
   loadSecrets()
 })
 
-// Start creating new secret
 function handleAddSecret() {
   editState.mode = 'creating'
   editState.newRow = { key: '', value: '', description: '', isNew: true }
 }
 
-// Start editing existing secret
 function handleEditSecret(row: Secret) {
   editState.mode = 'editing'
   editState.targetKey = row.key
   editState.editData[row.key] = {
-    value: '', // User needs to re-enter for security
+    value: '', // Security: require re-entry of secret value
     description: row.description || '',
   }
 }
 
-// Cancel any edit operation
 function cancelEdit() {
   if (editState.mode === 'editing' && editState.targetKey) {
     delete editState.editData[editState.targetKey]
@@ -80,7 +77,6 @@ function cancelEdit() {
   editState.newRow = undefined
 }
 
-// Save new secret
 async function saveNewSecret() {
   if (!editState.newRow?.key || !editState.newRow?.value) {
     ElMessage.error('Key and value are required')
@@ -94,13 +90,12 @@ async function saveNewSecret() {
 
     cancelEdit()
     await loadSecrets()
-    searchQuery.value = '' // Clear search to show new secret
+    searchQuery.value = '' // Clear search to ensure new secret is visible
   } catch (error: any) {
     ElMessage.error('Failed to create: ' + (error.message || error))
   }
 }
 
-// Save edited secret
 async function saveEditedSecret(key: string) {
   const data = editState.editData[key]
   if (!data?.value) {
@@ -121,7 +116,6 @@ async function saveEditedSecret(key: string) {
   }
 }
 
-// Delete secret
 async function handleDeleteSecret(row: Secret) {
   try {
     await ElMessageBox.confirm(
@@ -138,7 +132,7 @@ async function handleDeleteSecret(row: Secret) {
     ElMessage.success('Secret deleted successfully')
     await loadSecrets()
   } catch (error: any) {
-    // Ignore cancel and close actions from dialog
+    // Filter out user-initiated dialog cancellation
     const errorMessage = error?.message || error
     if (errorMessage !== 'cancel' && errorMessage !== 'close' && error !== 'cancel') {
       ElMessage.error('Failed to delete: ' + errorMessage)
@@ -146,12 +140,10 @@ async function handleDeleteSecret(row: Secret) {
   }
 }
 
-// Helper to check if a row is being edited
 function isEditing(row: any): boolean {
   return editState.mode === 'editing' && editState.targetKey === row.key
 }
 
-// Format date helper
 function formatDate(timestamp: number | undefined): string {
   if (!timestamp) return 'Never'
   const days = Math.floor((Date.now() - timestamp) / (1000 * 60 * 60 * 24))
@@ -162,7 +154,7 @@ function formatDate(timestamp: number | undefined): string {
   return `${Math.floor(days / 30)} months ago`
 }
 
-// Format key input on blur to avoid cursor jump
+// Format key on blur to prevent cursor jumping during typing
 function formatKeyOnBlur() {
   if (editState.newRow) {
     editState.newRow.key = editState.newRow.key.toUpperCase().replace(/[^A-Z0-9_]/g, '_')
@@ -171,7 +163,7 @@ function formatKeyOnBlur() {
 </script>
 
 <template>
-  <div class="secret-management">
+  <PageLayout variant="default">
     <HeaderBar title="Secrets Management">
       <template #actions>
         <ElInput
@@ -192,7 +184,6 @@ function formatKeyOnBlur() {
       </template>
     </HeaderBar>
 
-    <!-- Secrets Table -->
     <div v-if="tableData.length > 0 || searchQuery" class="table-section">
       <ElTable
         :data="tableData"
@@ -202,7 +193,6 @@ function formatKeyOnBlur() {
         style="width: 100%"
         class="secrets-table"
       >
-        <!-- Key Column -->
         <ElTableColumn prop="key" label="Key" min-width="200">
           <template #default="{ row }">
             <ElInput
@@ -215,7 +205,6 @@ function formatKeyOnBlur() {
           </template>
         </ElTableColumn>
 
-        <!-- Value Column -->
         <ElTableColumn label="Value" min-width="250">
           <template #default="{ row }">
             <ElInput
@@ -236,7 +225,6 @@ function formatKeyOnBlur() {
           </template>
         </ElTableColumn>
 
-        <!-- Description Column -->
         <ElTableColumn prop="description" label="Description" min-width="250">
           <template #default="{ row }">
             <ElInput
@@ -255,17 +243,14 @@ function formatKeyOnBlur() {
           </template>
         </ElTableColumn>
 
-        <!-- Last Updated Column -->
         <ElTableColumn prop="updated_at" label="Last Updated" width="150">
           <template #default="{ row }">
             <span v-if="!row.isNew" class="update-time">{{ formatDate(row.updated_at) }}</span>
           </template>
         </ElTableColumn>
 
-        <!-- Actions Column -->
         <ElTableColumn label="Actions" width="150" fixed="right">
           <template #default="{ row }">
-            <!-- New row actions -->
             <div v-if="row.isNew" class="action-buttons">
               <ElButton
                 :icon="CircleCheck"
@@ -276,7 +261,6 @@ function formatKeyOnBlur() {
               />
               <ElButton :icon="CircleClose" circle size="small" @click="cancelEdit" />
             </div>
-            <!-- Editing row actions -->
             <div v-else-if="isEditing(row)" class="action-buttons">
               <ElButton
                 :icon="CircleCheck"
@@ -287,7 +271,6 @@ function formatKeyOnBlur() {
               />
               <ElButton :icon="CircleClose" circle size="small" @click="cancelEdit" />
             </div>
-            <!-- Normal row actions -->
             <div v-else class="action-buttons">
               <ElButton
                 :icon="Edit"
@@ -310,7 +293,6 @@ function formatKeyOnBlur() {
       </ElTable>
     </div>
 
-    <!-- Empty State -->
     <div
       v-if="filteredSecrets.length === 0 && editState.mode !== 'creating' && !isLoading"
       class="empty-state"
@@ -326,19 +308,10 @@ function formatKeyOnBlur() {
         </ElButton>
       </ElEmpty>
     </div>
-  </div>
+  </PageLayout>
 </template>
 
 <style lang="scss" scoped>
-.secret-management {
-  padding: 20px;
-  height: 100%;
-  overflow-y: auto;
-  background-color: var(--rf-color-bg-page);
-  box-sizing: border-box;
-  overflow-x: hidden;
-}
-
 .search-input {
   width: 300px;
 }

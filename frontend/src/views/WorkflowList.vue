@@ -2,6 +2,7 @@
 import { Plus, Search } from '@element-plus/icons-vue'
 import { Lightbulb } from 'lucide-vue-next'
 import HeaderBar from '../components/shared/HeaderBar.vue'
+import PageLayout from '../components/shared/PageLayout.vue'
 import WorkflowCard from '../components/workflow-list/WorkflowCard.vue'
 import WorkflowEmptyState from '../components/workflow-list/WorkflowEmptyState.vue'
 import NewWorkflowDialog from '../components/workflow-list/NewWorkflowDialog.vue'
@@ -12,8 +13,6 @@ import { useWorkflowListSelection } from '../composables/list/useWorkflowListSel
 import { useWorkflowTriggers } from '../composables/triggers/useWorkflowTriggers'
 import { isNodeATrigger } from '../composables/node/useNodeHelpers'
 import type { Workflow } from '@/types/generated/Workflow'
-
-// Local type definitions
 
 const {
   workflows,
@@ -69,7 +68,7 @@ function hasTrigger(workflow: Workflow): boolean {
 </script>
 
 <template>
-  <div class="workflow-list">
+  <PageLayout variant="default">
     <HeaderBar title="Workflows">
       <template #actions>
         <ElInput
@@ -123,19 +122,10 @@ function hasTrigger(workflow: Workflow): boolean {
     </div>
 
     <NewWorkflowDialog v-model:visible="showNewWorkflowDialog" />
-  </div>
+  </PageLayout>
 </template>
 
 <style lang="scss" scoped>
-.workflow-list {
-  padding: 20px;
-  height: 100%;
-  overflow-y: auto;
-  background-color: var(--rf-color-bg-page);
-  box-sizing: border-box;
-  overflow-x: hidden;
-}
-
 .search-input {
   width: 300px;
 }
