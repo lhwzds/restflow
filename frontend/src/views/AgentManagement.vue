@@ -261,6 +261,8 @@ function backToList() {
 .agent-management {
   flex: 1;
   min-height: 0;
+  display: flex;
+  flex-direction: column;
 
   &__list {
     .search-input {
@@ -306,7 +308,8 @@ function backToList() {
 
   .split-container {
     display: flex;
-    height: 100%;
+    flex: 1;
+    min-height: 0;
     align-items: stretch;
 
     .config-panel {
@@ -336,7 +339,9 @@ function backToList() {
       flex: 1;
       overflow: hidden;
       display: flex;
+      flex-direction: column;
       min-width: 0;
+      min-height: 0;
     }
   }
 }
