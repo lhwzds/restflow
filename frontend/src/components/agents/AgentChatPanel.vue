@@ -83,9 +83,9 @@ function handleClear() {
   messages.value = []
 }
 
-// Support Ctrl+Enter to send
-function handleKeydown(event: Event | KeyboardEvent) {
-  if ('ctrlKey' in event && event.ctrlKey && 'key' in event && event.key === 'Enter') {
+// Support Ctrl+Enter / Cmd+Enter to send
+function handleKeydown(event: KeyboardEvent | Event) {
+  if (event instanceof KeyboardEvent && (event.ctrlKey || event.metaKey) && event.key === 'Enter') {
     event.preventDefault()
     handleSend()
   }
@@ -330,10 +330,12 @@ onMounted(() => {
     }
 
     .send-button {
-      align-self: stretch;
+      align-self: center;
       display: flex;
       align-items: center;
       justify-content: center;
+      padding: var(--rf-spacing-sm) var(--rf-spacing-md);
+      margin-left: var(--rf-spacing-sm);
     }
   }
 }
