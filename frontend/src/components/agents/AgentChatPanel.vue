@@ -195,7 +195,8 @@ onMounted(() => {
 
 <style lang="scss" scoped>
 .agent-chat-panel {
-  height: 100%;
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   background: var(--rf-color-bg-page);
@@ -317,13 +318,22 @@ onMounted(() => {
     border-top: 1px solid var(--rf-color-border-lighter);
     display: flex;
     gap: 12px;
+    align-items: stretch;
 
     :deep(.el-textarea) {
       flex: 1;
+      display: flex;
+    }
+
+    :deep(.el-textarea__inner) {
+      height: 100%;
     }
 
     .send-button {
-      align-self: flex-end;
+      align-self: stretch;
+      display: flex;
+      align-items: center;
+      justify-content: center;
     }
   }
 }
