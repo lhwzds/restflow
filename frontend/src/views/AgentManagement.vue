@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { ElButton, ElInput, ElDialog, ElForm, ElFormItem, ElSelect, ElOption, ElSlider, ElMessage, ElEmpty, ElRow, ElCol } from 'element-plus'
+import { ElButton, ElInput, ElDialog, ElForm, ElFormItem, ElSelect, ElOption, ElSlider, ElMessage, ElRow, ElCol } from 'element-plus'
 import { Plus, Search } from '@element-plus/icons-vue'
 import HeaderBar from '../components/shared/HeaderBar.vue'
 import PageLayout from '../components/shared/PageLayout.vue'
 import PageHeader from '../components/shared/PageHeader.vue'
+import EmptyState from '../components/shared/EmptyState.vue'
+import SearchInfo from '../components/shared/SearchInfo.vue'
 import AgentCard from '../components/agents/AgentCard.vue'
 import AgentConfigPanel from '../components/agents/AgentConfigPanel.vue'
 import AgentChatPanel from '../components/agents/AgentChatPanel.vue'
@@ -130,6 +132,13 @@ function backToList() {
         </template>
         </HeaderBar>
 
+        <SearchInfo
+          :count="filteredAgents.length"
+          :search-query="searchQuery"
+          item-name="agent"
+          @clear="searchQuery = ''"
+        />
+
         <div v-if="filteredAgents.length > 0" class="agents-grid">
         <ElRow :gutter="16">
           <ElCol
@@ -150,25 +159,14 @@ function backToList() {
         </ElRow>
         </div>
 
-        <div v-else class="empty-state">
-          <ElEmpty
-            :description="searchQuery ? 'No matching Agents found' : 'No Agents created yet'"
-          >
-            <ElButton
-              v-if="!searchQuery"
-              type="primary"
-              @click="showCreateDialog = true"
-            >
-              Create First Agent
-            </ElButton>
-            <ElButton
-              v-else
-              @click="searchQuery = ''"
-            >
-              Clear Search
-            </ElButton>
-          </ElEmpty>
-        </div>
+        <EmptyState
+          v-else
+          :search-query="searchQuery"
+          item-name="agent"
+          create-text="Create First"
+          @action="showCreateDialog = true"
+          @clear-search="searchQuery = ''"
+        />
       </div>
 
       <div v-else class="agent-management__detail">
@@ -266,7 +264,7 @@ function backToList() {
 
   &__list {
     .search-input {
-      width: 300px;
+      width: var(--rf-search-input-width);
     }
 
     .agents-grid {
@@ -290,13 +288,6 @@ function backToList() {
       }
     }
 
-    .empty-state {
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      min-height: 400px;
-      margin-top: 20px;
-    }
   }
 
   &__detail {
