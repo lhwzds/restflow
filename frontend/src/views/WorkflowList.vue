@@ -5,6 +5,7 @@ import HeaderBar from '../components/shared/HeaderBar.vue'
 import PageLayout from '../components/shared/PageLayout.vue'
 import WorkflowCard from '../components/workflow-list/WorkflowCard.vue'
 import WorkflowEmptyState from '../components/workflow-list/WorkflowEmptyState.vue'
+import SearchInfo from '../components/shared/SearchInfo.vue'
 import NewWorkflowDialog from '../components/workflow-list/NewWorkflowDialog.vue'
 import { ElButton, ElCol, ElInput, ElRow } from 'element-plus'
 import { onMounted, ref } from 'vue'
@@ -85,10 +86,12 @@ function hasTrigger(workflow: Workflow): boolean {
       </template>
     </HeaderBar>
 
-    <div v-if="searchQuery" class="search-info">
-      <span>Found {{ filteredWorkflows.length }} workflow(s) matching "{{ searchQuery }}"</span>
-      <ElButton link @click="clearSearch">Clear</ElButton>
-    </div>
+    <SearchInfo
+      :count="filteredWorkflows.length"
+      :search-query="searchQuery"
+      item-name="workflow"
+      @clear="clearSearch"
+    />
 
     <WorkflowEmptyState
       v-if="filteredWorkflows.length === 0"
@@ -127,20 +130,9 @@ function hasTrigger(workflow: Workflow): boolean {
 
 <style lang="scss" scoped>
 .search-input {
-  width: 300px;
+  width: var(--rf-search-input-width);
 }
 
-.search-info {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 12px 16px;
-  background-color: var(--rf-color-bg-overlay);
-  border-radius: 4px;
-  margin-bottom: 20px;
-  font-size: 14px;
-  color: var(--rf-color-text-regular);
-}
 
 .workflow-grid-container {
   width: 100%;

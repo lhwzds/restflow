@@ -2,12 +2,13 @@
 import { Plus, Search, CircleCheck, CircleClose, Delete, Edit } from '@element-plus/icons-vue'
 import HeaderBar from '../components/shared/HeaderBar.vue'
 import PageLayout from '../components/shared/PageLayout.vue'
+import EmptyState from '../components/shared/EmptyState.vue'
+import SearchInfo from '../components/shared/SearchInfo.vue'
 import {
   ElButton,
   ElTable,
   ElTableColumn,
   ElInput,
-  ElEmpty,
   ElMessageBox,
   ElMessage,
 } from 'element-plus'
@@ -184,7 +185,14 @@ function formatKeyOnBlur() {
       </template>
     </HeaderBar>
 
-    <div v-if="tableData.length > 0 || searchQuery" class="table-section">
+    <SearchInfo
+      :count="filteredSecrets.length"
+      :search-query="searchQuery"
+      item-name="secret"
+      @clear="searchQuery = ''"
+    />
+
+    <div v-if="tableData.length > 0 || editState.mode === 'creating'" class="table-section">
       <ElTable
         :data="tableData"
         :loading="isLoading"
@@ -293,27 +301,21 @@ function formatKeyOnBlur() {
       </ElTable>
     </div>
 
-    <div
-      v-if="filteredSecrets.length === 0 && editState.mode !== 'creating' && !isLoading"
-      class="empty-state"
-    >
-      <ElEmpty
-        :description="searchQuery ? 'No secrets found matching your search' : 'No secrets yet'"
-      >
-        <ElButton
-          :type="searchQuery ? 'default' : 'primary'"
-          @click="searchQuery ? (searchQuery = '') : handleAddSecret()"
-        >
-          {{ searchQuery ? 'Clear search' : 'Create your first secret' }}
-        </ElButton>
-      </ElEmpty>
-    </div>
+    <EmptyState
+      v-if="filteredSecrets.length === 0 && editState.mode !== 'creating'"
+      :search-query="searchQuery"
+      :is-loading="isLoading"
+      item-name="secret"
+      create-text="Create your first"
+      @action="handleAddSecret"
+      @clear-search="searchQuery = ''"
+    />
   </PageLayout>
 </template>
 
 <style lang="scss" scoped>
 .search-input {
-  width: 300px;
+  width: var(--rf-search-input-width);
 }
 
 .table-section {
@@ -357,10 +359,4 @@ function formatKeyOnBlur() {
   }
 }
 
-.empty-state {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  min-height: 300px;
-}
 </style>
