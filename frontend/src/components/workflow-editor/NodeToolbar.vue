@@ -113,7 +113,7 @@ const handleClick = (template: NodeTemplate) => {
   border-radius: var(--rf-radius-md);
   box-shadow: var(--rf-shadow-card);
   padding: var(--rf-spacing-lg);
-  width: 220px;
+  width: var(--rf-size-lg);
   z-index: 10;
 }
 

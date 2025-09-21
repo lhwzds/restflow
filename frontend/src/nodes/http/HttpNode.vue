@@ -60,7 +60,7 @@ const executionTime = computed(() => {
 $node-color: #3b82f6;
 
 .http-node {
-  @include node-base(120px, 80px);
+  @include node-base(var(--rf-size-md), var(--rf-size-label));
   @include node-execution-states();
   @include node-handle($node-color);
   @include node-text();

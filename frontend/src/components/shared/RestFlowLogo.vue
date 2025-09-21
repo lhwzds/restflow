@@ -18,20 +18,21 @@ withDefaults(defineProps<Props>(), {
   <div class="restflow-logo">
     <svg :width="iconSize" :height="iconSize" viewBox="115 125 105 105" class="logo-icon">
       <!-- Head node only -->
-      <circle cx="167" cy="176.67" fill="#ff7f00" r="45" stroke="#ff7f00" stroke-width="5" />
+      <circle cx="167" cy="176.67" fill="currentColor" r="45" stroke="currentColor" stroke-width="5" class="logo-primary" />
       <!-- Sunglasses -->
       <rect
         fill="#000000"
         height="9.58"
         stroke="#000000"
+        class="logo-sunglasses"
         stroke-width="5"
         transform="rotate(0.608809 175.22 150.841) matrix(0.355375 -0.208259 0.192495 0.384478 160.054 103.486)"
         width="34"
         x="-35.59"
         y="108.31"
       />
-      <circle cx="163" cy="157.67" fill="#000000" r="6.32" stroke="#000000" stroke-width="5" />
-      <circle cx="184.33" cy="145.17" fill="#000000" r="6.32" stroke="#000000" stroke-width="5" />
+      <circle cx="163" cy="157.67" fill="#000000" r="6.32" stroke="#000000" stroke-width="5" class="logo-sunglasses" />
+      <circle cx="184.33" cy="145.17" fill="#000000" r="6.32" stroke="#000000" stroke-width="5" class="logo-sunglasses" />
     </svg>
     <div
       v-if="showText"
@@ -61,10 +62,16 @@ withDefaults(defineProps<Props>(), {
 }
 
 .text-rest {
-  color: var(--rf-color-primary, #ff7f00);
+  color: var(--rf-color-primary);
 }
 
 .text-flow {
   color: var(--rf-color-text-primary);
+}
+
+.logo-icon {
+  .logo-primary {
+    color: var(--rf-color-primary);
+  }
 }
 </style>

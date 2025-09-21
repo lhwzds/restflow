@@ -2,7 +2,7 @@
 
 @use 'sass:color';
 
-@mixin node-base($width: 120px, $min-height: 80px) {
+@mixin node-base($width: var(--rf-size-md), $min-height: var(--rf-size-label)) {
   width: $width;
   min-height: $min-height;
   position: relative;
@@ -166,7 +166,7 @@
   }
 }
 
-@mixin node-icon($size: 36px, $color: null) {
+@mixin node-icon($size: var(--rf-size-xs), $color: null) {
   width: $size;
   height: $size;
   border-radius: var(--rf-spacing-md-plus);
@@ -179,7 +179,7 @@
   z-index: 2;
 }
 
-@mixin trigger-node($node-color, $node-color-light, $width: 140px, $height: 75px) {
+@mixin trigger-node($node-color, $node-color-light, $width: var(--rf-size-md), $height: var(--rf-size-label)) {
   @include node-base($width, $height);
   @include node-execution-states();
   @include node-handle($node-color);
@@ -215,15 +215,15 @@
   }
   
   .trigger-icon {
-    @include node-icon(36px, $node-color);
+    @include node-icon(var(--rf-size-xs), $node-color);
   }
-  
+
   .pulse-effect {
     position: absolute;
     top: 0;
     left: 0;
-    width: 36px;
-    height: 36px;
+    width: var(--rf-size-xs);
+    height: var(--rf-size-xs);
     border-radius: var(--rf-spacing-md);
     background: linear-gradient(135deg, $node-color, color.adjust($node-color, $lightness: 5%));
     opacity: 0.4;
