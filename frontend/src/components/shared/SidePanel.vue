@@ -19,7 +19,7 @@ const activeMenu = computed(() => {
   return 'workflows'
 })
 
-const panelWidth = computed(() => (isCollapsed.value ? '64px' : '200px'))
+const panelWidth = computed(() => (isCollapsed.value ? 'var(--rf-size-sm)' : 'var(--rf-size-lg)'))
 
 const toggleCollapse = () => {
   isCollapsed.value = !isCollapsed.value
@@ -98,32 +98,32 @@ const handleMenuSelect = (index: string) => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px;
+  padding: var(--rf-spacing-md);
   border-bottom: 1px solid var(--rf-color-border-base);
-  height: 50px;
+  height: var(--rf-size-xs);
 }
 
 .panel-header.collapsed {
   justify-content: center;
   border-bottom: none;
   height: 32px;
-  padding: 16px 0 0 0;
+  padding: var(--rf-spacing-lg) 0 0 0;
 }
 
 .collapse-btn {
   margin-left: auto;
-  padding: 4px 8px;
+  padding: var(--rf-spacing-xs) var(--rf-spacing-sm);
 }
 
 .collapsed-btn-container {
   display: flex;
   justify-content: center;
-  padding: 4px 0 4px 0;
+  padding: var(--rf-spacing-xs) 0 var(--rf-spacing-xs) 0;
   border-bottom: 1px solid var(--rf-color-border-base);
 }
 
 .expand-btn {
-  padding: 4px 8px;
+  padding: var(--rf-spacing-xs) var(--rf-spacing-sm);
 }
 
 .panel-menu {
@@ -132,12 +132,12 @@ const handleMenuSelect = (index: string) => {
 }
 
 .panel-menu:not(.el-menu--collapse) {
-  width: 200px;
+  width: var(--rf-size-lg);
 }
 
 .el-menu-item {
-  height: 48px;
-  line-height: 48px;
+  height: var(--rf-size-line-lg);
+  line-height: var(--rf-size-line-lg);
 }
 
 .el-menu-item.is-active {

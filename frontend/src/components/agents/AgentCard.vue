@@ -125,10 +125,10 @@ function handleClick() {
 <style lang="scss" scoped>
 .agent-card {
   cursor: pointer;
-  transition: all 0.3s ease;
-  border-radius: 8px;
+  transition: all var(--rf-transition-base) ease;
+  border-radius: var(--rf-radius-base);
   overflow: hidden;
-  height: 200px;
+  height: var(--rf-size-lg);
   width: 100%;
   display: flex;
   flex-direction: column;
@@ -140,7 +140,7 @@ function handleClick() {
   }
 
   &:hover {
-    transform: translateY(-4px);
+    transform: translateY(var(--rf-transform-lift-sm));
     box-shadow: var(--rf-shadow-md);
   }
 
@@ -148,15 +148,15 @@ function handleClick() {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 8px;
-    min-height: 24px;
+    margin-bottom: var(--rf-spacing-sm);
+    min-height: var(--rf-size-xs);
 
     .agent-name {
       display: flex;
       align-items: center;
-      gap: 6px;
-      font-size: 14px;
-      font-weight: 600;
+      gap: var(--rf-spacing-xs);
+      font-size: var(--rf-font-size-sm);
+      font-weight: var(--rf-font-weight-semibold);
       color: var(--rf-color-text-primary);
       flex: 1;
       overflow: hidden;
@@ -169,7 +169,7 @@ function handleClick() {
 
       .agent-icon {
         color: var(--rf-color-primary);
-        font-size: 16px;
+        font-size: var(--rf-font-size-md);
         flex-shrink: 0;
       }
     }
@@ -177,9 +177,9 @@ function handleClick() {
 
   .prompt-preview {
     color: var(--rf-color-text-regular);
-    font-size: 12px;
+    font-size: var(--rf-font-size-xs);
     line-height: 1.4;
-    margin-bottom: 8px;
+    margin-bottom: var(--rf-spacing-sm);
     height: 32px;
     display: -webkit-box;
     -webkit-line-clamp: 2;
@@ -190,20 +190,20 @@ function handleClick() {
   .tools-section {
     display: flex;
     align-items: center;
-    gap: 4px;
-    margin-bottom: 6px;
-    height: 20px;
+    gap: var(--rf-spacing-3xs);
+    margin-bottom: var(--rf-spacing-xs);
+    height: var(--rf-spacing-2xl);
     overflow: hidden;
 
     .tools-label {
-      font-size: 11px;
+      font-size: var(--rf-font-size-xs);
       color: var(--rf-color-text-secondary);
       flex-shrink: 0;
     }
 
     .tool-tag {
-      padding: 1px 6px;
-      font-size: 11px;
+      padding: 1px var(--rf-spacing-xs);
+      font-size: var(--rf-font-size-xs);
       white-space: nowrap;
     }
   }
@@ -211,9 +211,9 @@ function handleClick() {
   .temperature-section {
     display: flex;
     align-items: center;
-    gap: 6px;
-    margin-bottom: 8px;
-    font-size: 11px;
+    gap: var(--rf-spacing-xs-plus);
+    margin-bottom: var(--rf-spacing-sm);
+    font-size: var(--rf-font-size-xs);
 
     .temp-label {
       color: var(--rf-color-text-secondary);
@@ -221,27 +221,27 @@ function handleClick() {
 
     .temp-value {
       color: var(--rf-color-text-regular);
-      font-weight: 500;
+      font-weight: var(--rf-font-weight-medium);
       background: var(--rf-color-bg-secondary);
-      padding: 1px 6px;
-      border-radius: 3px;
+      padding: 1px var(--rf-spacing-xs);
+      border-radius: var(--rf-radius-xs);
     }
   }
 
   .card-footer {
     border-top: 1px solid var(--rf-color-border-lighter);
-    padding-top: 6px;
+    padding-top: var(--rf-spacing-xs);
     margin-top: auto;
 
     .update-time {
       display: flex;
       align-items: center;
-      gap: 4px;
+      gap: var(--rf-spacing-xs);
       color: var(--rf-color-text-secondary);
-      font-size: 11px;
+      font-size: var(--rf-font-size-xs);
 
       .el-icon {
-        font-size: 12px;
+        font-size: var(--rf-font-size-xs);
       }
     }
   }

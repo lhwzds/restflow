@@ -320,28 +320,28 @@ function formatKeyOnBlur() {
 
 .table-section {
   background: var(--rf-color-bg-container);
-  border-radius: 8px;
-  padding: 16px;
+  border-radius: var(--rf-radius-base);
+  padding: var(--rf-spacing-lg);
   box-shadow: var(--rf-shadow-sm);
-  margin-top: 20px;
-  margin-bottom: 20px;
+  margin-top: var(--rf-spacing-xl);
+  margin-bottom: var(--rf-spacing-xl);
 }
 
 .secrets-table {
   :deep(.el-table__header) {
-    font-weight: 600;
+    font-weight: var(--rf-font-weight-semibold);
   }
 
   .secret-key {
     font-family: 'Monaco', 'Courier New', monospace;
-    font-weight: 500;
+    font-weight: var(--rf-font-weight-medium);
     color: var(--rf-color-primary);
   }
 
   .masked-value {
     font-family: 'Monaco', 'Courier New', monospace;
     color: var(--rf-color-text-secondary);
-    letter-spacing: 2px;
+    letter-spacing: var(--rf-letter-spacing-wide);
   }
 
   .secret-description {
@@ -350,12 +350,12 @@ function formatKeyOnBlur() {
 
   .update-time {
     color: var(--rf-color-text-secondary);
-    font-size: 13px;
+    font-size: var(--rf-font-size-sm);
   }
 
   .action-buttons {
     display: flex;
-    gap: 8px;
+    gap: var(--rf-spacing-sm);
   }
 }
 

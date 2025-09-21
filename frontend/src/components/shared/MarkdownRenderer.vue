@@ -99,8 +99,8 @@ const html = computed(() => {
   }
 
   code {
-    padding: var(--rf-spacing-2xs) var(--rf-spacing-xs);
-    margin: 0 var(--rf-spacing-2xs);
+    padding: var(--rf-spacing-3xs) var(--rf-spacing-xs);
+    margin: 0 var(--rf-spacing-3xs);
     background: var(--rf-color-bg-secondary);
     border-radius: var(--rf-radius-small);
     font-family: 'Consolas', 'Monaco', 'Courier New', monospace;

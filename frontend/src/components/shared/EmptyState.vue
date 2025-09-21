@@ -67,7 +67,7 @@ function handleAction() {
   display: flex;
   justify-content: center;
   align-items: center;
-  min-height: 300px;
+  min-height: var(--rf-size-xl);
   padding: var(--rf-spacing-xl);
 }
 </style>

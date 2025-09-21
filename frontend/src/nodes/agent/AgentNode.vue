@@ -74,7 +74,7 @@ $node-color: #667eea;
   width: 100%;
   height: 100%;
   @include node-glass($node-color);
-  border-radius: 12px;
+  border-radius: var(--rf-radius-md);
   padding: 0;
   
   &:hover {
@@ -85,27 +85,27 @@ $node-color: #667eea;
 }
 
 .glass-layer {
-  padding: 12px;
+  padding: var(--rf-spacing-md);
   position: relative;
 }
 
 .node-header {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 8px;
+  gap: var(--rf-spacing-sm);
+  margin-bottom: var(--rf-spacing-sm);
 }
 
 .node-icon {
   position: relative;
   @include node-icon(32px, $node-color);
-  border-radius: 8px;
+  border-radius: var(--rf-radius-large);
   
   .icon-decoration {
     position: absolute;
     top: -2px;
     right: -2px;
-    color: #fbbf24;
+    color: var(--rf-color-warning);
   }
 }
 
@@ -114,11 +114,11 @@ $node-color: #667eea;
 }
 
 .model-info {
-  font-size: 10px;
+  font-size: var(--rf-font-size-xs);
   color: var(--rf-color-text-secondary);
-  background: rgba($node-color, var(--rf-node-badge-alpha));
-  padding: 2px 6px;
-  border-radius: 4px;
+  background: rgba($node-color, var(--rf-opacity-overlay));
+  padding: var(--rf-spacing-3xs) var(--rf-spacing-xs);
+  border-radius: var(--rf-radius-small);
   display: inline-block;
 }
 

@@ -143,34 +143,34 @@ const isToolSelected = (toolId: string) => {
 
 <style lang="scss" scoped>
 .form-group {
-  margin-bottom: 20px;
+  margin-bottom: var(--rf-spacing-xl);
 }
 
 .form-group label {
   display: block;
-  margin-bottom: 6px;
-  font-size: 14px;
-  font-weight: 500;
-  color: #475569;
+  margin-bottom: var(--rf-spacing-xs-plus);
+  font-size: var(--rf-font-size-base);
+  font-weight: var(--rf-font-weight-medium);
+  color: var(--rf-color-text-regular);
 }
 
 .form-group input,
 .form-group select,
 .form-group textarea {
   width: 100%;
-  padding: 8px 12px;
-  border: 1px solid #cbd5e1;
-  border-radius: 6px;
-  font-size: 14px;
-  transition: border-color 0.2s;
+  padding: var(--rf-spacing-sm) var(--rf-spacing-md);
+  border: 1px solid var(--rf-color-border-light);
+  border-radius: var(--rf-radius-base);
+  font-size: var(--rf-font-size-base);
+  transition: border-color var(--rf-transition-fast);
 }
 
 .form-group input:focus,
 .form-group select:focus,
 .form-group textarea:focus {
   outline: none;
-  border-color: #6366f1;
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+  border-color: var(--rf-color-border-focus);
+  box-shadow: var(--rf-shadow-focus);
 }
 
 .form-group textarea {
@@ -181,28 +181,28 @@ const isToolSelected = (toolId: string) => {
 .tools-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--rf-spacing-sm);
 }
 
 .tool-item {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 12px;
-  border: 1px solid #e2e8f0;
-  border-radius: 6px;
+  gap: var(--rf-spacing-md);
+  padding: var(--rf-spacing-md);
+  border: 1px solid var(--rf-color-border-lighter);
+  border-radius: var(--rf-radius-base);
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all var(--rf-transition-fast);
 }
 
 .tool-item:hover {
-  background-color: #f8fafc;
-  border-color: #cbd5e1;
+  background-color: var(--rf-color-bg-secondary);
+  border-color: var(--rf-color-border-light);
 }
 
 .tool-item.selected {
-  background-color: #eff6ff;
-  border-color: #6366f1;
+  background-color: var(--rf-color-primary-bg-lighter);
+  border-color: var(--rf-color-border-focus);
 }
 
 .tool-item input[type='checkbox'] {
@@ -215,14 +215,14 @@ const isToolSelected = (toolId: string) => {
 }
 
 .tool-name {
-  font-weight: 500;
-  font-size: 14px;
-  color: #1e293b;
+  font-weight: var(--rf-font-weight-medium);
+  font-size: var(--rf-font-size-base);
+  color: var(--rf-color-text-primary);
 }
 
 .tool-desc {
-  font-size: 12px;
-  color: #64748b;
-  margin-top: 2px;
+  font-size: var(--rf-font-size-xs);
+  color: var(--rf-color-text-secondary);
+  margin-top: var(--rf-spacing-3xs);
 }
 </style>

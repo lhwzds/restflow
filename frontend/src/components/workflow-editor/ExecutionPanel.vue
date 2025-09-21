@@ -160,19 +160,19 @@ onUnmounted(() => {
 
         <div v-if="executionSummary && !executionStore.isExecuting" class="summary-tags">
           <ElTag v-if="executionSummary.success > 0" type="success" size="small">
-            <CheckCircle :size="14" style="vertical-align: middle; margin-right: 4px" />
+            <CheckCircle :size="14" class="status-icon" />
             {{ executionSummary.success }}
           </ElTag>
           <ElTag v-if="executionSummary.failed > 0" type="danger" size="small">
-            <XCircle :size="14" style="vertical-align: middle; margin-right: 4px" />
+            <XCircle :size="14" class="status-icon" />
             {{ executionSummary.failed }}
           </ElTag>
           <ElTag v-if="executionSummary.skipped > 0" type="info" size="small">
-            <SkipForward :size="14" style="vertical-align: middle; margin-right: 4px" />
+            <SkipForward :size="14" class="status-icon" />
             {{ executionSummary.skipped }}
           </ElTag>
           <ElTag v-if="executionSummary.totalTime" type="warning" size="small">
-            <Clock :size="14" style="vertical-align: middle; margin-right: 4px" />
+            <Clock :size="14" class="status-icon" />
             {{ (executionSummary.totalTime / 1000).toFixed(2) }}s
           </ElTag>
         </div>
@@ -371,7 +371,7 @@ onUnmounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 12px 16px;
+  padding: var(--rf-spacing-md) var(--rf-spacing-lg);
   background: var(--rf-color-bg-secondary);
   border-bottom: 1px solid var(--rf-color-border-base);
   cursor: pointer;
@@ -382,29 +382,29 @@ onUnmounted(() => {
 .header-left {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--rf-spacing-md);
 }
 
 .height-controls {
   display: flex;
-  gap: 4px;
+  gap: var(--rf-spacing-xs);
 }
 
 .header-title {
-  font-weight: 600;
-  font-size: 14px;
+  font-weight: var(--rf-font-weight-semibold);
+  font-size: var(--rf-font-size-base);
   color: var(--rf-color-text-primary);
 }
 
 .summary-tags {
   display: flex;
-  gap: 8px;
+  gap: var(--rf-spacing-sm);
 }
 
 .execution-indicator {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--rf-spacing-xs);
 }
 
 .execution-dot {
@@ -416,7 +416,7 @@ onUnmounted(() => {
 }
 
 .execution-text {
-  font-size: 12px;
+  font-size: var(--rf-font-size-xs);
   color: var(--rf-color-info);
   font-weight: 500;
 }
@@ -436,18 +436,18 @@ onUnmounted(() => {
 .header-right {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--rf-spacing-md);
 }
 
 .keyboard-hint {
-  font-size: 12px;
+  font-size: var(--rf-font-size-xs);
   color: var(--rf-color-text-secondary);
 }
 
 .panel-body {
   flex: 1;
   overflow-y: auto;
-  padding: 16px;
+  padding: var(--rf-spacing-lg);
 }
 
 .empty-state,
@@ -460,7 +460,7 @@ onUnmounted(() => {
 
 .empty-icon,
 .prompt-icon {
-  font-size: 48px;
+  font-size: var(--rf-font-size-4xl);
   opacity: 0.8;
 }
 
@@ -483,22 +483,22 @@ onUnmounted(() => {
 .node-info {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--rf-spacing-md);
 }
 
 .node-id {
-  font-size: 16px;
-  font-weight: 600;
+  font-size: var(--rf-font-size-md);
+  font-weight: var(--rf-font-weight-semibold);
   color: var(--rf-color-text-primary);
 }
 
 .duration {
   color: var(--rf-color-info);
-  font-weight: 600;
+  font-weight: var(--rf-font-weight-semibold);
 }
 
 .result-content {
-  margin-top: 16px;
+  margin-top: var(--rf-spacing-lg);
   flex: 1;
   overflow-y: auto;
 }
@@ -506,29 +506,29 @@ onUnmounted(() => {
 .json-content {
   margin: 0;
   font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
-  font-size: 12px;
+  font-size: var(--rf-font-size-xs);
   line-height: 1.5;
   color: var(--rf-color-text-regular);
   white-space: pre-wrap;
   word-break: break-all;
   background: var(--rf-color-bg-secondary);
-  padding: 12px;
-  border-radius: 4px;
+  padding: var(--rf-spacing-md);
+  border-radius: var(--rf-radius-small);
 }
 
 .error-content {
   margin: 0;
   font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
-  font-size: 12px;
+  font-size: var(--rf-font-size-xs);
   line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-all;
 }
 
 .log-entry {
-  padding: 4px 8px;
+  padding: var(--rf-spacing-xs) var(--rf-spacing-sm);
   font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
-  font-size: 12px;
+  font-size: var(--rf-font-size-xs);
   line-height: 1.5;
   color: var(--rf-color-text-regular);
   border-bottom: 1px solid var(--rf-color-border-base);
@@ -550,7 +550,7 @@ onUnmounted(() => {
 }
 
 .status-message {
-  padding: 20px;
+  padding: var(--rf-spacing-xl);
   text-align: center;
 }
 
@@ -559,5 +559,10 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+}
+
+.status-icon {
+  vertical-align: middle;
+  margin-right: var(--rf-spacing-xs);
 }
 </style>
