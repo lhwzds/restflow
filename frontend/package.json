@@ -19,14 +19,18 @@
     "@vue-flow/minimap": "^1.5.3",
     "@vueuse/core": "^13.8.0",
     "axios": "^1.11.0",
+    "dompurify": "^3.2.7",
     "element-plus": "^2.10.6",
     "lucide-vue-next": "^0.542.0",
+    "marked": "^16.3.0",
     "pinia": "^3.0.3",
     "vue": "^3.5.18",
     "vue-router": "^4.5.1"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.0.0-rc.18",
+    "@types/dompurify": "^3.0.5",
+    "@types/marked": "^5.0.2",
     "@types/node": "^24.3.0",
     "@vitejs/plugin-vue": "^6.0.1",
     "@vue/tsconfig": "^0.7.0",
