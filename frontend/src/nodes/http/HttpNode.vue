@@ -70,7 +70,7 @@ $node-color: #3b82f6;
   width: 100%;
   height: 100%;
   @include node-glass($node-color);
-  border-radius: 12px;
+  border-radius: var(--rf-radius-md);
   padding: 0;
   
   &:hover {
@@ -81,27 +81,27 @@ $node-color: #3b82f6;
 }
 
 .glass-layer {
-  padding: 12px;
+  padding: var(--rf-spacing-md);
   position: relative;
 }
 
 .node-header {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 8px;
+  gap: var(--rf-spacing-sm);
+  margin-bottom: var(--rf-spacing-sm);
 }
 
 .node-icon {
   position: relative;
   @include node-icon(32px, $node-color);
-  border-radius: 8px;
+  border-radius: var(--rf-radius-large);
   
   .icon-decoration {
     position: absolute;
     top: -2px;
     right: -2px;
-    color: #60a5fa;
+    color: var(--rf-color-blue);
   }
 }
 
@@ -110,13 +110,13 @@ $node-color: #3b82f6;
 }
 
 .method-badge {
-  font-size: 10px;
+  font-size: var(--rf-font-size-xs);
   color: $node-color;
-  background: rgba($node-color, var(--rf-node-badge-alpha));
-  padding: 2px 6px;
-  border-radius: 4px;
+  background: rgba($node-color, var(--rf-opacity-overlay));
+  padding: var(--rf-spacing-3xs) var(--rf-spacing-xs);
+  border-radius: var(--rf-radius-small);
   display: inline-block;
-  font-weight: 600;
+  font-weight: var(--rf-font-weight-semibold);
   text-transform: uppercase;
 }
 

@@ -139,23 +139,23 @@ function hasTrigger(workflow: Workflow): boolean {
 }
 
 .help-text {
-  margin-bottom: 20px;
-  padding: 10px 16px;
+  margin-bottom: var(--rf-spacing-xl);
+  padding: var(--rf-spacing-md-plus) var(--rf-spacing-lg);
   background: linear-gradient(
     135deg,
     var(--rf-color-primary-bg-lighter) 0%,
     var(--rf-color-primary-bg-light) 100%
   );
   border: 1px solid var(--rf-color-primary-bg);
-  border-radius: 6px;
+  border-radius: var(--rf-radius-base);
   text-align: center;
-  font-size: 13px;
+  font-size: var(--rf-font-size-sm);
   color: var(--rf-color-primary);
   animation: fadeIn 0.3s ease-in;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: var(--rf-spacing-xs-plus);
 
   .help-icon {
     flex-shrink: 0;
@@ -174,6 +174,6 @@ function hasTrigger(workflow: Workflow): boolean {
 }
 
 .workflow-grid {
-  margin-top: 20px;
+  margin-top: var(--rf-spacing-xl);
 }
 </style>

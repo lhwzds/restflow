@@ -128,7 +128,7 @@ useKeyboardShortcuts({
 
       <ElTooltip content="Run the workflow (F5)" placement="top">
         <button class="execute-button" @click="executeWorkflow" :disabled="isExecuting">
-          <Play :size="16" style="vertical-align: middle; margin-right: 6px" />
+          <Play :size="16" class="execute-icon" />
           {{ isExecuting ? 'Executing...' : 'Execute Workflow' }}
         </button>
       </ElTooltip>
@@ -242,22 +242,22 @@ useKeyboardShortcuts({
 
 .context-menu {
   position: fixed;
-  background: white;
-  border-radius: 6px;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
-  padding: 4px;
+  background: var(--rf-color-bg-container);
+  border-radius: var(--rf-radius-base);
+  box-shadow: var(--rf-shadow-lg);
+  padding: var(--rf-spacing-xs);
   z-index: 1000;
   min-width: 120px;
 }
 
 .menu-item {
-  padding: 8px 12px;
+  padding: var(--rf-spacing-sm) var(--rf-spacing-md);
   cursor: pointer;
-  border-radius: 4px;
-  font-size: 13px;
+  border-radius: var(--rf-radius-small);
+  font-size: var(--rf-font-size-sm);
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--rf-spacing-sm);
 }
 
 .menu-item:hover {
@@ -266,30 +266,35 @@ useKeyboardShortcuts({
 
 .execute-button {
   position: absolute;
-  bottom: 20px;
+  bottom: var(--rf-spacing-xl);
   left: 50%;
   transform: translateX(-50%);
-  background: linear-gradient(135deg, #48bb78 0%, #38a169 100%);
-  color: white;
+  background: var(--rf-gradient-success);
+  color: var(--rf-color-white);
   border: none;
-  border-radius: 8px;
-  padding: 12px 24px;
-  font-size: 14px;
-  font-weight: 600;
+  border-radius: var(--rf-radius-large);
+  padding: var(--rf-spacing-md) var(--rf-spacing-2xl);
+  font-size: var(--rf-font-size-base);
+  font-weight: var(--rf-font-weight-semibold);
   cursor: pointer;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+  box-shadow: var(--rf-shadow-card);
   z-index: 60;
-  transition: all 0.2s;
+  transition: all var(--rf-transition-fast);
 }
 
 .execute-button:hover:not(:disabled) {
   transform: translateX(-50%) translateY(-2px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  box-shadow: var(--rf-shadow-lg);
 }
 
 .execute-button:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+
+.execute-icon {
+  vertical-align: middle;
+  margin-right: var(--rf-spacing-xs-plus);
 }
 
 .vue-flow__minimap {

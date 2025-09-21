@@ -56,7 +56,7 @@ withDefaults(defineProps<Props>(), {
 
 .logo-text {
   font-weight: 600;
-  letter-spacing: -0.5px;
+  letter-spacing: var(--rf-letter-spacing-tight);
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 

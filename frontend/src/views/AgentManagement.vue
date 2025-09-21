@@ -268,7 +268,7 @@ function backToList() {
     }
 
     .agents-grid {
-      margin-top: 20px;
+      margin-top: var(--rf-spacing-xl);
 
       /* Element Plus row layout fix */
       :deep(.el-row) {
@@ -279,7 +279,7 @@ function backToList() {
       }
 
       .agent-col {
-        margin-bottom: 16px;
+        margin-bottom: var(--rf-spacing-lg);
         display: flex;
 
         .agent-card {
@@ -310,12 +310,12 @@ function backToList() {
     }
 
     .splitter {
-      width: 4px;
+      width: var(--rf-size-splitter);
       background: var(--rf-color-border-base);
       cursor: ew-resize;
       flex-shrink: 0;
       align-self: stretch;
-      transition: background 0.2s;
+      transition: background var(--rf-transition-fast);
 
       &:hover {
         background: var(--rf-color-primary);

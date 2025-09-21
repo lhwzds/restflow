@@ -175,28 +175,28 @@ onMounted(() => {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 16px 20px;
+    padding: var(--rf-spacing-lg) var(--rf-spacing-xl);
     background: var(--rf-color-bg-container);
     border-bottom: 1px solid var(--rf-color-border-lighter);
 
     .header-info {
       display: flex;
       align-items: center;
-      gap: 12px;
+      gap: var(--rf-spacing-md);
 
       h3 {
         margin: 0;
-        font-size: 16px;
-        font-weight: 600;
+        font-size: var(--rf-font-size-md);
+        font-weight: var(--rf-font-weight-semibold);
         color: var(--rf-color-text-primary);
       }
 
       .model-tag {
-        font-size: 12px;
-        padding: 2px 8px;
+        font-size: var(--rf-font-size-xs);
+        padding: var(--rf-spacing-3xs) var(--rf-spacing-sm);
         background: var(--rf-color-primary-light);
         color: var(--rf-color-primary);
-        border-radius: 4px;
+        border-radius: var(--rf-radius-small);
       }
     }
   }
@@ -204,13 +204,13 @@ onMounted(() => {
   .messages-container {
     flex: 1;
     overflow-y: auto;
-    padding: 20px;
+    padding: var(--rf-spacing-xl);
     scroll-behavior: smooth;
 
     .message {
       display: flex;
-      gap: 12px;
-      margin-bottom: 20px;
+      gap: var(--rf-spacing-md);
+      margin-bottom: var(--rf-spacing-xl);
       animation: fadeIn 0.2s ease-out;
 
       &.user {
@@ -232,13 +232,13 @@ onMounted(() => {
       }
 
       .message-avatar {
-        width: 36px;
-        height: 36px;
+        width: var(--rf-size-xs);
+        height: var(--rf-size-xs);
         border-radius: 50%;
         display: flex;
         align-items: center;
         justify-content: center;
-        color: white;
+        color: var(--rf-color-white);
         flex-shrink: 0;
       }
 
@@ -248,25 +248,25 @@ onMounted(() => {
         .message-header {
           display: flex;
           align-items: center;
-          gap: 8px;
-          margin-bottom: 4px;
+          gap: var(--rf-spacing-sm);
+          margin-bottom: var(--rf-spacing-xs);
 
           .message-role {
             font-weight: 500;
             color: var(--rf-color-text-primary);
-            font-size: 14px;
+            font-size: var(--rf-font-size-base);
           }
 
           .message-time {
-            font-size: 12px;
+            font-size: var(--rf-font-size-xs);
             color: var(--rf-color-text-secondary);
           }
         }
 
         .message-text {
           background: var(--rf-color-bg-container);
-          padding: 12px 16px;
-          border-radius: 8px;
+          padding: var(--rf-spacing-md) var(--rf-spacing-lg);
+          border-radius: var(--rf-radius-large);
           line-height: 1.6;
           white-space: pre-wrap;
           word-wrap: break-word;
@@ -300,11 +300,11 @@ onMounted(() => {
   }
 
   .input-area {
-    padding: 16px 20px;
+    padding: var(--rf-spacing-lg) var(--rf-spacing-xl);
     background: var(--rf-color-bg-container);
     border-top: 1px solid var(--rf-color-border-lighter);
     display: flex;
-    gap: 12px;
+    gap: var(--rf-spacing-md);
     align-items: stretch;
 
     :deep(.el-textarea) {

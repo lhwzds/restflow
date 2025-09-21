@@ -182,12 +182,12 @@ async function handleToggleTrigger(event: Event, value: boolean) {
 .workflow-card {
   cursor: pointer;
   transition: all 0.3s ease;
-  height: 140px;
+  height: var(--rf-size-md);
   display: flex;
   flex-direction: column;
 
   &:hover {
-    transform: translateY(-4px);
+    transform: translateY(var(--rf-transform-lift-sm));
     box-shadow: var(--rf-shadow-lg);
   }
 
@@ -200,7 +200,7 @@ async function handleToggleTrigger(event: Event, value: boolean) {
     display: flex;
     flex-direction: column;
     height: 100%;
-    padding: 16px;
+    padding: var(--rf-spacing-lg);
   }
 }
 
@@ -215,12 +215,12 @@ async function handleToggleTrigger(event: Event, value: boolean) {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  margin-bottom: 12px;
+  margin-bottom: var(--rf-spacing-md);
 }
 
 .workflow-name {
-  font-size: 16px;
-  font-weight: 600;
+  font-size: var(--rf-font-size-md);
+  font-weight: var(--rf-font-weight-semibold);
   color: var(--rf-color-text-primary);
   margin: 0;
   line-height: 1.4;
@@ -229,14 +229,14 @@ async function handleToggleTrigger(event: Event, value: boolean) {
 
 .workflow-actions {
   display: flex;
-  gap: 4px;
-  margin-left: 8px;
+  gap: var(--rf-spacing-xs);
+  margin-left: var(--rf-spacing-sm);
   flex-shrink: 0;
 }
 
 .rename-input-wrapper {
   flex: 1;
-  margin-right: 8px;
+  margin-right: var(--rf-spacing-sm);
 
   :deep(.el-input__wrapper) {
     background-color: var(--rf-color-bg-container);
@@ -244,8 +244,8 @@ async function handleToggleTrigger(event: Event, value: boolean) {
   }
 
   :deep(.el-input__inner) {
-    font-size: 14px;
-    font-weight: 600;
+    font-size: var(--rf-font-size-sm);
+    font-weight: var(--rf-font-weight-semibold);
   }
 }
 
@@ -266,11 +266,11 @@ async function handleToggleTrigger(event: Event, value: boolean) {
 }
 
 .metadata {
-  font-size: 12px;
+  font-size: var(--rf-font-size-xs);
   color: var(--rf-color-text-secondary);
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--rf-spacing-xs);
   margin-top: auto;
 
   .dot {

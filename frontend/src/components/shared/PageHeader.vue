@@ -53,14 +53,14 @@ function handleBack() {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: var(--rf-page-header-height, 60px);
-  padding: 0 var(--rf-spacing-xl, 20px);
+  height: var(--rf-page-header-height, var(--rf-size-sm));
+  padding: 0 var(--rf-spacing-xl);
   background: var(--rf-color-bg-container);
 
   &__left {
     display: flex;
     align-items: center;
-    gap: var(--rf-spacing-md, 12px);
+    gap: var(--rf-spacing-md);
   }
 
   &__back {
@@ -75,40 +75,40 @@ function handleBack() {
 
   &__title {
     margin: 0;
-    font-size: var(--rf-font-size-lg, 18px);
-    font-weight: var(--rf-font-weight-semibold, 600);
+    font-size: var(--rf-font-size-lg);
+    font-weight: var(--rf-font-weight-semibold);
     color: var(--rf-color-text-primary);
     line-height: 1.2;
   }
 
   &__subtitle {
-    margin-top: 2px;
-    font-size: var(--rf-font-size-sm, 13px);
+    margin-top: var(--rf-spacing-3xs);
+    font-size: var(--rf-font-size-sm);
     color: var(--rf-color-text-secondary);
   }
 
   &__actions {
     display: flex;
     align-items: center;
-    gap: var(--rf-spacing-md, 12px);
+    gap: var(--rf-spacing-md);
 
     :deep(.el-input) {
-      width: 300px;
+      width: var(--rf-size-xl);
     }
   }
 }
 
 @media (max-width: 768px) {
   .page-header {
-    padding: 0 var(--rf-spacing-lg, 16px);
+    padding: 0 var(--rf-spacing-lg);
 
     &__title {
-      font-size: var(--rf-font-size-md, 16px);
+      font-size: var(--rf-font-size-md);
     }
 
     &__actions {
       :deep(.el-input) {
-        width: 200px;
+        width: var(--rf-size-lg);
       }
     }
   }

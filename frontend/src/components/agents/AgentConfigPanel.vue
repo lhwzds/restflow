@@ -280,24 +280,24 @@ function resetForm() {
 .agent-config-panel {
   height: 100%;
   overflow-y: auto;
-  padding: 20px;
+  padding: var(--rf-spacing-xl);
   background: var(--rf-color-bg-container);
 
   .section {
-    margin-bottom: 20px;
+    margin-bottom: var(--rf-spacing-xl);
 
     .section-title {
-      font-size: 16px;
-      font-weight: 600;
+      font-size: var(--rf-font-size-md);
+      font-weight: var(--rf-font-weight-semibold);
       color: var(--rf-color-text-primary);
-      margin-bottom: 16px;
+      margin-bottom: var(--rf-spacing-lg);
     }
   }
 
   .temperature-control {
     display: flex;
     align-items: center;
-    gap: 20px;
+    gap: var(--rf-spacing-xl);
     width: 100%;
 
     :deep(.el-slider) {
@@ -305,35 +305,35 @@ function resetForm() {
     }
 
     .temperature-value {
-      min-width: 40px;
+      min-width: var(--rf-size-sm);
       text-align: center;
-      font-weight: 600;
+      font-weight: var(--rf-font-weight-semibold);
       color: var(--rf-color-primary);
       background: var(--rf-color-bg-secondary);
-      padding: 4px 8px;
-      border-radius: 4px;
+      padding: var(--rf-spacing-xs) var(--rf-spacing-sm);
+      border-radius: var(--rf-radius-small);
     }
   }
 
   .actions {
     display: flex;
-    gap: 12px;
-    margin-top: 24px;
+    gap: var(--rf-spacing-lg);
+    margin-top: var(--rf-spacing-2xl);
   }
 
   :deep(.el-divider--horizontal) {
-    margin: 20px 0;
+    margin: var(--rf-spacing-xl) 0;
   }
 
   :deep(.el-checkbox-group) {
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: var(--rf-spacing-lg);
   }
 
   :deep(.el-textarea__inner) {
     font-family: 'Monaco', 'Courier New', monospace;
-    font-size: 13px;
+    font-size: var(--rf-font-size-sm);
     line-height: 1.5;
   }
 }

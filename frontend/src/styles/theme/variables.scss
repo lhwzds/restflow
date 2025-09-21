@@ -52,18 +52,25 @@
   --rf-color-bg: #ffffff;
   --rf-color-bg-page: #f5f7fa;
   --rf-color-bg-container: #ffffff;
-  --rf-spacing-2xs: 2px;
-  --rf-spacing-xs: 4px;
+  --rf-spacing-3xs: 2px;
+  --rf-spacing-2xs: 4px;
+  --rf-spacing-xs: 6px;
   --rf-spacing-sm: 8px;
-  --rf-spacing-md: 12px;
-  --rf-spacing-lg: 16px;
-  --rf-spacing-xl: 20px;
-  --rf-spacing-2xl: 24px;
-  --rf-spacing-3xl: 32px;
-  --rf-spacing-4xl: 40px;
+  --rf-spacing-md: 10px;
+  --rf-spacing-lg: 12px;
+  --rf-spacing-xl: 16px;
+  --rf-spacing-2xl: 20px;
+  --rf-spacing-3xl: 24px;
+  --rf-spacing-4xl: 32px;
+  --rf-spacing-5xl: 40px;
 
-  /* Component specific sizes */
-  --rf-search-input-width: 300px;
+  /* Generic sizes */
+  --rf-size-xs: 36px;
+  --rf-size-sm: 64px;
+  --rf-size-md: 140px;
+  --rf-size-lg: 200px;
+  --rf-size-xl: 300px;
+  --rf-size-2xl: 500px;
 
   --rf-radius-small: 4px;
   --rf-radius-base: 6px;
@@ -118,11 +125,59 @@
   --rf-color-border-focus: #6366f1;
   --rf-shadow-panel: 0 -2px 10px rgba(0, 0, 0, 0.1);
   
-  /* Node specific colors */
-  --rf-node-bg-primary: rgba(255, 255, 255, 0.98);
-  --rf-node-bg-secondary: rgba(255, 250, 247, 0.95);
-  --rf-node-border-inset: rgba(255, 255, 255, 0.5);
-  --rf-node-badge-alpha: 0.08;
+  /* Surface and overlay colors */
+  --rf-color-surface-primary: rgba(255, 255, 255, 0.98);
+  --rf-color-surface-secondary: rgba(255, 250, 247, 0.95);
+  --rf-color-border-overlay: rgba(255, 255, 255, 0.5);
+  --rf-opacity-overlay: 0.08;
+
+  /* Success state colors */
+  --rf-color-success-border: rgba(103, 199, 58, 0.4);
+  --rf-color-success-shadow: rgba(103, 199, 58, 0.25);
+  --rf-color-success-border-light: rgba(103, 199, 58, 0.2);
+
+  /* Danger state colors */
+  --rf-color-danger-shadow: rgba(239, 68, 68, 0.2);
+  --rf-color-danger-bg-light: rgba(254, 242, 242, 0.98);
+  --rf-color-danger-bg-lighter: rgba(254, 226, 226, 0.95);
+
+  /* Additional font size */
+  --rf-font-size-4xl: 48px;
+
+  /* Additional border radius */
+  --rf-radius-xs: 2px;
+  --rf-radius-md: 12px;
+  --rf-radius-lg: 14px;
+
+  /* Semantic colors */
+  --rf-color-blue: #3b82f6;
+  --rf-color-purple: #667eea;
+  --rf-color-green: #22c55e;
+  --rf-color-white: #ffffff;
+
+  /* Gradients */
+  --rf-gradient-success: linear-gradient(135deg, #48bb78 0%, #38a169 100%);
+
+  /* Focus states */
+  --rf-shadow-focus: 0 0 0 3px rgba(99, 102, 241, 0.1);
+
+  /* Common component sizes */
+  --rf-size-splitter: 4px;
+  --rf-size-section: 20px;
+  --rf-size-header: 60px;
+  --rf-size-header-sm: 50px;
+  --rf-size-line-lg: 48px;
+  --rf-size-label: 80px;
+  --rf-size-label-lg: 100px;
+  --rf-size-icon-sm: 24px;
+  --rf-size-icon-md: 32px;
+  --rf-size-icon-lg: 40px;
+
+  /* Generic effects */
+  --rf-transform-lift-sm: -4px;
+  --rf-transform-lift-xs: -1px;
+  --rf-letter-spacing-wide: 2px;
+  --rf-letter-spacing-tight: -0.5px;
 }
 
 /* Dark mode overrides */
@@ -176,11 +231,11 @@ html.dark {
   --rf-color-border-focus: #818cf8;
   --rf-shadow-panel: 0 -2px 10px rgba(0, 0, 0, 0.3);
   
-  /* Node specific colors for dark mode */
-  --rf-node-bg-primary: rgba(31, 31, 31, 0.95);
-  --rf-node-bg-secondary: rgba(25, 25, 25, 0.9);
-  --rf-node-border-inset: rgba(255, 255, 255, 0.05);
-  --rf-node-badge-alpha: 0.2;
+  /* Surface and overlay colors for dark mode */
+  --rf-color-surface-primary: rgba(31, 31, 31, 0.95);
+  --rf-color-surface-secondary: rgba(25, 25, 25, 0.9);
+  --rf-color-border-overlay: rgba(255, 255, 255, 0.05);
+  --rf-opacity-overlay: 0.2;
   
   /* Element Plus dark mode overrides */
   --el-bg-color: #141414;
@@ -189,6 +244,15 @@ html.dark {
   --el-text-color-regular: #a1a1aa;
   --el-border-color: #27272a;
   --el-border-color-light: #3f3f46;
+
+  /* Semantic colors for dark mode */
+  --rf-color-blue: #60a5fa;
+  --rf-color-purple: #a78bfa;
+  --rf-color-green: #34d399;
+  --rf-color-white: #ffffff;
+
+  /* Focus states for dark mode */
+  --rf-shadow-focus: 0 0 0 3px rgba(129, 140, 248, 0.2);
 }
 
 $rf-color-primary: var(--rf-color-primary);

@@ -85,7 +85,7 @@ const handleFormUpdate = (data: any) => {
   height: 100%;
   background: var(--rf-color-bg-container);
   border-left: 1px solid var(--rf-color-border-base);
-  box-shadow: -2px 0 8px rgba(0, 0, 0, 0.1);
+  box-shadow: var(--rf-shadow-panel);
   z-index: 1000;
   display: flex;
   flex-direction: column;
@@ -95,20 +95,20 @@ const handleFormUpdate = (data: any) => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 16px;
+  padding: var(--rf-spacing-lg);
   border-bottom: 1px solid var(--rf-color-border-base);
 }
 
 .panel-header h3 {
   margin: 0;
-  font-size: 18px;
-  font-weight: 600;
+  font-size: var(--rf-font-size-lg);
+  font-weight: var(--rf-font-weight-semibold);
 }
 
 .close-btn {
   background: none;
   border: none;
-  font-size: 24px;
+  font-size: var(--rf-font-size-2xl);
   cursor: pointer;
   color: var(--rf-color-text-secondary);
   padding: 0;
@@ -117,8 +117,8 @@ const handleFormUpdate = (data: any) => {
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 4px;
-  transition: background-color 0.2s;
+  border-radius: var(--rf-radius-small);
+  transition: background-color var(--rf-transition-fast);
 }
 
 .close-btn:hover {
@@ -128,33 +128,33 @@ const handleFormUpdate = (data: any) => {
 .panel-content {
   flex: 1;
   overflow-y: auto;
-  padding: 16px;
+  padding: var(--rf-spacing-lg);
 }
 
 .form-group {
-  margin-bottom: 20px;
+  margin-bottom: var(--rf-spacing-xl);
 }
 
 .form-group label {
   display: block;
-  margin-bottom: 6px;
-  font-size: 14px;
-  font-weight: 500;
+  margin-bottom: var(--rf-spacing-xs-plus);
+  font-size: var(--rf-font-size-base);
+  font-weight: var(--rf-font-weight-medium);
   color: var(--rf-color-text-regular);
 }
 
 .form-group input {
   width: 100%;
-  padding: 8px 12px;
+  padding: var(--rf-spacing-sm) var(--rf-spacing-md);
   border: 1px solid var(--rf-color-border-lighter);
-  border-radius: 6px;
-  font-size: 14px;
-  transition: border-color 0.2s;
+  border-radius: var(--rf-radius-base);
+  font-size: var(--rf-font-size-base);
+  transition: border-color var(--rf-transition-fast);
 }
 
 .form-group input:focus {
   outline: none;
   border-color: var(--rf-color-border-focus);
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+  box-shadow: var(--rf-shadow-focus);
 }
 </style>

@@ -46,7 +46,7 @@ const layoutClasses = computed(() => ({
   &--default {
     .page-layout__content {
       flex: 1;
-      padding: var(--rf-page-padding, 20px);
+      padding: var(--rf-page-padding, var(--rf-spacing-xl));
       overflow-y: auto;
     }
   }

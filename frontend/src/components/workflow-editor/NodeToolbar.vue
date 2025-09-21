@@ -21,7 +21,7 @@ const nodeTemplates = ref<NodeTemplate[]>([
     type: NODE_TYPES.MANUAL_TRIGGER,
     label: 'Manual Trigger',
     icon: PlayCircle,
-    iconColor: '#22c55e',
+    iconColor: 'var(--rf-color-green)',
     defaultData: {
       label: 'Manual Trigger',
       description: 'Start workflow manually',
@@ -31,7 +31,7 @@ const nodeTemplates = ref<NodeTemplate[]>([
     type: NODE_TYPES.WEBHOOK_TRIGGER,
     label: 'Webhook',
     icon: Webhook,
-    iconColor: '#ff6b35',
+    iconColor: 'var(--rf-color-primary)',
     defaultData: {
       label: 'Webhook',
       path: '/webhook/endpoint',
@@ -44,7 +44,7 @@ const nodeTemplates = ref<NodeTemplate[]>([
     type: NODE_TYPES.AGENT,
     label: 'AI Agent',
     icon: Bot,
-    iconColor: '#667eea',
+    iconColor: 'var(--rf-color-purple)',
     defaultData: {
       label: 'AI Agent',
       model: 'gpt-4.1',
@@ -59,7 +59,7 @@ const nodeTemplates = ref<NodeTemplate[]>([
     type: NODE_TYPES.HTTP_REQUEST,
     label: 'HTTP Request',
     icon: Globe,
-    iconColor: '#3b82f6',
+    iconColor: 'var(--rf-color-blue)',
     defaultData: {
       label: 'HTTP Request',
       method: 'GET',
@@ -105,41 +105,41 @@ const handleClick = (template: NodeTemplate) => {
 <style lang="scss" scoped>
 .node-toolbar {
   position: absolute;
-  right: 10px;
-  top: 10px;
+  right: var(--rf-spacing-md);
+  top: var(--rf-spacing-md);
   background: var(--rf-color-bg-container);
   backdrop-filter: blur(16px);
   border: 1px solid var(--rf-color-border-base);
-  border-radius: 12px;
+  border-radius: var(--rf-radius-md);
   box-shadow: var(--rf-shadow-card);
-  padding: 16px;
+  padding: var(--rf-spacing-lg);
   width: 220px;
   z-index: 10;
 }
 
 .toolbar-title {
-  margin: 0 0 12px 0;
-  font-size: 14px;
-  font-weight: 600;
+  margin: 0 0 var(--rf-spacing-md) 0;
+  font-size: var(--rf-font-size-base);
+  font-weight: var(--rf-font-weight-semibold);
   color: var(--rf-color-text-primary);
 }
 
 .node-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--rf-spacing-sm);
 }
 
 .node-item {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 10px;
+  gap: var(--rf-spacing-md);
+  padding: var(--rf-spacing-md);
   background: var(--rf-color-bg-secondary);
   border: 2px solid var(--rf-color-border-lighter);
-  border-radius: 8px;
+  border-radius: var(--rf-radius-large);
   cursor: move;
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: all var(--rf-transition-fast) var(--rf-transition-func);
   backdrop-filter: blur(8px);
 }
 
@@ -160,8 +160,8 @@ const handleClick = (template: NodeTemplate) => {
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 8px;
-  color: white;
+  border-radius: var(--rf-radius-large);
+  color: var(--rf-color-white);
   flex-shrink: 0;
   
   :deep(svg) {
@@ -171,14 +171,14 @@ const handleClick = (template: NodeTemplate) => {
 }
 
 .node-label {
-  font-size: 13px;
-  font-weight: 500;
+  font-size: var(--rf-font-size-sm);
+  font-weight: var(--rf-font-weight-medium);
   color: var(--rf-color-text-regular);
 }
 
 .toolbar-hint {
-  margin-top: 12px;
-  font-size: 11px;
+  margin-top: var(--rf-spacing-md);
+  font-size: var(--rf-font-size-xs);
   color: var(--rf-color-text-secondary);
   text-align: center;
 }

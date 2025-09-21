@@ -217,7 +217,7 @@ onUnmounted(() => {
 
 .workflow-editor-page :deep(.workflow-header:hover) {
   box-shadow: var(--rf-shadow-xl, 0 16px 32px rgba(0, 0, 0, 0.2));
-  transform: translateY(-1px);
+  transform: translateY(var(--rf-transform-lift-xs));
 }
 
 :global(html.dark) .workflow-editor-page :deep(.workflow-header) {
