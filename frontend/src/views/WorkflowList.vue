@@ -130,7 +130,7 @@ function hasTrigger(workflow: Workflow): boolean {
 
 <style lang="scss" scoped>
 .search-input {
-  width: var(--rf-search-input-width);
+  width: var(--rf-size-xl);
 }
 
 
@@ -140,7 +140,7 @@ function hasTrigger(workflow: Workflow): boolean {
 
 .help-text {
   margin-bottom: var(--rf-spacing-xl);
-  padding: var(--rf-spacing-md-plus) var(--rf-spacing-lg);
+  padding: var(--rf-spacing-lg) var(--rf-spacing-lg);
   background: linear-gradient(
     135deg,
     var(--rf-color-primary-bg-lighter) 0%,

@@ -2,7 +2,7 @@
 
 @use 'sass:color';
 
-@mixin node-base($width: var(--rf-size-md), $min-height: var(--rf-size-label)) {
+@mixin node-base($width: var(--rf-size-md), $min-height: var(--rf-size-base)) {
   width: $width;
   min-height: $min-height;
   position: relative;
@@ -124,7 +124,7 @@
   .node-description,
   .node-path {
     color: var(--rf-color-text-secondary);
-    font-size: var(--rf-font-size-2xs);
+    font-size: var(--rf-font-size-xs);
     line-height: 1.3;
     margin-top: var(--rf-spacing-2xs);
     white-space: nowrap;
@@ -141,7 +141,7 @@
     bottom: -18px;
     left: 50%;
     transform: translateX(-50%);
-    font-size: var(--rf-font-size-tiny);
+    font-size: var(--rf-font-size-xs);
     color: var(--rf-color-text-secondary);
     background: var(--rf-color-bg-container);
     padding: var(--rf-spacing-3xs) var(--rf-spacing-xs);
@@ -169,7 +169,7 @@
 @mixin node-icon($size: var(--rf-size-xs), $color: null) {
   width: $size;
   height: $size;
-  border-radius: var(--rf-spacing-md-plus);
+  border-radius: var(--rf-spacing-lg);
   background: if($color, linear-gradient(135deg, $color, color.adjust($color, $lightness: -5%)), currentColor);
   display: flex;
   align-items: center;
@@ -179,7 +179,7 @@
   z-index: 2;
 }
 
-@mixin trigger-node($node-color, $node-color-light, $width: var(--rf-size-md), $height: var(--rf-size-label)) {
+@mixin trigger-node($node-color, $node-color-light, $width: var(--rf-size-md), $height: var(--rf-size-base)) {
   @include node-base($width, $height);
   @include node-execution-states();
   @include node-handle($node-color);

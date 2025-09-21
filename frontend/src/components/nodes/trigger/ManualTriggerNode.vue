@@ -3,7 +3,7 @@ import type { NodeProps } from '@vue-flow/core'
 import { Handle, Position } from '@vue-flow/core'
 import { computed } from 'vue'
 import { PlayCircle } from 'lucide-vue-next'
-import { useNodeExecutionStatus } from '../../composables/node/useNodeExecutionStatus'
+import { useNodeExecutionStatus } from '@/composables/node/useNodeExecutionStatus'
 
 interface ManualTriggerNodeData {
   label?: string
@@ -61,7 +61,7 @@ $node-color: #22c55e;
 $node-color-light: rgba(236, 253, 245, 0.95);
 
 .manual-trigger-node {
-  @include trigger-node($node-color, $node-color-light, var(--rf-size-md), var(--rf-size-label));
+  @include trigger-node($node-color, $node-color-light, var(--rf-size-md), var(--rf-size-base));
 }
 
 </style>

@@ -3,7 +3,7 @@ import type { NodeProps } from '@vue-flow/core'
 import { Handle, Position } from '@vue-flow/core'
 import { computed } from 'vue'
 import { Bot, Sparkles } from 'lucide-vue-next'
-import { useNodeExecutionStatus } from '../../composables/node/useNodeExecutionStatus'
+import { useNodeExecutionStatus } from '@/composables/node/useNodeExecutionStatus'
 
 interface AgentNodeData {
   label?: string
@@ -64,7 +64,7 @@ const executionTime = computed(() => {
 $node-color: #667eea;
 
 .agent-node {
-  @include node-base(var(--rf-size-md), var(--rf-size-label));
+  @include node-base(var(--rf-size-md), var(--rf-size-base));
   @include node-execution-states();
   @include node-handle($node-color);
   @include node-text();

@@ -3,7 +3,7 @@ import type { NodeProps } from '@vue-flow/core'
 import { Handle, Position } from '@vue-flow/core'
 import { computed } from 'vue'
 import { Webhook } from 'lucide-vue-next'
-import { useNodeExecutionStatus } from '../../composables/node/useNodeExecutionStatus'
+import { useNodeExecutionStatus } from '@/composables/node/useNodeExecutionStatus'
 
 interface WebhookTriggerData {
   label?: string
@@ -65,7 +65,7 @@ $node-color: #ff6b35;
 $node-color-light: rgba(255, 247, 237, 0.95);
 
 .webhook-trigger-node {
-  @include trigger-node($node-color, $node-color-light, var(--rf-size-md), var(--rf-size-label));
+  @include trigger-node($node-color, $node-color-light, var(--rf-size-md), var(--rf-size-base));
 }
 
 </style>

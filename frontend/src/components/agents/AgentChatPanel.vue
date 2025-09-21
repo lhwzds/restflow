@@ -194,7 +194,7 @@ onMounted(() => {
       .model-tag {
         font-size: var(--rf-font-size-xs);
         padding: var(--rf-spacing-3xs) var(--rf-spacing-sm);
-        background: var(--rf-color-primary-light);
+        background: var(--rf-color-primary-bg-light);
         color: var(--rf-color-primary);
         border-radius: var(--rf-radius-small);
       }
