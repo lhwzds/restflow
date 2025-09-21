@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { ref, nextTick, onMounted } from 'vue'
+import { ref, onMounted } from 'vue'
 import { ElInput, ElButton, ElSkeleton } from 'element-plus'
 import { Promotion, Delete, User, CircleCheck } from '@element-plus/icons-vue'
 import type { StoredAgent } from '@/types/generated/StoredAgent'
 import { useAgentOperations } from '@/composables/agents/useAgentOperations'
+import MarkdownRenderer from '@/components/shared/MarkdownRenderer.vue'
 
 const props = defineProps<{
   agent: StoredAgent
@@ -11,64 +12,51 @@ const props = defineProps<{
 
 const { executeAgent } = useAgentOperations()
 
-// Chat message type
+// Chat message type (simplified - no ID needed)
 interface Message {
-  id: string
   role: 'user' | 'assistant'
   content: string
   timestamp: Date
   error?: boolean
 }
 
-// State
+const roleIcons = {
+  user: User,
+  assistant: CircleCheck,
+} as const
+
 const messages = ref<Message[]>([])
 const input = ref('')
 const isLoading = ref(false)
 const messagesContainer = ref<HTMLElement>()
 
-// Generate message ID
-let messageIdCounter = 0
-function generateMessageId() {
-  return `msg-${Date.now()}-${++messageIdCounter}`
-}
-
-// Add message
-function addMessage(role: 'user' | 'assistant', content: string, error = false): Message {
-  const message: Message = {
-    id: generateMessageId(),
+function addMessage(role: 'user' | 'assistant', content: string, error = false) {
+  messages.value.push({
     role,
     content,
     timestamp: new Date(),
-    error
-  }
-  messages.value.push(message)
-  nextTick(() => {
-    scrollToBottom()
+    error,
   })
-  return message
+  // Auto-scroll handled by CSS scroll-behavior: smooth
+  setTimeout(() => scrollToBottom(), 0)
 }
 
-// Scroll to bottom
+// Scroll to bottom (simplified - let CSS handle smoothness)
 function scrollToBottom() {
-  if (messagesContainer.value) {
-    messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight
-  }
+  messagesContainer.value?.scrollTo(0, messagesContainer.value.scrollHeight)
 }
 
-// Send message
 async function handleSend() {
   if (!input.value.trim() || isLoading.value) return
 
   const userInput = input.value.trim()
   input.value = ''
 
-  // Add user message
   addMessage('user', userInput)
 
   isLoading.value = true
 
   try {
-    // Execute Agent
     const response = await executeAgent(props.agent.id, userInput)
     addMessage('assistant', response)
   } catch (err: any) {
@@ -78,7 +66,6 @@ async function handleSend() {
   }
 }
 
-// Clear chat
 function handleClear() {
   messages.value = []
 }
@@ -91,15 +78,13 @@ function handleKeydown(event: KeyboardEvent | Event) {
   }
 }
 
-// Format time
 function formatTime(date: Date): string {
   return date.toLocaleTimeString('en-US', {
     hour: '2-digit',
-    minute: '2-digit'
+    minute: '2-digit',
   })
 }
 
-// Add welcome message when component mounts
 onMounted(() => {
   addMessage('assistant', `Hello! I'm ${props.agent.name}. How can I help you?`)
 })
@@ -107,35 +92,21 @@ onMounted(() => {
 
 <template>
   <div class="agent-chat-panel">
-    <!-- Header -->
     <div class="chat-header">
       <div class="header-info">
         <h3>{{ agent.name }}</h3>
         <span class="model-tag">{{ agent.agent.model }}</span>
       </div>
-      <ElButton
-        v-if="messages.length > 1"
-        :icon="Delete"
-        text
-        @click="handleClear"
-      >
+      <ElButton v-if="messages.length > 1" :icon="Delete" text @click="handleClear">
         Clear Chat
       </ElButton>
     </div>
 
-    <!-- Messages -->
     <div ref="messagesContainer" class="messages-container">
-      <div
-        v-for="message in messages"
-        :key="message.id"
-        :class="['message', message.role]"
-      >
+      <div v-for="(message, index) in messages" :key="index" :class="['message', message.role]">
         <div class="message-avatar">
-          <ElIcon v-if="message.role === 'user'">
-            <User />
-          </ElIcon>
-          <ElIcon v-else>
-            <CircleCheck />
+          <ElIcon>
+            <component :is="roleIcons[message.role]" />
           </ElIcon>
         </div>
 
@@ -148,15 +119,15 @@ onMounted(() => {
               {{ formatTime(message.timestamp) }}
             </span>
           </div>
-          <div
-            :class="['message-text', { error: message.error }]"
-          >
-            {{ message.content }}
+          <div :class="['message-text', { error: message.error }]">
+            <MarkdownRenderer v-if="!message.error" :content="message.content" />
+            <template v-else>
+              {{ message.content }}
+            </template>
           </div>
         </div>
       </div>
 
-      <!-- Loading indicator -->
       <div v-if="isLoading" class="message assistant loading">
         <div class="message-avatar">
           <ElIcon>
@@ -169,7 +140,6 @@ onMounted(() => {
       </div>
     </div>
 
-    <!-- Input area -->
     <div class="input-area">
       <ElInput
         v-model="input"
@@ -241,7 +211,7 @@ onMounted(() => {
       display: flex;
       gap: 12px;
       margin-bottom: 20px;
-      animation: fadeIn 0.3s ease;
+      animation: fadeIn 0.2s ease-out;
 
       &.user {
         .message-avatar {
@@ -307,6 +277,23 @@ onMounted(() => {
             color: var(--rf-color-danger);
             border: 1px solid var(--rf-color-danger);
           }
+
+          // Reset margins and white-space for markdown content
+          :deep(.markdown-renderer) {
+            white-space: normal; // Override pre-wrap for markdown
+
+            > *:first-child {
+              margin-top: 0;
+            }
+            > *:last-child {
+              margin-bottom: 0;
+            }
+
+            // Keep pre-wrap for code blocks
+            pre {
+              white-space: pre;
+            }
+          }
         }
       }
     }
@@ -343,40 +330,16 @@ onMounted(() => {
 @keyframes fadeIn {
   from {
     opacity: 0;
-    transform: translateY(10px);
   }
   to {
     opacity: 1;
-    transform: translateY(0);
   }
 }
 
-// Dark mode adaptation
+// Dark mode styles (minimal - CSS variables handle most)
 html.dark {
-  .agent-chat-panel {
-    .chat-header {
-      background-color: var(--rf-color-bg-container);
-
-      .model-tag {
-        background: var(--rf-color-primary);
-        color: white;
-        opacity: 0.9;
-      }
-    }
-
-    .messages-container {
-      .message {
-        .message-content {
-          .message-text {
-            background: var(--rf-color-bg-container);
-          }
-        }
-      }
-    }
-
-    .input-area {
-      background-color: var(--rf-color-bg-container);
-    }
+  .model-tag {
+    opacity: 0.9;
   }
 }
 </style>
