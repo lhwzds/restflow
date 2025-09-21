@@ -3,7 +3,7 @@ import type { NodeProps } from '@vue-flow/core'
 import { Handle, Position } from '@vue-flow/core'
 import { computed } from 'vue'
 import { Globe, Send } from 'lucide-vue-next'
-import { useNodeExecutionStatus } from '../../composables/node/useNodeExecutionStatus'
+import { useNodeExecutionStatus } from '@/composables/node/useNodeExecutionStatus'
 
 interface HttpNodeData {
   label?: string
@@ -60,7 +60,7 @@ const executionTime = computed(() => {
 $node-color: #3b82f6;
 
 .http-node {
-  @include node-base(var(--rf-size-md), var(--rf-size-label));
+  @include node-base(var(--rf-size-md), var(--rf-size-base));
   @include node-execution-states();
   @include node-handle($node-color);
   @include node-text();

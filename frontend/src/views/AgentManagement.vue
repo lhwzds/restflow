@@ -264,7 +264,7 @@ function backToList() {
 
   &__list {
     .search-input {
-      width: var(--rf-search-input-width);
+      width: var(--rf-size-xl);
     }
 
     .agents-grid {

@@ -255,7 +255,7 @@ async function handleToggleTrigger(event: Event, value: boolean) {
 
 @keyframes pulse {
   0% {
-    box-shadow: 0 0 0 0 var(--rf-color-success-bg);
+    box-shadow: 0 0 0 0 var(--rf-color-success-light);
   }
   70% {
     box-shadow: 0 0 0 6px transparent;
