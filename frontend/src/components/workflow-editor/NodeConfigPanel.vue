@@ -81,7 +81,7 @@ const handleFormUpdate = (data: any) => {
   position: absolute;
   right: 0;
   top: 0;
-  width: 320px;
+  width: var(--rf-size-xl);
   height: 100%;
   background: var(--rf-color-bg-container);
   border-left: 1px solid var(--rf-color-border-base);
@@ -137,7 +137,7 @@ const handleFormUpdate = (data: any) => {
 
 .form-group label {
   display: block;
-  margin-bottom: var(--rf-spacing-xs-plus);
+  margin-bottom: var(--rf-spacing-sm);
   font-size: var(--rf-font-size-base);
   font-weight: var(--rf-font-weight-medium);
   color: var(--rf-color-text-regular);

@@ -78,39 +78,24 @@ const updateData = () => {
 </template>
 
 <style lang="scss" scoped>
+@use '@/styles/components/forms' as *;
 .form-group {
-  margin-bottom: 20px;
-}
+  @include form-group;
 
-.form-group label {
-  display: block;
-  margin-bottom: 6px;
-  font-size: 14px;
-  font-weight: 500;
-  color: #475569;
-}
+  label {
+    @include form-label;
+  }
 
-.form-group input,
-.form-group select,
-.form-group textarea {
-  width: 100%;
-  padding: 8px 12px;
-  border: 1px solid #cbd5e1;
-  border-radius: 6px;
-  font-size: 14px;
-  transition: border-color 0.2s;
-}
+  input {
+    @include form-field;
+  }
 
-.form-group input:focus,
-.form-group select:focus,
-.form-group textarea:focus {
-  outline: none;
-  border-color: #6366f1;
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
-}
+  select {
+    @include form-select;
+  }
 
-.form-group textarea {
-  resize: vertical;
-  font-family: inherit;
+  textarea {
+    @include form-textarea;
+  }
 }
 </style>

@@ -155,7 +155,7 @@ function hasTrigger(workflow: Workflow): boolean {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: var(--rf-spacing-xs-plus);
+  gap: var(--rf-spacing-sm);
 
   .help-icon {
     flex-shrink: 0;

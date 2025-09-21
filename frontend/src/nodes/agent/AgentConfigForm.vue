@@ -148,7 +148,7 @@ const isToolSelected = (toolId: string) => {
 
 .form-group label {
   display: block;
-  margin-bottom: var(--rf-spacing-xs-plus);
+  margin-bottom: var(--rf-spacing-sm);
   font-size: var(--rf-font-size-base);
   font-weight: var(--rf-font-weight-medium);
   color: var(--rf-color-text-regular);

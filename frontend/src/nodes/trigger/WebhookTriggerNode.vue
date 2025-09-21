@@ -65,7 +65,7 @@ $node-color: #ff6b35;
 $node-color-light: rgba(255, 247, 237, 0.95);
 
 .webhook-trigger-node {
-  @include trigger-node($node-color, $node-color-light, 160px, 75px);
+  @include trigger-node($node-color, $node-color-light, var(--rf-size-md), var(--rf-size-label));
 }
 
 </style>

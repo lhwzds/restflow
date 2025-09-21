@@ -16,10 +16,10 @@ defineProps<Props>()
 
 <style lang="scss" scoped>
 .info-message {
-  padding: 12px;
-  background-color: #f1f5f9;
-  border-radius: 6px;
-  color: #475569;
-  font-size: 14px;
+  padding: var(--rf-spacing-lg);
+  background-color: var(--rf-color-bg-secondary);
+  border-radius: var(--rf-radius-base);
+  color: var(--rf-color-text-regular);
+  font-size: var(--rf-font-size-base);
 }
 </style>

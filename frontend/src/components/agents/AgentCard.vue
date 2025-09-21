@@ -211,7 +211,7 @@ function handleClick() {
   .temperature-section {
     display: flex;
     align-items: center;
-    gap: var(--rf-spacing-xs-plus);
+    gap: var(--rf-spacing-sm);
     margin-bottom: var(--rf-spacing-sm);
     font-size: var(--rf-font-size-xs);
 

@@ -61,7 +61,7 @@ $node-color: #22c55e;
 $node-color-light: rgba(236, 253, 245, 0.95);
 
 .manual-trigger-node {
-  @include trigger-node($node-color, $node-color-light, 140px, 75px);
+  @include trigger-node($node-color, $node-color-light, var(--rf-size-md), var(--rf-size-label));
 }
 
 </style>

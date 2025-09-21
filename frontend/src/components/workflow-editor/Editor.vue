@@ -294,7 +294,7 @@ useKeyboardShortcuts({
 
 .execute-icon {
   vertical-align: middle;
-  margin-right: var(--rf-spacing-xs-plus);
+  margin-right: var(--rf-spacing-sm);
 }
 
 .vue-flow__minimap {
