@@ -51,9 +51,18 @@ watch(() => props.agent, (newAgent) => {
 
 // Available model list
 const availableModels = [
+  // OpenAI O Series (Reasoning models)
+  { label: 'O4 Mini', value: 'o4-mini' },
+  { label: 'O3', value: 'o3' },
+  { label: 'O3 Mini', value: 'o3-mini' },
   { label: 'GPT-4.1', value: 'gpt-4.1' },
-  { label: 'Claude Sonnet 4', value: 'claude-sonnet-4' },
-  { label: 'DeepSeek V3', value: 'deepseek-v3' },
+  { label: 'GPT-4.1 Mini', value: 'gpt-4.1-mini' },
+  { label: 'GPT-4.1 Nano', value: 'gpt-4.1-nano' },
+  { label: 'Claude 4 Opus', value: 'claude-4-opus' },
+  { label: 'Claude 4 Sonnet', value: 'claude-4-sonnet' },
+  { label: 'Claude 3.7 Sonnet', value: 'claude-3.7-sonnet' },
+  { label: 'DeepSeek Chat', value: 'deepseek-chat' },
+  { label: 'DeepSeek Reasoner', value: 'deepseek-reasoner' },
 ]
 
 // Available tools list
