@@ -96,36 +96,41 @@ impl AgentNode {
             .ok_or_else(|| anyhow::anyhow!("API key not found. Please provide api key"))?;
 
         let response = match self.model.as_str() {
-            m if m.starts_with("gpt") || m.starts_with("o") => {
+            // OpenAI models
+            m @ ("o4-mini" | "o3" | "o3-mini" |
+                 "gpt-4.1" | "gpt-4.1-mini" | "gpt-4.1-nano" |
+                 "gpt-4" | "gpt-4-turbo" | "gpt-3.5-turbo" |
+                 "gpt-4o" | "gpt-4o-mini") => {
                 let client = openai::Client::new(&api_key);
 
                 let builder = match m {
-                    "o4-mini" => client.agent(openai::O4_MINI),
-                    "o3" => client.agent(openai::O3),
-                    "o3-mini" => client.agent(openai::O3_MINI),
-
-                    "gpt-4.1" => client.agent(openai::GPT_4_1),
-                    "gpt-4.1-mini" => client.agent(openai::GPT_4_1_MINI),
-                    "gpt-4.1-nano" => client.agent(openai::GPT_4_1_NANO),
-
-                    _ => client.agent(m),
-                }
-                .preamble(&self.prompt)
-                .temperature(self.temperature);
+                    // O-series models don't support temperature
+                    "o4-mini" | "o3" | "o3-mini" => {
+                        client.agent(m)
+                            .preamble(&self.prompt)
+                    },
+                    // GPT models support temperature
+                    _ => {
+                        client.agent(m)
+                            .preamble(&self.prompt)
+                            .temperature(self.temperature)
+                    }
+                };
 
                 let builder = configure_tools!(self, builder);
                 let agent = builder.build();
                 agent.prompt(input).await?
             },
 
-            m if m.starts_with("claude") => {
+            // Anthropic Claude models
+            m @ ("claude-4-opus" | "claude-4-sonnet" | "claude-3.7-sonnet") => {
                 let client = anthropic::Client::new(&api_key);
 
                 let builder = match m {
-                    "claude-4-opus" | "claude-opus-4" => client.agent(anthropic::CLAUDE_4_OPUS),
-                    "claude-4-sonnet" | "claude-sonnet-4" => client.agent(anthropic::CLAUDE_4_SONNET),
-                    "claude-3.7-sonnet" | "claude-3-7-sonnet" => client.agent(anthropic::CLAUDE_3_7_SONNET),
-                    _ => client.agent(m),
+                    "claude-4-opus" => client.agent(anthropic::CLAUDE_4_OPUS),
+                    "claude-4-sonnet" => client.agent(anthropic::CLAUDE_4_SONNET),
+                    "claude-3.7-sonnet" => client.agent(anthropic::CLAUDE_3_7_SONNET),
+                    _ => unreachable!(), // We already matched these exact models
                 }
                 .preamble(&self.prompt)
                 .temperature(self.temperature);
@@ -135,13 +140,14 @@ impl AgentNode {
                 agent.prompt(input).await?
             },
 
-            m if m.contains("deepseek") => {
+            // DeepSeek models
+            m @ ("deepseek-chat" | "deepseek-reasoner") => {
                 let client = deepseek::Client::new(&api_key);
 
                 let builder = match m {
                     "deepseek-chat" => client.agent(deepseek::DEEPSEEK_CHAT),
                     "deepseek-reasoner" => client.agent(deepseek::DEEPSEEK_REASONER),
-                    _ => client.agent(m),
+                    _ => unreachable!(), // We already matched these exact models
                 }
                 .preamble(&self.prompt)
                 .temperature(self.temperature);
@@ -153,7 +159,7 @@ impl AgentNode {
 
             _ => {
                 return Err(anyhow::anyhow!(
-                    "Unsupported model: {}. Supported prefixes: gpt (OpenAI), claude (Anthropic), deepseek (DeepSeek)",
+                    "Unsupported model: {}. Supported models: o4-mini, o3, o3-mini, gpt-4.1, gpt-4.1-mini, gpt-4.1-nano, gpt-4, gpt-4-turbo, gpt-3.5-turbo, gpt-4o, gpt-4o-mini, claude-4-opus, claude-4-sonnet, claude-3.7-sonnet, deepseek-chat, deepseek-reasoner",
                     self.model
                 ));
             }
