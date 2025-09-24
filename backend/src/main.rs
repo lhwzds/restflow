@@ -1,5 +1,8 @@
 mod static_assets;
 
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 use backend::{AppCore, api};
 use std::sync::Arc;
 use api::{
