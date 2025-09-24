@@ -40,7 +40,7 @@ impl WorkflowExecutor {
 
         // Add secret storage to context if provided
         if let Some(storage) = storage {
-            context.secret_storage = Some(Arc::new(storage.secrets.clone()));
+            context.ensure_secret_storage(&storage);
         }
 
         Self {
@@ -250,6 +250,7 @@ impl WorkflowExecutor {
         
         // Create initial context
         let mut context = ExecutionContext::new(execution_id.clone());
+        context.ensure_secret_storage(&storage);
         context.set_variable("input".to_string(), input.clone());
         
         // Push start nodes to queue (skip trigger nodes)
@@ -442,6 +443,8 @@ impl Worker {
         
         // Execute the node
         let mut context = task.context.clone();
+        // Ensure secret_storage is available if not already set
+        context.ensure_secret_storage(&self.storage);
         let result = WorkflowExecutor::execute_node(node, &mut context, self.registry.clone()).await;
         
         // Handle the result and queue downstream tasks if successful
