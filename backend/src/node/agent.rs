@@ -10,12 +10,19 @@ use crate::tools::{AddTool, GetTimeTool};
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
+#[serde(rename_all = "snake_case", tag = "type", content = "value")]
+pub enum ApiKeyConfig {
+    Direct(String),
+    Secret(String),  // Reference to secret name in secret manager
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct AgentNode {
     pub model: String,
     pub prompt: String,
     pub temperature: f64,
-    pub api_key: Option<String>,
-    pub api_key_secret: Option<String>,  // Reference to secret name in secret manager
+    pub api_key_config: Option<ApiKeyConfig>,
     pub tools: Option<Vec<String>>,  // Tool names to enable
 }
 
@@ -45,13 +52,12 @@ macro_rules! configure_tools {
 }
 
 impl AgentNode {
-    pub fn new(model: String, prompt: String, temperature: f64, api_key: Option<String>) -> Self {
+    pub fn new(model: String, prompt: String, temperature: f64, api_key_config: Option<ApiKeyConfig>) -> Self {
         Self {
             model,
             prompt,
             temperature,
-            api_key,
-            api_key_secret: None,
+            api_key_config,
             tools: None,
         }
     }
@@ -72,8 +78,9 @@ impl AgentNode {
             .as_f64()
             .ok_or_else(|| anyhow::anyhow!("Temperature missing in config"))?;
 
-        let api_key = config["api_key"].as_str().map(|s| s.to_string());
-        let api_key_secret = config["api_key_secret"].as_str().map(|s| s.to_string());
+        let api_key_config = config.get("api_key_config")
+            .map(|v| serde_json::from_value(v.clone()))
+            .transpose()?;
 
         let tools = config["tools"]
             .as_array()
@@ -87,29 +94,28 @@ impl AgentNode {
             model,
             prompt,
             temperature,
-            api_key,
-            api_key_secret,
+            api_key_config,
             tools,
         })
     }
 
     pub async fn execute(&self, input: &str, secret_storage: Option<&crate::storage::SecretStorage>) -> Result<String> {
-        // Prioritize api_key_secret from secret manager over direct api_key
-        let api_key = if let Some(ref secret_name) = self.api_key_secret {
-            if let Some(storage) = secret_storage {
-                storage.get_secret(secret_name)?
-                    .ok_or_else(|| anyhow::anyhow!("Secret '{}' not found in secret manager", secret_name))?
-            } else {
-                return Err(anyhow::anyhow!("Secret manager not available but api_key_secret is configured"));
+        let api_key = match &self.api_key_config {
+            Some(ApiKeyConfig::Direct(key)) => key.clone(),
+            Some(ApiKeyConfig::Secret(secret_name)) => {
+                if let Some(storage) = secret_storage {
+                    storage.get_secret(secret_name)?
+                        .ok_or_else(|| anyhow::anyhow!("Secret '{}' not found in secret manager", secret_name))?
+                } else {
+                    return Err(anyhow::anyhow!("Secret manager not available but secret reference is configured"));
+                }
+            },
+            None => {
+                return Err(anyhow::anyhow!("No API key configured. Please provide api_key_config"));
             }
-        } else if let Some(ref key) = self.api_key {
-            key.clone()
-        } else {
-            return Err(anyhow::anyhow!("No API key configured. Please provide api_key or api_key_secret"));
         };
 
         let response = match self.model.as_str() {
-            // OpenAI models
             m @ ("o4-mini" | "o3" | "o3-mini" |
                  "gpt-4.1" | "gpt-4.1-mini" | "gpt-4.1-nano" |
                  "gpt-4" | "gpt-4-turbo" | "gpt-3.5-turbo" |
@@ -122,7 +128,6 @@ impl AgentNode {
                         client.agent(m)
                             .preamble(&self.prompt)
                     },
-                    // GPT models support temperature
                     _ => {
                         client.agent(m)
                             .preamble(&self.prompt)
@@ -135,7 +140,6 @@ impl AgentNode {
                 agent.prompt(input).await?
             },
 
-            // Anthropic Claude models
             m @ ("claude-4-opus" | "claude-4-sonnet" | "claude-3.7-sonnet") => {
                 let client = anthropic::Client::new(&api_key);
 
@@ -153,7 +157,6 @@ impl AgentNode {
                 agent.prompt(input).await?
             },
 
-            // DeepSeek models
             m @ ("deepseek-chat" | "deepseek-reasoner") => {
                 let client = deepseek::Client::new(&api_key);
 

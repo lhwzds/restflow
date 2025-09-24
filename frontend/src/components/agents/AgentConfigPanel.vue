@@ -20,6 +20,7 @@ import { Check, Delete, CopyDocument } from '@element-plus/icons-vue'
 import type { StoredAgent } from '@/types/generated/StoredAgent'
 import type { AgentNode } from '@/types/generated/AgentNode'
 import { useSecretsData } from '@/composables/secrets/useSecretsData'
+import { useApiKeyConfig } from '@/composables/useApiKeyConfig'
 
 const props = defineProps<{
   agent: StoredAgent
@@ -30,35 +31,41 @@ const emit = defineEmits<{
   delete: [id: string]
 }>()
 
-// API Key mode: 'direct' or 'secret'
-const keyMode = ref<'direct' | 'secret'>(
-  props.agent.agent.api_key_secret ? 'secret' : 'direct'
-)
-
-// Secrets data management
 const { secrets, loadSecrets: loadSecretsData } = useSecretsData()
+const { buildConfig, isConfigChanged } = useApiKeyConfig()
 
-// Form data
 const formData = ref({
   name: props.agent.name,
   model: props.agent.agent.model,
   prompt: props.agent.agent.prompt,
   temperature: props.agent.agent.temperature,
-  api_key: props.agent.agent.api_key || '',
-  api_key_secret: props.agent.agent.api_key_secret || '',
+  api_key_config: props.agent.agent.api_key_config,
   tools: props.agent.agent.tools || []
 })
 
-// Watch props changes, update form data
+// Computed properties for API key mode and value
+const keyMode = computed({
+  get: () => formData.value.api_key_config?.type || 'direct',
+  set: (value: 'direct' | 'secret') => {
+    formData.value.api_key_config = buildConfig(value, '')
+  }
+})
+
+const apiKeyValue = computed({
+  get: () => formData.value.api_key_config?.value || '',
+  set: (value: string) => {
+    const mode = keyMode.value as 'direct' | 'secret'
+    formData.value.api_key_config = buildConfig(mode, value)
+  }
+})
+
 watch(() => props.agent, (newAgent) => {
-  keyMode.value = newAgent.agent.api_key_secret ? 'secret' : 'direct'
   formData.value = {
     name: newAgent.name,
     model: newAgent.agent.model,
     prompt: newAgent.agent.prompt,
     temperature: newAgent.agent.temperature,
-    api_key: newAgent.agent.api_key || '',
-    api_key_secret: newAgent.agent.api_key_secret || '',
+    api_key_config: newAgent.agent.api_key_config,
     tools: newAgent.agent.tools || []
   }
 }, { deep: true })
@@ -67,7 +74,6 @@ onMounted(async () => {
   await loadSecretsData()
 })
 
-// Available model list
 const availableModels = [
   // OpenAI O Series (Reasoning models)
   { label: 'O4 Mini', value: 'o4-mini' },
@@ -83,28 +89,22 @@ const availableModels = [
   { label: 'DeepSeek Reasoner', value: 'deepseek-reasoner' },
 ]
 
-// Available tools list
 const availableTools = [
   { label: 'Addition Calculator', value: 'add' },
   { label: 'Get Current Time', value: 'get_current_time' }
 ]
 
-// Has unsaved changes
 const hasChanges = computed(() => {
-  const currentKeyMode = props.agent.agent.api_key_secret ? 'secret' : 'direct'
   return (
     formData.value.name !== props.agent.name ||
     formData.value.model !== props.agent.agent.model ||
     formData.value.prompt !== props.agent.agent.prompt ||
     formData.value.temperature !== props.agent.agent.temperature ||
-    keyMode.value !== currentKeyMode ||
-    (keyMode.value === 'direct' && formData.value.api_key !== (props.agent.agent.api_key || '')) ||
-    (keyMode.value === 'secret' && formData.value.api_key_secret !== (props.agent.agent.api_key_secret || '')) ||
+    isConfigChanged(props.agent.agent.api_key_config, formData.value.api_key_config) ||
     JSON.stringify(formData.value.tools) !== JSON.stringify(props.agent.agent.tools || [])
   )
 })
 
-// Save changes
 function handleSave() {
   if (!formData.value.name.trim()) {
     ElMessage.error('Agent name cannot be empty')
@@ -117,15 +117,11 @@ function handleSave() {
     updates.name = formData.value.name
   }
 
-  // Check if agent configuration has changed
-  const currentKeyMode = props.agent.agent.api_key_secret ? 'secret' : 'direct'
   const agentChanged =
     formData.value.model !== props.agent.agent.model ||
     formData.value.prompt !== props.agent.agent.prompt ||
     formData.value.temperature !== props.agent.agent.temperature ||
-    keyMode.value !== currentKeyMode ||
-    (keyMode.value === 'direct' && formData.value.api_key !== (props.agent.agent.api_key || '')) ||
-    (keyMode.value === 'secret' && formData.value.api_key_secret !== (props.agent.agent.api_key_secret || '')) ||
+    isConfigChanged(props.agent.agent.api_key_config, formData.value.api_key_config) ||
     JSON.stringify(formData.value.tools) !== JSON.stringify(props.agent.agent.tools || [])
 
   if (agentChanged) {
@@ -133,8 +129,7 @@ function handleSave() {
       model: formData.value.model,
       prompt: formData.value.prompt,
       temperature: formData.value.temperature,
-      api_key: keyMode.value === 'direct' ? (formData.value.api_key || null) : null,
-      api_key_secret: keyMode.value === 'secret' ? (formData.value.api_key_secret || null) : null,
+      api_key_config: formData.value.api_key_config || null,
       tools: formData.value.tools.length > 0 ? formData.value.tools : null
     }
   }
@@ -142,12 +137,10 @@ function handleSave() {
   emit('update', props.agent.id, updates)
 }
 
-// Delete Agent
 function handleDelete() {
   emit('delete', props.agent.id)
 }
 
-// Copy configuration
 function handleCopyConfig() {
   const config = {
     model: formData.value.model,
@@ -160,16 +153,13 @@ function handleCopyConfig() {
   ElMessage.success('Configuration copied to clipboard')
 }
 
-// Reset form
 function resetForm() {
-  keyMode.value = props.agent.agent.api_key_secret ? 'secret' : 'direct'
   formData.value = {
     name: props.agent.name,
     model: props.agent.agent.model,
     prompt: props.agent.agent.prompt,
     temperature: props.agent.agent.temperature,
-    api_key: props.agent.agent.api_key || '',
-    api_key_secret: props.agent.agent.api_key_secret || '',
+    api_key_config: props.agent.agent.api_key_config,
     tools: props.agent.agent.tools || []
   }
 }
@@ -227,7 +217,7 @@ function resetForm() {
 
           <ElInput
             v-if="keyMode === 'direct'"
-            v-model="formData.api_key"
+            v-model="apiKeyValue"
             type="password"
             placeholder="Enter API Key (optional)"
             show-password
@@ -236,7 +226,7 @@ function resetForm() {
 
           <ElSelect
             v-else
-            v-model="formData.api_key_secret"
+            v-model="apiKeyValue"
             placeholder="Select a secret"
             clearable
             style="width: 100%"

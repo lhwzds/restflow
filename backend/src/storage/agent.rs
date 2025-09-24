@@ -25,7 +25,6 @@ pub struct AgentStorage {
 
 impl AgentStorage {
     pub fn new(db: Arc<Database>) -> Result<Self> {
-        // Create table
         let write_txn = db.begin_write()?;
         write_txn.open_table(AGENT_TABLE)?;
         write_txn.commit()?;
@@ -130,12 +129,13 @@ mod tests {
     use tempfile::tempdir;
 
     fn create_test_agent_node() -> AgentNode {
+        use crate::node::agent::ApiKeyConfig;
+
         AgentNode {
             model: "gpt-4.1".to_string(),
             prompt: "You are a helpful assistant".to_string(),
             temperature: 0.7,
-            api_key: Some("test_key".to_string()),
-            api_key_secret: None,
+            api_key_config: Some(ApiKeyConfig::Direct("test_key".to_string())),
             tools: Some(vec!["add".to_string()]),
         }
     }
