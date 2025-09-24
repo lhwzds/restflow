@@ -15,6 +15,7 @@ import { useAgentOperations } from '../composables/agents/useAgentOperations'
 import { useAgentPanelResize } from '../composables/agents/useAgentPanelResize'
 import { useSecretsData } from '../composables/secrets/useSecretsData'
 import type { AgentNode } from '@/types/generated/AgentNode'
+import { useApiKeyConfig } from '@/composables/useApiKeyConfig'
 
 const {
   searchQuery,
@@ -25,19 +26,18 @@ const {
 } = useAgentsList()
 
 const { createAgent, updateAgent, deleteAgent } = useAgentOperations()
-// Panel resizing for split view - allows adjustable config/chat panel widths
 const { panelWidth, startDragging } = useAgentPanelResize()
-// Secrets data management
 const { secrets, loadSecrets: loadSecretsData } = useSecretsData()
+const { buildConfig } = useApiKeyConfig()
 
 const showCreateDialog = ref(false)
 const createKeyMode = ref<'direct' | 'secret'>('direct')
-const createForm = ref<AgentNode>({
+const createApiKey = ref('')
+const createApiKeySecret = ref('')
+const createForm = ref<Omit<AgentNode, 'api_key_config'>>({
   model: 'gpt-4.1',
   prompt: '',
   temperature: 0.7,
-  api_key: null,
-  api_key_secret: null,
   tools: null
 })
 const createFormName = ref('')
@@ -58,7 +58,6 @@ const availableModels = [
 
 onMounted(async () => {
   loadAgents()
-  // Load secrets for create dialog
   await loadSecretsData()
 })
 
@@ -73,11 +72,12 @@ async function handleCreate() {
   }
 
   try {
-    // Set the correct field based on key mode
-    const agentData = {
+    const apiKeyValue = createKeyMode.value === 'direct' ? createApiKey.value : createApiKeySecret.value
+    const apiKeyConfig = buildConfig(createKeyMode.value, apiKeyValue)
+
+    const agentData: AgentNode = {
       ...createForm.value,
-      api_key: createKeyMode.value === 'direct' ? createForm.value.api_key : null,
-      api_key_secret: createKeyMode.value === 'secret' ? createForm.value.api_key_secret : null
+      api_key_config: apiKeyConfig
     }
 
     await createAgent(createFormName.value, agentData)
@@ -85,18 +85,17 @@ async function handleCreate() {
 
     createFormName.value = ''
     createKeyMode.value = 'direct'
+    createApiKey.value = ''
+    createApiKeySecret.value = ''
     createForm.value = {
       model: 'gpt-4.1',
       prompt: '',
       temperature: 0.7,
-      api_key: null,
-      api_key_secret: null,
       tools: null
     }
 
     await loadAgents()
   } catch (error) {
-    // Handled by composable
   }
 }
 
@@ -105,7 +104,6 @@ async function handleUpdate(id: string, updates: any) {
     await updateAgent(id, updates)
     await loadAgents()
   } catch (error) {
-    // Handled by composable
   }
 }
 
@@ -115,7 +113,6 @@ async function handleDelete(id: string) {
     selectAgent(null)
     await loadAgents()
   } catch (error) {
-    // Handled by composable
   }
 }
 
@@ -269,7 +266,7 @@ function backToList() {
 
           <ElInput
             v-if="createKeyMode === 'direct'"
-            v-model="createForm.api_key"
+            v-model="createApiKey"
             type="password"
             placeholder="Enter API Key (optional)"
             show-password
@@ -277,7 +274,7 @@ function backToList() {
 
           <ElSelect
             v-else
-            v-model="createForm.api_key_secret"
+            v-model="createApiKeySecret"
             placeholder="Select a secret"
             clearable
             style="width: 100%"

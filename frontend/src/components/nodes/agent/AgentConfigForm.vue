@@ -1,5 +1,7 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { ref, watch, onMounted } from 'vue'
+import type { ApiKeyConfig } from '@/types/generated/ApiKeyConfig'
+import { useApiKeyConfig } from '@/composables/useApiKeyConfig'
 
 interface AgentConfig {
   model?: string
@@ -7,7 +9,7 @@ interface AgentConfig {
   temperature?: number
   tools?: string[]
   input?: string
-  api_key?: string
+  api_key_config?: ApiKeyConfig | null
 }
 
 interface Props {
@@ -19,14 +21,20 @@ const emit = defineEmits<{
   'update:modelValue': [value: AgentConfig]
 }>()
 
-// Available tools
 const availableTools = [
   { id: 'add', name: 'Addition Tool', description: 'Adds two numbers' },
   { id: 'get_current_time', name: 'Time Tool', description: 'Gets current time' },
 ]
 
-// Local copy of data
+const { buildConfig, extractConfig } = useApiKeyConfig()
+
 const localData = ref<AgentConfig>({})
+
+const keyMode = ref<'direct' | 'secret'>('direct')
+const apiKeyDirect = ref('')
+const apiKeySecret = ref('')
+
+const secrets = ref<Array<{ key: string; description?: string }>>([])
 
 watch(
   () => props.modelValue,
@@ -35,16 +43,42 @@ watch(
     if (!localData.value.tools) {
       localData.value.tools = []
     }
+    if (newValue.api_key_config) {
+      const { mode, value } = extractConfig(newValue.api_key_config)
+      keyMode.value = mode
+      if (mode === 'direct') {
+        apiKeyDirect.value = value
+      } else {
+        apiKeySecret.value = value
+      }
+    }
   },
   { immediate: true },
 )
 
-// Update data
+onMounted(async () => {
+  try {
+    const response = await fetch('/api/secrets/list')
+    if (response.ok) {
+      const data = await response.json()
+      secrets.value = data.data || []
+    }
+  } catch (error) {
+    // Silently fail if secrets API is not available
+    console.debug('Secrets API not available:', error)
+  }
+})
+
 const updateData = () => {
-  emit('update:modelValue', { ...localData.value })
+  const apiKeyValue = keyMode.value === 'direct' ? apiKeyDirect.value : apiKeySecret.value
+  const apiKeyConfig = buildConfig(keyMode.value, apiKeyValue)
+
+  emit('update:modelValue', {
+    ...localData.value,
+    api_key_config: apiKeyConfig
+  })
 }
 
-// Toggle tool selection
 const toggleTool = (toolId: string) => {
   if (!localData.value.tools) {
     localData.value.tools = []
@@ -58,7 +92,6 @@ const toggleTool = (toolId: string) => {
   updateData()
 }
 
-// Check if tool is selected
 const isToolSelected = (toolId: string) => {
   return localData.value.tools?.includes(toolId) || false
 }
@@ -106,14 +139,52 @@ const isToolSelected = (toolId: string) => {
     </div>
 
     <div class="form-group">
-      <label>API Key</label>
+      <label>API Key Configuration</label>
+      <div class="api-key-mode">
+        <label class="radio-option">
+          <input
+            type="radio"
+            v-model="keyMode"
+            value="direct"
+            @change="updateData"
+          />
+          <span>Direct Input</span>
+        </label>
+        <label class="radio-option">
+          <input
+            type="radio"
+            v-model="keyMode"
+            value="secret"
+            @change="updateData"
+          />
+          <span>Use Secret</span>
+        </label>
+      </div>
+
       <input
+        v-if="keyMode === 'direct'"
         type="password"
-        v-model="localData.api_key"
+        v-model="apiKeyDirect"
         @input="updateData"
-        placeholder="sk-..."
-        required
+        placeholder="Enter API Key"
+        class="api-key-input"
       />
+
+      <select
+        v-else
+        v-model="apiKeySecret"
+        @change="updateData"
+        class="api-key-select"
+      >
+        <option value="">Select a secret</option>
+        <option
+          v-for="secret in secrets"
+          :key="secret.key"
+          :value="secret.key"
+        >
+          {{ secret.description || secret.key }}
+        </option>
+      </select>
     </div>
 
     <div class="form-group">
@@ -224,5 +295,33 @@ const isToolSelected = (toolId: string) => {
   font-size: var(--rf-font-size-xs);
   color: var(--rf-color-text-secondary);
   margin-top: var(--rf-spacing-3xs);
+}
+
+.api-key-mode {
+  display: flex;
+  gap: var(--rf-spacing-lg);
+  margin-bottom: var(--rf-spacing-md);
+}
+
+.radio-option {
+  display: flex;
+  align-items: center;
+  gap: var(--rf-spacing-xs);
+  cursor: pointer;
+}
+
+.radio-option input[type='radio'] {
+  width: auto;
+  margin: 0;
+}
+
+.radio-option span {
+  font-size: var(--rf-font-size-sm);
+  color: var(--rf-color-text-regular);
+}
+
+.api-key-input,
+.api-key-select {
+  margin-top: var(--rf-spacing-sm);
 }
 </style>
