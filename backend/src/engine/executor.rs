@@ -33,10 +33,16 @@ pub struct WorkflowExecutor {
 
 impl WorkflowExecutor {
     /// Create a synchronous executor for a specific workflow
-    pub fn new_sync(workflow: Workflow) -> Self {
+    /// Optionally provide storage for secret access
+    pub fn new_sync(workflow: Workflow, storage: Option<Arc<Storage>>) -> Self {
         let graph = WorkflowGraph::from_workflow(&workflow);
-        let context = ExecutionContext::new(workflow.id.clone());
-        
+        let mut context = ExecutionContext::new(workflow.id.clone());
+
+        // Add secret storage to context if provided
+        if let Some(storage) = storage {
+            context.secret_storage = Some(Arc::new(storage.secrets.clone()));
+        }
+
         Self {
             inner: ExecutorInner::Sync { graph, context },
             registry: Arc::new(crate::node::registry::NodeRegistry::new()),

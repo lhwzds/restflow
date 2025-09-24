@@ -42,8 +42,17 @@ pub async fn create_secret(
         ));
     }
 
-    match services::secrets::set_secret(&state, &payload.key, &payload.value, payload.description).await {
-        Ok(_) => Ok((StatusCode::CREATED, "Secret created successfully")),
+    match services::secrets::set_secret(&state, &payload.key, &payload.value, payload.description.clone()).await {
+        Ok(_) => {
+            // Return newly created secret without the actual value for security
+            let mut secret = crate::models::Secret::new(
+                payload.key,
+                String::new(),  // Don't return actual value
+                payload.description,
+            );
+            secret.value = String::new();  // Clear value for security
+            Ok((StatusCode::CREATED, Json(secret)))
+        }
         Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
     }
 }

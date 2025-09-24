@@ -6,6 +6,7 @@ use crate::models::Secret;
 
 const SECRETS_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("secrets");
 
+#[derive(Debug, Clone)]
 pub struct SecretStorage {
     db: Arc<Database>,
 }

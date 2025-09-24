@@ -135,6 +135,7 @@ mod tests {
             prompt: "You are a helpful assistant".to_string(),
             temperature: 0.7,
             api_key: Some("test_key".to_string()),
+            api_key_secret: None,
             tools: Some(vec!["add".to_string()]),
         }
     }

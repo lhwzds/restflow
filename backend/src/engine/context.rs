@@ -3,7 +3,9 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
+use std::sync::Arc;
 use ts_rs::TS;
+use crate::storage::SecretStorage;
 
 // Compile regex once at first use, then reuse for performance
 // Pattern: {{variable_name}} or {{node_id.field.subfield}}
@@ -24,6 +26,9 @@ pub struct ExecutionContext {
     pub node_outputs: HashMap<String, Value>,
     #[ts(type = "Record<string, any>")]
     pub global_config: HashMap<String, Value>,
+    #[serde(skip)]
+    #[ts(skip)]
+    pub secret_storage: Option<Arc<SecretStorage>>,
 }
 
 impl ExecutionContext {
@@ -34,7 +39,13 @@ impl ExecutionContext {
             variables: HashMap::new(),
             node_outputs: HashMap::new(),
             global_config: HashMap::new(),
+            secret_storage: None,
         }
+    }
+
+    pub fn with_secret_storage(mut self, storage: Arc<SecretStorage>) -> Self {
+        self.secret_storage = Some(storage);
+        self
     }
 
     pub fn set_variable(&mut self, key: String, value: Value) {

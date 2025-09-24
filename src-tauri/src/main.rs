@@ -232,9 +232,9 @@ async fn execute_agent(
 async fn execute_agent_inline(
     agent: backend::node::agent::AgentNode,
     input: String,
-    _core: State<'_, Arc<AppCore>>,
+    core: State<'_, Arc<AppCore>>,
 ) -> Result<String, String> {
-    services::agent::execute_agent_inline(agent, &input).await
+    services::agent::execute_agent_inline(&*core, agent, &input).await
         .map_err(|e| e.to_string())
 }
 

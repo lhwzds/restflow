@@ -44,10 +44,10 @@ pub async fn delete_workflow(core: &Arc<AppCore>, id: &str) -> Result<()> {
 
 // Execution functions (also in workflows API)
 
-pub async fn execute_workflow_inline(mut workflow: Workflow) -> Result<Value> {
+pub async fn execute_workflow_inline(core: &Arc<AppCore>, mut workflow: Workflow) -> Result<Value> {
     workflow.id = format!("inline-{}", uuid::Uuid::new_v4());
 
-    let mut wf_executor = WorkflowExecutor::new_sync(workflow);
+    let mut wf_executor = WorkflowExecutor::new_sync(workflow, Some(core.storage.clone()));
     wf_executor.execute().await
         .context("Workflow execution failed")
 }
@@ -60,7 +60,7 @@ pub async fn execute_workflow_by_id(
     let workflow = core.storage.workflows.get_workflow(workflow_id)
         .with_context(|| format!("Failed to get workflow {} for execution", workflow_id))?;
 
-    let mut wf_executor = WorkflowExecutor::new_sync(workflow);
+    let mut wf_executor = WorkflowExecutor::new_sync(workflow, Some(core.storage.clone()));
     wf_executor.set_input(input);
     wf_executor.execute().await
         .with_context(|| format!("Failed to execute workflow {}", workflow_id))

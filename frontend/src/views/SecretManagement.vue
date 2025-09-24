@@ -147,7 +147,19 @@ function isEditing(row: any): boolean {
 
 function formatDate(timestamp: number | undefined): string {
   if (!timestamp) return 'Never'
-  const days = Math.floor((Date.now() - timestamp) / (1000 * 60 * 60 * 24))
+
+  const now = Date.now()
+  const diff = now - timestamp
+
+  if (diff < 0 || Math.abs(diff) < 1000) return 'Just now'
+
+  const days = Math.floor(diff / (1000 * 60 * 60 * 24))
+  const hours = Math.floor(diff / (1000 * 60 * 60))
+  const minutes = Math.floor(diff / (1000 * 60))
+
+  if (minutes < 1) return 'Just now'
+  if (minutes < 60) return `${minutes} minute${minutes > 1 ? 's' : ''} ago`
+  if (hours < 24) return `${hours} hour${hours > 1 ? 's' : ''} ago`
   if (days === 0) return 'Today'
   if (days === 1) return 'Yesterday'
   if (days < 7) return `${days} days ago`

@@ -136,12 +136,14 @@ struct AgentExecutor;
 
 #[async_trait]
 impl NodeExecutor for AgentExecutor {
-    async fn execute(&self, config: &Value, _context: &mut ExecutionContext) -> Result<Value> {
+    async fn execute(&self, config: &Value, context: &mut ExecutionContext) -> Result<Value> {
         use crate::node::agent::AgentNode;
-        
+
         let agent = AgentNode::from_config(config)?;
         let input = config["input"].as_str().unwrap_or("Hello");
-        let response = agent.execute(input).await
+
+        let secret_storage = context.secret_storage.as_ref().map(|s| s.as_ref());
+        let response = agent.execute(input, secret_storage).await
             .map_err(|e| anyhow::anyhow!("Agent execution failed: {}", e))?;
         
         Ok(serde_json::json!({

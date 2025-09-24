@@ -1,10 +1,11 @@
 import { createSecret as apiCreateSecret, updateSecret as apiUpdateSecret, deleteSecret as apiDeleteSecret } from '@/api/secrets'
+import type { Secret } from '@/types/generated/Secret'
 
 export function useSecretOperations() {
-  async function createSecret(key: string, value: string, description?: string) {
+  async function createSecret(key: string, value: string, description?: string): Promise<Secret> {
     try {
-      await apiCreateSecret(key, value, description)
-      return true
+      const secret = await apiCreateSecret(key, value, description)
+      return secret
     } catch (error) {
       console.error('Failed to create secret:', error)
       throw error
