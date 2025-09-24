@@ -15,6 +15,7 @@ pub struct AgentNode {
     pub prompt: String,
     pub temperature: f64,
     pub api_key: Option<String>,
+    pub api_key_secret: Option<String>,  // Reference to secret name in secret manager
     pub tools: Option<Vec<String>>,  // Tool names to enable
 }
 
@@ -50,6 +51,7 @@ impl AgentNode {
             prompt,
             temperature,
             api_key,
+            api_key_secret: None,
             tools: None,
         }
     }
@@ -71,6 +73,7 @@ impl AgentNode {
             .ok_or_else(|| anyhow::anyhow!("Temperature missing in config"))?;
 
         let api_key = config["api_key"].as_str().map(|s| s.to_string());
+        let api_key_secret = config["api_key_secret"].as_str().map(|s| s.to_string());
 
         let tools = config["tools"]
             .as_array()
@@ -85,15 +88,25 @@ impl AgentNode {
             prompt,
             temperature,
             api_key,
+            api_key_secret,
             tools,
         })
     }
 
-    pub async fn execute(&self, input: &str) -> Result<String> {
-        let api_key = self
-            .api_key
-            .clone()
-            .ok_or_else(|| anyhow::anyhow!("API key not found. Please provide api key"))?;
+    pub async fn execute(&self, input: &str, secret_storage: Option<&crate::storage::SecretStorage>) -> Result<String> {
+        // Prioritize api_key_secret from secret manager over direct api_key
+        let api_key = if let Some(ref secret_name) = self.api_key_secret {
+            if let Some(storage) = secret_storage {
+                storage.get_secret(secret_name)?
+                    .ok_or_else(|| anyhow::anyhow!("Secret '{}' not found in secret manager", secret_name))?
+            } else {
+                return Err(anyhow::anyhow!("Secret manager not available but api_key_secret is configured"));
+            }
+        } else if let Some(ref key) = self.api_key {
+            key.clone()
+        } else {
+            return Err(anyhow::anyhow!("No API key configured. Please provide api_key or api_key_secret"));
+        };
 
         let response = match self.model.as_str() {
             // OpenAI models

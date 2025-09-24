@@ -158,8 +158,8 @@ pub async fn execute_agent(
         }
     };
 
-    // Execute the agent
-    match agent.agent.execute(&request.input).await {
+    // Execute the agent with secret storage access
+    match agent.agent.execute(&request.input, Some(&state.storage.secrets)).await {
         Ok(response) => Json(serde_json::json!({
             "status": "success",
             "data": {
@@ -174,7 +174,10 @@ pub async fn execute_agent(
 }
 
 // POST /api/agents/execute-inline
-pub async fn execute_agent_inline(Json(agent_with_input): Json<Value>) -> Json<Value> {
+pub async fn execute_agent_inline(
+    State(state): State<AppState>,
+    Json(agent_with_input): Json<Value>
+) -> Json<Value> {
     // Parse the agent configuration
     let agent = match serde_json::from_value::<AgentNode>(agent_with_input["agent"].clone()) {
         Ok(a) => a,
@@ -188,8 +191,8 @@ pub async fn execute_agent_inline(Json(agent_with_input): Json<Value>) -> Json<V
 
     let input = agent_with_input["input"].as_str().unwrap_or("").to_string();
 
-    // Execute the agent
-    match agent.execute(&input).await {
+    // Execute the agent with secret storage access
+    match agent.execute(&input, Some(&state.storage.secrets)).await {
         Ok(response) => Json(serde_json::json!({
             "status": "success",
             "data": {

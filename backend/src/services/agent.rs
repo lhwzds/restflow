@@ -40,11 +40,11 @@ pub async fn execute_agent(
 ) -> Result<String> {
     let stored_agent = get_agent(core, id).await?;
 
-    stored_agent.agent.execute(input).await
+    stored_agent.agent.execute(input, Some(&core.storage.secrets)).await
         .with_context(|| format!("Failed to execute agent {}", id))
 }
 
-pub async fn execute_agent_inline(agent: AgentNode, input: &str) -> Result<String> {
-    agent.execute(input).await
+pub async fn execute_agent_inline(core: &AppCore, agent: AgentNode, input: &str) -> Result<String> {
+    agent.execute(input, Some(&core.storage.secrets)).await
         .context("Failed to execute inline agent")
 }

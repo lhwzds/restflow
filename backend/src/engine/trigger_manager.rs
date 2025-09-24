@@ -128,18 +128,18 @@ impl TriggerManager {
                 ResponseMode::Sync => {
                     // Sync mode: execute directly without queue
                     use crate::engine::executor::WorkflowExecutor;
-                    
+
                     // Load workflow
                     let workflow = self.storage.workflows.get_workflow(&workflow_id)
                         .map_err(|e| anyhow!("Failed to load workflow: {}", e))?;
-                    
+
                     // Create executor and execute synchronously
-                    let mut executor = WorkflowExecutor::new_sync(workflow);
+                    let mut executor = WorkflowExecutor::new_sync(workflow, Some(self.storage.clone()));
                     executor.set_input(input);
-                    
+
                     let result = executor.execute().await
                         .map_err(|e| anyhow!("Workflow execution failed: {}", e))?;
-                    
+
                     WebhookResponse::Sync { result }
                 }
             };

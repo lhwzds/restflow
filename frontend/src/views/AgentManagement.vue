@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { ElButton, ElInput, ElDialog, ElForm, ElFormItem, ElSelect, ElOption, ElSlider, ElMessage, ElRow, ElCol } from 'element-plus'
+import { ElButton, ElInput, ElDialog, ElForm, ElFormItem, ElSelect, ElOption, ElSlider, ElMessage, ElRow, ElCol, ElRadioGroup, ElRadio } from 'element-plus'
 import { Plus, Search } from '@element-plus/icons-vue'
 import HeaderBar from '../components/shared/HeaderBar.vue'
 import PageLayout from '../components/shared/PageLayout.vue'
@@ -13,6 +13,7 @@ import AgentChatPanel from '../components/agents/AgentChatPanel.vue'
 import { useAgentsList } from '../composables/agents/useAgentsList'
 import { useAgentOperations } from '../composables/agents/useAgentOperations'
 import { useAgentPanelResize } from '../composables/agents/useAgentPanelResize'
+import { useSecretsData } from '../composables/secrets/useSecretsData'
 import type { AgentNode } from '@/types/generated/AgentNode'
 
 const {
@@ -26,13 +27,17 @@ const {
 const { createAgent, updateAgent, deleteAgent } = useAgentOperations()
 // Panel resizing for split view - allows adjustable config/chat panel widths
 const { panelWidth, startDragging } = useAgentPanelResize()
+// Secrets data management
+const { secrets, loadSecrets: loadSecretsData } = useSecretsData()
 
 const showCreateDialog = ref(false)
+const createKeyMode = ref<'direct' | 'secret'>('direct')
 const createForm = ref<AgentNode>({
   model: 'gpt-4.1',
   prompt: '',
   temperature: 0.7,
   api_key: null,
+  api_key_secret: null,
   tools: null
 })
 const createFormName = ref('')
@@ -51,8 +56,10 @@ const availableModels = [
   { label: 'DeepSeek Reasoner', value: 'deepseek-reasoner' },
 ]
 
-onMounted(() => {
+onMounted(async () => {
   loadAgents()
+  // Load secrets for create dialog
+  await loadSecretsData()
 })
 
 async function handleCreate() {
@@ -66,15 +73,24 @@ async function handleCreate() {
   }
 
   try {
-    await createAgent(createFormName.value, createForm.value)
+    // Set the correct field based on key mode
+    const agentData = {
+      ...createForm.value,
+      api_key: createKeyMode.value === 'direct' ? createForm.value.api_key : null,
+      api_key_secret: createKeyMode.value === 'secret' ? createForm.value.api_key_secret : null
+    }
+
+    await createAgent(createFormName.value, agentData)
     showCreateDialog.value = false
 
     createFormName.value = ''
+    createKeyMode.value = 'direct'
     createForm.value = {
       model: 'gpt-4.1',
       prompt: '',
       temperature: 0.7,
       api_key: null,
+      api_key_secret: null,
       tools: null
     }
 
@@ -245,13 +261,34 @@ function backToList() {
           />
         </ElFormItem>
 
-        <ElFormItem label="API Key (optional)">
+        <ElFormItem label="API Key Configuration">
+          <ElRadioGroup v-model="createKeyMode" style="margin-bottom: var(--rf-spacing-md)">
+            <ElRadio value="direct">Direct Input</ElRadio>
+            <ElRadio value="secret">Use Secret Manager</ElRadio>
+          </ElRadioGroup>
+
           <ElInput
+            v-if="createKeyMode === 'direct'"
             v-model="createForm.api_key"
             type="password"
-            placeholder="Enter API Key"
+            placeholder="Enter API Key (optional)"
             show-password
           />
+
+          <ElSelect
+            v-else
+            v-model="createForm.api_key_secret"
+            placeholder="Select a secret"
+            clearable
+            style="width: 100%"
+          >
+            <ElOption
+              v-for="secret in secrets"
+              :key="secret.key"
+              :label="secret.description || secret.key"
+              :value="secret.key"
+            />
+          </ElSelect>
         </ElFormItem>
       </ElForm>
 

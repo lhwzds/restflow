@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import {
   ElForm,
   ElFormItem,
@@ -12,11 +12,14 @@ import {
   ElButton,
   ElDivider,
   ElPopconfirm,
-  ElMessage
+  ElMessage,
+  ElRadioGroup,
+  ElRadio
 } from 'element-plus'
 import { Check, Delete, CopyDocument } from '@element-plus/icons-vue'
 import type { StoredAgent } from '@/types/generated/StoredAgent'
 import type { AgentNode } from '@/types/generated/AgentNode'
+import { useSecretsData } from '@/composables/secrets/useSecretsData'
 
 const props = defineProps<{
   agent: StoredAgent
@@ -27,6 +30,14 @@ const emit = defineEmits<{
   delete: [id: string]
 }>()
 
+// API Key mode: 'direct' or 'secret'
+const keyMode = ref<'direct' | 'secret'>(
+  props.agent.agent.api_key_secret ? 'secret' : 'direct'
+)
+
+// Secrets data management
+const { secrets, loadSecrets: loadSecretsData } = useSecretsData()
+
 // Form data
 const formData = ref({
   name: props.agent.name,
@@ -34,20 +45,27 @@ const formData = ref({
   prompt: props.agent.agent.prompt,
   temperature: props.agent.agent.temperature,
   api_key: props.agent.agent.api_key || '',
+  api_key_secret: props.agent.agent.api_key_secret || '',
   tools: props.agent.agent.tools || []
 })
 
 // Watch props changes, update form data
 watch(() => props.agent, (newAgent) => {
+  keyMode.value = newAgent.agent.api_key_secret ? 'secret' : 'direct'
   formData.value = {
     name: newAgent.name,
     model: newAgent.agent.model,
     prompt: newAgent.agent.prompt,
     temperature: newAgent.agent.temperature,
     api_key: newAgent.agent.api_key || '',
+    api_key_secret: newAgent.agent.api_key_secret || '',
     tools: newAgent.agent.tools || []
   }
 }, { deep: true })
+
+onMounted(async () => {
+  await loadSecretsData()
+})
 
 // Available model list
 const availableModels = [
@@ -73,12 +91,15 @@ const availableTools = [
 
 // Has unsaved changes
 const hasChanges = computed(() => {
+  const currentKeyMode = props.agent.agent.api_key_secret ? 'secret' : 'direct'
   return (
     formData.value.name !== props.agent.name ||
     formData.value.model !== props.agent.agent.model ||
     formData.value.prompt !== props.agent.agent.prompt ||
     formData.value.temperature !== props.agent.agent.temperature ||
-    formData.value.api_key !== (props.agent.agent.api_key || '') ||
+    keyMode.value !== currentKeyMode ||
+    (keyMode.value === 'direct' && formData.value.api_key !== (props.agent.agent.api_key || '')) ||
+    (keyMode.value === 'secret' && formData.value.api_key_secret !== (props.agent.agent.api_key_secret || '')) ||
     JSON.stringify(formData.value.tools) !== JSON.stringify(props.agent.agent.tools || [])
   )
 })
@@ -97,11 +118,14 @@ function handleSave() {
   }
 
   // Check if agent configuration has changed
+  const currentKeyMode = props.agent.agent.api_key_secret ? 'secret' : 'direct'
   const agentChanged =
     formData.value.model !== props.agent.agent.model ||
     formData.value.prompt !== props.agent.agent.prompt ||
     formData.value.temperature !== props.agent.agent.temperature ||
-    formData.value.api_key !== (props.agent.agent.api_key || '') ||
+    keyMode.value !== currentKeyMode ||
+    (keyMode.value === 'direct' && formData.value.api_key !== (props.agent.agent.api_key || '')) ||
+    (keyMode.value === 'secret' && formData.value.api_key_secret !== (props.agent.agent.api_key_secret || '')) ||
     JSON.stringify(formData.value.tools) !== JSON.stringify(props.agent.agent.tools || [])
 
   if (agentChanged) {
@@ -109,7 +133,8 @@ function handleSave() {
       model: formData.value.model,
       prompt: formData.value.prompt,
       temperature: formData.value.temperature,
-      api_key: formData.value.api_key || null,
+      api_key: keyMode.value === 'direct' ? (formData.value.api_key || null) : null,
+      api_key_secret: keyMode.value === 'secret' ? (formData.value.api_key_secret || null) : null,
       tools: formData.value.tools.length > 0 ? formData.value.tools : null
     }
   }
@@ -137,12 +162,14 @@ function handleCopyConfig() {
 
 // Reset form
 function resetForm() {
+  keyMode.value = props.agent.agent.api_key_secret ? 'secret' : 'direct'
   formData.value = {
     name: props.agent.name,
     model: props.agent.agent.model,
     prompt: props.agent.agent.prompt,
     temperature: props.agent.agent.temperature,
     api_key: props.agent.agent.api_key || '',
+    api_key_secret: props.agent.agent.api_key_secret || '',
     tools: props.agent.agent.tools || []
   }
 }
@@ -192,14 +219,35 @@ function resetForm() {
           </div>
         </ElFormItem>
 
-        <ElFormItem label="API Key">
+        <ElFormItem label="API Key Configuration">
+          <ElRadioGroup v-model="keyMode" style="margin-bottom: var(--rf-spacing-md)">
+            <ElRadio value="direct">Direct Input</ElRadio>
+            <ElRadio value="secret">Use Secret Manager</ElRadio>
+          </ElRadioGroup>
+
           <ElInput
+            v-if="keyMode === 'direct'"
             v-model="formData.api_key"
             type="password"
             placeholder="Enter API Key (optional)"
             show-password
             clearable
           />
+
+          <ElSelect
+            v-else
+            v-model="formData.api_key_secret"
+            placeholder="Select a secret"
+            clearable
+            style="width: 100%"
+          >
+            <ElOption
+              v-for="secret in secrets"
+              :key="secret.key"
+              :label="secret.description || secret.key"
+              :value="secret.key"
+            />
+          </ElSelect>
         </ElFormItem>
       </div>
 
