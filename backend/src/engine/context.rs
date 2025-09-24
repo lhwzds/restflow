@@ -5,7 +5,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
 use ts_rs::TS;
-use crate::storage::SecretStorage;
+use crate::storage::{SecretStorage, Storage};
 
 // Compile regex once at first use, then reuse for performance
 // Pattern: {{variable_name}} or {{node_id.field.subfield}}
@@ -46,6 +46,12 @@ impl ExecutionContext {
     pub fn with_secret_storage(mut self, storage: Arc<SecretStorage>) -> Self {
         self.secret_storage = Some(storage);
         self
+    }
+
+    pub fn ensure_secret_storage(&mut self, storage: &Storage) {
+        if self.secret_storage.is_none() {
+            self.secret_storage = Some(Arc::new(storage.secrets.clone()));
+        }
     }
 
     pub fn set_variable(&mut self, key: String, value: Value) {
