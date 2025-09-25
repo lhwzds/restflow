@@ -12,7 +12,6 @@ const emit = defineEmits<{
   click: [agent: StoredAgent]
 }>()
 
-// Format time
 function formatTime(timestamp?: bigint | null): string {
   if (!timestamp) return 'Unknown time'
 
@@ -28,7 +27,6 @@ function formatTime(timestamp?: bigint | null): string {
   return `${Math.floor(days / 30)} months ago`
 }
 
-// Get model display name
 function getModelDisplayName(model: string): string {
   const modelMap: Record<string, string> = {
     'gpt-4.1': 'GPT-4.1',
@@ -38,7 +36,6 @@ function getModelDisplayName(model: string): string {
   return modelMap[model] || model
 }
 
-// Get model tag color
 function getModelTagType(model: string): 'success' | 'primary' | 'warning' | 'info' | 'danger' {
   if (model.includes('gpt')) return 'success'
   if (model.includes('claude')) return 'warning'
@@ -50,14 +47,13 @@ const lastUpdated = computed(() => formatTime(props.agent.updated_at))
 const modelName = computed(() => getModelDisplayName(props.agent.agent.model))
 const modelTagType = computed(() => getModelTagType(props.agent.agent.model))
 
-// Truncate prompt preview
 const promptPreview = computed(() => {
-  const prompt = props.agent.agent.prompt
+  const prompt = props.agent.agent.prompt || ''
+  if (!prompt) return ''
   if (prompt.length <= 100) return prompt
   return prompt.substring(0, 100) + '...'
 })
 
-// Tools list
 const toolsList = computed(() => props.agent.agent.tools || [])
 
 function handleClick() {
@@ -72,7 +68,6 @@ function handleClick() {
     shadow="hover"
     @click="handleClick"
   >
-    <!-- Header -->
     <div class="card-header">
       <div class="agent-name">
         <ElIcon class="agent-icon">
@@ -85,12 +80,10 @@ function handleClick() {
       </ElTag>
     </div>
 
-    <!-- Prompt Preview -->
-    <div class="prompt-preview">
-      {{ promptPreview }}
+    <div class="prompt-preview" :class="{ 'no-prompt': !promptPreview }">
+      {{ promptPreview || 'No system prompt configured' }}
     </div>
 
-    <!-- Tools -->
     <div v-if="toolsList.length > 0" class="tools-section">
       <span class="tools-label">Tools:</span>
       <ElTag
@@ -104,13 +97,11 @@ function handleClick() {
       </ElTag>
     </div>
 
-    <!-- Temperature -->
-    <div class="temperature-section">
+    <div v-if="agent.agent.temperature != null" class="temperature-section">
       <span class="temp-label">Temperature:</span>
       <span class="temp-value">{{ agent.agent.temperature }}</span>
     </div>
 
-    <!-- Footer -->
     <div class="card-footer">
       <div class="update-time">
         <ElIcon>
@@ -183,8 +174,14 @@ function handleClick() {
     height: 32px;
     display: -webkit-box;
     -webkit-line-clamp: 2;
+    line-clamp: 2;
     -webkit-box-orient: vertical;
     overflow: hidden;
+
+    &.no-prompt {
+      color: var(--rf-color-text-secondary);
+      font-style: italic;
+    }
   }
 
   .tools-section {
@@ -247,7 +244,6 @@ function handleClick() {
   }
 }
 
-// Dark mode adaptation
 html.dark {
   .agent-card {
     background-color: var(--rf-color-bg-container);

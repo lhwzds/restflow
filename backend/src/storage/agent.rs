@@ -25,6 +25,7 @@ pub struct AgentStorage {
 
 impl AgentStorage {
     pub fn new(db: Arc<Database>) -> Result<Self> {
+        // Ensure agents table exists, create if not
         let write_txn = db.begin_write()?;
         write_txn.open_table(AGENT_TABLE)?;
         write_txn.commit()?;
@@ -133,8 +134,8 @@ mod tests {
 
         AgentNode {
             model: "gpt-4.1".to_string(),
-            prompt: "You are a helpful assistant".to_string(),
-            temperature: 0.7,
+            prompt: Some("You are a helpful assistant".to_string()),
+            temperature: Some(0.7),
             api_key_config: Some(ApiKeyConfig::Direct("test_key".to_string())),
             tools: Some(vec!["add".to_string()]),
         }
@@ -207,14 +208,14 @@ mod tests {
         assert_eq!(updated.agent.model, "gpt-4.1");
 
         let mut new_agent_node = create_test_agent_node();
-        new_agent_node.temperature = 0.9;
+        new_agent_node.temperature = Some(0.9);
 
         let updated2 = storage
             .update_agent(stored.id.clone(), None, Some(new_agent_node))
             .unwrap();
 
         assert_eq!(updated2.name, "Updated Name");
-        assert_eq!(updated2.agent.temperature, 0.9);
+        assert_eq!(updated2.agent.temperature, Some(0.9));
     }
 
     #[test]

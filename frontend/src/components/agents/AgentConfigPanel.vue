@@ -7,16 +7,11 @@ import {
   ElSelect,
   ElOption,
   ElSlider,
-  ElCheckboxGroup,
-  ElCheckbox,
-  ElButton,
   ElDivider,
-  ElPopconfirm,
-  ElMessage,
   ElRadioGroup,
-  ElRadio
+  ElRadio,
+  ElTag
 } from 'element-plus'
-import { Check, Delete, CopyDocument } from '@element-plus/icons-vue'
 import type { StoredAgent } from '@/types/generated/StoredAgent'
 import type { AgentNode } from '@/types/generated/AgentNode'
 import { useSecretsData } from '@/composables/secrets/useSecretsData'
@@ -29,6 +24,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   update: [id: string, updates: { name?: string; agent?: AgentNode }]
   delete: [id: string]
+  'changes-update': [hasChanges: boolean]
 }>()
 
 const { secrets, loadSecrets: loadSecretsData } = useSecretsData()
@@ -38,12 +34,11 @@ const formData = ref({
   name: props.agent.name,
   model: props.agent.agent.model,
   prompt: props.agent.agent.prompt,
-  temperature: props.agent.agent.temperature,
+  temperature: props.agent.agent.temperature ?? 0.7, // Default to 0.7 if null
   api_key_config: props.agent.agent.api_key_config,
   tools: props.agent.agent.tools || []
 })
 
-// Computed properties for API key mode and value
 const keyMode = computed({
   get: () => formData.value.api_key_config?.type || 'direct',
   set: (value: 'direct' | 'secret') => {
@@ -64,7 +59,7 @@ watch(() => props.agent, (newAgent) => {
     name: newAgent.name,
     model: newAgent.agent.model,
     prompt: newAgent.agent.prompt,
-    temperature: newAgent.agent.temperature,
+    temperature: newAgent.agent.temperature ?? 0.7, // Default to 0.7 if null
     api_key_config: newAgent.agent.api_key_config,
     tools: newAgent.agent.tools || []
   }
@@ -90,24 +85,53 @@ const availableModels = [
 ]
 
 const availableTools = [
-  { label: 'Addition Calculator', value: 'add' },
-  { label: 'Get Current Time', value: 'get_current_time' }
+  { label: 'Addition Calculator', value: 'add', description: 'Adds two numbers together' },
+  { label: 'Get Current Time', value: 'get_current_time', description: 'Returns the current system time' }
 ]
+
+const selectedToolValue = ref('')
+
+function addTool() {
+  if (selectedToolValue.value && !formData.value.tools.includes(selectedToolValue.value)) {
+    formData.value.tools.push(selectedToolValue.value)
+    selectedToolValue.value = ''
+  }
+}
+
+function removeTool(toolValue: string) {
+  const index = formData.value.tools.indexOf(toolValue)
+  if (index > -1) {
+    formData.value.tools.splice(index, 1)
+  }
+}
+
+function getToolLabel(value: string): string {
+  const tool = availableTools.find(t => t.value === value)
+  return tool?.label || value
+}
+
+const isOSeriesModel = computed(() => {
+  return ['o4-mini', 'o3', 'o3-mini'].includes(formData.value.model)
+})
 
 const hasChanges = computed(() => {
   return (
     formData.value.name !== props.agent.name ||
     formData.value.model !== props.agent.agent.model ||
-    formData.value.prompt !== props.agent.agent.prompt ||
+    (formData.value.prompt || null) !== (props.agent.agent.prompt || null) ||
     formData.value.temperature !== props.agent.agent.temperature ||
     isConfigChanged(props.agent.agent.api_key_config, formData.value.api_key_config) ||
     JSON.stringify(formData.value.tools) !== JSON.stringify(props.agent.agent.tools || [])
   )
 })
 
-function handleSave() {
+watch(hasChanges,
+ (newVal) => {
+  emit('changes-update', newVal)
+})
+
+function saveChanges() {
   if (!formData.value.name.trim()) {
-    ElMessage.error('Agent name cannot be empty')
     return
   }
 
@@ -119,7 +143,7 @@ function handleSave() {
 
   const agentChanged =
     formData.value.model !== props.agent.agent.model ||
-    formData.value.prompt !== props.agent.agent.prompt ||
+    (formData.value.prompt || null) !== (props.agent.agent.prompt || null) ||
     formData.value.temperature !== props.agent.agent.temperature ||
     isConfigChanged(props.agent.agent.api_key_config, formData.value.api_key_config) ||
     JSON.stringify(formData.value.tools) !== JSON.stringify(props.agent.agent.tools || [])
@@ -127,30 +151,16 @@ function handleSave() {
   if (agentChanged) {
     updates.agent = {
       model: formData.value.model,
-      prompt: formData.value.prompt,
-      temperature: formData.value.temperature,
+      prompt: formData.value.prompt?.trim() || null,
+      temperature: isOSeriesModel.value ? null : formData.value.temperature,
       api_key_config: formData.value.api_key_config || null,
       tools: formData.value.tools.length > 0 ? formData.value.tools : null
-    }
+    } as AgentNode
   }
 
-  emit('update', props.agent.id, updates)
-}
-
-function handleDelete() {
-  emit('delete', props.agent.id)
-}
-
-function handleCopyConfig() {
-  const config = {
-    model: formData.value.model,
-    prompt: formData.value.prompt,
-    temperature: formData.value.temperature,
-    tools: formData.value.tools
+  if (updates.name || updates.agent) {
+    emit('update', props.agent.id, updates)
   }
-
-  navigator.clipboard.writeText(JSON.stringify(config, null, 2))
-  ElMessage.success('Configuration copied to clipboard')
 }
 
 function resetForm() {
@@ -158,17 +168,21 @@ function resetForm() {
     name: props.agent.name,
     model: props.agent.agent.model,
     prompt: props.agent.agent.prompt,
-    temperature: props.agent.agent.temperature,
+    temperature: props.agent.agent.temperature ?? 0.7, // Default to 0.7 if null
     api_key_config: props.agent.agent.api_key_config,
     tools: props.agent.agent.tools || []
   }
 }
+
+defineExpose({
+  saveChanges,
+  resetForm
+})
 </script>
 
 <template>
   <div class="agent-config-panel">
     <ElForm :model="formData" label-position="top">
-      <!-- Basic Information -->
       <div class="section">
         <h3 class="section-title">Basic Information</h3>
         <ElFormItem label="Agent Name" required>
@@ -182,32 +196,33 @@ function resetForm() {
 
       <ElDivider />
 
-      <!-- Model Configuration -->
       <div class="section">
         <h3 class="section-title">Model Configuration</h3>
-        <ElFormItem label="Select Model">
-          <ElSelect v-model="formData.model" placeholder="Select model">
-            <ElOption
-              v-for="model in availableModels"
-              :key="model.value"
-              :label="model.label"
-              :value="model.value"
-            />
-          </ElSelect>
-        </ElFormItem>
+        <div class="model-row">
+          <ElFormItem label="Model" :class="{ 'model-select': !isOSeriesModel, 'model-select-full': isOSeriesModel }">
+            <ElSelect v-model="formData.model" placeholder="Select model">
+              <ElOption
+                v-for="model in availableModels"
+                :key="model.value"
+                :label="model.label"
+                :value="model.value"
+              />
+            </ElSelect>
+          </ElFormItem>
 
-        <ElFormItem label="Temperature">
-          <div class="temperature-control">
-            <ElSlider
-              v-model="formData.temperature"
-              :min="0"
-              :max="2"
-              :step="0.1"
-              :show-tooltip="true"
-            />
-            <span class="temperature-value">{{ formData.temperature }}</span>
-          </div>
-        </ElFormItem>
+          <ElFormItem v-if="!isOSeriesModel" label="Temp" class="temperature-item">
+            <div class="temperature-control compact">
+              <ElSlider
+                v-model="formData.temperature"
+                :min="0"
+                :max="2"
+                :step="0.1"
+                :show-tooltip="true"
+              />
+              <span class="temperature-value">{{ formData.temperature }}</span>
+            </div>
+          </ElFormItem>
+        </div>
 
         <ElFormItem label="API Key Configuration">
           <ElRadioGroup v-model="keyMode" style="margin-bottom: var(--rf-spacing-md)">
@@ -243,81 +258,61 @@ function resetForm() {
 
       <ElDivider />
 
-      <!-- System Prompt -->
       <div class="section">
-        <h3 class="section-title">System Prompt</h3>
+        <h3 class="section-title">System Prompt (Optional)</h3>
         <ElFormItem>
           <ElInput
             v-model="formData.prompt"
             type="textarea"
-            placeholder="Enter system prompt"
-            :rows="8"
-            :autosize="{ minRows: 6, maxRows: 20 }"
+            placeholder="Enter system prompt (optional)"
+            :rows="3"
+            :autosize="{ minRows: 3, maxRows: 8 }"
           />
         </ElFormItem>
       </div>
 
       <ElDivider />
 
-      <!-- Tools Configuration -->
       <div class="section">
         <h3 class="section-title">Tools Configuration</h3>
         <ElFormItem>
-          <ElCheckboxGroup v-model="formData.tools">
-            <ElCheckbox
-              v-for="tool in availableTools"
-              :key="tool.value"
-              :label="tool.value"
-              :value="tool.value"
+          <div class="tools-selector">
+            <ElSelect
+              v-model="selectedToolValue"
+              placeholder="Select a tool to add"
+              clearable
+              @change="addTool"
+              style="width: 100%; margin-bottom: var(--rf-spacing-md)"
             >
-              {{ tool.label }}
-            </ElCheckbox>
-          </ElCheckboxGroup>
+              <ElOption
+                v-for="tool in availableTools.filter(t => !formData.tools.includes(t.value))"
+                :key="tool.value"
+                :label="tool.label"
+                :value="tool.value"
+              >
+                <div class="tool-option">
+                  <div class="tool-label">{{ tool.label }}</div>
+                  <div class="tool-description">{{ tool.description }}</div>
+                </div>
+              </ElOption>
+            </ElSelect>
+
+            <div v-if="formData.tools.length > 0" class="tools-tags">
+              <ElTag
+                v-for="toolValue in formData.tools"
+                :key="toolValue"
+                closable
+                size="large"
+                @close="removeTool(toolValue)"
+              >
+                {{ getToolLabel(toolValue) }}
+              </ElTag>
+            </div>
+            <div v-else class="no-tools-hint">
+              No tools selected
+            </div>
+          </div>
         </ElFormItem>
-      </div>
-
-      <ElDivider />
-
-      <!-- Action Buttons -->
-      <div class="actions">
-        <ElButton
-          type="primary"
-          :icon="Check"
-          :disabled="!hasChanges"
-          @click="handleSave"
-        >
-          Save Changes
-        </ElButton>
-
-        <ElButton
-          :icon="CopyDocument"
-          @click="handleCopyConfig"
-        >
-          Copy Config
-        </ElButton>
-
-        <ElButton
-          v-if="hasChanges"
-          @click="resetForm"
-        >
-          Reset
-        </ElButton>
-
-        <ElPopconfirm
-          title="Are you sure you want to delete this Agent?"
-          confirm-button-text="Confirm"
-          cancel-button-text="Cancel"
-          @confirm="handleDelete"
-        >
-          <template #reference>
-            <ElButton
-              type="danger"
-              :icon="Delete"
-            >
-              Delete
-            </ElButton>
-          </template>
-        </ElPopconfirm>
       </div>
     </ElForm>
   </div>
@@ -327,25 +322,46 @@ function resetForm() {
 .agent-config-panel {
   height: 100%;
   overflow-y: auto;
-  padding: var(--rf-spacing-xl);
+  padding: var(--rf-spacing-lg);
   background: var(--rf-color-bg-container);
 
   .section {
-    margin-bottom: var(--rf-spacing-xl);
+    margin-bottom: var(--rf-spacing-lg);
 
     .section-title {
       font-size: var(--rf-font-size-md);
       font-weight: var(--rf-font-weight-semibold);
       color: var(--rf-color-text-primary);
-      margin-bottom: var(--rf-spacing-lg);
+      margin-bottom: var(--rf-spacing-md);
+    }
+  }
+
+  .model-row {
+    display: flex;
+    gap: var(--rf-spacing-md);
+
+    .model-select {
+      flex: 1.5;
+    }
+
+    .model-select-full {
+      flex: 1;
+    }
+
+    .temperature-item {
+      flex: 1;
     }
   }
 
   .temperature-control {
     display: flex;
     align-items: center;
-    gap: var(--rf-spacing-xl);
+    gap: var(--rf-spacing-md);
     width: 100%;
+
+    &.compact {
+      gap: var(--rf-spacing-sm);
+    }
 
     :deep(.el-slider) {
       flex: 1;
@@ -362,20 +378,64 @@ function resetForm() {
     }
   }
 
-  .actions {
-    display: flex;
-    gap: var(--rf-spacing-lg);
-    margin-top: var(--rf-spacing-2xl);
-  }
-
   :deep(.el-divider--horizontal) {
-    margin: var(--rf-spacing-xl) 0;
+    margin: var(--rf-spacing-md) 0;
   }
 
-  :deep(.el-checkbox-group) {
-    display: flex;
-    flex-direction: column;
-    gap: var(--rf-spacing-lg);
+  .tools-selector {
+    width: 100%;
+
+    .tool-option {
+      .tool-label {
+        font-weight: var(--rf-font-weight-medium);
+        color: var(--rf-color-text-primary);
+      }
+
+      .tool-description {
+        font-size: var(--rf-font-size-xs);
+        color: var(--rf-color-text-secondary);
+        margin-top: var(--rf-spacing-3xs);
+      }
+    }
+
+    .tools-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--rf-spacing-sm);
+
+      :deep(.el-tag) {
+        font-size: var(--rf-font-size-sm);
+        padding: var(--rf-spacing-xs) var(--rf-spacing-sm);
+        background: var(--rf-color-primary-light-9);
+        border-color: var(--rf-color-primary-light-7);
+        color: var(--rf-color-primary);
+
+        .el-tag__close {
+          color: var(--rf-color-primary);
+
+          &:hover {
+            background-color: var(--rf-color-primary-light-7);
+          }
+        }
+      }
+    }
+
+    .no-tools-hint {
+      color: var(--rf-color-text-secondary);
+      font-size: var(--rf-font-size-sm);
+      font-style: italic;
+      padding: var(--rf-spacing-sm) 0;
+    }
+  }
+
+  :deep(.el-form-item) {
+    margin-bottom: var(--rf-spacing-lg);
+  }
+
+  :deep(.el-form-item__label) {
+    padding: 0;
+    line-height: 1.4;
+    margin-bottom: var(--rf-spacing-sm);
   }
 
   :deep(.el-textarea__inner) {
@@ -385,7 +445,6 @@ function resetForm() {
   }
 }
 
-// Dark mode adaptation
 html.dark {
   .agent-config-panel {
     background-color: var(--rf-color-bg-container);

@@ -7,7 +7,6 @@ const isLoading = ref(false)
 const searchQuery = ref('')
 const selectedAgent = ref<StoredAgent | null>(null)
 
-// Filtered agents list
 const filteredAgents = computed(() => {
   if (!searchQuery.value) return agents.value
 
@@ -15,11 +14,10 @@ const filteredAgents = computed(() => {
   return agents.value.filter(agent =>
     agent.name.toLowerCase().includes(query) ||
     agent.agent.model.toLowerCase().includes(query) ||
-    agent.agent.prompt.toLowerCase().includes(query)
+    (agent.agent.prompt || '').toLowerCase().includes(query)
   )
 })
 
-// Load agents
 async function loadAgents() {
   isLoading.value = true
   try {
@@ -32,12 +30,10 @@ async function loadAgents() {
   }
 }
 
-// Select agent
 function selectAgent(agent: StoredAgent | null) {
   selectedAgent.value = agent
 }
 
-// Clear selection
 function clearSelection() {
   selectedAgent.value = null
 }

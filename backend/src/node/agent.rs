@@ -20,8 +20,8 @@ pub enum ApiKeyConfig {
 #[ts(export)]
 pub struct AgentNode {
     pub model: String,
-    pub prompt: String,
-    pub temperature: f64,
+    pub prompt: Option<String>,
+    pub temperature: Option<f64>,
     pub api_key_config: Option<ApiKeyConfig>,
     pub tools: Option<Vec<String>>,  // Tool names to enable
 }
@@ -52,10 +52,10 @@ macro_rules! configure_tools {
 }
 
 impl AgentNode {
-    pub fn new(model: String, prompt: String, temperature: f64, api_key_config: Option<ApiKeyConfig>) -> Self {
+    pub fn new(model: String, prompt: String, temperature: Option<f64>, api_key_config: Option<ApiKeyConfig>) -> Self {
         Self {
             model,
-            prompt,
+            prompt: Some(prompt),
             temperature,
             api_key_config,
             tools: None,
@@ -69,14 +69,12 @@ impl AgentNode {
             .ok_or_else(|| anyhow::anyhow!("Model missing in config"))?
             .to_string();
 
-        let prompt = config["prompt"]
-            .as_str()
-            .ok_or_else(|| anyhow::anyhow!("Prompt missing in config"))?
-            .to_string();
+        let prompt = config.get("prompt")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
 
-        let temperature = config["temperature"]
-            .as_f64()
-            .ok_or_else(|| anyhow::anyhow!("Temperature missing in config"))?;
+        let temperature = config.get("temperature")
+            .and_then(|v| v.as_f64());
 
         let api_key_config = config.get("api_key_config")
             .map(|v| serde_json::from_value(v.clone()))
@@ -100,6 +98,7 @@ impl AgentNode {
     }
 
     pub async fn execute(&self, input: &str, secret_storage: Option<&crate::storage::SecretStorage>) -> Result<String> {
+        // Get API key from direct input or secret manager
         let api_key = match &self.api_key_config {
             Some(ApiKeyConfig::Direct(key)) => key.clone(),
             Some(ApiKeyConfig::Secret(secret_name)) => {
@@ -125,13 +124,22 @@ impl AgentNode {
                 let builder = match m {
                     // O-series models don't support temperature
                     "o4-mini" | "o3" | "o3-mini" => {
-                        client.agent(m)
-                            .preamble(&self.prompt)
+                        let mut b = client.agent(m);
+                        if let Some(ref prompt) = self.prompt {
+                            b = b.preamble(prompt);
+                        }
+                        b
                     },
                     _ => {
-                        client.agent(m)
-                            .preamble(&self.prompt)
-                            .temperature(self.temperature)
+                        let mut b = client.agent(m);
+                        if let Some(ref prompt) = self.prompt {
+                            b = b.preamble(prompt);
+                        }
+                        if let Some(temp) = self.temperature {
+                            b.temperature(temp)
+                        } else {
+                            b
+                        }
                     }
                 };
 
@@ -143,14 +151,20 @@ impl AgentNode {
             m @ ("claude-4-opus" | "claude-4-sonnet" | "claude-3.7-sonnet") => {
                 let client = anthropic::Client::new(&api_key);
 
-                let builder = match m {
+                let mut builder = match m {
                     "claude-4-opus" => client.agent(anthropic::CLAUDE_4_OPUS),
                     "claude-4-sonnet" => client.agent(anthropic::CLAUDE_4_SONNET),
                     "claude-3.7-sonnet" => client.agent(anthropic::CLAUDE_3_7_SONNET),
                     _ => unreachable!(), // We already matched these exact models
+                };
+                if let Some(ref prompt) = self.prompt {
+                    builder = builder.preamble(prompt);
                 }
-                .preamble(&self.prompt)
-                .temperature(self.temperature);
+                let builder = if let Some(temp) = self.temperature {
+                    builder.temperature(temp)
+                } else {
+                    builder
+                };
 
                 let builder = configure_tools!(self, builder);
                 let agent = builder.build();
@@ -160,13 +174,19 @@ impl AgentNode {
             m @ ("deepseek-chat" | "deepseek-reasoner") => {
                 let client = deepseek::Client::new(&api_key);
 
-                let builder = match m {
+                let mut builder = match m {
                     "deepseek-chat" => client.agent(deepseek::DEEPSEEK_CHAT),
                     "deepseek-reasoner" => client.agent(deepseek::DEEPSEEK_REASONER),
                     _ => unreachable!(), // We already matched these exact models
+                };
+                if let Some(ref prompt) = self.prompt {
+                    builder = builder.preamble(prompt);
                 }
-                .preamble(&self.prompt)
-                .temperature(self.temperature);
+                let builder = if let Some(temp) = self.temperature {
+                    builder.temperature(temp)
+                } else {
+                    builder
+                };
 
                 let builder = configure_tools!(self, builder);
                 let agent = builder.build();
