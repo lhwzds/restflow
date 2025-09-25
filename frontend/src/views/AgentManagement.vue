@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
-import { ElButton, ElInput, ElDialog, ElForm, ElFormItem, ElSelect, ElOption, ElSlider, ElMessage, ElRow, ElCol, ElRadioGroup, ElRadio } from 'element-plus'
-import { Plus, Search } from '@element-plus/icons-vue'
+import { ref, computed, onMounted } from 'vue'
+import { ElButton, ElInput, ElDialog, ElForm, ElFormItem, ElSelect, ElOption, ElSlider, ElMessage, ElRow, ElCol, ElRadioGroup, ElRadio, ElPopconfirm, ElTag } from 'element-plus'
+import { Plus, Search, Delete, Check, RefreshLeft } from '@element-plus/icons-vue'
 import HeaderBar from '../components/shared/HeaderBar.vue'
 import PageLayout from '../components/shared/PageLayout.vue'
 import PageHeader from '../components/shared/PageHeader.vue'
@@ -36,11 +36,17 @@ const createApiKey = ref('')
 const createApiKeySecret = ref('')
 const createForm = ref<Omit<AgentNode, 'api_key_config'>>({
   model: 'gpt-4.1',
-  prompt: '',
+  prompt: null,
   temperature: 0.7,
   tools: null
 })
 const createFormName = ref('')
+const createSelectedTools = ref<string[]>([])
+const createSelectedToolValue = ref('')
+
+const isOSeriesModel = computed(() => {
+  return ['o4-mini', 'o3', 'o3-mini'].includes(createForm.value.model)
+})
 
 const availableModels = [
   { label: 'O4 Mini', value: 'o4-mini' },
@@ -56,6 +62,30 @@ const availableModels = [
   { label: 'DeepSeek Reasoner', value: 'deepseek-reasoner' },
 ]
 
+const availableTools = [
+  { label: 'Addition Calculator', value: 'add', description: 'Adds two numbers together' },
+  { label: 'Get Current Time', value: 'get_current_time', description: 'Returns the current system time' }
+]
+
+function addCreateTool() {
+  if (createSelectedToolValue.value && !createSelectedTools.value.includes(createSelectedToolValue.value)) {
+    createSelectedTools.value.push(createSelectedToolValue.value)
+    createSelectedToolValue.value = ''
+  }
+}
+
+function removeCreateTool(toolValue: string) {
+  const index = createSelectedTools.value.indexOf(toolValue)
+  if (index > -1) {
+    createSelectedTools.value.splice(index, 1)
+  }
+}
+
+function getToolLabel(value: string): string {
+  const tool = availableTools.find(t => t.value === value)
+  return tool?.label || value
+}
+
 onMounted(async () => {
   loadAgents()
   await loadSecretsData()
@@ -66,18 +96,17 @@ async function handleCreate() {
     ElMessage.error('Please enter Agent name')
     return
   }
-  if (!createForm.value.prompt.trim()) {
-    ElMessage.error('Please enter System Prompt')
-    return
-  }
 
   try {
     const apiKeyValue = createKeyMode.value === 'direct' ? createApiKey.value : createApiKeySecret.value
     const apiKeyConfig = buildConfig(createKeyMode.value, apiKeyValue)
 
     const agentData: AgentNode = {
-      ...createForm.value,
-      api_key_config: apiKeyConfig
+      model: createForm.value.model,
+      prompt: createForm.value.prompt?.trim() || null,
+      temperature: isOSeriesModel.value ? null : createForm.value.temperature,
+      api_key_config: apiKeyConfig,
+      tools: createSelectedTools.value.length > 0 ? createSelectedTools.value : null
     }
 
     await createAgent(createFormName.value, agentData)
@@ -87,9 +116,11 @@ async function handleCreate() {
     createKeyMode.value = 'direct'
     createApiKey.value = ''
     createApiKeySecret.value = ''
+    createSelectedTools.value = []
+    createSelectedToolValue.value = ''
     createForm.value = {
       model: 'gpt-4.1',
-      prompt: '',
+      prompt: null,
       temperature: 0.7,
       tools: null
     }
@@ -119,6 +150,26 @@ async function handleDelete(id: string) {
 function backToList() {
   selectAgent(null)
 }
+
+const hasAgentChanges = ref(false)
+const agentConfigPanelRef = ref()
+
+function handleSaveAgent() {
+  agentConfigPanelRef.value?.saveChanges()
+}
+
+function handleResetAgent() {
+  agentConfigPanelRef.value?.resetForm()
+}
+
+async function handleDeleteAgent() {
+  if (!selectedAgent.value) return
+  await handleDelete(selectedAgent.value.id)
+}
+
+function onAgentConfigChange(hasChanges: boolean) {
+  hasAgentChanges.value = hasChanges
+}
 </script>
 
 <template>
@@ -129,7 +180,42 @@ function backToList() {
         :subtitle="`${selectedAgent.agent.model} Agent`"
         :show-back="true"
         :back-to="backToList"
-      />
+      >
+        <template #actions>
+          <ElButton
+            type="primary"
+            :icon="Check"
+            :disabled="!hasAgentChanges"
+            @click="handleSaveAgent"
+          >
+            Save Changes
+          </ElButton>
+
+          <ElButton
+            v-if="hasAgentChanges"
+            :icon="RefreshLeft"
+            @click="handleResetAgent"
+          >
+            Reset
+          </ElButton>
+
+          <ElPopconfirm
+            title="Are you sure you want to delete this Agent?"
+            confirm-button-text="Confirm"
+            cancel-button-text="Cancel"
+            @confirm="handleDeleteAgent"
+          >
+            <template #reference>
+              <ElButton
+                type="danger"
+                :icon="Delete"
+              >
+                Delete Agent
+              </ElButton>
+            </template>
+          </ElPopconfirm>
+        </template>
+      </PageHeader>
     </template>
 
     <div class="agent-management">
@@ -197,9 +283,11 @@ function backToList() {
         :style="{ width: `${panelWidth}px` }"
       >
         <AgentConfigPanel
+          ref="agentConfigPanelRef"
           :agent="selectedAgent"
           @update="handleUpdate"
           @delete="handleDelete"
+          @changes-update="onAgentConfigChange"
         />
       </div>
 
@@ -239,7 +327,7 @@ function backToList() {
           </ElSelect>
         </ElFormItem>
 
-        <ElFormItem label="Temperature">
+        <ElFormItem v-if="!isOSeriesModel" label="Temperature">
           <ElSlider
             v-model="createForm.temperature"
             :min="0"
@@ -249,13 +337,52 @@ function backToList() {
           />
         </ElFormItem>
 
-        <ElFormItem label="System Prompt" required>
+        <ElFormItem label="System Prompt (Optional)">
           <ElInput
             v-model="createForm.prompt"
             type="textarea"
-            placeholder="Enter system prompt"
-            :rows="6"
+            placeholder="Enter system prompt (optional)"
+            :rows="4"
           />
+        </ElFormItem>
+
+        <ElFormItem label="Tools Configuration (Optional)">
+          <div class="tools-selector">
+            <ElSelect
+              v-model="createSelectedToolValue"
+              placeholder="Select a tool to add"
+              clearable
+              @change="addCreateTool"
+              style="width: 100%; margin-bottom: var(--rf-spacing-md)"
+            >
+              <ElOption
+                v-for="tool in availableTools.filter(t => !createSelectedTools.includes(t.value))"
+                :key="tool.value"
+                :label="tool.label"
+                :value="tool.value"
+              >
+                <div class="tool-option">
+                  <div class="tool-label">{{ tool.label }}</div>
+                  <div class="tool-description">{{ tool.description }}</div>
+                </div>
+              </ElOption>
+            </ElSelect>
+
+            <div v-if="createSelectedTools.length > 0" class="tools-tags">
+              <ElTag
+                v-for="toolValue in createSelectedTools"
+                :key="toolValue"
+                closable
+                size="large"
+                @close="removeCreateTool(toolValue)"
+              >
+                {{ getToolLabel(toolValue) }}
+              </ElTag>
+            </div>
+            <div v-else class="no-tools-hint">
+              No tools selected
+            </div>
+          </div>
         </ElFormItem>
 
         <ElFormItem label="API Key Configuration">
@@ -312,7 +439,6 @@ function backToList() {
     .agents-grid {
       margin-top: var(--rf-spacing-xl);
 
-      /* Element Plus row layout fix */
       :deep(.el-row) {
         display: flex;
         flex-wrap: wrap;
@@ -379,11 +505,66 @@ function backToList() {
   }
 }
 
+.tools-selector {
+  width: 100%;
+
+  .tool-option {
+    .tool-label {
+      font-weight: var(--rf-font-weight-medium);
+      color: var(--rf-color-text-primary);
+    }
+
+    .tool-description {
+      font-size: var(--rf-font-size-xs);
+      color: var(--rf-color-text-secondary);
+      margin-top: var(--rf-spacing-3xs);
+    }
+  }
+
+  .tools-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--rf-spacing-sm);
+
+    :deep(.el-tag) {
+      font-size: var(--rf-font-size-sm);
+      padding: var(--rf-spacing-xs) var(--rf-spacing-sm);
+      background: var(--rf-color-primary-light-9);
+      border-color: var(--rf-color-primary-light-7);
+      color: var(--rf-color-primary);
+
+      .el-tag__close {
+        color: var(--rf-color-primary);
+
+        &:hover {
+          background-color: var(--rf-color-primary-light-7);
+        }
+      }
+    }
+  }
+
+  .no-tools-hint {
+    color: var(--rf-color-text-secondary);
+    font-size: var(--rf-font-size-sm);
+    font-style: italic;
+    padding: var(--rf-spacing-sm) 0;
+  }
+}
+
 html.dark {
   .agent-management {
     .split-container {
       .config-panel {
         background-color: var(--rf-color-bg-container);
+      }
+    }
+  }
+
+  .tools-selector {
+    .tools-tags {
+      :deep(.el-tag) {
+        background: rgba(64, 158, 255, 0.1);
+        border-color: rgba(64, 158, 255, 0.2);
       }
     }
   }
