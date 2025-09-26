@@ -103,7 +103,6 @@ const handlePaneClick = () => {
 }
 
 const executeWorkflow = async () => {
-  // Open panel first to show execution progress in real-time
   executionStore.openPanel()
   await startAsyncExecution()
 }

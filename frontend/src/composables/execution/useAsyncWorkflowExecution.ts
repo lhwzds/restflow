@@ -21,7 +21,6 @@ export function useAsyncWorkflowExecution() {
    * Start async execution
    */
   const startAsyncExecution = async () => {
-    // Auto-save workflow if not saved
     if (!workflowStore.currentWorkflowId) {
       const saveResult = await saveWorkflow(workflowStore.nodes, workflowStore.edges, {
         showMessage: false,
@@ -43,14 +42,11 @@ export function useAsyncWorkflowExecution() {
     executionError.value = null
 
     try {
-      // Submit async execution (workflowStore.currentWorkflowId is guaranteed to exist here)
       const { execution_id } = await workflowsApi.executeAsyncSubmit(workflowStore.currentWorkflowId!)
       executionId.value = execution_id
       
-      // Start execution in store
       executionStore.startExecution(execution_id)
       
-      // Start polling for status immediately
       startPolling()
       
       ElMessage.success('Workflow execution started')
@@ -69,10 +65,8 @@ export function useAsyncWorkflowExecution() {
    * Poll execution status
    */
   const startPolling = () => {
-    // Clear any existing polling
     stopPolling()
     
-    // Poll every 500ms for real-time feel
     pollingInterval.value = window.setInterval(async () => {
       if (!executionId.value) {
         stopPolling()
@@ -80,13 +74,10 @@ export function useAsyncWorkflowExecution() {
       }
 
       try {
-        // API returns an array of tasks for the execution
         const tasks: Task[] = await tasksApi.getExecutionStatus(executionId.value)
         
-        // Update all tasks at once using the new method
         executionStore.updateFromTasks(tasks)
         
-        // Check if all tasks are complete
         const allCompleted = tasks.every((t: Task) => t.status === 'Completed' || t.status === 'Failed')
         const hasFailed = tasks.some((t: Task) => t.status === 'Failed')
         
@@ -107,7 +98,6 @@ export function useAsyncWorkflowExecution() {
         }
       } catch (error) {
         console.error('Polling error:', error)
-        // Continue polling even on error
       }
     }, 500)
   }
@@ -143,7 +133,6 @@ export function useAsyncWorkflowExecution() {
     executionStore.clearExecution()
   }
 
-  // Cleanup on unmount
   onUnmounted(() => {
     stopPolling()
   })

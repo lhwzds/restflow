@@ -15,10 +15,8 @@ export function useNodeOperations() {
   const selectedNodeId = ref<string | null>(null)
   const copiedNode = ref<Node | null>(null)
   
-  // Single source of truth for node ID generation
   const nodeIdCounter = ref(Date.now())
   
-  // Expose reactive references for v-model binding
   const nodes = computed({
     get: () => workflowStore.nodes,
     set: (value) => { workflowStore.nodes = value }
@@ -97,12 +95,11 @@ export function useNodeOperations() {
   const updateNodePosition = (nodeId: string, position: { x: number; y: number }) => {
     const nodeIndex = workflowStore.nodes.findIndex(n => n.id === nodeId)
     if (nodeIndex !== -1) {
-      // Use Vue's reactivity system properly
       workflowStore.nodes[nodeIndex] = {
         ...workflowStore.nodes[nodeIndex],
         position: { ...position }
       }
-      workflowStore.markAsDirty() // Manually mark since we're directly modifying
+      workflowStore.markAsDirty()
     }
   }
 
@@ -112,7 +109,6 @@ export function useNodeOperations() {
   const deleteNode = (nodeId: string) => {
     workflowStore.removeNode(nodeId)
     
-    // Clear selection if deleted node was selected
     if (selectedNodeId.value === nodeId) {
       selectedNodeId.value = null
     }
@@ -124,7 +120,6 @@ export function useNodeOperations() {
   const deleteNodes = (nodeIds: string[]) => {
     nodeIds.forEach(nodeId => workflowStore.removeNode(nodeId))
     
-    // Clear selection if any deleted nodes were selected
     if (nodeIds.includes(selectedNodeId.value || '')) {
       selectedNodeId.value = null
     }
@@ -229,16 +224,13 @@ export function useNodeOperations() {
    * Check if node can be connected to another
    */
   const canConnect = (sourceId: string, targetId: string): boolean => {
-    // Prevent self-connection
     if (sourceId === targetId) return false
 
-    // Check if connection already exists
     const existingConnection = workflowStore.edges.find(
       edge => edge.source === sourceId && edge.target === targetId
     )
     if (existingConnection) return false
 
-    // Prevent cycles (simple check - can be enhanced)
     const wouldCreateCycle = (source: string, target: string): boolean => {
       const visited = new Set<string>()
       const queue = [target]
@@ -265,7 +257,6 @@ export function useNodeOperations() {
   const validateNodes = (): { valid: boolean; errors: string[] } => {
     const errors: string[] = []
 
-    // Check for trigger node
     const hasTrigger = workflowStore.nodes.some(
       node => node.type === NODE_TYPES.MANUAL_TRIGGER
     )
@@ -273,7 +264,6 @@ export function useNodeOperations() {
       errors.push('Workflow must have at least one trigger node')
     }
 
-    // Check for orphaned nodes (no connections)
     workflowStore.nodes.forEach(node => {
       const incoming = getIncomingEdges(node.id)
       const outgoing = getOutgoingEdges(node.id)

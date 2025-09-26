@@ -16,6 +16,8 @@ import { useAgentPanelResize } from '../composables/agents/useAgentPanelResize'
 import { useSecretsData } from '../composables/secrets/useSecretsData'
 import type { AgentNode } from '@/types/generated/AgentNode'
 import { useApiKeyConfig } from '@/composables/useApiKeyConfig'
+import { useAgentModels } from '@/composables/agents/useAgentModels'
+import { useAgentTools } from '@/composables/agents/useAgentTools'
 
 const {
   searchQuery,
@@ -30,6 +32,18 @@ const { panelWidth, startDragging } = useAgentPanelResize()
 const { secrets, loadSecrets: loadSecretsData } = useSecretsData()
 const { buildConfig } = useApiKeyConfig()
 
+// Use shared composables for models and tools
+const { AVAILABLE_MODELS, isOSeriesModel: checkIsOSeriesModel, getDefaultTemperature } = useAgentModels()
+const {
+  selectedTools: createSelectedTools,
+  selectedToolValue: createSelectedToolValue,
+  addTool: addCreateTool,
+  removeTool: removeCreateTool,
+  getToolLabel,
+  getAvailableTools,
+  resetTools: resetCreateTools
+} = useAgentTools()
+
 const showCreateDialog = ref(false)
 const createKeyMode = ref<'direct' | 'secret'>('direct')
 const createApiKey = ref('')
@@ -41,50 +55,9 @@ const createForm = ref<Omit<AgentNode, 'api_key_config'>>({
   tools: null
 })
 const createFormName = ref('')
-const createSelectedTools = ref<string[]>([])
-const createSelectedToolValue = ref('')
 
-const isOSeriesModel = computed(() => {
-  return ['o4-mini', 'o3', 'o3-mini'].includes(createForm.value.model)
-})
+const isOSeriesModel = computed(() => checkIsOSeriesModel(createForm.value.model))
 
-const availableModels = [
-  { label: 'O4 Mini', value: 'o4-mini' },
-  { label: 'O3', value: 'o3' },
-  { label: 'O3 Mini', value: 'o3-mini' },
-  { label: 'GPT-4.1', value: 'gpt-4.1' },
-  { label: 'GPT-4.1 Mini', value: 'gpt-4.1-mini' },
-  { label: 'GPT-4.1 Nano', value: 'gpt-4.1-nano' },
-  { label: 'Claude 4 Opus', value: 'claude-4-opus' },
-  { label: 'Claude 4 Sonnet', value: 'claude-4-sonnet' },
-  { label: 'Claude 3.7 Sonnet', value: 'claude-3.7-sonnet' },
-  { label: 'DeepSeek Chat', value: 'deepseek-chat' },
-  { label: 'DeepSeek Reasoner', value: 'deepseek-reasoner' },
-]
-
-const availableTools = [
-  { label: 'Addition Calculator', value: 'add', description: 'Adds two numbers together' },
-  { label: 'Get Current Time', value: 'get_current_time', description: 'Returns the current system time' }
-]
-
-function addCreateTool() {
-  if (createSelectedToolValue.value && !createSelectedTools.value.includes(createSelectedToolValue.value)) {
-    createSelectedTools.value.push(createSelectedToolValue.value)
-    createSelectedToolValue.value = ''
-  }
-}
-
-function removeCreateTool(toolValue: string) {
-  const index = createSelectedTools.value.indexOf(toolValue)
-  if (index > -1) {
-    createSelectedTools.value.splice(index, 1)
-  }
-}
-
-function getToolLabel(value: string): string {
-  const tool = availableTools.find(t => t.value === value)
-  return tool?.label || value
-}
 
 onMounted(async () => {
   loadAgents()
@@ -116,12 +89,11 @@ async function handleCreate() {
     createKeyMode.value = 'direct'
     createApiKey.value = ''
     createApiKeySecret.value = ''
-    createSelectedTools.value = []
-    createSelectedToolValue.value = ''
+    resetCreateTools([])
     createForm.value = {
       model: 'gpt-4.1',
       prompt: null,
-      temperature: 0.7,
+      temperature: getDefaultTemperature('gpt-4.1') ?? 0.7,
       tools: null
     }
 
@@ -319,7 +291,7 @@ function onAgentConfigChange(hasChanges: boolean) {
         <ElFormItem label="Model" required>
           <ElSelect v-model="createForm.model" placeholder="Select model">
             <ElOption
-              v-for="model in availableModels"
+              v-for="model in AVAILABLE_MODELS"
               :key="model.value"
               :label="model.label"
               :value="model.value"
@@ -329,7 +301,7 @@ function onAgentConfigChange(hasChanges: boolean) {
 
         <ElFormItem v-if="!isOSeriesModel" label="Temperature">
           <ElSlider
-            v-model="createForm.temperature"
+            v-model="createForm.temperature!"
             :min="0"
             :max="2"
             :step="0.1"
@@ -356,7 +328,7 @@ function onAgentConfigChange(hasChanges: boolean) {
               style="width: 100%; margin-bottom: var(--rf-spacing-md)"
             >
               <ElOption
-                v-for="tool in availableTools.filter(t => !createSelectedTools.includes(t.value))"
+                v-for="tool in getAvailableTools()"
                 :key="tool.value"
                 :label="tool.label"
                 :value="tool.value"
@@ -505,66 +477,12 @@ function onAgentConfigChange(hasChanges: boolean) {
   }
 }
 
-.tools-selector {
-  width: 100%;
-
-  .tool-option {
-    .tool-label {
-      font-weight: var(--rf-font-weight-medium);
-      color: var(--rf-color-text-primary);
-    }
-
-    .tool-description {
-      font-size: var(--rf-font-size-xs);
-      color: var(--rf-color-text-secondary);
-      margin-top: var(--rf-spacing-3xs);
-    }
-  }
-
-  .tools-tags {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--rf-spacing-sm);
-
-    :deep(.el-tag) {
-      font-size: var(--rf-font-size-sm);
-      padding: var(--rf-spacing-xs) var(--rf-spacing-sm);
-      background: var(--rf-color-primary-light-9);
-      border-color: var(--rf-color-primary-light-7);
-      color: var(--rf-color-primary);
-
-      .el-tag__close {
-        color: var(--rf-color-primary);
-
-        &:hover {
-          background-color: var(--rf-color-primary-light-7);
-        }
-      }
-    }
-  }
-
-  .no-tools-hint {
-    color: var(--rf-color-text-secondary);
-    font-size: var(--rf-font-size-sm);
-    font-style: italic;
-    padding: var(--rf-spacing-sm) 0;
-  }
-}
 
 html.dark {
   .agent-management {
     .split-container {
       .config-panel {
         background-color: var(--rf-color-bg-container);
-      }
-    }
-  }
-
-  .tools-selector {
-    .tools-tags {
-      :deep(.el-tag) {
-        background: rgba(64, 158, 255, 0.1);
-        border-color: rgba(64, 158, 255, 0.2);
       }
     }
   }

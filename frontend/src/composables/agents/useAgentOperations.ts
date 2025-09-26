@@ -10,7 +10,6 @@ import type { CreateAgentRequest, UpdateAgentRequest } from '@/api/agents'
 import type { AgentNode } from '@/types/generated/AgentNode'
 
 export function useAgentOperations() {
-  // Create new agent
   async function createAgent(name: string, agent: AgentNode) {
     try {
       const request: CreateAgentRequest = { name, agent }
