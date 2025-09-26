@@ -16,6 +16,8 @@ import type { StoredAgent } from '@/types/generated/StoredAgent'
 import type { AgentNode } from '@/types/generated/AgentNode'
 import { useSecretsData } from '@/composables/secrets/useSecretsData'
 import { useApiKeyConfig } from '@/composables/useApiKeyConfig'
+import { useAgentModels } from '@/composables/agents/useAgentModels'
+import { useAgentTools } from '@/composables/agents/useAgentTools'
 
 const props = defineProps<{
   agent: StoredAgent
@@ -30,13 +32,25 @@ const emit = defineEmits<{
 const { secrets, loadSecrets: loadSecretsData } = useSecretsData()
 const { buildConfig, isConfigChanged } = useApiKeyConfig()
 
+const { AVAILABLE_MODELS, isOSeriesModel: checkIsOSeriesModel, getDefaultTemperature } = useAgentModels()
+const {
+  selectedTools,
+  selectedToolValue,
+  addTool,
+  removeTool,
+  getToolLabel,
+  getAvailableTools,
+  resetTools
+} = useAgentTools(props.agent.agent.tools || [])
+
 const formData = ref({
   name: props.agent.name,
   model: props.agent.agent.model,
   prompt: props.agent.agent.prompt,
-  temperature: props.agent.agent.temperature ?? 0.7, // Default to 0.7 if null
-  api_key_config: props.agent.agent.api_key_config,
-  tools: props.agent.agent.tools || []
+  temperature: props.agent.agent.temperature !== undefined && props.agent.agent.temperature !== null
+    ? props.agent.agent.temperature
+    : getDefaultTemperature(props.agent.agent.model),
+  api_key_config: props.agent.agent.api_key_config
 })
 
 const keyMode = computed({
@@ -59,60 +73,19 @@ watch(() => props.agent, (newAgent) => {
     name: newAgent.name,
     model: newAgent.agent.model,
     prompt: newAgent.agent.prompt,
-    temperature: newAgent.agent.temperature ?? 0.7, // Default to 0.7 if null
-    api_key_config: newAgent.agent.api_key_config,
-    tools: newAgent.agent.tools || []
+    temperature: newAgent.agent.temperature !== undefined && newAgent.agent.temperature !== null
+      ? newAgent.agent.temperature
+      : getDefaultTemperature(newAgent.agent.model),
+    api_key_config: newAgent.agent.api_key_config
   }
+  resetTools(newAgent.agent.tools || [])
 }, { deep: true })
 
 onMounted(async () => {
   await loadSecretsData()
 })
 
-const availableModels = [
-  // OpenAI O Series (Reasoning models)
-  { label: 'O4 Mini', value: 'o4-mini' },
-  { label: 'O3', value: 'o3' },
-  { label: 'O3 Mini', value: 'o3-mini' },
-  { label: 'GPT-4.1', value: 'gpt-4.1' },
-  { label: 'GPT-4.1 Mini', value: 'gpt-4.1-mini' },
-  { label: 'GPT-4.1 Nano', value: 'gpt-4.1-nano' },
-  { label: 'Claude 4 Opus', value: 'claude-4-opus' },
-  { label: 'Claude 4 Sonnet', value: 'claude-4-sonnet' },
-  { label: 'Claude 3.7 Sonnet', value: 'claude-3.7-sonnet' },
-  { label: 'DeepSeek Chat', value: 'deepseek-chat' },
-  { label: 'DeepSeek Reasoner', value: 'deepseek-reasoner' },
-]
-
-const availableTools = [
-  { label: 'Addition Calculator', value: 'add', description: 'Adds two numbers together' },
-  { label: 'Get Current Time', value: 'get_current_time', description: 'Returns the current system time' }
-]
-
-const selectedToolValue = ref('')
-
-function addTool() {
-  if (selectedToolValue.value && !formData.value.tools.includes(selectedToolValue.value)) {
-    formData.value.tools.push(selectedToolValue.value)
-    selectedToolValue.value = ''
-  }
-}
-
-function removeTool(toolValue: string) {
-  const index = formData.value.tools.indexOf(toolValue)
-  if (index > -1) {
-    formData.value.tools.splice(index, 1)
-  }
-}
-
-function getToolLabel(value: string): string {
-  const tool = availableTools.find(t => t.value === value)
-  return tool?.label || value
-}
-
-const isOSeriesModel = computed(() => {
-  return ['o4-mini', 'o3', 'o3-mini'].includes(formData.value.model)
-})
+const isOSeriesModel = computed(() => checkIsOSeriesModel(formData.value.model))
 
 const hasChanges = computed(() => {
   return (
@@ -121,7 +94,7 @@ const hasChanges = computed(() => {
     (formData.value.prompt || null) !== (props.agent.agent.prompt || null) ||
     formData.value.temperature !== props.agent.agent.temperature ||
     isConfigChanged(props.agent.agent.api_key_config, formData.value.api_key_config) ||
-    JSON.stringify(formData.value.tools) !== JSON.stringify(props.agent.agent.tools || [])
+    JSON.stringify(selectedTools.value) !== JSON.stringify(props.agent.agent.tools || [])
   )
 })
 
@@ -146,7 +119,7 @@ function saveChanges() {
     (formData.value.prompt || null) !== (props.agent.agent.prompt || null) ||
     formData.value.temperature !== props.agent.agent.temperature ||
     isConfigChanged(props.agent.agent.api_key_config, formData.value.api_key_config) ||
-    JSON.stringify(formData.value.tools) !== JSON.stringify(props.agent.agent.tools || [])
+    JSON.stringify(selectedTools.value) !== JSON.stringify(props.agent.agent.tools || [])
 
   if (agentChanged) {
     updates.agent = {
@@ -154,7 +127,7 @@ function saveChanges() {
       prompt: formData.value.prompt?.trim() || null,
       temperature: isOSeriesModel.value ? null : formData.value.temperature,
       api_key_config: formData.value.api_key_config || null,
-      tools: formData.value.tools.length > 0 ? formData.value.tools : null
+      tools: selectedTools.value.length > 0 ? selectedTools.value : null
     } as AgentNode
   }
 
@@ -168,15 +141,18 @@ function resetForm() {
     name: props.agent.name,
     model: props.agent.agent.model,
     prompt: props.agent.agent.prompt,
-    temperature: props.agent.agent.temperature ?? 0.7, // Default to 0.7 if null
-    api_key_config: props.agent.agent.api_key_config,
-    tools: props.agent.agent.tools || []
+    temperature: props.agent.agent.temperature !== undefined && props.agent.agent.temperature !== null
+    ? props.agent.agent.temperature
+    : getDefaultTemperature(props.agent.agent.model),
+    api_key_config: props.agent.agent.api_key_config
   }
+  resetTools(props.agent.agent.tools || [])
 }
 
 defineExpose({
   saveChanges,
-  resetForm
+  resetForm,
+  hasChanges
 })
 </script>
 
@@ -202,7 +178,7 @@ defineExpose({
           <ElFormItem label="Model" :class="{ 'model-select': !isOSeriesModel, 'model-select-full': isOSeriesModel }">
             <ElSelect v-model="formData.model" placeholder="Select model">
               <ElOption
-                v-for="model in availableModels"
+                v-for="model in AVAILABLE_MODELS"
                 :key="model.value"
                 :label="model.label"
                 :value="model.value"
@@ -213,7 +189,7 @@ defineExpose({
           <ElFormItem v-if="!isOSeriesModel" label="Temp" class="temperature-item">
             <div class="temperature-control compact">
               <ElSlider
-                v-model="formData.temperature"
+                v-model="formData.temperature!"
                 :min="0"
                 :max="2"
                 :step="0.1"
@@ -285,7 +261,7 @@ defineExpose({
               style="width: 100%; margin-bottom: var(--rf-spacing-md)"
             >
               <ElOption
-                v-for="tool in availableTools.filter(t => !formData.tools.includes(t.value))"
+                v-for="tool in getAvailableTools()"
                 :key="tool.value"
                 :label="tool.label"
                 :value="tool.value"
@@ -297,9 +273,9 @@ defineExpose({
               </ElOption>
             </ElSelect>
 
-            <div v-if="formData.tools.length > 0" class="tools-tags">
+            <div v-if="selectedTools.length > 0" class="tools-tags">
               <ElTag
-                v-for="toolValue in formData.tools"
+                v-for="toolValue in selectedTools"
                 :key="toolValue"
                 closable
                 size="large"
@@ -382,51 +358,6 @@ defineExpose({
     margin: var(--rf-spacing-md) 0;
   }
 
-  .tools-selector {
-    width: 100%;
-
-    .tool-option {
-      .tool-label {
-        font-weight: var(--rf-font-weight-medium);
-        color: var(--rf-color-text-primary);
-      }
-
-      .tool-description {
-        font-size: var(--rf-font-size-xs);
-        color: var(--rf-color-text-secondary);
-        margin-top: var(--rf-spacing-3xs);
-      }
-    }
-
-    .tools-tags {
-      display: flex;
-      flex-wrap: wrap;
-      gap: var(--rf-spacing-sm);
-
-      :deep(.el-tag) {
-        font-size: var(--rf-font-size-sm);
-        padding: var(--rf-spacing-xs) var(--rf-spacing-sm);
-        background: var(--rf-color-primary-light-9);
-        border-color: var(--rf-color-primary-light-7);
-        color: var(--rf-color-primary);
-
-        .el-tag__close {
-          color: var(--rf-color-primary);
-
-          &:hover {
-            background-color: var(--rf-color-primary-light-7);
-          }
-        }
-      }
-    }
-
-    .no-tools-hint {
-      color: var(--rf-color-text-secondary);
-      font-size: var(--rf-font-size-sm);
-      font-style: italic;
-      padding: var(--rf-spacing-sm) 0;
-    }
-  }
 
   :deep(.el-form-item) {
     margin-bottom: var(--rf-spacing-lg);

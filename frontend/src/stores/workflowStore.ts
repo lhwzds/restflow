@@ -77,7 +77,6 @@ export const useWorkflowStore = defineStore('workflow', {
       this.hasUnsavedChanges = true
     },
 
-    // Set workflow metadata
     setWorkflowMetadata(id: string | null, name: string) {
       this.currentWorkflowId = id
       this.currentWorkflowName = name

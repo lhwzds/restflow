@@ -43,7 +43,6 @@ const editState = reactive<EditState>({
   editData: {},
 })
 
-// Merge new row with existing secrets for unified table rendering
 const tableData = computed(() => {
   if (editState.mode === 'creating' && editState.newRow) {
     return [editState.newRow, ...filteredSecrets.value]
