@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { Background } from '@vue-flow/background'
 import { ControlButton, Controls } from '@vue-flow/controls'
-import type { Connection, Edge } from '@vue-flow/core'
+import type { Connection, Edge, Node } from '@vue-flow/core'
 import { VueFlow, useVueFlow } from '@vue-flow/core'
 import { MiniMap } from '@vue-flow/minimap'
-import { ElTooltip } from 'element-plus'
+import { ElMessage, ElTooltip } from 'element-plus'
 import { Play } from 'lucide-vue-next'
 import { ref } from 'vue'
 import { useVueFlowHandlers } from '../../composables/editor/useVueFlowHandlers'
@@ -18,12 +18,19 @@ import { AgentNode, HttpNode, ManualTriggerNode, WebhookTriggerNode } from '../n
 import { useExecutionStore } from '../../stores/executionStore'
 import ExecutionPanel from './ExecutionPanel.vue'
 import Icon from '../shared/Icon.vue'
-import NodeConfigPanel from './NodeConfigPanel.vue'
+import NodeConfigPopup from './NodeConfigPopup.vue'
 import NodeToolbar from './NodeToolbar.vue'
 
 const { handleDrop, handleDragOver } = useDragAndDrop()
-const { nodes, createNode, updateNodePosition, deleteNode, clearAll, updateNodeData } =
-  useNodeOperations()
+const {
+  nodes,
+  createNode,
+  updateNodePosition,
+  deleteNode,
+  clearAll,
+  updateNodeData,
+  duplicateNode,
+} = useNodeOperations()
 const { edges, addEdge } = useEdgeOperations()
 const { handleEdgesChange, handleNodesChange } = useVueFlowHandlers()
 const { isExecuting, startAsyncExecution } = useAsyncWorkflowExecution()
@@ -39,7 +46,8 @@ const {
   setViewport,
 } = useVueFlow()
 
-const selectedNode = ref<any>(null)
+const selectedNode = ref<Node | null>(null)
+const showConfigPopup = ref(false)
 
 onConnect((connection: Connection) => {
   const newEdge: Edge = {
@@ -62,13 +70,34 @@ onNodeClick(({ node }) => {
 
 onNodeDoubleClick(({ node }) => {
   selectedNode.value = node
+  showConfigPopup.value = true
 })
 
 onNodeDragStop(({ node }) => {
   updateNodePosition(node.id, node.position)
 })
 
-const closeConfigPanel = () => {
+const handlePopupUpdate = (node: Node) => {
+  updateNodeData(node.id, node.data)
+  selectedNode.value = node
+}
+
+const handlePopupDelete = (nodeId: string) => {
+  deleteNode(nodeId)
+  showConfigPopup.value = false
+  selectedNode.value = null
+  ElMessage.success('Node deleted')
+}
+
+const handlePopupDuplicate = (nodeId: string) => {
+  const newNode = duplicateNode(nodeId)
+  if (newNode) {
+    selectedNode.value = newNode
+    ElMessage.success('Node duplicated')
+  }
+}
+
+const handlePopupClose = () => {
   selectedNode.value = null
 }
 
@@ -180,10 +209,14 @@ useKeyboardShortcuts({
         <div class="menu-item" @click="handleClearCanvas">Clear Canvas</div>
       </div>
 
-      <NodeConfigPanel
+      <!-- Use new Popup configuration component instead of original Panel -->
+      <NodeConfigPopup
         :node="selectedNode"
-        @update="(node: any) => updateNodeData(node.id, node.data)"
-        @close="closeConfigPanel"
+        v-model:visible="showConfigPopup"
+        @update="handlePopupUpdate"
+        @delete="handlePopupDelete"
+        @duplicate="handlePopupDuplicate"
+        @close="handlePopupClose"
       />
 
       <ExecutionPanel />

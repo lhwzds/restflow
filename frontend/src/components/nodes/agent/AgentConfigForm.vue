@@ -2,6 +2,7 @@
 import { ref, watch, onMounted } from 'vue'
 import type { ApiKeyConfig } from '@/types/generated/ApiKeyConfig'
 import { useApiKeyConfig } from '@/composables/useApiKeyConfig'
+import { useSecretsData } from '@/composables/secrets/useSecretsData'
 
 interface AgentConfig {
   model?: string
@@ -34,7 +35,7 @@ const keyMode = ref<'direct' | 'secret'>('direct')
 const apiKeyDirect = ref('')
 const apiKeySecret = ref('')
 
-const secrets = ref<Array<{ key: string; description?: string }>>([])
+const { secrets, loadSecrets } = useSecretsData()
 
 watch(
   () => props.modelValue,
@@ -56,17 +57,8 @@ watch(
   { immediate: true },
 )
 
-onMounted(async () => {
-  try {
-    const response = await fetch('/api/secrets/list')
-    if (response.ok) {
-      const data = await response.json()
-      secrets.value = data.data || []
-    }
-  } catch (error) {
-    // Silently fail if secrets API is not available
-    console.debug('Secrets API not available:', error)
-  }
+onMounted(() => {
+  loadSecrets()
 })
 
 const updateData = () => {

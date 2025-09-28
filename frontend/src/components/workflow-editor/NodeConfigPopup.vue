@@ -1,0 +1,580 @@
+<script setup lang="ts">
+import type { Node } from '@vue-flow/core'
+import { ref, computed, watch } from 'vue'
+import { ElButton, ElTabs, ElTabPane, ElTooltip, ElMessage } from 'element-plus'
+import { Settings, Play, Copy, Trash2, X } from 'lucide-vue-next'
+import { AgentConfigForm, HttpConfigForm, TriggerConfigForm } from '../nodes'
+import { NODE_TYPE, NODE_TYPE_LABELS } from '@/constants'
+import { useSingleNodeExecution } from '../../composables/execution/useSingleNodeExecution'
+
+interface Props {
+  node: Node | null
+  visible: boolean
+}
+
+const props = defineProps<Props>()
+const emit = defineEmits<{
+  'update:visible': [value: boolean]
+  'update': [node: Node]
+  'delete': [nodeId: string]
+  'duplicate': [nodeId: string]
+  close: []
+}>()
+
+const nodeData = ref<any>({})
+const activeTab = ref('config')
+const isExecuting = ref(false)
+const testResult = ref<any>(null)
+
+const { executeSingleNode, getMockInput } = useSingleNodeExecution()
+
+const popupStyle = computed(() => ({
+  position: 'fixed' as const,
+  left: '50%',
+  top: '50%',
+  transform: 'translate(-50%, -50%)',
+  zIndex: 2000
+}))
+
+const formatPreview = (value: unknown): string => {
+  if (value === null || value === undefined) {
+    return 'No data available'
+  }
+
+  if (typeof value === 'string') {
+    return value
+  }
+
+  try {
+    return JSON.stringify(value, null, 2)
+  } catch (error) {
+    return String(value)
+  }
+}
+
+const inputPreview = computed(() => {
+  if (!props.node) {
+    return 'No data available'
+  }
+
+  const lastInput = (props.node.data as any)?.lastExecutionInput
+  const configuredInput = nodeData.value?.input
+  const mockInput = getMockInput(props.node.id)
+
+  return formatPreview(lastInput ?? configuredInput ?? mockInput)
+})
+
+const outputPreview = computed(() => {
+  if (!props.node) {
+    return 'No data available'
+  }
+
+  const latestResult = !testResult.value?.error && testResult.value ? testResult.value : null
+  const storedResult = (props.node.data as any)?.lastExecutionResult
+
+  if (latestResult) {
+    return formatPreview(latestResult)
+  }
+
+  if (storedResult) {
+    return formatPreview(storedResult)
+  }
+
+  return 'Output will be shown after execution'
+})
+
+const nodeTypeLabel = computed(() => {
+  if (!props.node) return ''
+  return NODE_TYPE_LABELS[props.node.type as keyof typeof NODE_TYPE_LABELS] || props.node.type
+})
+
+watch(
+  () => props.node,
+  (newNode) => {
+    if (newNode) {
+      nodeData.value = { ...newNode.data }
+      testResult.value = null
+    }
+  },
+  { immediate: true }
+)
+
+const updateNode = () => {
+  if (props.node) {
+    const updatedNode = {
+      ...props.node,
+      data: { ...nodeData.value }
+    }
+    emit('update', updatedNode)
+  }
+}
+
+const handleFormUpdate = (data: any) => {
+  nodeData.value = { ...nodeData.value, ...data }
+  updateNode()
+}
+
+const testNode = async () => {
+  if (!props.node) return
+
+  isExecuting.value = true
+  testResult.value = null
+
+  try {
+    const result = await executeSingleNode(props.node.id)
+    testResult.value = result
+    ElMessage.success('Test executed successfully')
+  } catch (error: any) {
+    testResult.value = {
+      error: true,
+      message: error.message || 'Execution failed'
+    }
+    ElMessage.error(`Test failed: ${error.message}`)
+  } finally {
+    isExecuting.value = false
+  }
+}
+
+const handleDuplicate = () => {
+  if (props.node) {
+    emit('duplicate', props.node.id)
+  }
+}
+
+const handleDelete = () => {
+  if (props.node) {
+    emit('delete', props.node.id)
+    emit('update:visible', false)
+  }
+}
+
+const handleClose = () => {
+  emit('update:visible', false)
+  emit('close')
+  testResult.value = null
+  activeTab.value = 'config'
+}
+
+</script>
+
+<template>
+  <Teleport to="body">
+    <Transition name="popup">
+      <div
+        v-if="visible && node"
+        class="node-config-popup"
+        :style="popupStyle"
+      >
+        <div class="popup-header">
+          <div class="header-left">
+            <Settings :size="18" />
+            <span class="node-type">{{ nodeTypeLabel }}</span>
+            <span class="node-label">{{ nodeData.label || node.id }}</span>
+          </div>
+          <div class="header-actions">
+            <ElTooltip content="Test Node" placement="bottom">
+              <button
+                class="action-btn test-btn"
+                @click="testNode"
+                :disabled="isExecuting"
+              >
+                <Play :size="16" />
+              </button>
+            </ElTooltip>
+            <ElTooltip content="Duplicate Node" placement="bottom">
+              <button class="action-btn" @click="handleDuplicate">
+                <Copy :size="16" />
+              </button>
+            </ElTooltip>
+            <ElTooltip content="Delete Node" placement="bottom">
+              <button class="action-btn danger" @click="handleDelete">
+                <Trash2 :size="16" />
+              </button>
+            </ElTooltip>
+            <button class="action-btn" @click="handleClose">
+              <X :size="16" />
+            </button>
+          </div>
+        </div>
+
+        <div class="popup-content">
+          <ElTabs v-model="activeTab">
+            <ElTabPane label="Configuration" name="config">
+              <div class="config-section">
+                <div class="form-group">
+                  <label>Node Name</label>
+                  <input
+                    v-model="nodeData.label"
+                    @input="updateNode"
+                    placeholder="Enter node name"
+                  />
+                </div>
+
+                <AgentConfigForm
+                  v-if="node.type === NODE_TYPE.AGENT"
+                  :modelValue="nodeData"
+                  @update:modelValue="handleFormUpdate"
+                />
+
+                <HttpConfigForm
+                  v-if="node.type === NODE_TYPE.HTTP_REQUEST"
+                  :modelValue="nodeData"
+                  @update:modelValue="handleFormUpdate"
+                />
+
+                <TriggerConfigForm
+                  v-if="node.type === NODE_TYPE.MANUAL_TRIGGER || node.type === NODE_TYPE.WEBHOOK_TRIGGER"
+                  :modelValue="nodeData"
+                  @update:modelValue="handleFormUpdate"
+                />
+              </div>
+            </ElTabPane>
+
+            <ElTabPane label="Test Results" name="test" :disabled="!testResult">
+              <div class="test-section">
+                <div v-if="testResult" class="test-result">
+                  <div v-if="testResult.error" class="error-result">
+                    <h4>Execution Failed</h4>
+                    <pre>{{ testResult.message }}</pre>
+                  </div>
+                  <div v-else class="success-result">
+                    <h4>Execution Success</h4>
+                    <pre>{{ JSON.stringify(testResult, null, 2) }}</pre>
+                  </div>
+                </div>
+                <div v-else class="no-result">
+                  <p>Click Test button to run node</p>
+                </div>
+              </div>
+            </ElTabPane>
+
+            <ElTabPane label="Input/Output" name="io">
+              <div class="io-section">
+                <div class="io-group">
+                  <h4>Input Example</h4>
+                  <div class="variable-list">
+                    <div class="variable-item">
+                      <pre class="variable-preview">{{ inputPreview }}</pre>
+                      <span>Output from upstream node or mock data</span>
+                    </div>
+                  </div>
+                </div>
+                <div class="io-group">
+                  <h4>Output Example</h4>
+                  <div class="variable-list">
+                    <div class="variable-item">
+                      <pre class="variable-preview">{{ outputPreview }}</pre>
+                      <span>Result to be passed to downstream nodes</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </ElTabPane>
+          </ElTabs>
+        </div>
+
+        <div class="popup-footer">
+          <div class="footer-status">
+            <span v-if="isExecuting" class="executing">Executing...</span>
+            <span v-else-if="testResult?.error" class="error">Execution Failed</span>
+            <span v-else-if="testResult" class="success">Execution Success</span>
+          </div>
+          <div class="footer-actions">
+            <ElButton size="small" @click="handleClose">Close</ElButton>
+            <ElButton type="primary" size="small" @click="testNode" :loading="isExecuting">
+              Test Node
+            </ElButton>
+          </div>
+        </div>
+      </div>
+    </Transition>
+  </Teleport>
+</template>
+
+<style lang="scss" scoped>
+.node-config-popup {
+  width: var(--rf-size-2xl);
+  height: min(var(--rf-size-2xl), 80vh);
+  background: var(--rf-color-bg-container);
+  border: 1px solid var(--rf-color-border-base);
+  border-radius: var(--rf-radius-large);
+  box-shadow: var(--rf-shadow-lg);
+  display: flex;
+  flex-direction: column;
+  max-height: 80vh;
+  cursor: default;
+
+  .popup-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: var(--rf-spacing-md) var(--rf-spacing-lg);
+    border-bottom: 1px solid var(--rf-color-border-light);
+    background: var(--rf-color-bg-secondary);
+    border-radius: var(--rf-radius-large) var(--rf-radius-large) 0 0;
+
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: var(--rf-spacing-sm);
+
+      .node-type {
+        font-size: var(--rf-font-size-xs);
+        color: var(--rf-color-text-secondary);
+        padding: var(--rf-spacing-3xs) var(--rf-spacing-xs);
+        background: var(--rf-color-primary-bg-lighter);
+        border-radius: var(--rf-radius-small);
+      }
+
+      .node-label {
+        font-weight: var(--rf-font-weight-semibold);
+        color: var(--rf-color-text-primary);
+      }
+    }
+
+    .header-actions {
+      display: flex;
+      gap: var(--rf-spacing-xs);
+
+      .action-btn {
+        width: var(--rf-size-xs);
+        height: var(--rf-size-xs);
+        padding: 0;
+        border: none;
+        background: transparent;
+        color: var(--rf-color-text-secondary);
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: var(--rf-radius-small);
+        transition: all var(--rf-transition-fast);
+
+        &:hover {
+          background: var(--rf-color-bg-page);
+          color: var(--rf-color-text-primary);
+        }
+
+        &.test-btn {
+          color: var(--rf-color-success);
+
+          &:hover {
+            background: var(--rf-color-success-bg-lighter);
+          }
+        }
+
+        &.danger {
+          &:hover {
+            color: var(--rf-color-danger);
+            background: var(--rf-color-danger-bg-lighter);
+          }
+        }
+
+        &:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
+      }
+    }
+  }
+
+  .popup-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: var(--rf-spacing-lg);
+    cursor: default;
+
+    .config-section, .test-section, .io-section {
+      .form-group {
+        margin-bottom: var(--rf-spacing-lg);
+
+        label {
+          display: block;
+          margin-bottom: var(--rf-spacing-sm);
+          font-size: var(--rf-font-size-sm);
+          font-weight: var(--rf-font-weight-medium);
+          color: var(--rf-color-text-regular);
+        }
+
+        input {
+          width: 100%;
+          padding: var(--rf-spacing-sm) var(--rf-spacing-md);
+          border: 1px solid var(--rf-color-border-lighter);
+          border-radius: var(--rf-radius-base);
+          font-size: var(--rf-font-size-base);
+          transition: border-color var(--rf-transition-fast);
+          background: var(--rf-color-bg-container);
+          color: var(--rf-color-text-primary);
+
+          &:focus {
+            outline: none;
+            border-color: var(--rf-color-border-focus);
+            box-shadow: var(--rf-shadow-focus);
+          }
+        }
+      }
+    }
+
+    .test-result {
+      padding: var(--rf-spacing-md);
+      border-radius: var(--rf-radius-base);
+
+      h4 {
+        margin-bottom: var(--rf-spacing-md);
+        font-size: var(--rf-font-size-md);
+      }
+
+      pre {
+        font-family: 'Monaco', 'Courier New', monospace;
+        font-size: var(--rf-font-size-xs);
+        overflow-x: auto;
+        padding: var(--rf-spacing-md);
+        background: var(--rf-color-bg-page);
+        border-radius: var(--rf-radius-small);
+      }
+
+      .error-result {
+        h4 { color: var(--rf-color-danger); }
+        pre {
+          background: var(--rf-color-danger-bg-lighter);
+          color: var(--rf-color-danger);
+        }
+      }
+
+      .success-result {
+        h4 { color: var(--rf-color-success); }
+        pre {
+          background: var(--rf-color-success-bg-lighter);
+          color: var(--rf-color-text-primary);
+        }
+      }
+    }
+
+    .no-result {
+      text-align: center;
+      color: var(--rf-color-text-secondary);
+      padding: var(--rf-spacing-2xl);
+    }
+
+    .io-section {
+      .io-group {
+        margin-bottom: var(--rf-spacing-xl);
+
+        h4 {
+          margin-bottom: var(--rf-spacing-md);
+          font-size: var(--rf-font-size-md);
+          color: var(--rf-color-text-primary);
+        }
+
+        .variable-list {
+          .variable-item {
+            display: flex;
+            align-items: center;
+            gap: var(--rf-spacing-md);
+            padding: var(--rf-spacing-md);
+            background: var(--rf-color-bg-secondary);
+            border-radius: var(--rf-radius-small);
+            margin-bottom: var(--rf-spacing-sm);
+
+            .variable-preview {
+              width: 100%;
+              margin: 0;
+              font-family: 'Monaco', 'Courier New', monospace;
+              font-size: var(--rf-font-size-xs);
+              color: var(--rf-color-primary);
+              background: var(--rf-color-primary-bg-lighter);
+              padding: var(--rf-spacing-sm);
+              border-radius: var(--rf-radius-small);
+              white-space: pre-wrap;
+              word-break: break-word;
+            }
+
+            span {
+              font-size: var(--rf-font-size-xs);
+              color: var(--rf-color-text-secondary);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  .popup-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: var(--rf-spacing-md) var(--rf-spacing-lg);
+    border-top: 1px solid var(--rf-color-border-light);
+    background: var(--rf-color-bg-secondary);
+    border-radius: 0 0 var(--rf-radius-large) var(--rf-radius-large);
+    cursor: default;
+
+    .footer-status {
+      font-size: var(--rf-font-size-sm);
+
+      .executing { color: var(--rf-color-primary); }
+      .error { color: var(--rf-color-danger); }
+      .success { color: var(--rf-color-success); }
+    }
+
+    .footer-actions {
+      display: flex;
+      gap: var(--rf-spacing-sm);
+    }
+  }
+
+  :deep(.el-tabs) {
+    .el-tabs__nav {
+      border-bottom: 1px solid var(--rf-color-border-lighter);
+    }
+
+    .el-tabs__item {
+      color: var(--rf-color-text-secondary);
+      font-size: var(--rf-font-size-sm);
+
+      &.is-active {
+        color: var(--rf-color-primary);
+      }
+
+      &.is-disabled {
+        color: var(--rf-color-text-disabled);
+      }
+    }
+
+    .el-tabs__content {
+      padding-top: var(--rf-spacing-lg);
+    }
+  }
+}
+
+.popup-enter-active,
+.popup-leave-active {
+  transition: all var(--rf-transition-base);
+}
+
+.popup-enter-from {
+  opacity: 0;
+  transform: translate(-50%, -60%) scale(0.92);
+}
+
+.popup-leave-to {
+  opacity: 0;
+  transform: translate(-50%, -60%) scale(0.92);
+}
+
+html.dark {
+  .node-config-popup {
+    background: var(--rf-color-bg-container);
+
+    .popup-header,
+    .popup-footer {
+      background: var(--rf-color-bg-secondary);
+    }
+
+    input {
+      background: var(--rf-color-bg-page);
+      color: var(--rf-color-text-primary);
+    }
+  }
+}
+</style>

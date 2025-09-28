@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import type { NodeProps } from '@vue-flow/core'
 import { Handle, Position } from '@vue-flow/core'
-import { computed } from 'vue'
-import { Bot, Sparkles } from 'lucide-vue-next'
+import { computed, ref } from 'vue'
+import { Bot, Sparkles, Settings, Play } from 'lucide-vue-next'
 import { useNodeExecutionStatus } from '@/composables/node/useNodeExecutionStatus'
+import { ElTooltip } from 'element-plus'
 
 interface AgentNodeData {
   label?: string
@@ -16,9 +17,13 @@ interface AgentNodeData {
 }
 
 const props = defineProps<NodeProps<AgentNodeData>>()
+defineEmits<{
+  'open-config': []
+  'test-node': []
+}>()
 
-const { 
-  getNodeStatusClass, 
+const {
+  getNodeStatusClass,
   getNodeExecutionTime,
   formatExecutionTime,
 } = useNodeExecutionStatus()
@@ -28,10 +33,17 @@ const executionTime = computed(() => {
   const time = getNodeExecutionTime(props.id)
   return time ? formatExecutionTime(time) : null
 })
+
+const showActions = ref(false)
 </script>
 
 <template>
-  <div class="agent-node" :class="statusClass">
+  <div
+    class="agent-node"
+    :class="statusClass"
+    @mouseenter="showActions = true"
+    @mouseleave="showActions = false"
+  >
     <Handle type="target" :position="Position.Left" class="custom-handle input-handle" />
 
     <div class="node-body">
@@ -43,16 +55,31 @@ const executionTime = computed(() => {
           </div>
           <div class="node-label">{{ props.data?.label || 'AI Agent' }}</div>
         </div>
-        
+
         <div v-if="props.data?.model" class="model-info">
           {{ props.data.model }}
         </div>
       </div>
     </div>
-    
+
     <div v-if="executionTime" class="execution-time">
       {{ executionTime }}
     </div>
+
+    <Transition name="actions">
+      <div v-if="showActions" class="node-actions">
+        <ElTooltip content="Configure Node" placement="top">
+          <button class="action-btn" @click.stop="$emit('open-config')">
+            <Settings :size="14" />
+          </button>
+        </ElTooltip>
+        <ElTooltip content="Test Node" placement="top">
+          <button class="action-btn test-btn" @click.stop="$emit('test-node')">
+            <Play :size="14" />
+          </button>
+        </ElTooltip>
+      </div>
+    </Transition>
 
     <Handle type="source" :position="Position.Right" class="custom-handle output-handle" />
   </div>
@@ -127,9 +154,59 @@ $node-color: #667eea;
   &.input-handle {
     left: -4px;
   }
-  
+
   &.output-handle {
     right: -4px;
   }
+}
+
+.node-actions {
+  position: absolute;
+  top: -35px;
+  right: 0;
+  display: flex;
+  gap: var(--rf-spacing-xs);
+  padding: var(--rf-spacing-3xs);
+  background: var(--rf-color-bg-container);
+  border-radius: var(--rf-radius-base);
+  box-shadow: var(--rf-shadow-md);
+  z-index: 10;
+
+  .action-btn {
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: none;
+    background: var(--rf-color-bg-secondary);
+    color: var(--rf-color-text-secondary);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--rf-radius-small);
+    transition: all var(--rf-transition-fast);
+
+    &:hover {
+      background: var(--rf-color-primary-bg-lighter);
+      color: var(--rf-color-primary);
+      transform: scale(1.1);
+    }
+
+    &.test-btn:hover {
+      background: var(--rf-color-success-bg-lighter);
+      color: var(--rf-color-success);
+    }
+  }
+}
+
+.actions-enter-active,
+.actions-leave-active {
+  transition: all var(--rf-transition-fast);
+}
+
+.actions-enter-from,
+.actions-leave-to {
+  opacity: 0;
+  transform: translateY(5px);
 }
 </style>
