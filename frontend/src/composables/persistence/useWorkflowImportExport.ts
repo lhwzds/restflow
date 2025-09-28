@@ -2,6 +2,7 @@ import { ElMessage } from 'element-plus'
 import { ref } from 'vue'
 import { useWorkflowStore } from '../../stores/workflowStore'
 import { useWorkflowConverter } from '../editor/useWorkflowConverter'
+import { SUCCESS_MESSAGES, ERROR_MESSAGES, VALIDATION_MESSAGES } from '@/constants'
 
 export interface ImportExportOptions {
   onImportSuccess?: (data: { name: string; nodes: any[]; edges: any[] }) => void
@@ -37,10 +38,10 @@ export function useWorkflowImportExport(options: ImportExportOptions = {}) {
       link.download = `${name.replace(/\s+/g, '-').toLowerCase()}.json`
       link.click()
 
-      ElMessage.success('Workflow exported successfully')
+      ElMessage.success(SUCCESS_MESSAGES.WORKFLOW_EXPORTED)
       options.onExportSuccess?.()
     } catch (error) {
-      const err = error instanceof Error ? error : new Error('Failed to export workflow')
+      const err = error instanceof Error ? error : new Error(ERROR_MESSAGES.FAILED_TO_EXPORT('workflow'))
       ElMessage.error(err.message)
       options.onError?.(err)
     } finally {
@@ -88,7 +89,7 @@ export function useWorkflowImportExport(options: ImportExportOptions = {}) {
           // Update store
           workflowStore.loadWorkflow(nodes, edges)
 
-          ElMessage.success('Workflow imported successfully')
+          ElMessage.success(SUCCESS_MESSAGES.WORKFLOW_IMPORTED)
           options.onImportSuccess?.(data)
           resolve()
         } catch (error) {
@@ -96,11 +97,11 @@ export function useWorkflowImportExport(options: ImportExportOptions = {}) {
 
           // Provide more specific error messages
           if (err.message.includes('JSON')) {
-            ElMessage.error('Invalid file format. Please select a valid workflow JSON file.')
+            ElMessage.error(VALIDATION_MESSAGES.INVALID_JSON)
           } else if (err.message.includes('Invalid workflow file')) {
             ElMessage.error(err.message)
           } else {
-            ElMessage.error(`Failed to import workflow: ${err.message}`)
+            ElMessage.error(ERROR_MESSAGES.FAILED_TO_IMPORT('workflow') + ': ' + err.message)
           }
 
           options.onError?.(err)
@@ -124,7 +125,7 @@ export function useWorkflowImportExport(options: ImportExportOptions = {}) {
    */
   const importFromDrop = async (file: File): Promise<void> => {
     if (!file.name.endsWith('.json')) {
-      ElMessage.error('Please drop a JSON file')
+      ElMessage.error(VALIDATION_MESSAGES.INVALID_FORMAT('file'))
       return
     }
 
@@ -141,11 +142,11 @@ export function useWorkflowImportExport(options: ImportExportOptions = {}) {
       const { nodes, edges } = convertFromBackendFormat(data)
       workflowStore.loadWorkflow(nodes, edges)
 
-      ElMessage.success('Workflow imported successfully')
+      ElMessage.success(SUCCESS_MESSAGES.WORKFLOW_IMPORTED)
       options.onImportSuccess?.(data)
     } catch (error) {
-      const err = error instanceof Error ? error : new Error('Failed to import workflow')
-      ElMessage.error(`Failed to import workflow: ${err.message}`)
+      const err = error instanceof Error ? error : new Error(ERROR_MESSAGES.FAILED_TO_IMPORT('workflow'))
+      ElMessage.error(ERROR_MESSAGES.FAILED_TO_IMPORT('workflow') + ': ' + err.message)
       options.onError?.(err)
       throw err
     } finally {
@@ -167,9 +168,9 @@ export function useWorkflowImportExport(options: ImportExportOptions = {}) {
       }
 
       await navigator.clipboard.writeText(JSON.stringify(data, null, 2))
-      ElMessage.success('Workflow copied to clipboard')
+      ElMessage.success(SUCCESS_MESSAGES.COPIED)
     } catch (error) {
-      ElMessage.error('Failed to copy workflow to clipboard')
+      ElMessage.error(ERROR_MESSAGES.FAILED_TO_CREATE('clipboard copy'))
       const err = error instanceof Error ? error : new Error('Failed to copy to clipboard')
       options.onError?.(err)
     }
@@ -191,13 +192,13 @@ export function useWorkflowImportExport(options: ImportExportOptions = {}) {
       const { nodes, edges } = convertFromBackendFormat(data)
       workflowStore.loadWorkflow(nodes, edges)
 
-      ElMessage.success('Workflow pasted from clipboard')
+      ElMessage.success(SUCCESS_MESSAGES.IMPORTED('Workflow'))
       options.onImportSuccess?.(data)
     } catch (error) {
       if (error instanceof SyntaxError) {
-        ElMessage.error('Clipboard does not contain valid workflow data')
+        ElMessage.error(VALIDATION_MESSAGES.INVALID_FORMAT('clipboard data'))
       } else {
-        ElMessage.error('Failed to paste workflow from clipboard')
+        ElMessage.error(ERROR_MESSAGES.FAILED_TO_IMPORT('workflow from clipboard'))
       }
       const err = error instanceof Error ? error : new Error('Failed to paste from clipboard')
       options.onError?.(err)

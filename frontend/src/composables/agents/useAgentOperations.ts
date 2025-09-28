@@ -8,16 +8,17 @@ import {
 } from '@/api/agents'
 import type { CreateAgentRequest, UpdateAgentRequest } from '@/api/agents'
 import type { AgentNode } from '@/types/generated/AgentNode'
+import { SUCCESS_MESSAGES, ERROR_MESSAGES } from '@/constants'
 
 export function useAgentOperations() {
   async function createAgent(name: string, agent: AgentNode) {
     try {
       const request: CreateAgentRequest = { name, agent }
       const newAgent = await apiCreateAgent(request)
-      ElMessage.success('Agent created successfully')
+      ElMessage.success(SUCCESS_MESSAGES.AGENT_CREATED)
       return newAgent
     } catch (error: any) {
-      const message = error.message || 'Failed to create Agent'
+      const message = error.message || ERROR_MESSAGES.FAILED_TO_CREATE('Agent')
       ElMessage.error(message)
       throw error
     }
@@ -27,10 +28,10 @@ export function useAgentOperations() {
   async function updateAgent(id: string, updates: UpdateAgentRequest) {
     try {
       const updatedAgent = await apiUpdateAgent(id, updates)
-      ElMessage.success('Agent updated successfully')
+      ElMessage.success(SUCCESS_MESSAGES.AGENT_UPDATED)
       return updatedAgent
     } catch (error: any) {
-      const message = error.message || 'Failed to update Agent'
+      const message = error.message || ERROR_MESSAGES.FAILED_TO_UPDATE('Agent')
       ElMessage.error(message)
       throw error
     }
@@ -40,9 +41,9 @@ export function useAgentOperations() {
   async function deleteAgent(id: string) {
     try {
       await apiDeleteAgent(id)
-      ElMessage.success('Agent deleted successfully')
+      ElMessage.success(SUCCESS_MESSAGES.AGENT_DELETED)
     } catch (error: any) {
-      const message = error.message || 'Failed to delete Agent'
+      const message = error.message || ERROR_MESSAGES.FAILED_TO_DELETE('Agent')
       ElMessage.error(message)
       throw error
     }
@@ -54,7 +55,7 @@ export function useAgentOperations() {
       const response = await apiExecuteAgent(id, input)
       return response
     } catch (error: any) {
-      const message = error.message || 'Failed to execute Agent'
+      const message = error.message || ERROR_MESSAGES.FAILED_TO_CREATE('Agent execution')
       ElMessage.error(message)
       throw error
     }
@@ -66,7 +67,7 @@ export function useAgentOperations() {
       const response = await apiExecuteAgentInline(agent, input)
       return response
     } catch (error: any) {
-      const message = error.message || 'Failed to execute Agent'
+      const message = error.message || ERROR_MESSAGES.FAILED_TO_CREATE('Agent execution')
       ElMessage.error(message)
       throw error
     }

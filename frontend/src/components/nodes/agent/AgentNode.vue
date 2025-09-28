@@ -160,9 +160,9 @@ $node-color: #667eea;
   }
 }
 
-.node-actions {
+ .node-actions {
   position: absolute;
-  top: -35px;
+  top: calc(-1 * var(--rf-spacing-4xl));
   right: 0;
   display: flex;
   gap: var(--rf-spacing-xs);
@@ -173,8 +173,8 @@ $node-color: #667eea;
   z-index: 10;
 
   .action-btn {
-    width: 28px;
-    height: 28px;
+    width: var(--rf-size-icon-md);
+    height: var(--rf-size-icon-md);
     padding: 0;
     border: none;
     background: var(--rf-color-bg-secondary);

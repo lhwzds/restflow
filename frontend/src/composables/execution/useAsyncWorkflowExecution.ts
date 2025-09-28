@@ -6,6 +6,7 @@ import { useWorkflowStore } from '../../stores/workflowStore'
 import { useExecutionStore } from '../../stores/executionStore'
 import { useWorkflowPersistence } from '../persistence/useWorkflowPersistence'
 import type { Task } from '@/types/generated/Task'
+import { ERROR_MESSAGES, SUCCESS_MESSAGES, POLLING_TIMING, INFO_MESSAGES } from '@/constants'
 
 export function useAsyncWorkflowExecution() {
   const workflowStore = useWorkflowStore()
@@ -28,14 +29,14 @@ export function useAsyncWorkflowExecution() {
       })
       
       if (!saveResult.success) {
-        ElMessage.error('Failed to save workflow')
-        return { success: false, error: 'Failed to save workflow' }
+        ElMessage.error(ERROR_MESSAGES.FAILED_TO_SAVE('workflow'))
+        return { success: false, error: ERROR_MESSAGES.FAILED_TO_SAVE('workflow') }
       }
     }
 
     if (isExecuting.value) {
-      ElMessage.warning('Already executing')
-      return { success: false, error: 'Already executing' }
+      ElMessage.warning(ERROR_MESSAGES.ALREADY_EXECUTING)
+      return { success: false, error: ERROR_MESSAGES.ALREADY_EXECUTING }
     }
 
     isExecuting.value = true
@@ -49,10 +50,10 @@ export function useAsyncWorkflowExecution() {
       
       startPolling()
       
-      ElMessage.success('Workflow execution started')
+      ElMessage.success(SUCCESS_MESSAGES.EXECUTED('Workflow'))
       return { success: true, executionId: execution_id }
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Failed to start execution'
+      const errorMessage = error instanceof Error ? error.message : ERROR_MESSAGES.WORKFLOW_EXECUTION_FAILED
       executionError.value = errorMessage
       isExecuting.value = false
       
@@ -91,7 +92,7 @@ export function useAsyncWorkflowExecution() {
             ElMessage.error(`Workflow execution failed: ${errorMsg}`)
             executionError.value = errorMsg
           } else {
-            ElMessage.success('Workflow execution completed')
+            ElMessage.success(SUCCESS_MESSAGES.EXECUTED('Workflow'))
           }
           
           executionStore.endExecution()
@@ -99,7 +100,7 @@ export function useAsyncWorkflowExecution() {
       } catch (error) {
         console.error('Polling error:', error)
       }
-    }, 500)
+    }, POLLING_TIMING.EXECUTION_STATUS)
   }
 
   /**
@@ -119,7 +120,7 @@ export function useAsyncWorkflowExecution() {
     stopPolling()
     isExecuting.value = false
     executionId.value = null
-    ElMessage.info('Execution cancelled')
+    ElMessage.info(INFO_MESSAGES.EXECUTION_CANCELLED)
   }
 
   /**

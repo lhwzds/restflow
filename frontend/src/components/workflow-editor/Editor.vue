@@ -9,6 +9,7 @@ import { Play } from 'lucide-vue-next'
 import { ref } from 'vue'
 import { useVueFlowHandlers } from '../../composables/editor/useVueFlowHandlers'
 import { useAsyncWorkflowExecution } from '../../composables/execution/useAsyncWorkflowExecution'
+import { SUCCESS_MESSAGES } from '@/constants'
 import { useDragAndDrop } from '../../composables/node/useDragAndDrop'
 import { useEdgeOperations } from '../../composables/node/useEdgeOperations'
 import { useNodeOperations } from '../../composables/node/useNodeOperations'
@@ -86,14 +87,14 @@ const handlePopupDelete = (nodeId: string) => {
   deleteNode(nodeId)
   showConfigPopup.value = false
   selectedNode.value = null
-  ElMessage.success('Node deleted')
+  ElMessage.success(SUCCESS_MESSAGES.DELETED('Node'))
 }
 
 const handlePopupDuplicate = (nodeId: string) => {
   const newNode = duplicateNode(nodeId)
   if (newNode) {
     selectedNode.value = newNode
-    ElMessage.success('Node duplicated')
+    ElMessage.success(SUCCESS_MESSAGES.DUPLICATED('Node'))
   }
 }
 

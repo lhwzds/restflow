@@ -18,6 +18,7 @@ import type { AgentNode } from '@/types/generated/AgentNode'
 import { useApiKeyConfig } from '@/composables/useApiKeyConfig'
 import { useAgentModels } from '@/composables/agents/useAgentModels'
 import { useAgentTools } from '@/composables/agents/useAgentTools'
+import { VALIDATION_MESSAGES } from '@/constants'
 
 const {
   searchQuery,
@@ -66,7 +67,7 @@ onMounted(async () => {
 
 async function handleCreate() {
   if (!createFormName.value.trim()) {
-    ElMessage.error('Please enter Agent name')
+    ElMessage.error(VALIDATION_MESSAGES.ENTER_AGENT_NAME)
     return
   }
 

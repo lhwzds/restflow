@@ -2,7 +2,7 @@ import { ref } from 'vue'
 import { useNodeOperations } from '@/composables/node/useNodeOperations'
 import { testNodeExecution } from '@/api/tasks'
 import type { Node } from '@vue-flow/core'
-import { NODE_TYPE, TRIGGER_NODE_TYPES } from '@/constants'
+import { NODE_TYPE, TRIGGER_NODE_TYPES, ERROR_MESSAGES, VALIDATION_MESSAGES } from '@/constants'
 
 export function useSingleNodeExecution() {
   const { getNodeById, getIncomingEdges, updateNodeData } = useNodeOperations()
@@ -19,7 +19,7 @@ export function useSingleNodeExecution() {
     try {
       const node = getNodeById(nodeId)
       if (!node) {
-        throw new Error('Node not found')
+        throw new Error(ERROR_MESSAGES.NOT_FOUND('Node'))
       }
 
       const nodeType = node.type ?? NODE_TYPE.MANUAL_TRIGGER
@@ -61,7 +61,7 @@ export function useSingleNodeExecution() {
         error?.response?.data?.error ||
         error?.response?.data?.message ||
         error?.message ||
-        'Node execution failed'
+        ERROR_MESSAGES.NODE_EXECUTION_FAILED
 
       executionError.value = errorMessage
       throw new Error(errorMessage)
@@ -89,7 +89,7 @@ export function useSingleNodeExecution() {
   const validateNodeConfig = async (nodeId: string) => {
     const node = getNodeById(nodeId)
     if (!node) {
-      return { valid: false, errors: ['Node not found'] }
+      return { valid: false, errors: [ERROR_MESSAGES.NOT_FOUND('Node')] }
     }
 
     const errors: string[] = []
@@ -97,25 +97,25 @@ export function useSingleNodeExecution() {
     switch (node.type) {
       case NODE_TYPE.AGENT:
         if (!node.data.model) {
-          errors.push('Please select an AI model')
+          errors.push(VALIDATION_MESSAGES.SELECT_MODEL)
         }
         if (!node.data.prompt && !node.data.input) {
-          errors.push('Please enter a prompt or input')
+          errors.push(VALIDATION_MESSAGES.ENTER_PROMPT)
         }
         break
 
       case NODE_TYPE.HTTP_REQUEST:
         if (!node.data.url) {
-          errors.push('Please enter request URL')
+          errors.push(VALIDATION_MESSAGES.ENTER_URL)
         }
         if (!node.data.method) {
-          errors.push('Please select request method')
+          errors.push(VALIDATION_MESSAGES.REQUIRED_SELECT('request method'))
         }
         break
 
       case NODE_TYPE.WEBHOOK_TRIGGER:
         if (!node.data.path) {
-          errors.push('Please set webhook path')
+          errors.push(VALIDATION_MESSAGES.SET_WEBHOOK_PATH)
         }
         break
     }
@@ -123,7 +123,7 @@ export function useSingleNodeExecution() {
     if (!TRIGGER_NODE_TYPES.has(node.type as any)) {
       const incomingEdges = getIncomingEdges(nodeId)
       if (incomingEdges.length === 0) {
-        errors.push('Node requires input connection')
+        errors.push(ERROR_MESSAGES.NODE_INPUT_REQUIRED)
       }
     }
 

@@ -4,7 +4,7 @@ import { ref, computed, watch } from 'vue'
 import { ElButton, ElTabs, ElTabPane, ElTooltip, ElMessage } from 'element-plus'
 import { Settings, Play, Copy, Trash2, X } from 'lucide-vue-next'
 import { AgentConfigForm, HttpConfigForm, TriggerConfigForm } from '../nodes'
-import { NODE_TYPE, NODE_TYPE_LABELS } from '@/constants'
+import { NODE_TYPE, NODE_TYPE_LABELS, SUCCESS_MESSAGES, ERROR_MESSAGES } from '@/constants'
 import { useSingleNodeExecution } from '../../composables/execution/useSingleNodeExecution'
 
 interface Props {
@@ -123,13 +123,13 @@ const testNode = async () => {
   try {
     const result = await executeSingleNode(props.node.id)
     testResult.value = result
-    ElMessage.success('Test executed successfully')
+    ElMessage.success(SUCCESS_MESSAGES.TEST_PASSED)
   } catch (error: any) {
     testResult.value = {
       error: true,
       message: error.message || 'Execution failed'
     }
-    ElMessage.error(`Test failed: ${error.message}`)
+    ElMessage.error(ERROR_MESSAGES.NODE_EXECUTION_FAILED + ': ' + error.message)
   } finally {
     isExecuting.value = false
   }

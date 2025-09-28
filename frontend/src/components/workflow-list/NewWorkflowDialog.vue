@@ -2,6 +2,7 @@
 import { ElButton, ElDialog, ElForm, ElFormItem, ElInput, ElMessage } from 'element-plus'
 import { ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import { VALIDATION_MESSAGES } from '@/constants'
 
 interface Props {
   visible: boolean
@@ -31,7 +32,7 @@ watch(dialogVisible, (newVal) => {
 
 function handleCreate() {
   if (!workflowName.value?.trim()) {
-    ElMessage.error('Please enter a workflow name')
+    ElMessage.error(VALIDATION_MESSAGES.ENTER_WORKFLOW_NAME)
     return
   }
   

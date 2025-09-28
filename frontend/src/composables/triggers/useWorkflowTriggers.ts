@@ -4,6 +4,7 @@ import * as triggersApi from '../../api/triggers'
 import type { TriggerStatus } from '@/types/generated/TriggerStatus'
 import { isNodeATrigger } from '../node/useNodeHelpers'
 import { useWorkflowStore } from '../../stores/workflowStore'
+import { SUCCESS_MESSAGES, LOADING_MESSAGES } from '@/constants'
 
 export function useWorkflowTriggers() {
   const workflowStore = useWorkflowStore()
@@ -47,14 +48,14 @@ export function useWorkflowTriggers() {
 
   const activateTrigger = async (workflowId: string) => {
     if (!workflowId) {
-      ElMessage.warning('Please save the workflow first')
+      ElMessage.warning(LOADING_MESSAGES.SAVE_FIRST)
       return false
     }
 
     try {
       loading.value = true
       await triggersApi.activateWorkflow(workflowId)
-      ElMessage.success('Trigger activated successfully')
+      ElMessage.success(SUCCESS_MESSAGES.TRIGGER_ACTIVATED)
 
       // Fetch the detailed status
       await fetchTriggerStatus(workflowId)
@@ -85,7 +86,7 @@ export function useWorkflowTriggers() {
       if (result === 'confirm') {
         loading.value = true
         await triggersApi.deactivateWorkflow(workflowId)
-        ElMessage.success('Trigger deactivated successfully')
+        ElMessage.success(SUCCESS_MESSAGES.TRIGGER_DEACTIVATED)
         
         // Fetch the updated status
         await fetchTriggerStatus(workflowId)
