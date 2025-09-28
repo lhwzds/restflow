@@ -87,7 +87,7 @@ export const testNodeExecution = async <T = any>(payload: NodeTestRequest): Prom
   const response = await apiClient.post<{
     status: string
     data: T
-  }>(API_ENDPOINTS.EXECUTION.NODE_TEST, payload)
+  }>(API_ENDPOINTS.EXECUTION.SYNC_RUN, payload)
 
   return response.data.data
 }
