@@ -11,6 +11,7 @@ import { useWorkflowPersistence } from '../composables/persistence/useWorkflowPe
 import { useKeyboardShortcuts } from '../composables/shared/useKeyboardShortcuts'
 import { useUnsavedChanges } from '../composables/shared/useUnsavedChanges'
 import { useWorkflowStore } from '../stores/workflowStore'
+import { VALIDATION_MESSAGES } from '@/constants'
 
 const route = useRoute()
 const router = useRouter()
@@ -37,7 +38,7 @@ const handleSave = async () => {
   }
 
   if (!workflowStore.currentWorkflowName?.trim()) {
-    ElMessage.error('Please provide a workflow name')
+    ElMessage.error(VALIDATION_MESSAGES.REQUIRED_PROVIDE('workflow name'))
     return
   }
 

@@ -18,6 +18,7 @@ import { computed, onUnmounted, ref } from 'vue'
 import { useKeyboardShortcuts } from '../../composables/shared/useKeyboardShortcuts'
 import { useExecutionPanelResize } from '../../composables/ui/useExecutionPanelResize'
 import { useExecutionStore } from '../../stores/executionStore'
+import { SUCCESS_MESSAGES, ERROR_MESSAGES } from '@/constants'
 
 const executionStore = useExecutionStore()
 
@@ -50,7 +51,7 @@ const closePanel = () => {
 
 const clearResults = () => {
   executionStore.clearExecution()
-  ElMessage.success('Execution results cleared')
+  ElMessage.success(SUCCESS_MESSAGES.CLEARED('Execution results'))
 }
 
 const formatJson = (data: any): string => {
@@ -66,9 +67,9 @@ const formatJson = (data: any): string => {
 const copyToClipboard = async (text: string) => {
   try {
     await navigator.clipboard.writeText(text)
-    ElMessage.success('Copied to clipboard')
+    ElMessage.success(SUCCESS_MESSAGES.COPIED)
   } catch (error) {
-    ElMessage.error('Failed to copy')
+    ElMessage.error(ERROR_MESSAGES.FAILED_TO_SAVE('to clipboard'))
   }
 }
 

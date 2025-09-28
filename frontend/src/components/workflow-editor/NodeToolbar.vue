@@ -155,8 +155,8 @@ const handleClick = (template: NodeTemplate) => {
 }
 
 .node-icon {
-  width: 36px;
-  height: 36px;
+  width: var(--rf-size-icon-lg);
+  height: var(--rf-size-icon-lg);
   display: flex;
   align-items: center;
   justify-content: center;

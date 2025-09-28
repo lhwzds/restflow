@@ -16,6 +16,7 @@ import { onMounted, reactive, computed } from 'vue'
 import { useSecretsList } from '../composables/secrets/useSecretsList'
 import { useSecretOperations } from '../composables/secrets/useSecretOperations'
 import type { Secret } from '@/types/generated/Secret'
+import { SUCCESS_MESSAGES, ERROR_MESSAGES, VALIDATION_MESSAGES, CONFIRM_MESSAGES } from '@/constants'
 
 const { isLoading, searchQuery, filteredSecrets, loadSecrets } = useSecretsList()
 const { createSecret, updateSecret, deleteSecret } = useSecretOperations()
@@ -79,47 +80,47 @@ function cancelEdit() {
 
 async function saveNewSecret() {
   if (!editState.newRow?.key || !editState.newRow?.value) {
-    ElMessage.error('Key and value are required')
+    ElMessage.error(ERROR_MESSAGES.REQUIRED_FIELD_MISSING)
     return
   }
 
   try {
     const formattedKey = editState.newRow.key.toUpperCase().replace(/[^A-Z0-9]/g, '_')
     await createSecret(formattedKey, editState.newRow.value, editState.newRow.description)
-    ElMessage.success('Secret created successfully')
+    ElMessage.success(SUCCESS_MESSAGES.SECRET_CREATED)
 
     cancelEdit()
     await loadSecrets()
     searchQuery.value = '' // Clear search to ensure new secret is visible
   } catch (error: any) {
-    ElMessage.error('Failed to create: ' + (error.message || error))
+    ElMessage.error(ERROR_MESSAGES.FAILED_TO_CREATE('secret') + ': ' + (error.message || error))
   }
 }
 
 async function saveEditedSecret(key: string) {
   const data = editState.editData[key]
   if (!data?.value) {
-    ElMessage.error('Secret value is required')
+    ElMessage.error(VALIDATION_MESSAGES.REQUIRED_FIELD('secret value'))
     return
   }
 
   try {
     await updateSecret(key, data.value, data.description)
-    ElMessage.success('Secret updated successfully')
+    ElMessage.success(SUCCESS_MESSAGES.SECRET_UPDATED)
 
     delete editState.editData[key]
     editState.mode = 'idle'
     editState.targetKey = undefined
     await loadSecrets()
   } catch (error: any) {
-    ElMessage.error('Failed to update: ' + (error.message || error))
+    ElMessage.error(ERROR_MESSAGES.FAILED_TO_UPDATE('secret') + ': ' + (error.message || error))
   }
 }
 
 async function handleDeleteSecret(row: Secret) {
   try {
     await ElMessageBox.confirm(
-      `Are you sure you want to delete the secret "${row.key}"?`,
+      CONFIRM_MESSAGES.DELETE_SECRET,
       'Delete Confirmation',
       {
         confirmButtonText: 'Confirm',
@@ -129,13 +130,13 @@ async function handleDeleteSecret(row: Secret) {
     )
 
     await deleteSecret(row.key)
-    ElMessage.success('Secret deleted successfully')
+    ElMessage.success(SUCCESS_MESSAGES.SECRET_DELETED)
     await loadSecrets()
   } catch (error: any) {
     // Filter out user-initiated dialog cancellation
     const errorMessage = error?.message || error
     if (errorMessage !== 'cancel' && errorMessage !== 'close' && error !== 'cancel') {
-      ElMessage.error('Failed to delete: ' + errorMessage)
+      ElMessage.error(ERROR_MESSAGES.FAILED_TO_DELETE('secret') + ': ' + errorMessage)
     }
   }
 }

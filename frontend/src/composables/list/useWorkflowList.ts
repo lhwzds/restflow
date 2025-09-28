@@ -4,6 +4,7 @@ import { computed, ref } from 'vue'
 import * as workflowsApi from '../../api/workflows'
 import type { Workflow } from '@/types/generated/Workflow'
 import { useAsyncWorkflowExecution } from '../execution/useAsyncWorkflowExecution'
+import { SUCCESS_MESSAGES, ERROR_MESSAGES, VALIDATION_MESSAGES, CONFIRM_MESSAGES, INTERACTION_TIMING } from '@/constants'
 
 export interface FilterOptions {
   searchQuery?: string
@@ -30,7 +31,7 @@ export function useWorkflowList() {
       return { success: true, data: workflows.value }
     } catch (error) {
       console.error('Failed to load workflows:', error)
-      ElMessage.error('Failed to load workflows')
+      ElMessage.error(ERROR_MESSAGES.FAILED_TO_LOAD('workflows'))
       workflows.value = []
       return { success: false, error }
     } finally {
@@ -44,7 +45,7 @@ export function useWorkflowList() {
   const deleteWorkflow = async (id: string, confirmMessage?: string) => {
     try {
       await ElMessageBox.confirm(
-        confirmMessage || 'This will permanently delete the workflow. Continue?',
+        confirmMessage || CONFIRM_MESSAGES.DELETE_WORKFLOW,
         'Confirm Delete',
         {
           confirmButtonText: 'Delete',
@@ -55,7 +56,7 @@ export function useWorkflowList() {
       )
 
       await workflowsApi.deleteWorkflow(id)
-      ElMessage.success('Workflow deleted successfully')
+      ElMessage.success(SUCCESS_MESSAGES.WORKFLOW_DELETED)
 
       // Reload to ensure consistency
       await loadWorkflows()
@@ -67,7 +68,7 @@ export function useWorkflowList() {
       }
 
       console.error('Failed to delete workflow:', error)
-      ElMessage.error('Failed to delete workflow')
+      ElMessage.error(ERROR_MESSAGES.FAILED_TO_DELETE('workflow'))
       return { success: false, error }
     }
   }
@@ -90,14 +91,14 @@ export function useWorkflowList() {
 
       await workflowsApi.createWorkflow(duplicateData)
       const response = duplicateData
-      ElMessage.success('Workflow duplicated successfully')
+      ElMessage.success(SUCCESS_MESSAGES.CREATED('Workflow duplicate'))
 
       await loadWorkflows()
 
       return { success: true, data: response }
     } catch (error) {
       console.error('Failed to duplicate workflow:', error)
-      ElMessage.error('Failed to duplicate workflow')
+      ElMessage.error(ERROR_MESSAGES.FAILED_TO_CREATE('workflow duplicate'))
       return { success: false, error }
     }
   }
@@ -107,7 +108,7 @@ export function useWorkflowList() {
    */
   const renameWorkflow = async (id: string, newName: string) => {
     if (!newName.trim()) {
-      ElMessage.error('Please enter a valid name')
+      ElMessage.error(VALIDATION_MESSAGES.ENTER_NAME)
       return { success: false, error: 'Invalid name' }
     }
 
@@ -125,7 +126,7 @@ export function useWorkflowList() {
 
       await workflowsApi.updateWorkflow(updatedWorkflow.id, updatedWorkflow)
 
-      ElMessage.success('Workflow renamed successfully')
+      ElMessage.success(SUCCESS_MESSAGES.UPDATED('Workflow name'))
 
       // Reload to ensure consistency
       await loadWorkflows()
@@ -133,7 +134,7 @@ export function useWorkflowList() {
       return { success: true }
     } catch (error) {
       console.error('Failed to rename workflow:', error)
-      ElMessage.error('Failed to rename workflow')
+      ElMessage.error(ERROR_MESSAGES.FAILED_TO_UPDATE('workflow name'))
       return { success: false, error }
     }
   }
@@ -177,7 +178,7 @@ export function useWorkflowList() {
    */
   const refresh = async () => {
     await loadWorkflows()
-    ElMessage.success('Workflow list refreshed')
+    ElMessage.success(SUCCESS_MESSAGES.UPDATED('Workflow list'))
   }
 
   /**
@@ -192,7 +193,7 @@ export function useWorkflowList() {
    */
   const setSearchQuery = useDebounceFn((query: string) => {
     searchQuery.value = query
-  }, 300)
+  }, INTERACTION_TIMING.SEARCH_DEBOUNCE)
 
   /**
    * Update sort options

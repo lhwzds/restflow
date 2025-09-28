@@ -5,6 +5,7 @@ import * as workflowsApi from '../../api/workflows'
 import type { Workflow } from '@/types/generated/Workflow'
 import { useWorkflowStore } from '../../stores/workflowStore'
 import { useWorkflowConverter } from '../editor/useWorkflowConverter'
+import { SUCCESS_MESSAGES, ERROR_MESSAGES, VALIDATION_MESSAGES, AUTO_SAVE_TIMING } from '@/constants'
 
 export interface SaveOptions {
   showMessage?: boolean
@@ -37,7 +38,7 @@ export function useWorkflowPersistence() {
    */
   const loadWorkflow = async (id: string, options: LoadOptions = {}) => {
     if (!id || typeof id !== 'string') {
-      const error = 'Invalid workflow ID'
+      const error = ERROR_MESSAGES.INVALID_FORMAT('workflow ID')
       ElMessage.error(error)
       return { success: false, error }
     }
@@ -61,7 +62,7 @@ export function useWorkflowPersistence() {
       workflowStore.setWorkflowMetadata(workflow.id, workflow.name)
 
       if (showMessage) {
-        ElMessage.success('Workflow loaded successfully')
+        ElMessage.success(SUCCESS_MESSAGES.CREATED('Workflow loaded'))
       }
 
       return {
@@ -69,7 +70,7 @@ export function useWorkflowPersistence() {
         data: workflow,
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to load workflow'
+      const message = error instanceof Error ? error.message : ERROR_MESSAGES.FAILED_TO_LOAD('workflow')
       console.error('Failed to load workflow:', error)
 
       if (showMessage) {
@@ -91,7 +92,7 @@ export function useWorkflowPersistence() {
   const saveWorkflow = async (nodes: Node[], edges: Edge[], options: SaveOptions = {}) => {
     // Input validation
     if (!Array.isArray(nodes) || !Array.isArray(edges)) {
-      const error = 'Invalid nodes or edges data'
+      const error = ERROR_MESSAGES.INVALID_FORMAT('nodes or edges data')
       ElMessage.error(error)
       return { success: false, error }
     }
@@ -102,7 +103,7 @@ export function useWorkflowPersistence() {
     const workflowName = meta.name || workflowStore.currentWorkflowName
 
     if (!workflowName?.trim()) {
-      ElMessage.error('Please provide a workflow name')
+      ElMessage.error(VALIDATION_MESSAGES.ENTER_WORKFLOW_NAME)
       return { success: false, error: 'Name is required' }
     }
 
@@ -135,8 +136,8 @@ export function useWorkflowPersistence() {
       if (showMessage) {
         ElMessage.success(
           isUpdate
-            ? 'Workflow updated successfully'
-            : 'Workflow created successfully',
+            ? SUCCESS_MESSAGES.WORKFLOW_UPDATED
+            : SUCCESS_MESSAGES.WORKFLOW_CREATED,
         )
       }
 
@@ -150,7 +151,7 @@ export function useWorkflowPersistence() {
         id: resultId,
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to save workflow'
+      const message = error instanceof Error ? error.message : ERROR_MESSAGES.FAILED_TO_SAVE('workflow')
       console.error('Failed to save workflow:', error)
 
       if (showMessage) {
@@ -189,7 +190,7 @@ export function useWorkflowPersistence() {
    */
   const saveAsNew = async (name: string) => {
     if (!name?.trim()) {
-      ElMessage.error('Please provide a workflow name')
+      ElMessage.error(VALIDATION_MESSAGES.ENTER_WORKFLOW_NAME)
       return { success: false, error: 'Name is required' }
     }
 
@@ -215,10 +216,10 @@ export function useWorkflowPersistence() {
    */
   let isAutoSaving = false
 
-  const enableAutoSave = (intervalMs = 60000) => {
-    if (intervalMs < 10000) {
+  const enableAutoSave = (intervalMs: number = AUTO_SAVE_TIMING.DEFAULT_INTERVAL) => {
+    if (intervalMs < AUTO_SAVE_TIMING.MIN_INTERVAL) {
       console.warn('Auto-save interval too short, using minimum of 10 seconds')
-      intervalMs = 10000
+      intervalMs = AUTO_SAVE_TIMING.MIN_INTERVAL
     }
 
     disableAutoSave() // Clear any existing timer

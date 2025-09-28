@@ -6,6 +6,7 @@ import { useRouter } from 'vue-router'
 import { useWorkflowList } from '@/composables/list/useWorkflowList'
 import { useWorkflowTriggers } from '@/composables/triggers/useWorkflowTriggers'
 import type { Workflow } from '@/types/generated/Workflow'
+import { VALIDATION_MESSAGES, SUCCESS_MESSAGES, ERROR_MESSAGES } from '@/constants'
 
 interface Props {
   workflow: Workflow
@@ -53,7 +54,7 @@ function startRename(event: Event) {
 
 async function saveRename() {
   if (!editingName.value?.trim()) {
-    ElMessage.error('Please enter a workflow name')
+    ElMessage.error(VALIDATION_MESSAGES.ENTER_WORKFLOW_NAME)
     return
   }
 
@@ -100,14 +101,14 @@ async function handleToggleTrigger(event: Event, value: boolean) {
   try {
     if (value) {
       await activateTrigger(props.workflow.id)
-      ElMessage.success('Trigger activated')
+      ElMessage.success(SUCCESS_MESSAGES.TRIGGER_ACTIVATED)
     } else {
       await deactivateTrigger(props.workflow.id)
-      ElMessage.success('Trigger paused')
+      ElMessage.success(SUCCESS_MESSAGES.TRIGGER_DEACTIVATED)
     }
     emit('updated')
   } catch (error) {
-    ElMessage.error('Operation failed, please try again')
+    ElMessage.error(ERROR_MESSAGES.UNKNOWN_ERROR)
   }
 }
 </script>

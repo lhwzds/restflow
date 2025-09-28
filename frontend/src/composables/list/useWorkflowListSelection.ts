@@ -2,6 +2,7 @@ import { ElMessage } from 'element-plus'
 import { onMounted, onUnmounted, ref, type Ref } from 'vue'
 import type { Workflow } from '@/types/generated/Workflow'
 import { useWorkflowList } from './useWorkflowList'
+import { SUCCESS_MESSAGES } from '@/constants'
 
 export function useWorkflowListSelection(workflows: Ref<Workflow[]>) {
   const { duplicateWorkflow } = useWorkflowList()
@@ -22,7 +23,7 @@ export function useWorkflowListSelection(workflows: Ref<Workflow[]>) {
     const workflow = workflows.value.find((w) => w.id === selectedWorkflowId.value)
     if (workflow) {
       copiedWorkflow.value = workflow
-      ElMessage.success('Workflow copied to clipboard')
+      ElMessage.success(SUCCESS_MESSAGES.COPIED)
     }
   }
 
