@@ -37,6 +37,8 @@ export function useSingleNodeExecution() {
       }
 
       const testRequest = {
+        id: `test-${Date.now()}`,  // 临时工作流ID
+        name: `Test ${nodeType} Node`,  // 描述性名称
         nodes: [{
           id: node.id,
           node_type: mapNodeTypeToBackend(nodeType),

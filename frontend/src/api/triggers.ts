@@ -1,6 +1,5 @@
 import { apiClient } from './config'
 import { isTauri, invokeCommand } from './utils'
-import type { ActiveTrigger } from '@/types/generated/ActiveTrigger'
 import type { TriggerStatus } from '@/types/generated/TriggerStatus'
 import { API_ENDPOINTS } from '@/constants'
 
@@ -49,17 +48,6 @@ export const testWorkflow = async (id: string, testData?: any): Promise<any> => 
     status: string
     data: any
   }>(API_ENDPOINTS.TRIGGER.TEST(id), testData)
-  return response.data.data
-}
-
-export const listActiveTriggers = async (): Promise<ActiveTrigger[]> => {
-  if (isTauri()) {
-    return invokeCommand<ActiveTrigger[]>('list_active_triggers')
-  }
-  const response = await apiClient.get<{
-    status: string
-    data: ActiveTrigger[]
-  }>(API_ENDPOINTS.TRIGGER.LIST_ACTIVE)
   return response.data.data
 }
 
