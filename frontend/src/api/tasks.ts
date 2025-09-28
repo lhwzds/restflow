@@ -2,6 +2,17 @@ import { apiClient } from './config'
 import { isTauri, invokeCommand } from './utils'
 import type { Task } from '@/types/generated/Task'
 import type { TaskStatus } from '@/types/generated/TaskStatus'
+import { API_ENDPOINTS } from '@/constants'
+
+interface NodeTestRequest {
+  nodes: Array<{
+    id: string
+    node_type: string
+    config: Record<string, unknown>
+  }>
+  edges: Array<Record<string, unknown>>
+  input: unknown
+}
 
 export const getTaskStatus = async (id: string): Promise<{
   id: string
@@ -26,7 +37,7 @@ export const getTaskStatus = async (id: string): Promise<{
       result?: any
       error?: string
     }
-  }>(`/api/task/status/${id}`)
+  }>(API_ENDPOINTS.TASK.STATUS(id))
   return response.data.data
 }
 
@@ -47,7 +58,7 @@ export const listTasks = async (params?: {
   const response = await apiClient.get<{
     status: string
     data: Task[]
-  }>('/api/task/list', { params })
+  }>(API_ENDPOINTS.TASK.LIST, { params })
   return response.data.data
 }
 
@@ -64,7 +75,20 @@ export const getExecutionStatus = async (executionId: string): Promise<Task[]> =
   const response = await apiClient.get<{
     status: string
     data: Task[]
-  }>(`/api/execution/status/${executionId}`)
+  }>(API_ENDPOINTS.EXECUTION.STATUS(executionId))
+  return response.data.data
+}
+
+export const testNodeExecution = async <T = any>(payload: NodeTestRequest): Promise<T> => {
+  if (isTauri()) {
+    throw new Error('Node testing is not supported in desktop mode yet')
+  }
+
+  const response = await apiClient.post<{
+    status: string
+    data: T
+  }>(API_ENDPOINTS.EXECUTION.NODE_TEST, payload)
+
   return response.data.data
 }
 
@@ -78,6 +102,6 @@ export const executeNode = async (node: any, input: any = {}): Promise<string> =
   const response = await apiClient.post<{
     status: string
     data: { task_id: string }
-  }>('/api/node/execute', node)
+  }>(API_ENDPOINTS.NODE.EXECUTE, node)
   return response.data.data.task_id
 }

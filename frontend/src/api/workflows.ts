@@ -2,12 +2,13 @@ import { apiClient } from './config'
 import { isTauri, invokeCommand } from './utils'
 import type { Workflow } from '@/types/generated/Workflow'
 import type { ExecutionContext } from '@/types/generated/ExecutionContext'
+import { API_ENDPOINTS } from '@/constants'
 
 export const listWorkflows = async (): Promise<Workflow[]> => {
   if (isTauri()) {
     return invokeCommand<Workflow[]>('list_workflows')
   }
-  const response = await apiClient.get<{ status: string; data: Workflow[] }>('/api/workflow/list')
+  const response = await apiClient.get<{ status: string; data: Workflow[] }>(API_ENDPOINTS.WORKFLOW.LIST)
   return response.data.data
 }
 
@@ -20,7 +21,7 @@ export const createWorkflow = async (workflow: Workflow): Promise<{ id: string }
     status: string
     message: string
     data: { id: string }
-  }>('/api/workflow/create', workflow)
+  }>(API_ENDPOINTS.WORKFLOW.CREATE, workflow)
   return response.data.data
 }
 
@@ -28,7 +29,7 @@ export const getWorkflow = async (id: string): Promise<Workflow> => {
   if (isTauri()) {
     return invokeCommand<Workflow>('get_workflow', { id })
   }
-  const response = await apiClient.get<Workflow>(`/api/workflow/get/${id}`)
+  const response = await apiClient.get<Workflow>(API_ENDPOINTS.WORKFLOW.GET(id))
   return response.data
 }
 
@@ -40,7 +41,7 @@ export const updateWorkflow = async (id: string, workflow: Workflow): Promise<vo
   await apiClient.put<{
     status: string
     message: string
-  }>(`/api/workflow/update/${id}`, workflow)
+  }>(API_ENDPOINTS.WORKFLOW.UPDATE(id), workflow)
 }
 
 export const deleteWorkflow = async (id: string): Promise<void> => {
@@ -51,7 +52,7 @@ export const deleteWorkflow = async (id: string): Promise<void> => {
   await apiClient.delete<{
     status: string
     message: string
-  }>(`/api/workflow/delete/${id}`)
+  }>(API_ENDPOINTS.WORKFLOW.DELETE(id))
 }
 
 export const executeSyncRun = async (workflow: Workflow): Promise<ExecutionContext> => {
@@ -66,7 +67,7 @@ export const executeSyncRun = async (workflow: Workflow): Promise<ExecutionConte
   const response = await apiClient.post<{
     status: string
     data: ExecutionContext
-  }>('/api/execution/sync/run', workflow)
+  }>(API_ENDPOINTS.EXECUTION.SYNC_RUN, workflow)
   return response.data.data
 }
 
@@ -80,7 +81,7 @@ export const executeSyncRunById = async (id: string, input: any = {}): Promise<E
   const response = await apiClient.post<{
     status: string
     data: ExecutionContext
-  }>(`/api/execution/sync/run-workflow/${id}`, { input })
+  }>(API_ENDPOINTS.EXECUTION.SYNC_RUN_BY_ID(id), { input })
   return response.data.data
 }
 
@@ -98,7 +99,7 @@ export const executeAsyncSubmit = async (
   const response = await apiClient.post<{
     status: string
     data: { execution_id: string }
-  }>(`/api/execution/async/submit/${id}`, { initial_variables: initialVariables })
+  }>(API_ENDPOINTS.EXECUTION.ASYNC_SUBMIT(id), { initial_variables: initialVariables })
   return response.data.data
 }
 

@@ -1,6 +1,7 @@
 import { apiClient } from './config'
 import type { StoredAgent } from '@/types/generated/StoredAgent'
 import type { AgentNode } from '@/types/generated/AgentNode'
+import { API_ENDPOINTS } from '@/constants'
 
 export interface CreateAgentRequest {
   name: string
@@ -13,7 +14,7 @@ export interface UpdateAgentRequest {
 }
 
 export async function listAgents(): Promise<StoredAgent[]> {
-  const response = await apiClient.get('/api/agents')
+  const response = await apiClient.get(API_ENDPOINTS.AGENT.LIST)
   if (response.data.status === 'success') {
     return response.data.data
   }
@@ -21,7 +22,7 @@ export async function listAgents(): Promise<StoredAgent[]> {
 }
 
 export async function getAgent(id: string): Promise<StoredAgent> {
-  const response = await apiClient.get(`/api/agents/${id}`)
+  const response = await apiClient.get(API_ENDPOINTS.AGENT.GET(id))
   if (response.data.status === 'success') {
     return response.data.data
   }
@@ -29,7 +30,7 @@ export async function getAgent(id: string): Promise<StoredAgent> {
 }
 
 export async function createAgent(data: CreateAgentRequest): Promise<StoredAgent> {
-  const response = await apiClient.post('/api/agents', data)
+  const response = await apiClient.post(API_ENDPOINTS.AGENT.CREATE, data)
   if (response.data.status === 'success') {
     return response.data.data
   }
@@ -37,7 +38,7 @@ export async function createAgent(data: CreateAgentRequest): Promise<StoredAgent
 }
 
 export async function updateAgent(id: string, data: UpdateAgentRequest): Promise<StoredAgent> {
-  const response = await apiClient.put(`/api/agents/${id}`, data)
+  const response = await apiClient.put(API_ENDPOINTS.AGENT.UPDATE(id), data)
   if (response.data.status === 'success') {
     return response.data.data
   }
@@ -45,14 +46,14 @@ export async function updateAgent(id: string, data: UpdateAgentRequest): Promise
 }
 
 export async function deleteAgent(id: string): Promise<void> {
-  const response = await apiClient.delete(`/api/agents/${id}`)
+  const response = await apiClient.delete(API_ENDPOINTS.AGENT.DELETE(id))
   if (response.data.status !== 'success') {
     throw new Error(response.data.message || 'Failed to delete agent')
   }
 }
 
 export async function executeAgent(id: string, input: string): Promise<string> {
-  const response = await apiClient.post(`/api/agents/${id}/execute`, { input })
+  const response = await apiClient.post(API_ENDPOINTS.AGENT.EXECUTE(id), { input })
   if (response.data.status === 'success') {
     return response.data.data.response
   }
@@ -60,7 +61,7 @@ export async function executeAgent(id: string, input: string): Promise<string> {
 }
 
 export async function executeAgentInline(agent: any, input: string): Promise<string> {
-  const response = await apiClient.post('/api/agents/execute-inline', { agent, input })
+  const response = await apiClient.post(API_ENDPOINTS.AGENT.EXECUTE_INLINE, { agent, input })
   if (response.data.status === 'success') {
     return response.data.data.response
   }
