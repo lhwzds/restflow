@@ -113,7 +113,9 @@
   --rf-line-height-base: 1.5;
   --rf-line-height-relaxed: 1.75;
   --rf-z-index-normal: 1;
-  --rf-z-index-dropdown: 1000;
+  --rf-z-index-dropdown: 10;
+  --rf-z-index-popup: 999;
+  --rf-z-index-tags: 1000;
   --rf-z-index-sticky: 1020;
   --rf-z-index-fixed: 1030;
   --rf-z-index-modal-backdrop: 1040;
@@ -153,15 +155,35 @@
   --rf-radius-xs: 2px;
   --rf-radius-md: 12px;
   --rf-radius-lg: 14px;
+  --rf-radius-circle: 50%;
 
   /* Semantic colors */
   --rf-color-blue: #3b82f6;
   --rf-color-purple: #667eea;
   --rf-color-green: #22c55e;
   --rf-color-white: #ffffff;
+  --rf-color-white-90: rgba(255, 255, 255, 0.9);
+
+  /* Color RGB values for rgba() usage */
+  --rf-color-blue-rgb: 59, 130, 246;
+  --rf-color-green-rgb: 34, 197, 94;
+
+  /* Light variations */
+  --rf-color-blue-light: #60a5fa;
+  --rf-color-green-light: #4ade80;
+  --rf-color-primary-light: #ff8f66;
+
+  /* Background variations */
+  --rf-color-blue-bg-lighter: rgba(59, 130, 246, 0.1);
+  --rf-color-green-bg-lighter: rgba(34, 197, 94, 0.1);
 
   /* Gradients */
-  --rf-gradient-success: linear-gradient(135deg, #48bb78 0%, #38a169 100%);
+  --rf-gradient-success: linear-gradient(135deg, #22c55e, #16a34a);
+  --rf-gradient-success-dark: linear-gradient(135deg, #16a34a, #15803d);
+
+  /* Success shadows */
+  --rf-shadow-success: 0 2px 8px rgba(34, 197, 94, 0.3);
+  --rf-shadow-success-hover: 0 4px 12px rgba(34, 197, 94, 0.5);
 
   /* Focus states */
   --rf-shadow-focus: 0 0 0 3px rgba(99, 102, 241, 0.1);

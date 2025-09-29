@@ -4,8 +4,7 @@ import { ControlButton, Controls } from '@vue-flow/controls'
 import type { Connection, Edge, Node } from '@vue-flow/core'
 import { VueFlow, useVueFlow } from '@vue-flow/core'
 import { MiniMap } from '@vue-flow/minimap'
-import { ElMessage, ElTooltip } from 'element-plus'
-import { Play } from 'lucide-vue-next'
+import { ElMessage } from 'element-plus'
 import { ref } from 'vue'
 import { useVueFlowHandlers } from '../../composables/editor/useVueFlowHandlers'
 import { useAsyncWorkflowExecution } from '../../composables/execution/useAsyncWorkflowExecution'
@@ -17,7 +16,6 @@ import { useKeyboardShortcuts } from '../../composables/shared/useKeyboardShortc
 import { useContextMenu } from '../../composables/ui/useContextMenu'
 import { AgentNode, HttpNode, ManualTriggerNode, WebhookTriggerNode } from '../nodes'
 import { useExecutionStore } from '../../stores/executionStore'
-import ExecutionPanel from './ExecutionPanel.vue'
 import Icon from '../shared/Icon.vue'
 import NodeConfigPopup from './NodeConfigPopup.vue'
 import NodeToolbar from './NodeToolbar.vue'
@@ -63,9 +61,6 @@ onConnect((connection: Connection) => {
 onNodeClick(({ node }) => {
   if (executionStore.hasResults) {
     executionStore.selectNode(node.id)
-    if (!executionStore.panelState.isOpen) {
-      executionStore.openPanel()
-    }
   }
 })
 
@@ -133,7 +128,6 @@ const handlePaneClick = () => {
 }
 
 const executeWorkflow = async () => {
-  executionStore.openPanel()
   await startAsyncExecution()
 }
 
@@ -152,15 +146,8 @@ useKeyboardShortcuts({
 
 <template>
   <div class="workflow-editor" @click="handlePaneClick">
-    <div class="canvas-container" :class="{ 'with-panel': executionStore.panelState.isOpen }">
+    <div class="canvas-container">
       <NodeToolbar @add-node="handleAddNode" />
-
-      <ElTooltip content="Run the workflow (F5)" placement="top">
-        <button class="execute-button" @click="executeWorkflow" :disabled="isExecuting">
-          <Play :size="16" class="execute-icon" />
-          {{ isExecuting ? 'Executing...' : 'Execute Workflow' }}
-        </button>
-      </ElTooltip>
 
       <VueFlow
         v-model:nodes="nodes"
@@ -210,7 +197,6 @@ useKeyboardShortcuts({
         <div class="menu-item" @click="handleClearCanvas">Clear Canvas</div>
       </div>
 
-      <!-- Use new Popup configuration component instead of original Panel -->
       <NodeConfigPopup
         :node="selectedNode"
         v-model:visible="showConfigPopup"
@@ -219,8 +205,6 @@ useKeyboardShortcuts({
         @duplicate="handlePopupDuplicate"
         @close="handlePopupClose"
       />
-
-      <ExecutionPanel />
     </div>
   </div>
 </template>

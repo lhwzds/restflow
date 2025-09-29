@@ -261,23 +261,25 @@ impl WorkflowExecutor {
                     let downstream = graph.get_downstream_nodes(&node_id);
                     for downstream_id in downstream {
                         if let Some(downstream_node) = graph.get_node(&downstream_id) {
+                            let downstream_input = context.resolve_node_input(downstream_node);
                             scheduler.push_task(
                                 execution_id.clone(),
                                 downstream_node.clone(),
                                 workflow.clone(),
                                 context.clone(),
-                                input.clone()
+                                downstream_input
                             ).map_err(|e| anyhow::anyhow!("Failed to queue node: {}", e))?;
                         }
                     }
                 } else {
                     // Non-trigger node, queue normally
+                    let node_input = context.resolve_node_input(node);
                     scheduler.push_task(
                         execution_id.clone(),
                         node.clone(),
                         workflow.clone(),
                         context.clone(),
-                        input.clone()
+                        node_input
                     ).map_err(|e| anyhow::anyhow!("Failed to queue node: {}", e))?;
                 }
             }

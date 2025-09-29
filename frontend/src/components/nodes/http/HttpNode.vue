@@ -4,6 +4,8 @@ import { Handle, Position } from '@vue-flow/core'
 import { computed } from 'vue'
 import { Globe, Send } from 'lucide-vue-next'
 import { useNodeExecutionStatus } from '@/composables/node/useNodeExecutionStatus'
+import { useNodeInfoPopup } from '@/composables/node/useNodeInfoPopup'
+import NodeInfoPopup from '@/components/nodes/NodeInfoPopup.vue'
 
 interface HttpNodeData {
   label?: string
@@ -13,8 +15,13 @@ interface HttpNodeData {
 
 const props = defineProps<NodeProps<HttpNodeData>>()
 
-const { 
-  getNodeStatusClass, 
+// Declare events to fix Vue warning
+defineEmits<{
+  'updateNodeInternals': [nodeId: string]
+}>()
+
+const {
+  getNodeStatusClass,
   getNodeExecutionTime,
   formatExecutionTime,
 } = useNodeExecutionStatus()
@@ -24,6 +31,21 @@ const executionTime = computed(() => {
   const time = getNodeExecutionTime(props.id)
   return time ? formatExecutionTime(time) : null
 })
+
+// Use popup composable
+const {
+  popupVisible,
+  popupType,
+  popupPosition,
+  nodeResult,
+  activeTab,
+  hasInput,
+  hasOutput,
+  showTimePopup,
+  showInputPopup,
+  showOutputPopup,
+  closePopup
+} = useNodeInfoPopup(props.id)
 </script>
 
 <template>
@@ -46,16 +68,50 @@ const executionTime = computed(() => {
       </div>
     </div>
     
-    <div v-if="executionTime" class="execution-time">
-      {{ executionTime }}
+    <!-- Node info bar - independent tags -->
+    <div v-if="executionTime || hasInput() || hasOutput()" class="node-info-tags">
+      <span
+        v-if="hasInput()"
+        class="info-tag input"
+        :class="{ active: activeTab === 'input' }"
+        @click="showInputPopup"
+      >
+        Input
+      </span>
+      <span
+        v-if="executionTime"
+        class="info-tag time"
+        :class="{ active: activeTab === 'time' }"
+        @click="showTimePopup"
+      >
+        {{ executionTime }}
+      </span>
+      <span
+        v-if="hasOutput()"
+        class="info-tag output"
+        :class="{ active: activeTab === 'output' }"
+        @click="showOutputPopup"
+      >
+        Output
+      </span>
     </div>
 
     <Handle type="source" :position="Position.Right" class="custom-handle output-handle" />
   </div>
+
+  <!-- Info popup -->
+  <NodeInfoPopup
+    :visible="popupVisible"
+    :type="popupType"
+    :data="nodeResult()"
+    :position="popupPosition"
+    @close="closePopup"
+  />
 </template>
 
 <style lang="scss" scoped>
 @use '@/styles/nodes/base' as *;
+@use '@/styles/nodes/node-info-tags' as *;
 
 $node-color: #3b82f6;
 
@@ -125,9 +181,12 @@ $node-color: #3b82f6;
   &.input-handle {
     left: -4px;
   }
-  
+
   &.output-handle {
     right: -4px;
   }
 }
+
+// Include shared node info tags styles
+@include node-info-tags();
 </style>

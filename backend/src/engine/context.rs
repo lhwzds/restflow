@@ -5,6 +5,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
 use ts_rs::TS;
+use crate::models::Node;
 use crate::storage::{SecretStorage, Storage};
 
 // Compile regex once at first use, then reuse for performance
@@ -98,6 +99,47 @@ impl ExecutionContext {
             }
             _ => value.clone(),
         }
+    }
+
+    pub fn resolve_node_input(&self, node: &Node) -> Value {
+        // First priority: use the node's own `config.input` if available
+        let resolved = if let Some(config) = node.config.as_object() {
+            if let Some(input_value) = config.get("input") {
+                // Apply interpolation so placeholders like {{ ... }} are expanded before logging/storing
+                let interpolated = self.interpolate_value(input_value);
+
+                // If interpolation produced a string, try parsing it as JSON to keep structure
+                if let Value::String(text) = &interpolated {
+                    if let Ok(parsed) = serde_json::from_str::<Value>(text) {
+                        parsed
+                    } else {
+                        // Not JSON: keep the raw string (will be wrapped below)
+                        Value::String(text.clone())
+                    }
+                } else {
+                    interpolated
+                }
+            } else {
+                // Node config exists but no explicit input field
+                Value::Null
+            }
+        } else {
+            // Node config itself isn't an object (unlikely, but guard anyway)
+            Value::Null
+        };
+
+        // Fallback: if node didn't provide an input, use the workflow-level initial input
+        let final_value = if resolved.is_null() {
+            self.variables
+                .get("input")
+                .cloned()
+                .unwrap_or(Value::Null)
+        } else {
+            resolved
+        };
+
+        // Always return a consistent JSON envelope so downstream consumers see `{ "input": ... }`
+        serde_json::json!({ "input": final_value })
     }
 
     fn resolve_path(&self, path: &str) -> Option<Value> {
