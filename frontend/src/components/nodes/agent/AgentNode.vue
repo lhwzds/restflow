@@ -214,8 +214,9 @@ $node-color: #667eea;
 
  .node-actions {
   position: absolute;
-  top: calc(-1 * var(--rf-spacing-4xl));
-  right: 0;
+  top: calc(-1 * var(--rf-spacing-5xl));
+  left: 50%;
+  transform: translateX(-50%);
   display: flex;
   gap: var(--rf-spacing-xs);
   padding: var(--rf-spacing-3xs);
