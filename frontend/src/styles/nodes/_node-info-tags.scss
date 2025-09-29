@@ -50,9 +50,6 @@
     }
 
     &.time {
-      min-width: 50px;
-      text-align: center;
-
       &.active {
         color: var(--rf-color-primary);
         background: var(--rf-color-primary-bg-lighter);
