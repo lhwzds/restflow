@@ -30,12 +30,7 @@ interface ExecutionState {
   currentExecutionId: string | null
   isExecuting: boolean
   nodeResults: Map<string, NodeExecutionResult>
-  panelState: {
-    isOpen: boolean
-    height: number // percentage (0-100)
-    selectedNodeId: string | null
-    viewMode: 'details' | 'timeline' | 'logs'
-  }
+  selectedNodeId: string | null
 }
 
 export const useExecutionStore = defineStore('execution', {
@@ -43,12 +38,7 @@ export const useExecutionStore = defineStore('execution', {
     currentExecutionId: null,
     isExecuting: false,
     nodeResults: new Map(),
-    panelState: {
-      isOpen: false,
-      height: 35, // 35% default height
-      selectedNodeId: null,
-      viewMode: 'details',
-    },
+    selectedNodeId: null,
   }),
 
   getters: {
@@ -87,8 +77,8 @@ export const useExecutionStore = defineStore('execution', {
     },
 
     selectedNodeResult(): NodeExecutionResult | null {
-      if (!this.panelState.selectedNodeId) return null
-      return this.nodeResults.get(this.panelState.selectedNodeId) || null
+      if (!this.selectedNodeId) return null
+      return this.nodeResults.get(this.selectedNodeId) || null
     },
 
     hasResults(): boolean {
@@ -102,8 +92,7 @@ export const useExecutionStore = defineStore('execution', {
       this.currentExecutionId = executionId
       this.isExecuting = true
       this.nodeResults.clear()
-      this.panelState.isOpen = true // Auto-open panel on execution
-      this.panelState.selectedNodeId = null
+      this.selectedNodeId = null
     },
 
     endExecution() {
@@ -111,7 +100,7 @@ export const useExecutionStore = defineStore('execution', {
       // Auto-select first error node if any
       const errorNode = this.sortedNodeResults.find(r => r.status === 'Failed')
       if (errorNode) {
-        this.panelState.selectedNodeId = errorNode.nodeId
+        this.selectedNodeId = errorNode.nodeId
       }
     },
 
@@ -119,7 +108,7 @@ export const useExecutionStore = defineStore('execution', {
       this.currentExecutionId = null
       this.isExecuting = false
       this.nodeResults.clear()
-      this.panelState.selectedNodeId = null
+      this.selectedNodeId = null
     },
 
     // Node results management
@@ -182,63 +171,8 @@ export const useExecutionStore = defineStore('execution', {
       })
     },
 
-    // Panel state management
-    togglePanel() {
-      this.panelState.isOpen = !this.panelState.isOpen
-      if (this.panelState.isOpen && !this.panelState.selectedNodeId && this.nodeResults.size > 0) {
-        // Auto-select first node when opening panel
-        this.panelState.selectedNodeId = this.sortedNodeResults[0]?.nodeId || null
-      }
-    },
-    
-    expandHeight() {
-      this.adjustPanelHeight('up')
-    },
-    
-    shrinkHeight() {
-      this.adjustPanelHeight('down')
-    },
-
-    adjustPanelHeight(direction: 'up' | 'down') {
-      const heights = [0, 35, 50, 100]
-      const currentIndex = heights.indexOf(this.panelState.height)
-      
-      let newIndex: number
-      if (currentIndex === -1) {
-        newIndex = 1
-      } else {
-        newIndex = direction === 'up' 
-          ? Math.min(currentIndex + 1, heights.length - 1)
-          : Math.max(currentIndex - 1, 0)
-      }
-      
-      this.panelState.height = heights[newIndex]
-      this.panelState.isOpen = true
-      
-      if (this.panelState.height > 0 && !this.panelState.selectedNodeId && this.nodeResults.size > 0) {
-        this.panelState.selectedNodeId = this.sortedNodeResults[0]?.nodeId || null
-      }
-    },
-
-    openPanel() {
-      this.panelState.isOpen = true
-    },
-
-    closePanel() {
-      this.panelState.isOpen = false
-    },
-
-    setPanelHeight(height: number) {
-      // Clamp between 10% and 100%
-      this.panelState.height = Math.min(100, Math.max(10, height))
-    },
-
     selectNode(nodeId: string | null) {
-      this.panelState.selectedNodeId = nodeId
-    },
-
-    setViewMode(mode: 'details' | 'timeline' | 'logs') {
-      this.panelState.viewMode = mode
+      this.selectedNodeId = nodeId
     },
 
     getNodeStatus(nodeId: string): NodeExecutionStatus | null {

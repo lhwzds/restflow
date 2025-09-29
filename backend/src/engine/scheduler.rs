@@ -274,12 +274,13 @@ impl Scheduler {
         for downstream_id in downstream_nodes {
             if let Some(downstream_node) = graph.get_node(&downstream_id) {
                 if Self::are_dependencies_met(&graph, &downstream_id, &context) {
+                    let downstream_input = context.resolve_node_input(downstream_node);
                     self.push_task(
                         task.execution_id.clone(),
                         downstream_node.clone(),
                         (*workflow).clone(),
                         context.clone(),
-                        Value::Null,
+                        downstream_input,
                     )?;
                 }
             }

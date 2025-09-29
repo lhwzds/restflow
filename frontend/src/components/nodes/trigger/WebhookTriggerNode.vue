@@ -4,6 +4,7 @@ import { Handle, Position } from '@vue-flow/core'
 import { computed } from 'vue'
 import { Webhook } from 'lucide-vue-next'
 import { useNodeExecutionStatus } from '@/composables/node/useNodeExecutionStatus'
+import BaseTriggerNode from './BaseTriggerNode.vue'
 
 interface WebhookTriggerData {
   label?: string
@@ -15,6 +16,11 @@ interface WebhookTriggerData {
 }
 
 const props = defineProps<NodeProps<WebhookTriggerData>>()
+
+// Declare events to fix Vue warning
+defineEmits<{
+  'updateNodeInternals': [nodeId: string]
+}>()
 
 const { 
   getNodeStatusClass, 
@@ -30,7 +36,8 @@ const executionTime = computed(() => {
 </script>
 
 <template>
-  <div class="webhook-trigger-node" :class="statusClass">
+  <BaseTriggerNode>
+    <div class="webhook-trigger-node" :class="statusClass">
     <div class="node-body">
       <div class="glass-layer">
         <div class="trigger-indicator">
@@ -54,8 +61,9 @@ const executionTime = computed(() => {
       {{ executionTime }}
     </div>
 
-    <Handle type="source" :position="Position.Right" class="custom-handle" />
-  </div>
+      <Handle type="source" :position="Position.Right" class="custom-handle" />
+    </div>
+  </BaseTriggerNode>
 </template>
 
 <style lang="scss" scoped>

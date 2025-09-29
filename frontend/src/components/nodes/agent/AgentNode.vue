@@ -4,6 +4,8 @@ import { Handle, Position } from '@vue-flow/core'
 import { computed, ref } from 'vue'
 import { Bot, Sparkles, Settings, Play } from 'lucide-vue-next'
 import { useNodeExecutionStatus } from '@/composables/node/useNodeExecutionStatus'
+import { useNodeInfoPopup } from '@/composables/node/useNodeInfoPopup'
+import NodeInfoPopup from '@/components/nodes/NodeInfoPopup.vue'
 import { ElTooltip } from 'element-plus'
 
 interface AgentNodeData {
@@ -20,6 +22,7 @@ const props = defineProps<NodeProps<AgentNodeData>>()
 defineEmits<{
   'open-config': []
   'test-node': []
+  'updateNodeInternals': [nodeId: string]
 }>()
 
 const {
@@ -35,6 +38,21 @@ const executionTime = computed(() => {
 })
 
 const showActions = ref(false)
+
+// Use popup composable
+const {
+  popupVisible,
+  popupType,
+  popupPosition,
+  nodeResult,
+  activeTab,
+  hasInput,
+  hasOutput,
+  showTimePopup,
+  showInputPopup,
+  showOutputPopup,
+  closePopup
+} = useNodeInfoPopup(props.id)
 </script>
 
 <template>
@@ -62,8 +80,32 @@ const showActions = ref(false)
       </div>
     </div>
 
-    <div v-if="executionTime" class="execution-time">
-      {{ executionTime }}
+    <!-- Node info bar - independent tags -->
+    <div v-if="executionTime || hasInput() || hasOutput()" class="node-info-tags">
+      <span
+        v-if="hasInput()"
+        class="info-tag input"
+        :class="{ active: activeTab === 'input' }"
+        @click="showInputPopup"
+      >
+        Input
+      </span>
+      <span
+        v-if="executionTime"
+        class="info-tag time"
+        :class="{ active: activeTab === 'time' }"
+        @click="showTimePopup"
+      >
+        {{ executionTime }}
+      </span>
+      <span
+        v-if="hasOutput()"
+        class="info-tag output"
+        :class="{ active: activeTab === 'output' }"
+        @click="showOutputPopup"
+      >
+        Output
+      </span>
     </div>
 
     <Transition name="actions">
@@ -83,10 +125,20 @@ const showActions = ref(false)
 
     <Handle type="source" :position="Position.Right" class="custom-handle output-handle" />
   </div>
+
+  <!-- Info popup -->
+  <NodeInfoPopup
+    :visible="popupVisible"
+    :type="popupType"
+    :data="nodeResult()"
+    :position="popupPosition"
+    @close="closePopup"
+  />
 </template>
 
 <style lang="scss" scoped>
 @use '@/styles/nodes/base' as *;
+@use '@/styles/nodes/node-info-tags' as *;
 
 $node-color: #667eea;
 
@@ -170,7 +222,7 @@ $node-color: #667eea;
   background: var(--rf-color-bg-container);
   border-radius: var(--rf-radius-base);
   box-shadow: var(--rf-shadow-md);
-  z-index: 10;
+  z-index: var(--rf-z-index-dropdown);
 
   .action-btn {
     width: var(--rf-size-icon-md);
@@ -209,4 +261,7 @@ $node-color: #667eea;
   opacity: 0;
   transform: translateY(5px);
 }
+
+// Include shared node info tags styles
+@include node-info-tags();
 </style>
