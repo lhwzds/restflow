@@ -34,7 +34,8 @@ const executeWorkflow = async (e: MouseEvent) => {
   .execute-button {
     position: absolute;
     top: 50%;
-    left: -120px;
+    right: 100%;
+    margin-right: var(--rf-spacing-md);
     transform: translateY(-50%);
     padding: var(--rf-spacing-2xs) var(--rf-spacing-sm);
     border-radius: var(--rf-radius-base);

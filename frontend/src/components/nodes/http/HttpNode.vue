@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import type { NodeProps } from '@vue-flow/core'
 import { Handle, Position } from '@vue-flow/core'
-import { computed } from 'vue'
-import { Globe, Send } from 'lucide-vue-next'
+import { computed, ref } from 'vue'
+import { Globe, Send, Settings, Play } from 'lucide-vue-next'
 import { useNodeExecutionStatus } from '@/composables/node/useNodeExecutionStatus'
 import { useNodeInfoPopup } from '@/composables/node/useNodeInfoPopup'
 import NodeInfoPopup from '@/components/nodes/NodeInfoPopup.vue'
+import { ElTooltip } from 'element-plus'
 
 interface HttpNodeData {
   label?: string
@@ -17,6 +18,8 @@ const props = defineProps<NodeProps<HttpNodeData>>()
 
 // Declare events to fix Vue warning
 defineEmits<{
+  'open-config': []
+  'test-node': []
   'updateNodeInternals': [nodeId: string]
 }>()
 
@@ -31,6 +34,8 @@ const executionTime = computed(() => {
   const time = getNodeExecutionTime(props.id)
   return time ? formatExecutionTime(time) : null
 })
+
+const showActions = ref(false)
 
 // Use popup composable
 const {
@@ -49,7 +54,12 @@ const {
 </script>
 
 <template>
-  <div class="http-node" :class="statusClass">
+  <div
+    class="http-node"
+    :class="statusClass"
+    @mouseenter="showActions = true"
+    @mouseleave="showActions = false"
+  >
     <Handle type="target" :position="Position.Left" class="custom-handle input-handle" />
 
     <div class="node-body">
@@ -61,13 +71,13 @@ const {
           </div>
           <div class="node-label">{{ props.data?.label || 'HTTP Request' }}</div>
         </div>
-        
+
         <div v-if="props.data?.method" class="method-badge">
           {{ props.data.method }}
         </div>
       </div>
     </div>
-    
+
     <!-- Node info bar - independent tags -->
     <div v-if="executionTime || hasInput() || hasOutput()" class="node-info-tags">
       <span
@@ -95,6 +105,21 @@ const {
         Output
       </span>
     </div>
+
+    <Transition name="actions">
+      <div v-if="showActions" class="node-actions">
+        <ElTooltip content="Configure Node" placement="top">
+          <button class="action-btn" @click.stop="$emit('open-config')">
+            <Settings :size="14" />
+          </button>
+        </ElTooltip>
+        <ElTooltip content="Test Node" placement="top">
+          <button class="action-btn test-btn" @click.stop="$emit('test-node')">
+            <Play :size="14" />
+          </button>
+        </ElTooltip>
+      </div>
+    </Transition>
 
     <Handle type="source" :position="Position.Right" class="custom-handle output-handle" />
   </div>
@@ -185,6 +210,57 @@ $node-color: #3b82f6;
   &.output-handle {
     right: -4px;
   }
+}
+
+.node-actions {
+  position: absolute;
+  top: calc(-1 * var(--rf-spacing-5xl));
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: var(--rf-spacing-xs);
+  padding: var(--rf-spacing-3xs);
+  background: var(--rf-color-bg-container);
+  border-radius: var(--rf-radius-base);
+  box-shadow: var(--rf-shadow-md);
+  z-index: var(--rf-z-index-dropdown);
+
+  .action-btn {
+    width: var(--rf-size-icon-md);
+    height: var(--rf-size-icon-md);
+    padding: 0;
+    border: none;
+    background: var(--rf-color-bg-secondary);
+    color: var(--rf-color-text-secondary);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--rf-radius-small);
+    transition: all var(--rf-transition-fast);
+
+    &:hover {
+      background: var(--rf-color-primary-bg-lighter);
+      color: var(--rf-color-primary);
+      transform: scale(1.1);
+    }
+
+    &.test-btn:hover {
+      background: var(--rf-color-success-bg-lighter);
+      color: var(--rf-color-success);
+    }
+  }
+}
+
+.actions-enter-active,
+.actions-leave-active {
+  transition: all var(--rf-transition-fast);
+}
+
+.actions-enter-from,
+.actions-leave-to {
+  opacity: 0;
+  transform: translateY(5px);
 }
 
 // Include shared node info tags styles
