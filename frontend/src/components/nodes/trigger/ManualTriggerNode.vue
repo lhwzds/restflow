@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import type { NodeProps } from '@vue-flow/core'
 import { Handle, Position } from '@vue-flow/core'
-import { computed } from 'vue'
-import { PlayCircle, Zap, MousePointerClick } from 'lucide-vue-next'
+import { computed, ref } from 'vue'
+import { PlayCircle, Zap, MousePointerClick, Settings, Play } from 'lucide-vue-next'
 import { useNodeExecutionStatus } from '@/composables/node/useNodeExecutionStatus'
 import { useNodeInfoPopup } from '@/composables/node/useNodeInfoPopup'
+import { useAsyncWorkflowExecution } from '@/composables/execution/useAsyncWorkflowExecution'
 import NodeInfoPopup from '@/components/nodes/NodeInfoPopup.vue'
 import BaseTriggerNode from './BaseTriggerNode.vue'
+import { ElTooltip } from 'element-plus'
 
 interface ManualTriggerNodeData {
   label?: string
@@ -16,6 +18,7 @@ interface ManualTriggerNodeData {
 const props = defineProps<NodeProps<ManualTriggerNodeData>>()
 
 defineEmits<{
+  'open-config': []
   'updateNodeInternals': [nodeId: string]
 }>()
 
@@ -30,6 +33,16 @@ const executionTime = computed(() => {
   const time = getNodeExecutionTime(props.id)
   return time ? formatExecutionTime(time) : null
 })
+
+const showActions = ref(false)
+
+// Workflow execution
+const { isExecuting, startAsyncExecution } = useAsyncWorkflowExecution()
+
+const triggerWorkflow = async (e: MouseEvent) => {
+  e.stopPropagation()
+  await startAsyncExecution()
+}
 
 // Use popup composable
 const {
@@ -49,7 +62,12 @@ const {
 
 <template>
   <BaseTriggerNode>
-    <div class="manual-trigger-node" :class="statusClass">
+    <div
+      class="manual-trigger-node"
+      :class="statusClass"
+      @mouseenter="showActions = true"
+      @mouseleave="showActions = false"
+    >
       <Handle type="source" :position="Position.Right" class="custom-handle output-handle" />
 
       <div class="node-body">
@@ -98,6 +116,25 @@ const {
           Output
         </span>
       </div>
+
+      <Transition name="actions">
+        <div v-if="showActions" class="node-actions">
+          <ElTooltip content="Configure Trigger" placement="top">
+            <button class="action-btn" @click.stop="$emit('open-config')">
+              <Settings :size="14" />
+            </button>
+          </ElTooltip>
+          <ElTooltip content="Trigger Workflow" placement="top">
+            <button
+              class="action-btn trigger-btn"
+              @click.stop="triggerWorkflow"
+              :disabled="isExecuting"
+            >
+              <Play :size="14" />
+            </button>
+          </ElTooltip>
+        </div>
+      </Transition>
     </div>
   </BaseTriggerNode>
 
@@ -216,6 +253,62 @@ $node-color: #22c55e;
   50% {
     opacity: 0.7;
   }
+}
+
+.node-actions {
+  position: absolute;
+  top: calc(-1 * var(--rf-spacing-5xl));
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: var(--rf-spacing-xs);
+  padding: var(--rf-spacing-3xs);
+  background: var(--rf-color-bg-container);
+  border-radius: var(--rf-radius-base);
+  box-shadow: var(--rf-shadow-md);
+  z-index: var(--rf-z-index-dropdown);
+
+  .action-btn {
+    width: var(--rf-size-icon-md);
+    height: var(--rf-size-icon-md);
+    padding: 0;
+    border: none;
+    background: var(--rf-color-bg-secondary);
+    color: var(--rf-color-text-secondary);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--rf-radius-small);
+    transition: all var(--rf-transition-fast);
+
+    &:hover:not(:disabled) {
+      background: var(--rf-color-primary-bg-lighter);
+      color: var(--rf-color-primary);
+      transform: scale(1.1);
+    }
+
+    &.trigger-btn:hover:not(:disabled) {
+      background: var(--rf-color-success-bg-lighter);
+      color: var(--rf-color-success);
+    }
+
+    &:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+  }
+}
+
+.actions-enter-active,
+.actions-leave-active {
+  transition: all var(--rf-transition-fast);
+}
+
+.actions-enter-from,
+.actions-leave-to {
+  opacity: 0;
+  transform: translateY(5px);
 }
 
 // Include shared node info tags styles
