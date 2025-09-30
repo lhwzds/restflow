@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { Play } from 'lucide-vue-next'
 import { useAsyncWorkflowExecution } from '@/composables/execution/useAsyncWorkflowExecution'
 
 const { isExecuting, startAsyncExecution } = useAsyncWorkflowExecution()
@@ -20,9 +19,9 @@ const executeWorkflow = async (e: MouseEvent) => {
       class="execute-button"
       @click="executeWorkflow"
       :disabled="isExecuting"
-      title="Execute Workflow"
+      :title="isExecuting ? 'RestFlow is running' : 'Start RestFlow execution'"
     >
-      <Play :size="16" />
+      {{ isExecuting ? 'Running...' : 'Start RestFlow' }}
     </button>
   </div>
 </template>
@@ -35,46 +34,39 @@ const executeWorkflow = async (e: MouseEvent) => {
   .execute-button {
     position: absolute;
     top: 50%;
-    left: calc(-1 * var(--rf-spacing-5xl) - var(--rf-spacing-2xs));
+    left: -120px;
     transform: translateY(-50%);
-    width: var(--rf-size-icon-md);
-    height: var(--rf-size-icon-md);
-    border-radius: var(--rf-radius-circle);
-    background: var(--rf-gradient-success);
-    border: 2px solid var(--rf-color-white-90);
+    padding: var(--rf-spacing-2xs) var(--rf-spacing-sm);
+    border-radius: var(--rf-radius-base);
+    background: var(--rf-gradient-primary);
+    border: none;
     color: var(--rf-color-white);
+    font-size: var(--rf-font-size-xs);
+    font-weight: var(--rf-font-weight-medium);
     cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
     transition: all var(--rf-transition-fast);
-    box-shadow: var(--rf-shadow-success);
+    box-shadow: var(--rf-shadow-base);
     z-index: var(--rf-z-index-dropdown);
+    white-space: nowrap;
 
     &:hover:not(:disabled) {
-      transform: translateY(-50%) scale(1.1);
-      box-shadow: var(--rf-shadow-success-hover);
-      background: var(--rf-gradient-success-dark);
+      transform: translateY(-50%) translateY(-2px);
+      box-shadow: var(--rf-shadow-md);
+      background: var(--rf-gradient-primary-dark);
     }
 
     &:active:not(:disabled) {
-      transform: translateY(-50%) scale(0.95);
+      transform: translateY(-50%) translateY(0);
+      box-shadow: var(--rf-shadow-sm);
     }
 
     &:disabled {
-      opacity: 0.5;
+      opacity: 0.6;
       cursor: not-allowed;
-      background: var(--rf-color-success-lighter);
-    }
-
-    // Animation for executing state
-    &:disabled svg {
-      animation: spin 1s linear infinite;
-    }
-
-    svg {
-      width: var(--rf-spacing-md);
-      height: var(--rf-spacing-md);
+      background: var(--rf-color-primary-disabled);
     }
   }
 

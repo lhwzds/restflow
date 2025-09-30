@@ -3,49 +3,43 @@
   // Node info bar - independent tags styles
   .node-info-tags {
     position: absolute;
-    bottom: -25px;
-    left: 0;
-    right: 0;
-    display: flex;
-    justify-content: center;
-    gap: var(--rf-spacing-xs);
+    bottom: -22px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: inline-flex;
+    align-items: center;
+    gap: var(--rf-spacing-2xs);
     z-index: var(--rf-z-index-tags);
   }
 
   .info-tag {
     font-size: var(--rf-font-size-xs);
     padding: var(--rf-spacing-3xs) var(--rf-spacing-xs);
-    background: var(--rf-color-bg-container);
-    border: 1px solid var(--rf-color-border-lighter);
+    background: transparent;
+    border: 1px solid transparent;
     border-radius: var(--rf-radius-base);
     cursor: pointer;
     transition: all var(--rf-transition-fast);
     white-space: nowrap;
     color: var(--rf-color-text-secondary);
-    box-shadow: var(--rf-shadow-sm);
 
+    // Hover state - show RestFlow orange color
     &:hover:not(.active) {
-      transform: translateY(var(--rf-transform-lift-xs));
-      box-shadow: var(--rf-shadow-base);
-      border-color: var(--rf-color-border-base);
+      color: var(--rf-color-primary);
     }
 
+    // Active state - show with background and border
     &.active {
-      transform: translateY(var(--rf-transform-lift-xs));
-      box-shadow: var(--rf-shadow-base);
+      background: var(--rf-color-bg-container);
+      border-color: var(--rf-color-border-base);
+      box-shadow: var(--rf-shadow-sm);
     }
 
     &.input {
-      &:hover:not(.active) {
+      &.active {
         color: var(--rf-color-blue);
         background: var(--rf-color-blue-bg-lighter);
         border-color: var(--rf-color-blue-light);
-      }
-
-      &.active {
-        color: var(--rf-color-white);
-        background: var(--rf-color-blue);
-        border-color: var(--rf-color-blue);
       }
     }
 
@@ -59,16 +53,10 @@
     }
 
     &.output {
-      &:hover:not(.active) {
+      &.active {
         color: var(--rf-color-green);
         background: var(--rf-color-green-bg-lighter);
         border-color: var(--rf-color-green-light);
-      }
-
-      &.active {
-        color: var(--rf-color-white);
-        background: var(--rf-color-green);
-        border-color: var(--rf-color-green);
       }
     }
   }
