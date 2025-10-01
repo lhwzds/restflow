@@ -133,32 +133,42 @@ impl Scheduler {
         Ok(())
     }
 
-    /// Get task records by execution ID from all tables
-    pub fn get_tasks_by_execution(&self, execution_id: &str) -> Result<Vec<Task>> {
+    /// Query all tasks across three tables with custom filter
+    fn query_all_tasks<F>(&self, filter: F) -> Result<Vec<Task>>
+    where
+        F: Fn(&Task) -> bool,
+    {
         let mut tasks = Vec::new();
-        
-        // Check all three tables
+
+        // Query all three tables
         for data in self.queue.get_all_pending()? {
             let task: Task = serde_json::from_slice(&data)?;
-            if task.execution_id == execution_id {
+            if filter(&task) {
                 tasks.push(task);
             }
         }
-        
+
         for data in self.queue.get_all_processing()? {
             let task: Task = serde_json::from_slice(&data)?;
-            if task.execution_id == execution_id {
+            if filter(&task) {
                 tasks.push(task);
             }
         }
-        
+
         for data in self.queue.get_all_completed()? {
             let task: Task = serde_json::from_slice(&data)?;
-            if task.execution_id == execution_id {
+            if filter(&task) {
                 tasks.push(task);
             }
         }
-        
+
+        Ok(tasks)
+    }
+
+    /// Get task records by execution ID from all tables
+    pub fn get_tasks_by_execution(&self, execution_id: &str) -> Result<Vec<Task>> {
+        let mut tasks = self.query_all_tasks(|task| task.execution_id == execution_id)?;
+
         // Sort by creation time
         tasks.sort_by(|a, b| a.created_at.cmp(&b.created_at));
         Ok(tasks)
@@ -176,38 +186,11 @@ impl Scheduler {
 
     /// List tasks with optional filters
     pub fn list_tasks(&self, workflow_id: Option<&str>, status: Option<TaskStatus>) -> Result<Vec<Task>> {
-        let mut tasks = Vec::new();
-        
-        // Check pending tasks
-        if status.is_none() || status == Some(TaskStatus::Pending) {
-            for data in self.queue.get_all_pending()? {
-                let task: Task = serde_json::from_slice(&data)?;
-                if Self::matches_task_filter(&task, workflow_id, None) {
-                    tasks.push(task);
-                }
-            }
-        }
-        
-        // Check running tasks
-        if status.is_none() || status == Some(TaskStatus::Running) {
-            for data in self.queue.get_all_processing()? {
-                let task: Task = serde_json::from_slice(&data)?;
-                if Self::matches_task_filter(&task, workflow_id, None) {
-                    tasks.push(task);
-                }
-            }
-        }
-        
-        // Check completed tasks
-        if status.is_none() || matches!(status, Some(TaskStatus::Completed) | Some(TaskStatus::Failed)) {
-            for data in self.queue.get_all_completed()? {
-                let task: Task = serde_json::from_slice(&data)?;
-                if Self::matches_task_filter(&task, workflow_id, status.as_ref()) {
-                    tasks.push(task);
-                }
-            }
-        }
-        
+        let mut tasks = self.query_all_tasks(|task| {
+            workflow_id.map_or(true, |id| task.workflow_id == id)
+                && status.as_ref().map_or(true, |s| &task.status == s)
+        })?;
+
         // Sort by creation time (newest first)
         tasks.sort_by(|a, b| b.created_at.cmp(&a.created_at));
         Ok(tasks)
@@ -285,17 +268,7 @@ impl Scheduler {
                 }
             }
         }
-        
-        Ok(())
-    }
 
-    /// Helper to check if task matches filters
-    fn matches_task_filter(
-        task: &Task,
-        workflow_id: Option<&str>,
-        status: Option<&TaskStatus>,
-    ) -> bool {
-        workflow_id.map_or(true, |id| task.workflow_id == id)
-            && status.map_or(true, |s| &task.status == s)
+        Ok(())
     }
 }
