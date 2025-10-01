@@ -1,12 +1,7 @@
 <script setup lang="ts">
 import type { NodeProps } from '@vue-flow/core'
-import { Handle, Position } from '@vue-flow/core'
-import { computed, ref } from 'vue'
-import { Globe, Send, Settings, Play } from 'lucide-vue-next'
-import { useNodeExecutionStatus } from '@/composables/node/useNodeExecutionStatus'
-import { useNodeInfoPopup } from '@/composables/node/useNodeInfoPopup'
-import NodeInfoPopup from '@/components/nodes/NodeInfoPopup.vue'
-import { ElTooltip } from 'element-plus'
+import { Globe, Send } from 'lucide-vue-next'
+import BaseNode from '@/components/nodes/BaseNode.vue'
 
 interface HttpNodeData {
   label?: string
@@ -15,254 +10,79 @@ interface HttpNodeData {
 }
 
 const props = defineProps<NodeProps<HttpNodeData>>()
-
-// Declare events to fix Vue warning
-defineEmits<{
+const emit = defineEmits<{
   'open-config': []
   'test-node': []
   'updateNodeInternals': [nodeId: string]
 }>()
-
-const {
-  getNodeStatusClass,
-  getNodeExecutionTime,
-  formatExecutionTime,
-} = useNodeExecutionStatus()
-
-const statusClass = computed(() => getNodeStatusClass(props.id))
-const executionTime = computed(() => {
-  const time = getNodeExecutionTime(props.id)
-  return time ? formatExecutionTime(time) : null
-})
-
-const showActions = ref(false)
-
-// Use popup composable
-const {
-  popupVisible,
-  popupType,
-  popupPosition,
-  nodeResult,
-  activeTab,
-  hasInput,
-  hasOutput,
-  showTimePopup,
-  showInputPopup,
-  showOutputPopup,
-  closePopup
-} = useNodeInfoPopup(props.id)
 </script>
 
 <template>
-  <div
-    class="http-node"
-    :class="statusClass"
-    @mouseenter="showActions = true"
-    @mouseleave="showActions = false"
+  <BaseNode
+    :node-props="props"
+    node-class="http-node"
+    default-label="HTTP Request"
+    action-button-tooltip="Test Node"
+    @open-config="emit('open-config')"
+    @action-button="emit('test-node')"
+    @updateNodeInternals="emit('updateNodeInternals', $event)"
   >
-    <Handle type="target" :position="Position.Left" class="custom-handle input-handle" />
+    <template #icon>
+      <Globe :size="24" />
+      <Send :size="12" class="icon-decoration" />
+    </template>
 
-    <div class="node-body">
-      <div class="glass-layer">
-        <div class="node-header">
-          <div class="node-icon">
-            <Globe :size="24" />
-            <Send :size="12" class="icon-decoration" />
-          </div>
-          <div class="node-label">{{ props.data?.label || 'HTTP Request' }}</div>
-        </div>
-
-        <div v-if="props.data?.method" class="method-badge">
-          {{ props.data.method }}
-        </div>
+    <template #badge>
+      <div v-if="props.data?.method" class="method-badge">
+        {{ props.data.method }}
       </div>
-    </div>
-
-    <!-- Node info bar - independent tags -->
-    <div v-if="executionTime || hasInput() || hasOutput()" class="node-info-tags">
-      <span
-        v-if="hasInput()"
-        class="info-tag input"
-        :class="{ active: activeTab === 'input' }"
-        @click="showInputPopup"
-      >
-        Input
-      </span>
-      <span
-        v-if="executionTime"
-        class="info-tag time"
-        :class="{ active: activeTab === 'time' }"
-        @click="showTimePopup"
-      >
-        {{ executionTime }}
-      </span>
-      <span
-        v-if="hasOutput()"
-        class="info-tag output"
-        :class="{ active: activeTab === 'output' }"
-        @click="showOutputPopup"
-      >
-        Output
-      </span>
-    </div>
-
-    <Transition name="actions">
-      <div v-if="showActions" class="node-actions">
-        <ElTooltip content="Configure Node" placement="top">
-          <button class="action-btn" @click.stop="$emit('open-config')">
-            <Settings :size="14" />
-          </button>
-        </ElTooltip>
-        <ElTooltip content="Test Node" placement="top">
-          <button class="action-btn test-btn" @click.stop="$emit('test-node')">
-            <Play :size="14" />
-          </button>
-        </ElTooltip>
-      </div>
-    </Transition>
-
-    <Handle type="source" :position="Position.Right" class="custom-handle output-handle" />
-  </div>
-
-  <!-- Info popup -->
-  <NodeInfoPopup
-    :visible="popupVisible"
-    :type="popupType"
-    :data="nodeResult()"
-    :position="popupPosition"
-    @close="closePopup"
-  />
+    </template>
+  </BaseNode>
 </template>
 
-<style lang="scss" scoped>
+<style lang="scss">
 @use '@/styles/nodes/base' as *;
-@use '@/styles/nodes/node-info-tags' as *;
 
-$node-color: #3b82f6;
+$node-color: #48bb78;
 
 .http-node {
-  @include node-base(var(--rf-size-md), var(--rf-size-base));
-  @include node-execution-states();
   @include node-handle($node-color);
-  @include node-text();
-}
 
-.node-body {
-  width: 100%;
-  height: 100%;
-  @include node-glass($node-color);
-  border-radius: var(--rf-radius-md);
-  padding: 0;
-  
-  &:hover {
-    box-shadow: 
-      0 6px 20px rgba($node-color, 0.3),
-      inset 0 0 0 1px rgba($node-color, 0.2);
+  .node-body {
+    @include node-glass($node-color);
+
+    &:hover {
+      box-shadow:
+        0 6px 20px rgba($node-color, 0.3),
+        inset 0 0 0 1px rgba($node-color, 0.2);
+    }
+  }
+
+  .node-icon {
+    @include node-icon(32px, $node-color);
   }
 }
+</style>
 
-.glass-layer {
-  padding: var(--rf-spacing-md);
-  position: relative;
-}
+<style lang="scss" scoped>
+$node-color: #48bb78;
 
-.node-header {
-  display: flex;
-  align-items: center;
-  gap: var(--rf-spacing-sm);
-  margin-bottom: var(--rf-spacing-sm);
-}
-
-.node-icon {
-  position: relative;
-  @include node-icon(32px, $node-color);
-  border-radius: var(--rf-radius-large);
-  
-  .icon-decoration {
-    position: absolute;
-    top: -2px;
-    right: -2px;
-    color: var(--rf-color-blue);
-  }
-}
-
-.node-label {
-  flex: 1;
+.icon-decoration {
+  position: absolute;
+  bottom: -2px;
+  right: -2px;
+  color: var(--rf-color-primary);
 }
 
 .method-badge {
   font-size: var(--rf-font-size-xs);
+  font-weight: var(--rf-font-weight-semibold);
   color: $node-color;
   background: rgba($node-color, var(--rf-opacity-overlay));
   padding: var(--rf-spacing-3xs) var(--rf-spacing-xs);
   border-radius: var(--rf-radius-small);
   display: inline-block;
-  font-weight: var(--rf-font-weight-semibold);
   text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
-
-
-.custom-handle {
-  &.input-handle {
-    left: -4px;
-  }
-
-  &.output-handle {
-    right: -4px;
-  }
-}
-
-.node-actions {
-  position: absolute;
-  top: calc(-1 * var(--rf-spacing-5xl));
-  left: 50%;
-  transform: translateX(-50%);
-  display: flex;
-  gap: var(--rf-spacing-xs);
-  padding: var(--rf-spacing-3xs);
-  background: var(--rf-color-bg-container);
-  border-radius: var(--rf-radius-base);
-  box-shadow: var(--rf-shadow-md);
-  z-index: var(--rf-z-index-dropdown);
-
-  .action-btn {
-    width: var(--rf-size-icon-md);
-    height: var(--rf-size-icon-md);
-    padding: 0;
-    border: none;
-    background: var(--rf-color-bg-secondary);
-    color: var(--rf-color-text-secondary);
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: var(--rf-radius-small);
-    transition: all var(--rf-transition-fast);
-
-    &:hover {
-      background: var(--rf-color-primary-bg-lighter);
-      color: var(--rf-color-primary);
-      transform: scale(1.1);
-    }
-
-    &.test-btn:hover {
-      background: var(--rf-color-success-bg-lighter);
-      color: var(--rf-color-success);
-    }
-  }
-}
-
-.actions-enter-active,
-.actions-leave-active {
-  transition: all var(--rf-transition-fast);
-}
-
-.actions-enter-from,
-.actions-leave-to {
-  opacity: 0;
-  transform: translateY(5px);
-}
-
-// Include shared node info tags styles
-@include node-info-tags();
 </style>
