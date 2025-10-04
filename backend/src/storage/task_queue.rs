@@ -121,27 +121,34 @@ impl TaskQueue {
     /// Get a task from any table
     pub fn get_from_any_table(&self, task_id: &str) -> Result<Option<Vec<u8>>> {
         let read_txn = self.db.begin_read()?;
-        
+
         // Check processing table
         let processing = read_txn.open_table(PROCESSING)?;
         if let Some(data) = processing.get(task_id)? {
             return Ok(Some(data.value().to_vec()));
         }
-        
+
         // Check completed table
         let completed = read_txn.open_table(COMPLETED)?;
         if let Some(data) = completed.get(task_id)? {
             return Ok(Some(data.value().to_vec()));
         }
-        
-        // Check pending table (requires iteration)
+
+        // Check pending table (requires iteration and deserialization)
+        // Note: This is O(n) but pending queue should be relatively small
         let pending = read_txn.open_table(PENDING)?;
         for entry in pending.iter()? {
-            let (_, _value) = entry?;
-            // Note: We'd need to deserialize to check ID, but for pure storage we return None
-            // The scheduler should handle this logic
+            let (_, value) = entry?;
+            let data = value.value();
+
+            // Deserialize to check task ID
+            if let Ok(task) = serde_json::from_slice::<crate::models::Task>(data) {
+                if task.id == task_id {
+                    return Ok(Some(data.to_vec()));
+                }
+            }
         }
-        
+
         Ok(None)
     }
 
@@ -390,5 +397,70 @@ mod tests {
         // Test non-existent task
         let result = queue.get_from_any_table("nonexistent").unwrap();
         assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_concurrent_same_priority_nanosecond() {
+        use crate::models::Task;
+        use crate::engine::context::ExecutionContext;
+
+        let (queue, _temp_dir) = setup_test_queue();
+
+        // Create 10 tasks concurrently (simulating high concurrency)
+        let mut handles = vec![];
+        for i in 0..10 {
+            let queue_clone = queue.clone();
+            let handle = tokio::spawn(async move {
+                let task = Task::new(
+                    format!("exec-{}", i),
+                    "wf-1".to_string(),
+                    format!("node-{}", i),
+                    serde_json::json!({}),
+                    ExecutionContext::new(format!("exec-{}", i)),
+                );
+                let priority = task.priority();
+                let serialized = serde_json::to_vec(&task).unwrap();
+                queue_clone.insert_pending(priority, &serialized).unwrap();
+            });
+            handles.push(handle);
+        }
+
+        // Wait for all tasks to complete
+        for handle in handles {
+            handle.await.unwrap();
+        }
+
+        // Verify all 10 tasks are in pending
+        let pending = queue.get_all_pending().unwrap();
+        assert_eq!(pending.len(), 10, "All 10 tasks should be in pending queue");
+    }
+
+    #[test]
+    fn test_get_from_any_table_pending() {
+        use crate::models::Task;
+        use crate::engine::context::ExecutionContext;
+
+        let (queue, _temp_dir) = setup_test_queue();
+
+        // Create a task and add to pending
+        let task = Task::new(
+            "exec-1".to_string(),
+            "wf-1".to_string(),
+            "node-1".to_string(),
+            serde_json::json!({}),
+            ExecutionContext::new("exec-1".to_string()),
+        );
+        let task_id = task.id.clone();
+        let priority = task.priority();
+        let serialized = serde_json::to_vec(&task).unwrap();
+        queue.insert_pending(priority, &serialized).unwrap();
+
+        // Should find task in pending
+        let result = queue.get_from_any_table(&task_id).unwrap();
+        assert!(result.is_some(), "Should find task in pending table");
+
+        // Deserialize and verify
+        let found_task: Task = serde_json::from_slice(&result.unwrap()).unwrap();
+        assert_eq!(found_task.id, task_id);
     }
 }
