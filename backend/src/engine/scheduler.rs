@@ -199,15 +199,16 @@ impl Scheduler {
     /// Recover tasks that have been processing too long
     pub fn recover_stalled_tasks(&self) -> Result<u32> {
         let mut recovered = 0;
-        let now = chrono::Utc::now().timestamp();
-        
+        let now = chrono::Utc::now().timestamp_millis();
+
         // Find and recover stalled tasks
         for data in self.queue.get_all_processing()? {
             let mut task: Task = serde_json::from_slice(&data)?;
-            
+
             // Check if task has been processing too long
             if let Some(started_at) = task.started_at {
-                if now - started_at > DEFAULT_STALL_TIMEOUT_SECONDS {
+                let stall_threshold_ms = DEFAULT_STALL_TIMEOUT_SECONDS * 1000;
+                if now - started_at > stall_threshold_ms {
                     // Reset status and move back to pending
                     task.status = TaskStatus::Pending;
                     task.started_at = None;
@@ -270,5 +271,80 @@ impl Scheduler {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::storage::Storage;
+    use crate::models::{Task, TaskStatus};
+    use crate::engine::context::ExecutionContext;
+    use tempfile::tempdir;
+
+    fn setup_test_scheduler() -> (Scheduler, tempfile::TempDir) {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test.db");
+        let storage = Arc::new(Storage::new(db_path.to_str().unwrap()).unwrap());
+        let scheduler = Scheduler::new(storage.queue.clone(), storage.clone());
+        (scheduler, temp_dir)
+    }
+
+    #[test]
+    fn test_recover_stalled_tasks() {
+        let (scheduler, _temp_dir) = setup_test_scheduler();
+
+        // Create a task with started_at 10 minutes ago (should be recovered)
+        let ten_minutes_ago = chrono::Utc::now().timestamp_millis() - (10 * 60 * 1000);
+        let mut task = Task::new(
+            "exec-1".to_string(),
+            "wf-1".to_string(),
+            "node-1".to_string(),
+            serde_json::json!({}),
+            ExecutionContext::new("exec-1".to_string()),
+        );
+        task.status = TaskStatus::Running;
+        task.started_at = Some(ten_minutes_ago);
+
+        // Put task in processing
+        let serialized = serde_json::to_vec(&task).unwrap();
+        scheduler.queue.move_to_processing(0, &task.id, &serialized).unwrap();
+
+        // Recover stalled tasks
+        let recovered = scheduler.recover_stalled_tasks().unwrap();
+        assert_eq!(recovered, 1, "Should recover 1 stalled task");
+
+        // Verify task is back in pending
+        let pending_tasks = scheduler.queue.get_all_pending().unwrap();
+        assert_eq!(pending_tasks.len(), 1, "Should have 1 pending task");
+
+        // Verify task is no longer in processing
+        let processing_tasks = scheduler.queue.get_all_processing().unwrap();
+        assert_eq!(processing_tasks.len(), 0, "Should have 0 processing tasks");
+    }
+
+    #[test]
+    fn test_get_pending_task() {
+        let (scheduler, _temp_dir) = setup_test_scheduler();
+
+        // Create a task
+        let task = Task::new(
+            "exec-1".to_string(),
+            "wf-1".to_string(),
+            "node-1".to_string(),
+            serde_json::json!({}),
+            ExecutionContext::new("exec-1".to_string()),
+        );
+        let task_id = task.id.clone();
+
+        // Push to queue
+        let priority = task.priority();
+        let serialized = serde_json::to_vec(&task).unwrap();
+        scheduler.queue.insert_pending(priority, &serialized).unwrap();
+
+        // Get task should find it in pending
+        let found = scheduler.get_task(&task_id).unwrap();
+        assert!(found.is_some(), "Should find task in pending");
+        assert_eq!(found.unwrap().id, task_id);
     }
 }
