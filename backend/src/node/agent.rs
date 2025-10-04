@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use anyhow::Result;
 use ts_rs::TS;
 use crate::tools::{AddTool, GetTimeTool};
+use tracing::{debug, warn};
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
@@ -30,19 +31,19 @@ macro_rules! configure_tools {
     ($self:expr, $builder:expr) => {{
         let mut builder = $builder;
         if let Some(ref tool_names) = $self.tools {
-            println!("🔧 Configuring tools: {:?}", tool_names);
+            debug!(tools = ?tool_names, "Configuring agent tools");
             for tool_name in tool_names {
                 match tool_name.as_str() {
                     "add" => {
                         builder = builder.tool(AddTool);
-                        println!("✅ Added tool: add");
+                        debug!("Added tool: add");
                     }
                     "get_current_time" => {
                         builder = builder.tool(GetTimeTool);
-                        println!("✅ Added tool: get_current_time");
+                        debug!("Added tool: get_current_time");
                     }
                     unknown => {
-                        println!("⚠️ Unknown tool: {}", unknown);
+                        warn!(tool = %unknown, "Unknown tool specified");
                     }
                 }
             }

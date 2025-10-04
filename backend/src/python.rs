@@ -10,6 +10,7 @@ use tokio::io::AsyncWriteExt;
 use std::time::Duration;
 use once_cell::sync::OnceCell;
 use sha2::{Sha256, Digest};
+use tracing::info;
 
 pub struct PythonManager {
     uv_binary: PathBuf,
@@ -64,8 +65,8 @@ impl PythonManager {
     /// Downloads uv binary and verifies SHA256 checksum to prevent supply chain attacks.
     /// Uses a fixed version instead of 'latest' for reproducibility and security.
     async fn download_uv(&self) -> Result<()> {
-        println!("📦 Downloading uv package manager...");
-        
+        info!("Downloading uv package manager");
+
         // Use fixed version for security
         const UV_VERSION: &str = "0.8.15";
         
@@ -82,18 +83,19 @@ impl PythonManager {
         let base_url = format!("https://github.com/astral-sh/uv/releases/download/{}", UV_VERSION);
         let file_url = format!("{}/{}", base_url, filename);
         let checksum_url = format!("{}/{}.sha256", base_url, filename);
-        
-        println!("⬇️ Downloading from: {}", file_url);
-        
+
+        info!(url = %file_url, "Downloading uv binary");
+
         // Download the file
         let response = reqwest::get(&file_url).await?;
         if !response.status().is_success() {
             return Err(anyhow!("Failed to download uv: HTTP {}", response.status()));
         }
         let bytes = response.bytes().await?;
-        
+
+
         // Download the checksum
-        println!("🔐 Downloading checksum...");
+        info!("Downloading checksum for verification");
         let checksum_response = reqwest::get(&checksum_url).await?;
         if !checksum_response.status().is_success() {
             return Err(anyhow!("Failed to download checksum: HTTP {}", checksum_response.status()));
@@ -120,9 +122,9 @@ impl PythonManager {
                 actual_checksum
             ));
         }
-        
-        println!("✅ Checksum verified successfully");
-        
+
+        info!("Checksum verified successfully");
+
         let temp_dir = tempfile::tempdir()?;
         let archive_path = temp_dir.path().join(if filename.ends_with(".zip") { "uv.zip" } else { "uv.tar.gz" });
         
@@ -142,8 +144,8 @@ impl PythonManager {
             perms.set_mode(0o755); // Make binary executable (rwxr-xr-x)
             fs::set_permissions(&self.uv_binary, perms).await?;
         }
-        
-        println!("✅ uv installed successfully");
+
+        info!("uv installed successfully");
         Ok(())
     }
     
@@ -189,10 +191,11 @@ impl PythonManager {
         
         Err(anyhow!("uv.exe not found in archive"))
     }
-    
+
+
     async fn setup_environment(&self) -> Result<()> {
-        println!("🚀 Setting up Python environment...");
-        
+        info!("Setting up Python environment");
+
         Command::new(&self.uv_binary)
             .args(["python", "install", "3.12"])
             .output()
@@ -214,8 +217,8 @@ impl PythonManager {
                 .output()
                 .await?;
         }
-        
-        println!("✅ Python environment ready");
+
+        info!("Python environment ready");
         Ok(())
     }
     

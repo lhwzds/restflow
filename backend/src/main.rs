@@ -124,7 +124,7 @@ async fn main() {
         .await
         .expect("Failed to bind to port 3000");
 
-    println!("RestFlow running on http://localhost:3000");
+    tracing::info!("RestFlow running on http://localhost:3000");
 
     axum::serve(listener, app)
         .await

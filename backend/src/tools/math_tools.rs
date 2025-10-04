@@ -3,6 +3,7 @@ use rig::completion::ToolDefinition;
 use rig::tool::Tool;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use tracing::debug;
 
 #[derive(Deserialize)]
 pub struct AddArgs {
@@ -46,7 +47,7 @@ impl Tool for AddTool {
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
         let result = args.x + args.y;
-        println!("🔧 AddTool called: {} + {} = {}", args.x, args.y, result);
+        debug!(x = args.x, y = args.y, result, "AddTool executed");
         Ok(result)
     }
 }
