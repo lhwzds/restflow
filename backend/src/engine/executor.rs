@@ -8,6 +8,7 @@ use serde_json::Value;
 use std::sync::Arc;
 use tokio::task::JoinSet;
 use tokio::sync::Mutex;
+use tracing::{info, warn, error, debug};
 use uuid::Uuid;
 
 const QUEUE_POLL_INTERVAL_MS: u64 = 100;
@@ -34,7 +35,11 @@ pub struct WorkflowExecutor {
 impl WorkflowExecutor {
     /// Create a synchronous executor for a specific workflow
     /// Optionally provide storage for secret access
-    pub fn new_sync(workflow: Workflow, storage: Option<Arc<Storage>>) -> Self {
+    pub fn new_sync(
+        workflow: Workflow,
+        storage: Option<Arc<Storage>>,
+        registry: Arc<crate::node::registry::NodeRegistry>,
+    ) -> Self {
         let graph = WorkflowGraph::from_workflow(&workflow);
         let mut context = ExecutionContext::new(workflow.id.clone());
 
@@ -45,22 +50,26 @@ impl WorkflowExecutor {
 
         Self {
             inner: ExecutorInner::Sync { graph, context },
-            registry: Arc::new(crate::node::registry::NodeRegistry::new()),
+            registry,
             running: Arc::new(Mutex::new(false)),
         }
     }
     
     /// Create an asynchronous executor with storage and workers
-    pub fn new_async(storage: Arc<Storage>, num_workers: usize) -> Self {
+    pub fn new_async(
+        storage: Arc<Storage>,
+        num_workers: usize,
+        registry: Arc<crate::node::registry::NodeRegistry>,
+    ) -> Self {
         let scheduler = Arc::new(Scheduler::new(storage.queue.clone(), storage.clone()));
-        
+
         Self {
             inner: ExecutorInner::Async {
                 storage,
                 scheduler,
                 num_workers,
             },
-            registry: Arc::new(crate::node::registry::NodeRegistry::new()),
+            registry,
             running: Arc::new(Mutex::new(false)),
         }
     }
@@ -175,9 +184,9 @@ impl WorkflowExecutor {
                 Ok(output) => {
                     if let ExecutorInner::Sync { ref mut context, .. } = self.inner {
                         context.set_node(&node_id, output);
-                        self.merge_context(node_context);
+                        self.merge_context(&node_context);
                     }
-                    println!("Node {} completed", node_id);
+                    info!(node_id = %node_id, "Node completed");
                 }
                 Err(err) => {
                     return Err(anyhow::anyhow!("Node {} failed: {}", node_id, err));
@@ -187,10 +196,21 @@ impl WorkflowExecutor {
         Ok(())
     }
     
-    fn merge_context(&mut self, other: ExecutionContext) {
+    fn merge_context(&mut self, other: &ExecutionContext) {
         if let ExecutorInner::Sync { ref mut context, .. } = self.inner {
-            for (key, value) in other.data {
-                context.set(&key, value);
+            for (key, value) in &other.data {
+                // Check for conflicts and warn
+                if let Some(existing) = context.get(key) {
+                    if existing != value {
+                        warn!(
+                            key = %key,
+                            existing = ?existing,
+                            new = ?value,
+                            "Context key conflict detected - parallel nodes wrote different values"
+                        );
+                    }
+                }
+                context.set(key, value.clone());
             }
         }
     }
@@ -210,7 +230,7 @@ impl WorkflowExecutor {
     }
     
     fn log_stage_start(&self, stage_num: usize, group: &[String]) {
-        println!("Stage {}: executing {:?}", stage_num, group);
+        debug!(stage = stage_num, nodes = ?group, "Executing stage");
     }
     
     fn build_result(&self) -> Result<Value> {
@@ -281,16 +301,16 @@ impl WorkflowExecutor {
     fn recover_stalled_tasks(&self) {
         if let ExecutorInner::Async { scheduler, .. } = &self.inner {
             if let Err(e) = scheduler.recover_stalled_tasks() {
-                eprintln!("Failed to recover stalled tasks: {}", e);
+                error!(error = %e, "Failed to recover stalled tasks");
             }
         }
     }
     
     async fn spawn_workers(&self, num_workers: usize) {
-        println!("Starting {} workers", num_workers);
-        
+        info!(num_workers, "Starting workers");
+
         let (storage, scheduler) = match &self.inner {
-            ExecutorInner::Async { storage, scheduler, .. } => 
+            ExecutorInner::Async { storage, scheduler, .. } =>
                 (Some(storage.clone()), Some(scheduler.clone())),
             _ => (None, None),
         };
@@ -323,7 +343,7 @@ impl WorkflowExecutor {
         context: &mut ExecutionContext,
         registry: Arc<crate::node::registry::NodeRegistry>,
     ) -> Result<Value> {
-        println!("Executing node: {} (type: {:?})", node.id, node.node_type);
+        debug!(node_id = %node.id, node_type = ?node.node_type, "Executing node");
 
         let executor = registry.get(&node.node_type)
             .ok_or_else(|| anyhow::anyhow!("No executor found for node type: {:?}", node.node_type))?;
@@ -392,28 +412,28 @@ impl Worker {
     }
     
     async fn run(&self) {
-        println!("Worker {} started", self.id);
+        info!(worker_id = self.id, "Worker started");
         
         while *self.running.lock().await {
             if let Err(e) = self.process_next_task().await {
                 // Only log error if it's not a queue empty error
                 let error_msg = e.to_string();
                 if !error_msg.contains("Failed to get task") {
-                    eprintln!("Worker {} error: {}", self.id, error_msg);
+                    error!(worker_id = self.id, error = %error_msg, "Worker error");
                 }
                 // Brief sleep to avoid busy waiting when queue is empty
                 tokio::time::sleep(tokio::time::Duration::from_millis(QUEUE_POLL_INTERVAL_MS)).await;
             }
         }
-        
-        println!("Worker {} stopped", self.id);
+
+        info!(worker_id = self.id, "Worker stopped");
     }
     
     async fn process_next_task(&self) -> Result<()> {
         let task = self.scheduler.pop_task().await
             .map_err(|e| anyhow::anyhow!("Failed to get task: {}", e))?;
         
-        println!("Worker {} processing task: {} (node: {})", self.id, task.id, task.node_id);
+        debug!(worker_id = self.id, task_id = %task.id, node_id = %task.node_id, "Processing task");
         
         // Get the node from task (lazy-loaded)
         let node = task.get_node(&self.storage)?;
@@ -427,22 +447,23 @@ impl Worker {
         // Handle the result and queue downstream tasks if successful
         match result {
             Ok(output) => {
-                let chain_result = self.scheduler.queue_downstream_tasks(
-                    &task,
-                    output.clone()
-                );
-                
-                // Report success even if chaining fails (task itself succeeded)
-                if let Err(e) = chain_result {
-                    eprintln!("Failed to queue downstream tasks: {}", e);
+                // Queue downstream tasks - if this fails, mark task as failed
+                match self.scheduler.queue_downstream_tasks(&task, output.clone()) {
+                    Ok(_) => {
+                        let _ = self.scheduler.complete_task(&task.id, output);
+                        info!(task_id = %task.id, node_id = %task.node_id, "Task completed");
+                    }
+                    Err(e) => {
+                        let error_msg = format!("Task succeeded but failed to queue downstream: {}", e);
+                        let _ = self.scheduler.fail_task(&task.id, error_msg.clone());
+                        error!(task_id = %task.id, error = %e, "Failed to queue downstream tasks");
+                        return Err(anyhow::anyhow!(error_msg));
+                    }
                 }
-                
-                let _ = self.scheduler.complete_task(&task.id, output);
-                println!("Task {} completed successfully", task.id);
             }
             Err(error) => {
                 let _ = self.scheduler.fail_task(&task.id, error.to_string());
-                eprintln!("Task {} failed: {}", task.id, error);
+                error!(task_id = %task.id, error = %error, "Task execution failed");
             }
         }
         

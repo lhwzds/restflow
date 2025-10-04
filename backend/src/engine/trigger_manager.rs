@@ -1,22 +1,26 @@
 use crate::models::{ActiveTrigger, TriggerConfig, AuthConfig, ResponseMode};
 use crate::storage::Storage;
 use crate::engine::executor::WorkflowExecutor;
+use crate::node::registry::NodeRegistry;
 use std::sync::Arc;
 use std::collections::HashMap;
 use serde_json::Value;
 use anyhow::{Result, anyhow};
+use tracing::{info, debug};
 use ts_rs::TS;
 
 pub struct TriggerManager {
     storage: Arc<Storage>,
     executor: Arc<WorkflowExecutor>,
+    registry: Arc<NodeRegistry>,
 }
 
 impl TriggerManager {
-    pub fn new(storage: Arc<Storage>, executor: Arc<WorkflowExecutor>) -> Self {
+    pub fn new(storage: Arc<Storage>, executor: Arc<WorkflowExecutor>, registry: Arc<NodeRegistry>) -> Self {
         Self {
             storage,
             executor,
+            registry,
         }
     }
     
@@ -27,8 +31,7 @@ impl TriggerManager {
             .filter(|t| matches!(t.trigger_config, TriggerConfig::Webhook { .. }))
             .count();
         
-        println!("TriggerManager initialized with {} active triggers ({} webhooks)", 
-            triggers.len(), webhook_count);
+        info!(active_triggers = triggers.len(), webhooks = webhook_count, "TriggerManager initialized");
         Ok(())
     }
     
@@ -50,7 +53,7 @@ impl TriggerManager {
             let trigger_id = format!("{}_{}", workflow_id, node_id);
             let existing = self.storage.triggers.get_active_trigger(&trigger_id)?;
             if existing.is_some() {
-                println!("Trigger {} already active", trigger_id);
+                debug!(trigger_id = %trigger_id, "Trigger already active");
                 continue;
             }
             
@@ -59,8 +62,8 @@ impl TriggerManager {
             active_trigger.id = trigger_id;
             
             self.storage.triggers.activate_trigger(&active_trigger)?;
-            
-            println!("Activated trigger for node {} in workflow {}: {:?}", node_id, workflow_id, trigger_config);
+
+            info!(node_id = %node_id, workflow_id = %workflow_id, config = ?trigger_config, "Trigger activated");
             activated_triggers.push(active_trigger);
         }
         
@@ -74,8 +77,8 @@ impl TriggerManager {
             .ok_or_else(|| anyhow!("No active trigger found for workflow {}", workflow_id))?;
         
         self.storage.triggers.deactivate_trigger(&trigger.id)?;
-        
-        println!("Deactivated trigger for workflow {}", workflow_id);
+
+        info!(workflow_id = %workflow_id, "Trigger deactivated");
         
         Ok(())
     }
@@ -134,7 +137,7 @@ impl TriggerManager {
                         .map_err(|e| anyhow!("Failed to load workflow: {}", e))?;
 
                     // Create executor and execute synchronously
-                    let mut executor = WorkflowExecutor::new_sync(workflow, Some(self.storage.clone()));
+                    let mut executor = WorkflowExecutor::new_sync(workflow, Some(self.storage.clone()), self.registry.clone());
                     executor.set_input(input);
 
                     let result = executor.execute().await

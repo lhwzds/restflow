@@ -28,14 +28,25 @@ async fn health() -> axum::Json<Health> {
 
 #[tokio::main]
 async fn main() {
+    // Initialize tracing logger
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| "info,backend=debug".into())
+        )
+        .with_target(false)
+        .with_thread_ids(true)
+        .with_line_number(true)
+        .init();
+
+    tracing::info!("Starting RestFlow backend server");
+
     // Use AppCore for unified initialization
     let core = Arc::new(
         AppCore::new("restflow.db")
             .await
             .expect("Failed to initialize app core")
     );
-    
-    println!("Starting RestFlow server");
     
     // Configure CORS 
     let cors = CorsLayer::new()

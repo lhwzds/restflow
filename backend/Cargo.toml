@@ -29,6 +29,8 @@ mimalloc = { version = "0.1", default-features = false }
 tokio = { version = "1.47.1", features = ["full"] }
 tower = "0.5.2"
 tower-http = { version = "0.6.6", features = ["cors", "fs"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json"] }
 ts-rs = "11.0"
 uuid = { version = "1.18.0", features = ["v4", "serde"] }
 zip = "5.0.0"
