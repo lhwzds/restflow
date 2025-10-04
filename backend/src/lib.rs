@@ -15,6 +15,7 @@ use node::registry::NodeRegistry;
 use storage::Storage;
 use std::sync::Arc;
 use once_cell::sync::OnceCell;
+use tracing::{info, error};
 
 /// Core application state shared between server and Tauri modes
 pub struct AppCore {
@@ -32,7 +33,7 @@ impl AppCore {
         // Get worker count from database configuration
         let num_workers = storage.config.get_worker_count().unwrap_or(4);
 
-        println!("Initializing RestFlow with {} workers", num_workers);
+        info!(num_workers, "Initializing RestFlow");
 
         // Create node registry
         let registry = Arc::new(NodeRegistry::new());
@@ -54,7 +55,7 @@ impl AppCore {
 
         // Initialize trigger manager
         if let Err(e) = trigger_manager.init().await {
-            eprintln!("Failed to initialize trigger manager: {}", e);
+            error!(error = %e, "Failed to initialize trigger manager");
         }
 
         Ok(Self {

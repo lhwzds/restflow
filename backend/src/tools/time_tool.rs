@@ -4,6 +4,7 @@ use rig::completion::ToolDefinition;
 use rig::tool::Tool;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use tracing::debug;
 
 #[derive(Deserialize)]
 pub struct TimeArgs {
@@ -38,8 +39,8 @@ impl Tool for GetTimeTool {
     async fn call(&self, _args: Self::Args) -> Result<Self::Output, Self::Error> {
         let now: DateTime<Local> = Local::now();
         let time_str = now.to_rfc3339();
-        
-        println!("🕐 GetTimeTool called: {}", time_str);
+
+        debug!(time = %time_str, "GetTimeTool executed");
         Ok(time_str)
     }
 }
