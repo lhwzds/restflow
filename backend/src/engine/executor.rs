@@ -9,7 +9,6 @@ use std::sync::Arc;
 use tokio::task::JoinSet;
 use tokio::sync::Mutex;
 use tracing::{info, warn, error, debug};
-use uuid::Uuid;
 
 const QUEUE_POLL_INTERVAL_MS: u64 = 100;
 
@@ -249,44 +248,13 @@ impl WorkflowExecutor {
     // ============= Private async execution methods =============
     
     async fn submit_async(&self, workflow_id: String, input: Value) -> Result<String> {
-        let (storage, scheduler) = match &self.inner {
-            ExecutorInner::Async { storage, scheduler, .. } => (storage, scheduler),
+        let scheduler = match &self.inner {
+            ExecutorInner::Async { scheduler, .. } => scheduler,
             _ => return Err(anyhow::anyhow!("Not in async mode")),
         };
-        
-        // Load workflow
-        let workflow = storage.workflows.get_workflow(&workflow_id)
-            .map_err(|e| anyhow::anyhow!("Failed to load workflow: {}", e))?;
-        
-        // Decompose workflow into start node tasks
-        let execution_id = Uuid::new_v4().to_string();
-        let graph = WorkflowGraph::from_workflow(&workflow);
-        let start_nodes = graph.get_nodes_with_no_dependencies();
-        
-        if start_nodes.is_empty() {
-            return Err(anyhow::anyhow!("No start nodes found in workflow"));
-        }
-        
-        // Create initial context
-        let mut context = ExecutionContext::new(execution_id.clone());
-        context.ensure_secret_storage(&storage);
-        context.set(namespace::trigger::PAYLOAD, input.clone());
 
-        // Push all start nodes to queue (including triggers)
-        for node_id in start_nodes {
-            if let Some(node) = graph.get_node(&node_id) {
-                // Nodes reference data via {{...}} templates in config, no need for resolve_node_input
-                scheduler.push_task(
-                    execution_id.clone(),
-                    node.clone(),
-                    workflow.clone(),
-                    context.clone(),
-                    Value::Null  // No longer need to pass input
-                ).map_err(|e| anyhow::anyhow!("Failed to queue node: {}", e))?;
-            }
-        }
-        
-        Ok(execution_id)
+        // Delegate workflow orchestration to Scheduler
+        scheduler.submit_workflow_by_id(&workflow_id, input)
     }
     
     async fn try_start(&self) -> bool {
