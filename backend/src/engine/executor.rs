@@ -1,5 +1,5 @@
 use crate::models::{Node, Workflow};
-use crate::engine::context::ExecutionContext;
+use crate::engine::context::{ExecutionContext, namespace};
 use crate::engine::graph::WorkflowGraph;
 use crate::engine::scheduler::Scheduler;
 use crate::storage::Storage;
@@ -68,7 +68,7 @@ impl WorkflowExecutor {
     /// Set input for sync execution
     pub fn set_input(&mut self, input: Value) {
         if let ExecutorInner::Sync { ref mut context, .. } = self.inner {
-            context.set_variable("input".to_string(), input);
+            context.set(namespace::trigger::PAYLOAD, input);
         }
     }
     
@@ -174,7 +174,7 @@ impl WorkflowExecutor {
             match execution_result {
                 Ok(output) => {
                     if let ExecutorInner::Sync { ref mut context, .. } = self.inner {
-                        context.set_node_output(node_id.clone(), output);
+                        context.set_node(&node_id, output);
                         self.merge_context(node_context);
                     }
                     println!("Node {} completed", node_id);
@@ -189,8 +189,8 @@ impl WorkflowExecutor {
     
     fn merge_context(&mut self, other: ExecutionContext) {
         if let ExecutorInner::Sync { ref mut context, .. } = self.inner {
-            for (key, value) in other.variables {
-                context.set_variable(key, value);
+            for (key, value) in other.data {
+                context.set(&key, value);
             }
         }
     }
@@ -200,9 +200,9 @@ impl WorkflowExecutor {
             ExecutorInner::Sync { graph, context } => (graph, context),
             _ => return Err(anyhow::anyhow!("Not in sync mode")),
         };
-        
+
         for dep_id in graph.get_dependencies(node_id) {
-            if !context.node_outputs.contains_key(&dep_id) {
+            if context.get_node(&dep_id).is_none() {
                 return Err(anyhow::anyhow!("Dependency {} not completed for node {}", dep_id, node_id));
             }
         }
@@ -218,12 +218,11 @@ impl WorkflowExecutor {
             ExecutorInner::Sync { context, .. } => context,
             _ => return Err(anyhow::anyhow!("Not in sync mode")),
         };
-        
+
         Ok(serde_json::json!({
             "execution_id": context.execution_id,
             "status": "completed",
-            "results": context.node_outputs,
-            "variables": context.variables
+            "data": context.data
         }))
     }
     
@@ -251,37 +250,19 @@ impl WorkflowExecutor {
         // Create initial context
         let mut context = ExecutionContext::new(execution_id.clone());
         context.ensure_secret_storage(&storage);
-        context.set_variable("input".to_string(), input.clone());
-        
-        // Push start nodes to queue (skip trigger nodes)
+        context.set(namespace::trigger::PAYLOAD, input.clone());
+
+        // Push all start nodes to queue (including triggers)
         for node_id in start_nodes {
             if let Some(node) = graph.get_node(&node_id) {
-                if node.is_trigger() {
-                    // Find downstream nodes of this trigger and queue them instead
-                    let downstream = graph.get_downstream_nodes(&node_id);
-                    for downstream_id in downstream {
-                        if let Some(downstream_node) = graph.get_node(&downstream_id) {
-                            let downstream_input = context.resolve_node_input(downstream_node);
-                            scheduler.push_task(
-                                execution_id.clone(),
-                                downstream_node.clone(),
-                                workflow.clone(),
-                                context.clone(),
-                                downstream_input
-                            ).map_err(|e| anyhow::anyhow!("Failed to queue node: {}", e))?;
-                        }
-                    }
-                } else {
-                    // Non-trigger node, queue normally
-                    let node_input = context.resolve_node_input(node);
-                    scheduler.push_task(
-                        execution_id.clone(),
-                        node.clone(),
-                        workflow.clone(),
-                        context.clone(),
-                        node_input
-                    ).map_err(|e| anyhow::anyhow!("Failed to queue node: {}", e))?;
-                }
+                // Nodes reference data via {{...}} templates in config, no need for resolve_node_input
+                scheduler.push_task(
+                    execution_id.clone(),
+                    node.clone(),
+                    workflow.clone(),
+                    context.clone(),
+                    Value::Null  // No longer need to pass input
+                ).map_err(|e| anyhow::anyhow!("Failed to queue node: {}", e))?;
             }
         }
         
@@ -335,24 +316,18 @@ impl WorkflowExecutor {
     }
     
     // ============= Shared node execution logic =============
-    
+
     /// Unified node execution logic used by both sync and async modes
     async fn execute_node(
         node: &Node,
         context: &mut ExecutionContext,
         registry: Arc<crate::node::registry::NodeRegistry>,
     ) -> Result<Value> {
-        // Skip trigger nodes - they are just configuration
-        if node.is_trigger() {
-            println!("Skipping trigger node: {} (type: {:?})", node.id, node.node_type);
-            return Ok(serde_json::json!({"skipped": true}));
-        }
-        
         println!("Executing node: {} (type: {:?})", node.id, node.node_type);
-        
+
         let executor = registry.get(&node.node_type)
             .ok_or_else(|| anyhow::anyhow!("No executor found for node type: {:?}", node.node_type))?;
-        
+
         let config = context.interpolate_value(&node.config);
         executor.execute(&config, context).await
     }

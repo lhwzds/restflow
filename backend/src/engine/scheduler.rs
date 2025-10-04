@@ -234,7 +234,7 @@ impl Scheduler {
     ) -> bool {
         graph.get_dependencies(node_id)
             .iter()
-            .all(|dep| context.node_outputs.contains_key(dep))
+            .all(|dep| context.get_node(dep).is_some())
     }
 
     /// Queue downstream tasks after a node completes
@@ -248,7 +248,7 @@ impl Scheduler {
         
         // Update context with node output
         let mut context = task.context.clone();
-        context.set_node_output(task.node_id.clone(), output);
+        context.set_node(&task.node_id, output);
         
         // Find and queue ready downstream nodes
         let graph = WorkflowGraph::from_workflow(&workflow);
@@ -257,13 +257,13 @@ impl Scheduler {
         for downstream_id in downstream_nodes {
             if let Some(downstream_node) = graph.get_node(&downstream_id) {
                 if Self::are_dependencies_met(&graph, &downstream_id, &context) {
-                    let downstream_input = context.resolve_node_input(downstream_node);
+                    // Nodes reference data via {{...}} templates in config, no need for resolve_node_input
                     self.push_task(
                         task.execution_id.clone(),
                         downstream_node.clone(),
                         (*workflow).clone(),
                         context.clone(),
-                        downstream_input,
+                        Value::Null,  // No longer need to pass input
                     )?;
                 }
             }

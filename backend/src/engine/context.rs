@@ -5,8 +5,32 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
 use ts_rs::TS;
-use crate::models::Node;
 use crate::storage::{SecretStorage, Storage};
+
+/// ExecutionContext namespace constants
+/// Provides type-safe key builders to avoid hardcoded strings
+pub mod namespace {
+    /// Trigger-related keys
+    pub mod trigger {
+        /// Trigger input data (webhook payload, manual input, schedule time)
+        pub const PAYLOAD: &str = "trigger.payload";
+    }
+
+    /// Builds node output key: node.{id}
+    pub fn node(id: &str) -> String {
+        format!("node.{}", id)
+    }
+
+    /// Builds variable key: var.{name}
+    pub fn var(name: &str) -> String {
+        format!("var.{}", name)
+    }
+
+    /// Builds config key: config.{name}
+    pub fn config(name: &str) -> String {
+        format!("config.{}", name)
+    }
+}
 
 // Compile regex once at first use, then reuse for performance
 // Pattern: {{variable_name}} or {{node_id.field.subfield}}
@@ -21,12 +45,13 @@ static INTERPOLATION_REGEX: Lazy<Regex> =
 pub struct ExecutionContext {
     pub workflow_id: String,
     pub execution_id: String,
+    /// Unified data storage with namespace prefixes:
+    /// - trigger.* : Trigger outputs
+    /// - node.*    : Node outputs
+    /// - var.*     : User variables
+    /// - config.*  : Global configuration
     #[ts(type = "Record<string, any>")]
-    pub variables: HashMap<String, Value>,
-    #[ts(type = "Record<string, any>")]
-    pub node_outputs: HashMap<String, Value>,
-    #[ts(type = "Record<string, any>")]
-    pub global_config: HashMap<String, Value>,
+    pub data: HashMap<String, Value>,
     #[serde(skip)]
     #[ts(skip)]
     pub secret_storage: Option<Arc<SecretStorage>>,
@@ -37,9 +62,7 @@ impl ExecutionContext {
         Self {
             workflow_id,
             execution_id: uuid::Uuid::new_v4().to_string(),
-            variables: HashMap::new(),
-            node_outputs: HashMap::new(),
-            global_config: HashMap::new(),
+            data: HashMap::new(),
             secret_storage: None,
         }
     }
@@ -55,20 +78,34 @@ impl ExecutionContext {
         }
     }
 
-    pub fn set_variable(&mut self, key: String, value: Value) {
-        self.variables.insert(key, value);
+    /// Set data directly (recommended, key must include namespace)
+    pub fn set(&mut self, key: &str, value: Value) {
+        self.data.insert(key.to_string(), value);
     }
 
-    pub fn get_variable(&self, key: &str) -> Option<&Value> {
-        self.variables.get(key)
+    /// Get data directly (recommended, key must include namespace)
+    pub fn get(&self, key: &str) -> Option<&Value> {
+        self.data.get(key)
     }
 
-    pub fn set_node_output(&mut self, node_id: String, output: Value) {
-        self.node_outputs.insert(node_id, output);
+    /// Set variable (convenience method, automatically adds var. prefix)
+    pub fn set_var(&mut self, name: &str, value: Value) {
+        self.set(&namespace::var(name), value);
     }
 
-    pub fn get_node_output(&self, node_id: &str) -> Option<&Value> {
-        self.node_outputs.get(node_id)
+    /// Get variable (convenience method, automatically adds var. prefix)
+    pub fn get_var(&self, name: &str) -> Option<&Value> {
+        self.get(&namespace::var(name))
+    }
+
+    /// Set node output (convenience method, automatically adds node. prefix)
+    pub fn set_node(&mut self, id: &str, output: Value) {
+        self.set(&namespace::node(id), output);
+    }
+
+    /// Get node output (convenience method, automatically adds node. prefix)
+    pub fn get_node(&self, id: &str) -> Option<&Value> {
+        self.get(&namespace::node(id))
     }
 
     pub fn interpolate_value(&self, value: &Value) -> Value {
@@ -101,88 +138,40 @@ impl ExecutionContext {
         }
     }
 
-    pub fn resolve_node_input(&self, node: &Node) -> Value {
-        // First priority: use the node's own `config.input` if available
-        let resolved = if let Some(config) = node.config.as_object() {
-            if let Some(input_value) = config.get("input") {
-                // Apply interpolation so placeholders like {{ ... }} are expanded before logging/storing
-                let interpolated = self.interpolate_value(input_value);
-
-                // If interpolation produced a string, try parsing it as JSON to keep structure
-                if let Value::String(text) = &interpolated {
-                    if let Ok(parsed) = serde_json::from_str::<Value>(text) {
-                        parsed
-                    } else {
-                        // Not JSON: keep the raw string (will be wrapped below)
-                        Value::String(text.clone())
-                    }
-                } else {
-                    interpolated
-                }
-            } else {
-                // Node config exists but no explicit input field
-                Value::Null
-            }
-        } else {
-            // Node config itself isn't an object (unlikely, but guard anyway)
-            Value::Null
-        };
-
-        // Fallback: if node didn't provide an input, use the workflow-level initial input
-        let final_value = if resolved.is_null() {
-            self.variables
-                .get("input")
-                .cloned()
-                .unwrap_or(Value::Null)
-        } else {
-            resolved
-        };
-
-        // Always return a consistent JSON envelope so downstream consumers see `{ "input": ... }`
-        serde_json::json!({ "input": final_value })
-    }
-
     fn resolve_path(&self, path: &str) -> Option<Value> {
         let parts: Vec<&str> = path.split('.').collect();
         if parts.is_empty() {
             return None;
         }
 
-        // TODO: Improve with explicit namespaces to avoid conflicts
-        // Current: {{node_id}} - ambiguous, could be node output or variable
-        // Better: {{node.http1.body}}, {{var.counter}}, {{config.api_key}}
-        // This would prevent naming conflicts and make data sources explicit
+        // New logic: explicit namespaces
+        // Supported formats:
+        // - trigger.payload.body → data["trigger.payload"], then navigate to .body
+        // - node.http1.status → data["node.http1"], then navigate to .status
+        // - var.counter → data["var.counter"]
+        // - config.api_key → data["config.api_key"]
 
-        // Try node_outputs first, then variables, then global_config
-        let (root, start_idx) = if let Some(output) = self.node_outputs.get(parts[0]) {
-            (output, 1)
-        } else if let Some(var) = self.variables.get(parts[0]) {
-            (var, 1)
-        } else if parts[0] == "config" && parts.len() > 1 {
-            // Handle config.key pattern
-            if let Some(config_val) = self.global_config.get(parts[1]) {
-                (config_val, 2)
-            } else {
-                return None;
+        // Try two-level key (namespace.name)
+        if parts.len() >= 2 {
+            let two_level_key = format!("{}.{}", parts[0], parts[1]);
+            if let Some(root) = self.data.get(&two_level_key) {
+                // If there's a deeper path, continue navigation
+                if parts.len() > 2 {
+                    return Self::navigate_nested(root, &parts[2..]);
+                } else {
+                    return Some(root.clone());
+                }
             }
-        } else {
-            return None;
-        };
-
-        // Return root if no nested path
-        if parts.len() == start_idx {
-            return Some(root.clone());
         }
 
-        // Navigate nested fields
-        let mut current = root;
-        for part in &parts[start_idx..] {
-            match current {
-                Value::Object(map) => {
-                    current = map.get(*part)?;
-                }
-                _ => return None,
-            }
+        // Try single-level key (direct lookup of full path)
+        self.data.get(path).cloned()
+    }
+
+    /// Navigate nested fields in Value object
+    fn navigate_nested(mut current: &Value, parts: &[&str]) -> Option<Value> {
+        for part in parts {
+            current = current.as_object()?.get(*part)?;
         }
         Some(current.clone())
     }
