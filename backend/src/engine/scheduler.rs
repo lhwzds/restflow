@@ -1,10 +1,11 @@
 use crate::models::{Node, Workflow, Task, TaskStatus};
-use crate::engine::context::ExecutionContext;
+use crate::engine::context::{ExecutionContext, namespace};
 use crate::engine::graph::WorkflowGraph;
 use crate::storage::{Storage, TaskQueue};
 use anyhow::Result;
 use serde_json::Value;
 use std::sync::Arc;
+use uuid::Uuid;
 
 const DEFAULT_STALL_TIMEOUT_SECONDS: i64 = 300; // 5 minutes
 
@@ -55,6 +56,58 @@ impl Scheduler {
         self.queue.insert_pending(priority, &serialized)?;
 
         Ok(task_id)
+    }
+
+    /// Submit an entire workflow for execution (workflow-level entry point)
+    /// This centralizes workflow orchestration logic in Scheduler
+    pub fn submit_workflow(
+        &self,
+        workflow: Workflow,
+        input: Value,
+    ) -> Result<String> {
+        // Create execution context with secret storage
+        let execution_id = Uuid::new_v4().to_string();
+        let mut context = ExecutionContext::new(execution_id.clone());
+        context.ensure_secret_storage(&self.storage);
+        context.set(namespace::trigger::PAYLOAD, input);
+
+        // Parse workflow DAG and find start nodes
+        let graph = WorkflowGraph::from_workflow(&workflow);
+        let start_nodes = graph.get_nodes_with_no_dependencies();
+
+        if start_nodes.is_empty() {
+            return Err(anyhow::anyhow!(
+                "No start nodes found in workflow {}",
+                workflow.id
+            ));
+        }
+
+        // Queue all start nodes (including triggers)
+        for node_id in start_nodes {
+            if let Some(node) = graph.get_node(&node_id) {
+                self.push_task(
+                    execution_id.clone(),
+                    node.clone(),
+                    workflow.clone(),
+                    context.clone(),
+                    Value::Null, // Nodes use {{...}} templates in config
+                )?;
+            }
+        }
+
+        Ok(execution_id)
+    }
+
+    /// Submit a workflow by ID for execution
+    pub fn submit_workflow_by_id(
+        &self,
+        workflow_id: &str,
+        input: Value,
+    ) -> Result<String> {
+        let workflow = self.storage.workflows.get_workflow(workflow_id)
+            .map_err(|e| anyhow::anyhow!("Failed to load workflow {}: {}", workflow_id, e))?;
+
+        self.submit_workflow(workflow, input)
     }
 
     /// Pop a task from the queue (blocks until task available)
@@ -346,5 +399,43 @@ mod tests {
         let found = scheduler.get_task(&task_id).unwrap();
         assert!(found.is_some(), "Should find task in pending");
         assert_eq!(found.unwrap().id, task_id);
+    }
+
+    #[test]
+    fn test_submit_workflow() {
+        use crate::models::{Node, NodeType};
+
+        let (scheduler, _temp_dir) = setup_test_scheduler();
+
+        // Create a simple workflow with one node
+        let node = Node {
+            id: "start_node".to_string(),
+            node_type: NodeType::Agent,
+            config: serde_json::json!({"model": "test"}),
+            position: None,
+        };
+
+        let workflow = Workflow {
+            id: "test-workflow".to_string(),
+            name: "Test Workflow".to_string(),
+            nodes: vec![node],
+            edges: vec![],
+        };
+
+        // Submit workflow
+        let input = serde_json::json!({"test": "data"});
+        let execution_id = scheduler.submit_workflow(workflow, input).unwrap();
+
+        // Verify execution_id is valid UUID format
+        assert!(!execution_id.is_empty(), "Execution ID should not be empty");
+
+        // Verify task was queued
+        let pending_tasks = scheduler.queue.get_all_pending().unwrap();
+        assert_eq!(pending_tasks.len(), 1, "Should have 1 pending task");
+
+        // Verify task has correct execution_id
+        let task: Task = serde_json::from_slice(&pending_tasks[0]).unwrap();
+        assert_eq!(task.execution_id, execution_id);
+        assert_eq!(task.node_id, "start_node");
     }
 }
