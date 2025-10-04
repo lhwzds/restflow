@@ -5,6 +5,7 @@ use anyhow::Result;
 use serde_json::Value;
 use crate::models::NodeType;
 use crate::engine::context::ExecutionContext;
+use crate::node::trigger::TriggerExecutor;
 
 #[async_trait]
 pub trait NodeExecutor: Send + Sync {
@@ -20,59 +21,27 @@ impl NodeRegistry {
         let mut registry = Self {
             executors: HashMap::new(),
         };
-        
-        registry.register(NodeType::ManualTrigger, Arc::new(ManualTriggerExecutor));
-        registry.register(NodeType::WebhookTrigger, Arc::new(WebhookTriggerExecutor));
-        registry.register(NodeType::ScheduleTrigger, Arc::new(ScheduleTriggerExecutor));
+
+        // Register trigger executor (using unified TriggerExecutor)
+        let trigger_executor = Arc::new(TriggerExecutor);
+        registry.register(NodeType::ManualTrigger, trigger_executor.clone());
+        registry.register(NodeType::WebhookTrigger, trigger_executor.clone());
+        registry.register(NodeType::ScheduleTrigger, trigger_executor);
+
+        // Register other node executors
         registry.register(NodeType::HttpRequest, Arc::new(HttpRequestExecutor));
         registry.register(NodeType::Print, Arc::new(PrintExecutor));
         registry.register(NodeType::Agent, Arc::new(AgentExecutor));
-        
+
         registry
     }
-    
+
     pub fn register(&mut self, node_type: NodeType, executor: Arc<dyn NodeExecutor>) {
         self.executors.insert(node_type, executor);
     }
-    
+
     pub fn get(&self, node_type: &NodeType) -> Option<Arc<dyn NodeExecutor>> {
         self.executors.get(node_type).cloned()
-    }
-}
-
-struct ManualTriggerExecutor;
-
-#[async_trait]
-impl NodeExecutor for ManualTriggerExecutor {
-    async fn execute(&self, _config: &Value, _context: &mut ExecutionContext) -> Result<Value> {
-        Ok(serde_json::json!({
-            "type": "manual",
-            "triggered_at": chrono::Utc::now().to_rfc3339()
-        }))
-    }
-}
-
-struct WebhookTriggerExecutor;
-
-#[async_trait]
-impl NodeExecutor for WebhookTriggerExecutor {
-    async fn execute(&self, _config: &Value, _context: &mut ExecutionContext) -> Result<Value> {
-        Ok(serde_json::json!({
-            "type": "webhook",
-            "triggered_at": chrono::Utc::now().to_rfc3339()
-        }))
-    }
-}
-
-struct ScheduleTriggerExecutor;
-
-#[async_trait]
-impl NodeExecutor for ScheduleTriggerExecutor {
-    async fn execute(&self, _config: &Value, _context: &mut ExecutionContext) -> Result<Value> {
-        Ok(serde_json::json!({
-            "type": "schedule",
-            "triggered_at": chrono::Utc::now().to_rfc3339()
-        }))
     }
 }
 
