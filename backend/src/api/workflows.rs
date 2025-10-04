@@ -99,7 +99,7 @@ pub async fn execute_workflow(
 ) -> Json<Value> {
     workflow.id = format!("inline-{}", uuid::Uuid::new_v4());
 
-    let mut wf_executor = WorkflowExecutor::new_sync(workflow, Some(state.storage.clone()));
+    let mut wf_executor = WorkflowExecutor::new_sync(workflow, Some(state.storage.clone()), state.registry.clone());
     match wf_executor.execute().await {
         Ok(output) => Json(serde_json::json!({
             "status": "success",
@@ -120,7 +120,7 @@ pub async fn execute_workflow_by_id(
 ) -> Json<Value> {
     match state.storage.workflows.get_workflow(&workflow_id) {
         Ok(workflow) => {
-            let mut wf_executor = WorkflowExecutor::new_sync(workflow, Some(state.storage.clone()));
+            let mut wf_executor = WorkflowExecutor::new_sync(workflow, Some(state.storage.clone()), state.registry.clone());
             wf_executor.set_input(input);
             match wf_executor.execute().await {
                 Ok(output) => Json(serde_json::json!({

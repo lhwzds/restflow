@@ -11,6 +11,7 @@ pub use models::*;
 
 use engine::executor::WorkflowExecutor;
 use engine::trigger_manager::TriggerManager;
+use node::registry::NodeRegistry;
 use storage::Storage;
 use std::sync::Arc;
 use once_cell::sync::OnceCell;
@@ -21,40 +22,47 @@ pub struct AppCore {
     pub executor: Arc<WorkflowExecutor>,
     pub trigger_manager: Arc<TriggerManager>,
     pub python_manager: OnceCell<Arc<python::PythonManager>>,
+    pub registry: Arc<NodeRegistry>,
 }
 
 impl AppCore {
     pub async fn new(db_path: &str) -> anyhow::Result<Self> {
         let storage = Arc::new(Storage::new(db_path)?);
-        
+
         // Get worker count from database configuration
         let num_workers = storage.config.get_worker_count().unwrap_or(4);
-        
+
         println!("Initializing RestFlow with {} workers", num_workers);
-        
+
+        // Create node registry
+        let registry = Arc::new(NodeRegistry::new());
+
         // Create and start workflow executor
         let executor = Arc::new(WorkflowExecutor::new_async(
             storage.clone(),
-            num_workers
+            num_workers,
+            registry.clone()
         ));
         executor.start().await;
-        
+
         // Create trigger manager
         let trigger_manager = Arc::new(TriggerManager::new(
             storage.clone(),
-            executor.clone()
+            executor.clone(),
+            registry.clone()
         ));
-        
+
         // Initialize trigger manager
         if let Err(e) = trigger_manager.init().await {
             eprintln!("Failed to initialize trigger manager: {}", e);
         }
-        
+
         Ok(Self {
             storage,
             executor,
             trigger_manager,
             python_manager: OnceCell::new(),
+            registry,
         })
     }
     
