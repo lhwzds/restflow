@@ -7,7 +7,7 @@ use axum::{
 };
 use serde_json::Value;
 
-// GET /api/workflow/list
+// GET /api/workflows
 pub async fn list_workflows(
     State(state): State<AppState>,
 ) -> Json<Value> {
@@ -23,7 +23,7 @@ pub async fn list_workflows(
     }
 }
 
-// POST /api/workflow/create
+// POST /api/workflows
 pub async fn create_workflow(
     State(state): State<AppState>,
     Json(workflow): Json<Workflow>,
@@ -41,7 +41,7 @@ pub async fn create_workflow(
     }
 }
 
-// GET /api/workflow/get/{id}
+// GET /api/workflows/{id}
 pub async fn get_workflow(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -55,7 +55,7 @@ pub async fn get_workflow(
     }
 }
 
-// PUT /api/workflow/update/{id}
+// PUT /api/workflows/{id}
 pub async fn update_workflow(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -74,7 +74,7 @@ pub async fn update_workflow(
     }
 }
 
-// DELETE /api/workflow/delete/{id}
+// DELETE /api/workflows/{id}
 pub async fn delete_workflow(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -92,7 +92,7 @@ pub async fn delete_workflow(
     }
 }
 
-// POST /api/execution/sync/run
+// POST /api/workflows/execute
 pub async fn execute_workflow(
     State(state): State<AppState>,
     Json(mut workflow): Json<Workflow>,
@@ -112,7 +112,7 @@ pub async fn execute_workflow(
     }
 }
 
-// POST /api/execution/sync/run-workflow/{workflow_id}
+// POST /api/workflows/{workflow_id}/execute
 pub async fn execute_workflow_by_id(
     State(state): State<AppState>,
     Path(workflow_id): Path<String>,
@@ -140,7 +140,7 @@ pub async fn execute_workflow_by_id(
     }
 }
 
-// POST /api/execution/async/submit/{workflow_id}
+// POST /api/workflows/{workflow_id}/executions
 pub async fn submit_workflow(
     State(state): State<AppState>,
     Path(workflow_id): Path<String>,

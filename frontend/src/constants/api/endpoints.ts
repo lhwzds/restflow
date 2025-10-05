@@ -12,40 +12,40 @@ export const API_ENDPOINTS = {
   // Health check
   HEALTH: '/health',
 
-  // Workflow management
+  // Workflow management 
   WORKFLOW: {
-    LIST: `${API_PREFIX}/workflow/list`,
-    CREATE: `${API_PREFIX}/workflow/create`,
-    GET: (id: string) => `${API_PREFIX}/workflow/get/${id}` as const,
-    UPDATE: (id: string) => `${API_PREFIX}/workflow/update/${id}` as const,
-    DELETE: (id: string) => `${API_PREFIX}/workflow/delete/${id}` as const,
+    LIST: `${API_PREFIX}/workflows`,
+    CREATE: `${API_PREFIX}/workflows`,
+    GET: (id: string) => `${API_PREFIX}/workflows/${id}` as const,
+    UPDATE: (id: string) => `${API_PREFIX}/workflows/${id}` as const,
+    DELETE: (id: string) => `${API_PREFIX}/workflows/${id}` as const,
   },
 
-  // Execution operations
+  // Execution operations 
   EXECUTION: {
-    SYNC_RUN: `${API_PREFIX}/execution/sync/run`,
-    SYNC_RUN_BY_ID: (id: string) => `${API_PREFIX}/execution/sync/run-workflow/${id}` as const,
-    ASYNC_SUBMIT: (id: string) => `${API_PREFIX}/execution/async/submit/${id}` as const,
-    STATUS: (id: string) => `${API_PREFIX}/execution/status/${id}` as const,
+    SYNC_RUN: `${API_PREFIX}/workflows/execute`,
+    SYNC_RUN_BY_ID: (id: string) => `${API_PREFIX}/workflows/${id}/execute` as const,
+    ASYNC_SUBMIT: (id: string) => `${API_PREFIX}/workflows/${id}/executions` as const,
+    STATUS: (id: string) => `${API_PREFIX}/executions/${id}` as const,
   },
 
-  // Task management
+  // Task management 
   TASK: {
-    STATUS: (id: string) => `${API_PREFIX}/task/status/${id}` as const,
-    LIST: `${API_PREFIX}/task/list`,
+    LIST: `${API_PREFIX}/tasks`,
+    STATUS: (id: string) => `${API_PREFIX}/tasks/${id}` as const,
   },
 
-  // Node operations
+  // Node operations 
   NODE: {
-    EXECUTE: `${API_PREFIX}/node/execute`,
+    EXECUTE: `${API_PREFIX}/nodes/execute`,
   },
 
   // Trigger management
   TRIGGER: {
-    ACTIVATE: (id: string) => `${API_PREFIX}/workflow/${id}/activate` as const,
-    DEACTIVATE: (id: string) => `${API_PREFIX}/workflow/${id}/deactivate` as const,
-    STATUS: (id: string) => `${API_PREFIX}/workflow/${id}/trigger-status` as const,
-    TEST: (id: string) => `${API_PREFIX}/workflow/${id}/test` as const,
+    ACTIVATE: (id: string) => `${API_PREFIX}/workflows/${id}/activate` as const,
+    DEACTIVATE: (id: string) => `${API_PREFIX}/workflows/${id}/deactivate` as const,
+    STATUS: (id: string) => `${API_PREFIX}/workflows/${id}/trigger-status` as const,
+    TEST: (id: string) => `${API_PREFIX}/workflows/${id}/test` as const,
     WEBHOOK: (id: string) => `${API_PREFIX}/triggers/webhook/${id}` as const,
   },
 

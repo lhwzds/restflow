@@ -67,32 +67,29 @@ async fn main() {
     let app = Router::new()
         .route("/health", get(health))
         
-        // Workflow management 
-        .route("/api/workflow/list", get(list_workflows))
-        .route("/api/workflow/create", post(create_workflow))
-        .route("/api/workflow/get/{id}", get(get_workflow))
-        .route("/api/workflow/update/{id}", put(update_workflow))
-        .route("/api/workflow/delete/{id}", delete(delete_workflow))
+        // Workflow management (RESTful)
+        .route("/api/workflows", get(list_workflows).post(create_workflow))
+        .route("/api/workflows/{id}", get(get_workflow).put(update_workflow).delete(delete_workflow))
+
+        // Execution operations (RESTful)
+        .route("/api/workflows/execute", post(execute_workflow))
+        .route("/api/workflows/{workflow_id}/execute", post(execute_workflow_by_id))
+        .route("/api/workflows/{workflow_id}/executions", post(submit_workflow))
+        .route("/api/executions/{execution_id}", get(get_execution_status)) 
         
-        // Execution operations
-        .route("/api/execution/sync/run", post(execute_workflow))              
-        .route("/api/execution/sync/run-workflow/{workflow_id}", post(execute_workflow_by_id))  
-        .route("/api/execution/async/submit/{workflow_id}", post(submit_workflow)) 
-        .route("/api/execution/status/{execution_id}", get(get_execution_status)) 
-        
-        // Task operations
-        .route("/api/task/status/{task_id}", get(get_task_status))                
-        .route("/api/task/list", get(list_tasks))
-        .route("/api/node/execute", post(execute_node))
+        // Task operations (RESTful)
+        .route("/api/tasks", get(list_tasks))
+        .route("/api/tasks/{task_id}", get(get_task_status))
+        .route("/api/nodes/execute", post(execute_node))
         
         // System configuration
         .route("/api/config", get(get_config).put(update_config))
         
         // Trigger management
-        .route("/api/workflow/{id}/activate", put(activate_workflow))
-        .route("/api/workflow/{id}/deactivate", put(deactivate_workflow))
-        .route("/api/workflow/{id}/trigger-status", get(get_workflow_trigger_status))
-        .route("/api/workflow/{id}/test", post(test_workflow_trigger))
+        .route("/api/workflows/{id}/activate", put(activate_workflow))
+        .route("/api/workflows/{id}/deactivate", put(deactivate_workflow))
+        .route("/api/workflows/{id}/trigger-status", get(get_workflow_trigger_status))
+        .route("/api/workflows/{id}/test", post(test_workflow_trigger))
         
         // Webhook endpoint (accepts any HTTP method)
         .route("/api/triggers/webhook/{webhook_id}", 
