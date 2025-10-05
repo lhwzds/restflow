@@ -7,6 +7,7 @@ use serde_json::Value;
 use std::sync::Arc;
 use uuid::Uuid;
 
+// Tasks processing longer than this threshold are considered stalled and will be reset to pending
 const DEFAULT_STALL_TIMEOUT_SECONDS: i64 = 300; // 5 minutes
 
 pub struct Scheduler {
@@ -20,11 +21,12 @@ impl Scheduler {
     }
 
     /// Add a node task to the queue
+    /// Accepts Arc<Workflow> to avoid expensive cloning in downstream task queueing
     pub fn push_task(
         &self,
         execution_id: String,
         node: Node,
-        workflow: Workflow,
+        workflow: Arc<Workflow>,
         context: ExecutionContext,
         input: Value,
     ) -> Result<String> {
@@ -38,9 +40,12 @@ impl Scheduler {
         );
         let task_id = task.id.clone();
 
+        // Pre-populate workflow Arc to avoid lazy loading from storage
+        let _ = task.set_workflow(workflow);
+
         let priority = task.priority();
         let serialized = serde_json::to_vec(&task)?;
-        self.queue.insert_pending(priority, &serialized)?;
+        self.queue.insert_pending(priority, &task_id, &serialized)?;
 
         Ok(task_id)
     }
@@ -53,7 +58,7 @@ impl Scheduler {
 
         let priority = task.priority();
         let serialized = serde_json::to_vec(&task)?;
-        self.queue.insert_pending(priority, &serialized)?;
+        self.queue.insert_pending(priority, &task_id, &serialized)?;
 
         Ok(task_id)
     }
@@ -65,6 +70,8 @@ impl Scheduler {
         workflow: Workflow,
         input: Value,
     ) -> Result<String> {
+        let workflow = Arc::new(workflow);
+
         // Create execution context with secret storage
         let execution_id = Uuid::new_v4().to_string();
         let mut context = ExecutionContext::new(execution_id.clone());
@@ -82,7 +89,7 @@ impl Scheduler {
             ));
         }
 
-        // Queue all start nodes (including triggers)
+        // Queue all start nodes (nodes with no incoming edges, including trigger nodes)
         for node_id in start_nodes {
             if let Some(node) = graph.get_node(&node_id) {
                 self.push_task(
@@ -90,7 +97,7 @@ impl Scheduler {
                     node.clone(),
                     workflow.clone(),
                     context.clone(),
-                    Value::Null, // Nodes use {{...}} templates in config
+                    Value::Null, // Nodes reference data via {{...}} templates - context provides runtime values
                 )?;
             }
         }
@@ -124,22 +131,12 @@ impl Scheduler {
     }
 
     /// Try to pop a task without blocking
+    /// Uses atomic_pop_pending with callback to ensure atomicity
     fn try_pop_task(&self) -> Result<Option<Task>> {
-        // Get first pending task
-        if let Some((priority, data)) = self.queue.get_first_pending()? {
-            let mut task: Task = serde_json::from_slice(&data)?;
-            
-            // Update task status
-            task.start();
-            
-            // Move to processing
-            let serialized = serde_json::to_vec(&task)?;
-            self.queue.move_to_processing(priority, &task.id, &serialized)?;
-            
-            Ok(Some(task))
-        } else {
-            Ok(None)
-        }
+        // Atomically pop and update task state in single transaction
+        // If worker crashes before commit, task stays in pending
+        // If commit succeeds, processing table has Running status
+        self.queue.atomic_pop_pending(|task| task.start())
     }
 
     /// Mark a task as completed with output
@@ -265,13 +262,14 @@ impl Scheduler {
                     // Reset status and move back to pending
                     task.status = TaskStatus::Pending;
                     task.started_at = None;
-                    
+
+                    let task_id = task.id.clone();
                     let priority = task.priority();
                     let serialized = serde_json::to_vec(&task)?;
-                    
-                    self.queue.remove_from_processing(&task.id)?;
-                    self.queue.insert_pending(priority, &serialized)?;
-                    
+
+                    self.queue.remove_from_processing(&task_id)?;
+                    self.queue.insert_pending(priority, &task_id, &serialized)?;
+
                     recovered += 1;
                 }
             }
@@ -292,32 +290,33 @@ impl Scheduler {
     }
 
     /// Queue downstream tasks after a node completes
+    /// Uses Arc<Workflow> to avoid expensive cloning in large workflows
     pub fn queue_downstream_tasks(
         &self,
         task: &Task,
         output: Value,
     ) -> Result<()> {
-        // Get workflow from task
+        // Get workflow Arc from task (first access triggers DB load, then cached in task)
         let workflow = task.get_workflow(&self.storage)?;
-        
+
         // Update context with node output
         let mut context = task.context.clone();
         context.set_node(&task.node_id, output);
-        
+
         // Find and queue ready downstream nodes
         let graph = WorkflowGraph::from_workflow(&workflow);
         let downstream_nodes = graph.get_downstream_nodes(&task.node_id);
-        
+
         for downstream_id in downstream_nodes {
             if let Some(downstream_node) = graph.get_node(&downstream_id) {
                 if Self::are_dependencies_met(&graph, &downstream_id, &context) {
-                    // Nodes reference data via {{...}} templates in config, no need for resolve_node_input
+                    // Pass Arc to avoid workflow deep clone (large workflows contain many nodes)
                     self.push_task(
                         task.execution_id.clone(),
                         downstream_node.clone(),
-                        (*workflow).clone(),
+                        workflow.clone(),
                         context.clone(),
-                        Value::Null,  // No longer need to pass input
+                        Value::Null,
                     )?;
                 }
             }
@@ -393,7 +392,7 @@ mod tests {
         // Push to queue
         let priority = task.priority();
         let serialized = serde_json::to_vec(&task).unwrap();
-        scheduler.queue.insert_pending(priority, &serialized).unwrap();
+        scheduler.queue.insert_pending(priority, &task_id, &serialized).unwrap();
 
         // Get task should find it in pending
         let found = scheduler.get_task(&task_id).unwrap();

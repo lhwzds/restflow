@@ -107,6 +107,12 @@ impl Task {
             .map(|w| w.clone())
     }
 
+    /// Pre-populate the workflow Arc to avoid lazy loading from storage
+    /// This is useful when creating tasks from a workflow that's already in memory
+    pub fn set_workflow(&self, workflow: Arc<Workflow>) -> Result<(), Arc<Workflow>> {
+        self.workflow.set(workflow)
+    }
+
     /// Mark task as running
     pub fn start(&mut self) {
         self.status = TaskStatus::Running;
