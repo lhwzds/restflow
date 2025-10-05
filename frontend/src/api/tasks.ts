@@ -29,16 +29,14 @@ export const getTaskStatus = async (id: string): Promise<{
       error: task.error || undefined
     }
   }
-  const response = await apiClient.get<{
-    status: string
-    data: {
-      id: string
-      status: TaskStatus
-      result?: any
-      error?: string
-    }
-  }>(API_ENDPOINTS.TASK.STATUS(id))
-  return response.data.data
+  const response = await apiClient.get<Task>(API_ENDPOINTS.TASK.STATUS(id))
+  const task = response.data
+  return {
+    id: task.id,
+    status: task.status,
+    result: task.output,
+    error: task.error || undefined
+  }
 }
 
 export const listTasks = async (params?: {
@@ -55,11 +53,8 @@ export const listTasks = async (params?: {
       limit: params?.limit || 100
     })
   }
-  const response = await apiClient.get<{
-    status: string
-    data: Task[]
-  }>(API_ENDPOINTS.TASK.LIST, { params })
-  return response.data.data
+  const response = await apiClient.get<Task[]>(API_ENDPOINTS.TASK.LIST, { params })
+  return response.data
 }
 
 export const getTasksByExecutionId = async (executionId: string): Promise<Task[]> => {
@@ -72,11 +67,8 @@ export const getExecutionStatus = async (executionId: string): Promise<Task[]> =
       execution_id: executionId
     })
   }
-  const response = await apiClient.get<{
-    status: string
-    data: Task[]
-  }>(API_ENDPOINTS.EXECUTION.STATUS(executionId))
-  return response.data.data
+  const response = await apiClient.get<Task[]>(API_ENDPOINTS.EXECUTION.STATUS(executionId))
+  return response.data
 }
 
 export const testNodeExecution = async <T = any>(payload: NodeTestRequest): Promise<T> => {
@@ -84,12 +76,9 @@ export const testNodeExecution = async <T = any>(payload: NodeTestRequest): Prom
     throw new Error('Node testing is not supported in desktop mode yet')
   }
 
-  const response = await apiClient.post<{
-    status: string
-    data: T
-  }>(API_ENDPOINTS.EXECUTION.SYNC_RUN, payload)
+  const response = await apiClient.post<T>(API_ENDPOINTS.EXECUTION.SYNC_RUN, payload)
 
-  return response.data.data
+  return response.data
 }
 
 export const executeNode = async (node: any, input: any = {}): Promise<string> => {
@@ -99,9 +88,9 @@ export const executeNode = async (node: any, input: any = {}): Promise<string> =
       input
     })
   }
-  const response = await apiClient.post<{
-    status: string
-    data: { task_id: string }
-  }>(API_ENDPOINTS.NODE.EXECUTE, node)
-  return response.data.data.task_id
+  const response = await apiClient.post<{ task_id: string; message: string }>(
+    API_ENDPOINTS.NODE.EXECUTE,
+    node
+  )
+  return response.data.task_id
 }

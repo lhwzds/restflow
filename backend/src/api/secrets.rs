@@ -1,4 +1,4 @@
-use crate::{api::state::AppState, services};
+use crate::{api::{state::AppState, ApiResponse}, models::Secret, services};
 use axum::{
     extract::{Path, State},
     http::StatusCode,
@@ -23,9 +23,9 @@ pub struct UpdateSecretRequest {
 /// List all secrets (keys only, no values)
 pub async fn list_secrets(
     State(state): State<AppState>,
-) -> Result<impl IntoResponse, (StatusCode, String)> {
+) -> Result<Json<ApiResponse<Vec<Secret>>>, (StatusCode, String)> {
     match services::secrets::list_secrets(&state).await {
-        Ok(secrets) => Ok(Json(secrets)),
+        Ok(secrets) => Ok(Json(ApiResponse::ok(secrets))),
         Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
     }
 }
@@ -45,13 +45,13 @@ pub async fn create_secret(
     match services::secrets::set_secret(&state, &payload.key, &payload.value, payload.description.clone()).await {
         Ok(_) => {
             // Return newly created secret without the actual value for security
-            let mut secret = crate::models::Secret::new(
+            let mut secret = Secret::new(
                 payload.key,
                 String::new(),  // Don't return actual value
                 payload.description,
             );
             secret.value = String::new();  // Clear value for security
-            Ok((StatusCode::CREATED, Json(secret)))
+            Ok((StatusCode::CREATED, Json(ApiResponse::ok(secret))))
         }
         Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
     }
@@ -62,7 +62,7 @@ pub async fn update_secret(
     State(state): State<AppState>,
     Path(key): Path<String>,
     Json(payload): Json<UpdateSecretRequest>,
-) -> Result<impl IntoResponse, (StatusCode, String)> {
+) -> Result<Json<ApiResponse<()>>, (StatusCode, String)> {
     match services::secrets::has_secret(&state, &key).await {
         Ok(false) => return Err((StatusCode::NOT_FOUND, "Secret not found".to_string())),
         Err(e) => return Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
@@ -70,7 +70,7 @@ pub async fn update_secret(
     }
 
     match services::secrets::set_secret(&state, &key, &payload.value, payload.description).await {
-        Ok(_) => Ok("Secret updated successfully"),
+        Ok(_) => Ok(Json(ApiResponse::message("Secret updated successfully"))),
         Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
     }
 }
@@ -79,9 +79,9 @@ pub async fn update_secret(
 pub async fn delete_secret(
     State(state): State<AppState>,
     Path(key): Path<String>,
-) -> Result<impl IntoResponse, (StatusCode, String)> {
+) -> Result<Json<ApiResponse<()>>, (StatusCode, String)> {
     match services::secrets::delete_secret(&state, &key).await {
-        Ok(_) => Ok("Secret deleted successfully"),
+        Ok(_) => Ok(Json(ApiResponse::message("Secret deleted successfully"))),
         Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
     }
 }

@@ -6,7 +6,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::api::state::AppState;
+use crate::api::{state::AppState, ApiResponse};
 
 #[derive(Debug, Deserialize)]
 pub struct ExecuteRequest {
@@ -14,51 +14,38 @@ pub struct ExecuteRequest {
     pub input: Value,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct ExecuteResponse {
-    pub success: bool,
-    pub data: Option<Value>,
-    pub error: Option<String>,
+    pub result: Value,
 }
 
 /// Internal use only - executes scripts within workflow context
 pub async fn execute_script(
     State(state): State<AppState>,
     Json(req): Json<ExecuteRequest>,
-) -> Result<Json<ExecuteResponse>, StatusCode> {
+) -> Result<Json<ApiResponse<ExecuteResponse>>, StatusCode> {
     let manager = match state.get_python_manager().await {
         Ok(m) => m,
         Err(e) => {
-            return Ok(Json(ExecuteResponse {
-                success: false,
-                data: None,
-                error: Some(format!("Python not available: {}", e)),
-            }));
+            return Ok(Json(ApiResponse::error(format!("Python not available: {}", e))));
         }
     };
-    
+
     match manager.execute_script(&req.script_name, req.input).await {
-        Ok(result) => Ok(Json(ExecuteResponse {
-            success: true,
-            data: Some(result),
-            error: None,
-        })),
-        Err(e) => Ok(Json(ExecuteResponse {
-            success: false,
-            data: None,
-            error: Some(e.to_string()),
-        })),
+        Ok(result) => Ok(Json(ApiResponse::ok(ExecuteResponse { result }))),
+        Err(e) => Ok(Json(ApiResponse::error(e.to_string()))),
     }
 }
 
 /// For debugging purposes
 pub async fn list_scripts(
     State(state): State<AppState>,
-) -> Result<Json<Vec<String>>, StatusCode> {
+) -> Result<Json<ApiResponse<Vec<String>>>, StatusCode> {
     let manager = state.get_python_manager().await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    
-    manager.list_scripts().await
-        .map(Json)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+
+    match manager.list_scripts().await {
+        Ok(scripts) => Ok(Json(ApiResponse::ok(scripts))),
+        Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
+    }
 }
