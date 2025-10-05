@@ -21,7 +21,7 @@ impl Scheduler {
     }
 
     /// Add a node task to the queue
-    /// Accepts Arc<Workflow> to avoid expensive cloning in downstream task queueing
+    /// Accepts `Arc<Workflow>` to avoid expensive cloning in downstream task queueing
     pub fn push_task(
         &self,
         execution_id: String,
@@ -290,7 +290,7 @@ impl Scheduler {
     }
 
     /// Push downstream tasks after a node completes
-    /// Uses Arc<Workflow> to avoid expensive cloning in large workflows
+    /// Uses `Arc<Workflow>` to avoid expensive cloning in large workflows
     pub fn push_downstream_tasks(
         &self,
         task: &Task,

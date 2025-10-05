@@ -75,8 +75,8 @@ jobs:
       # Debug: List generated files
       - name: List generated files
         run: |
-          echo "=== Checking backend/target/doc ==="
-          ls -la backend/target/doc/ || echo "backend/target/doc not found"
+          echo "=== Checking target/doc ==="
+          ls -la target/doc/ || echo "target/doc not found"
           echo "=== Checking target/coverage ==="
           ls -la target/coverage/ || echo "target/coverage not found"
           echo "=== Checking docs/site ==="
@@ -90,10 +90,10 @@ jobs:
           # Copy MkDocs site as root
           cp -r docs/site/* docs-site/
 
-          # Copy Rust API docs
+          # Copy Rust API docs (from target/doc/)
           mkdir -p docs-site/api
-          if [ -d "backend/target/doc" ] && [ "$(ls -A backend/target/doc)" ]; then
-            cp -r backend/target/doc/* docs-site/api/
+          if [ -d "target/doc" ] && [ "$(ls -A target/doc)" ]; then
+            cp -r target/doc/* docs-site/api/
           else
             echo "Warning: No Rust API docs found"
           fi
