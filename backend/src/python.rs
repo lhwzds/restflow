@@ -293,10 +293,10 @@ impl PythonManager {
             let mut entries = fs::read_dir(&self.scripts_dir).await?;
             while let Some(entry) = entries.next_entry().await? {
                 let path = entry.path();
-                if path.extension().and_then(|s| s.to_str()) == Some("py") {
-                    if let Some(name) = path.file_stem().and_then(|s| s.to_str()) {
-                        scripts.push(name.to_string());
-                    }
+                if path.extension().and_then(|s| s.to_str()) == Some("py")
+                    && let Some(name) = path.file_stem().and_then(|s| s.to_str())
+                {
+                    scripts.push(name.to_string());
                 }
             }
         }

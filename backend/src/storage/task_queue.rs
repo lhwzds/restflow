@@ -205,10 +205,10 @@ impl TaskQueue {
             let data = value.value();
 
             // Deserialize to check task ID
-            if let Ok(task) = serde_json::from_slice::<crate::models::Task>(data) {
-                if task.id == task_id {
-                    return Ok(Some(data.to_vec()));
-                }
+            if let Ok(task) = serde_json::from_slice::<crate::models::Task>(data)
+                && task.id == task_id
+            {
+                return Ok(Some(data.to_vec()));
             }
         }
 
