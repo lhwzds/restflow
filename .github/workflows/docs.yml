@@ -72,6 +72,16 @@ jobs:
           cd docs
           mkdocs build
 
+      # Debug: List generated files
+      - name: List generated files
+        run: |
+          echo "=== Checking backend/target/doc ==="
+          ls -la backend/target/doc/ || echo "backend/target/doc not found"
+          echo "=== Checking target/coverage ==="
+          ls -la target/coverage/ || echo "target/coverage not found"
+          echo "=== Checking docs/site ==="
+          ls -la docs/site/ || echo "docs/site not found"
+
       # Prepare documentation site
       - name: Prepare docs site
         run: |
@@ -82,11 +92,19 @@ jobs:
 
           # Copy Rust API docs
           mkdir -p docs-site/api
-          cp -r backend/target/doc/* docs-site/api/
+          if [ -d "backend/target/doc" ] && [ "$(ls -A backend/target/doc)" ]; then
+            cp -r backend/target/doc/* docs-site/api/
+          else
+            echo "Warning: No Rust API docs found"
+          fi
 
           # Copy coverage report
           mkdir -p docs-site/coverage
-          cp -r target/coverage/* docs-site/coverage/
+          if [ -d "target/coverage" ] && [ "$(ls -A target/coverage)" ]; then
+            cp -r target/coverage/* docs-site/coverage/
+          else
+            echo "Warning: No coverage report found"
+          fi
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
