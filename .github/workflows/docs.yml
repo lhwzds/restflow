@@ -47,15 +47,11 @@ jobs:
 
       # Generate Rust API documentation
       - name: Build Rust API docs
-        run: |
-          cd backend
-          cargo doc --no-deps --document-private-items --all-features
+        run: cargo doc --no-deps --document-private-items --all-features --manifest-path backend/Cargo.toml
 
       # Generate coverage report
       - name: Generate coverage report
-        run: |
-          cd backend
-          cargo tarpaulin --out html --output-dir ../target/coverage --all-features --timeout 300
+        run: cargo tarpaulin --out html --output-dir target/coverage --all-features --timeout 300 --manifest-path backend/Cargo.toml
 
       # Install MkDocs
       - name: Setup Python
