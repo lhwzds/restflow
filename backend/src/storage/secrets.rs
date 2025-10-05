@@ -143,14 +143,14 @@ mod tests {
     }
 
     #[test]
-    fn test_list_keys_with_metadata() {
+    fn test_list_secrets_with_metadata() {
         let (storage, _temp_dir) = setup();
 
         storage.set_secret("API_KEY_1", "value1", Some("First key".to_string())).unwrap();
         storage.set_secret("API_KEY_2", "value2", None).unwrap();
         storage.set_secret("API_KEY_3", "value3", Some("Third key".to_string())).unwrap();
 
-        let secrets = storage.list_keys().unwrap();
+        let secrets = storage.list_secrets().unwrap();
         assert_eq!(secrets.len(), 3);
 
         let key1 = secrets.iter().find(|s| s.key == "API_KEY_1").unwrap();
@@ -167,7 +167,7 @@ mod tests {
 
         storage.set_secret("KEY", "initial", Some("Test key".to_string())).unwrap();
 
-        let secrets = storage.list_keys().unwrap();
+        let secrets = storage.list_secrets().unwrap();
         let initial = secrets.iter().find(|s| s.key == "KEY").unwrap();
         let created_at = initial.created_at;
         let initial_updated_at = initial.updated_at;
@@ -177,7 +177,7 @@ mod tests {
 
         storage.set_secret("KEY", "updated", Some("Updated description".to_string())).unwrap();
 
-        let secrets = storage.list_keys().unwrap();
+        let secrets = storage.list_secrets().unwrap();
         let updated = secrets.iter().find(|s| s.key == "KEY").unwrap();
 
         println!("created_at: {}, initial_updated_at: {}, new_updated_at: {}",

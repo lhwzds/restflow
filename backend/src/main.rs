@@ -11,7 +11,7 @@ use api::{
 use axum::{
     Router,
     http::{Method, header},
-    routing::{delete, get, post, put},
+    routing::{get, post, put},
 };
 use tower_http::cors::CorsLayer;
 
