@@ -150,7 +150,7 @@ mod tests {
 
         let agent_node = create_test_agent_node();
         let stored = storage
-            .insert_agent("Test Agent".to_string(), agent_node)
+            .create_agent("Test Agent".to_string(), agent_node)
             .unwrap();
 
         assert!(!stored.id.is_empty());
@@ -172,13 +172,13 @@ mod tests {
         let storage = AgentStorage::new(db).unwrap();
 
         storage
-            .insert_agent("Agent 1".to_string(), create_test_agent_node())
+            .create_agent("Agent 1".to_string(), create_test_agent_node())
             .unwrap();
         storage
-            .insert_agent("Agent 2".to_string(), create_test_agent_node())
+            .create_agent("Agent 2".to_string(), create_test_agent_node())
             .unwrap();
         storage
-            .insert_agent("Agent 3".to_string(), create_test_agent_node())
+            .create_agent("Agent 3".to_string(), create_test_agent_node())
             .unwrap();
 
         let agents = storage.list_agents().unwrap();
@@ -198,7 +198,7 @@ mod tests {
         let storage = AgentStorage::new(db).unwrap();
 
         let stored = storage
-            .insert_agent("Original Name".to_string(), create_test_agent_node())
+            .create_agent("Original Name".to_string(), create_test_agent_node())
             .unwrap();
         let updated = storage
             .update_agent(stored.id.clone(), Some("Updated Name".to_string()), None)
@@ -226,7 +226,7 @@ mod tests {
         let storage = AgentStorage::new(db).unwrap();
 
         let stored = storage
-            .insert_agent("To Delete".to_string(), create_test_agent_node())
+            .create_agent("To Delete".to_string(), create_test_agent_node())
             .unwrap();
         storage.delete_agent(stored.id.clone()).unwrap();
 
