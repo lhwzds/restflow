@@ -48,30 +48,30 @@ test.describe('Sidebar Navigation', () => {
     await page.waitForLoadState('networkidle')
 
     const sidePanel = page.locator('.side-panel')
-
-    // Get initial width
-    const initialWidth = await sidePanel.evaluate(el => getComputedStyle(el).width)
-
-    // Click collapse button and wait for collapse to complete
     const collapseBtn = page.locator('.collapse-btn')
-    await collapseBtn.click()
-
-    // Wait for expand button to appear (indicates collapse is complete)
     const expandBtn = page.locator('.expand-btn')
-    await expect(expandBtn).toBeVisible()
 
-    // Verify collapsed state
-    const collapsedWidth = await sidePanel.evaluate(el => getComputedStyle(el).width)
-    expect(parseInt(collapsedWidth)).toBeLessThan(parseInt(initialWidth))
-
-    // Click expand button and wait for expand to complete
-    await expandBtn.click()
-
-    // Wait for collapse button to reappear (indicates expand is complete)
+    // Verify sidebar starts expanded
     await expect(collapseBtn).toBeVisible()
 
-    // Verify expanded state
-    const expandedWidth = await sidePanel.evaluate(el => getComputedStyle(el).width)
-    expect(parseInt(expandedWidth)).toBeGreaterThan(parseInt(collapsedWidth))
+    // Click collapse button
+    await collapseBtn.click()
+
+    // Wait for expand button to appear and collapse button to disappear
+    await expect(expandBtn).toBeVisible()
+    await expect(collapseBtn).not.toBeVisible()
+
+    // Verify sidebar is now narrow (collapsed)
+    await expect(sidePanel).toHaveCSS('width', /^(6[0-9]|[1-9][0-9])px$/) // ~64px or similar
+
+    // Click expand button
+    await expandBtn.click()
+
+    // Wait for collapse button to reappear and expand button to disappear
+    await expect(collapseBtn).toBeVisible()
+    await expect(expandBtn).not.toBeVisible()
+
+    // Verify sidebar is now wide (expanded)
+    await expect(sidePanel).toHaveCSS('width', /(1[5-9][0-9]|2[0-9]{2})px/) // ~200px or similar
   })
 })
