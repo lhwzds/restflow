@@ -1,0 +1,37 @@
+name: Claude Security Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  pull-requests: write
+  contents: read
+
+jobs:
+  security-review:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 2
+
+      - name: Claude Security Review
+        uses: anthropics/claude-code-security-review@main
+        with:
+          # Anthropic API Key (required)
+          claude-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+
+          # Whether to comment on PRs with findings
+          comment-pr: true
+
+          # Whether to upload results as artifacts
+          upload-results: true
+
+          # Claude model to use
+          claude-model: "claude-sonnet-4-5-20250929"
+
+          # Timeout for analysis (minutes)
+          claudecode-timeout: 20
