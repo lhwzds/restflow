@@ -198,7 +198,6 @@ impl WorkflowExecutor {
     fn merge_context(&mut self, other: &ExecutionContext) {
         if let ExecutorInner::Sync { ref mut context, .. } = self.inner {
             for (key, value) in &other.data {
-                // Check for conflicts and warn
                 if let Some(existing) = context.get(key) {
                     if existing != value {
                         warn!(
@@ -253,7 +252,7 @@ impl WorkflowExecutor {
             _ => return Err(anyhow::anyhow!("Not in async mode")),
         };
 
-        // Delegate workflow orchestration to Scheduler
+        // Delegate to Scheduler for async execution (uses task queue for parallel processing)
         scheduler.submit_workflow_by_id(&workflow_id, input)
     }
     
@@ -306,6 +305,9 @@ impl WorkflowExecutor {
     // ============= Shared node execution logic =============
 
     /// Unified node execution logic used by both sync and async modes
+    ///
+    /// Interpolates {{...}} templates in node config using execution context,
+    /// then delegates to node-specific executor for actual execution.
     async fn execute_node(
         node: &Node,
         context: &mut ExecutionContext,
