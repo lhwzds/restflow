@@ -1,10 +1,4 @@
 {
-  "$schema": "https://openapi.vercel.sh/vercel.json",
-  "buildCommand": "cd frontend && pnpm install && pnpm build",
-  "outputDirectory": "frontend/dist",
-  "framework": "vite",
-  "installCommand": "pnpm install",
-  "devCommand": "cd frontend && pnpm dev",
   "rewrites": [
     {
       "source": "/api/:path*",
