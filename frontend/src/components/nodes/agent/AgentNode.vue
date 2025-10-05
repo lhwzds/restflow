@@ -47,7 +47,7 @@ const emit = defineEmits<{
 <style lang="scss">
 @use '@/styles/nodes/base' as *;
 
-$node-color: #667eea;
+$node-color: var(--rf-color-purple);
 
 .agent-node {
   @include node-handle($node-color);
@@ -63,18 +63,18 @@ $node-color: #667eea;
   }
 
   .node-icon {
-    @include node-icon(32px, $node-color);
+    @include node-icon(var(--rf-size-icon-md), $node-color);
   }
 }
 </style>
 
 <style lang="scss" scoped>
-$node-color: #667eea;
+$node-color: var(--rf-color-purple);
 
 .icon-decoration {
   position: absolute;
-  top: -2px;
-  right: -2px;
+  top: calc(var(--rf-spacing-3xs) * -1);
+  right: calc(var(--rf-spacing-3xs) * -1);
   color: var(--rf-color-warning);
 }
 

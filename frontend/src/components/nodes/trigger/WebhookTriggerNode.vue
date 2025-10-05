@@ -50,7 +50,7 @@ const emit = defineEmits<{
 <style lang="scss">
 @use '@/styles/nodes/base' as *;
 
-$node-color: #ff6b35;
+$node-color: var(--rf-color-primary);
 
 .webhook-trigger-node {
   @include node-handle($node-color);
@@ -66,18 +66,18 @@ $node-color: #ff6b35;
   }
 
   .node-icon {
-    @include node-icon(32px, $node-color);
+    @include node-icon(var(--rf-size-icon-md), $node-color);
   }
 }
 </style>
 
 <style lang="scss" scoped>
-$node-color: #ff6b35;
+$node-color: var(--rf-color-primary);
 
 .icon-decoration {
   position: absolute;
-  top: -2px;
-  right: -2px;
+  top: calc(var(--rf-spacing-3xs) * -1);
+  right: calc(var(--rf-spacing-3xs) * -1);
   color: var(--rf-color-warning);
 }
 
