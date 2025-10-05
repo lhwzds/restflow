@@ -13,7 +13,7 @@ use tracing::{info, warn, error, debug};
 const QUEUE_POLL_INTERVAL_MS: u64 = 100;
 
 
-enum ExecutorInner {
+enum ExecutorMode {
     Sync {
         graph: WorkflowGraph,
         context: ExecutionContext,
@@ -26,7 +26,7 @@ enum ExecutorInner {
 }
 
 pub struct WorkflowExecutor {
-    inner: ExecutorInner,
+    inner: ExecutorMode,
     registry: Arc<crate::node::registry::NodeRegistry>,
     running: Arc<Mutex<bool>>,
 }
@@ -48,7 +48,7 @@ impl WorkflowExecutor {
         }
 
         Self {
-            inner: ExecutorInner::Sync { graph, context },
+            inner: ExecutorMode::Sync { graph, context },
             registry,
             running: Arc::new(Mutex::new(false)),
         }
@@ -63,7 +63,7 @@ impl WorkflowExecutor {
         let scheduler = Arc::new(Scheduler::new(storage.queue.clone(), storage.clone()));
 
         Self {
-            inner: ExecutorInner::Async {
+            inner: ExecutorMode::Async {
                 storage,
                 scheduler,
                 num_workers,
@@ -75,7 +75,7 @@ impl WorkflowExecutor {
     
     /// Set input for sync execution
     pub fn set_input(&mut self, input: Value) {
-        if let ExecutorInner::Sync { ref mut context, .. } = self.inner {
+        if let ExecutorMode::Sync { ref mut context, .. } = self.inner {
             context.set(namespace::trigger::PAYLOAD, input);
         }
     }
@@ -83,8 +83,8 @@ impl WorkflowExecutor {
     /// Execute workflow synchronously (for sync mode)
     pub async fn execute(&mut self) -> Result<Value> {
         match &self.inner {
-            ExecutorInner::Sync { .. } => self.execute_sync().await,
-            ExecutorInner::Async { .. } => {
+            ExecutorMode::Sync { .. } => self.execute_sync().await,
+            ExecutorMode::Async { .. } => {
                 Err(anyhow::anyhow!("Use submit() for async execution"))
             }
         }
@@ -93,8 +93,8 @@ impl WorkflowExecutor {
     /// Submit workflow for async execution (for async mode)
     pub async fn submit(&self, workflow_id: String, input: Value) -> Result<String> {
         match &self.inner {
-            ExecutorInner::Async { .. } => self.submit_async(workflow_id, input).await,
-            ExecutorInner::Sync { .. } => {
+            ExecutorMode::Async { .. } => self.submit_async(workflow_id, input).await,
+            ExecutorMode::Sync { .. } => {
                 Err(anyhow::anyhow!("Use execute() for sync execution"))
             }
         }
@@ -103,11 +103,11 @@ impl WorkflowExecutor {
     /// Submit a single node for execution
     pub async fn submit_node(&self, node: Node, input: Value) -> Result<String> {
         match &self.inner {
-            ExecutorInner::Async { scheduler, .. } => {
+            ExecutorMode::Async { scheduler, .. } => {
                 scheduler.push_single_node(node, input)
                     .map_err(|e| anyhow::anyhow!("Failed to submit node: {}", e))
             }
-            ExecutorInner::Sync { .. } => {
+            ExecutorMode::Sync { .. } => {
                 Err(anyhow::anyhow!("Node submission not supported in sync mode"))
             }
         }
@@ -115,7 +115,7 @@ impl WorkflowExecutor {
     
     /// Start async workers (for async mode)
     pub async fn start(&self) {
-        if let ExecutorInner::Async { num_workers, .. } = &self.inner {
+        if let ExecutorMode::Async { num_workers, .. } = &self.inner {
             if !self.try_start().await {
                 return;
             }
@@ -129,7 +129,7 @@ impl WorkflowExecutor {
     
     async fn execute_sync(&mut self) -> Result<Value> {
         let (_graph, groups) = match &self.inner {
-            ExecutorInner::Sync { graph, .. } => {
+            ExecutorMode::Sync { graph, .. } => {
                 let groups = graph.get_parallel_groups()?;
                 (graph, groups)
             }
@@ -148,7 +148,7 @@ impl WorkflowExecutor {
         let mut tasks = JoinSet::new();
         
         let (graph, context) = match &self.inner {
-            ExecutorInner::Sync { graph, context } => (graph, context),
+            ExecutorMode::Sync { graph, context } => (graph, context),
             _ => return Err(anyhow::anyhow!("Not in sync mode")),
         };
         
@@ -181,7 +181,7 @@ impl WorkflowExecutor {
             
             match execution_result {
                 Ok(output) => {
-                    if let ExecutorInner::Sync { ref mut context, .. } = self.inner {
+                    if let ExecutorMode::Sync { ref mut context, .. } = self.inner {
                         context.set_node(&node_id, output);
                         self.merge_context(&node_context);
                     }
@@ -196,7 +196,7 @@ impl WorkflowExecutor {
     }
     
     fn merge_context(&mut self, other: &ExecutionContext) {
-        if let ExecutorInner::Sync { ref mut context, .. } = self.inner {
+        if let ExecutorMode::Sync { ref mut context, .. } = self.inner {
             for (key, value) in &other.data {
                 if let Some(existing) = context.get(key) {
                     if existing != value {
@@ -215,7 +215,7 @@ impl WorkflowExecutor {
     
     fn verify_dependencies(&self, node_id: &str) -> Result<()> {
         let (graph, context) = match &self.inner {
-            ExecutorInner::Sync { graph, context } => (graph, context),
+            ExecutorMode::Sync { graph, context } => (graph, context),
             _ => return Err(anyhow::anyhow!("Not in sync mode")),
         };
 
@@ -233,7 +233,7 @@ impl WorkflowExecutor {
     
     fn build_result(&self) -> Result<Value> {
         let context = match &self.inner {
-            ExecutorInner::Sync { context, .. } => context,
+            ExecutorMode::Sync { context, .. } => context,
             _ => return Err(anyhow::anyhow!("Not in sync mode")),
         };
 
@@ -248,7 +248,7 @@ impl WorkflowExecutor {
     
     async fn submit_async(&self, workflow_id: String, input: Value) -> Result<String> {
         let scheduler = match &self.inner {
-            ExecutorInner::Async { scheduler, .. } => scheduler,
+            ExecutorMode::Async { scheduler, .. } => scheduler,
             _ => return Err(anyhow::anyhow!("Not in async mode")),
         };
 
@@ -266,7 +266,7 @@ impl WorkflowExecutor {
     }
     
     fn recover_stalled_tasks(&self) {
-        if let ExecutorInner::Async { scheduler, .. } = &self.inner {
+        if let ExecutorMode::Async { scheduler, .. } = &self.inner {
             if let Err(e) = scheduler.recover_stalled_tasks() {
                 error!(error = %e, "Failed to recover stalled tasks");
             }
@@ -277,7 +277,7 @@ impl WorkflowExecutor {
         info!(num_workers, "Starting workers");
 
         let (storage, scheduler) = match &self.inner {
-            ExecutorInner::Async { storage, scheduler, .. } =>
+            ExecutorMode::Async { storage, scheduler, .. } =>
                 (Some(storage.clone()), Some(scheduler.clone())),
             _ => (None, None),
         };
@@ -296,7 +296,7 @@ impl WorkflowExecutor {
                 );
                 
                 tokio::spawn(async move {
-                    worker.run().await;
+                    worker.run_worker_loop().await;
                 });
             }
         }
@@ -326,7 +326,7 @@ impl WorkflowExecutor {
     
     pub async fn get_task_status(&self, task_id: &str) -> Result<crate::models::Task> {
         match &self.inner {
-            ExecutorInner::Async { scheduler, .. } => {
+            ExecutorMode::Async { scheduler, .. } => {
                 scheduler.get_task(task_id)
                     .map_err(|e| anyhow::anyhow!("Failed to get task status: {}", e))?
                     .ok_or_else(|| anyhow::anyhow!("Task {} not found", task_id))
@@ -337,7 +337,7 @@ impl WorkflowExecutor {
     
     pub async fn get_execution_status(&self, execution_id: &str) -> Result<Vec<crate::models::Task>> {
         match &self.inner {
-            ExecutorInner::Async { scheduler, .. } => {
+            ExecutorMode::Async { scheduler, .. } => {
                 scheduler.get_tasks_by_execution(execution_id)
                     .map_err(|e| anyhow::anyhow!("Failed to get execution status: {}", e))
             }
@@ -351,7 +351,7 @@ impl WorkflowExecutor {
         status: Option<crate::models::TaskStatus>,
     ) -> Result<Vec<crate::models::Task>> {
         match &self.inner {
-            ExecutorInner::Async { scheduler, .. } => {
+            ExecutorMode::Async { scheduler, .. } => {
                 scheduler.list_tasks(workflow_id, status)
                     .map_err(|e| anyhow::anyhow!("Failed to list tasks: {}", e))
             }
@@ -381,7 +381,7 @@ impl Worker {
         Self { id, storage, scheduler, registry, running }
     }
     
-    async fn run(&self) {
+    async fn run_worker_loop(&self) {
         info!(worker_id = self.id, "Worker started");
         
         while *self.running.lock().await {
@@ -418,7 +418,7 @@ impl Worker {
         match result {
             Ok(output) => {
                 // Queue downstream tasks - if this fails, mark task as failed
-                match self.scheduler.queue_downstream_tasks(&task, output.clone()) {
+                match self.scheduler.push_downstream_tasks(&task, output.clone()) {
                     Ok(_) => {
                         if let Err(e) = self.scheduler.complete_task(&task.id, output) {
                             warn!(task_id = %task.id, error = %e, "Failed to persist task completion");
@@ -427,11 +427,11 @@ impl Worker {
                         }
                     }
                     Err(e) => {
-                        let error_msg = format!("Task succeeded but failed to queue downstream: {}", e);
+                        let error_msg = format!("Task succeeded but failed to push downstream: {}", e);
                         if let Err(persist_err) = self.scheduler.fail_task(&task.id, error_msg.clone()) {
                             warn!(task_id = %task.id, error = %persist_err, "Failed to persist task failure");
                         }
-                        error!(task_id = %task.id, error = %e, "Failed to queue downstream tasks");
+                        error!(task_id = %task.id, error = %e, "Failed to push downstream tasks");
                         return Err(anyhow::anyhow!(error_msg));
                     }
                 }
