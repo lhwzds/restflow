@@ -64,7 +64,7 @@ pub async fn create_agent(
     match state
         .storage
         .agents
-        .insert_agent(request.name, request.agent)
+        .create_agent(request.name, request.agent)
     {
         Ok(stored_agent) => Json(serde_json::json!({
             "status": "success",

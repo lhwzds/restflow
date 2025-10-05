@@ -32,7 +32,7 @@ impl AgentStorage {
 
         Ok(Self { db })
     }
-    pub fn insert_agent(&self, name: String, agent: AgentNode) -> Result<StoredAgent> {
+    pub fn create_agent(&self, name: String, agent: AgentNode) -> Result<StoredAgent> {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)?
             .as_millis() as i64;

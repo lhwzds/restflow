@@ -14,7 +14,7 @@ pub async fn get_agent(core: &Arc<AppCore>, id: &str) -> Result<StoredAgent> {
 }
 
 pub async fn create_agent(core: &Arc<AppCore>, name: String, agent: AgentNode) -> Result<StoredAgent> {
-    core.storage.agents.insert_agent(name.clone(), agent)
+    core.storage.agents.create_agent(name.clone(), agent)
         .with_context(|| format!("Failed to create agent {}", name))
 }
 
