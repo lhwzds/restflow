@@ -15,7 +15,7 @@ const QUEUE_POLL_INTERVAL_MS: u64 = 100;
 
 enum ExecutorMode {
     Sync {
-        graph: WorkflowGraph,
+        graph: Box<WorkflowGraph>,
         context: ExecutionContext,
     },
     Async {
@@ -48,7 +48,7 @@ impl WorkflowExecutor {
         }
 
         Self {
-            inner: ExecutorMode::Sync { graph, context },
+            inner: ExecutorMode::Sync { graph: Box::new(graph), context },
             registry,
             running: Arc::new(Mutex::new(false)),
         }
@@ -198,15 +198,15 @@ impl WorkflowExecutor {
     fn merge_context(&mut self, other: &ExecutionContext) {
         if let ExecutorMode::Sync { ref mut context, .. } = self.inner {
             for (key, value) in &other.data {
-                if let Some(existing) = context.get(key) {
-                    if existing != value {
-                        warn!(
-                            key = %key,
-                            existing = ?existing,
-                            new = ?value,
-                            "Context key conflict detected - parallel nodes wrote different values"
-                        );
-                    }
+                if let Some(existing) = context.get(key)
+                    && existing != value
+                {
+                    warn!(
+                        key = %key,
+                        existing = ?existing,
+                        new = ?value,
+                        "Context key conflict detected - parallel nodes wrote different values"
+                    );
                 }
                 context.set(key, value.clone());
             }
@@ -266,10 +266,10 @@ impl WorkflowExecutor {
     }
     
     fn recover_stalled_tasks(&self) {
-        if let ExecutorMode::Async { scheduler, .. } = &self.inner {
-            if let Err(e) = scheduler.recover_stalled_tasks() {
-                error!(error = %e, "Failed to recover stalled tasks");
-            }
+        if let ExecutorMode::Async { scheduler, .. } = &self.inner
+            && let Err(e) = scheduler.recover_stalled_tasks()
+        {
+            error!(error = %e, "Failed to recover stalled tasks");
         }
     }
     

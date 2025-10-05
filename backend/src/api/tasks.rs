@@ -55,15 +55,15 @@ pub async fn list_tasks(
     
     match state.executor.list_tasks(None, status_filter).await {
         Ok(tasks) => {
-            let mut filtered = tasks;
-            
-            // Filter by execution_id if provided
-            if let Some(exec_id) = params.execution_id {
-                filtered = filtered.into_iter()
+            let filtered = if let Some(exec_id) = params.execution_id {
+                tasks
+                    .into_iter()
                     .filter(|t| t.execution_id == exec_id)
-                    .collect();
-            }
-            
+                    .collect::<Vec<_>>()
+            } else {
+                tasks
+            };
+
             Json(serde_json::json!({
                 "status": "success",
                 "data": filtered

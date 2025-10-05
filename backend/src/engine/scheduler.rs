@@ -237,8 +237,8 @@ impl Scheduler {
     /// List tasks with optional filters
     pub fn list_tasks(&self, workflow_id: Option<&str>, status: Option<TaskStatus>) -> Result<Vec<Task>> {
         let mut tasks = self.query_all_tasks(|task| {
-            workflow_id.map_or(true, |id| task.workflow_id == id)
-                && status.as_ref().map_or(true, |s| &task.status == s)
+            workflow_id.is_none_or(|id| task.workflow_id == id)
+                && status.as_ref().is_none_or(|s| &task.status == s)
         })?;
 
         // Sort by creation time (newest first)
@@ -308,17 +308,17 @@ impl Scheduler {
         let downstream_nodes = graph.get_downstream_nodes(&task.node_id);
 
         for downstream_id in downstream_nodes {
-            if let Some(downstream_node) = graph.get_node(&downstream_id) {
-                if Self::are_dependencies_met(&graph, &downstream_id, &context) {
-                    // Pass Arc to avoid workflow deep clone (large workflows contain many nodes)
-                    self.push_task(
-                        task.execution_id.clone(),
-                        downstream_node.clone(),
-                        workflow.clone(),
-                        context.clone(),
-                        Value::Null,
-                    )?;
-                }
+            if let Some(downstream_node) = graph.get_node(&downstream_id)
+                && Self::are_dependencies_met(&graph, &downstream_id, &context)
+            {
+                // Pass Arc to avoid workflow deep clone (large workflows contain many nodes)
+                self.push_task(
+                    task.execution_id.clone(),
+                    downstream_node.clone(),
+                    workflow.clone(),
+                    context.clone(),
+                    Value::Null,
+                )?;
             }
         }
 

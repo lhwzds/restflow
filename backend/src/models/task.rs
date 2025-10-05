@@ -104,7 +104,7 @@ impl Task {
     pub fn get_workflow(&self, storage: &Storage) -> Result<Arc<Workflow>> {
         self.workflow
             .get_or_try_init(|| Ok(Arc::new(storage.workflows.get_workflow(&self.workflow_id)?)))
-            .map(|w| w.clone())
+            .cloned()
     }
 
     /// Pre-populate the workflow Arc to avoid lazy loading from storage

@@ -45,6 +45,12 @@ impl NodeRegistry {
     }
 }
 
+impl Default for NodeRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 struct HttpRequestExecutor;
 
 #[async_trait]
