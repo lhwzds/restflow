@@ -8,7 +8,7 @@ use axum::{
 use serde_json::Value;
 use std::collections::HashMap;
 
-// PUT /api/workflow/{id}/activate
+// PUT /api/workflows/{id}/activate
 pub async fn activate_workflow(
     State(state): State<AppState>,
     Path(workflow_id): Path<String>,
@@ -43,7 +43,7 @@ pub async fn activate_workflow(
     }
 }
 
-// PUT /api/workflow/{id}/deactivate
+// PUT /api/workflows/{id}/deactivate
 pub async fn deactivate_workflow(
     State(state): State<AppState>,
     Path(workflow_id): Path<String>,
@@ -60,7 +60,7 @@ pub async fn deactivate_workflow(
     }
 }
 
-// GET /api/workflow/{id}/trigger-status
+// GET /api/workflows/{id}/trigger-status
 pub async fn get_workflow_trigger_status(
     State(state): State<AppState>,
     Path(workflow_id): Path<String>,
@@ -82,7 +82,7 @@ pub async fn get_workflow_trigger_status(
     }
 }
 
-// POST /api/workflow/{id}/test
+// POST /api/workflows/{id}/test
 pub async fn test_workflow_trigger(
     State(state): State<AppState>,
     Path(workflow_id): Path<String>,
