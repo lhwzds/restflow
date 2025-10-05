@@ -1,45 +1,68 @@
-use crate::api::state::AppState;
-use crate::engine::trigger_manager::WebhookResponse;
+use crate::api::{state::AppState, ApiResponse};
+use crate::engine::trigger_manager::{TriggerStatus, WebhookResponse};
+use crate::models::TriggerConfig;
 use axum::{
     extract::{Path, State},
     http::Method,
     Json,
 };
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
+
+#[derive(Serialize, Deserialize)]
+pub struct TriggerInfo {
+    pub trigger_id: String,
+    pub webhook_url: Option<String>,
+    pub config: TriggerConfig,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct ActivateResponse {
+    pub triggers: Vec<TriggerInfo>,
+    pub count: usize,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct TestTriggerResponse {
+    pub execution_id: String,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct WebhookAsyncResponse {
+    pub execution_id: String,
+}
 
 // PUT /api/workflows/{id}/activate
 pub async fn activate_workflow(
     State(state): State<AppState>,
     Path(workflow_id): Path<String>,
-) -> Json<Value> {
+) -> Json<ApiResponse<ActivateResponse>> {
     match state.trigger_manager.activate_workflow(&workflow_id).await {
         Ok(triggers) => {
             let trigger_info: Vec<_> = triggers.iter().map(|trigger| {
-                let webhook_url = if matches!(trigger.trigger_config, crate::models::TriggerConfig::Webhook { .. }) {
+                let webhook_url = if matches!(trigger.trigger_config, TriggerConfig::Webhook { .. }) {
                     Some(format!("/api/triggers/webhook/{}", trigger.id))
                 } else {
                     None
                 };
-                
-                serde_json::json!({
-                    "trigger_id": trigger.id,
-                    "webhook_url": webhook_url,
-                    "config": trigger.trigger_config
-                })
+
+                TriggerInfo {
+                    trigger_id: trigger.id.clone(),
+                    webhook_url,
+                    config: trigger.trigger_config.clone(),
+                }
             }).collect();
-            
-            Json(serde_json::json!({
-                "status": "success",
-                "triggers": trigger_info,
-                "count": triggers.len(),
-                "message": format!("{} trigger(s) activated successfully", triggers.len())
-            }))
+
+            Json(ApiResponse::ok_with_message(
+                ActivateResponse {
+                    count: triggers.len(),
+                    triggers: trigger_info,
+                },
+                format!("{} trigger(s) activated successfully", triggers.len())
+            ))
         }
-        Err(e) => Json(serde_json::json!({
-            "status": "error",
-            "message": format!("Failed to activate workflow: {}", e)
-        })),
+        Err(e) => Json(ApiResponse::error(format!("Failed to activate workflow: {}", e))),
     }
 }
 
@@ -47,16 +70,10 @@ pub async fn activate_workflow(
 pub async fn deactivate_workflow(
     State(state): State<AppState>,
     Path(workflow_id): Path<String>,
-) -> Json<Value> {
+) -> Json<ApiResponse<()>> {
     match state.trigger_manager.deactivate_workflow(&workflow_id).await {
-        Ok(_) => Json(serde_json::json!({
-            "status": "success",
-            "message": "Workflow trigger deactivated successfully"
-        })),
-        Err(e) => Json(serde_json::json!({
-            "status": "error",
-            "message": format!("Failed to deactivate workflow: {}", e)
-        })),
+        Ok(_) => Json(ApiResponse::message("Workflow trigger deactivated successfully")),
+        Err(e) => Json(ApiResponse::error(format!("Failed to deactivate workflow: {}", e))),
     }
 }
 
@@ -64,21 +81,19 @@ pub async fn deactivate_workflow(
 pub async fn get_workflow_trigger_status(
     State(state): State<AppState>,
     Path(workflow_id): Path<String>,
-) -> Json<Value> {
+) -> Json<ApiResponse<Option<TriggerStatus>>> {
     match state.trigger_manager.get_trigger_status(&workflow_id).await {
-        Ok(Some(status)) => Json(serde_json::json!({
-            "status": "success",
-            "data": status
-        })),
-        Ok(None) => Json(serde_json::json!({
-            "status": "success",
-            "data": null,
-            "message": "No trigger configured for this workflow"
-        })),
-        Err(e) => Json(serde_json::json!({
-            "status": "error",
-            "message": format!("Failed to get trigger status: {}", e)
-        })),
+        Ok(status) => {
+            if status.is_none() {
+                Json(ApiResponse::ok_with_message(
+                    None,
+                    "No trigger configured for this workflow"
+                ))
+            } else {
+                Json(ApiResponse::ok(status))
+            }
+        }
+        Err(e) => Json(ApiResponse::error(format!("Failed to get trigger status: {}", e))),
     }
 }
 
@@ -87,17 +102,13 @@ pub async fn test_workflow_trigger(
     State(state): State<AppState>,
     Path(workflow_id): Path<String>,
     Json(payload): Json<Value>,
-) -> Json<Value> {
+) -> Json<ApiResponse<TestTriggerResponse>> {
     match state.executor.submit(workflow_id, payload).await {
-        Ok(execution_id) => Json(serde_json::json!({
-            "status": "success",
-            "execution_id": execution_id,
-            "message": "Test execution started"
-        })),
-        Err(e) => Json(serde_json::json!({
-            "status": "error",
-            "message": format!("Failed to test workflow: {}", e)
-        })),
+        Ok(execution_id) => Json(ApiResponse::ok_with_message(
+            TestTriggerResponse { execution_id },
+            "Test execution started"
+        )),
+        Err(e) => Json(ApiResponse::error(format!("Failed to test workflow: {}", e))),
     }
 }
 
@@ -108,7 +119,7 @@ pub async fn handle_webhook_trigger(
     method: Method,
     headers: axum::http::HeaderMap,
     body: String,
-) -> Json<Value> {
+) -> Json<ApiResponse<Value>> {
     // Convert headers to HashMap
     let mut header_map = HashMap::new();
     for (key, value) in headers.iter() {
@@ -116,25 +127,21 @@ pub async fn handle_webhook_trigger(
             header_map.insert(key.as_str().to_string(), v.to_string());
         }
     }
-    
+
     // Parse body as JSON, or wrap in object if not valid JSON
     let body_json: Value = serde_json::from_str(&body)
         .unwrap_or_else(|_| serde_json::json!({ "raw": body }));
-    
+
     match state.trigger_manager.handle_webhook(&webhook_id, method.as_str(), header_map, body_json).await {
         Ok(WebhookResponse::Async { execution_id }) => {
-            Json(serde_json::json!({
-                "status": "success",
-                "execution_id": execution_id,
-                "message": "Workflow execution started"
-            }))
+            Json(ApiResponse::ok_with_message(
+                serde_json::to_value(WebhookAsyncResponse { execution_id }).unwrap(),
+                "Workflow execution started"
+            ))
         }
         Ok(WebhookResponse::Sync { result }) => {
-            Json(result)
+            Json(ApiResponse::ok(result))
         }
-        Err(e) => Json(serde_json::json!({
-            "status": "error",
-            "message": format!("{}", e)
-        })),
+        Err(e) => Json(ApiResponse::error(format!("{}", e))),
     }
 }

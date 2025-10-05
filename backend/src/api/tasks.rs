@@ -1,11 +1,10 @@
-use crate::api::state::AppState;
-use crate::models::{Node, TaskStatus};
+use crate::api::{state::AppState, ApiResponse};
+use crate::models::{Node, Task, TaskStatus};
 use axum::{
     extract::{Path, Query, State},
     Json,
 };
-use serde::Deserialize;
-use serde_json::Value;
+use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize)]
 pub struct TaskListQuery {
@@ -14,45 +13,39 @@ pub struct TaskListQuery {
     limit: Option<u32>,
 }
 
+#[derive(Serialize, Deserialize)]
+pub struct ExecuteNodeResponse {
+    pub task_id: String,
+    pub message: String,
+}
+
 pub async fn get_execution_status(
     State(state): State<AppState>,
     Path(execution_id): Path<String>,
-) -> Json<Value> {
+) -> Json<ApiResponse<Vec<Task>>> {
     match state.executor.get_execution_status(&execution_id).await {
-        Ok(tasks) => Json(serde_json::json!({
-            "status": "success",
-            "data": tasks
-        })),
-        Err(e) => Json(serde_json::json!({
-            "status": "error",
-            "message": format!("Failed to get execution status: {}", e)
-        })),
+        Ok(tasks) => Json(ApiResponse::ok(tasks)),
+        Err(e) => Json(ApiResponse::error(format!("Failed to get execution status: {}", e))),
     }
 }
 
 pub async fn get_task_status(
     State(state): State<AppState>,
     Path(task_id): Path<String>,
-) -> Json<Value> {
+) -> Json<ApiResponse<Task>> {
     match state.executor.get_task_status(&task_id).await {
-        Ok(task) => Json(serde_json::json!({
-            "status": "success",
-            "data": task
-        })),
-        Err(e) => Json(serde_json::json!({
-            "status": "error",
-            "message": e.to_string()
-        })),
+        Ok(task) => Json(ApiResponse::ok(task)),
+        Err(e) => Json(ApiResponse::error(e.to_string())),
     }
 }
 
 pub async fn list_tasks(
     State(state): State<AppState>,
     Query(params): Query<TaskListQuery>,
-) -> Json<Value> {
+) -> Json<ApiResponse<Vec<Task>>> {
     let _limit = params.limit.unwrap_or(100) as usize;
     let status_filter = params.status.clone();
-    
+
     match state.executor.list_tasks(None, status_filter).await {
         Ok(tasks) => {
             let filtered = if let Some(exec_id) = params.execution_id {
@@ -64,33 +57,21 @@ pub async fn list_tasks(
                 tasks
             };
 
-            Json(serde_json::json!({
-                "status": "success",
-                "data": filtered
-            }))
+            Json(ApiResponse::ok(filtered))
         }
-        Err(e) => Json(serde_json::json!({
-            "status": "error",
-            "message": format!("Failed to list tasks: {}", e)
-        })),
+        Err(e) => Json(ApiResponse::error(format!("Failed to list tasks: {}", e))),
     }
 }
 
 pub async fn execute_node(
     State(state): State<AppState>,
     Json(node): Json<Node>,
-) -> Json<Value> {
+) -> Json<ApiResponse<ExecuteNodeResponse>> {
     match state.executor.submit_node(node, serde_json::json!({})).await {
-        Ok(task_id) => Json(serde_json::json!({
-            "status": "success",
-            "data": {
-                "task_id": task_id,
-                "message": "Node execution started"
-            }
+        Ok(task_id) => Json(ApiResponse::ok(ExecuteNodeResponse {
+            task_id,
+            message: "Node execution started".to_string(),
         })),
-        Err(e) => Json(serde_json::json!({
-            "status": "error",
-            "message": format!("Failed to execute node: {}", e)
-        })),
+        Err(e) => Json(ApiResponse::error(format!("Failed to execute node: {}", e))),
     }
 }
