@@ -289,9 +289,9 @@ impl Scheduler {
             .all(|dep| context.get_node(dep).is_some())
     }
 
-    /// Queue downstream tasks after a node completes
+    /// Push downstream tasks after a node completes
     /// Uses Arc<Workflow> to avoid expensive cloning in large workflows
-    pub fn queue_downstream_tasks(
+    pub fn push_downstream_tasks(
         &self,
         task: &Task,
         output: Value,
