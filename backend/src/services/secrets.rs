@@ -4,8 +4,8 @@ use std::sync::Arc;
 
 /// List all secrets (without values for security)
 pub async fn list_secrets(core: &Arc<AppCore>) -> Result<Vec<Secret>> {
-    core.storage.secrets.list_keys()
-        .context("Failed to list secret keys")
+    core.storage.secrets.list_secrets()
+        .context("Failed to list secrets")
 }
 
 /// Get a secret value by key

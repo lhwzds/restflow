@@ -42,6 +42,22 @@ impl SecretStorage {
         Ok(())
     }
 
+    // Create a new secret (fails if already exists)
+    pub fn create_secret(&self, key: &str, value: &str, description: Option<String>) -> Result<()> {
+        if self.get_secret_model(key)?.is_some() {
+            return Err(anyhow::anyhow!("Secret {} already exists", key));
+        }
+        self.set_secret(key, value, description)
+    }
+
+    // Update an existing secret (fails if not exists)
+    pub fn update_secret(&self, key: &str, value: &str, description: Option<String>) -> Result<()> {
+        if self.get_secret_model(key)?.is_none() {
+            return Err(anyhow::anyhow!("Secret {} not found", key));
+        }
+        self.set_secret(key, value, description)
+    }
+
     // Internal use only
     fn get_secret_model(&self, key: &str) -> Result<Option<Secret>> {
         let read_txn = self.db.begin_read()?;
@@ -76,8 +92,8 @@ impl SecretStorage {
         Ok(())
     }
 
-    // Returns secrets without values for security
-    pub fn list_keys(&self) -> Result<Vec<Secret>> {
+    // Returns all secrets without values for security
+    pub fn list_secrets(&self) -> Result<Vec<Secret>> {
         let read_txn = self.db.begin_read()?;
         let table = read_txn.open_table(SECRETS_TABLE)?;
 
