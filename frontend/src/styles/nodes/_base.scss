@@ -167,11 +167,11 @@
   }
 }
 
-@mixin node-icon($size: var(--rf-size-xs), $color: null) {
+@mixin node-icon($size: var(--rf-size-xs), $gradient: null) {
   width: $size;
   height: $size;
   border-radius: var(--rf-spacing-lg);
-  background: if($color, linear-gradient(135deg, $color, color.adjust($color, $lightness: -5%)), currentColor);
+  background: if($gradient, $gradient, currentColor);
   display: flex;
   align-items: center;
   justify-content: center;
