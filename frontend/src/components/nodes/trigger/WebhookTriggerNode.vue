@@ -66,7 +66,7 @@ $node-color: var(--rf-color-primary);
   }
 
   .node-icon {
-    @include node-icon(var(--rf-size-icon-md), $node-color);
+    @include node-icon(var(--rf-size-icon-md), var(--rf-gradient-primary));
   }
 }
 </style>
