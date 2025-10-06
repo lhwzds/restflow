@@ -75,3 +75,155 @@ pub async fn execute_node(
         Err(e) => Json(ApiResponse::error(format!("Failed to execute node: {}", e))),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::AppCore;
+    use crate::models::{Workflow, NodeType};
+    use std::time::{Duration, Instant};
+    use std::sync::Arc;
+    use tempfile::{tempdir, TempDir};
+
+    async fn create_test_app() -> (Arc<AppCore>, TempDir) {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test.db");
+        let app = Arc::new(AppCore::new(db_path.to_str().unwrap()).await.unwrap());
+        (app, temp_dir)
+    }
+
+    fn create_test_workflow() -> Workflow {
+        Workflow {
+            id: "test-workflow".to_string(),
+            name: "Test Workflow".to_string(),
+            nodes: vec![
+                Node {
+                    id: "node1".to_string(),
+                    node_type: NodeType::Agent,
+                    config: serde_json::json!({
+                        "model": "gpt-4",
+                        "prompt": "Test"
+                    }),
+                    position: None,
+                },
+            ],
+            edges: vec![],
+        }
+    }
+
+    async fn wait_for_execution_tasks(app: &Arc<AppCore>, execution_id: &str) -> Vec<Task> {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            let tasks = app
+                .executor
+                .get_execution_status(execution_id)
+                .await
+                .expect("Failed to query execution status");
+
+            if !tasks.is_empty() {
+                return tasks;
+            }
+
+            if Instant::now() >= deadline {
+                panic!("Execution {} did not produce tasks within expected time", execution_id);
+            }
+
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+    }
+
+    async fn wait_for_task_visibility(app: &Arc<AppCore>, task_id: &str) -> Task {
+        let deadline = Instant::now() + Duration::from_secs(1);
+        loop {
+            match app.executor.get_task_status(task_id).await {
+                Ok(task) => return task,
+                Err(e) => {
+                    if Instant::now() >= deadline {
+                        panic!("Task {} not visible within expected time: {}", task_id, e);
+                    }
+                    tokio::time::sleep(Duration::from_millis(25)).await;
+                }
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_list_tasks_empty() {
+        let (app, _tmp_dir) = create_test_app().await;
+
+        let response = list_tasks(
+            State(app),
+            Query(TaskListQuery {
+                execution_id: None,
+                status: None,
+                limit: None,
+            })
+        ).await;
+        let body = response.0;
+
+        assert!(body.success);
+        assert_eq!(body.data.unwrap().len(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_execute_node() {
+        let (app, _tmp_dir) = create_test_app().await;
+
+        let node = Node {
+            id: "test-node".to_string(),
+            node_type: NodeType::Agent,
+            config: serde_json::json!({
+                "model": "gpt-4",
+                "prompt": "Test"
+            }),
+            position: None,
+        };
+
+        let response = execute_node(State(app), Json(node)).await;
+        let body = response.0;
+
+        assert!(body.success);
+        let data = body.data.unwrap();
+        assert!(!data.task_id.is_empty());
+        assert!(data.message.contains("started"));
+    }
+
+    #[tokio::test]
+    async fn test_get_task_status() {
+        let (app, _tmp_dir) = create_test_app().await;
+
+        let node = Node {
+            id: "test-node".to_string(),
+            node_type: NodeType::Agent,
+            config: serde_json::json!({
+                "model": "gpt-4",
+                "prompt": "Test"
+            }),
+            position: None,
+        };
+
+        let exec_response = execute_node(State(app.clone()), Json(node)).await;
+        let task_id = exec_response.0.data.unwrap().task_id;
+
+        let task = wait_for_task_visibility(&app, &task_id).await;
+        assert_eq!(task.id, task_id);
+        assert_eq!(task.node_id, "test-node");
+    }
+
+    #[tokio::test]
+    async fn test_get_execution_status() {
+        let (app, _tmp_dir) = create_test_app().await;
+        let workflow = create_test_workflow();
+
+        app.storage.workflows.create_workflow(&workflow).unwrap();
+
+        let execution_id = app
+            .executor
+            .submit("test-workflow".to_string(), serde_json::json!({}))
+            .await
+            .expect("Failed to submit workflow asynchronously");
+
+        let tasks = wait_for_execution_tasks(&app, &execution_id).await;
+        assert!(!tasks.is_empty());
+    }
+}

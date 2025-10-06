@@ -124,3 +124,143 @@ pub async fn submit_workflow(
         Err(e) => Json(ApiResponse::error(format!("Failed to submit workflow: {}", e))),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::AppCore;
+    use crate::models::{Node, NodeType};
+    use std::sync::Arc;
+    use tempfile::{tempdir, TempDir};
+
+    async fn create_test_app() -> (Arc<AppCore>, TempDir) {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test.db");
+        let app = Arc::new(AppCore::new(db_path.to_str().unwrap()).await.unwrap());
+        (app, temp_dir)
+    }
+
+    fn create_test_workflow(id: &str) -> Workflow {
+        Workflow {
+            id: id.to_string(),
+            name: format!("Test Workflow {}", id),
+            nodes: vec![
+                Node {
+                    id: "node1".to_string(),
+                    node_type: NodeType::Agent,
+                    config: serde_json::json!({
+                        "model": "gpt-4",
+                        "prompt": "Test prompt"
+                    }),
+                    position: None,
+                },
+            ],
+            edges: vec![],
+        }
+    }
+
+    #[tokio::test]
+    async fn test_list_workflows_empty() {
+        let (app, _tmp_dir) = create_test_app().await;
+
+        let response = list_workflows(State(app)).await;
+        let body = response.0;
+
+        assert!(body.success);
+        assert!(body.data.is_some());
+        assert_eq!(body.data.unwrap().len(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_create_workflow() {
+        let (app, _tmp_dir) = create_test_app().await;
+        let workflow = create_test_workflow("wf-001");
+
+        let response = create_workflow(
+            State(app.clone()),
+            Json(workflow.clone())
+        ).await;
+        let body = response.0;
+
+        assert!(body.success);
+        assert!(body.message.is_some());
+        assert!(body.message.unwrap().contains("saved"));
+
+        let data = body.data.unwrap();
+        assert_eq!(data.id, "wf-001");
+    }
+
+    #[tokio::test]
+    async fn test_get_workflow() {
+        let (app, _tmp_dir) = create_test_app().await;
+        let workflow = create_test_workflow("wf-001");
+
+        let _ = create_workflow(State(app.clone()), Json(workflow)).await;
+
+        let response = get_workflow(
+            State(app),
+            Path("wf-001".to_string())
+        ).await;
+        let body = response.0;
+
+        assert!(body.success);
+        let data = body.data.unwrap();
+        assert_eq!(data.id, "wf-001");
+        assert_eq!(data.name, "Test Workflow wf-001");
+    }
+
+    #[tokio::test]
+    async fn test_get_nonexistent_workflow() {
+        let (app, _tmp_dir) = create_test_app().await;
+
+        let response = get_workflow(
+            State(app),
+            Path("nonexistent".to_string())
+        ).await;
+        let body = response.0;
+
+        assert!(!body.success);
+        assert!(body.message.unwrap().contains("not found"));
+    }
+
+    #[tokio::test]
+    async fn test_update_workflow() {
+        let (app, _tmp_dir) = create_test_app().await;
+        let workflow = create_test_workflow("wf-001");
+
+        let _ = create_workflow(State(app.clone()), Json(workflow.clone())).await;
+
+        let mut updated = workflow;
+        updated.name = "Updated Name".to_string();
+
+        let response = update_workflow(
+            State(app),
+            Path("wf-001".to_string()),
+            Json(updated)
+        ).await;
+        let body = response.0;
+
+        assert!(body.success);
+        assert!(body.message.unwrap().contains("updated"));
+    }
+
+    #[tokio::test]
+    async fn test_delete_workflow() {
+        let (app, _tmp_dir) = create_test_app().await;
+        let workflow = create_test_workflow("wf-001");
+
+        let _ = create_workflow(State(app.clone()), Json(workflow)).await;
+
+        let response = delete_workflow(
+            State(app.clone()),
+            Path("wf-001".to_string())
+        ).await;
+        let body = response.0;
+
+        assert!(body.success);
+        assert!(body.message.unwrap().contains("deleted"));
+
+        let get_response = get_workflow(State(app), Path("wf-001".to_string())).await;
+        assert!(!get_response.0.success);
+    }
+}
