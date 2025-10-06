@@ -112,7 +112,6 @@ pub async fn test_workflow_trigger(
     }
 }
 
-// Webhook handler - matches any HTTP method
 pub async fn handle_webhook_trigger(
     State(state): State<AppState>,
     Path(webhook_id): Path<String>,
@@ -120,7 +119,6 @@ pub async fn handle_webhook_trigger(
     headers: axum::http::HeaderMap,
     body: String,
 ) -> Json<ApiResponse<Value>> {
-    // Convert headers to HashMap
     let mut header_map = HashMap::new();
     for (key, value) in headers.iter() {
         if let Ok(v) = value.to_str() {
@@ -128,7 +126,6 @@ pub async fn handle_webhook_trigger(
         }
     }
 
-    // Parse body as JSON, or wrap in object if not valid JSON
     let body_json: Value = serde_json::from_str(&body)
         .unwrap_or_else(|_| serde_json::json!({ "raw": body }));
 
@@ -143,5 +140,116 @@ pub async fn handle_webhook_trigger(
             Json(ApiResponse::ok(result))
         }
         Err(e) => Json(ApiResponse::error(format!("{}", e))),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::AppCore;
+    use crate::models::{Workflow, Node, NodeType};
+    use std::sync::Arc;
+    use tempfile::{tempdir, TempDir};
+
+    async fn create_test_app() -> (Arc<AppCore>, TempDir) {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test.db");
+        let app = Arc::new(AppCore::new(db_path.to_str().unwrap()).await.unwrap());
+        (app, temp_dir)
+    }
+
+    fn create_test_workflow_with_webhook_trigger(id: &str) -> Workflow {
+        Workflow {
+            id: id.to_string(),
+            name: format!("Test Workflow {}", id),
+            nodes: vec![
+                Node {
+                    id: "webhook_trigger".to_string(),
+                    node_type: NodeType::WebhookTrigger,
+                    config: serde_json::json!({
+                        "path": format!("/test/{}", id),
+                        "method": "POST"
+                    }),
+                    position: None,
+                },
+            ],
+            edges: vec![],
+        }
+    }
+
+    #[tokio::test]
+    async fn test_activate_workflow() {
+        let (app, _tmp_dir) = create_test_app().await;
+        let workflow = create_test_workflow_with_webhook_trigger("wf-001");
+
+        app.storage.workflows.create_workflow(&workflow).unwrap();
+
+        let response = activate_workflow(
+            State(app),
+            Path("wf-001".to_string())
+        ).await;
+        let body = response.0;
+
+        assert!(body.success);
+        let data = body.data.unwrap();
+        assert!(data.count > 0);
+    }
+
+    #[tokio::test]
+    async fn test_deactivate_workflow() {
+        let (app, _tmp_dir) = create_test_app().await;
+        let workflow = create_test_workflow_with_webhook_trigger("wf-001");
+
+        app.storage.workflows.create_workflow(&workflow).unwrap();
+
+        let _ = activate_workflow(State(app.clone()), Path("wf-001".to_string())).await;
+
+        let response = deactivate_workflow(
+            State(app),
+            Path("wf-001".to_string())
+        ).await;
+        let body = response.0;
+
+        assert!(body.success);
+    }
+
+    #[tokio::test]
+    async fn test_get_workflow_trigger_status() {
+        let (app, _tmp_dir) = create_test_app().await;
+        let workflow = create_test_workflow_with_webhook_trigger("wf-001");
+
+        app.storage.workflows.create_workflow(&workflow).unwrap();
+
+        let response = get_workflow_trigger_status(
+            State(app),
+            Path("wf-001".to_string())
+        ).await;
+        let body = response.0;
+
+        assert!(body.success);
+    }
+
+    #[tokio::test]
+    async fn test_test_workflow_trigger() {
+        let (app, _tmp_dir) = create_test_app().await;
+        let workflow = create_test_workflow_with_webhook_trigger("wf-001");
+
+        app.storage.workflows.create_workflow(&workflow).unwrap();
+
+        let _ = activate_workflow(State(app.clone()), Path("wf-001".to_string())).await;
+
+        let test_data = serde_json::json!({
+            "test": "data"
+        });
+
+        let response = test_workflow_trigger(
+            State(app),
+            Path("wf-001".to_string()),
+            Json(test_data)
+        ).await;
+        let body = response.0;
+
+        assert!(body.success);
+        assert!(body.data.is_some());
     }
 }

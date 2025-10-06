@@ -1,6 +1,6 @@
 use serde::Serialize;
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 pub struct ApiResponse<T: Serialize> {
     pub success: bool,
     #[serde(skip_serializing_if = "Option::is_none")]

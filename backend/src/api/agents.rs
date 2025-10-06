@@ -98,7 +98,6 @@ pub async fn execute_agent(
     Path(id): Path<String>,
     Json(request): Json<ExecuteAgentRequest>,
 ) -> Json<ApiResponse<AgentExecuteResponse>> {
-    // Get the agent
     let agent = match state.storage.agents.get_agent(id.clone()) {
         Ok(Some(agent)) => agent,
         Ok(None) => {
@@ -109,7 +108,6 @@ pub async fn execute_agent(
         }
     };
 
-    // Execute the agent with secret storage access
     match agent.agent.execute(&request.input, Some(&state.storage.secrets)).await {
         Ok(response) => Json(ApiResponse::ok(AgentExecuteResponse { response })),
         Err(e) => Json(ApiResponse::error(format!("Failed to execute agent: {}", e))),
@@ -121,7 +119,6 @@ pub async fn execute_agent_inline(
     State(state): State<AppState>,
     Json(agent_with_input): Json<Value>
 ) -> Json<ApiResponse<AgentExecuteResponse>> {
-    // Parse the agent configuration
     let agent = match serde_json::from_value::<AgentNode>(agent_with_input["agent"].clone()) {
         Ok(a) => a,
         Err(e) => {
@@ -131,9 +128,154 @@ pub async fn execute_agent_inline(
 
     let input = agent_with_input["input"].as_str().unwrap_or("").to_string();
 
-    // Execute the agent with secret storage access
     match agent.execute(&input, Some(&state.storage.secrets)).await {
         Ok(response) => Json(ApiResponse::ok(AgentExecuteResponse { response })),
         Err(e) => Json(ApiResponse::error(format!("Failed to execute agent: {}", e))),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::AppCore;
+    use std::sync::Arc;
+    use tempfile::{tempdir, TempDir};
+
+    async fn create_test_app() -> (Arc<AppCore>, TempDir) {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test.db");
+        let app = Arc::new(AppCore::new(db_path.to_str().unwrap()).await.unwrap());
+        (app, temp_dir)
+    }
+
+    fn create_test_agent() -> AgentNode {
+        AgentNode {
+            model: "gpt-4".to_string(),
+            prompt: Some("You are a test assistant".to_string()),
+            temperature: None,
+            api_key_config: None,
+            tools: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_list_agents_empty() {
+        let (app, _tmp_dir) = create_test_app().await;
+
+        let response = list_agents(State(app)).await;
+        let body = response.0;
+
+        assert!(body.success);
+        assert!(body.data.is_some());
+        assert_eq!(body.data.unwrap().len(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_create_agent() {
+        let (app, _tmp_dir) = create_test_app().await;
+        let agent = create_test_agent();
+
+        let request = CreateAgentRequest {
+            name: "Test Agent".to_string(),
+            agent: agent.clone(),
+        };
+
+        let response = create_agent(State(app), Json(request)).await;
+        let body = response.0;
+
+        assert!(body.success);
+        assert!(body.message.unwrap().contains("created"));
+
+        let data = body.data.unwrap();
+        assert_eq!(data.name, "Test Agent");
+        assert_eq!(data.agent.model, "gpt-4");
+    }
+
+    #[tokio::test]
+    async fn test_get_agent() {
+        let (app, _tmp_dir) = create_test_app().await;
+        let agent = create_test_agent();
+
+        let request = CreateAgentRequest {
+            name: "Test Agent".to_string(),
+            agent,
+        };
+
+        let create_response = create_agent(State(app.clone()), Json(request)).await;
+        let agent_id = create_response.0.data.unwrap().id;
+
+        let response = get_agent(State(app), Path(agent_id.clone())).await;
+        let body = response.0;
+
+        assert!(body.success);
+        let data = body.data.unwrap();
+        assert_eq!(data.id, agent_id);
+        assert_eq!(data.name, "Test Agent");
+    }
+
+    #[tokio::test]
+    async fn test_get_nonexistent_agent() {
+        let (app, _tmp_dir) = create_test_app().await;
+
+        let response = get_agent(State(app), Path("nonexistent".to_string())).await;
+        let body = response.0;
+
+        assert!(!body.success);
+        assert!(body.message.unwrap().contains("not found"));
+    }
+
+    #[tokio::test]
+    async fn test_update_agent() {
+        let (app, _tmp_dir) = create_test_app().await;
+        let agent = create_test_agent();
+
+        let request = CreateAgentRequest {
+            name: "Test Agent".to_string(),
+            agent,
+        };
+
+        let create_response = create_agent(State(app.clone()), Json(request)).await;
+        let agent_id = create_response.0.data.unwrap().id;
+
+        let update_request = UpdateAgentRequest {
+            name: Some("Updated Agent".to_string()),
+            agent: None,
+        };
+
+        let response = update_agent(
+            State(app),
+            Path(agent_id.clone()),
+            Json(update_request)
+        ).await;
+        let body = response.0;
+
+        assert!(body.success);
+        assert!(body.message.unwrap().contains("updated"));
+
+        let data = body.data.unwrap();
+        assert_eq!(data.name, "Updated Agent");
+    }
+
+    #[tokio::test]
+    async fn test_delete_agent() {
+        let (app, _tmp_dir) = create_test_app().await;
+        let agent = create_test_agent();
+
+        let request = CreateAgentRequest {
+            name: "Test Agent".to_string(),
+            agent,
+        };
+
+        let create_response = create_agent(State(app.clone()), Json(request)).await;
+        let agent_id = create_response.0.data.unwrap().id;
+
+        let response = delete_agent(State(app.clone()), Path(agent_id.clone())).await;
+        let body = response.0;
+
+        assert!(body.success);
+        assert!(body.message.unwrap().contains("deleted"));
+
+        let get_response = get_agent(State(app), Path(agent_id)).await;
+        assert!(!get_response.0.success);
     }
 }
