@@ -3,6 +3,7 @@ import { DataAnalysis, Expand, Fold, Setting, Lock } from '@element-plus/icons-v
 import { ElAside, ElButton, ElIcon, ElMenu, ElMenuItem } from 'element-plus'
 import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { Github } from 'lucide-vue-next'
 import RestFlowLogo from './RestFlowLogo.vue'
 
 const route = useRoute()
@@ -80,6 +81,20 @@ const handleMenuSelect = (index: string) => {
         <template #title>Secrets</template>
       </el-menu-item>
     </el-menu>
+
+    <!-- Footer with GitHub link -->
+    <div class="panel-footer" :class="{ collapsed: isCollapsed }">
+      <a
+        href="https://github.com/lhwzds/restflow"
+        target="_blank"
+        rel="noopener noreferrer"
+        class="github-link"
+        :title="isCollapsed ? 'View on GitHub' : ''"
+      >
+        <Github :size="20" />
+        <span v-if="!isCollapsed" class="github-text">GitHub</span>
+      </a>
+    </div>
   </el-aside>
 </template>
 
@@ -143,5 +158,38 @@ const handleMenuSelect = (index: string) => {
 .el-menu-item.is-active {
   background-color: var(--rf-color-primary-bg-light);
   color: var(--rf-color-primary);
+}
+
+.panel-footer {
+  margin-top: auto;
+  padding: var(--rf-spacing-md);
+  border-top: 1px solid var(--rf-color-border-light);
+}
+
+.panel-footer.collapsed {
+  display: flex;
+  justify-content: center;
+  padding: var(--rf-spacing-sm) 0;
+}
+
+.github-link {
+  display: flex;
+  align-items: center;
+  gap: var(--rf-spacing-sm);
+  color: var(--rf-color-text-secondary);
+  text-decoration: none;
+  transition: color 0.2s ease;
+  padding: var(--rf-spacing-xs) var(--rf-spacing-sm);
+  border-radius: var(--rf-radius-small);
+}
+
+.github-link:hover {
+  color: var(--rf-color-text-primary);
+  background-color: var(--rf-color-bg-secondary);
+}
+
+.github-text {
+  font-size: var(--rf-font-size-base);
+  font-weight: 500;
 }
 </style>
