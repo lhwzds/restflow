@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ElHeader, ElButton } from 'element-plus'
-import { Sun, Moon } from 'lucide-vue-next'
+import { Sun, Moon, Github } from 'lucide-vue-next'
 import { useTheme } from '../../composables/useTheme'
 
 defineProps<{
@@ -19,7 +19,7 @@ const { isDark, toggleDark } = useTheme()
     <div class="header-actions">
       <!-- Page specific actions via slot -->
       <slot name="actions" />
-      
+
       <!-- Theme toggle always visible -->
       <el-button
         @click="toggleDark()"
@@ -29,6 +29,22 @@ const { isDark, toggleDark } = useTheme()
         size="large"
         :title="isDark ? 'Switch to light mode' : 'Switch to dark mode'"
       />
+
+      <!-- GitHub link -->
+      <a
+        href="https://github.com/lhwzds/restflow"
+        target="_blank"
+        rel="noopener noreferrer"
+        class="github-link"
+        title="View on GitHub"
+      >
+        <el-button
+          :icon="Github"
+          circle
+          text
+          size="large"
+        />
+      </a>
     </div>
   </el-header>
 </template>
@@ -56,9 +72,16 @@ const { isDark, toggleDark } = useTheme()
   display: flex;
   align-items: center;
   gap: var(--rf-spacing-md);
-  
+
   :deep(.search-input) {
     width: var(--rf-size-xl);
   }
+}
+
+.github-link {
+  display: flex;
+  align-items: center;
+  text-decoration: none;
+  color: inherit;
 }
 </style>
