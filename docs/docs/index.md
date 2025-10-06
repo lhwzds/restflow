@@ -32,8 +32,8 @@ Access at http://localhost:3000
 
 ## Documentation
 
-- [API Reference](../api/restflow/) - Rust backend API documentation
-- [Code Coverage](../coverage/) - Test coverage reports
+- [API Reference](/restflow/api/backend/) - Rust backend API documentation
+- [Code Coverage](/restflow/coverage/tarpaulin-report.html) - Test coverage reports
 - [GitHub Repository](https://github.com/lhwzds/restflow) - Source code
 
 ## License

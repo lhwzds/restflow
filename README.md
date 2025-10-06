@@ -3,7 +3,7 @@
   
   # RestFlow
   
-  **🦀 Let your workflows run while you rest**
+  ** RestFlow works for you **
   
   [![Status](https://img.shields.io/badge/status-prototype-orange)](https://github.com/lhwzds/restflow)
   [![Documentation](https://img.shields.io/badge/docs-docs.restflow.ai-blue)](https://docs.restflow.ai/)
@@ -22,19 +22,22 @@
 
 ## Quick Start
 
+### Try the Demo
+
+**[restflow.ai](https://restflow.ai)** - Live demo deployed on Vercel
+
 ### Start with docker
 
 ```bash
-
- docker compose up -d --build
-
+docker compose up -d --build
 ```
 
 Access at http://localhost:3000
 
 ## Documentation
 
-📚 **[docs.restflow.ai](https://docs.restflow.ai/)** - Full documentation
+**[docs.restflow.ai](https://docs.restflow.ai/)** - Full documentation
 
 - [API Reference](https://docs.restflow.ai/api/backend/) - Rust backend API documentation
-- [Code Coverage](https://docs.restflow.ai/coverage/) - Test coverage reports
+
+- [Code Coverage](https://docs.restflow.ai/coverage/tarpaulin-report.html) - Test coverage reports
