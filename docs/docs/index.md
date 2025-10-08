@@ -33,7 +33,9 @@ Access at http://localhost:3000
 ## Documentation
 
 - [API Reference](/restflow/api/backend/) - Rust backend API documentation
-- [Code Coverage](/restflow/coverage/tarpaulin-report.html) - Test coverage reports
+- **Test Coverage**:
+  - [Frontend Coverage](/restflow/coverage/frontend/) - Vue 3 + TypeScript (95 tests ✅)
+  - [Backend Coverage](/restflow/coverage/backend/) - Rust API
 - [GitHub Repository](https://github.com/lhwzds/restflow) - Source code
 
 ## License
