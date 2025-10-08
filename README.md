@@ -27,7 +27,7 @@
 
 ### Try the Demo
 
-**[restflow.ai](https://restflow.ai)** - Live demo deployed on Vercel
+**[restflow.ai](https://restflow.ai)** - Live demo deployed on Vercel (Frontend deployed only)
 
 ### Start with docker
 
