@@ -43,4 +43,6 @@ Access at http://localhost:3000
 
 - [API Reference](https://docs.restflow.ai/api/backend/) - Rust backend API documentation
 
-- [Code Coverage](https://docs.restflow.ai/coverage/tarpaulin-report.html) - Test coverage reports
+- **Test Coverage**:
+  - [Frontend Coverage](https://docs.restflow.ai/coverage/frontend/) - Vue 3 + TypeScript
+  - [Backend Coverage](https://docs.restflow.ai/coverage/backend/) - Rust API
