@@ -2,7 +2,6 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import MockAdapter from 'axios-mock-adapter'
 import { apiClient } from '@/api/config'
 import * as triggersApi from '@/api/triggers'
-import type { TriggerStatus } from '@/types/generated/TriggerStatus'
 import { API_ENDPOINTS } from '@/constants'
 
 vi.mock('@/api/utils', () => ({
