@@ -1,8 +1,16 @@
 import type { Edge } from '@vue-flow/core'
-import { computed } from 'vue'
+import { computed, type WritableComputedRef } from 'vue'
 import { useWorkflowStore } from '../../stores/workflowStore'
 
-export function useEdgeOperations() {
+export interface EdgeOperations {
+  edges: WritableComputedRef<Edge[]>
+  addEdge: (edge: Edge) => void
+  removeEdge: (edgeId: string) => void
+  removeEdges: (edgeIds: string[]) => void
+  updateEdge: (edgeId: string, data: Partial<Edge>) => void
+}
+
+export function useEdgeOperations(): EdgeOperations {
   const workflowStore = useWorkflowStore()
   
   // Expose reactive references for v-model binding
