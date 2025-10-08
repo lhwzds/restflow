@@ -9,7 +9,10 @@
     "preview": "vite preview",
     "format": "prettier --write \"src/**/*.{js,ts,vue,css,scss,html,json}\"",
     "format:check": "prettier --check \"src/**/*.{js,ts,vue,css,scss,html,json}\"",
-    "generate:types": "cd ../backend && cargo test export_bindings"
+    "generate:types": "cd ../backend && cargo test export_bindings",
+    "test": "vitest",
+    "test:ui": "vitest --ui",
+    "test:coverage": "vitest --coverage"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.8.0",
@@ -34,11 +37,17 @@
     "@types/marked": "^5.0.2",
     "@types/node": "^24.3.0",
     "@vitejs/plugin-vue": "^6.0.1",
+    "@vitest/coverage-v8": "^3.2.4",
+    "@vitest/ui": "^3.2.4",
+    "@vue/test-utils": "^2.4.6",
     "@vue/tsconfig": "^0.7.0",
+    "axios-mock-adapter": "^2.1.0",
+    "happy-dom": "^19.0.2",
     "prettier": "^3.6.2",
     "sass": "^1.91.0",
     "typescript": "~5.8.3",
     "vite": "^7.1.0",
+    "vitest": "^3.2.4",
     "vue-tsc": "^3.0.5"
   }
 }

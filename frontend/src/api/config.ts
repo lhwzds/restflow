@@ -20,7 +20,7 @@ apiClient.interceptors.request.use(
   }
 )
 
-const isApiResponse = (obj: any): obj is ApiResponse<any> => {
+export const isApiResponse = (obj: any): obj is ApiResponse<any> => {
   if (!obj || typeof obj !== 'object') return false
   if (typeof obj.success !== 'boolean') return false
 
@@ -47,6 +47,12 @@ apiClient.interceptors.response.use(
     return response
   },
   (error) => {
+    if (error.response?.data && isApiResponse(error.response.data)) {
+      const apiError = error.response.data
+      console.error('API Error:', apiError.message || error.message)
+      return Promise.reject(new Error(apiError.message || error.message))
+    }
+
     console.error('API Error:', error)
     return Promise.reject(error)
   }
