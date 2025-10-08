@@ -45,12 +45,30 @@ jobs:
       - name: Install Tarpaulin
         run: cargo install cargo-tarpaulin --locked
 
+      # Setup Node.js for frontend coverage
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        run: |
+          cd frontend
+          npm ci
+
+      - name: Generate frontend coverage
+        run: |
+          cd frontend
+          npm run test:coverage
+
       # Generate Rust API documentation
       - name: Build Rust API docs
         run: cargo doc --no-deps --document-private-items --all-features --manifest-path backend/Cargo.toml
 
-      # Generate coverage report
-      - name: Generate coverage report
+      # Generate backend coverage report
+      - name: Generate backend coverage report
         run: cargo tarpaulin --out html --output-dir target/coverage --all-features --timeout 300 --manifest-path backend/Cargo.toml
 
       # Install MkDocs
@@ -94,12 +112,23 @@ jobs:
             echo "Warning: No Rust API docs found"
           fi
 
-          # Copy coverage report
+          # Copy coverage reports
           mkdir -p docs-site/coverage
+
+          # Copy backend coverage
           if [ -d "target/coverage" ] && [ "$(ls -A target/coverage)" ]; then
-            cp -r target/coverage/* docs-site/coverage/
+            mkdir -p docs-site/coverage/backend
+            cp -r target/coverage/* docs-site/coverage/backend/
           else
-            echo "Warning: No coverage report found"
+            echo "Warning: No backend coverage report found"
+          fi
+
+          # Copy frontend coverage
+          if [ -d "frontend/coverage" ] && [ "$(ls -A frontend/coverage)" ]; then
+            mkdir -p docs-site/coverage/frontend
+            cp -r frontend/coverage/* docs-site/coverage/frontend/
+          else
+            echo "Warning: No frontend coverage report found"
           fi
 
       - name: Upload artifact
