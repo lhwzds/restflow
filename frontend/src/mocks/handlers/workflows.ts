@@ -176,6 +176,9 @@ export const workflowHandlers = [
 
   // GET /api/workflows/:id/trigger-status - Get trigger status
   http.get('/api/workflows/:id/trigger-status', () => {
+    // Note: BigInt values must be converted to strings for JSON serialization
+    // The backend sends these as JSON numbers, which JavaScript deserializes as regular numbers
+    // For consistency with the real backend, we send numbers here (not BigInt)
     return HttpResponse.json({
       success: true,
       data: {
@@ -184,9 +187,9 @@ export const workflowHandlers = [
           type: 'manual'
         },
         webhook_url: null,
-        trigger_count: 0n,
+        trigger_count: 0,
         last_triggered_at: null,
-        activated_at: BigInt(Date.now())
+        activated_at: Date.now()
       }
     })
   }),
