@@ -2,6 +2,14 @@ import { http, HttpResponse } from 'msw'
 import type { StoredAgent } from '@/types/generated/StoredAgent'
 import demoAgents from '../data/agents.json'
 
+// Helper to convert StoredAgent to JSON-serializable format
+// BigInt values must be converted to numbers/strings for JSON.stringify()
+const toJsonAgent = (agent: StoredAgent): any => ({
+  ...agent,
+  created_at: Number(agent.created_at),
+  updated_at: Number(agent.updated_at)
+})
+
 // Convert JSON data to StoredAgent with bigint timestamps
 const convertToStoredAgent = (agent: any): StoredAgent => ({
   ...agent,
@@ -9,7 +17,7 @@ const convertToStoredAgent = (agent: any): StoredAgent => ({
   updated_at: BigInt(agent.updated_at)
 })
 
-// Mock agents storage
+// Mock agents storage (in-memory, using BigInt for consistency)
 let agents: StoredAgent[] = demoAgents.map(convertToStoredAgent)
 
 export const agentHandlers = [
@@ -17,7 +25,7 @@ export const agentHandlers = [
   http.get('/api/agents', () => {
     return HttpResponse.json({
       success: true,
-      data: agents
+      data: agents.map(toJsonAgent)
     })
   }),
 
@@ -35,7 +43,7 @@ export const agentHandlers = [
     }
     return HttpResponse.json({
       success: true,
-      data: agent
+      data: toJsonAgent(agent)
     })
   }),
 
@@ -71,7 +79,7 @@ export const agentHandlers = [
     return HttpResponse.json(
       {
         success: true,
-        data: newAgent
+        data: toJsonAgent(newAgent)
       },
       { status: 201 }
     )
@@ -97,7 +105,7 @@ export const agentHandlers = [
     }
     return HttpResponse.json({
       success: true,
-      data: agents[index]
+      data: toJsonAgent(agents[index])
     })
   }),
 
