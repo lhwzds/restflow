@@ -43,11 +43,17 @@
     "@vue/tsconfig": "^0.7.0",
     "axios-mock-adapter": "^2.1.0",
     "happy-dom": "^19.0.2",
+    "msw": "^2.11.4",
     "prettier": "^3.6.2",
     "sass": "^1.91.0",
     "typescript": "~5.8.3",
     "vite": "^7.1.0",
     "vitest": "^3.2.4",
     "vue-tsc": "^3.0.5"
+  },
+  "msw": {
+    "workerDirectory": [
+      "public"
+    ]
   }
 }

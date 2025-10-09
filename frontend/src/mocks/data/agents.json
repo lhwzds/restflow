@@ -1,0 +1,54 @@
+[
+  {
+    "id": "demo-translator",
+    "name": "Smart Translation Assistant",
+    "agent": {
+      "model": "claude-sonnet-4.5",
+      "prompt": "You are a professional translation assistant. Translate the user's input text to {target_language}, maintaining the original tone and style.",
+      "temperature": 0.3,
+      "api_key_config": null,
+      "tools": null
+    },
+    "created_at": "1704067200000",
+    "updated_at": "1704067200000"
+  },
+  {
+    "id": "demo-code-reviewer",
+    "name": "Code Review Assistant",
+    "agent": {
+      "model": "gpt-4.1",
+      "prompt": "You are a senior code review expert. Analyze the following code and provide:\n1. Potential bugs or issues\n2. Code quality improvement suggestions\n3. Best practice recommendations\n\nCode:\n{{code}}",
+      "temperature": 0.5,
+      "api_key_config": null,
+      "tools": null
+    },
+    "created_at": "1704153600000",
+    "updated_at": "1704153600000"
+  },
+  {
+    "id": "demo-content-creator",
+    "name": "Content Creation Assistant",
+    "agent": {
+      "model": "gpt-4.1",
+      "prompt": "You are a creative content creator. Create engaging content (articles, social media posts, etc.) based on the given topic and keywords.\n\nTopic: {{topic}}\nKeywords: {{keywords}}\nStyle: {{style}}",
+      "temperature": 0.9,
+      "api_key_config": null,
+      "tools": null
+    },
+    "created_at": "1704240000000",
+    "updated_at": "1704240000000"
+  },
+  {
+    "id": "demo-data-analyst",
+    "name": "Data Analysis Assistant",
+    "agent": {
+      "model": "claude-sonnet-4.5",
+      "prompt": "You are a data analysis expert. Analyze the following data and provide:\n1. Key metrics summary\n2. Trend analysis\n3. Insights and recommendations\n\nData:\n{{data}}",
+      "temperature": 0.4,
+      "api_key_config": null,
+      "tools": null
+    },
+    "created_at": "1704326400000",
+    "updated_at": "1704326400000"
+  }
+]

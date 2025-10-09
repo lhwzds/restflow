@@ -17,10 +17,23 @@ import App from './App.vue'
 import router from './router'
 import './style.scss'
 
-const app = createApp(App)
-const pinia = createPinia()
+async function enableMocking() {
+  // Enable MSW only in demo mode
+  if (import.meta.env.VITE_DEMO_MODE === 'true') {
+    const { worker } = await import('./mocks/browser')
 
-app.use(pinia)
-app.use(router)
-app.use(ElementPlus)
-app.mount('#app')
+    return worker.start({
+      onUnhandledRequest: 'bypass' // Bypass unhandled requests
+    })
+  }
+}
+
+enableMocking().then(() => {
+  const app = createApp(App)
+  const pinia = createPinia()
+
+  app.use(pinia)
+  app.use(router)
+  app.use(ElementPlus)
+  app.mount('#app')
+})

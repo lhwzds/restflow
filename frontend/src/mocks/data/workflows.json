@@ -1,0 +1,109 @@
+[
+  {
+    "id": "demo-ai-summarizer",
+    "name": "AI Article Summarizer",
+    "nodes": [
+      {
+        "id": "trigger-1",
+        "node_type": "WebhookTrigger",
+        "config": {
+          "path": "/webhook/summarize",
+          "method": "POST",
+          "response_mode": "sync"
+        },
+        "position": { "x": 100, "y": 150 }
+      },
+      {
+        "id": "agent-1",
+        "node_type": "Agent",
+        "config": {
+          "model": "gpt-4",
+          "prompt": "Please generate a concise summary (no more than 100 words) for the following content:\n\n{{trigger.data.text}}",
+          "temperature": 0.7
+        },
+        "position": { "x": 450, "y": 150 }
+      }
+    ],
+    "edges": [
+      { "from": "trigger-1", "to": "agent-1" }
+    ]
+  },
+  {
+    "id": "demo-data-pipeline",
+    "name": "Data Processing Pipeline",
+    "nodes": [
+      {
+        "id": "http-1",
+        "node_type": "HttpRequest",
+        "config": {
+          "url": "https://api.github.com/repos/vuejs/core",
+          "method": "GET",
+          "headers": {
+            "Accept": "application/json"
+          }
+        },
+        "position": { "x": 100, "y": 150 }
+      },
+      {
+        "id": "agent-2",
+        "node_type": "Agent",
+        "config": {
+          "model": "gpt-3.5-turbo",
+          "prompt": "Analyze the following GitHub repository data and generate a brief report (project name, stars count, description):\n\n{{node.http-1}}",
+          "temperature": 0.5
+        },
+        "position": { "x": 450, "y": 150 }
+      }
+    ],
+    "edges": [
+      { "from": "http-1", "to": "agent-2" }
+    ]
+  },
+  {
+    "id": "demo-multi-step",
+    "name": "Multi-Step Content Generation",
+    "nodes": [
+      {
+        "id": "trigger-2",
+        "node_type": "ManualTrigger",
+        "config": {},
+        "position": { "x": 100, "y": 200 }
+      },
+      {
+        "id": "agent-3",
+        "node_type": "Agent",
+        "config": {
+          "model": "gpt-4",
+          "prompt": "Generate a 3-point article outline for the topic: {{trigger.data.topic}}",
+          "temperature": 0.8
+        },
+        "position": { "x": 350, "y": 200 }
+      },
+      {
+        "id": "agent-4",
+        "node_type": "Agent",
+        "config": {
+          "model": "gpt-4",
+          "prompt": "Expand the following outline into a complete article (200 words per point):\n\n{{node.agent-3}}",
+          "temperature": 0.7
+        },
+        "position": { "x": 600, "y": 200 }
+      },
+      {
+        "id": "agent-5",
+        "node_type": "Agent",
+        "config": {
+          "model": "gpt-4",
+          "prompt": "Polish the following article to make it more fluent and professional:\n\n{{node.agent-4}}",
+          "temperature": 0.6
+        },
+        "position": { "x": 850, "y": 200 }
+      }
+    ],
+    "edges": [
+      { "from": "trigger-2", "to": "agent-3" },
+      { "from": "agent-3", "to": "agent-4" },
+      { "from": "agent-4", "to": "agent-5" }
+    ]
+  }
+]
