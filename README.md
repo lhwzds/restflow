@@ -45,4 +45,4 @@ Access at http://localhost:3000
 
 - **Test Coverage**:
   - [Frontend Coverage](https://docs.restflow.ai/coverage/frontend/) - Vue 3 + TypeScript
-  - [Backend Coverage](https://docs.restflow.ai/coverage/backend/) - Rust API
+  - [Backend Coverage](https://docs.restflow.ai/coverage/backend/tarpaulin-report.html) - Rust API
