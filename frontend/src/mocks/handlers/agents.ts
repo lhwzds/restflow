@@ -1,4 +1,4 @@
-import { http, HttpResponse } from 'msw'
+import { http, HttpResponse, delay } from 'msw'
 import type { StoredAgent } from '@/types/generated/StoredAgent'
 import demoAgents from '../data/agents.json'
 
@@ -130,7 +130,7 @@ export const agentHandlers = [
       )
     }
 
-    await new Promise(resolve => setTimeout(resolve, 1200))
+    await delay(1200)
 
     return HttpResponse.json({
       success: true,
@@ -141,7 +141,7 @@ export const agentHandlers = [
   }),
 
   http.post('/api/agents/execute-inline', async () => {
-    await new Promise(resolve => setTimeout(resolve, 1000))
+    await delay(1000)
 
     return HttpResponse.json({
       success: true,
