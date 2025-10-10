@@ -4,6 +4,9 @@ site_description: Let your workflows run while you rest
 repo_url: https://github.com/lhwzds/restflow
 repo_name: lhwzds/restflow
 
+# Use current directory as source for markdown files
+docs_dir: .
+
 theme:
   name: material
   logo: images/logo.svg
@@ -39,7 +42,7 @@ nav:
   - API Reference: https://docs.restflow.ai/api/backend/
   - Test Coverage:
       - Frontend: https://docs.restflow.ai/coverage/frontend/
-      - Backend: https://docs.restflow.ai/coverage/backend/
+      - Backend: https://docs.restflow.ai/coverage/backend/tarpaulin-report.html
 
 extra_css:
   - stylesheets/extra.css
