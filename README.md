@@ -21,13 +21,13 @@
 
 ## Workflow Editor
 
-![RestFlow Workflow Editor](./docs/images/workflow-editor.png)
+![RestFlow Workflow Editor](./docs/content/images/workflow-editor.png)
 
 ## Quick Start
 
 ### Try the Demo
 
-**[restflow.ai](https://restflow.ai)** - Live demo deployed on Vercel (Frontend deployed only)
+**[restflow.ai](https://restflow.ai)** - Live demo deployed on Vercel
 
 ### Start with docker
 
@@ -40,9 +40,3 @@ Access at http://localhost:3000
 ## Documentation
 
 **[docs.restflow.ai](https://docs.restflow.ai/)** - Full documentation
-
-- [API Reference](https://docs.restflow.ai/api/backend/) - Rust backend API documentation
-
-- **Test Coverage**:
-  - [Frontend Coverage](https://docs.restflow.ai/coverage/frontend/) - Vue 3 + TypeScript
-  - [Backend Coverage](https://docs.restflow.ai/coverage/backend/tarpaulin-report.html) - Rust API
