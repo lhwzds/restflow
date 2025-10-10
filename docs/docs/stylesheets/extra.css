@@ -1,0 +1,33 @@
+/* RestFlow Custom Theme Colors */
+
+:root {
+  /* Primary RestFlow orange color - overrides Material's deep orange */
+  --md-primary-fg-color: #ff6b35;
+  --md-primary-fg-color--light: #ff7d4d;
+  --md-primary-fg-color--dark: #e55a2b;
+
+  /* Accent color */
+  --md-accent-fg-color: #ff6b35;
+  --md-accent-fg-color--transparent: rgba(255, 107, 53, 0.1);
+
+  /* Links */
+  --md-typeset-a-color: #ff6b35;
+}
+
+/* Dark mode colors */
+[data-md-color-scheme="slate"] {
+  --md-primary-fg-color: #ff7d4d;
+  --md-primary-fg-color--light: #ff8f66;
+  --md-primary-fg-color--dark: #ff6b35;
+
+  --md-accent-fg-color: #ff7d4d;
+  --md-accent-fg-color--transparent: rgba(255, 125, 77, 0.1);
+
+  --md-typeset-a-color: #ff8f66;
+}
+
+/* Ensure logo looks good in both themes */
+.md-header__button.md-logo img,
+.md-header__button.md-logo svg {
+  height: 1.5rem;
+}
