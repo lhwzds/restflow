@@ -2,11 +2,31 @@ import { http, HttpResponse } from 'msw'
 import type { Task } from '@/types/generated/Task'
 import type { TaskStatus } from '@/types/generated/TaskStatus'
 
-// In-memory storage for executions and tasks
+const MAX_EXECUTIONS = 50
+const MAX_TASKS = 200
 const executions = new Map<string, Task[]>()
 const tasks = new Map<string, Task>()
 
-// Helper: Generate mock task output based on node type
+const addExecution = (id: string, taskList: Task[]) => {
+  if (executions.size >= MAX_EXECUTIONS) {
+    const firstKey = executions.keys().next().value
+    if (firstKey) {
+      executions.delete(firstKey)
+    }
+  }
+  executions.set(id, taskList)
+}
+
+const addTask = (id: string, task: Task) => {
+  if (tasks.size >= MAX_TASKS) {
+    const firstKey = tasks.keys().next().value
+    if (firstKey) {
+      tasks.delete(firstKey)
+    }
+  }
+  tasks.set(id, task)
+}
+
 const generateMockOutput = (nodeType: string, nodeId: string, config: any): any => {
   switch (nodeType) {
     case 'Agent':
@@ -40,35 +60,31 @@ const generateMockOutput = (nodeType: string, nodeId: string, config: any): any 
   }
 }
 
-// Helper: Simulate task status progression
-const simulateTaskExecution = (task: Task) => {
-  // Stage 1: Pending -> Running (after 1 second)
+const simulateTaskExecution = (task: Task, node: any) => {
   setTimeout(() => {
     const currentTask = tasks.get(task.id)
     if (currentTask) {
       currentTask.status = 'Running'
-      currentTask.started_at = BigInt(Date.now())
+      currentTask.started_at = Date.now() as any // Backend sends as number, not BigInt
       tasks.set(task.id, { ...currentTask })
     }
   }, 1000)
 
-  // Stage 2: Running -> Completed (after 3 seconds total)
   setTimeout(() => {
     const currentTask = tasks.get(task.id)
     if (currentTask) {
       currentTask.status = 'Completed'
-      currentTask.completed_at = BigInt(Date.now())
-      currentTask.output = generateMockOutput(
-        currentTask.node_id.split('.')[0], // Extract node type from "NodeType.node-id"
-        currentTask.node_id,
-        {} // config not available in task, use empty
-      )
+      currentTask.completed_at = Date.now() as any // Backend sends as number, not BigInt
+
+      const output = generateMockOutput(node.node_type, node.id, node.config)
+      currentTask.output = output
+      currentTask.context.data[`node.${node.id}`] = output
+
       tasks.set(task.id, { ...currentTask })
     }
   }, 3000)
 }
 
-// Helper: Create tasks for a workflow execution
 export const createExecutionTasks = (
   executionId: string,
   workflowId: string,
@@ -81,7 +97,7 @@ export const createExecutionTasks = (
       workflow_id: workflowId,
       node_id: node.id,
       status: 'Pending' as TaskStatus,
-      created_at: BigInt(Date.now()),
+      created_at: Date.now() as any, // Backend sends as number, not BigInt
       started_at: null,
       completed_at: null,
       input: {},
@@ -94,23 +110,18 @@ export const createExecutionTasks = (
       }
     }
 
-    // Store task
-    tasks.set(task.id, task)
-
-    // Start simulation
-    simulateTaskExecution(task)
+    addTask(task.id, task)
+    simulateTaskExecution(task, node)
 
     return task
   })
 
-  // Store execution
-  executions.set(executionId, executionTasks)
+  addExecution(executionId, executionTasks)
 
   return executionTasks
 }
 
 export const executionHandlers = [
-  // GET /api/executions/:id - Get execution status (returns tasks)
   http.get('/api/executions/:id', ({ params }) => {
     const executionId = params.id as string
     const executionTasks = executions.get(executionId)
@@ -125,7 +136,6 @@ export const executionHandlers = [
       )
     }
 
-    // Return current state of all tasks
     const currentTasks = executionTasks.map(t => tasks.get(t.id)!)
 
     return HttpResponse.json({
@@ -134,7 +144,6 @@ export const executionHandlers = [
     })
   }),
 
-  // GET /api/tasks/:id - Get single task status
   http.get('/api/tasks/:id', ({ params }) => {
     const taskId = params.id as string
     const task = tasks.get(taskId)
@@ -155,7 +164,6 @@ export const executionHandlers = [
     })
   }),
 
-  // GET /api/tasks - List tasks (with optional filtering)
   http.get('/api/tasks', ({ request }) => {
     const url = new URL(request.url)
     const executionId = url.searchParams.get('execution_id')
@@ -164,17 +172,14 @@ export const executionHandlers = [
 
     let filteredTasks = Array.from(tasks.values())
 
-    // Filter by execution_id
     if (executionId) {
       filteredTasks = filteredTasks.filter(t => t.execution_id === executionId)
     }
 
-    // Filter by status
     if (status) {
       filteredTasks = filteredTasks.filter(t => t.status === status)
     }
 
-    // Apply limit
     filteredTasks = filteredTasks.slice(0, limit)
 
     return HttpResponse.json({
