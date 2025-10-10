@@ -3,11 +3,9 @@ import type { Workflow } from '@/types/generated/Workflow'
 import demoWorkflows from '../data/workflows.json'
 import { createExecutionTasks } from './executions'
 
-// Mock workflows storage (in memory)
 let workflows = [...demoWorkflows] as Workflow[]
 
 export const workflowHandlers = [
-  // GET /api/workflows - List all workflows
   http.get('/api/workflows', () => {
     return HttpResponse.json({
       success: true,
@@ -15,7 +13,6 @@ export const workflowHandlers = [
     })
   }),
 
-  // GET /api/workflows/:id - Get a single workflow
   http.get('/api/workflows/:id', ({ params }) => {
     const workflow = workflows.find(w => w.id === params.id)
     if (!workflow) {
@@ -33,11 +30,9 @@ export const workflowHandlers = [
     })
   }),
 
-  // POST /api/workflows - Create new workflow
   http.post('/api/workflows', async ({ request }) => {
     const body = await request.json() as Partial<Workflow>
 
-    // Check if workflow with the same ID already exists
     if (body.id && workflows.find(w => w.id === body.id)) {
       return HttpResponse.json(
         {
@@ -64,7 +59,6 @@ export const workflowHandlers = [
     )
   }),
 
-  // PUT /api/workflows/:id - Update workflow
   http.put('/api/workflows/:id', async ({ params, request }) => {
     const index = workflows.findIndex(w => w.id === params.id)
     if (index === -1) {
@@ -83,7 +77,6 @@ export const workflowHandlers = [
     })
   }),
 
-  // DELETE /api/workflows/:id - Delete workflow
   http.delete('/api/workflows/:id', ({ params }) => {
     const index = workflows.findIndex(w => w.id === params.id)
     if (index === -1) {
@@ -101,9 +94,7 @@ export const workflowHandlers = [
     })
   }),
 
-  // POST /api/workflows/execute - Execute workflow synchronously (inline)
   http.post('/api/workflows/execute', async () => {
-    // Simulate execution delay
     await new Promise(resolve => setTimeout(resolve, 1000))
 
     return HttpResponse.json({
@@ -120,7 +111,6 @@ export const workflowHandlers = [
     })
   }),
 
-  // POST /api/workflows/:id/execute - Execute workflow synchronously (by ID)
   http.post('/api/workflows/:id/execute', async ({ params }) => {
     const workflow = workflows.find(w => w.id === params.id)
     if (!workflow) {
@@ -133,7 +123,6 @@ export const workflowHandlers = [
       )
     }
 
-    // Simulate execution delay
     await new Promise(resolve => setTimeout(resolve, 1500))
 
     return HttpResponse.json({
@@ -151,7 +140,6 @@ export const workflowHandlers = [
     })
   }),
 
-  // POST /api/workflows/:id/executions - Submit async execution
   http.post('/api/workflows/:id/executions', ({ params }) => {
     const workflowId = params.id as string
     const workflow = workflows.find(w => w.id === workflowId)
@@ -166,10 +154,7 @@ export const workflowHandlers = [
       )
     }
 
-    // Generate execution ID
     const executionId = 'async-exec-' + Date.now()
-
-    // Create tasks for all nodes in the workflow
     createExecutionTasks(executionId, workflowId, workflow.nodes)
 
     return HttpResponse.json({
@@ -181,25 +166,19 @@ export const workflowHandlers = [
     })
   }),
 
-  // PUT /api/workflows/:id/activate - Activate trigger
   http.put('/api/workflows/:id/activate', () => {
     return HttpResponse.json({
       success: true
     })
   }),
 
-  // PUT /api/workflows/:id/deactivate - Deactivate trigger
   http.put('/api/workflows/:id/deactivate', () => {
     return HttpResponse.json({
       success: true
     })
   }),
 
-  // GET /api/workflows/:id/trigger-status - Get trigger status
   http.get('/api/workflows/:id/trigger-status', () => {
-    // Note: BigInt values must be converted to strings for JSON serialization
-    // The backend sends these as JSON numbers, which JavaScript deserializes as regular numbers
-    // For consistency with the real backend, we send numbers here (not BigInt)
     return HttpResponse.json({
       success: true,
       data: {
@@ -215,7 +194,6 @@ export const workflowHandlers = [
     })
   }),
 
-  // POST /api/workflows/:id/test - Test trigger
   http.post('/api/workflows/:id/test', async () => {
     await new Promise(resolve => setTimeout(resolve, 800))
     return HttpResponse.json({

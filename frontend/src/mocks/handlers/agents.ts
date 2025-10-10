@@ -2,7 +2,6 @@ import { http, HttpResponse } from 'msw'
 import type { StoredAgent } from '@/types/generated/StoredAgent'
 import demoAgents from '../data/agents.json'
 
-// Helper to convert StoredAgent to JSON-serializable format
 // BigInt values must be converted to numbers/strings for JSON.stringify()
 const toJsonAgent = (agent: StoredAgent): any => ({
   ...agent,
@@ -10,18 +9,15 @@ const toJsonAgent = (agent: StoredAgent): any => ({
   updated_at: Number(agent.updated_at)
 })
 
-// Convert JSON data to StoredAgent with bigint timestamps
 const convertToStoredAgent = (agent: any): StoredAgent => ({
   ...agent,
   created_at: BigInt(agent.created_at),
   updated_at: BigInt(agent.updated_at)
 })
 
-// Mock agents storage (in-memory, using BigInt for consistency)
 let agents: StoredAgent[] = demoAgents.map(convertToStoredAgent)
 
 export const agentHandlers = [
-  // GET /api/agents - List all agents
   http.get('/api/agents', () => {
     return HttpResponse.json({
       success: true,
@@ -29,7 +25,6 @@ export const agentHandlers = [
     })
   }),
 
-  // GET /api/agents/:id - Get a single agent
   http.get('/api/agents/:id', ({ params }) => {
     const agent = agents.find(a => a.id === params.id)
     if (!agent) {
@@ -47,11 +42,9 @@ export const agentHandlers = [
     })
   }),
 
-  // POST /api/agents - Create new agent
   http.post('/api/agents', async ({ request }) => {
     const body = await request.json() as Partial<StoredAgent>
 
-    // Check if agent with the same ID already exists
     if (body.id && agents.find(a => a.id === body.id)) {
       return HttpResponse.json(
         {
@@ -85,7 +78,6 @@ export const agentHandlers = [
     )
   }),
 
-  // PUT /api/agents/:id - Update agent
   http.put('/api/agents/:id', async ({ params, request }) => {
     const index = agents.findIndex(a => a.id === params.id)
     if (index === -1) {
@@ -109,7 +101,6 @@ export const agentHandlers = [
     })
   }),
 
-  // DELETE /api/agents/:id - Delete agent
   http.delete('/api/agents/:id', ({ params }) => {
     const index = agents.findIndex(a => a.id === params.id)
     if (index === -1) {
@@ -127,7 +118,6 @@ export const agentHandlers = [
     })
   }),
 
-  // POST /api/agents/:id/execute - Execute agent
   http.post('/api/agents/:id/execute', async ({ params }) => {
     const agent = agents.find(a => a.id === params.id)
     if (!agent) {
@@ -140,7 +130,6 @@ export const agentHandlers = [
       )
     }
 
-    // Simulate AI execution delay
     await new Promise(resolve => setTimeout(resolve, 1200))
 
     return HttpResponse.json({
@@ -151,7 +140,6 @@ export const agentHandlers = [
     })
   }),
 
-  // POST /api/agents/execute-inline - Execute inline agent
   http.post('/api/agents/execute-inline', async () => {
     await new Promise(resolve => setTimeout(resolve, 1000))
 
