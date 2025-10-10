@@ -6,16 +6,18 @@ repo_name: lhwzds/restflow
 
 theme:
   name: material
+  logo: images/logo.svg
+  favicon: images/logo.svg
   palette:
     - scheme: default
-      primary: deep purple
-      accent: purple
+      primary: deep orange
+      accent: deep orange
       toggle:
         icon: material/brightness-7
         name: Switch to dark mode
     - scheme: slate
-      primary: deep purple
-      accent: purple
+      primary: deep orange
+      accent: deep orange
       toggle:
         icon: material/brightness-4
         name: Switch to light mode
@@ -38,6 +40,9 @@ nav:
   - Test Coverage:
       - Frontend: https://docs.restflow.ai/coverage/frontend/
       - Backend: https://docs.restflow.ai/coverage/backend/
+
+extra_css:
+  - stylesheets/extra.css
 
 extra:
   social:
