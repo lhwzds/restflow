@@ -1,6 +1,7 @@
 import { http, HttpResponse } from 'msw'
 import type { Workflow } from '@/types/generated/Workflow'
 import demoWorkflows from '../data/workflows.json'
+import { createExecutionTasks } from './executions'
 
 // Mock workflows storage (in memory)
 let workflows = [...demoWorkflows] as Workflow[]
@@ -151,11 +152,31 @@ export const workflowHandlers = [
   }),
 
   // POST /api/workflows/:id/executions - Submit async execution
-  http.post('/api/workflows/:id/executions', () => {
+  http.post('/api/workflows/:id/executions', ({ params }) => {
+    const workflowId = params.id as string
+    const workflow = workflows.find(w => w.id === workflowId)
+
+    if (!workflow) {
+      return HttpResponse.json(
+        {
+          success: false,
+          message: 'Workflow not found'
+        },
+        { status: 404 }
+      )
+    }
+
+    // Generate execution ID
+    const executionId = 'async-exec-' + Date.now()
+
+    // Create tasks for all nodes in the workflow
+    createExecutionTasks(executionId, workflowId, workflow.nodes)
+
     return HttpResponse.json({
       success: true,
       data: {
-        execution_id: 'async-exec-' + Date.now()
+        execution_id: executionId,
+        workflow_id: workflowId
       }
     })
   }),
