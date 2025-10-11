@@ -7,6 +7,7 @@ on:
 permissions:
   pull-requests: write
   contents: read
+  id-token: write
 
 jobs:
   security-review:
@@ -19,7 +20,9 @@ jobs:
           fetch-depth: 2
 
       - name: Claude Security Review
-        uses: anthropics/claude-code-security-review@main
+        uses: anthropics/claude-code-security-reviewer@v1
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         with:
           # Anthropic API Key (required)
           claude-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
