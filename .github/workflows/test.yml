@@ -6,9 +6,15 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
   # Security audit (runs once on Linux)
   security-audit:
+    permissions:
+      contents: read
+      actions: write
     runs-on: ubuntu-latest
 
     steps:
@@ -34,6 +40,9 @@ jobs:
 
   # Multi-platform tests
   backend-tests:
+    permissions:
+      contents: read
+      actions: write
     strategy:
       fail-fast: false
       matrix:
@@ -91,6 +100,9 @@ jobs:
 
   # Frontend tests
   frontend-tests:
+    permissions:
+      contents: read
+      actions: write
     runs-on: ubuntu-latest
 
     steps:
