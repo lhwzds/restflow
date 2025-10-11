@@ -99,8 +99,10 @@ jobs:
 
       - name: Build Tauri app (macOS, app only)
         if: matrix.platform == 'macos-latest'
-        run: cargo tauri build --bundles app --verbose --manifest-path crates/restflow-desktop/Cargo.toml --config-path crates/restflow-desktop/tauri.conf.json
+        working-directory: crates/restflow-desktop
+        run: cargo tauri build --bundles app --verbose
 
       - name: Build Tauri app (other platforms)
         if: matrix.platform != 'macos-latest'
-        run: cargo tauri build --verbose --manifest-path crates/restflow-desktop/Cargo.toml --config-path crates/restflow-desktop/tauri.conf.json
+        working-directory: crates/restflow-desktop
+        run: cargo tauri build --verbose
