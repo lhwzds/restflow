@@ -6,7 +6,7 @@ use axum::{
 use rust_embed::RustEmbed;
 
 #[derive(RustEmbed)]
-#[folder = "../frontend/dist/"]
+#[folder = "../../web/dist/"]
 #[include = "*"]
 #[cfg_attr(debug_assertions, exclude = "*")]
 pub struct Assets;

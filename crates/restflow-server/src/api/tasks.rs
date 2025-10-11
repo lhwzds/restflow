@@ -1,5 +1,5 @@
 use crate::api::{state::AppState, ApiResponse};
-use crate::models::{Node, Task, TaskStatus};
+use restflow_core::models::{Node, Task, TaskStatus};
 use axum::{
     extract::{Path, Query, State},
     Json,
@@ -79,8 +79,8 @@ pub async fn execute_node(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::AppCore;
-    use crate::models::{Workflow, NodeType};
+    use restflow_core::AppCore;
+    use restflow_core::models::{Workflow, NodeType};
     use std::time::{Duration, Instant};
     use std::sync::Arc;
     use tempfile::{tempdir, TempDir};

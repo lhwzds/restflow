@@ -1,4 +1,5 @@
-use crate::{api::{state::AppState, ApiResponse}, models::Secret, services};
+use restflow_core::{models::Secret, services};
+use crate::api::{state::AppState, response::ApiResponse};
 use axum::{
     extract::{Path, State},
     http::StatusCode,
@@ -93,7 +94,7 @@ fn is_valid_secret_key(key: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::AppCore;
+    use restflow_core::AppCore;
     use std::sync::Arc;
     use tempfile::{tempdir, TempDir};
 

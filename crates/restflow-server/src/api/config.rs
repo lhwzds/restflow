@@ -1,5 +1,5 @@
 use crate::api::{state::AppState, ApiResponse};
-use crate::storage::SystemConfig;
+use restflow_core::storage::SystemConfig;
 use axum::{
     extract::State,
     Json,

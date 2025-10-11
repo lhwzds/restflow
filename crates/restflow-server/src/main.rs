@@ -3,7 +3,9 @@ mod static_assets;
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
-use backend::{AppCore, api};
+mod api;
+
+use restflow_core::AppCore;
 use std::sync::Arc;
 use api::{
     workflows::*, triggers::*, tasks::*, config::*, python::*, agents::*, secrets::*
@@ -32,7 +34,7 @@ async fn main() {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "info,backend=debug".into())
+                .unwrap_or_else(|_| "info,restflow_server=debug".into())
         )
         .with_target(false)
         .with_thread_ids(true)

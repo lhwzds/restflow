@@ -1,9 +1,9 @@
 [workspace]
-members = ["backend", "src-tauri"]
+members = ["crates/restflow-core", "crates/restflow-server", "crates/restflow-desktop"]
 resolver = "2"
 
-# Default to running backend server
-default-members = ["backend"]
+# Default to running server
+default-members = ["crates/restflow-server"]
 
 [workspace.package]
 version = "0.1.0"
@@ -11,7 +11,7 @@ authors = ["RestFlow Team"]
 edition = "2024"
 
 [workspace.dependencies]
-# Shared dependencies from backend/Cargo.toml
+restflow-core = { path = "crates/restflow-core" }
 anyhow = "1.0.99"
 async-trait = "0.1.89"
 serde = { version = "1.0.219", features = ["derive"] }

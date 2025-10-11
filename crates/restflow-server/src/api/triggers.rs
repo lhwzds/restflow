@@ -1,6 +1,6 @@
 use crate::api::{state::AppState, ApiResponse};
-use crate::engine::trigger_manager::{TriggerStatus, WebhookResponse};
-use crate::models::TriggerConfig;
+use restflow_core::engine::trigger_manager::{TriggerStatus, WebhookResponse};
+use restflow_core::models::TriggerConfig;
 use axum::{
     extract::{Path, State},
     http::Method,
@@ -146,8 +146,8 @@ pub async fn handle_webhook_trigger(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::AppCore;
-    use crate::models::{Workflow, Node, NodeType};
+    use restflow_core::AppCore;
+    use restflow_core::models::{Workflow, Node, NodeType};
     use std::sync::Arc;
     use tempfile::{tempdir, TempDir};
 

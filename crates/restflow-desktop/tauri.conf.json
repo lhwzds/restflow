@@ -1,13 +1,13 @@
 {
-  "$schema": "../frontend/node_modules/@tauri-apps/cli/config.schema.json",
+  "$schema": "../../web/node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "RestFlow",
   "version": "0.1.0",
   "identifier": "com.restflow.desktop",
   "build": {
-    "frontendDist": "../frontend/dist",
+    "frontendDist": "../../web/dist",
     "devUrl": "http://localhost:5173",
-    "beforeDevCommand": "cd ../frontend && npm run dev",
-    "beforeBuildCommand": "cd ../frontend && npm run build"
+    "beforeDevCommand": "cd ../../web && npm run dev",
+    "beforeBuildCommand": "cd ../../web && npm run build"
   },
   "app": {
     "withGlobalTauri": true,

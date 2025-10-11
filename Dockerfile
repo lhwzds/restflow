@@ -1,22 +1,20 @@
 FROM node:20-alpine AS frontend-builder
-WORKDIR /app/frontend
+WORKDIR /app/web
 
-COPY frontend/package*.json ./
+COPY web/package*.json ./
 RUN npm ci
 
-COPY frontend/ ./
+COPY web/ ./
 RUN npm run build
 
 FROM rust:bookworm AS backend-builder
 WORKDIR /app
 
-COPY backend/ ./backend/
+COPY Cargo.toml Cargo.lock ./
+COPY crates ./crates
+COPY --from=frontend-builder /app/web/dist ./web/dist
 
-COPY --from=frontend-builder /app/frontend/dist ./frontend/dist/
-
-WORKDIR /app/backend
-
-RUN cargo build --release
+RUN cargo build --release --package restflow-server
 
 FROM debian:bookworm-slim
 WORKDIR /app
@@ -25,7 +23,7 @@ RUN apt-get update && \
     apt-get install -y ca-certificates && \
     rm -rf /var/lib/apt/lists/*
 
-COPY --from=backend-builder /app/backend/target/release/backend /usr/local/bin/restflow
+COPY --from=backend-builder /app/target/release/restflow-server /usr/local/bin/restflow
 
 EXPOSE 3000
 
