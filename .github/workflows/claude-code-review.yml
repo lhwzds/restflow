@@ -22,6 +22,7 @@ jobs:
       - name: Claude Code Assistant
         uses: anthropics/claude-code-action@v1
         with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
           # Automatically review PR changes
           prompt: |
             Review this Pull Request code changes, focusing on:
