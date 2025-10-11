@@ -76,6 +76,9 @@ jobs:
       - name: Install frontend dependencies
         run: npm --prefix web ci
 
+      - name: Build frontend
+        run: npm --prefix web run build
+
       - name: Install Tauri CLI (Unix)
         if: matrix.platform != 'windows-latest'
         run: |
