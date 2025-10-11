@@ -7,7 +7,7 @@
     "frontendDist": "../../web/dist",
     "devUrl": "http://localhost:5173",
     "beforeDevCommand": "npm --prefix ../../web run dev",
-    "beforeBuildCommand": "node -e \"const fs=require('fs');const path=require('path');const candidates=[path.join(process.cwd(),'scripts/ensure-frontend-build.js'),path.join(process.cwd(),'restflow-desktop/scripts/ensure-frontend-build.js'),path.join(process.cwd(),'crates/restflow-desktop/scripts/ensure-frontend-build.js')];for(const candidate of candidates){if(fs.existsSync(candidate)){require(candidate);process.exit(0);}}console.error('ensure-frontend-build.js not found from '+process.cwd());process.exit(1);\""
+    "beforeBuildCommand": "node ./scripts/ensure-frontend-build.js || node ./restflow-desktop/scripts/ensure-frontend-build.js || node ../restflow-desktop/scripts/ensure-frontend-build.js"
   },
   "app": {
     "withGlobalTauri": true,

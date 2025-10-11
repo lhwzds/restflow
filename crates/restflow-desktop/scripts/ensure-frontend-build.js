@@ -20,6 +20,7 @@ function findRepoRoot(startDir) {
 }
 
 console.log('Checking frontend build...');
+console.log('ensure-frontend-build working directory:', process.cwd());
 
 const repoRoot = findRepoRoot(process.cwd());
 if (!repoRoot) {
