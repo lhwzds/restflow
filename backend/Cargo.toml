@@ -33,4 +33,4 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json"] }
 ts-rs = "11.0"
 uuid = { version = "1.18.0", features = ["v4", "serde"] }
-zip = "5.0.0"
+zip = "6.0.0"
