@@ -65,11 +65,24 @@ export const secretHandlers = [
       )
     }
     const body = await request.json() as Partial<Secret>
-    secrets[index] = {
-      ...secrets[index],
-      description: body.description !== undefined ? body.description : secrets[index].description,
-      updated_at: Date.now()
+    const currentSecret = secrets[index]
+    if (!currentSecret) {
+      return HttpResponse.json(
+        {
+          success: false,
+          message: 'Secret not found'
+        },
+        { status: 404 }
+      )
     }
+    secrets[index] = {
+      ...currentSecret,
+      ...body,
+      key: currentSecret.key,  // Ensure key is preserved
+      value: body.value !== undefined ? body.value : currentSecret.value,  // Ensure value is preserved
+      description: body.description !== undefined ? body.description : currentSecret.description,
+      updated_at: Date.now()
+    } as Secret
     return HttpResponse.json({
       success: true
     })

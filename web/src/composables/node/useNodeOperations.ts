@@ -94,11 +94,12 @@ export function useNodeOperations() {
    */
   const updateNodePosition = (nodeId: string, position: { x: number; y: number }) => {
     const nodeIndex = workflowStore.nodes.findIndex(n => n.id === nodeId)
-    if (nodeIndex !== -1) {
+    if (nodeIndex !== -1 && workflowStore.nodes[nodeIndex]) {
       workflowStore.nodes[nodeIndex] = {
         ...workflowStore.nodes[nodeIndex],
-        position: { ...position }
-      }
+        position: { ...position },
+        id: workflowStore.nodes[nodeIndex].id  // Ensure id is preserved
+      } as Node
       workflowStore.markAsDirty()
     }
   }

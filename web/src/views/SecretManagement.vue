@@ -173,6 +173,30 @@ function formatKeyOnBlur() {
     editState.newRow.key = editState.newRow.key.toUpperCase().replace(/[^A-Z0-9_]/g, '_')
   }
 }
+
+// Helper to get edit value safely
+function getEditValue(key: string): string {
+  return editState.editData[key]?.value || ''
+}
+
+// Helper to set edit value
+function setEditValue(key: string, value: string) {
+  if (editState.editData[key]) {
+    editState.editData[key].value = value
+  }
+}
+
+// Helper to get edit description safely
+function getEditDescription(key: string): string {
+  return editState.editData[key]?.description || ''
+}
+
+// Helper to set edit description
+function setEditDescription(key: string, description: string) {
+  if (editState.editData[key]) {
+    editState.editData[key].description = description
+  }
+}
 </script>
 
 <template>
@@ -236,7 +260,8 @@ function formatKeyOnBlur() {
             />
             <ElInput
               v-else-if="isEditing(row)"
-              v-model="editState.editData[row.key].value"
+              :model-value="getEditValue(row.key)"
+              @update:model-value="(val) => setEditValue(row.key, val)"
               placeholder="Enter new value"
               type="password"
               show-password
@@ -254,7 +279,8 @@ function formatKeyOnBlur() {
             />
             <ElInput
               v-else-if="isEditing(row)"
-              v-model="editState.editData[row.key].description"
+              :model-value="getEditDescription(row.key)"
+              @update:model-value="(val) => setEditDescription(row.key, val)"
               placeholder="Optional description"
             />
             <span v-else class="secret-description">

@@ -45,11 +45,12 @@ export function useEdgeOperations(): EdgeOperations {
    */
   const updateEdge = (edgeId: string, data: Partial<Edge>) => {
     const edgeIndex = workflowStore.edges.findIndex(e => e.id === edgeId)
-    if (edgeIndex !== -1) {
+    if (edgeIndex !== -1 && workflowStore.edges[edgeIndex]) {
       workflowStore.edges[edgeIndex] = {
         ...workflowStore.edges[edgeIndex],
-        ...data
-      }
+        ...data,
+        id: workflowStore.edges[edgeIndex].id  // Ensure id is preserved
+      } as Edge
       workflowStore.markAsDirty() // Manually mark since we're directly modifying
     }
   }

@@ -27,7 +27,7 @@ export function useSingleNodeExecution() {
       let input = testInput
       if (!input) {
         const incomingEdges = getIncomingEdges(nodeId)
-        if (incomingEdges.length > 0) {
+        if (incomingEdges.length > 0 && incomingEdges[0]) {
           const sourceNodeId = incomingEdges[0].source
           const sourceNode = getNodeById(sourceNodeId)
           if (sourceNode?.data?.lastExecutionResult) {

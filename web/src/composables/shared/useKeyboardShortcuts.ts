@@ -18,8 +18,11 @@ export function useKeyboardShortcuts(shortcuts: Record<string, () => void> | Sho
   } else {
     for (const [combo, handler] of Object.entries(shortcuts)) {
       const parts = combo.toLowerCase().split('+')
+      const lastPart = parts[parts.length - 1]
+      if (!lastPart) continue  // Skip invalid shortcuts
+
       const config: ShortcutConfig = {
-        key: parts[parts.length - 1],
+        key: lastPart,
         handler,
         preventDefault: true,
       }

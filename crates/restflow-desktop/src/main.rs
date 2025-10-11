@@ -234,7 +234,7 @@ async fn execute_agent_inline(
     input: String,
     core: State<'_, Arc<AppCore>>,
 ) -> Result<String, String> {
-    services::agent::execute_agent_inline(&*core, agent, &input).await
+    services::agent::execute_agent_inline(&core, agent, &input).await
         .map_err(|e| e.to_string())
 }
 
