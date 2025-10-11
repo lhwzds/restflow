@@ -8,7 +8,7 @@ anyhow = "1.0.99"
 async-trait = "0.1.89"
 axum = { version = "0.8.4", features = ["macros"] }
 base64 = "0.22.1"
-chrono = "0.4.41"
+chrono = "0.4.42"
 dirs = "6.0.0"
 flate2 = "1.1.2"
 hex = "0.4.3"
