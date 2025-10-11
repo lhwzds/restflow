@@ -7,7 +7,7 @@
     "frontendDist": "../../web/dist",
     "devUrl": "http://localhost:5173",
     "beforeDevCommand": "npm --prefix ../../web run dev",
-    "beforeBuildCommand": "echo 'Checking frontend build...' && test -d ../../web/dist && echo 'Frontend already built' || npm --prefix ../../web run build"
+    "beforeBuildCommand": "node ./scripts/ensure-frontend-build.js"
   },
   "app": {
     "withGlobalTauri": true,
