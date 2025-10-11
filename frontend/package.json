@@ -42,7 +42,7 @@
     "@vue/test-utils": "^2.4.6",
     "@vue/tsconfig": "^0.7.0",
     "axios-mock-adapter": "^2.1.0",
-    "happy-dom": "^19.0.2",
+    "happy-dom": "^20.0.0",
     "msw": "^2.11.4",
     "prettier": "^3.6.2",
     "sass": "^1.91.0",
