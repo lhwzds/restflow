@@ -74,9 +74,7 @@ jobs:
         shell: powershell
 
       - name: Install frontend dependencies
-        run: |
-          cd web
-          npm ci
+        run: npm --prefix web ci
 
       - name: Install Tauri CLI (Unix)
         if: matrix.platform != 'windows-latest'
