@@ -1,6 +1,6 @@
 use crate::api::{state::AppState, ApiResponse};
-use crate::node::agent::AgentNode;
-use crate::storage::agent::StoredAgent;
+use restflow_core::node::agent::AgentNode;
+use restflow_core::storage::agent::StoredAgent;
 use axum::{
     Json,
     extract::{Path, State},
@@ -137,7 +137,7 @@ pub async fn execute_agent_inline(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::AppCore;
+    use restflow_core::AppCore;
     use std::sync::Arc;
     use tempfile::{tempdir, TempDir};
 

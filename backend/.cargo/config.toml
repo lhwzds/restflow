@@ -1,3 +1,0 @@
-[env]
-# Set the export directory for ts-rs generated TypeScript types
-TS_RS_EXPORT_DIR = "../frontend/src/types/generated"

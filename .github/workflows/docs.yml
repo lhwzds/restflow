@@ -34,13 +34,13 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            backend/target
+            target
           key: ${{ runner.os }}-cargo-docs-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-cargo-docs-
 
       - name: Create frontend dist directory
-        run: mkdir -p frontend/dist
+        run: mkdir -p web/dist
 
       - name: Install Tarpaulin
         run: cargo install cargo-tarpaulin --locked
@@ -51,25 +51,25 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
-          cache-dependency-path: frontend/package-lock.json
+          cache-dependency-path: web/package-lock.json
 
       - name: Install frontend dependencies
         run: |
-          cd frontend
+          cd web
           npm ci
 
       - name: Generate frontend coverage
         run: |
-          cd frontend
+          cd web
           npm run test:coverage
 
       # Generate Rust API documentation
       - name: Build Rust API docs
-        run: cargo doc --no-deps --document-private-items --all-features --manifest-path backend/Cargo.toml
+        run: cargo doc --no-deps --document-private-items --all-features --package restflow-core --package restflow-server
 
       # Generate backend coverage report
       - name: Generate backend coverage report
-        run: cargo tarpaulin --out html --output-dir target/coverage --all-features --timeout 300 --manifest-path backend/Cargo.toml
+        run: cargo tarpaulin --out html --output-dir target/coverage --all-features --timeout 300 --packages restflow-core restflow-server
 
       # Install MkDocs
       - name: Setup Python
@@ -124,9 +124,9 @@ jobs:
           fi
 
           # Copy frontend coverage
-          if [ -d "frontend/coverage" ] && [ "$(ls -A frontend/coverage)" ]; then
+          if [ -d "web/coverage" ] && [ "$(ls -A web/coverage)" ]; then
             mkdir -p docs-site/coverage/frontend
-            cp -r frontend/coverage/* docs-site/coverage/frontend/
+            cp -r web/coverage/* docs-site/coverage/frontend/
           else
             echo "Warning: No frontend coverage report found"
           fi

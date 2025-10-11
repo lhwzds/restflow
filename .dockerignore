@@ -3,14 +3,14 @@
 .gitignore
 
 # Node
-frontend/node_modules
-frontend/.pnpm-store
-frontend/npm-debug.log
-frontend/.env.local
-frontend/.env.*.local
+web/node_modules
+web/.pnpm-store
+web/npm-debug.log
+web/.env.local
+web/.env.*.local
 
 # Rust
-backend/target
+target
 **/*.rs.bk
 *.pdb
 
@@ -29,5 +29,7 @@ Thumbs.db
 LICENSE
 
 # Build artifacts (we'll rebuild in Docker)
-frontend/dist
-backend/target
+web/dist
+crates/restflow-core/target
+crates/restflow-server/target
+crates/restflow-desktop/target

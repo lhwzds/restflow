@@ -12,20 +12,13 @@ rust-version = "1.85"
 tauri-build.workspace = true
 
 [dependencies]
-# RestFlow backend as library
-backend = { path = "../backend" }
-
-# Tauri and plugins
+restflow-core = { workspace = true }
 tauri.workspace = true
 tauri-plugin-log = "2.6.0"
 tauri-plugin-shell = "2.3.1"
-
-# Use workspace dependencies
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
 uuid.workspace = true
 anyhow.workspace = true
-
-# Additional dependencies
 log = "0.4"

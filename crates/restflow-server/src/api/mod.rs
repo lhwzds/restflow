@@ -8,5 +8,4 @@ pub mod agents;
 pub mod secrets;
 pub mod response;
 
-pub use state::AppState;
 pub use response::ApiResponse;

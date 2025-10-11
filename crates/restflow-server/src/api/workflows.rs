@@ -1,6 +1,6 @@
 use crate::api::{state::AppState, ApiResponse};
-use crate::engine::executor::WorkflowExecutor;
-use crate::models::Workflow;
+use restflow_core::engine::executor::WorkflowExecutor;
+use restflow_core::models::Workflow;
 use axum::{
     extract::{Path, State},
     Json,
@@ -128,8 +128,8 @@ pub async fn submit_workflow(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::AppCore;
-    use crate::models::{Node, NodeType};
+    use restflow_core::AppCore;
+    use restflow_core::models::{Node, NodeType};
     use std::sync::Arc;
     use tempfile::{tempdir, TempDir};
 

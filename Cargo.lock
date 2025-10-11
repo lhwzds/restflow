@@ -251,42 +251,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "backend"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "axum",
- "base64 0.22.1",
- "chrono",
- "dirs",
- "flate2",
- "hex",
- "mimalloc",
- "mime_guess",
- "once_cell",
- "redb",
- "regex",
- "reqwest",
- "rig-core",
- "rust-embed",
- "serde",
- "serde_json",
- "sha2",
- "tar",
- "tempfile",
- "thiserror 2.0.16",
- "tokio",
- "tower",
- "tower-http",
- "tracing",
- "tracing-subscriber",
- "ts-rs",
- "uuid",
- "zip",
-]
-
-[[package]]
 name = "backtrace"
 version = "0.3.75"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3558,12 +3522,41 @@ dependencies = [
 ]
 
 [[package]]
+name = "restflow-core"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "base64 0.22.1",
+ "chrono",
+ "dirs",
+ "flate2",
+ "hex",
+ "once_cell",
+ "redb",
+ "regex",
+ "reqwest",
+ "rig-core",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tar",
+ "tempfile",
+ "thiserror 2.0.16",
+ "tokio",
+ "tracing",
+ "ts-rs",
+ "uuid",
+ "zip",
+]
+
+[[package]]
 name = "restflow-desktop"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "backend",
  "log",
+ "restflow-core",
  "serde",
  "serde_json",
  "tauri",
@@ -3571,6 +3564,26 @@ dependencies = [
  "tauri-plugin-log",
  "tauri-plugin-shell",
  "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "restflow-server"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "mimalloc",
+ "mime_guess",
+ "restflow-core",
+ "rust-embed",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tower",
+ "tower-http",
+ "tracing",
+ "tracing-subscriber",
  "uuid",
 ]
 
