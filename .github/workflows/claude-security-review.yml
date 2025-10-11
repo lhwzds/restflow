@@ -24,6 +24,9 @@ jobs:
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         with:
+          # GitHub Token for authentication
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
           # Anthropic API Key (required)
           claude-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
 
