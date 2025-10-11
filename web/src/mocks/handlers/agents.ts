@@ -90,14 +90,25 @@ export const agentHandlers = [
       )
     }
     const body = await request.json() as Partial<StoredAgent>
-    agents[index] = {
-      ...agents[index],
-      ...body,
-      updated_at: BigInt(Date.now())
+    const currentAgent = agents[index]
+    if (!currentAgent) {
+      return HttpResponse.json(
+        {
+          success: false,
+          message: 'Agent not found'
+        },
+        { status: 404 }
+      )
     }
+    agents[index] = {
+      ...currentAgent,
+      ...body,
+      id: currentAgent.id,  // Ensure id is preserved
+      updated_at: BigInt(Date.now())
+    } as StoredAgent
     return HttpResponse.json({
       success: true,
-      data: toJsonAgent(agents[index])
+      data: toJsonAgent(agents[index]!)
     })
   }),
 

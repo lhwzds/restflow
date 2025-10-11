@@ -12,9 +12,9 @@ edition = "2024"
 
 [workspace.dependencies]
 restflow-core = { path = "crates/restflow-core" }
-anyhow = "1.0.99"
+anyhow = "1.0.100"
 async-trait = "0.1.89"
-serde = { version = "1.0.219", features = ["derive"] }
+serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.142"
 tokio = { version = "1.47.1", features = ["full"] }
 uuid = { version = "1.18.0", features = ["v4", "serde"] }

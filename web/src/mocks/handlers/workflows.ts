@@ -71,7 +71,21 @@ export const workflowHandlers = [
       )
     }
     const body = await request.json() as Partial<Workflow>
-    workflows[index] = { ...workflows[index], ...body }
+    const currentWorkflow = workflows[index]
+    if (!currentWorkflow) {
+      return HttpResponse.json(
+        {
+          success: false,
+          message: 'Workflow not found'
+        },
+        { status: 404 }
+      )
+    }
+    workflows[index] = {
+      ...currentWorkflow,
+      ...body,
+      id: currentWorkflow.id  // Ensure id is preserved
+    } as Workflow
     return HttpResponse.json({
       success: true
     })
