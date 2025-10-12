@@ -1,4 +1,5 @@
 use super::MIN_INPUT_HEIGHT;
+use crate::config;
 use restflow_core::{
     AppCore,
     node::agent::{AgentNode, ApiKeyConfig},
@@ -66,15 +67,8 @@ impl TuiApp {
         };
 
         let chat_agent = AgentNode::new(
-            "gpt-4o-mini".to_string(),
-            "You are RestFlow's AI assistant. Help users manage and execute workflows. You can:\n\
-             1. Answer questions about RestFlow\n\
-             2. Help users understand and operate workflows\n\
-             3. Offer workflow design suggestions\n\
-             \n\
-             Users may execute specific actions via slash commands (such as /list or /run)\n\
-             or simply chat with you for assistance. Keep responses concise and friendly."
-                .to_string(),
+            "gpt-4.1-mini".to_string(),
+            config::prompts::CLI_CHAT_ASSISTANT_PROMPT.to_string(),
             Some(0.7),
             api_key_config,
         );
