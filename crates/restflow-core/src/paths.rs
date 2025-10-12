@@ -7,7 +7,7 @@ const DB_FILE_NAME: &str = "restflow.db";
 /// Ensure the RestFlow data directory exists and return its path.
 pub fn ensure_data_dir() -> Result<PathBuf> {
     let base = dirs::data_dir()
-        .or_else(|| dirs::home_dir())
+        .or_else(dirs::home_dir)
         .ok_or_else(|| anyhow::anyhow!("Failed to determine system data directory"))?;
     let data_dir = base.join(DATA_DIR_NAME);
     std::fs::create_dir_all(&data_dir)?;
