@@ -1,14 +1,9 @@
-use crate::api::{state::AppState, ApiResponse};
+use crate::api::{ApiResponse, state::AppState};
+use axum::{Json, extract::State};
 use restflow_core::storage::SystemConfig;
-use axum::{
-    extract::State,
-    Json,
-};
 
 // GET /api/config
-pub async fn get_config(
-    State(state): State<AppState>,
-) -> Json<ApiResponse<SystemConfig>> {
+pub async fn get_config(State(state): State<AppState>) -> Json<ApiResponse<SystemConfig>> {
     match state.storage.config.get_config() {
         Ok(Some(config)) => Json(ApiResponse::ok(config)),
         Ok(None) => Json(ApiResponse::ok(SystemConfig::default())),
@@ -23,6 +18,9 @@ pub async fn update_config(
 ) -> Json<ApiResponse<()>> {
     match state.storage.config.update_config(config) {
         Ok(_) => Json(ApiResponse::message("Configuration updated successfully")),
-        Err(e) => Json(ApiResponse::error(format!("Failed to update config: {}", e))),
+        Err(e) => Json(ApiResponse::error(format!(
+            "Failed to update config: {}",
+            e
+        ))),
     }
 }

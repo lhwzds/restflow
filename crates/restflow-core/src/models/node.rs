@@ -1,6 +1,6 @@
+use super::trigger::{AuthConfig, ResponseMode, TriggerConfig};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
-use super::trigger::{TriggerConfig, ResponseMode, AuthConfig};
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
@@ -21,7 +21,7 @@ impl Node {
             NodeType::ManualTrigger | NodeType::WebhookTrigger | NodeType::ScheduleTrigger
         )
     }
-    
+
     /// Extract trigger configuration from node
     pub fn extract_trigger_config(&self) -> Option<TriggerConfig> {
         match self.node_type {
@@ -36,46 +36,52 @@ impl Node {
             }
             NodeType::WebhookTrigger => {
                 // Extract webhook configuration from node config
-                let path = self.config.get("path")
+                let path = self
+                    .config
+                    .get("path")
                     .and_then(|v| v.as_str())
                     .unwrap_or(&format!("/webhook/{}", self.id))
                     .to_string();
-                    
-                let method = self.config.get("method")
+
+                let method = self
+                    .config
+                    .get("method")
                     .and_then(|v| v.as_str())
                     .unwrap_or("POST")
                     .to_string();
-                    
-                let response_mode = self.config.get("response_mode")
+
+                let response_mode = self
+                    .config
+                    .get("response_mode")
                     .and_then(|v| v.as_str())
                     .and_then(|s| match s {
                         "sync" | "Sync" => Some(ResponseMode::Sync),
                         "async" | "Async" => Some(ResponseMode::Async),
-                        _ => None
+                        _ => None,
                     })
                     .unwrap_or(ResponseMode::Async);
-                    
+
                 // Extract auth config if present
-                let auth = self.config.get("auth")
-                    .and_then(|auth| {
-                        let auth_type = auth.get("type")?.as_str()?;
-                        match auth_type {
-                            "api_key" => {
-                                let key = auth.get("key")?.as_str()?.to_string();
-                                let header_name = auth.get("header_name")
-                                    .and_then(|v| v.as_str())
-                                    .map(|s| s.to_string());
-                                Some(AuthConfig::ApiKey { key, header_name })
-                            }
-                            "basic" => {
-                                let username = auth.get("username")?.as_str()?.to_string();
-                                let password = auth.get("password")?.as_str()?.to_string();
-                                Some(AuthConfig::Basic { username, password })
-                            }
-                            _ => None
+                let auth = self.config.get("auth").and_then(|auth| {
+                    let auth_type = auth.get("type")?.as_str()?;
+                    match auth_type {
+                        "api_key" => {
+                            let key = auth.get("key")?.as_str()?.to_string();
+                            let header_name = auth
+                                .get("header_name")
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.to_string());
+                            Some(AuthConfig::ApiKey { key, header_name })
                         }
-                    });
-                    
+                        "basic" => {
+                            let username = auth.get("username")?.as_str()?.to_string();
+                            let password = auth.get("password")?.as_str()?.to_string();
+                            Some(AuthConfig::Basic { username, password })
+                        }
+                        _ => None,
+                    }
+                });
+
                 Some(TriggerConfig::Webhook {
                     path,
                     method,
@@ -85,24 +91,28 @@ impl Node {
             }
             NodeType::ScheduleTrigger => {
                 // Extract schedule configuration from node config
-                let cron = self.config.get("cron")
+                let cron = self
+                    .config
+                    .get("cron")
                     .and_then(|v| v.as_str())
                     .unwrap_or("0 * * * *")
                     .to_string();
-                    
-                let timezone = self.config.get("timezone")
+
+                let timezone = self
+                    .config
+                    .get("timezone")
                     .and_then(|v| v.as_str())
                     .map(|s| s.to_string());
-                    
+
                 let payload = self.config.get("payload").cloned();
-                
+
                 Some(TriggerConfig::Schedule {
                     cron,
                     timezone,
                     payload,
                 })
             }
-            _ => None
+            _ => None,
         }
     }
 }

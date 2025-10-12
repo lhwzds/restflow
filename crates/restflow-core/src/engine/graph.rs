@@ -25,7 +25,7 @@ impl WorkflowGraph {
             if let Some(adj) = adjacency.get_mut(&edge.from) {
                 adj.push(edge.to.clone());
             }
-            
+
             if let Some(deg) = in_degree.get_mut(&edge.to) {
                 *deg += 1;
             }
@@ -92,7 +92,7 @@ impl WorkflowGraph {
 
             for node_id in &current_group {
                 processed.insert(node_id.clone());
-                
+
                 if let Some(neighbors) = self.adjacency.get(node_id) {
                     for neighbor in neighbors {
                         if let Some(deg) = in_degree.get_mut(neighbor) {
@@ -106,7 +106,9 @@ impl WorkflowGraph {
         }
 
         if processed.len() != self.nodes.len() {
-            return Err(anyhow::anyhow!("Workflow contains cycles or unreachable nodes"));
+            return Err(anyhow::anyhow!(
+                "Workflow contains cycles or unreachable nodes"
+            ));
         }
 
         Ok(groups)
@@ -125,7 +127,7 @@ impl WorkflowGraph {
         }
         deps
     }
-    
+
     pub fn get_nodes_with_no_dependencies(&self) -> Vec<String> {
         self.in_degree
             .iter()
@@ -133,12 +135,9 @@ impl WorkflowGraph {
             .map(|(id, _)| id.clone())
             .collect()
     }
-    
+
     // KISS: Single method for getting downstream nodes (removed duplicate get_dependents)
     pub fn get_downstream_nodes(&self, node_id: &str) -> Vec<String> {
-        self.adjacency
-            .get(node_id)
-            .cloned()
-            .unwrap_or_default()
+        self.adjacency.get(node_id).cloned().unwrap_or_default()
     }
 }

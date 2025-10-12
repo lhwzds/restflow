@@ -1,10 +1,10 @@
-use crate::api::{state::AppState, ApiResponse};
-use restflow_core::node::agent::AgentNode;
-use restflow_core::storage::agent::StoredAgent;
+use crate::api::{ApiResponse, state::AppState};
 use axum::{
     Json,
     extract::{Path, State},
 };
+use restflow_core::node::agent::AgentNode;
+use restflow_core::storage::agent::StoredAgent;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -39,7 +39,10 @@ pub async fn list_agents(State(state): State<AppState>) -> Json<ApiResponse<Vec<
 }
 
 // GET /api/agents/{id}
-pub async fn get_agent(State(state): State<AppState>, Path(id): Path<String>) -> Json<ApiResponse<StoredAgent>> {
+pub async fn get_agent(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Json<ApiResponse<StoredAgent>> {
     match state.storage.agents.get_agent(id.clone()) {
         Ok(Some(agent)) => Json(ApiResponse::ok(agent)),
         Ok(None) => Json(ApiResponse::error(format!("Agent {} not found", id))),
@@ -59,7 +62,7 @@ pub async fn create_agent(
     {
         Ok(stored_agent) => Json(ApiResponse::ok_with_message(
             stored_agent,
-            "Agent created successfully"
+            "Agent created successfully",
         )),
         Err(e) => Json(ApiResponse::error(format!("Failed to create agent: {}", e))),
     }
@@ -78,16 +81,22 @@ pub async fn update_agent(
     {
         Ok(agent) => Json(ApiResponse::ok_with_message(
             agent,
-            "Agent updated successfully"
+            "Agent updated successfully",
         )),
         Err(e) => Json(ApiResponse::error(e.to_string())),
     }
 }
 
 // DELETE /api/agents/{id}
-pub async fn delete_agent(State(state): State<AppState>, Path(id): Path<String>) -> Json<ApiResponse<()>> {
+pub async fn delete_agent(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Json<ApiResponse<()>> {
     match state.storage.agents.delete_agent(id.clone()) {
-        Ok(()) => Json(ApiResponse::message(format!("Agent {} deleted successfully", id))),
+        Ok(()) => Json(ApiResponse::message(format!(
+            "Agent {} deleted successfully",
+            id
+        ))),
         Err(e) => Json(ApiResponse::error(e.to_string())),
     }
 }
@@ -108,21 +117,31 @@ pub async fn execute_agent(
         }
     };
 
-    match agent.agent.execute(&request.input, Some(&state.storage.secrets)).await {
+    match agent
+        .agent
+        .execute(&request.input, Some(&state.storage.secrets))
+        .await
+    {
         Ok(response) => Json(ApiResponse::ok(AgentExecuteResponse { response })),
-        Err(e) => Json(ApiResponse::error(format!("Failed to execute agent: {}", e))),
+        Err(e) => Json(ApiResponse::error(format!(
+            "Failed to execute agent: {}",
+            e
+        ))),
     }
 }
 
 // POST /api/agents/execute-inline
 pub async fn execute_agent_inline(
     State(state): State<AppState>,
-    Json(agent_with_input): Json<Value>
+    Json(agent_with_input): Json<Value>,
 ) -> Json<ApiResponse<AgentExecuteResponse>> {
     let agent = match serde_json::from_value::<AgentNode>(agent_with_input["agent"].clone()) {
         Ok(a) => a,
         Err(e) => {
-            return Json(ApiResponse::error(format!("Invalid agent configuration: {}", e)));
+            return Json(ApiResponse::error(format!(
+                "Invalid agent configuration: {}",
+                e
+            )));
         }
     };
 
@@ -130,7 +149,10 @@ pub async fn execute_agent_inline(
 
     match agent.execute(&input, Some(&state.storage.secrets)).await {
         Ok(response) => Json(ApiResponse::ok(AgentExecuteResponse { response })),
-        Err(e) => Json(ApiResponse::error(format!("Failed to execute agent: {}", e))),
+        Err(e) => Json(ApiResponse::error(format!(
+            "Failed to execute agent: {}",
+            e
+        ))),
     }
 }
 
@@ -139,7 +161,7 @@ mod tests {
     use super::*;
     use restflow_core::AppCore;
     use std::sync::Arc;
-    use tempfile::{tempdir, TempDir};
+    use tempfile::{TempDir, tempdir};
 
     async fn create_test_app() -> (Arc<AppCore>, TempDir) {
         let temp_dir = tempdir().unwrap();
@@ -242,11 +264,7 @@ mod tests {
             agent: None,
         };
 
-        let response = update_agent(
-            State(app),
-            Path(agent_id.clone()),
-            Json(update_request)
-        ).await;
+        let response = update_agent(State(app), Path(agent_id.clone()), Json(update_request)).await;
         let body = response.0;
 
         assert!(body.success);

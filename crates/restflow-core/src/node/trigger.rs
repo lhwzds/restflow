@@ -13,7 +13,8 @@ pub struct TriggerExecutor;
 #[async_trait]
 impl NodeExecutor for TriggerExecutor {
     async fn execute(&self, _config: &Value, context: &mut ExecutionContext) -> Result<Value> {
-        context.get(namespace::trigger::PAYLOAD)
+        context
+            .get(namespace::trigger::PAYLOAD)
             .cloned()
             .ok_or_else(|| anyhow::anyhow!("Trigger payload not found in context"))
     }

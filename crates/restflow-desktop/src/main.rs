@@ -1,7 +1,7 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use restflow_core::{AppCore, services};
+use restflow_core::{AppCore, paths, services};
 use std::sync::Arc;
 use tauri::State;
 
@@ -10,7 +10,8 @@ use tauri::State;
 async fn list_workflows(
     core: State<'_, Arc<AppCore>>,
 ) -> Result<Vec<restflow_core::models::Workflow>, String> {
-    services::workflow::list_workflows(&core).await
+    services::workflow::list_workflows(&core)
+        .await
         .map_err(|e| e.to_string())
 }
 
@@ -19,7 +20,8 @@ async fn get_workflow(
     id: String,
     core: State<'_, Arc<AppCore>>,
 ) -> Result<restflow_core::models::Workflow, String> {
-    services::workflow::get_workflow(&core, &id).await
+    services::workflow::get_workflow(&core, &id)
+        .await
         .map_err(|e| e.to_string())
 }
 
@@ -28,7 +30,8 @@ async fn create_workflow(
     workflow: restflow_core::models::Workflow,
     core: State<'_, Arc<AppCore>>,
 ) -> Result<restflow_core::models::Workflow, String> {
-    services::workflow::create_workflow(&core, workflow).await
+    services::workflow::create_workflow(&core, workflow)
+        .await
         .map_err(|e| e.to_string())
 }
 
@@ -38,13 +41,15 @@ async fn update_workflow(
     workflow: restflow_core::models::Workflow,
     core: State<'_, Arc<AppCore>>,
 ) -> Result<restflow_core::models::Workflow, String> {
-    services::workflow::update_workflow(&core, &id, workflow).await
+    services::workflow::update_workflow(&core, &id, workflow)
+        .await
         .map_err(|e| e.to_string())
 }
 
 #[tauri::command(rename_all = "snake_case")]
 async fn delete_workflow(id: String, core: State<'_, Arc<AppCore>>) -> Result<(), String> {
-    services::workflow::delete_workflow(&core, &id).await
+    services::workflow::delete_workflow(&core, &id)
+        .await
         .map_err(|e| e.to_string())
 }
 
@@ -55,7 +60,8 @@ async fn execute_workflow_sync(
     input: serde_json::Value,
     core: State<'_, Arc<AppCore>>,
 ) -> Result<serde_json::Value, String> {
-    services::workflow::execute_workflow_by_id(&core, &workflow_id, input).await
+    services::workflow::execute_workflow_by_id(&core, &workflow_id, input)
+        .await
         .map_err(|e| e.to_string())
 }
 
@@ -65,7 +71,8 @@ async fn submit_workflow(
     input: serde_json::Value,
     core: State<'_, Arc<AppCore>>,
 ) -> Result<String, String> {
-    services::workflow::submit_workflow(&core, &workflow_id, input).await
+    services::workflow::submit_workflow(&core, &workflow_id, input)
+        .await
         .map_err(|e| e.to_string())
 }
 
@@ -75,7 +82,8 @@ async fn get_task_status(
     task_id: String,
     core: State<'_, Arc<AppCore>>,
 ) -> Result<restflow_core::models::Task, String> {
-    services::task::get_task_status(&core, &task_id).await
+    services::task::get_task_status(&core, &task_id)
+        .await
         .map_err(|e| e.to_string())
 }
 
@@ -84,7 +92,8 @@ async fn get_task_status(
 async fn get_config(
     core: State<'_, Arc<AppCore>>,
 ) -> Result<restflow_core::storage::config::SystemConfig, String> {
-    services::config::get_config(&core).await
+    services::config::get_config(&core)
+        .await
         .map_err(|e| e.to_string())
 }
 
@@ -93,7 +102,8 @@ async fn update_config(
     config: restflow_core::storage::config::SystemConfig,
     core: State<'_, Arc<AppCore>>,
 ) -> Result<(), String> {
-    services::config::update_config(&core, config).await
+    services::config::update_config(&core, config)
+        .await
         .map_err(|e| e.to_string())
 }
 
@@ -103,7 +113,8 @@ async fn activate_workflow(
     workflow_id: String,
     core: State<'_, Arc<AppCore>>,
 ) -> Result<(), String> {
-    services::triggers::activate_workflow(&core, &workflow_id).await
+    services::triggers::activate_workflow(&core, &workflow_id)
+        .await
         .map_err(|e| e.to_string())
 }
 
@@ -112,7 +123,8 @@ async fn deactivate_workflow(
     workflow_id: String,
     core: State<'_, Arc<AppCore>>,
 ) -> Result<(), String> {
-    services::triggers::deactivate_workflow(&core, &workflow_id).await
+    services::triggers::deactivate_workflow(&core, &workflow_id)
+        .await
         .map_err(|e| e.to_string())
 }
 
@@ -121,7 +133,8 @@ async fn get_trigger_status(
     workflow_id: String,
     core: State<'_, Arc<AppCore>>,
 ) -> Result<Option<restflow_core::engine::trigger_manager::TriggerStatus>, String> {
-    services::triggers::get_workflow_trigger_status(&core, &workflow_id).await
+    services::triggers::get_workflow_trigger_status(&core, &workflow_id)
+        .await
         .map_err(|e| e.to_string())
 }
 
@@ -131,7 +144,8 @@ async fn test_workflow(
     test_data: serde_json::Value,
     core: State<'_, Arc<AppCore>>,
 ) -> Result<String, String> {
-    services::triggers::test_workflow_trigger(&core, &workflow_id, test_data).await
+    services::triggers::test_workflow_trigger(&core, &workflow_id, test_data)
+        .await
         .map_err(|e| e.to_string())
 }
 
@@ -139,7 +153,8 @@ async fn test_workflow(
 async fn list_active_triggers(
     core: State<'_, Arc<AppCore>>,
 ) -> Result<Vec<restflow_core::models::ActiveTrigger>, String> {
-    services::triggers::list_active_triggers(&core).await
+    services::triggers::list_active_triggers(&core)
+        .await
         .map_err(|e| e.to_string())
 }
 
@@ -150,7 +165,8 @@ async fn list_tasks(
     limit: Option<u32>,
     core: State<'_, Arc<AppCore>>,
 ) -> Result<Vec<restflow_core::models::Task>, String> {
-    services::task::list_tasks(&core, execution_id, status, limit).await
+    services::task::list_tasks(&core, execution_id, status, limit)
+        .await
         .map_err(|e| e.to_string())
 }
 
@@ -160,7 +176,8 @@ async fn execute_node(
     input: serde_json::Value,
     core: State<'_, Arc<AppCore>>,
 ) -> Result<String, String> {
-    services::task::execute_node(&core, node, input).await
+    services::task::execute_node(&core, node, input)
+        .await
         .map_err(|e| e.to_string())
 }
 
@@ -169,7 +186,8 @@ async fn get_execution_status(
     execution_id: String,
     core: State<'_, Arc<AppCore>>,
 ) -> Result<Vec<restflow_core::models::Task>, String> {
-    services::task::get_execution_status(&core, &execution_id).await
+    services::task::get_execution_status(&core, &execution_id)
+        .await
         .map_err(|e| e.to_string())
 }
 
@@ -178,7 +196,8 @@ async fn get_execution_status(
 async fn list_agents(
     core: State<'_, Arc<AppCore>>,
 ) -> Result<Vec<restflow_core::storage::agent::StoredAgent>, String> {
-    services::agent::list_agents(&core).await
+    services::agent::list_agents(&core)
+        .await
         .map_err(|e| e.to_string())
 }
 
@@ -187,7 +206,8 @@ async fn get_agent(
     id: String,
     core: State<'_, Arc<AppCore>>,
 ) -> Result<restflow_core::storage::agent::StoredAgent, String> {
-    services::agent::get_agent(&core, &id).await
+    services::agent::get_agent(&core, &id)
+        .await
         .map_err(|e| e.to_string())
 }
 
@@ -197,7 +217,8 @@ async fn create_agent(
     agent: restflow_core::node::agent::AgentNode,
     core: State<'_, Arc<AppCore>>,
 ) -> Result<restflow_core::storage::agent::StoredAgent, String> {
-    services::agent::create_agent(&core, name, agent).await
+    services::agent::create_agent(&core, name, agent)
+        .await
         .map_err(|e| e.to_string())
 }
 
@@ -208,13 +229,15 @@ async fn update_agent(
     agent: Option<restflow_core::node::agent::AgentNode>,
     core: State<'_, Arc<AppCore>>,
 ) -> Result<restflow_core::storage::agent::StoredAgent, String> {
-    services::agent::update_agent(&core, &id, name, agent).await
+    services::agent::update_agent(&core, &id, name, agent)
+        .await
         .map_err(|e| e.to_string())
 }
 
 #[tauri::command(rename_all = "snake_case")]
 async fn delete_agent(id: String, core: State<'_, Arc<AppCore>>) -> Result<(), String> {
-    services::agent::delete_agent(&core, &id).await
+    services::agent::delete_agent(&core, &id)
+        .await
         .map_err(|e| e.to_string())
 }
 
@@ -224,7 +247,8 @@ async fn execute_agent(
     input: String,
     core: State<'_, Arc<AppCore>>,
 ) -> Result<String, String> {
-    services::agent::execute_agent(&core, &id, &input).await
+    services::agent::execute_agent(&core, &id, &input)
+        .await
         .map_err(|e| e.to_string())
 }
 
@@ -234,7 +258,8 @@ async fn execute_agent_inline(
     input: String,
     core: State<'_, Arc<AppCore>>,
 ) -> Result<String, String> {
-    services::agent::execute_agent_inline(&core, agent, &input).await
+    services::agent::execute_agent_inline(&core, agent, &input)
+        .await
         .map_err(|e| e.to_string())
 }
 
@@ -243,8 +268,8 @@ fn main() {
     let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
 
     let core = runtime.block_on(async {
-        // Use the same database as the server mode
-        let db_path = "restflow.db".to_string();
+        let db_path = paths::ensure_database_path_string()
+            .expect("Failed to determine RestFlow database path");
 
         Arc::new(
             AppCore::new(&db_path)

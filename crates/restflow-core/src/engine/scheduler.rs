@@ -1,6 +1,6 @@
-use crate::models::{Node, Workflow, Task, TaskStatus};
 use crate::engine::context::{ExecutionContext, namespace};
 use crate::engine::graph::WorkflowGraph;
+use crate::models::{Node, Task, TaskStatus, Workflow};
 use crate::storage::{Storage, TaskQueue};
 use anyhow::Result;
 use serde_json::Value;
@@ -65,11 +65,7 @@ impl Scheduler {
 
     /// Submit an entire workflow for execution (workflow-level entry point)
     /// This centralizes workflow orchestration logic in Scheduler
-    pub fn submit_workflow(
-        &self,
-        workflow: Workflow,
-        input: Value,
-    ) -> Result<String> {
+    pub fn submit_workflow(&self, workflow: Workflow, input: Value) -> Result<String> {
         let workflow = Arc::new(workflow);
 
         // Create execution context with secret storage
@@ -106,12 +102,11 @@ impl Scheduler {
     }
 
     /// Submit a workflow by ID for execution
-    pub fn submit_workflow_by_id(
-        &self,
-        workflow_id: &str,
-        input: Value,
-    ) -> Result<String> {
-        let workflow = self.storage.workflows.get_workflow(workflow_id)
+    pub fn submit_workflow_by_id(&self, workflow_id: &str, input: Value) -> Result<String> {
+        let workflow = self
+            .storage
+            .workflows
+            .get_workflow(workflow_id)
             .map_err(|e| anyhow::anyhow!("Failed to load workflow {}: {}", workflow_id, e))?;
 
         self.submit_workflow(workflow, input)
@@ -160,7 +155,7 @@ impl Scheduler {
         // Get task from processing
         if let Some(data) = self.queue.get_from_processing(task_id)? {
             let mut task: Task = serde_json::from_slice(&data)?;
-            
+
             match status {
                 TaskStatus::Completed => {
                     if let Some(output) = output {
@@ -174,12 +169,12 @@ impl Scheduler {
                 }
                 _ => {}
             }
-            
+
             // Move to completed
             let serialized = serde_json::to_vec(&task)?;
             self.queue.move_to_completed(task_id, &serialized)?;
         }
-        
+
         Ok(())
     }
 
@@ -235,7 +230,11 @@ impl Scheduler {
     }
 
     /// List tasks with optional filters
-    pub fn list_tasks(&self, workflow_id: Option<&str>, status: Option<TaskStatus>) -> Result<Vec<Task>> {
+    pub fn list_tasks(
+        &self,
+        workflow_id: Option<&str>,
+        status: Option<TaskStatus>,
+    ) -> Result<Vec<Task>> {
         let mut tasks = self.query_all_tasks(|task| {
             workflow_id.is_none_or(|id| task.workflow_id == id)
                 && status.as_ref().is_none_or(|s| &task.status == s)
@@ -274,7 +273,7 @@ impl Scheduler {
                 }
             }
         }
-        
+
         Ok(recovered)
     }
 
@@ -284,18 +283,15 @@ impl Scheduler {
         node_id: &str,
         context: &ExecutionContext,
     ) -> bool {
-        graph.get_dependencies(node_id)
+        graph
+            .get_dependencies(node_id)
             .iter()
             .all(|dep| context.get_node(dep).is_some())
     }
 
     /// Push downstream tasks after a node completes
     /// Uses `Arc<Workflow>` to avoid expensive cloning in large workflows
-    pub fn push_downstream_tasks(
-        &self,
-        task: &Task,
-        output: Value,
-    ) -> Result<()> {
+    pub fn push_downstream_tasks(&self, task: &Task, output: Value) -> Result<()> {
         // Get workflow Arc from task (first access triggers DB load, then cached in task)
         let workflow = task.get_workflow(&self.storage)?;
 
@@ -329,9 +325,9 @@ impl Scheduler {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::storage::Storage;
-    use crate::models::{Task, TaskStatus};
     use crate::engine::context::ExecutionContext;
+    use crate::models::{Task, TaskStatus};
+    use crate::storage::Storage;
     use tempfile::tempdir;
 
     fn setup_test_scheduler() -> (Scheduler, tempfile::TempDir) {
@@ -360,7 +356,10 @@ mod tests {
 
         // Put task in processing
         let serialized = serde_json::to_vec(&task).unwrap();
-        scheduler.queue.move_to_processing(0, &task.id, &serialized).unwrap();
+        scheduler
+            .queue
+            .move_to_processing(0, &task.id, &serialized)
+            .unwrap();
 
         // Recover stalled tasks
         let recovered = scheduler.recover_stalled_tasks().unwrap();
@@ -392,7 +391,10 @@ mod tests {
         // Push to queue
         let priority = task.priority();
         let serialized = serde_json::to_vec(&task).unwrap();
-        scheduler.queue.insert_pending(priority, &task_id, &serialized).unwrap();
+        scheduler
+            .queue
+            .insert_pending(priority, &task_id, &serialized)
+            .unwrap();
 
         // Get task should find it in pending
         let found = scheduler.get_task(&task_id).unwrap();

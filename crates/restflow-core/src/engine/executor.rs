@@ -1,17 +1,16 @@
-use crate::models::{Node, Workflow};
 use crate::engine::context::{ExecutionContext, namespace};
 use crate::engine::graph::WorkflowGraph;
 use crate::engine::scheduler::Scheduler;
+use crate::models::{Node, Workflow};
 use crate::storage::Storage;
 use anyhow::Result;
 use serde_json::Value;
 use std::sync::Arc;
-use tokio::task::JoinSet;
 use tokio::sync::Mutex;
-use tracing::{info, warn, error, debug};
+use tokio::task::JoinSet;
+use tracing::{debug, error, info, warn};
 
 const QUEUE_POLL_INTERVAL_MS: u64 = 100;
-
 
 enum ExecutorMode {
     Sync {
@@ -48,12 +47,15 @@ impl WorkflowExecutor {
         }
 
         Self {
-            inner: ExecutorMode::Sync { graph: Box::new(graph), context },
+            inner: ExecutorMode::Sync {
+                graph: Box::new(graph),
+                context,
+            },
             registry,
             running: Arc::new(Mutex::new(false)),
         }
     }
-    
+
     /// Create an asynchronous executor with storage and workers
     pub fn new_async(
         storage: Arc<Storage>,
@@ -72,61 +74,59 @@ impl WorkflowExecutor {
             running: Arc::new(Mutex::new(false)),
         }
     }
-    
+
     /// Set input for sync execution
     pub fn set_input(&mut self, input: Value) {
-        if let ExecutorMode::Sync { ref mut context, .. } = self.inner {
+        if let ExecutorMode::Sync {
+            ref mut context, ..
+        } = self.inner
+        {
             context.set(namespace::trigger::PAYLOAD, input);
         }
     }
-    
+
     /// Execute workflow synchronously (for sync mode)
     pub async fn execute(&mut self) -> Result<Value> {
         match &self.inner {
             ExecutorMode::Sync { .. } => self.execute_sync().await,
-            ExecutorMode::Async { .. } => {
-                Err(anyhow::anyhow!("Use submit() for async execution"))
-            }
+            ExecutorMode::Async { .. } => Err(anyhow::anyhow!("Use submit() for async execution")),
         }
     }
-    
+
     /// Submit workflow for async execution (for async mode)
     pub async fn submit(&self, workflow_id: String, input: Value) -> Result<String> {
         match &self.inner {
             ExecutorMode::Async { .. } => self.submit_async(workflow_id, input).await,
-            ExecutorMode::Sync { .. } => {
-                Err(anyhow::anyhow!("Use execute() for sync execution"))
-            }
+            ExecutorMode::Sync { .. } => Err(anyhow::anyhow!("Use execute() for sync execution")),
         }
     }
-    
+
     /// Submit a single node for execution
     pub async fn submit_node(&self, node: Node, input: Value) -> Result<String> {
         match &self.inner {
-            ExecutorMode::Async { scheduler, .. } => {
-                scheduler.push_single_node(node, input)
-                    .map_err(|e| anyhow::anyhow!("Failed to submit node: {}", e))
-            }
-            ExecutorMode::Sync { .. } => {
-                Err(anyhow::anyhow!("Node submission not supported in sync mode"))
-            }
+            ExecutorMode::Async { scheduler, .. } => scheduler
+                .push_single_node(node, input)
+                .map_err(|e| anyhow::anyhow!("Failed to submit node: {}", e)),
+            ExecutorMode::Sync { .. } => Err(anyhow::anyhow!(
+                "Node submission not supported in sync mode"
+            )),
         }
     }
-    
+
     /// Start async workers (for async mode)
     pub async fn start(&self) {
         if let ExecutorMode::Async { num_workers, .. } = &self.inner {
             if !self.try_start().await {
                 return;
             }
-            
+
             self.recover_stalled_tasks();
             self.spawn_workers(*num_workers).await;
         }
     }
-    
+
     // ============= Private sync execution methods =============
-    
+
     async fn execute_sync(&mut self) -> Result<Value> {
         let (_graph, groups) = match &self.inner {
             ExecutorMode::Sync { graph, .. } => {
@@ -135,34 +135,35 @@ impl WorkflowExecutor {
             }
             _ => return Err(anyhow::anyhow!("Not in sync mode")),
         };
-        
+
         for (stage, group) in groups.iter().enumerate() {
             self.log_stage_start(stage + 1, group);
             self.execute_parallel_group(group).await?;
         }
-        
+
         self.build_result()
     }
-    
+
     async fn execute_parallel_group(&mut self, group: &[String]) -> Result<()> {
         let mut tasks = JoinSet::new();
-        
+
         let (graph, context) = match &self.inner {
             ExecutorMode::Sync { graph, context } => (graph, context),
             _ => return Err(anyhow::anyhow!("Not in sync mode")),
         };
-        
+
         for node_id in group {
-            let node = graph.get_node(node_id)
+            let node = graph
+                .get_node(node_id)
                 .cloned()
                 .ok_or_else(|| anyhow::anyhow!("Node {} not found", node_id))?;
-            
+
             self.verify_dependencies(node_id)?;
-            
+
             let context_clone = context.clone();
             let registry = self.registry.clone();
             let node_clone = node.clone();
-            
+
             tasks.spawn(async move {
                 let mut ctx = context_clone;
                 let node_id = node_clone.id.clone();
@@ -170,18 +171,24 @@ impl WorkflowExecutor {
                 (node_id, result, ctx)
             });
         }
-        
+
         self.await_and_merge_results(tasks).await
     }
-    
-    async fn await_and_merge_results(&mut self, mut tasks: JoinSet<(String, Result<Value>, ExecutionContext)>) -> Result<()> {
+
+    async fn await_and_merge_results(
+        &mut self,
+        mut tasks: JoinSet<(String, Result<Value>, ExecutionContext)>,
+    ) -> Result<()> {
         while let Some(result) = tasks.join_next().await {
-            let (node_id, execution_result, node_context) = result
-                .map_err(|e| anyhow::anyhow!("Task join error: {}", e))?;
-            
+            let (node_id, execution_result, node_context) =
+                result.map_err(|e| anyhow::anyhow!("Task join error: {}", e))?;
+
             match execution_result {
                 Ok(output) => {
-                    if let ExecutorMode::Sync { ref mut context, .. } = self.inner {
+                    if let ExecutorMode::Sync {
+                        ref mut context, ..
+                    } = self.inner
+                    {
                         context.set_node(&node_id, output);
                         self.merge_context(&node_context);
                     }
@@ -194,9 +201,12 @@ impl WorkflowExecutor {
         }
         Ok(())
     }
-    
+
     fn merge_context(&mut self, other: &ExecutionContext) {
-        if let ExecutorMode::Sync { ref mut context, .. } = self.inner {
+        if let ExecutorMode::Sync {
+            ref mut context, ..
+        } = self.inner
+        {
             for (key, value) in &other.data {
                 if let Some(existing) = context.get(key)
                     && existing != value
@@ -212,7 +222,7 @@ impl WorkflowExecutor {
             }
         }
     }
-    
+
     fn verify_dependencies(&self, node_id: &str) -> Result<()> {
         let (graph, context) = match &self.inner {
             ExecutorMode::Sync { graph, context } => (graph, context),
@@ -221,16 +231,20 @@ impl WorkflowExecutor {
 
         for dep_id in graph.get_dependencies(node_id) {
             if context.get_node(&dep_id).is_none() {
-                return Err(anyhow::anyhow!("Dependency {} not completed for node {}", dep_id, node_id));
+                return Err(anyhow::anyhow!(
+                    "Dependency {} not completed for node {}",
+                    dep_id,
+                    node_id
+                ));
             }
         }
         Ok(())
     }
-    
+
     fn log_stage_start(&self, stage_num: usize, group: &[String]) {
         debug!(stage = stage_num, nodes = ?group, "Executing stage");
     }
-    
+
     fn build_result(&self) -> Result<Value> {
         let context = match &self.inner {
             ExecutorMode::Sync { context, .. } => context,
@@ -243,9 +257,9 @@ impl WorkflowExecutor {
             "data": context.data
         }))
     }
-    
+
     // ============= Private async execution methods =============
-    
+
     async fn submit_async(&self, workflow_id: String, input: Value) -> Result<String> {
         let scheduler = match &self.inner {
             ExecutorMode::Async { scheduler, .. } => scheduler,
@@ -255,7 +269,7 @@ impl WorkflowExecutor {
         // Delegate to Scheduler for async execution (uses task queue for parallel processing)
         scheduler.submit_workflow_by_id(&workflow_id, input)
     }
-    
+
     async fn try_start(&self) -> bool {
         let mut running = self.running.lock().await;
         if *running {
@@ -264,7 +278,7 @@ impl WorkflowExecutor {
         *running = true;
         true
     }
-    
+
     fn recover_stalled_tasks(&self) {
         if let ExecutorMode::Async { scheduler, .. } = &self.inner
             && let Err(e) = scheduler.recover_stalled_tasks()
@@ -272,36 +286,31 @@ impl WorkflowExecutor {
             error!(error = %e, "Failed to recover stalled tasks");
         }
     }
-    
+
     async fn spawn_workers(&self, num_workers: usize) {
         info!(num_workers, "Starting workers");
 
         let (storage, scheduler) = match &self.inner {
-            ExecutorMode::Async { storage, scheduler, .. } =>
-                (Some(storage.clone()), Some(scheduler.clone())),
+            ExecutorMode::Async {
+                storage, scheduler, ..
+            } => (Some(storage.clone()), Some(scheduler.clone())),
             _ => (None, None),
         };
-        
+
         for worker_id in 0..num_workers {
             let registry = self.registry.clone();
             let running = self.running.clone();
-            
+
             if let (Some(storage), Some(scheduler)) = (storage.clone(), scheduler.clone()) {
-                let worker = Worker::new(
-                    worker_id,
-                    storage,
-                    scheduler,
-                    registry,
-                    running
-                );
-                
+                let worker = Worker::new(worker_id, storage, scheduler, registry, running);
+
                 tokio::spawn(async move {
                     worker.run_worker_loop().await;
                 });
             }
         }
     }
-    
+
     // ============= Shared node execution logic =============
 
     /// Unified node execution logic used by both sync and async modes
@@ -315,46 +324,49 @@ impl WorkflowExecutor {
     ) -> Result<Value> {
         debug!(node_id = %node.id, node_type = ?node.node_type, "Executing node");
 
-        let executor = registry.get(&node.node_type)
-            .ok_or_else(|| anyhow::anyhow!("No executor found for node type: {:?}", node.node_type))?;
+        let executor = registry.get(&node.node_type).ok_or_else(|| {
+            anyhow::anyhow!("No executor found for node type: {:?}", node.node_type)
+        })?;
 
         let config = context.interpolate_value(&node.config);
         executor.execute(&config, context).await
     }
-    
+
     // ============= Task status methods (async mode only) =============
-    
+
     pub async fn get_task_status(&self, task_id: &str) -> Result<crate::models::Task> {
         match &self.inner {
-            ExecutorMode::Async { scheduler, .. } => {
-                scheduler.get_task(task_id)
-                    .map_err(|e| anyhow::anyhow!("Failed to get task status: {}", e))?
-                    .ok_or_else(|| anyhow::anyhow!("Task {} not found", task_id))
-            }
+            ExecutorMode::Async { scheduler, .. } => scheduler
+                .get_task(task_id)
+                .map_err(|e| anyhow::anyhow!("Failed to get task status: {}", e))?
+                .ok_or_else(|| anyhow::anyhow!("Task {} not found", task_id)),
             _ => Err(anyhow::anyhow!("Task status only available in async mode")),
         }
     }
-    
-    pub async fn get_execution_status(&self, execution_id: &str) -> Result<Vec<crate::models::Task>> {
+
+    pub async fn get_execution_status(
+        &self,
+        execution_id: &str,
+    ) -> Result<Vec<crate::models::Task>> {
         match &self.inner {
-            ExecutorMode::Async { scheduler, .. } => {
-                scheduler.get_tasks_by_execution(execution_id)
-                    .map_err(|e| anyhow::anyhow!("Failed to get execution status: {}", e))
-            }
-            _ => Err(anyhow::anyhow!("Execution status only available in async mode")),
+            ExecutorMode::Async { scheduler, .. } => scheduler
+                .get_tasks_by_execution(execution_id)
+                .map_err(|e| anyhow::anyhow!("Failed to get execution status: {}", e)),
+            _ => Err(anyhow::anyhow!(
+                "Execution status only available in async mode"
+            )),
         }
     }
-    
+
     pub async fn list_tasks(
         &self,
         workflow_id: Option<&str>,
         status: Option<crate::models::TaskStatus>,
     ) -> Result<Vec<crate::models::Task>> {
         match &self.inner {
-            ExecutorMode::Async { scheduler, .. } => {
-                scheduler.list_tasks(workflow_id, status)
-                    .map_err(|e| anyhow::anyhow!("Failed to list tasks: {}", e))
-            }
+            ExecutorMode::Async { scheduler, .. } => scheduler
+                .list_tasks(workflow_id, status)
+                .map_err(|e| anyhow::anyhow!("Failed to list tasks: {}", e)),
             _ => Err(anyhow::anyhow!("Task listing only available in async mode")),
         }
     }
@@ -376,14 +388,20 @@ impl Worker {
         storage: Arc<Storage>,
         scheduler: Arc<Scheduler>,
         registry: Arc<crate::node::registry::NodeRegistry>,
-        running: Arc<Mutex<bool>>
+        running: Arc<Mutex<bool>>,
     ) -> Self {
-        Self { id, storage, scheduler, registry, running }
+        Self {
+            id,
+            storage,
+            scheduler,
+            registry,
+            running,
+        }
     }
-    
+
     async fn run_worker_loop(&self) {
         info!(worker_id = self.id, "Worker started");
-        
+
         while *self.running.lock().await {
             if let Err(e) = self.process_next_task().await {
                 // Only log error if it's not a queue empty error
@@ -392,28 +410,33 @@ impl Worker {
                     error!(worker_id = self.id, error = %error_msg, "Worker error");
                 }
                 // Brief sleep to avoid busy waiting when queue is empty
-                tokio::time::sleep(tokio::time::Duration::from_millis(QUEUE_POLL_INTERVAL_MS)).await;
+                tokio::time::sleep(tokio::time::Duration::from_millis(QUEUE_POLL_INTERVAL_MS))
+                    .await;
             }
         }
 
         info!(worker_id = self.id, "Worker stopped");
     }
-    
+
     async fn process_next_task(&self) -> Result<()> {
-        let task = self.scheduler.pop_task().await
+        let task = self
+            .scheduler
+            .pop_task()
+            .await
             .map_err(|e| anyhow::anyhow!("Failed to get task: {}", e))?;
-        
+
         debug!(worker_id = self.id, task_id = %task.id, node_id = %task.node_id, "Processing task");
-        
+
         // Get the node from task (lazy-loaded)
         let node = task.get_node(&self.storage)?;
-        
+
         // Execute the node
         let mut context = task.context.clone();
         // Ensure secret_storage is available if not already set
         context.ensure_secret_storage(&self.storage);
-        let result = WorkflowExecutor::execute_node(node, &mut context, self.registry.clone()).await;
-        
+        let result =
+            WorkflowExecutor::execute_node(node, &mut context, self.registry.clone()).await;
+
         // Handle the result and queue downstream tasks if successful
         match result {
             Ok(output) => {
@@ -427,8 +450,11 @@ impl Worker {
                         }
                     }
                     Err(e) => {
-                        let error_msg = format!("Task succeeded but failed to push downstream: {}", e);
-                        if let Err(persist_err) = self.scheduler.fail_task(&task.id, error_msg.clone()) {
+                        let error_msg =
+                            format!("Task succeeded but failed to push downstream: {}", e);
+                        if let Err(persist_err) =
+                            self.scheduler.fail_task(&task.id, error_msg.clone())
+                        {
                             warn!(task_id = %task.id, error = %persist_err, "Failed to persist task failure");
                         }
                         error!(task_id = %task.id, error = %e, "Failed to push downstream tasks");
@@ -443,7 +469,7 @@ impl Worker {
                 error!(task_id = %task.id, error = %error, "Task execution failed");
             }
         }
-        
+
         Ok(())
     }
 }

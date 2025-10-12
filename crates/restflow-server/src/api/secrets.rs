@@ -1,11 +1,11 @@
-use restflow_core::{models::Secret, services};
-use crate::api::{state::AppState, response::ApiResponse};
+use crate::api::{response::ApiResponse, state::AppState};
 use axum::{
+    Json,
     extract::{Path, State},
     http::StatusCode,
     response::IntoResponse,
-    Json,
 };
+use restflow_core::{models::Secret, services};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -43,13 +43,16 @@ pub async fn create_secret(
         ));
     }
 
-    match services::secrets::set_secret(&state, &payload.key, &payload.value, payload.description.clone()).await {
+    match services::secrets::set_secret(
+        &state,
+        &payload.key,
+        &payload.value,
+        payload.description.clone(),
+    )
+    .await
+    {
         Ok(_) => {
-            let mut secret = Secret::new(
-                payload.key,
-                String::new(),
-                payload.description,
-            );
+            let mut secret = Secret::new(payload.key, String::new(), payload.description);
             secret.value = String::new();
             Ok((StatusCode::CREATED, Json(ApiResponse::ok(secret))))
         }
@@ -88,7 +91,10 @@ pub async fn delete_secret(
 
 /// Validate secret key format (uppercase, numbers, underscores)
 fn is_valid_secret_key(key: &str) -> bool {
-    !key.is_empty() && key.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
+    !key.is_empty()
+        && key
+            .chars()
+            .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
 }
 
 #[cfg(test)]
@@ -96,7 +102,7 @@ mod tests {
     use super::*;
     use restflow_core::AppCore;
     use std::sync::Arc;
-    use tempfile::{tempdir, TempDir};
+    use tempfile::{TempDir, tempdir};
 
     async fn create_test_app() -> (Arc<AppCore>, TempDir) {
         let temp_dir = tempdir().unwrap();
@@ -159,7 +165,9 @@ mod tests {
             value: "secret_value".to_string(),
             description: None,
         };
-        create_secret(State(app.clone()), Json(create_req)).await.unwrap();
+        create_secret(State(app.clone()), Json(create_req))
+            .await
+            .unwrap();
 
         let update_req = UpdateSecretRequest {
             value: "new_secret_value".to_string(),
@@ -169,8 +177,9 @@ mod tests {
         let result = update_secret(
             State(app),
             Path("TEST_API_KEY".to_string()),
-            Json(update_req)
-        ).await;
+            Json(update_req),
+        )
+        .await;
 
         assert!(result.is_ok());
         let response = result.unwrap().0;
@@ -190,8 +199,9 @@ mod tests {
         let result = update_secret(
             State(app),
             Path("NONEXISTENT".to_string()),
-            Json(update_req)
-        ).await;
+            Json(update_req),
+        )
+        .await;
 
         assert!(result.is_err());
         if let Err((status, msg)) = result {
@@ -209,12 +219,11 @@ mod tests {
             value: "secret_value".to_string(),
             description: None,
         };
-        create_secret(State(app.clone()), Json(create_req)).await.unwrap();
+        create_secret(State(app.clone()), Json(create_req))
+            .await
+            .unwrap();
 
-        let result = delete_secret(
-            State(app.clone()),
-            Path("TEST_API_KEY".to_string())
-        ).await;
+        let result = delete_secret(State(app.clone()), Path("TEST_API_KEY".to_string())).await;
 
         assert!(result.is_ok());
         let response = result.unwrap().0;

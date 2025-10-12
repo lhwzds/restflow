@@ -1,12 +1,8 @@
-use axum::{
-    extract::State,
-    response::Json,
-    http::StatusCode,
-};
+use axum::{extract::State, http::StatusCode, response::Json};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::api::{state::AppState, ApiResponse};
+use crate::api::{ApiResponse, state::AppState};
 
 #[derive(Debug, Deserialize)]
 pub struct ExecuteRequest {
@@ -27,7 +23,10 @@ pub async fn execute_script(
     let manager = match state.get_python_manager().await {
         Ok(m) => m,
         Err(e) => {
-            return Ok(Json(ApiResponse::error(format!("Python not available: {}", e))));
+            return Ok(Json(ApiResponse::error(format!(
+                "Python not available: {}",
+                e
+            ))));
         }
     };
 
@@ -41,7 +40,9 @@ pub async fn execute_script(
 pub async fn list_scripts(
     State(state): State<AppState>,
 ) -> Result<Json<ApiResponse<Vec<String>>>, StatusCode> {
-    let manager = state.get_python_manager().await
+    let manager = state
+        .get_python_manager()
+        .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
 
     match manager.list_scripts().await {

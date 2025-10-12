@@ -1,11 +1,11 @@
-use crate::api::{state::AppState, ApiResponse};
-use restflow_core::engine::trigger_manager::{TriggerStatus, WebhookResponse};
-use restflow_core::models::TriggerConfig;
+use crate::api::{ApiResponse, state::AppState};
 use axum::{
+    Json,
     extract::{Path, State},
     http::Method,
-    Json,
 };
+use restflow_core::engine::trigger_manager::{TriggerStatus, WebhookResponse};
+use restflow_core::models::TriggerConfig;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -40,29 +40,36 @@ pub async fn activate_workflow(
 ) -> Json<ApiResponse<ActivateResponse>> {
     match state.trigger_manager.activate_workflow(&workflow_id).await {
         Ok(triggers) => {
-            let trigger_info: Vec<_> = triggers.iter().map(|trigger| {
-                let webhook_url = if matches!(trigger.trigger_config, TriggerConfig::Webhook { .. }) {
-                    Some(format!("/api/triggers/webhook/{}", trigger.id))
-                } else {
-                    None
-                };
+            let trigger_info: Vec<_> = triggers
+                .iter()
+                .map(|trigger| {
+                    let webhook_url =
+                        if matches!(trigger.trigger_config, TriggerConfig::Webhook { .. }) {
+                            Some(format!("/api/triggers/webhook/{}", trigger.id))
+                        } else {
+                            None
+                        };
 
-                TriggerInfo {
-                    trigger_id: trigger.id.clone(),
-                    webhook_url,
-                    config: trigger.trigger_config.clone(),
-                }
-            }).collect();
+                    TriggerInfo {
+                        trigger_id: trigger.id.clone(),
+                        webhook_url,
+                        config: trigger.trigger_config.clone(),
+                    }
+                })
+                .collect();
 
             Json(ApiResponse::ok_with_message(
                 ActivateResponse {
                     count: triggers.len(),
                     triggers: trigger_info,
                 },
-                format!("{} trigger(s) activated successfully", triggers.len())
+                format!("{} trigger(s) activated successfully", triggers.len()),
             ))
         }
-        Err(e) => Json(ApiResponse::error(format!("Failed to activate workflow: {}", e))),
+        Err(e) => Json(ApiResponse::error(format!(
+            "Failed to activate workflow: {}",
+            e
+        ))),
     }
 }
 
@@ -71,9 +78,18 @@ pub async fn deactivate_workflow(
     State(state): State<AppState>,
     Path(workflow_id): Path<String>,
 ) -> Json<ApiResponse<()>> {
-    match state.trigger_manager.deactivate_workflow(&workflow_id).await {
-        Ok(_) => Json(ApiResponse::message("Workflow trigger deactivated successfully")),
-        Err(e) => Json(ApiResponse::error(format!("Failed to deactivate workflow: {}", e))),
+    match state
+        .trigger_manager
+        .deactivate_workflow(&workflow_id)
+        .await
+    {
+        Ok(_) => Json(ApiResponse::message(
+            "Workflow trigger deactivated successfully",
+        )),
+        Err(e) => Json(ApiResponse::error(format!(
+            "Failed to deactivate workflow: {}",
+            e
+        ))),
     }
 }
 
@@ -87,13 +103,16 @@ pub async fn get_workflow_trigger_status(
             if status.is_none() {
                 Json(ApiResponse::ok_with_message(
                     None,
-                    "No trigger configured for this workflow"
+                    "No trigger configured for this workflow",
                 ))
             } else {
                 Json(ApiResponse::ok(status))
             }
         }
-        Err(e) => Json(ApiResponse::error(format!("Failed to get trigger status: {}", e))),
+        Err(e) => Json(ApiResponse::error(format!(
+            "Failed to get trigger status: {}",
+            e
+        ))),
     }
 }
 
@@ -106,9 +125,12 @@ pub async fn test_workflow_trigger(
     match state.executor.submit(workflow_id, payload).await {
         Ok(execution_id) => Json(ApiResponse::ok_with_message(
             TestTriggerResponse { execution_id },
-            "Test execution started"
+            "Test execution started",
         )),
-        Err(e) => Json(ApiResponse::error(format!("Failed to test workflow: {}", e))),
+        Err(e) => Json(ApiResponse::error(format!(
+            "Failed to test workflow: {}",
+            e
+        ))),
     }
 }
 
@@ -126,19 +148,19 @@ pub async fn handle_webhook_trigger(
         }
     }
 
-    let body_json: Value = serde_json::from_str(&body)
-        .unwrap_or_else(|_| serde_json::json!({ "raw": body }));
+    let body_json: Value =
+        serde_json::from_str(&body).unwrap_or_else(|_| serde_json::json!({ "raw": body }));
 
-    match state.trigger_manager.handle_webhook(&webhook_id, method.as_str(), header_map, body_json).await {
-        Ok(WebhookResponse::Async { execution_id }) => {
-            Json(ApiResponse::ok_with_message(
-                serde_json::to_value(WebhookAsyncResponse { execution_id }).unwrap(),
-                "Workflow execution started"
-            ))
-        }
-        Ok(WebhookResponse::Sync { result }) => {
-            Json(ApiResponse::ok(result))
-        }
+    match state
+        .trigger_manager
+        .handle_webhook(&webhook_id, method.as_str(), header_map, body_json)
+        .await
+    {
+        Ok(WebhookResponse::Async { execution_id }) => Json(ApiResponse::ok_with_message(
+            serde_json::to_value(WebhookAsyncResponse { execution_id }).unwrap(),
+            "Workflow execution started",
+        )),
+        Ok(WebhookResponse::Sync { result }) => Json(ApiResponse::ok(result)),
         Err(e) => Json(ApiResponse::error(format!("{}", e))),
     }
 }
@@ -147,9 +169,9 @@ pub async fn handle_webhook_trigger(
 mod tests {
     use super::*;
     use restflow_core::AppCore;
-    use restflow_core::models::{Workflow, Node, NodeType};
+    use restflow_core::models::{Node, NodeType, Workflow};
     use std::sync::Arc;
-    use tempfile::{tempdir, TempDir};
+    use tempfile::{TempDir, tempdir};
 
     async fn create_test_app() -> (Arc<AppCore>, TempDir) {
         let temp_dir = tempdir().unwrap();
@@ -162,17 +184,15 @@ mod tests {
         Workflow {
             id: id.to_string(),
             name: format!("Test Workflow {}", id),
-            nodes: vec![
-                Node {
-                    id: "webhook_trigger".to_string(),
-                    node_type: NodeType::WebhookTrigger,
-                    config: serde_json::json!({
-                        "path": format!("/test/{}", id),
-                        "method": "POST"
-                    }),
-                    position: None,
-                },
-            ],
+            nodes: vec![Node {
+                id: "webhook_trigger".to_string(),
+                node_type: NodeType::WebhookTrigger,
+                config: serde_json::json!({
+                    "path": format!("/test/{}", id),
+                    "method": "POST"
+                }),
+                position: None,
+            }],
             edges: vec![],
         }
     }
@@ -184,10 +204,7 @@ mod tests {
 
         app.storage.workflows.create_workflow(&workflow).unwrap();
 
-        let response = activate_workflow(
-            State(app),
-            Path("wf-001".to_string())
-        ).await;
+        let response = activate_workflow(State(app), Path("wf-001".to_string())).await;
         let body = response.0;
 
         assert!(body.success);
@@ -204,10 +221,7 @@ mod tests {
 
         let _ = activate_workflow(State(app.clone()), Path("wf-001".to_string())).await;
 
-        let response = deactivate_workflow(
-            State(app),
-            Path("wf-001".to_string())
-        ).await;
+        let response = deactivate_workflow(State(app), Path("wf-001".to_string())).await;
         let body = response.0;
 
         assert!(body.success);
@@ -220,10 +234,7 @@ mod tests {
 
         app.storage.workflows.create_workflow(&workflow).unwrap();
 
-        let response = get_workflow_trigger_status(
-            State(app),
-            Path("wf-001".to_string())
-        ).await;
+        let response = get_workflow_trigger_status(State(app), Path("wf-001".to_string())).await;
         let body = response.0;
 
         assert!(body.success);
@@ -242,11 +253,8 @@ mod tests {
             "test": "data"
         });
 
-        let response = test_workflow_trigger(
-            State(app),
-            Path("wf-001".to_string()),
-            Json(test_data)
-        ).await;
+        let response =
+            test_workflow_trigger(State(app), Path("wf-001".to_string()), Json(test_data)).await;
         let body = response.0;
 
         assert!(body.success);

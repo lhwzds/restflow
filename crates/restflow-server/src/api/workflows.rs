@@ -1,10 +1,10 @@
-use crate::api::{state::AppState, ApiResponse};
+use crate::api::{ApiResponse, state::AppState};
+use axum::{
+    Json,
+    extract::{Path, State},
+};
 use restflow_core::engine::executor::WorkflowExecutor;
 use restflow_core::models::Workflow;
-use axum::{
-    extract::{Path, State},
-    Json,
-};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -20,12 +20,13 @@ pub struct ExecutionResponse {
 }
 
 // GET /api/workflows
-pub async fn list_workflows(
-    State(state): State<AppState>,
-) -> Json<ApiResponse<Vec<Workflow>>> {
+pub async fn list_workflows(State(state): State<AppState>) -> Json<ApiResponse<Vec<Workflow>>> {
     match state.storage.workflows.list_workflows() {
         Ok(workflows) => Json(ApiResponse::ok(workflows)),
-        Err(e) => Json(ApiResponse::error(format!("Failed to list workflows: {}", e))),
+        Err(e) => Json(ApiResponse::error(format!(
+            "Failed to list workflows: {}",
+            e
+        ))),
     }
 }
 
@@ -36,10 +37,15 @@ pub async fn create_workflow(
 ) -> Json<ApiResponse<WorkflowIdResponse>> {
     match state.storage.workflows.create_workflow(&workflow) {
         Ok(_) => Json(ApiResponse::ok_with_message(
-            WorkflowIdResponse { id: workflow.id.clone() },
+            WorkflowIdResponse {
+                id: workflow.id.clone(),
+            },
             format!("Workflow {} saved!", workflow.name),
         )),
-        Err(e) => Json(ApiResponse::error(format!("Failed to save workflow: {}", e))),
+        Err(e) => Json(ApiResponse::error(format!(
+            "Failed to save workflow: {}",
+            e
+        ))),
     }
 }
 
@@ -62,7 +68,10 @@ pub async fn update_workflow(
 ) -> Json<ApiResponse<()>> {
     match state.storage.workflows.update_workflow(&id, &workflow) {
         Ok(_) => Json(ApiResponse::message(format!("Workflow {} updated!", id))),
-        Err(e) => Json(ApiResponse::error(format!("Failed to update workflow: {}", e))),
+        Err(e) => Json(ApiResponse::error(format!(
+            "Failed to update workflow: {}",
+            e
+        ))),
     }
 }
 
@@ -73,7 +82,10 @@ pub async fn delete_workflow(
 ) -> Json<ApiResponse<()>> {
     match state.storage.workflows.delete_workflow(&id) {
         Ok(_) => Json(ApiResponse::message(format!("Workflow {} deleted!", id))),
-        Err(e) => Json(ApiResponse::error(format!("Failed to delete workflow: {}", e))),
+        Err(e) => Json(ApiResponse::error(format!(
+            "Failed to delete workflow: {}",
+            e
+        ))),
     }
 }
 
@@ -84,10 +96,17 @@ pub async fn execute_workflow(
 ) -> Json<ApiResponse<Value>> {
     workflow.id = format!("inline-{}", uuid::Uuid::new_v4());
 
-    let mut wf_executor = WorkflowExecutor::new_sync(workflow, Some(state.storage.clone()), state.registry.clone());
+    let mut wf_executor = WorkflowExecutor::new_sync(
+        workflow,
+        Some(state.storage.clone()),
+        state.registry.clone(),
+    );
     match wf_executor.execute().await {
         Ok(output) => Json(ApiResponse::ok(output)),
-        Err(e) => Json(ApiResponse::error(format!("Workflow execution failed: {}", e))),
+        Err(e) => Json(ApiResponse::error(format!(
+            "Workflow execution failed: {}",
+            e
+        ))),
     }
 }
 
@@ -99,11 +118,18 @@ pub async fn execute_workflow_by_id(
 ) -> Json<ApiResponse<Value>> {
     match state.storage.workflows.get_workflow(&workflow_id) {
         Ok(workflow) => {
-            let mut wf_executor = WorkflowExecutor::new_sync(workflow, Some(state.storage.clone()), state.registry.clone());
+            let mut wf_executor = WorkflowExecutor::new_sync(
+                workflow,
+                Some(state.storage.clone()),
+                state.registry.clone(),
+            );
             wf_executor.set_input(input);
             match wf_executor.execute().await {
                 Ok(output) => Json(ApiResponse::ok(output)),
-                Err(e) => Json(ApiResponse::error(format!("Workflow execution failed: {}", e))),
+                Err(e) => Json(ApiResponse::error(format!(
+                    "Workflow execution failed: {}",
+                    e
+                ))),
             }
         }
         Err(e) => Json(ApiResponse::error(e.to_string())),
@@ -121,7 +147,10 @@ pub async fn submit_workflow(
             execution_id,
             workflow_id,
         })),
-        Err(e) => Json(ApiResponse::error(format!("Failed to submit workflow: {}", e))),
+        Err(e) => Json(ApiResponse::error(format!(
+            "Failed to submit workflow: {}",
+            e
+        ))),
     }
 }
 
@@ -131,7 +160,7 @@ mod tests {
     use restflow_core::AppCore;
     use restflow_core::models::{Node, NodeType};
     use std::sync::Arc;
-    use tempfile::{tempdir, TempDir};
+    use tempfile::{TempDir, tempdir};
 
     async fn create_test_app() -> (Arc<AppCore>, TempDir) {
         let temp_dir = tempdir().unwrap();
@@ -144,17 +173,15 @@ mod tests {
         Workflow {
             id: id.to_string(),
             name: format!("Test Workflow {}", id),
-            nodes: vec![
-                Node {
-                    id: "node1".to_string(),
-                    node_type: NodeType::Agent,
-                    config: serde_json::json!({
-                        "model": "gpt-4",
-                        "prompt": "Test prompt"
-                    }),
-                    position: None,
-                },
-            ],
+            nodes: vec![Node {
+                id: "node1".to_string(),
+                node_type: NodeType::Agent,
+                config: serde_json::json!({
+                    "model": "gpt-4",
+                    "prompt": "Test prompt"
+                }),
+                position: None,
+            }],
             edges: vec![],
         }
     }
@@ -176,10 +203,7 @@ mod tests {
         let (app, _tmp_dir) = create_test_app().await;
         let workflow = create_test_workflow("wf-001");
 
-        let response = create_workflow(
-            State(app.clone()),
-            Json(workflow.clone())
-        ).await;
+        let response = create_workflow(State(app.clone()), Json(workflow.clone())).await;
         let body = response.0;
 
         assert!(body.success);
@@ -197,10 +221,7 @@ mod tests {
 
         let _ = create_workflow(State(app.clone()), Json(workflow)).await;
 
-        let response = get_workflow(
-            State(app),
-            Path("wf-001".to_string())
-        ).await;
+        let response = get_workflow(State(app), Path("wf-001".to_string())).await;
         let body = response.0;
 
         assert!(body.success);
@@ -213,10 +234,7 @@ mod tests {
     async fn test_get_nonexistent_workflow() {
         let (app, _tmp_dir) = create_test_app().await;
 
-        let response = get_workflow(
-            State(app),
-            Path("nonexistent".to_string())
-        ).await;
+        let response = get_workflow(State(app), Path("nonexistent".to_string())).await;
         let body = response.0;
 
         assert!(!body.success);
@@ -233,11 +251,7 @@ mod tests {
         let mut updated = workflow;
         updated.name = "Updated Name".to_string();
 
-        let response = update_workflow(
-            State(app),
-            Path("wf-001".to_string()),
-            Json(updated)
-        ).await;
+        let response = update_workflow(State(app), Path("wf-001".to_string()), Json(updated)).await;
         let body = response.0;
 
         assert!(body.success);
@@ -251,10 +265,7 @@ mod tests {
 
         let _ = create_workflow(State(app.clone()), Json(workflow)).await;
 
-        let response = delete_workflow(
-            State(app.clone()),
-            Path("wf-001".to_string())
-        ).await;
+        let response = delete_workflow(State(app.clone()), Path("wf-001".to_string())).await;
         let body = response.0;
 
         assert!(body.success);

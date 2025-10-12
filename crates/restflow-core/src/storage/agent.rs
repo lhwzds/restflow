@@ -95,7 +95,6 @@ impl AgentStorage {
             existing_agent.agent = new_agent;
         };
 
-
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)?
             .as_millis() as i64;
@@ -116,7 +115,8 @@ impl AgentStorage {
         let write_txn = self.db.begin_write()?;
         {
             let mut table = write_txn.open_table(AGENT_TABLE)?;
-            table.remove(id.as_str())?
+            table
+                .remove(id.as_str())?
                 .ok_or_else(|| anyhow::anyhow!("Agent {} not found", id))?;
         }
         write_txn.commit()?;
