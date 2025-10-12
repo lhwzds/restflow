@@ -1,14 +1,12 @@
-mod app;
-mod custom_terminal;
+mod state;
+mod viewport;
 mod welcome;
 
 use anyhow::Result;
-use app::TuiApp;
 use crossterm::{
     event::{self, Event, KeyCode, KeyModifiers},
     terminal::{disable_raw_mode, enable_raw_mode},
 };
-use custom_terminal::CustomTerminal;
 use ratatui::{
     Frame,
     layout::Rect,
@@ -17,7 +15,9 @@ use ratatui::{
     widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Wrap},
 };
 use restflow_core::AppCore;
+use state::TuiApp;
 use std::{sync::Arc, time::Duration};
+use viewport::ViewportTerminal;
 
 const COLOR_USER: &str = "\x1b[32m";
 const COLOR_ERROR: &str = "\x1b[31m";
@@ -38,16 +38,16 @@ pub async fn run(core: Arc<AppCore>) -> Result<()> {
     welcome::show_welcome(false)?;
     enable_raw_mode()?;
 
-    let mut custom_term = CustomTerminal::new()?;
+    let mut terminal = ViewportTerminal::new()?;
     let (_, cursor_y) = crossterm::cursor::position()?;
 
-    custom_term.setup_viewport_from(cursor_y, MIN_INPUT_HEIGHT)?;
+    terminal.setup_viewport_from(cursor_y, MIN_INPUT_HEIGHT)?;
 
     let mut app = TuiApp::new(core);
-    let res = run_app(&mut custom_term, &mut app).await;
+    let res = run_app(&mut terminal, &mut app).await;
 
     disable_raw_mode()?;
-    custom_term.show_cursor()?;
+    terminal.show_cursor()?;
     println!();
 
     if let Err(err) = res {
@@ -57,30 +57,27 @@ pub async fn run(core: Arc<AppCore>) -> Result<()> {
     Ok(())
 }
 
-async fn run_app(custom_term: &mut CustomTerminal, app: &mut TuiApp) -> Result<()> {
+async fn run_app(terminal: &mut ViewportTerminal, app: &mut TuiApp) -> Result<()> {
     loop {
         if app.should_clear {
-            custom_term.insert_history_line("")?;
-            custom_term
-                .insert_history_line("═══════════════════════════════════════════════════")?;
-            custom_term.insert_history_line("")?;
+            terminal.insert_history_line("")?;
+            terminal.insert_history_line("═══════════════════════════════════════════════════")?;
+            terminal.insert_history_line("")?;
             app.should_clear = false;
         }
 
         for msg in app.new_messages.drain(..) {
-            custom_term.insert_history_line(&format_message(&msg))?;
+            terminal.insert_history_line(&format_message(&msg))?;
         }
 
-        custom_term
-            .terminal_mut()
-            .draw(|f| render_bottom_ui(f, app))?;
+        terminal.terminal_mut().draw(|f| render_bottom_ui(f, app))?;
 
         let viewport_height = app
             .last_total_height
             .max(MIN_INPUT_HEIGHT)
             .min(app.last_terminal_height.max(MIN_INPUT_HEIGHT))
             .min(VIEWPORT_MAX_HEIGHT);
-        custom_term.adjust_viewport_height(viewport_height)?;
+        terminal.adjust_viewport_height(viewport_height)?;
 
         if crossterm::event::poll(Duration::from_millis(100))? {
             if let Event::Key(key) = event::read()? {

@@ -8,12 +8,12 @@ use ratatui::{Terminal, backend::CrosstermBackend, layout::Rect};
 use std::io::{self, Write};
 
 /// Terminal with inline viewport (no AlternateScreen)
-pub struct CustomTerminal {
+pub struct ViewportTerminal {
     terminal: Terminal<CrosstermBackend<io::Stdout>>,
     viewport_area: Rect,
 }
 
-impl CustomTerminal {
+impl ViewportTerminal {
     pub fn new() -> io::Result<Self> {
         let backend = CrosstermBackend::new(io::stdout());
         let terminal = Terminal::new(backend)?;
