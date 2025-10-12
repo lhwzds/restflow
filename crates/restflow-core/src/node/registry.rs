@@ -1,11 +1,11 @@
+use crate::engine::context::ExecutionContext;
+use crate::models::NodeType;
+use crate::node::trigger::TriggerExecutor;
+use anyhow::Result;
+use async_trait::async_trait;
+use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
-use async_trait::async_trait;
-use anyhow::Result;
-use serde_json::Value;
-use crate::models::NodeType;
-use crate::engine::context::ExecutionContext;
-use crate::node::trigger::TriggerExecutor;
 
 #[async_trait]
 pub trait NodeExecutor: Send + Sync {
@@ -56,16 +56,18 @@ struct HttpRequestExecutor;
 #[async_trait]
 impl NodeExecutor for HttpRequestExecutor {
     async fn execute(&self, config: &Value, _context: &mut ExecutionContext) -> Result<Value> {
-        let url = config["url"].as_str().ok_or_else(|| anyhow::anyhow!("URL not found in config"))?;
+        let url = config["url"]
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("URL not found in config"))?;
         let method = config["method"].as_str().unwrap_or("GET");
-        
+
         let client = reqwest::Client::new();
         let response = match method {
             "GET" => self.send_get(client, url).await?,
             "POST" => self.send_post(client, url).await?,
             _ => return Err(anyhow::anyhow!("Unsupported HTTP method: {}", method)),
         };
-        
+
         Ok(serde_json::json!({
             "status": 200,
             "body": response
@@ -75,20 +77,26 @@ impl NodeExecutor for HttpRequestExecutor {
 
 impl HttpRequestExecutor {
     async fn send_get(&self, client: reqwest::Client, url: &str) -> Result<String> {
-        client.get(url)
-            .send().await
+        client
+            .get(url)
+            .send()
+            .await
             .and_then(|r| r.error_for_status())
             .map_err(|e| anyhow::anyhow!("GET request failed: {}", e))?
-            .text().await
+            .text()
+            .await
             .map_err(|e| anyhow::anyhow!("Failed to read response body: {}", e))
     }
-    
+
     async fn send_post(&self, client: reqwest::Client, url: &str) -> Result<String> {
-        client.post(url)
-            .send().await
+        client
+            .post(url)
+            .send()
+            .await
             .and_then(|r| r.error_for_status())
             .map_err(|e| anyhow::anyhow!("POST request failed: {}", e))?
-            .text().await
+            .text()
+            .await
             .map_err(|e| anyhow::anyhow!("Failed to read response body: {}", e))
     }
 }
@@ -100,7 +108,7 @@ impl NodeExecutor for PrintExecutor {
     async fn execute(&self, config: &Value, _context: &mut ExecutionContext) -> Result<Value> {
         let message = config["message"].as_str().unwrap_or("No message provided");
         println!("{}", message);
-        
+
         Ok(serde_json::json!({
             "printed": message
         }))
@@ -118,9 +126,11 @@ impl NodeExecutor for AgentExecutor {
         let input = config["input"].as_str().unwrap_or("Hello");
 
         let secret_storage = context.secret_storage.as_ref().map(|s| s.as_ref());
-        let response = agent.execute(input, secret_storage).await
+        let response = agent
+            .execute(input, secret_storage)
+            .await
             .map_err(|e| anyhow::anyhow!("Agent execution failed: {}", e))?;
-        
+
         Ok(serde_json::json!({
             "response": response
         }))

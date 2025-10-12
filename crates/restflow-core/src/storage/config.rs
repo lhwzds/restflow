@@ -7,7 +7,7 @@ const CONFIG_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("system_
 
 // KISS: Default configuration constants
 const DEFAULT_WORKER_COUNT: usize = 4;
-const DEFAULT_TASK_TIMEOUT_SECONDS: u64 = 300;  // 5 minutes
+const DEFAULT_TASK_TIMEOUT_SECONDS: u64 = 300; // 5 minutes
 const DEFAULT_STALL_TIMEOUT_SECONDS: u64 = 300; // 5 minutes  
 const DEFAULT_MAX_RETRIES: u32 = 3;
 const MIN_WORKER_COUNT: usize = 1;
@@ -37,26 +37,29 @@ impl SystemConfig {
     pub fn validate(&self) -> Result<()> {
         if self.worker_count < MIN_WORKER_COUNT {
             return Err(anyhow::anyhow!(
-                "Worker count must be at least {}", MIN_WORKER_COUNT
+                "Worker count must be at least {}",
+                MIN_WORKER_COUNT
             ));
         }
-        
+
         if self.task_timeout_seconds < MIN_TIMEOUT_SECONDS {
             return Err(anyhow::anyhow!(
-                "Task timeout must be at least {} seconds", MIN_TIMEOUT_SECONDS
+                "Task timeout must be at least {} seconds",
+                MIN_TIMEOUT_SECONDS
             ));
         }
-        
+
         if self.stall_timeout_seconds < MIN_TIMEOUT_SECONDS {
             return Err(anyhow::anyhow!(
-                "Stall timeout must be at least {} seconds", MIN_TIMEOUT_SECONDS
+                "Stall timeout must be at least {} seconds",
+                MIN_TIMEOUT_SECONDS
             ));
         }
-        
+
         if self.max_retries == 0 {
             return Err(anyhow::anyhow!("Max retries must be at least 1"));
         }
-        
+
         Ok(())
     }
 }
@@ -71,14 +74,14 @@ impl ConfigStorage {
         let write_txn = db.begin_write()?;
         write_txn.open_table(CONFIG_TABLE)?;
         write_txn.commit()?;
-        
+
         let storage = Self { db };
-        
+
         // Set default config if not exists
         if storage.get_config()?.is_none() {
             storage.update_config(SystemConfig::default())?;
         }
-        
+
         Ok(storage)
     }
 
@@ -86,7 +89,7 @@ impl ConfigStorage {
     pub fn get_config(&self) -> Result<Option<SystemConfig>> {
         let read_txn = self.db.begin_read()?;
         let table = read_txn.open_table(CONFIG_TABLE)?;
-        
+
         if let Some(data) = table.get("system")? {
             let config: SystemConfig = serde_json::from_slice(data.value())?;
             Ok(Some(config))
@@ -99,7 +102,7 @@ impl ConfigStorage {
     pub fn update_config(&self, config: SystemConfig) -> Result<()> {
         // Validate before saving
         config.validate()?;
-        
+
         let write_txn = self.db.begin_write()?;
         {
             let mut table = write_txn.open_table(CONFIG_TABLE)?;
@@ -187,7 +190,7 @@ mod tests {
         let (storage, _temp_dir) = setup_test_storage();
 
         let invalid_config = SystemConfig {
-            worker_count: 0,  // Invalid: less than MIN_WORKER_COUNT
+            worker_count: 0, // Invalid: less than MIN_WORKER_COUNT
             task_timeout_seconds: 300,
             stall_timeout_seconds: 300,
             max_retries: 3,
@@ -195,7 +198,12 @@ mod tests {
 
         let result = storage.update_config(invalid_config);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Worker count must be at least"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Worker count must be at least")
+        );
     }
 
     #[test]
@@ -204,14 +212,19 @@ mod tests {
 
         let invalid_config = SystemConfig {
             worker_count: 4,
-            task_timeout_seconds: 5,  // Invalid: less than MIN_TIMEOUT_SECONDS
+            task_timeout_seconds: 5, // Invalid: less than MIN_TIMEOUT_SECONDS
             stall_timeout_seconds: 300,
             max_retries: 3,
         };
 
         let result = storage.update_config(invalid_config);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Task timeout must be at least"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Task timeout must be at least")
+        );
     }
 
     #[test]
@@ -221,13 +234,18 @@ mod tests {
         let invalid_config = SystemConfig {
             worker_count: 4,
             task_timeout_seconds: 300,
-            stall_timeout_seconds: 5,  // Invalid: less than MIN_TIMEOUT_SECONDS
+            stall_timeout_seconds: 5, // Invalid: less than MIN_TIMEOUT_SECONDS
             max_retries: 3,
         };
 
         let result = storage.update_config(invalid_config);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Stall timeout must be at least"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Stall timeout must be at least")
+        );
     }
 
     #[test]
@@ -238,12 +256,17 @@ mod tests {
             worker_count: 4,
             task_timeout_seconds: 300,
             stall_timeout_seconds: 300,
-            max_retries: 0,  // Invalid: must be at least 1
+            max_retries: 0, // Invalid: must be at least 1
         };
 
         let result = storage.update_config(invalid_config);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Max retries must be at least 1"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Max retries must be at least 1")
+        );
     }
 
     #[test]

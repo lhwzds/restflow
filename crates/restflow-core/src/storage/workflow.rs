@@ -15,7 +15,7 @@ impl WorkflowStorage {
         let write_txn = db.begin_write()?;
         write_txn.open_table(WORKFLOW_TABLE)?;
         write_txn.commit()?;
-        
+
         Ok(Self { db })
     }
 
@@ -56,11 +56,7 @@ impl WorkflowStorage {
         Ok(workflows)
     }
 
-    pub fn update_workflow(
-        &self,
-        id: &str,
-        workflow: &Workflow,
-    ) -> Result<()> {
+    pub fn update_workflow(&self, id: &str, workflow: &Workflow) -> Result<()> {
         let write_txn = self.db.begin_write()?;
         {
             let mut table = write_txn.open_table(WORKFLOW_TABLE)?;
@@ -95,7 +91,7 @@ impl WorkflowStorage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{Workflow, Node, NodeType, Edge};
+    use crate::models::{Edge, Node, NodeType, Workflow};
     use tempfile::tempdir;
 
     fn create_test_workflow(id: &str) -> Workflow {
@@ -122,12 +118,10 @@ mod tests {
                     position: None,
                 },
             ],
-            edges: vec![
-                Edge {
-                    from: "node1".to_string(),
-                    to: "node2".to_string(),
-                }
-            ],
+            edges: vec![Edge {
+                from: "node1".to_string(),
+                to: "node2".to_string(),
+            }],
         }
     }
 

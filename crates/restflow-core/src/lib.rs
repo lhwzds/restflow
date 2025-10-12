@@ -1,20 +1,21 @@
-pub mod models;
 pub mod engine;
-pub mod storage;
+pub mod models;
 pub mod node;
-pub mod tools;
-pub mod services;
+pub mod paths;
 pub mod python;
+pub mod services;
+pub mod storage;
+pub mod tools;
 
 pub use models::*;
 
 use engine::executor::WorkflowExecutor;
 use engine::trigger_manager::TriggerManager;
 use node::registry::NodeRegistry;
-use storage::Storage;
-use std::sync::Arc;
 use once_cell::sync::OnceCell;
-use tracing::{info, error};
+use std::sync::Arc;
+use storage::Storage;
+use tracing::{error, info};
 
 /// Core application state shared between server and Tauri modes
 pub struct AppCore {
@@ -41,7 +42,7 @@ impl AppCore {
         let executor = Arc::new(WorkflowExecutor::new_async(
             storage.clone(),
             num_workers,
-            registry.clone()
+            registry.clone(),
         ));
         executor.start().await;
 
@@ -49,7 +50,7 @@ impl AppCore {
         let trigger_manager = Arc::new(TriggerManager::new(
             storage.clone(),
             executor.clone(),
-            registry.clone()
+            registry.clone(),
         ));
 
         // Initialize trigger manager
@@ -65,24 +66,27 @@ impl AppCore {
             registry,
         })
     }
-    
+
     /// Get or initialize Python manager
     pub async fn get_python_manager(&self) -> anyhow::Result<Arc<python::PythonManager>> {
         if let Some(manager) = self.python_manager.get() {
             return Ok(manager.clone());
         }
-        
+
         // Initialize Python manager lazily
         let manager = python::PythonManager::new().await?;
-        
+
         // Try to set it, but if another thread already set it, use that one
         let _ = self.python_manager.set(manager.clone());
-        
+
         Ok(self.python_manager.get().unwrap().clone())
     }
-    
+
     /// Check if Python is available
     pub fn is_python_ready(&self) -> bool {
-        self.python_manager.get().map(|m| m.is_ready()).unwrap_or(false)
+        self.python_manager
+            .get()
+            .map(|m| m.is_ready())
+            .unwrap_or(false)
     }
 }

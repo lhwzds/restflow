@@ -106,7 +106,9 @@ impl TaskQueue {
         if let Some((key, value)) = pending.first()? {
             // Extract priority from composite key "{priority:020}:{task_id}"
             let key_str = key.value();
-            let priority = key_str.split(':').next()
+            let priority = key_str
+                .split(':')
+                .next()
                 .and_then(|s| s.parse::<u64>().ok())
                 .ok_or_else(|| anyhow::anyhow!("Invalid pending key format: {}", key_str))?;
 
@@ -141,19 +143,19 @@ impl TaskQueue {
     /// Move a task from processing to completed
     pub fn move_to_completed(&self, task_id: &str, data: &[u8]) -> Result<()> {
         let write_txn = self.db.begin_write()?;
-        
+
         // Remove from processing
         {
             let mut processing = write_txn.open_table(PROCESSING)?;
             processing.remove(task_id)?;
         }
-        
+
         // Add to completed
         {
             let mut completed = write_txn.open_table(COMPLETED)?;
             completed.insert(task_id, data)?;
         }
-        
+
         write_txn.commit()?;
         Ok(())
     }
@@ -162,7 +164,7 @@ impl TaskQueue {
     pub fn get_from_processing(&self, task_id: &str) -> Result<Option<Vec<u8>>> {
         let read_txn = self.db.begin_read()?;
         let processing = read_txn.open_table(PROCESSING)?;
-        
+
         if let Some(data) = processing.get(task_id)? {
             Ok(Some(data.value().to_vec()))
         } else {
@@ -220,12 +222,12 @@ impl TaskQueue {
         let read_txn = self.db.begin_read()?;
         let pending = read_txn.open_table(PENDING)?;
         let mut tasks = Vec::new();
-        
+
         for entry in pending.iter()? {
             let (_, value) = entry?;
             tasks.push(value.value().to_vec());
         }
-        
+
         Ok(tasks)
     }
 
@@ -234,12 +236,12 @@ impl TaskQueue {
         let read_txn = self.db.begin_read()?;
         let processing = read_txn.open_table(PROCESSING)?;
         let mut tasks = Vec::new();
-        
+
         for entry in processing.iter()? {
             let (_, value) = entry?;
             tasks.push(value.value().to_vec());
         }
-        
+
         Ok(tasks)
     }
 
@@ -248,12 +250,12 @@ impl TaskQueue {
         let read_txn = self.db.begin_read()?;
         let completed = read_txn.open_table(COMPLETED)?;
         let mut tasks = Vec::new();
-        
+
         for entry in completed.iter()? {
             let (_, value) = entry?;
             tasks.push(value.value().to_vec());
         }
-        
+
         Ok(tasks)
     }
 
@@ -301,9 +303,15 @@ mod tests {
         let (queue, _temp_dir) = setup_test_queue();
 
         // Insert tasks with different priorities
-        queue.insert_pending(300, "task-low", b"low priority").unwrap();
-        queue.insert_pending(100, "task-high", b"high priority").unwrap();
-        queue.insert_pending(200, "task-med", b"medium priority").unwrap();
+        queue
+            .insert_pending(300, "task-low", b"low priority")
+            .unwrap();
+        queue
+            .insert_pending(100, "task-high", b"high priority")
+            .unwrap();
+        queue
+            .insert_pending(200, "task-med", b"medium priority")
+            .unwrap();
 
         // Should get highest priority (lowest number) first
         let first = queue.get_first_pending().unwrap().unwrap();
@@ -319,7 +327,9 @@ mod tests {
         queue.insert_pending(100, "task-001", task_data).unwrap();
 
         // Move to processing
-        queue.move_to_processing(100, "task-001", task_data).unwrap();
+        queue
+            .move_to_processing(100, "task-001", task_data)
+            .unwrap();
 
         // Should no longer be in pending
         let pending = queue.get_first_pending().unwrap();
@@ -339,7 +349,9 @@ mod tests {
 
         // First move to processing
         queue.insert_pending(100, "task-001", task_data).unwrap();
-        queue.move_to_processing(100, "task-001", task_data).unwrap();
+        queue
+            .move_to_processing(100, "task-001", task_data)
+            .unwrap();
 
         // Then move to completed
         queue.move_to_completed("task-001", task_data).unwrap();
@@ -360,7 +372,9 @@ mod tests {
 
         let task_data = b"task to remove";
         queue.insert_pending(100, "task-001", task_data).unwrap();
-        queue.move_to_processing(100, "task-001", task_data).unwrap();
+        queue
+            .move_to_processing(100, "task-001", task_data)
+            .unwrap();
 
         // Remove from processing
         queue.remove_from_processing("task-001").unwrap();
@@ -405,8 +419,12 @@ mod tests {
             let task_id = format!("task-{:03}", i);
             let task_data = format!("task{}", i).into_bytes();
 
-            queue.insert_pending(i as u64 * 100, &task_id, &task_data).unwrap();
-            queue.move_to_processing(i as u64 * 100, &task_id, &task_data).unwrap();
+            queue
+                .insert_pending(i as u64 * 100, &task_id, &task_data)
+                .unwrap();
+            queue
+                .move_to_processing(i as u64 * 100, &task_id, &task_data)
+                .unwrap();
             queue.move_to_completed(&task_id, &task_data).unwrap();
         }
 
@@ -443,15 +461,21 @@ mod tests {
         let (queue, _temp_dir) = setup_test_queue();
 
         // Test task in processing
-        queue.insert_pending(100, "task-001", b"processing task").unwrap();
-        queue.move_to_processing(100, "task-001", b"processing task").unwrap();
+        queue
+            .insert_pending(100, "task-001", b"processing task")
+            .unwrap();
+        queue
+            .move_to_processing(100, "task-001", b"processing task")
+            .unwrap();
 
         let result = queue.get_from_any_table("task-001").unwrap();
         assert!(result.is_some());
         assert_eq!(result.unwrap(), b"processing task");
 
         // Test task in completed
-        queue.move_to_completed("task-001", b"completed task").unwrap();
+        queue
+            .move_to_completed("task-001", b"completed task")
+            .unwrap();
 
         let result = queue.get_from_any_table("task-001").unwrap();
         assert!(result.is_some());
@@ -464,8 +488,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_concurrent_same_priority_nanosecond() {
-        use crate::models::Task;
         use crate::engine::context::ExecutionContext;
+        use crate::models::Task;
 
         let (queue, _temp_dir) = setup_test_queue();
 
@@ -484,7 +508,9 @@ mod tests {
                 let priority = task.priority();
                 let task_id = task.id.clone();
                 let serialized = serde_json::to_vec(&task).unwrap();
-                queue_clone.insert_pending(priority, &task_id, &serialized).unwrap();
+                queue_clone
+                    .insert_pending(priority, &task_id, &serialized)
+                    .unwrap();
             });
             handles.push(handle);
         }
@@ -501,8 +527,8 @@ mod tests {
 
     #[test]
     fn test_get_from_any_table_pending() {
-        use crate::models::Task;
         use crate::engine::context::ExecutionContext;
+        use crate::models::Task;
 
         let (queue, _temp_dir) = setup_test_queue();
 
@@ -517,7 +543,9 @@ mod tests {
         let task_id = task.id.clone();
         let priority = task.priority();
         let serialized = serde_json::to_vec(&task).unwrap();
-        queue.insert_pending(priority, &task_id, &serialized).unwrap();
+        queue
+            .insert_pending(priority, &task_id, &serialized)
+            .unwrap();
 
         // Should find task in pending
         let result = queue.get_from_any_table(&task_id).unwrap();
@@ -530,8 +558,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_concurrent_pop_no_duplicate() {
-        use crate::models::Task;
         use crate::engine::context::ExecutionContext;
+        use crate::models::Task;
         use std::collections::HashSet;
 
         let (queue, _temp_dir) = setup_test_queue();
@@ -548,7 +576,9 @@ mod tests {
             let priority = task.priority();
             let task_id = task.id.clone();
             let serialized = serde_json::to_vec(&task).unwrap();
-            queue.insert_pending(priority, &task_id, &serialized).unwrap();
+            queue
+                .insert_pending(priority, &task_id, &serialized)
+                .unwrap();
         }
 
         // 10 workers concurrently pop (with no-op callback)
@@ -571,13 +601,17 @@ mod tests {
         // Verify: exactly 3 tasks, no duplicates
         assert_eq!(results.len(), 3, "Should pop exactly 3 tasks");
         let unique: HashSet<_> = results.into_iter().collect();
-        assert_eq!(unique.len(), 3, "All task IDs should be unique (no duplicate execution)");
+        assert_eq!(
+            unique.len(),
+            3,
+            "All task IDs should be unique (no duplicate execution)"
+        );
     }
 
     #[test]
     fn test_composite_key_uniqueness() {
-        use crate::models::Task;
         use crate::engine::context::ExecutionContext;
+        use crate::models::Task;
 
         let (queue, _temp_dir) = setup_test_queue();
 
@@ -598,12 +632,18 @@ mod tests {
         let priority = tasks[0].priority();
         for task in &tasks {
             let serialized = serde_json::to_vec(task).unwrap();
-            queue.insert_pending(priority, &task.id, &serialized).unwrap();
+            queue
+                .insert_pending(priority, &task.id, &serialized)
+                .unwrap();
         }
 
         // Verify all 5 tasks are preserved (no silent overwrite)
         let pending = queue.get_all_pending().unwrap();
-        assert_eq!(pending.len(), 5, "All tasks should be preserved despite same priority");
+        assert_eq!(
+            pending.len(),
+            5,
+            "All tasks should be preserved despite same priority"
+        );
 
         // Verify all can be retrieved by ID
         for task in &tasks {
@@ -614,8 +654,8 @@ mod tests {
 
     #[test]
     fn test_atomic_pop_state_transition() {
-        use crate::models::{Task, TaskStatus};
         use crate::engine::context::ExecutionContext;
+        use crate::models::{Task, TaskStatus};
 
         let (queue, _temp_dir) = setup_test_queue();
 
@@ -629,24 +669,47 @@ mod tests {
         let task_id = task.id.clone();
         let priority = task.priority();
         let serialized = serde_json::to_vec(&task).unwrap();
-        queue.insert_pending(priority, &task_id, &serialized).unwrap();
+        queue
+            .insert_pending(priority, &task_id, &serialized)
+            .unwrap();
 
         // Atomic pop with state update
-        let popped_task = queue.atomic_pop_pending(|task| task.start()).unwrap().unwrap();
+        let popped_task = queue
+            .atomic_pop_pending(|task| task.start())
+            .unwrap()
+            .unwrap();
         assert_eq!(popped_task.id, task_id);
 
         // ✅ Verify: task status was updated atomically
-        assert_eq!(popped_task.status, TaskStatus::Running, "Task should be Running after pop");
-        assert!(popped_task.started_at.is_some(), "Task should have started_at set");
+        assert_eq!(
+            popped_task.status,
+            TaskStatus::Running,
+            "Task should be Running after pop"
+        );
+        assert!(
+            popped_task.started_at.is_some(),
+            "Task should have started_at set"
+        );
 
         // Verify: pending is now empty
-        assert_eq!(queue.get_all_pending().unwrap().len(), 0, "Pending should be empty after pop");
+        assert_eq!(
+            queue.get_all_pending().unwrap().len(),
+            0,
+            "Pending should be empty after pop"
+        );
 
         // Verify: task in processing has Running status (not Pending)
         let processing_data = queue.get_from_processing(&task_id).unwrap().unwrap();
         let processing_task: Task = serde_json::from_slice(&processing_data).unwrap();
-        assert_eq!(processing_task.status, TaskStatus::Running, "Processing task should be Running");
-        assert!(processing_task.started_at.is_some(), "Processing task should have started_at");
+        assert_eq!(
+            processing_task.status,
+            TaskStatus::Running,
+            "Processing task should be Running"
+        );
+        assert!(
+            processing_task.started_at.is_some(),
+            "Processing task should have started_at"
+        );
 
         // Verify second pop returns None (no duplicate)
         let second_pop = queue.atomic_pop_pending(|task| task.start()).unwrap();
@@ -655,8 +718,8 @@ mod tests {
 
     #[test]
     fn test_atomic_pop_no_dirty_data_on_crash() {
-        use crate::models::Task;
         use crate::engine::context::ExecutionContext;
+        use crate::models::Task;
 
         let (queue, _temp_dir) = setup_test_queue();
 
@@ -671,7 +734,9 @@ mod tests {
         let task_id = task.id.clone();
         let priority = task.priority();
         let serialized = serde_json::to_vec(&task).unwrap();
-        queue.insert_pending(priority, &task_id, &serialized).unwrap();
+        queue
+            .insert_pending(priority, &task_id, &serialized)
+            .unwrap();
 
         // Simulate callback panic (transaction should abort)
         let panic_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -684,15 +749,26 @@ mod tests {
 
         // ✅ Verify: task remains in pending (not moved to processing)
         let pending = queue.get_all_pending().unwrap();
-        assert_eq!(pending.len(), 1, "Task should still be in pending after panic");
+        assert_eq!(
+            pending.len(),
+            1,
+            "Task should still be in pending after panic"
+        );
 
         // ✅ Verify: processing table is empty (no dirty data)
         let processing = queue.get_all_processing().unwrap();
-        assert_eq!(processing.len(), 0, "Processing should be empty (no dirty data)");
+        assert_eq!(
+            processing.len(),
+            0,
+            "Processing should be empty (no dirty data)"
+        );
 
         // ✅ Verify: task can be popped again successfully
         let retry_task = queue.atomic_pop_pending(|task| task.start()).unwrap();
-        assert!(retry_task.is_some(), "Task should be retrievable after panic");
+        assert!(
+            retry_task.is_some(),
+            "Task should be retrievable after panic"
+        );
         assert_eq!(retry_task.unwrap().id, task_id);
     }
 }

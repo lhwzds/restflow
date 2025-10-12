@@ -1,8 +1,8 @@
+use crate::models::Secret;
 use anyhow::Result;
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
 use std::sync::Arc;
-use crate::models::Secret;
 
 const SECRETS_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("secrets");
 
@@ -136,7 +136,13 @@ mod tests {
     fn test_set_and_get_secret() {
         let (storage, _temp_dir) = setup();
 
-        storage.set_secret("OPENAI_API_KEY", "sk-test123", Some("OpenAI API key".to_string())).unwrap();
+        storage
+            .set_secret(
+                "OPENAI_API_KEY",
+                "sk-test123",
+                Some("OpenAI API key".to_string()),
+            )
+            .unwrap();
 
         let value = storage.get_secret("OPENAI_API_KEY").unwrap();
         assert_eq!(value, Some("sk-test123".to_string()));
@@ -146,9 +152,13 @@ mod tests {
     fn test_list_secrets_with_metadata() {
         let (storage, _temp_dir) = setup();
 
-        storage.set_secret("API_KEY_1", "value1", Some("First key".to_string())).unwrap();
+        storage
+            .set_secret("API_KEY_1", "value1", Some("First key".to_string()))
+            .unwrap();
         storage.set_secret("API_KEY_2", "value2", None).unwrap();
-        storage.set_secret("API_KEY_3", "value3", Some("Third key".to_string())).unwrap();
+        storage
+            .set_secret("API_KEY_3", "value3", Some("Third key".to_string()))
+            .unwrap();
 
         let secrets = storage.list_secrets().unwrap();
         assert_eq!(secrets.len(), 3);
@@ -165,7 +175,9 @@ mod tests {
     fn test_update_preserves_created_at() {
         let (storage, _temp_dir) = setup();
 
-        storage.set_secret("KEY", "initial", Some("Test key".to_string())).unwrap();
+        storage
+            .set_secret("KEY", "initial", Some("Test key".to_string()))
+            .unwrap();
 
         let secrets = storage.list_secrets().unwrap();
         let initial = secrets.iter().find(|s| s.key == "KEY").unwrap();
@@ -175,17 +187,25 @@ mod tests {
         // Wait to ensure time difference
         std::thread::sleep(std::time::Duration::from_millis(10));
 
-        storage.set_secret("KEY", "updated", Some("Updated description".to_string())).unwrap();
+        storage
+            .set_secret("KEY", "updated", Some("Updated description".to_string()))
+            .unwrap();
 
         let secrets = storage.list_secrets().unwrap();
         let updated = secrets.iter().find(|s| s.key == "KEY").unwrap();
 
-        println!("created_at: {}, initial_updated_at: {}, new_updated_at: {}",
-                 created_at, initial_updated_at, updated.updated_at);
+        println!(
+            "created_at: {}, initial_updated_at: {}, new_updated_at: {}",
+            created_at, initial_updated_at, updated.updated_at
+        );
 
         assert_eq!(updated.created_at, created_at); // created_at preserved
-        assert!(updated.updated_at > initial_updated_at, "updated_at should be greater: {} > {}",
-                updated.updated_at, initial_updated_at);
+        assert!(
+            updated.updated_at > initial_updated_at,
+            "updated_at should be greater: {} > {}",
+            updated.updated_at,
+            initial_updated_at
+        );
         assert_eq!(updated.description, Some("Updated description".to_string()));
     }
 

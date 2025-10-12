@@ -9,7 +9,7 @@ pub enum TriggerConfig {
     Manual,
     Webhook {
         path: String,
-        method: String,  // HTTP method as string (GET, POST, etc.)
+        method: String, // HTTP method as string (GET, POST, etc.)
         auth: Option<AuthConfig>,
         response_mode: ResponseMode,
     },
@@ -26,12 +26,12 @@ pub enum TriggerConfig {
 #[ts(export)]
 pub enum AuthConfig {
     None,
-    ApiKey { 
+    ApiKey {
         key: String,
-        header_name: Option<String>,  // Default X-API-Key
+        header_name: Option<String>, // Default X-API-Key
     },
-    Basic { 
-        username: String, 
+    Basic {
+        username: String,
         password: String,
     },
 }
@@ -39,8 +39,8 @@ pub enum AuthConfig {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
 #[ts(export)]
 pub enum ResponseMode {
-    Async,     // Return execution_id immediately
-    Sync,      // Wait for completion and return result
+    Async, // Return execution_id immediately
+    Sync,  // Wait for completion and return result
 }
 
 // Store active trigger information
@@ -66,7 +66,7 @@ impl ActiveTrigger {
             trigger_count: 0,
         }
     }
-    
+
     pub fn record_trigger(&mut self) {
         self.last_triggered_at = Some(chrono::Utc::now().timestamp());
         self.trigger_count += 1;

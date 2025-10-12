@@ -62,12 +62,10 @@ impl Task {
         // Note: Nanosecond precision provides ~10^9 unique values per second, making collision
         // probability negligible in practice. If absolute uniqueness is required in the future,
         // consider using (timestamp_nanos, uuid) composite key for the pending queue.
-        let created_at = chrono::Utc::now()
-            .timestamp_nanos_opt()
-            .unwrap_or_else(|| {
-                // Fallback for year > 2262 (extremely unlikely)
-                chrono::Utc::now().timestamp_millis() * 1_000_000
-            });
+        let created_at = chrono::Utc::now().timestamp_nanos_opt().unwrap_or_else(|| {
+            // Fallback for year > 2262 (extremely unlikely)
+            chrono::Utc::now().timestamp_millis() * 1_000_000
+        });
 
         Self {
             id: Uuid::new_v4().to_string(),

@@ -1,20 +1,20 @@
+use crate::tools::{AddTool, GetTimeTool};
+use anyhow::Result;
 use rig::{
     client::CompletionClient,
     completion::Prompt,
-    providers::{openai, anthropic, deepseek}
+    providers::{anthropic, deepseek, openai},
 };
 use serde::{Deserialize, Serialize};
-use anyhow::Result;
-use ts_rs::TS;
-use crate::tools::{AddTool, GetTimeTool};
 use tracing::{debug, warn};
+use ts_rs::TS;
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
 #[serde(rename_all = "snake_case", tag = "type", content = "value")]
 pub enum ApiKeyConfig {
     Direct(String),
-    Secret(String),  // Reference to secret name in secret manager
+    Secret(String), // Reference to secret name in secret manager
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -24,7 +24,7 @@ pub struct AgentNode {
     pub prompt: Option<String>,
     pub temperature: Option<f64>,
     pub api_key_config: Option<ApiKeyConfig>,
-    pub tools: Option<Vec<String>>,  // Tool names to enable
+    pub tools: Option<Vec<String>>, // Tool names to enable
 }
 
 macro_rules! configure_tools {
@@ -53,7 +53,12 @@ macro_rules! configure_tools {
 }
 
 impl AgentNode {
-    pub fn new(model: String, prompt: String, temperature: Option<f64>, api_key_config: Option<ApiKeyConfig>) -> Self {
+    pub fn new(
+        model: String,
+        prompt: String,
+        temperature: Option<f64>,
+        api_key_config: Option<ApiKeyConfig>,
+    ) -> Self {
         Self {
             model,
             prompt: Some(prompt),
@@ -63,31 +68,29 @@ impl AgentNode {
         }
     }
 
-
     pub fn from_config(config: &serde_json::Value) -> Result<Self> {
         let model = config["model"]
             .as_str()
             .ok_or_else(|| anyhow::anyhow!("Model missing in config"))?
             .to_string();
 
-        let prompt = config.get("prompt")
+        let prompt = config
+            .get("prompt")
             .and_then(|v| v.as_str())
             .map(|s| s.to_string());
 
-        let temperature = config.get("temperature")
-            .and_then(|v| v.as_f64());
+        let temperature = config.get("temperature").and_then(|v| v.as_f64());
 
-        let api_key_config = config.get("api_key_config")
+        let api_key_config = config
+            .get("api_key_config")
             .map(|v| serde_json::from_value(v.clone()))
             .transpose()?;
 
-        let tools = config["tools"]
-            .as_array()
-            .map(|arr| {
-                arr.iter()
-                    .filter_map(|v| v.as_str().map(String::from))
-                    .collect()
-            });
+        let tools = config["tools"].as_array().map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        });
 
         Ok(Self {
             model,
@@ -98,28 +101,35 @@ impl AgentNode {
         })
     }
 
-    pub async fn execute(&self, input: &str, secret_storage: Option<&crate::storage::SecretStorage>) -> Result<String> {
+    pub async fn execute(
+        &self,
+        input: &str,
+        secret_storage: Option<&crate::storage::SecretStorage>,
+    ) -> Result<String> {
         // Get API key from direct input or secret manager
         let api_key = match &self.api_key_config {
             Some(ApiKeyConfig::Direct(key)) => key.clone(),
             Some(ApiKeyConfig::Secret(secret_name)) => {
                 if let Some(storage) = secret_storage {
-                    storage.get_secret(secret_name)?
-                        .ok_or_else(|| anyhow::anyhow!("Secret '{}' not found in secret manager", secret_name))?
+                    storage.get_secret(secret_name)?.ok_or_else(|| {
+                        anyhow::anyhow!("Secret '{}' not found in secret manager", secret_name)
+                    })?
                 } else {
-                    return Err(anyhow::anyhow!("Secret manager not available but secret reference is configured"));
+                    return Err(anyhow::anyhow!(
+                        "Secret manager not available but secret reference is configured"
+                    ));
                 }
-            },
+            }
             None => {
-                return Err(anyhow::anyhow!("No API key configured. Please provide api_key_config"));
+                return Err(anyhow::anyhow!(
+                    "No API key configured. Please provide api_key_config"
+                ));
             }
         };
 
         let response = match self.model.as_str() {
-            m @ ("o4-mini" | "o3" | "o3-mini" |
-                 "gpt-4.1" | "gpt-4.1-mini" | "gpt-4.1-nano" |
-                 "gpt-4" | "gpt-4-turbo" | "gpt-3.5-turbo" |
-                 "gpt-4o" | "gpt-4o-mini") => {
+            m @ ("o4-mini" | "o3" | "o3-mini" | "gpt-4.1" | "gpt-4.1-mini" | "gpt-4.1-nano"
+            | "gpt-4" | "gpt-4-turbo" | "gpt-3.5-turbo" | "gpt-4o" | "gpt-4o-mini") => {
                 let client = openai::Client::new(&api_key);
 
                 let builder = match m {
@@ -130,7 +140,7 @@ impl AgentNode {
                             b = b.preamble(prompt);
                         }
                         b
-                    },
+                    }
                     _ => {
                         let mut b = client.agent(m);
                         if let Some(ref prompt) = self.prompt {
@@ -147,7 +157,7 @@ impl AgentNode {
                 let builder = configure_tools!(self, builder);
                 let agent = builder.build();
                 agent.prompt(input).await?
-            },
+            }
 
             m @ ("claude-4-opus" | "claude-4-sonnet" | "claude-3.7-sonnet") => {
                 let client = anthropic::Client::new(&api_key);
@@ -170,7 +180,7 @@ impl AgentNode {
                 let builder = configure_tools!(self, builder);
                 let agent = builder.build();
                 agent.prompt(input).await?
-            },
+            }
 
             m @ ("deepseek-chat" | "deepseek-reasoner") => {
                 let client = deepseek::Client::new(&api_key);
@@ -192,7 +202,7 @@ impl AgentNode {
                 let builder = configure_tools!(self, builder);
                 let agent = builder.build();
                 agent.prompt(input).await?
-            },
+            }
 
             _ => {
                 return Err(anyhow::anyhow!(

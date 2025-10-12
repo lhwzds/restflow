@@ -1,9 +1,9 @@
-use crate::api::{state::AppState, ApiResponse};
-use restflow_core::models::{Node, Task, TaskStatus};
+use crate::api::{ApiResponse, state::AppState};
 use axum::{
-    extract::{Path, Query, State},
     Json,
+    extract::{Path, Query, State},
 };
+use restflow_core::models::{Node, Task, TaskStatus};
 use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize)]
@@ -25,7 +25,10 @@ pub async fn get_execution_status(
 ) -> Json<ApiResponse<Vec<Task>>> {
     match state.executor.get_execution_status(&execution_id).await {
         Ok(tasks) => Json(ApiResponse::ok(tasks)),
-        Err(e) => Json(ApiResponse::error(format!("Failed to get execution status: {}", e))),
+        Err(e) => Json(ApiResponse::error(format!(
+            "Failed to get execution status: {}",
+            e
+        ))),
     }
 }
 
@@ -67,7 +70,11 @@ pub async fn execute_node(
     State(state): State<AppState>,
     Json(node): Json<Node>,
 ) -> Json<ApiResponse<ExecuteNodeResponse>> {
-    match state.executor.submit_node(node, serde_json::json!({})).await {
+    match state
+        .executor
+        .submit_node(node, serde_json::json!({}))
+        .await
+    {
         Ok(task_id) => Json(ApiResponse::ok(ExecuteNodeResponse {
             task_id,
             message: "Node execution started".to_string(),
@@ -80,10 +87,10 @@ pub async fn execute_node(
 mod tests {
     use super::*;
     use restflow_core::AppCore;
-    use restflow_core::models::{Workflow, NodeType};
-    use std::time::{Duration, Instant};
+    use restflow_core::models::{NodeType, Workflow};
     use std::sync::Arc;
-    use tempfile::{tempdir, TempDir};
+    use std::time::{Duration, Instant};
+    use tempfile::{TempDir, tempdir};
 
     async fn create_test_app() -> (Arc<AppCore>, TempDir) {
         let temp_dir = tempdir().unwrap();
@@ -96,17 +103,15 @@ mod tests {
         Workflow {
             id: "test-workflow".to_string(),
             name: "Test Workflow".to_string(),
-            nodes: vec![
-                Node {
-                    id: "node1".to_string(),
-                    node_type: NodeType::Agent,
-                    config: serde_json::json!({
-                        "model": "gpt-4",
-                        "prompt": "Test"
-                    }),
-                    position: None,
-                },
-            ],
+            nodes: vec![Node {
+                id: "node1".to_string(),
+                node_type: NodeType::Agent,
+                config: serde_json::json!({
+                    "model": "gpt-4",
+                    "prompt": "Test"
+                }),
+                position: None,
+            }],
             edges: vec![],
         }
     }
@@ -125,7 +130,10 @@ mod tests {
             }
 
             if Instant::now() >= deadline {
-                panic!("Execution {} did not produce tasks within expected time", execution_id);
+                panic!(
+                    "Execution {} did not produce tasks within expected time",
+                    execution_id
+                );
             }
 
             tokio::time::sleep(Duration::from_millis(25)).await;
@@ -157,8 +165,9 @@ mod tests {
                 execution_id: None,
                 status: None,
                 limit: None,
-            })
-        ).await;
+            }),
+        )
+        .await;
         let body = response.0;
 
         assert!(body.success);

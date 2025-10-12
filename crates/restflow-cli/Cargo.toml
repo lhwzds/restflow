@@ -1,0 +1,30 @@
+[package]
+name = "restflow-cli"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "restflow"
+path = "src/main.rs"
+
+[dependencies]
+# Core
+restflow-core = { workspace = true }
+tokio = { workspace = true }
+anyhow = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }
+
+rpassword = "7.0"
+
+# TUI
+ratatui = "0.27"
+crossterm = "0.27"
+unicode-width = "0.1"
+
+# Logging
+tracing = { workspace = true }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-appender = "0.2"
