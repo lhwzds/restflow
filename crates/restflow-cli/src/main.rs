@@ -1,10 +1,10 @@
-mod app;
-mod prompts;
+mod config;
+mod setup;
 mod tui;
 
 use anyhow::Result;
-use app::prepare_core;
 use restflow_core::paths;
+use setup::prepare_core;
 
 #[tokio::main]
 async fn main() -> Result<()> {
