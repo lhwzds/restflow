@@ -130,4 +130,9 @@ impl ViewportTerminal {
     pub fn show_cursor(&mut self) -> io::Result<()> {
         execute!(io::stdout(), Show)
     }
+
+    /// Get viewport start y coordinate (terminal absolute)
+    pub fn viewport_start_y(&self) -> u16 {
+        self.viewport_area.y
+    }
 }

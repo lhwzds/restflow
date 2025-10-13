@@ -44,6 +44,7 @@ pub async fn run(core: Arc<AppCore>) -> Result<()> {
     terminal.setup_viewport_from(cursor_y, MIN_INPUT_HEIGHT)?;
 
     let mut app = TuiApp::new(core);
+
     let res = run_app(&mut terminal, &mut app).await;
 
     disable_raw_mode()?;
@@ -70,7 +71,10 @@ async fn run_app(terminal: &mut ViewportTerminal, app: &mut TuiApp) -> Result<()
             terminal.insert_history_line(&format_message(&msg))?;
         }
 
-        terminal.terminal_mut().draw(|f| render_bottom_ui(f, app))?;
+        let viewport_start_y = terminal.viewport_start_y();
+        terminal.terminal_mut().draw(|f| {
+            render_bottom_ui(f, app, viewport_start_y)
+        })?;
 
         let viewport_height = app
             .last_total_height
@@ -79,39 +83,39 @@ async fn run_app(terminal: &mut ViewportTerminal, app: &mut TuiApp) -> Result<()
             .min(VIEWPORT_MAX_HEIGHT);
         terminal.adjust_viewport_height(viewport_height)?;
 
-        if crossterm::event::poll(Duration::from_millis(100))? {
-            if let Event::Key(key) = event::read()? {
-                match key.code {
-                    KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                        return Ok(());
-                    }
-                    KeyCode::Down | KeyCode::Tab if app.show_commands => {
-                        app.next_command();
-                    }
-                    KeyCode::Up if app.show_commands => {
-                        app.previous_command();
-                    }
-                    KeyCode::Enter => {
-                        if key.modifiers.contains(KeyModifiers::SHIFT) {
-                            app.enter_char('\n');
-                        } else {
-                            app.submit().await;
-                        }
-                    }
-                    KeyCode::Backspace => {
-                        app.delete_char();
-                    }
-                    KeyCode::Left => {
-                        app.move_cursor_left();
-                    }
-                    KeyCode::Right => {
-                        app.move_cursor_right();
-                    }
-                    KeyCode::Char(c) => {
-                        app.enter_char(c);
-                    }
-                    _ => {}
+        if crossterm::event::poll(Duration::from_millis(100))?
+            && let Event::Key(key) = event::read()?
+        {
+            match key.code {
+                KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                    return Ok(());
                 }
+                KeyCode::Down | KeyCode::Tab if app.show_commands => {
+                    app.next_command();
+                }
+                KeyCode::Up if app.show_commands => {
+                    app.previous_command();
+                }
+                KeyCode::Enter => {
+                    if key.modifiers.contains(KeyModifiers::SHIFT) {
+                        app.enter_char('\n');
+                    } else {
+                        app.submit().await;
+                    }
+                }
+                KeyCode::Backspace => {
+                    app.delete_char();
+                }
+                KeyCode::Left => {
+                    app.move_cursor_left();
+                }
+                KeyCode::Right => {
+                    app.move_cursor_right();
+                }
+                KeyCode::Char(c) => {
+                    app.enter_char(c);
+                }
+                _ => {}
             }
         }
 
@@ -136,7 +140,7 @@ fn format_message(msg: &str) -> String {
     }
 }
 
-fn render_bottom_ui(f: &mut Frame, app: &mut TuiApp) {
+fn render_bottom_ui(f: &mut Frame, app: &mut TuiApp, viewport_start_y: u16) {
     let terminal_height = f.size().height;
     let terminal_width = f.size().width;
 
@@ -147,22 +151,26 @@ fn render_bottom_ui(f: &mut Frame, app: &mut TuiApp) {
 
     let mut input_height = content_lines
         .saturating_add(INPUT_DECORATION_LINES)
-        .max(MIN_INPUT_HEIGHT);
+        .clamp(MIN_INPUT_HEIGHT, MAX_INPUT_HEIGHT);
 
     if terminal_height > 0 {
         input_height = input_height.min(terminal_height);
     }
 
+    // Input box at viewport start (terminal absolute coordinate)
+    let input_y = viewport_start_y;
+
     let mut panel_height = 0;
-    if app.show_commands && terminal_height > input_height {
-        let available_for_panel = terminal_height.saturating_sub(input_height);
-        panel_height = available_for_panel.min(COMMAND_PANEL_MAX_HEIGHT);
+    if app.show_commands {
+        // Calculate available space below input box
+        let input_bottom = input_y + input_height;
+        let available_below = terminal_height.saturating_sub(input_bottom);
+        panel_height = available_below.min(COMMAND_PANEL_MAX_HEIGHT);
     }
 
     let total_height = input_height
         .saturating_add(panel_height)
         .min(terminal_height);
-    let input_y = terminal_height.saturating_sub(total_height);
 
     app.last_total_height = total_height;
     app.last_terminal_height = terminal_height;
@@ -171,14 +179,15 @@ fn render_bottom_ui(f: &mut Frame, app: &mut TuiApp) {
         x: 0,
         y: input_y,
         width: terminal_width,
-        height: input_height.min(total_height),
+        height: input_height,
     };
 
     render_input(f, input_area, app);
 
+    // Command panel directly below input box
     let panel_area = Rect {
         x: 0,
-        y: input_y + input_area.height,
+        y: input_y + input_height,
         width: terminal_width,
         height: panel_height,
     };
