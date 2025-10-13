@@ -162,10 +162,9 @@ fn render_bottom_ui(f: &mut Frame, app: &mut TuiApp, viewport_start_y: u16) {
 
     let mut panel_height = 0;
     if app.show_commands {
-        // Calculate available space below input box
-        let input_bottom = input_y + input_height;
-        let available_below = terminal_height.saturating_sub(input_bottom);
-        panel_height = available_below.min(COMMAND_PANEL_MAX_HEIGHT);
+        let num_commands = app.commands.len() as u16;
+        let border_lines = 2; // Block borders (top + bottom)
+        panel_height = (num_commands + border_lines).min(COMMAND_PANEL_MAX_HEIGHT);
     }
 
     let total_height = input_height
