@@ -58,8 +58,7 @@ impl TuiApp {
             },
         ];
 
-        // Initialize the AI chat assistant
-        // Prefer environment variables to avoid SecretStorage dependency
+        // Prefer env vars to avoid SecretStorage dependency during initialization
         let api_key_config = if let Ok(key) = std::env::var("OPENAI_API_KEY") {
             Some(ApiKeyConfig::Direct(key))
         } else {
@@ -243,12 +242,11 @@ impl TuiApp {
         let input = self.input.clone();
         self.new_messages.push(format!("> {}", input));
 
-        // Push into history (skip repeated consecutive commands)
+        // Skip repeated consecutive commands
         if self.command_history.is_empty() || self.command_history.last() != Some(&input) {
             self.command_history.push(input.clone());
         }
 
-        // Handle command execution
         match input.as_str() {
             "/clear" => {
                 self.should_clear = true;
