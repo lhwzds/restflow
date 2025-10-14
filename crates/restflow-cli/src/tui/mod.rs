@@ -4,8 +4,14 @@ mod welcome;
 
 use anyhow::Result;
 use crossterm::{
+    cursor::MoveTo,
     event::{self, Event, KeyCode, KeyModifiers},
-    terminal::{disable_raw_mode, enable_raw_mode},
+    execute,
+    terminal::{
+        disable_raw_mode, enable_raw_mode, BeginSynchronizedUpdate, Clear as TermClear,
+        ClearType, EndSynchronizedUpdate,
+    },
+    QueueableCommand,
 };
 use ratatui::{
     Frame,
@@ -16,7 +22,7 @@ use ratatui::{
 };
 use restflow_core::AppCore;
 use state::TuiApp;
-use std::{sync::Arc, time::Duration};
+use std::{io::Write, sync::Arc, time::Duration};
 use viewport::ViewportTerminal;
 
 const COLOR_USER: &str = "\x1b[32m";
@@ -71,17 +77,37 @@ async fn run_app(terminal: &mut ViewportTerminal, app: &mut TuiApp) -> Result<()
             terminal.insert_history_line(&format_message(&msg))?;
         }
 
-        let viewport_start_y = terminal.viewport_start_y();
-        terminal.terminal_mut().draw(|f| {
-            render_bottom_ui(f, app, viewport_start_y)
-        })?;
-
         let viewport_height = app
             .last_total_height
             .max(MIN_INPUT_HEIGHT)
             .min(app.last_terminal_height.max(MIN_INPUT_HEIGHT))
             .min(VIEWPORT_MAX_HEIGHT);
+
+        // Atomic terminal update (prevents flickering)
+        std::io::stdout()
+            .queue(BeginSynchronizedUpdate)?
+            .flush()?;
+
         terminal.adjust_viewport_height(viewport_height)?;
+
+        // Always clear from viewport bottom to screen bottom (Codex pattern)
+        let clear_from_y = terminal.viewport_start_y() + viewport_height;
+        let term = terminal.terminal_mut();
+
+        execute!(term.backend_mut(), MoveTo(0, clear_from_y))?;
+        execute!(term.backend_mut(), TermClear(ClearType::FromCursorDown))?;
+
+        // Reset buffer to force full redraw
+        term.current_buffer_mut().reset();
+
+        let viewport_start_y = terminal.viewport_start_y();
+        terminal.terminal_mut().draw(|f| {
+            render_bottom_ui(f, app, viewport_start_y)
+        })?;
+
+        std::io::stdout()
+            .queue(EndSynchronizedUpdate)?
+            .flush()?;
 
         if crossterm::event::poll(Duration::from_millis(100))?
             && let Event::Key(key) = event::read()?
@@ -125,7 +151,6 @@ async fn run_app(terminal: &mut ViewportTerminal, app: &mut TuiApp) -> Result<()
     }
 }
 
-/// Format messages with colors
 fn format_message(msg: &str) -> String {
     if msg.starts_with('>') {
         format!("{}{}{}", COLOR_USER, msg, COLOR_RESET)
@@ -157,7 +182,6 @@ fn render_bottom_ui(f: &mut Frame, app: &mut TuiApp, viewport_start_y: u16) {
         input_height = input_height.min(terminal_height);
     }
 
-    // Input box at viewport start (terminal absolute coordinate)
     let input_y = viewport_start_y;
 
     let mut panel_height = 0;
@@ -183,7 +207,6 @@ fn render_bottom_ui(f: &mut Frame, app: &mut TuiApp, viewport_start_y: u16) {
 
     render_input(f, input_area, app);
 
-    // Command panel directly below input box
     let panel_area = Rect {
         x: 0,
         y: input_y + input_height,
