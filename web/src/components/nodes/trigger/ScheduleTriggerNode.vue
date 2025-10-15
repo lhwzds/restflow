@@ -121,9 +121,12 @@ $node-color: var(--rf-color-primary);
   font-size: var(--rf-font-size-2xs);
   color: var(--rf-color-text-secondary);
   background: var(--rf-color-bg-secondary);
-  padding: var(--rf-spacing-3xs) var(--rf-spacing-xs);
+  padding: var(--rf-spacing-4xs) var(--rf-spacing-2xs);
   border-radius: var(--rf-radius-small);
   display: inline-block;
-  text-align: center;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 </style>

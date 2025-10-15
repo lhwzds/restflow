@@ -145,9 +145,14 @@ const isScheduleTrigger = computed(() => props.nodeType === 'ScheduleTrigger')
         </span>
       </div>
 
-      <div class="form-group">
+      <div class="form-group form-group--compact">
         <label class="form-label">Timezone</label>
-        <el-select v-model="localConfig.timezone" placeholder="Select timezone">
+        <el-select
+          v-model="localConfig.timezone"
+          placeholder="Select timezone"
+          filterable
+          class="timezone-select"
+        >
           <el-option
             v-for="tz in timezones"
             :key="tz"
@@ -195,6 +200,14 @@ const isScheduleTrigger = computed(() => props.nodeType === 'ScheduleTrigger')
   display: flex;
   flex-direction: column;
   gap: var(--rf-spacing-xs);
+}
+
+.form-group--compact {
+  max-width: 340px;
+}
+
+.timezone-select {
+  width: 100%;
 }
 
 .form-label {
