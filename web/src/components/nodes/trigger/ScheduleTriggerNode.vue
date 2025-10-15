@@ -72,6 +72,7 @@ const formatCron = (cron?: string): string => {
 $node-color: var(--rf-color-primary);
 
 .schedule-trigger-node {
+  @include node-base();
   @include node-handle($node-color);
 
   .node-body {
