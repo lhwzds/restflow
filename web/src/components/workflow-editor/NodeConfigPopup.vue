@@ -223,8 +223,13 @@ const handleClose = () => {
                 />
 
                 <TriggerConfigForm
-                  v-if="node.type === NODE_TYPE.MANUAL_TRIGGER || node.type === NODE_TYPE.WEBHOOK_TRIGGER"
+                  v-if="
+                    node.type === NODE_TYPE.MANUAL_TRIGGER ||
+                    node.type === NODE_TYPE.WEBHOOK_TRIGGER ||
+                    node.type === NODE_TYPE.SCHEDULE_TRIGGER
+                  "
                   :modelValue="nodeData"
+                  :nodeType="node.type"
                   @update:modelValue="handleFormUpdate"
                 />
               </div>

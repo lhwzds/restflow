@@ -53,6 +53,7 @@ const emit = defineEmits<{
 $node-color: var(--rf-color-primary);
 
 .webhook-trigger-node {
+  @include node-base();
   @include node-handle($node-color);
 
   .node-body {

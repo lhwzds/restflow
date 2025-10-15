@@ -54,6 +54,7 @@ const { isExecuting, startAsyncExecution } = useAsyncWorkflowExecution()
 $node-color: var(--rf-color-green);
 
 .manual-trigger-node {
+  @include node-base();
   @include node-handle($node-color);
 
   .node-body {
