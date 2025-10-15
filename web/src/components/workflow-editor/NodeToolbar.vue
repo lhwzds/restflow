@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import type { Component } from 'vue'
-import { PlayCircle, Webhook, Bot, Globe } from 'lucide-vue-next'
+import { PlayCircle, Webhook, Clock, Bot, Globe } from 'lucide-vue-next'
 import { NODE_TYPES } from '../../composables/node/useNodeHelpers'
 
 interface NodeTemplate {
@@ -38,6 +38,17 @@ const nodeTemplates = ref<NodeTemplate[]>([
       auth: {
         type: 'none',
       },
+    },
+  },
+  {
+    type: NODE_TYPES.SCHEDULE_TRIGGER,
+    label: 'Schedule',
+    icon: Clock,
+    iconColor: 'var(--rf-color-warning)',
+    defaultData: {
+      label: 'Schedule',
+      cron: '0 * * * *',
+      timezone: 'UTC',
     },
   },
   {

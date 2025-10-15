@@ -9,6 +9,7 @@ export const nodeTypeMap: Record<string, string> = {
   http: 'HttpRequest',
   'manual-trigger': 'ManualTrigger',
   'webhook-trigger': 'WebhookTrigger',
+  'schedule-trigger': 'ScheduleTrigger',
   print: 'Print',
   'data-transform': 'DataTransform',
 }

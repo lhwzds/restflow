@@ -1,3 +1,4 @@
+use crate::engine::cron_scheduler::CronScheduler;
 use crate::engine::executor::WorkflowExecutor;
 use crate::models::{ActiveTrigger, AuthConfig, ResponseMode, TriggerConfig};
 use crate::node::registry::NodeRegistry;
@@ -13,6 +14,7 @@ pub struct TriggerManager {
     storage: Arc<Storage>,
     executor: Arc<WorkflowExecutor>,
     registry: Arc<NodeRegistry>,
+    cron_scheduler: Arc<CronScheduler>,
 }
 
 impl TriggerManager {
@@ -20,27 +22,58 @@ impl TriggerManager {
         storage: Arc<Storage>,
         executor: Arc<WorkflowExecutor>,
         registry: Arc<NodeRegistry>,
+        cron_scheduler: Arc<CronScheduler>,
     ) -> Self {
         Self {
             storage,
             executor,
             registry,
+            cron_scheduler,
         }
     }
 
-    // Initialize trigger manager
+    /// Initialize the trigger manager and restore all active triggers
     pub async fn init(&self) -> Result<()> {
         let triggers = self.storage.triggers.list_active_triggers()?;
         let webhook_count = triggers
             .iter()
             .filter(|t| matches!(t.trigger_config, TriggerConfig::Webhook { .. }))
             .count();
+        let schedule_count = triggers
+            .iter()
+            .filter(|t| matches!(t.trigger_config, TriggerConfig::Schedule { .. }))
+            .count();
 
         info!(
             active_triggers = triggers.len(),
             webhooks = webhook_count,
+            schedules = schedule_count,
             "TriggerManager initialized"
         );
+
+        for trigger in triggers.iter() {
+            if let TriggerConfig::Schedule { cron, timezone, payload } = &trigger.trigger_config {
+                info!(
+                    trigger_id = %trigger.id,
+                    workflow_id = %trigger.workflow_id,
+                    cron = %cron,
+                    "Restoring schedule trigger"
+                );
+
+                if let Err(e) = self
+                    .cron_scheduler
+                    .add_schedule(trigger, cron.clone(), timezone.clone(), payload.clone())
+                    .await
+                {
+                    tracing::error!(
+                        error = ?e,
+                        trigger_id = %trigger.id,
+                        "Failed to restore schedule trigger"
+                    );
+                }
+            }
+        }
+
         Ok(())
     }
 
@@ -76,6 +109,13 @@ impl TriggerManager {
 
             self.storage.triggers.activate_trigger(&active_trigger)?;
 
+            // If this is a schedule trigger, add it to the cron scheduler
+            if let TriggerConfig::Schedule { cron, timezone, payload } = &trigger_config {
+                self.cron_scheduler
+                    .add_schedule(&active_trigger, cron.clone(), timezone.clone(), payload.clone())
+                    .await?;
+            }
+
             info!(node_id = %node_id, workflow_id = %workflow_id, config = ?trigger_config, "Trigger activated");
             activated_triggers.push(active_trigger);
         }
@@ -90,6 +130,32 @@ impl TriggerManager {
             .triggers
             .get_active_trigger_by_workflow(workflow_id)?
             .ok_or_else(|| anyhow!("No active trigger found for workflow {}", workflow_id))?;
+
+        // If this is a schedule trigger, remove it from the cron scheduler
+        if matches!(trigger.trigger_config, TriggerConfig::Schedule { .. }) {
+            match self.cron_scheduler.remove_schedule(&trigger.id).await {
+                Ok(true) => {
+                    tracing::debug!(
+                        trigger_id = %trigger.id,
+                        "Schedule removed from cron scheduler"
+                    );
+                }
+                Ok(false) => {
+                    tracing::debug!(
+                        trigger_id = %trigger.id,
+                        "Schedule not found in cron scheduler (likely already removed)"
+                    );
+                }
+                Err(e) => {
+                    tracing::error!(
+                        error = ?e,
+                        trigger_id = %trigger.id,
+                        "Failed to remove schedule from cron scheduler"
+                    );
+                    return Err(e);
+                }
+            }
+        }
 
         self.storage.triggers.deactivate_trigger(&trigger.id)?;
 

@@ -9,6 +9,7 @@ pub mod tools;
 
 pub use models::*;
 
+use engine::cron_scheduler::CronScheduler;
 use engine::executor::WorkflowExecutor;
 use engine::trigger_manager::TriggerManager;
 use node::registry::NodeRegistry;
@@ -22,6 +23,7 @@ pub struct AppCore {
     pub storage: Arc<Storage>,
     pub executor: Arc<WorkflowExecutor>,
     pub trigger_manager: Arc<TriggerManager>,
+    pub cron_scheduler: Arc<CronScheduler>,
     pub python_manager: OnceCell<Arc<python::PythonManager>>,
     pub registry: Arc<NodeRegistry>,
 }
@@ -46,14 +48,31 @@ impl AppCore {
         ));
         executor.start().await;
 
-        // Create trigger manager
+        // Create and start cron scheduler
+        let cron_scheduler = Arc::new(
+            CronScheduler::new(storage.clone(), executor.clone())
+                .await
+                .map_err(|e| {
+                    error!(error = %e, "Failed to create CronScheduler");
+                    e
+                })?,
+        );
+
+        if let Err(e) = cron_scheduler.start().await {
+            error!(error = %e, "Failed to start CronScheduler");
+        } else {
+            info!("CronScheduler started successfully");
+        }
+
+        // Create trigger manager with cron scheduler
         let trigger_manager = Arc::new(TriggerManager::new(
             storage.clone(),
             executor.clone(),
             registry.clone(),
+            cron_scheduler.clone(),
         ));
 
-        // Initialize trigger manager
+        // Initialize trigger manager (restores all active triggers)
         if let Err(e) = trigger_manager.init().await {
             error!(error = %e, "Failed to initialize trigger manager");
         }
@@ -62,6 +81,7 @@ impl AppCore {
             storage,
             executor,
             trigger_manager,
+            cron_scheduler,
             python_manager: OnceCell::new(),
             registry,
         })

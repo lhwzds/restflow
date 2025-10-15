@@ -14,7 +14,7 @@ import { useEdgeOperations } from '../../composables/node/useEdgeOperations'
 import { useNodeOperations } from '../../composables/node/useNodeOperations'
 import { useKeyboardShortcuts } from '../../composables/shared/useKeyboardShortcuts'
 import { useContextMenu } from '../../composables/ui/useContextMenu'
-import { AgentNode, HttpNode, ManualTriggerNode, WebhookTriggerNode } from '../nodes'
+import { AgentNode, HttpNode, ManualTriggerNode, ScheduleTriggerNode, WebhookTriggerNode } from '../nodes'
 import { useExecutionStore } from '../../stores/executionStore'
 import Icon from '../shared/Icon.vue'
 import NodeConfigPopup from './NodeConfigPopup.vue'
@@ -177,6 +177,10 @@ useKeyboardShortcuts({
 
         <template #node-WebhookTrigger="webhookTriggerNodeProps">
           <WebhookTriggerNode v-bind="webhookTriggerNodeProps" />
+        </template>
+
+        <template #node-ScheduleTrigger="scheduleTriggerNodeProps">
+          <ScheduleTriggerNode v-bind="scheduleTriggerNodeProps" />
         </template>
 
         <template #node-Agent="agentNodeProps">
