@@ -9,7 +9,7 @@ path = "src/main.rs"
 
 [dependencies]
 restflow-core = { workspace = true }
-axum = { version = "0.8.4", features = ["macros"] }
+axum = { version = "0.8.6", features = ["macros"] }
 mime_guess = "2.0.5"
 mimalloc = { version = "0.1", default-features = false }
 rust-embed = { version = "8.7.2", features = ["include-exclude", "interpolate-folder-path"] }
@@ -20,7 +20,7 @@ tower = "0.5.2"
 tower-http = { version = "0.6.6", features = ["cors", "fs"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json"] }
-uuid = { version = "1.18.0", features = ["v4", "serde"] }
+uuid = { version = "1.18.1", features = ["v4", "serde"] }
 
 [dev-dependencies]
 tempfile = "3.12.0"
