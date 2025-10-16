@@ -43,7 +43,7 @@
     "@vue/tsconfig": "^0.8.1",
     "axios-mock-adapter": "^2.1.0",
     "happy-dom": "^20.0.2",
-    "msw": "^2.11.4",
+    "msw": "^2.11.5",
     "prettier": "^3.6.2",
     "sass": "^1.93.2",
     "typescript": "~5.9.3",
