@@ -60,7 +60,7 @@ impl CronScheduler {
     ///
     /// # Parameters
     /// - `trigger`: active trigger information
-    /// - `cron_expr`: cron expression (e.g. "0 0 * * *" for midnight every day)
+    /// - `cron_expr`: 6-field cron expression (sec min hour day month weekday), e.g. "0 0 0 * * *" for midnight every day
     /// - `timezone`: timezone (e.g. "Asia/Shanghai"), None indicates UTC
     /// - `payload`: payload passed to the workflow when triggered
     pub async fn add_schedule(
@@ -296,7 +296,7 @@ mod tests {
         let trigger = ActiveTrigger::new(
             "test-workflow".to_string(),
             TriggerConfig::Schedule {
-                cron: "0 * * * *".to_string(),
+                cron: "0 0 * * * *".to_string(), // 6-field format: sec min hour day month weekday
                 timezone: None,
                 payload: None,
             },
@@ -304,7 +304,7 @@ mod tests {
 
         // Add schedule
         scheduler
-            .add_schedule(&trigger, "0 * * * *".to_string(), None, None)
+            .add_schedule(&trigger, "0 0 * * * *".to_string(), None, None)
             .await
             .unwrap();
 
