@@ -20,19 +20,19 @@ const localConfig = ref({
   auth: props.modelValue?.auth || null,
 
   // Schedule configuration
-  cron: props.modelValue?.cron || '0 * * * *',
+  cron: props.modelValue?.cron || '0 0 * * * *',
   timezone: props.modelValue?.timezone || 'UTC',
   payload: props.modelValue?.payload || null,
 })
 
-// Preset cron expressions
+// Preset cron expressions (6-field format: sec min hour day month weekday)
 const cronPresets = [
-  { label: 'Every minute', value: '* * * * *' },
-  { label: 'Every hour', value: '0 * * * *' },
-  { label: 'Midnight daily', value: '0 0 * * *' },
-  { label: 'Daily at 9 AM', value: '0 9 * * *' },
-  { label: 'Every Sunday', value: '0 0 * * 0' },
-  { label: 'First day of month', value: '0 0 1 * *' },
+  { label: 'Every minute', value: '0 * * * * *' },
+  { label: 'Every hour', value: '0 0 * * * *' },
+  { label: 'Midnight daily', value: '0 0 0 * * *' },
+  { label: 'Daily at 9 AM', value: '0 0 9 * * *' },
+  { label: 'Every Sunday', value: '0 0 0 * * 0' },
+  { label: 'First day of month', value: '0 0 0 1 * *' },
   { label: 'Custom', value: '' },
 ]
 
@@ -133,7 +133,7 @@ const isScheduleTrigger = computed(() => props.nodeType === 'ScheduleTrigger')
         <label class="form-label">Cron Expression</label>
         <el-input
           v-model="localConfig.cron"
-          placeholder="0 * * * *"
+          placeholder="0 0 * * * *"
           clearable
         >
           <template #prepend>
@@ -141,7 +141,7 @@ const isScheduleTrigger = computed(() => props.nodeType === 'ScheduleTrigger')
           </template>
         </el-input>
         <span class="form-hint">
-          Format: minute hour day-of-month month day-of-week (e.g. 0 * * * * for hourly)
+          Format: sec min hour day month weekday (e.g. 0 0 * * * * for hourly)
         </span>
       </div>
 

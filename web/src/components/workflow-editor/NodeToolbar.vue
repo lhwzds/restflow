@@ -47,7 +47,7 @@ const nodeTemplates = ref<NodeTemplate[]>([
     iconColor: 'var(--rf-color-warning)',
     defaultData: {
       label: 'Schedule',
-      cron: '0 * * * *',
+      cron: '0 0 * * * *', // 6-field format: sec min hour day month weekday (every hour)
       timezone: 'UTC',
     },
   },
