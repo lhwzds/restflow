@@ -14,6 +14,7 @@ export function useExecutionHistory(workflowId: Readonly<Ref<string | null | und
   const isLoading = ref(false)
   const pollingInterval = ref<number | null>(null)
   const selectedExecutionId = ref<string | null>(null)
+  const isFirstPoll = ref(true)
 
   const loadHistory = async () => {
     const currentWorkflowId = workflowId.value
@@ -36,16 +37,19 @@ export function useExecutionHistory(workflowId: Readonly<Ref<string | null | und
     if (!currentWorkflowId) return
 
     stopPolling()
+    isFirstPoll.value = true
     loadHistory()
 
     pollingInterval.value = window.setInterval(async () => {
       const previousCount = executions.value.length
       await loadHistory()
 
-      if (executions.value.length > previousCount && executions.value[0]) {
+      // Skip notification on first poll to avoid false "new execution" alerts
+      if (!isFirstPoll.value && executions.value.length > previousCount && executions.value[0]) {
         const newExecution = executions.value[0]
         ElMessage.info(`New execution detected: ${newExecution.execution_id}`)
       }
+      isFirstPoll.value = false
     }, POLLING_TIMING.EXECUTION_HISTORY || 5000)
   }
 
@@ -71,6 +75,10 @@ export function useExecutionHistory(workflowId: Readonly<Ref<string | null | und
     } catch (error) {
       console.error('Failed to load execution details:', error)
       ElMessage.error(ERROR_MESSAGES.FAILED_TO_LOAD('execution details'))
+
+      // Rollback execution state on error
+      executionStore.clearExecution()
+      selectedExecutionId.value = null
     }
   }
 
