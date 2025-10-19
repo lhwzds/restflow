@@ -125,8 +125,10 @@ export const workflowHandlers = [
     })
   }),
 
-  http.post('/api/workflows/:id/execute', async ({ params }) => {
-    const workflow = workflows.find(w => w.id === params.id)
+  http.get('/api/workflows/:id/executions', ({ params }) => {
+    const workflowId = params.id as string
+    const workflow = workflows.find(w => w.id === workflowId)
+
     if (!workflow) {
       return HttpResponse.json(
         {
@@ -137,20 +139,43 @@ export const workflowHandlers = [
       )
     }
 
-    await new Promise(resolve => setTimeout(resolve, 1500))
+    const now = Date.now()
+    const mockExecutions = [
+      {
+        execution_id: 'exec-' + (now - 300000),
+        workflow_id: workflowId,
+        status: 'Completed' as const,
+        started_at: now - 300000,
+        completed_at: now - 295000,
+        total_tasks: 3,
+        completed_tasks: 3,
+        failed_tasks: 0
+      },
+      {
+        execution_id: 'test-' + crypto.randomUUID(),
+        workflow_id: workflowId,
+        status: 'Completed' as const,
+        started_at: now - 600000,
+        completed_at: now - 590000,
+        total_tasks: 3,
+        completed_tasks: 3,
+        failed_tasks: 0
+      },
+      {
+        execution_id: 'exec-' + (now - 900000),
+        workflow_id: workflowId,
+        status: 'Failed' as const,
+        started_at: now - 900000,
+        completed_at: now - 880000,
+        total_tasks: 3,
+        completed_tasks: 2,
+        failed_tasks: 1
+      }
+    ]
 
     return HttpResponse.json({
       success: true,
-      data: {
-        execution_id: 'exec-' + Date.now(),
-        workflow_id: params.id,
-        data: {
-          'var.input': {},
-          'node.agent-1': {
-            response: `[Demo] This is a sample execution result for ${workflow.name}`
-          }
-        }
-      }
+      data: mockExecutions
     })
   }),
 
@@ -208,13 +233,27 @@ export const workflowHandlers = [
     })
   }),
 
-  http.post('/api/workflows/:id/test', async () => {
-    await new Promise(resolve => setTimeout(resolve, 800))
+  http.post('/api/workflows/:id/test', ({ params }) => {
+    const workflowId = params.id as string
+    const workflow = workflows.find(w => w.id === workflowId)
+
+    if (!workflow) {
+      return HttpResponse.json(
+        {
+          success: false,
+          message: 'Workflow not found'
+        },
+        { status: 404 }
+      )
+    }
+
+    const executionId = 'test-' + crypto.randomUUID()
+    createExecutionTasks(executionId, workflowId, workflow.nodes)
+
     return HttpResponse.json({
       success: true,
       data: {
-        message: 'Test execution completed',
-        result: 'Demo mode - test successful'
+        execution_id: executionId
       }
     })
   })
