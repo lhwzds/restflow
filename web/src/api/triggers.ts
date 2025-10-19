@@ -1,11 +1,8 @@
 import { apiClient } from './config'
 import { isTauri, invokeCommand } from './utils'
 import type { TriggerStatus } from '@/types/generated/TriggerStatus'
+import type { TestWorkflowResponse } from '@/types/api'
 import { API_ENDPOINTS } from '@/constants'
-
-export interface TestWorkflowResponse {
-  execution_id: string
-}
 
 export const activateWorkflow = async (id: string): Promise<void> => {
   if (isTauri()) {
