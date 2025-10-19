@@ -8,7 +8,8 @@ import { ElMessage } from 'element-plus'
 import { ref } from 'vue'
 import { useVueFlowHandlers } from '../../composables/editor/useVueFlowHandlers'
 import { useAsyncWorkflowExecution } from '../../composables/execution/useAsyncWorkflowExecution'
-import { SUCCESS_MESSAGES } from '@/constants'
+import { useSingleNodeExecution } from '../../composables/execution/useSingleNodeExecution'
+import { SUCCESS_MESSAGES, ERROR_MESSAGES } from '@/constants'
 import { useDragAndDrop } from '../../composables/node/useDragAndDrop'
 import { useEdgeOperations } from '../../composables/node/useEdgeOperations'
 import { useNodeOperations } from '../../composables/node/useNodeOperations'
@@ -33,6 +34,7 @@ const {
 const { edges, addEdge } = useEdgeOperations()
 const { handleEdgesChange, handleNodesChange } = useVueFlowHandlers()
 const { isExecuting, startAsyncExecution } = useAsyncWorkflowExecution()
+const { executeSingleNode } = useSingleNodeExecution()
 const executionStore = useExecutionStore()
 
 const {
@@ -95,6 +97,20 @@ const handlePopupDuplicate = (nodeId: string) => {
 
 const handlePopupClose = () => {
   selectedNode.value = null
+}
+
+const handleOpenConfig = (nodeProps: any) => {
+  selectedNode.value = nodeProps
+  showConfigPopup.value = true
+}
+
+const handleTestNode = async (nodeProps: any) => {
+  try {
+    await executeSingleNode(nodeProps.id)
+    ElMessage.success(SUCCESS_MESSAGES.TEST_PASSED)
+  } catch (error: any) {
+    ElMessage.error(ERROR_MESSAGES.NODE_EXECUTION_FAILED + ': ' + (error.message || 'Unknown error'))
+  }
 }
 
 const handleAddNode = (template: { type: string; defaultData: any }) => {
@@ -172,23 +188,43 @@ useKeyboardShortcuts({
         </Controls>
 
         <template #node-ManualTrigger="manualTriggerNodeProps">
-          <ManualTriggerNode v-bind="manualTriggerNodeProps" />
+          <ManualTriggerNode
+            v-bind="manualTriggerNodeProps"
+            @open-config="handleOpenConfig(manualTriggerNodeProps)"
+            @test-node="handleTestNode(manualTriggerNodeProps)"
+          />
         </template>
 
         <template #node-WebhookTrigger="webhookTriggerNodeProps">
-          <WebhookTriggerNode v-bind="webhookTriggerNodeProps" />
+          <WebhookTriggerNode
+            v-bind="webhookTriggerNodeProps"
+            @open-config="handleOpenConfig(webhookTriggerNodeProps)"
+            @test-node="handleTestNode(webhookTriggerNodeProps)"
+          />
         </template>
 
         <template #node-ScheduleTrigger="scheduleTriggerNodeProps">
-          <ScheduleTriggerNode v-bind="scheduleTriggerNodeProps" />
+          <ScheduleTriggerNode
+            v-bind="scheduleTriggerNodeProps"
+            @open-config="handleOpenConfig(scheduleTriggerNodeProps)"
+            @test-node="handleTestNode(scheduleTriggerNodeProps)"
+          />
         </template>
 
         <template #node-Agent="agentNodeProps">
-          <AgentNode v-bind="agentNodeProps" />
+          <AgentNode
+            v-bind="agentNodeProps"
+            @open-config="handleOpenConfig(agentNodeProps)"
+            @test-node="handleTestNode(agentNodeProps)"
+          />
         </template>
 
         <template #node-HttpRequest="httpNodeProps">
-          <HttpNode v-bind="httpNodeProps" />
+          <HttpNode
+            v-bind="httpNodeProps"
+            @open-config="handleOpenConfig(httpNodeProps)"
+            @test-node="handleTestNode(httpNodeProps)"
+          />
         </template>
       </VueFlow>
 
