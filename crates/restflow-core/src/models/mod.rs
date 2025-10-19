@@ -1,9 +1,11 @@
+pub mod execution;
 pub mod node;
 pub mod secrets;
 pub mod task;
 pub mod trigger;
 pub mod workflow;
 
+pub use execution::{ExecutionStatus, ExecutionSummary};
 pub use node::{Node, NodeType, Position};
 pub use secrets::Secret;
 pub use task::{Task, TaskStatus};
