@@ -14,11 +14,11 @@ use crossterm::{
     QueueableCommand,
 };
 use ratatui::{
-    Frame,
-    layout::Rect,
+    layout::{Position, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Wrap},
+    Frame,
 };
 use restflow_core::AppCore;
 use state::TuiApp;
@@ -166,8 +166,9 @@ fn format_message(msg: &str) -> String {
 }
 
 fn render_bottom_ui(f: &mut Frame, app: &mut TuiApp, viewport_start_y: u16) {
-    let terminal_height = f.size().height;
-    let terminal_width = f.size().width;
+    let terminal_area = f.area();
+    let terminal_height = terminal_area.height;
+    let terminal_width = terminal_area.width;
 
     let available_width = terminal_width.max(1);
     let content_lines = app
@@ -270,11 +271,14 @@ fn render_input(f: &mut Frame, area: Rect, app: &TuiApp) {
         let visible_line = cursor_line.saturating_sub(scroll);
         let clamped_line = visible_line.min(content_height.saturating_sub(1));
         let clamped_col = cursor_col.min(area.width.saturating_sub(1));
-        f.set_cursor(content_area.x + clamped_col, content_area.y + clamped_line);
+        f.set_cursor_position(Position::new(
+            content_area.x + clamped_col,
+            content_area.y + clamped_line,
+        ));
     } else {
         let (_, cursor_col) = app.cursor_visual_position_for_width(area.width);
         let clamped_col = cursor_col.min(area.width.saturating_sub(1));
-        f.set_cursor(area.x + clamped_col, area.y);
+        f.set_cursor_position(Position::new(area.x + clamped_col, area.y));
     }
 }
 
