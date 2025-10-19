@@ -28,20 +28,33 @@
         @click="handleExecutionClick(execution.execution_id)"
       >
         <div class="execution-header">
-          <span class="status-icon">{{ getStatusIcon(execution.status) }}</span>
-          <span v-if="isTestExecution(execution.execution_id)" class="test-badge">Test</span>
-          <span class="execution-id">{{ truncateId(execution.execution_id) }}</span>
-          <span class="status-text">{{ getStatusText(execution.status) }}</span>
+          <div class="header-left">
+            <span class="status-icon">{{ getStatusIcon(execution.status) }}</span>
+            <span class="execution-id">{{ truncateId(execution.execution_id) }}</span>
+          </div>
+          <div class="header-right">
+            <span class="status-text">{{ getStatusText(execution.status) }}</span>
+          </div>
         </div>
 
         <div class="execution-details">
-          <span class="time-text">{{ formatRelativeTime(Number(execution.started_at)) }}</span>
-          <span class="task-count">
-            {{ execution.completed_tasks }}/{{ execution.total_tasks }} tasks
-            <span v-if="execution.failed_tasks > 0" class="failed-count">
-              ({{ execution.failed_tasks }} failed)
+          <div class="details-left">
+            <span class="time-text">{{ formatRelativeTime(Number(execution.started_at)) }}</span>
+          </div>
+          <div class="details-right">
+            <span
+              v-if="isTestExecution(execution.execution_id)"
+              class="test-badge"
+            >
+              Test
             </span>
-          </span>
+            <span class="task-count">
+              {{ execution.completed_tasks }}/{{ execution.total_tasks }} tasks
+              <span v-if="execution.failed_tasks > 0" class="failed-count">
+                ({{ execution.failed_tasks }} failed)
+              </span>
+            </span>
+          </div>
         </div>
 
         <div v-if="execution.status === 'Running'" class="progress-bar">
@@ -184,26 +197,26 @@ onUnmounted(() => {
 .execution-header {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: var(--rf-spacing-xs);
   margin-bottom: var(--rf-spacing-xs);
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: var(--rf-spacing-xs);
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: var(--rf-spacing-xs);
 }
 
 .status-icon {
   font-size: var(--rf-font-size-lg);
   line-height: 1;
-}
-
-.test-badge {
-  display: inline-flex;
-  align-items: center;
-  padding: var(--rf-spacing-3xs) var(--rf-spacing-xs);
-  border-radius: var(--rf-radius-small);
-  background: var(--rf-color-warning-light);
-  color: var(--rf-color-warning);
-  font-size: var(--rf-font-size-2xs);
-  font-weight: var(--rf-font-weight-medium);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
 }
 
 .execution-id {
@@ -251,5 +264,25 @@ onUnmounted(() => {
   height: 100%;
   background: var(--rf-color-primary);
   transition: width 0.3s ease;
+}
+
+.details-right {
+  display: flex;
+  align-items: center;
+  gap: var(--rf-spacing-sm);
+}
+
+.test-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--rf-spacing-3xs) var(--rf-spacing-sm);
+  border-radius: var(--rf-radius-pill);
+  background: var(--rf-color-warning-light);
+  color: var(--rf-color-warning);
+  font-size: var(--rf-font-size-2xs);
+  font-weight: var(--rf-font-weight-medium);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
 </style>
