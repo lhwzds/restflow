@@ -211,7 +211,7 @@ export const workflowHandlers = [
     })
   }),
 
-  http.get('/api/workflows/:id/executions', ({ params }) => {
+  http.get('/api/workflows/:id/executions', ({ params, request }) => {
     const workflowId = params.id as string
     const workflow = workflows.find(w => w.id === workflowId)
 
@@ -225,15 +225,35 @@ export const workflowHandlers = [
       )
     }
 
+    const url = new URL(request.url)
+    const page = Math.max(parseInt(url.searchParams.get('page') || '1', 10) || 1, 1)
+    const pageSize = Math.min(
+      Math.max(parseInt(url.searchParams.get('page_size') || '20', 10) || 20, 1),
+      100
+    )
+
     const snapshots = getExecutionSnapshots()
     const summaries = snapshots
       .filter(snapshot => snapshot.tasks.some(task => task.workflow_id === workflowId))
       .map(snapshot => buildExecutionSummary(workflowId, snapshot.executionId, snapshot.tasks))
       .sort((a, b) => Number(b.started_at) - Number(a.started_at))
 
+    const total = summaries.length
+    const startIndex = (page - 1) * pageSize
+    const items = startIndex >= total
+      ? []
+      : summaries.slice(startIndex, startIndex + pageSize)
+    const totalPages = total === 0 ? 0 : Math.ceil(total / pageSize)
+
     return HttpResponse.json({
       success: true,
-      data: summaries
+      data: {
+        items,
+        total,
+        page,
+        page_size: pageSize,
+        total_pages: totalPages
+      }
     })
   }),
 

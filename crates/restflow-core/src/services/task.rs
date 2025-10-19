@@ -64,13 +64,16 @@ pub async fn execute_node(core: &Arc<AppCore>, node: Node, input: Value) -> Resu
         .context("Failed to execute node")
 }
 
+const MAX_PAGE_SIZE: usize = 100;
+
 pub async fn list_execution_history(
     core: &Arc<AppCore>,
     workflow_id: &str,
-    limit: usize,
-) -> Result<Vec<crate::models::ExecutionSummary>> {
-    use crate::models::ExecutionSummary;
-    use std::collections::HashMap;
+    page: usize,
+    page_size: usize,
+) -> Result<crate::models::ExecutionHistoryPage> {
+    let page = if page == 0 { 1 } else { page };
+    let page_size = page_size.clamp(1, MAX_PAGE_SIZE);
 
     let tasks = core
         .executor
@@ -78,14 +81,25 @@ pub async fn list_execution_history(
         .await
         .with_context(|| format!("Failed to list tasks for workflow {}", workflow_id))?;
 
-    // Group tasks by execution_id to aggregate execution-level statistics
+    Ok(aggregate_execution_history(workflow_id, tasks, page, page_size))
+}
+
+fn aggregate_execution_history(
+    workflow_id: &str,
+    tasks: Vec<crate::models::Task>,
+    page: usize,
+    page_size: usize,
+) -> crate::models::ExecutionHistoryPage {
+    use crate::models::{ExecutionHistoryPage, ExecutionSummary};
+    use std::collections::HashMap;
+
     let mut executions: HashMap<String, Vec<crate::models::Task>> = HashMap::new();
     for task in tasks {
         executions
             .entry(task.execution_id.clone())
             .or_default()
             .push(task);
-    }
+    };
 
     let mut summaries: Vec<ExecutionSummary> = executions
         .into_iter()
@@ -95,7 +109,127 @@ pub async fn list_execution_history(
         .collect();
 
     summaries.sort_by(|a, b| b.started_at.cmp(&a.started_at));
-    summaries.truncate(limit);
 
-    Ok(summaries)
+    let total = summaries.len();
+    let total_pages = if total == 0 {
+        0
+    } else {
+        ((total - 1) / page_size) + 1
+    };
+
+    let current_page = if total_pages == 0 {
+        1
+    } else {
+        page.min(total_pages)
+    };
+
+    let start_index = (current_page - 1).saturating_mul(page_size);
+    let items: Vec<ExecutionSummary> = if start_index >= total {
+        Vec::new()
+    } else {
+        summaries
+            .into_iter()
+            .skip(start_index)
+            .take(page_size)
+            .collect()
+    };
+
+    ExecutionHistoryPage {
+        items,
+        total,
+        page: current_page,
+        page_size,
+        total_pages,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::aggregate_execution_history;
+    use crate::engine::context::ExecutionContext;
+    use crate::models::{Task, TaskStatus};
+    use serde_json::Value;
+
+    fn build_task(
+        execution_id: &str,
+        workflow_id: &str,
+        node_id: &str,
+        created_at: i64,
+        status: TaskStatus,
+    ) -> Task {
+        let context = ExecutionContext::new(execution_id.to_string());
+        let mut task = Task::new(
+            execution_id.to_string(),
+            workflow_id.to_string(),
+            node_id.to_string(),
+            Value::Null,
+            context,
+        );
+        task.created_at = created_at;
+        task.started_at = Some(created_at);
+        task.completed_at = Some(created_at + 100);
+        task.status = status;
+        task
+    }
+
+    fn build_tasks(total_execs: usize) -> Vec<Task> {
+        let mut tasks = Vec::new();
+        for i in 0..total_execs {
+            let exec_id = format!("exec-{i}");
+            // primary task
+            tasks.push(build_task(
+                &exec_id,
+                "wf-1",
+                &format!("node-{i}-a"),
+                10_000 - (i as i64) * 10,
+                TaskStatus::Completed,
+            ));
+            // secondary task to ensure grouping works
+            tasks.push(build_task(
+                &exec_id,
+                "wf-1",
+                &format!("node-{i}-b"),
+                10_000 - (i as i64) * 10 + 1,
+                TaskStatus::Completed,
+            ));
+        }
+        tasks
+    }
+
+    #[test]
+    fn paginate_execution_history_first_page() {
+        let tasks = build_tasks(5);
+        let page = aggregate_execution_history("wf-1", tasks, 1, 2);
+
+        assert_eq!(page.total, 5);
+        assert_eq!(page.page, 1);
+        assert_eq!(page.page_size, 2);
+        assert_eq!(page.total_pages, 3);
+        assert_eq!(page.items.len(), 2);
+        assert_eq!(page.items[0].execution_id, "exec-0");
+        assert_eq!(page.items[1].execution_id, "exec-1");
+    }
+
+    #[test]
+    fn paginate_execution_history_middle_page() {
+        let tasks = build_tasks(5);
+        let page = aggregate_execution_history("wf-1", tasks, 2, 2);
+
+        assert_eq!(page.page, 2);
+        assert_eq!(page.items.len(), 2);
+        assert_eq!(page.items[0].execution_id, "exec-2");
+        assert_eq!(page.items[1].execution_id, "exec-3");
+    }
+
+    #[test]
+    fn paginate_execution_history_out_of_range() {
+        let tasks = build_tasks(3);
+        let page = aggregate_execution_history("wf-1", tasks, 5, 2);
+
+        assert_eq!(page.total, 3);
+        assert_eq!(page.total_pages, 2);
+        assert_eq!(page.page, 2);
+        assert_eq!(page.items.len(), 1);
+        assert_eq!(page.items[0].execution_id, "exec-2");
+    }
 }

@@ -21,7 +21,7 @@ interface Props {
   handles: HandleConfig[]
 }
 
-const props = defineProps<Props>()
+const { handles } = defineProps<Props>()
 
 /**
  * Generate unique key for handle

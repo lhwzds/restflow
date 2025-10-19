@@ -3,7 +3,7 @@ use axum::{
     Json,
     extract::{Path, Query, State},
 };
-use restflow_core::models::{ExecutionSummary, Workflow};
+use restflow_core::models::{ExecutionHistoryPage, Workflow};
 use restflow_core::services::workflow as workflow_service;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -21,11 +21,19 @@ pub struct ExecutionResponse {
 
 #[derive(Deserialize)]
 pub struct ExecutionHistoryQuery {
-    #[serde(default = "default_limit")]
-    pub limit: usize,
+    #[serde(default = "default_page")]
+    pub page: usize,
+    #[serde(default = "default_page_size")]
+    pub page_size: usize,
+    #[serde(default)]
+    pub limit: Option<usize>,
 }
 
-fn default_limit() -> usize {
+fn default_page() -> usize {
+    1
+}
+
+fn default_page_size() -> usize {
     20
 }
 
@@ -130,9 +138,16 @@ pub async fn list_workflow_executions(
     State(state): State<AppState>,
     Path(workflow_id): Path<String>,
     Query(params): Query<ExecutionHistoryQuery>,
-) -> Json<ApiResponse<Vec<ExecutionSummary>>> {
-    match restflow_core::services::task::list_execution_history(&state, &workflow_id, params.limit)
-        .await
+) -> Json<ApiResponse<ExecutionHistoryPage>> {
+    let page_size = params.limit.unwrap_or(params.page_size);
+
+    match restflow_core::services::task::list_execution_history(
+        &state,
+        &workflow_id,
+        params.page,
+        page_size,
+    )
+    .await
     {
         Ok(executions) => Json(ApiResponse::ok(executions)),
         Err(e) => Json(ApiResponse::error(format!(

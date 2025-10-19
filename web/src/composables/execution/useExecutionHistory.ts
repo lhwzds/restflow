@@ -4,6 +4,7 @@ import * as workflowsApi from '../../api/workflows'
 import * as tasksApi from '../../api/tasks'
 import { useExecutionStore } from '../../stores/executionStore'
 import type { ExecutionSummary } from '@/types/generated/ExecutionSummary'
+import type { ExecutionHistoryPage } from '@/types/generated/ExecutionHistoryPage'
 import type { ExecutionStatus } from '@/types/generated/ExecutionStatus'
 import { POLLING_TIMING, ERROR_MESSAGES } from '@/constants'
 
@@ -15,18 +16,45 @@ export function useExecutionHistory(workflowId: Readonly<Ref<string | null | und
   const pollingInterval = ref<number | null>(null)
   const selectedExecutionId = ref<string | null>(null)
   const isFirstPoll = ref(true)
+  const page = ref(1)
+  const pageSize = ref(20)
+  const totalExecutions = ref(0)
+  const totalPages = ref(0)
 
-  const loadHistory = async () => {
+  const hasPrevPage = computed(() => page.value > 1)
+  const hasNextPage = computed(() => {
+    if (totalPages.value === 0) return false
+    return page.value < totalPages.value
+  })
+
+  const loadHistory = async (targetPage?: number) => {
     const currentWorkflowId = workflowId.value
-    if (!currentWorkflowId) return
+    if (!currentWorkflowId) return null
 
     isLoading.value = true
+    const requestedPage = targetPage ?? page.value
+    const previousFirstId = executions.value[0]?.execution_id ?? null
     try {
-      const history = await workflowsApi.listWorkflowExecutions(currentWorkflowId, 20)
-      executions.value = history
+      const history: ExecutionHistoryPage = await workflowsApi.listWorkflowExecutions(
+        currentWorkflowId,
+        requestedPage,
+        pageSize.value
+      )
+
+      const newItems = history.items
+      const newFirstId = newItems[0]?.execution_id ?? null
+
+      executions.value = newItems
+      totalExecutions.value = history.total
+      page.value = history.page
+      pageSize.value = history.page_size
+      totalPages.value = history.total_pages
+
+      return { previousFirstId, newFirstId }
     } catch (error) {
       console.error('Failed to load execution history:', error)
       ElMessage.error(ERROR_MESSAGES.FAILED_TO_LOAD('execution history'))
+      return null
     } finally {
       isLoading.value = false
     }
@@ -38,16 +66,13 @@ export function useExecutionHistory(workflowId: Readonly<Ref<string | null | und
 
     stopPolling()
     isFirstPoll.value = true
-    loadHistory()
+    loadHistory(page.value)
 
     pollingInterval.value = window.setInterval(async () => {
-      const previousCount = executions.value.length
-      await loadHistory()
+      const result = await loadHistory(page.value)
 
-      // Skip notification on first poll to avoid false "new execution" alerts
-      if (!isFirstPoll.value && executions.value.length > previousCount && executions.value[0]) {
-        const newExecution = executions.value[0]
-        ElMessage.info(`New execution detected: ${newExecution.execution_id}`)
+      if (!isFirstPoll.value && page.value === 1 && result?.newFirstId && result.previousFirstId !== result.newFirstId) {
+        ElMessage.info(`New execution detected: ${result.newFirstId}`)
       }
       isFirstPoll.value = false
     }, POLLING_TIMING.EXECUTION_HISTORY || 5000)
@@ -126,6 +151,24 @@ export function useExecutionHistory(workflowId: Readonly<Ref<string | null | und
     return executions.value[0] || null
   })
 
+  const goToPage = async (targetPage: number) => {
+    if (targetPage < 1) return
+    if (totalPages.value > 0 && targetPage > totalPages.value) return
+    await loadHistory(targetPage)
+  }
+
+  const goToNextPage = async () => {
+    if (hasNextPage.value) {
+      await goToPage(page.value + 1)
+    }
+  }
+
+  const goToPrevPage = async () => {
+    if (hasPrevPage.value) {
+      await goToPage(page.value - 1)
+    }
+  }
+
   onUnmounted(() => {
     stopPolling()
   })
@@ -142,6 +185,9 @@ export function useExecutionHistory(workflowId: Readonly<Ref<string | null | und
 
       executions.value = []
       selectedExecutionId.value = null
+      page.value = 1
+      totalExecutions.value = 0
+      totalPages.value = 0
       startPolling()
     }
   )
@@ -153,6 +199,12 @@ export function useExecutionHistory(workflowId: Readonly<Ref<string | null | und
     selectedExecutionId,
     hasRunningExecution,
     latestExecution,
+    totalExecutions,
+    page,
+    pageSize,
+    totalPages,
+    hasNextPage,
+    hasPrevPage,
 
     // Methods
     loadHistory,
@@ -162,5 +214,8 @@ export function useExecutionHistory(workflowId: Readonly<Ref<string | null | und
     getStatusText,
     getStatusIcon,
     formatRelativeTime,
+    goToPage,
+    goToNextPage,
+    goToPrevPage,
   }
 }

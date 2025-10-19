@@ -3,6 +3,7 @@ import { isTauri, invokeCommand } from './utils'
 import type { Workflow } from '@/types/generated/Workflow'
 import type { ExecutionContext } from '@/types/generated/ExecutionContext'
 import type { ExecutionSummary } from '@/types/generated/ExecutionSummary'
+import type { ExecutionHistoryPage } from '@/types/generated/ExecutionHistoryPage'
 import { API_ENDPOINTS } from '@/constants'
 
 export const listWorkflows = async (): Promise<Workflow[]> => {
@@ -84,17 +85,27 @@ export const submitWorkflow = async (
 
 export const listWorkflowExecutions = async (
   id: string,
-  limit = 20
-): Promise<ExecutionSummary[]> => {
+  page = 1,
+  pageSize = 20
+): Promise<ExecutionHistoryPage> => {
   if (isTauri()) {
-    return invokeCommand<ExecutionSummary[]>('list_workflow_executions', {
+    const items = await invokeCommand<ExecutionSummary[]>('list_workflow_executions', {
       workflow_id: id,
-      limit
+      limit: pageSize
     })
+    const total = items.length
+    const resolvedPageSize = total > 0 ? Math.min(total, pageSize) : pageSize
+    return {
+      items,
+      total,
+      page: 1,
+      page_size: resolvedPageSize,
+      total_pages: total > 0 ? 1 : 0
+    }
   }
-  const response = await apiClient.get<ExecutionSummary[]>(
+  const response = await apiClient.get<ExecutionHistoryPage>(
     API_ENDPOINTS.EXECUTION.HISTORY(id),
-    { params: { limit } }
+    { params: { page, page_size: pageSize } }
   )
   return response.data
 }
