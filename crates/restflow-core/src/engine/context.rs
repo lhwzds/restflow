@@ -67,6 +67,16 @@ impl ExecutionContext {
         }
     }
 
+    /// Create execution context with specific execution_id (for test executions)
+    pub fn with_execution_id(workflow_id: String, execution_id: String) -> Self {
+        Self {
+            workflow_id,
+            execution_id,
+            data: HashMap::new(),
+            secret_storage: None,
+        }
+    }
+
     pub fn with_secret_storage(mut self, storage: Arc<SecretStorage>) -> Self {
         self.secret_storage = Some(storage);
         self

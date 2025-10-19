@@ -1,12 +1,36 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useEnsureWorkflowSaved } from '@/composables/shared/useEnsureWorkflowSaved'
+import { useAsyncWorkflowExecution } from '@/composables/execution/useAsyncWorkflowExecution'
 import * as triggersApi from '@/api/triggers'
-import { SUCCESS_MESSAGES, ERROR_MESSAGES } from '@/constants'
+import { ERROR_MESSAGES } from '@/constants'
 
 const { ensureSaved } = useEnsureWorkflowSaved()
-const isTesting = ref(false)
+const { isExecuting, monitorExecution } = useAsyncWorkflowExecution()
+const isSubmitting = ref(false)
+
+const buttonLabel = computed(() => {
+  if (isExecuting.value) {
+    return 'Executing...'
+  }
+  if (isSubmitting.value) {
+    return 'Starting...'
+  }
+  return 'Test RestFlow'
+})
+
+const buttonTooltip = computed(() => {
+  if (isExecuting.value) {
+    return 'Workflow execution in progress'
+  }
+  if (isSubmitting.value) {
+    return 'Queuing test execution...'
+  }
+  return 'Test this workflow manually'
+})
+
+const isButtonDisabled = computed(() => isExecuting.value || isSubmitting.value)
 
 const testWorkflow = async (e: MouseEvent) => {
   e.stopPropagation()
@@ -14,15 +38,24 @@ const testWorkflow = async (e: MouseEvent) => {
   const { success, id } = await ensureSaved()
   if (!success || !id) return
 
-  isTesting.value = true
+  isSubmitting.value = true
   try {
-    await triggersApi.testWorkflow(id)
-    ElMessage.success(SUCCESS_MESSAGES.EXECUTED('Test workflow'))
+    const response = await triggersApi.testWorkflow(id)
+    const executionId = response?.execution_id
+
+    if (!executionId) {
+      throw new Error('Missing execution ID')
+    }
+
+    monitorExecution(executionId, {
+      label: 'Test workflow',
+      queuedMessage: 'Test execution started',
+    })
   } catch (error) {
     console.error('Failed to test workflow:', error)
     ElMessage.error(ERROR_MESSAGES.WORKFLOW_EXECUTION_FAILED)
   } finally {
-    isTesting.value = false
+    isSubmitting.value = false
   }
 }
 </script>
@@ -34,10 +67,10 @@ const testWorkflow = async (e: MouseEvent) => {
     <button
       class="test-button"
       @click="testWorkflow"
-      :disabled="isTesting"
-      :title="isTesting ? 'Testing workflow...' : 'Test this workflow manually'"
+      :disabled="isButtonDisabled"
+      :title="buttonTooltip"
     >
-      {{ isTesting ? 'Testing...' : 'Test RestFlow' }}
+      {{ buttonLabel }}
     </button>
   </div>
 </template>

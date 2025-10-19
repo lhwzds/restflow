@@ -101,6 +101,22 @@ impl WorkflowExecutor {
         }
     }
 
+    /// Submit workflow with custom execution_id (for test executions)
+    pub async fn submit_with_execution_id(
+        &self,
+        workflow_id: String,
+        input: Value,
+        execution_id: String,
+    ) -> Result<String> {
+        match &self.inner {
+            ExecutorMode::Async { .. } => {
+                self.submit_async_with_id(workflow_id, input, execution_id)
+                    .await
+            }
+            ExecutorMode::Sync { .. } => Err(anyhow::anyhow!("Use execute() for sync execution")),
+        }
+    }
+
     /// Submit a single node for execution
     pub async fn submit_node(&self, node: Node, input: Value) -> Result<String> {
         match &self.inner {
@@ -268,6 +284,21 @@ impl WorkflowExecutor {
 
         // Delegate to Scheduler for async execution (uses task queue for parallel processing)
         scheduler.submit_workflow_by_id(&workflow_id, input)
+    }
+
+    async fn submit_async_with_id(
+        &self,
+        workflow_id: String,
+        input: Value,
+        execution_id: String,
+    ) -> Result<String> {
+        let scheduler = match &self.inner {
+            ExecutorMode::Async { scheduler, .. } => scheduler,
+            _ => return Err(anyhow::anyhow!("Not in async mode")),
+        };
+
+        // Delegate to Scheduler with custom execution_id (for test executions)
+        scheduler.submit_workflow_by_id_with_execution_id(&workflow_id, input, execution_id)
     }
 
     async fn try_start(&self) -> bool {

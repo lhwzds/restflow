@@ -66,11 +66,26 @@ impl Scheduler {
     /// Submit an entire workflow for execution (workflow-level entry point)
     /// This centralizes workflow orchestration logic in Scheduler
     pub fn submit_workflow(&self, workflow: Workflow, input: Value) -> Result<String> {
+        // Generate standard execution_id
+        let execution_id = Uuid::new_v4().to_string();
+        self.submit_workflow_internal(workflow, input, execution_id)
+    }
+
+    /// Internal workflow submission with custom execution_id (for test executions)
+    /// This is the common logic shared by normal and test executions
+    fn submit_workflow_internal(
+        &self,
+        workflow: Workflow,
+        input: Value,
+        execution_id: String,
+    ) -> Result<String> {
         let workflow = Arc::new(workflow);
 
-        // Create execution context with secret storage
-        let execution_id = Uuid::new_v4().to_string();
-        let mut context = ExecutionContext::new(execution_id.clone());
+        // Create execution context with correct workflow_id and execution_id
+        let mut context = ExecutionContext::with_execution_id(
+            workflow.id.clone(),
+            execution_id.clone(),
+        );
         context.ensure_secret_storage(&self.storage);
         context.set(namespace::trigger::PAYLOAD, input);
 
@@ -110,6 +125,22 @@ impl Scheduler {
             .map_err(|e| anyhow::anyhow!("Failed to load workflow {}: {}", workflow_id, e))?;
 
         self.submit_workflow(workflow, input)
+    }
+
+    /// Submit a workflow by ID with custom execution_id (for test executions)
+    pub fn submit_workflow_by_id_with_execution_id(
+        &self,
+        workflow_id: &str,
+        input: Value,
+        execution_id: String,
+    ) -> Result<String> {
+        let workflow = self
+            .storage
+            .workflows
+            .get_workflow(workflow_id)
+            .map_err(|e| anyhow::anyhow!("Failed to load workflow {}: {}", workflow_id, e))?;
+
+        self.submit_workflow_internal(workflow, input, execution_id)
     }
 
     /// Pop a task from the queue (blocks until task available)

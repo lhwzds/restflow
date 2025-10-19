@@ -122,7 +122,14 @@ pub async fn test_workflow_trigger(
     Path(workflow_id): Path<String>,
     Json(payload): Json<Value>,
 ) -> Json<ApiResponse<TestTriggerResponse>> {
-    match state.executor.submit(workflow_id, payload).await {
+    // Generate test- prefixed execution_id to distinguish from real executions
+    let test_execution_id = format!("test-{}", uuid::Uuid::new_v4());
+
+    match state
+        .executor
+        .submit_with_execution_id(workflow_id, payload, test_execution_id)
+        .await
+    {
         Ok(execution_id) => Json(ApiResponse::ok_with_message(
             TestTriggerResponse { execution_id },
             "Test execution started",
