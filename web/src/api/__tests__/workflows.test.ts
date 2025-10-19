@@ -100,8 +100,8 @@ describe('Workflows API', () => {
     })
   })
 
-  describe('executeSyncRun', () => {
-    it('should execute workflow synchronously', async () => {
+  describe('executeInline', () => {
+    it('should execute workflow inline', async () => {
       const workflow = createMockWorkflow('wf1')
       const mockContext: ExecutionContext = {
         execution_id: 'exec-1',
@@ -111,45 +111,24 @@ describe('Workflows API', () => {
         }
       }
 
-      mock.onPost(API_ENDPOINTS.EXECUTION.SYNC_RUN).reply(200, {
+      mock.onPost(API_ENDPOINTS.EXECUTION.INLINE_RUN).reply(200, {
         success: true,
         data: mockContext
       })
 
-      const result = await workflowsApi.executeSyncRun(workflow)
+      const result = await workflowsApi.executeInline(workflow)
       expect(result).toEqual(mockContext)
     })
   })
 
-  describe('executeSyncRunById', () => {
-    it('should execute workflow by ID', async () => {
-      const mockContext: ExecutionContext = {
-        execution_id: 'exec-1',
-        workflow_id: 'wf1',
-        data: {
-          'var.input_key': 'value',
-          'node.node1': { output: 'completed' }
-        }
-      }
-
-      mock.onPost(API_ENDPOINTS.EXECUTION.SYNC_RUN_BY_ID('wf1')).reply(200, {
-        success: true,
-        data: mockContext
-      })
-
-      const result = await workflowsApi.executeSyncRunById('wf1', { key: 'value' })
-      expect(result).toEqual(mockContext)
-    })
-  })
-
-  describe('executeAsyncSubmit', () => {
-    it('should submit async execution', async () => {
-      mock.onPost(API_ENDPOINTS.EXECUTION.ASYNC_SUBMIT('wf1')).reply(200, {
+  describe('submitWorkflow', () => {
+    it('should submit workflow execution', async () => {
+      mock.onPost(API_ENDPOINTS.EXECUTION.SUBMIT('wf1')).reply(200, {
         success: true,
         data: { execution_id: 'exec-1', workflow_id: 'wf1' }
       })
 
-      const result = await workflowsApi.executeAsyncSubmit('wf1', { key: 'value' })
+      const result = await workflowsApi.submitWorkflow('wf1', { key: 'value' })
       expect(result).toEqual({ execution_id: 'exec-1' })
     })
   })
@@ -182,11 +161,11 @@ describe('Workflows API', () => {
     })
 
     it('should handle failed execution', async () => {
-      mock.onPost(API_ENDPOINTS.EXECUTION.SYNC_RUN).reply(200, {
+      mock.onPost(API_ENDPOINTS.EXECUTION.INLINE_RUN).reply(200, {
         success: false,
         message: 'Execution failed'
       })
-      await expect(workflowsApi.executeSyncRun(createMockWorkflow('test'))).rejects.toThrow('Execution failed')
+      await expect(workflowsApi.executeInline(createMockWorkflow('test'))).rejects.toThrow('Execution failed')
     })
   })
 })

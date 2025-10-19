@@ -32,23 +32,19 @@ impl AppCore {
     pub async fn new(db_path: &str) -> anyhow::Result<Self> {
         let storage = Arc::new(Storage::new(db_path)?);
 
-        // Get worker count from database configuration
         let num_workers = storage.config.get_worker_count().unwrap_or(4);
 
         info!(num_workers, "Initializing RestFlow");
 
-        // Create node registry
         let registry = Arc::new(NodeRegistry::new());
 
-        // Create and start workflow executor
-        let executor = Arc::new(WorkflowExecutor::new_async(
+        let executor = Arc::new(WorkflowExecutor::new(
             storage.clone(),
             num_workers,
             registry.clone(),
         ));
         executor.start().await;
 
-        // Create and start cron scheduler
         let cron_scheduler = Arc::new(
             CronScheduler::new(storage.clone(), executor.clone())
                 .await
@@ -64,15 +60,12 @@ impl AppCore {
             info!("CronScheduler started successfully");
         }
 
-        // Create trigger manager with cron scheduler
         let trigger_manager = Arc::new(TriggerManager::new(
             storage.clone(),
             executor.clone(),
-            registry.clone(),
             cron_scheduler.clone(),
         ));
 
-        // Initialize trigger manager (restores all active triggers)
         if let Err(e) = trigger_manager.init().await {
             error!(error = %e, "Failed to initialize trigger manager");
         }
@@ -87,22 +80,18 @@ impl AppCore {
         })
     }
 
-    /// Get or initialize Python manager
     pub async fn get_python_manager(&self) -> anyhow::Result<Arc<python::PythonManager>> {
         if let Some(manager) = self.python_manager.get() {
             return Ok(manager.clone());
         }
 
-        // Initialize Python manager lazily
         let manager = python::PythonManager::new().await?;
 
-        // Try to set it, but if another thread already set it, use that one
         let _ = self.python_manager.set(manager.clone());
 
         Ok(self.python_manager.get().unwrap().clone())
     }
 
-    /// Check if Python is available
     pub fn is_python_ready(&self) -> bool {
         self.python_manager
             .get()

@@ -1,7 +1,6 @@
 use crate::engine::cron_scheduler::CronScheduler;
 use crate::engine::executor::WorkflowExecutor;
-use crate::models::{ActiveTrigger, AuthConfig, ResponseMode, TriggerConfig};
-use crate::node::registry::NodeRegistry;
+use crate::models::{ActiveTrigger, AuthConfig, TriggerConfig};
 use crate::storage::Storage;
 use anyhow::{Result, anyhow};
 use serde_json::Value;
@@ -13,7 +12,6 @@ use ts_rs::TS;
 pub struct TriggerManager {
     storage: Arc<Storage>,
     executor: Arc<WorkflowExecutor>,
-    registry: Arc<NodeRegistry>,
     cron_scheduler: Arc<CronScheduler>,
 }
 
@@ -21,18 +19,15 @@ impl TriggerManager {
     pub fn new(
         storage: Arc<Storage>,
         executor: Arc<WorkflowExecutor>,
-        registry: Arc<NodeRegistry>,
         cron_scheduler: Arc<CronScheduler>,
     ) -> Self {
         Self {
             storage,
             executor,
-            registry,
             cron_scheduler,
         }
     }
 
-    /// Initialize the trigger manager and restore all active triggers
     pub async fn init(&self) -> Result<()> {
         let triggers = self.storage.triggers.list_active_triggers()?;
         let webhook_count = triggers
@@ -52,7 +47,12 @@ impl TriggerManager {
         );
 
         for trigger in triggers.iter() {
-            if let TriggerConfig::Schedule { cron, timezone, payload } = &trigger.trigger_config {
+            if let TriggerConfig::Schedule {
+                cron,
+                timezone,
+                payload,
+            } = &trigger.trigger_config
+            {
                 info!(
                     trigger_id = %trigger.id,
                     workflow_id = %trigger.workflow_id,
@@ -77,7 +77,6 @@ impl TriggerManager {
         Ok(())
     }
 
-    // Activate all triggers in a workflow
     pub async fn activate_workflow(&self, workflow_id: &str) -> Result<Vec<ActiveTrigger>> {
         let workflow = self
             .storage
@@ -94,7 +93,6 @@ impl TriggerManager {
         let mut activated_triggers = Vec::new();
 
         for (node_id, trigger_config) in trigger_configs {
-            // Check if this specific trigger is already active
             let trigger_id = format!("{}_{}", workflow_id, node_id);
             let existing = self.storage.triggers.get_active_trigger(&trigger_id)?;
             if existing.is_some() {
@@ -104,15 +102,23 @@ impl TriggerManager {
 
             let mut active_trigger =
                 ActiveTrigger::new(workflow_id.to_string(), trigger_config.clone());
-            // Store node_id in the trigger for reference
             active_trigger.id = trigger_id;
 
             self.storage.triggers.activate_trigger(&active_trigger)?;
 
-            // If this is a schedule trigger, add it to the cron scheduler
-            if let TriggerConfig::Schedule { cron, timezone, payload } = &trigger_config {
+            if let TriggerConfig::Schedule {
+                cron,
+                timezone,
+                payload,
+            } = &trigger_config
+            {
                 self.cron_scheduler
-                    .add_schedule(&active_trigger, cron.clone(), timezone.clone(), payload.clone())
+                    .add_schedule(
+                        &active_trigger,
+                        cron.clone(),
+                        timezone.clone(),
+                        payload.clone(),
+                    )
                     .await?;
             }
 
@@ -123,7 +129,6 @@ impl TriggerManager {
         Ok(activated_triggers)
     }
 
-    // Deactivate workflow trigger
     pub async fn deactivate_workflow(&self, workflow_id: &str) -> Result<()> {
         let trigger = self
             .storage
@@ -131,7 +136,6 @@ impl TriggerManager {
             .get_active_trigger_by_workflow(workflow_id)?
             .ok_or_else(|| anyhow!("No active trigger found for workflow {}", workflow_id))?;
 
-        // If this is a schedule trigger, remove it from the cron scheduler
         if matches!(trigger.trigger_config, TriggerConfig::Schedule { .. }) {
             match self.cron_scheduler.remove_schedule(&trigger.id).await {
                 Ok(true) => {
@@ -164,7 +168,6 @@ impl TriggerManager {
         Ok(())
     }
 
-    // Handle webhook trigger
     pub async fn handle_webhook(
         &self,
         webhook_id: &str,
@@ -172,25 +175,21 @@ impl TriggerManager {
         headers: HashMap<String, String>,
         body: Value,
     ) -> Result<WebhookResponse> {
-        // Find workflow_id from storage
         let workflow_id = self
             .storage
             .triggers
             .get_workflow_by_webhook(webhook_id)?
             .ok_or_else(|| anyhow!("Webhook {} not found", webhook_id))?;
 
-        // Get trigger config
         let mut trigger = self
             .storage
             .triggers
             .get_active_trigger(webhook_id)?
             .ok_or_else(|| anyhow!("Trigger {} not found", webhook_id))?;
 
-        // Verify HTTP method and process webhook
         if let TriggerConfig::Webhook {
             method: expected_method,
             auth,
-            response_mode,
             ..
         } = &trigger.trigger_config
         {
@@ -198,12 +197,10 @@ impl TriggerManager {
                 return Err(anyhow!("Method not allowed. Expected {}", expected_method));
             }
 
-            // Verify authentication
             if let Some(auth_config) = auth {
                 self.verify_auth(auth_config, &headers)?;
             }
 
-            // Prepare input data
             let input = serde_json::json!({
                 "headers": headers,
                 "body": body,
@@ -212,47 +209,14 @@ impl TriggerManager {
                 "triggered_at": chrono::Utc::now().to_rfc3339(),
             });
 
-            // Handle based on response mode
-            let response = match response_mode {
-                ResponseMode::Async => {
-                    // Async mode: return execution_id immediately
-                    let execution_id = self
-                        .executor
-                        .submit(workflow_id.clone(), input)
-                        .await
-                        .map_err(|e| anyhow!("Failed to submit workflow: {}", e))?;
+            let execution_id = self
+                .executor
+                .submit(workflow_id.clone(), input)
+                .await
+                .map_err(|e| anyhow!("Failed to submit workflow: {}", e))?;
 
-                    WebhookResponse::Async { execution_id }
-                }
-                ResponseMode::Sync => {
-                    // Sync mode: execute directly without queue
-                    use crate::engine::executor::WorkflowExecutor;
+            let response = WebhookResponse::Async { execution_id };
 
-                    // Load workflow
-                    let workflow = self
-                        .storage
-                        .workflows
-                        .get_workflow(&workflow_id)
-                        .map_err(|e| anyhow!("Failed to load workflow: {}", e))?;
-
-                    // Create executor and execute synchronously
-                    let mut executor = WorkflowExecutor::new_sync(
-                        workflow,
-                        Some(self.storage.clone()),
-                        self.registry.clone(),
-                    );
-                    executor.set_input(input);
-
-                    let result = executor
-                        .execute()
-                        .await
-                        .map_err(|e| anyhow!("Workflow execution failed: {}", e))?;
-
-                    WebhookResponse::Sync { result }
-                }
-            };
-
-            // Update trigger statistics
             trigger.record_trigger();
             self.storage.triggers.update_trigger(&trigger)?;
 
@@ -262,7 +226,6 @@ impl TriggerManager {
         }
     }
 
-    // Verify authentication
     fn verify_auth(
         &self,
         auth_config: &AuthConfig,
@@ -312,7 +275,6 @@ impl TriggerManager {
         }
     }
 
-    // Get workflow trigger status
     pub async fn get_trigger_status(&self, workflow_id: &str) -> Result<Option<TriggerStatus>> {
         let workflow = self
             .storage
@@ -340,7 +302,6 @@ impl TriggerManager {
                 activated_at: trigger.activated_at,
             }))
         } else {
-            // Check if workflow has any trigger nodes
             let configs = workflow.extract_trigger_configs();
             if let Some((_, config)) = configs.first() {
                 Ok(Some(TriggerStatus {
@@ -361,7 +322,7 @@ impl TriggerManager {
 #[derive(Debug)]
 pub enum WebhookResponse {
     Async { execution_id: String },
-    Sync { result: Value },
+    // Sync mode removed - Webhooks now use async mode only
 }
 
 #[derive(Debug, serde::Serialize, TS)]

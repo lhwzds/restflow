@@ -20,7 +20,6 @@ impl Scheduler {
         Self { queue, storage }
     }
 
-    /// Add a node task to the queue
     /// Accepts `Arc<Workflow>` to avoid expensive cloning in downstream task queueing
     pub fn push_task(
         &self,
@@ -30,7 +29,6 @@ impl Scheduler {
         context: ExecutionContext,
         input: Value,
     ) -> Result<String> {
-        // Create unified Task
         let task = Task::new(
             execution_id,
             workflow.id.clone(),
@@ -40,7 +38,6 @@ impl Scheduler {
         );
         let task_id = task.id.clone();
 
-        // Pre-populate workflow Arc to avoid lazy loading from storage
         let _ = task.set_workflow(workflow);
 
         let priority = task.priority();
@@ -50,9 +47,7 @@ impl Scheduler {
         Ok(task_id)
     }
 
-    /// Add a single node task for standalone execution
     pub fn push_single_node(&self, node: Node, input: Value) -> Result<String> {
-        // Create task for single node
         let task = Task::for_single_node(node, input);
         let task_id = task.id.clone();
 
@@ -63,16 +58,11 @@ impl Scheduler {
         Ok(task_id)
     }
 
-    /// Submit an entire workflow for execution (workflow-level entry point)
-    /// This centralizes workflow orchestration logic in Scheduler
     pub fn submit_workflow(&self, workflow: Workflow, input: Value) -> Result<String> {
-        // Generate standard execution_id
         let execution_id = Uuid::new_v4().to_string();
         self.submit_workflow_internal(workflow, input, execution_id)
     }
 
-    /// Internal workflow submission with custom execution_id (for test executions)
-    /// This is the common logic shared by normal and test executions
     fn submit_workflow_internal(
         &self,
         workflow: Workflow,
@@ -81,15 +71,11 @@ impl Scheduler {
     ) -> Result<String> {
         let workflow = Arc::new(workflow);
 
-        // Create execution context with correct workflow_id and execution_id
-        let mut context = ExecutionContext::with_execution_id(
-            workflow.id.clone(),
-            execution_id.clone(),
-        );
+        let mut context =
+            ExecutionContext::with_execution_id(workflow.id.clone(), execution_id.clone());
         context.ensure_secret_storage(&self.storage);
         context.set(namespace::trigger::PAYLOAD, input);
 
-        // Parse workflow DAG and find start nodes
         let graph = WorkflowGraph::from_workflow(&workflow);
         let start_nodes = graph.get_nodes_with_no_dependencies();
 
@@ -100,7 +86,6 @@ impl Scheduler {
             ));
         }
 
-        // Queue all start nodes (nodes with no incoming edges, including trigger nodes)
         for node_id in start_nodes {
             if let Some(node) = graph.get_node(&node_id) {
                 self.push_task(
@@ -108,7 +93,7 @@ impl Scheduler {
                     node.clone(),
                     workflow.clone(),
                     context.clone(),
-                    Value::Null, // Nodes reference data via {{...}} templates - context provides runtime values
+                    Value::Null,
                 )?;
             }
         }
@@ -127,7 +112,6 @@ impl Scheduler {
         self.submit_workflow(workflow, input)
     }
 
-    /// Submit a workflow by ID with custom execution_id (for test executions)
     pub fn submit_workflow_by_id_with_execution_id(
         &self,
         workflow_id: &str,
@@ -143,39 +127,30 @@ impl Scheduler {
         self.submit_workflow_internal(workflow, input, execution_id)
     }
 
-    /// Pop a task from the queue (blocks until task available)
     pub async fn pop_task(&self) -> Result<Task> {
         loop {
             match self.try_pop_task()? {
                 Some(task) => return Ok(task),
                 None => {
-                    // Wait for notification when queue is empty
                     self.queue.wait_for_task().await;
                 }
             }
         }
     }
 
-    /// Try to pop a task without blocking
     /// Uses atomic_pop_pending with callback to ensure atomicity
     fn try_pop_task(&self) -> Result<Option<Task>> {
-        // Atomically pop and update task state in single transaction
-        // If worker crashes before commit, task stays in pending
-        // If commit succeeds, processing table has Running status
         self.queue.atomic_pop_pending(|task| task.start())
     }
 
-    /// Mark a task as completed with output
     pub fn complete_task(&self, task_id: &str, output: Value) -> Result<()> {
         self.finish_task(task_id, TaskStatus::Completed, Some(output), None)
     }
 
-    /// Mark a task as failed with error message
     pub fn fail_task(&self, task_id: &str, error: String) -> Result<()> {
         self.finish_task(task_id, TaskStatus::Failed, None, Some(error))
     }
 
-    /// Internal helper to finish a task
     fn finish_task(
         &self,
         task_id: &str,
@@ -183,7 +158,6 @@ impl Scheduler {
         output: Option<Value>,
         error: Option<String>,
     ) -> Result<()> {
-        // Get task from processing
         if let Some(data) = self.queue.get_from_processing(task_id)? {
             let mut task: Task = serde_json::from_slice(&data)?;
 
@@ -201,7 +175,6 @@ impl Scheduler {
                 _ => {}
             }
 
-            // Move to completed
             let serialized = serde_json::to_vec(&task)?;
             self.queue.move_to_completed(task_id, &serialized)?;
         }
@@ -209,14 +182,12 @@ impl Scheduler {
         Ok(())
     }
 
-    /// Query all tasks across three tables with custom filter
     fn query_all_tasks<F>(&self, filter: F) -> Result<Vec<Task>>
     where
         F: Fn(&Task) -> bool,
     {
         let mut tasks = Vec::new();
 
-        // Query all three tables
         for data in self.queue.get_all_pending()? {
             let task: Task = serde_json::from_slice(&data)?;
             if filter(&task) {
@@ -241,16 +212,13 @@ impl Scheduler {
         Ok(tasks)
     }
 
-    /// Get task records by execution ID from all tables
     pub fn get_tasks_by_execution(&self, execution_id: &str) -> Result<Vec<Task>> {
         let mut tasks = self.query_all_tasks(|task| task.execution_id == execution_id)?;
 
-        // Sort by creation time
         tasks.sort_by(|a, b| a.created_at.cmp(&b.created_at));
         Ok(tasks)
     }
 
-    /// Get a task by ID from any table
     pub fn get_task(&self, task_id: &str) -> Result<Option<Task>> {
         if let Some(data) = self.queue.get_from_any_table(task_id)? {
             let task: Task = serde_json::from_slice(&data)?;
@@ -260,7 +228,6 @@ impl Scheduler {
         }
     }
 
-    /// List tasks with optional filters
     pub fn list_tasks(
         &self,
         workflow_id: Option<&str>,
@@ -271,25 +238,20 @@ impl Scheduler {
                 && status.as_ref().is_none_or(|s| &task.status == s)
         })?;
 
-        // Sort by creation time (newest first)
         tasks.sort_by(|a, b| b.created_at.cmp(&a.created_at));
         Ok(tasks)
     }
 
-    /// Recover tasks that have been processing too long
     pub fn recover_stalled_tasks(&self) -> Result<u32> {
         let mut recovered = 0;
         let now = chrono::Utc::now().timestamp_millis();
 
-        // Find and recover stalled tasks
         for data in self.queue.get_all_processing()? {
             let mut task: Task = serde_json::from_slice(&data)?;
 
-            // Check if task has been processing too long
             if let Some(started_at) = task.started_at {
                 let stall_threshold_ms = DEFAULT_STALL_TIMEOUT_SECONDS * 1000;
                 if now - started_at > stall_threshold_ms {
-                    // Reset status and move back to pending
                     task.status = TaskStatus::Pending;
                     task.started_at = None;
 
@@ -308,7 +270,6 @@ impl Scheduler {
         Ok(recovered)
     }
 
-    /// Check if dependencies are met for a node
     pub fn are_dependencies_met(
         graph: &WorkflowGraph,
         node_id: &str,
@@ -320,17 +281,13 @@ impl Scheduler {
             .all(|dep| context.get_node(dep).is_some())
     }
 
-    /// Push downstream tasks after a node completes
     /// Uses `Arc<Workflow>` to avoid expensive cloning in large workflows
     pub fn push_downstream_tasks(&self, task: &Task, output: Value) -> Result<()> {
-        // Get workflow Arc from task (first access triggers DB load, then cached in task)
         let workflow = task.get_workflow(&self.storage)?;
 
-        // Update context with node output
         let mut context = task.context.clone();
         context.set_node(&task.node_id, output);
 
-        // Find and queue ready downstream nodes
         let graph = WorkflowGraph::from_workflow(&workflow);
         let downstream_nodes = graph.get_downstream_nodes(&task.node_id);
 
@@ -338,7 +295,6 @@ impl Scheduler {
             if let Some(downstream_node) = graph.get_node(&downstream_id)
                 && Self::are_dependencies_met(&graph, &downstream_id, &context)
             {
-                // Pass Arc to avoid workflow deep clone (large workflows contain many nodes)
                 self.push_task(
                     task.execution_id.clone(),
                     downstream_node.clone(),

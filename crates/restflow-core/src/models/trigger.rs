@@ -11,7 +11,7 @@ pub enum TriggerConfig {
         path: String,
         method: String, // HTTP method as string (GET, POST, etc.)
         auth: Option<AuthConfig>,
-        response_mode: ResponseMode,
+        // Webhooks use async mode only, returning execution_id
     },
     Schedule {
         cron: String,
@@ -36,12 +36,7 @@ pub enum AuthConfig {
     },
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
-#[ts(export)]
-pub enum ResponseMode {
-    Async, // Return execution_id immediately
-    Sync,  // Wait for completion and return result
-}
+// ResponseMode removed - Webhooks use async mode only
 
 // Store active trigger information
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]

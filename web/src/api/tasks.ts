@@ -76,7 +76,7 @@ export const testNodeExecution = async <T = any>(payload: NodeTestRequest): Prom
     throw new Error('Node testing is not supported in desktop mode yet')
   }
 
-  const response = await apiClient.post<T>(API_ENDPOINTS.EXECUTION.SYNC_RUN, payload)
+  const response = await apiClient.post<T>(API_ENDPOINTS.EXECUTION.INLINE_RUN, payload)
 
   return response.data
 }

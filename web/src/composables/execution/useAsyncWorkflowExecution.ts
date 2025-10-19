@@ -183,7 +183,7 @@ export function useAsyncWorkflowExecution() {
     executionMonitor.executionError.value = null
 
     try {
-      const { execution_id } = await workflowsApi.executeAsyncSubmit(
+      const { execution_id } = await workflowsApi.submitWorkflow(
         workflowStore.currentWorkflowId!
       )
       executionMonitor.monitorExecution(execution_id, {

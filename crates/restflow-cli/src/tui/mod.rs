@@ -4,21 +4,21 @@ mod welcome;
 
 use anyhow::Result;
 use crossterm::{
+    QueueableCommand,
     cursor::MoveTo,
     event::{self, Event, KeyCode, KeyModifiers},
     execute,
     terminal::{
-        disable_raw_mode, enable_raw_mode, BeginSynchronizedUpdate, Clear as TermClear,
-        ClearType, EndSynchronizedUpdate,
+        BeginSynchronizedUpdate, Clear as TermClear, ClearType, EndSynchronizedUpdate,
+        disable_raw_mode, enable_raw_mode,
     },
-    QueueableCommand,
 };
 use ratatui::{
+    Frame,
     layout::{Position, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Wrap},
-    Frame,
 };
 use restflow_core::AppCore;
 use state::TuiApp;
@@ -83,31 +83,24 @@ async fn run_app(terminal: &mut ViewportTerminal, app: &mut TuiApp) -> Result<()
             .min(app.last_terminal_height.max(MIN_INPUT_HEIGHT))
             .min(VIEWPORT_MAX_HEIGHT);
 
-        // Atomic terminal update (prevents flickering)
-        std::io::stdout()
-            .queue(BeginSynchronizedUpdate)?
-            .flush()?;
+        std::io::stdout().queue(BeginSynchronizedUpdate)?.flush()?;
 
         terminal.adjust_viewport_height(viewport_height)?;
 
-        // Always clear from viewport bottom to screen bottom (Codex pattern)
         let clear_from_y = terminal.viewport_start_y() + viewport_height;
         let term = terminal.terminal_mut();
 
         execute!(term.backend_mut(), MoveTo(0, clear_from_y))?;
         execute!(term.backend_mut(), TermClear(ClearType::FromCursorDown))?;
 
-        // Reset buffer to force full redraw
         term.current_buffer_mut().reset();
 
         let viewport_start_y = terminal.viewport_start_y();
-        terminal.terminal_mut().draw(|f| {
-            render_bottom_ui(f, app, viewport_start_y)
-        })?;
+        terminal
+            .terminal_mut()
+            .draw(|f| render_bottom_ui(f, app, viewport_start_y))?;
 
-        std::io::stdout()
-            .queue(EndSynchronizedUpdate)?
-            .flush()?;
+        std::io::stdout().queue(EndSynchronizedUpdate)?.flush()?;
 
         if crossterm::event::poll(Duration::from_millis(100))?
             && let Event::Key(key) = event::read()?
@@ -188,7 +181,7 @@ fn render_bottom_ui(f: &mut Frame, app: &mut TuiApp, viewport_start_y: u16) {
     let mut panel_height = 0;
     if app.show_commands {
         let num_commands = app.commands.len() as u16;
-        let border_lines = 2; // Block borders (top + bottom)
+        let border_lines = 2;
         panel_height = (num_commands + border_lines).min(COMMAND_PANEL_MAX_HEIGHT);
     }
 

@@ -167,7 +167,6 @@ pub async fn handle_webhook_trigger(
             serde_json::to_value(WebhookAsyncResponse { execution_id }).unwrap(),
             "Workflow execution started",
         )),
-        Ok(WebhookResponse::Sync { result }) => Json(ApiResponse::ok(result)),
         Err(e) => Json(ApiResponse::error(format!("{}", e))),
     }
 }

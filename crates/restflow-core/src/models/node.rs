@@ -1,4 +1,4 @@
-use super::trigger::{AuthConfig, ResponseMode, TriggerConfig};
+use super::trigger::{AuthConfig, TriggerConfig};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -31,7 +31,6 @@ impl Node {
                     path: format!("/manual/{}", self.id),
                     method: "POST".to_string(),
                     auth: None,
-                    response_mode: ResponseMode::Async,
                 })
             }
             NodeType::WebhookTrigger => {
@@ -49,17 +48,6 @@ impl Node {
                     .and_then(|v| v.as_str())
                     .unwrap_or("POST")
                     .to_string();
-
-                let response_mode = self
-                    .config
-                    .get("response_mode")
-                    .and_then(|v| v.as_str())
-                    .and_then(|s| match s {
-                        "sync" | "Sync" => Some(ResponseMode::Sync),
-                        "async" | "Async" => Some(ResponseMode::Async),
-                        _ => None,
-                    })
-                    .unwrap_or(ResponseMode::Async);
 
                 // Extract auth config if present
                 let auth = self.config.get("auth").and_then(|auth| {
@@ -82,12 +70,7 @@ impl Node {
                     }
                 });
 
-                Some(TriggerConfig::Webhook {
-                    path,
-                    method,
-                    auth,
-                    response_mode,
-                })
+                Some(TriggerConfig::Webhook { path, method, auth })
             }
             NodeType::ScheduleTrigger => {
                 // Extract schedule configuration from node config

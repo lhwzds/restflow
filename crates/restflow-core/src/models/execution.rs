@@ -34,7 +34,11 @@ pub struct ExecutionSummary {
 
 impl ExecutionSummary {
     /// Create ExecutionSummary from Task list
-    pub fn from_tasks(execution_id: String, workflow_id: String, tasks: &[crate::models::Task]) -> Self {
+    pub fn from_tasks(
+        execution_id: String,
+        workflow_id: String,
+        tasks: &[crate::models::Task],
+    ) -> Self {
         if tasks.is_empty() {
             return Self {
                 execution_id,
@@ -49,12 +53,24 @@ impl ExecutionSummary {
         }
 
         let total_tasks = tasks.len();
-        let completed_tasks = tasks.iter().filter(|t| t.status == crate::models::TaskStatus::Completed).count();
-        let failed_tasks = tasks.iter().filter(|t| t.status == crate::models::TaskStatus::Failed).count();
-        let running_tasks = tasks.iter().filter(|t| t.status == crate::models::TaskStatus::Running).count();
+        let completed_tasks = tasks
+            .iter()
+            .filter(|t| t.status == crate::models::TaskStatus::Completed)
+            .count();
+        let failed_tasks = tasks
+            .iter()
+            .filter(|t| t.status == crate::models::TaskStatus::Failed)
+            .count();
+        let running_tasks = tasks
+            .iter()
+            .filter(|t| t.status == crate::models::TaskStatus::Running)
+            .count();
 
         // Calculate execution status
-        let status = if failed_tasks > 0 && running_tasks == 0 && (completed_tasks + failed_tasks == total_tasks) {
+        let status = if failed_tasks > 0
+            && running_tasks == 0
+            && (completed_tasks + failed_tasks == total_tasks)
+        {
             ExecutionStatus::Failed
         } else if completed_tasks == total_tasks {
             ExecutionStatus::Completed
