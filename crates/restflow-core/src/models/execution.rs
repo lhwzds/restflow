@@ -104,3 +104,14 @@ impl ExecutionSummary {
         }
     }
 }
+
+/// Paginated execution history response
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct ExecutionHistoryPage {
+    pub items: Vec<ExecutionSummary>,
+    pub total: usize,
+    pub page: usize,
+    pub page_size: usize,
+    pub total_pages: usize,
+}

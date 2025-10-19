@@ -1,14 +1,17 @@
 <template>
   <div class="execution-history-panel">
     <div class="panel-header">
-      <h3 class="panel-title">Execution History</h3>
+      <div class="panel-title">
+        <span class="panel-title-text">Execution History</span>
+        <span class="panel-title-meta">({{ totalExecutions }} total)</span>
+      </div>
       <el-button
         type="primary"
         :icon="Refresh"
         circle
         size="small"
         :loading="isLoading"
-        @click="loadHistory"
+        @click="loadHistory(page)"
       />
     </div>
 
@@ -67,6 +70,20 @@
         </div>
       </div>
     </div>
+
+    <div class="panel-footer" v-if="totalExecutions > 0">
+      <el-pagination
+        class="panel-pagination"
+        layout="prev, pager, next, jumper"
+        :current-page="page"
+        :total="totalExecutions"
+        :page-size="pageSize"
+        :pager-count="5"
+        :small="true"
+        :disabled="isLoading"
+        @current-change="handlePageChange"
+      />
+    </div>
   </div>
 </template>
 
@@ -85,6 +102,10 @@ const {
   executions,
   isLoading,
   selectedExecutionId,
+  totalExecutions,
+  page,
+  totalPages,
+  pageSize,
   loadHistory,
   switchToExecution,
   getStatusText,
@@ -92,10 +113,11 @@ const {
   formatRelativeTime,
   startPolling,
   stopPolling,
+  goToPage,
 } = useExecutionHistory(workflowIdRef)
 
 const truncateId = (id: string): string => {
-  return id.length > 18 ? `${id.substring(0, 18)}…` : id
+  return id.length > 24 ? `${id.substring(0, 24)}…` : id
 }
 
 const isTestExecution = (executionId: string): boolean => {
@@ -113,6 +135,11 @@ onMounted(() => {
 onUnmounted(() => {
   stopPolling()
 })
+
+const handlePageChange = (newPage: number) => {
+  if (newPage === page.value) return
+  goToPage(newPage)
+}
 </script>
 
 <style scoped lang="scss">
@@ -140,10 +167,21 @@ onUnmounted(() => {
 }
 
 .panel-title {
+  display: flex;
+  align-items: baseline;
+  gap: var(--rf-spacing-xs);
+}
+
+.panel-title-text {
   margin: 0;
   font-size: var(--rf-font-size-lg);
   font-weight: 600;
   color: var(--rf-color-text-primary);
+}
+
+.panel-title-meta {
+  font-size: var(--rf-font-size-xs);
+  color: var(--rf-color-text-secondary);
 }
 
 .empty-state {
@@ -284,5 +322,17 @@ onUnmounted(() => {
   font-weight: var(--rf-font-weight-medium);
   text-transform: uppercase;
   letter-spacing: 0.5px;
+}
+
+.panel-footer {
+  border-top: 1px solid var(--rf-color-border-light);
+  background: color-mix(in srgb, var(--rf-color-bg-container) 92%, transparent);
+  padding: var(--rf-spacing-xs) var(--rf-spacing-md);
+}
+
+.panel-pagination {
+  width: 100%;
+  display: flex;
+  justify-content: center;
 }
 </style>
