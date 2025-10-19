@@ -84,9 +84,10 @@ export function useNodeOperations() {
 
   /**
    * Update node data
+   * @param markDirty - Whether to mark workflow as having unsaved changes (default: true)
    */
-  const updateNodeData = (nodeId: string, data: Partial<Node['data']>) => {
-    workflowStore.updateNodeData(nodeId, data)
+  const updateNodeData = (nodeId: string, data: Partial<Node['data']>, markDirty = true) => {
+    workflowStore.updateNodeData(nodeId, data, markDirty)
   }
 
   /**

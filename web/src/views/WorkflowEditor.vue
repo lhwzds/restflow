@@ -1,10 +1,9 @@
 <script setup lang="ts">
-import { ElDialog, ElForm, ElFormItem, ElInput, ElMessage, ElButton, ElTooltip, ElTag } from 'element-plus'
+import { ElDialog, ElForm, ElFormItem, ElInput, ElMessage, ElButton, ElTooltip } from 'element-plus'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Expand, Fold, Check, ArrowLeft } from '@element-plus/icons-vue'
+import { Expand, Fold, Check, ArrowLeft, Document, FolderOpened } from '@element-plus/icons-vue'
 import Editor from '../components/workflow-editor/Editor.vue'
-import EditorHeader from '../components/workflow-editor/EditorHeader.vue'
 import TriggerToggle from '../components/workflow-editor/TriggerToggle.vue'
 import HeaderBar from '../components/shared/HeaderBar.vue'
 import PageLayout from '../components/shared/PageLayout.vue'
@@ -177,19 +176,25 @@ onUnmounted(() => {
           @toggle="toggleActivation"
         />
 
-        <!-- Saved status indicator -->
-        <ElTag v-if="unsavedChanges.hasChanges.value" type="warning" size="small">Unsaved</ElTag>
+        <!-- Save/Saved status -->
+        <ElTooltip v-if="unsavedChanges.hasChanges.value" content="Save workflow (Ctrl+S)" placement="bottom">
+          <ElButton type="primary" @click="handleSave" :loading="isSaving">
+            Save
+          </ElButton>
+        </ElTooltip>
         <ElButton v-else type="success" :icon="Check" disabled>Saved</ElButton>
       </template>
 
       <template #actions>
-        <EditorHeader
-          :has-unsaved-changes="unsavedChanges.hasChanges.value"
-          :is-saving="isSaving"
-          @save="handleSave"
-          @import="handleImport"
-          @export="handleExport"
-        />
+        <div class="editor-actions">
+          <ElTooltip content="Import workflow (Ctrl+O)" placement="bottom">
+            <ElButton :icon="FolderOpened" @click="handleImport">Import</ElButton>
+          </ElTooltip>
+
+          <ElTooltip content="Export workflow (Ctrl+E)" placement="bottom">
+            <ElButton :icon="Document" @click="handleExport">Export</ElButton>
+          </ElTooltip>
+        </div>
       </template>
     </HeaderBar>
 
@@ -260,6 +265,12 @@ onUnmounted(() => {
 
 .main-content :deep(.workflow-editor) {
   flex: 1;
+}
+
+.editor-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--rf-spacing-md);
 }
 
 :deep(.page-layout__header) {

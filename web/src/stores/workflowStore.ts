@@ -54,11 +54,13 @@ export const useWorkflowStore = defineStore('workflow', {
       this.currentWorkflowName = 'Untitled Workflow'
     },
 
-    updateNodeData(nodeId: string, data: any) {
+    updateNodeData(nodeId: string, data: any, markDirty = true) {
       const node = this.nodes.find((n) => n.id === nodeId)
       if (node) {
         node.data = { ...node.data, ...data }
-        this.hasUnsavedChanges = true
+        if (markDirty) {
+          this.hasUnsavedChanges = true
+        }
       }
     },
 
