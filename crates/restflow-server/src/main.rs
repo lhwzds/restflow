@@ -68,7 +68,7 @@ async fn main() {
 
     let app = Router::new()
         .route("/health", get(health))
-        // Workflow management (RESTful)
+        // Workflow CRUD
         .route("/api/workflows", get(list_workflows).post(create_workflow))
         .route(
             "/api/workflows/{id}",
@@ -76,7 +76,7 @@ async fn main() {
                 .put(update_workflow)
                 .delete(delete_workflow),
         )
-        // Execution operations (RESTful)
+        // Workflow execution
         .route("/api/workflows/execute", post(execute_workflow))
         .route(
             "/api/workflows/{workflow_id}/execute",
@@ -84,16 +84,16 @@ async fn main() {
         )
         .route(
             "/api/workflows/{workflow_id}/executions",
-            post(submit_workflow),
+            get(list_workflow_executions).post(submit_workflow),
         )
         .route("/api/executions/{execution_id}", get(get_execution_status))
-        // Task operations (RESTful)
+        // Task management
         .route("/api/tasks", get(list_tasks))
         .route("/api/tasks/{task_id}", get(get_task_status))
         .route("/api/nodes/execute", post(execute_node))
         // System configuration
         .route("/api/config", get(get_config).put(update_config))
-        // Trigger management
+        // Trigger activation
         .route("/api/workflows/{id}/activate", put(activate_workflow))
         .route("/api/workflows/{id}/deactivate", put(deactivate_workflow))
         .route(
@@ -101,7 +101,7 @@ async fn main() {
             get(get_workflow_trigger_status),
         )
         .route("/api/workflows/{id}/test", post(test_workflow_trigger))
-        // Webhook endpoint (accepts any HTTP method)
+        // Webhook endpoints - accepts GET/POST/PUT/DELETE/PATCH for maximum flexibility
         .route(
             "/api/triggers/webhook/{webhook_id}",
             get(handle_webhook_trigger)
@@ -110,10 +110,10 @@ async fn main() {
                 .delete(handle_webhook_trigger)
                 .patch(handle_webhook_trigger),
         )
-        // Python integration endpoints (simplified for internal use)
+        // Python integration
         .route("/api/python/execute", post(execute_script))
         .route("/api/python/scripts", get(list_scripts))
-        // Agent management endpoints
+        // Agent management
         .route("/api/agents", get(list_agents).post(create_agent))
         .route(
             "/api/agents/{id}",
@@ -121,7 +121,7 @@ async fn main() {
         )
         .route("/api/agents/{id}/execute", post(execute_agent))
         .route("/api/agents/execute-inline", post(execute_agent_inline))
-        // Secret management endpoints
+        // Secret management
         .route("/api/secrets", get(list_secrets).post(create_secret))
         .route(
             "/api/secrets/{key}",

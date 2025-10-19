@@ -1,10 +1,10 @@
 use crate::api::{ApiResponse, state::AppState};
 use axum::{
     Json,
-    extract::{Path, State},
+    extract::{Path, Query, State},
 };
 use restflow_core::engine::executor::WorkflowExecutor;
-use restflow_core::models::Workflow;
+use restflow_core::models::{ExecutionSummary, Workflow};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -19,7 +19,16 @@ pub struct ExecutionResponse {
     pub workflow_id: String,
 }
 
-// GET /api/workflows
+#[derive(Deserialize)]
+pub struct ExecutionHistoryQuery {
+    #[serde(default = "default_limit")]
+    pub limit: usize,
+}
+
+fn default_limit() -> usize {
+    20
+}
+
 pub async fn list_workflows(State(state): State<AppState>) -> Json<ApiResponse<Vec<Workflow>>> {
     match state.storage.workflows.list_workflows() {
         Ok(workflows) => Json(ApiResponse::ok(workflows)),
@@ -30,7 +39,6 @@ pub async fn list_workflows(State(state): State<AppState>) -> Json<ApiResponse<V
     }
 }
 
-// POST /api/workflows
 pub async fn create_workflow(
     State(state): State<AppState>,
     Json(workflow): Json<Workflow>,
@@ -49,7 +57,6 @@ pub async fn create_workflow(
     }
 }
 
-// GET /api/workflows/{id}
 pub async fn get_workflow(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -60,7 +67,6 @@ pub async fn get_workflow(
     }
 }
 
-// PUT /api/workflows/{id}
 pub async fn update_workflow(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -75,7 +81,6 @@ pub async fn update_workflow(
     }
 }
 
-// DELETE /api/workflows/{id}
 pub async fn delete_workflow(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -89,7 +94,6 @@ pub async fn delete_workflow(
     }
 }
 
-// POST /api/workflows/execute
 pub async fn execute_workflow(
     State(state): State<AppState>,
     Json(mut workflow): Json<Workflow>,
@@ -110,7 +114,6 @@ pub async fn execute_workflow(
     }
 }
 
-// POST /api/workflows/{workflow_id}/execute
 pub async fn execute_workflow_by_id(
     State(state): State<AppState>,
     Path(workflow_id): Path<String>,
@@ -136,7 +139,6 @@ pub async fn execute_workflow_by_id(
     }
 }
 
-// POST /api/workflows/{workflow_id}/executions
 pub async fn submit_workflow(
     State(state): State<AppState>,
     Path(workflow_id): Path<String>,
@@ -149,6 +151,22 @@ pub async fn submit_workflow(
         })),
         Err(e) => Json(ApiResponse::error(format!(
             "Failed to submit workflow: {}",
+            e
+        ))),
+    }
+}
+
+pub async fn list_workflow_executions(
+    State(state): State<AppState>,
+    Path(workflow_id): Path<String>,
+    Query(params): Query<ExecutionHistoryQuery>,
+) -> Json<ApiResponse<Vec<ExecutionSummary>>> {
+    match restflow_core::services::task::list_execution_history(&state, &workflow_id, params.limit)
+        .await
+    {
+        Ok(executions) => Json(ApiResponse::ok(executions)),
+        Err(e) => Json(ApiResponse::error(format!(
+            "Failed to list execution history: {}",
             e
         ))),
     }
