@@ -75,7 +75,6 @@ impl CronScheduler {
         let executor = self.executor.clone();
         let storage = self.storage.clone();
 
-        // Prepare payload (use an empty object when not provided)
         let trigger_payload = payload.unwrap_or(Value::Object(Default::default()));
 
         debug!(
@@ -86,10 +85,9 @@ impl CronScheduler {
             "Adding cron schedule"
         );
 
-        // Create the job
         let job = if let Some(tz) = timezone {
-            // Job with timezone support
-            let timezone: Tz = Tz::from_str(&tz).map_err(|e| anyhow!("Invalid timezone {}: {}", tz, e))?;
+            let timezone: Tz =
+                Tz::from_str(&tz).map_err(|e| anyhow!("Invalid timezone {}: {}", tz, e))?;
             Job::new_async_tz(cron_expr.as_str(), timezone, move |_uuid, _l| {
                 let workflow_id = workflow_id.clone();
                 let executor = executor.clone();
@@ -104,7 +102,6 @@ impl CronScheduler {
                         "Cron job triggered"
                     );
 
-                    // Submit workflow execution
                     match executor.submit(workflow_id.clone(), payload).await {
                         Ok(execution_id) => {
                             info!(
@@ -113,7 +110,6 @@ impl CronScheduler {
                                 "Workflow execution submitted by cron trigger"
                             );
 
-                            // Update trigger statistics
                             if let Err(e) = update_trigger_stats(&storage, &trigger_id) {
                                 error!(error = ?e, "Failed to update trigger statistics");
                             }
@@ -130,7 +126,6 @@ impl CronScheduler {
             })
             .map_err(|e| anyhow!("Failed to create cron job with timezone: {}", e))?
         } else {
-            // Job in UTC
             Job::new_async(cron_expr.as_str(), move |_uuid, _l| {
                 let workflow_id = workflow_id.clone();
                 let executor = executor.clone();
@@ -145,7 +140,6 @@ impl CronScheduler {
                         "Cron job triggered (UTC)"
                     );
 
-                    // Submit workflow execution
                     match executor.submit(workflow_id.clone(), payload).await {
                         Ok(execution_id) => {
                             info!(
@@ -154,7 +148,6 @@ impl CronScheduler {
                                 "Workflow execution submitted by cron trigger"
                             );
 
-                            // Update trigger statistics
                             if let Err(e) = update_trigger_stats(&storage, &trigger_id) {
                                 error!(error = ?e, "Failed to update trigger statistics");
                             }
@@ -172,11 +165,16 @@ impl CronScheduler {
             .map_err(|e| anyhow!("Failed to create cron job: {}", e))?
         };
 
-        // Add job to the scheduler
-        let job_uuid = self.scheduler.add(job).await.map_err(|e| anyhow!("Failed to add job to scheduler: {}", e))?;
+        let job_uuid = self
+            .scheduler
+            .add(job)
+            .await
+            .map_err(|e| anyhow!("Failed to add job to scheduler: {}", e))?;
 
-        // Record the mapping
-        self.job_map.write().await.insert(job_uuid, trigger.id.clone());
+        self.job_map
+            .write()
+            .await
+            .insert(job_uuid, trigger.id.clone());
 
         info!(
             trigger_id = %trigger.id,
@@ -193,7 +191,6 @@ impl CronScheduler {
     /// Returns Ok(true) when a job was found and removed, Ok(false) when no job existed,
     /// and Err if the underlying scheduler operation failed.
     pub async fn remove_schedule(&self, trigger_id: &str) -> Result<bool> {
-        // Find the corresponding job_uuid
         let job_uuid = {
             let map = self.job_map.read().await;
             map.iter()
@@ -201,13 +198,11 @@ impl CronScheduler {
         };
 
         if let Some(uuid) = job_uuid {
-            // Remove job from the scheduler
             self.scheduler
                 .remove(&uuid)
                 .await
                 .map_err(|e| anyhow!("Failed to remove job from scheduler: {}", e))?;
 
-            // Remove from the mapping table
             self.job_map.write().await.remove(&uuid);
 
             info!(trigger_id = %trigger_id, job_uuid = %uuid, "Cron schedule removed");
@@ -250,7 +245,7 @@ fn update_trigger_stats(storage: &Storage, trigger_id: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{TriggerConfig, Workflow, Node, NodeType};
+    use crate::models::{Node, NodeType, TriggerConfig, Workflow};
     use crate::node::registry::NodeRegistry;
     use tempfile::tempdir;
 
@@ -274,15 +269,9 @@ mod tests {
         };
         storage.workflows.create_workflow(&workflow).unwrap();
 
-        let executor = Arc::new(WorkflowExecutor::new_async(
-            storage.clone(),
-            4,
-            registry,
-        ));
+        let executor = Arc::new(WorkflowExecutor::new(storage.clone(), 4, registry));
 
-        let scheduler = CronScheduler::new(storage.clone(), executor)
-            .await
-            .unwrap();
+        let scheduler = CronScheduler::new(storage.clone(), executor).await.unwrap();
 
         (scheduler, storage, temp_dir)
     }

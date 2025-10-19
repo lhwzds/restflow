@@ -8,8 +8,7 @@
         "node_type": "WebhookTrigger",
         "config": {
           "path": "/webhook/summarize",
-          "method": "POST",
-          "response_mode": "sync"
+          "method": "POST"
         },
         "position": { "x": 100, "y": 150 }
       },

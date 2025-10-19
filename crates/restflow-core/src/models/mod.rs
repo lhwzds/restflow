@@ -9,5 +9,5 @@ pub use execution::{ExecutionStatus, ExecutionSummary};
 pub use node::{Node, NodeType, Position};
 pub use secrets::Secret;
 pub use task::{Task, TaskStatus};
-pub use trigger::{ActiveTrigger, AuthConfig, ResponseMode, TriggerConfig};
+pub use trigger::{ActiveTrigger, AuthConfig, TriggerConfig};
 pub use workflow::{Edge, Workflow};

@@ -37,9 +37,8 @@ describe('Constants - API Endpoints', () => {
 
   describe('EXECUTION endpoints', () => {
     it('should have correct paths', () => {
-      expect(API_ENDPOINTS.EXECUTION.SYNC_RUN).toBe('/api/workflows/execute')
-      expect(API_ENDPOINTS.EXECUTION.SYNC_RUN_BY_ID('wf1')).toBe('/api/workflows/wf1/execute')
-      expect(API_ENDPOINTS.EXECUTION.ASYNC_SUBMIT('wf1')).toBe('/api/workflows/wf1/executions')
+      expect(API_ENDPOINTS.EXECUTION.INLINE_RUN).toBe('/api/workflows/execute')
+      expect(API_ENDPOINTS.EXECUTION.SUBMIT('wf1')).toBe('/api/workflows/wf1/executions')
       expect(API_ENDPOINTS.EXECUTION.STATUS('exec1')).toBe('/api/executions/exec1')
     })
   })

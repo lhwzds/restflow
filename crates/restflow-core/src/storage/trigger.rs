@@ -130,7 +130,7 @@ impl TriggerStorage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{ActiveTrigger, AuthConfig, ResponseMode, TriggerConfig};
+    use crate::models::{ActiveTrigger, AuthConfig, TriggerConfig};
     use tempfile::tempdir;
 
     fn create_test_webhook_trigger(id: &str, workflow_id: &str) -> ActiveTrigger {
@@ -144,7 +144,6 @@ mod tests {
                     key: "test-key".to_string(),
                     header_name: Some("X-API-Key".to_string()),
                 }),
-                response_mode: ResponseMode::Sync,
             },
             trigger_count: 0,
             activated_at: chrono::Utc::now().timestamp(),

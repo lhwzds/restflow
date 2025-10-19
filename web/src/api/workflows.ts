@@ -49,9 +49,8 @@ export const deleteWorkflow = async (id: string): Promise<void> => {
   await apiClient.delete<void>(API_ENDPOINTS.WORKFLOW.DELETE(id))
 }
 
-export const executeSyncRun = async (workflow: Workflow): Promise<ExecutionContext> => {
+export const executeInline = async (workflow: Workflow): Promise<ExecutionContext> => {
   if (isTauri()) {
-    // Tauri doesn't support inline execution - must persist workflow first
     const { id } = await createWorkflow(workflow)
     return invokeCommand<ExecutionContext>('execute_workflow_sync', {
       workflow_id: id,
@@ -59,27 +58,13 @@ export const executeSyncRun = async (workflow: Workflow): Promise<ExecutionConte
     })
   }
   const response = await apiClient.post<ExecutionContext>(
-    API_ENDPOINTS.EXECUTION.SYNC_RUN,
+    API_ENDPOINTS.EXECUTION.INLINE_RUN,
     workflow
   )
   return response.data
 }
 
-export const executeSyncRunById = async (id: string, input: any = {}): Promise<ExecutionContext> => {
-  if (isTauri()) {
-    return invokeCommand<ExecutionContext>('execute_workflow_sync', {
-      workflow_id: id,
-      input
-    })
-  }
-  const response = await apiClient.post<ExecutionContext>(
-    API_ENDPOINTS.EXECUTION.SYNC_RUN_BY_ID(id),
-    { input }
-  )
-  return response.data
-}
-
-export const executeAsyncSubmit = async (
+export const submitWorkflow = async (
   id: string,
   initialVariables?: any
 ): Promise<{ execution_id: string }> => {
@@ -91,7 +76,7 @@ export const executeAsyncSubmit = async (
     return { execution_id: taskId }
   }
   const response = await apiClient.post<{ execution_id: string; workflow_id: string }>(
-    API_ENDPOINTS.EXECUTION.ASYNC_SUBMIT(id),
+    API_ENDPOINTS.EXECUTION.SUBMIT(id),
     { initial_variables: initialVariables }
   )
   return { execution_id: response.data.execution_id }

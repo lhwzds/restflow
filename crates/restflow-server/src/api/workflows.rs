@@ -3,8 +3,8 @@ use axum::{
     Json,
     extract::{Path, Query, State},
 };
-use restflow_core::engine::executor::WorkflowExecutor;
 use restflow_core::models::{ExecutionSummary, Workflow};
+use restflow_core::services::workflow as workflow_service;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -96,16 +96,9 @@ pub async fn delete_workflow(
 
 pub async fn execute_workflow(
     State(state): State<AppState>,
-    Json(mut workflow): Json<Workflow>,
+    Json(workflow): Json<Workflow>,
 ) -> Json<ApiResponse<Value>> {
-    workflow.id = format!("inline-{}", uuid::Uuid::new_v4());
-
-    let mut wf_executor = WorkflowExecutor::new_sync(
-        workflow,
-        Some(state.storage.clone()),
-        state.registry.clone(),
-    );
-    match wf_executor.execute().await {
+    match workflow_service::execute_workflow_inline(&state, workflow).await {
         Ok(output) => Json(ApiResponse::ok(output)),
         Err(e) => Json(ApiResponse::error(format!(
             "Workflow execution failed: {}",
@@ -114,30 +107,7 @@ pub async fn execute_workflow(
     }
 }
 
-pub async fn execute_workflow_by_id(
-    State(state): State<AppState>,
-    Path(workflow_id): Path<String>,
-    Json(input): Json<Value>,
-) -> Json<ApiResponse<Value>> {
-    match state.storage.workflows.get_workflow(&workflow_id) {
-        Ok(workflow) => {
-            let mut wf_executor = WorkflowExecutor::new_sync(
-                workflow,
-                Some(state.storage.clone()),
-                state.registry.clone(),
-            );
-            wf_executor.set_input(input);
-            match wf_executor.execute().await {
-                Ok(output) => Json(ApiResponse::ok(output)),
-                Err(e) => Json(ApiResponse::error(format!(
-                    "Workflow execution failed: {}",
-                    e
-                ))),
-            }
-        }
-        Err(e) => Json(ApiResponse::error(e.to_string())),
-    }
-}
+// execute_workflow_by_id removed - full workflow execution uses async submissions
 
 pub async fn submit_workflow(
     State(state): State<AppState>,

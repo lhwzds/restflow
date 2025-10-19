@@ -1,7 +1,14 @@
-use crate::{AppCore, engine::executor::WorkflowExecutor, models::Workflow};
-use anyhow::{Context, Result};
+use crate::{
+    AppCore,
+    engine::context::namespace,
+    models::{TaskStatus, Workflow},
+};
+use anyhow::{Context, Result, bail};
 use serde_json::Value;
+use std::collections::HashSet;
 use std::sync::Arc;
+use tokio::time::{Duration, Instant, sleep};
+use tracing::warn;
 
 // Core workflow functions that can be used by both Axum and Tauri
 
@@ -61,12 +68,31 @@ pub async fn delete_workflow(core: &Arc<AppCore>, id: &str) -> Result<()> {
 pub async fn execute_workflow_inline(core: &Arc<AppCore>, mut workflow: Workflow) -> Result<Value> {
     workflow.id = format!("inline-{}", uuid::Uuid::new_v4());
 
-    let mut wf_executor =
-        WorkflowExecutor::new_sync(workflow, Some(core.storage.clone()), core.registry.clone());
-    wf_executor
-        .execute()
-        .await
-        .context("Workflow execution failed")
+    core.storage
+        .workflows
+        .create_workflow(&workflow)
+        .with_context(|| format!("Failed to persist inline workflow {}", workflow.name))?;
+
+    let result = async {
+        let execution_id = core
+            .executor
+            .submit(workflow.id.clone(), Value::Null)
+            .await
+            .with_context(|| format!("Failed to submit workflow {}", workflow.id))?;
+
+        wait_and_collect(core, &execution_id).await
+    }
+    .await;
+
+    if let Err(e) = core.storage.workflows.delete_workflow(&workflow.id) {
+        warn!(
+            workflow_id = %workflow.id,
+            error = %e,
+            "Failed to clean up inline workflow after execution"
+        );
+    }
+
+    result
 }
 
 pub async fn execute_workflow_by_id(
@@ -74,19 +100,13 @@ pub async fn execute_workflow_by_id(
     workflow_id: &str,
     input: Value,
 ) -> Result<Value> {
-    let workflow = core
-        .storage
-        .workflows
-        .get_workflow(workflow_id)
-        .with_context(|| format!("Failed to get workflow {} for execution", workflow_id))?;
-
-    let mut wf_executor =
-        WorkflowExecutor::new_sync(workflow, Some(core.storage.clone()), core.registry.clone());
-    wf_executor.set_input(input);
-    wf_executor
-        .execute()
+    let execution_id = core
+        .executor
+        .submit(workflow_id.to_string(), input)
         .await
-        .with_context(|| format!("Failed to execute workflow {}", workflow_id))
+        .with_context(|| format!("Failed to execute workflow {}", workflow_id))?;
+
+    wait_and_collect(core, &execution_id).await
 }
 
 pub async fn submit_workflow(
@@ -108,4 +128,75 @@ pub async fn get_execution_status(
         .get_execution_status(execution_id)
         .await
         .with_context(|| format!("Failed to get execution status for {}", execution_id))
+}
+
+const EXECUTION_POLL_INTERVAL: Duration = Duration::from_millis(100);
+const EXECUTION_TIMEOUT: Duration = Duration::from_secs(60);
+
+async fn wait_and_collect(core: &Arc<AppCore>, execution_id: &str) -> Result<Value> {
+    let tasks = wait_for_completion(core, execution_id).await?;
+
+    if let Some(failed_task) = tasks.iter().find(|task| task.status == TaskStatus::Failed) {
+        let error_message = failed_task
+            .error
+            .clone()
+            .unwrap_or_else(|| "Workflow execution failed".to_string());
+        bail!(error_message);
+    }
+
+    Ok(build_execution_context(execution_id, &tasks))
+}
+
+async fn wait_for_completion(
+    core: &Arc<AppCore>,
+    execution_id: &str,
+) -> Result<Vec<crate::models::Task>> {
+    let deadline = Instant::now() + EXECUTION_TIMEOUT;
+
+    loop {
+        let tasks = core.executor.get_execution_status(execution_id).await?;
+
+        if !tasks.is_empty()
+            && tasks
+                .iter()
+                .all(|task| matches!(task.status, TaskStatus::Completed | TaskStatus::Failed))
+        {
+            return Ok(tasks);
+        }
+
+        if Instant::now() >= deadline {
+            bail!("Execution {} timed out", execution_id);
+        }
+
+        sleep(EXECUTION_POLL_INTERVAL).await;
+    }
+}
+
+fn build_execution_context(execution_id: &str, tasks: &[crate::models::Task]) -> Value {
+    let workflow_id = tasks
+        .first()
+        .map(|task| task.workflow_id.clone())
+        .unwrap_or_default();
+
+    let mut data = serde_json::Map::new();
+    let mut seen_keys: HashSet<String> = HashSet::new();
+
+    for task in tasks {
+        for (key, value) in &task.context.data {
+            if seen_keys.insert(key.clone()) {
+                data.insert(key.clone(), value.clone());
+            }
+        }
+
+        if let Some(output) = &task.output {
+            let key = namespace::node(&task.node_id);
+            data.insert(key, output.clone());
+        }
+    }
+
+    serde_json::json!({
+        "workflow_id": workflow_id,
+        "execution_id": execution_id,
+        "data": data,
+    })
 }

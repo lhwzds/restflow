@@ -77,11 +77,8 @@ async fn main() {
                 .delete(delete_workflow),
         )
         // Workflow execution
-        .route("/api/workflows/execute", post(execute_workflow))
-        .route(
-            "/api/workflows/{workflow_id}/execute",
-            post(execute_workflow_by_id),
-        )
+        .route("/api/workflows/execute", post(execute_workflow)) // Inline workflow execution (awaits completion)
+        // Full workflow execution uses async: POST /api/workflows/{id}/executions
         .route(
             "/api/workflows/{workflow_id}/executions",
             get(list_workflow_executions).post(submit_workflow),
