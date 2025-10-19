@@ -139,12 +139,16 @@ pub async fn list_workflow_executions(
     Path(workflow_id): Path<String>,
     Query(params): Query<ExecutionHistoryQuery>,
 ) -> Json<ApiResponse<ExecutionHistoryPage>> {
-    let page_size = params.limit.unwrap_or(params.page_size);
+    let (page, page_size) = if let Some(limit) = params.limit {
+        (1usize, limit)
+    } else {
+        (params.page, params.page_size)
+    };
 
     match restflow_core::services::task::list_execution_history(
         &state,
         &workflow_id,
-        params.page,
+        page,
         page_size,
     )
     .await

@@ -104,7 +104,6 @@ const {
   selectedExecutionId,
   totalExecutions,
   page,
-  totalPages,
   pageSize,
   loadHistory,
   switchToExecution,
