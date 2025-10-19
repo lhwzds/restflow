@@ -41,9 +41,9 @@ export const SUCCESS_MESSAGES = {
   SECRET_UPDATED: 'Secret updated successfully',
   SECRET_DELETED: 'Secret deleted successfully',
 
-  // Triggers
-  TRIGGER_ACTIVATED: 'Trigger activated successfully',
-  TRIGGER_DEACTIVATED: 'Trigger deactivated successfully',
+  // Workflow activation
+  WORKFLOW_ACTIVATED: 'Workflow activated successfully',
+  WORKFLOW_DEACTIVATED: 'Workflow deactivated successfully',
 
   // Node testing
   NODE_TEST_SUCCESS: 'Node test passed successfully',

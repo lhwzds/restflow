@@ -55,14 +55,14 @@ export function useWorkflowTriggers() {
     try {
       loading.value = true
       await triggersApi.activateWorkflow(workflowId)
-      ElMessage.success(SUCCESS_MESSAGES.TRIGGER_ACTIVATED)
+      ElMessage.success(SUCCESS_MESSAGES.WORKFLOW_ACTIVATED)
 
       // Fetch the detailed status
       await fetchTriggerStatus(workflowId)
 
       return true
     } catch (error) {
-      handleError(error, 'Failed to activate trigger')
+      handleError(error, 'Failed to activate workflow')
       return false
     } finally {
       loading.value = false
@@ -74,8 +74,8 @@ export function useWorkflowTriggers() {
 
     try {
       const result = await ElMessageBox.confirm(
-        'Are you sure you want to deactivate the trigger? The workflow will not be triggered automatically after deactivation.',
-        'Deactivate Trigger',
+        'Are you sure you want to deactivate the workflow? It will not be automatically executed after deactivation.',
+        'Deactivate Workflow',
         {
           confirmButtonText: 'Confirm',
           cancelButtonText: 'Cancel',
@@ -86,7 +86,7 @@ export function useWorkflowTriggers() {
       if (result === 'confirm') {
         loading.value = true
         await triggersApi.deactivateWorkflow(workflowId)
-        ElMessage.success(SUCCESS_MESSAGES.TRIGGER_DEACTIVATED)
+        ElMessage.success(SUCCESS_MESSAGES.WORKFLOW_DEACTIVATED)
         
         // Fetch the updated status
         await fetchTriggerStatus(workflowId)

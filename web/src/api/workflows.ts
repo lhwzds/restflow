@@ -2,6 +2,7 @@ import { apiClient } from './config'
 import { isTauri, invokeCommand } from './utils'
 import type { Workflow } from '@/types/generated/Workflow'
 import type { ExecutionContext } from '@/types/generated/ExecutionContext'
+import type { ExecutionSummary } from '@/types/generated/ExecutionSummary'
 import { API_ENDPOINTS } from '@/constants'
 
 export const listWorkflows = async (): Promise<Workflow[]> => {
@@ -50,7 +51,7 @@ export const deleteWorkflow = async (id: string): Promise<void> => {
 
 export const executeSyncRun = async (workflow: Workflow): Promise<ExecutionContext> => {
   if (isTauri()) {
-    // For inline workflow execution, we need to create it first in Tauri mode
+    // Tauri doesn't support inline execution - must persist workflow first
     const { id } = await createWorkflow(workflow)
     return invokeCommand<ExecutionContext>('execute_workflow_sync', {
       workflow_id: id,
@@ -94,4 +95,21 @@ export const executeAsyncSubmit = async (
     { initial_variables: initialVariables }
   )
   return { execution_id: response.data.execution_id }
+}
+
+export const listWorkflowExecutions = async (
+  id: string,
+  limit = 20
+): Promise<ExecutionSummary[]> => {
+  if (isTauri()) {
+    return invokeCommand<ExecutionSummary[]>('list_workflow_executions', {
+      workflow_id: id,
+      limit
+    })
+  }
+  const response = await apiClient.get<ExecutionSummary[]>(
+    API_ENDPOINTS.EXECUTION.HISTORY(id),
+    { params: { limit } }
+  )
+  return response.data
 }

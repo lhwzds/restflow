@@ -27,6 +27,7 @@ export const API_TIMING = {
 export const POLLING_TIMING = {
   // Execution status polling (performance optimized: from 500ms to 1000ms)
   EXECUTION_STATUS: 1000,        // 1s - execution status polling interval
+  EXECUTION_HISTORY: 5000,       // 5s - execution history polling interval
   TASK_STATUS: 2000,             // 2s - task status polling interval
   TRIGGER_STATUS: 5000,          // 5s - trigger status polling interval
 

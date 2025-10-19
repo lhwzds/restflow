@@ -1,27 +1,43 @@
 <script setup lang="ts">
-import { useAsyncWorkflowExecution } from '@/composables/execution/useAsyncWorkflowExecution'
+import { ref } from 'vue'
+import { ElMessage } from 'element-plus'
+import { useEnsureWorkflowSaved } from '@/composables/shared/useEnsureWorkflowSaved'
+import * as triggersApi from '@/api/triggers'
+import { SUCCESS_MESSAGES, ERROR_MESSAGES } from '@/constants'
 
-const { isExecuting, startAsyncExecution } = useAsyncWorkflowExecution()
+const { ensureSaved } = useEnsureWorkflowSaved()
+const isTesting = ref(false)
 
-const executeWorkflow = async (e: MouseEvent) => {
-  e.stopPropagation() // Prevent triggering node selection
-  await startAsyncExecution()
+const testWorkflow = async (e: MouseEvent) => {
+  e.stopPropagation()
+
+  const { success, id } = await ensureSaved()
+  if (!success || !id) return
+
+  isTesting.value = true
+  try {
+    await triggersApi.testWorkflow(id)
+    ElMessage.success(SUCCESS_MESSAGES.EXECUTED('Test workflow'))
+  } catch (error) {
+    console.error('Failed to test workflow:', error)
+    ElMessage.error(ERROR_MESSAGES.WORKFLOW_EXECUTION_FAILED)
+  } finally {
+    isTesting.value = false
+  }
 }
 </script>
 
 <template>
   <div class="base-trigger-wrapper">
-    <!-- Slot for specific trigger content -->
     <slot />
 
-    <!-- Unified execution button -->
     <button
-      class="execute-button"
-      @click="executeWorkflow"
-      :disabled="isExecuting"
-      :title="isExecuting ? 'RestFlow is running' : 'Start RestFlow execution'"
+      class="test-button"
+      @click="testWorkflow"
+      :disabled="isTesting"
+      :title="isTesting ? 'Testing workflow...' : 'Test this workflow manually'"
     >
-      {{ isExecuting ? 'Running...' : 'Start RestFlow' }}
+      {{ isTesting ? 'Testing...' : 'Test RestFlow' }}
     </button>
   </div>
 </template>
@@ -30,8 +46,7 @@ const executeWorkflow = async (e: MouseEvent) => {
 .base-trigger-wrapper {
   position: relative;
 
-  // Execution button styles - placed on the left
-  .execute-button {
+  .test-button {
     position: absolute;
     top: 50%;
     right: 100%;
