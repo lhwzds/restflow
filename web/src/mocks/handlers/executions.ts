@@ -7,6 +7,11 @@ const MAX_TASKS = 200
 const executions = new Map<string, Task[]>()
 const tasks = new Map<string, Task>()
 
+export interface ExecutionSnapshot {
+  executionId: string
+  tasks: Task[]
+}
+
 const addExecution = (id: string, taskList: Task[]) => {
   if (executions.size >= MAX_EXECUTIONS) {
     const firstKey = executions.keys().next().value
@@ -119,6 +124,13 @@ export const createExecutionTasks = (
   addExecution(executionId, executionTasks)
 
   return executionTasks
+}
+
+export const getExecutionSnapshots = (): ExecutionSnapshot[] => {
+  return Array.from(executions.entries()).map(([executionId, taskList]) => {
+    const currentTasks = taskList.map(task => tasks.get(task.id) ?? task)
+    return { executionId, tasks: currentTasks }
+  })
 }
 
 export const executionHandlers = [

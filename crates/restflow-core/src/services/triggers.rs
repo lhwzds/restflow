@@ -11,6 +11,10 @@ use uuid::Uuid;
 
 // Trigger management functions
 
+pub fn generate_test_execution_id() -> String {
+    format!("test-{}", Uuid::new_v4())
+}
+
 pub async fn activate_workflow(core: &Arc<AppCore>, workflow_id: &str) -> Result<()> {
     core.trigger_manager
         .activate_workflow(workflow_id)
@@ -41,7 +45,7 @@ pub async fn test_workflow_trigger(
     workflow_id: &str,
     test_input: Value,
 ) -> Result<String> {
-    let test_execution_id = format!("test-{}", Uuid::new_v4());
+    let test_execution_id = generate_test_execution_id();
     core.executor
         .submit_with_execution_id(workflow_id.to_string(), test_input, test_execution_id)
         .await
