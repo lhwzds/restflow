@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import type { NodeProps} from '@vue-flow/core'
 import { PlayCircle, Zap, MousePointerClick } from 'lucide-vue-next'
-import { useAsyncWorkflowExecution } from '@/composables/execution/useAsyncWorkflowExecution'
+import { ElTooltip } from 'element-plus'
 import BaseNode from '@/components/nodes/BaseNode.vue'
-import BaseTriggerNode from './BaseTriggerNode.vue'
+import { useTestWorkflow } from '@/composables/trigger/useTestWorkflow'
 
 interface ManualTriggerNodeData {
   label?: string
@@ -14,38 +14,50 @@ const props = defineProps<NodeProps<ManualTriggerNodeData>>()
 
 const emit = defineEmits<{
   'open-config': []
+  'test-node': []
   'updateNodeInternals': [nodeId: string]
 }>()
 
-const { isExecuting, startAsyncExecution } = useAsyncWorkflowExecution()
+const { testWorkflow, isButtonDisabled, buttonLabel, buttonTooltip } = useTestWorkflow()
 </script>
 
 <template>
-  <BaseTriggerNode>
-    <BaseNode
-      :node-props="props"
-      node-class="manual-trigger-node"
-      default-label="Manual Trigger"
-      action-button-tooltip="Trigger Workflow"
-      :action-button-disabled="isExecuting"
-      @open-config="emit('open-config')"
-      @action-button="startAsyncExecution"
-      @updateNodeInternals="emit('updateNodeInternals', $event)"
-    >
-      <template #icon>
-        <PlayCircle :size="24" />
-        <Zap :size="12" class="icon-decoration" />
-        <div class="pulse-effect"></div>
-      </template>
+  <BaseNode
+    :node-props="props"
+    :show-input-handle="false"
+    :action-button-disabled="isButtonDisabled"
+    node-class="manual-trigger-node"
+    default-label="Manual Trigger"
+    action-button-tooltip="Test Trigger"
+    @open-config="emit('open-config')"
+    @action-button="emit('test-node')"
+    @updateNodeInternals="emit('updateNodeInternals', $event)"
+  >
+    <template #icon>
+      <PlayCircle :size="24" />
+      <Zap :size="12" class="icon-decoration" />
+      <div class="pulse-effect"></div>
+    </template>
 
-      <template #badge>
-        <div class="trigger-hint">
-          <MousePointerClick :size="12" />
-          <span>Trigger</span>
-        </div>
-      </template>
-    </BaseNode>
-  </BaseTriggerNode>
+    <template #badge>
+      <div class="trigger-hint">
+        <MousePointerClick :size="12" />
+        <span>Trigger</span>
+      </div>
+    </template>
+
+    <template #extra-actions>
+      <ElTooltip :content="buttonTooltip" placement="left">
+        <button
+          class="test-workflow-button"
+          :disabled="isButtonDisabled"
+          @click="testWorkflow"
+        >
+          {{ buttonLabel }}
+        </button>
+      </ElTooltip>
+    </template>
+  </BaseNode>
 </template>
 
 <style lang="scss">
@@ -126,6 +138,40 @@ $node-color: var(--rf-color-green);
   }
   50% {
     opacity: 0.7;
+  }
+}
+
+.test-workflow-button {
+  padding: var(--rf-spacing-2xs) var(--rf-spacing-sm);
+  border-radius: var(--rf-radius-base);
+  background: var(--rf-gradient-primary);
+  border: none;
+  color: var(--rf-color-white);
+  font-size: var(--rf-font-size-xs);
+  font-weight: var(--rf-font-weight-medium);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--rf-transition-fast);
+  box-shadow: var(--rf-shadow-base);
+  white-space: nowrap;
+
+  &:hover:not(:disabled) {
+    transform: translateY(-2px);
+    box-shadow: var(--rf-shadow-md);
+    background: var(--rf-gradient-primary-dark);
+  }
+
+  &:active:not(:disabled) {
+    transform: translateY(0);
+    box-shadow: var(--rf-shadow-sm);
+  }
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    background: var(--rf-color-primary-disabled);
   }
 }
 </style>

@@ -3,9 +3,11 @@ import { useNodeOperations } from '@/composables/node/useNodeOperations'
 import { testNodeExecution } from '@/api/tasks'
 import type { Node } from '@vue-flow/core'
 import { NODE_TYPE, TRIGGER_NODE_TYPES, ERROR_MESSAGES, VALIDATION_MESSAGES } from '@/constants'
+import { useExecutionStore } from '@/stores/executionStore'
 
 export function useSingleNodeExecution() {
   const { getNodeById, getIncomingEdges, updateNodeData } = useNodeOperations()
+  const executionStore = useExecutionStore()
 
   const isExecuting = ref(false)
   const executionResult = ref<any>(null)
@@ -15,6 +17,8 @@ export function useSingleNodeExecution() {
     isExecuting.value = true
     executionResult.value = null
     executionError.value = null
+
+    const startTime = Date.now()
 
     try {
       const node = getNodeById(nodeId)
@@ -37,8 +41,8 @@ export function useSingleNodeExecution() {
       }
 
       const testRequest = {
-        id: `test-${Date.now()}`,  // Temporary workflow ID
-        name: `Test ${nodeType} Node`,  // Descriptive name
+        id: `test-${Date.now()}`,
+        name: `Test ${nodeType} Node`,
         nodes: [{
           id: node.id,
           node_type: mapNodeTypeToBackend(nodeType),
@@ -51,7 +55,19 @@ export function useSingleNodeExecution() {
       const result = await testNodeExecution<any>(testRequest)
       executionResult.value = result
 
-      // Update node data without marking workflow as dirty (test execution is temporary)
+      const endTime = Date.now()
+      const executionTime = endTime - startTime
+
+      executionStore.setNodeResult(nodeId, {
+        nodeId,
+        status: 'Completed',
+        input: input || {},
+        output: executionResult.value,
+        startTime,
+        endTime,
+        executionTime
+      })
+
       updateNodeData(nodeId, {
         lastExecutionInput: input || {},
         lastExecutionResult: executionResult.value,
@@ -65,6 +81,18 @@ export function useSingleNodeExecution() {
         error?.response?.data?.message ||
         error?.message ||
         ERROR_MESSAGES.NODE_EXECUTION_FAILED
+
+      const endTime = Date.now()
+      const executionTime = endTime - startTime
+
+      executionStore.setNodeResult(nodeId, {
+        nodeId,
+        status: 'Failed',
+        error: errorMessage,
+        startTime,
+        endTime,
+        executionTime
+      })
 
       executionError.value = errorMessage
       throw new Error(errorMessage)
@@ -186,6 +214,9 @@ function mapNodeTypeToBackend(nodeType: string): string {
   return nodeType
 }
 
+/**
+ * Extract node configuration by removing UI-specific fields and keeping only execution-relevant data
+ */
 function extractNodeConfig(node: Node): any {
   const { label, ...config } = node.data
 
