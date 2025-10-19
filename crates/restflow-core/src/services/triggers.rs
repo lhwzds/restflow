@@ -7,6 +7,7 @@ use anyhow::{Context, Result};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
+use uuid::Uuid;
 
 // Trigger management functions
 
@@ -40,9 +41,9 @@ pub async fn test_workflow_trigger(
     workflow_id: &str,
     test_input: Value,
 ) -> Result<String> {
-    // Use async submission for consistency with API layer
+    let test_execution_id = format!("test-{}", Uuid::new_v4());
     core.executor
-        .submit(workflow_id.to_string(), test_input)
+        .submit_with_execution_id(workflow_id.to_string(), test_input, test_execution_id)
         .await
         .with_context(|| format!("Test execution failed for workflow {}", workflow_id))
 }
