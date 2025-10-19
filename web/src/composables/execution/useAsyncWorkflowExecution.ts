@@ -1,17 +1,24 @@
 import { ElMessage } from 'element-plus'
 import { onUnmounted, ref } from 'vue'
-import * as workflowsApi from '../../api/workflows'
 import * as tasksApi from '../../api/tasks'
-import { useWorkflowStore } from '../../stores/workflowStore'
+import * as workflowsApi from '../../api/workflows'
 import { useExecutionStore } from '../../stores/executionStore'
+import { useWorkflowStore } from '../../stores/workflowStore'
 import { useWorkflowPersistence } from '../persistence/useWorkflowPersistence'
 import type { Task } from '@/types/generated/Task'
 import { ERROR_MESSAGES, SUCCESS_MESSAGES, POLLING_TIMING, INFO_MESSAGES } from '@/constants'
 
-function createAsyncExecutionManager() {
-  const workflowStore = useWorkflowStore()
+interface MonitorExecutionOptions {
+  label?: string
+  startPolling?: boolean
+  notifyQueued?: boolean
+  queuedMessage?: string
+}
+
+const formatQueuedMessage = (label: string) => `${label} execution started`
+
+function createExecutionMonitor() {
   const executionStore = useExecutionStore()
-  const { saveWorkflow } = useWorkflowPersistence()
 
   const isExecuting = ref(false)
   const executionId = ref<string | null>(null)
@@ -40,16 +47,16 @@ function createAsyncExecutionManager() {
         executionStore.updateFromTasks(tasks)
 
         const allCompleted = tasks.every(
-          (t: Task) => t.status === 'Completed' || t.status === 'Failed'
+          (task: Task) => task.status === 'Completed' || task.status === 'Failed'
         )
-        const hasFailed = tasks.some((t: Task) => t.status === 'Failed')
+        const hasFailed = tasks.some((task: Task) => task.status === 'Failed')
 
         if (allCompleted) {
           stopPolling()
           isExecuting.value = false
 
           if (hasFailed) {
-            const failedTasks = tasks.filter((t: Task) => t.status === 'Failed')
+            const failedTasks = tasks.filter((task: Task) => task.status === 'Failed')
             const errorMsg = failedTasks[0]?.error || 'Unknown error'
             ElMessage.error(`${executionLabel.value} execution failed: ${errorMsg}`)
             executionError.value = errorMsg
@@ -65,62 +72,29 @@ function createAsyncExecutionManager() {
     }, POLLING_TIMING.EXECUTION_STATUS)
   }
 
-  const monitorExecution = (
-    id: string,
-    options: { label?: string; queuedMessage?: string } = {}
-  ) => {
+  const monitorExecution = (id: string, options: MonitorExecutionOptions = {}) => {
+    const {
+      label = 'Workflow',
+      startPolling: shouldStartPolling = true,
+      notifyQueued = true,
+      queuedMessage,
+    } = options
+
     stopPolling()
     executionId.value = id
-    executionLabel.value = options.label ?? 'Workflow'
+    executionLabel.value = label
     executionError.value = null
     isExecuting.value = true
 
     executionStore.startExecution(id)
-    startPolling()
 
-    if (options.queuedMessage) {
-      ElMessage.success(options.queuedMessage)
-    }
-  }
-
-  const startAsyncExecution = async () => {
-    if (!workflowStore.currentWorkflowId) {
-      const saveResult = await saveWorkflow(workflowStore.nodes, workflowStore.edges, {
-        showMessage: false,
-        meta: { name: workflowStore.currentWorkflowName || 'Untitled Workflow' },
-      })
-
-      if (!saveResult.success) {
-        ElMessage.error(ERROR_MESSAGES.FAILED_TO_SAVE('workflow'))
-        return { success: false, error: ERROR_MESSAGES.FAILED_TO_SAVE('workflow') }
-      }
+    if (shouldStartPolling) {
+      startPolling()
     }
 
-    if (isExecuting.value) {
-      ElMessage.warning(ERROR_MESSAGES.ALREADY_EXECUTING)
-      return { success: false, error: ERROR_MESSAGES.ALREADY_EXECUTING }
-    }
-
-    isExecuting.value = true
-    executionError.value = null
-
-    try {
-      const { execution_id } = await workflowsApi.executeAsyncSubmit(
-        workflowStore.currentWorkflowId!
-      )
-      monitorExecution(execution_id, {
-        label: 'Workflow',
-        queuedMessage: SUCCESS_MESSAGES.EXECUTED('Workflow'),
-      })
-      return { success: true, executionId: execution_id }
-    } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : ERROR_MESSAGES.WORKFLOW_EXECUTION_FAILED
-      executionError.value = errorMessage
-      isExecuting.value = false
-
-      ElMessage.error(`Execution failed: ${errorMessage}`)
-      return { success: false, error: errorMessage }
+    if (notifyQueued) {
+      const message = queuedMessage ?? formatQueuedMessage(label)
+      ElMessage.success(message)
     }
   }
 
@@ -143,22 +117,22 @@ function createAsyncExecutionManager() {
     isExecuting,
     executionId,
     executionError,
-    startAsyncExecution,
+    monitorExecution,
     cancelExecution,
     clearExecutionResults,
-    monitorExecution,
+    startPolling,
     stopPolling,
   }
 }
 
-type AsyncExecutionManager = ReturnType<typeof createAsyncExecutionManager>
+type ExecutionMonitor = ReturnType<typeof createExecutionMonitor>
 
-let manager: AsyncExecutionManager | null = null
+let monitor: ExecutionMonitor | null = null
 let subscribers = 0
 
-export function useAsyncWorkflowExecution() {
-  if (!manager) {
-    manager = createAsyncExecutionManager()
+export function useExecutionMonitor() {
+  if (!monitor) {
+    monitor = createExecutionMonitor()
   }
 
   subscribers += 1
@@ -166,17 +140,74 @@ export function useAsyncWorkflowExecution() {
   onUnmounted(() => {
     subscribers = Math.max(0, subscribers - 1)
     if (subscribers === 0) {
-      manager?.stopPolling()
+      monitor?.stopPolling()
     }
   })
 
   return {
-    isExecuting: manager.isExecuting,
-    executionId: manager.executionId,
-    executionError: manager.executionError,
-    startAsyncExecution: manager.startAsyncExecution,
-    cancelExecution: manager.cancelExecution,
-    clearExecutionResults: manager.clearExecutionResults,
-    monitorExecution: manager.monitorExecution,
+    isExecuting: monitor.isExecuting,
+    executionId: monitor.executionId,
+    executionError: monitor.executionError,
+    monitorExecution: monitor.monitorExecution,
+    cancelExecution: monitor.cancelExecution,
+    clearExecutionResults: monitor.clearExecutionResults,
+    startPolling: monitor.startPolling,
+    stopPolling: monitor.stopPolling,
+  }
+}
+
+export function useAsyncWorkflowExecution() {
+  const workflowStore = useWorkflowStore()
+  const { saveWorkflow } = useWorkflowPersistence()
+  const executionMonitor = useExecutionMonitor()
+
+  const startAsyncExecution = async () => {
+    if (!workflowStore.currentWorkflowId) {
+      const saveResult = await saveWorkflow(workflowStore.nodes, workflowStore.edges, {
+        showMessage: false,
+        meta: { name: workflowStore.currentWorkflowName || 'Untitled Workflow' },
+      })
+
+      if (!saveResult.success) {
+        ElMessage.error(ERROR_MESSAGES.FAILED_TO_SAVE('workflow'))
+        return { success: false, error: ERROR_MESSAGES.FAILED_TO_SAVE('workflow') }
+      }
+    }
+
+    if (executionMonitor.isExecuting.value) {
+      ElMessage.warning(ERROR_MESSAGES.ALREADY_EXECUTING)
+      return { success: false, error: ERROR_MESSAGES.ALREADY_EXECUTING }
+    }
+
+    executionMonitor.isExecuting.value = true
+    executionMonitor.executionError.value = null
+
+    try {
+      const { execution_id } = await workflowsApi.executeAsyncSubmit(
+        workflowStore.currentWorkflowId!
+      )
+      executionMonitor.monitorExecution(execution_id, {
+        label: 'Workflow',
+      })
+      return { success: true, executionId: execution_id }
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : ERROR_MESSAGES.WORKFLOW_EXECUTION_FAILED
+      executionMonitor.executionError.value = errorMessage
+      executionMonitor.isExecuting.value = false
+
+      ElMessage.error(`Execution failed: ${errorMessage}`)
+      return { success: false, error: errorMessage }
+    }
+  }
+
+  return {
+    isExecuting: executionMonitor.isExecuting,
+    executionId: executionMonitor.executionId,
+    executionError: executionMonitor.executionError,
+    startAsyncExecution,
+    cancelExecution: executionMonitor.cancelExecution,
+    clearExecutionResults: executionMonitor.clearExecutionResults,
+    monitorExecution: executionMonitor.monitorExecution,
   }
 }

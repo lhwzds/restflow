@@ -2,12 +2,12 @@
 import { computed, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useEnsureWorkflowSaved } from '@/composables/shared/useEnsureWorkflowSaved'
-import { useAsyncWorkflowExecution } from '@/composables/execution/useAsyncWorkflowExecution'
+import { useExecutionMonitor } from '@/composables/execution/useAsyncWorkflowExecution'
 import * as triggersApi from '@/api/triggers'
 import { ERROR_MESSAGES } from '@/constants'
 
 const { ensureSaved } = useEnsureWorkflowSaved()
-const { isExecuting, monitorExecution } = useAsyncWorkflowExecution()
+const { isExecuting, monitorExecution } = useExecutionMonitor()
 const isSubmitting = ref(false)
 
 const buttonLabel = computed(() => {
@@ -49,7 +49,6 @@ const testWorkflow = async (e: MouseEvent) => {
 
     monitorExecution(executionId, {
       label: 'Test workflow',
-      queuedMessage: 'Test execution started',
     })
   } catch (error) {
     console.error('Failed to test workflow:', error)
