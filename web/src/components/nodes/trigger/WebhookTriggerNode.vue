@@ -29,7 +29,6 @@ const { testWorkflow, isButtonDisabled, buttonLabel, buttonTooltip } = useTestWo
   <BaseNode
     :node-props="props"
     :show-input-handle="false"
-    :action-button-disabled="isButtonDisabled"
     node-class="webhook-trigger-node"
     default-label="Webhook"
     action-button-tooltip="Test Webhook"
@@ -48,7 +47,7 @@ const { testWorkflow, isButtonDisabled, buttonLabel, buttonTooltip } = useTestWo
       </div>
     </template>
 
-    <template #extra-actions>
+    <template #left-actions>
       <ElTooltip :content="buttonTooltip" placement="left">
         <button
           class="test-workflow-button"
