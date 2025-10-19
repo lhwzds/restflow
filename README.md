@@ -19,9 +19,9 @@
 
 ---
 
-## Workflow Editor
+## Workflow Execution
 
-![RestFlow Workflow Editor](./docs/content/images/workflow-editor.png)
+![RestFlow Workflow Execution](./docs/content/images/workflow-execution.gif)
 
 ## Quick Start
 
