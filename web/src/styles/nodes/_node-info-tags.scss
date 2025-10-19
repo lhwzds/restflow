@@ -1,6 +1,4 @@
-// Shared mixin for node info tags to avoid duplication
 @mixin node-info-tags() {
-  // Node info bar - independent tags styles
   .node-info-tags {
     position: absolute;
     bottom: -22px;
@@ -23,12 +21,10 @@
     white-space: nowrap;
     color: var(--rf-color-text-secondary);
 
-    // Hover state - show RestFlow orange color
     &:hover:not(.active) {
       color: var(--rf-color-primary);
     }
 
-    // Active state - show with background and border
     &.active {
       background: var(--rf-color-bg-container);
       border-color: var(--rf-color-border-base);

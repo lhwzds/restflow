@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import type { NodeProps } from '@vue-flow/core'
 import { Webhook, Lock } from 'lucide-vue-next'
+import { ElTooltip } from 'element-plus'
 import BaseNode from '@/components/nodes/BaseNode.vue'
-import BaseTriggerNode from './BaseTriggerNode.vue'
+import { useTestWorkflow } from '@/composables/trigger/useTestWorkflow'
 
 interface WebhookTriggerData {
   label?: string
@@ -20,31 +21,45 @@ const emit = defineEmits<{
   'test-node': []
   'updateNodeInternals': [nodeId: string]
 }>()
+
+const { testWorkflow, isButtonDisabled, buttonLabel, buttonTooltip } = useTestWorkflow()
 </script>
 
 <template>
-  <BaseTriggerNode>
-    <BaseNode
-      :node-props="props"
-      node-class="webhook-trigger-node"
-      default-label="Webhook"
-      action-button-tooltip="Test Webhook"
-      @open-config="emit('open-config')"
-      @action-button="emit('test-node')"
-      @updateNodeInternals="emit('updateNodeInternals', $event)"
-    >
-      <template #icon>
-        <Webhook :size="24" />
-        <Lock :size="12" class="icon-decoration" />
-      </template>
+  <BaseNode
+    :node-props="props"
+    :show-input-handle="false"
+    :action-button-disabled="isButtonDisabled"
+    node-class="webhook-trigger-node"
+    default-label="Webhook"
+    action-button-tooltip="Test Webhook"
+    @open-config="emit('open-config')"
+    @action-button="emit('test-node')"
+    @updateNodeInternals="emit('updateNodeInternals', $event)"
+  >
+    <template #icon>
+      <Webhook :size="24" />
+      <Lock :size="12" class="icon-decoration" />
+    </template>
 
-      <template #badge>
-        <div v-if="props.data?.path" class="path-badge">
-          {{ props.data.path }}
-        </div>
-      </template>
-    </BaseNode>
-  </BaseTriggerNode>
+    <template #badge>
+      <div v-if="props.data?.path" class="path-badge">
+        {{ props.data.path }}
+      </div>
+    </template>
+
+    <template #extra-actions>
+      <ElTooltip :content="buttonTooltip" placement="left">
+        <button
+          class="test-workflow-button"
+          :disabled="isButtonDisabled"
+          @click="testWorkflow"
+        >
+          {{ buttonLabel }}
+        </button>
+      </ElTooltip>
+    </template>
+  </BaseNode>
 </template>
 
 <style lang="scss">
@@ -90,5 +105,39 @@ $node-color: var(--rf-color-primary);
   border-radius: var(--rf-radius-small);
   display: inline-block;
   font-weight: var(--rf-font-weight-medium);
+}
+
+.test-workflow-button {
+  padding: var(--rf-spacing-2xs) var(--rf-spacing-sm);
+  border-radius: var(--rf-radius-base);
+  background: var(--rf-gradient-primary);
+  border: none;
+  color: var(--rf-color-white);
+  font-size: var(--rf-font-size-xs);
+  font-weight: var(--rf-font-weight-medium);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--rf-transition-fast);
+  box-shadow: var(--rf-shadow-base);
+  white-space: nowrap;
+
+  &:hover:not(:disabled) {
+    transform: translateY(-2px);
+    box-shadow: var(--rf-shadow-md);
+    background: var(--rf-gradient-primary-dark);
+  }
+
+  &:active:not(:disabled) {
+    transform: translateY(0);
+    box-shadow: var(--rf-shadow-sm);
+  }
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    background: var(--rf-color-primary-disabled);
+  }
 }
 </style>

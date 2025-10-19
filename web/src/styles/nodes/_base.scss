@@ -1,5 +1,3 @@
-// Node-specific mixins
-
 @use 'sass:color';
 
 @mixin node-base($width: var(--rf-size-md), $min-height: var(--rf-size-base)) {
@@ -13,10 +11,7 @@
   }
 }
 
-// Creates a modern glassmorphism aesthetic
-// Combines translucent background with backdrop blur for depth perception
 @mixin node-glass($primary-color) {
-  // Use CSS variables for theming
   background: linear-gradient(
     135deg,
     var(--rf-color-surface-primary),
@@ -35,48 +30,47 @@
     // Simple pulse effect for running state
     animation: pulse-subtle 2s ease-in-out infinite;
   }
-  
+
   &.execution-completed {
     .node-body {
-      border-color: var(--rf-color-success-border);
+      border-color: var(--rf-color-success-border) !important;
       box-shadow:
         0 4px 16px var(--rf-color-success-shadow),
-        inset 0 0 0 1px var(--rf-color-success-border-light);
-        
+        inset 0 0 0 1px var(--rf-color-success-border-light) !important;
+
       &::before {
-        background: var(--rf-color-success);
+        background: var(--rf-color-success) !important;
       }
     }
   }
-  
+
   &.execution-failed {
     .node-body {
-      border-color: var(--rf-color-danger);
+      border-color: var(--rf-color-danger) !important;
       background: linear-gradient(
         135deg,
         var(--rf-color-danger-bg-light),
         var(--rf-color-danger-bg-lighter)
-      );
+      ) !important;
       box-shadow:
         0 4px 16px var(--rf-color-danger-shadow),
-        inset 0 0 0 1px var(--rf-color-danger-shadow);
-        
+        inset 0 0 0 1px var(--rf-color-danger-shadow) !important;
+
       :global(html.dark) & {
         background: linear-gradient(
           135deg,
           rgba(239, 68, 68, 0.15),
           rgba(239, 68, 68, 0.1)
-        );
+        ) !important;
       }
-        
+
       &::before {
-        background: var(--rf-color-danger);
+        background: var(--rf-color-danger) !important;
       }
     }
   }
 }
 
-// Node animations
 @keyframes pulse-subtle {
   0%, 100% {
     opacity: 1;
@@ -86,7 +80,6 @@
   }
 }
 
-// Pulse effect (for trigger nodes)
 @keyframes pulse {
   0%, 100% {
     transform: scale(1);
@@ -135,8 +128,7 @@
   .node-path {
     font-family: 'Monaco', 'Consolas', monospace;
   }
-  
-  // Legacy execution time styles, kept for compatibility
+
   .execution-time {
     position: absolute;
     bottom: -18px;
@@ -160,9 +152,9 @@
     left: 0;
     right: 0;
     height: 2px;
-    background: linear-gradient(90deg, 
+    background: linear-gradient(90deg,
       $color,
-      color.adjust($color, $lightness: 5%)  // Subtle gradient for visual depth
+      color.adjust($color, $lightness: 5%)
     );
   }
 }

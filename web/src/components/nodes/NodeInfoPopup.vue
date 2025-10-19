@@ -1,39 +1,39 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, inject } from 'vue'
 import { onClickOutside } from '@vueuse/core'
-import type { NodeExecutionResult } from '@/stores/executionStore'
+import type { useNodeInfoPopup } from '@/composables/node/useNodeInfoPopup'
+import { useNodeExecutionStatus } from '@/composables/node/useNodeExecutionStatus'
 
 export type PopupType = 'time' | 'input' | 'output'
 
-interface Props {
-  visible: boolean
-  type: PopupType
-  data: NodeExecutionResult | null
-  position: { x: number; y: number }
-}
+// Inject popup state from BaseNode
+const popupState = inject<ReturnType<typeof useNodeInfoPopup>>('nodePopupState')!
+const {
+  popupVisible,
+  popupType,
+  popupPosition,
+  nodeResult,
+  closePopup
+} = popupState
 
-const props = defineProps<Props>()
-const emit = defineEmits<{
-  close: []
-}>()
+const executionStatus = useNodeExecutionStatus()
 
 const popupRef = ref<HTMLElement>()
 
-// Close when clicking outside
 onClickOutside(popupRef, () => {
-  if (props.visible) {
-    emit('close')
+  if (popupVisible.value) {
+    closePopup()
   }
 })
 
-// Calculate popup styles
 const popupStyle = computed(() => ({
-  left: `${props.position.x}px`,
-  top: `${props.position.y}px`,
-  display: props.visible ? 'block' : 'none'
+  left: `${popupPosition.value.x}px`,
+  top: `${popupPosition.value.y}px`,
+  display: popupVisible.value ? 'block' : 'none'
 }))
 
-// Format time
+const data = computed(() => nodeResult())
+
 const formatTime = (timestamp: number) => {
   const date = new Date(timestamp)
   const time = date.toLocaleTimeString('en-US', {
@@ -45,43 +45,34 @@ const formatTime = (timestamp: number) => {
   return `${time}.${ms}`
 }
 
-// Format duration
-const formatDuration = (ms: number) => {
-  if (ms < 1000) return `${ms}ms`
-  if (ms < 60000) return `${(ms / 1000).toFixed(2)}s`
-  return `${Math.floor(ms / 60000)}m ${((ms % 60000) / 1000).toFixed(0)}s`
-}
-
-// Format JSON
 const formatJson = (data: any) => {
   if (!data) return 'null'
   if (typeof data === 'string') return data
   return JSON.stringify(data, null, 2)
 }
 
-// Calculate display content based on type
 const content = computed(() => {
-  if (!props.data) return null
+  const result = data.value
+  if (!result) return null
 
-  switch (props.type) {
+  switch (popupType.value) {
     case 'time':
       return {
-        startTime: props.data.startTime ? formatTime(props.data.startTime) : '-',
-        endTime: props.data.endTime ? formatTime(props.data.endTime) : '-',
-        duration: props.data.executionTime ? formatDuration(props.data.executionTime) : '-'
+        startTime: result.startTime ? formatTime(result.startTime) : '-',
+        endTime: result.endTime ? formatTime(result.endTime) : '-',
+        duration: result.executionTime ? executionStatus.formatExecutionTime(result.executionTime) : '-'
       }
     case 'input':
-      return formatJson(props.data.input)
+      return formatJson(result.input)
     case 'output':
-      return formatJson(props.data.output)
+      return formatJson(result.output)
     default:
       return null
   }
 })
 
-// Popup title
 const title = computed(() => {
-  switch (props.type) {
+  switch (popupType.value) {
     case 'time': return 'Execution Time'
     case 'input': return 'Input Data'
     case 'output': return 'Output Data'
@@ -93,19 +84,18 @@ const title = computed(() => {
 <template>
   <Teleport to="body">
     <div
-      v-if="visible"
+      v-if="popupVisible"
       ref="popupRef"
       class="node-info-popup"
       :style="popupStyle"
     >
       <div class="popup-header">
         <span class="popup-title">{{ title }}</span>
-        <button class="popup-close" @click="$emit('close')">✕</button>
+        <button class="popup-close" @click="closePopup">✕</button>
       </div>
 
       <div class="popup-content">
-        <!-- Time information -->
-        <template v-if="type === 'time' && content && typeof content === 'object' && 'startTime' in content">
+        <template v-if="popupType === 'time' && content && typeof content === 'object' && 'startTime' in content">
           <div class="time-info">
             <div class="time-row">
               <span class="time-label">Start Time:</span>
@@ -122,12 +112,10 @@ const title = computed(() => {
           </div>
         </template>
 
-        <!-- JSON data -->
-        <template v-else-if="(type === 'input' || type === 'output') && content">
+        <template v-else-if="(popupType === 'input' || popupType === 'output') && content">
           <pre class="json-content">{{ content }}</pre>
         </template>
 
-        <!-- Empty data -->
         <template v-else>
           <div class="empty-content">No data available</div>
         </template>
@@ -151,7 +139,6 @@ const title = computed(() => {
   display: flex;
   flex-direction: column;
 
-  // Add small triangle arrow effect pointing to tag
   &::before {
     content: '';
     position: absolute;

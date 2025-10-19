@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import type { NodeProps } from '@vue-flow/core'
 import { Clock, Calendar } from 'lucide-vue-next'
+import { ElTooltip } from 'element-plus'
 import BaseNode from '@/components/nodes/BaseNode.vue'
-import BaseTriggerNode from './BaseTriggerNode.vue'
+import { useTestWorkflow } from '@/composables/trigger/useTestWorkflow'
 
 interface ScheduleTriggerData {
   label?: string
@@ -18,11 +19,11 @@ const emit = defineEmits<{
   'updateNodeInternals': [nodeId: string]
 }>()
 
-// Format the cron expression into a human-friendly string
+const { testWorkflow, isButtonDisabled, buttonLabel, buttonTooltip } = useTestWorkflow()
+
 const formatCron = (cron?: string): string => {
   if (!cron) return 'Not configured'
 
-  // Basic cron expression recognition
   const patterns: Record<string, string> = {
     '* * * * *': 'Every minute',
     '0 * * * *': 'Every hour',
@@ -37,33 +38,45 @@ const formatCron = (cron?: string): string => {
 </script>
 
 <template>
-  <BaseTriggerNode>
-    <BaseNode
-      :node-props="props"
-      node-class="schedule-trigger-node"
-      default-label="Schedule"
-      action-button-tooltip="Test Schedule"
-      @open-config="emit('open-config')"
-      @action-button="emit('test-node')"
-      @updateNodeInternals="emit('updateNodeInternals', $event)"
-    >
-      <template #icon>
-        <Clock :size="24" />
-        <Calendar :size="12" class="icon-decoration" />
-      </template>
+  <BaseNode
+    :node-props="props"
+    :show-input-handle="false"
+    :action-button-disabled="isButtonDisabled"
+    node-class="schedule-trigger-node"
+    default-label="Schedule"
+    action-button-tooltip="Test Schedule"
+    @open-config="emit('open-config')"
+    @action-button="emit('test-node')"
+    @updateNodeInternals="emit('updateNodeInternals', $event)"
+  >
+    <template #icon>
+      <Clock :size="24" />
+      <Calendar :size="12" class="icon-decoration" />
+    </template>
 
-      <template #badge>
-        <div class="schedule-info">
-          <div v-if="props.data?.cron" class="cron-badge">
-            {{ formatCron(props.data.cron) }}
-          </div>
-          <div v-if="props.data?.timezone" class="timezone-badge">
-            {{ props.data.timezone }}
-          </div>
+    <template #badge>
+      <div class="schedule-info">
+        <div v-if="props.data?.cron" class="cron-badge">
+          {{ formatCron(props.data.cron) }}
         </div>
-      </template>
-    </BaseNode>
-  </BaseTriggerNode>
+        <div v-if="props.data?.timezone" class="timezone-badge">
+          {{ props.data.timezone }}
+        </div>
+      </div>
+    </template>
+
+    <template #extra-actions>
+      <ElTooltip :content="buttonTooltip" placement="left">
+        <button
+          class="test-workflow-button"
+          :disabled="isButtonDisabled"
+          @click="testWorkflow"
+        >
+          {{ buttonLabel }}
+        </button>
+      </ElTooltip>
+    </template>
+  </BaseNode>
 </template>
 
 <style lang="scss">
@@ -128,5 +141,39 @@ $node-color: var(--rf-color-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.test-workflow-button {
+  padding: var(--rf-spacing-2xs) var(--rf-spacing-sm);
+  border-radius: var(--rf-radius-base);
+  background: var(--rf-gradient-primary);
+  border: none;
+  color: var(--rf-color-white);
+  font-size: var(--rf-font-size-xs);
+  font-weight: var(--rf-font-weight-medium);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--rf-transition-fast);
+  box-shadow: var(--rf-shadow-base);
+  white-space: nowrap;
+
+  &:hover:not(:disabled) {
+    transform: translateY(-2px);
+    box-shadow: var(--rf-shadow-md);
+    background: var(--rf-gradient-primary-dark);
+  }
+
+  &:active:not(:disabled) {
+    transform: translateY(0);
+    box-shadow: var(--rf-shadow-sm);
+  }
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    background: var(--rf-color-primary-disabled);
+  }
 }
 </style>
