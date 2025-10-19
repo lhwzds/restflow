@@ -1,12 +1,12 @@
 <script setup lang="ts">
-import { Close, EditPen, VideoPause, VideoPlay } from '@element-plus/icons-vue'
-import { ElButton, ElCard, ElInput, ElMessage, ElTooltip } from 'element-plus'
+import { Close, EditPen } from '@element-plus/icons-vue'
+import { ElButton, ElCard, ElInput, ElMessage, ElSwitch, ElTooltip } from 'element-plus'
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useWorkflowList } from '@/composables/list/useWorkflowList'
 import { useWorkflowTriggers } from '@/composables/triggers/useWorkflowTriggers'
 import type { Workflow } from '@/types/generated/Workflow'
-import { VALIDATION_MESSAGES, SUCCESS_MESSAGES, ERROR_MESSAGES } from '@/constants'
+import { VALIDATION_MESSAGES, ERROR_MESSAGES } from '@/constants'
 
 interface Props {
   workflow: Workflow
@@ -29,6 +29,7 @@ const { activateTrigger, deactivateTrigger } = useWorkflowTriggers()
 
 const isEditing = ref(false)
 const editingName = ref('')
+const isSwitching = ref(false)
 
 function handleCardClick() {
   emit('select')
@@ -95,20 +96,19 @@ async function handleDelete(event: Event) {
   }
 }
 
-async function handleToggleTrigger(event: Event, value: boolean) {
-  event.stopPropagation()
-  
+async function handleToggleTrigger(value: string | number | boolean) {
+  isSwitching.value = true
   try {
     if (value) {
       await activateTrigger(props.workflow.id)
-      ElMessage.success(SUCCESS_MESSAGES.TRIGGER_ACTIVATED)
     } else {
       await deactivateTrigger(props.workflow.id)
-      ElMessage.success(SUCCESS_MESSAGES.TRIGGER_DEACTIVATED)
     }
     emit('updated')
   } catch (error) {
     ElMessage.error(ERROR_MESSAGES.UNKNOWN_ERROR)
+  } finally {
+    isSwitching.value = false
   }
 }
 </script>
@@ -142,20 +142,7 @@ async function handleToggleTrigger(event: Event, value: boolean) {
               @click="startRename"
             />
           </ElTooltip>
-          <ElTooltip
-            v-if="hasTrigger && !isEditing"
-            :content="isActive ? 'Pause trigger' : 'Start trigger'"
-          >
-            <ElButton
-              :icon="isActive ? VideoPause : VideoPlay"
-              circle
-              plain
-              :type="isActive ? 'success' : 'warning'"
-              size="small"
-              class="trigger-btn"
-              @click="(e) => handleToggleTrigger(e, !isActive)"
-            />
-          </ElTooltip>
+
           <ElTooltip v-if="!isEditing" content="Delete workflow">
             <ElButton
               :icon="Close"
@@ -171,9 +158,26 @@ async function handleToggleTrigger(event: Event, value: boolean) {
       </div>
 
       <div class="metadata">
-        <span>{{ workflow.nodes?.length || 0 }} nodes</span>
-        <span v-if="workflow.edges?.length" class="dot">•</span>
-        <span v-if="workflow.edges?.length">{{ workflow.edges.length }} connections</span>
+        <div class="metadata-info">
+          <span>{{ workflow.nodes?.length || 0 }} nodes</span>
+          <span v-if="workflow.edges?.length" class="dot">•</span>
+          <span v-if="workflow.edges?.length">{{ workflow.edges.length }} connections</span>
+        </div>
+
+        <!-- Trigger toggle switch - bottom right -->
+        <ElTooltip
+          v-if="hasTrigger"
+          :content="isActive ? 'Deactivate workflow' : 'Activate workflow'"
+          placement="top"
+        >
+          <div class="trigger-switch-wrapper" @click.stop>
+            <ElSwitch
+              :model-value="isActive"
+              :loading="isSwitching"
+              @change="handleToggleTrigger"
+            />
+          </div>
+        </ElTooltip>
       </div>
     </div>
   </ElCard>
@@ -250,32 +254,29 @@ async function handleToggleTrigger(event: Event, value: boolean) {
   }
 }
 
-.trigger-btn.is-success {
-  animation: pulse 2s infinite;
-}
-
-@keyframes pulse {
-  0% {
-    box-shadow: 0 0 0 0 var(--rf-color-success-light);
-  }
-  70% {
-    box-shadow: 0 0 0 6px transparent;
-  }
-  100% {
-    box-shadow: 0 0 0 0 transparent;
-  }
-}
-
 .metadata {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: auto;
+  gap: var(--rf-spacing-md);
+}
+
+.metadata-info {
   font-size: var(--rf-font-size-xs);
   color: var(--rf-color-text-secondary);
   display: flex;
   align-items: center;
   gap: var(--rf-spacing-xs);
-  margin-top: auto;
 
   .dot {
     color: var(--rf-color-text-placeholder);
   }
+}
+
+.trigger-switch-wrapper {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
 }
 </style>

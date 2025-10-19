@@ -3,7 +3,7 @@ import type { Node as VueFlowNode } from '@vue-flow/core'
 import type { Node as BackendNode } from '@/types/generated/Node'
 
 // Union type to handle different node formats
-type AnyNode = VueFlowNode | BackendNode | { type?: string; node_type?: NodeType }
+export type AnyNode = VueFlowNode | BackendNode | { type?: string; node_type?: NodeType }
 
 // Trigger node types
 const TRIGGER_TYPES: NodeType[] = [

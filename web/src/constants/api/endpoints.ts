@@ -21,12 +21,13 @@ export const API_ENDPOINTS = {
     DELETE: (id: string) => `${API_PREFIX}/workflows/${id}` as const,
   },
 
-  // Execution operations 
+  // Execution operations
   EXECUTION: {
     SYNC_RUN: `${API_PREFIX}/workflows/execute`,
     SYNC_RUN_BY_ID: (id: string) => `${API_PREFIX}/workflows/${id}/execute` as const,
     ASYNC_SUBMIT: (id: string) => `${API_PREFIX}/workflows/${id}/executions` as const,
     STATUS: (id: string) => `${API_PREFIX}/executions/${id}` as const,
+    HISTORY: (id: string) => `${API_PREFIX}/workflows/${id}/executions` as const,
   },
 
   // Task management 
