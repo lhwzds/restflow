@@ -9,8 +9,8 @@ import { SUCCESS_MESSAGES, LOADING_MESSAGES } from '@/constants'
 export function useWorkflowTriggers() {
   const workflowStore = useWorkflowStore()
   const loading = ref(false)
-  // Use Map to manage multiple workflow trigger statuses
-  const triggerStatusMap = ref<Map<string, TriggerStatus | null>>(new Map())
+  // Use Record for reactive trigger status management
+  const triggerStatusMap = ref<Record<string, TriggerStatus | null>>({})
 
   // Check if workflow has trigger nodes - using unified helper
   const hasTriggerNode = computed(() => {
@@ -35,7 +35,7 @@ export function useWorkflowTriggers() {
       loading.value = true
       const response = await triggersApi.getTriggerStatus(workflowId)
       if (response) {
-        triggerStatusMap.value.set(workflowId, response)
+        triggerStatusMap.value = { ...triggerStatusMap.value, [workflowId]: response }
       }
       return response
     } catch (error) {
@@ -105,12 +105,12 @@ export function useWorkflowTriggers() {
   }
 
   const toggleTriggerStatus = async (workflowId: string) => {
-    const currentStatus = triggerStatusMap.value.get(workflowId)
+    const currentStatus = triggerStatusMap.value[workflowId]
     if (!currentStatus) {
       await fetchTriggerStatus(workflowId)
     }
 
-    const status = triggerStatusMap.value.get(workflowId)
+    const status = triggerStatusMap.value[workflowId]
     if (status?.is_active) {
       return await deactivateTrigger(workflowId)
     } else {
@@ -119,7 +119,7 @@ export function useWorkflowTriggers() {
   }
 
   const getTriggerStatus = (workflowId: string): TriggerStatus | undefined => {
-    return triggerStatusMap.value.get(workflowId) || undefined
+    return triggerStatusMap.value[workflowId] || undefined
   }
 
   const fetchAllTriggerStatuses = async (workflowIds: string[]) => {

@@ -47,7 +47,7 @@
           <div
             class="progress-fill"
             :style="{
-              width: `${(execution.completed_tasks / execution.total_tasks) * 100}%`
+              width: `${execution.total_tasks > 0 ? (execution.completed_tasks / execution.total_tasks) * 100 : 0}%`
             }"
           />
         </div>
