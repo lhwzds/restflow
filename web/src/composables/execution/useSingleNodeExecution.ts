@@ -51,11 +51,12 @@ export function useSingleNodeExecution() {
       const result = await testNodeExecution<any>(testRequest)
       executionResult.value = result
 
+      // Update node data without marking workflow as dirty (test execution is temporary)
       updateNodeData(nodeId, {
         lastExecutionInput: input || {},
         lastExecutionResult: executionResult.value,
         lastExecutionTime: new Date().toISOString()
-      })
+      }, false)
 
       return executionResult.value
     } catch (error: any) {
