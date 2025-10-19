@@ -214,9 +214,6 @@ function mapNodeTypeToBackend(nodeType: string): string {
   return nodeType
 }
 
-/**
- * Extract node configuration by removing UI-specific fields and keeping only execution-relevant data
- */
 function extractNodeConfig(node: Node): any {
   const { label, ...config } = node.data
 

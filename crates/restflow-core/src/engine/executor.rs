@@ -219,28 +219,24 @@ impl Worker {
             WorkflowExecutor::execute_node(node, &mut context, self.registry.clone()).await;
 
         match result {
-            Ok(output) => {
-                match self.scheduler.push_downstream_tasks(&task, output.clone()) {
-                    Ok(_) => {
-                        if let Err(e) = self.scheduler.complete_task(&task.id, output) {
-                            warn!(task_id = %task.id, error = %e, "Failed to persist task completion");
-                        } else {
-                            info!(task_id = %task.id, node_id = %task.node_id, "Task completed");
-                        }
-                    }
-                    Err(e) => {
-                        let error_msg =
-                            format!("Task succeeded but failed to push downstream: {}", e);
-                        if let Err(persist_err) =
-                            self.scheduler.fail_task(&task.id, error_msg.clone())
-                        {
-                            warn!(task_id = %task.id, error = %persist_err, "Failed to persist task failure");
-                        }
-                        error!(task_id = %task.id, error = %e, "Failed to push downstream tasks");
-                        return Err(anyhow::anyhow!(error_msg));
+            Ok(output) => match self.scheduler.push_downstream_tasks(&task, output.clone()) {
+                Ok(_) => {
+                    if let Err(e) = self.scheduler.complete_task(&task.id, output) {
+                        warn!(task_id = %task.id, error = %e, "Failed to persist task completion");
+                    } else {
+                        info!(task_id = %task.id, node_id = %task.node_id, "Task completed");
                     }
                 }
-            }
+                Err(e) => {
+                    let error_msg = format!("Task succeeded but failed to push downstream: {}", e);
+                    if let Err(persist_err) = self.scheduler.fail_task(&task.id, error_msg.clone())
+                    {
+                        warn!(task_id = %task.id, error = %persist_err, "Failed to persist task failure");
+                    }
+                    error!(task_id = %task.id, error = %e, "Failed to push downstream tasks");
+                    return Err(anyhow::anyhow!(error_msg));
+                }
+            },
             Err(error) => {
                 if let Err(e) = self.scheduler.fail_task(&task.id, error.to_string()) {
                     warn!(task_id = %task.id, error = %e, "Failed to persist task failure");

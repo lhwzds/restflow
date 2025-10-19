@@ -146,7 +146,7 @@ const title = computed(() => {
     left: 50%;
     width: 14px;
     height: 14px;
-    background: inherit; // Inherit popup background color
+    background: inherit;
     border-left: 1px solid var(--rf-color-border-base);
     border-top: 1px solid var(--rf-color-border-base);
     transform: translateX(-50%) rotate(45deg);

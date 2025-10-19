@@ -3,6 +3,7 @@ use crate::engine::graph::WorkflowGraph;
 use crate::models::{Node, Task, TaskStatus, Workflow};
 use crate::storage::{Storage, TaskQueue};
 use anyhow::Result;
+use chrono::Utc;
 use serde_json::Value;
 use std::sync::Arc;
 use uuid::Uuid;
@@ -40,6 +41,12 @@ impl Scheduler {
 
         let _ = task.set_workflow(workflow);
 
+        self.storage.execution_history.record_task_created(
+            &task.workflow_id,
+            &task.execution_id,
+            task.created_at,
+        )?;
+
         let priority = task.priority();
         let serialized = serde_json::to_vec(&task)?;
         self.queue.insert_pending(priority, &task_id, &serialized)?;
@@ -50,6 +57,12 @@ impl Scheduler {
     pub fn push_single_node(&self, node: Node, input: Value) -> Result<String> {
         let task = Task::for_single_node(node, input);
         let task_id = task.id.clone();
+
+        self.storage.execution_history.record_task_created(
+            &task.workflow_id,
+            &task.execution_id,
+            task.created_at,
+        )?;
 
         let priority = task.priority();
         let serialized = serde_json::to_vec(&task)?;
@@ -177,6 +190,25 @@ impl Scheduler {
 
             let serialized = serde_json::to_vec(&task)?;
             self.queue.move_to_completed(task_id, &serialized)?;
+
+            let timestamp_ms = Utc::now().timestamp_millis();
+            match status {
+                TaskStatus::Completed => {
+                    self.storage.execution_history.record_task_completed(
+                        &task.workflow_id,
+                        &task.execution_id,
+                        timestamp_ms,
+                    )?;
+                }
+                TaskStatus::Failed => {
+                    self.storage.execution_history.record_task_failed(
+                        &task.workflow_id,
+                        &task.execution_id,
+                        timestamp_ms,
+                    )?;
+                }
+                _ => {}
+            }
         }
 
         Ok(())

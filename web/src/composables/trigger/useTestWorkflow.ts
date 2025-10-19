@@ -5,9 +5,6 @@ import { useExecutionMonitor } from '@/composables/execution/useAsyncWorkflowExe
 import * as triggersApi from '@/api/triggers'
 import { ERROR_MESSAGES } from '@/constants'
 
-/**
- * Composable for testing workflow execution from trigger nodes
- */
 export function useTestWorkflow() {
   const { ensureSaved } = useEnsureWorkflowSaved()
   const { isExecuting, monitorExecution } = useExecutionMonitor()
