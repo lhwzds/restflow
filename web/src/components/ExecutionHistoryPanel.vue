@@ -95,7 +95,7 @@ const {
 } = useExecutionHistory(workflowIdRef)
 
 const truncateId = (id: string): string => {
-  return id.length > 12 ? `${id.substring(0, 12)}...` : id
+  return id.length > 18 ? `${id.substring(0, 18)}…` : id
 }
 
 const isTestExecution = (executionId: string): boolean => {
