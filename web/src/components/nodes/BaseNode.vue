@@ -20,7 +20,7 @@ interface BaseNodeProps {
 }
 
 const props = withDefaults(defineProps<BaseNodeProps>(), {
-  nodeClass: 'base-node',
+  nodeClass: '',
   defaultLabel: 'Node',
   actionButtonTooltip: 'Test Node',
   showActionButton: true,
@@ -57,7 +57,7 @@ const onMouseLeave = () => {
 
 <template>
   <div
-    :class="[nodeClass, statusClass]"
+    :class="['base-node', nodeClass, statusClass]"
     @mouseenter="onMouseEnter"
     @mouseleave="onMouseLeave"
   >
@@ -97,6 +97,10 @@ const onMouseLeave = () => {
         <slot name="extra-actions" />
       </template>
     </NodeActions>
+
+    <div v-if="$slots['left-actions']" class="left-actions">
+      <slot name="left-actions" />
+    </div>
 
     <Handle
       v-if="showOutputHandle"
@@ -153,6 +157,20 @@ const onMouseLeave = () => {
 
   &.output-handle {
     right: -4px;
+  }
+}
+
+.left-actions {
+  position: absolute;
+  top: 50%;
+  left: calc(-1 * var(--rf-spacing-2xl));
+  transform: translate(-100%, -50%);
+  display: flex;
+  flex-direction: column;
+  gap: var(--rf-spacing-xs);
+
+  button {
+    white-space: nowrap;
   }
 }
 </style>

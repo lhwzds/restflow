@@ -25,7 +25,6 @@ const { testWorkflow, isButtonDisabled, buttonLabel, buttonTooltip } = useTestWo
   <BaseNode
     :node-props="props"
     :show-input-handle="false"
-    :action-button-disabled="isButtonDisabled"
     node-class="manual-trigger-node"
     default-label="Manual Trigger"
     action-button-tooltip="Test Trigger"
@@ -46,7 +45,7 @@ const { testWorkflow, isButtonDisabled, buttonLabel, buttonTooltip } = useTestWo
       </div>
     </template>
 
-    <template #extra-actions>
+    <template #left-actions>
       <ElTooltip :content="buttonTooltip" placement="left">
         <button
           class="test-workflow-button"

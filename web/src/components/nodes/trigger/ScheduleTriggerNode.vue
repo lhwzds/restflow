@@ -41,7 +41,6 @@ const formatCron = (cron?: string): string => {
   <BaseNode
     :node-props="props"
     :show-input-handle="false"
-    :action-button-disabled="isButtonDisabled"
     node-class="schedule-trigger-node"
     default-label="Schedule"
     action-button-tooltip="Test Schedule"
@@ -65,7 +64,7 @@ const formatCron = (cron?: string): string => {
       </div>
     </template>
 
-    <template #extra-actions>
+    <template #left-actions>
       <ElTooltip :content="buttonTooltip" placement="left">
         <button
           class="test-workflow-button"
