@@ -59,7 +59,7 @@ export const agentHandlers = [
       id: body.id || 'demo-agent-' + Date.now(),
       name: body.name || 'Untitled Agent',
       agent: body.agent || {
-        model: 'gpt-4',
+        model: 'claude-sonnet-4.5',
         prompt: null,
         temperature: null,
         api_key_config: null,

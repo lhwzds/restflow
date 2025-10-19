@@ -4,8 +4,11 @@ use axum::{
     extract::{Path, State},
     http::Method,
 };
-use restflow_core::engine::trigger_manager::{TriggerStatus, WebhookResponse};
-use restflow_core::models::TriggerConfig;
+use restflow_core::{
+    engine::trigger_manager::{TriggerStatus, WebhookResponse},
+    models::TriggerConfig,
+    services::triggers as trigger_service,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -122,14 +125,7 @@ pub async fn test_workflow_trigger(
     Path(workflow_id): Path<String>,
     Json(payload): Json<Value>,
 ) -> Json<ApiResponse<TestTriggerResponse>> {
-    // Generate test- prefixed execution_id to distinguish from real executions
-    let test_execution_id = format!("test-{}", uuid::Uuid::new_v4());
-
-    match state
-        .executor
-        .submit_with_execution_id(workflow_id, payload, test_execution_id)
-        .await
-    {
+    match trigger_service::test_workflow_trigger(&state, &workflow_id, payload).await {
         Ok(execution_id) => Json(ApiResponse::ok_with_message(
             TestTriggerResponse { execution_id },
             "Test execution started",

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useSlots, computed } from 'vue'
 import { ElHeader, ElButton } from 'element-plus'
 import { Sun, Moon, Github } from 'lucide-vue-next'
 import { useTheme } from '../../composables/useTheme'
@@ -8,11 +9,14 @@ defineProps<{
 }>()
 
 const { isDark, toggleDark } = useTheme()
+
+const slots = useSlots()
+const hasLeftActions = computed(() => !!slots['left-actions'])
 </script>
 
 <template>
-  <el-header class="header-bar">
-    <div class="header-left">
+  <el-header class="header-bar" :class="{ 'has-left-content': hasLeftActions }">
+    <div v-if="hasLeftActions" class="header-left">
       <slot name="left-actions" />
     </div>
 
@@ -51,14 +55,19 @@ const { isDark, toggleDark } = useTheme()
 <style lang="scss" scoped>
 .header-bar {
   height: var(--rf-size-sm);
-  display: grid;
-  grid-template-columns: auto 1fr auto;
+  display: flex;
+  justify-content: space-between;
   align-items: center;
   gap: var(--rf-spacing-lg);
   padding: 0 var(--rf-spacing-xl);
   background: var(--rf-color-bg-container, #fff);
   border-bottom: 1px solid var(--rf-color-border-base);
   transition: background-color 0.3s;
+
+  &.has-left-content {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+  }
 }
 
 .header-left {
@@ -72,14 +81,16 @@ const { isDark, toggleDark } = useTheme()
   font-size: var(--rf-font-size-2xl);
   font-weight: var(--rf-font-weight-semibold);
   color: var(--rf-color-text-primary);
-  justify-self: center;
+
+  .has-left-content & {
+    justify-self: center;
+  }
 }
 
 .header-actions {
   display: flex;
   align-items: center;
   gap: var(--rf-spacing-md);
-  justify-self: end;
 
   :deep(.search-input) {
     width: var(--rf-size-xl);

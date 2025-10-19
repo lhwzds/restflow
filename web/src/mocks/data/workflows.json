@@ -16,7 +16,7 @@
         "id": "agent-1",
         "node_type": "Agent",
         "config": {
-          "model": "gpt-4",
+          "model": "claude-sonnet-4.5",
           "prompt": "Please generate a concise summary (no more than 100 words) for the following content:\n\n{{trigger.data.text}}",
           "temperature": 0.7
         },
@@ -32,6 +32,16 @@
     "name": "Data Processing Pipeline",
     "nodes": [
       {
+        "id": "schedule-trigger-1",
+        "node_type": "ScheduleTrigger",
+        "config": {
+          "cron": "0 10 * * *",
+          "timezone": "UTC",
+          "payload": {}
+        },
+        "position": { "x": 100, "y": 150 }
+      },
+      {
         "id": "http-1",
         "node_type": "HttpRequest",
         "config": {
@@ -41,20 +51,21 @@
             "Accept": "application/json"
           }
         },
-        "position": { "x": 100, "y": 150 }
+        "position": { "x": 350, "y": 150 }
       },
       {
         "id": "agent-2",
         "node_type": "Agent",
         "config": {
-          "model": "gpt-3.5-turbo",
+          "model": "claude-sonnet-4.5",
           "prompt": "Analyze the following GitHub repository data and generate a brief report (project name, stars count, description):\n\n{{node.http-1}}",
           "temperature": 0.5
         },
-        "position": { "x": 450, "y": 150 }
+        "position": { "x": 600, "y": 150 }
       }
     ],
     "edges": [
+      { "from": "schedule-trigger-1", "to": "http-1" },
       { "from": "http-1", "to": "agent-2" }
     ]
   },
@@ -72,7 +83,7 @@
         "id": "agent-3",
         "node_type": "Agent",
         "config": {
-          "model": "gpt-4",
+          "model": "claude-sonnet-4.5",
           "prompt": "Generate a 3-point article outline for the topic: {{trigger.data.topic}}",
           "temperature": 0.8
         },
@@ -82,7 +93,7 @@
         "id": "agent-4",
         "node_type": "Agent",
         "config": {
-          "model": "gpt-4",
+          "model": "claude-sonnet-4.5",
           "prompt": "Expand the following outline into a complete article (200 words per point):\n\n{{node.agent-3}}",
           "temperature": 0.7
         },
@@ -92,7 +103,7 @@
         "id": "agent-5",
         "node_type": "Agent",
         "config": {
-          "model": "gpt-4",
+          "model": "claude-sonnet-4.5",
           "prompt": "Polish the following article to make it more fluent and professional:\n\n{{node.agent-4}}",
           "temperature": 0.6
         },

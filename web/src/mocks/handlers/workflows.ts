@@ -1,9 +1,95 @@
 import { http, HttpResponse } from 'msw'
+import type { Task } from '@/types/generated/Task'
 import type { Workflow } from '@/types/generated/Workflow'
 import demoWorkflows from '../data/workflows.json'
-import { createExecutionTasks } from './executions'
+import { createExecutionTasks, getExecutionSnapshots } from './executions'
 
 let workflows = [...demoWorkflows] as Workflow[]
+
+interface TriggerState {
+  is_active: boolean
+  trigger_count: number
+  last_triggered_at: number | null
+  activated_at: number
+}
+
+const triggerStates = new Map<string, TriggerState>([
+  ['demo-ai-summarizer', {
+    is_active: true,
+    trigger_count: 12,
+    last_triggered_at: Date.now() - 3600000,
+    activated_at: Date.now() - 86400000 * 3
+  }],
+  ['demo-data-pipeline', {
+    is_active: false,
+    trigger_count: 0,
+    last_triggered_at: null,
+    activated_at: 0
+  }],
+  ['demo-multi-step', {
+    is_active: false,
+    trigger_count: 0,
+    last_triggered_at: null,
+    activated_at: 0
+  }]
+])
+
+const toMillis = (value: bigint | number | null | undefined): number | null => {
+  if (value === null || value === undefined) return null
+  return typeof value === 'bigint' ? Number(value) : value
+}
+
+const buildExecutionSummary = (workflowId: string, executionId: string, tasks: Task[]) => {
+  if (tasks.length === 0) {
+    const now = Date.now()
+    return {
+      execution_id: executionId,
+      workflow_id: workflowId,
+      status: 'Running' as const,
+      started_at: now,
+      completed_at: null,
+      total_tasks: 0,
+      completed_tasks: 0,
+      failed_tasks: 0,
+    }
+  }
+
+  const totalTasks = tasks.length
+  const completedTasks = tasks.filter(t => t.status === 'Completed').length
+  const failedTasks = tasks.filter(t => t.status === 'Failed').length
+  const runningTasks = tasks.filter(t => t.status === 'Running').length
+
+  const status =
+    failedTasks > 0 && runningTasks === 0 && completedTasks + failedTasks === totalTasks
+      ? ('Failed' as const)
+      : completedTasks === totalTasks
+        ? ('Completed' as const)
+        : ('Running' as const)
+
+  const startTimes = tasks.map(
+    task => toMillis(task.started_at) ?? toMillis(task.created_at) ?? Date.now()
+  )
+  const startedAt = startTimes.length > 0 ? Math.min(...startTimes) : Date.now()
+
+  let completedAt: number | null = null
+  if (status !== 'Running') {
+    const endTimes = tasks
+      .map(task => toMillis(task.completed_at))
+      .filter((value): value is number => value !== null)
+    completedAt = endTimes.length > 0 ? Math.max(...endTimes) : startedAt
+  }
+
+  return {
+    execution_id: executionId,
+    workflow_id: workflowId,
+    status,
+    started_at: startedAt,
+    completed_at: completedAt,
+    total_tasks: totalTasks,
+    completed_tasks: completedTasks,
+    failed_tasks: failedTasks,
+  }
+}
 
 export const workflowHandlers = [
   http.get('/api/workflows', () => {
@@ -139,43 +225,15 @@ export const workflowHandlers = [
       )
     }
 
-    const now = Date.now()
-    const mockExecutions = [
-      {
-        execution_id: 'exec-' + (now - 300000),
-        workflow_id: workflowId,
-        status: 'Completed' as const,
-        started_at: now - 300000,
-        completed_at: now - 295000,
-        total_tasks: 3,
-        completed_tasks: 3,
-        failed_tasks: 0
-      },
-      {
-        execution_id: 'test-' + crypto.randomUUID(),
-        workflow_id: workflowId,
-        status: 'Completed' as const,
-        started_at: now - 600000,
-        completed_at: now - 590000,
-        total_tasks: 3,
-        completed_tasks: 3,
-        failed_tasks: 0
-      },
-      {
-        execution_id: 'exec-' + (now - 900000),
-        workflow_id: workflowId,
-        status: 'Failed' as const,
-        started_at: now - 900000,
-        completed_at: now - 880000,
-        total_tasks: 3,
-        completed_tasks: 2,
-        failed_tasks: 1
-      }
-    ]
+    const snapshots = getExecutionSnapshots()
+    const summaries = snapshots
+      .filter(snapshot => snapshot.tasks.some(task => task.workflow_id === workflowId))
+      .map(snapshot => buildExecutionSummary(workflowId, snapshot.executionId, snapshot.tasks))
+      .sort((a, b) => Number(b.started_at) - Number(a.started_at))
 
     return HttpResponse.json({
       success: true,
-      data: mockExecutions
+      data: summaries
     })
   }),
 
@@ -205,30 +263,112 @@ export const workflowHandlers = [
     })
   }),
 
-  http.put('/api/workflows/:id/activate', () => {
+  http.put('/api/workflows/:id/activate', ({ params }) => {
+    const workflowId = params.id as string
+    const state = triggerStates.get(workflowId)
+
+    if (!state) {
+      return HttpResponse.json(
+        {
+          success: false,
+          message: 'Workflow not found'
+        },
+        { status: 404 }
+      )
+    }
+
+    state.is_active = true
+    state.activated_at = Date.now()
+
     return HttpResponse.json({
       success: true
     })
   }),
 
-  http.put('/api/workflows/:id/deactivate', () => {
+  http.put('/api/workflows/:id/deactivate', ({ params }) => {
+    const workflowId = params.id as string
+    const state = triggerStates.get(workflowId)
+
+    if (!state) {
+      return HttpResponse.json(
+        {
+          success: false,
+          message: 'Workflow not found'
+        },
+        { status: 404 }
+      )
+    }
+
+    state.is_active = false
+
     return HttpResponse.json({
       success: true
     })
   }),
 
-  http.get('/api/workflows/:id/trigger-status', () => {
+  http.get('/api/workflows/:id/trigger-status', ({ params }) => {
+    const workflowId = params.id as string
+    const workflow = workflows.find(w => w.id === workflowId)
+
+    if (!workflow) {
+      return HttpResponse.json(
+        {
+          success: false,
+          message: 'Workflow not found'
+        },
+        { status: 404 }
+      )
+    }
+
+    const triggerNode = workflow.nodes.find(node =>
+      node.node_type === 'WebhookTrigger' ||
+      node.node_type === 'ScheduleTrigger' ||
+      node.node_type === 'ManualTrigger'
+    )
+
+    if (!triggerNode) {
+      return HttpResponse.json({
+        success: true,
+        data: null
+      })
+    }
+
+    const state = triggerStates.get(workflowId) || {
+      is_active: false,
+      trigger_count: 0,
+      last_triggered_at: null,
+      activated_at: 0
+    }
+
+    let triggerConfig: any = { type: 'manual' }
+    let webhookUrl: string | null = null
+
+    if (triggerNode.node_type === 'WebhookTrigger' && triggerNode.config) {
+      triggerConfig = {
+        type: 'webhook',
+        path: triggerNode.config.path || '/webhook/default',
+        method: triggerNode.config.method || 'POST',
+        auth: triggerNode.config.auth || null
+      }
+      webhookUrl = `/api/triggers/webhook/${triggerNode.id}`
+    } else if (triggerNode.node_type === 'ScheduleTrigger' && triggerNode.config) {
+      triggerConfig = {
+        type: 'schedule',
+        cron: triggerNode.config.cron || '0 0 * * *',
+        timezone: triggerNode.config.timezone || 'UTC',
+        payload: triggerNode.config.payload || {}
+      }
+    }
+
     return HttpResponse.json({
       success: true,
       data: {
-        is_active: false,
-        trigger_config: {
-          type: 'manual'
-        },
-        webhook_url: null,
-        trigger_count: 0,
-        last_triggered_at: null,
-        activated_at: Date.now()
+        is_active: state.is_active,
+        trigger_config: triggerConfig,
+        webhook_url: webhookUrl,
+        trigger_count: state.trigger_count,
+        last_triggered_at: state.last_triggered_at,
+        activated_at: state.activated_at
       }
     })
   }),
