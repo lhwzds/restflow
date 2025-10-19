@@ -107,10 +107,14 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   height: 100%;
-  background: var(--rf-color-bg-container);
-  border: 1px solid var(--rf-color-border-base);
-  border-radius: var(--rf-radius-base);
+  max-height: 100%;
+  background: color-mix(in srgb, var(--rf-color-bg-container) 88%, transparent);
+  border: 1px solid var(--rf-color-border-light);
+  border-radius: var(--rf-radius-large);
   overflow: hidden;
+  box-shadow: var(--rf-shadow-xl);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
 }
 
 .panel-header {
@@ -145,6 +149,7 @@ onUnmounted(() => {
 }
 
 .execution-item {
+  backdrop-filter: blur(8px);
   padding: var(--rf-spacing-md);
   margin-bottom: var(--rf-spacing-sm);
   border: 1px solid var(--rf-color-border-light);

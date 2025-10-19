@@ -199,9 +199,14 @@ onUnmounted(() => {
     </HeaderBar>
 
     <div class="editor-container">
-      <div v-if="showHistoryPanel && workflowStore.currentWorkflowId" class="left-panel">
-        <ExecutionHistoryPanel :workflow-id="workflowStore.currentWorkflowId" />
-      </div>
+      <transition name="history-panel">
+        <div
+          v-if="showHistoryPanel && workflowStore.currentWorkflowId"
+          class="left-panel"
+        >
+          <ExecutionHistoryPanel :workflow-id="workflowStore.currentWorkflowId" />
+        </div>
+      </transition>
 
       <div class="main-content">
         <Editor />
@@ -242,22 +247,31 @@ onUnmounted(() => {
 }
 
 .editor-container {
+  --header-offset: calc(60px + var(--rf-spacing-2xl, 40px));
   flex: 1;
   overflow: hidden;
   position: relative;
-  display: flex;
-  gap: var(--rf-spacing-md);
-  padding: calc(60px + var(--rf-spacing-2xl, 40px)) var(--rf-spacing-xl, 24px) var(--rf-spacing-xl, 24px);
+  padding: var(--header-offset) var(--rf-spacing-xl, 24px) var(--rf-spacing-xl, 24px);
 }
 
 .left-panel {
-  width: 300px;
-  flex-shrink: 0;
+  position: absolute;
+  top: calc(var(--header-offset) + var(--rf-spacing-md));
+  bottom: var(--rf-spacing-xl);
+  left: var(--rf-spacing-xl);
+  width: 320px;
+  height: auto;
+  z-index: 12;
+  pointer-events: auto;
   overflow: hidden;
+  border-radius: var(--rf-radius-large);
+  transition:
+    opacity var(--rf-transition-base),
+    transform var(--rf-transition-base);
 }
 
 .main-content {
-  flex: 1;
+  height: 100%;
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -316,5 +330,18 @@ onUnmounted(() => {
 
 :global(html.dark) .workflow-editor-page :deep(.workflow-header:hover) {
   box-shadow: var(--rf-shadow-xl, 0 20px 52px rgba(0, 0, 0, 0.55));
+}
+
+.history-panel-enter-from,
+.history-panel-leave-to {
+  opacity: 0;
+  transform: translateX(-20px);
+}
+
+.history-panel-enter-active,
+.history-panel-leave-active {
+  transition:
+    opacity var(--rf-transition-base),
+    transform var(--rf-transition-base);
 }
 </style>
