@@ -3,6 +3,10 @@ import { isTauri, invokeCommand } from './utils'
 import type { TriggerStatus } from '@/types/generated/TriggerStatus'
 import { API_ENDPOINTS } from '@/constants'
 
+export interface TestWorkflowResponse {
+  execution_id: string
+}
+
 export const activateWorkflow = async (id: string): Promise<void> => {
   if (isTauri()) {
     await invokeCommand('activate_workflow', { workflow_id: id })
@@ -27,14 +31,26 @@ export const getTriggerStatus = async (id: string): Promise<TriggerStatus | null
   return response.data || null
 }
 
-export const testWorkflow = async (id: string, testData?: any): Promise<any> => {
+export const testWorkflow = async (
+  id: string,
+  testData?: any
+): Promise<TestWorkflowResponse> => {
   if (isTauri()) {
-    return invokeCommand('test_workflow', {
+    return invokeCommand<TestWorkflowResponse>('test_workflow', {
       workflow_id: id,
       test_data: testData || {}
     })
   }
-  const response = await apiClient.post<any>(API_ENDPOINTS.TRIGGER.TEST(id), testData)
+  const payload = testData ?? {}
+  const response = await apiClient.post<TestWorkflowResponse>(
+    API_ENDPOINTS.TRIGGER.TEST(id),
+    payload,
+    {
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    }
+  )
   return response.data
 }
 

@@ -29,6 +29,7 @@
       >
         <div class="execution-header">
           <span class="status-icon">{{ getStatusIcon(execution.status) }}</span>
+          <span v-if="isTestExecution(execution.execution_id)" class="test-badge">Test</span>
           <span class="execution-id">{{ truncateId(execution.execution_id) }}</span>
           <span class="status-text">{{ getStatusText(execution.status) }}</span>
         </div>
@@ -82,6 +83,10 @@ const {
 
 const truncateId = (id: string): string => {
   return id.length > 12 ? `${id.substring(0, 12)}...` : id
+}
+
+const isTestExecution = (executionId: string): boolean => {
+  return executionId.startsWith('test-')
 }
 
 const handleExecutionClick = (executionId: string) => {
@@ -181,6 +186,19 @@ onUnmounted(() => {
 .status-icon {
   font-size: var(--rf-font-size-lg);
   line-height: 1;
+}
+
+.test-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: var(--rf-spacing-3xs) var(--rf-spacing-xs);
+  border-radius: var(--rf-radius-small);
+  background: var(--rf-color-warning-light);
+  color: var(--rf-color-warning);
+  font-size: var(--rf-font-size-2xs);
+  font-weight: var(--rf-font-weight-medium);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
 
 .execution-id {
