@@ -69,8 +69,8 @@ export function useWorkflowTrigger(
       }
 
       const message = action === 'activate'
-        ? SUCCESS_MESSAGES.ACTIVATED('Workflow triggers')
-        : SUCCESS_MESSAGES.DEACTIVATED('Workflow triggers')
+        ? SUCCESS_MESSAGES.WORKFLOW_ACTIVATED
+        : SUCCESS_MESSAGES.WORKFLOW_DEACTIVATED
       ElMessage.success(message)
 
       return { success: true }
