@@ -53,6 +53,20 @@ const { exportWorkflow, importWorkflow } = useWorkflowImportExport({
 const saveDialogVisible = ref(false)
 const unsavedChanges = useUnsavedChanges()
 const workflowName = computed(() => currentWorkflowMeta.value.name || 'Untitled Workflow')
+
+// Workflow name editing
+const handleWorkflowNameUpdate = (newName: string) => {
+  const trimmedName = newName.trim()
+  if (!trimmedName) return
+
+  // Only update if name has actually changed
+  if (trimmedName === workflowStore.currentWorkflowName) {
+    return
+  }
+
+  workflowStore.setWorkflowMetadata(workflowStore.currentWorkflowId, trimmedName)
+  unsavedChanges.markAsDirty()
+}
 const handleSave = async () => {
   if (!workflowStore.currentWorkflowId && !workflowStore.currentWorkflowName?.trim()) {
     saveDialogVisible.value = true
@@ -147,7 +161,13 @@ onUnmounted(() => {
 
 <template>
   <PageLayout class="workflow-editor-page" variant="fullheight" no-padding>
-    <HeaderBar class="workflow-header" :title="workflowName || 'Workflow Editor'">
+    <HeaderBar
+      class="workflow-header"
+      :title="workflowName || 'Workflow Editor'"
+      editable
+      :model-value="workflowStore.currentWorkflowName"
+      @update:model-value="handleWorkflowNameUpdate"
+    >
       <template #left-actions>
         <!-- Back button -->
         <el-tooltip content="Go back to workflow list" placement="bottom">
