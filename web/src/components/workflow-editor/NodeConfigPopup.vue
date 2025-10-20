@@ -285,7 +285,6 @@ const handleClose = () => {
             <span v-else-if="testResult" class="success">Execution Success</span>
           </div>
           <div class="footer-actions">
-            <ElButton size="small" @click="handleClose">Close</ElButton>
             <ElButton type="primary" size="small" @click="testNode" :loading="isExecuting">
               Test Node
             </ElButton>
