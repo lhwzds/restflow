@@ -22,7 +22,7 @@ rpassword = "7.0"
 # TUI
 ratatui = "0.29"
 crossterm = "0.29"
-unicode-width = "0.1"
+unicode-width = "0.2"
 
 # Logging
 tracing = { workspace = true }
