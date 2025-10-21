@@ -42,7 +42,9 @@
 
         <div class="execution-details">
           <div class="details-left">
-            <span class="time-text">{{ formatRelativeTime(Number(execution.started_at)) }}</span>
+            <el-tooltip :content="formatFullDateTime(Number(execution.started_at))" placement="top">
+              <span class="time-text">{{ formatRelativeTime(Number(execution.started_at)) }}</span>
+            </el-tooltip>
           </div>
           <div class="details-right">
             <span
@@ -90,6 +92,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted } from 'vue'
 import { Refresh } from '@element-plus/icons-vue'
+import { ElTooltip } from 'element-plus'
 import { useExecutionHistory } from '../composables/execution/useExecutionHistory'
 
 const props = defineProps<{
@@ -110,6 +113,7 @@ const {
   getStatusText,
   getStatusIcon,
   formatRelativeTime,
+  formatFullDateTime,
   startPolling,
   stopPolling,
   goToPage,

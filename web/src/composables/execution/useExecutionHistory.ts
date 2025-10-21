@@ -140,7 +140,24 @@ export function useExecutionHistory(workflowId: Readonly<Ref<string | null | und
     if (days < 7) return `${days} days ago`
 
     const date = new Date(timestamp)
-    return date.toLocaleDateString('en-US')
+    return date.toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric'
+    })
+  }
+
+  const formatFullDateTime = (timestamp: number): string => {
+    const date = new Date(timestamp)
+    return date.toLocaleString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: true
+    })
   }
 
   const hasRunningExecution = computed(() => {
@@ -214,6 +231,7 @@ export function useExecutionHistory(workflowId: Readonly<Ref<string | null | und
     getStatusText,
     getStatusIcon,
     formatRelativeTime,
+    formatFullDateTime,
     goToPage,
     goToNextPage,
     goToPrevPage,
