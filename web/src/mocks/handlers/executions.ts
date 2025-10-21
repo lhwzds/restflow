@@ -12,7 +12,7 @@ export interface ExecutionSnapshot {
   tasks: Task[]
 }
 
-const addExecution = (id: string, taskList: Task[]) => {
+export const addExecution = (id: string, taskList: Task[]) => {
   if (executions.size >= MAX_EXECUTIONS) {
     const firstKey = executions.keys().next().value
     if (firstKey) {
@@ -22,7 +22,7 @@ const addExecution = (id: string, taskList: Task[]) => {
   executions.set(id, taskList)
 }
 
-const addTask = (id: string, task: Task) => {
+export const addTask = (id: string, task: Task) => {
   if (tasks.size >= MAX_TASKS) {
     const firstKey = tasks.keys().next().value
     if (firstKey) {
@@ -32,7 +32,7 @@ const addTask = (id: string, task: Task) => {
   tasks.set(id, task)
 }
 
-const generateMockOutput = (nodeType: string, nodeId: string, config: any): any => {
+export const generateMockOutput = (nodeType: string, nodeId: string, config: any): any => {
   switch (nodeType) {
     case 'Agent':
       return {
