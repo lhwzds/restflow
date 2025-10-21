@@ -3,6 +3,7 @@ import { ref, watch, onMounted } from 'vue'
 import type { ApiKeyConfig } from '@/types/generated/ApiKeyConfig'
 import { useApiKeyConfig } from '@/composables/useApiKeyConfig'
 import { useSecretsData } from '@/composables/secrets/useSecretsData'
+import { MODEL_OPTIONS } from '@/constants/node/models'
 
 interface AgentConfig {
   model?: string
@@ -94,7 +95,20 @@ const isToolSelected = (toolId: string) => {
     <div class="form-group">
       <label>Model</label>
       <select v-model="localData.model" @change="updateData">
-        <option value="gpt-4.1">GPT-4.1</option>
+        <option value="">Select a model</option>
+        <optgroup
+          v-for="provider in ['openai', 'anthropic', 'deepseek']"
+          :key="provider"
+          :label="provider.charAt(0).toUpperCase() + provider.slice(1)"
+        >
+          <option
+            v-for="option in MODEL_OPTIONS.filter(opt => opt.provider === provider)"
+            :key="option.value"
+            :value="option.value"
+          >
+            {{ option.label }}
+          </option>
+        </optgroup>
       </select>
     </div>
 

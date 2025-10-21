@@ -52,3 +52,13 @@ export async function executeAgentInline(agent: any, input: string): Promise<str
   )
   return response.data.response
 }
+
+export interface ChatMessage {
+  role: 'user' | 'assistant'
+  content: string
+}
+
+export async function getChatHistory(id: string): Promise<ChatMessage[]> {
+  const response = await apiClient.get<ChatMessage[]>(`/api/agents/${id}/chat-history`)
+  return response.data
+}
