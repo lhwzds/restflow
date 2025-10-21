@@ -1,8 +1,9 @@
 import { http, HttpResponse } from 'msw'
 import type { Task } from '@/types/generated/Task'
 import type { Workflow } from '@/types/generated/Workflow'
+import type { TaskStatus } from '@/types/generated/TaskStatus'
 import demoWorkflows from '../data/workflows.json'
-import { createExecutionTasks, getExecutionSnapshots } from './executions'
+import { createExecutionTasks, getExecutionSnapshots, addExecution, addTask, generateMockOutput } from './executions'
 
 let workflows = [...demoWorkflows] as Workflow[]
 
@@ -33,6 +34,105 @@ const triggerStates = new Map<string, TriggerState>([
     activated_at: 0
   }]
 ])
+
+// 创建已完成的历史执行记录
+const createCompletedExecution = (
+  executionId: string,
+  workflowId: string,
+  nodes: any[],
+  startTimeOffset: number,
+  shouldFail = false
+): void => {
+  const startedAt = Date.now() - startTimeOffset
+  const tasks: Task[] = nodes.map((node, index) => {
+    const taskId = `task-${executionId}-${index}`
+    const isFailed = shouldFail && index === nodes.length - 1 // 最后一个任务失败
+
+    const task: Task = {
+      id: taskId,
+      execution_id: executionId,
+      workflow_id: workflowId,
+      node_id: node.id,
+      status: (isFailed ? 'Failed' : 'Completed') as TaskStatus,
+      created_at: startedAt + index * 1000 as any,
+      started_at: (startedAt + index * 1000 + 500) as any,
+      completed_at: (startedAt + index * 1000 + 2000) as any,
+      input: {},
+      output: isFailed ? null : generateMockOutput(node.node_type, node.id, node.config),
+      error: isFailed ? 'Demo execution failed: simulated error for demonstration purposes' : null,
+      context: {
+        workflow_id: workflowId,
+        execution_id: executionId,
+        data: {}
+      }
+    }
+
+    addTask(taskId, task)
+    return task
+  })
+
+  addExecution(executionId, tasks)
+}
+
+// 初始化 demo 执行历史
+const initializeDemoExecutionHistory = () => {
+  const now = Date.now()
+  const HOUR = 3600000
+  const DAY = 86400000
+
+  workflows.forEach((workflow) => {
+    if (workflow.id === 'demo-ai-summarizer') {
+      // AI Summarizer: 3条已完成 + 1条失败
+      createCompletedExecution(`exec-${workflow.id}-1`, workflow.id, workflow.nodes, 3 * HOUR)
+      createCompletedExecution(`exec-${workflow.id}-2`, workflow.id, workflow.nodes, 1 * DAY)
+      createCompletedExecution(`exec-${workflow.id}-3`, workflow.id, workflow.nodes, 2 * DAY)
+      createCompletedExecution(`exec-${workflow.id}-4`, workflow.id, workflow.nodes, 3 * DAY, true)
+    } else if (workflow.id === 'demo-data-pipeline') {
+      // Data Pipeline: 2条已完成
+      createCompletedExecution(`exec-${workflow.id}-1`, workflow.id, workflow.nodes, 6 * HOUR)
+      createCompletedExecution(`exec-${workflow.id}-2`, workflow.id, workflow.nodes, 1 * DAY)
+    } else if (workflow.id === 'demo-multi-step') {
+      // Multi-step: 2条已完成 + 1条运行中
+      createCompletedExecution(`exec-${workflow.id}-1`, workflow.id, workflow.nodes, 12 * HOUR)
+      createCompletedExecution(`exec-${workflow.id}-2`, workflow.id, workflow.nodes, 2 * DAY)
+
+      // 创建一条运行中的执行
+      const runningExecutionId = `exec-${workflow.id}-running`
+      const runningStartTime = Date.now() - 5 * 60 * 1000 // 5分钟前
+      const runningTasks: Task[] = workflow.nodes.map((node, index) => {
+        const taskId = `task-${runningExecutionId}-${index}`
+        const isCompleted = index < workflow.nodes.length - 1
+
+        const task: Task = {
+          id: taskId,
+          execution_id: runningExecutionId,
+          workflow_id: workflow.id,
+          node_id: node.id,
+          status: (isCompleted ? 'Completed' : 'Running') as TaskStatus,
+          created_at: runningStartTime + index * 1000 as any,
+          started_at: (runningStartTime + index * 1000 + 500) as any,
+          completed_at: isCompleted ? (runningStartTime + index * 1000 + 2000) as any : null,
+          input: {},
+          output: isCompleted ? generateMockOutput(node.node_type, node.id, node.config) : null,
+          error: null,
+          context: {
+            workflow_id: workflow.id,
+            execution_id: runningExecutionId,
+            data: {}
+          }
+        }
+
+        addTask(taskId, task)
+        return task
+      })
+
+      addExecution(runningExecutionId, runningTasks)
+    }
+  })
+}
+
+// 在模块加载时初始化 demo 执行历史
+initializeDemoExecutionHistory()
 
 const toMillis = (value: bigint | number | null | undefined): number | null => {
   if (value === null || value === undefined) return null
