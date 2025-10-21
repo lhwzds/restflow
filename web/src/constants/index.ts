@@ -33,6 +33,14 @@ export {
   type NodeTypeValue,
   type NodeCategoryValue
 } from './node/types'
+export {
+  MODEL_OPTIONS,
+  MODEL_DISPLAY_NAMES,
+  getModelDisplayName,
+  getModelTagType,
+  getModelsByProvider,
+  type ModelOption
+} from './node/models'
 
 // ===== Workflow Related =====
 export * from './workflow'

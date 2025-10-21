@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import { ElCard, ElTag, ElIcon } from 'element-plus'
 import { User, Clock } from '@element-plus/icons-vue'
 import type { StoredAgent } from '@/types/generated/StoredAgent'
+import { getModelDisplayName, getModelTagType } from '@/constants/node/models'
 
 const props = defineProps<{
   agent: StoredAgent
@@ -25,22 +26,6 @@ function formatTime(timestamp?: bigint | null): string {
   if (days < 7) return `${days} days ago`
   if (days < 30) return `${Math.floor(days / 7)} weeks ago`
   return `${Math.floor(days / 30)} months ago`
-}
-
-function getModelDisplayName(model: string): string {
-  const modelMap: Record<string, string> = {
-    'gpt-4.1': 'GPT-4.1',
-    'claude-sonnet-4': 'Claude Sonnet 4',
-    'deepseek-v3': 'DeepSeek V3',
-  }
-  return modelMap[model] || model
-}
-
-function getModelTagType(model: string): 'success' | 'primary' | 'warning' | 'info' | 'danger' {
-  if (model.includes('gpt')) return 'success'
-  if (model.includes('claude')) return 'warning'
-  if (model.includes('deepseek')) return 'primary'
-  return 'info'
 }
 
 const lastUpdated = computed(() => formatTime(props.agent.updated_at))

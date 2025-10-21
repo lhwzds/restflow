@@ -16,9 +16,13 @@
         "id": "agent-1",
         "node_type": "Agent",
         "config": {
-          "model": "claude-sonnet-4.5",
+          "model": "claude-4-sonnet",
           "prompt": "Please generate a concise summary (no more than 100 words) for the following content:\n\n{{trigger.data.text}}",
-          "temperature": 0.7
+          "temperature": 0.7,
+          "api_key_config": {
+            "type": "secret",
+            "value": "ANTHROPIC_API_KEY"
+          }
         },
         "position": { "x": 450, "y": 150 }
       }
@@ -57,9 +61,13 @@
         "id": "agent-2",
         "node_type": "Agent",
         "config": {
-          "model": "claude-sonnet-4.5",
+          "model": "claude-4-sonnet",
           "prompt": "Analyze the following GitHub repository data and generate a brief report (project name, stars count, description):\n\n{{node.http-1}}",
-          "temperature": 0.5
+          "temperature": 0.5,
+          "api_key_config": {
+            "type": "secret",
+            "value": "ANTHROPIC_API_KEY"
+          }
         },
         "position": { "x": 600, "y": 150 }
       }
@@ -83,9 +91,13 @@
         "id": "agent-3",
         "node_type": "Agent",
         "config": {
-          "model": "claude-sonnet-4.5",
+          "model": "claude-4-sonnet",
           "prompt": "Generate a 3-point article outline for the topic: {{trigger.data.topic}}",
-          "temperature": 0.8
+          "temperature": 0.8,
+          "api_key_config": {
+            "type": "secret",
+            "value": "ANTHROPIC_API_KEY"
+          }
         },
         "position": { "x": 350, "y": 200 }
       },
@@ -93,9 +105,13 @@
         "id": "agent-4",
         "node_type": "Agent",
         "config": {
-          "model": "claude-sonnet-4.5",
+          "model": "gpt-5",
           "prompt": "Expand the following outline into a complete article (200 words per point):\n\n{{node.agent-3}}",
-          "temperature": 0.7
+          "temperature": 0.7,
+          "api_key_config": {
+            "type": "secret",
+            "value": "OPENAI_API_KEY"
+          }
         },
         "position": { "x": 600, "y": 200 }
       },
@@ -103,9 +119,13 @@
         "id": "agent-5",
         "node_type": "Agent",
         "config": {
-          "model": "claude-sonnet-4.5",
+          "model": "claude-4-sonnet",
           "prompt": "Polish the following article to make it more fluent and professional:\n\n{{node.agent-4}}",
-          "temperature": 0.6
+          "temperature": 0.6,
+          "api_key_config": {
+            "type": "secret",
+            "value": "ANTHROPIC_API_KEY"
+          }
         },
         "position": { "x": 850, "y": 200 }
       }

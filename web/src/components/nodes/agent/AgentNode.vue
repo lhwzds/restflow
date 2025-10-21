@@ -2,6 +2,7 @@
 import type { NodeProps } from '@vue-flow/core'
 import { Bot, Sparkles } from 'lucide-vue-next'
 import BaseNode from '@/components/nodes/BaseNode.vue'
+import { getModelDisplayName } from '@/constants/node/models'
 
 interface AgentNodeData {
   label?: string
@@ -38,7 +39,7 @@ const emit = defineEmits<{
 
     <template #badge>
       <div v-if="props.data?.model" class="model-info">
-        {{ props.data.model }}
+        {{ getModelDisplayName(props.data.model) }}
       </div>
     </template>
   </BaseNode>

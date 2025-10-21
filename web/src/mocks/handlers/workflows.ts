@@ -35,7 +35,7 @@ const triggerStates = new Map<string, TriggerState>([
   }]
 ])
 
-// 创建已完成的历史执行记录
+// Create completed execution history record
 const createCompletedExecution = (
   executionId: string,
   workflowId: string,
@@ -46,7 +46,7 @@ const createCompletedExecution = (
   const startedAt = Date.now() - startTimeOffset
   const tasks: Task[] = nodes.map((node, index) => {
     const taskId = `task-${executionId}-${index}`
-    const isFailed = shouldFail && index === nodes.length - 1 // 最后一个任务失败
+    const isFailed = shouldFail && index === nodes.length - 1 // Last task fails
 
     const task: Task = {
       id: taskId,
@@ -74,31 +74,30 @@ const createCompletedExecution = (
   addExecution(executionId, tasks)
 }
 
-// 初始化 demo 执行历史
+// Initialize demo execution history
 const initializeDemoExecutionHistory = () => {
-  const now = Date.now()
   const HOUR = 3600000
   const DAY = 86400000
 
   workflows.forEach((workflow) => {
     if (workflow.id === 'demo-ai-summarizer') {
-      // AI Summarizer: 3条已完成 + 1条失败
+      // AI Summarizer: 3 completed + 1 failed
       createCompletedExecution(`exec-${workflow.id}-1`, workflow.id, workflow.nodes, 3 * HOUR)
       createCompletedExecution(`exec-${workflow.id}-2`, workflow.id, workflow.nodes, 1 * DAY)
       createCompletedExecution(`exec-${workflow.id}-3`, workflow.id, workflow.nodes, 2 * DAY)
       createCompletedExecution(`exec-${workflow.id}-4`, workflow.id, workflow.nodes, 3 * DAY, true)
     } else if (workflow.id === 'demo-data-pipeline') {
-      // Data Pipeline: 2条已完成
+      // Data Pipeline: 2 completed
       createCompletedExecution(`exec-${workflow.id}-1`, workflow.id, workflow.nodes, 6 * HOUR)
       createCompletedExecution(`exec-${workflow.id}-2`, workflow.id, workflow.nodes, 1 * DAY)
     } else if (workflow.id === 'demo-multi-step') {
-      // Multi-step: 2条已完成 + 1条运行中
+      // Multi-step: 2 completed + 1 running
       createCompletedExecution(`exec-${workflow.id}-1`, workflow.id, workflow.nodes, 12 * HOUR)
       createCompletedExecution(`exec-${workflow.id}-2`, workflow.id, workflow.nodes, 2 * DAY)
 
-      // 创建一条运行中的执行
+      // Create a running execution
       const runningExecutionId = `exec-${workflow.id}-running`
-      const runningStartTime = Date.now() - 5 * 60 * 1000 // 5分钟前
+      const runningStartTime = Date.now() - 5 * 60 * 1000 // 5 minutes ago
       const runningTasks: Task[] = workflow.nodes.map((node, index) => {
         const taskId = `task-${runningExecutionId}-${index}`
         const isCompleted = index < workflow.nodes.length - 1
@@ -131,7 +130,7 @@ const initializeDemoExecutionHistory = () => {
   })
 }
 
-// 在模块加载时初始化 demo 执行历史
+// Initialize demo execution history on module load
 initializeDemoExecutionHistory()
 
 const toMillis = (value: bigint | number | null | undefined): number | null => {

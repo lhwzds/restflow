@@ -1,27 +1,20 @@
 import { readonly } from 'vue'
+import { MODEL_OPTIONS } from '@/constants/node/models'
 
 /**
  * Agent models management composable
  * Provides unified model list and helper functions
  */
 export function useAgentModels() {
-  const AVAILABLE_MODELS = readonly([
-    // OpenAI O Series (Reasoning models) - no temperature support
-    { label: 'O4 Mini', value: 'o4-mini', supportsTemperature: false },
-    { label: 'O3', value: 'o3', supportsTemperature: false },
-    { label: 'O3 Mini', value: 'o3-mini', supportsTemperature: false },
-    // GPT series
-    { label: 'GPT-4.1', value: 'gpt-4.1', supportsTemperature: true },
-    { label: 'GPT-4.1 Mini', value: 'gpt-4.1-mini', supportsTemperature: true },
-    { label: 'GPT-4.1 Nano', value: 'gpt-4.1-nano', supportsTemperature: true },
-    // Claude series
-    { label: 'Claude 4 Opus', value: 'claude-4-opus', supportsTemperature: true },
-    { label: 'Claude 4 Sonnet', value: 'claude-4-sonnet', supportsTemperature: true },
-    { label: 'Claude 3.7 Sonnet', value: 'claude-3.7-sonnet', supportsTemperature: true },
-    // DeepSeek series
-    { label: 'DeepSeek Chat', value: 'deepseek-chat', supportsTemperature: true },
-    { label: 'DeepSeek Reasoner', value: 'deepseek-reasoner', supportsTemperature: true },
-  ])
+  // Build AVAILABLE_MODELS from MODEL_OPTIONS with supportsTemperature flag
+  const AVAILABLE_MODELS = readonly(
+    MODEL_OPTIONS.map(option => ({
+      label: option.label,
+      value: option.value,
+      // O-series models don't support temperature
+      supportsTemperature: !option.value.startsWith('o')
+    }))
+  )
 
   const O_SERIES_MODELS = ['o4-mini', 'o3', 'o3-mini']
 

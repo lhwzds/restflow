@@ -5,6 +5,8 @@ import { Promotion, Delete, User, CircleCheck } from '@element-plus/icons-vue'
 import type { StoredAgent } from '@/types/generated/StoredAgent'
 import { useAgentOperations } from '@/composables/agents/useAgentOperations'
 import MarkdownRenderer from '@/components/shared/MarkdownRenderer.vue'
+import { getChatHistory } from '@/api/agents'
+import { getModelDisplayName } from '@/constants/node/models'
 
 const props = defineProps<{
   agent: StoredAgent
@@ -85,8 +87,36 @@ function formatTime(date: Date): string {
   })
 }
 
-onMounted(() => {
-  addMessage('assistant', `Hello! I'm ${props.agent.name}. How can I help you?`)
+onMounted(async () => {
+  try {
+    // Try to load chat history from API
+    const history = await getChatHistory(props.agent.id)
+
+    if (history && history.length > 0) {
+      // Add historical messages with past timestamps
+      history.forEach((msg, index) => {
+        // Set timestamps in the past (most recent = 2 min ago, oldest = 10 min ago)
+        const minutesAgo = 2 + ((history.length - 1 - index) * 2)
+        const timestamp = new Date(Date.now() - minutesAgo * 60 * 1000)
+
+        messages.value.push({
+          role: msg.role,
+          content: msg.content,
+          timestamp,
+          error: false
+        })
+      })
+
+      // Auto-scroll to bottom after loading history
+      setTimeout(() => scrollToBottom(), 100)
+    } else {
+      // No history available, show welcome message
+      addMessage('assistant', `Hello! I'm ${props.agent.name}. How can I help you?`)
+    }
+  } catch (error) {
+    // Fallback to welcome message on error (e.g., API not implemented)
+    addMessage('assistant', `Hello! I'm ${props.agent.name}. How can I help you?`)
+  }
 })
 </script>
 
@@ -95,7 +125,7 @@ onMounted(() => {
     <div class="chat-header">
       <div class="header-info">
         <h3>{{ agent.name }}</h3>
-        <span class="model-tag">{{ agent.agent.model }}</span>
+        <span class="model-tag">{{ getModelDisplayName(agent.agent.model) }}</span>
       </div>
       <ElButton v-if="messages.length > 1" :icon="Delete" text @click="handleClear">
         Clear Chat
