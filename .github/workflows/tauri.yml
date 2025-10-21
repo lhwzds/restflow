@@ -83,7 +83,7 @@ jobs:
         if: matrix.platform != 'windows-latest'
         run: |
           if ! command -v cargo-tauri &> /dev/null; then
-            cargo install tauri-cli --version "^2"
+            cargo install tauri-cli --version "^2" --locked
           else
             echo "Tauri CLI already installed"
           fi
