@@ -82,8 +82,8 @@ jobs:
       - name: Install Tauri CLI (Unix)
         if: matrix.platform != 'windows-latest'
         run: |
-          if ! command -v cargo-tauri &> /dev/null; then
-            cargo install tauri-cli --version "^2" --locked
+          if ! command -v cargo-tauri &> /dev/null || ! grep -q "2.8.1" <<< "$(cargo-tauri --version 2>/dev/null)"; then
+            cargo install tauri-cli --version "2.8.1" --locked --force
           else
             echo "Tauri CLI already installed"
           fi
@@ -91,8 +91,17 @@ jobs:
       - name: Install Tauri CLI (Windows)
         if: matrix.platform == 'windows-latest'
         run: |
+          $needsInstall = $false
           if (!(Get-Command cargo-tauri -ErrorAction SilentlyContinue)) {
-            cargo install tauri-cli --version "^2" --locked
+            $needsInstall = $true
+          } else {
+            $version = cargo-tauri --version
+            if ($version -notmatch "2\.8\.1") {
+              $needsInstall = $true
+            }
+          }
+          if ($needsInstall) {
+            cargo install tauri-cli --version "2.8.1" --locked --force
           } else {
             echo "Tauri CLI already installed"
           }
