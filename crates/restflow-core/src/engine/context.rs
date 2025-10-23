@@ -1,3 +1,4 @@
+use crate::python::PythonManager;
 use crate::storage::{SecretStorage, Storage};
 use once_cell::sync::Lazy;
 use regex::Regex;
@@ -55,6 +56,9 @@ pub struct ExecutionContext {
     #[serde(skip)]
     #[ts(skip)]
     pub secret_storage: Option<Arc<SecretStorage>>,
+    #[serde(skip)]
+    #[ts(skip)]
+    pub python_manager: Option<Arc<PythonManager>>,
 }
 
 impl ExecutionContext {
@@ -64,6 +68,7 @@ impl ExecutionContext {
             execution_id: uuid::Uuid::new_v4().to_string(),
             data: HashMap::new(),
             secret_storage: None,
+            python_manager: None,
         }
     }
 
@@ -74,11 +79,17 @@ impl ExecutionContext {
             execution_id,
             data: HashMap::new(),
             secret_storage: None,
+            python_manager: None,
         }
     }
 
     pub fn with_secret_storage(mut self, storage: Arc<SecretStorage>) -> Self {
         self.secret_storage = Some(storage);
+        self
+    }
+
+    pub fn with_python_manager(mut self, manager: Arc<PythonManager>) -> Self {
+        self.python_manager = Some(manager);
         self
     }
 
