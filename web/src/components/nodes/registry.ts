@@ -2,6 +2,7 @@ import type { Component } from 'vue'
 import { NODE_TYPE } from '@/constants'
 import AgentNode from './agent/AgentNode.vue'
 import HttpNode from './http/HttpNode.vue'
+import PythonNode from './python/PythonNode.vue'
 import ManualTriggerNode from './trigger/ManualTriggerNode.vue'
 import WebhookTriggerNode from './trigger/WebhookTriggerNode.vue'
 import ScheduleTriggerNode from './trigger/ScheduleTriggerNode.vue'
@@ -13,6 +14,7 @@ import ScheduleTriggerNode from './trigger/ScheduleTriggerNode.vue'
 export const NODE_COMPONENT_REGISTRY: Record<string, Component> = {
   [NODE_TYPE.AGENT]: AgentNode,
   [NODE_TYPE.HTTP_REQUEST]: HttpNode,
+  [NODE_TYPE.PYTHON]: PythonNode,
   [NODE_TYPE.MANUAL_TRIGGER]: ManualTriggerNode,
   [NODE_TYPE.WEBHOOK_TRIGGER]: WebhookTriggerNode,
   [NODE_TYPE.SCHEDULE_TRIGGER]: ScheduleTriggerNode,
