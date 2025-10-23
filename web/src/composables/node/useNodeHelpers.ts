@@ -66,6 +66,7 @@ export const NODE_TYPES = {
   MANUAL_TRIGGER: 'ManualTrigger' as NodeType,
   AGENT: 'Agent' as NodeType,
   HTTP_REQUEST: 'HttpRequest' as NodeType,
+  PYTHON: 'Python' as NodeType,
   PRINT: 'Print' as NodeType,
   DATA_TRANSFORM: 'DataTransform' as NodeType,
 } as const

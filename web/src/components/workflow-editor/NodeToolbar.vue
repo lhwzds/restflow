@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import type { Component } from 'vue'
-import { PlayCircle, Webhook, Clock, Bot, Globe } from 'lucide-vue-next'
+import { PlayCircle, Webhook, Clock, Bot, Globe, Code } from 'lucide-vue-next'
 import { NODE_TYPES } from '../../composables/node/useNodeHelpers'
 
 interface NodeTemplate {
@@ -75,6 +75,22 @@ const nodeTemplates = ref<NodeTemplate[]>([
       label: 'HTTP Request',
       method: 'GET',
       url: 'https://api.example.com',
+    },
+  },
+  {
+    type: NODE_TYPES.PYTHON,
+    label: 'Python Script',
+    icon: Code,
+    iconColor: 'var(--rf-color-green)',
+    defaultData: {
+      label: 'Python',
+      code: `import json
+import sys
+
+input_data = json.load(sys.stdin)
+result = {"output": "Hello from Python"}
+print(json.dumps(result))`,
+      dependencies: [],
     },
   },
 ])

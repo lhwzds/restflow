@@ -15,7 +15,7 @@ import { useEdgeOperations } from '../../composables/node/useEdgeOperations'
 import { useNodeOperations } from '../../composables/node/useNodeOperations'
 import { useKeyboardShortcuts } from '../../composables/shared/useKeyboardShortcuts'
 import { useContextMenu } from '../../composables/ui/useContextMenu'
-import { AgentNode, HttpNode, ManualTriggerNode, ScheduleTriggerNode, WebhookTriggerNode } from '../nodes'
+import { AgentNode, HttpNode, PythonNode, ManualTriggerNode, ScheduleTriggerNode, WebhookTriggerNode } from '../nodes'
 import { useExecutionStore } from '../../stores/executionStore'
 import Icon from '../shared/Icon.vue'
 import NodeConfigPopup from './NodeConfigPopup.vue'
@@ -224,6 +224,14 @@ useKeyboardShortcuts({
             v-bind="httpNodeProps"
             @open-config="handleOpenConfig(httpNodeProps)"
             @test-node="handleTestNode(httpNodeProps)"
+          />
+        </template>
+
+        <template #node-Python="pythonNodeProps">
+          <PythonNode
+            v-bind="pythonNodeProps"
+            @open-config="handleOpenConfig(pythonNodeProps)"
+            @test-node="handleTestNode(pythonNodeProps)"
           />
         </template>
       </VueFlow>

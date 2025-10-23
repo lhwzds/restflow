@@ -3,7 +3,7 @@ import type { Node } from '@vue-flow/core'
 import { ref, computed, watch } from 'vue'
 import { ElButton, ElTabs, ElTabPane, ElTooltip, ElMessage } from 'element-plus'
 import { Settings, Play, Copy, Trash2, X } from 'lucide-vue-next'
-import { AgentConfigForm, HttpConfigForm, TriggerConfigForm } from '../nodes'
+import { AgentConfigForm, HttpConfigForm, PythonConfigForm, TriggerConfigForm } from '../nodes'
 import { NODE_TYPE, NODE_TYPE_LABELS, SUCCESS_MESSAGES, ERROR_MESSAGES } from '@/constants'
 import { useSingleNodeExecution } from '../../composables/execution/useSingleNodeExecution'
 
@@ -218,6 +218,12 @@ const handleClose = () => {
 
                 <HttpConfigForm
                   v-if="node.type === NODE_TYPE.HTTP_REQUEST"
+                  :modelValue="nodeData"
+                  @update:modelValue="handleFormUpdate"
+                />
+
+                <PythonConfigForm
+                  v-if="node.type === NODE_TYPE.PYTHON"
                   :modelValue="nodeData"
                   @update:modelValue="handleFormUpdate"
                 />
