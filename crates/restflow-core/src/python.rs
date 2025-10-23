@@ -12,6 +12,7 @@ use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
 use tracing::info;
 
+#[derive(Debug)]
 pub struct PythonManager {
     uv_binary: PathBuf,
     python_dir: PathBuf,
@@ -314,5 +315,47 @@ impl PythonManager {
 
     pub fn is_ready(&self) -> bool {
         self.initialized.get().is_some()
+    }
+
+    /// Execute inline Python code with PEP 723 dependencies using uv run
+    pub async fn execute_inline_code(&self, code: &str, input: Value) -> Result<Value> {
+        self.ensure_initialized().await?;
+
+        // Create temporary script file
+        let temp_dir = tempfile::tempdir()?;
+        let script_path = temp_dir.path().join("script.py");
+        fs::write(&script_path, code).await?;
+
+        // Use uv run --no-project to execute (automatically handles PEP 723 dependencies)
+        let mut cmd = Command::new(&self.uv_binary);
+        cmd.args(["run", "--no-project", script_path.to_str().unwrap()])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .kill_on_drop(true);
+
+        let mut child = cmd.spawn()?;
+
+        // Pass input via stdin
+        if let Some(mut stdin) = child.stdin.take() {
+            let input_json = serde_json::to_string(&input)?;
+            stdin.write_all(input_json.as_bytes()).await?;
+            stdin.flush().await?;
+            drop(stdin);
+        }
+
+        // 30 second timeout for inline code execution
+        let output = tokio::time::timeout(Duration::from_secs(30), child.wait_with_output())
+            .await
+            .map_err(|_| anyhow!("Script execution timeout"))??;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(anyhow!("Script execution failed: {}", stderr));
+        }
+
+        let output_str = String::from_utf8(output.stdout)?;
+        serde_json::from_str(&output_str)
+            .map_err(|e| anyhow!("Failed to parse output as JSON: {}", e))
     }
 }

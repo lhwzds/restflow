@@ -32,6 +32,7 @@ impl NodeRegistry {
         registry.register(NodeType::HttpRequest, Arc::new(HttpRequestExecutor));
         registry.register(NodeType::Print, Arc::new(PrintExecutor));
         registry.register(NodeType::Agent, Arc::new(AgentExecutor));
+        registry.register(NodeType::Python, Arc::new(PythonExecutor));
 
         registry
     }
@@ -134,5 +135,28 @@ impl NodeExecutor for AgentExecutor {
         Ok(serde_json::json!({
             "response": response
         }))
+    }
+}
+
+struct PythonExecutor;
+
+#[async_trait]
+impl NodeExecutor for PythonExecutor {
+    async fn execute(&self, config: &Value, context: &mut ExecutionContext) -> Result<Value> {
+        use crate::node::python::PythonNode;
+
+        let python = PythonNode::from_config(config)?;
+        let script = python.build_script();
+
+        // Get input from config or use empty object
+        let input = config.get("input").cloned().unwrap_or_else(|| serde_json::json!({}));
+
+        // Get PythonManager from context
+        let manager = context
+            .python_manager
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Python manager not available"))?;
+
+        manager.execute_inline_code(&script, input).await
     }
 }

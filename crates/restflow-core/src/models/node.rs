@@ -117,4 +117,5 @@ pub enum NodeType {
     HttpRequest,
     Print,
     DataTransform,
+    Python,
 }
