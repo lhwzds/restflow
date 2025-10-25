@@ -89,6 +89,8 @@ impl AppCore {
 
         let _ = self.python_manager.set(manager.clone());
 
+        self.executor.set_python_manager(manager.clone()).await;
+
         Ok(self.python_manager.get().unwrap().clone())
     }
 

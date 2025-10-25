@@ -1,11 +1,13 @@
 use crate::engine::context::ExecutionContext;
 use crate::engine::scheduler::Scheduler;
-use crate::models::Node;
+use crate::models::{Node, NodeType};
+use crate::python::PythonManager;
 use crate::storage::Storage;
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use serde_json::Value;
 use std::sync::Arc;
 use tokio::sync::Mutex;
+use tokio::time::Duration;
 use tracing::{debug, error, info, warn};
 
 const QUEUE_POLL_INTERVAL_MS: u64 = 100;
@@ -16,6 +18,7 @@ pub struct WorkflowExecutor {
     num_workers: usize,
     registry: Arc<crate::node::registry::NodeRegistry>,
     running: Arc<Mutex<bool>>,
+    python_manager: Arc<Mutex<Option<Arc<PythonManager>>>>,
 }
 
 impl WorkflowExecutor {
@@ -33,7 +36,20 @@ impl WorkflowExecutor {
             num_workers,
             registry,
             running: Arc::new(Mutex::new(false)),
+            python_manager: Arc::new(Mutex::new(None)),
         }
+    }
+
+    /// Set the Python manager for script execution
+    pub async fn set_python_manager(&self, manager: Arc<PythonManager>) {
+        let mut pm = self.python_manager.lock().await;
+        *pm = Some(manager);
+    }
+
+    /// Get the Python manager if available
+    pub async fn get_python_manager(&self) -> Option<Arc<PythonManager>> {
+        let pm = self.python_manager.lock().await;
+        pm.clone()
     }
 
     pub async fn submit(&self, workflow_id: String, input: Value) -> Result<String> {
@@ -101,6 +117,7 @@ impl WorkflowExecutor {
         for worker_id in 0..num_workers {
             let registry = self.registry.clone();
             let running = self.running.clone();
+            let python_manager = self.python_manager.clone();
 
             let worker = Worker::new(
                 worker_id,
@@ -108,6 +125,7 @@ impl WorkflowExecutor {
                 self.scheduler.clone(),
                 registry,
                 running,
+                python_manager,
             );
 
             tokio::spawn(async move {
@@ -166,6 +184,7 @@ struct Worker {
     scheduler: Arc<Scheduler>,
     registry: Arc<crate::node::registry::NodeRegistry>,
     running: Arc<Mutex<bool>>,
+    python_manager: Arc<Mutex<Option<Arc<PythonManager>>>>,
 }
 
 impl Worker {
@@ -175,6 +194,7 @@ impl Worker {
         scheduler: Arc<Scheduler>,
         registry: Arc<crate::node::registry::NodeRegistry>,
         running: Arc<Mutex<bool>>,
+        python_manager: Arc<Mutex<Option<Arc<PythonManager>>>>,
     ) -> Self {
         Self {
             id,
@@ -182,6 +202,7 @@ impl Worker {
             scheduler,
             registry,
             running,
+            python_manager,
         }
     }
 
@@ -215,6 +236,43 @@ impl Worker {
 
         let mut context = task.context.clone();
         context.ensure_secret_storage(&self.storage);
+
+        // Handle Python manager based on node type
+        if node.node_type == NodeType::Python {
+            // For Python nodes, MUST have manager - wait if initializing
+            debug!(worker_id = self.id, task_id = %task.id, "Python node detected, waiting for Python manager");
+
+            let manager = {
+                let mut retries = 0;
+                const MAX_RETRIES: u32 = 300; // 30 seconds (100ms * 300)
+
+                loop {
+                    if let Some(m) = self.python_manager.lock().await.clone() {
+                        break m;
+                    }
+
+                    if retries >= MAX_RETRIES {
+                        return Err(anyhow!(
+                            "Python manager not available after {}s. \
+                             Ensure Python manager is initialized before submitting Python tasks.",
+                            MAX_RETRIES / 10
+                        ));
+                    }
+
+                    retries += 1;
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+            };
+
+            debug!(worker_id = self.id, task_id = %task.id, "Python manager acquired");
+            context = context.with_python_manager(manager);
+        } else {
+            // For non-Python nodes, use if available (optional)
+            if let Some(manager) = self.python_manager.lock().await.clone() {
+                context = context.with_python_manager(manager);
+            }
+        }
+
         let result =
             WorkflowExecutor::execute_node(node, &mut context, self.registry.clone()).await;
 

@@ -3,7 +3,7 @@ use axum::{
     Json,
     extract::{Path, Query, State},
 };
-use restflow_core::models::{Node, Task, TaskStatus};
+use restflow_core::models::{Node, NodeType, Task, TaskStatus};
 use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize)]
@@ -70,6 +70,15 @@ pub async fn execute_node(
     State(state): State<AppState>,
     Json(node): Json<Node>,
 ) -> Json<ApiResponse<ExecuteNodeResponse>> {
+
+    if node.node_type == NodeType::Python {
+        if let Err(e) = state.get_python_manager().await {
+            return Json(ApiResponse::error(format!(
+                "Failed to initialize Python manager: {}", e
+            )));
+        }
+    }
+
     match state
         .executor
         .submit_node(node, serde_json::json!({}))
