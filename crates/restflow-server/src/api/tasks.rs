@@ -71,12 +71,12 @@ pub async fn execute_node(
     Json(node): Json<Node>,
 ) -> Json<ApiResponse<ExecuteNodeResponse>> {
 
-    if node.node_type == NodeType::Python {
-        if let Err(e) = state.get_python_manager().await {
-            return Json(ApiResponse::error(format!(
-                "Failed to initialize Python manager: {}", e
-            )));
-        }
+    if node.node_type == NodeType::Python
+        && let Err(e) = state.get_python_manager().await
+    {
+        return Json(ApiResponse::error(format!(
+            "Failed to initialize Python manager: {}", e
+        )));
     }
 
     match state
