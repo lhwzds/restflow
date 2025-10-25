@@ -1,7 +1,7 @@
 use crate::{
     AppCore,
     engine::context::namespace,
-    models::{TaskStatus, Workflow},
+    models::{NodeType, TaskStatus, Workflow},
 };
 use anyhow::{Context, Result, bail};
 use serde_json::Value;
@@ -68,6 +68,12 @@ pub async fn delete_workflow(core: &Arc<AppCore>, id: &str) -> Result<()> {
 pub async fn execute_workflow_inline(core: &Arc<AppCore>, mut workflow: Workflow) -> Result<Value> {
     workflow.id = format!("inline-{}", uuid::Uuid::new_v4());
 
+    if workflow.nodes.iter().any(|node| node.node_type == NodeType::Python) {
+        core.get_python_manager()
+            .await
+            .context("Failed to initialize Python manager for inline execution")?;
+    }
+
     core.storage
         .workflows
         .create_workflow(&workflow)
@@ -100,6 +106,19 @@ pub async fn execute_workflow_by_id(
     workflow_id: &str,
     input: Value,
 ) -> Result<Value> {
+    // Load workflow to check if Python manager initialization is needed
+    let workflow = core.storage
+        .workflows
+        .get_workflow(workflow_id)
+        .with_context(|| format!("Failed to load workflow {}", workflow_id))?;
+
+    // Ensure Python manager is initialized if workflow contains Python nodes
+    if workflow.nodes.iter().any(|node| node.node_type == NodeType::Python) {
+        core.get_python_manager()
+            .await
+            .context("Failed to initialize Python manager for workflow execution")?;
+    }
+
     let execution_id = core
         .executor
         .submit(workflow_id.to_string(), input)
@@ -114,6 +133,19 @@ pub async fn submit_workflow(
     workflow_id: &str,
     input: Value,
 ) -> Result<String> {
+    // Load workflow to check if Python manager initialization is needed
+    let workflow = core.storage
+        .workflows
+        .get_workflow(workflow_id)
+        .with_context(|| format!("Failed to load workflow {}", workflow_id))?;
+
+    // Ensure Python manager is initialized if workflow contains Python nodes
+    if workflow.nodes.iter().any(|node| node.node_type == NodeType::Python) {
+        core.get_python_manager()
+            .await
+            .context("Failed to initialize Python manager for workflow submission")?;
+    }
+
     core.executor
         .submit(workflow_id.to_string(), input)
         .await
