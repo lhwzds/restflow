@@ -1,5 +1,7 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { ref, watch, onMounted } from 'vue'
+import { ElMessage, ElSelect, ElOption } from 'element-plus'
+import { listTemplates, getTemplate, type TemplateInfo } from '@/api/python'
 
 interface PythonConfig {
   code?: string
@@ -17,6 +19,10 @@ const emit = defineEmits<{
 
 const localData = ref<PythonConfig>({})
 const dependenciesText = ref('')
+const templates = ref<TemplateInfo[]>([])
+const selectedTemplate = ref<string>('')
+const loadingTemplates = ref(false)
+const loadingTemplate = ref(false)
 
 watch(
   () => props.modelValue,
@@ -40,10 +46,87 @@ const updateDependencies = () => {
   localData.value.dependencies = deps
   updateData()
 }
+
+const loadTemplates = async () => {
+  loadingTemplates.value = true
+  try {
+    templates.value = await listTemplates()
+  } catch (error) {
+    console.error('Failed to load templates:', error)
+  } finally {
+    loadingTemplates.value = false
+  }
+}
+
+const loadTemplate = async () => {
+  if (!selectedTemplate.value) return
+
+  loadingTemplate.value = true
+  try {
+    const template = await getTemplate(selectedTemplate.value)
+
+    // Parse dependencies from JSON string
+    const dependencies = JSON.parse(template.dependencies) as string[]
+
+    // Update local data
+    localData.value.code = template.content
+    localData.value.dependencies = dependencies
+    dependenciesText.value = dependencies.join('\n')
+
+    updateData()
+    ElMessage.success(`Template "${template.name}" loaded successfully`)
+  } catch (error) {
+    console.error('Failed to load template:', error)
+    ElMessage.error('Failed to load template')
+  } finally {
+    loadingTemplate.value = false
+  }
+}
+
+onMounted(() => {
+  loadTemplates()
+})
 </script>
 
 <template>
   <div class="python-config">
+    <div class="form-group template-selector">
+      <label>Template (Optional)</label>
+      <div class="template-controls">
+        <ElSelect
+          v-model="selectedTemplate"
+          placeholder="Choose a template to start"
+          :loading="loadingTemplates"
+          clearable
+          style="flex: 1"
+        >
+          <ElOption
+            v-for="template in templates"
+            :key="template.id"
+            :label="template.name"
+            :value="template.id"
+          >
+            <div class="template-option">
+              <span class="template-name">{{ template.name }}</span>
+              <span class="template-badge" :class="`badge-${template.difficulty}`">
+                {{ template.difficulty }}
+              </span>
+            </div>
+            <div class="template-description">{{ template.description }}</div>
+          </ElOption>
+        </ElSelect>
+        <button
+          type="button"
+          class="load-button"
+          :disabled="!selectedTemplate || loadingTemplate"
+          @click="loadTemplate"
+        >
+          {{ loadingTemplate ? 'Loading...' : 'Load' }}
+        </button>
+      </div>
+      <p class="hint">Start with a LangGraph template or write your own Python script</p>
+    </div>
+
     <div class="form-group">
       <label>Python Code</label>
       <textarea
@@ -112,5 +195,76 @@ const updateDependencies = () => {
     color: var(--rf-color-text-secondary);
     margin: 0;
   }
+
+  &.template-selector {
+    .template-controls {
+      display: flex;
+      gap: var(--rf-spacing-sm);
+      align-items: stretch;
+    }
+
+    .load-button {
+      padding: 0 var(--rf-spacing-lg);
+      background: var(--rf-color-primary);
+      color: white;
+      border: none;
+      border-radius: var(--rf-radius-base);
+      font-size: var(--rf-font-size-sm);
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s;
+      white-space: nowrap;
+
+      &:hover:not(:disabled) {
+        background: var(--rf-color-primary-dark);
+        transform: translateY(-1px);
+      }
+
+      &:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+    }
+  }
+}
+
+.template-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--rf-spacing-sm);
+
+  .template-name {
+    font-weight: 500;
+  }
+
+  .template-badge {
+    padding: 2px var(--rf-spacing-xs);
+    border-radius: var(--rf-radius-small);
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+
+    &.badge-beginner {
+      background: rgba(103, 194, 58, 0.1);
+      color: #67c23a;
+    }
+
+    &.badge-intermediate {
+      background: rgba(230, 162, 60, 0.1);
+      color: #e6a23c;
+    }
+
+    &.badge-advanced {
+      background: rgba(245, 108, 108, 0.1);
+      color: #f56c6c;
+    }
+  }
+}
+
+.template-description {
+  font-size: var(--rf-font-size-xs);
+  color: var(--rf-color-text-secondary);
+  margin-top: 2px;
 }
 </style>

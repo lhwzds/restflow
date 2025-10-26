@@ -3,8 +3,11 @@
 
 # Python environment
 /python/.venv/
-/python/scripts/  # User scripts (runtime generated)
-/.uv/  # uv binary
+/python/scripts/*.py  # User scripts (runtime generated)
+!/py1thon/scripts/templates/  # Keep templates
+
+# Hide UV enviroment Dont change
+/.uv
 
 # Python cache
 __pycache__/
@@ -12,3 +15,4 @@ __pycache__/
 *$py.class
 
 .playwright-mcp
+

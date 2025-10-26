@@ -110,6 +110,8 @@ async fn main() {
         // Python integration
         .route("/api/python/execute", post(execute_script))
         .route("/api/python/scripts", get(list_scripts))
+        .route("/api/python/templates", get(list_templates))
+        .route("/api/python/templates/{template_id}", get(get_template))
         // Agent management
         .route("/api/agents", get(list_agents).post(create_agent))
         .route(
