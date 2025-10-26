@@ -346,12 +346,18 @@ impl PythonManager {
         fs::write(&script_path, code).await?;
 
         // Use uv run --no-project to execute (automatically handles PEP 723 dependencies)
+        // --refresh ensures dependency changes are detected and installed
         let mut cmd = Command::new(&self.uv_binary);
-        cmd.args(["run", "--no-project", script_path.to_str().unwrap()])
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .kill_on_drop(true);
+        cmd.args([
+            "run",
+            "--no-project",
+            "--refresh",
+            script_path.to_str().unwrap(),
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true);
 
         // Inject environment variables (e.g., API keys from Secret Manager)
         for (key, value) in env_vars {
