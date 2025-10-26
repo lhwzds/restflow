@@ -42,10 +42,11 @@ if __name__ == "__main__":
     try:
         input_data = json.load(sys.stdin)
     except:
-        # Default test data when no input provided
-        input_data = {
-            "messages": ["Hello", "How are you?", "Testing LangGraph"]
-        }
+        input_data = {}
+
+    # Ensure we have messages field with default value
+    if not input_data.get("messages"):
+        input_data["messages"] = ["Hello", "How are you?", "Testing LangGraph"]
 
     result = compiled_graph.invoke(input_data)
     print(json.dumps(result))
