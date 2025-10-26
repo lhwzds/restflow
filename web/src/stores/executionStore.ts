@@ -180,6 +180,10 @@ export const useExecutionStore = defineStore('execution', {
       return result?.status || null
     },
 
+    getNodeResult(nodeId: string): NodeExecutionResult | null {
+      return this.nodeResults.get(nodeId) || null
+    },
+
     // Update from async execution tasks (the only way to update execution status)
     updateFromTasks(tasks: Array<{
       node_id: string
