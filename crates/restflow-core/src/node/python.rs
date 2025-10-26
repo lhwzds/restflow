@@ -38,7 +38,7 @@ impl PythonNode {
         let deps = self
             .dependencies
             .iter()
-            .map(|d| format!("  \"{}\",", d))
+            .map(|d| format!("#   \"{}\",", d))
             .collect::<Vec<_>>()
             .join("\n");
 

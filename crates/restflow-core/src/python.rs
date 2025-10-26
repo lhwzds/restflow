@@ -19,21 +19,7 @@ pub struct TemplateInfo {
     pub id: String,
     pub name: String,
     pub description: String,
-    pub category: String,
-    pub difficulty: String,
-    pub file: String,
     pub dependencies: Vec<String>,
-    #[serde(rename = "inputSchema")]
-    pub input_schema: Option<Value>,
-    #[serde(rename = "outputSchema")]
-    pub output_schema: Option<Value>,
-    #[serde(rename = "envVars")]
-    pub env_vars: Option<Vec<String>>,
-}
-
-#[derive(Debug, Deserialize)]
-struct TemplateIndex {
-    templates: Vec<TemplateInfo>,
 }
 
 #[derive(Debug)]
@@ -387,64 +373,186 @@ impl PythonManager {
             .map_err(|e| anyhow!("Failed to parse output as JSON: {}", e))
     }
 
-    /// List all available Python script templates
+    /// List all available Python script templates by scanning .py files
     pub async fn list_templates(&self) -> Result<Vec<TemplateInfo>> {
         self.ensure_initialized().await?;
 
-        let index_path = self.templates_dir.join("index.json");
-        if !index_path.exists() {
-            return Ok(Vec::new());
+        let mut templates = Vec::new();
+
+        if !self.templates_dir.exists() {
+            return Ok(templates);
         }
 
-        let content = fs::read_to_string(&index_path).await?;
-        let index: TemplateIndex = serde_json::from_str(&content)?;
-        Ok(index.templates)
+        let mut entries = fs::read_dir(&self.templates_dir).await?;
+        while let Some(entry) = entries.next_entry().await? {
+            let path = entry.path();
+
+            // Only process .py files
+            if path.extension().and_then(|s| s.to_str()) != Some("py") {
+                continue;
+            }
+
+            let file_stem = path.file_stem().and_then(|s| s.to_str());
+            if file_stem.is_none() {
+                continue;
+            }
+
+            let content = fs::read_to_string(&path).await?;
+
+            // Parse metadata block: # /// metadata ... # ///
+            let metadata = Self::parse_metadata_block(&content)?;
+            let dependencies = Self::parse_dependencies_block(&content)?;
+
+            templates.push(TemplateInfo {
+                id: file_stem.unwrap().to_string(),
+                name: metadata.get("name").cloned().unwrap_or_default(),
+                description: metadata.get("description").cloned().unwrap_or_default(),
+                dependencies,
+            });
+        }
+
+        // Sort alphabetically by id (filename)
+        templates.sort_by(|a, b| a.id.cmp(&b.id));
+
+        Ok(templates)
+    }
+
+    /// Parse metadata block from Python file
+    fn parse_metadata_block(content: &str) -> Result<HashMap<String, String>> {
+        // Match the entire metadata block: # /// metadata ... # ///
+        let re = regex::Regex::new(r"(?s)# /// metadata\s*\n(.*?)# ///")
+            .map_err(|e| anyhow!("Invalid metadata regex: {}", e))?;
+
+        if let Some(caps) = re.captures(content) {
+            let block_content = caps.get(1).unwrap().as_str();
+
+            // Remove '# ' prefix from each line and join
+            let json_str: String = block_content
+                .lines()
+                .map(|line| line.trim_start_matches('#').trim())
+                .collect::<Vec<_>>()
+                .join("\n");
+
+            let metadata: HashMap<String, Value> = serde_json::from_str(&json_str)?;
+
+            // Convert to HashMap<String, String>
+            let mut result = HashMap::new();
+            for (key, value) in metadata {
+                if let Some(s) = value.as_str() {
+                    result.insert(key, s.to_string());
+                }
+            }
+            Ok(result)
+        } else {
+            Ok(HashMap::new())
+        }
+    }
+
+    /// Parse dependencies block from Python file (PEP 723 format)
+    fn parse_dependencies_block(content: &str) -> Result<Vec<String>> {
+        // Match the entire script block: # /// script ... # ///
+        let re = regex::Regex::new(r"(?s)# /// script\s*\n(.*?)# ///")
+            .map_err(|e| anyhow!("Invalid dependencies regex: {}", e))?;
+
+        if let Some(caps) = re.captures(content) {
+            let block_content = caps.get(1).unwrap().as_str();
+
+            // Remove '# ' prefix from each line
+            let clean_content: String = block_content
+                .lines()
+                .map(|line| line.trim_start_matches('#').trim())
+                .collect::<Vec<_>>()
+                .join("\n");
+
+            // Extract dependencies array using regex ((?s) enables DOTALL mode to match newlines)
+            let dep_re = regex::Regex::new(r"(?s)dependencies\s*=\s*\[(.*?)\]")
+                .map_err(|e| anyhow!("Invalid dependency array regex: {}", e))?;
+
+            if let Some(dep_caps) = dep_re.captures(&clean_content) {
+                let deps_str = dep_caps.get(1).unwrap().as_str();
+
+                // Parse each dependency (quoted strings)
+                let deps: Vec<String> = deps_str
+                    .split(',')
+                    .filter_map(|dep| {
+                        let trimmed = dep.trim().trim_matches('"').trim();
+                        if trimmed.is_empty() {
+                            None
+                        } else {
+                            Some(trimmed.to_string())
+                        }
+                    })
+                    .collect();
+
+                return Ok(deps);
+            }
+        }
+
+        Ok(Vec::new())
     }
 
     /// Get a specific template by ID
     pub async fn get_template(&self, template_id: &str) -> Result<HashMap<String, String>> {
         self.ensure_initialized().await?;
 
-        // Validate template ID (alphanumeric and underscore only)
+        // Validate template ID (alphanumeric, underscore, and hyphen only)
         if !template_id
             .chars()
-            .all(|c| c.is_alphanumeric() || c == '_')
+            .all(|c| c.is_alphanumeric() || c == '_' || c == '-')
         {
             return Err(anyhow!("Invalid template ID"));
         }
 
-        // First get template info from index
-        let templates = self.list_templates().await?;
-        let template = templates
-            .iter()
-            .find(|t| t.id == template_id)
-            .ok_or_else(|| anyhow!("Template not found: {}", template_id))?;
-
-        // Read template file content
-        let template_path = self.templates_dir.join(&template.file);
+        // Build template file path
+        let template_path = self.templates_dir.join(format!("{}.py", template_id));
         if !template_path.exists() {
-            return Err(anyhow!("Template file not found: {}", template.file));
+            return Err(anyhow!("Template not found: {}", template_id));
         }
 
+        // Read file content
         let content = fs::read_to_string(&template_path).await?;
 
-        // Return template info and content
+        // Parse metadata and dependencies
+        let metadata = Self::parse_metadata_block(&content)?;
+        let dependencies = Self::parse_dependencies_block(&content)?;
+
+        // Remove metadata blocks from content (user only sees actual code)
+        let clean_content = Self::strip_metadata_blocks(&content);
+
+        // Return template info
         let mut result = HashMap::new();
-        result.insert("id".to_string(), template.id.clone());
-        result.insert("name".to_string(), template.name.clone());
-        result.insert("description".to_string(), template.description.clone());
-        result.insert("category".to_string(), template.category.clone());
-        result.insert("difficulty".to_string(), template.difficulty.clone());
-        result.insert("content".to_string(), content);
+        result.insert("id".to_string(), template_id.to_string());
+        result.insert(
+            "name".to_string(),
+            metadata.get("name").cloned().unwrap_or_default(),
+        );
+        result.insert(
+            "description".to_string(),
+            metadata.get("description").cloned().unwrap_or_default(),
+        );
+        result.insert("content".to_string(), clean_content);
         result.insert(
             "dependencies".to_string(),
-            serde_json::to_string(&template.dependencies)?,
+            serde_json::to_string(&dependencies)?,
         );
 
-        if let Some(env_vars) = &template.env_vars {
-            result.insert("envVars".to_string(), serde_json::to_string(env_vars)?);
+        Ok(result)
+    }
+
+    /// Remove metadata and script blocks from Python code
+    fn strip_metadata_blocks(content: &str) -> String {
+        let mut result = content.to_string();
+
+        // Remove # /// script ... # ///
+        if let Ok(re) = regex::Regex::new(r"(?s)# /// script\s*\n.*?# ///\s*\n+") {
+            result = re.replace_all(&result, "").to_string();
         }
 
-        Ok(result)
+        // Remove # /// metadata ... # ///
+        if let Ok(re) = regex::Regex::new(r"(?s)# /// metadata\s*\n.*?# ///\s*\n+") {
+            result = re.replace_all(&result, "").to_string();
+        }
+
+        result.trim_start().to_string()
     }
 }
