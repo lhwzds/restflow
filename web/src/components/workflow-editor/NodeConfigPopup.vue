@@ -6,6 +6,7 @@ import { Settings, Play, Copy, Trash2, X } from 'lucide-vue-next'
 import { AgentConfigForm, HttpConfigForm, PythonConfigForm, TriggerConfigForm } from '../nodes'
 import { NODE_TYPE, NODE_TYPE_LABELS, SUCCESS_MESSAGES, ERROR_MESSAGES } from '@/constants'
 import { useSingleNodeExecution } from '../../composables/execution/useSingleNodeExecution'
+import { useExecutionStore } from '../../stores/executionStore'
 
 interface Props {
   node: Node | null
@@ -24,9 +25,9 @@ const emit = defineEmits<{
 const nodeData = ref<any>({})
 const activeTab = ref('config')
 const isExecuting = ref(false)
-const testResult = ref<any>(null)
 
 const { executeSingleNode, getMockInput } = useSingleNodeExecution()
+const executionStore = useExecutionStore()
 
 const popupStyle = computed(() => ({
   position: 'fixed' as const,
@@ -57,11 +58,15 @@ const inputPreview = computed(() => {
     return 'No data available'
   }
 
-  const lastInput = (props.node.data as any)?.lastExecutionInput
+  const storeResult = executionStore.getNodeResult(props.node.id)
+  if (storeResult?.input) {
+    return formatPreview(storeResult.input)
+  }
+
   const configuredInput = nodeData.value?.input
   const mockInput = getMockInput(props.node.id)
 
-  return formatPreview(lastInput ?? configuredInput ?? mockInput)
+  return formatPreview(configuredInput ?? mockInput)
 })
 
 const outputPreview = computed(() => {
@@ -69,15 +74,9 @@ const outputPreview = computed(() => {
     return 'No data available'
   }
 
-  const latestResult = !testResult.value?.error && testResult.value ? testResult.value : null
-  const storedResult = (props.node.data as any)?.lastExecutionResult
-
-  if (latestResult) {
-    return formatPreview(latestResult)
-  }
-
-  if (storedResult) {
-    return formatPreview(storedResult)
+  const storeResult = executionStore.getNodeResult(props.node.id)
+  if (storeResult?.output) {
+    return formatPreview(storeResult.output)
   }
 
   return 'Output will be shown after execution'
@@ -93,7 +92,6 @@ watch(
   (newNode) => {
     if (newNode) {
       nodeData.value = { ...newNode.data }
-      testResult.value = null
     }
   },
   { immediate: true }
@@ -118,18 +116,12 @@ const testNode = async () => {
   if (!props.node) return
 
   isExecuting.value = true
-  testResult.value = null
 
   try {
-    const result = await executeSingleNode(props.node.id)
-    testResult.value = result
+    await executeSingleNode(props.node.id)
     ElMessage.success(SUCCESS_MESSAGES.TEST_PASSED)
   } catch (error: any) {
-    testResult.value = {
-      error: true,
-      message: error.message || 'Execution failed'
-    }
-    ElMessage.error(ERROR_MESSAGES.NODE_EXECUTION_FAILED + ': ' + error.message)
+    ElMessage.error(ERROR_MESSAGES.NODE_EXECUTION_FAILED + ': ' + (error.message || 'Unknown error'))
   } finally {
     isExecuting.value = false
   }
@@ -151,7 +143,6 @@ const handleDelete = () => {
 const handleClose = () => {
   emit('update:visible', false)
   emit('close')
-  testResult.value = null
   activeTab.value = 'config'
 }
 
@@ -241,41 +232,23 @@ const handleClose = () => {
               </div>
             </ElTabPane>
 
-            <ElTabPane label="Test Results" name="test" :disabled="!testResult">
-              <div class="test-section">
-                <div v-if="testResult" class="test-result">
-                  <div v-if="testResult.error" class="error-result">
-                    <h4>Execution Failed</h4>
-                    <pre>{{ testResult.message }}</pre>
-                  </div>
-                  <div v-else class="success-result">
-                    <h4>Execution Success</h4>
-                    <pre>{{ JSON.stringify(testResult, null, 2) }}</pre>
-                  </div>
-                </div>
-                <div v-else class="no-result">
-                  <p>Click Test button to run node</p>
-                </div>
-              </div>
-            </ElTabPane>
-
             <ElTabPane label="Input/Output" name="io">
               <div class="io-section">
                 <div class="io-group">
-                  <h4>Input Example</h4>
+                  <h4>Input</h4>
                   <div class="variable-list">
                     <div class="variable-item">
                       <pre class="variable-preview">{{ inputPreview }}</pre>
-                      <span>Output from upstream node or mock data</span>
+                      <span>Actual input from execution or configured/mock data</span>
                     </div>
                   </div>
                 </div>
                 <div class="io-group">
-                  <h4>Output Example</h4>
+                  <h4>Output</h4>
                   <div class="variable-list">
                     <div class="variable-item">
                       <pre class="variable-preview">{{ outputPreview }}</pre>
-                      <span>Result to be passed to downstream nodes</span>
+                      <span>Actual output from execution</span>
                     </div>
                   </div>
                 </div>
@@ -287,8 +260,6 @@ const handleClose = () => {
         <div class="popup-footer">
           <div class="footer-status">
             <span v-if="isExecuting" class="executing">Executing...</span>
-            <span v-else-if="testResult?.error" class="error">Execution Failed</span>
-            <span v-else-if="testResult" class="success">Execution Success</span>
           </div>
           <div class="footer-actions">
             <ElButton type="primary" size="small" @click="testNode" :loading="isExecuting">
@@ -394,7 +365,7 @@ const handleClose = () => {
     padding: var(--rf-spacing-lg);
     cursor: default;
 
-    .config-section, .test-section, .io-section {
+    .config-section, .io-section {
       .form-group {
         margin-bottom: var(--rf-spacing-lg);
 
@@ -423,47 +394,6 @@ const handleClose = () => {
           }
         }
       }
-    }
-
-    .test-result {
-      padding: var(--rf-spacing-md);
-      border-radius: var(--rf-radius-base);
-
-      h4 {
-        margin-bottom: var(--rf-spacing-md);
-        font-size: var(--rf-font-size-md);
-      }
-
-      pre {
-        font-family: 'Monaco', 'Courier New', monospace;
-        font-size: var(--rf-font-size-xs);
-        overflow-x: auto;
-        padding: var(--rf-spacing-md);
-        background: var(--rf-color-bg-page);
-        border-radius: var(--rf-radius-small);
-      }
-
-      .error-result {
-        h4 { color: var(--rf-color-danger); }
-        pre {
-          background: var(--rf-color-danger-bg-lighter);
-          color: var(--rf-color-danger);
-        }
-      }
-
-      .success-result {
-        h4 { color: var(--rf-color-success); }
-        pre {
-          background: var(--rf-color-success-bg-lighter);
-          color: var(--rf-color-text-primary);
-        }
-      }
-    }
-
-    .no-result {
-      text-align: center;
-      color: var(--rf-color-text-secondary);
-      padding: var(--rf-spacing-2xl);
     }
 
     .io-section {
