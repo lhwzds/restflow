@@ -49,6 +49,7 @@ const {
 
 const selectedNode = ref<Node | null>(null)
 const showConfigPopup = ref(false)
+const initialTab = ref<'config' | 'io'>('config')
 
 onConnect((connection: Connection) => {
   const newEdge: Edge = {
@@ -101,6 +102,13 @@ const handlePopupClose = () => {
 
 const handleOpenConfig = (nodeProps: any) => {
   selectedNode.value = nodeProps
+  initialTab.value = 'config'
+  showConfigPopup.value = true
+}
+
+const handleViewIO = (nodeProps: any) => {
+  selectedNode.value = nodeProps
+  initialTab.value = 'io'
   showConfigPopup.value = true
 }
 
@@ -191,6 +199,7 @@ useKeyboardShortcuts({
           <ManualTriggerNode
             v-bind="manualTriggerNodeProps"
             @open-config="handleOpenConfig(manualTriggerNodeProps)"
+            @view-io="handleViewIO(manualTriggerNodeProps)"
             @test-node="handleTestNode(manualTriggerNodeProps)"
           />
         </template>
@@ -199,6 +208,7 @@ useKeyboardShortcuts({
           <WebhookTriggerNode
             v-bind="webhookTriggerNodeProps"
             @open-config="handleOpenConfig(webhookTriggerNodeProps)"
+            @view-io="handleViewIO(webhookTriggerNodeProps)"
             @test-node="handleTestNode(webhookTriggerNodeProps)"
           />
         </template>
@@ -207,6 +217,7 @@ useKeyboardShortcuts({
           <ScheduleTriggerNode
             v-bind="scheduleTriggerNodeProps"
             @open-config="handleOpenConfig(scheduleTriggerNodeProps)"
+            @view-io="handleViewIO(scheduleTriggerNodeProps)"
             @test-node="handleTestNode(scheduleTriggerNodeProps)"
           />
         </template>
@@ -215,6 +226,7 @@ useKeyboardShortcuts({
           <AgentNode
             v-bind="agentNodeProps"
             @open-config="handleOpenConfig(agentNodeProps)"
+            @view-io="handleViewIO(agentNodeProps)"
             @test-node="handleTestNode(agentNodeProps)"
           />
         </template>
@@ -223,6 +235,7 @@ useKeyboardShortcuts({
           <HttpNode
             v-bind="httpNodeProps"
             @open-config="handleOpenConfig(httpNodeProps)"
+            @view-io="handleViewIO(httpNodeProps)"
             @test-node="handleTestNode(httpNodeProps)"
           />
         </template>
@@ -231,6 +244,7 @@ useKeyboardShortcuts({
           <PythonNode
             v-bind="pythonNodeProps"
             @open-config="handleOpenConfig(pythonNodeProps)"
+            @view-io="handleViewIO(pythonNodeProps)"
             @test-node="handleTestNode(pythonNodeProps)"
           />
         </template>
@@ -248,6 +262,7 @@ useKeyboardShortcuts({
       <NodeConfigPopup
         :node="selectedNode"
         v-model:visible="showConfigPopup"
+        :initial-tab="initialTab"
         @update="handlePopupUpdate"
         @delete="handlePopupDelete"
         @duplicate="handlePopupDuplicate"

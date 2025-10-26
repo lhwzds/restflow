@@ -11,9 +11,12 @@ import { useExecutionStore } from '../../stores/executionStore'
 interface Props {
   node: Node | null
   visible: boolean
+  initialTab?: 'config' | 'io'
 }
 
-const props = defineProps<Props>()
+const props = withDefaults(defineProps<Props>(), {
+  initialTab: 'config'
+})
 const emit = defineEmits<{
   'update:visible': [value: boolean]
   'update': [node: Node]
@@ -95,6 +98,15 @@ watch(
     }
   },
   { immediate: true }
+)
+
+watch(
+  () => props.visible,
+  (newVisible) => {
+    if (newVisible) {
+      activeTab.value = props.initialTab
+    }
+  }
 )
 
 const updateNode = () => {
@@ -389,7 +401,12 @@ const handleClose = () => {
       .io-group {
         margin-bottom: var(--rf-spacing-xl);
 
+        &:first-child {
+          margin-top: 0;
+        }
+
         h4 {
+          margin-top: 0;
           margin-bottom: var(--rf-spacing-md);
           font-size: var(--rf-font-size-md);
           color: var(--rf-color-text-primary);
@@ -447,7 +464,7 @@ const handleClose = () => {
     }
 
     .el-tabs__content {
-      padding-top: var(--rf-spacing-lg);
+      padding-top: 0;
     }
   }
 }
