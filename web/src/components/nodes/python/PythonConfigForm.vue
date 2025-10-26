@@ -108,9 +108,6 @@ onMounted(() => {
           >
             <div class="template-option">
               <span class="template-name">{{ template.name }}</span>
-              <span class="template-badge" :class="`badge-${template.difficulty}`">
-                {{ template.difficulty }}
-              </span>
             </div>
             <div class="template-description">{{ template.description }}</div>
           </ElOption>
@@ -231,34 +228,9 @@ onMounted(() => {
 .template-option {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: var(--rf-spacing-sm);
 
   .template-name {
     font-weight: 500;
-  }
-
-  .template-badge {
-    padding: 2px var(--rf-spacing-xs);
-    border-radius: var(--rf-radius-small);
-    font-size: 11px;
-    font-weight: 600;
-    text-transform: uppercase;
-
-    &.badge-beginner {
-      background: rgba(103, 194, 58, 0.1);
-      color: #67c23a;
-    }
-
-    &.badge-intermediate {
-      background: rgba(230, 162, 60, 0.1);
-      color: #e6a23c;
-    }
-
-    &.badge-advanced {
-      background: rgba(245, 108, 108, 0.1);
-      color: #f56c6c;
-    }
   }
 }
 

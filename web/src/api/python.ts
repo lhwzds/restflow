@@ -5,24 +5,15 @@ export interface TemplateInfo {
   id: string
   name: string
   description: string
-  category: string
-  difficulty: string
-  file: string
   dependencies: string[]
-  inputSchema?: any
-  outputSchema?: any
-  envVars?: string[]
 }
 
 export interface TemplateDetail {
   id: string
   name: string
   description: string
-  category: string
-  difficulty: string
   content: string
   dependencies: string
-  envVars?: string
 }
 
 export async function listTemplates(): Promise<TemplateInfo[]> {

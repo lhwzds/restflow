@@ -6,6 +6,13 @@
 # ]
 # ///
 
+# /// metadata
+# {
+#   "name": "LangGraph - Multi-Agent System",
+#   "description": "Collaborative multi-agent system with researcher and writer agents"
+# }
+# ///
+
 import json
 import sys
 from typing import TypedDict, Annotated, Literal

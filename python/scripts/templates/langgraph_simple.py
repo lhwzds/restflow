@@ -5,6 +5,13 @@
 # ]
 # ///
 
+# /// metadata
+# {
+#   "name": "LangGraph - Simple Graph",
+#   "description": "Basic LangGraph example with a single processing node"
+# }
+# ///
+
 import json
 import sys
 from typing import TypedDict

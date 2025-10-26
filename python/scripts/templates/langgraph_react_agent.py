@@ -6,6 +6,13 @@
 # ]
 # ///
 
+# /// metadata
+# {
+#   "name": "LangGraph - ReAct Agent",
+#   "description": "ReAct agent with OpenAI integration and message handling"
+# }
+# ///
+
 import json
 import sys
 from typing import TypedDict, Annotated
