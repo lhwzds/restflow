@@ -1,7 +1,9 @@
 use anyhow::{Result, anyhow};
 use once_cell::sync::OnceCell;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
+use std::collections::HashMap;
 use std::env;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -12,12 +14,35 @@ use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
 use tracing::info;
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct TemplateInfo {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    pub category: String,
+    pub difficulty: String,
+    pub file: String,
+    pub dependencies: Vec<String>,
+    #[serde(rename = "inputSchema")]
+    pub input_schema: Option<Value>,
+    #[serde(rename = "outputSchema")]
+    pub output_schema: Option<Value>,
+    #[serde(rename = "envVars")]
+    pub env_vars: Option<Vec<String>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct TemplateIndex {
+    templates: Vec<TemplateInfo>,
+}
+
 #[derive(Debug)]
 pub struct PythonManager {
     uv_binary: PathBuf,
     python_dir: PathBuf,
     venv_dir: PathBuf,
     scripts_dir: PathBuf,
+    templates_dir: PathBuf,
     /// Lazy initialization avoids downloading uv at startup if Python is never used
     initialized: OnceCell<()>,
 }
@@ -31,12 +56,14 @@ impl PythonManager {
         let python_dir = current_dir.join("python");
         let venv_dir = python_dir.join(".venv");
         let scripts_dir = python_dir.join("scripts");
+        let templates_dir = scripts_dir.join("templates");
 
         let manager = Arc::new(Self {
             uv_binary,
             python_dir,
             venv_dir,
             scripts_dir,
+            templates_dir,
             initialized: OnceCell::new(),
         });
 
@@ -51,6 +78,7 @@ impl PythonManager {
 
         fs::create_dir_all(&self.python_dir).await?;
         fs::create_dir_all(&self.scripts_dir).await?;
+        fs::create_dir_all(&self.templates_dir).await?;
         fs::create_dir_all(self.uv_binary.parent().unwrap()).await?;
 
         if !self.uv_binary.exists() {
@@ -357,5 +385,66 @@ impl PythonManager {
         let output_str = String::from_utf8(output.stdout)?;
         serde_json::from_str(&output_str)
             .map_err(|e| anyhow!("Failed to parse output as JSON: {}", e))
+    }
+
+    /// List all available Python script templates
+    pub async fn list_templates(&self) -> Result<Vec<TemplateInfo>> {
+        self.ensure_initialized().await?;
+
+        let index_path = self.templates_dir.join("index.json");
+        if !index_path.exists() {
+            return Ok(Vec::new());
+        }
+
+        let content = fs::read_to_string(&index_path).await?;
+        let index: TemplateIndex = serde_json::from_str(&content)?;
+        Ok(index.templates)
+    }
+
+    /// Get a specific template by ID
+    pub async fn get_template(&self, template_id: &str) -> Result<HashMap<String, String>> {
+        self.ensure_initialized().await?;
+
+        // Validate template ID (alphanumeric and underscore only)
+        if !template_id
+            .chars()
+            .all(|c| c.is_alphanumeric() || c == '_')
+        {
+            return Err(anyhow!("Invalid template ID"));
+        }
+
+        // First get template info from index
+        let templates = self.list_templates().await?;
+        let template = templates
+            .iter()
+            .find(|t| t.id == template_id)
+            .ok_or_else(|| anyhow!("Template not found: {}", template_id))?;
+
+        // Read template file content
+        let template_path = self.templates_dir.join(&template.file);
+        if !template_path.exists() {
+            return Err(anyhow!("Template file not found: {}", template.file));
+        }
+
+        let content = fs::read_to_string(&template_path).await?;
+
+        // Return template info and content
+        let mut result = HashMap::new();
+        result.insert("id".to_string(), template.id.clone());
+        result.insert("name".to_string(), template.name.clone());
+        result.insert("description".to_string(), template.description.clone());
+        result.insert("category".to_string(), template.category.clone());
+        result.insert("difficulty".to_string(), template.difficulty.clone());
+        result.insert("content".to_string(), content);
+        result.insert(
+            "dependencies".to_string(),
+            serde_json::to_string(&template.dependencies)?,
+        );
+
+        if let Some(env_vars) = &template.env_vars {
+            result.insert("envVars".to_string(), serde_json::to_string(env_vars)?);
+        }
+
+        Ok(result)
     }
 }

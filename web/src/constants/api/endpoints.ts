@@ -54,6 +54,8 @@ export const API_ENDPOINTS = {
   PYTHON: {
     EXECUTE: `${API_PREFIX}/python/execute`,
     SCRIPTS: `${API_PREFIX}/python/scripts`,
+    TEMPLATES: `${API_PREFIX}/python/templates`,
+    TEMPLATE: (id: string) => `${API_PREFIX}/python/templates/${id}` as const,
   },
 
   CONFIG: {
