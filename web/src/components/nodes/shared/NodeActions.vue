@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { Settings, Play } from 'lucide-vue-next'
+import { Settings, Play, FileText } from 'lucide-vue-next'
 import { ElTooltip } from 'element-plus'
 
 interface Props {
@@ -17,6 +17,7 @@ withDefaults(defineProps<Props>(), {
 
 const emit = defineEmits<{
   'open-config': []
+  'view-io': []
   'test': []
 }>()
 
@@ -43,6 +44,11 @@ defineExpose({
           :disabled="testButtonDisabled"
         >
           <Play :size="14" />
+        </button>
+      </ElTooltip>
+      <ElTooltip content="View Input/Output" placement="top">
+        <button class="action-btn io-btn" @click.stop="emit('view-io')">
+          <FileText :size="14" />
         </button>
       </ElTooltip>
       <slot name="extra" />
@@ -82,6 +88,11 @@ defineExpose({
       background: var(--rf-color-primary-bg-lighter);
       color: var(--rf-color-primary);
       transform: scale(1.1);
+    }
+
+    &.io-btn:hover {
+      background: var(--rf-color-info-bg-lighter);
+      color: var(--rf-color-info);
     }
 
     &.test-btn:hover:not(:disabled) {

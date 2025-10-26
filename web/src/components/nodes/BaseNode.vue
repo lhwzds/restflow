@@ -31,6 +31,7 @@ const props = withDefaults(defineProps<BaseNodeProps>(), {
 
 const emit = defineEmits<{
   'open-config': []
+  'view-io': []
   'action-button': []
   'updateNodeInternals': [nodeId: string]
 }>()
@@ -91,6 +92,7 @@ const onMouseLeave = () => {
       :test-button-tooltip="actionButtonTooltip"
       :test-button-disabled="actionButtonDisabled"
       @open-config="emit('open-config')"
+      @view-io="emit('view-io')"
       @test="emit('action-button')"
     >
       <template #extra>
