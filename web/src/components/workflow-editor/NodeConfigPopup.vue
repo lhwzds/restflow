@@ -239,8 +239,8 @@ const handleClose = () => {
                   <div class="variable-list">
                     <div class="variable-item">
                       <pre class="variable-preview">{{ inputPreview }}</pre>
-                      <span>Actual input from execution or configured/mock data</span>
                     </div>
+                    <span class="variable-description">Actual input from execution or configured/mock data</span>
                   </div>
                 </div>
                 <div class="io-group">
@@ -248,24 +248,13 @@ const handleClose = () => {
                   <div class="variable-list">
                     <div class="variable-item">
                       <pre class="variable-preview">{{ outputPreview }}</pre>
-                      <span>Actual output from execution</span>
                     </div>
+                    <span class="variable-description">Actual output from execution</span>
                   </div>
                 </div>
               </div>
             </ElTabPane>
           </ElTabs>
-        </div>
-
-        <div class="popup-footer">
-          <div class="footer-status">
-            <span v-if="isExecuting" class="executing">Executing...</span>
-          </div>
-          <div class="footer-actions">
-            <ElButton type="primary" size="small" @click="testNode" :loading="isExecuting">
-              Test Node
-            </ElButton>
-          </div>
         </div>
       </div>
     </Transition>
@@ -408,9 +397,6 @@ const handleClose = () => {
 
         .variable-list {
           .variable-item {
-            display: flex;
-            align-items: center;
-            gap: var(--rf-spacing-md);
             padding: var(--rf-spacing-md);
             background: var(--rf-color-bg-secondary);
             border-radius: var(--rf-radius-small);
@@ -428,38 +414,17 @@ const handleClose = () => {
               white-space: pre-wrap;
               word-break: break-word;
             }
+          }
 
-            span {
-              font-size: var(--rf-font-size-xs);
-              color: var(--rf-color-text-secondary);
-            }
+          .variable-description {
+            display: block;
+            font-size: var(--rf-font-size-xs);
+            color: var(--rf-color-text-secondary);
+            margin-top: var(--rf-spacing-sm);
+            padding-left: var(--rf-spacing-xs);
           }
         }
       }
-    }
-  }
-
-  .popup-footer {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: var(--rf-spacing-md) var(--rf-spacing-lg);
-    border-top: 1px solid var(--rf-color-border-light);
-    background: var(--rf-color-bg-secondary);
-    border-radius: 0 0 var(--rf-radius-large) var(--rf-radius-large);
-    cursor: default;
-
-    .footer-status {
-      font-size: var(--rf-font-size-sm);
-
-      .executing { color: var(--rf-color-primary); }
-      .error { color: var(--rf-color-danger); }
-      .success { color: var(--rf-color-success); }
-    }
-
-    .footer-actions {
-      display: flex;
-      gap: var(--rf-spacing-sm);
     }
   }
 
@@ -506,8 +471,7 @@ html.dark {
   .node-config-popup {
     background: var(--rf-color-bg-container);
 
-    .popup-header,
-    .popup-footer {
+    .popup-header {
       background: var(--rf-color-bg-secondary);
     }
 
