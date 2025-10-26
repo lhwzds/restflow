@@ -39,6 +39,13 @@ compiled_graph = graph.compile()
 
 # Execute
 if __name__ == "__main__":
-    input_data = json.load(sys.stdin)
+    try:
+        input_data = json.load(sys.stdin)
+    except:
+        # Default test data when no input provided
+        input_data = {
+            "messages": ["Hello", "How are you?", "Testing LangGraph"]
+        }
+
     result = compiled_graph.invoke(input_data)
     print(json.dumps(result))

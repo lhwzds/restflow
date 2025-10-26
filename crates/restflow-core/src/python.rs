@@ -332,7 +332,12 @@ impl PythonManager {
     }
 
     /// Execute inline Python code with PEP 723 dependencies using uv run
-    pub async fn execute_inline_code(&self, code: &str, input: Value) -> Result<Value> {
+    pub async fn execute_inline_code(
+        &self,
+        code: &str,
+        input: Value,
+        env_vars: HashMap<String, String>,
+    ) -> Result<Value> {
         self.ensure_initialized().await?;
 
         // Create temporary script file
@@ -347,6 +352,11 @@ impl PythonManager {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true);
+
+        // Inject environment variables (e.g., API keys from Secret Manager)
+        for (key, value) in env_vars {
+            cmd.env(key, value);
+        }
 
         let mut child = cmd.spawn()?;
 

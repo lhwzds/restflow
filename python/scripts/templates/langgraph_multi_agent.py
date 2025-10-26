@@ -27,9 +27,9 @@ class MultiAgentState(TypedDict):
     final_output: str
     current_agent: str
 
-# Initialize LLMs with different roles
-researcher = ChatOpenAI(model="gpt-4", temperature=0.3)
-writer = ChatOpenAI(model="gpt-4", temperature=0.7)
+# Initialize LLMs with different roles (API key loaded from OPENAI_API_KEY environment variable)
+researcher = ChatOpenAI(model="gpt-4.1", temperature=0.3)
+writer = ChatOpenAI(model="gpt-4.1", temperature=0.7)
 
 def research_agent(state: MultiAgentState):
     """Research agent that gathers information"""
@@ -98,7 +98,13 @@ compiled_graph = graph.compile()
 
 # Execute
 if __name__ == "__main__":
-    input_data = json.load(sys.stdin)
+    try:
+        input_data = json.load(sys.stdin)
+    except:
+        # Default test data when no input provided
+        input_data = {
+            "task": "Explain the benefits of using LangGraph for building multi-agent systems"
+        }
 
     # Ensure we have a task field
     if "task" not in input_data:

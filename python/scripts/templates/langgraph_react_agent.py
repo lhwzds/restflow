@@ -25,8 +25,8 @@ class AgentState(TypedDict):
     messages: Annotated[list, "Message history"]
     next_action: str
 
-# Initialize LLM
-llm = ChatOpenAI(model="gpt-4", temperature=0)
+# Initialize LLM (API key loaded from OPENAI_API_KEY environment variable)
+llm = ChatOpenAI(model="gpt-4.1", temperature=0)
 
 def agent_node(state: AgentState):
     """ReAct agent that processes messages and decides next action"""
@@ -76,6 +76,15 @@ compiled_graph = graph.compile()
 
 # Execute
 if __name__ == "__main__":
-    input_data = json.load(sys.stdin)
+    try:
+        input_data = json.load(sys.stdin)
+    except:
+        # Default test data when no input provided
+        input_data = {
+            "messages": [
+                {"role": "user", "content": "Hello! Can you help me with LangGraph?"}
+            ]
+        }
+
     result = compiled_graph.invoke(input_data)
     print(json.dumps(result))

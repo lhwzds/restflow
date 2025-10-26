@@ -157,6 +157,19 @@ impl NodeExecutor for PythonExecutor {
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("Python manager not available"))?;
 
-        manager.execute_inline_code(&script, input).await
+        // Read common AI API keys from Secret Manager
+        let mut env_vars = std::collections::HashMap::new();
+        if let Some(secret_storage) = &context.secret_storage {
+            // Try to load OPENAI_API_KEY
+            if let Ok(Some(key)) = secret_storage.get_secret("OPENAI_API_KEY") {
+                env_vars.insert("OPENAI_API_KEY".to_string(), key);
+            }
+            // Add other AI providers as needed
+            if let Ok(Some(key)) = secret_storage.get_secret("ANTHROPIC_API_KEY") {
+                env_vars.insert("ANTHROPIC_API_KEY".to_string(), key);
+            }
+        }
+
+        manager.execute_inline_code(&script, input, env_vars).await
     }
 }
