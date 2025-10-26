@@ -101,14 +101,11 @@ if __name__ == "__main__":
     try:
         input_data = json.load(sys.stdin)
     except:
-        # Default test data when no input provided
-        input_data = {
-            "task": "Explain the benefits of using LangGraph for building multi-agent systems"
-        }
+        input_data = {}
 
-    # Ensure we have a task field
-    if "task" not in input_data:
-        input_data["task"] = input_data.get("input", "Process this data")
+    # Ensure we have a task field with default value
+    if not input_data.get("task"):
+        input_data["task"] = "Explain the benefits of using LangGraph for building multi-agent systems"
 
     result = compiled_graph.invoke(input_data)
     print(json.dumps(result))
