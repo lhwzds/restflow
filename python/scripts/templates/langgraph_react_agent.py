@@ -18,7 +18,7 @@ import sys
 from typing import TypedDict, Annotated
 from langgraph.graph import StateGraph, END
 from langchain_openai import ChatOpenAI
-from langchain.schema import HumanMessage, AIMessage
+from langchain_core.messages import HumanMessage, AIMessage
 
 # Define agent state
 class AgentState(TypedDict):
