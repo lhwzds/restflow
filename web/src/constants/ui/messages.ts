@@ -49,6 +49,10 @@ export const SUCCESS_MESSAGES = {
   NODE_TEST_SUCCESS: 'Node test passed successfully',
   TEST_PASSED: 'Test passed successfully',
 
+  // Node execution
+  NODE_EXECUTION_STARTED: 'Node execution started',
+  NODE_EXECUTION_COMPLETED: 'Node execution completed successfully',
+
   // Execution state
   EXECUTION_CLEARED: 'Execution state cleared',
 } as const
