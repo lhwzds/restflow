@@ -1,5 +1,5 @@
 use crate::engine::context::ExecutionContext;
-use crate::models::{Node, Workflow};
+use crate::models::{Node, NodeOutput, Workflow};
 use crate::storage::Storage;
 use anyhow::Result;
 use once_cell::sync::OnceCell;
@@ -33,8 +33,7 @@ pub struct Task {
     pub completed_at: Option<i64>,
     #[ts(type = "any")]
     pub input: Value,
-    #[ts(type = "any")]
-    pub output: Option<Value>,
+    pub output: Option<NodeOutput>,
     pub error: Option<String>,
 
     // Execution context (serialized and stored)
@@ -118,7 +117,7 @@ impl Task {
     }
 
     /// Mark task as completed
-    pub fn complete(&mut self, output: Value) {
+    pub fn complete(&mut self, output: NodeOutput) {
         self.status = TaskStatus::Completed;
         self.completed_at = Some(chrono::Utc::now().timestamp_millis());
         self.output = Some(output);

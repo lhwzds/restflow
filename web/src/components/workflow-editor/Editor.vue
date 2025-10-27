@@ -62,14 +62,13 @@ onConnect((connection: Connection) => {
 })
 
 onNodeClick(({ node }) => {
-  if (executionStore.hasResults) {
-    executionStore.selectNode(node.id)
-  }
+  executionStore.selectNode(node.id)
 })
 
 onNodeDoubleClick(({ node }) => {
   selectedNode.value = node
   showConfigPopup.value = true
+  executionStore.setEditingNode(true)
 })
 
 onNodeDragStop(({ node }) => {
@@ -85,6 +84,8 @@ const handlePopupDelete = (nodeId: string) => {
   deleteNode(nodeId)
   showConfigPopup.value = false
   selectedNode.value = null
+  executionStore.setEditingNode(false)
+  executionStore.selectNode(null)
   ElMessage.success(SUCCESS_MESSAGES.DELETED('Node'))
 }
 
@@ -98,18 +99,22 @@ const handlePopupDuplicate = (nodeId: string) => {
 
 const handlePopupClose = () => {
   selectedNode.value = null
+  executionStore.setEditingNode(false)
+  executionStore.selectNode(null)
 }
 
 const handleOpenConfig = (nodeProps: any) => {
   selectedNode.value = nodeProps
   initialTab.value = 'config'
   showConfigPopup.value = true
+  executionStore.setEditingNode(true)
 }
 
 const handleViewIO = (nodeProps: any) => {
   selectedNode.value = nodeProps
   initialTab.value = 'io'
   showConfigPopup.value = true
+  executionStore.setEditingNode(true)
 }
 
 const handleTestNode = async (nodeProps: any) => {

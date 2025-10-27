@@ -30,7 +30,9 @@ interface ExecutionState {
   currentExecutionId: string | null
   isExecuting: boolean
   nodeResults: Map<string, NodeExecutionResult>
+  nodeResultsVersion: number
   selectedNodeId: string | null
+  isEditingNode: boolean
 }
 
 export const useExecutionStore = defineStore('execution', {
@@ -38,7 +40,9 @@ export const useExecutionStore = defineStore('execution', {
     currentExecutionId: null,
     isExecuting: false,
     nodeResults: new Map(),
+    nodeResultsVersion: 0,
     selectedNodeId: null,
+    isEditingNode: false,
   }),
 
   getters: {
@@ -92,6 +96,7 @@ export const useExecutionStore = defineStore('execution', {
       this.currentExecutionId = executionId
       this.isExecuting = true
       this.nodeResults.clear()
+      this.nodeResultsVersion++
       this.selectedNodeId = null
     },
 
@@ -108,6 +113,7 @@ export const useExecutionStore = defineStore('execution', {
       this.currentExecutionId = null
       this.isExecuting = false
       this.nodeResults.clear()
+      this.nodeResultsVersion++
       this.selectedNodeId = null
     },
 
@@ -137,19 +143,21 @@ export const useExecutionStore = defineStore('execution', {
       }
 
       this.nodeResults.set(nodeId, updated as NodeExecutionResult)
+      this.nodeResultsVersion++
     },
 
     updateNodeStatus(nodeId: string, status: NodeExecutionStatus) {
       const result: NodeExecutionResult = this.nodeResults.get(nodeId) || { nodeId, status: 'Pending' as NodeExecutionStatus }
-      
+
       if (status === 'Running') {
         result.startTime = Date.now()
       } else if (status === 'Completed' || status === 'Failed') {
         result.endTime = Date.now()
       }
-      
+
       result.status = status
       this.nodeResults.set(nodeId, result)
+      this.nodeResultsVersion++
     },
 
     // Parse execution context and populate results
@@ -183,6 +191,10 @@ export const useExecutionStore = defineStore('execution', {
 
     selectNode(nodeId: string | null) {
       this.selectedNodeId = nodeId
+    },
+
+    setEditingNode(editing: boolean) {
+      this.isEditingNode = editing
     },
 
     getNodeStatus(nodeId: string): NodeExecutionStatus | null {

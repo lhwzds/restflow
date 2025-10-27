@@ -2,9 +2,11 @@
 import { ref, watch, onMounted } from 'vue'
 import { ElMessage, ElSelect, ElOption } from 'element-plus'
 import { listTemplates, getTemplate, type TemplateInfo } from '@/api/python'
+import ExpressionInput from '@/components/shared/ExpressionInput.vue'
 
 interface PythonConfig {
   code?: string
+  input?: string
   dependencies?: string[]
 }
 
@@ -122,6 +124,17 @@ onMounted(() => {
         </button>
       </div>
       <p class="hint">Start with a LangGraph template or write your own Python script</p>
+    </div>
+
+    <div class="form-group">
+      <label>Input Data (JSON)</label>
+      <ExpressionInput
+        :model-value="localData.input || ''"
+        :multiline="true"
+        placeholder='{"data": {{trigger.payload}}, "user": {{node.http1.data.body.user}}}'
+        @update:model-value="(val) => { localData.input = val; updateData(); }"
+      />
+      <p class="hint">JSON data to pass as stdin to the Python script</p>
     </div>
 
     <div class="form-group">

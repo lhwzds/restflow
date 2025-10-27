@@ -41,6 +41,11 @@ export {
   getModelsByProvider,
   type ModelOption
 } from './node/models'
+export {
+  getNodeOutputSchema,
+  hasNodeOutputSchema
+} from '../utils/schemaGenerator'
+export { NODE_OUTPUT_EXAMPLES } from './node/output-examples'
 
 // ===== Workflow Related =====
 export * from './workflow'

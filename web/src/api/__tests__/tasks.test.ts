@@ -32,7 +32,7 @@ describe('Tasks API', () => {
     node_id: 'node1',
     status: 'Completed',
     input: null,
-    output: { result: 'success' },
+    output: { type: 'Print', data: { printed: 'success' } },
     error: null,
     created_at: Date.now(),
     started_at: null,
@@ -60,7 +60,7 @@ describe('Tasks API', () => {
       const result = await tasksApi.getTaskStatus('task1')
       expect(result.id).toBe('task1')
       expect(result.status).toBe('Completed')
-      expect(result.result).toEqual({ result: 'success' })
+      expect(result.result).toEqual({ type: 'Print', data: { printed: 'success' } })
     })
   })
 
