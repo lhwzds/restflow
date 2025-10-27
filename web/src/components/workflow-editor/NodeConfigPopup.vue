@@ -128,10 +128,11 @@ const testNode = async () => {
   if (!props.node) return
 
   isExecuting.value = true
+  ElMessage.info(SUCCESS_MESSAGES.NODE_EXECUTION_STARTED)
 
   try {
     await executeSingleNode(props.node.id)
-    ElMessage.success(SUCCESS_MESSAGES.TEST_PASSED)
+    ElMessage.success(SUCCESS_MESSAGES.NODE_EXECUTION_COMPLETED)
   } catch (error: any) {
     ElMessage.error(ERROR_MESSAGES.NODE_EXECUTION_FAILED + ': ' + (error.message || 'Unknown error'))
   } finally {

@@ -113,9 +113,10 @@ const handleViewIO = (nodeProps: any) => {
 }
 
 const handleTestNode = async (nodeProps: any) => {
+  ElMessage.info(SUCCESS_MESSAGES.NODE_EXECUTION_STARTED)
   try {
     await executeSingleNode(nodeProps.id)
-    ElMessage.success(SUCCESS_MESSAGES.TEST_PASSED)
+    ElMessage.success(SUCCESS_MESSAGES.NODE_EXECUTION_COMPLETED)
   } catch (error: any) {
     ElMessage.error(ERROR_MESSAGES.NODE_EXECUTION_FAILED + ': ' + (error.message || 'Unknown error'))
   }
