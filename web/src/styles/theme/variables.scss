@@ -177,6 +177,11 @@
   --rf-color-blue-bg-lighter: rgba(59, 130, 246, 0.1);
   --rf-color-green-bg-lighter: rgba(34, 197, 94, 0.1);
 
+  /* Blue state colors (for running status) */
+  --rf-color-blue-border: rgba(59, 130, 246, 0.4);
+  --rf-color-blue-shadow: rgba(59, 130, 246, 0.25);
+  --rf-color-blue-border-light: rgba(59, 130, 246, 0.2);
+
   /* Gradients */
   --rf-gradient-success: linear-gradient(135deg, #22c55e, #16a34a);
   --rf-gradient-success-dark: linear-gradient(135deg, #16a34a, #15803d);
@@ -279,6 +284,11 @@ html.dark {
   --rf-color-purple: #a78bfa;
   --rf-color-green: #34d399;
   --rf-color-white: #ffffff;
+
+  /* Blue state colors for dark mode */
+  --rf-color-blue-border: rgba(96, 165, 250, 0.4);
+  --rf-color-blue-shadow: rgba(96, 165, 250, 0.3);
+  --rf-color-blue-border-light: rgba(96, 165, 250, 0.2);
 
   /* Focus states for dark mode */
   --rf-shadow-focus: 0 0 0 3px rgba(129, 140, 248, 0.2);

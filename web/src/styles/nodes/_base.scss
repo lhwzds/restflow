@@ -27,7 +27,19 @@
 
 @mixin node-execution-states() {
   &.execution-running {
-    // Simple pulse effect for running state
+    .node-body {
+      border-color: var(--rf-color-blue) !important;
+      box-shadow:
+        0 4px 16px var(--rf-color-blue-shadow),
+        inset 0 0 0 1px var(--rf-color-blue-border) !important;
+
+      &:hover {
+        box-shadow:
+          0 6px 20px var(--rf-color-blue-shadow),
+          inset 0 0 0 1px var(--rf-color-blue-border) !important;
+      }
+    }
+
     animation: pulse-subtle 2s ease-in-out infinite;
   }
 
@@ -38,8 +50,10 @@
         0 4px 16px var(--rf-color-success-shadow),
         inset 0 0 0 1px var(--rf-color-success-border-light) !important;
 
-      &::before {
-        background: var(--rf-color-success) !important;
+      &:hover {
+        box-shadow:
+          0 6px 20px var(--rf-color-success-shadow),
+          inset 0 0 0 1px var(--rf-color-success-border-light) !important;
       }
     }
   }
@@ -64,8 +78,10 @@
         ) !important;
       }
 
-      &::before {
-        background: var(--rf-color-danger) !important;
+      &:hover {
+        box-shadow:
+          0 6px 20px var(--rf-color-danger-shadow),
+          inset 0 0 0 1px var(--rf-color-danger-shadow) !important;
       }
     }
   }
