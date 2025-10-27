@@ -9,6 +9,47 @@ use serde::{Deserialize, Serialize};
 use tracing::{debug, warn};
 use ts_rs::TS;
 
+/// Macro to build agent with tools
+/// In rig-core 0.22.0, calling .tool() changes builder type from AgentBuilder to AgentBuilderSimple
+macro_rules! build_with_tools {
+    ($self:expr, $builder:expr, $input:expr) => {{
+        let agent = match &$self.tools {
+            Some(tool_names) if !tool_names.is_empty() => {
+                debug!(tools = ?tool_names, "Configuring agent tools");
+
+                let has_add = tool_names.iter().any(|t| t == "add");
+                let has_time = tool_names.iter().any(|t| t == "get_current_time");
+
+                // Log unknown tools
+                for name in tool_names {
+                    if name != "add" && name != "get_current_time" {
+                        warn!(tool = %name, "Unknown tool specified");
+                    }
+                }
+
+                match (has_add, has_time) {
+                    (true, true) => {
+                        debug!("Adding tools: add, get_current_time");
+                        $builder.tool(AddTool).tool(GetTimeTool).build()
+                    }
+                    (true, false) => {
+                        debug!("Adding tool: add");
+                        $builder.tool(AddTool).build()
+                    }
+                    (false, true) => {
+                        debug!("Adding tool: get_current_time");
+                        $builder.tool(GetTimeTool).build()
+                    }
+                    (false, false) => $builder.build(),
+                }
+            }
+            _ => $builder.build(),
+        };
+
+        agent.prompt($input).await?
+    }};
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
 #[serde(rename_all = "snake_case", tag = "type", content = "value")]
@@ -27,30 +68,6 @@ pub struct AgentNode {
     pub tools: Option<Vec<String>>, // Tool names to enable
 }
 
-macro_rules! configure_tools {
-    ($self:expr, $builder:expr) => {{
-        let mut builder = $builder;
-        if let Some(ref tool_names) = $self.tools {
-            debug!(tools = ?tool_names, "Configuring agent tools");
-            for tool_name in tool_names {
-                match tool_name.as_str() {
-                    "add" => {
-                        builder = builder.tool(AddTool);
-                        debug!("Added tool: add");
-                    }
-                    "get_current_time" => {
-                        builder = builder.tool(GetTimeTool);
-                        debug!("Added tool: get_current_time");
-                    }
-                    unknown => {
-                        warn!(tool = %unknown, "Unknown tool specified");
-                    }
-                }
-            }
-        }
-        builder
-    }};
-}
 
 impl AgentNode {
     pub fn new(
@@ -154,9 +171,7 @@ impl AgentNode {
                     }
                 };
 
-                let builder = configure_tools!(self, builder);
-                let agent = builder.build();
-                agent.prompt(input).await?
+                build_with_tools!(self, builder, input)
             }
 
             m @ ("claude-4-opus" | "claude-4-sonnet" | "claude-3.7-sonnet") => {
@@ -177,9 +192,7 @@ impl AgentNode {
                     builder
                 };
 
-                let builder = configure_tools!(self, builder);
-                let agent = builder.build();
-                agent.prompt(input).await?
+                build_with_tools!(self, builder, input)
             }
 
             m @ ("deepseek-chat" | "deepseek-reasoner") => {
@@ -199,9 +212,7 @@ impl AgentNode {
                     builder
                 };
 
-                let builder = configure_tools!(self, builder);
-                let agent = builder.build();
-                agent.prompt(input).await?
+                build_with_tools!(self, builder, input)
             }
 
             _ => {
