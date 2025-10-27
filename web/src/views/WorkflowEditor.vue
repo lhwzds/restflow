@@ -3,6 +3,7 @@ import { ElDialog, ElForm, ElFormItem, ElInput, ElMessage, ElButton, ElTooltip }
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Expand, Fold, Check, ArrowLeft, Document, FolderOpened } from '@element-plus/icons-vue'
+import { RotateCcw } from 'lucide-vue-next'
 import Editor from '../components/workflow-editor/Editor.vue'
 import TriggerToggle from '../components/workflow-editor/TriggerToggle.vue'
 import HeaderBar from '../components/shared/HeaderBar.vue'
@@ -13,12 +14,14 @@ import { useWorkflowPersistence } from '../composables/persistence/useWorkflowPe
 import { useKeyboardShortcuts } from '../composables/shared/useKeyboardShortcuts'
 import { useUnsavedChanges } from '../composables/shared/useUnsavedChanges'
 import { useWorkflowStore } from '../stores/workflowStore'
+import { useExecutionStore } from '../stores/executionStore'
 import { useWorkflowTrigger } from '../composables/trigger/useWorkflowTrigger'
-import { VALIDATION_MESSAGES } from '@/constants'
+import { VALIDATION_MESSAGES, SUCCESS_MESSAGES } from '@/constants'
 
 const route = useRoute()
 const router = useRouter()
 const workflowStore = useWorkflowStore()
+const executionStore = useExecutionStore()
 
 // Workflow trigger management
 const workflowIdRef = computed(() => workflowStore.currentWorkflowId)
@@ -106,6 +109,11 @@ const handleImport = () => {
   importWorkflow()
 }
 
+const handleClearExecution = () => {
+  executionStore.clearExecution()
+  ElMessage.success(SUCCESS_MESSAGES.EXECUTION_CLEARED)
+}
+
 // Register keyboard shortcuts for common operations
 useKeyboardShortcuts({
   'ctrl+s': handleSave,
@@ -185,6 +193,19 @@ onUnmounted(() => {
             @click="toggleHistoryPanel"
             :type="showHistoryPanel ? 'primary' : 'default'"
           />
+        </el-tooltip>
+
+        <!-- Clear execution state button -->
+        <el-tooltip
+          v-if="executionStore.hasResults"
+          content="Clear execution state"
+          placement="bottom"
+        >
+          <el-button circle @click="handleClearExecution">
+            <template #icon>
+              <RotateCcw :size="16" />
+            </template>
+          </el-button>
         </el-tooltip>
 
         <!-- Trigger activation toggle -->
