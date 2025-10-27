@@ -91,7 +91,7 @@ export function useWorkflowList() {
 
       await workflowsApi.createWorkflow(duplicateData)
       const response = duplicateData
-      ElMessage.success(SUCCESS_MESSAGES.CREATED('Workflow duplicate'))
+      ElMessage.success(SUCCESS_MESSAGES.DUPLICATED('Workflow'))
 
       await loadWorkflows()
 
@@ -178,7 +178,6 @@ export function useWorkflowList() {
    */
   const refresh = async () => {
     await loadWorkflows()
-    ElMessage.success(SUCCESS_MESSAGES.UPDATED('Workflow list'))
   }
 
   /**

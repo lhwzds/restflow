@@ -61,10 +61,6 @@ export function useWorkflowPersistence() {
       // Update current workflow info in store
       workflowStore.setWorkflowMetadata(workflow.id, workflow.name)
 
-      if (showMessage) {
-        ElMessage.success(SUCCESS_MESSAGES.CREATED('Workflow loaded'))
-      }
-
       return {
         success: true,
         data: workflow,

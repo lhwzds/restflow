@@ -52,7 +52,9 @@ export function useAgentOperations() {
   // Execute saved agent
   async function executeAgent(id: string, input: string) {
     try {
+      ElMessage.info('Agent execution started')
       const response = await apiExecuteAgent(id, input)
+      ElMessage.success('Agent execution completed successfully')
       return response
     } catch (error: any) {
       const message = error.message || ERROR_MESSAGES.FAILED_TO_CREATE('Agent execution')
@@ -64,7 +66,9 @@ export function useAgentOperations() {
   // Execute unsaved agent (inline execution)
   async function executeAgentInline(agent: AgentNode, input: string) {
     try {
+      ElMessage.info('Agent execution started')
       const response = await apiExecuteAgentInline(agent, input)
+      ElMessage.success('Agent execution completed successfully')
       return response
     } catch (error: any) {
       const message = error.message || ERROR_MESSAGES.FAILED_TO_CREATE('Agent execution')
