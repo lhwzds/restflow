@@ -129,11 +129,14 @@ const onMouseLeave = () => {
   height: 100%;
   border-radius: var(--rf-radius-md);
   padding: 0;
+  position: relative;
+  overflow: hidden;
 }
 
 .glass-layer {
   padding: var(--rf-spacing-md);
   position: relative;
+  z-index: 1;
 }
 
 .node-header {

@@ -40,6 +40,17 @@ export function useSingleNodeExecution() {
         }
       }
 
+      executionStore.setNodeResult(nodeId, {
+        nodeId,
+        status: 'Running',
+        input: input || {},
+        output: undefined,
+        error: undefined,
+        startTime,
+        endTime: undefined,
+        executionTime: undefined
+      })
+
       const testRequest = {
         id: `test-${Date.now()}`,
         name: `Test ${nodeType} Node`,

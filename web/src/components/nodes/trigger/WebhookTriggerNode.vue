@@ -22,7 +22,7 @@ const emit = defineEmits<{
   'updateNodeInternals': [nodeId: string]
 }>()
 
-const { testWorkflow, isButtonDisabled, buttonLabel, buttonTooltip } = useTestWorkflow()
+const { testWorkflow, isButtonDisabled, buttonLabel, buttonTooltip } = useTestWorkflow(props.id)
 </script>
 
 <template>
