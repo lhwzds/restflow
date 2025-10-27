@@ -69,11 +69,7 @@ export function useExecutionHistory(workflowId: Readonly<Ref<string | null | und
     loadHistory(page.value)
 
     pollingInterval.value = window.setInterval(async () => {
-      const result = await loadHistory(page.value)
-
-      if (!isFirstPoll.value && page.value === 1 && result?.newFirstId && result.previousFirstId !== result.newFirstId) {
-        ElMessage.info(`New execution detected: ${result.newFirstId}`)
-      }
+      await loadHistory(page.value)
       isFirstPoll.value = false
     }, POLLING_TIMING.EXECUTION_HISTORY || 5000)
   }
