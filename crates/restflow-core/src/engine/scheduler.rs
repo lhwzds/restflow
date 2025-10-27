@@ -156,23 +156,29 @@ impl Scheduler {
         self.queue.atomic_pop_pending(|task| task.start())
     }
 
-    pub fn complete_task(&self, task_id: &str, output: Value) -> Result<()> {
-        self.finish_task(task_id, TaskStatus::Completed, Some(output), None)
+    pub fn complete_task(&self, task_id: &str, output: crate::models::NodeOutput, input: Value) -> Result<()> {
+        self.finish_task(task_id, TaskStatus::Completed, Some(output), None, Some(input))
     }
 
     pub fn fail_task(&self, task_id: &str, error: String) -> Result<()> {
-        self.finish_task(task_id, TaskStatus::Failed, None, Some(error))
+        self.finish_task(task_id, TaskStatus::Failed, None, Some(error), None)
     }
 
     fn finish_task(
         &self,
         task_id: &str,
         status: TaskStatus,
-        output: Option<Value>,
+        output: Option<crate::models::NodeOutput>,
         error: Option<String>,
+        input: Option<Value>,
     ) -> Result<()> {
         if let Some(data) = self.queue.get_from_processing(task_id)? {
             let mut task: Task = serde_json::from_slice(&data)?;
+
+            // Save interpolated input if provided
+            if let Some(input_value) = input {
+                task.input = input_value;
+            }
 
             match status {
                 TaskStatus::Completed => {
@@ -314,11 +320,14 @@ impl Scheduler {
     }
 
     /// Uses `Arc<Workflow>` to avoid expensive cloning in large workflows
-    pub fn push_downstream_tasks(&self, task: &Task, output: Value) -> Result<()> {
+    pub fn push_downstream_tasks(&self, task: &Task, output: crate::models::NodeOutput) -> Result<()> {
         let workflow = task.get_workflow(&self.storage)?;
 
+        // Serialize NodeOutput to Value for context storage
+        let output_value = serde_json::to_value(&output)?;
+
         let mut context = task.context.clone();
-        context.set_node(&task.node_id, output);
+        context.set_node(&task.node_id, output_value);
 
         let graph = WorkflowGraph::from_workflow(&workflow);
         let downstream_nodes = graph.get_downstream_nodes(&task.node_id);

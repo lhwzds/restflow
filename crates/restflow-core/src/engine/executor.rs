@@ -140,7 +140,7 @@ impl WorkflowExecutor {
         node: &Node,
         context: &mut ExecutionContext,
         registry: Arc<crate::node::registry::NodeRegistry>,
-    ) -> Result<Value> {
+    ) -> Result<crate::models::NodeOutput> {
         debug!(node_id = %node.id, node_type = ?node.node_type, "Executing node");
 
         let executor = registry.get(&node.node_type).ok_or_else(|| {
@@ -148,7 +148,7 @@ impl WorkflowExecutor {
         })?;
 
         let config = context.interpolate_value(&node.config);
-        executor.execute(&config, context).await
+        executor.execute(&node.node_type, &config, context).await
     }
 
     pub async fn get_task_status(&self, task_id: &str) -> Result<crate::models::Task> {
@@ -273,13 +273,16 @@ impl Worker {
             }
         }
 
+        // Interpolate node config to save as input for debugging/display
+        let interpolated_config = context.interpolate_value(&node.config);
+
         let result =
             WorkflowExecutor::execute_node(node, &mut context, self.registry.clone()).await;
 
         match result {
             Ok(output) => match self.scheduler.push_downstream_tasks(&task, output.clone()) {
                 Ok(_) => {
-                    if let Err(e) = self.scheduler.complete_task(&task.id, output) {
+                    if let Err(e) = self.scheduler.complete_task(&task.id, output, interpolated_config) {
                         warn!(task_id = %task.id, error = %e, "Failed to persist task completion");
                     } else {
                         info!(task_id = %task.id, node_id = %task.node_id, "Task completed");

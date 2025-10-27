@@ -222,7 +222,10 @@ fn build_execution_context(execution_id: &str, tasks: &[crate::models::Task]) ->
 
         if let Some(output) = &task.output {
             let key = namespace::node(&task.node_id);
-            data.insert(key, output.clone());
+            // Serialize NodeOutput to Value for context storage
+            if let Ok(output_value) = serde_json::to_value(output) {
+                data.insert(key, output_value);
+            }
         }
     }
 

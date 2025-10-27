@@ -9,6 +9,7 @@ import TriggerToggle from '../components/workflow-editor/TriggerToggle.vue'
 import HeaderBar from '../components/shared/HeaderBar.vue'
 import PageLayout from '../components/shared/PageLayout.vue'
 import ExecutionHistoryPanel from '../components/ExecutionHistoryPanel.vue'
+import VariablePanel from '../components/workflow-editor/VariablePanel.vue'
 import { useWorkflowImportExport } from '../composables/persistence/useWorkflowImportExport'
 import { useWorkflowPersistence } from '../composables/persistence/useWorkflowPersistence'
 import { useKeyboardShortcuts } from '../composables/shared/useKeyboardShortcuts'
@@ -22,6 +23,10 @@ const route = useRoute()
 const router = useRouter()
 const workflowStore = useWorkflowStore()
 const executionStore = useExecutionStore()
+
+// Variable panel state
+const showVariablePanel = ref(true)
+const selectedNodeId = computed(() => executionStore.selectedNodeId)
 
 // Workflow trigger management
 const workflowIdRef = computed(() => workflowStore.currentWorkflowId)
@@ -252,6 +257,13 @@ onUnmounted(() => {
       <div class="main-content">
         <Editor />
       </div>
+
+      <div
+        v-if="showVariablePanel && selectedNodeId && executionStore.isEditingNode"
+        class="right-panel"
+      >
+        <VariablePanel :node-id="selectedNodeId" />
+      </div>
     </div>
 
     <ElDialog
@@ -295,11 +307,11 @@ onUnmounted(() => {
   padding: var(--header-offset) var(--rf-spacing-xl, 24px) var(--rf-spacing-xl, 24px);
 }
 
-.left-panel {
+.left-panel,
+.right-panel {
   position: absolute;
   top: calc(var(--header-offset) + var(--rf-spacing-md));
   bottom: var(--rf-spacing-xl);
-  left: var(--rf-spacing-xl);
   width: 320px;
   height: auto;
   z-index: 12;
@@ -309,6 +321,14 @@ onUnmounted(() => {
   transition:
     opacity var(--rf-transition-base),
     transform var(--rf-transition-base);
+}
+
+.left-panel {
+  left: var(--rf-spacing-xl);
+}
+
+.right-panel {
+  right: var(--rf-spacing-xl);
 }
 
 .main-content {

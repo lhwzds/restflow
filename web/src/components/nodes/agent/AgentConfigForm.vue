@@ -4,6 +4,7 @@ import type { ApiKeyConfig } from '@/types/generated/ApiKeyConfig'
 import { useApiKeyConfig } from '@/composables/useApiKeyConfig'
 import { useSecretsData } from '@/composables/secrets/useSecretsData'
 import { MODEL_OPTIONS } from '@/constants/node/models'
+import ExpressionInput from '@/components/shared/ExpressionInput.vue'
 
 interface AgentConfig {
   model?: string
@@ -114,12 +115,14 @@ const isToolSelected = (toolId: string) => {
 
     <div class="form-group">
       <label>Prompt</label>
-      <textarea
-        v-model="localData.prompt"
-        @input="updateData"
-        placeholder="Enter the agent prompt..."
-        rows="4"
+      <ExpressionInput
+        :model-value="localData.prompt || ''"
+        :multiline="true"
+        placeholder="Analyze the user data: {{node.http1.data.body.user}} and provide insights based on {{trigger.payload.request}}"
+        @update:model-value="(val) => { localData.prompt = val; updateData(); }"
+        class="agent-prompt-editor"
       />
+      <span class="form-hint">Use {{}} syntax to reference variables</span>
     </div>
 
     <div class="form-group">
@@ -132,16 +135,18 @@ const isToolSelected = (toolId: string) => {
         max="1"
         step="0.1"
       />
+      <span class="form-hint">0 = deterministic, 1 = creative (default: 0.7)</span>
     </div>
 
     <div class="form-group">
       <label>Input</label>
-      <textarea
-        v-model="localData.input"
-        @input="updateData"
-        placeholder="Input for the agent..."
-        rows="2"
+      <ExpressionInput
+        :model-value="localData.input || ''"
+        :multiline="true"
+        placeholder="{{trigger.payload}} or custom input"
+        @update:model-value="(val) => { localData.input = val; updateData(); }"
       />
+      <span class="form-hint">Input data for the agent</span>
     </div>
 
     <div class="form-group">
@@ -329,5 +334,16 @@ const isToolSelected = (toolId: string) => {
 .api-key-input,
 .api-key-select {
   margin-top: var(--rf-spacing-sm);
+}
+
+.form-hint {
+  display: block;
+  margin-top: var(--rf-spacing-xs);
+  font-size: var(--rf-font-size-xs);
+  color: var(--rf-color-text-placeholder);
+}
+
+.agent-prompt-editor {
+  min-height: 120px;
 }
 </style>
