@@ -115,17 +115,27 @@ export const useExecutionStore = defineStore('execution', {
     setNodeResult(nodeId: string, result: Partial<NodeExecutionResult>) {
       const existing = this.nodeResults.get(nodeId) || { nodeId, status: 'Pending' as NodeExecutionStatus }
       const updated = { ...existing, ...result }
-      
+
       // Preserve startTime if not provided
       if (!updated.startTime && 'startTime' in existing) {
         updated.startTime = existing.startTime
       }
-      
+
+      // Preserve input if not provided
+      if (!updated.input && existing.input) {
+        updated.input = existing.input
+      }
+
+      // Preserve output if not provided
+      if (!updated.output && existing.output) {
+        updated.output = existing.output
+      }
+
       // Calculate execution time if both timestamps exist
       if (updated.startTime && updated.endTime) {
         updated.executionTime = updated.endTime - updated.startTime
       }
-      
+
       this.nodeResults.set(nodeId, updated as NodeExecutionResult)
     },
 
