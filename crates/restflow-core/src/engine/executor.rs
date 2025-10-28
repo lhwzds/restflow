@@ -134,20 +134,80 @@ impl WorkflowExecutor {
         }
     }
 
-    /// Interpolates {{...}} templates in node config using execution context,
+    /// Resolves Templated<T> fields in NodeInput using execution context,
     /// then delegates to node-specific executor for actual execution.
     async fn execute_node(
         node: &Node,
+        input: &crate::models::NodeInput,
         context: &mut ExecutionContext,
         registry: Arc<crate::node::registry::NodeRegistry>,
     ) -> Result<crate::models::NodeOutput> {
+        use crate::models::NodeInput;
+
         debug!(node_id = %node.id, node_type = ?node.node_type, "Executing node");
 
         let executor = registry.get(&node.node_type).ok_or_else(|| {
             anyhow::anyhow!("No executor found for node type: {:?}", node.node_type)
         })?;
 
-        let config = context.interpolate_value(&node.config);
+        // Resolve templates and convert to Value for existing executors
+        let config = match input {
+            NodeInput::HttpRequest(http_input) => {
+                let url = http_input.url.resolve(context)?;
+                let headers = http_input.headers.as_ref()
+                    .map(|h| h.resolve(context))
+                    .transpose()?;
+                let body = http_input.body.as_ref()
+                    .map(|b| b.resolve(context))
+                    .transpose()?;
+
+                serde_json::json!({
+                    "url": url,
+                    "method": http_input.method,
+                    "headers": headers,
+                    "body": body,
+                    "timeout_ms": http_input.timeout_ms,
+                })
+            }
+            NodeInput::Agent(agent_input) => {
+                let prompt = agent_input.prompt.resolve(context)?;
+                serde_json::json!({
+                    "model": agent_input.model,
+                    "prompt": prompt.clone(),
+                    "temperature": agent_input.temperature,
+                    "api_key_config": agent_input.api_key_config,
+                    "tools": agent_input.tools,
+                    "input": prompt,  // For AgentExecutor compatibility
+                })
+            }
+            NodeInput::Python(python_input) => {
+                let input_data = python_input.input.as_ref()
+                    .map(|i| i.resolve(context))
+                    .transpose()?;
+
+                serde_json::json!({
+                    "code": python_input.code,
+                    "input": input_data,
+                })
+            }
+            NodeInput::Print(print_input) => {
+                let message = print_input.message.resolve(context)?;
+                serde_json::json!({
+                    "message": message,
+                })
+            }
+            NodeInput::ManualTrigger(trigger_input) |
+            NodeInput::WebhookTrigger(trigger_input) => {
+                // Triggers don't need input resolution - they provide data to the workflow
+                serde_json::to_value(trigger_input)
+                    .map_err(|e| anyhow::anyhow!("Failed to serialize trigger input: {}", e))?
+            }
+            NodeInput::ScheduleTrigger(schedule_input) => {
+                serde_json::to_value(schedule_input)
+                    .map_err(|e| anyhow::anyhow!("Failed to serialize schedule input: {}", e))?
+            }
+        };
+
         executor.execute(&node.node_type, &config, context).await
     }
 
@@ -273,16 +333,13 @@ impl Worker {
             }
         }
 
-        // Interpolate node config to save as input for debugging/display
-        let interpolated_config = context.interpolate_value(&node.config);
-
         let result =
-            WorkflowExecutor::execute_node(node, &mut context, self.registry.clone()).await;
+            WorkflowExecutor::execute_node(node, &task.input, &mut context, self.registry.clone()).await;
 
         match result {
             Ok(output) => match self.scheduler.push_downstream_tasks(&task, output.clone()) {
                 Ok(_) => {
-                    if let Err(e) = self.scheduler.complete_task(&task.id, output, interpolated_config) {
+                    if let Err(e) = self.scheduler.complete_task(&task.id, output) {
                         warn!(task_id = %task.id, error = %e, "Failed to persist task completion");
                     } else {
                         info!(task_id = %task.id, node_id = %task.node_id, "Task completed");

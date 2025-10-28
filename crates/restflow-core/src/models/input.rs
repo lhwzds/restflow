@@ -1,0 +1,183 @@
+use crate::engine::context::ExecutionContext;
+use anyhow::Result;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use std::collections::HashMap;
+use ts_rs::TS;
+
+/// Wrapper for fields that may contain template strings like {{node.xxx.data.field}}
+///
+/// This allows us to maintain type safety while supporting runtime variable interpolation.
+/// Templates are resolved during execution using the ExecutionContext.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+#[serde(untagged)]
+pub enum Templated<T> {
+    /// Raw template string (e.g., "{{node.http1.data.body.user}}")
+    Template(String),
+    /// Resolved typed value
+    Value(T),
+}
+
+impl<T> Templated<T> {
+    /// Check if this is a template string
+    pub fn is_template(&self) -> bool {
+        matches!(self, Self::Template(_))
+    }
+
+    /// Get the value if it's already resolved
+    pub fn as_value(&self) -> Option<&T> {
+        match self {
+            Self::Value(v) => Some(v),
+            _ => None,
+        }
+    }
+
+    /// Resolve template using execution context
+    pub fn resolve(&self, context: &ExecutionContext) -> Result<T>
+    where
+        T: serde::de::DeserializeOwned + Clone,
+    {
+        match self {
+            Self::Template(template_str) => {
+                let interpolated_value = context.interpolate_value(&Value::String(template_str.clone()));
+                match interpolated_value {
+                    Value::String(s) => serde_json::from_str(&s)
+                        .or_else(|_| serde_json::from_value(Value::String(s)))
+                        .map_err(|e| anyhow::anyhow!("Failed to parse template result: {}", e)),
+                    other => serde_json::from_value(other)
+                        .map_err(|e| anyhow::anyhow!("Failed to parse template result: {}", e)),
+                }
+            }
+            Self::Value(v) => Ok(v.clone()),
+        }
+    }
+}
+
+/// Unified node input enum
+/// Each variant corresponds to a node type's input structure
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+#[serde(tag = "type", content = "data")]
+pub enum NodeInput {
+    HttpRequest(HttpInput),
+    Agent(AgentInput),
+    Python(PythonInput),
+    Print(PrintInput),
+    ManualTrigger(TriggerInput),
+    WebhookTrigger(TriggerInput),
+    ScheduleTrigger(ScheduleInput),
+}
+
+/// HTTP Request node input
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct HttpInput {
+    pub url: Templated<String>,
+    pub method: String,
+    #[ts(type = "Templated<Record<string, string>> | undefined")]
+    pub headers: Option<Templated<HashMap<String, String>>>,
+    #[ts(type = "Templated<any> | undefined")]
+    pub body: Option<Templated<Value>>,
+    pub timeout_ms: Option<u64>,
+}
+
+/// AI Agent node input
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct AgentInput {
+    pub model: String,
+    pub prompt: Templated<String>,
+    pub temperature: Option<f64>,
+    pub api_key_config: Option<crate::node::agent::ApiKeyConfig>,
+    pub tools: Option<Vec<String>>,
+}
+
+/// Python script node input
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct PythonInput {
+    pub code: String,
+    #[ts(type = "Templated<any> | undefined")]
+    pub input: Option<Templated<Value>>,
+}
+
+/// Print node input
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct PrintInput {
+    pub message: Templated<String>,
+}
+
+/// Trigger node input (webhook/manual)
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct TriggerInput {
+    pub method: String,
+    #[ts(type = "Record<string, string>")]
+    pub headers: HashMap<String, String>,
+    #[ts(type = "any")]
+    pub body: Value,
+    #[ts(type = "Record<string, string>")]
+    pub query: HashMap<String, String>,
+}
+
+/// Schedule trigger node input
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct ScheduleInput {
+    pub cron: String,
+    pub timezone: Option<String>,
+    #[ts(type = "any")]
+    pub payload: Option<Value>,
+}
+
+impl NodeInput {
+    /// Get type-safe access to HTTP input
+    pub fn as_http(&self) -> Option<&HttpInput> {
+        match self {
+            Self::HttpRequest(input) => Some(input),
+            _ => None,
+        }
+    }
+
+    /// Get type-safe access to Agent input
+    pub fn as_agent(&self) -> Option<&AgentInput> {
+        match self {
+            Self::Agent(input) => Some(input),
+            _ => None,
+        }
+    }
+
+    /// Get type-safe access to Python input
+    pub fn as_python(&self) -> Option<&PythonInput> {
+        match self {
+            Self::Python(input) => Some(input),
+            _ => None,
+        }
+    }
+
+    /// Get type-safe access to Print input
+    pub fn as_print(&self) -> Option<&PrintInput> {
+        match self {
+            Self::Print(input) => Some(input),
+            _ => None,
+        }
+    }
+
+    /// Get type-safe access to Trigger input
+    pub fn as_trigger(&self) -> Option<&TriggerInput> {
+        match self {
+            Self::ManualTrigger(input) | Self::WebhookTrigger(input) => Some(input),
+            _ => None,
+        }
+    }
+
+    /// Get type-safe access to Schedule input
+    pub fn as_schedule(&self) -> Option<&ScheduleInput> {
+        match self {
+            Self::ScheduleTrigger(input) => Some(input),
+            _ => None,
+        }
+    }
+}

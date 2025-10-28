@@ -283,6 +283,18 @@ mod tests {
         (queue, temp_dir)
     }
 
+    fn create_test_input() -> crate::models::NodeInput {
+        use crate::models::{NodeInput, TriggerInput};
+        use std::collections::HashMap;
+
+        NodeInput::ManualTrigger(TriggerInput {
+            method: "POST".to_string(),
+            headers: HashMap::new(),
+            body: serde_json::json!({}),
+            query: HashMap::new(),
+        })
+    }
+
     #[test]
     fn test_insert_and_get_pending() {
         let (queue, _temp_dir) = setup_test_queue();
@@ -502,7 +514,7 @@ mod tests {
                     format!("exec-{}", i),
                     "wf-1".to_string(),
                     format!("node-{}", i),
-                    serde_json::json!({}),
+                    create_test_input(),
                     ExecutionContext::new(format!("exec-{}", i)),
                 );
                 let priority = task.priority();
@@ -537,7 +549,7 @@ mod tests {
             "exec-1".to_string(),
             "wf-1".to_string(),
             "node-1".to_string(),
-            serde_json::json!({}),
+            create_test_input(),
             ExecutionContext::new("exec-1".to_string()),
         );
         let task_id = task.id.clone();
@@ -570,7 +582,7 @@ mod tests {
                 format!("exec-{}", i),
                 "wf-1".to_string(),
                 format!("node-{}", i),
-                serde_json::json!({}),
+                create_test_input(),
                 ExecutionContext::new(format!("exec-{}", i)),
             );
             let priority = task.priority();
@@ -622,7 +634,7 @@ mod tests {
                 "exec-1".to_string(),
                 "wf-1".to_string(),
                 format!("node-{}", i),
-                serde_json::json!({}),
+                create_test_input(),
                 ExecutionContext::new("exec-1".to_string()),
             );
             tasks.push(task);
@@ -663,7 +675,7 @@ mod tests {
             "exec-1".to_string(),
             "wf-1".to_string(),
             "node-1".to_string(),
-            serde_json::json!({}),
+            create_test_input(),
             ExecutionContext::new("exec-1".to_string()),
         );
         let task_id = task.id.clone();
@@ -728,7 +740,7 @@ mod tests {
             "exec-1".to_string(),
             "wf-1".to_string(),
             "node-1".to_string(),
-            serde_json::json!({}),
+            create_test_input(),
             ExecutionContext::new("exec-1".to_string()),
         );
         let task_id = task.id.clone();

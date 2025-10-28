@@ -28,13 +28,16 @@ impl Scheduler {
         node: Node,
         workflow: Arc<Workflow>,
         context: ExecutionContext,
-        input: Value,
     ) -> Result<String> {
+        // Parse node config as NodeInput
+        let node_input: crate::models::NodeInput = serde_json::from_value(node.config.clone())
+            .map_err(|e| anyhow::anyhow!("Failed to parse node config as NodeInput: {}", e))?;
+
         let task = Task::new(
             execution_id,
             workflow.id.clone(),
             node.id.clone(),
-            input,
+            node_input,
             context,
         );
         let task_id = task.id.clone();
@@ -55,7 +58,11 @@ impl Scheduler {
     }
 
     pub fn push_single_node(&self, node: Node, input: Value) -> Result<String> {
-        let task = Task::for_single_node(node, input);
+        // Parse input as NodeInput
+        let node_input: crate::models::NodeInput = serde_json::from_value(input)
+            .map_err(|e| anyhow::anyhow!("Failed to parse input as NodeInput: {}", e))?;
+
+        let task = Task::for_single_node(node, node_input);
         let task_id = task.id.clone();
 
         self.storage.execution_history.record_task_created(
@@ -106,7 +113,6 @@ impl Scheduler {
                     node.clone(),
                     workflow.clone(),
                     context.clone(),
-                    Value::Null,
                 )?;
             }
         }
@@ -156,12 +162,12 @@ impl Scheduler {
         self.queue.atomic_pop_pending(|task| task.start())
     }
 
-    pub fn complete_task(&self, task_id: &str, output: crate::models::NodeOutput, input: Value) -> Result<()> {
-        self.finish_task(task_id, TaskStatus::Completed, Some(output), None, Some(input))
+    pub fn complete_task(&self, task_id: &str, output: crate::models::NodeOutput) -> Result<()> {
+        self.finish_task(task_id, TaskStatus::Completed, Some(output), None)
     }
 
     pub fn fail_task(&self, task_id: &str, error: String) -> Result<()> {
-        self.finish_task(task_id, TaskStatus::Failed, None, Some(error), None)
+        self.finish_task(task_id, TaskStatus::Failed, None, Some(error))
     }
 
     fn finish_task(
@@ -170,15 +176,9 @@ impl Scheduler {
         status: TaskStatus,
         output: Option<crate::models::NodeOutput>,
         error: Option<String>,
-        input: Option<Value>,
     ) -> Result<()> {
         if let Some(data) = self.queue.get_from_processing(task_id)? {
             let mut task: Task = serde_json::from_slice(&data)?;
-
-            // Save interpolated input if provided
-            if let Some(input_value) = input {
-                task.input = input_value;
-            }
 
             match status {
                 TaskStatus::Completed => {
@@ -341,7 +341,6 @@ impl Scheduler {
                     downstream_node.clone(),
                     workflow.clone(),
                     context.clone(),
-                    Value::Null,
                 )?;
             }
         }
@@ -366,6 +365,18 @@ mod tests {
         (scheduler, temp_dir)
     }
 
+    fn create_test_input() -> crate::models::NodeInput {
+        use crate::models::{NodeInput, TriggerInput};
+        use std::collections::HashMap;
+
+        NodeInput::ManualTrigger(TriggerInput {
+            method: "POST".to_string(),
+            headers: HashMap::new(),
+            body: serde_json::json!({}),
+            query: HashMap::new(),
+        })
+    }
+
     #[test]
     fn test_recover_stalled_tasks() {
         let (scheduler, _temp_dir) = setup_test_scheduler();
@@ -376,7 +387,7 @@ mod tests {
             "exec-1".to_string(),
             "wf-1".to_string(),
             "node-1".to_string(),
-            serde_json::json!({}),
+            create_test_input(),
             ExecutionContext::new("exec-1".to_string()),
         );
         task.status = TaskStatus::Running;
@@ -411,7 +422,7 @@ mod tests {
             "exec-1".to_string(),
             "wf-1".to_string(),
             "node-1".to_string(),
-            serde_json::json!({}),
+            create_test_input(),
             ExecutionContext::new("exec-1".to_string()),
         );
         let task_id = task.id.clone();
@@ -440,7 +451,16 @@ mod tests {
         let node = Node {
             id: "start_node".to_string(),
             node_type: NodeType::Agent,
-            config: serde_json::json!({"model": "test"}),
+            config: serde_json::json!({
+                "type": "Agent",
+                "data": {
+                    "model": "gpt-4",
+                    "prompt": "test prompt",
+                    "temperature": null,
+                    "api_key_config": null,
+                    "tools": null
+                }
+            }),
             position: None,
         };
 
