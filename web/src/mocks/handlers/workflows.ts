@@ -57,7 +57,7 @@ const createCompletedExecution = (
       created_at: startedAt + index * 1000 as any,
       started_at: (startedAt + index * 1000 + 500) as any,
       completed_at: (startedAt + index * 1000 + 2000) as any,
-      input: {},
+      input: node.config, // NodeInput is now a tagged union from node config
       output: isFailed ? null : generateMockOutput(node.node_type, node.id, node.config),
       error: isFailed ? 'Demo execution failed: simulated error for demonstration purposes' : null,
       context: {
@@ -111,7 +111,7 @@ const initializeDemoExecutionHistory = () => {
           created_at: runningStartTime + index * 1000 as any,
           started_at: (runningStartTime + index * 1000 + 500) as any,
           completed_at: isCompleted ? (runningStartTime + index * 1000 + 2000) as any : null,
-          input: {},
+          input: node.config, // NodeInput is now a tagged union from node config
           output: isCompleted ? generateMockOutput(node.node_type, node.id, node.config) : null,
           error: null,
           context: {

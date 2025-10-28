@@ -31,7 +31,7 @@ describe('Tasks API', () => {
     workflow_id: 'wf1',
     node_id: 'node1',
     status: 'Completed',
-    input: null,
+    input: { type: 'Print', data: { message: 'test' } },
     output: { type: 'Print', data: { printed: 'success' } },
     error: null,
     created_at: Date.now(),

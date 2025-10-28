@@ -105,7 +105,7 @@ export const createExecutionTasks = (
       created_at: Date.now() as any, // Backend sends as number, not BigInt
       started_at: null,
       completed_at: null,
-      input: {},
+      input: node.config, // NodeInput is now a tagged union from node config
       output: null,
       error: null,
       context: {
