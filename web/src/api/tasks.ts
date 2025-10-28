@@ -82,15 +82,31 @@ export const testNodeExecution = async <T = any>(payload: NodeTestRequest): Prom
 }
 
 export const executeNode = async (node: any, input: any = {}): Promise<string> => {
+  // For Tauri mode: merge runtime input into node.config if provided
+  // This ensures consistent behavior with HTTP API where node.config contains all data
+  let nodeToExecute = node
+  if (isTauri() && input && Object.keys(input).length > 0) {
+    // Merge input into node.config.data if config has nested structure
+    nodeToExecute = {
+      ...node,
+      config: {
+        ...node.config,
+        data: {
+          ...(node.config?.data || {}),
+          ...input
+        }
+      }
+    }
+  }
+
   if (isTauri()) {
     return invokeCommand<string>('execute_node', {
-      node,
-      input
+      node: nodeToExecute
     })
   }
   const response = await apiClient.post<{ task_id: string; message: string }>(
     API_ENDPOINTS.NODE.EXECUTE,
-    node
+    nodeToExecute
   )
   return response.data.task_id
 }
