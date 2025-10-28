@@ -1,10 +1,9 @@
 use crate::engine::context::ExecutionContext;
-use crate::models::{Node, NodeOutput, Workflow};
+use crate::models::{Node, NodeInput, NodeOutput, Workflow};
 use crate::storage::Storage;
 use anyhow::Result;
 use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use std::sync::Arc;
 use ts_rs::TS;
 use uuid::Uuid;
@@ -31,8 +30,7 @@ pub struct Task {
     pub created_at: i64,
     pub started_at: Option<i64>,
     pub completed_at: Option<i64>,
-    #[ts(type = "any")]
-    pub input: Value,
+    pub input: NodeInput,
     pub output: Option<NodeOutput>,
     pub error: Option<String>,
 
@@ -54,7 +52,7 @@ impl Task {
         execution_id: String,
         workflow_id: String,
         node_id: String,
-        input: Value,
+        input: NodeInput,
         context: ExecutionContext,
     ) -> Self {
         // Use nanosecond precision to avoid collision in high-concurrency scenarios
@@ -131,7 +129,7 @@ impl Task {
     }
 
     /// Create a task for a single node execution (no workflow context)
-    pub fn for_single_node(node: Node, input: Value) -> Self {
+    pub fn for_single_node(node: Node, input: NodeInput) -> Self {
         let execution_id = Uuid::new_v4().to_string();
         let workflow_id = format!("single-node-{}", node.id);
         let context = ExecutionContext::new(execution_id.clone());
