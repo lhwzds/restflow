@@ -284,14 +284,10 @@ mod tests {
     }
 
     fn create_test_input() -> crate::models::NodeInput {
-        use crate::models::{NodeInput, TriggerInput};
-        use std::collections::HashMap;
+        use crate::models::{NodeInput, ManualTriggerInput};
 
-        NodeInput::ManualTrigger(TriggerInput {
-            method: "POST".to_string(),
-            headers: HashMap::new(),
-            body: serde_json::json!({}),
-            query: HashMap::new(),
+        NodeInput::ManualTrigger(ManualTriggerInput {
+            payload: Some(serde_json::json!({})),
         })
     }
 

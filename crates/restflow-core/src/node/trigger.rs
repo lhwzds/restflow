@@ -1,5 +1,5 @@
 use crate::engine::context::{ExecutionContext, namespace};
-use crate::models::{NodeOutput, NodeType, ScheduleOutput, TriggerOutput};
+use crate::models::{NodeOutput, NodeType, ScheduleOutput, ManualTriggerOutput, WebhookTriggerOutput};
 use crate::node::registry::NodeExecutor;
 use anyhow::Result;
 use async_trait::async_trait;
@@ -34,9 +34,17 @@ impl NodeExecutor for TriggerExecutor {
                     payload,
                 }))
             }
-            NodeType::ManualTrigger | NodeType::WebhookTrigger => {
-                // Manual/Webhook trigger: extract method, headers, body, query
-                // For now, use defaults for manual trigger, or extract from context for webhook
+            NodeType::ManualTrigger => {
+                // Manual trigger: simple triggered_at + payload
+                let triggered_at = chrono::Utc::now().timestamp_millis();
+                Ok(NodeOutput::ManualTrigger(ManualTriggerOutput {
+                    triggered_at,
+                    payload,
+                }))
+            }
+            NodeType::WebhookTrigger => {
+                // Webhook trigger: extract HTTP request information from context
+                let triggered_at = chrono::Utc::now().timestamp_millis();
                 let method = context
                     .get("trigger.method")
                     .and_then(|v| v.as_str())
@@ -53,21 +61,13 @@ impl NodeExecutor for TriggerExecutor {
                     .and_then(|v| serde_json::from_value::<HashMap<String, String>>(v.clone()).ok())
                     .unwrap_or_default();
 
-                Ok(if *node_type == NodeType::ManualTrigger {
-                    NodeOutput::ManualTrigger(TriggerOutput {
-                        method,
-                        headers,
-                        body: payload,
-                        query,
-                    })
-                } else {
-                    NodeOutput::WebhookTrigger(TriggerOutput {
-                        method,
-                        headers,
-                        body: payload,
-                        query,
-                    })
-                })
+                Ok(NodeOutput::WebhookTrigger(WebhookTriggerOutput {
+                    triggered_at,
+                    method,
+                    headers,
+                    body: payload,
+                    query,
+                }))
             }
             _ => Err(anyhow::anyhow!(
                 "TriggerExecutor called with non-trigger node type: {:?}",

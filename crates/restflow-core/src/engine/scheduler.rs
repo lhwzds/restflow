@@ -29,7 +29,7 @@ impl Scheduler {
         workflow: Arc<Workflow>,
         context: ExecutionContext,
     ) -> Result<String> {
-        // Parse node config as NodeInput
+        // Parse node config as NodeInput (uses serde's tagged enum for O(1) type dispatch)
         let node_input: crate::models::NodeInput = serde_json::from_value(node.config.clone())
             .map_err(|e| anyhow::anyhow!("Failed to parse node config as NodeInput: {}", e))?;
 
@@ -366,14 +366,10 @@ mod tests {
     }
 
     fn create_test_input() -> crate::models::NodeInput {
-        use crate::models::{NodeInput, TriggerInput};
-        use std::collections::HashMap;
+        use crate::models::{NodeInput, ManualTriggerInput};
 
-        NodeInput::ManualTrigger(TriggerInput {
-            method: "POST".to_string(),
-            headers: HashMap::new(),
-            body: serde_json::json!({}),
-            query: HashMap::new(),
+        NodeInput::ManualTrigger(ManualTriggerInput {
+            payload: Some(serde_json::json!({})),
         })
     }
 

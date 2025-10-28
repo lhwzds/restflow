@@ -41,13 +41,22 @@ export const PRINT_EXAMPLE = {
   }
 }
 
-export const TRIGGER_EXAMPLE = {
-  type: 'ManualTrigger', // or 'WebhookTrigger'
+export const MANUAL_TRIGGER_EXAMPLE = {
+  type: 'ManualTrigger',
   data: {
+    triggered_at: 1640000000000, // Using number for example data (BigInt causes Vue reactivity issues)
+    payload: { message: 'User triggered data' }
+  }
+}
+
+export const WEBHOOK_TRIGGER_EXAMPLE = {
+  type: 'WebhookTrigger',
+  data: {
+    triggered_at: 1640000000000,
     method: 'POST',
-    headers: {},
-    body: {},
-    query: {}
+    headers: { 'content-type': 'application/json' },
+    body: { message: 'Webhook request body' },
+    query: { key: 'value' }
   }
 }
 
@@ -64,7 +73,7 @@ export const NODE_OUTPUT_EXAMPLES: Record<string, any> = {
   Agent: AGENT_EXAMPLE,
   Python: PYTHON_EXAMPLE,
   Print: PRINT_EXAMPLE,
-  ManualTrigger: TRIGGER_EXAMPLE,
-  WebhookTrigger: TRIGGER_EXAMPLE,
+  ManualTrigger: MANUAL_TRIGGER_EXAMPLE,
+  WebhookTrigger: WEBHOOK_TRIGGER_EXAMPLE,
   ScheduleTrigger: SCHEDULE_EXAMPLE
 }
