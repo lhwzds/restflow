@@ -138,7 +138,13 @@ impl ExecutionContext {
                     if let Some(var_path) = cap.get(1) {
                         let path = var_path.as_str();
                         if let Some(replacement) = self.resolve_path(path) {
-                            result = result.replace(&cap[0], &replacement.to_string());
+                            // For string values, extract the string content without quotes
+                            // For other types (numbers, booleans, objects), use to_string()
+                            let replacement_str = match &replacement {
+                                Value::String(s) => s.clone(),
+                                _ => replacement.to_string(),
+                            };
+                            result = result.replace(&cap[0], &replacement_str);
                         }
                     }
                 }
@@ -195,5 +201,290 @@ impl ExecutionContext {
             current = current.as_object()?.get(*part)?;
         }
         Some(current.clone())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn test_new_context() {
+        let ctx = ExecutionContext::new("wf-001".to_string());
+        assert_eq!(ctx.workflow_id, "wf-001");
+        assert!(!ctx.execution_id.is_empty());
+        assert!(ctx.data.is_empty());
+    }
+
+    #[test]
+    fn test_with_execution_id() {
+        let ctx = ExecutionContext::with_execution_id("wf-001".to_string(), "exec-001".to_string());
+        assert_eq!(ctx.workflow_id, "wf-001");
+        assert_eq!(ctx.execution_id, "exec-001");
+    }
+
+    #[test]
+    fn test_set_get_direct() {
+        let mut ctx = ExecutionContext::new("wf-001".to_string());
+        ctx.set("custom.key", json!({"value": 42}));
+
+        let result = ctx.get("custom.key");
+        assert!(result.is_some());
+        assert_eq!(result.unwrap()["value"], 42);
+    }
+
+    #[test]
+    fn test_set_get_var() {
+        let mut ctx = ExecutionContext::new("wf-001".to_string());
+        ctx.set_var("counter", json!(10));
+
+        let result = ctx.get_var("counter");
+        assert_eq!(result, Some(&json!(10)));
+
+        // Verify it's stored with var. prefix
+        assert_eq!(ctx.get("var.counter"), Some(&json!(10)));
+    }
+
+    #[test]
+    fn test_set_get_node() {
+        let mut ctx = ExecutionContext::new("wf-001".to_string());
+        ctx.set_node("http1", json!({
+            "status": 200,
+            "body": {"message": "success"}
+        }));
+
+        let result = ctx.get_node("http1");
+        assert!(result.is_some());
+        assert_eq!(result.unwrap()["status"], 200);
+
+        // Verify it's stored with node. prefix
+        assert_eq!(ctx.get("node.http1").unwrap()["status"], 200);
+    }
+
+    #[test]
+    fn test_interpolate_simple_variable() {
+        let mut ctx = ExecutionContext::new("wf-001".to_string());
+        ctx.set_var("name", json!("Alice"));
+
+        let input = json!("Hello {{var.name}}!");
+        let result = ctx.interpolate_value(&input);
+
+        assert_eq!(result, json!("Hello Alice!"));
+    }
+
+    #[test]
+    fn test_interpolate_node_output() {
+        let mut ctx = ExecutionContext::new("wf-001".to_string());
+        ctx.set_node("http1", json!({"status": 200}));
+
+        let input = json!("Status: {{node.http1.status}}");
+        let result = ctx.interpolate_value(&input);
+
+        assert_eq!(result, json!("Status: 200"));
+    }
+
+    #[test]
+    fn test_interpolate_trigger_payload() {
+        let mut ctx = ExecutionContext::new("wf-001".to_string());
+        ctx.set(namespace::trigger::PAYLOAD, json!({
+            "user": "bob",
+            "action": "login"
+        }));
+
+        let input = json!("User {{trigger.payload.user}} performed {{trigger.payload.action}}");
+        let result = ctx.interpolate_value(&input);
+
+        assert_eq!(result, json!("User bob performed login"));
+    }
+
+    #[test]
+    fn test_interpolate_multiple_variables() {
+        let mut ctx = ExecutionContext::new("wf-001".to_string());
+        ctx.set_var("first", json!("John"));
+        ctx.set_var("last", json!("Doe"));
+
+        let input = json!("Name: {{var.first}} {{var.last}}");
+        let result = ctx.interpolate_value(&input);
+
+        assert_eq!(result, json!("Name: John Doe"));
+    }
+
+    #[test]
+    fn test_interpolate_nested_object() {
+        let mut ctx = ExecutionContext::new("wf-001".to_string());
+        ctx.set_var("url", json!("https://api.example.com"));
+
+        let input = json!({
+            "endpoint": "{{var.url}}/users",
+            "method": "GET"
+        });
+        let result = ctx.interpolate_value(&input);
+
+        assert_eq!(result["endpoint"], "https://api.example.com/users");
+        assert_eq!(result["method"], "GET");
+    }
+
+    #[test]
+    fn test_interpolate_array() {
+        let mut ctx = ExecutionContext::new("wf-001".to_string());
+        ctx.set_var("item", json!("apple"));
+
+        let input = json!(["{{var.item}}", "banana", "{{var.item}}"]);
+        let result = ctx.interpolate_value(&input);
+
+        assert_eq!(result[0], "apple");
+        assert_eq!(result[1], "banana");
+        assert_eq!(result[2], "apple");
+    }
+
+    #[test]
+    fn test_interpolate_deeply_nested() {
+        let mut ctx = ExecutionContext::new("wf-001".to_string());
+        ctx.set_node("api", json!({
+            "response": {
+                "data": {
+                    "items": [{"id": 1}, {"id": 2}]
+                }
+            }
+        }));
+
+        let input = json!({
+            "result": {
+                "nested": {
+                    "value": "ID: {{node.api.response}}"
+                }
+            }
+        });
+        let result = ctx.interpolate_value(&input);
+
+        // Should interpolate to JSON string representation
+        let nested = &result["result"]["nested"]["value"];
+        assert!(nested.as_str().unwrap().contains("data"));
+    }
+
+    #[test]
+    fn test_interpolate_non_existent_variable() {
+        let ctx = ExecutionContext::new("wf-001".to_string());
+
+        let input = json!("Value: {{var.nonexistent}}");
+        let result = ctx.interpolate_value(&input);
+
+        // Should remain unchanged
+        assert_eq!(result, json!("Value: {{var.nonexistent}}"));
+    }
+
+    #[test]
+    fn test_interpolate_non_string_values() {
+        let ctx = ExecutionContext::new("wf-001".to_string());
+
+        let input = json!({
+            "number": 42,
+            "boolean": true,
+            "null": null
+        });
+        let result = ctx.interpolate_value(&input);
+
+        assert_eq!(result["number"], 42);
+        assert_eq!(result["boolean"], true);
+        assert_eq!(result["null"], json!(null));
+    }
+
+    #[test]
+    fn test_resolve_path_two_level_key() {
+        let mut ctx = ExecutionContext::new("wf-001".to_string());
+        ctx.set("node.http1", json!({"status": 200}));
+
+        let result = ctx.resolve_path("node.http1");
+        assert_eq!(result, Some(json!({"status": 200})));
+    }
+
+    #[test]
+    fn test_resolve_path_with_nested_navigation() {
+        let mut ctx = ExecutionContext::new("wf-001".to_string());
+        ctx.set("node.http1", json!({
+            "response": {
+                "data": {
+                    "user": {"name": "Alice"}
+                }
+            }
+        }));
+
+        let result = ctx.resolve_path("node.http1.response.data.user.name");
+        assert_eq!(result, Some(json!("Alice")));
+    }
+
+    #[test]
+    fn test_navigate_nested_valid_path() {
+        let value = json!({
+            "level1": {
+                "level2": {
+                    "level3": "deep_value"
+                }
+            }
+        });
+
+        let result = ExecutionContext::navigate_nested(&value, &["level1", "level2", "level3"]);
+        assert_eq!(result, Some(json!("deep_value")));
+    }
+
+    #[test]
+    fn test_navigate_nested_invalid_path() {
+        let value = json!({"a": {"b": "value"}});
+
+        let result = ExecutionContext::navigate_nested(&value, &["a", "nonexistent", "c"]);
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_interpolation_regex_performance() {
+        let mut ctx = ExecutionContext::new("wf-001".to_string());
+        ctx.set_var("x", json!(1));
+
+        // Test that INTERPOLATION_REGEX is lazily initialized and reused
+        for _ in 0..100 {
+            let input = json!("Value: {{var.x}}");
+            let result = ctx.interpolate_value(&input);
+            assert_eq!(result, json!("Value: 1"));
+        }
+    }
+
+    #[test]
+    fn test_namespace_constants() {
+        assert_eq!(namespace::trigger::PAYLOAD, "trigger.payload");
+        assert_eq!(namespace::node("test"), "node.test");
+        assert_eq!(namespace::var("counter"), "var.counter");
+        assert_eq!(namespace::config("api_key"), "config.api_key");
+    }
+
+    #[test]
+    fn test_complex_workflow_context() {
+        let mut ctx = ExecutionContext::new("wf-001".to_string());
+
+        // Simulate a workflow with trigger, multiple nodes
+        ctx.set(namespace::trigger::PAYLOAD, json!({
+            "webhook": {
+                "body": {"user_id": 123}
+            }
+        }));
+
+        ctx.set_node("fetch_user", json!({
+            "status": 200,
+            "user": {"name": "Bob", "email": "bob@example.com"}
+        }));
+
+        ctx.set_var("notification_template", json!("Hello {{var.username}}!"));
+        ctx.set_var("username", json!("Bob"));
+
+        // Test interpolation across namespaces
+        let template = json!({
+            "to": "{{node.fetch_user.user.email}}",
+            "subject": "Welcome",
+            "body": "User ID: {{trigger.payload.webhook.body.user_id}}, Name: {{node.fetch_user.user.name}}"
+        });
+
+        let result = ctx.interpolate_value(&template);
+        assert_eq!(result["to"], "bob@example.com");
+        assert_eq!(result["body"], "User ID: 123, Name: Bob");
     }
 }

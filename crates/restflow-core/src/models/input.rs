@@ -103,6 +103,11 @@ pub struct PythonInput {
     pub code: String,
     #[ts(type = "Templated<any> | undefined")]
     pub input: Option<Templated<Value>>,
+    /// Virtual field to trigger ts-rs import generation for Templated type.
+    /// Always None at runtime, skipped during serialization.
+    #[serde(default, skip_serializing)]
+    #[ts(optional)]
+    _import_marker: Option<Templated<()>>,
 }
 
 /// Print node input
