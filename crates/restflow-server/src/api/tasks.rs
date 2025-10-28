@@ -116,8 +116,11 @@ mod tests {
                 id: "node1".to_string(),
                 node_type: NodeType::Agent,
                 config: serde_json::json!({
-                    "model": "gpt-4",
-                    "prompt": "Test"
+                    "type": "Agent",
+                    "data": {
+                        "model": "gpt-4",
+                        "prompt": "Test"
+                    }
                 }),
                 position: None,
             }],
@@ -191,8 +194,11 @@ mod tests {
             id: "test-node".to_string(),
             node_type: NodeType::Agent,
             config: serde_json::json!({
-                "model": "gpt-4",
-                "prompt": "Test"
+                "type": "Agent",
+                "data": {
+                    "model": "gpt-4",
+                    "prompt": "Test"
+                }
             }),
             position: None,
         };
@@ -214,8 +220,11 @@ mod tests {
             id: "test-node".to_string(),
             node_type: NodeType::Agent,
             config: serde_json::json!({
-                "model": "gpt-4",
-                "prompt": "Test"
+                "type": "Agent",
+                "data": {
+                    "model": "gpt-4",
+                    "prompt": "Test"
+                }
             }),
             position: None,
         };
