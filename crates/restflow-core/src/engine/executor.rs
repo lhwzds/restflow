@@ -196,11 +196,15 @@ impl WorkflowExecutor {
                     "message": message,
                 })
             }
-            NodeInput::ManualTrigger(trigger_input) |
-            NodeInput::WebhookTrigger(trigger_input) => {
-                // Triggers don't need input resolution - they provide data to the workflow
-                serde_json::to_value(trigger_input)
-                    .map_err(|e| anyhow::anyhow!("Failed to serialize trigger input: {}", e))?
+            NodeInput::ManualTrigger(manual_input) => {
+                // Manual triggers don't need input resolution - they provide data to the workflow
+                serde_json::to_value(manual_input)
+                    .map_err(|e| anyhow::anyhow!("Failed to serialize manual trigger input: {}", e))?
+            }
+            NodeInput::WebhookTrigger(webhook_input) => {
+                // Webhook triggers don't need input resolution - they provide data to the workflow
+                serde_json::to_value(webhook_input)
+                    .map_err(|e| anyhow::anyhow!("Failed to serialize webhook trigger input: {}", e))?
             }
             NodeInput::ScheduleTrigger(schedule_input) => {
                 serde_json::to_value(schedule_input)

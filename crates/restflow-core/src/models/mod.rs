@@ -9,12 +9,13 @@ pub mod workflow;
 
 pub use execution::{ExecutionHistoryPage, ExecutionStatus, ExecutionSummary};
 pub use input::{
-    AgentInput, HttpInput, NodeInput, PrintInput, PythonInput, ScheduleInput, Templated,
-    TriggerInput,
+    AgentInput, HttpInput, ManualTriggerInput, NodeInput, PrintInput, PythonInput,
+    ScheduleInput, Templated, WebhookTriggerInput,
 };
 pub use node::{Node, NodeType, Position};
 pub use output::{
-    AgentOutput, HttpOutput, NodeOutput, PrintOutput, PythonOutput, ScheduleOutput, TriggerOutput,
+    AgentOutput, HttpOutput, ManualTriggerOutput, NodeOutput, PrintOutput, PythonOutput,
+    ScheduleOutput, WebhookTriggerOutput,
 };
 pub use secrets::Secret;
 pub use task::{Task, TaskStatus};

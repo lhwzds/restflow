@@ -104,15 +104,15 @@ impl NodeExecutor for HttpRequestExecutor {
         }
 
         // Add body if present (for POST, PUT, PATCH)
-        if matches!(method.to_uppercase().as_str(), "POST" | "PUT" | "PATCH") {
-            if let Some(body) = config.get("body") {
-                if body.is_string() {
-                    // String body
-                    request_builder = request_builder.body(body.as_str().unwrap().to_string());
-                } else {
-                    // JSON body
-                    request_builder = request_builder.json(body);
-                }
+        if matches!(method.to_uppercase().as_str(), "POST" | "PUT" | "PATCH")
+            && let Some(body) = config.get("body")
+        {
+            if body.is_string() {
+                // String body
+                request_builder = request_builder.body(body.as_str().unwrap().to_string());
+            } else {
+                // JSON body
+                request_builder = request_builder.json(body);
             }
         }
 
@@ -137,8 +137,7 @@ impl NodeExecutor for HttpRequestExecutor {
             .map_err(|e| anyhow::anyhow!("Failed to read response body: {}", e))?;
 
         // Try to parse as JSON, fallback to string
-        let body = serde_json::from_str::<Value>(&body_text)
-            .unwrap_or_else(|_| Value::String(body_text));
+        let body = serde_json::from_str::<Value>(&body_text).unwrap_or(Value::String(body_text));
 
         Ok(NodeOutput::Http(HttpOutput {
             status,

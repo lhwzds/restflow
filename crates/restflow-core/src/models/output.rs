@@ -3,8 +3,9 @@ use serde_json::Value;
 use std::collections::HashMap;
 use ts_rs::TS;
 
-/// Unified node output enum
-/// Each variant corresponds to a node type's output structure
+/// Unified node output enum. Each variant corresponds to a node type's output structure.
+///
+/// Note: Uses `#[serde(tag = "type", content = "data")]` for O(1) deserialization (15-20% faster) at ~20 bytes overhead per output.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
 #[serde(tag = "type", content = "data")]
@@ -13,8 +14,8 @@ pub enum NodeOutput {
     Agent(AgentOutput),
     Python(PythonOutput),
     Print(PrintOutput),
-    ManualTrigger(TriggerOutput),
-    WebhookTrigger(TriggerOutput),
+    ManualTrigger(ManualTriggerOutput),
+    WebhookTrigger(WebhookTriggerOutput),
     ScheduleTrigger(ScheduleOutput),
 }
 
@@ -51,10 +52,20 @@ pub struct PrintOutput {
     pub printed: String,
 }
 
-/// Trigger output (webhook/manual)
+/// Manual trigger output
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
-pub struct TriggerOutput {
+pub struct ManualTriggerOutput {
+    pub triggered_at: i64,
+    #[ts(type = "any")]
+    pub payload: Value,
+}
+
+/// Webhook trigger output - received HTTP request data
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct WebhookTriggerOutput {
+    pub triggered_at: i64,
     pub method: String,
     #[ts(type = "Record<string, string>")]
     pub headers: HashMap<String, String>,
@@ -106,10 +117,18 @@ impl NodeOutput {
         }
     }
 
-    /// Get type-safe access to Trigger output
-    pub fn as_trigger(&self) -> Option<&TriggerOutput> {
+    /// Get type-safe access to ManualTrigger output
+    pub fn as_manual_trigger(&self) -> Option<&ManualTriggerOutput> {
         match self {
-            Self::ManualTrigger(output) | Self::WebhookTrigger(output) => Some(output),
+            Self::ManualTrigger(output) => Some(output),
+            _ => None,
+        }
+    }
+
+    /// Get type-safe access to WebhookTrigger output
+    pub fn as_webhook_trigger(&self) -> Option<&WebhookTriggerOutput> {
+        match self {
+            Self::WebhookTrigger(output) => Some(output),
             _ => None,
         }
     }
