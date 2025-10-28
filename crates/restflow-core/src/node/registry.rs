@@ -233,3 +233,179 @@ impl NodeExecutor for PythonExecutor {
         Ok(NodeOutput::Python(PythonOutput { result }))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn test_registry_creation() {
+        let registry = NodeRegistry::new();
+
+        // Verify all node types are registered
+        assert!(registry.get(&NodeType::HttpRequest).is_some());
+        assert!(registry.get(&NodeType::Print).is_some());
+        assert!(registry.get(&NodeType::Agent).is_some());
+        assert!(registry.get(&NodeType::Python).is_some());
+        assert!(registry.get(&NodeType::ManualTrigger).is_some());
+        assert!(registry.get(&NodeType::WebhookTrigger).is_some());
+        assert!(registry.get(&NodeType::ScheduleTrigger).is_some());
+    }
+
+    #[test]
+    fn test_registry_get_nonexistent() {
+        let registry = NodeRegistry::new();
+
+        // All known types should be registered, so we can't easily test nonexistent
+        // This test just verifies the registry works
+        assert!(registry.get(&NodeType::Print).is_some());
+    }
+
+    #[tokio::test]
+    async fn test_print_executor_basic() {
+        let executor = PrintExecutor;
+        let mut context = ExecutionContext::new("test".to_string());
+
+        let config = json!({
+            "message": "Hello World"
+        });
+
+        let result = executor
+            .execute(&NodeType::Print, &config, &mut context)
+            .await;
+
+        assert!(result.is_ok());
+        if let NodeOutput::Print(output) = result.unwrap() {
+            assert_eq!(output.printed, "Hello World");
+        } else {
+            panic!("Expected Print output");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_print_executor_empty_message() {
+        let executor = PrintExecutor;
+        let mut context = ExecutionContext::new("test".to_string());
+
+        let config = json!({});
+
+        let result = executor
+            .execute(&NodeType::Print, &config, &mut context)
+            .await;
+
+        assert!(result.is_ok());
+        if let NodeOutput::Print(output) = result.unwrap() {
+            assert_eq!(output.printed, "No message provided");
+        } else {
+            panic!("Expected Print output");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_http_executor_missing_url() {
+        let executor = HttpRequestExecutor;
+        let mut context = ExecutionContext::new("test".to_string());
+
+        let config = json!({
+            "method": "GET"
+        });
+
+        let result = executor
+            .execute(&NodeType::HttpRequest, &config, &mut context)
+            .await;
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("URL not found"));
+    }
+
+    #[tokio::test]
+    async fn test_http_executor_unsupported_method() {
+        let executor = HttpRequestExecutor;
+        let mut context = ExecutionContext::new("test".to_string());
+
+        let config = json!({
+            "url": "http://example.com",
+            "method": "INVALID"
+        });
+
+        let result = executor
+            .execute(&NodeType::HttpRequest, &config, &mut context)
+            .await;
+
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Unsupported HTTP method"));
+    }
+
+    #[tokio::test]
+    #[ignore = "Requires network access"]
+    async fn test_http_executor_get_request() {
+        let executor = HttpRequestExecutor;
+        let mut context = ExecutionContext::new("test".to_string());
+
+        let config = json!({
+            "url": "https://httpbin.org/get",
+            "method": "GET"
+        });
+
+        let result = executor
+            .execute(&NodeType::HttpRequest, &config, &mut context)
+            .await;
+
+        assert!(result.is_ok());
+        if let NodeOutput::Http(output) = result.unwrap() {
+            assert_eq!(output.status, 200);
+            assert!(output.body.is_object());
+        } else {
+            panic!("Expected Http output");
+        }
+    }
+
+    #[tokio::test]
+    #[ignore = "Requires network access"]
+    async fn test_http_executor_post_with_json() {
+        let executor = HttpRequestExecutor;
+        let mut context = ExecutionContext::new("test".to_string());
+
+        let config = json!({
+            "url": "https://httpbin.org/post",
+            "method": "POST",
+            "body": {"test": "data"},
+            "headers": {"Content-Type": "application/json"}
+        });
+
+        let result = executor
+            .execute(&NodeType::HttpRequest, &config, &mut context)
+            .await;
+
+        assert!(result.is_ok());
+        if let NodeOutput::Http(output) = result.unwrap() {
+            assert_eq!(output.status, 200);
+        } else {
+            panic!("Expected Http output");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_python_executor_without_manager() {
+        let executor = PythonExecutor;
+        let mut context = ExecutionContext::new("test".to_string());
+
+        let config = json!({
+            "code": "print('test')"
+        });
+
+        let result = executor
+            .execute(&NodeType::Python, &config, &mut context)
+            .await;
+
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Python manager not available"));
+    }
+}
