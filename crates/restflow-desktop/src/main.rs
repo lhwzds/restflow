@@ -173,10 +173,11 @@ async fn list_tasks(
 #[tauri::command(rename_all = "snake_case")]
 async fn execute_node(
     node: restflow_core::models::Node,
-    input: serde_json::Value,
     core: State<'_, Arc<AppCore>>,
 ) -> Result<String, String> {
-    services::task::execute_node(&core, node, input)
+    // Node.config already contains all necessary data
+    // Frontend merges runtime input into node.config before calling this
+    services::task::execute_node(&core, node, serde_json::json!({}))
         .await
         .map_err(|e| e.to_string())
 }
