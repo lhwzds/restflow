@@ -190,8 +190,11 @@ mod tests {
                 id: "webhook_trigger".to_string(),
                 node_type: NodeType::WebhookTrigger,
                 config: serde_json::json!({
-                    "path": format!("/test/{}", id),
-                    "method": "POST"
+                    "type": "WebhookTrigger",
+                    "data": {
+                        "path": format!("/test/{}", id),
+                        "method": "POST"
+                    }
                 }),
                 position: None,
             }],

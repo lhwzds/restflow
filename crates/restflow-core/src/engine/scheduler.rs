@@ -57,10 +57,11 @@ impl Scheduler {
         Ok(task_id)
     }
 
-    pub fn push_single_node(&self, node: Node, input: Value) -> Result<String> {
-        // Parse input as NodeInput
-        let node_input: crate::models::NodeInput = serde_json::from_value(input)
-            .map_err(|e| anyhow::anyhow!("Failed to parse input as NodeInput: {}", e))?;
+    pub fn push_single_node(&self, node: Node, _input: Value) -> Result<String> {
+        // For single-node execution, parse NodeInput from node.config
+        // The node.config already contains the tagged union {"type": "...", "data": {...}}
+        let node_input: crate::models::NodeInput = serde_json::from_value(node.config.clone())
+            .map_err(|e| anyhow::anyhow!("Failed to parse node config as NodeInput: {}", e))?;
 
         let task = Task::for_single_node(node, node_input);
         let task_id = task.id.clone();
