@@ -6,7 +6,10 @@ use chrono_tz::Tz;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::str::FromStr;
-use std::sync::Arc;
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
 use tokio::sync::RwLock;
 use tokio_cron_scheduler::{Job, JobScheduler};
 use tracing::{debug, error, info};
@@ -28,6 +31,8 @@ pub struct CronScheduler {
     executor: Arc<WorkflowExecutor>,
     /// job_uuid -> trigger_id mapping table (used for job removal)
     job_map: Arc<RwLock<HashMap<Uuid, String>>>,
+    /// Tracks whether shutdown has been requested to prevent new schedules
+    is_shutdown: AtomicBool,
 }
 
 impl CronScheduler {
@@ -42,6 +47,7 @@ impl CronScheduler {
             storage,
             executor,
             job_map: Arc::new(RwLock::new(HashMap::new())),
+            is_shutdown: AtomicBool::new(false),
         })
     }
 
@@ -70,6 +76,10 @@ impl CronScheduler {
         timezone: Option<String>,
         payload: Option<Value>,
     ) -> Result<()> {
+        if self.is_shutdown.load(Ordering::SeqCst) {
+            return Err(anyhow!("Scheduler has been shutdown"));
+        }
+
         let trigger_id = trigger.id.clone();
         let workflow_id = trigger.workflow_id.clone();
         let executor = self.executor.clone();
@@ -218,6 +228,8 @@ impl CronScheduler {
 
     /// Shut down the scheduler
     pub async fn shutdown(&mut self) -> Result<()> {
+        self.is_shutdown.store(true, Ordering::SeqCst);
+
         self.scheduler
             .shutdown()
             .await
@@ -262,7 +274,12 @@ mod tests {
             nodes: vec![Node {
                 id: "test-node".to_string(),
                 node_type: NodeType::Print,
-                config: serde_json::json!({"message": "Test"}),
+                config: serde_json::json!({
+                    "type": "Print",
+                    "data": {
+                        "message": "Test message"
+                    }
+                }),
                 position: None,
             }],
             edges: vec![],
@@ -305,6 +322,431 @@ mod tests {
 
         assert_eq!(scheduler.active_job_count().await, 0);
 
+        scheduler.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_start_and_shutdown() {
+        let (mut scheduler, _storage, _temp_dir) = setup_test_scheduler().await;
+
+        // Start scheduler
+        scheduler.start().await.unwrap();
+
+        // Add a test job to verify scheduler is running
+        let trigger = ActiveTrigger::new(
+            "test-workflow".to_string(),
+            TriggerConfig::Schedule {
+                cron: "0 0 * * * *".to_string(),
+                timezone: None,
+                payload: None,
+            },
+        );
+
+        scheduler
+            .add_schedule(&trigger, "0 0 * * * *".to_string(), None, None)
+            .await
+            .unwrap();
+
+        assert_eq!(scheduler.active_job_count().await, 1);
+
+        // Shutdown scheduler
+        scheduler.shutdown().await.unwrap();
+
+        // Verify job count is still maintained (job_map is not cleared)
+        assert_eq!(scheduler.active_job_count().await, 1);
+    }
+
+    #[tokio::test]
+    async fn test_invalid_cron_expression() {
+        let (mut scheduler, _storage, _temp_dir) = setup_test_scheduler().await;
+
+        scheduler.start().await.unwrap();
+
+        let trigger = ActiveTrigger::new(
+            "test-workflow".to_string(),
+            TriggerConfig::Schedule {
+                cron: "invalid cron".to_string(),
+                timezone: None,
+                payload: None,
+            },
+        );
+
+        // Should fail due to invalid cron expression
+        let result = scheduler
+            .add_schedule(&trigger, "invalid cron".to_string(), None, None)
+            .await;
+
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Failed to create cron job")
+        );
+
+        // No job should be added
+        assert_eq!(scheduler.active_job_count().await, 0);
+
+        scheduler.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_invalid_timezone() {
+        let (mut scheduler, _storage, _temp_dir) = setup_test_scheduler().await;
+
+        scheduler.start().await.unwrap();
+
+        let trigger = ActiveTrigger::new(
+            "test-workflow".to_string(),
+            TriggerConfig::Schedule {
+                cron: "0 0 * * * *".to_string(),
+                timezone: Some("Invalid/Timezone".to_string()),
+                payload: None,
+            },
+        );
+
+        // Should fail due to invalid timezone
+        let result = scheduler
+            .add_schedule(
+                &trigger,
+                "0 0 * * * *".to_string(),
+                Some("Invalid/Timezone".to_string()),
+                None,
+            )
+            .await;
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Invalid timezone"));
+
+        // No job should be added
+        assert_eq!(scheduler.active_job_count().await, 0);
+
+        scheduler.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_schedule_with_timezone() {
+        let (mut scheduler, _storage, _temp_dir) = setup_test_scheduler().await;
+
+        scheduler.start().await.unwrap();
+
+        let trigger = ActiveTrigger::new(
+            "test-workflow".to_string(),
+            TriggerConfig::Schedule {
+                cron: "0 0 * * * *".to_string(),
+                timezone: Some("Asia/Shanghai".to_string()),
+                payload: None,
+            },
+        );
+
+        // Should succeed with valid timezone
+        scheduler
+            .add_schedule(
+                &trigger,
+                "0 0 * * * *".to_string(),
+                Some("Asia/Shanghai".to_string()),
+                None,
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(scheduler.active_job_count().await, 1);
+
+        // Clean up
+        scheduler.remove_schedule(&trigger.id).await.unwrap();
+        scheduler.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_remove_nonexistent_schedule() {
+        let (mut scheduler, _storage, _temp_dir) = setup_test_scheduler().await;
+
+        scheduler.start().await.unwrap();
+
+        // Try to remove a schedule that doesn't exist
+        let removed = scheduler
+            .remove_schedule("nonexistent-trigger-id")
+            .await
+            .unwrap();
+
+        // Should return false when no job was found
+        assert!(!removed);
+
+        scheduler.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_active_job_count() {
+        let (mut scheduler, _storage, _temp_dir) = setup_test_scheduler().await;
+
+        scheduler.start().await.unwrap();
+
+        // Initially no jobs
+        assert_eq!(scheduler.active_job_count().await, 0);
+
+        // Add first job
+        let trigger1 = ActiveTrigger::new(
+            "test-workflow".to_string(),
+            TriggerConfig::Schedule {
+                cron: "0 0 * * * *".to_string(),
+                timezone: None,
+                payload: None,
+            },
+        );
+
+        scheduler
+            .add_schedule(&trigger1, "0 0 * * * *".to_string(), None, None)
+            .await
+            .unwrap();
+
+        assert_eq!(scheduler.active_job_count().await, 1);
+
+        // Add second job
+        let trigger2 = ActiveTrigger::new(
+            "test-workflow".to_string(),
+            TriggerConfig::Schedule {
+                cron: "0 30 * * * *".to_string(),
+                timezone: None,
+                payload: None,
+            },
+        );
+
+        scheduler
+            .add_schedule(&trigger2, "0 30 * * * *".to_string(), None, None)
+            .await
+            .unwrap();
+
+        assert_eq!(scheduler.active_job_count().await, 2);
+
+        // Remove first job
+        scheduler.remove_schedule(&trigger1.id).await.unwrap();
+        assert_eq!(scheduler.active_job_count().await, 1);
+
+        // Remove second job
+        scheduler.remove_schedule(&trigger2.id).await.unwrap();
+        assert_eq!(scheduler.active_job_count().await, 0);
+
+        scheduler.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_multiple_schedules_same_workflow() {
+        let (mut scheduler, _storage, _temp_dir) = setup_test_scheduler().await;
+
+        scheduler.start().await.unwrap();
+
+        // Add multiple schedules for the same workflow
+        let trigger1 = ActiveTrigger::new(
+            "test-workflow".to_string(),
+            TriggerConfig::Schedule {
+                cron: "0 0 * * * *".to_string(), // Every hour
+                timezone: None,
+                payload: None,
+            },
+        );
+
+        let trigger2 = ActiveTrigger::new(
+            "test-workflow".to_string(),
+            TriggerConfig::Schedule {
+                cron: "0 30 * * * *".to_string(), // Every hour at 30 minutes
+                timezone: None,
+                payload: None,
+            },
+        );
+
+        let trigger3 = ActiveTrigger::new(
+            "test-workflow".to_string(),
+            TriggerConfig::Schedule {
+                cron: "0 15 * * * *".to_string(), // Every hour at 15 minutes
+                timezone: Some("America/New_York".to_string()),
+                payload: None,
+            },
+        );
+
+        // Add all three schedules
+        scheduler
+            .add_schedule(&trigger1, "0 0 * * * *".to_string(), None, None)
+            .await
+            .unwrap();
+
+        scheduler
+            .add_schedule(&trigger2, "0 30 * * * *".to_string(), None, None)
+            .await
+            .unwrap();
+
+        scheduler
+            .add_schedule(
+                &trigger3,
+                "0 15 * * * *".to_string(),
+                Some("America/New_York".to_string()),
+                None,
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(scheduler.active_job_count().await, 3);
+
+        // Remove each individually
+        scheduler.remove_schedule(&trigger1.id).await.unwrap();
+        assert_eq!(scheduler.active_job_count().await, 2);
+
+        scheduler.remove_schedule(&trigger2.id).await.unwrap();
+        assert_eq!(scheduler.active_job_count().await, 1);
+
+        scheduler.remove_schedule(&trigger3.id).await.unwrap();
+        assert_eq!(scheduler.active_job_count().await, 0);
+
+        scheduler.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_schedule_with_payload() {
+        let (mut scheduler, _storage, _temp_dir) = setup_test_scheduler().await;
+
+        scheduler.start().await.unwrap();
+
+        let payload = serde_json::json!({
+            "key": "value",
+            "number": 42,
+            "nested": {
+                "field": "data"
+            }
+        });
+
+        let trigger = ActiveTrigger::new(
+            "test-workflow".to_string(),
+            TriggerConfig::Schedule {
+                cron: "0 0 * * * *".to_string(),
+                timezone: None,
+                payload: Some(payload.clone()),
+            },
+        );
+
+        // Add schedule with custom payload
+        scheduler
+            .add_schedule(&trigger, "0 0 * * * *".to_string(), None, Some(payload))
+            .await
+            .unwrap();
+
+        assert_eq!(scheduler.active_job_count().await, 1);
+
+        // Clean up
+        scheduler.remove_schedule(&trigger.id).await.unwrap();
+        scheduler.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_shutdown_prevents_new_schedules() {
+        let (mut scheduler, _storage, _temp_dir) = setup_test_scheduler().await;
+
+        scheduler.start().await.unwrap();
+
+        // Add a job before shutdown
+        let trigger1 = ActiveTrigger::new(
+            "test-workflow".to_string(),
+            TriggerConfig::Schedule {
+                cron: "0 0 * * * *".to_string(),
+                timezone: None,
+                payload: None,
+            },
+        );
+
+        scheduler
+            .add_schedule(&trigger1, "0 0 * * * *".to_string(), None, None)
+            .await
+            .unwrap();
+
+        assert_eq!(scheduler.active_job_count().await, 1);
+
+        // Shutdown the scheduler
+        scheduler.shutdown().await.unwrap();
+
+        // Try to add a new job after shutdown
+        let trigger2 = ActiveTrigger::new(
+            "test-workflow".to_string(),
+            TriggerConfig::Schedule {
+                cron: "0 30 * * * *".to_string(),
+                timezone: None,
+                payload: None,
+            },
+        );
+
+        let result = scheduler
+            .add_schedule(&trigger2, "0 30 * * * *".to_string(), None, None)
+            .await;
+
+        // Should fail because scheduler is shut down
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Scheduler has been shutdown")
+        );
+
+        // Job count should remain at 1 (only the first job)
+        assert_eq!(scheduler.active_job_count().await, 1);
+    }
+
+    #[tokio::test]
+    async fn test_schedule_execution_tracking() {
+        let (mut scheduler, storage, _temp_dir) = setup_test_scheduler().await;
+
+        scheduler.start().await.unwrap();
+
+        let trigger = ActiveTrigger::new(
+            "test-workflow".to_string(),
+            TriggerConfig::Schedule {
+                cron: "* * * * * *".to_string(), // Every second for testing
+                timezone: None,
+                payload: None,
+            },
+        );
+
+        // Store the trigger in storage
+        storage.triggers.activate_trigger(&trigger).unwrap();
+
+        // Add schedule
+        scheduler
+            .add_schedule(&trigger, "* * * * * *".to_string(), None, None)
+            .await
+            .unwrap();
+
+        // Get initial trigger count
+        let initial_trigger = storage
+            .triggers
+            .get_active_trigger(&trigger.id)
+            .unwrap()
+            .unwrap();
+        let initial_count = initial_trigger.trigger_count;
+
+        // Wait for at least 2 full seconds to ensure at least one execution
+        // (cron runs every second, so 2100ms guarantees at least one execution)
+        tokio::time::sleep(tokio::time::Duration::from_millis(2100)).await;
+
+        // Get updated trigger
+        let updated_trigger = storage
+            .triggers
+            .get_active_trigger(&trigger.id)
+            .unwrap()
+            .unwrap();
+
+        // Verify trigger count increased
+        assert!(
+            updated_trigger.trigger_count > initial_count,
+            "Trigger count should have increased: {} vs {}",
+            updated_trigger.trigger_count,
+            initial_count
+        );
+
+        // Verify last_triggered_at was updated
+        assert!(
+            updated_trigger.last_triggered_at.is_some(),
+            "Last triggered timestamp should be set"
+        );
+
+        // Clean up
+        scheduler.remove_schedule(&trigger.id).await.unwrap();
         scheduler.shutdown().await.unwrap();
     }
 }
