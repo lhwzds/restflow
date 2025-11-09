@@ -1,10 +1,15 @@
 .DS_Store
 /target/
 
+# Internal development documentation
+/doc/
+CLAUDE.md
+AGENTS.md
+
 # Python environment
 /python/.venv/
 /python/scripts/*.py  # User scripts (runtime generated)
-!/py1thon/scripts/templates/  # Keep templates
+!/python/scripts/templates/  # Keep templates
 
 # Hide UV enviroment Dont change
 /.uv
@@ -15,4 +20,4 @@ __pycache__/
 *$py.class
 
 .playwright-mcp
-
+s
