@@ -1,7 +1,12 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import MockAdapter from 'axios-mock-adapter'
 import { apiClient, isApiResponse } from '@/api/config'
 import type { ApiResponse } from '@/types/api'
+
+vi.mock('@/api/utils', () => ({
+  isTauri: () => false,
+  invokeCommand: vi.fn()
+}))
 
 describe('Axios Response Interceptor', () => {
   let mock: MockAdapter
