@@ -143,7 +143,9 @@ const initializeWorkflow = async () => {
     }
   } else {
     workflowStore.clearCanvas()
-    workflowStore.setWorkflowMetadata(null, 'Untitled Workflow')
+    // Read the workflow name from query parameter if provided
+    const workflowName = (route.query.name as string) || 'Untitled Workflow'
+    workflowStore.setWorkflowMetadata(null, workflowName)
     unsavedChanges.markAsSaved() // New workflows start in saved state
   }
 }
