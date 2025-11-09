@@ -1,46 +1,6 @@
-import { setActivePinia, createPinia } from 'pinia'
-import { vi } from 'vitest'
 import type { Workflow } from '@/types/generated/Workflow'
 import type { Node } from '@vue-flow/core'
 import type { Edge } from '@vue-flow/core'
-
-/**
- * Create fresh Pinia instance for each test
- */
-export function setupTestPinia() {
-  const pinia = createPinia()
-  setActivePinia(pinia)
-  return pinia
-}
-
-/**
- * Mock ElMessage utilities
- */
-export const mockElMessage = {
-  success: vi.fn(),
-  error: vi.fn(),
-  warning: vi.fn(),
-  info: vi.fn(),
-}
-
-/**
- * Mock router utilities
- */
-export const mockRouter = {
-  push: vi.fn(),
-  replace: vi.fn(),
-  back: vi.fn(),
-  currentRoute: { value: { params: {}, query: {} } },
-}
-
-/**
- * Mock route utilities
- */
-export const mockRoute = {
-  params: {},
-  query: {},
-  path: '',
-}
 
 /**
  * Create mock workflow for testing

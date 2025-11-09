@@ -1,8 +1,9 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
+import { nextTick } from 'vue'
+import { ElMessage } from 'element-plus'
 import NewWorkflowDialog from '../NewWorkflowDialog.vue'
 import * as workflowsApi from '@/api/workflows'
-import { nextTick } from '@/__tests__/helpers/testUtils'
 
 // Mock the API module
 vi.mock('@/api/workflows', () => ({
@@ -21,6 +22,10 @@ vi.mock('vue-router', () => ({
 
 describe('NewWorkflowDialog', () => {
   beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  afterEach(() => {
     vi.clearAllMocks()
   })
 
@@ -62,9 +67,6 @@ describe('NewWorkflowDialog', () => {
       },
     })
 
-    // Import ElMessage from mocked element-plus
-    const { ElMessage } = await import('element-plus')
-
     // Find and click create button without entering name
     const createButton = wrapper.findAll('button').find((btn) => btn.text() === 'Create')
     expect(createButton).toBeTruthy()
@@ -82,8 +84,6 @@ describe('NewWorkflowDialog', () => {
         visible: true,
       },
     })
-
-    const { ElMessage } = await import('element-plus')
 
     // Enter whitespace-only name
     const input = wrapper.find('input')
@@ -202,8 +202,6 @@ describe('NewWorkflowDialog', () => {
       },
     })
 
-    const { ElMessage } = await import('element-plus')
-
     // Enter workflow name
     const input = wrapper.find('input')
     await input.setValue('Success Workflow')
@@ -230,8 +228,6 @@ describe('NewWorkflowDialog', () => {
         visible: true,
       },
     })
-
-    const { ElMessage } = await import('element-plus')
 
     // Enter workflow name
     const input = wrapper.find('input')
