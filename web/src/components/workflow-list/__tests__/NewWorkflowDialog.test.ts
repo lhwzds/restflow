@@ -2,7 +2,6 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import NewWorkflowDialog from '../NewWorkflowDialog.vue'
 import * as workflowsApi from '@/api/workflows'
-import { useRouter } from 'vue-router'
 import { nextTick } from '@/__tests__/helpers/testUtils'
 
 // Mock the API module

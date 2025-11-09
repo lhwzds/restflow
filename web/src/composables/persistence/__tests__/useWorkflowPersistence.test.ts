@@ -195,8 +195,8 @@ describe('useWorkflowPersistence', () => {
       const mockWorkflow = createMockWorkflow({
         id: 'workflow-123',
         name: 'Test Workflow',
-        nodes: [createMockNode()],
-        edges: [createMockEdge()],
+        nodes: [],
+        edges: [],
       })
       mockGetWorkflow.mockResolvedValue(mockWorkflow)
 
