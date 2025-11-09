@@ -81,6 +81,7 @@ jobs:
             ${{ runner.os }}-${{ matrix.platform.target }}-cargo-test-
 
       - name: Create frontend dist directory for tests
+        shell: bash
         run: mkdir -p web/dist
 
       - name: Run Clippy
