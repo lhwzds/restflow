@@ -47,6 +47,14 @@ export const useWorkflowStore = defineStore('workflow', {
     },
 
     clearCanvas() {
+      // Only clear canvas data, preserve workflow metadata
+      this.nodes = []
+      this.edges = []
+      this.hasUnsavedChanges = false
+    },
+
+    resetWorkflow() {
+      // Full reset including metadata
       this.nodes = []
       this.edges = []
       this.hasUnsavedChanges = false

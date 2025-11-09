@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ElDialog, ElForm, ElFormItem, ElInput, ElMessage, ElButton, ElTooltip } from 'element-plus'
+import { ElMessage, ElButton, ElTooltip } from 'element-plus'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Expand, Fold, Check, ArrowLeft, Document, FolderOpened } from '@element-plus/icons-vue'
@@ -58,7 +58,6 @@ const { exportWorkflow, importWorkflow } = useWorkflowImportExport({
   },
 })
 
-const saveDialogVisible = ref(false)
 const unsavedChanges = useUnsavedChanges()
 const workflowName = computed(() => currentWorkflowMeta.value.name || 'Untitled Workflow')
 
@@ -76,11 +75,7 @@ const handleWorkflowNameUpdate = (newName: string) => {
   unsavedChanges.markAsDirty()
 }
 const handleSave = async () => {
-  if (!workflowStore.currentWorkflowId && !workflowStore.currentWorkflowName?.trim()) {
-    saveDialogVisible.value = true
-    return
-  }
-
+  // With immediate creation, currentWorkflowId is ALWAYS set
   if (!workflowStore.currentWorkflowName?.trim()) {
     ElMessage.error(VALIDATION_MESSAGES.REQUIRED_PROVIDE('workflow name'))
     return
@@ -93,12 +88,6 @@ const handleSave = async () => {
 
   if (result.success) {
     unsavedChanges.markAsSaved()
-    saveDialogVisible.value = false
-
-    // Navigate to saved workflow URL after initial save
-    if (!route.params.id && result.id) {
-      router.replace(`/workflow/${result.id}`)
-    }
   }
 }
 
@@ -132,21 +121,20 @@ useKeyboardShortcuts({
 const initializeWorkflow = async () => {
   const workflowId = route.params.id as string
 
-  if (workflowId) {
-    const result = await loadWorkflow(workflowId)
-    if (result.success) {
-      unsavedChanges.markAsSaved()
-      // Load trigger status after workflow is loaded
-      await loadTriggerStatus()
-    } else {
-      router.push('/workflows')
-    }
+  if (!workflowId) {
+    // This should never happen with immediate creation
+    console.warn('No workflow ID provided, redirecting to workflows list')
+    router.push('/workflows')
+    return
+  }
+
+  const result = await loadWorkflow(workflowId)
+  if (result.success) {
+    unsavedChanges.markAsSaved()
+    // Load trigger status after workflow is loaded
+    await loadTriggerStatus()
   } else {
-    workflowStore.clearCanvas()
-    // Read the workflow name from query parameter if provided
-    const workflowName = (route.query.name as string) || 'Untitled Workflow'
-    workflowStore.setWorkflowMetadata(null, workflowName)
-    unsavedChanges.markAsSaved() // New workflows start in saved state
+    router.push('/workflows')
   }
 }
 
@@ -169,7 +157,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
-  workflowStore.clearCanvas()
+  workflowStore.resetWorkflow()
   unsavedChanges.markAsSaved()
 })
 </script>
@@ -267,27 +255,6 @@ onUnmounted(() => {
         <VariablePanel :node-id="selectedNodeId" />
       </div>
     </div>
-
-    <ElDialog
-      v-model="saveDialogVisible"
-      title="Save Workflow"
-      width="500px"
-      :close-on-click-modal="false"
-    >
-      <ElForm label-width="100px">
-        <ElFormItem label="Name" required>
-          <ElInput
-            v-model="workflowStore.currentWorkflowName"
-            placeholder="Enter workflow name"
-            @keyup.enter="handleSave"
-          />
-        </ElFormItem>
-      </ElForm>
-      <template #footer>
-        <ElButton @click="saveDialogVisible = false">Cancel</ElButton>
-        <ElButton type="primary" @click="handleSave">Save</ElButton>
-      </template>
-    </ElDialog>
   </PageLayout>
 </template>
 
