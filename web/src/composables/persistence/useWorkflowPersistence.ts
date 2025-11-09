@@ -105,11 +105,10 @@ export function useWorkflowPersistence() {
 
     isSaving.value = true
     try {
-      let response
-      let workflowId = workflowStore.currentWorkflowId
-
+      // With immediate creation, workflowId is always set
+      const workflowId = workflowStore.currentWorkflowId
       if (!workflowId) {
-        workflowId = `workflow-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`
+        throw new Error('Cannot save workflow without ID')
       }
 
       const { convertToBackendFormat } = useWorkflowConverter()
@@ -117,34 +116,22 @@ export function useWorkflowPersistence() {
         name: workflowName,
         id: workflowId,
       })
-      
-      const isUpdate = workflowStore.currentWorkflowId !== null
-      let resultId = workflowId
-      
-      if (isUpdate) {
-        await workflowsApi.updateWorkflow(workflow.id, workflow)
-        response = { id: workflow.id }
-      } else {
-        response = await workflowsApi.createWorkflow(workflow)
-        resultId = response.id
-      }
+
+      // Always update existing workflow
+      await workflowsApi.updateWorkflow(workflow.id, workflow)
 
       if (showMessage) {
-        ElMessage.success(
-          isUpdate
-            ? SUCCESS_MESSAGES.WORKFLOW_UPDATED
-            : SUCCESS_MESSAGES.WORKFLOW_CREATED,
-        )
+        ElMessage.success(SUCCESS_MESSAGES.WORKFLOW_UPDATED)
       }
 
       // Update metadata in store
-      workflowStore.setWorkflowMetadata(resultId, workflowName)
+      workflowStore.setWorkflowMetadata(workflowId, workflowName)
       lastSavedAt.value = new Date()
 
       return {
         success: true,
-        data: response,
-        id: resultId,
+        data: { id: workflowId },
+        id: workflowId,
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : ERROR_MESSAGES.FAILED_TO_SAVE('workflow')
@@ -167,9 +154,8 @@ export function useWorkflowPersistence() {
    * Create a new workflow (reset current)
    */
   const createNewWorkflow = () => {
-    workflowStore.setWorkflowMetadata(null, 'Untitled Workflow')
+    workflowStore.resetWorkflow()
     lastSavedAt.value = null
-    workflowStore.clearCanvas()
   }
 
   /**
@@ -190,21 +176,45 @@ export function useWorkflowPersistence() {
       return { success: false, error: 'Name is required' }
     }
 
-    const previousId = workflowStore.currentWorkflowId
-    const previousName = workflowStore.currentWorkflowName
-    workflowStore.setWorkflowMetadata(null, name) // Force create new
+    isSaving.value = true
+    try {
+      // Generate new workflow ID
+      const newId = `workflow-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`
 
-    const result = await saveWorkflow(workflowStore.nodes, workflowStore.edges, {
-      showMessage: true,
-      meta: { name },
-    })
+      // Create workflow object with current nodes/edges
+      const { convertToBackendFormat } = useWorkflowConverter()
+      const workflow = convertToBackendFormat(workflowStore.nodes, workflowStore.edges, {
+        name,
+        id: newId,
+      })
 
-    if (!result.success) {
-      // Restore previous metadata if save failed
-      workflowStore.setWorkflowMetadata(previousId, previousName)
+      // Call create API directly
+      const result = await workflowsApi.createWorkflow(workflow)
+
+      // Update store with new workflow metadata
+      workflowStore.setWorkflowMetadata(result.id, name)
+      lastSavedAt.value = new Date()
+
+      ElMessage.success(SUCCESS_MESSAGES.WORKFLOW_CREATED)
+
+      return {
+        success: true,
+        data: { id: result.id },
+        id: result.id,
+      }
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : ERROR_MESSAGES.FAILED_TO_SAVE('workflow')
+      console.error('Failed to save as new workflow:', error)
+      ElMessage.error(message)
+
+      return {
+        success: false,
+        error: message,
+      }
+    } finally {
+      isSaving.value = false
     }
-
-    return result
   }
 
   /**

@@ -3,6 +3,8 @@ import { ElButton, ElDialog, ElForm, ElFormItem, ElInput, ElMessage } from 'elem
 import { ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { VALIDATION_MESSAGES } from '@/constants'
+import { createWorkflow } from '@/api/workflows'
+import type { Workflow } from '@/types/generated/Workflow'
 
 interface Props {
   visible: boolean
@@ -30,14 +32,33 @@ watch(dialogVisible, (newVal) => {
   emit('update:visible', newVal)
 })
 
-function handleCreate() {
+async function handleCreate() {
   if (!workflowName.value?.trim()) {
     ElMessage.error(VALIDATION_MESSAGES.ENTER_WORKFLOW_NAME)
     return
   }
-  
-  router.push(`/workflow?name=${encodeURIComponent(workflowName.value)}`)
-  dialogVisible.value = false
+
+  try {
+    // Create minimal workflow object
+    const newWorkflow: Workflow = {
+      id: `workflow-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`,
+      name: workflowName.value.trim(),
+      nodes: [],
+      edges: []
+    }
+
+    // Save to database immediately
+    const result = await createWorkflow(newWorkflow)
+
+    // Navigate to editor with the saved workflow ID
+    router.push(`/workflow/${result.id}`)
+    dialogVisible.value = false
+
+    ElMessage.success('Workflow created successfully')
+  } catch (error) {
+    ElMessage.error('Failed to create workflow')
+    console.error('Failed to create workflow:', error)
+  }
 }
 
 function handleCancel() {

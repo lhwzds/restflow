@@ -14,7 +14,7 @@ const router = createRouter({
       meta: { title: 'Workflows' },
     },
     {
-      path: '/workflow/:id?',
+      path: '/workflow/:id',
       name: 'workflow-editor',
       component: () => import('../views/WorkflowEditor.vue'),
       meta: { title: 'Editor' },
