@@ -28,7 +28,7 @@
     "@vue-flow/core": "^1.47.0",
     "@vue-flow/minimap": "^1.5.3",
     "@vueuse/core": "^14.0.0",
-    "axios": "^1.11.0",
+    "axios": "^1.13.2",
     "dompurify": "^3.2.7",
     "element-plus": "^2.11.4",
     "lucide-vue-next": "^0.546.0",
