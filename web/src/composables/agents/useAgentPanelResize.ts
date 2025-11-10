@@ -98,6 +98,6 @@ export function useAgentPanelResize() {
     resetWidth,
     MIN_WIDTH,
     MAX_WIDTH,
-    DEFAULT_WIDTH
+    DEFAULT_WIDTH,
   }
 }

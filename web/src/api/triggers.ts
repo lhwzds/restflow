@@ -28,14 +28,11 @@ export const getTriggerStatus = async (id: string): Promise<TriggerStatus | null
   return response.data || null
 }
 
-export const testWorkflow = async (
-  id: string,
-  testData?: any
-): Promise<TestWorkflowResponse> => {
+export const testWorkflow = async (id: string, testData?: any): Promise<TestWorkflowResponse> => {
   if (isTauri()) {
     return invokeCommand<TestWorkflowResponse>('test_workflow', {
       workflow_id: id,
-      test_data: testData || {}
+      test_data: testData || {},
     })
   }
   const payload = testData ?? {}
@@ -46,7 +43,7 @@ export const testWorkflow = async (
       headers: {
         'Content-Type': 'application/json',
       },
-    }
+    },
   )
   return response.data
 }

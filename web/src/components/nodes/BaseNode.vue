@@ -26,14 +26,14 @@ const props = withDefaults(defineProps<BaseNodeProps>(), {
   showActionButton: true,
   actionButtonDisabled: false,
   showInputHandle: true,
-  showOutputHandle: true
+  showOutputHandle: true,
 })
 
 const emit = defineEmits<{
   'open-config': []
   'view-io': []
   'action-button': []
-  'updateNodeInternals': [nodeId: string]
+  updateNodeInternals: [nodeId: string]
 }>()
 
 // Create popup state once and provide to child components
@@ -41,9 +41,7 @@ const popupState = useNodeInfoPopup(props.nodeProps.id)
 provide('nodePopupState', popupState)
 
 const executionStatus = useNodeExecutionStatus()
-const statusClass = computed(() =>
-  executionStatus.getNodeStatusClass(props.nodeProps.id)
-)
+const statusClass = computed(() => executionStatus.getNodeStatusClass(props.nodeProps.id))
 
 const nodeActionsRef = ref<InstanceType<typeof NodeActions> | null>(null)
 

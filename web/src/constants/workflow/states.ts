@@ -103,7 +103,7 @@ export const STATE_ICONS = {
 } as const
 
 // Type exports
-export type WorkflowState = typeof WORKFLOW_STATE[keyof typeof WORKFLOW_STATE]
-export type ExecutionMode = typeof EXECUTION_MODE[keyof typeof EXECUTION_MODE]
-export type NodeExecutionState = typeof NODE_EXECUTION_STATE[keyof typeof NODE_EXECUTION_STATE]
-export type TaskStatus = typeof TASK_STATUS[keyof typeof TASK_STATUS]
+export type WorkflowState = (typeof WORKFLOW_STATE)[keyof typeof WORKFLOW_STATE]
+export type ExecutionMode = (typeof EXECUTION_MODE)[keyof typeof EXECUTION_MODE]
+export type NodeExecutionState = (typeof NODE_EXECUTION_STATE)[keyof typeof NODE_EXECUTION_STATE]
+export type TaskStatus = (typeof TASK_STATUS)[keyof typeof TASK_STATUS]

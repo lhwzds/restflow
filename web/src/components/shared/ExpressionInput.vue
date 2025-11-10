@@ -6,7 +6,7 @@
       'expression-input--multiline': multiline,
       'expression-input--dragging': isDragging && dragData?.type === 'variable',
       'expression-input--drop-target': isDropTarget,
-      'expression-input--focused': isFocused
+      'expression-input--focused': isFocused,
     }"
   >
     <div ref="editorElement" class="expression-input__editor"></div>
@@ -33,7 +33,7 @@ const props = withDefaults(defineProps<Props>(), {
   placeholder: '',
   multiline: false,
   autocomplete: false,
-  disabled: false
+  disabled: false,
 })
 
 const emit = defineEmits<{
@@ -61,7 +61,7 @@ const initializeEditor = () => {
 
   const extensions = createExpressionExtensions({
     multiline: props.multiline,
-    autocomplete: props.autocomplete
+    autocomplete: props.autocomplete,
   })
 
   editorView.value = createEditor(
@@ -70,7 +70,7 @@ const initializeEditor = () => {
     extensions,
     (value: string) => {
       emit('update:modelValue', value)
-    }
+    },
   )
 
   // Add focus/blur listeners
@@ -127,11 +127,11 @@ watch(
         changes: {
           from: 0,
           to: currentValue.length,
-          insert: newValue
-        }
+          insert: newValue,
+        },
       })
     }
-  }
+  },
 )
 
 /**
@@ -169,7 +169,7 @@ onBeforeUnmount(() => {
 // Expose editor instance for advanced usage
 defineExpose({
   editorView,
-  focus: () => editorView.value?.focus()
+  focus: () => editorView.value?.focus(),
 })
 </script>
 

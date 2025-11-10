@@ -43,7 +43,12 @@ const updateData = () => {
       <ExpressionInput
         :model-value="localData.url || ''"
         placeholder="https://api.example.com/users/{{trigger.payload.id}}"
-        @update:model-value="(val) => { localData.url = val; updateData(); }"
+        @update:model-value="
+          (val) => {
+            localData.url = val
+            updateData()
+          }
+        "
       />
     </div>
 
@@ -64,7 +69,12 @@ const updateData = () => {
         :model-value="localData.headers || ''"
         :multiline="true"
         placeholder='{"Authorization": "Bearer {{var.api_token}}"}'
-        @update:model-value="(val) => { localData.headers = val; updateData(); }"
+        @update:model-value="
+          (val) => {
+            localData.headers = val
+            updateData()
+          }
+        "
       />
       <span class="form-hint">JSON object with header names and values</span>
     </div>
@@ -75,7 +85,12 @@ const updateData = () => {
         :model-value="localData.body || ''"
         :multiline="true"
         placeholder='{"user_id": {{trigger.payload.id}}, "name": "{{node.http1.data.body.name}}"}'
-        @update:model-value="(val) => { localData.body = val; updateData(); }"
+        @update:model-value="
+          (val) => {
+            localData.body = val
+            updateData()
+          }
+        "
       />
       <span class="form-hint">Request body (JSON or string)</span>
     </div>
@@ -111,7 +126,7 @@ const updateData = () => {
     @include form-label;
   }
 
-  input[type="number"] {
+  input[type='number'] {
     @include form-field;
   }
 

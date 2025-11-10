@@ -14,9 +14,7 @@ export function useWorkflowConverter() {
         // Backend format: {"type": "Python", "data": {"code": "...", "dependencies": [...]}}
         // Frontend format: {"code": "...", "dependencies": [...]}
         // If config has 'data' field (new format), use it; otherwise use entire config (backward compatibility)
-        const data = node.config?.data
-          ? node.config.data
-          : node.config || {}
+        const data = node.config?.data ? node.config.data : node.config || {}
 
         return {
           id: node.id,
@@ -49,7 +47,7 @@ export function useWorkflowConverter() {
       // This matches Rust's tagged enum format: #[serde(tag = "type", content = "data")]
       const config = {
         type: node.type,
-        data: node.data || {}
+        data: node.data || {},
       }
 
       return {

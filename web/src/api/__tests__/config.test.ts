@@ -5,7 +5,7 @@ import type { ApiResponse } from '@/types/api'
 
 vi.mock('@/api/utils', () => ({
   isTauri: () => false,
-  invokeCommand: vi.fn()
+  invokeCommand: vi.fn(),
 }))
 
 describe('Axios Response Interceptor', () => {
@@ -23,7 +23,7 @@ describe('Axios Response Interceptor', () => {
     it('should identify valid ApiResponse with success and data', () => {
       const data: ApiResponse<string> = {
         success: true,
-        data: 'test-data'
+        data: 'test-data',
       }
 
       expect(isApiResponse(data)).toBe(true)
@@ -31,7 +31,7 @@ describe('Axios Response Interceptor', () => {
 
     it('should identify valid ApiResponse with success only', () => {
       const data: ApiResponse<never> = {
-        success: true
+        success: true,
       }
 
       expect(isApiResponse(data)).toBe(true)
@@ -40,7 +40,7 @@ describe('Axios Response Interceptor', () => {
     it('should identify valid ApiResponse with error message', () => {
       const data: ApiResponse<never> = {
         success: false,
-        message: 'Error occurred'
+        message: 'Error occurred',
       }
 
       expect(isApiResponse(data)).toBe(true)
@@ -50,7 +50,7 @@ describe('Axios Response Interceptor', () => {
       const businessData = {
         success: true,
         payload: { id: 1 },
-        count: 42
+        count: 42,
       }
 
       expect(isApiResponse(businessData)).toBe(false)
@@ -59,7 +59,7 @@ describe('Axios Response Interceptor', () => {
     it('should reject object without success field', () => {
       const data = {
         data: 'test',
-        message: 'hello'
+        message: 'hello',
       }
 
       expect(isApiResponse(data)).toBe(false)
@@ -68,7 +68,7 @@ describe('Axios Response Interceptor', () => {
     it('should reject non-boolean success field', () => {
       const data = {
         success: 'true',
-        data: 'test'
+        data: 'test',
       }
 
       expect(isApiResponse(data)).toBe(false)
@@ -97,7 +97,7 @@ describe('Axios Response Interceptor', () => {
     it('should unwrap successful ApiResponse', async () => {
       const apiResponse: ApiResponse<{ id: number; name: string }> = {
         success: true,
-        data: { id: 1, name: 'test' }
+        data: { id: 1, name: 'test' },
       }
 
       mock.onGet('/test').reply(200, apiResponse)
@@ -109,7 +109,7 @@ describe('Axios Response Interceptor', () => {
     it('should reject failed ApiResponse', async () => {
       const apiResponse: ApiResponse<never> = {
         success: false,
-        message: 'Operation failed'
+        message: 'Operation failed',
       }
 
       mock.onGet('/test').reply(200, apiResponse)
@@ -121,7 +121,7 @@ describe('Axios Response Interceptor', () => {
       const businessData = {
         success: true,
         payload: { id: 1 },
-        count: 42
+        count: 42,
       }
 
       mock.onGet('/test').reply(200, businessData)
@@ -132,7 +132,7 @@ describe('Axios Response Interceptor', () => {
 
     it('should handle ApiResponse with no data field', async () => {
       const apiResponse: ApiResponse<never> = {
-        success: true
+        success: true,
       }
 
       mock.onGet('/test').reply(200, apiResponse)
@@ -143,7 +143,7 @@ describe('Axios Response Interceptor', () => {
 
     it('should handle failed ApiResponse with default message', async () => {
       const apiResponse: ApiResponse<never> = {
-        success: false
+        success: false,
       }
 
       mock.onGet('/test').reply(200, apiResponse)

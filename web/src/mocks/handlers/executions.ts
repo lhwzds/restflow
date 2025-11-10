@@ -36,7 +36,7 @@ export const generateMockOutput = (nodeType: string, nodeId: string, config: any
   switch (nodeType) {
     case 'Agent':
       return {
-        response: `[Demo] AI response from ${nodeId}. This is a simulated agent execution result. In production, this would be the actual AI model output based on the prompt: "${config?.prompt?.substring(0, 50)}..."`
+        response: `[Demo] AI response from ${nodeId}. This is a simulated agent execution result. In production, this would be the actual AI model output based on the prompt: "${config?.prompt?.substring(0, 50)}..."`,
       }
     case 'HttpRequest':
       return {
@@ -45,20 +45,20 @@ export const generateMockOutput = (nodeType: string, nodeId: string, config: any
         body: {
           demo: true,
           message: 'Mock HTTP response',
-          url: config?.url || 'https://api.example.com'
-        }
+          url: config?.url || 'https://api.example.com',
+        },
       }
     case 'Print':
       return {
         printed: config?.message || 'Demo output',
-        timestamp: Date.now()
+        timestamp: Date.now(),
       }
     case 'WebhookTrigger':
     case 'ManualTrigger':
     case 'ScheduleTrigger':
       return {
         triggered: true,
-        trigger_type: nodeType
+        trigger_type: nodeType,
       }
     default:
       return { demo: true, node_type: nodeType }
@@ -93,7 +93,7 @@ const simulateTaskExecution = (task: Task, node: any) => {
 export const createExecutionTasks = (
   executionId: string,
   workflowId: string,
-  nodes: any[]
+  nodes: any[],
 ): Task[] => {
   const executionTasks: Task[] = nodes.map((node, index) => {
     const task: Task = {
@@ -111,8 +111,8 @@ export const createExecutionTasks = (
       context: {
         workflow_id: workflowId,
         execution_id: executionId,
-        data: {}
-      }
+        data: {},
+      },
     }
 
     addTask(task.id, task)
@@ -128,7 +128,7 @@ export const createExecutionTasks = (
 
 export const getExecutionSnapshots = (): ExecutionSnapshot[] => {
   return Array.from(executions.entries()).map(([executionId, taskList]) => {
-    const currentTasks = taskList.map(task => tasks.get(task.id) ?? task)
+    const currentTasks = taskList.map((task) => tasks.get(task.id) ?? task)
     return { executionId, tasks: currentTasks }
   })
 }
@@ -142,17 +142,17 @@ export const executionHandlers = [
       return HttpResponse.json(
         {
           success: false,
-          message: 'Execution not found'
+          message: 'Execution not found',
         },
-        { status: 404 }
+        { status: 404 },
       )
     }
 
-    const currentTasks = executionTasks.map(t => tasks.get(t.id)!)
+    const currentTasks = executionTasks.map((t) => tasks.get(t.id)!)
 
     return HttpResponse.json({
       success: true,
-      data: currentTasks
+      data: currentTasks,
     })
   }),
 
@@ -164,15 +164,15 @@ export const executionHandlers = [
       return HttpResponse.json(
         {
           success: false,
-          message: 'Task not found'
+          message: 'Task not found',
         },
-        { status: 404 }
+        { status: 404 },
       )
     }
 
     return HttpResponse.json({
       success: true,
-      data: task
+      data: task,
     })
   }),
 
@@ -185,18 +185,18 @@ export const executionHandlers = [
     let filteredTasks = Array.from(tasks.values())
 
     if (executionId) {
-      filteredTasks = filteredTasks.filter(t => t.execution_id === executionId)
+      filteredTasks = filteredTasks.filter((t) => t.execution_id === executionId)
     }
 
     if (status) {
-      filteredTasks = filteredTasks.filter(t => t.status === status)
+      filteredTasks = filteredTasks.filter((t) => t.status === status)
     }
 
     filteredTasks = filteredTasks.slice(0, limit)
 
     return HttpResponse.json({
       success: true,
-      data: filteredTasks
+      data: filteredTasks,
     })
-  })
+  }),
 ]

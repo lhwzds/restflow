@@ -33,9 +33,7 @@
         "position": { "x": 450, "y": 150 }
       }
     ],
-    "edges": [
-      { "from": "trigger-1", "to": "agent-1" }
-    ]
+    "edges": [{ "from": "trigger-1", "to": "agent-1" }]
   },
   {
     "id": "demo-data-pipeline",

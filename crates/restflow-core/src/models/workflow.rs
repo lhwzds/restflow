@@ -20,7 +20,7 @@ impl Workflow {
         let mut configs = Vec::new();
 
         for node in &self.nodes {
-            if let Some(config) = node.extract_trigger_config() {
+            if let Ok(config) = node.extract_trigger_config() {
                 configs.push((node.id.clone(), config));
             }
         }

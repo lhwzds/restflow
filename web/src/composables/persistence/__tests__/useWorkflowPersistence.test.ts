@@ -85,7 +85,7 @@ describe('useWorkflowPersistence', () => {
               to: 'node-2',
             }),
           ]),
-        })
+        }),
       )
       expect(result.success).toBe(true)
     })
@@ -257,7 +257,7 @@ describe('useWorkflowPersistence', () => {
           id: expect.stringMatching(/^workflow-\d+-[a-z0-9]+$/),
           nodes: expect.any(Array),
           edges: expect.any(Array),
-        })
+        }),
       )
       // Verify it was called with the workflow object
       expect(mockCreateWorkflow).toHaveBeenCalledTimes(1)
@@ -281,7 +281,7 @@ describe('useWorkflowPersistence', () => {
           name: 'New Workflow',
           nodes: expect.any(Array),
           edges: expect.any(Array),
-        })
+        }),
       )
     })
 

@@ -82,7 +82,7 @@ describe('NewWorkflowDialog', () => {
     expect(mockCreateWorkflow).toHaveBeenCalledWith(
       expect.objectContaining({
         name: 'Untitled Workflow',
-      })
+      }),
     )
     expect(mockRouterPush).toHaveBeenCalledWith('/workflow/new-workflow-123')
   })
@@ -114,7 +114,7 @@ describe('NewWorkflowDialog', () => {
     expect(mockCreateWorkflow).toHaveBeenCalledWith(
       expect.objectContaining({
         name: '   ',
-      })
+      }),
     )
     expect(mockRouterPush).toHaveBeenCalledWith('/workflow/new-workflow-456')
   })
@@ -148,7 +148,7 @@ describe('NewWorkflowDialog', () => {
         name: 'My New Workflow',
         nodes: [],
         edges: [],
-      })
+      }),
     )
   })
 
@@ -179,7 +179,7 @@ describe('NewWorkflowDialog', () => {
     expect(mockCreateWorkflow).toHaveBeenCalledWith(
       expect.objectContaining({
         id: expect.stringMatching(/^workflow-\d+-[a-z0-9]+$/),
-      })
+      }),
     )
   })
 

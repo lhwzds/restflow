@@ -26,7 +26,7 @@
         class="execution-item"
         :class="{
           'is-active': selectedExecutionId === execution.execution_id,
-          [`status-${execution.status.toLowerCase()}`]: true
+          [`status-${execution.status.toLowerCase()}`]: true,
         }"
         @click="handleExecutionClick(execution.execution_id)"
       >
@@ -47,12 +47,7 @@
             </el-tooltip>
           </div>
           <div class="details-right">
-            <span
-              v-if="isTestExecution(execution.execution_id)"
-              class="test-badge"
-            >
-              Test
-            </span>
+            <span v-if="isTestExecution(execution.execution_id)" class="test-badge"> Test </span>
             <span class="task-count">
               {{ execution.completed_tasks }}/{{ execution.total_tasks }} tasks
               <span v-if="execution.failed_tasks > 0" class="failed-count">
@@ -66,7 +61,7 @@
           <div
             class="progress-fill"
             :style="{
-              width: `${execution.total_tasks > 0 ? (execution.completed_tasks / execution.total_tasks) * 100 : 0}%`
+              width: `${execution.total_tasks > 0 ? (execution.completed_tasks / execution.total_tasks) * 100 : 0}%`,
             }"
           />
         </div>

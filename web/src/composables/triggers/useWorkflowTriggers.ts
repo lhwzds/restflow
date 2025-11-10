@@ -19,10 +19,7 @@ export function useWorkflowTriggers() {
 
   // Unified error handling helper
   const handleError = (error: any, defaultMessage: string) => {
-    const message = 
-      error?.response?.data?.error || 
-      error?.message || 
-      defaultMessage
+    const message = error?.response?.data?.error || error?.message || defaultMessage
     console.error(defaultMessage, error)
     ElMessage.error(message)
     return message
@@ -87,7 +84,7 @@ export function useWorkflowTriggers() {
         loading.value = true
         await triggersApi.deactivateWorkflow(workflowId)
         ElMessage.success(SUCCESS_MESSAGES.WORKFLOW_DEACTIVATED)
-        
+
         // Fetch the updated status
         await fetchTriggerStatus(workflowId)
 

@@ -38,7 +38,7 @@ export function useExecutionHistory(workflowId: Readonly<Ref<string | null | und
       const history: ExecutionHistoryPage = await workflowsApi.listWorkflowExecutions(
         currentWorkflowId,
         requestedPage,
-        pageSize.value
+        pageSize.value,
       )
 
       const newItems = history.items
@@ -89,7 +89,7 @@ export function useExecutionHistory(workflowId: Readonly<Ref<string | null | und
       const tasks = await tasksApi.getExecutionStatus(executionId)
       executionStore.updateFromTasks(tasks)
 
-      const allCompleted = tasks.every(t => t.status === 'Completed' || t.status === 'Failed')
+      const allCompleted = tasks.every((t) => t.status === 'Completed' || t.status === 'Failed')
       if (allCompleted) {
         executionStore.endExecution()
       }
@@ -107,7 +107,7 @@ export function useExecutionHistory(workflowId: Readonly<Ref<string | null | und
     const statusMap: Record<ExecutionStatus, string> = {
       Running: 'Running',
       Completed: 'Completed',
-      Failed: 'Failed'
+      Failed: 'Failed',
     }
     return statusMap[status] || status
   }
@@ -116,7 +116,7 @@ export function useExecutionHistory(workflowId: Readonly<Ref<string | null | und
     const iconMap: Record<ExecutionStatus, string> = {
       Running: '⏳',
       Completed: '✓',
-      Failed: '✗'
+      Failed: '✗',
     }
     return iconMap[status] || '?'
   }
@@ -139,7 +139,7 @@ export function useExecutionHistory(workflowId: Readonly<Ref<string | null | und
     return date.toLocaleDateString('en-US', {
       month: 'short',
       day: 'numeric',
-      year: 'numeric'
+      year: 'numeric',
     })
   }
 
@@ -152,12 +152,12 @@ export function useExecutionHistory(workflowId: Readonly<Ref<string | null | und
       hour: '2-digit',
       minute: '2-digit',
       second: '2-digit',
-      hour12: true
+      hour12: true,
     })
   }
 
   const hasRunningExecution = computed(() => {
-    return executions.value.some(e => e.status === 'Running')
+    return executions.value.some((e) => e.status === 'Running')
   })
 
   const latestExecution = computed(() => {
@@ -186,24 +186,21 @@ export function useExecutionHistory(workflowId: Readonly<Ref<string | null | und
     stopPolling()
   })
 
-  watch(
-    workflowId,
-    newId => {
-      if (!newId) {
-        stopPolling()
-        executions.value = []
-        selectedExecutionId.value = null
-        return
-      }
-
+  watch(workflowId, (newId) => {
+    if (!newId) {
+      stopPolling()
       executions.value = []
       selectedExecutionId.value = null
-      page.value = 1
-      totalExecutions.value = 0
-      totalPages.value = 0
-      startPolling()
+      return
     }
-  )
+
+    executions.value = []
+    selectedExecutionId.value = null
+    page.value = 1
+    totalExecutions.value = 0
+    totalPages.value = 0
+    startPolling()
+  })
 
   return {
     // State

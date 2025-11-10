@@ -43,7 +43,7 @@ function startRename(event: Event) {
   event.stopPropagation()
   isEditing.value = true
   editingName.value = props.workflow.name
-  
+
   setTimeout(() => {
     const input = document.querySelector(`#rename-input-${props.workflow.id}`) as HTMLInputElement
     if (input) {
@@ -85,12 +85,12 @@ function handleRenameKeydown(event: Event | KeyboardEvent) {
 
 async function handleDelete(event: Event) {
   event.stopPropagation()
-  
+
   const result = await deleteWorkflow(
     props.workflow.id,
-    `Are you sure you want to delete workflow "${props.workflow.name}"?`
+    `Are you sure you want to delete workflow "${props.workflow.name}"?`,
   )
-  
+
   if (result.success) {
     emit('deleted', props.workflow.id)
   }
@@ -134,13 +134,7 @@ async function handleToggleTrigger(value: string | number | boolean) {
         <h3 v-else class="workflow-name">{{ workflow.name }}</h3>
         <div class="workflow-actions">
           <ElTooltip v-if="!isEditing" content="Rename workflow">
-            <ElButton
-              :icon="EditPen"
-              circle
-              plain
-              size="small"
-              @click="startRename"
-            />
+            <ElButton :icon="EditPen" circle plain size="small" @click="startRename" />
           </ElTooltip>
 
           <ElTooltip v-if="!isEditing" content="Delete workflow">

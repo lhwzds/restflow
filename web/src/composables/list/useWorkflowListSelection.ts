@@ -19,7 +19,7 @@ export function useWorkflowListSelection(workflows: Ref<Workflow[]>) {
 
   function copyWorkflow() {
     if (!selectedWorkflowId.value) return
-    
+
     const workflow = workflows.value.find((w) => w.id === selectedWorkflowId.value)
     if (workflow) {
       copiedWorkflow.value = workflow
@@ -29,11 +29,8 @@ export function useWorkflowListSelection(workflows: Ref<Workflow[]>) {
 
   async function pasteWorkflow() {
     if (!copiedWorkflow.value) return
-    
-    await duplicateWorkflow(
-      copiedWorkflow.value.id,
-      `${copiedWorkflow.value.name} (Copy)`
-    )
+
+    await duplicateWorkflow(copiedWorkflow.value.id, `${copiedWorkflow.value.name} (Copy)`)
   }
 
   function handleKeyDown(event: KeyboardEvent) {

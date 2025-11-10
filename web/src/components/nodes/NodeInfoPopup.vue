@@ -8,13 +8,7 @@ export type PopupType = 'time' | 'input' | 'output'
 
 // Inject popup state from BaseNode
 const popupState = inject<ReturnType<typeof useNodeInfoPopup>>('nodePopupState')!
-const {
-  popupVisible,
-  popupType,
-  popupPosition,
-  nodeResult,
-  closePopup
-} = popupState
+const { popupVisible, popupType, popupPosition, nodeResult, closePopup } = popupState
 
 const executionStatus = useNodeExecutionStatus()
 
@@ -29,7 +23,7 @@ onClickOutside(popupRef, () => {
 const popupStyle = computed(() => ({
   left: `${popupPosition.value.x}px`,
   top: `${popupPosition.value.y}px`,
-  display: popupVisible.value ? 'block' : 'none'
+  display: popupVisible.value ? 'block' : 'none',
 }))
 
 const data = computed(() => nodeResult())
@@ -39,7 +33,7 @@ const formatTime = (timestamp: number) => {
   const time = date.toLocaleTimeString('en-US', {
     hour: '2-digit',
     minute: '2-digit',
-    second: '2-digit'
+    second: '2-digit',
   })
   const ms = date.getMilliseconds().toString().padStart(3, '0')
   return `${time}.${ms}`
@@ -60,7 +54,9 @@ const content = computed(() => {
       return {
         startTime: result.startTime ? formatTime(result.startTime) : '-',
         endTime: result.endTime ? formatTime(result.endTime) : '-',
-        duration: result.executionTime ? executionStatus.formatExecutionTime(result.executionTime) : '-'
+        duration: result.executionTime
+          ? executionStatus.formatExecutionTime(result.executionTime)
+          : '-',
       }
     case 'input':
       return formatJson(result.input)
@@ -73,29 +69,32 @@ const content = computed(() => {
 
 const title = computed(() => {
   switch (popupType.value) {
-    case 'time': return 'Execution Time'
-    case 'input': return 'Input Data'
-    case 'output': return 'Output Data'
-    default: return ''
+    case 'time':
+      return 'Execution Time'
+    case 'input':
+      return 'Input Data'
+    case 'output':
+      return 'Output Data'
+    default:
+      return ''
   }
 })
 </script>
 
 <template>
   <Teleport to="body">
-    <div
-      v-if="popupVisible"
-      ref="popupRef"
-      class="node-info-popup"
-      :style="popupStyle"
-    >
+    <div v-if="popupVisible" ref="popupRef" class="node-info-popup" :style="popupStyle">
       <div class="popup-header">
         <span class="popup-title">{{ title }}</span>
         <button class="popup-close" @click="closePopup">✕</button>
       </div>
 
       <div class="popup-content">
-        <template v-if="popupType === 'time' && content && typeof content === 'object' && 'startTime' in content">
+        <template
+          v-if="
+            popupType === 'time' && content && typeof content === 'object' && 'startTime' in content
+          "
+        >
           <div class="time-info">
             <div class="time-row">
               <span class="time-label">Start Time:</span>

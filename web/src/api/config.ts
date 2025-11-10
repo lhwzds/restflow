@@ -17,7 +17,7 @@ apiClient.interceptors.request.use(
   },
   (error) => {
     return Promise.reject(error)
-  }
+  },
 )
 
 export const isApiResponse = (obj: any): obj is ApiResponse<any> => {
@@ -27,9 +27,7 @@ export const isApiResponse = (obj: any): obj is ApiResponse<any> => {
   const keys = Object.keys(obj)
   const allowedKeys = new Set(['success', 'data', 'message'])
 
-  return keys.length > 0 &&
-         keys.includes('success') &&
-         keys.every(k => allowedKeys.has(k))
+  return keys.length > 0 && keys.includes('success') && keys.every((k) => allowedKeys.has(k))
 }
 
 apiClient.interceptors.response.use(
@@ -55,5 +53,5 @@ apiClient.interceptors.response.use(
 
     console.error('API Error:', error)
     return Promise.reject(error)
-  }
+  },
 )

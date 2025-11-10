@@ -18,7 +18,15 @@ withDefaults(defineProps<Props>(), {
   <div class="restflow-logo">
     <svg :width="iconSize" :height="iconSize" viewBox="115 125 105 105" class="logo-icon">
       <!-- Head node only -->
-      <circle cx="167" cy="176.67" fill="currentColor" r="45" stroke="currentColor" stroke-width="5" class="logo-primary" />
+      <circle
+        cx="167"
+        cy="176.67"
+        fill="currentColor"
+        r="45"
+        stroke="currentColor"
+        stroke-width="5"
+        class="logo-primary"
+      />
       <!-- Sunglasses -->
       <rect
         fill="#000000"
@@ -31,8 +39,24 @@ withDefaults(defineProps<Props>(), {
         x="-35.59"
         y="108.31"
       />
-      <circle cx="163" cy="157.67" fill="#000000" r="6.32" stroke="#000000" stroke-width="5" class="logo-sunglasses" />
-      <circle cx="184.33" cy="145.17" fill="#000000" r="6.32" stroke="#000000" stroke-width="5" class="logo-sunglasses" />
+      <circle
+        cx="163"
+        cy="157.67"
+        fill="#000000"
+        r="6.32"
+        stroke="#000000"
+        stroke-width="5"
+        class="logo-sunglasses"
+      />
+      <circle
+        cx="184.33"
+        cy="145.17"
+        fill="#000000"
+        r="6.32"
+        stroke="#000000"
+        stroke-width="5"
+        class="logo-sunglasses"
+      />
     </svg>
     <div
       v-if="showText"

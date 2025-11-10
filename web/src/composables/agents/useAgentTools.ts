@@ -15,13 +15,13 @@ export function useAgentTools(initialTools: string[] = []) {
     {
       value: 'add',
       label: 'Addition Calculator',
-      description: 'Adds two numbers together'
+      description: 'Adds two numbers together',
     },
     {
       value: 'get_current_time',
       label: 'Get Current Time',
-      description: 'Returns the current system time'
-    }
+      description: 'Returns the current system time',
+    },
   ])
 
   const selectedTools = ref<string[]>([...initialTools])
@@ -52,7 +52,7 @@ export function useAgentTools(initialTools: string[] = []) {
    * Get tool display label
    */
   const getToolLabel = (value: string): string => {
-    const tool = AVAILABLE_TOOLS.find(t => t.value === value)
+    const tool = AVAILABLE_TOOLS.find((t) => t.value === value)
     return tool?.label || value
   }
 
@@ -60,7 +60,7 @@ export function useAgentTools(initialTools: string[] = []) {
    * Get tool description
    */
   const getToolDescription = (value: string): string => {
-    const tool = AVAILABLE_TOOLS.find(t => t.value === value)
+    const tool = AVAILABLE_TOOLS.find((t) => t.value === value)
     return tool?.description || ''
   }
 
@@ -68,8 +68,8 @@ export function useAgentTools(initialTools: string[] = []) {
    * Get available tools for dropdown options
    */
   const getAvailableTools = (): AgentTool[] => {
-    return AVAILABLE_TOOLS.filter(tool =>
-      !selectedTools.value.includes(tool.value)
+    return AVAILABLE_TOOLS.filter(
+      (tool) => !selectedTools.value.includes(tool.value),
     ) as AgentTool[]
   }
 
@@ -90,6 +90,6 @@ export function useAgentTools(initialTools: string[] = []) {
     getToolLabel,
     getToolDescription,
     getAvailableTools,
-    resetTools
+    resetTools,
   }
 }

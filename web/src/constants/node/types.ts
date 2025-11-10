@@ -97,5 +97,5 @@ export const NODE_TYPE_COLORS = {
 // Type exports
 export type NodeTypeKey = keyof typeof NODE_TYPE
 export type NodeCategoryKey = keyof typeof NODE_CATEGORY
-export type NodeTypeValue = typeof NODE_TYPE[NodeTypeKey]
-export type NodeCategoryValue = typeof NODE_CATEGORY[NodeCategoryKey]
+export type NodeTypeValue = (typeof NODE_TYPE)[NodeTypeKey]
+export type NodeCategoryValue = (typeof NODE_CATEGORY)[NodeCategoryKey]

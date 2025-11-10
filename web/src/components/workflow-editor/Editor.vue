@@ -15,7 +15,14 @@ import { useEdgeOperations } from '../../composables/node/useEdgeOperations'
 import { useNodeOperations } from '../../composables/node/useNodeOperations'
 import { useKeyboardShortcuts } from '../../composables/shared/useKeyboardShortcuts'
 import { useContextMenu } from '../../composables/ui/useContextMenu'
-import { AgentNode, HttpNode, PythonNode, ManualTriggerNode, ScheduleTriggerNode, WebhookTriggerNode } from '../nodes'
+import {
+  AgentNode,
+  HttpNode,
+  PythonNode,
+  ManualTriggerNode,
+  ScheduleTriggerNode,
+  WebhookTriggerNode,
+} from '../nodes'
 import { useExecutionStore } from '../../stores/executionStore'
 import Icon from '../shared/Icon.vue'
 import NodeConfigPopup from './NodeConfigPopup.vue'
@@ -123,7 +130,9 @@ const handleTestNode = async (nodeProps: any) => {
     await executeSingleNode(nodeProps.id)
     ElMessage.success(SUCCESS_MESSAGES.NODE_EXECUTION_COMPLETED)
   } catch (error: any) {
-    ElMessage.error(ERROR_MESSAGES.NODE_EXECUTION_FAILED + ': ' + (error.message || 'Unknown error'))
+    ElMessage.error(
+      ERROR_MESSAGES.NODE_EXECUTION_FAILED + ': ' + (error.message || 'Unknown error'),
+    )
   }
 }
 

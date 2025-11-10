@@ -56,9 +56,7 @@ export function useDragAndDrop() {
    * Check if a drop target should be active
    */
   const isDropTarget = (element: HTMLElement | null) => {
-    return computed(
-      () => isDragging.value && element && dragTarget.value === element
-    )
+    return computed(() => isDragging.value && element && dragTarget.value === element)
   }
 
   return {
@@ -69,6 +67,6 @@ export function useDragAndDrop() {
     endDrag,
     setDragTarget,
     isDraggingType,
-    isDropTarget
+    isDropTarget,
   }
 }

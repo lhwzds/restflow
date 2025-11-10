@@ -24,14 +24,10 @@ export function useEnsureWorkflowSaved() {
       return { success: true, id: workflowStore.currentWorkflowId }
     }
 
-    const result = await saveWorkflow(
-      workflowStore.nodes,
-      workflowStore.edges,
-      {
-        showMessage: options?.showMessage ?? false,
-        meta: { name: workflowStore.currentWorkflowName || 'Untitled Workflow' },
-      }
-    )
+    const result = await saveWorkflow(workflowStore.nodes, workflowStore.edges, {
+      showMessage: options?.showMessage ?? false,
+      meta: { name: workflowStore.currentWorkflowName || 'Untitled Workflow' },
+    })
 
     if (!result.success) {
       ElMessage.error(ERROR_MESSAGES.FAILED_TO_SAVE('workflow'))

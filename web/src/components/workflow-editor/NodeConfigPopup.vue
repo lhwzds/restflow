@@ -15,13 +15,13 @@ interface Props {
 }
 
 const props = withDefaults(defineProps<Props>(), {
-  initialTab: 'config'
+  initialTab: 'config',
 })
 const emit = defineEmits<{
   'update:visible': [value: boolean]
-  'update': [node: Node]
-  'delete': [nodeId: string]
-  'duplicate': [nodeId: string]
+  update: [node: Node]
+  delete: [nodeId: string]
+  duplicate: [nodeId: string]
   close: []
 }>()
 
@@ -37,7 +37,7 @@ const popupStyle = computed(() => ({
   left: '50%',
   top: '50%',
   transform: 'translate(-50%, -50%)',
-  zIndex: 2000
+  zIndex: 2000,
 }))
 
 const formatPreview = (value: unknown): string => {
@@ -97,7 +97,7 @@ watch(
       nodeData.value = { ...newNode.data }
     }
   },
-  { immediate: true }
+  { immediate: true },
 )
 
 watch(
@@ -106,14 +106,14 @@ watch(
     if (newVisible) {
       activeTab.value = props.initialTab
     }
-  }
+  },
 )
 
 const updateNode = () => {
   if (props.node) {
     const updatedNode = {
       ...props.node,
-      data: { ...nodeData.value }
+      data: { ...nodeData.value },
     }
     emit('update', updatedNode)
   }
@@ -134,7 +134,9 @@ const testNode = async () => {
     await executeSingleNode(props.node.id)
     ElMessage.success(SUCCESS_MESSAGES.NODE_EXECUTION_COMPLETED)
   } catch (error: any) {
-    ElMessage.error(ERROR_MESSAGES.NODE_EXECUTION_FAILED + ': ' + (error.message || 'Unknown error'))
+    ElMessage.error(
+      ERROR_MESSAGES.NODE_EXECUTION_FAILED + ': ' + (error.message || 'Unknown error'),
+    )
   } finally {
     isExecuting.value = false
   }
@@ -158,17 +160,12 @@ const handleClose = () => {
   emit('close')
   activeTab.value = 'config'
 }
-
 </script>
 
 <template>
   <Teleport to="body">
     <Transition name="popup">
-      <div
-        v-if="visible && node"
-        class="node-config-popup"
-        :style="popupStyle"
-      >
+      <div v-if="visible && node" class="node-config-popup" :style="popupStyle">
         <div class="popup-header">
           <div class="header-left">
             <Settings :size="18" />
@@ -177,11 +174,7 @@ const handleClose = () => {
           </div>
           <div class="header-actions">
             <ElTooltip content="Test Node" placement="bottom">
-              <button
-                class="action-btn test-btn"
-                @click="testNode"
-                :disabled="isExecuting"
-              >
+              <button class="action-btn test-btn" @click="testNode" :disabled="isExecuting">
                 <Play :size="16" />
               </button>
             </ElTooltip>
@@ -253,7 +246,9 @@ const handleClose = () => {
                     <div class="variable-item">
                       <pre class="variable-preview">{{ inputPreview }}</pre>
                     </div>
-                    <span class="variable-description">Actual input from execution or configured/mock data</span>
+                    <span class="variable-description"
+                      >Actual input from execution or configured/mock data</span
+                    >
                   </div>
                 </div>
                 <div class="io-group">
@@ -367,7 +362,8 @@ const handleClose = () => {
     padding: var(--rf-spacing-lg);
     cursor: default;
 
-    .config-section, .io-section {
+    .config-section,
+    .io-section {
       .form-group {
         margin-bottom: var(--rf-spacing-lg);
 

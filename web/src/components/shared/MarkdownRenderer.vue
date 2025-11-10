@@ -44,7 +44,12 @@ const html = computed(() => {
   color: var(--rf-color-text-regular);
   word-wrap: break-word;
 
-  h1, h2, h3, h4, h5, h6 {
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
     margin: var(--rf-spacing-lg) 0 var(--rf-spacing-sm);
     font-weight: var(--rf-font-weight-semibold);
     line-height: var(--rf-line-height-tight);
@@ -55,12 +60,24 @@ const html = computed(() => {
     }
   }
 
-  h1 { font-size: var(--rf-font-size-2xl); }
-  h2 { font-size: var(--rf-font-size-xl); }
-  h3 { font-size: var(--rf-font-size-lg); }
-  h4 { font-size: var(--rf-font-size-md); }
-  h5 { font-size: var(--rf-font-size-base); }
-  h6 { font-size: var(--rf-font-size-sm); }
+  h1 {
+    font-size: var(--rf-font-size-2xl);
+  }
+  h2 {
+    font-size: var(--rf-font-size-xl);
+  }
+  h3 {
+    font-size: var(--rf-font-size-lg);
+  }
+  h4 {
+    font-size: var(--rf-font-size-md);
+  }
+  h5 {
+    font-size: var(--rf-font-size-base);
+  }
+  h6 {
+    font-size: var(--rf-font-size-sm);
+  }
 
   p {
     margin: var(--rf-spacing-sm) 0;
@@ -212,7 +229,8 @@ html.dark {
     }
 
     table {
-      th, tr:nth-child(even) {
+      th,
+      tr:nth-child(even) {
         background: var(--rf-md-block-bg);
       }
     }

@@ -21,12 +21,15 @@ const workflowName = ref('')
 
 const dialogVisible = ref(props.visible)
 
-watch(() => props.visible, (newVal) => {
-  dialogVisible.value = newVal
-  if (newVal) {
-    workflowName.value = ''
-  }
-})
+watch(
+  () => props.visible,
+  (newVal) => {
+    dialogVisible.value = newVal
+    if (newVal) {
+      workflowName.value = ''
+    }
+  },
+)
 
 watch(dialogVisible, (newVal) => {
   emit('update:visible', newVal)
@@ -39,7 +42,7 @@ async function handleCreate() {
       id: `workflow-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`,
       name: workflowName.value || DEFAULT_VALUES.WORKFLOW_NAME,
       nodes: [],
-      edges: []
+      edges: [],
     }
 
     // Save to database immediately
@@ -62,9 +65,9 @@ function handleCancel() {
 </script>
 
 <template>
-  <ElDialog 
-    v-model="dialogVisible" 
-    title="Create New Workflow" 
+  <ElDialog
+    v-model="dialogVisible"
+    title="Create New Workflow"
     width="500px"
     :close-on-click-modal="false"
   >
@@ -77,7 +80,7 @@ function handleCancel() {
         />
       </ElFormItem>
     </ElForm>
-    
+
     <template #footer>
       <ElButton @click="handleCancel">Cancel</ElButton>
       <ElButton type="primary" @click="handleCreate">Create</ElButton>

@@ -12,26 +12,34 @@ export async function listSecrets(): Promise<Secret[]> {
   return response.data
 }
 
-export async function createSecret(key: string, value: string, description?: string): Promise<Secret> {
+export async function createSecret(
+  key: string,
+  value: string,
+  description?: string,
+): Promise<Secret> {
   if (isTauri()) {
     return invokeCommand<Secret>('create_secret', { key, value, description })
   }
   const response = await apiClient.post<Secret>(API_ENDPOINTS.SECRET.CREATE, {
     key,
     value,
-    description
+    description,
   })
   return response.data
 }
 
-export async function updateSecret(key: string, value: string, description?: string): Promise<void> {
+export async function updateSecret(
+  key: string,
+  value: string,
+  description?: string,
+): Promise<void> {
   if (isTauri()) {
     await invokeCommand('update_secret', { key, value, description })
     return
   }
   await apiClient.put(API_ENDPOINTS.SECRET.UPDATE(key), {
     value,
-    description
+    description,
   })
 }
 

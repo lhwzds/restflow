@@ -1,6 +1,22 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { ElButton, ElInput, ElDialog, ElForm, ElFormItem, ElSelect, ElOption, ElSlider, ElMessage, ElRow, ElCol, ElRadioGroup, ElRadio, ElPopconfirm, ElTag } from 'element-plus'
+import {
+  ElButton,
+  ElInput,
+  ElDialog,
+  ElForm,
+  ElFormItem,
+  ElSelect,
+  ElOption,
+  ElSlider,
+  ElMessage,
+  ElRow,
+  ElCol,
+  ElRadioGroup,
+  ElRadio,
+  ElPopconfirm,
+  ElTag,
+} from 'element-plus'
 import { Plus, Search, Delete, Check, RefreshLeft } from '@element-plus/icons-vue'
 import HeaderBar from '../components/shared/HeaderBar.vue'
 import PageLayout from '../components/shared/PageLayout.vue'
@@ -20,13 +36,7 @@ import { useAgentModels } from '@/composables/agents/useAgentModels'
 import { useAgentTools } from '@/composables/agents/useAgentTools'
 import { VALIDATION_MESSAGES } from '@/constants'
 
-const {
-  searchQuery,
-  selectedAgent,
-  filteredAgents,
-  loadAgents,
-  selectAgent
-} = useAgentsList()
+const { searchQuery, selectedAgent, filteredAgents, loadAgents, selectAgent } = useAgentsList()
 
 const { createAgent, updateAgent, deleteAgent } = useAgentOperations()
 const { panelWidth, startDragging } = useAgentPanelResize()
@@ -34,7 +44,11 @@ const { secrets, loadSecrets: loadSecretsData } = useSecretsData()
 const { buildConfig } = useApiKeyConfig()
 
 // Use shared composables for models and tools
-const { AVAILABLE_MODELS, isOSeriesModel: checkIsOSeriesModel, getDefaultTemperature } = useAgentModels()
+const {
+  AVAILABLE_MODELS,
+  isOSeriesModel: checkIsOSeriesModel,
+  getDefaultTemperature,
+} = useAgentModels()
 const {
   selectedTools: createSelectedTools,
   selectedToolValue: createSelectedToolValue,
@@ -42,7 +56,7 @@ const {
   removeTool: removeCreateTool,
   getToolLabel,
   getAvailableTools,
-  resetTools: resetCreateTools
+  resetTools: resetCreateTools,
 } = useAgentTools()
 
 const showCreateDialog = ref(false)
@@ -53,12 +67,11 @@ const createForm = ref<Omit<AgentNode, 'api_key_config'>>({
   model: 'gpt-4.1',
   prompt: null,
   temperature: 0.7,
-  tools: null
+  tools: null,
 })
 const createFormName = ref('')
 
 const isOSeriesModel = computed(() => checkIsOSeriesModel(createForm.value.model))
-
 
 onMounted(async () => {
   loadAgents()
@@ -72,7 +85,8 @@ async function handleCreate() {
   }
 
   try {
-    const apiKeyValue = createKeyMode.value === 'direct' ? createApiKey.value : createApiKeySecret.value
+    const apiKeyValue =
+      createKeyMode.value === 'direct' ? createApiKey.value : createApiKeySecret.value
     const apiKeyConfig = buildConfig(createKeyMode.value, apiKeyValue)
 
     const agentData: AgentNode = {
@@ -80,7 +94,7 @@ async function handleCreate() {
       prompt: createForm.value.prompt?.trim() || null,
       temperature: isOSeriesModel.value ? null : createForm.value.temperature,
       api_key_config: apiKeyConfig,
-      tools: createSelectedTools.value.length > 0 ? createSelectedTools.value : null
+      tools: createSelectedTools.value.length > 0 ? createSelectedTools.value : null,
     }
 
     await createAgent(createFormName.value, agentData)
@@ -95,20 +109,18 @@ async function handleCreate() {
       model: 'gpt-4.1',
       prompt: null,
       temperature: getDefaultTemperature('gpt-4.1') ?? 0.7,
-      tools: null
+      tools: null,
     }
 
     await loadAgents()
-  } catch (error) {
-  }
+  } catch (error) {}
 }
 
 async function handleUpdate(id: string, updates: any) {
   try {
     await updateAgent(id, updates)
     await loadAgents()
-  } catch (error) {
-  }
+  } catch (error) {}
 }
 
 async function handleDelete(id: string) {
@@ -116,8 +128,7 @@ async function handleDelete(id: string) {
     await deleteAgent(id)
     selectAgent(null)
     await loadAgents()
-  } catch (error) {
-  }
+  } catch (error) {}
 }
 
 function backToList() {
@@ -164,11 +175,7 @@ function onAgentConfigChange(hasChanges: boolean) {
             Save Changes
           </ElButton>
 
-          <ElButton
-            v-if="hasAgentChanges"
-            :icon="RefreshLeft"
-            @click="handleResetAgent"
-          >
+          <ElButton v-if="hasAgentChanges" :icon="RefreshLeft" @click="handleResetAgent">
             Reset
           </ElButton>
 
@@ -179,12 +186,7 @@ function onAgentConfigChange(hasChanges: boolean) {
             @confirm="handleDeleteAgent"
           >
             <template #reference>
-              <ElButton
-                type="danger"
-                :icon="Delete"
-              >
-                Delete Agent
-              </ElButton>
+              <ElButton type="danger" :icon="Delete"> Delete Agent </ElButton>
             </template>
           </ElPopconfirm>
         </template>
@@ -194,22 +196,18 @@ function onAgentConfigChange(hasChanges: boolean) {
     <div class="agent-management">
       <div v-if="!selectedAgent" class="agent-management__list">
         <HeaderBar title="Agent Management">
-        <template #actions>
-          <ElInput
-            v-model="searchQuery"
-            placeholder="Search Agents..."
-            :prefix-icon="Search"
-            clearable
-            class="search-input"
-          />
-          <ElButton
-            type="primary"
-            :icon="Plus"
-            @click="showCreateDialog = true"
-          >
-            New Agent
-          </ElButton>
-        </template>
+          <template #actions>
+            <ElInput
+              v-model="searchQuery"
+              placeholder="Search Agents..."
+              :prefix-icon="Search"
+              clearable
+              class="search-input"
+            />
+            <ElButton type="primary" :icon="Plus" @click="showCreateDialog = true">
+              New Agent
+            </ElButton>
+          </template>
         </HeaderBar>
 
         <SearchInfo
@@ -220,23 +218,20 @@ function onAgentConfigChange(hasChanges: boolean) {
         />
 
         <div v-if="filteredAgents.length > 0" class="agents-grid">
-        <ElRow :gutter="16">
-          <ElCol
-            v-for="agent in filteredAgents"
-            :key="agent.id"
-            :xs="24"
-            :sm="12"
-            :md="8"
-            :lg="6"
-            :xl="4"
-            class="agent-col"
-          >
-            <AgentCard
-              :agent="agent"
-              @click="selectAgent"
-            />
-          </ElCol>
-        </ElRow>
+          <ElRow :gutter="16">
+            <ElCol
+              v-for="agent in filteredAgents"
+              :key="agent.id"
+              :xs="24"
+              :sm="12"
+              :md="8"
+              :lg="6"
+              :xl="4"
+              class="agent-col"
+            >
+              <AgentCard :agent="agent" @click="selectAgent" />
+            </ElCol>
+          </ElRow>
         </div>
 
         <EmptyState
@@ -251,42 +246,29 @@ function onAgentConfigChange(hasChanges: boolean) {
 
       <div v-else class="agent-management__detail">
         <div class="split-container">
-      <div
-        class="config-panel"
-        :style="{ width: `${panelWidth}px` }"
-      >
-        <AgentConfigPanel
-          ref="agentConfigPanelRef"
-          :agent="selectedAgent"
-          @update="handleUpdate"
-          @delete="handleDelete"
-          @changes-update="onAgentConfigChange"
-        />
-      </div>
+          <div class="config-panel" :style="{ width: `${panelWidth}px` }">
+            <AgentConfigPanel
+              ref="agentConfigPanelRef"
+              :agent="selectedAgent"
+              @update="handleUpdate"
+              @delete="handleDelete"
+              @changes-update="onAgentConfigChange"
+            />
+          </div>
 
-      <div
-        class="splitter"
-        @mousedown="startDragging"
-      />
+          <div class="splitter" @mousedown="startDragging" />
 
-        <div class="chat-panel">
-          <AgentChatPanel :agent="selectedAgent" />
+          <div class="chat-panel">
+            <AgentChatPanel :agent="selectedAgent" />
+          </div>
         </div>
-      </div>
       </div>
     </div>
 
-    <ElDialog
-      v-model="showCreateDialog"
-      title="Create New Agent"
-      width="600px"
-    >
+    <ElDialog v-model="showCreateDialog" title="Create New Agent" width="600px">
       <ElForm :model="createForm" label-position="top">
         <ElFormItem label="Agent Name" required>
-          <ElInput
-            v-model="createFormName"
-            placeholder="Enter Agent name"
-          />
+          <ElInput v-model="createFormName" placeholder="Enter Agent name" />
         </ElFormItem>
 
         <ElFormItem label="Model" required>
@@ -352,9 +334,7 @@ function onAgentConfigChange(hasChanges: boolean) {
                 {{ getToolLabel(toolValue) }}
               </ElTag>
             </div>
-            <div v-else class="no-tools-hint">
-              No tools selected
-            </div>
+            <div v-else class="no-tools-hint">No tools selected</div>
           </div>
         </ElFormItem>
 
@@ -428,7 +408,6 @@ function onAgentConfigChange(hasChanges: boolean) {
         }
       }
     }
-
   }
 
   &__detail {
@@ -477,7 +456,6 @@ function onAgentConfigChange(hasChanges: boolean) {
     }
   }
 }
-
 
 html.dark {
   .agent-management {

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { NodeProps} from '@vue-flow/core'
+import type { NodeProps } from '@vue-flow/core'
 import { PlayCircle, Zap, MousePointerClick } from 'lucide-vue-next'
 import { ElTooltip } from 'element-plus'
 import BaseNode from '@/components/nodes/BaseNode.vue'
@@ -15,7 +15,7 @@ const props = defineProps<NodeProps<ManualTriggerNodeData>>()
 const emit = defineEmits<{
   'open-config': []
   'test-node': []
-  'updateNodeInternals': [nodeId: string]
+  updateNodeInternals: [nodeId: string]
 }>()
 
 const { testWorkflow, isButtonDisabled, buttonLabel, buttonTooltip } = useTestWorkflow(props.id)
@@ -47,11 +47,7 @@ const { testWorkflow, isButtonDisabled, buttonLabel, buttonTooltip } = useTestWo
 
     <template #left-actions>
       <ElTooltip :content="buttonTooltip" placement="left">
-        <button
-          class="test-workflow-button"
-          :disabled="isButtonDisabled"
-          @click="testWorkflow"
-        >
+        <button class="test-workflow-button" :disabled="isButtonDisabled" @click="testWorkflow">
           {{ buttonLabel }}
         </button>
       </ElTooltip>

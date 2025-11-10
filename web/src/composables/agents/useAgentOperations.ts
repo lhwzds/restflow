@@ -4,7 +4,7 @@ import {
   updateAgent as apiUpdateAgent,
   deleteAgent as apiDeleteAgent,
   executeAgent as apiExecuteAgent,
-  executeAgentInline as apiExecuteAgentInline
+  executeAgentInline as apiExecuteAgentInline,
 } from '@/api/agents'
 import type { CreateAgentRequest, UpdateAgentRequest } from '@/api/agents'
 import type { AgentNode } from '@/types/generated/AgentNode'
@@ -82,6 +82,6 @@ export function useAgentOperations() {
     updateAgent,
     deleteAgent,
     executeAgent,
-    executeAgentInline
+    executeAgentInline,
   }
 }

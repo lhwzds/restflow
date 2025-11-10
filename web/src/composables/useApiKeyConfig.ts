@@ -15,28 +15,33 @@ export function useApiKeyConfig() {
 
     return {
       type: mode,
-      value: value.trim()
+      value: value.trim(),
     } as ApiKeyConfig
   }
 
   /**
    * Extract mode and value from ApiKeyConfig
    */
-  const extractConfig = (config: ApiKeyConfig | null): { mode: 'direct' | 'secret'; value: string } => {
+  const extractConfig = (
+    config: ApiKeyConfig | null,
+  ): { mode: 'direct' | 'secret'; value: string } => {
     if (!config) {
       return { mode: 'direct', value: '' }
     }
 
     return {
       mode: config.type,
-      value: config.value
+      value: config.value,
     }
   }
 
   /**
    * Check if two ApiKeyConfig objects are different
    */
-  const isConfigChanged = (oldConfig: ApiKeyConfig | null, newConfig: ApiKeyConfig | null): boolean => {
+  const isConfigChanged = (
+    oldConfig: ApiKeyConfig | null,
+    newConfig: ApiKeyConfig | null,
+  ): boolean => {
     // Both null
     if (!oldConfig && !newConfig) {
       return false
@@ -70,6 +75,6 @@ export function useApiKeyConfig() {
     buildConfig,
     extractConfig,
     isConfigChanged,
-    getConfigDisplay
+    getConfigDisplay,
   }
 }

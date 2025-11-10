@@ -51,9 +51,9 @@ const expressionLanguage = StreamLanguage.define({
 
   startState() {
     return {
-      inBraces: false
+      inBraces: false,
     }
-  }
+  },
 })
 
 export { expressionLanguage }
@@ -64,5 +64,5 @@ export { expressionLanguage }
 export const expressionHighlightStyle = {
   '.cm-bracket': { color: '#0288d1', fontWeight: 'bold' },
   '.cm-variableName': { color: '#6f42c1' },
-  '.cm-number': { color: '#d73a49' }
+  '.cm-number': { color: '#d73a49' },
 }

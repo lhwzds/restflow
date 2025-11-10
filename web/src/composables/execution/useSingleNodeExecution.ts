@@ -48,22 +48,24 @@ export function useSingleNodeExecution() {
         error: undefined,
         startTime,
         endTime: undefined,
-        executionTime: undefined
+        executionTime: undefined,
       })
 
       const testRequest = {
         id: `test-${Date.now()}`,
         name: `Test ${nodeType} Node`,
-        nodes: [{
-          id: node.id,
-          node_type: mapNodeTypeToBackend(nodeType),
-          config: {
-            type: node.type,
-            data: extractNodeConfig(node)
-          }
-        }],
+        nodes: [
+          {
+            id: node.id,
+            node_type: mapNodeTypeToBackend(nodeType),
+            config: {
+              type: node.type,
+              data: extractNodeConfig(node),
+            },
+          },
+        ],
         edges: [],
-        input: input || {}
+        input: input || {},
       }
 
       const result = await testNodeExecution<any>(testRequest)
@@ -79,14 +81,18 @@ export function useSingleNodeExecution() {
         output: executionResult.value,
         startTime,
         endTime,
-        executionTime
+        executionTime,
       })
 
-      updateNodeData(nodeId, {
-        lastExecutionInput: input || {},
-        lastExecutionResult: executionResult.value,
-        lastExecutionTime: new Date().toISOString()
-      }, false)
+      updateNodeData(
+        nodeId,
+        {
+          lastExecutionInput: input || {},
+          lastExecutionResult: executionResult.value,
+          lastExecutionTime: new Date().toISOString(),
+        },
+        false,
+      )
 
       return executionResult.value
     } catch (error: any) {
@@ -105,7 +111,7 @@ export function useSingleNodeExecution() {
         error: errorMessage,
         startTime,
         endTime,
-        executionTime
+        executionTime,
       })
 
       executionError.value = errorMessage
@@ -174,7 +180,7 @@ export function useSingleNodeExecution() {
 
     return {
       valid: errors.length === 0,
-      errors
+      errors,
     }
   }
 
@@ -188,22 +194,22 @@ export function useSingleNodeExecution() {
           message: 'This is a test message',
           context: {
             user: 'test_user',
-            session: 'test_session'
-          }
+            session: 'test_session',
+          },
         }
 
       case 'httpNode':
         return {
           data: {
             test: true,
-            timestamp: new Date().toISOString()
-          }
+            timestamp: new Date().toISOString(),
+          },
         }
 
       default:
         return {
           test: true,
-          value: 'mock_value'
+          value: 'mock_value',
         }
     }
   }
@@ -215,7 +221,7 @@ export function useSingleNodeExecution() {
     executeSingleNode,
     executeMultipleNodes,
     validateNodeConfig,
-    getMockInput
+    getMockInput,
   }
 }
 
@@ -239,7 +245,7 @@ function extractNodeConfig(node: Node): any {
         temperature: config.temperature,
         tools: config.tools,
         input: config.input,
-        api_key_config: config.api_key_config
+        api_key_config: config.api_key_config,
       }
 
     case NODE_TYPE.HTTP_REQUEST:
@@ -248,13 +254,13 @@ function extractNodeConfig(node: Node): any {
         method: config.method,
         headers: config.headers,
         body: config.body,
-        auth: config.auth
+        auth: config.auth,
       }
 
     case NODE_TYPE.WEBHOOK_TRIGGER:
       return {
         path: config.path,
-        method: config.method || 'POST'
+        method: config.method || 'POST',
       }
 
     case NODE_TYPE.MANUAL_TRIGGER:

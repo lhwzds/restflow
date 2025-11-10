@@ -38,18 +38,17 @@ export async function deleteAgent(id: string): Promise<void> {
 }
 
 export async function executeAgent(id: string, input: string): Promise<string> {
-  const response = await apiClient.post<{ response: string }>(
-    API_ENDPOINTS.AGENT.EXECUTE(id),
-    { input }
-  )
+  const response = await apiClient.post<{ response: string }>(API_ENDPOINTS.AGENT.EXECUTE(id), {
+    input,
+  })
   return response.data.response
 }
 
 export async function executeAgentInline(agent: any, input: string): Promise<string> {
-  const response = await apiClient.post<{ response: string }>(
-    API_ENDPOINTS.AGENT.EXECUTE_INLINE,
-    { agent, input }
-  )
+  const response = await apiClient.post<{ response: string }>(API_ENDPOINTS.AGENT.EXECUTE_INLINE, {
+    agent,
+    input,
+  })
   return response.data.response
 }
 

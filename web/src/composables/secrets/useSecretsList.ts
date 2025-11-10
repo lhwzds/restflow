@@ -13,9 +13,10 @@ export function useSecretsList() {
     }
 
     const query = searchQuery.value.toLowerCase()
-    return secrets.value.filter(secret =>
-      secret.key.toLowerCase().includes(query) ||
-      (secret.description ?? '').toLowerCase().includes(query)
+    return secrets.value.filter(
+      (secret) =>
+        secret.key.toLowerCase().includes(query) ||
+        (secret.description ?? '').toLowerCase().includes(query),
     )
   })
 
@@ -37,6 +38,6 @@ export function useSecretsList() {
     isLoading,
     searchQuery,
     filteredSecrets,
-    loadSecrets
+    loadSecrets,
   }
 }

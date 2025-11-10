@@ -3,4 +3,4 @@
 /**
  * Execution status
  */
-export type ExecutionStatus = "Running" | "Completed" | "Failed";
+export type ExecutionStatus = 'Running' | 'Completed' | 'Failed'

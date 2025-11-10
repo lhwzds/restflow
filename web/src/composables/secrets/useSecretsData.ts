@@ -24,6 +24,6 @@ export function useSecretsData() {
     secrets,
     isLoading,
     error,
-    loadSecrets
+    loadSecrets,
   }
 }

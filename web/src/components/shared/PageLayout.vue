@@ -10,13 +10,13 @@ interface Props {
 const props = withDefaults(defineProps<Props>(), {
   variant: 'default',
   noPadding: false,
-  noHeader: false
+  noHeader: false,
 })
 
 const layoutClasses = computed(() => ({
   'page-layout': true,
   [`page-layout--${props.variant}`]: true,
-  'page-layout--no-padding': props.noPadding
+  'page-layout--no-padding': props.noPadding,
 }))
 </script>
 

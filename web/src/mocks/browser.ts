@@ -8,5 +8,5 @@ export const worker = setupWorker(
   ...workflowHandlers,
   ...agentHandlers,
   ...secretHandlers,
-  ...executionHandlers
+  ...executionHandlers,
 )

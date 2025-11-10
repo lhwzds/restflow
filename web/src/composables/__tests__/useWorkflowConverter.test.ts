@@ -19,13 +19,13 @@ describe('useWorkflowConverter', () => {
               type: 'WebhookTrigger',
               data: {
                 path: '/api/webhook/test',
-                method: 'POST'
-              }
+                method: 'POST',
+              },
             },
-            position: { x: 100, y: 100 }
-          }
+            position: { x: 100, y: 100 },
+          },
         ],
-        edges: []
+        edges: [],
       }
 
       const result = convertFromBackendFormat(workflow)
@@ -33,7 +33,7 @@ describe('useWorkflowConverter', () => {
       expect(result.nodes).toHaveLength(1)
       expect(result.nodes[0]!.data).toEqual({
         path: '/api/webhook/test',
-        method: 'POST'
+        method: 'POST',
       })
       expect(result.nodes[0]!.data).not.toHaveProperty('type')
     })
@@ -51,13 +51,13 @@ describe('useWorkflowConverter', () => {
               data: {
                 cron: '0 0 * * * *',
                 timezone: 'UTC',
-                payload: { test: true }
-              }
+                payload: { test: true },
+              },
             },
-            position: { x: 100, y: 100 }
-          }
+            position: { x: 100, y: 100 },
+          },
         ],
-        edges: []
+        edges: [],
       }
 
       const result = convertFromBackendFormat(workflow)
@@ -66,7 +66,7 @@ describe('useWorkflowConverter', () => {
       expect(result.nodes[0]!.data).toEqual({
         cron: '0 0 * * * *',
         timezone: 'UTC',
-        payload: { test: true }
+        payload: { test: true },
       })
     })
 
@@ -81,24 +81,24 @@ describe('useWorkflowConverter', () => {
             config: {
               type: 'ManualTrigger',
               data: {
-                payload: { message: 'User triggered' }
-              }
+                payload: { message: 'User triggered' },
+              },
             },
-            position: { x: 100, y: 100 }
-          }
+            position: { x: 100, y: 100 },
+          },
         ],
-        edges: []
+        edges: [],
       }
 
       const result = convertFromBackendFormat(workflow)
 
       expect(result.nodes).toHaveLength(1)
       expect(result.nodes[0]!.data).toEqual({
-        payload: { message: 'User triggered' }
+        payload: { message: 'User triggered' },
       })
     })
 
-    it('should handle backward compatibility with old flat format', () => {
+    it('should require new format with type and data fields', () => {
       const workflow: Workflow = {
         id: 'test-workflow',
         name: 'Test Workflow',
@@ -107,21 +107,55 @@ describe('useWorkflowConverter', () => {
             id: 'webhook-1',
             node_type: 'WebhookTrigger',
             config: {
-              path: '/api/webhook/old',
-              method: 'GET'
+              type: 'WebhookTrigger', // Must have type
+              data: {
+                // Must have data
+                path: '/api/webhook',
+                method: 'POST',
+              },
             },
-            position: { x: 100, y: 100 }
-          }
+            position: { x: 100, y: 100 },
+          },
         ],
-        edges: []
+        edges: [],
       }
 
       const result = convertFromBackendFormat(workflow)
 
       expect(result.nodes).toHaveLength(1)
       expect(result.nodes[0]!.data).toEqual({
+        path: '/api/webhook',
+        method: 'POST',
+      })
+    })
+
+    it('should handle old format by using entire config as fallback', () => {
+      // Frontend still handles old format gracefully for backward compatibility
+      // (only in frontend display, backend will reject old format)
+      const workflow: Workflow = {
+        id: 'test-workflow',
+        name: 'Test Workflow',
+        nodes: [
+          {
+            id: 'webhook-1',
+            node_type: 'WebhookTrigger',
+            config: {
+              path: '/api/webhook/old', // Old format without type/data wrapper
+              method: 'GET',
+            },
+            position: { x: 100, y: 100 },
+          },
+        ],
+        edges: [],
+      }
+
+      const result = convertFromBackendFormat(workflow)
+
+      // Frontend converter falls back to using entire config when no 'data' field
+      expect(result.nodes).toHaveLength(1)
+      expect(result.nodes[0]!.data).toEqual({
         path: '/api/webhook/old',
-        method: 'GET'
+        method: 'GET',
       })
     })
 
@@ -137,10 +171,10 @@ describe('useWorkflowConverter', () => {
               type: 'Agent',
               data: {
                 model: 'gpt-4',
-                prompt: 'Test prompt'
-              }
+                prompt: 'Test prompt',
+              },
             },
-            position: { x: 100, y: 100 }
+            position: { x: 100, y: 100 },
           },
           {
             id: 'http-1',
@@ -149,13 +183,13 @@ describe('useWorkflowConverter', () => {
               type: 'HttpRequest',
               data: {
                 url: 'https://api.example.com',
-                method: 'GET'
-              }
+                method: 'GET',
+              },
             },
-            position: { x: 200, y: 100 }
-          }
+            position: { x: 200, y: 100 },
+          },
         ],
-        edges: []
+        edges: [],
       }
 
       const result = convertFromBackendFormat(workflow)
@@ -164,11 +198,11 @@ describe('useWorkflowConverter', () => {
       // Non-trigger nodes extract the data portion (flattened for frontend)
       expect(result.nodes[0]!.data).toEqual({
         model: 'gpt-4',
-        prompt: 'Test prompt'
+        prompt: 'Test prompt',
       })
       expect(result.nodes[1]!.data).toEqual({
         url: 'https://api.example.com',
-        method: 'GET'
+        method: 'GET',
       })
     })
 
@@ -181,10 +215,10 @@ describe('useWorkflowConverter', () => {
             id: 'webhook-1',
             node_type: 'WebhookTrigger',
             config: {},
-            position: { x: 100, y: 100 }
-          }
+            position: { x: 100, y: 100 },
+          },
         ],
-        edges: []
+        edges: [],
       }
 
       const result = convertFromBackendFormat(workflow)
@@ -200,8 +234,8 @@ describe('useWorkflowConverter', () => {
         nodes: [],
         edges: [
           { from: 'node1', to: 'node2' },
-          { from: 'node2', to: 'node3' }
-        ]
+          { from: 'node2', to: 'node3' },
+        ],
       }
 
       const result = convertFromBackendFormat(workflow)
@@ -211,13 +245,13 @@ describe('useWorkflowConverter', () => {
         id: 'enode1-node2',
         source: 'node1',
         target: 'node2',
-        animated: true
+        animated: true,
       })
       expect(result.edges[1]!).toEqual({
         id: 'enode2-node3',
         source: 'node2',
         target: 'node3',
-        animated: true
+        animated: true,
       })
     })
   })
@@ -231,9 +265,9 @@ describe('useWorkflowConverter', () => {
           position: { x: 100, y: 100 },
           data: {
             path: '/api/webhook/test',
-            method: 'POST'
-          }
-        }
+            method: 'POST',
+          },
+        },
       ]
       const edges: VueFlowEdge[] = []
 
@@ -244,8 +278,8 @@ describe('useWorkflowConverter', () => {
         type: 'WebhookTrigger',
         data: {
           path: '/api/webhook/test',
-          method: 'POST'
-        }
+          method: 'POST',
+        },
       })
     })
 
@@ -257,9 +291,9 @@ describe('useWorkflowConverter', () => {
           position: { x: 100, y: 100 },
           data: {
             cron: '0 0 * * * *',
-            timezone: 'UTC'
-          }
-        }
+            timezone: 'UTC',
+          },
+        },
       ]
       const edges: VueFlowEdge[] = []
 
@@ -270,8 +304,8 @@ describe('useWorkflowConverter', () => {
         type: 'ScheduleTrigger',
         data: {
           cron: '0 0 * * * *',
-          timezone: 'UTC'
-        }
+          timezone: 'UTC',
+        },
       })
     })
 
@@ -282,9 +316,9 @@ describe('useWorkflowConverter', () => {
           type: 'ManualTrigger',
           position: { x: 100, y: 100 },
           data: {
-            payload: { test: true }
-          }
-        }
+            payload: { test: true },
+          },
+        },
       ]
       const edges: VueFlowEdge[] = []
 
@@ -294,8 +328,8 @@ describe('useWorkflowConverter', () => {
       expect(result.nodes[0]!.config).toEqual({
         type: 'ManualTrigger',
         data: {
-          payload: { test: true }
-        }
+          payload: { test: true },
+        },
       })
     })
 
@@ -307,17 +341,17 @@ describe('useWorkflowConverter', () => {
           position: { x: 100, y: 100 },
           data: {
             model: 'gpt-4',
-            prompt: 'Test'
-          }
+            prompt: 'Test',
+          },
         },
         {
           id: 'http-1',
           type: 'HttpRequest',
           position: { x: 200, y: 100 },
           data: {
-            url: 'https://api.example.com'
-          }
-        }
+            url: 'https://api.example.com',
+          },
+        },
       ]
       const edges: VueFlowEdge[] = []
 
@@ -329,14 +363,14 @@ describe('useWorkflowConverter', () => {
         type: 'Agent',
         data: {
           model: 'gpt-4',
-          prompt: 'Test'
-        }
+          prompt: 'Test',
+        },
       })
       expect(result.nodes[1]!.config).toEqual({
         type: 'HttpRequest',
         data: {
-          url: 'https://api.example.com'
-        }
+          url: 'https://api.example.com',
+        },
       })
     })
 
@@ -346,8 +380,8 @@ describe('useWorkflowConverter', () => {
           id: 'webhook-1',
           type: 'WebhookTrigger',
           position: { x: 100, y: 100 },
-          data: {}
-        }
+          data: {},
+        },
       ]
       const edges: VueFlowEdge[] = []
 
@@ -356,7 +390,7 @@ describe('useWorkflowConverter', () => {
       expect(result.nodes).toHaveLength(1)
       expect(result.nodes[0]!.config).toEqual({
         type: 'WebhookTrigger',
-        data: {}
+        data: {},
       })
     })
 
@@ -364,7 +398,7 @@ describe('useWorkflowConverter', () => {
       const nodes: VueFlowNode[] = []
       const edges: VueFlowEdge[] = [
         { id: 'e1', source: 'node1', target: 'node2' },
-        { id: 'e2', source: 'node2', target: 'node3' }
+        { id: 'e2', source: 'node2', target: 'node3' },
       ]
 
       const result = convertToBackendFormat(nodes, edges)
@@ -379,7 +413,7 @@ describe('useWorkflowConverter', () => {
       const edges: VueFlowEdge[] = []
       const meta = {
         id: 'custom-id',
-        name: 'Custom Workflow'
+        name: 'Custom Workflow',
       }
 
       const result = convertToBackendFormat(nodes, edges, meta)
@@ -415,20 +449,20 @@ describe('useWorkflowConverter', () => {
                 method: 'POST',
                 auth: {
                   type: 'ApiKey',
-                  key: 'test-key'
-                }
-              }
+                  key: 'test-key',
+                },
+              },
             },
-            position: { x: 100, y: 100 }
-          }
+            position: { x: 100, y: 100 },
+          },
         ],
-        edges: [{ from: 'webhook-1', to: 'agent-1' }]
+        edges: [{ from: 'webhook-1', to: 'agent-1' }],
       }
 
       const { nodes, edges } = convertFromBackendFormat(originalWorkflow)
       const converted = convertToBackendFormat(nodes, edges, {
         id: originalWorkflow.id,
-        name: originalWorkflow.name
+        name: originalWorkflow.name,
       })
 
       expect(converted.nodes[0]!.config).toEqual(originalWorkflow.nodes[0]!.config)
@@ -448,19 +482,19 @@ describe('useWorkflowConverter', () => {
               data: {
                 model: 'gpt-4',
                 prompt: 'Test prompt',
-                temperature: 0.7
-              }
+                temperature: 0.7,
+              },
             },
-            position: { x: 100, y: 100 }
-          }
+            position: { x: 100, y: 100 },
+          },
         ],
-        edges: []
+        edges: [],
       }
 
       const { nodes, edges } = convertFromBackendFormat(originalWorkflow)
       const converted = convertToBackendFormat(nodes, edges, {
         id: originalWorkflow.id,
-        name: originalWorkflow.name
+        name: originalWorkflow.name,
       })
 
       expect(converted.nodes[0]!.config).toEqual(originalWorkflow.nodes[0]!.config)

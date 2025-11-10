@@ -1,16 +1,11 @@
 import { EditorView, keymap, lineNumbers, highlightActiveLineGutter } from '@codemirror/view'
 import { EditorState, type Extension } from '@codemirror/state'
-import {
-  defaultKeymap,
-  history,
-  historyKeymap,
-  indentWithTab
-} from '@codemirror/commands'
+import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
 import {
   bracketMatching,
   indentOnInput,
   syntaxHighlighting,
-  defaultHighlightStyle
+  defaultHighlightStyle,
 } from '@codemirror/language'
 import { autocompletion, completionKeymap } from '@codemirror/autocomplete'
 import { expressionLanguage } from './expressionLang'
@@ -27,12 +22,7 @@ export const baseExtensions: Extension[] = [
   bracketMatching(),
   syntaxHighlighting(defaultHighlightStyle),
   EditorView.lineWrapping,
-  keymap.of([
-    ...defaultKeymap,
-    ...historyKeymap,
-    ...completionKeymap,
-    indentWithTab
-  ])
+  keymap.of([...defaultKeymap, ...historyKeymap, ...completionKeymap, indentWithTab]),
 ]
 
 /**
@@ -43,19 +33,15 @@ export function createExpressionExtensions(options?: {
   multiline?: boolean
   autocomplete?: boolean
 }): Extension[] {
-  const extensions: Extension[] = [
-    ...baseExtensions,
-    expressionLanguage,
-    dragAndDropPlugin()
-  ]
+  const extensions: Extension[] = [...baseExtensions, expressionLanguage, dragAndDropPlugin()]
 
   // Add autocomplete if enabled
   if (options?.autocomplete) {
     extensions.push(
       autocompletion({
         activateOnTyping: true,
-        override: [] // Will be populated by ExpressionInput component
-      })
+        override: [], // Will be populated by ExpressionInput component
+      }),
     )
   }
 
@@ -70,8 +56,8 @@ export function createExpressionExtensions(options?: {
             return true
           }
           return false
-        }
-      })
+        },
+      }),
     )
   }
 
@@ -85,22 +71,22 @@ export function createEditor(
   parent: HTMLElement,
   initialValue: string,
   extensions: Extension[],
-  onChange?: (value: string) => void
+  onChange?: (value: string) => void,
 ): EditorView {
   const startState = EditorState.create({
     doc: initialValue,
     extensions: [
       ...extensions,
-      EditorView.updateListener.of(update => {
+      EditorView.updateListener.of((update) => {
         if (update.docChanged && onChange) {
           onChange(update.state.doc.toString())
         }
-      })
-    ]
+      }),
+    ],
   })
 
   return new EditorView({
     state: startState,
-    parent
+    parent,
   })
 }

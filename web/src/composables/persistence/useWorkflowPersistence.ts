@@ -5,7 +5,12 @@ import * as workflowsApi from '../../api/workflows'
 import type { Workflow } from '@/types/generated/Workflow'
 import { useWorkflowStore } from '../../stores/workflowStore'
 import { useWorkflowConverter } from '../editor/useWorkflowConverter'
-import { SUCCESS_MESSAGES, ERROR_MESSAGES, VALIDATION_MESSAGES, AUTO_SAVE_TIMING } from '@/constants'
+import {
+  SUCCESS_MESSAGES,
+  ERROR_MESSAGES,
+  VALIDATION_MESSAGES,
+  AUTO_SAVE_TIMING,
+} from '@/constants'
 
 export interface SaveOptions {
   showMessage?: boolean
@@ -23,11 +28,11 @@ export function useWorkflowPersistence() {
   const isLoading = ref(false)
   const isSaving = ref(false)
   const lastSavedAt = ref<Date | null>(null)
-  
+
   // Use workflow metadata from store
   const currentWorkflowId = computed(() => workflowStore.currentWorkflowId)
   const currentWorkflowMeta = computed(() => ({
-    name: workflowStore.currentWorkflowName
+    name: workflowStore.currentWorkflowName,
   }))
 
   // Auto-save timer - scoped to this composable instance
@@ -66,7 +71,8 @@ export function useWorkflowPersistence() {
         data: workflow,
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : ERROR_MESSAGES.FAILED_TO_LOAD('workflow')
+      const message =
+        error instanceof Error ? error.message : ERROR_MESSAGES.FAILED_TO_LOAD('workflow')
       console.error('Failed to load workflow:', error)
 
       if (showMessage) {
@@ -134,7 +140,8 @@ export function useWorkflowPersistence() {
         id: workflowId,
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : ERROR_MESSAGES.FAILED_TO_SAVE('workflow')
+      const message =
+        error instanceof Error ? error.message : ERROR_MESSAGES.FAILED_TO_SAVE('workflow')
       console.error('Failed to save workflow:', error)
 
       if (showMessage) {

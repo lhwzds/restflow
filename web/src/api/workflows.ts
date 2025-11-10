@@ -19,10 +19,7 @@ export const createWorkflow = async (workflow: Workflow): Promise<{ id: string }
     const result = await invokeCommand<Workflow>('create_workflow', { workflow })
     return { id: result.id }
   }
-  const response = await apiClient.post<{ id: string }>(
-    API_ENDPOINTS.WORKFLOW.CREATE,
-    workflow
-  )
+  const response = await apiClient.post<{ id: string }>(API_ENDPOINTS.WORKFLOW.CREATE, workflow)
   return response.data
 }
 
@@ -55,30 +52,30 @@ export const executeInline = async (workflow: Workflow): Promise<ExecutionContex
     const { id } = await createWorkflow(workflow)
     return invokeCommand<ExecutionContext>('execute_workflow_sync', {
       workflow_id: id,
-      input: {}
+      input: {},
     })
   }
   const response = await apiClient.post<ExecutionContext>(
     API_ENDPOINTS.EXECUTION.INLINE_RUN,
-    workflow
+    workflow,
   )
   return response.data
 }
 
 export const submitWorkflow = async (
   id: string,
-  initialVariables?: any
+  initialVariables?: any,
 ): Promise<{ execution_id: string }> => {
   if (isTauri()) {
     const taskId = await invokeCommand<string>('submit_workflow', {
       workflow_id: id,
-      input: initialVariables || {}
+      input: initialVariables || {},
     })
     return { execution_id: taskId }
   }
   const response = await apiClient.post<{ execution_id: string; workflow_id: string }>(
     API_ENDPOINTS.EXECUTION.SUBMIT(id),
-    { initial_variables: initialVariables }
+    { initial_variables: initialVariables },
   )
   return { execution_id: response.data.execution_id }
 }
@@ -86,12 +83,12 @@ export const submitWorkflow = async (
 export const listWorkflowExecutions = async (
   id: string,
   page = 1,
-  pageSize = 20
+  pageSize = 20,
 ): Promise<ExecutionHistoryPage> => {
   if (isTauri()) {
     const items = await invokeCommand<ExecutionSummary[]>('list_workflow_executions', {
       workflow_id: id,
-      limit: pageSize
+      limit: pageSize,
     })
     const total = items.length
     const resolvedPageSize = total > 0 ? Math.min(total, pageSize) : pageSize
@@ -100,12 +97,11 @@ export const listWorkflowExecutions = async (
       total,
       page: 1,
       page_size: resolvedPageSize,
-      total_pages: total > 0 ? 1 : 0
+      total_pages: total > 0 ? 1 : 0,
     }
   }
-  const response = await apiClient.get<ExecutionHistoryPage>(
-    API_ENDPOINTS.EXECUTION.HISTORY(id),
-    { params: { page, page_size: pageSize } }
-  )
+  const response = await apiClient.get<ExecutionHistoryPage>(API_ENDPOINTS.EXECUTION.HISTORY(id), {
+    params: { page, page_size: pageSize },
+  })
   return response.data
 }

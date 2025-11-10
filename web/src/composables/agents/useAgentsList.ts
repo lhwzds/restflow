@@ -11,10 +11,11 @@ const filteredAgents = computed(() => {
   if (!searchQuery.value) return agents.value
 
   const query = searchQuery.value.toLowerCase()
-  return agents.value.filter(agent =>
-    agent.name.toLowerCase().includes(query) ||
-    agent.agent.model.toLowerCase().includes(query) ||
-    (agent.agent.prompt || '').toLowerCase().includes(query)
+  return agents.value.filter(
+    (agent) =>
+      agent.name.toLowerCase().includes(query) ||
+      agent.agent.model.toLowerCase().includes(query) ||
+      (agent.agent.prompt || '').toLowerCase().includes(query),
   )
 })
 
@@ -47,6 +48,6 @@ export function useAgentsList() {
     filteredAgents,
     loadAgents,
     selectAgent,
-    clearSelection
+    clearSelection,
   }
 }

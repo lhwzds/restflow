@@ -13,7 +13,7 @@ const props = defineProps<NodeProps<HttpNodeData>>()
 const emit = defineEmits<{
   'open-config': []
   'test-node': []
-  'updateNodeInternals': [nodeId: string]
+  updateNodeInternals: [nodeId: string]
 }>()
 </script>
 

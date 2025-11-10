@@ -47,12 +47,7 @@ function handleClick() {
 </script>
 
 <template>
-  <ElCard
-    class="agent-card"
-    :body-style="{ padding: '12px' }"
-    shadow="hover"
-    @click="handleClick"
-  >
+  <ElCard class="agent-card" :body-style="{ padding: '12px' }" shadow="hover" @click="handleClick">
     <div class="card-header">
       <div class="agent-name">
         <ElIcon class="agent-icon">
@@ -71,13 +66,7 @@ function handleClick() {
 
     <div v-if="toolsList.length > 0" class="tools-section">
       <span class="tools-label">Tools:</span>
-      <ElTag
-        v-for="tool in toolsList"
-        :key="tool"
-        type="info"
-        size="small"
-        class="tool-tag"
-      >
+      <ElTag v-for="tool in toolsList" :key="tool" type="info" size="small" class="tool-tag">
         {{ tool }}
       </ElTag>
     </div>

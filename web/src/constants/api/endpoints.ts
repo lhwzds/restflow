@@ -1,7 +1,7 @@
 export const API_PREFIX = '/api' as const
 
 export const API_ENDPOINTS = {
-  HEALTH: '/health', 
+  HEALTH: '/health',
   WORKFLOW: {
     LIST: `${API_PREFIX}/workflows`,
     CREATE: `${API_PREFIX}/workflows`,

@@ -3,4 +3,4 @@
 /**
  * Manual trigger output
  */
-export type ManualTriggerOutput = { triggered_at: bigint, payload: any, };
+export type ManualTriggerOutput = { triggered_at: bigint; payload: any }

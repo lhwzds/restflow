@@ -16,7 +16,7 @@ const props = withDefaults(defineProps<Props>(), {
   actionType: 'primary',
   actionText: '',
   createText: 'Create First',
-  itemName: 'item'
+  itemName: 'item',
 })
 
 const emit = defineEmits<{
@@ -52,10 +52,7 @@ function handleAction() {
 <template>
   <div v-if="!isLoading" class="empty-state">
     <ElEmpty :description="computedDescription">
-      <ElButton
-        :type="computedActionType"
-        @click="handleAction"
-      >
+      <ElButton :type="computedActionType" @click="handleAction">
         {{ computedActionText }}
       </ElButton>
     </ElEmpty>

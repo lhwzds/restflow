@@ -8,7 +8,7 @@ import { API_ENDPOINTS } from '@/constants'
 
 vi.mock('@/api/utils', () => ({
   isTauri: () => false,
-  invokeCommand: vi.fn()
+  invokeCommand: vi.fn(),
 }))
 
 describe('Agents API', () => {
@@ -30,8 +30,8 @@ describe('Agents API', () => {
       prompt: 'You are a test assistant',
       temperature: null,
       api_key_config: null,
-      tools: null
-    }
+      tools: null,
+    },
   })
 
   describe('listAgents', () => {
@@ -40,7 +40,7 @@ describe('Agents API', () => {
 
       mock.onGet(API_ENDPOINTS.AGENT.LIST).reply(200, {
         success: true,
-        data: mockAgents
+        data: mockAgents,
       })
 
       const result = await agentsApi.listAgents()
@@ -54,7 +54,7 @@ describe('Agents API', () => {
 
       mock.onGet(API_ENDPOINTS.AGENT.GET('agent1')).reply(200, {
         success: true,
-        data: mockAgent
+        data: mockAgent,
       })
 
       const result = await agentsApi.getAgent('agent1')
@@ -69,19 +69,19 @@ describe('Agents API', () => {
         prompt: 'Test prompt',
         temperature: null,
         api_key_config: null,
-        tools: null
+        tools: null,
       }
 
       const request: agentsApi.CreateAgentRequest = {
         name: 'New Agent',
-        agent: agentNode
+        agent: agentNode,
       }
 
       const mockResponse = createMockAgent('new-agent')
 
       mock.onPost(API_ENDPOINTS.AGENT.CREATE).reply(200, {
         success: true,
-        data: mockResponse
+        data: mockResponse,
       })
 
       const result = await agentsApi.createAgent(request)
@@ -92,7 +92,7 @@ describe('Agents API', () => {
   describe('updateAgent', () => {
     it('should update agent', async () => {
       const updateData: agentsApi.UpdateAgentRequest = {
-        name: 'Updated Name'
+        name: 'Updated Name',
       }
 
       const mockResponse = createMockAgent('agent1')
@@ -100,7 +100,7 @@ describe('Agents API', () => {
 
       mock.onPut(API_ENDPOINTS.AGENT.UPDATE('agent1')).reply(200, {
         success: true,
-        data: mockResponse
+        data: mockResponse,
       })
 
       const result = await agentsApi.updateAgent('agent1', updateData)
@@ -111,7 +111,7 @@ describe('Agents API', () => {
   describe('deleteAgent', () => {
     it('should delete agent', async () => {
       mock.onDelete(API_ENDPOINTS.AGENT.DELETE('agent1')).reply(200, {
-        success: true
+        success: true,
       })
 
       await expect(agentsApi.deleteAgent('agent1')).resolves.toBeUndefined()
@@ -122,7 +122,7 @@ describe('Agents API', () => {
     it('should execute agent with input', async () => {
       mock.onPost(API_ENDPOINTS.AGENT.EXECUTE('agent1')).reply(200, {
         success: true,
-        data: { response: 'Hello, world!' }
+        data: { response: 'Hello, world!' },
       })
 
       const result = await agentsApi.executeAgent('agent1', 'test input')
@@ -134,12 +134,12 @@ describe('Agents API', () => {
     it('should execute agent inline', async () => {
       const agent = {
         model: 'gpt-4',
-        prompt: 'Test'
+        prompt: 'Test',
       }
 
       mock.onPost(API_ENDPOINTS.AGENT.EXECUTE_INLINE).reply(200, {
         success: true,
-        data: { response: 'Inline response' }
+        data: { response: 'Inline response' },
       })
 
       const result = await agentsApi.executeAgentInline(agent, 'test input')
@@ -156,7 +156,7 @@ describe('Agents API', () => {
     it('should handle 404 not found', async () => {
       mock.onGet(API_ENDPOINTS.AGENT.GET('missing')).reply(404, {
         success: false,
-        message: 'Agent not found'
+        message: 'Agent not found',
       })
       await expect(agentsApi.getAgent('missing')).rejects.toThrow('Agent not found')
     })
@@ -164,7 +164,7 @@ describe('Agents API', () => {
     it('should handle 500 server error on create', async () => {
       mock.onPost(API_ENDPOINTS.AGENT.CREATE).reply(500, {
         success: false,
-        message: 'Database error'
+        message: 'Database error',
       })
       const request: agentsApi.CreateAgentRequest = {
         name: 'Test',
@@ -173,8 +173,8 @@ describe('Agents API', () => {
           prompt: 'Test',
           temperature: null,
           api_key_config: null,
-          tools: null
-        }
+          tools: null,
+        },
       }
       await expect(agentsApi.createAgent(request)).rejects.toThrow('Database error')
     })

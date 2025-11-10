@@ -213,10 +213,12 @@ onUnmounted(() => {
         />
 
         <!-- Save/Saved status -->
-        <ElTooltip v-if="unsavedChanges.hasChanges.value" content="Save workflow (Ctrl+S)" placement="bottom">
-          <ElButton type="primary" @click="handleSave" :loading="isSaving">
-            Save
-          </ElButton>
+        <ElTooltip
+          v-if="unsavedChanges.hasChanges.value"
+          content="Save workflow (Ctrl+S)"
+          placement="bottom"
+        >
+          <ElButton type="primary" @click="handleSave" :loading="isSaving"> Save </ElButton>
         </ElTooltip>
         <ElButton v-else type="success" :icon="Check" disabled>Saved</ElButton>
       </template>
@@ -236,10 +238,7 @@ onUnmounted(() => {
 
     <div class="editor-container">
       <transition name="history-panel">
-        <div
-          v-if="showHistoryPanel && workflowStore.currentWorkflowId"
-          class="left-panel"
-        >
+        <div v-if="showHistoryPanel && workflowStore.currentWorkflowId" class="left-panel">
           <ExecutionHistoryPanel :workflow-id="workflowStore.currentWorkflowId" />
         </div>
       </transition>
