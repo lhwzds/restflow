@@ -30,7 +30,7 @@
     "@vueuse/core": "^14.0.0",
     "axios": "^1.11.0",
     "dompurify": "^3.2.7",
-    "element-plus": "^2.11.4",
+    "element-plus": "^2.11.7",
     "lucide-vue-next": "^0.546.0",
     "marked": "^16.4.1",
     "pinia": "^3.0.3",
