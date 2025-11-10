@@ -116,21 +116,21 @@ impl Scheduler {
         let start_node_count = start_nodes.len();
 
         for node_id in start_nodes {
-            if let Some(node) = graph.get_node(&node_id) {
-                if let Err(e) = self.push_task(
+            if let Some(node) = graph.get_node(&node_id)
+                && let Err(e) = self.push_task(
                     execution_id.clone(),
                     node.clone(),
                     workflow.clone(),
                     context.clone(),
-                ) {
-                    error!(
-                        workflow_id = %workflow.id,
-                        node_id = %node_id,
-                        error = %e,
-                        "Failed to push start node task to queue"
-                    );
-                    return Err(e);
-                }
+                )
+            {
+                error!(
+                    workflow_id = %workflow.id,
+                    node_id = %node_id,
+                    error = %e,
+                    "Failed to push start node task to queue"
+                );
+                return Err(e);
             }
         }
 
