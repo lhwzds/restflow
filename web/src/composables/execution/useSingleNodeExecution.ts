@@ -57,7 +57,10 @@ export function useSingleNodeExecution() {
         nodes: [{
           id: node.id,
           node_type: mapNodeTypeToBackend(nodeType),
-          config: extractNodeConfig(node)
+          config: {
+            type: node.type,
+            data: extractNodeConfig(node)
+          }
         }],
         edges: [],
         input: input || {}
