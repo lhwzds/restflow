@@ -60,7 +60,10 @@ describe('NewWorkflowDialog', () => {
     expect(wrapper.emitted('update:visible')?.[0]).toEqual([false])
   })
 
-  it('should show error if workflow name is empty', async () => {
+  it('should use default name "Untitled Workflow" if workflow name is empty', async () => {
+    const mockCreateWorkflow = vi.mocked(workflowsApi.createWorkflow)
+    mockCreateWorkflow.mockResolvedValue({ id: 'new-workflow-123' })
+
     const wrapper = mount(NewWorkflowDialog, {
       props: {
         visible: true,
@@ -73,12 +76,21 @@ describe('NewWorkflowDialog', () => {
 
     await createButton!.trigger('click')
     await nextTick()
+    // Wait for async operations
+    await new Promise((resolve) => setTimeout(resolve, 100))
 
-    expect(vi.mocked(ElMessage.error)).toHaveBeenCalled()
-    expect(mockRouterPush).not.toHaveBeenCalled()
+    expect(mockCreateWorkflow).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: 'Untitled Workflow',
+      })
+    )
+    expect(mockRouterPush).toHaveBeenCalledWith('/workflow/new-workflow-123')
   })
 
-  it('should show error if workflow name is whitespace only', async () => {
+  it('should preserve whitespace-only name as valid input', async () => {
+    const mockCreateWorkflow = vi.mocked(workflowsApi.createWorkflow)
+    mockCreateWorkflow.mockResolvedValue({ id: 'new-workflow-456' })
+
     const wrapper = mount(NewWorkflowDialog, {
       props: {
         visible: true,
@@ -96,9 +108,15 @@ describe('NewWorkflowDialog', () => {
 
     await createButton!.trigger('click')
     await nextTick()
+    // Wait for async operations
+    await new Promise((resolve) => setTimeout(resolve, 100))
 
-    expect(vi.mocked(ElMessage.error)).toHaveBeenCalled()
-    expect(mockRouterPush).not.toHaveBeenCalled()
+    expect(mockCreateWorkflow).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: '   ',
+      })
+    )
+    expect(mockRouterPush).toHaveBeenCalledWith('/workflow/new-workflow-456')
   })
 
   it('should call createWorkflow API with correct payload', async () => {

@@ -2,7 +2,7 @@
 import { ElButton, ElDialog, ElForm, ElFormItem, ElInput, ElMessage } from 'element-plus'
 import { ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { VALIDATION_MESSAGES } from '@/constants'
+import { DEFAULT_VALUES } from '@/constants'
 import { createWorkflow } from '@/api/workflows'
 import type { Workflow } from '@/types/generated/Workflow'
 
@@ -33,16 +33,11 @@ watch(dialogVisible, (newVal) => {
 })
 
 async function handleCreate() {
-  if (!workflowName.value?.trim()) {
-    ElMessage.error(VALIDATION_MESSAGES.ENTER_WORKFLOW_NAME)
-    return
-  }
-
   try {
     // Create minimal workflow object
     const newWorkflow: Workflow = {
       id: `workflow-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`,
-      name: workflowName.value.trim(),
+      name: workflowName.value || DEFAULT_VALUES.WORKFLOW_NAME,
       nodes: [],
       edges: []
     }
@@ -74,10 +69,10 @@ function handleCancel() {
     :close-on-click-modal="false"
   >
     <ElForm label-width="80px" @submit.prevent>
-      <ElFormItem label="Name" required>
+      <ElFormItem label="Name">
         <ElInput
           v-model="workflowName"
-          placeholder="Enter workflow name"
+          placeholder="Enter workflow name (optional)"
           @keyup.enter="handleCreate"
         />
       </ElFormItem>
