@@ -68,20 +68,19 @@ pub async fn delete_workflow(core: &Arc<AppCore>, id: &str) -> Result<()> {
 pub async fn execute_workflow_inline(core: &Arc<AppCore>, mut workflow: Workflow) -> Result<Value> {
     workflow.id = format!("inline-{}", uuid::Uuid::new_v4());
 
-    if workflow.nodes.iter().any(|node| node.node_type == NodeType::Python) {
-        if let Err(e) = core
+    if workflow.nodes.iter().any(|node| node.node_type == NodeType::Python)
+        && let Err(e) = core
             .get_python_manager()
             .await
             .context("Failed to initialize Python manager for inline execution")
-        {
-            error!(
-                workflow_id = %workflow.id,
-                workflow_name = %workflow.name,
-                error = %e,
-                "Failed to initialize Python manager for inline execution"
-            );
-            return Err(e);
-        }
+    {
+        error!(
+            workflow_id = %workflow.id,
+            workflow_name = %workflow.name,
+            error = %e,
+            "Failed to initialize Python manager for inline execution"
+        );
+        return Err(e);
     }
 
     if let Err(e) = core.storage.workflows.create_workflow(&workflow) {
