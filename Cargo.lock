@@ -3820,22 +3820,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "reqwest-eventsource"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "632c55746dbb44275691640e7b40c907c16a2dc1a5842aa98aaec90da6ec6bde"
-dependencies = [
- "eventsource-stream",
- "futures-core",
- "futures-timer",
- "mime",
- "nom",
- "pin-project-lite",
- "reqwest",
- "thiserror 1.0.69",
-]
-
-[[package]]
 name = "restflow-cli"
 version = "0.1.0"
 dependencies = [
@@ -3924,21 +3908,23 @@ dependencies = [
 
 [[package]]
 name = "rig-core"
-version = "0.22.0"
+version = "0.23.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "136b8115983df35be2c9b176c50c8a793886411e7b5ee8767b8c9cfd25e0ea90"
+checksum = "5f9cbb51d97b03fb936caf5c1b05a7229cca0ddd569a0d09d9d2e2be41538fc2"
 dependencies = [
  "as-any",
  "async-stream",
  "base64 0.22.1",
  "bytes",
+ "eventsource-stream",
  "futures",
+ "futures-timer",
  "glob",
  "http",
  "mime_guess",
  "ordered-float",
+ "pin-project-lite",
  "reqwest",
- "reqwest-eventsource",
  "schemars 1.0.4",
  "serde",
  "serde_json",
