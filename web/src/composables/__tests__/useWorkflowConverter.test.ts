@@ -161,20 +161,14 @@ describe('useWorkflowConverter', () => {
       const result = convertFromBackendFormat(workflow)
 
       expect(result.nodes).toHaveLength(2)
-      // Non-trigger nodes keep the full config including type wrapper
+      // Non-trigger nodes extract the data portion (flattened for frontend)
       expect(result.nodes[0]!.data).toEqual({
-        type: 'Agent',
-        data: {
-          model: 'gpt-4',
-          prompt: 'Test prompt'
-        }
+        model: 'gpt-4',
+        prompt: 'Test prompt'
       })
       expect(result.nodes[1]!.data).toEqual({
-        type: 'HttpRequest',
-        data: {
-          url: 'https://api.example.com',
-          method: 'GET'
-        }
+        url: 'https://api.example.com',
+        method: 'GET'
       })
     })
 
@@ -312,11 +306,8 @@ describe('useWorkflowConverter', () => {
           type: 'Agent',
           position: { x: 100, y: 100 },
           data: {
-            type: 'Agent',
-            data: {
-              model: 'gpt-4',
-              prompt: 'Test'
-            }
+            model: 'gpt-4',
+            prompt: 'Test'
           }
         },
         {
@@ -324,10 +315,7 @@ describe('useWorkflowConverter', () => {
           type: 'HttpRequest',
           position: { x: 200, y: 100 },
           data: {
-            type: 'HttpRequest',
-            data: {
-              url: 'https://api.example.com'
-            }
+            url: 'https://api.example.com'
           }
         }
       ]
@@ -336,7 +324,7 @@ describe('useWorkflowConverter', () => {
       const result = convertToBackendFormat(nodes, edges)
 
       expect(result.nodes).toHaveLength(2)
-      // Non-trigger nodes pass through unchanged
+      // Non-trigger nodes are wrapped with {type, data} format for backend
       expect(result.nodes[0]!.config).toEqual({
         type: 'Agent',
         data: {

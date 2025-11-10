@@ -4,19 +4,17 @@ import type { NodeType } from '@/types/generated/NodeType'
 import type { Workflow } from '@/types/generated/Workflow'
 import type { Edge as VueFlowEdge, Node as VueFlowNode } from '@vue-flow/core'
 
-const TRIGGER_NODE_TYPES = ['ManualTrigger', 'WebhookTrigger', 'ScheduleTrigger']
-
 export function useWorkflowConverter() {
   const convertFromBackendFormat = (
     workflow: Workflow,
   ): { nodes: VueFlowNode[]; edges: VueFlowEdge[] } => {
     const nodes: VueFlowNode[] =
       workflow.nodes?.map((node) => {
-        // Extract data from nested structure for trigger nodes
-        // Backend format: {"type": "WebhookTrigger", "data": {"path": "...", "method": "..."}}
-        // Frontend format: {"path": "...", "method": "..."}
-        const isTriggerNode = TRIGGER_NODE_TYPES.includes(node.node_type)
-        const data = isTriggerNode && node.config?.data
+        // Extract data from nested structure for all nodes
+        // Backend format: {"type": "Python", "data": {"code": "...", "dependencies": [...]}}
+        // Frontend format: {"code": "...", "dependencies": [...]}
+        // If config has 'data' field (new format), use it; otherwise use entire config (backward compatibility)
+        const data = node.config?.data
           ? node.config.data
           : node.config || {}
 
@@ -45,13 +43,14 @@ export function useWorkflowConverter() {
     meta?: Partial<Workflow>,
   ): Workflow => {
     const workflowNodes: BackendNode[] = nodes.map((node) => {
-      // Wrap flattened data back into typed structure for trigger nodes
-      // Frontend format: {"path": "...", "method": "..."}
-      // Backend format: {"type": "WebhookTrigger", "data": {"path": "...", "method": "..."}}
-      const isTriggerNode = TRIGGER_NODE_TYPES.includes(node.type as string)
-      const config = isTriggerNode
-        ? { type: node.type, data: node.data || {} }
-        : node.data || {}
+      // Wrap flattened data into typed structure for all nodes
+      // Frontend format: {"code": "...", "dependencies": [...]}
+      // Backend format: {"type": "Python", "data": {"code": "...", "dependencies": [...]}}
+      // This matches Rust's tagged enum format: #[serde(tag = "type", content = "data")]
+      const config = {
+        type: node.type,
+        data: node.data || {}
+      }
 
       return {
         id: node.id,
