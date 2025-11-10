@@ -12,7 +12,7 @@ use std::time::Duration;
 use tokio::fs;
 use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
-use tracing::info;
+use tracing::{error, info};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct TemplateInfo {
@@ -111,6 +111,11 @@ impl PythonManager {
         // Download the file
         let response = reqwest::get(&file_url).await?;
         if !response.status().is_success() {
+            error!(
+                url = %file_url,
+                status = %response.status(),
+                "Failed to download uv binary from GitHub"
+            );
             return Err(anyhow!("Failed to download uv: HTTP {}", response.status()));
         }
         let bytes = response.bytes().await?;
@@ -119,6 +124,11 @@ impl PythonManager {
         info!("Downloading checksum for verification");
         let checksum_response = reqwest::get(&checksum_url).await?;
         if !checksum_response.status().is_success() {
+            error!(
+                url = %checksum_url,
+                status = %checksum_response.status(),
+                "Failed to download checksum file from GitHub"
+            );
             return Err(anyhow!(
                 "Failed to download checksum: HTTP {}",
                 checksum_response.status()
@@ -140,6 +150,11 @@ impl PythonManager {
 
         // Verify checksum
         if actual_checksum != expected_checksum {
+            error!(
+                expected = %expected_checksum,
+                actual = %actual_checksum,
+                "Checksum verification failed - possible corrupted download or security issue"
+            );
             return Err(anyhow!(
                 "Checksum verification failed!\nExpected: {}\nActual: {}",
                 expected_checksum,
@@ -223,26 +238,54 @@ impl PythonManager {
     async fn setup_environment(&self) -> Result<()> {
         info!("Setting up Python environment");
 
-        Command::new(&self.uv_binary)
+        // Install Python 3.12
+        let python_install_output = Command::new(&self.uv_binary)
             .args(["python", "install", "3.12"])
             .output()
             .await?;
 
+        if !python_install_output.status.success() {
+            error!(
+                stderr = %String::from_utf8_lossy(&python_install_output.stderr),
+                "Failed to install Python 3.12 using uv"
+            );
+            return Err(anyhow!("Failed to install Python 3.12"));
+        }
+
+        // Create virtual environment if not exists
         if !self.venv_dir.exists() {
-            Command::new(&self.uv_binary)
+            let venv_output = Command::new(&self.uv_binary)
                 .current_dir(&self.python_dir)
                 .args(["venv"])
                 .output()
                 .await?;
+
+            if !venv_output.status.success() {
+                error!(
+                    stderr = %String::from_utf8_lossy(&venv_output.stderr),
+                    python_dir = %self.python_dir.display(),
+                    "Failed to create Python virtual environment"
+                );
+                return Err(anyhow!("Failed to create virtual environment"));
+            }
         }
 
         // Sync dependencies (requires pyproject.toml to exist)
         if self.python_dir.join("pyproject.toml").exists() {
-            Command::new(&self.uv_binary)
+            let sync_output = Command::new(&self.uv_binary)
                 .current_dir(&self.python_dir)
                 .args(["sync"])
                 .output()
                 .await?;
+
+            if !sync_output.status.success() {
+                error!(
+                    stderr = %String::from_utf8_lossy(&sync_output.stderr),
+                    python_dir = %self.python_dir.display(),
+                    "Failed to sync Python dependencies"
+                );
+                return Err(anyhow!("Failed to sync dependencies"));
+            }
         }
 
         info!("Python environment ready");
@@ -375,12 +418,25 @@ impl PythonManager {
         }
 
         // 30 second timeout for inline code execution
-        let output = tokio::time::timeout(Duration::from_secs(30), child.wait_with_output())
-            .await
-            .map_err(|_| anyhow!("Script execution timeout"))??;
+        let output = match tokio::time::timeout(Duration::from_secs(30), child.wait_with_output()).await {
+            Ok(Ok(output)) => output,
+            Ok(Err(e)) => {
+                error!(error = %e, "Failed to wait for Python script execution");
+                return Err(e.into());
+            }
+            Err(_) => {
+                error!("Python script execution timeout after 30 seconds");
+                return Err(anyhow!("Script execution timeout"));
+            }
+        };
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
+            error!(
+                stderr = %stderr,
+                exit_code = ?output.status.code(),
+                "Python script execution failed"
+            );
             return Err(anyhow!("Script execution failed: {}", stderr));
         }
 

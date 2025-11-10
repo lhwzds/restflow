@@ -278,7 +278,8 @@ impl Worker {
         while *self.running.lock().await {
             if let Err(e) = self.process_next_task().await {
                 let error_msg = e.to_string();
-                if !error_msg.contains("Failed to get task") {
+                // Only log errors that are not "no tasks available" (which is normal during polling)
+                if !error_msg.contains("Failed to get task") && !error_msg.contains("No pending tasks") {
                     error!(worker_id = self.id, error = %error_msg, "Worker error");
                 }
                 tokio::time::sleep(tokio::time::Duration::from_millis(QUEUE_POLL_INTERVAL_MS))
@@ -318,6 +319,13 @@ impl Worker {
                     }
 
                     if retries >= MAX_RETRIES {
+                        error!(
+                            worker_id = self.id,
+                            task_id = %task.id,
+                            node_id = %task.node_id,
+                            timeout_seconds = MAX_RETRIES / 10,
+                            "Python manager not available after timeout - initialization may have failed"
+                        );
                         return Err(anyhow!(
                             "Python manager not available after {}s. \
                              Ensure Python manager is initialized before submitting Python tasks.",
