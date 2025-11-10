@@ -6,6 +6,7 @@ use anyhow::Result;
 use chrono::Utc;
 use serde_json::Value;
 use std::sync::Arc;
+use tracing::{debug, error};
 use uuid::Uuid;
 
 // Tasks processing longer than this threshold are considered stalled and will be reset to pending
@@ -101,33 +102,67 @@ impl Scheduler {
         let start_nodes = graph.get_nodes_with_no_dependencies();
 
         if start_nodes.is_empty() {
+            error!(
+                workflow_id = %workflow.id,
+                workflow_name = %workflow.name,
+                "No start nodes found in workflow - check workflow graph structure"
+            );
             return Err(anyhow::anyhow!(
                 "No start nodes found in workflow {}",
                 workflow.id
             ));
         }
 
+        let start_node_count = start_nodes.len();
+
         for node_id in start_nodes {
             if let Some(node) = graph.get_node(&node_id) {
-                self.push_task(
+                if let Err(e) = self.push_task(
                     execution_id.clone(),
                     node.clone(),
                     workflow.clone(),
                     context.clone(),
-                )?;
+                ) {
+                    error!(
+                        workflow_id = %workflow.id,
+                        node_id = %node_id,
+                        error = %e,
+                        "Failed to push start node task to queue"
+                    );
+                    return Err(e);
+                }
             }
         }
+
+        debug!(
+            workflow_id = %workflow.id,
+            execution_id = %execution_id,
+            start_node_count = start_node_count,
+            "Workflow submitted successfully"
+        );
 
         Ok(execution_id)
     }
 
     /// Submit a workflow by ID for execution
     pub fn submit_workflow_by_id(&self, workflow_id: &str, input: Value) -> Result<String> {
-        let workflow = self
-            .storage
-            .workflows
-            .get_workflow(workflow_id)
-            .map_err(|e| anyhow::anyhow!("Failed to load workflow {}: {}", workflow_id, e))?;
+        let workflow = match self.storage.workflows.get_workflow(workflow_id) {
+            Ok(wf) => wf,
+            Err(e) => {
+                error!(
+                    workflow_id = %workflow_id,
+                    error = %e,
+                    "Failed to load workflow from storage"
+                );
+                return Err(anyhow::anyhow!("Failed to load workflow {}: {}", workflow_id, e));
+            }
+        };
+
+        debug!(
+            workflow_id = %workflow_id,
+            workflow_name = %workflow.name,
+            "Submitting workflow for execution"
+        );
 
         self.submit_workflow(workflow, input)
     }

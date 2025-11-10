@@ -8,7 +8,7 @@ use serde_json::Value;
 use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::time::{Duration, Instant, sleep};
-use tracing::warn;
+use tracing::{error, warn};
 
 // Core workflow functions that can be used by both Axum and Tauri
 
@@ -69,22 +69,44 @@ pub async fn execute_workflow_inline(core: &Arc<AppCore>, mut workflow: Workflow
     workflow.id = format!("inline-{}", uuid::Uuid::new_v4());
 
     if workflow.nodes.iter().any(|node| node.node_type == NodeType::Python) {
-        core.get_python_manager()
+        if let Err(e) = core
+            .get_python_manager()
             .await
-            .context("Failed to initialize Python manager for inline execution")?;
+            .context("Failed to initialize Python manager for inline execution")
+        {
+            error!(
+                workflow_id = %workflow.id,
+                workflow_name = %workflow.name,
+                error = %e,
+                "Failed to initialize Python manager for inline execution"
+            );
+            return Err(e);
+        }
     }
 
-    core.storage
-        .workflows
-        .create_workflow(&workflow)
-        .with_context(|| format!("Failed to persist inline workflow {}", workflow.name))?;
+    if let Err(e) = core.storage.workflows.create_workflow(&workflow) {
+        error!(
+            workflow_id = %workflow.id,
+            workflow_name = %workflow.name,
+            error = %e,
+            "Failed to persist inline workflow"
+        );
+        return Err(e).with_context(|| format!("Failed to persist inline workflow {}", workflow.name));
+    }
 
     let result = async {
-        let execution_id = core
-            .executor
-            .submit(workflow.id.clone(), Value::Null)
-            .await
-            .with_context(|| format!("Failed to submit workflow {}", workflow.id))?;
+        let execution_id = match core.executor.submit(workflow.id.clone(), Value::Null).await {
+            Ok(id) => id,
+            Err(e) => {
+                error!(
+                    workflow_id = %workflow.id,
+                    workflow_name = %workflow.name,
+                    error = %e,
+                    "Failed to submit workflow to executor"
+                );
+                return Err(e).with_context(|| format!("Failed to submit workflow {}", workflow.id));
+            }
+        };
 
         wait_and_collect(core, &execution_id).await
     }

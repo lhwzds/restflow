@@ -7,6 +7,7 @@ use restflow_core::models::{ExecutionHistoryPage, Workflow};
 use restflow_core::services::workflow as workflow_service;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use tracing::{error, info};
 
 #[derive(Serialize, Deserialize)]
 pub struct WorkflowIdResponse {
@@ -106,12 +107,36 @@ pub async fn execute_workflow(
     State(state): State<AppState>,
     Json(workflow): Json<Workflow>,
 ) -> Json<ApiResponse<Value>> {
+    let workflow_id = workflow.id.clone();
+    let workflow_name = workflow.name.clone();
+
+    info!(
+        workflow_id = %workflow_id,
+        workflow_name = %workflow_name,
+        "Executing inline workflow"
+    );
+
     match workflow_service::execute_workflow_inline(&state, workflow).await {
-        Ok(output) => Json(ApiResponse::ok(output)),
-        Err(e) => Json(ApiResponse::error(format!(
-            "Workflow execution failed: {}",
-            e
-        ))),
+        Ok(output) => {
+            info!(
+                workflow_id = %workflow_id,
+                workflow_name = %workflow_name,
+                "Inline workflow completed successfully"
+            );
+            Json(ApiResponse::ok(output))
+        }
+        Err(e) => {
+            error!(
+                workflow_id = %workflow_id,
+                workflow_name = %workflow_name,
+                error = %e,
+                "Workflow execution failed"
+            );
+            Json(ApiResponse::error(format!(
+                "Workflow execution failed: {}",
+                e
+            )))
+        }
     }
 }
 
