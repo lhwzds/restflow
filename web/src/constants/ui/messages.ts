@@ -3,6 +3,13 @@
  */
 
 /**
+ * Default values for UI elements
+ */
+export const DEFAULT_VALUES = {
+  WORKFLOW_NAME: 'Untitled Workflow',
+} as const
+
+/**
  * Success message templates
  */
 export const SUCCESS_MESSAGES = {
@@ -208,6 +215,7 @@ export const INFO_MESSAGES = {
  * Combined export of all message constants
  */
 export const MESSAGES = {
+  DEFAULT: DEFAULT_VALUES,
   SUCCESS: SUCCESS_MESSAGES,
   ERROR: ERROR_MESSAGES,
   VALIDATION: VALIDATION_MESSAGES,
@@ -218,6 +226,7 @@ export const MESSAGES = {
 } as const
 
 // Type exports
+export type DefaultValueKey = keyof typeof DEFAULT_VALUES
 export type SuccessMessageKey = keyof typeof SUCCESS_MESSAGES
 export type ErrorMessageKey = keyof typeof ERROR_MESSAGES
 export type ValidationMessageKey = keyof typeof VALIDATION_MESSAGES
