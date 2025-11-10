@@ -7,34 +7,34 @@ export const chatHistories: Record<string, ChatMessage[]> = {
   'demo-translator': [
     {
       role: 'user',
-      content: "请将'你好，最近怎么样？'翻译成英文"
+      content: "请将'你好，最近怎么样？'翻译成英文",
     },
     {
       role: 'assistant',
-      content: 'Hello, how have you been recently?'
+      content: 'Hello, how have you been recently?',
     },
     {
       role: 'user',
-      content: 'What about Spanish?'
+      content: 'What about Spanish?',
     },
     {
       role: 'assistant',
-      content: 'Hola, ¿cómo has estado últimamente?'
+      content: 'Hola, ¿cómo has estado últimamente?',
     },
     {
       role: 'user',
-      content: 'And Japanese?'
+      content: 'And Japanese?',
     },
     {
       role: 'assistant',
-      content: 'こんにちは、最近どうですか？ (Konnichiwa, saikin dō desu ka?)'
-    }
+      content: 'こんにちは、最近どうですか？ (Konnichiwa, saikin dō desu ka?)',
+    },
   ],
 
   'demo-code-reviewer': [
     {
       role: 'user',
-      content: "Review this code: `function add(a,b){return a+b}`"
+      content: 'Review this code: `function add(a,b){return a+b}`',
     },
     {
       role: 'assistant',
@@ -59,11 +59,11 @@ function add(a: number, b: number): number {
   }
   return a + b;
 }
-\`\`\``
+\`\`\``,
     },
     {
       role: 'user',
-      content: 'What about async error handling?'
+      content: 'What about async error handling?',
     },
     {
       role: 'assistant',
@@ -90,30 +90,32 @@ async function fetchData(): Promise<Data> {
 - Always validate response status
 - Use specific error types
 - Provide meaningful error messages
-- Consider retry logic for network errors`
-    }
+- Consider retry logic for network errors`,
+    },
   ],
 
   'demo-content-creator': [
     {
       role: 'user',
-      content: 'Create a tweet about AI automation'
+      content: 'Create a tweet about AI automation',
     },
     {
       role: 'assistant',
-      content: "🤖 AI automation is transforming how we work! From streamlining workflows to intelligent decision-making, the future is here. Are you ready to embrace the change? #AI #Automation #FutureOfWork"
+      content:
+        '🤖 AI automation is transforming how we work! From streamlining workflows to intelligent decision-making, the future is here. Are you ready to embrace the change? #AI #Automation #FutureOfWork',
     },
     {
       role: 'user',
-      content: 'Make it more technical'
+      content: 'Make it more technical',
     },
     {
       role: 'assistant',
-      content: "🔧 LLM orchestration + workflow automation = 10x productivity boost. RestFlow combines Claude/GPT-4 with visual workflow design for enterprise-grade automation. Built with Rust for performance. Open source! #MachineLearning #DevOps"
+      content:
+        '🔧 LLM orchestration + workflow automation = 10x productivity boost. RestFlow combines Claude/GPT-4 with visual workflow design for enterprise-grade automation. Built with Rust for performance. Open source! #MachineLearning #DevOps',
     },
     {
       role: 'user',
-      content: 'Write a LinkedIn post version'
+      content: 'Write a LinkedIn post version',
     },
     {
       role: 'assistant',
@@ -128,14 +130,14 @@ We're excited to share how AI-powered automation is transforming business operat
 
 The future of work isn't about replacing humans—it's about empowering them.
 
-#Innovation #BusinessTransformation #AI #Productivity`
-    }
+#Innovation #BusinessTransformation #AI #Productivity`,
+    },
   ],
 
   'demo-data-analyst': [
     {
       role: 'user',
-      content: 'Analyze this sales data: [120, 135, 145, 158, 170, 165, 180]'
+      content: 'Analyze this sales data: [120, 135, 145, 158, 170, 165, 180]',
     },
     {
       role: 'assistant',
@@ -152,11 +154,11 @@ The future of work isn't about replacing humans—it's about empowering them.
 ✅ Strong momentum: +15% in final period
 ⚠️ Minor dip in period 6 requires investigation
 
-**Recommendation:** Maintain current strategy while analyzing period 6 anomaly.`
+**Recommendation:** Maintain current strategy while analyzing period 6 anomaly.`,
     },
     {
       role: 'user',
-      content: "What's the forecast for next period?"
+      content: "What's the forecast for next period?",
     },
     {
       role: 'assistant',
@@ -169,7 +171,7 @@ Using linear regression model:
 
 The model shows R² = 0.94, indicating high reliability.
 
-**Recommendation:** Prepare inventory for 190 units to meet expected demand with buffer.`
-    }
-  ]
+**Recommendation:** Prepare inventory for 190 units to meet expected demand with buffer.`,
+    },
+  ],
 }

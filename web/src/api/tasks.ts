@@ -14,7 +14,9 @@ interface NodeTestRequest {
   input: unknown
 }
 
-export const getTaskStatus = async (id: string): Promise<{
+export const getTaskStatus = async (
+  id: string,
+): Promise<{
   id: string
   status: TaskStatus
   result?: any
@@ -26,7 +28,7 @@ export const getTaskStatus = async (id: string): Promise<{
       id: task.id,
       status: task.status,
       result: task.output,
-      error: task.error || undefined
+      error: task.error || undefined,
     }
   }
   const response = await apiClient.get<Task>(API_ENDPOINTS.TASK.STATUS(id))
@@ -35,7 +37,7 @@ export const getTaskStatus = async (id: string): Promise<{
     id: task.id,
     status: task.status,
     result: task.output,
-    error: task.error || undefined
+    error: task.error || undefined,
   }
 }
 
@@ -50,7 +52,7 @@ export const listTasks = async (params?: {
     return invokeCommand<Task[]>('list_tasks', {
       execution_id: params?.execution_id,
       status: params?.status,
-      limit: params?.limit || 100
+      limit: params?.limit || 100,
     })
   }
   const response = await apiClient.get<Task[]>(API_ENDPOINTS.TASK.LIST, { params })
@@ -64,7 +66,7 @@ export const getTasksByExecutionId = async (executionId: string): Promise<Task[]
 export const getExecutionStatus = async (executionId: string): Promise<Task[]> => {
   if (isTauri()) {
     return invokeCommand<Task[]>('get_execution_status', {
-      execution_id: executionId
+      execution_id: executionId,
     })
   }
   const response = await apiClient.get<Task[]>(API_ENDPOINTS.EXECUTION.STATUS(executionId))
@@ -93,20 +95,20 @@ export const executeNode = async (node: any, input: any = {}): Promise<string> =
         ...node.config,
         data: {
           ...(node.config?.data || {}),
-          ...input
-        }
-      }
+          ...input,
+        },
+      },
     }
   }
 
   if (isTauri()) {
     return invokeCommand<string>('execute_node', {
-      node: nodeToExecute
+      node: nodeToExecute,
     })
   }
   const response = await apiClient.post<{ task_id: string; message: string }>(
     API_ENDPOINTS.NODE.EXECUTE,
-    nodeToExecute
+    nodeToExecute,
   )
   return response.data.task_id
 }

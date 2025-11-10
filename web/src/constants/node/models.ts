@@ -44,7 +44,7 @@ export const MODEL_OPTIONS: ModelOption[] = [
  * Maps internal model ID to user-friendly display name
  */
 export const MODEL_DISPLAY_NAMES: Record<string, string> = Object.fromEntries(
-  MODEL_OPTIONS.map(option => [option.value, option.label])
+  MODEL_OPTIONS.map((option) => [option.value, option.label]),
 )
 
 /**
@@ -63,11 +63,11 @@ export function getModelDisplayName(model?: string): string {
  * @returns Element Plus tag type
  */
 export function getModelTagType(
-  model?: string
+  model?: string,
 ): 'success' | 'primary' | 'warning' | 'info' | 'danger' {
   if (!model) return 'info'
 
-  const option = MODEL_OPTIONS.find(opt => opt.value === model)
+  const option = MODEL_OPTIONS.find((opt) => opt.value === model)
   if (!option) {
     // Fallback to string matching for backward compatibility
     if (model.includes('gpt')) return 'success'
@@ -93,8 +93,6 @@ export function getModelTagType(
  * @param provider - AI provider name
  * @returns Array of model options for the specified provider
  */
-export function getModelsByProvider(
-  provider: 'openai' | 'anthropic' | 'deepseek'
-): ModelOption[] {
-  return MODEL_OPTIONS.filter(opt => opt.provider === provider)
+export function getModelsByProvider(provider: 'openai' | 'anthropic' | 'deepseek'): ModelOption[] {
+  return MODEL_OPTIONS.filter((opt) => opt.provider === provider)
 }

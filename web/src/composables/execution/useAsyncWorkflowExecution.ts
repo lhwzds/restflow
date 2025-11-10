@@ -47,7 +47,7 @@ function createExecutionMonitor() {
         executionStore.updateFromTasks(tasks)
 
         const allCompleted = tasks.every(
-          (task: Task) => task.status === 'Completed' || task.status === 'Failed'
+          (task: Task) => task.status === 'Completed' || task.status === 'Failed',
         )
         const hasFailed = tasks.some((task: Task) => task.status === 'Failed')
 
@@ -183,9 +183,7 @@ export function useAsyncWorkflowExecution() {
     executionMonitor.executionError.value = null
 
     try {
-      const { execution_id } = await workflowsApi.submitWorkflow(
-        workflowStore.currentWorkflowId!
-      )
+      const { execution_id } = await workflowsApi.submitWorkflow(workflowStore.currentWorkflowId!)
       executionMonitor.monitorExecution(execution_id, {
         label: 'Workflow',
       })

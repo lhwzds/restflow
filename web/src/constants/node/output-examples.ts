@@ -16,37 +16,37 @@ export const HTTP_EXAMPLE = {
   data: {
     status: 200,
     headers: { 'content-type': 'application/json' },
-    body: { message: 'Example response' }
-  }
+    body: { message: 'Example response' },
+  },
 }
 
 export const AGENT_EXAMPLE = {
   type: 'Agent',
   data: {
-    response: 'AI generated response text...'
-  }
+    response: 'AI generated response text...',
+  },
 }
 
 export const PYTHON_EXAMPLE = {
   type: 'Python',
   data: {
-    result: { output: 'Script execution result' }
-  }
+    result: { output: 'Script execution result' },
+  },
 }
 
 export const PRINT_EXAMPLE = {
   type: 'Print',
   data: {
-    printed: 'Printed message'
-  }
+    printed: 'Printed message',
+  },
 }
 
 export const MANUAL_TRIGGER_EXAMPLE = {
   type: 'ManualTrigger',
   data: {
     triggered_at: 1640000000000, // Using number for example data (BigInt causes Vue reactivity issues)
-    payload: { message: 'User triggered data' }
-  }
+    payload: { message: 'User triggered data' },
+  },
 }
 
 export const WEBHOOK_TRIGGER_EXAMPLE = {
@@ -56,16 +56,16 @@ export const WEBHOOK_TRIGGER_EXAMPLE = {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: { message: 'Webhook request body' },
-    query: { key: 'value' }
-  }
+    query: { key: 'value' },
+  },
 }
 
 export const SCHEDULE_EXAMPLE = {
   type: 'ScheduleTrigger',
   data: {
     triggered_at: 1640000000000, // Using number for example data (BigInt causes Vue reactivity issues)
-    payload: {}
-  }
+    payload: {},
+  },
 }
 
 export const NODE_OUTPUT_EXAMPLES: Record<string, any> = {
@@ -75,5 +75,5 @@ export const NODE_OUTPUT_EXAMPLES: Record<string, any> = {
   Print: PRINT_EXAMPLE,
   ManualTrigger: MANUAL_TRIGGER_EXAMPLE,
   WebhookTrigger: WEBHOOK_TRIGGER_EXAMPLE,
-  ScheduleTrigger: SCHEDULE_EXAMPLE
+  ScheduleTrigger: SCHEDULE_EXAMPLE,
 }

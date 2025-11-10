@@ -17,9 +17,7 @@ const description = props.searchQuery
   ? 'No workflows found matching your search'
   : 'No workflows yet'
 
-const buttonText = props.searchQuery
-  ? 'Clear search'
-  : 'Create your first workflow'
+const buttonText = props.searchQuery ? 'Clear search' : 'Create your first workflow'
 
 function handleAction() {
   if (props.searchQuery) {
@@ -33,10 +31,7 @@ function handleAction() {
 <template>
   <div v-if="!isLoading" class="empty-state">
     <ElEmpty :description="description">
-      <ElButton 
-        :type="searchQuery ? 'default' : 'primary'" 
-        @click="handleAction"
-      >
+      <ElButton :type="searchQuery ? 'default' : 'primary'" @click="handleAction">
         {{ buttonText }}
       </ElButton>
     </ElEmpty>

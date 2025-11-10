@@ -10,11 +10,7 @@
     >
       <!-- Expand/collapse icon for objects and arrays -->
       <div class="variable-field__expand" @click.stop="toggleExpand">
-        <ChevronRight
-          v-if="hasChildren"
-          :class="{ rotated: isExpanded }"
-          :size="14"
-        />
+        <ChevronRight v-if="hasChildren" :class="{ rotated: isExpanded }" :size="14" />
       </div>
 
       <!-- Field name -->
@@ -29,11 +25,7 @@
       </div>
 
       <!-- Copy button -->
-      <button
-        class="variable-field__copy"
-        @click.stop="handleCopy"
-        title="Copy variable path"
-      >
+      <button class="variable-field__copy" @click.stop="handleCopy" title="Copy variable path">
         <Copy :size="14" />
       </button>
     </div>

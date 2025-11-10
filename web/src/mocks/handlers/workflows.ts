@@ -3,7 +3,13 @@ import type { Task } from '@/types/generated/Task'
 import type { Workflow } from '@/types/generated/Workflow'
 import type { TaskStatus } from '@/types/generated/TaskStatus'
 import demoWorkflows from '../data/workflows.json'
-import { createExecutionTasks, getExecutionSnapshots, addExecution, addTask, generateMockOutput } from './executions'
+import {
+  createExecutionTasks,
+  getExecutionSnapshots,
+  addExecution,
+  addTask,
+  generateMockOutput,
+} from './executions'
 
 let workflows = [...demoWorkflows] as Workflow[]
 
@@ -15,24 +21,33 @@ interface TriggerState {
 }
 
 const triggerStates = new Map<string, TriggerState>([
-  ['demo-ai-summarizer', {
-    is_active: true,
-    trigger_count: 12,
-    last_triggered_at: Date.now() - 3600000,
-    activated_at: Date.now() - 86400000 * 3
-  }],
-  ['demo-data-pipeline', {
-    is_active: false,
-    trigger_count: 0,
-    last_triggered_at: null,
-    activated_at: 0
-  }],
-  ['demo-multi-step', {
-    is_active: false,
-    trigger_count: 0,
-    last_triggered_at: null,
-    activated_at: 0
-  }]
+  [
+    'demo-ai-summarizer',
+    {
+      is_active: true,
+      trigger_count: 12,
+      last_triggered_at: Date.now() - 3600000,
+      activated_at: Date.now() - 86400000 * 3,
+    },
+  ],
+  [
+    'demo-data-pipeline',
+    {
+      is_active: false,
+      trigger_count: 0,
+      last_triggered_at: null,
+      activated_at: 0,
+    },
+  ],
+  [
+    'demo-multi-step',
+    {
+      is_active: false,
+      trigger_count: 0,
+      last_triggered_at: null,
+      activated_at: 0,
+    },
+  ],
 ])
 
 // Create completed execution history record
@@ -41,7 +56,7 @@ const createCompletedExecution = (
   workflowId: string,
   nodes: any[],
   startTimeOffset: number,
-  shouldFail = false
+  shouldFail = false,
 ): void => {
   const startedAt = Date.now() - startTimeOffset
   const tasks: Task[] = nodes.map((node, index) => {
@@ -54,7 +69,7 @@ const createCompletedExecution = (
       workflow_id: workflowId,
       node_id: node.id,
       status: (isFailed ? 'Failed' : 'Completed') as TaskStatus,
-      created_at: startedAt + index * 1000 as any,
+      created_at: (startedAt + index * 1000) as any,
       started_at: (startedAt + index * 1000 + 500) as any,
       completed_at: (startedAt + index * 1000 + 2000) as any,
       input: node.config, // NodeInput is now a tagged union from node config
@@ -63,8 +78,8 @@ const createCompletedExecution = (
       context: {
         workflow_id: workflowId,
         execution_id: executionId,
-        data: {}
-      }
+        data: {},
+      },
     }
 
     addTask(taskId, task)
@@ -108,17 +123,17 @@ const initializeDemoExecutionHistory = () => {
           workflow_id: workflow.id,
           node_id: node.id,
           status: (isCompleted ? 'Completed' : 'Running') as TaskStatus,
-          created_at: runningStartTime + index * 1000 as any,
+          created_at: (runningStartTime + index * 1000) as any,
           started_at: (runningStartTime + index * 1000 + 500) as any,
-          completed_at: isCompleted ? (runningStartTime + index * 1000 + 2000) as any : null,
+          completed_at: isCompleted ? ((runningStartTime + index * 1000 + 2000) as any) : null,
           input: node.config, // NodeInput is now a tagged union from node config
           output: isCompleted ? generateMockOutput(node.node_type, node.id, node.config) : null,
           error: null,
           context: {
             workflow_id: workflow.id,
             execution_id: runningExecutionId,
-            data: {}
-          }
+            data: {},
+          },
         }
 
         addTask(taskId, task)
@@ -154,9 +169,9 @@ const buildExecutionSummary = (workflowId: string, executionId: string, tasks: T
   }
 
   const totalTasks = tasks.length
-  const completedTasks = tasks.filter(t => t.status === 'Completed').length
-  const failedTasks = tasks.filter(t => t.status === 'Failed').length
-  const runningTasks = tasks.filter(t => t.status === 'Running').length
+  const completedTasks = tasks.filter((t) => t.status === 'Completed').length
+  const failedTasks = tasks.filter((t) => t.status === 'Failed').length
+  const runningTasks = tasks.filter((t) => t.status === 'Running').length
 
   const status =
     failedTasks > 0 && runningTasks === 0 && completedTasks + failedTasks === totalTasks
@@ -166,14 +181,14 @@ const buildExecutionSummary = (workflowId: string, executionId: string, tasks: T
         : ('Running' as const)
 
   const startTimes = tasks.map(
-    task => toMillis(task.started_at) ?? toMillis(task.created_at) ?? Date.now()
+    (task) => toMillis(task.started_at) ?? toMillis(task.created_at) ?? Date.now(),
   )
   const startedAt = startTimes.length > 0 ? Math.min(...startTimes) : Date.now()
 
   let completedAt: number | null = null
   if (status !== 'Running') {
     const endTimes = tasks
-      .map(task => toMillis(task.completed_at))
+      .map((task) => toMillis(task.completed_at))
       .filter((value): value is number => value !== null)
     completedAt = endTimes.length > 0 ? Math.max(...endTimes) : startedAt
   }
@@ -194,37 +209,37 @@ export const workflowHandlers = [
   http.get('/api/workflows', () => {
     return HttpResponse.json({
       success: true,
-      data: workflows
+      data: workflows,
     })
   }),
 
   http.get('/api/workflows/:id', ({ params }) => {
-    const workflow = workflows.find(w => w.id === params.id)
+    const workflow = workflows.find((w) => w.id === params.id)
     if (!workflow) {
       return HttpResponse.json(
         {
           success: false,
-          message: 'Workflow not found'
+          message: 'Workflow not found',
         },
-        { status: 404 }
+        { status: 404 },
       )
     }
     return HttpResponse.json({
       success: true,
-      data: workflow
+      data: workflow,
     })
   }),
 
   http.post('/api/workflows', async ({ request }) => {
-    const body = await request.json() as Partial<Workflow>
+    const body = (await request.json()) as Partial<Workflow>
 
-    if (body.id && workflows.find(w => w.id === body.id)) {
+    if (body.id && workflows.find((w) => w.id === body.id)) {
       return HttpResponse.json(
         {
           success: false,
-          message: `Workflow with ID ${body.id} already exists`
+          message: `Workflow with ID ${body.id} already exists`,
         },
-        { status: 409 }
+        { status: 409 },
       )
     }
 
@@ -232,69 +247,69 @@ export const workflowHandlers = [
       id: body.id || 'demo-' + Date.now(),
       name: body.name || 'Untitled Workflow',
       nodes: body.nodes || [],
-      edges: body.edges || []
+      edges: body.edges || [],
     }
     workflows.push(newWorkflow)
     return HttpResponse.json(
       {
         success: true,
-        data: { id: newWorkflow.id }
+        data: { id: newWorkflow.id },
       },
-      { status: 201 }
+      { status: 201 },
     )
   }),
 
   http.put('/api/workflows/:id', async ({ params, request }) => {
-    const index = workflows.findIndex(w => w.id === params.id)
+    const index = workflows.findIndex((w) => w.id === params.id)
     if (index === -1) {
       return HttpResponse.json(
         {
           success: false,
-          message: 'Workflow not found'
+          message: 'Workflow not found',
         },
-        { status: 404 }
+        { status: 404 },
       )
     }
-    const body = await request.json() as Partial<Workflow>
+    const body = (await request.json()) as Partial<Workflow>
     const currentWorkflow = workflows[index]
     if (!currentWorkflow) {
       return HttpResponse.json(
         {
           success: false,
-          message: 'Workflow not found'
+          message: 'Workflow not found',
         },
-        { status: 404 }
+        { status: 404 },
       )
     }
     workflows[index] = {
       ...currentWorkflow,
       ...body,
-      id: currentWorkflow.id  // Ensure id is preserved
+      id: currentWorkflow.id, // Ensure id is preserved
     } as Workflow
     return HttpResponse.json({
-      success: true
+      success: true,
     })
   }),
 
   http.delete('/api/workflows/:id', ({ params }) => {
-    const index = workflows.findIndex(w => w.id === params.id)
+    const index = workflows.findIndex((w) => w.id === params.id)
     if (index === -1) {
       return HttpResponse.json(
         {
           success: false,
-          message: 'Workflow not found'
+          message: 'Workflow not found',
         },
-        { status: 404 }
+        { status: 404 },
       )
     }
     workflows.splice(index, 1)
     return HttpResponse.json({
-      success: true
+      success: true,
     })
   }),
 
   http.post('/api/workflows/execute', async () => {
-    await new Promise(resolve => setTimeout(resolve, 1000))
+    await new Promise((resolve) => setTimeout(resolve, 1000))
 
     return HttpResponse.json({
       success: true,
@@ -303,24 +318,25 @@ export const workflowHandlers = [
         workflow_id: 'inline',
         data: {
           'node.agent-1': {
-            response: 'This is an AI-generated summary example. RestFlow is a powerful workflow automation tool that supports various node types such as AI Agents, HTTP requests, and more...'
-          }
-        }
-      }
+            response:
+              'This is an AI-generated summary example. RestFlow is a powerful workflow automation tool that supports various node types such as AI Agents, HTTP requests, and more...',
+          },
+        },
+      },
     })
   }),
 
   http.get('/api/workflows/:id/executions', ({ params, request }) => {
     const workflowId = params.id as string
-    const workflow = workflows.find(w => w.id === workflowId)
+    const workflow = workflows.find((w) => w.id === workflowId)
 
     if (!workflow) {
       return HttpResponse.json(
         {
           success: false,
-          message: 'Workflow not found'
+          message: 'Workflow not found',
         },
-        { status: 404 }
+        { status: 404 },
       )
     }
 
@@ -328,20 +344,18 @@ export const workflowHandlers = [
     const page = Math.max(parseInt(url.searchParams.get('page') || '1', 10) || 1, 1)
     const pageSize = Math.min(
       Math.max(parseInt(url.searchParams.get('page_size') || '20', 10) || 20, 1),
-      100
+      100,
     )
 
     const snapshots = getExecutionSnapshots()
     const summaries = snapshots
-      .filter(snapshot => snapshot.tasks.some(task => task.workflow_id === workflowId))
-      .map(snapshot => buildExecutionSummary(workflowId, snapshot.executionId, snapshot.tasks))
+      .filter((snapshot) => snapshot.tasks.some((task) => task.workflow_id === workflowId))
+      .map((snapshot) => buildExecutionSummary(workflowId, snapshot.executionId, snapshot.tasks))
       .sort((a, b) => Number(b.started_at) - Number(a.started_at))
 
     const total = summaries.length
     const startIndex = (page - 1) * pageSize
-    const items = startIndex >= total
-      ? []
-      : summaries.slice(startIndex, startIndex + pageSize)
+    const items = startIndex >= total ? [] : summaries.slice(startIndex, startIndex + pageSize)
     const totalPages = total === 0 ? 0 : Math.ceil(total / pageSize)
 
     return HttpResponse.json({
@@ -351,22 +365,22 @@ export const workflowHandlers = [
         total,
         page,
         page_size: pageSize,
-        total_pages: totalPages
-      }
+        total_pages: totalPages,
+      },
     })
   }),
 
   http.post('/api/workflows/:id/executions', ({ params }) => {
     const workflowId = params.id as string
-    const workflow = workflows.find(w => w.id === workflowId)
+    const workflow = workflows.find((w) => w.id === workflowId)
 
     if (!workflow) {
       return HttpResponse.json(
         {
           success: false,
-          message: 'Workflow not found'
+          message: 'Workflow not found',
         },
-        { status: 404 }
+        { status: 404 },
       )
     }
 
@@ -377,8 +391,8 @@ export const workflowHandlers = [
       success: true,
       data: {
         execution_id: executionId,
-        workflow_id: workflowId
-      }
+        workflow_id: workflowId,
+      },
     })
   }),
 
@@ -390,9 +404,9 @@ export const workflowHandlers = [
       return HttpResponse.json(
         {
           success: false,
-          message: 'Workflow not found'
+          message: 'Workflow not found',
         },
-        { status: 404 }
+        { status: 404 },
       )
     }
 
@@ -400,7 +414,7 @@ export const workflowHandlers = [
     state.activated_at = Date.now()
 
     return HttpResponse.json({
-      success: true
+      success: true,
     })
   }),
 
@@ -412,43 +426,44 @@ export const workflowHandlers = [
       return HttpResponse.json(
         {
           success: false,
-          message: 'Workflow not found'
+          message: 'Workflow not found',
         },
-        { status: 404 }
+        { status: 404 },
       )
     }
 
     state.is_active = false
 
     return HttpResponse.json({
-      success: true
+      success: true,
     })
   }),
 
   http.get('/api/workflows/:id/trigger-status', ({ params }) => {
     const workflowId = params.id as string
-    const workflow = workflows.find(w => w.id === workflowId)
+    const workflow = workflows.find((w) => w.id === workflowId)
 
     if (!workflow) {
       return HttpResponse.json(
         {
           success: false,
-          message: 'Workflow not found'
+          message: 'Workflow not found',
         },
-        { status: 404 }
+        { status: 404 },
       )
     }
 
-    const triggerNode = workflow.nodes.find(node =>
-      node.node_type === 'WebhookTrigger' ||
-      node.node_type === 'ScheduleTrigger' ||
-      node.node_type === 'ManualTrigger'
+    const triggerNode = workflow.nodes.find(
+      (node) =>
+        node.node_type === 'WebhookTrigger' ||
+        node.node_type === 'ScheduleTrigger' ||
+        node.node_type === 'ManualTrigger',
     )
 
     if (!triggerNode) {
       return HttpResponse.json({
         success: true,
-        data: null
+        data: null,
       })
     }
 
@@ -456,7 +471,7 @@ export const workflowHandlers = [
       is_active: false,
       trigger_count: 0,
       last_triggered_at: null,
-      activated_at: 0
+      activated_at: 0,
     }
 
     let triggerConfig: any = { type: 'manual' }
@@ -467,7 +482,7 @@ export const workflowHandlers = [
         type: 'webhook',
         path: triggerNode.config.path || '/webhook/default',
         method: triggerNode.config.method || 'POST',
-        auth: triggerNode.config.auth || null
+        auth: triggerNode.config.auth || null,
       }
       webhookUrl = `/api/triggers/webhook/${triggerNode.id}`
     } else if (triggerNode.node_type === 'ScheduleTrigger' && triggerNode.config) {
@@ -475,7 +490,7 @@ export const workflowHandlers = [
         type: 'schedule',
         cron: triggerNode.config.cron || '0 0 * * *',
         timezone: triggerNode.config.timezone || 'UTC',
-        payload: triggerNode.config.payload || {}
+        payload: triggerNode.config.payload || {},
       }
     }
 
@@ -487,22 +502,22 @@ export const workflowHandlers = [
         webhook_url: webhookUrl,
         trigger_count: state.trigger_count,
         last_triggered_at: state.last_triggered_at,
-        activated_at: state.activated_at
-      }
+        activated_at: state.activated_at,
+      },
     })
   }),
 
   http.post('/api/workflows/:id/test', ({ params }) => {
     const workflowId = params.id as string
-    const workflow = workflows.find(w => w.id === workflowId)
+    const workflow = workflows.find((w) => w.id === workflowId)
 
     if (!workflow) {
       return HttpResponse.json(
         {
           success: false,
-          message: 'Workflow not found'
+          message: 'Workflow not found',
         },
-        { status: 404 }
+        { status: 404 },
       )
     }
 
@@ -512,8 +527,8 @@ export const workflowHandlers = [
     return HttpResponse.json({
       success: true,
       data: {
-        execution_id: executionId
-      }
+        execution_id: executionId,
+      },
     })
-  })
+  }),
 ]

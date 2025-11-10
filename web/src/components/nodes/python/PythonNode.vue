@@ -14,7 +14,7 @@ const props = defineProps<NodeProps<PythonNodeData>>()
 const emit = defineEmits<{
   'open-config': []
   'test-node': []
-  'updateNodeInternals': [nodeId: string]
+  updateNodeInternals: [nodeId: string]
 }>()
 
 const depCount = computed(() => props.data?.dependencies?.length || 0)

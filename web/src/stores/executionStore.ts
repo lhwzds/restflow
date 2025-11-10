@@ -52,18 +52,18 @@ export const useExecutionStore = defineStore('execution', {
       const results = Array.from(this.nodeResults.values())
       const summary: ExecutionSummary = {
         totalNodes: results.length,
-        success: results.filter(r => r.status === 'Completed').length,
-        failed: results.filter(r => r.status === 'Failed').length,
-        skipped: results.filter(r => r.status === 'skipped').length,
-        running: results.filter(r => r.status === 'Running').length,
+        success: results.filter((r) => r.status === 'Completed').length,
+        failed: results.filter((r) => r.status === 'Failed').length,
+        skipped: results.filter((r) => r.status === 'skipped').length,
+        running: results.filter((r) => r.status === 'Running').length,
         totalTime: undefined,
       }
 
       // Calculate total execution time
-      const completedResults = results.filter(r => r.startTime && r.endTime)
+      const completedResults = results.filter((r) => r.startTime && r.endTime)
       if (completedResults.length > 0) {
-        const minStart = Math.min(...completedResults.map(r => r.startTime!))
-        const maxEnd = Math.max(...completedResults.map(r => r.endTime!))
+        const minStart = Math.min(...completedResults.map((r) => r.startTime!))
+        const maxEnd = Math.max(...completedResults.map((r) => r.endTime!))
         summary.totalTime = maxEnd - minStart
       }
 
@@ -103,7 +103,7 @@ export const useExecutionStore = defineStore('execution', {
     endExecution() {
       this.isExecuting = false
       // Auto-select first error node if any
-      const errorNode = this.sortedNodeResults.find(r => r.status === 'Failed')
+      const errorNode = this.sortedNodeResults.find((r) => r.status === 'Failed')
       if (errorNode) {
         this.selectedNodeId = errorNode.nodeId
       }
@@ -119,7 +119,10 @@ export const useExecutionStore = defineStore('execution', {
 
     // Node results management
     setNodeResult(nodeId: string, result: Partial<NodeExecutionResult>) {
-      const existing = this.nodeResults.get(nodeId) || { nodeId, status: 'Pending' as NodeExecutionStatus }
+      const existing = this.nodeResults.get(nodeId) || {
+        nodeId,
+        status: 'Pending' as NodeExecutionStatus,
+      }
       const updated = { ...existing, ...result }
 
       // Preserve startTime if not provided
@@ -147,7 +150,10 @@ export const useExecutionStore = defineStore('execution', {
     },
 
     updateNodeStatus(nodeId: string, status: NodeExecutionStatus) {
-      const result: NodeExecutionResult = this.nodeResults.get(nodeId) || { nodeId, status: 'Pending' as NodeExecutionStatus }
+      const result: NodeExecutionResult = this.nodeResults.get(nodeId) || {
+        nodeId,
+        status: 'Pending' as NodeExecutionStatus,
+      }
 
       if (status === 'Running') {
         result.startTime = Date.now()
@@ -207,16 +213,18 @@ export const useExecutionStore = defineStore('execution', {
     },
 
     // Update from async execution tasks (the only way to update execution status)
-    updateFromTasks(tasks: Array<{
-      node_id: string
-      status: NodeExecutionStatus
-      input?: Json
-      output?: Json
-      error?: string | null
-      started_at?: bigint | null
-      completed_at?: bigint | null
-    }>) {
-      tasks.forEach(task => {
+    updateFromTasks(
+      tasks: Array<{
+        node_id: string
+        status: NodeExecutionStatus
+        input?: Json
+        output?: Json
+        error?: string | null
+        started_at?: bigint | null
+        completed_at?: bigint | null
+      }>,
+    ) {
+      tasks.forEach((task) => {
         this.setNodeResult(task.node_id, {
           nodeId: task.node_id,
           status: task.status,

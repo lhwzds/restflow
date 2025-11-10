@@ -4,7 +4,7 @@ import { useWorkflowStore } from '../../stores/workflowStore'
 
 export function useUnsavedChanges() {
   const workflowStore = useWorkflowStore()
-  
+
   const hasChanges = computed(() => workflowStore.hasUnsavedChanges)
 
   // Browser navigation prevention

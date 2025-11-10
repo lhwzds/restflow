@@ -7,14 +7,14 @@ import {
   NODE_TYPE_CATEGORY_MAP,
   NODE_TYPE_LABELS,
   NODE_TYPE_ICONS,
-  NODE_TYPE_COLORS
+  NODE_TYPE_COLORS,
 } from '@/constants/node/types'
 import { SUCCESS_MESSAGES, ERROR_MESSAGES } from '@/constants/ui/messages'
 import { WORKFLOW_STATE as WORKFLOW_STATUS } from '@/constants/workflow/states'
 import {
   POLLING_TIMING as POLLING_INTERVAL,
   INTERACTION_TIMING as DEBOUNCE_DELAY,
-  API_TIMING as EXECUTION_TIMEOUT
+  API_TIMING as EXECUTION_TIMEOUT,
 } from '@/constants/common/time'
 
 describe('Constants - API Endpoints', () => {

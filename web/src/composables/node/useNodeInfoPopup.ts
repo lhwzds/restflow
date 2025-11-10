@@ -42,7 +42,7 @@ export function useNodeInfoPopup(nodeId: string) {
 
     return {
       x: rect.left + rect.width / 2 - 100,
-      y: rect.bottom + 4
+      y: rect.bottom + 4,
     }
   }
 
@@ -94,6 +94,6 @@ export function useNodeInfoPopup(nodeId: string) {
     showTimePopup,
     showInputPopup,
     showOutputPopup,
-    closePopup
+    closePopup,
   }
 }

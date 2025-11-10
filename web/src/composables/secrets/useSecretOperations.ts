@@ -1,4 +1,8 @@
-import { createSecret as apiCreateSecret, updateSecret as apiUpdateSecret, deleteSecret as apiDeleteSecret } from '@/api/secrets'
+import {
+  createSecret as apiCreateSecret,
+  updateSecret as apiUpdateSecret,
+  deleteSecret as apiDeleteSecret,
+} from '@/api/secrets'
 import type { Secret } from '@/types/generated/Secret'
 
 export function useSecretOperations() {
@@ -35,6 +39,6 @@ export function useSecretOperations() {
   return {
     createSecret,
     updateSecret,
-    deleteSecret
+    deleteSecret,
   }
 }

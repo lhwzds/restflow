@@ -76,6 +76,6 @@ export function useTestWorkflow(triggerNodeId?: string) {
     isExecuting,
     isButtonDisabled,
     buttonLabel,
-    buttonTooltip
+    buttonTooltip,
   }
 }

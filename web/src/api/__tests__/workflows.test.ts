@@ -8,7 +8,7 @@ import { API_ENDPOINTS } from '@/constants'
 
 vi.mock('@/api/utils', () => ({
   isTauri: () => false,
-  invokeCommand: vi.fn()
+  invokeCommand: vi.fn(),
 }))
 
 describe('Workflows API', () => {
@@ -30,10 +30,10 @@ describe('Workflows API', () => {
         id: 'node1',
         node_type: 'Agent',
         config: { model: 'gpt-4', prompt: 'test' },
-        position: null
-      }
+        position: null,
+      },
     ],
-    edges: []
+    edges: [],
   })
 
   describe('listWorkflows', () => {
@@ -42,7 +42,7 @@ describe('Workflows API', () => {
 
       mock.onGet(API_ENDPOINTS.WORKFLOW.LIST).reply(200, {
         success: true,
-        data: mockWorkflows
+        data: mockWorkflows,
       })
 
       const result = await workflowsApi.listWorkflows()
@@ -56,7 +56,7 @@ describe('Workflows API', () => {
 
       mock.onPost(API_ENDPOINTS.WORKFLOW.CREATE).reply(200, {
         success: true,
-        data: { id: 'new-wf' }
+        data: { id: 'new-wf' },
       })
 
       const result = await workflowsApi.createWorkflow(workflow)
@@ -70,7 +70,7 @@ describe('Workflows API', () => {
 
       mock.onGet(API_ENDPOINTS.WORKFLOW.GET('wf1')).reply(200, {
         success: true,
-        data: mockWorkflow
+        data: mockWorkflow,
       })
 
       const result = await workflowsApi.getWorkflow('wf1')
@@ -83,7 +83,7 @@ describe('Workflows API', () => {
       const workflow = createMockWorkflow('wf1')
 
       mock.onPut(API_ENDPOINTS.WORKFLOW.UPDATE('wf1')).reply(200, {
-        success: true
+        success: true,
       })
 
       await expect(workflowsApi.updateWorkflow('wf1', workflow)).resolves.toBeUndefined()
@@ -93,7 +93,7 @@ describe('Workflows API', () => {
   describe('deleteWorkflow', () => {
     it('should delete workflow', async () => {
       mock.onDelete(API_ENDPOINTS.WORKFLOW.DELETE('wf1')).reply(200, {
-        success: true
+        success: true,
       })
 
       await expect(workflowsApi.deleteWorkflow('wf1')).resolves.toBeUndefined()
@@ -107,13 +107,13 @@ describe('Workflows API', () => {
         execution_id: 'exec-1',
         workflow_id: 'wf1',
         data: {
-          'node.node1': { result: 'success' }
-        }
+          'node.node1': { result: 'success' },
+        },
       }
 
       mock.onPost(API_ENDPOINTS.EXECUTION.INLINE_RUN).reply(200, {
         success: true,
-        data: mockContext
+        data: mockContext,
       })
 
       const result = await workflowsApi.executeInline(workflow)
@@ -125,7 +125,7 @@ describe('Workflows API', () => {
     it('should submit workflow execution', async () => {
       mock.onPost(API_ENDPOINTS.EXECUTION.SUBMIT('wf1')).reply(200, {
         success: true,
-        data: { execution_id: 'exec-1', workflow_id: 'wf1' }
+        data: { execution_id: 'exec-1', workflow_id: 'wf1' },
       })
 
       const result = await workflowsApi.submitWorkflow('wf1', { key: 'value' })
@@ -142,7 +142,7 @@ describe('Workflows API', () => {
     it('should handle 404 not found', async () => {
       mock.onGet(API_ENDPOINTS.WORKFLOW.GET('missing')).reply(404, {
         success: false,
-        message: 'Workflow not found'
+        message: 'Workflow not found',
       })
       await expect(workflowsApi.getWorkflow('missing')).rejects.toThrow('Workflow not found')
     })
@@ -150,9 +150,11 @@ describe('Workflows API', () => {
     it('should handle 500 server error', async () => {
       mock.onPost(API_ENDPOINTS.WORKFLOW.CREATE).reply(500, {
         success: false,
-        message: 'Internal server error'
+        message: 'Internal server error',
       })
-      await expect(workflowsApi.createWorkflow(createMockWorkflow('test'))).rejects.toThrow('Internal server error')
+      await expect(workflowsApi.createWorkflow(createMockWorkflow('test'))).rejects.toThrow(
+        'Internal server error',
+      )
     })
 
     it('should handle network error', async () => {
@@ -163,9 +165,11 @@ describe('Workflows API', () => {
     it('should handle failed execution', async () => {
       mock.onPost(API_ENDPOINTS.EXECUTION.INLINE_RUN).reply(200, {
         success: false,
-        message: 'Execution failed'
+        message: 'Execution failed',
       })
-      await expect(workflowsApi.executeInline(createMockWorkflow('test'))).rejects.toThrow('Execution failed')
+      await expect(workflowsApi.executeInline(createMockWorkflow('test'))).rejects.toThrow(
+        'Execution failed',
+      )
     })
   })
 })

@@ -4,19 +4,17 @@ import HeaderBar from '../components/shared/HeaderBar.vue'
 import PageLayout from '../components/shared/PageLayout.vue'
 import EmptyState from '../components/shared/EmptyState.vue'
 import SearchInfo from '../components/shared/SearchInfo.vue'
-import {
-  ElButton,
-  ElTable,
-  ElTableColumn,
-  ElInput,
-  ElMessageBox,
-  ElMessage,
-} from 'element-plus'
+import { ElButton, ElTable, ElTableColumn, ElInput, ElMessageBox, ElMessage } from 'element-plus'
 import { onMounted, reactive, computed } from 'vue'
 import { useSecretsList } from '../composables/secrets/useSecretsList'
 import { useSecretOperations } from '../composables/secrets/useSecretOperations'
 import type { Secret } from '@/types/generated/Secret'
-import { SUCCESS_MESSAGES, ERROR_MESSAGES, VALIDATION_MESSAGES, CONFIRM_MESSAGES } from '@/constants'
+import {
+  SUCCESS_MESSAGES,
+  ERROR_MESSAGES,
+  VALIDATION_MESSAGES,
+  CONFIRM_MESSAGES,
+} from '@/constants'
 
 const { isLoading, searchQuery, filteredSecrets, loadSecrets } = useSecretsList()
 const { createSecret, updateSecret, deleteSecret } = useSecretOperations()
@@ -119,15 +117,11 @@ async function saveEditedSecret(key: string) {
 
 async function handleDeleteSecret(row: Secret) {
   try {
-    await ElMessageBox.confirm(
-      CONFIRM_MESSAGES.DELETE_SECRET,
-      'Delete Confirmation',
-      {
-        confirmButtonText: 'Confirm',
-        cancelButtonText: 'Cancel',
-        type: 'warning',
-      },
-    )
+    await ElMessageBox.confirm(CONFIRM_MESSAGES.DELETE_SECRET, 'Delete Confirmation', {
+      confirmButtonText: 'Confirm',
+      cancelButtonText: 'Cancel',
+      type: 'warning',
+    })
 
     await deleteSecret(row.key)
     ElMessage.success(SUCCESS_MESSAGES.SECRET_DELETED)
@@ -396,5 +390,4 @@ function setEditDescription(key: string, description: string) {
     gap: var(--rf-spacing-sm);
   }
 }
-
 </style>

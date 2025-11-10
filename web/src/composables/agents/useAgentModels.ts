@@ -8,12 +8,12 @@ import { MODEL_OPTIONS } from '@/constants/node/models'
 export function useAgentModels() {
   // Build AVAILABLE_MODELS from MODEL_OPTIONS with supportsTemperature flag
   const AVAILABLE_MODELS = readonly(
-    MODEL_OPTIONS.map(option => ({
+    MODEL_OPTIONS.map((option) => ({
       label: option.label,
       value: option.value,
       // O-series models don't support temperature
-      supportsTemperature: !option.value.startsWith('o')
-    }))
+      supportsTemperature: !option.value.startsWith('o'),
+    })),
   )
 
   const O_SERIES_MODELS = ['o4-mini', 'o3', 'o3-mini']
@@ -37,7 +37,7 @@ export function useAgentModels() {
    * Check if model supports temperature configuration
    */
   const supportsTemperature = (model: string): boolean => {
-    const modelInfo = AVAILABLE_MODELS.find(m => m.value === model)
+    const modelInfo = AVAILABLE_MODELS.find((m) => m.value === model)
     return modelInfo?.supportsTemperature ?? true
   }
 
@@ -45,7 +45,7 @@ export function useAgentModels() {
    * Get model display label
    */
   const getModelLabel = (model: string): string => {
-    const modelInfo = AVAILABLE_MODELS.find(m => m.value === model)
+    const modelInfo = AVAILABLE_MODELS.find((m) => m.value === model)
     return modelInfo?.label || model
   }
 
@@ -55,6 +55,6 @@ export function useAgentModels() {
     isOSeriesModel,
     getDefaultTemperature,
     supportsTemperature,
-    getModelLabel
+    getModelLabel,
   }
 }

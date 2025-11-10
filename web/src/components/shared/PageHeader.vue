@@ -27,12 +27,7 @@ function handleBack() {
 <template>
   <div class="page-header">
     <div class="page-header__left">
-      <ElButton
-        v-if="showBack"
-        :icon="ArrowLeft"
-        @click="handleBack"
-        class="page-header__back"
-      >
+      <ElButton v-if="showBack" :icon="ArrowLeft" @click="handleBack" class="page-header__back">
         Back
       </ElButton>
 

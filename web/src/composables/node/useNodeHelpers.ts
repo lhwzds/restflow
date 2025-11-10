@@ -6,11 +6,7 @@ import type { Node as BackendNode } from '@/types/generated/Node'
 export type AnyNode = VueFlowNode | BackendNode | { type?: string; node_type?: NodeType }
 
 // Trigger node types
-const TRIGGER_TYPES: NodeType[] = [
-  'WebhookTrigger',
-  'ScheduleTrigger',
-  'ManualTrigger',
-]
+const TRIGGER_TYPES: NodeType[] = ['WebhookTrigger', 'ScheduleTrigger', 'ManualTrigger']
 
 export function useNodeHelpers() {
   /**
@@ -37,7 +33,7 @@ export function useNodeHelpers() {
     WEBHOOK_TRIGGER: 'WebhookTrigger' as NodeType,
     SCHEDULE_TRIGGER: 'ScheduleTrigger' as NodeType,
     MANUAL_TRIGGER: 'ManualTrigger' as NodeType,
-    
+
     // Action nodes
     AGENT: 'Agent' as NodeType,
     HTTP_REQUEST: 'HttpRequest' as NodeType,

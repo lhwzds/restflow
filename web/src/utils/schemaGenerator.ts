@@ -18,12 +18,14 @@ function parseValueToFields(value: any, basePath: string): VariableField[] {
   }
 
   if (typeof value !== 'object') {
-    return [{
-      name: '',
-      type: typeof value,
-      path: basePath,
-      value
-    }]
+    return [
+      {
+        name: '',
+        type: typeof value,
+        path: basePath,
+        value,
+      },
+    ]
   }
 
   if (Array.isArray(value)) {
@@ -39,17 +41,19 @@ function parseValueToFields(value: any, basePath: string): VariableField[] {
         type: 'array-item',
         path: `${basePath}[0]`,
         value: firstItem,
-        children
+        children,
       })
     }
 
-    return [{
-      name: '',
-      type: 'array',
-      path: basePath,
-      value,
-      children: itemFields
-    }]
+    return [
+      {
+        name: '',
+        type: 'array',
+        path: basePath,
+        value,
+        children: itemFields,
+      },
+    ]
   }
 
   const fields: VariableField[] = []
@@ -63,14 +67,14 @@ function parseValueToFields(value: any, basePath: string): VariableField[] {
         type: Array.isArray(val) ? 'array' : 'object',
         path: fieldPath,
         value: val,
-        children
+        children,
       })
     } else {
       fields.push({
         name: key,
         type: typeof val,
         path: fieldPath,
-        value: val
+        value: val,
       })
     }
   }

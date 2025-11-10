@@ -23,11 +23,11 @@ impl Node {
     }
 
     /// Extract trigger configuration from node
-    pub fn extract_trigger_config(&self) -> Option<TriggerConfig> {
+    pub fn extract_trigger_config(&self) -> anyhow::Result<TriggerConfig> {
         match self.node_type {
             NodeType::ManualTrigger => {
                 // Manual trigger is a simple webhook with auto-generated path
-                Some(TriggerConfig::Webhook {
+                Ok(TriggerConfig::Webhook {
                     path: format!("/manual/{}", self.id),
                     method: "POST".to_string(),
                     auth: None,
@@ -35,8 +35,8 @@ impl Node {
             }
             NodeType::WebhookTrigger => {
                 // Extract webhook config from {"type": "WebhookTrigger", "data": {...}}
-                // Falls back to root-level config for backward compatibility
-                let data = self.config.get("data").unwrap_or(&self.config);
+                let data = self.config.get("data")
+                    .ok_or_else(|| anyhow::anyhow!("WebhookTrigger config must have 'data' field in format {{\"type\": \"WebhookTrigger\", \"data\": {{...}}}}"))?;
 
                 let path = data
                     .get("path")
@@ -71,12 +71,12 @@ impl Node {
                     }
                 });
 
-                Some(TriggerConfig::Webhook { path, method, auth })
+                Ok(TriggerConfig::Webhook { path, method, auth })
             }
             NodeType::ScheduleTrigger => {
                 // Extract schedule config from {"type": "ScheduleTrigger", "data": {...}}
-                // Falls back to root-level config for backward compatibility
-                let data = self.config.get("data").unwrap_or(&self.config);
+                let data = self.config.get("data")
+                    .ok_or_else(|| anyhow::anyhow!("ScheduleTrigger config must have 'data' field in format {{\"type\": \"ScheduleTrigger\", \"data\": {{...}}}}"))?;
 
                 let cron = data
                     .get("cron")
@@ -91,13 +91,13 @@ impl Node {
 
                 let payload = data.get("payload").cloned();
 
-                Some(TriggerConfig::Schedule {
+                Ok(TriggerConfig::Schedule {
                     cron,
                     timezone,
                     payload,
                 })
             }
-            _ => None,
+            _ => Err(anyhow::anyhow!("Node type {:?} is not a trigger", self.node_type)),
         }
     }
 }
@@ -145,9 +145,9 @@ mod tests {
         };
 
         let config = node.extract_trigger_config();
-        assert!(config.is_some());
+        assert!(config.is_ok());
 
-        if let Some(TriggerConfig::Webhook { path, method, auth }) = config {
+        if let Ok(TriggerConfig::Webhook { path, method, auth }) = config {
             assert_eq!(path, "/webhook/test");
             assert_eq!(method, "POST");
             assert!(auth.is_none());
@@ -177,9 +177,9 @@ mod tests {
         };
 
         let config = node.extract_trigger_config();
-        assert!(config.is_some());
+        assert!(config.is_ok());
 
-        if let Some(TriggerConfig::Webhook { path, method, auth }) = config {
+        if let Ok(TriggerConfig::Webhook { path, method, auth }) = config {
             assert_eq!(path, "/api/webhook");
             assert_eq!(method, "PUT");
             assert!(auth.is_some());
@@ -212,9 +212,9 @@ mod tests {
         };
 
         let config = node.extract_trigger_config();
-        assert!(config.is_some());
+        assert!(config.is_ok());
 
-        if let Some(TriggerConfig::Schedule {
+        if let Ok(TriggerConfig::Schedule {
             cron,
             timezone,
             payload,
@@ -243,9 +243,9 @@ mod tests {
         };
 
         let config = node.extract_trigger_config();
-        assert!(config.is_some());
+        assert!(config.is_ok());
 
-        if let Some(TriggerConfig::Webhook { path, method, auth }) = config {
+        if let Ok(TriggerConfig::Webhook { path, method, auth }) = config {
             assert_eq!(path, "/manual/manual-1");
             assert_eq!(method, "POST");
             assert!(auth.is_none());
@@ -255,8 +255,8 @@ mod tests {
     }
 
     #[test]
-    fn test_backward_compatibility_webhook() {
-        // Test old format (without "type" and "data" wrapper)
+    fn test_reject_old_format_webhook() {
+        // Test that old format (without "type" and "data" wrapper) is rejected
         let node = Node {
             id: "webhook-old".to_string(),
             node_type: NodeType::WebhookTrigger,
@@ -267,20 +267,14 @@ mod tests {
             position: None,
         };
 
-        let config = node.extract_trigger_config();
-        assert!(config.is_some());
-
-        if let Some(TriggerConfig::Webhook { path, method, .. }) = config {
-            assert_eq!(path, "/old/webhook");
-            assert_eq!(method, "GET");
-        } else {
-            panic!("Expected Webhook trigger config");
-        }
+        let result = node.extract_trigger_config();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("must have 'data' field"));
     }
 
     #[test]
-    fn test_backward_compatibility_schedule() {
-        // Test old format (without "type" and "data" wrapper)
+    fn test_reject_old_format_schedule() {
+        // Test that old format (without "type" and "data" wrapper) is rejected
         let node = Node {
             id: "schedule-old".to_string(),
             node_type: NodeType::ScheduleTrigger,
@@ -291,14 +285,30 @@ mod tests {
             position: None,
         };
 
-        let config = node.extract_trigger_config();
-        assert!(config.is_some());
-
-        if let Some(TriggerConfig::Schedule { cron, timezone, .. }) = config {
-            assert_eq!(cron, "0 0 * * *");
-            assert_eq!(timezone, Some("UTC".to_string()));
-        } else {
-            panic!("Expected Schedule trigger config");
-        }
+        let result = node.extract_trigger_config();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("must have 'data' field"));
     }
+
+    #[test]
+    fn test_non_trigger_node_returns_error() {
+        // Test that non-trigger node types return an error
+        let node = Node {
+            id: "agent-1".to_string(),
+            node_type: NodeType::Agent,
+            config: json!({
+                "type": "Agent",
+                "data": {
+                    "model": "gpt-4",
+                    "prompt": "test"
+                }
+            }),
+            position: None,
+        };
+
+        let result = node.extract_trigger_config();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("is not a trigger"));
+    }
+
 }

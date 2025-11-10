@@ -6,7 +6,7 @@ import SidePanel from './components/shared/SidePanel.vue'
 <template>
   <el-container style="height: 100vh">
     <SidePanel />
-    
+
     <el-main class="app-main">
       <router-view />
     </el-main>

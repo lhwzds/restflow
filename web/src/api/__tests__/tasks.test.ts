@@ -7,7 +7,7 @@ import { API_ENDPOINTS } from '@/constants'
 
 vi.mock('@/api/utils', () => ({
   isTauri: () => false,
-  invokeCommand: vi.fn()
+  invokeCommand: vi.fn(),
 }))
 
 describe('Tasks API', () => {
@@ -21,7 +21,9 @@ describe('Tasks API', () => {
     mock.reset()
   })
 
-  const createMockTask = (id: string): Omit<Task, 'created_at' | 'started_at' | 'completed_at' | 'context'> & {
+  const createMockTask = (
+    id: string,
+  ): Omit<Task, 'created_at' | 'started_at' | 'completed_at' | 'context'> & {
     created_at: number
     started_at: number | null
     completed_at: number | null
@@ -44,8 +46,8 @@ describe('Tasks API', () => {
       status: 'Completed',
       current_node: null,
       variables: {},
-      outputs: {}
-    }
+      outputs: {},
+    },
   })
 
   describe('getTaskStatus', () => {
@@ -54,7 +56,7 @@ describe('Tasks API', () => {
 
       mock.onGet(API_ENDPOINTS.TASK.STATUS('task1')).reply(200, {
         success: true,
-        data: mockTask
+        data: mockTask,
       })
 
       const result = await tasksApi.getTaskStatus('task1')
@@ -70,7 +72,7 @@ describe('Tasks API', () => {
 
       mock.onGet(API_ENDPOINTS.TASK.LIST).reply(200, {
         success: true,
-        data: mockTasks
+        data: mockTasks,
       })
 
       const result = await tasksApi.listTasks()
@@ -83,14 +85,14 @@ describe('Tasks API', () => {
       mock.onGet(API_ENDPOINTS.TASK.LIST).reply((config) => {
         expect(config.params).toEqual({
           execution_id: 'exec1',
-          limit: 10
+          limit: 10,
         })
         return [200, { success: true, data: mockTasks }]
       })
 
       const result = await tasksApi.listTasks({
         execution_id: 'exec1',
-        limit: 10
+        limit: 10,
       })
       expect(result).toEqual(mockTasks)
     })
@@ -102,7 +104,7 @@ describe('Tasks API', () => {
 
       mock.onGet(API_ENDPOINTS.TASK.LIST).reply(200, {
         success: true,
-        data: mockTasks
+        data: mockTasks,
       })
 
       const result = await tasksApi.getTasksByExecutionId('exec1')
@@ -116,7 +118,7 @@ describe('Tasks API', () => {
 
       mock.onGet(API_ENDPOINTS.EXECUTION.STATUS('exec1')).reply(200, {
         success: true,
-        data: mockTasks
+        data: mockTasks,
       })
 
       const result = await tasksApi.getExecutionStatus('exec1')
@@ -129,12 +131,12 @@ describe('Tasks API', () => {
       const node = {
         id: 'node1',
         node_type: 'Agent',
-        config: { model: 'gpt-4' }
+        config: { model: 'gpt-4' },
       }
 
       mock.onPost(API_ENDPOINTS.NODE.EXECUTE).reply(200, {
         success: true,
-        data: { task_id: 'task1', message: 'Success' }
+        data: { task_id: 'task1', message: 'Success' },
       })
 
       const result = await tasksApi.executeNode(node, { key: 'value' })
@@ -151,7 +153,7 @@ describe('Tasks API', () => {
     it('should handle 404 task not found', async () => {
       mock.onGet(API_ENDPOINTS.TASK.STATUS('missing')).reply(404, {
         success: false,
-        message: 'Task not found'
+        message: 'Task not found',
       })
       await expect(tasksApi.getTaskStatus('missing')).rejects.toThrow('Task not found')
     })
@@ -159,7 +161,7 @@ describe('Tasks API', () => {
     it('should handle 500 server error', async () => {
       mock.onGet(API_ENDPOINTS.EXECUTION.STATUS('exec1')).reply(500, {
         success: false,
-        message: 'Server error'
+        message: 'Server error',
       })
       await expect(tasksApi.getExecutionStatus('exec1')).rejects.toThrow('Server error')
     })

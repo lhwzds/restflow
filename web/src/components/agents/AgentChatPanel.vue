@@ -96,14 +96,14 @@ onMounted(async () => {
       // Add historical messages with past timestamps
       history.forEach((msg, index) => {
         // Set timestamps in the past (most recent = 2 min ago, oldest = 10 min ago)
-        const minutesAgo = 2 + ((history.length - 1 - index) * 2)
+        const minutesAgo = 2 + (history.length - 1 - index) * 2
         const timestamp = new Date(Date.now() - minutesAgo * 60 * 1000)
 
         messages.value.push({
           role: msg.role,
           content: msg.content,
           timestamp,
-          error: false
+          error: false,
         })
       })
 

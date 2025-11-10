@@ -19,7 +19,7 @@ export function useKeyboardShortcuts(shortcuts: Record<string, () => void> | Sho
     for (const [combo, handler] of Object.entries(shortcuts)) {
       const parts = combo.toLowerCase().split('+')
       const lastPart = parts[parts.length - 1]
-      if (!lastPart) continue  // Skip invalid shortcuts
+      if (!lastPart) continue // Skip invalid shortcuts
 
       const config: ShortcutConfig = {
         key: lastPart,

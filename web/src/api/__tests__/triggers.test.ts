@@ -6,7 +6,7 @@ import { API_ENDPOINTS } from '@/constants'
 
 vi.mock('@/api/utils', () => ({
   isTauri: () => false,
-  invokeCommand: vi.fn()
+  invokeCommand: vi.fn(),
 }))
 
 describe('Triggers API', () => {
@@ -23,7 +23,7 @@ describe('Triggers API', () => {
   describe('activateWorkflow', () => {
     it('should activate workflow trigger', async () => {
       mock.onPut(API_ENDPOINTS.TRIGGER.ACTIVATE('wf1')).reply(200, {
-        success: true
+        success: true,
       })
 
       await expect(triggersApi.activateWorkflow('wf1')).resolves.toBeUndefined()
@@ -33,7 +33,7 @@ describe('Triggers API', () => {
   describe('deactivateWorkflow', () => {
     it('should deactivate workflow trigger', async () => {
       mock.onPut(API_ENDPOINTS.TRIGGER.DEACTIVATE('wf1')).reply(200, {
-        success: true
+        success: true,
       })
 
       await expect(triggersApi.deactivateWorkflow('wf1')).resolves.toBeUndefined()
@@ -49,17 +49,17 @@ describe('Triggers API', () => {
           path: '/webhook/test',
           method: 'POST',
           auth: null,
-          response_mode: 'sync' as const
+          response_mode: 'sync' as const,
         },
         webhook_url: '/api/triggers/webhook/wf1',
         trigger_count: 0,
         last_triggered_at: null,
-        activated_at: Date.now()
+        activated_at: Date.now(),
       }
 
       mock.onGet(API_ENDPOINTS.TRIGGER.STATUS('wf1')).reply(200, {
         success: true,
-        data: mockStatus
+        data: mockStatus,
       })
 
       const result = await triggersApi.getTriggerStatus('wf1')
@@ -67,15 +67,15 @@ describe('Triggers API', () => {
         is_active: true,
         trigger_config: {
           type: 'webhook',
-          path: '/webhook/test'
-        }
+          path: '/webhook/test',
+        },
       })
     })
 
     it('should return null for no trigger', async () => {
       mock.onGet(API_ENDPOINTS.TRIGGER.STATUS('wf1')).reply(200, {
         success: true,
-        data: null
+        data: null,
       })
 
       const result = await triggersApi.getTriggerStatus('wf1')
@@ -86,23 +86,23 @@ describe('Triggers API', () => {
       const mockStatus = {
         is_active: true,
         trigger_config: {
-          type: 'manual' as const
+          type: 'manual' as const,
         },
         webhook_url: null,
         trigger_count: 5,
         last_triggered_at: Date.now(),
-        activated_at: Date.now()
+        activated_at: Date.now(),
       }
 
       mock.onGet(API_ENDPOINTS.TRIGGER.STATUS('wf2')).reply(200, {
         success: true,
-        data: mockStatus
+        data: mockStatus,
       })
 
       const result = await triggersApi.getTriggerStatus('wf2')
       expect(result).toMatchObject({
         is_active: true,
-        trigger_config: { type: 'manual' }
+        trigger_config: { type: 'manual' },
       })
     })
   })
@@ -114,7 +114,7 @@ describe('Triggers API', () => {
 
       mock.onPost(API_ENDPOINTS.TRIGGER.TEST('wf1')).reply(200, {
         success: true,
-        data: mockResponse
+        data: mockResponse,
       })
 
       const result = await triggersApi.testWorkflow('wf1', testData)
@@ -126,7 +126,7 @@ describe('Triggers API', () => {
 
       mock.onPost(API_ENDPOINTS.TRIGGER.TEST('wf1')).reply(200, {
         success: true,
-        data: mockResponse
+        data: mockResponse,
       })
 
       const result = await triggersApi.testWorkflow('wf1')
@@ -150,7 +150,7 @@ describe('Triggers API', () => {
     it('should handle 404 workflow not found', async () => {
       mock.onPut(API_ENDPOINTS.TRIGGER.ACTIVATE('missing')).reply(404, {
         success: false,
-        message: 'Workflow not found'
+        message: 'Workflow not found',
       })
       await expect(triggersApi.activateWorkflow('missing')).rejects.toThrow('Workflow not found')
     })
@@ -158,7 +158,7 @@ describe('Triggers API', () => {
     it('should handle failed activation', async () => {
       mock.onPut(API_ENDPOINTS.TRIGGER.ACTIVATE('wf1')).reply(200, {
         success: false,
-        message: 'No trigger configured'
+        message: 'No trigger configured',
       })
       await expect(triggersApi.activateWorkflow('wf1')).rejects.toThrow('No trigger configured')
     })

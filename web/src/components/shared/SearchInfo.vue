@@ -8,7 +8,7 @@ interface Props {
 }
 
 withDefaults(defineProps<Props>(), {
-  itemName: 'item'
+  itemName: 'item',
 })
 
 const emit = defineEmits<{

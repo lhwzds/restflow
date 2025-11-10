@@ -17,14 +17,8 @@ const executionTime = computed(() => {
 
 // Inject popup state from BaseNode
 const popupState = inject<ReturnType<typeof useNodeInfoPopup>>('nodePopupState')!
-const {
-  hasInput,
-  hasOutput,
-  showInputPopup,
-  showTimePopup,
-  showOutputPopup,
-  activeTab
-} = popupState
+const { hasInput, hasOutput, showInputPopup, showTimePopup, showOutputPopup, activeTab } =
+  popupState
 </script>
 
 <template>

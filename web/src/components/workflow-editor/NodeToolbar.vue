@@ -119,7 +119,12 @@ const handleClick = (template: NodeTemplate) => {
         @dragstart="handleDragStart($event, template)"
         @click="handleClick(template)"
       >
-        <div class="node-icon" :style="{ background: `linear-gradient(135deg, ${template.iconColor}, ${template.iconColor})` }">
+        <div
+          class="node-icon"
+          :style="{
+            background: `linear-gradient(135deg, ${template.iconColor}, ${template.iconColor})`,
+          }"
+        >
           <component :is="template.icon" :size="20" />
         </div>
         <span class="node-label">{{ template.label }}</span>
@@ -190,7 +195,7 @@ const handleClick = (template: NodeTemplate) => {
   border-radius: var(--rf-radius-large);
   color: var(--rf-color-white);
   flex-shrink: 0;
-  
+
   :deep(svg) {
     width: 20px;
     height: 20px;

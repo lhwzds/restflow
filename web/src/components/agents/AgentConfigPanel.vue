@@ -10,7 +10,7 @@ import {
   ElDivider,
   ElRadioGroup,
   ElRadio,
-  ElTag
+  ElTag,
 } from 'element-plus'
 import type { StoredAgent } from '@/types/generated/StoredAgent'
 import type { AgentNode } from '@/types/generated/AgentNode'
@@ -32,7 +32,11 @@ const emit = defineEmits<{
 const { secrets, loadSecrets: loadSecretsData } = useSecretsData()
 const { buildConfig, isConfigChanged } = useApiKeyConfig()
 
-const { AVAILABLE_MODELS, isOSeriesModel: checkIsOSeriesModel, getDefaultTemperature } = useAgentModels()
+const {
+  AVAILABLE_MODELS,
+  isOSeriesModel: checkIsOSeriesModel,
+  getDefaultTemperature,
+} = useAgentModels()
 const {
   selectedTools,
   selectedToolValue,
@@ -40,24 +44,25 @@ const {
   removeTool,
   getToolLabel,
   getAvailableTools,
-  resetTools
+  resetTools,
 } = useAgentTools(props.agent.agent.tools || [])
 
 const formData = ref({
   name: props.agent.name,
   model: props.agent.agent.model,
   prompt: props.agent.agent.prompt,
-  temperature: props.agent.agent.temperature !== undefined && props.agent.agent.temperature !== null
-    ? props.agent.agent.temperature
-    : getDefaultTemperature(props.agent.agent.model),
-  api_key_config: props.agent.agent.api_key_config
+  temperature:
+    props.agent.agent.temperature !== undefined && props.agent.agent.temperature !== null
+      ? props.agent.agent.temperature
+      : getDefaultTemperature(props.agent.agent.model),
+  api_key_config: props.agent.agent.api_key_config,
 })
 
 const keyMode = computed({
   get: () => formData.value.api_key_config?.type || 'direct',
   set: (value: 'direct' | 'secret') => {
     formData.value.api_key_config = buildConfig(value, '')
-  }
+  },
 })
 
 const apiKeyValue = computed({
@@ -65,21 +70,26 @@ const apiKeyValue = computed({
   set: (value: string) => {
     const mode = keyMode.value as 'direct' | 'secret'
     formData.value.api_key_config = buildConfig(mode, value)
-  }
+  },
 })
 
-watch(() => props.agent, (newAgent) => {
-  formData.value = {
-    name: newAgent.name,
-    model: newAgent.agent.model,
-    prompt: newAgent.agent.prompt,
-    temperature: newAgent.agent.temperature !== undefined && newAgent.agent.temperature !== null
-      ? newAgent.agent.temperature
-      : getDefaultTemperature(newAgent.agent.model),
-    api_key_config: newAgent.agent.api_key_config
-  }
-  resetTools(newAgent.agent.tools || [])
-}, { deep: true })
+watch(
+  () => props.agent,
+  (newAgent) => {
+    formData.value = {
+      name: newAgent.name,
+      model: newAgent.agent.model,
+      prompt: newAgent.agent.prompt,
+      temperature:
+        newAgent.agent.temperature !== undefined && newAgent.agent.temperature !== null
+          ? newAgent.agent.temperature
+          : getDefaultTemperature(newAgent.agent.model),
+      api_key_config: newAgent.agent.api_key_config,
+    }
+    resetTools(newAgent.agent.tools || [])
+  },
+  { deep: true },
+)
 
 onMounted(async () => {
   await loadSecretsData()
@@ -98,8 +108,7 @@ const hasChanges = computed(() => {
   )
 })
 
-watch(hasChanges,
- (newVal) => {
+watch(hasChanges, (newVal) => {
   emit('changes-update', newVal)
 })
 
@@ -127,7 +136,7 @@ function saveChanges() {
       prompt: formData.value.prompt?.trim() || null,
       temperature: isOSeriesModel.value ? null : formData.value.temperature,
       api_key_config: formData.value.api_key_config || null,
-      tools: selectedTools.value.length > 0 ? selectedTools.value : null
+      tools: selectedTools.value.length > 0 ? selectedTools.value : null,
     } as AgentNode
   }
 
@@ -141,10 +150,11 @@ function resetForm() {
     name: props.agent.name,
     model: props.agent.agent.model,
     prompt: props.agent.agent.prompt,
-    temperature: props.agent.agent.temperature !== undefined && props.agent.agent.temperature !== null
-    ? props.agent.agent.temperature
-    : getDefaultTemperature(props.agent.agent.model),
-    api_key_config: props.agent.agent.api_key_config
+    temperature:
+      props.agent.agent.temperature !== undefined && props.agent.agent.temperature !== null
+        ? props.agent.agent.temperature
+        : getDefaultTemperature(props.agent.agent.model),
+    api_key_config: props.agent.agent.api_key_config,
   }
   resetTools(props.agent.agent.tools || [])
 }
@@ -152,7 +162,7 @@ function resetForm() {
 defineExpose({
   saveChanges,
   resetForm,
-  hasChanges
+  hasChanges,
 })
 </script>
 
@@ -162,11 +172,7 @@ defineExpose({
       <div class="section">
         <h3 class="section-title">Basic Information</h3>
         <ElFormItem label="Agent Name" required>
-          <ElInput
-            v-model="formData.name"
-            placeholder="Enter Agent name"
-            clearable
-          />
+          <ElInput v-model="formData.name" placeholder="Enter Agent name" clearable />
         </ElFormItem>
       </div>
 
@@ -175,7 +181,10 @@ defineExpose({
       <div class="section">
         <h3 class="section-title">Model Configuration</h3>
         <div class="model-row">
-          <ElFormItem label="Model" :class="{ 'model-select': !isOSeriesModel, 'model-select-full': isOSeriesModel }">
+          <ElFormItem
+            label="Model"
+            :class="{ 'model-select': !isOSeriesModel, 'model-select-full': isOSeriesModel }"
+          >
             <ElSelect v-model="formData.model" placeholder="Select model">
               <ElOption
                 v-for="model in AVAILABLE_MODELS"
@@ -284,9 +293,7 @@ defineExpose({
                 {{ getToolLabel(toolValue) }}
               </ElTag>
             </div>
-            <div v-else class="no-tools-hint">
-              No tools selected
-            </div>
+            <div v-else class="no-tools-hint">No tools selected</div>
           </div>
         </ElFormItem>
       </div>
@@ -357,7 +364,6 @@ defineExpose({
   :deep(.el-divider--horizontal) {
     margin: var(--rf-spacing-md) 0;
   }
-
 
   :deep(.el-form-item) {
     margin-bottom: var(--rf-spacing-lg);

@@ -4,7 +4,13 @@ import { computed, ref } from 'vue'
 import * as workflowsApi from '../../api/workflows'
 import type { Workflow } from '@/types/generated/Workflow'
 import { useAsyncWorkflowExecution } from '../execution/useAsyncWorkflowExecution'
-import { SUCCESS_MESSAGES, ERROR_MESSAGES, VALIDATION_MESSAGES, CONFIRM_MESSAGES, INTERACTION_TIMING } from '@/constants'
+import {
+  SUCCESS_MESSAGES,
+  ERROR_MESSAGES,
+  VALIDATION_MESSAGES,
+  CONFIRM_MESSAGES,
+  INTERACTION_TIMING,
+} from '@/constants'
 
 export interface FilterOptions {
   searchQuery?: string
@@ -197,10 +203,7 @@ export function useWorkflowList() {
   /**
    * Update sort options
    */
-  const setSortOptions = (
-    field: 'name',
-    order: 'asc' | 'desc' = 'asc',
-  ): void => {
+  const setSortOptions = (field: 'name', order: 'asc' | 'desc' = 'asc'): void => {
     sortBy.value = field
     sortOrder.value = order
   }

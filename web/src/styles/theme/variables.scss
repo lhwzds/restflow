@@ -38,7 +38,7 @@
   --rf-color-danger-lighter: #fef0f0;
   --rf-color-danger-border: #fab6b6;
   --rf-color-danger-shadow: rgba(245, 108, 108, 0.1);
-  
+
   --rf-color-info: #909399;
   --rf-color-info-light: #e9e9eb;
   --rf-color-info-lighter: #f4f4f5;
@@ -47,12 +47,12 @@
   --rf-color-text-secondary: #909399;
   --rf-color-text-placeholder: #a8abb2;
   --rf-color-text-disabled: #c0c4cc;
-  
+
   --rf-color-border-base: #dcdfe6;
   --rf-color-border-light: #e4e7ed;
   --rf-color-border-lighter: #ebeef5;
   --rf-color-border-extra-light: #f2f6fc;
-  
+
   --rf-color-bg: #ffffff;
   --rf-color-bg-page: #f5f7fa;
   --rf-color-bg-container: #ffffff;
@@ -84,7 +84,7 @@
   --rf-radius-circle: 50%;
   --rf-shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
   --rf-shadow-base: 0 2px 4px 0 rgba(0, 0, 0, 0.08);
-  --rf-shadow-md: 0 4px 8px 0 rgba(0, 0, 0, 0.10);
+  --rf-shadow-md: 0 4px 8px 0 rgba(0, 0, 0, 0.1);
   --rf-shadow-lg: 0 8px 16px 0 rgba(0, 0, 0, 0.12);
   --rf-shadow-xl: 0 12px 24px 0 rgba(0, 0, 0, 0.15);
   --rf-shadow-card: 0 2px 12px 0 rgba(0, 0, 0, 0.06);
@@ -102,13 +102,13 @@
   --rf-font-size-xl: 20px;
   --rf-font-size-2xl: 24px;
   --rf-font-size-3xl: 30px;
-  
+
   --rf-font-weight-light: 300;
   --rf-font-weight-regular: 400;
   --rf-font-weight-medium: 500;
   --rf-font-weight-semibold: 600;
   --rf-font-weight-bold: 700;
-  
+
   --rf-line-height-tight: 1.25;
   --rf-line-height-base: 1.5;
   --rf-line-height-relaxed: 1.75;
@@ -122,16 +122,16 @@
   --rf-z-index-modal: 1050;
   --rf-z-index-popover: 1060;
   --rf-z-index-tooltip: 1070;
-  
+
   /* RGB values for rgba() usage */
   --rf-color-primary-rgb: 255, 107, 53;
   --rf-color-primary-dark-1: #e55a2b;
-  
+
   /* Additional background colors */
   --rf-color-bg-secondary: #f8fafc;
   --rf-color-border-focus: #6366f1;
   --rf-shadow-panel: 0 -2px 10px rgba(0, 0, 0, 0.1);
-  
+
   /* Surface and overlay colors */
   --rf-color-surface-primary: rgba(255, 255, 255, 0.98);
   --rf-color-surface-secondary: rgba(255, 250, 247, 0.95);
@@ -234,43 +234,43 @@ html.dark {
   --rf-color-primary-hover: #ff8f66;
   --rf-color-primary-active: #ff6b35;
   --rf-color-primary-rgb: 255, 125, 77;
-  
+
   /* Background colors */
   --rf-color-bg-page: #0a0a0a;
   --rf-color-bg-container: #141414;
   --rf-color-bg-overlay: #1a1a1a;
   --rf-color-white: #141414;
   --rf-color-black: #ffffff;
-  
+
   /* Text colors */
   --rf-color-text-primary: #e4e4e7;
   --rf-color-text-regular: #a1a1aa;
   --rf-color-text-secondary: #71717a;
   --rf-color-text-placeholder: #52525b;
   --rf-color-text-disabled: #3f3f46;
-  
+
   /* Border colors */
   --rf-color-border-base: #27272a;
   --rf-color-border-light: #3f3f46;
   --rf-color-border-lighter: #52525b;
   --rf-color-border-extra-light: #27272a;
-  
+
   /* Background tints for primary color */
   --rf-color-primary-bg: rgba(255, 107, 53, 0.15);
   --rf-color-primary-bg-light: rgba(255, 107, 53, 0.1);
   --rf-color-primary-bg-lighter: rgba(255, 107, 53, 0.05);
-  
+
   /* Additional background colors for dark mode */
   --rf-color-bg-secondary: #1f1f1f;
   --rf-color-border-focus: #818cf8;
   --rf-shadow-panel: 0 -2px 10px rgba(0, 0, 0, 0.3);
-  
+
   /* Surface and overlay colors for dark mode */
   --rf-color-surface-primary: rgba(31, 31, 31, 0.95);
   --rf-color-surface-secondary: rgba(25, 25, 25, 0.9);
   --rf-color-border-overlay: rgba(255, 255, 255, 0.05);
   --rf-opacity-overlay: 0.2;
-  
+
   /* Element Plus dark mode overrides */
   --el-bg-color: #141414;
   --el-bg-color-page: #0a0a0a;

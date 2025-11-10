@@ -72,7 +72,6 @@ export const useWorkflowStore = defineStore('workflow', {
       }
     },
 
-
     loadWorkflow(nodes: Node[], edges: Edge[]) {
       this.nodes = nodes || []
       this.edges = edges || []

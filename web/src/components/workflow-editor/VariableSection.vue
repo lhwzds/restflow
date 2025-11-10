@@ -32,7 +32,7 @@ interface Props {
 }
 
 const props = withDefaults(defineProps<Props>(), {
-  searchQuery: ''
+  searchQuery: '',
 })
 
 const emit = defineEmits<{
@@ -53,9 +53,8 @@ const visibleFields = computed(() => {
   }
 
   const query = props.searchQuery.toLowerCase()
-  return props.fields.filter(field =>
-    field.name.toLowerCase().includes(query) ||
-    field.path.toLowerCase().includes(query)
+  return props.fields.filter(
+    (field) => field.name.toLowerCase().includes(query) || field.path.toLowerCase().includes(query),
   )
 })
 

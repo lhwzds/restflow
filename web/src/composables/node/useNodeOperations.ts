@@ -14,19 +14,21 @@ export function useNodeOperations() {
   const workflowStore = useWorkflowStore()
   const selectedNodeId = ref<string | null>(null)
   const copiedNode = ref<Node | null>(null)
-  
+
   const nodeIdCounter = ref(Date.now())
-  
+
   const nodes = computed({
     get: () => workflowStore.nodes,
-    set: (value) => { workflowStore.nodes = value }
+    set: (value) => {
+      workflowStore.nodes = value
+    },
   })
 
   /**
    * Get node by ID
    */
   const getNodeById = (id: string): Node | undefined => {
-    return workflowStore.nodes.find(n => n.id === id)
+    return workflowStore.nodes.find((n) => n.id === id)
   }
 
   /**
@@ -53,10 +55,7 @@ export function useNodeOperations() {
   /**
    * Create a new node - business logic for node creation
    */
-  const createNode = (
-    template: NodeTemplate,
-    position: { x: number; y: number }
-  ): Node => {
+  const createNode = (template: NodeTemplate, position: { x: number; y: number }): Node => {
     const newNode: Node = {
       id: generateNodeId(),
       type: template.type,
@@ -94,12 +93,12 @@ export function useNodeOperations() {
    * Update node position
    */
   const updateNodePosition = (nodeId: string, position: { x: number; y: number }) => {
-    const nodeIndex = workflowStore.nodes.findIndex(n => n.id === nodeId)
+    const nodeIndex = workflowStore.nodes.findIndex((n) => n.id === nodeId)
     if (nodeIndex !== -1 && workflowStore.nodes[nodeIndex]) {
       workflowStore.nodes[nodeIndex] = {
         ...workflowStore.nodes[nodeIndex],
         position: { ...position },
-        id: workflowStore.nodes[nodeIndex].id  // Ensure id is preserved
+        id: workflowStore.nodes[nodeIndex].id, // Ensure id is preserved
       } as Node
       workflowStore.markAsDirty()
     }
@@ -110,7 +109,7 @@ export function useNodeOperations() {
    */
   const deleteNode = (nodeId: string) => {
     workflowStore.removeNode(nodeId)
-    
+
     if (selectedNodeId.value === nodeId) {
       selectedNodeId.value = null
     }
@@ -120,8 +119,8 @@ export function useNodeOperations() {
    * Delete multiple nodes
    */
   const deleteNodes = (nodeIds: string[]) => {
-    nodeIds.forEach(nodeId => workflowStore.removeNode(nodeId))
-    
+    nodeIds.forEach((nodeId) => workflowStore.removeNode(nodeId))
+
     if (nodeIds.includes(selectedNodeId.value || '')) {
       selectedNodeId.value = null
     }
@@ -130,10 +129,7 @@ export function useNodeOperations() {
   /**
    * Duplicate a node
    */
-  const duplicateNode = (
-    nodeId: string,
-    offset = { x: 50, y: 50 }
-  ): Node | null => {
+  const duplicateNode = (nodeId: string, offset = { x: 50, y: 50 }): Node | null => {
     const node = getNodeById(nodeId)
     if (!node) return null
 
@@ -196,7 +192,7 @@ export function useNodeOperations() {
     const edges = workflowStore.edges
     const connectedIds = new Set<string>()
 
-    edges.forEach(edge => {
+    edges.forEach((edge) => {
       if (edge.source === nodeId) {
         connectedIds.add(edge.target)
       }
@@ -205,21 +201,23 @@ export function useNodeOperations() {
       }
     })
 
-    return Array.from(connectedIds).map(id => getNodeById(id)).filter(Boolean) as Node[]
+    return Array.from(connectedIds)
+      .map((id) => getNodeById(id))
+      .filter(Boolean) as Node[]
   }
 
   /**
    * Get incoming edges for a node
    */
   const getIncomingEdges = (nodeId: string): Edge[] => {
-    return workflowStore.edges.filter(edge => edge.target === nodeId)
+    return workflowStore.edges.filter((edge) => edge.target === nodeId)
   }
 
   /**
    * Get outgoing edges for a node
    */
   const getOutgoingEdges = (nodeId: string): Edge[] => {
-    return workflowStore.edges.filter(edge => edge.source === nodeId)
+    return workflowStore.edges.filter((edge) => edge.source === nodeId)
   }
 
   /**
@@ -229,7 +227,7 @@ export function useNodeOperations() {
     if (sourceId === targetId) return false
 
     const existingConnection = workflowStore.edges.find(
-      edge => edge.source === sourceId && edge.target === targetId
+      (edge) => edge.source === sourceId && edge.target === targetId,
     )
     if (existingConnection) return false
 
@@ -244,7 +242,7 @@ export function useNodeOperations() {
 
         visited.add(current)
         const outgoing = getOutgoingEdges(current)
-        queue.push(...outgoing.map(e => e.target))
+        queue.push(...outgoing.map((e) => e.target))
       }
 
       return false
@@ -259,18 +257,20 @@ export function useNodeOperations() {
   const validateNodes = (): { valid: boolean; errors: string[] } => {
     const errors: string[] = []
 
-    const hasTrigger = workflowStore.nodes.some(
-      node => node.type === NODE_TYPES.MANUAL_TRIGGER
-    )
+    const hasTrigger = workflowStore.nodes.some((node) => node.type === NODE_TYPES.MANUAL_TRIGGER)
     if (!hasTrigger) {
       errors.push('Workflow must have at least one trigger node')
     }
 
-    workflowStore.nodes.forEach(node => {
+    workflowStore.nodes.forEach((node) => {
       const incoming = getIncomingEdges(node.id)
       const outgoing = getOutgoingEdges(node.id)
-      
-      if (incoming.length === 0 && outgoing.length === 0 && node.type !== NODE_TYPES.MANUAL_TRIGGER) {
+
+      if (
+        incoming.length === 0 &&
+        outgoing.length === 0 &&
+        node.type !== NODE_TYPES.MANUAL_TRIGGER
+      ) {
         errors.push(`Node "${node.data.label || node.id}" is not connected`)
       }
     })

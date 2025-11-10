@@ -32,7 +32,7 @@ watch(
     localData.value = { ...newValue }
     dependenciesText.value = newValue.dependencies?.join('\n') || ''
   },
-  { immediate: true }
+  { immediate: true },
 )
 
 const updateData = () => {
@@ -132,7 +132,12 @@ onMounted(() => {
         :model-value="localData.input || ''"
         :multiline="true"
         placeholder='{"data": {{trigger.payload}}, "user": {{node.http1.data.body.user}}}'
-        @update:model-value="(val) => { localData.input = val; updateData(); }"
+        @update:model-value="
+          (val) => {
+            localData.input = val
+            updateData()
+          }
+        "
       />
       <p class="hint">JSON data to pass as stdin to the Python script</p>
     </div>

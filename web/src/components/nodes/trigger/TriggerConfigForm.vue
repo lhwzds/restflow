@@ -60,7 +60,7 @@ watch(
   (newConfig) => {
     emit('update:modelValue', newConfig)
   },
-  { deep: true }
+  { deep: true },
 )
 
 // Update cron expression when selecting a preset
@@ -90,23 +90,14 @@ const isScheduleTrigger = computed(() => props.nodeType === 'ScheduleTrigger')
     <div v-if="isWebhookTrigger" class="config-section">
       <div class="form-group">
         <label class="form-label">Webhook Path</label>
-        <el-input
-          v-model="localConfig.path"
-          placeholder="/api/webhook/my-webhook"
-          clearable
-        />
+        <el-input v-model="localConfig.path" placeholder="/api/webhook/my-webhook" clearable />
         <span class="form-hint">URL path that triggers this workflow</span>
       </div>
 
       <div class="form-group">
         <label class="form-label">HTTP Method</label>
         <el-select v-model="localConfig.method" placeholder="Select HTTP method">
-          <el-option
-            v-for="method in httpMethods"
-            :key="method"
-            :label="method"
-            :value="method"
-          />
+          <el-option v-for="method in httpMethods" :key="method" :label="method" :value="method" />
         </el-select>
       </div>
     </div>
@@ -115,11 +106,7 @@ const isScheduleTrigger = computed(() => props.nodeType === 'ScheduleTrigger')
     <div v-if="isScheduleTrigger" class="config-section">
       <div class="form-group">
         <label class="form-label">Preset Schedule</label>
-        <el-select
-          v-model="selectedPreset"
-          placeholder="Choose a preset"
-          @change="selectPreset"
-        >
+        <el-select v-model="selectedPreset" placeholder="Choose a preset" @change="selectPreset">
           <el-option
             v-for="preset in cronPresets"
             :key="preset.value"
@@ -131,11 +118,7 @@ const isScheduleTrigger = computed(() => props.nodeType === 'ScheduleTrigger')
 
       <div class="form-group">
         <label class="form-label">Cron Expression</label>
-        <el-input
-          v-model="localConfig.cron"
-          placeholder="0 0 * * * *"
-          clearable
-        >
+        <el-input v-model="localConfig.cron" placeholder="0 0 * * * *" clearable>
           <template #prepend>
             <span>Cron</span>
           </template>
@@ -153,12 +136,7 @@ const isScheduleTrigger = computed(() => props.nodeType === 'ScheduleTrigger')
           filterable
           class="timezone-select"
         >
-          <el-option
-            v-for="tz in timezones"
-            :key="tz"
-            :label="tz"
-            :value="tz"
-          />
+          <el-option v-for="tz in timezones" :key="tz" :label="tz" :value="tz" />
         </el-select>
         <span class="form-hint">Schedule runs in this timezone</span>
       </div>

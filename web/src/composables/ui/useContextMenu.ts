@@ -19,7 +19,7 @@ export function useContextMenu() {
     event.preventDefault()
     const x = 'clientX' in event ? event.clientX : (event as TouchEvent).touches[0]?.clientX || 0
     const y = 'clientY' in event ? event.clientY : (event as TouchEvent).touches[0]?.clientY || 0
-    
+
     Object.assign(state, {
       show: true,
       x,

@@ -10,7 +10,7 @@ import { isNodeATrigger, type AnyNode } from '../node/useNodeHelpers'
  */
 export function useWorkflowTrigger(
   workflowId: Readonly<Ref<string | null | undefined>>,
-  nodes: Readonly<Ref<AnyNode[]>>
+  nodes: Readonly<Ref<AnyNode[]>>,
 ) {
   const isActive = ref(false)
   const isLoading = ref(false)
@@ -52,7 +52,7 @@ export function useWorkflowTrigger(
   const performTriggerAction = async (
     action: 'activate' | 'deactivate',
     apiCall: (id: string) => Promise<void>,
-    successState: boolean
+    successState: boolean,
   ) => {
     const currentWorkflowId = validateWorkflowId(workflowId.value)
     if (!currentWorkflowId) return { success: false }
@@ -68,9 +68,10 @@ export function useWorkflowTrigger(
         triggerCount.value = 0
       }
 
-      const message = action === 'activate'
-        ? SUCCESS_MESSAGES.WORKFLOW_ACTIVATED
-        : SUCCESS_MESSAGES.WORKFLOW_DEACTIVATED
+      const message =
+        action === 'activate'
+          ? SUCCESS_MESSAGES.WORKFLOW_ACTIVATED
+          : SUCCESS_MESSAGES.WORKFLOW_DEACTIVATED
       ElMessage.success(message)
 
       return { success: true }

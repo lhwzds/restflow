@@ -7,7 +7,7 @@ import { API_ENDPOINTS } from '@/constants'
 
 vi.mock('@/api/utils', () => ({
   isTauri: () => false,
-  invokeCommand: vi.fn()
+  invokeCommand: vi.fn(),
 }))
 
 describe('Secrets API', () => {
@@ -26,19 +26,16 @@ describe('Secrets API', () => {
     value: '',
     description: `Description for ${key}`,
     created_at: Date.now(),
-    updated_at: Date.now()
+    updated_at: Date.now(),
   })
 
   describe('listSecrets', () => {
     it('should fetch and return secrets list', async () => {
-      const mockSecrets = [
-        createMockSecret('API_KEY_1'),
-        createMockSecret('API_KEY_2')
-      ]
+      const mockSecrets = [createMockSecret('API_KEY_1'), createMockSecret('API_KEY_2')]
 
       mock.onGet(API_ENDPOINTS.SECRET.LIST).reply(200, {
         success: true,
-        data: mockSecrets
+        data: mockSecrets,
       })
 
       const result = await secretsApi.listSecrets()
@@ -52,13 +49,13 @@ describe('Secrets API', () => {
 
       mock.onPost(API_ENDPOINTS.SECRET.CREATE).reply(200, {
         success: true,
-        data: mockSecret
+        data: mockSecret,
       })
 
       const result = await secretsApi.createSecret(
         'NEW_API_KEY',
         'secret-value',
-        'Test description'
+        'Test description',
       )
       expect(result).toEqual(mockSecret)
     })
@@ -68,7 +65,7 @@ describe('Secrets API', () => {
 
       mock.onPost(API_ENDPOINTS.SECRET.CREATE).reply(200, {
         success: true,
-        data: mockSecret
+        data: mockSecret,
       })
 
       const result = await secretsApi.createSecret('SIMPLE_KEY', 'value')
@@ -79,29 +76,27 @@ describe('Secrets API', () => {
   describe('updateSecret', () => {
     it('should update secret', async () => {
       mock.onPut(API_ENDPOINTS.SECRET.UPDATE('EXISTING_KEY')).reply(200, {
-        success: true
+        success: true,
       })
 
       await expect(
-        secretsApi.updateSecret('EXISTING_KEY', 'new-value', 'Updated desc')
+        secretsApi.updateSecret('EXISTING_KEY', 'new-value', 'Updated desc'),
       ).resolves.toBeUndefined()
     })
 
     it('should update secret without description', async () => {
       mock.onPut(API_ENDPOINTS.SECRET.UPDATE('EXISTING_KEY')).reply(200, {
-        success: true
+        success: true,
       })
 
-      await expect(
-        secretsApi.updateSecret('EXISTING_KEY', 'new-value')
-      ).resolves.toBeUndefined()
+      await expect(secretsApi.updateSecret('EXISTING_KEY', 'new-value')).resolves.toBeUndefined()
     })
   })
 
   describe('deleteSecret', () => {
     it('should delete secret', async () => {
       mock.onDelete(API_ENDPOINTS.SECRET.DELETE('OLD_KEY')).reply(200, {
-        success: true
+        success: true,
       })
 
       await expect(secretsApi.deleteSecret('OLD_KEY')).resolves.toBeUndefined()
@@ -117,17 +112,21 @@ describe('Secrets API', () => {
     it('should handle 404 secret not found', async () => {
       mock.onPut(API_ENDPOINTS.SECRET.UPDATE('MISSING_KEY')).reply(404, {
         success: false,
-        message: 'Secret not found'
+        message: 'Secret not found',
       })
-      await expect(secretsApi.updateSecret('MISSING_KEY', 'value')).rejects.toThrow('Secret not found')
+      await expect(secretsApi.updateSecret('MISSING_KEY', 'value')).rejects.toThrow(
+        'Secret not found',
+      )
     })
 
     it('should handle duplicate secret key', async () => {
       mock.onPost(API_ENDPOINTS.SECRET.CREATE).reply(200, {
         success: false,
-        message: 'Secret already exists'
+        message: 'Secret already exists',
       })
-      await expect(secretsApi.createSecret('DUPLICATE_KEY', 'value')).rejects.toThrow('Secret already exists')
+      await expect(secretsApi.createSecret('DUPLICATE_KEY', 'value')).rejects.toThrow(
+        'Secret already exists',
+      )
     })
 
     it('should handle network error', async () => {

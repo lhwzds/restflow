@@ -37,7 +37,7 @@ export function useAvailableVariables(currentNodeId: Readonly<Ref<string | null>
     trigger: [],
     nodes: [],
     vars: [],
-    config: []
+    config: [],
   })
 
   const getUpstreamNodes = (nodeId: string): string[] => {
@@ -66,12 +66,14 @@ export function useAvailableVariables(currentNodeId: Readonly<Ref<string | null>
     }
 
     if (typeof value !== 'object') {
-      return [{
-        name: '',
-        type: typeof value,
-        path: basePath,
-        value
-      }]
+      return [
+        {
+          name: '',
+          type: typeof value,
+          path: basePath,
+          value,
+        },
+      ]
     }
 
     if (Array.isArray(value)) {
@@ -87,17 +89,19 @@ export function useAvailableVariables(currentNodeId: Readonly<Ref<string | null>
           type: 'array-item',
           path: `${basePath}[0]`,
           value: firstItem,
-          children
+          children,
         })
       }
 
-      return [{
-        name: '',
-        type: 'array',
-        path: basePath,
-        value,
-        children: itemFields
-      }]
+      return [
+        {
+          name: '',
+          type: 'array',
+          path: basePath,
+          value,
+          children: itemFields,
+        },
+      ]
     }
 
     const fields: VariableField[] = []
@@ -111,14 +115,14 @@ export function useAvailableVariables(currentNodeId: Readonly<Ref<string | null>
           type: Array.isArray(val) ? 'array' : 'object',
           path: fieldPath,
           value: val,
-          children
+          children,
         })
       } else {
         fields.push({
           name: key,
           type: typeof val,
           path: fieldPath,
-          value: val
+          value: val,
         })
       }
     }
@@ -131,7 +135,7 @@ export function useAvailableVariables(currentNodeId: Readonly<Ref<string | null>
     newField.path = `${namespace}.${field.path}`
 
     if (field.children && field.children.length > 0) {
-      newField.children = field.children.map(child => addNamespaceToField(child, namespace))
+      newField.children = field.children.map((child) => addNamespaceToField(child, namespace))
     }
 
     return newField
@@ -151,38 +155,37 @@ export function useAvailableVariables(currentNodeId: Readonly<Ref<string | null>
       // No execution yet - show schema-based field structure with example values
       availableVariables.value = {
         trigger: [],
-        nodes: upstreamNodeIds.map(id => {
+        nodes: upstreamNodeIds.map((id) => {
           const node = workflowStore.nodes.find((n: any) => n.id === id)
           const nodeType = node?.type || 'unknown'
 
           const schemaFields = getNodeOutputSchema(nodeType)
-          const fields = schemaFields.map(field => addNamespaceToField(field, `node.${id}`))
+          const fields = schemaFields.map((field) => addNamespaceToField(field, `node.${id}`))
 
           return {
             id,
             type: nodeType,
             label: node?.id || id,
-            fields
+            fields,
           }
         }),
         vars: [],
-        config: []
+        config: [],
       }
       return
     }
 
     // For now, trigger data would come from the first trigger node's input
-    const triggerNodes = workflowStore.nodes.filter((n: any) =>
-      n.type === 'ManualTrigger' || n.type === 'WebhookTrigger' || n.type === 'ScheduleTrigger'
+    const triggerNodes = workflowStore.nodes.filter(
+      (n: any) =>
+        n.type === 'ManualTrigger' || n.type === 'WebhookTrigger' || n.type === 'ScheduleTrigger',
     )
     const triggerNode = triggerNodes[0]
     const triggerResult = triggerNode ? nodeResults.get(triggerNode.id) : null
     const triggerData = triggerResult?.input
-    const triggerFields = triggerData
-      ? parseValueToFields(triggerData, 'trigger.payload')
-      : []
+    const triggerFields = triggerData ? parseValueToFields(triggerData, 'trigger.payload') : []
 
-    const nodeVariables: VariableNode[] = upstreamNodeIds.map(nodeId => {
+    const nodeVariables: VariableNode[] = upstreamNodeIds.map((nodeId) => {
       const node = workflowStore.nodes.find((n: any) => n.id === nodeId)
       const nodeResult = nodeResults.get(nodeId)
       const nodeOutput = nodeResult?.output
@@ -193,14 +196,14 @@ export function useAvailableVariables(currentNodeId: Readonly<Ref<string | null>
         fields = parseValueToFields(nodeOutput, `node.${nodeId}`)
       } else {
         const schemaFields = getNodeOutputSchema(nodeType)
-        fields = schemaFields.map(field => addNamespaceToField(field, `node.${nodeId}`))
+        fields = schemaFields.map((field) => addNamespaceToField(field, `node.${nodeId}`))
       }
 
       return {
         id: nodeId,
         type: nodeType,
         label: nodeId,
-        fields
+        fields,
       }
     })
 
@@ -213,7 +216,7 @@ export function useAvailableVariables(currentNodeId: Readonly<Ref<string | null>
       trigger: triggerFields,
       nodes: nodeVariables,
       vars: varFields,
-      config: configFields
+      config: configFields,
     }
   }
 
@@ -280,7 +283,7 @@ export function useAvailableVariables(currentNodeId: Readonly<Ref<string | null>
     () => {
       loadVariablesFromExecution()
     },
-    { deep: true, immediate: true }
+    { deep: true, immediate: true },
   )
 
   return {
@@ -288,6 +291,6 @@ export function useAvailableVariables(currentNodeId: Readonly<Ref<string | null>
     getAllVariablePaths,
     generateVariablePath,
     searchVariables,
-    loadVariablesFromExecution
+    loadVariablesFromExecution,
   }
 }

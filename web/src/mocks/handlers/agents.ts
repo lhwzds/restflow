@@ -7,13 +7,13 @@ import { chatHistories } from '../data/agent-chat-history'
 const toJsonAgent = (agent: StoredAgent): any => ({
   ...agent,
   created_at: Number(agent.created_at),
-  updated_at: Number(agent.updated_at)
+  updated_at: Number(agent.updated_at),
 })
 
 const convertToStoredAgent = (agent: any): StoredAgent => ({
   ...agent,
   created_at: BigInt(agent.created_at),
-  updated_at: BigInt(agent.updated_at)
+  updated_at: BigInt(agent.updated_at),
 })
 
 let agents: StoredAgent[] = demoAgents.map(convertToStoredAgent)
@@ -22,37 +22,37 @@ export const agentHandlers = [
   http.get('/api/agents', () => {
     return HttpResponse.json({
       success: true,
-      data: agents.map(toJsonAgent)
+      data: agents.map(toJsonAgent),
     })
   }),
 
   http.get('/api/agents/:id', ({ params }) => {
-    const agent = agents.find(a => a.id === params.id)
+    const agent = agents.find((a) => a.id === params.id)
     if (!agent) {
       return HttpResponse.json(
         {
           success: false,
-          message: 'Agent not found'
+          message: 'Agent not found',
         },
-        { status: 404 }
+        { status: 404 },
       )
     }
     return HttpResponse.json({
       success: true,
-      data: toJsonAgent(agent)
+      data: toJsonAgent(agent),
     })
   }),
 
   http.post('/api/agents', async ({ request }) => {
-    const body = await request.json() as Partial<StoredAgent>
+    const body = (await request.json()) as Partial<StoredAgent>
 
-    if (body.id && agents.find(a => a.id === body.id)) {
+    if (body.id && agents.find((a) => a.id === body.id)) {
       return HttpResponse.json(
         {
           success: false,
-          message: `Agent with ID ${body.id} already exists`
+          message: `Agent with ID ${body.id} already exists`,
         },
-        { status: 409 }
+        { status: 409 },
       )
     }
 
@@ -64,81 +64,81 @@ export const agentHandlers = [
         prompt: null,
         temperature: null,
         api_key_config: null,
-        tools: null
+        tools: null,
       },
       created_at: BigInt(Date.now()),
-      updated_at: BigInt(Date.now())
+      updated_at: BigInt(Date.now()),
     }
     agents.push(newAgent)
     return HttpResponse.json(
       {
         success: true,
-        data: toJsonAgent(newAgent)
+        data: toJsonAgent(newAgent),
       },
-      { status: 201 }
+      { status: 201 },
     )
   }),
 
   http.put('/api/agents/:id', async ({ params, request }) => {
-    const index = agents.findIndex(a => a.id === params.id)
+    const index = agents.findIndex((a) => a.id === params.id)
     if (index === -1) {
       return HttpResponse.json(
         {
           success: false,
-          message: 'Agent not found'
+          message: 'Agent not found',
         },
-        { status: 404 }
+        { status: 404 },
       )
     }
-    const body = await request.json() as Partial<StoredAgent>
+    const body = (await request.json()) as Partial<StoredAgent>
     const currentAgent = agents[index]
     if (!currentAgent) {
       return HttpResponse.json(
         {
           success: false,
-          message: 'Agent not found'
+          message: 'Agent not found',
         },
-        { status: 404 }
+        { status: 404 },
       )
     }
     agents[index] = {
       ...currentAgent,
       ...body,
-      id: currentAgent.id,  // Ensure id is preserved
-      updated_at: BigInt(Date.now())
+      id: currentAgent.id, // Ensure id is preserved
+      updated_at: BigInt(Date.now()),
     } as StoredAgent
     return HttpResponse.json({
       success: true,
-      data: toJsonAgent(agents[index]!)
+      data: toJsonAgent(agents[index]!),
     })
   }),
 
   http.delete('/api/agents/:id', ({ params }) => {
-    const index = agents.findIndex(a => a.id === params.id)
+    const index = agents.findIndex((a) => a.id === params.id)
     if (index === -1) {
       return HttpResponse.json(
         {
           success: false,
-          message: 'Agent not found'
+          message: 'Agent not found',
         },
-        { status: 404 }
+        { status: 404 },
       )
     }
     agents.splice(index, 1)
     return HttpResponse.json({
-      success: true
+      success: true,
     })
   }),
 
   http.post('/api/agents/:id/execute', async ({ params }) => {
-    const agent = agents.find(a => a.id === params.id)
+    const agent = agents.find((a) => a.id === params.id)
     if (!agent) {
       return HttpResponse.json(
         {
           success: false,
-          message: 'Agent not found'
+          message: 'Agent not found',
         },
-        { status: 404 }
+        { status: 404 },
       )
     }
 
@@ -147,8 +147,8 @@ export const agentHandlers = [
     return HttpResponse.json({
       success: true,
       data: {
-        response: `[Demo] This is a sample execution result for ${agent.name}. In a real environment, this would be the actual response from the AI model.`
-      }
+        response: `[Demo] This is a sample execution result for ${agent.name}. In a real environment, this would be the actual response from the AI model.`,
+      },
     })
   }),
 
@@ -158,8 +158,8 @@ export const agentHandlers = [
     return HttpResponse.json({
       success: true,
       data: {
-        response: '[Demo] This is a sample execution result for inline agent.'
-      }
+        response: '[Demo] This is a sample execution result for inline agent.',
+      },
     })
   }),
 
@@ -169,7 +169,7 @@ export const agentHandlers = [
 
     return HttpResponse.json({
       success: true,
-      data: history
+      data: history,
     })
-  })
+  }),
 ]

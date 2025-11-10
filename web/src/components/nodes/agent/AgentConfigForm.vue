@@ -69,7 +69,7 @@ const updateData = () => {
 
   emit('update:modelValue', {
     ...localData.value,
-    api_key_config: apiKeyConfig
+    api_key_config: apiKeyConfig,
   })
 }
 
@@ -103,7 +103,7 @@ const isToolSelected = (toolId: string) => {
           :label="provider.charAt(0).toUpperCase() + provider.slice(1)"
         >
           <option
-            v-for="option in MODEL_OPTIONS.filter(opt => opt.provider === provider)"
+            v-for="option in MODEL_OPTIONS.filter((opt) => opt.provider === provider)"
             :key="option.value"
             :value="option.value"
           >
@@ -119,7 +119,12 @@ const isToolSelected = (toolId: string) => {
         :model-value="localData.prompt || ''"
         :multiline="true"
         placeholder="Analyze the user data: {{node.http1.data.body.user}} and provide insights based on {{trigger.payload.request}}"
-        @update:model-value="(val) => { localData.prompt = val; updateData(); }"
+        @update:model-value="
+          (val) => {
+            localData.prompt = val
+            updateData()
+          }
+        "
         class="agent-prompt-editor"
       />
       <span class="form-hint">Use {{}} syntax to reference variables</span>
@@ -144,7 +149,12 @@ const isToolSelected = (toolId: string) => {
         :model-value="localData.input || ''"
         :multiline="true"
         placeholder="{{trigger.payload}} or custom input"
-        @update:model-value="(val) => { localData.input = val; updateData(); }"
+        @update:model-value="
+          (val) => {
+            localData.input = val
+            updateData()
+          }
+        "
       />
       <span class="form-hint">Input data for the agent</span>
     </div>
@@ -153,21 +163,11 @@ const isToolSelected = (toolId: string) => {
       <label>API Key Configuration</label>
       <div class="api-key-mode">
         <label class="radio-option">
-          <input
-            type="radio"
-            v-model="keyMode"
-            value="direct"
-            @change="updateData"
-          />
+          <input type="radio" v-model="keyMode" value="direct" @change="updateData" />
           <span>Direct Input</span>
         </label>
         <label class="radio-option">
-          <input
-            type="radio"
-            v-model="keyMode"
-            value="secret"
-            @change="updateData"
-          />
+          <input type="radio" v-model="keyMode" value="secret" @change="updateData" />
           <span>Use Secret</span>
         </label>
       </div>
@@ -181,18 +181,9 @@ const isToolSelected = (toolId: string) => {
         class="api-key-input"
       />
 
-      <select
-        v-else
-        v-model="apiKeySecret"
-        @change="updateData"
-        class="api-key-select"
-      >
+      <select v-else v-model="apiKeySecret" @change="updateData" class="api-key-select">
         <option value="">Select a secret</option>
-        <option
-          v-for="secret in secrets"
-          :key="secret.key"
-          :value="secret.key"
-        >
+        <option v-for="secret in secrets" :key="secret.key" :value="secret.key">
           {{ secret.description || secret.key }}
         </option>
       </select>

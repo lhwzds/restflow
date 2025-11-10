@@ -19,7 +19,7 @@ const props = defineProps<NodeProps<WebhookTriggerData>>()
 const emit = defineEmits<{
   'open-config': []
   'test-node': []
-  'updateNodeInternals': [nodeId: string]
+  updateNodeInternals: [nodeId: string]
 }>()
 
 const { testWorkflow, isButtonDisabled, buttonLabel, buttonTooltip } = useTestWorkflow(props.id)
@@ -49,11 +49,7 @@ const { testWorkflow, isButtonDisabled, buttonLabel, buttonTooltip } = useTestWo
 
     <template #left-actions>
       <ElTooltip :content="buttonTooltip" placement="left">
-        <button
-          class="test-workflow-button"
-          :disabled="isButtonDisabled"
-          @click="testWorkflow"
-        >
+        <button class="test-workflow-button" :disabled="isButtonDisabled" @click="testWorkflow">
           {{ buttonLabel }}
         </button>
       </ElTooltip>

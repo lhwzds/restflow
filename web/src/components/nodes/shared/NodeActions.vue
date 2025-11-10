@@ -12,20 +12,24 @@ interface Props {
 withDefaults(defineProps<Props>(), {
   showTestButton: true,
   testButtonTooltip: 'Test Node',
-  testButtonDisabled: false
+  testButtonDisabled: false,
 })
 
 const emit = defineEmits<{
   'open-config': []
   'view-io': []
-  'test': []
+  test: []
 }>()
 
 const showActions = ref(false)
 
 defineExpose({
-  show: () => { showActions.value = true },
-  hide: () => { showActions.value = false }
+  show: () => {
+    showActions.value = true
+  },
+  hide: () => {
+    showActions.value = false
+  },
 })
 </script>
 

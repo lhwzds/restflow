@@ -12,11 +12,13 @@ export interface EdgeOperations {
 
 export function useEdgeOperations(): EdgeOperations {
   const workflowStore = useWorkflowStore()
-  
+
   // Expose reactive references for v-model binding
   const edges = computed({
     get: () => workflowStore.edges,
-    set: (value) => { workflowStore.edges = value }
+    set: (value) => {
+      workflowStore.edges = value
+    },
   })
 
   /**
@@ -37,19 +39,19 @@ export function useEdgeOperations(): EdgeOperations {
    * Remove multiple edges
    */
   const removeEdges = (edgeIds: string[]) => {
-    edgeIds.forEach(id => workflowStore.removeEdge(id))
+    edgeIds.forEach((id) => workflowStore.removeEdge(id))
   }
 
   /**
    * Update edge data
    */
   const updateEdge = (edgeId: string, data: Partial<Edge>) => {
-    const edgeIndex = workflowStore.edges.findIndex(e => e.id === edgeId)
+    const edgeIndex = workflowStore.edges.findIndex((e) => e.id === edgeId)
     if (edgeIndex !== -1 && workflowStore.edges[edgeIndex]) {
       workflowStore.edges[edgeIndex] = {
         ...workflowStore.edges[edgeIndex],
         ...data,
-        id: workflowStore.edges[edgeIndex].id  // Ensure id is preserved
+        id: workflowStore.edges[edgeIndex].id, // Ensure id is preserved
       } as Edge
       workflowStore.markAsDirty() // Manually mark since we're directly modifying
     }
@@ -60,6 +62,6 @@ export function useEdgeOperations(): EdgeOperations {
     addEdge,
     removeEdge,
     removeEdges,
-    updateEdge
+    updateEdge,
   }
 }

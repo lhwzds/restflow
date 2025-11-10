@@ -104,17 +104,13 @@ const handleKeydown = (event: Event | KeyboardEvent) => {
     <div
       v-else
       class="header-title-container"
-      :class="{ 'editable': editable }"
+      :class="{ editable: editable }"
       @click="startEdit"
       @mouseenter="isHovering = true"
       @mouseleave="isHovering = false"
     >
       <h1 class="header-title">{{ modelValue || title }}</h1>
-      <Pencil
-        v-if="editable"
-        :class="['edit-icon', { 'visible': isHovering }]"
-        :size="18"
-      />
+      <Pencil v-if="editable" :class="['edit-icon', { visible: isHovering }]" :size="18" />
     </div>
 
     <div class="header-actions">
@@ -136,12 +132,7 @@ const handleKeydown = (event: Event | KeyboardEvent) => {
         class="github-link"
         title="View on GitHub"
       >
-        <el-button
-          :icon="Github"
-          circle
-          text
-          size="large"
-        />
+        <el-button :icon="Github" circle text size="large" />
       </a>
     </div>
   </el-header>

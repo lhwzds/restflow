@@ -15,19 +15,10 @@ import { useWorkflowTriggers } from '../composables/triggers/useWorkflowTriggers
 import { isNodeATrigger } from '../composables/node/useNodeHelpers'
 import type { Workflow } from '@/types/generated/Workflow'
 
-const {
-  workflows,
-  isLoading,
-  filteredWorkflows,
-  searchQuery,
-  loadWorkflows,
-  setSearchQuery,
-} = useWorkflowList()
+const { workflows, isLoading, filteredWorkflows, searchQuery, loadWorkflows, setSearchQuery } =
+  useWorkflowList()
 
-const {
-  fetchAllTriggerStatuses,
-  getTriggerStatus,
-} = useWorkflowTriggers()
+const { fetchAllTriggerStatuses, getTriggerStatus } = useWorkflowTriggers()
 
 const { selectedWorkflowId, selectWorkflow, clearSelection } = useWorkflowListSelection(workflows)
 
@@ -37,7 +28,6 @@ onMounted(async () => {
   await loadWorkflows()
   await fetchAllTriggerStatuses(workflows.value.map((w) => w.id))
 })
-
 
 function createWorkflow() {
   showNewWorkflowDialog.value = true
@@ -80,9 +70,7 @@ function hasTrigger(workflow: Workflow): boolean {
           class="search-input"
           @input="handleSearch"
         />
-        <ElButton type="primary" :icon="Plus" @click="createWorkflow">
-          New Workflow
-        </ElButton>
+        <ElButton type="primary" :icon="Plus" @click="createWorkflow"> New Workflow </ElButton>
       </template>
     </HeaderBar>
 
@@ -132,7 +120,6 @@ function hasTrigger(workflow: Workflow): boolean {
 .search-input {
   width: var(--rf-size-xl);
 }
-
 
 .workflow-grid-container {
   width: 100%;
