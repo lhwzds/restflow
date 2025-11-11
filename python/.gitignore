@@ -13,6 +13,7 @@ env/
 
 # uv
 .uv-cache/
+uv.lock
 
 # User scripts (keep directory but not contents)
 scripts/*.py
