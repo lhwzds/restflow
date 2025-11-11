@@ -17,6 +17,9 @@ export interface ModelOption {
 export const MODEL_OPTIONS: ModelOption[] = [
   // OpenAI Models
   { value: 'gpt-5', label: 'GPT-5', provider: 'openai' },
+  { value: 'gpt-5-mini', label: 'GPT-5 Mini', provider: 'openai' },
+  { value: 'gpt-5-nano', label: 'GPT-5 Nano', provider: 'openai' },
+  { value: 'gpt-5-pro', label: 'GPT-5 Pro', provider: 'openai' },
   { value: 'gpt-4.1', label: 'GPT-4.1', provider: 'openai' },
   { value: 'gpt-4.1-mini', label: 'GPT-4.1 Mini', provider: 'openai' },
   { value: 'gpt-4.1-nano', label: 'GPT-4.1 Nano', provider: 'openai' },

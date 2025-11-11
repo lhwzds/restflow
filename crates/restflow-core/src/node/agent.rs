@@ -145,13 +145,14 @@ impl AgentNode {
         };
 
         let response = match self.model.as_str() {
-            m @ ("o4-mini" | "o3" | "o3-mini" | "gpt-4.1" | "gpt-4.1-mini" | "gpt-4.1-nano"
+            m @ ("o4-mini" | "o3" | "o3-mini" | "gpt-5" | "gpt-5-mini" | "gpt-5-nano" | "gpt-5-pro"
+            | "gpt-4.1" | "gpt-4.1-mini" | "gpt-4.1-nano"
             | "gpt-4" | "gpt-4-turbo" | "gpt-3.5-turbo" | "gpt-4o" | "gpt-4o-mini") => {
                 let client = openai::Client::new(&api_key);
 
                 let builder = match m {
-                    // O-series models don't support temperature
-                    "o4-mini" | "o3" | "o3-mini" => {
+                    // O-series and GPT-5 series models don't support temperature
+                    "o4-mini" | "o3" | "o3-mini" | "gpt-5" | "gpt-5-mini" | "gpt-5-nano" | "gpt-5-pro" => {
                         let mut b = client.agent(m);
                         if let Some(ref prompt) = self.prompt {
                             b = b.preamble(prompt);
@@ -217,7 +218,7 @@ impl AgentNode {
 
             _ => {
                 return Err(anyhow::anyhow!(
-                    "Unsupported model: {}. Supported models: o4-mini, o3, o3-mini, gpt-4.1, gpt-4.1-mini, gpt-4.1-nano, gpt-4, gpt-4-turbo, gpt-3.5-turbo, gpt-4o, gpt-4o-mini, claude-4-opus, claude-4-sonnet, claude-3.7-sonnet, deepseek-chat, deepseek-reasoner",
+                    "Unsupported model: {}. Supported models: o4-mini, o3, o3-mini, gpt-5, gpt-5-mini, gpt-5-nano, gpt-5-pro, gpt-4.1, gpt-4.1-mini, gpt-4.1-nano, gpt-4, gpt-4-turbo, gpt-3.5-turbo, gpt-4o, gpt-4o-mini, claude-4-opus, claude-4-sonnet, claude-3.7-sonnet, deepseek-chat, deepseek-reasoner",
                     self.model
                 ));
             }
