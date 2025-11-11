@@ -10,7 +10,6 @@ interface AgentNodeData {
   prompt?: string
   temperature?: number
   api_key?: string
-  input?: string
   tools?: string[]
 }
 

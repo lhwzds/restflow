@@ -11,7 +11,6 @@ interface AgentConfig {
   prompt?: string
   temperature?: number
   tools?: string[]
-  input?: string
   api_key_config?: ApiKeyConfig | null
 }
 
@@ -118,7 +117,7 @@ const isToolSelected = (toolId: string) => {
       <ExpressionInput
         :model-value="localData.prompt || ''"
         :multiline="true"
-        placeholder="Analyze the user data: {{node.http1.data.body.user}} and provide insights based on {{trigger.payload.request}}"
+        placeholder="You are a helpful assistant. Analyze: {{trigger.payload}}"
         @update:model-value="
           (val) => {
             localData.prompt = val
@@ -127,7 +126,10 @@ const isToolSelected = (toolId: string) => {
         "
         class="agent-prompt-editor"
       />
-      <span class="form-hint">Use {{}} syntax to reference variables</span>
+      <span class="form-hint">
+        This field serves as both system prompt and user input. Use &#123;&#123;&#125;&#125; syntax to reference
+        workflow context variables (e.g., &#123;&#123;trigger.payload&#125;&#125;, &#123;&#123;node.http1.data&#125;&#125;)
+      </span>
     </div>
 
     <div class="form-group">
@@ -141,22 +143,6 @@ const isToolSelected = (toolId: string) => {
         step="0.1"
       />
       <span class="form-hint">0 = deterministic, 1 = creative (default: 0.7)</span>
-    </div>
-
-    <div class="form-group">
-      <label>Input</label>
-      <ExpressionInput
-        :model-value="localData.input || ''"
-        :multiline="true"
-        placeholder="{{trigger.payload}} or custom input"
-        @update:model-value="
-          (val) => {
-            localData.input = val
-            updateData()
-          }
-        "
-      />
-      <span class="form-hint">Input data for the agent</span>
     </div>
 
     <div class="form-group">
