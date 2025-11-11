@@ -51,7 +51,10 @@ export function useAvailableVariables(currentNodeId: Readonly<Ref<string | null>
       const incomingEdges = workflowStore.edges.filter((edge: any) => edge.target === currentId)
 
       for (const edge of incomingEdges) {
-        upstreamIds.push(edge.source)
+        // Only add if not already in the list (prevent duplicates in diamond patterns)
+        if (!upstreamIds.includes(edge.source)) {
+          upstreamIds.push(edge.source)
+        }
         traverse(edge.source)
       }
     }
