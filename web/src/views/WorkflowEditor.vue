@@ -119,6 +119,11 @@ useKeyboardShortcuts({
 })
 
 const initializeWorkflow = async () => {
+  // Reset editing state when initializing/re-initializing workflow
+  // This ensures variable panel doesn't persist when navigating (e.g., browser back/forward)
+  executionStore.setEditingNode(false)
+  executionStore.selectNode(null)
+
   const workflowId = route.params.id as string
 
   if (!workflowId) {
@@ -158,6 +163,10 @@ onMounted(() => {
 
 onUnmounted(() => {
   workflowStore.resetWorkflow()
+  // Clean up execution store state when leaving the editor
+  executionStore.clearExecution()
+  executionStore.setEditingNode(false)
+  executionStore.selectNode(null)
   unsavedChanges.markAsSaved()
 })
 </script>
