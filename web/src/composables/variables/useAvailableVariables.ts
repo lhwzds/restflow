@@ -175,16 +175,7 @@ export function useAvailableVariables(currentNodeId: Readonly<Ref<string | null>
       return
     }
 
-    // For now, trigger data would come from the first trigger node's input
-    const triggerNodes = workflowStore.nodes.filter(
-      (n: any) =>
-        n.type === 'ManualTrigger' || n.type === 'WebhookTrigger' || n.type === 'ScheduleTrigger',
-    )
-    const triggerNode = triggerNodes[0]
-    const triggerResult = triggerNode ? nodeResults.get(triggerNode.id) : null
-    const triggerData = triggerResult?.input
-    const triggerFields = triggerData ? parseValueToFields(triggerData, 'trigger.payload') : []
-
+    // Treat all upstream nodes uniformly (including triggers)
     const nodeVariables: VariableNode[] = upstreamNodeIds.map((nodeId) => {
       const node = workflowStore.nodes.find((n: any) => n.id === nodeId)
       const nodeResult = nodeResults.get(nodeId)
@@ -213,7 +204,7 @@ export function useAvailableVariables(currentNodeId: Readonly<Ref<string | null>
     const configFields: VariableField[] = []
 
     availableVariables.value = {
-      trigger: triggerFields,
+      trigger: [],
       nodes: nodeVariables,
       vars: varFields,
       config: configFields,
