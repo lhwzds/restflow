@@ -6,13 +6,24 @@ import { MODEL_OPTIONS } from '@/constants/node/models'
  * Provides unified model list and helper functions
  */
 export function useAgentModels() {
+  // Models that don't support temperature parameter
+  const NO_TEMPERATURE_MODELS = [
+    'o4-mini',
+    'o3',
+    'o3-mini',
+    'gpt-5',
+    'gpt-5-mini',
+    'gpt-5-nano',
+    'gpt-5-pro',
+  ]
+
   // Build AVAILABLE_MODELS from MODEL_OPTIONS with supportsTemperature flag
   const AVAILABLE_MODELS = readonly(
     MODEL_OPTIONS.map((option) => ({
       label: option.label,
       value: option.value,
-      // O-series models don't support temperature
-      supportsTemperature: !option.value.startsWith('o'),
+      // O-series and GPT-5 series models don't support temperature
+      supportsTemperature: !NO_TEMPERATURE_MODELS.includes(option.value),
     })),
   )
 
@@ -27,10 +38,10 @@ export function useAgentModels() {
 
   /**
    * Get default temperature for model
-   * Returns null for O-series models, 0.7 for others
+   * Returns null for models that don't support temperature, 0.7 for others
    */
   const getDefaultTemperature = (model: string): number | null => {
-    return isOSeriesModel(model) ? null : 0.7
+    return NO_TEMPERATURE_MODELS.includes(model) ? null : 0.7
   }
 
   /**

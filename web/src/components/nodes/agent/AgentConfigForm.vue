@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { ref, watch, onMounted } from 'vue'
+import { ref, watch, onMounted, computed } from 'vue'
 import type { ApiKeyConfig } from '@/types/generated/ApiKeyConfig'
 import { useApiKeyConfig } from '@/composables/useApiKeyConfig'
 import { useSecretsData } from '@/composables/secrets/useSecretsData'
+import { useAgentModels } from '@/composables/agents/useAgentModels'
 import { MODEL_OPTIONS } from '@/constants/node/models'
 import ExpressionInput from '@/components/shared/ExpressionInput.vue'
 
@@ -37,6 +38,11 @@ const apiKeyDirect = ref('')
 const apiKeySecret = ref('')
 
 const { secrets, loadSecrets } = useSecretsData()
+const { supportsTemperature } = useAgentModels()
+
+const showTemperature = computed(() => {
+  return localData.value.model ? supportsTemperature(localData.value.model) : true
+})
 
 watch(
   () => props.modelValue,
@@ -66,10 +72,20 @@ const updateData = () => {
   const apiKeyValue = keyMode.value === 'direct' ? apiKeyDirect.value : apiKeySecret.value
   const apiKeyConfig = buildConfig(keyMode.value, apiKeyValue)
 
-  emit('update:modelValue', {
-    ...localData.value,
+  // Build base config
+  const config: AgentConfig = {
+    model: localData.value.model,
+    prompt: localData.value.prompt,
+    tools: localData.value.tools,
     api_key_config: apiKeyConfig,
-  })
+  }
+
+  // Only include temperature if model supports it
+  if (localData.value.model && supportsTemperature(localData.value.model)) {
+    config.temperature = localData.value.temperature
+  }
+
+  emit('update:modelValue', config)
 }
 
 const toggleTool = (toolId: string) => {
@@ -132,7 +148,7 @@ const isToolSelected = (toolId: string) => {
       </span>
     </div>
 
-    <div class="form-group">
+    <div v-if="showTemperature" class="form-group">
       <label>Temperature</label>
       <input
         type="number"
