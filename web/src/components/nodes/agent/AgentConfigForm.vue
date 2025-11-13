@@ -1,14 +1,15 @@
 <script setup lang="ts">
 import { ref, watch, onMounted, computed } from 'vue'
+import type { AIModel } from '@/types/generated/AIModel'
+import type { Provider } from '@/types/generated/Provider'
 import type { ApiKeyConfig } from '@/types/generated/ApiKeyConfig'
 import { useApiKeyConfig } from '@/composables/useApiKeyConfig'
 import { useSecretsData } from '@/composables/secrets/useSecretsData'
-import { useAgentModels } from '@/composables/agents/useAgentModels'
-import { MODEL_OPTIONS } from '@/constants/node/models'
+import { getModelsByProvider, supportsTemperature } from '@/utils/AIModels'
 import ExpressionInput from '@/components/shared/ExpressionInput.vue'
 
 interface AgentConfig {
-  model?: string
+  model?: AIModel
   prompt?: string
   temperature?: number
   tools?: string[]
@@ -38,11 +39,12 @@ const apiKeyDirect = ref('')
 const apiKeySecret = ref('')
 
 const { secrets, loadSecrets } = useSecretsData()
-const { supportsTemperature } = useAgentModels()
 
 const showTemperature = computed(() => {
   return localData.value.model ? supportsTemperature(localData.value.model) : true
 })
+
+const providers: Provider[] = ['openai', 'anthropic', 'deepseek']
 
 watch(
   () => props.modelValue,
@@ -113,12 +115,12 @@ const isToolSelected = (toolId: string) => {
       <select v-model="localData.model" @change="updateData">
         <option value="">Select a model</option>
         <optgroup
-          v-for="provider in ['openai', 'anthropic', 'deepseek']"
+          v-for="provider in providers"
           :key="provider"
           :label="provider.charAt(0).toUpperCase() + provider.slice(1)"
         >
           <option
-            v-for="option in MODEL_OPTIONS.filter((opt) => opt.provider === provider)"
+            v-for="option in getModelsByProvider(provider)"
             :key="option.value"
             :value="option.value"
           >
@@ -143,8 +145,9 @@ const isToolSelected = (toolId: string) => {
         class="agent-prompt-editor"
       />
       <span class="form-hint">
-        This field serves as both system prompt and user input. Use &#123;&#123;&#125;&#125; syntax to reference
-        workflow context variables (e.g., &#123;&#123;trigger.payload&#125;&#125;, &#123;&#123;node.http1.data&#125;&#125;)
+        This field serves as both system prompt and user input. Use &#123;&#123;&#125;&#125; syntax
+        to reference workflow context variables (e.g., &#123;&#123;trigger.payload&#125;&#125;,
+        &#123;&#123;node.http1.data&#125;&#125;)
       </span>
     </div>
 

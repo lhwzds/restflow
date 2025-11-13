@@ -3,4 +3,4 @@
  */
 
 export * from './types'
-export * from './models'
+// Model-related exports are now in @/utils/aiModels

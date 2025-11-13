@@ -6,4 +6,4 @@
  * This allows us to maintain type safety while supporting runtime variable interpolation.
  * Templates are resolved during execution using the ExecutionContext.
  */
-export type Templated<T> = string | T
+export type Templated<T> = string | T;

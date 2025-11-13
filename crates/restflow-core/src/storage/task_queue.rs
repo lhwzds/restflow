@@ -284,7 +284,7 @@ mod tests {
     }
 
     fn create_test_input() -> crate::models::NodeInput {
-        use crate::models::{NodeInput, ManualTriggerInput};
+        use crate::models::{ManualTriggerInput, NodeInput};
 
         NodeInput::ManualTrigger(ManualTriggerInput {
             payload: Some(serde_json::json!({})),

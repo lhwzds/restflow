@@ -1,6 +1,7 @@
 use anyhow::Result;
 use restflow_core::{
     AppCore,
+    models::AIModel,
     node::agent::{AgentNode, ApiKeyConfig},
     paths, services,
 };
@@ -40,9 +41,9 @@ async fn ensure_api_key(core: &Arc<AppCore>) -> Result<()> {
     println!("Validating API key...");
 
     let test_agent = AgentNode::new(
-        "gpt-4o-mini".to_string(),
+        AIModel::Gpt5Mini,
         "You are a test assistant.".to_string(),
-        Some(0.1),
+        None, // GPT-5 series doesn't support temperature
         Some(ApiKeyConfig::Direct(key.clone())),
     );
 

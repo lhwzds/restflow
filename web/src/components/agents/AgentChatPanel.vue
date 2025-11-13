@@ -6,7 +6,7 @@ import type { StoredAgent } from '@/types/generated/StoredAgent'
 import { useAgentOperations } from '@/composables/agents/useAgentOperations'
 import MarkdownRenderer from '@/components/shared/MarkdownRenderer.vue'
 import { getChatHistory } from '@/api/agents'
-import { getModelDisplayName } from '@/constants/node/models'
+import { getModelDisplayName } from '@/utils/AIModels'
 
 const props = defineProps<{
   agent: StoredAgent

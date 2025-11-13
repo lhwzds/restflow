@@ -1,3 +1,4 @@
+use crate::models::{AIModel, Provider};
 use crate::tools::{AddTool, GetTimeTool};
 use anyhow::Result;
 use rig::{
@@ -61,17 +62,16 @@ pub enum ApiKeyConfig {
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct AgentNode {
-    pub model: String,
+    pub model: AIModel,
     pub prompt: Option<String>,
     pub temperature: Option<f64>,
     pub api_key_config: Option<ApiKeyConfig>,
     pub tools: Option<Vec<String>>, // Tool names to enable
 }
 
-
 impl AgentNode {
     pub fn new(
-        model: String,
+        model: AIModel,
         prompt: String,
         temperature: Option<f64>,
         api_key_config: Option<ApiKeyConfig>,
@@ -86,10 +86,10 @@ impl AgentNode {
     }
 
     pub fn from_config(config: &serde_json::Value) -> Result<Self> {
-        let model = config["model"]
-            .as_str()
-            .ok_or_else(|| anyhow::anyhow!("Model missing in config"))?
-            .to_string();
+        let model = config
+            .get("model")
+            .ok_or_else(|| anyhow::anyhow!("Model missing in config"))?;
+        let model: AIModel = serde_json::from_value(model.clone())?;
 
         let prompt = config
             .get("prompt")
@@ -103,7 +103,7 @@ impl AgentNode {
             .map(|v| serde_json::from_value(v.clone()))
             .transpose()?;
 
-        let tools = config["tools"].as_array().map(|arr| {
+        let tools = config.get("tools").and_then(|v| v.as_array()).map(|arr| {
             arr.iter()
                 .filter_map(|v| v.as_str().map(String::from))
                 .collect()
@@ -144,83 +144,66 @@ impl AgentNode {
             }
         };
 
-        let response = match self.model.as_str() {
-            m @ ("o4-mini" | "o3" | "o3-mini" | "gpt-5" | "gpt-5-mini" | "gpt-5-nano" | "gpt-5-pro"
-            | "gpt-4.1" | "gpt-4.1-mini" | "gpt-4.1-nano"
-            | "gpt-4" | "gpt-4-turbo" | "gpt-3.5-turbo" | "gpt-4o" | "gpt-4o-mini") => {
+        let response = match self.model.provider() {
+            Provider::OpenAI => {
                 let client = openai::Client::new(&api_key);
+                let mut builder = client.agent(self.model.as_str());
 
-                let builder = match m {
-                    // O-series and GPT-5 series models don't support temperature
-                    "o4-mini" | "o3" | "o3-mini" | "gpt-5" | "gpt-5-mini" | "gpt-5-nano" | "gpt-5-pro" => {
-                        let mut b = client.agent(m);
-                        if let Some(ref prompt) = self.prompt {
-                            b = b.preamble(prompt);
-                        }
-                        b
-                    }
-                    _ => {
-                        let mut b = client.agent(m);
-                        if let Some(ref prompt) = self.prompt {
-                            b = b.preamble(prompt);
-                        }
-                        if let Some(temp) = self.temperature {
-                            b.temperature(temp)
-                        } else {
-                            b
-                        }
-                    }
-                };
-
-                build_with_tools!(self, builder, input)
-            }
-
-            m @ ("claude-4-opus" | "claude-4-sonnet" | "claude-3.7-sonnet") => {
-                let client = anthropic::Client::new(&api_key);
-
-                let mut builder = match m {
-                    "claude-4-opus" => client.agent(anthropic::CLAUDE_4_OPUS),
-                    "claude-4-sonnet" => client.agent(anthropic::CLAUDE_4_SONNET),
-                    "claude-3.7-sonnet" => client.agent(anthropic::CLAUDE_3_7_SONNET),
-                    _ => unreachable!(), // We already matched these exact models
-                };
+                // Set preamble if provided
                 if let Some(ref prompt) = self.prompt {
                     builder = builder.preamble(prompt);
                 }
-                let builder = if let Some(temp) = self.temperature {
-                    builder.temperature(temp)
-                } else {
-                    builder
-                };
+
+                // Set temperature if model supports it
+                if self.model.supports_temperature()
+                    && let Some(temp) = self.temperature
+                {
+                    builder = builder.temperature(temp);
+                }
 
                 build_with_tools!(self, builder, input)
             }
 
-            m @ ("deepseek-chat" | "deepseek-reasoner") => {
+            Provider::Anthropic => {
+                let client = anthropic::Client::new(&api_key);
+                let mut builder = client.agent(self.model.as_str());
+
+                // Set preamble if provided
+                if let Some(ref prompt) = self.prompt {
+                    builder = builder.preamble(prompt);
+                }
+
+                // Set temperature if provided (Anthropic models all support temperature)
+                if let Some(temp) = self.temperature {
+                    builder = builder.temperature(temp);
+                }
+
+                build_with_tools!(self, builder, input)
+            }
+
+            Provider::DeepSeek => {
                 let client = deepseek::Client::new(&api_key);
 
-                let mut builder = match m {
-                    "deepseek-chat" => client.agent(deepseek::DEEPSEEK_CHAT),
-                    "deepseek-reasoner" => client.agent(deepseek::DEEPSEEK_REASONER),
-                    _ => unreachable!(), // We already matched these exact models
+                // Map AIModel to deepseek constants
+                let model_str = match self.model {
+                    AIModel::DeepseekChat => deepseek::DEEPSEEK_CHAT,
+                    AIModel::DeepseekReasoner => deepseek::DEEPSEEK_REASONER,
+                    _ => unreachable!("Non-DeepSeek model in DeepSeek branch"),
                 };
+
+                let mut builder = client.agent(model_str);
+
+                // Set preamble if provided
                 if let Some(ref prompt) = self.prompt {
                     builder = builder.preamble(prompt);
                 }
-                let builder = if let Some(temp) = self.temperature {
-                    builder.temperature(temp)
-                } else {
-                    builder
-                };
+
+                // Set temperature if provided (DeepSeek models all support temperature)
+                if let Some(temp) = self.temperature {
+                    builder = builder.temperature(temp);
+                }
 
                 build_with_tools!(self, builder, input)
-            }
-
-            _ => {
-                return Err(anyhow::anyhow!(
-                    "Unsupported model: {}. Supported models: o4-mini, o3, o3-mini, gpt-5, gpt-5-mini, gpt-5-nano, gpt-5-pro, gpt-4.1, gpt-4.1-mini, gpt-4.1-nano, gpt-4, gpt-4-turbo, gpt-3.5-turbo, gpt-4o, gpt-4o-mini, claude-4-opus, claude-4-sonnet, claude-3.7-sonnet, deepseek-chat, deepseek-reasoner",
-                    self.model
-                ));
             }
         };
 

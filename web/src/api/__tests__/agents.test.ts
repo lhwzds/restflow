@@ -26,7 +26,7 @@ describe('Agents API', () => {
     id,
     name: `Test Agent ${id}`,
     agent: {
-      model: 'gpt-4',
+      model: 'claude-sonnet-4-5',
       prompt: 'You are a test assistant',
       temperature: null,
       api_key_config: null,
@@ -65,7 +65,7 @@ describe('Agents API', () => {
   describe('createAgent', () => {
     it('should create agent and return stored agent', async () => {
       const agentNode: AgentNode = {
-        model: 'gpt-4',
+        model: 'claude-sonnet-4-5',
         prompt: 'Test prompt',
         temperature: null,
         api_key_config: null,
@@ -133,7 +133,7 @@ describe('Agents API', () => {
   describe('executeAgentInline', () => {
     it('should execute agent inline', async () => {
       const agent = {
-        model: 'gpt-4',
+        model: 'claude-sonnet-4-5',
         prompt: 'Test',
       }
 
@@ -169,7 +169,7 @@ describe('Agents API', () => {
       const request: agentsApi.CreateAgentRequest = {
         name: 'Test',
         agent: {
-          model: 'gpt-4',
+          model: 'claude-sonnet-4-5',
           prompt: 'Test',
           temperature: null,
           api_key_config: null,

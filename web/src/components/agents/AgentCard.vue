@@ -3,7 +3,7 @@ import { computed } from 'vue'
 import { ElCard, ElTag, ElIcon } from 'element-plus'
 import { User, Clock } from '@element-plus/icons-vue'
 import type { StoredAgent } from '@/types/generated/StoredAgent'
-import { getModelDisplayName, getModelTagType } from '@/constants/node/models'
+import { getModelDisplayName, getProvider, getProviderTagType } from '@/utils/AIModels'
 
 const props = defineProps<{
   agent: StoredAgent
@@ -30,7 +30,10 @@ function formatTime(timestamp?: bigint | null): string {
 
 const lastUpdated = computed(() => formatTime(props.agent.updated_at))
 const modelName = computed(() => getModelDisplayName(props.agent.agent.model))
-const modelTagType = computed(() => getModelTagType(props.agent.agent.model))
+const modelTagType = computed(() => {
+  const provider = getProvider(props.agent.agent.model)
+  return getProviderTagType(provider)
+})
 
 const promptPreview = computed(() => {
   const prompt = props.agent.agent.prompt || ''

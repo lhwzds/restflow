@@ -154,7 +154,11 @@ impl Scheduler {
                     error = %e,
                     "Failed to load workflow from storage"
                 );
-                return Err(anyhow::anyhow!("Failed to load workflow {}: {}", workflow_id, e));
+                return Err(anyhow::anyhow!(
+                    "Failed to load workflow {}: {}",
+                    workflow_id,
+                    e
+                ));
             }
         };
 
@@ -356,7 +360,11 @@ impl Scheduler {
     }
 
     /// Uses `Arc<Workflow>` to avoid expensive cloning in large workflows
-    pub fn push_downstream_tasks(&self, task: &Task, output: crate::models::NodeOutput) -> Result<()> {
+    pub fn push_downstream_tasks(
+        &self,
+        task: &Task,
+        output: crate::models::NodeOutput,
+    ) -> Result<()> {
         let workflow = task.get_workflow(&self.storage)?;
 
         // Serialize NodeOutput to Value for context storage
@@ -402,7 +410,7 @@ mod tests {
     }
 
     fn create_test_input() -> crate::models::NodeInput {
-        use crate::models::{NodeInput, ManualTriggerInput};
+        use crate::models::{ManualTriggerInput, NodeInput};
 
         NodeInput::ManualTrigger(ManualTriggerInput {
             payload: Some(serde_json::json!({})),

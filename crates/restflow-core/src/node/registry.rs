@@ -1,7 +1,5 @@
 use crate::engine::context::ExecutionContext;
-use crate::models::{
-    AgentOutput, HttpOutput, NodeOutput, NodeType, PrintOutput, PythonOutput,
-};
+use crate::models::{AgentOutput, HttpOutput, NodeOutput, NodeType, PrintOutput, PythonOutput};
 use crate::node::trigger::TriggerExecutor;
 use anyhow::Result;
 use async_trait::async_trait;
@@ -207,7 +205,10 @@ impl NodeExecutor for PythonExecutor {
         let script = python.build_script();
 
         // Get input from config or use empty object
-        let input = config.get("input").cloned().unwrap_or_else(|| serde_json::json!({}));
+        let input = config
+            .get("input")
+            .cloned()
+            .unwrap_or_else(|| serde_json::json!({}));
 
         // Get PythonManager from context
         let manager = context
@@ -228,7 +229,9 @@ impl NodeExecutor for PythonExecutor {
             }
         }
 
-        let result = manager.execute_inline_code(&script, input, env_vars).await?;
+        let result = manager
+            .execute_inline_code(&script, input, env_vars)
+            .await?;
 
         Ok(NodeOutput::Python(PythonOutput { result }))
     }
@@ -334,10 +337,12 @@ mod tests {
             .await;
 
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("Unsupported HTTP method"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Unsupported HTTP method")
+        );
     }
 
     #[tokio::test]
@@ -403,9 +408,11 @@ mod tests {
             .await;
 
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("Python manager not available"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Python manager not available")
+        );
     }
 }

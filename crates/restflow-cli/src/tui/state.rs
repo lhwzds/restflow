@@ -2,6 +2,7 @@ use super::MIN_INPUT_HEIGHT;
 use crate::config;
 use restflow_core::{
     AppCore,
+    models::AIModel,
     node::agent::{AgentNode, ApiKeyConfig},
 };
 use std::sync::Arc;
@@ -66,7 +67,7 @@ impl TuiApp {
         };
 
         let chat_agent = AgentNode::new(
-            "gpt-4.1-mini".to_string(),
+            AIModel::ClaudeSonnet4_5,
             config::prompts::CLI_CHAT_ASSISTANT_PROMPT.to_string(),
             Some(0.7),
             api_key_config,
