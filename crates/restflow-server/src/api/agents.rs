@@ -1,7 +1,7 @@
-use crate::api::{ApiResponse, state::AppState};
+use crate::api::{state::AppState, ApiResponse};
 use axum::{
-    Json,
     extract::{Path, State},
+    Json,
 };
 use restflow_core::node::agent::AgentNode;
 use restflow_core::storage::agent::StoredAgent;
@@ -159,9 +159,10 @@ pub async fn execute_agent_inline(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use restflow_core::models::AIModel;
     use restflow_core::AppCore;
     use std::sync::Arc;
-    use tempfile::{TempDir, tempdir};
+    use tempfile::{tempdir, TempDir};
 
     async fn create_test_app() -> (Arc<AppCore>, TempDir) {
         let temp_dir = tempdir().unwrap();
@@ -172,7 +173,7 @@ mod tests {
 
     fn create_test_agent() -> AgentNode {
         AgentNode {
-            model: "gpt-4".to_string(),
+            model: AIModel::ClaudeSonnet4_5,
             prompt: Some("You are a test assistant".to_string()),
             temperature: None,
             api_key_config: None,
@@ -210,7 +211,7 @@ mod tests {
 
         let data = body.data.unwrap();
         assert_eq!(data.name, "Test Agent");
-        assert_eq!(data.agent.model, "gpt-4");
+        assert_eq!(data.agent.model, AIModel::ClaudeSonnet4_5);
     }
 
     #[tokio::test]

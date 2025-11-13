@@ -32,7 +32,7 @@ import { useAgentPanelResize } from '../composables/agents/useAgentPanelResize'
 import { useSecretsData } from '../composables/secrets/useSecretsData'
 import type { AgentNode } from '@/types/generated/AgentNode'
 import { useApiKeyConfig } from '@/composables/useApiKeyConfig'
-import { useAgentModels } from '@/composables/agents/useAgentModels'
+import { getAllModels, supportsTemperature, getDefaultTemperature } from '@/utils/AIModels'
 import { useAgentTools } from '@/composables/agents/useAgentTools'
 import { VALIDATION_MESSAGES } from '@/constants'
 
@@ -44,11 +44,7 @@ const { secrets, loadSecrets: loadSecretsData } = useSecretsData()
 const { buildConfig } = useApiKeyConfig()
 
 // Use shared composables for models and tools
-const {
-  AVAILABLE_MODELS,
-  isOSeriesModel: checkIsOSeriesModel,
-  getDefaultTemperature,
-} = useAgentModels()
+const AVAILABLE_MODELS = getAllModels()
 const {
   selectedTools: createSelectedTools,
   selectedToolValue: createSelectedToolValue,
@@ -64,14 +60,14 @@ const createKeyMode = ref<'direct' | 'secret'>('direct')
 const createApiKey = ref('')
 const createApiKeySecret = ref('')
 const createForm = ref<Omit<AgentNode, 'api_key_config'>>({
-  model: 'gpt-4.1',
+  model: 'claude-sonnet-4-5',
   prompt: null,
   temperature: 0.7,
   tools: null,
 })
 const createFormName = ref('')
 
-const isOSeriesModel = computed(() => checkIsOSeriesModel(createForm.value.model))
+const isOSeriesModel = computed(() => !supportsTemperature(createForm.value.model))
 
 onMounted(async () => {
   loadAgents()
@@ -106,9 +102,9 @@ async function handleCreate() {
     createApiKeySecret.value = ''
     resetCreateTools([])
     createForm.value = {
-      model: 'gpt-4.1',
+      model: 'claude-sonnet-4-5',
       prompt: null,
-      temperature: getDefaultTemperature('gpt-4.1') ?? 0.7,
+      temperature: getDefaultTemperature('claude-sonnet-4-5') ?? 0.7,
       tools: null,
     }
 

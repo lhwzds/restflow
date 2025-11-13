@@ -1,4 +1,8 @@
-use axum::{extract::{Path, State}, http::StatusCode, response::Json};
+use axum::{
+    extract::{Path, State},
+    http::StatusCode,
+    response::Json,
+};
 use restflow_core::python::TemplateInfo;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;

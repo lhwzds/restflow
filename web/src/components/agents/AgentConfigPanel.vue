@@ -16,7 +16,7 @@ import type { StoredAgent } from '@/types/generated/StoredAgent'
 import type { AgentNode } from '@/types/generated/AgentNode'
 import { useSecretsData } from '@/composables/secrets/useSecretsData'
 import { useApiKeyConfig } from '@/composables/useApiKeyConfig'
-import { useAgentModels } from '@/composables/agents/useAgentModels'
+import { getAllModels, supportsTemperature, getDefaultTemperature } from '@/utils/AIModels'
 import { useAgentTools } from '@/composables/agents/useAgentTools'
 
 const props = defineProps<{
@@ -32,11 +32,7 @@ const emit = defineEmits<{
 const { secrets, loadSecrets: loadSecretsData } = useSecretsData()
 const { buildConfig, isConfigChanged } = useApiKeyConfig()
 
-const {
-  AVAILABLE_MODELS,
-  isOSeriesModel: checkIsOSeriesModel,
-  getDefaultTemperature,
-} = useAgentModels()
+const AVAILABLE_MODELS = getAllModels()
 const {
   selectedTools,
   selectedToolValue,
@@ -95,7 +91,7 @@ onMounted(async () => {
   await loadSecretsData()
 })
 
-const isOSeriesModel = computed(() => checkIsOSeriesModel(formData.value.model))
+const isOSeriesModel = computed(() => !supportsTemperature(formData.value.model))
 
 const hasChanges = computed(() => {
   return (

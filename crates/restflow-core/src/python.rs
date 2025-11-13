@@ -418,17 +418,18 @@ impl PythonManager {
         }
 
         // 30 second timeout for inline code execution
-        let output = match tokio::time::timeout(Duration::from_secs(30), child.wait_with_output()).await {
-            Ok(Ok(output)) => output,
-            Ok(Err(e)) => {
-                error!(error = %e, "Failed to wait for Python script execution");
-                return Err(e.into());
-            }
-            Err(_) => {
-                error!("Python script execution timeout after 30 seconds");
-                return Err(anyhow!("Script execution timeout"));
-            }
-        };
+        let output =
+            match tokio::time::timeout(Duration::from_secs(30), child.wait_with_output()).await {
+                Ok(Ok(output)) => output,
+                Ok(Err(e)) => {
+                    error!(error = %e, "Failed to wait for Python script execution");
+                    return Err(e.into());
+                }
+                Err(_) => {
+                    error!("Python script execution timeout after 30 seconds");
+                    return Err(anyhow!("Script execution timeout"));
+                }
+            };
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);

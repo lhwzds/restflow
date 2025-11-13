@@ -97,7 +97,10 @@ impl Node {
                     payload,
                 })
             }
-            _ => Err(anyhow::anyhow!("Node type {:?} is not a trigger", self.node_type)),
+            _ => Err(anyhow::anyhow!(
+                "Node type {:?} is not a trigger",
+                self.node_type
+            )),
         }
     }
 }
@@ -269,7 +272,12 @@ mod tests {
 
         let result = node.extract_trigger_config();
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("must have 'data' field"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("must have 'data' field")
+        );
     }
 
     #[test]
@@ -287,7 +295,12 @@ mod tests {
 
         let result = node.extract_trigger_config();
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("must have 'data' field"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("must have 'data' field")
+        );
     }
 
     #[test]
@@ -310,5 +323,4 @@ mod tests {
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("is not a trigger"));
     }
-
 }

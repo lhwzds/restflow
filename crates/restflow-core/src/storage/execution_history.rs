@@ -1,5 +1,5 @@
 use crate::models::{ExecutionStatus, ExecutionSummary};
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -80,8 +80,11 @@ impl ExecutionHistoryStorage {
             drop(data_table);
 
             let mut index_table = txn.open_table(EXECUTION_INDEX)?;
-            let key =
-                Self::index_key(&summary.workflow_id, summary.started_at, &summary.execution_id);
+            let key = Self::index_key(
+                &summary.workflow_id,
+                summary.started_at,
+                &summary.execution_id,
+            );
             index_table.insert(key.as_str(), summary.execution_id.as_str())?;
         }
         txn.commit()?;
@@ -120,8 +123,11 @@ impl ExecutionHistoryStorage {
             drop(data_table);
 
             let mut index_table = txn.open_table(EXECUTION_INDEX)?;
-            let key =
-                Self::index_key(&summary.workflow_id, summary.started_at, &summary.execution_id);
+            let key = Self::index_key(
+                &summary.workflow_id,
+                summary.started_at,
+                &summary.execution_id,
+            );
             index_table.insert(key.as_str(), summary.execution_id.as_str())?;
         }
         txn.commit()?;
@@ -155,8 +161,11 @@ impl ExecutionHistoryStorage {
             drop(data_table);
 
             let mut index_table = txn.open_table(EXECUTION_INDEX)?;
-            let key =
-                Self::index_key(&summary.workflow_id, summary.started_at, &summary.execution_id);
+            let key = Self::index_key(
+                &summary.workflow_id,
+                summary.started_at,
+                &summary.execution_id,
+            );
             index_table.insert(key.as_str(), summary.execution_id.as_str())?;
         }
         txn.commit()?;
@@ -209,7 +218,8 @@ impl ExecutionHistoryStorage {
         if start_index < end_index {
             for exec_id in &exec_ids[start_index..end_index] {
                 if let Some(summary_bytes) = data.get(exec_id.as_str())? {
-                    let summary: StoredExecutionSummary = serde_json::from_slice(summary_bytes.value())?;
+                    let summary: StoredExecutionSummary =
+                        serde_json::from_slice(summary_bytes.value())?;
                     items.push(ExecutionSummary::from(&summary));
                 }
             }

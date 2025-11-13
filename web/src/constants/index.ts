@@ -34,13 +34,12 @@ export {
   type NodeCategoryValue,
 } from './node/types'
 export {
-  MODEL_OPTIONS,
-  MODEL_DISPLAY_NAMES,
+  getAllModels as MODEL_OPTIONS,
   getModelDisplayName,
-  getModelTagType,
+  getProviderTagType as getModelTagType,
   getModelsByProvider,
   type ModelOption,
-} from './node/models'
+} from '../utils/AIModels'
 export { getNodeOutputSchema, hasNodeOutputSchema } from '../utils/schemaGenerator'
 export { NODE_OUTPUT_EXAMPLES } from './node/output-examples'
 

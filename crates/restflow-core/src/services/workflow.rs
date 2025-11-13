@@ -68,7 +68,10 @@ pub async fn delete_workflow(core: &Arc<AppCore>, id: &str) -> Result<()> {
 pub async fn execute_workflow_inline(core: &Arc<AppCore>, mut workflow: Workflow) -> Result<Value> {
     workflow.id = format!("inline-{}", uuid::Uuid::new_v4());
 
-    if workflow.nodes.iter().any(|node| node.node_type == NodeType::Python)
+    if workflow
+        .nodes
+        .iter()
+        .any(|node| node.node_type == NodeType::Python)
         && let Err(e) = core
             .get_python_manager()
             .await
@@ -90,7 +93,8 @@ pub async fn execute_workflow_inline(core: &Arc<AppCore>, mut workflow: Workflow
             error = %e,
             "Failed to persist inline workflow"
         );
-        return Err(e).with_context(|| format!("Failed to persist inline workflow {}", workflow.name));
+        return Err(e)
+            .with_context(|| format!("Failed to persist inline workflow {}", workflow.name));
     }
 
     let result = async {
@@ -103,7 +107,8 @@ pub async fn execute_workflow_inline(core: &Arc<AppCore>, mut workflow: Workflow
                     error = %e,
                     "Failed to submit workflow to executor"
                 );
-                return Err(e).with_context(|| format!("Failed to submit workflow {}", workflow.id));
+                return Err(e)
+                    .with_context(|| format!("Failed to submit workflow {}", workflow.id));
             }
         };
 
@@ -128,13 +133,18 @@ pub async fn execute_workflow_by_id(
     input: Value,
 ) -> Result<Value> {
     // Load workflow to check if Python manager initialization is needed
-    let workflow = core.storage
+    let workflow = core
+        .storage
         .workflows
         .get_workflow(workflow_id)
         .with_context(|| format!("Failed to load workflow {}", workflow_id))?;
 
     // Ensure Python manager is initialized if workflow contains Python nodes
-    if workflow.nodes.iter().any(|node| node.node_type == NodeType::Python) {
+    if workflow
+        .nodes
+        .iter()
+        .any(|node| node.node_type == NodeType::Python)
+    {
         core.get_python_manager()
             .await
             .context("Failed to initialize Python manager for workflow execution")?;
@@ -155,13 +165,18 @@ pub async fn submit_workflow(
     input: Value,
 ) -> Result<String> {
     // Load workflow to check if Python manager initialization is needed
-    let workflow = core.storage
+    let workflow = core
+        .storage
         .workflows
         .get_workflow(workflow_id)
         .with_context(|| format!("Failed to load workflow {}", workflow_id))?;
 
     // Ensure Python manager is initialized if workflow contains Python nodes
-    if workflow.nodes.iter().any(|node| node.node_type == NodeType::Python) {
+    if workflow
+        .nodes
+        .iter()
+        .any(|node| node.node_type == NodeType::Python)
+    {
         core.get_python_manager()
             .await
             .context("Failed to initialize Python manager for workflow submission")?;

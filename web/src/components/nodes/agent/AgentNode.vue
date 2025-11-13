@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import type { NodeProps } from '@vue-flow/core'
+import type { AIModel } from '@/types/generated/AIModel'
 import { Bot, Sparkles } from 'lucide-vue-next'
 import BaseNode from '@/components/nodes/BaseNode.vue'
-import { getModelDisplayName } from '@/constants/node/models'
+import { getModelDisplayName } from '@/utils/AIModels'
 
 interface AgentNodeData {
   label?: string
-  model?: string
+  model?: AIModel
   prompt?: string
   temperature?: number
   api_key?: string

@@ -70,12 +70,12 @@ pub async fn execute_node(
     State(state): State<AppState>,
     Json(node): Json<Node>,
 ) -> Json<ApiResponse<ExecuteNodeResponse>> {
-
     if node.node_type == NodeType::Python
         && let Err(e) = state.get_python_manager().await
     {
         return Json(ApiResponse::error(format!(
-            "Failed to initialize Python manager: {}", e
+            "Failed to initialize Python manager: {}",
+            e
         )));
     }
 
@@ -118,7 +118,7 @@ mod tests {
                 config: serde_json::json!({
                     "type": "Agent",
                     "data": {
-                        "model": "gpt-4",
+                        "model": "claude-sonnet-4-5",
                         "prompt": "Test"
                     }
                 }),
@@ -196,7 +196,7 @@ mod tests {
             config: serde_json::json!({
                 "type": "Agent",
                 "data": {
-                    "model": "gpt-4",
+                    "model": "claude-sonnet-4-5",
                     "prompt": "Test"
                 }
             }),
@@ -222,7 +222,7 @@ mod tests {
             config: serde_json::json!({
                 "type": "Agent",
                 "data": {
-                    "model": "gpt-4",
+                    "model": "claude-sonnet-4-5",
                     "prompt": "Test"
                 }
             }),

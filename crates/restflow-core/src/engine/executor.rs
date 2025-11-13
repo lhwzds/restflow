@@ -3,7 +3,7 @@ use crate::engine::scheduler::Scheduler;
 use crate::models::{Node, NodeType};
 use crate::python::PythonManager;
 use crate::storage::Storage;
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use serde_json::Value;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -154,10 +154,14 @@ impl WorkflowExecutor {
         let config = match input {
             NodeInput::HttpRequest(http_input) => {
                 let url = http_input.url.resolve(context)?;
-                let headers = http_input.headers.as_ref()
+                let headers = http_input
+                    .headers
+                    .as_ref()
                     .map(|h| h.resolve(context))
                     .transpose()?;
-                let body = http_input.body.as_ref()
+                let body = http_input
+                    .body
+                    .as_ref()
                     .map(|b| b.resolve(context))
                     .transpose()?;
 
@@ -183,7 +187,9 @@ impl WorkflowExecutor {
             NodeInput::Python(python_input) => {
                 // Note: code is not templated to avoid conflicts with Python f-strings
                 let code = python_input.code.clone();
-                let input_data = python_input.input.as_ref()
+                let input_data = python_input
+                    .input
+                    .as_ref()
                     .map(|i| i.resolve(context))
                     .transpose()?;
 
@@ -200,18 +206,18 @@ impl WorkflowExecutor {
             }
             NodeInput::ManualTrigger(manual_input) => {
                 // Manual triggers don't need input resolution - they provide data to the workflow
-                serde_json::to_value(manual_input)
-                    .map_err(|e| anyhow::anyhow!("Failed to serialize manual trigger input: {}", e))?
+                serde_json::to_value(manual_input).map_err(|e| {
+                    anyhow::anyhow!("Failed to serialize manual trigger input: {}", e)
+                })?
             }
             NodeInput::WebhookTrigger(webhook_input) => {
                 // Webhook triggers don't need input resolution - they provide data to the workflow
-                serde_json::to_value(webhook_input)
-                    .map_err(|e| anyhow::anyhow!("Failed to serialize webhook trigger input: {}", e))?
+                serde_json::to_value(webhook_input).map_err(|e| {
+                    anyhow::anyhow!("Failed to serialize webhook trigger input: {}", e)
+                })?
             }
-            NodeInput::ScheduleTrigger(schedule_input) => {
-                serde_json::to_value(schedule_input)
-                    .map_err(|e| anyhow::anyhow!("Failed to serialize schedule input: {}", e))?
-            }
+            NodeInput::ScheduleTrigger(schedule_input) => serde_json::to_value(schedule_input)
+                .map_err(|e| anyhow::anyhow!("Failed to serialize schedule input: {}", e))?,
         };
 
         executor.execute(&node.node_type, &config, context).await
@@ -279,7 +285,9 @@ impl Worker {
             if let Err(e) = self.process_next_task().await {
                 let error_msg = e.to_string();
                 // Only log errors that are not "no tasks available" (which is normal during polling)
-                if !error_msg.contains("Failed to get task") && !error_msg.contains("No pending tasks") {
+                if !error_msg.contains("Failed to get task")
+                    && !error_msg.contains("No pending tasks")
+                {
                     error!(worker_id = self.id, error = %error_msg, "Worker error");
                 }
                 tokio::time::sleep(tokio::time::Duration::from_millis(QUEUE_POLL_INTERVAL_MS))
@@ -348,7 +356,8 @@ impl Worker {
         }
 
         let result =
-            WorkflowExecutor::execute_node(node, &task.input, &mut context, self.registry.clone()).await;
+            WorkflowExecutor::execute_node(node, &task.input, &mut context, self.registry.clone())
+                .await;
 
         match result {
             Ok(output) => match self.scheduler.push_downstream_tasks(&task, output.clone()) {
@@ -461,9 +470,14 @@ mod tests {
         let workflow = create_test_workflow("wf-001", vec![node]);
 
         // Store workflow first
-        executor.storage.workflows.create_workflow(&workflow).unwrap();
+        executor
+            .storage
+            .workflows
+            .create_workflow(&workflow)
+            .unwrap();
 
-        let execution_id = executor.submit("wf-001".to_string(), serde_json::json!({}))
+        let execution_id = executor
+            .submit("wf-001".to_string(), serde_json::json!({}))
             .await
             .unwrap();
 
@@ -476,11 +490,19 @@ mod tests {
 
         let node = create_test_print_node("print1", "Test");
         let workflow = create_test_workflow("wf-001", vec![node]);
-        executor.storage.workflows.create_workflow(&workflow).unwrap();
+        executor
+            .storage
+            .workflows
+            .create_workflow(&workflow)
+            .unwrap();
 
         let custom_id = "custom-exec-001".to_string();
         let execution_id = executor
-            .submit_with_execution_id("wf-001".to_string(), serde_json::json!({}), custom_id.clone())
+            .submit_with_execution_id(
+                "wf-001".to_string(),
+                serde_json::json!({}),
+                custom_id.clone(),
+            )
             .await
             .unwrap();
 
@@ -506,7 +528,10 @@ mod tests {
         let (executor, _tmp) = create_test_executor();
 
         let node = create_test_print_node("print1", "Test");
-        let task_id = executor.submit_node(node, serde_json::json!({})).await.unwrap();
+        let task_id = executor
+            .submit_node(node, serde_json::json!({}))
+            .await
+            .unwrap();
 
         let task = executor.get_task_status(&task_id).await.unwrap();
         assert_eq!(task.id, task_id);
@@ -528,9 +553,14 @@ mod tests {
 
         let node = create_test_print_node("print1", "Test");
         let workflow = create_test_workflow("wf-001", vec![node]);
-        executor.storage.workflows.create_workflow(&workflow).unwrap();
+        executor
+            .storage
+            .workflows
+            .create_workflow(&workflow)
+            .unwrap();
 
-        let execution_id = executor.submit("wf-001".to_string(), serde_json::json!({}))
+        let execution_id = executor
+            .submit("wf-001".to_string(), serde_json::json!({}))
             .await
             .unwrap();
 
@@ -546,8 +576,14 @@ mod tests {
         let node1 = create_test_print_node("print1", "Test1");
         let node2 = create_test_print_node("print2", "Test2");
 
-        executor.submit_node(node1, serde_json::json!({})).await.unwrap();
-        executor.submit_node(node2, serde_json::json!({})).await.unwrap();
+        executor
+            .submit_node(node1, serde_json::json!({}))
+            .await
+            .unwrap();
+        executor
+            .submit_node(node2, serde_json::json!({}))
+            .await
+            .unwrap();
 
         let tasks = executor.list_tasks(None, None).await.unwrap();
         assert_eq!(tasks.len(), 2);
@@ -559,9 +595,16 @@ mod tests {
 
         let node = create_test_print_node("print1", "Test");
         let workflow = create_test_workflow("wf-001", vec![node]);
-        executor.storage.workflows.create_workflow(&workflow).unwrap();
+        executor
+            .storage
+            .workflows
+            .create_workflow(&workflow)
+            .unwrap();
 
-        executor.submit("wf-001".to_string(), serde_json::json!({})).await.unwrap();
+        executor
+            .submit("wf-001".to_string(), serde_json::json!({}))
+            .await
+            .unwrap();
 
         let tasks = executor.list_tasks(Some("wf-001"), None).await.unwrap();
         assert_eq!(tasks.len(), 1);
@@ -596,8 +639,9 @@ mod tests {
             &node,
             &node_input,
             &mut context,
-            executor.registry.clone()
-        ).await;
+            executor.registry.clone(),
+        )
+        .await;
 
         assert!(result.is_ok());
         let output = result.unwrap();
@@ -622,7 +666,10 @@ mod tests {
 
         // Submit a print node
         let node = create_test_print_node("print1", "Worker test");
-        let task_id = executor.submit_node(node, serde_json::json!({})).await.unwrap();
+        let task_id = executor
+            .submit_node(node, serde_json::json!({}))
+            .await
+            .unwrap();
 
         // Wait for worker to pick up the task (should transition from Pending)
         let mut attempts = 0;
@@ -658,7 +705,10 @@ mod tests {
         tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
 
         let node = create_test_print_node("print1", "Worker test");
-        let task_id = executor.submit_node(node, serde_json::json!({})).await.unwrap();
+        let task_id = executor
+            .submit_node(node, serde_json::json!({}))
+            .await
+            .unwrap();
 
         let mut attempts = 0;
         loop {

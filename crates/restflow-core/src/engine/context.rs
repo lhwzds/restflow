@@ -249,10 +249,13 @@ mod tests {
     #[test]
     fn test_set_get_node() {
         let mut ctx = ExecutionContext::new("wf-001".to_string());
-        ctx.set_node("http1", json!({
-            "status": 200,
-            "body": {"message": "success"}
-        }));
+        ctx.set_node(
+            "http1",
+            json!({
+                "status": 200,
+                "body": {"message": "success"}
+            }),
+        );
 
         let result = ctx.get_node("http1");
         assert!(result.is_some());
@@ -287,10 +290,13 @@ mod tests {
     #[test]
     fn test_interpolate_trigger_payload() {
         let mut ctx = ExecutionContext::new("wf-001".to_string());
-        ctx.set(namespace::trigger::PAYLOAD, json!({
-            "user": "bob",
-            "action": "login"
-        }));
+        ctx.set(
+            namespace::trigger::PAYLOAD,
+            json!({
+                "user": "bob",
+                "action": "login"
+            }),
+        );
 
         let input = json!("User {{trigger.payload.user}} performed {{trigger.payload.action}}");
         let result = ctx.interpolate_value(&input);
@@ -341,13 +347,16 @@ mod tests {
     #[test]
     fn test_interpolate_deeply_nested() {
         let mut ctx = ExecutionContext::new("wf-001".to_string());
-        ctx.set_node("api", json!({
-            "response": {
-                "data": {
-                    "items": [{"id": 1}, {"id": 2}]
+        ctx.set_node(
+            "api",
+            json!({
+                "response": {
+                    "data": {
+                        "items": [{"id": 1}, {"id": 2}]
+                    }
                 }
-            }
-        }));
+            }),
+        );
 
         let input = json!({
             "result": {
@@ -402,13 +411,16 @@ mod tests {
     #[test]
     fn test_resolve_path_with_nested_navigation() {
         let mut ctx = ExecutionContext::new("wf-001".to_string());
-        ctx.set("node.http1", json!({
-            "response": {
-                "data": {
-                    "user": {"name": "Alice"}
+        ctx.set(
+            "node.http1",
+            json!({
+                "response": {
+                    "data": {
+                        "user": {"name": "Alice"}
+                    }
                 }
-            }
-        }));
+            }),
+        );
 
         let result = ctx.resolve_path("node.http1.response.data.user.name");
         assert_eq!(result, Some(json!("Alice")));
@@ -462,16 +474,22 @@ mod tests {
         let mut ctx = ExecutionContext::new("wf-001".to_string());
 
         // Simulate a workflow with trigger, multiple nodes
-        ctx.set(namespace::trigger::PAYLOAD, json!({
-            "webhook": {
-                "body": {"user_id": 123}
-            }
-        }));
+        ctx.set(
+            namespace::trigger::PAYLOAD,
+            json!({
+                "webhook": {
+                    "body": {"user_id": 123}
+                }
+            }),
+        );
 
-        ctx.set_node("fetch_user", json!({
-            "status": 200,
-            "user": {"name": "Bob", "email": "bob@example.com"}
-        }));
+        ctx.set_node(
+            "fetch_user",
+            json!({
+                "status": 200,
+                "user": {"name": "Bob", "email": "bob@example.com"}
+            }),
+        );
 
         ctx.set_var("notification_template", json!("Hello {{var.username}}!"));
         ctx.set_var("username", json!("Bob"));

@@ -1,4 +1,5 @@
 use crate::engine::context::ExecutionContext;
+use crate::models::AIModel;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -40,7 +41,8 @@ impl<T> Templated<T> {
     {
         match self {
             Self::Template(template_str) => {
-                let interpolated_value = context.interpolate_value(&Value::String(template_str.clone()));
+                let interpolated_value =
+                    context.interpolate_value(&Value::String(template_str.clone()));
                 match interpolated_value {
                     Value::String(s) => serde_json::from_str(&s)
                         .or_else(|_| serde_json::from_value(Value::String(s)))
@@ -89,7 +91,7 @@ pub struct HttpInput {
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct AgentInput {
-    pub model: String,
+    pub model: AIModel,
     pub prompt: Templated<String>,
     pub temperature: Option<f64>,
     pub api_key_config: Option<crate::node::agent::ApiKeyConfig>,

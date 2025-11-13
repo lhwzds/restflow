@@ -1,5 +1,7 @@
 use crate::engine::context::{ExecutionContext, namespace};
-use crate::models::{NodeOutput, NodeType, ScheduleOutput, ManualTriggerOutput, WebhookTriggerOutput};
+use crate::models::{
+    ManualTriggerOutput, NodeOutput, NodeType, ScheduleOutput, WebhookTriggerOutput,
+};
 use crate::node::registry::NodeExecutor;
 use anyhow::Result;
 use async_trait::async_trait;
@@ -118,7 +120,10 @@ mod tests {
 
         let mut context = create_context_with_payload(payload.clone());
         context.set("trigger.method", json!("POST"));
-        context.set("trigger.headers", json!({"content-type": "application/json"}));
+        context.set(
+            "trigger.headers",
+            json!({"content-type": "application/json"}),
+        );
         context.set("trigger.query", json!({"key": "value"}));
 
         let result = executor.execute(&node_type, &config, &mut context).await;
@@ -130,7 +135,10 @@ mod tests {
                 assert!(webhook_output.triggered_at > 0);
                 assert_eq!(webhook_output.method, "POST");
                 assert_eq!(webhook_output.body, payload);
-                assert_eq!(webhook_output.headers.get("content-type"), Some(&"application/json".to_string()));
+                assert_eq!(
+                    webhook_output.headers.get("content-type"),
+                    Some(&"application/json".to_string())
+                );
                 assert_eq!(webhook_output.query.get("key"), Some(&"value".to_string()));
             }
             _ => panic!("Expected WebhookTriggerOutput"),
@@ -191,7 +199,12 @@ mod tests {
 
         let result = executor.execute(&node_type, &config, &mut context).await;
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Trigger payload not found"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Trigger payload not found")
+        );
     }
 
     #[tokio::test]
@@ -203,6 +216,11 @@ mod tests {
 
         let result = executor.execute(&node_type, &config, &mut context).await;
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("non-trigger node type"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("non-trigger node type")
+        );
     }
 }

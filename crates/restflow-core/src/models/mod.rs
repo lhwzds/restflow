@@ -1,3 +1,4 @@
+pub mod ai_model;
 pub mod execution;
 pub mod input;
 pub mod node;
@@ -7,10 +8,11 @@ pub mod task;
 pub mod trigger;
 pub mod workflow;
 
+pub use ai_model::{AIModel, Provider};
 pub use execution::{ExecutionHistoryPage, ExecutionStatus, ExecutionSummary};
 pub use input::{
-    AgentInput, HttpInput, ManualTriggerInput, NodeInput, PrintInput, PythonInput,
-    ScheduleInput, Templated, WebhookTriggerInput,
+    AgentInput, HttpInput, ManualTriggerInput, NodeInput, PrintInput, PythonInput, ScheduleInput,
+    Templated, WebhookTriggerInput,
 };
 pub use node::{Node, NodeType, Position};
 pub use output::{
