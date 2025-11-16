@@ -62,6 +62,10 @@ export const API_ENDPOINTS = {
     GET: `${API_PREFIX}/config`,
     UPDATE: `${API_PREFIX}/config`,
   },
+
+  MODEL: {
+    LIST: `${API_PREFIX}/models`,
+  },
 } as const
 
 export type ApiEndpoints = typeof API_ENDPOINTS
@@ -70,3 +74,4 @@ export type ExecutionEndpoints = typeof API_ENDPOINTS.EXECUTION
 export type TriggerEndpoints = typeof API_ENDPOINTS.TRIGGER
 export type AgentEndpoints = typeof API_ENDPOINTS.AGENT
 export type SecretEndpoints = typeof API_ENDPOINTS.SECRET
+export type ModelEndpoints = typeof API_ENDPOINTS.MODEL

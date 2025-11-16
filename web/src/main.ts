@@ -14,6 +14,7 @@ import 'element-plus/theme-chalk/dark/css-vars.css'
 import './styles/theme/index.scss'
 
 import App from './App.vue'
+import { preloadPlugin } from './plugins/pinia-preload'
 import router from './router'
 import './style.scss'
 
@@ -31,6 +32,8 @@ async function enableMocking() {
 enableMocking().then(() => {
   const app = createApp(App)
   const pinia = createPinia()
+
+  pinia.use(preloadPlugin)
 
   app.use(pinia)
   app.use(router)

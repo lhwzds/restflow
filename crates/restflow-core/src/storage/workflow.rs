@@ -103,7 +103,7 @@ mod tests {
                     id: "node1".to_string(),
                     node_type: NodeType::Agent,
                     config: serde_json::json!({
-                        "model": "gpt-4",
+                        "model": "gpt-5",
                         "prompt": "Test prompt"
                     }),
                     position: None,

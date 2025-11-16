@@ -8,7 +8,7 @@ pub mod task;
 pub mod trigger;
 pub mod workflow;
 
-pub use ai_model::{AIModel, Provider};
+pub use ai_model::{AIModel, ModelMetadataDTO, Provider};
 pub use execution::{ExecutionHistoryPage, ExecutionStatus, ExecutionSummary};
 pub use input::{
     AgentInput, HttpInput, ManualTriggerInput, NodeInput, PrintInput, PythonInput, ScheduleInput,

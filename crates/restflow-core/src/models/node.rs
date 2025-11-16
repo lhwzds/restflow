@@ -312,7 +312,8 @@ mod tests {
             config: json!({
                 "type": "Agent",
                 "data": {
-                    "model": "gpt-4",
+                    // Use existing AIModel variant to prevent test failures
+                    "model": "gpt-5",
                     "prompt": "test"
                 }
             }),
