@@ -32,7 +32,7 @@ const emit = defineEmits<{
 const { secrets, loadSecrets: loadSecretsData } = useSecretsData()
 const { buildConfig, isConfigChanged } = useApiKeyConfig()
 
-const AVAILABLE_MODELS = getAllModels()
+const availableModels = computed(() => getAllModels())
 const {
   selectedTools,
   selectedToolValue,
@@ -183,7 +183,7 @@ defineExpose({
           >
             <ElSelect v-model="formData.model" placeholder="Select model">
               <ElOption
-                v-for="model in AVAILABLE_MODELS"
+                v-for="model in availableModels"
                 :key="model.value"
                 :label="model.label"
                 :value="model.value"

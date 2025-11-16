@@ -19,6 +19,16 @@ pub struct ModelMetadata {
     pub name: &'static str,
 }
 
+/// Serializable model metadata for transferring to frontend
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct ModelMetadataDTO {
+    pub model: AIModel,
+    pub provider: Provider,
+    pub supports_temperature: bool,
+    pub name: String,
+}
+
 /// AI model enum - Single Source of Truth for all supported models
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[ts(export)]
@@ -190,6 +200,25 @@ impl AIModel {
             Self::DeepseekChat,
             Self::DeepseekReasoner,
         ]
+    }
+
+    /// Convert metadata to serializable DTO for frontend
+    pub fn to_metadata_dto(&self) -> ModelMetadataDTO {
+        let metadata = self.metadata();
+        ModelMetadataDTO {
+            model: *self,
+            provider: metadata.provider,
+            supports_temperature: metadata.supports_temperature,
+            name: metadata.name.to_string(),
+        }
+    }
+
+    /// Get all models with their metadata as DTOs
+    pub fn all_with_metadata() -> Vec<ModelMetadataDTO> {
+        Self::all()
+            .iter()
+            .map(|model| model.to_metadata_dto())
+            .collect()
     }
 }
 

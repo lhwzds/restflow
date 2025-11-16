@@ -44,7 +44,7 @@ const { secrets, loadSecrets: loadSecretsData } = useSecretsData()
 const { buildConfig } = useApiKeyConfig()
 
 // Use shared composables for models and tools
-const AVAILABLE_MODELS = getAllModels()
+const availableModels = computed(() => getAllModels())
 const {
   selectedTools: createSelectedTools,
   selectedToolValue: createSelectedToolValue,
@@ -270,7 +270,7 @@ function onAgentConfigChange(hasChanges: boolean) {
         <ElFormItem label="Model" required>
           <ElSelect v-model="createForm.model" placeholder="Select model">
             <ElOption
-              v-for="model in AVAILABLE_MODELS"
+              v-for="model in availableModels"
               :key="model.value"
               :label="model.label"
               :value="model.value"

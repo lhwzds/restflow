@@ -494,7 +494,7 @@ mod tests {
             config: serde_json::json!({
                 "type": "Agent",
                 "data": {
-                    "model": "gpt-4",
+                    "model": "gpt-5",
                     "prompt": "test prompt",
                     "temperature": null,
                     "api_key_config": null,
