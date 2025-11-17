@@ -123,6 +123,7 @@ pub enum NodeType {
     Print,
     DataTransform,
     Python,
+    Email,
 }
 
 #[cfg(test)]

@@ -39,6 +39,7 @@ export function useNodeHelpers() {
     HTTP_REQUEST: 'HttpRequest' as NodeType,
     PRINT: 'Print' as NodeType,
     DATA_TRANSFORM: 'DataTransform' as NodeType,
+    EMAIL: 'Email' as NodeType,
   } as const
 
   return {
@@ -65,4 +66,5 @@ export const NODE_TYPES = {
   PYTHON: 'Python' as NodeType,
   PRINT: 'Print' as NodeType,
   DATA_TRANSFORM: 'DataTransform' as NodeType,
+  EMAIL: 'Email' as NodeType,
 } as const
