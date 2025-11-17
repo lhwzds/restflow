@@ -15,6 +15,7 @@ export const NODE_TYPE = {
   HTTP_REQUEST: 'HttpRequest',
   PYTHON: 'Python',
   PRINT: 'Print',
+  EMAIL: 'Email',
   DATA_TRANSFORM: 'DataTransform',
 } as const satisfies Record<string, NodeType>
 
@@ -48,6 +49,7 @@ export const NODE_TYPE_CATEGORY_MAP = {
   [NODE_TYPE.AGENT]: NODE_CATEGORY.ACTION,
   [NODE_TYPE.HTTP_REQUEST]: NODE_CATEGORY.ACTION,
   [NODE_TYPE.PYTHON]: NODE_CATEGORY.ACTION,
+  [NODE_TYPE.EMAIL]: NODE_CATEGORY.ACTION,
   [NODE_TYPE.PRINT]: NODE_CATEGORY.DATA,
   [NODE_TYPE.DATA_TRANSFORM]: NODE_CATEGORY.DATA,
 } as const
@@ -62,6 +64,7 @@ export const NODE_TYPE_LABELS = {
   [NODE_TYPE.AGENT]: 'AI Agent',
   [NODE_TYPE.HTTP_REQUEST]: 'HTTP Request',
   [NODE_TYPE.PYTHON]: 'Python Script',
+  [NODE_TYPE.EMAIL]: 'Send Email',
   [NODE_TYPE.PRINT]: 'Print',
   [NODE_TYPE.DATA_TRANSFORM]: 'Data Transform',
 } as const
@@ -76,6 +79,7 @@ export const NODE_TYPE_ICONS = {
   [NODE_TYPE.AGENT]: 'robot',
   [NODE_TYPE.HTTP_REQUEST]: 'http',
   [NODE_TYPE.PYTHON]: 'code',
+  [NODE_TYPE.EMAIL]: 'email',
   [NODE_TYPE.PRINT]: 'print',
   [NODE_TYPE.DATA_TRANSFORM]: 'transform',
 } as const
@@ -90,6 +94,7 @@ export const NODE_TYPE_COLORS = {
   [NODE_TYPE.AGENT]: '#667eea',
   [NODE_TYPE.HTTP_REQUEST]: '#3b82f6',
   [NODE_TYPE.PYTHON]: '#10b981',
+  [NODE_TYPE.EMAIL]: '#ec4899',
   [NODE_TYPE.PRINT]: '#10b981',
   [NODE_TYPE.DATA_TRANSFORM]: '#f59e0b',
 } as const

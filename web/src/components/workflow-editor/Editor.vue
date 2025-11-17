@@ -17,6 +17,7 @@ import { useKeyboardShortcuts } from '../../composables/shared/useKeyboardShortc
 import { useContextMenu } from '../../composables/ui/useContextMenu'
 import {
   AgentNode,
+  EmailNode,
   HttpNode,
   PythonNode,
   ManualTriggerNode,
@@ -252,6 +253,15 @@ useKeyboardShortcuts({
             @open-config="handleOpenConfig(httpNodeProps)"
             @view-io="handleViewIO(httpNodeProps)"
             @test-node="handleTestNode(httpNodeProps)"
+          />
+        </template>
+
+        <template #node-Email="emailNodeProps">
+          <EmailNode
+            v-bind="emailNodeProps"
+            @open-config="handleOpenConfig(emailNodeProps)"
+            @view-io="handleViewIO(emailNodeProps)"
+            @test-node="handleTestNode(emailNodeProps)"
           />
         </template>
 

@@ -69,6 +69,7 @@ pub enum NodeInput {
     Agent(AgentInput),
     Python(PythonInput),
     Print(PrintInput),
+    Email(EmailInput),
     ManualTrigger(ManualTriggerInput),
     WebhookTrigger(WebhookTriggerInput),
     ScheduleTrigger(ScheduleInput),
@@ -145,6 +146,26 @@ pub struct ScheduleInput {
     pub payload: Option<Value>,
 }
 
+/// Email send node input
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct EmailInput {
+    /// Recipient email addresses (comma-separated if multiple)
+    pub to: Templated<String>,
+    /// CC email addresses (comma-separated if multiple)
+    pub cc: Option<Templated<String>>,
+    /// BCC email addresses (comma-separated if multiple)
+    pub bcc: Option<Templated<String>>,
+    /// Email subject line
+    pub subject: Templated<String>,
+    /// Email body content
+    pub body: Templated<String>,
+    /// Send as HTML email (default: false for plain text)
+    pub html: Option<bool>,
+    /// SMTP configuration secret name (from secret manager)
+    pub smtp_config_secret: String,
+}
+
 impl NodeInput {
     /// Get type-safe access to HTTP input
     pub fn as_http(&self) -> Option<&HttpInput> {
@@ -174,6 +195,14 @@ impl NodeInput {
     pub fn as_print(&self) -> Option<&PrintInput> {
         match self {
             Self::Print(input) => Some(input),
+            _ => None,
+        }
+    }
+
+    /// Get type-safe access to Email input
+    pub fn as_email(&self) -> Option<&EmailInput> {
+        match self {
+            Self::Email(input) => Some(input),
             _ => None,
         }
     }

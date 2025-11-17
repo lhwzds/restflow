@@ -1,5 +1,6 @@
 use crate::engine::context::ExecutionContext;
 use crate::models::{AgentOutput, HttpOutput, NodeOutput, NodeType, PrintOutput, PythonOutput};
+use crate::node::email::EmailExecutor;
 use crate::node::trigger::TriggerExecutor;
 use anyhow::Result;
 use async_trait::async_trait;
@@ -38,6 +39,7 @@ impl NodeRegistry {
         registry.register(NodeType::Print, Arc::new(PrintExecutor));
         registry.register(NodeType::Agent, Arc::new(AgentExecutor));
         registry.register(NodeType::Python, Arc::new(PythonExecutor));
+        registry.register(NodeType::Email, Arc::new(EmailExecutor));
 
         registry
     }
@@ -251,6 +253,7 @@ mod tests {
         assert!(registry.get(&NodeType::Print).is_some());
         assert!(registry.get(&NodeType::Agent).is_some());
         assert!(registry.get(&NodeType::Python).is_some());
+        assert!(registry.get(&NodeType::Email).is_some());
         assert!(registry.get(&NodeType::ManualTrigger).is_some());
         assert!(registry.get(&NodeType::WebhookTrigger).is_some());
         assert!(registry.get(&NodeType::ScheduleTrigger).is_some());

@@ -14,6 +14,7 @@ pub enum NodeOutput {
     Agent(AgentOutput),
     Python(PythonOutput),
     Print(PrintOutput),
+    Email(EmailOutput),
     ManualTrigger(ManualTriggerOutput),
     WebhookTrigger(WebhookTriggerOutput),
     ScheduleTrigger(ScheduleOutput),
@@ -84,6 +85,22 @@ pub struct ScheduleOutput {
     pub payload: Value,
 }
 
+/// Email send output
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct EmailOutput {
+    /// Unix timestamp (milliseconds) when email was sent
+    pub sent_at: i64,
+    /// Message ID from email server (if available)
+    pub message_id: Option<String>,
+    /// List of recipients
+    pub recipients: Vec<String>,
+    /// Email subject
+    pub subject: String,
+    /// Whether email was sent as HTML
+    pub is_html: bool,
+}
+
 impl NodeOutput {
     /// Get type-safe access to HTTP output
     pub fn as_http(&self) -> Option<&HttpOutput> {
@@ -113,6 +130,14 @@ impl NodeOutput {
     pub fn as_print(&self) -> Option<&PrintOutput> {
         match self {
             Self::Print(output) => Some(output),
+            _ => None,
+        }
+    }
+
+    /// Get type-safe access to Email output
+    pub fn as_email(&self) -> Option<&EmailOutput> {
+        match self {
+            Self::Email(output) => Some(output),
             _ => None,
         }
     }

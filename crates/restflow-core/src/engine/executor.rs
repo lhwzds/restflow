@@ -204,6 +204,31 @@ impl WorkflowExecutor {
                     "message": message,
                 })
             }
+            NodeInput::Email(email_input) => {
+                let to = email_input.to.resolve(context)?;
+                let cc = email_input
+                    .cc
+                    .as_ref()
+                    .map(|c| c.resolve(context))
+                    .transpose()?;
+                let bcc = email_input
+                    .bcc
+                    .as_ref()
+                    .map(|b| b.resolve(context))
+                    .transpose()?;
+                let subject = email_input.subject.resolve(context)?;
+                let body = email_input.body.resolve(context)?;
+
+                serde_json::json!({
+                    "to": to,
+                    "cc": cc,
+                    "bcc": bcc,
+                    "subject": subject,
+                    "body": body,
+                    "html": email_input.html,
+                    "smtp_config_secret": email_input.smtp_config_secret,
+                })
+            }
             NodeInput::ManualTrigger(manual_input) => {
                 // Manual triggers don't need input resolution - they provide data to the workflow
                 serde_json::to_value(manual_input).map_err(|e| {

@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import type { Component } from 'vue'
-import { PlayCircle, Webhook, Clock, Bot, Globe, Code } from 'lucide-vue-next'
+import { PlayCircle, Webhook, Clock, Bot, Globe, Code, Mail, Search } from 'lucide-vue-next'
 import { NODE_TYPES } from '../../composables/node/useNodeHelpers'
 
 interface NodeTemplate {
@@ -78,6 +78,20 @@ const nodeTemplates = ref<NodeTemplate[]>([
     },
   },
   {
+    type: NODE_TYPES.EMAIL,
+    label: 'Send Email',
+    icon: Mail,
+    iconColor: '#ec4899',
+    defaultData: {
+      label: 'Send Email',
+      to: '',
+      subject: '',
+      body: '',
+      html: false,
+      smtp_config_secret: 'smtp_config',
+    },
+  },
+  {
     type: NODE_TYPES.PYTHON,
     label: 'Python Script',
     icon: Code,
@@ -95,6 +109,19 @@ print(json.dumps(result))`,
   },
 ])
 
+const searchQuery = ref('')
+
+const filteredNodes = computed(() => {
+  if (!searchQuery.value.trim()) {
+    return nodeTemplates.value
+  }
+  const query = searchQuery.value.toLowerCase()
+  return nodeTemplates.value.filter(
+    (node) =>
+      node.label.toLowerCase().includes(query) || node.type.toLowerCase().includes(query),
+  )
+})
+
 const handleDragStart = (event: DragEvent, template: NodeTemplate) => {
   if (event.dataTransfer) {
     event.dataTransfer.effectAllowed = 'move'
@@ -110,9 +137,21 @@ const handleClick = (template: NodeTemplate) => {
 <template>
   <div class="node-toolbar">
     <h3 class="toolbar-title">Node Toolbar</h3>
+
+    <!-- Search Box -->
+    <div class="toolbar-search">
+      <Search :size="14" class="search-icon" />
+      <input
+        v-model="searchQuery"
+        type="text"
+        placeholder="Search nodes..."
+        class="search-input"
+      />
+    </div>
+
     <div class="node-list">
       <div
-        v-for="template in nodeTemplates"
+        v-for="template in filteredNodes"
         :key="template.type"
         class="node-item"
         :draggable="true"
@@ -129,8 +168,17 @@ const handleClick = (template: NodeTemplate) => {
         </div>
         <span class="node-label">{{ template.label }}</span>
       </div>
+
+      <!-- Empty State -->
+      <div v-if="filteredNodes.length === 0" class="no-results">
+        <p>No nodes found</p>
+        <span class="hint">Try different keywords</span>
+      </div>
     </div>
-    <div class="toolbar-hint">Drag or click add node</div>
+
+    <div class="toolbar-hint">
+      {{ filteredNodes.length }} / {{ nodeTemplates.length }} nodes
+    </div>
   </div>
 </template>
 
@@ -147,6 +195,9 @@ const handleClick = (template: NodeTemplate) => {
   padding: var(--rf-spacing-lg);
   width: var(--rf-size-lg);
   z-index: 10;
+  max-height: calc(100vh - 400px);
+  display: flex;
+  flex-direction: column;
 }
 
 .toolbar-title {
@@ -160,6 +211,28 @@ const handleClick = (template: NodeTemplate) => {
   display: flex;
   flex-direction: column;
   gap: var(--rf-spacing-sm);
+  overflow-y: auto;
+  overflow-x: hidden;
+  flex: 1;
+
+  // Custom scrollbar
+  &::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background: var(--rf-color-border-lighter);
+    border-radius: 3px;
+    transition: background 0.2s;
+
+    &:hover {
+      background: var(--rf-color-border-base);
+    }
+  }
 }
 
 .node-item {
@@ -213,5 +286,65 @@ const handleClick = (template: NodeTemplate) => {
   font-size: var(--rf-font-size-xs);
   color: var(--rf-color-text-secondary);
   text-align: center;
+}
+
+.toolbar-search {
+  position: relative;
+  margin-bottom: var(--rf-spacing-sm);
+  flex-shrink: 0;
+
+  .search-icon {
+    position: absolute;
+    left: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--rf-color-text-tertiary);
+    pointer-events: none;
+    z-index: 1;
+  }
+
+  .search-input {
+    width: 100%;
+    padding: 6px 8px 6px 28px;
+    border: 1px solid var(--rf-color-border-lighter);
+    border-radius: var(--rf-radius-small);
+    font-size: var(--rf-font-size-xs);
+    background: var(--rf-color-bg-secondary);
+    color: var(--rf-color-text-primary);
+    transition: all 0.2s;
+    box-sizing: border-box;
+
+    &:focus {
+      outline: none;
+      border-color: var(--rf-color-primary);
+      box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.1);
+    }
+
+    &::placeholder {
+      color: var(--rf-color-text-tertiary);
+    }
+  }
+}
+
+.no-results {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--rf-spacing-xl);
+  text-align: center;
+  color: var(--rf-color-text-tertiary);
+  gap: var(--rf-spacing-xs);
+
+  p {
+    margin: 0;
+    font-size: var(--rf-font-size-sm);
+    font-weight: var(--rf-font-weight-medium);
+    color: var(--rf-color-text-secondary);
+  }
+
+  .hint {
+    font-size: var(--rf-font-size-xs);
+  }
 }
 </style>

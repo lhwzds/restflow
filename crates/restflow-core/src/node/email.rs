@@ -1,0 +1,269 @@
+use crate::engine::context::ExecutionContext;
+use crate::models::{EmailOutput, NodeOutput, NodeType};
+use crate::node::registry::NodeExecutor;
+use anyhow::{anyhow, Result};
+use async_trait::async_trait;
+use lettre::message::{header::ContentType, Mailbox, Message, MultiPart, SinglePart};
+use lettre::transport::smtp::{authentication::Credentials, response::Response};
+use lettre::{AsyncSmtpTransport, AsyncTransport, Tokio1Executor};
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+/// SMTP server configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SmtpConfig {
+    pub server: String,
+    pub port: u16,
+    pub username: String,
+    pub password: String,
+    #[serde(default = "default_use_tls")]
+    pub use_tls: bool,
+}
+
+fn default_use_tls() -> bool {
+    true
+}
+
+pub struct EmailExecutor;
+
+impl EmailExecutor {
+    /// Parse comma-separated email addresses
+    fn parse_recipients(addresses: &str) -> Result<Vec<Mailbox>> {
+        addresses
+            .split(',')
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty())
+            .map(|s| {
+                s.parse::<Mailbox>()
+                    .map_err(|e| anyhow!("Invalid email address '{}': {}", s, e))
+            })
+            .collect()
+    }
+
+    /// Build email message
+    fn build_message(
+        from: &Mailbox,
+        to_addresses: Vec<Mailbox>,
+        cc_addresses: Vec<Mailbox>,
+        bcc_addresses: Vec<Mailbox>,
+        subject: &str,
+        body: &str,
+        is_html: bool,
+    ) -> Result<Message> {
+        let mut message_builder = Message::builder()
+            .from(from.clone())
+            .subject(subject);
+
+        // Add TO recipients
+        for to in to_addresses {
+            message_builder = message_builder.to(to);
+        }
+
+        // Add CC recipients
+        for cc in cc_addresses {
+            message_builder = message_builder.cc(cc);
+        }
+
+        // Add BCC recipients
+        for bcc in bcc_addresses {
+            message_builder = message_builder.bcc(bcc);
+        }
+
+        // Build message body based on content type
+        let message = if is_html {
+            message_builder.multipart(
+                MultiPart::alternative()
+                    .singlepart(
+                        SinglePart::builder()
+                            .header(ContentType::TEXT_PLAIN)
+                            .body(body.to_string()),
+                    )
+                    .singlepart(
+                        SinglePart::builder()
+                            .header(ContentType::TEXT_HTML)
+                            .body(body.to_string()),
+                    ),
+            )?
+        } else {
+            message_builder.body(body.to_string())?
+        };
+
+        Ok(message)
+    }
+
+    /// Extract the provider-supplied identifier from an SMTP response.
+    /// Falls back to returning the entire textual response if no ID pattern is detected.
+    fn extract_message_identifier(response: &Response) -> Option<String> {
+        let message = response
+            .message()
+            .collect::<Vec<_>>()
+            .join(" ")
+            .trim()
+            .to_string();
+
+        if message.is_empty() {
+            return None;
+        }
+
+        let message_lower = message.to_lowercase();
+        const QUEUED_AS: &str = "queued as";
+        if let Some(idx) = message_lower.find(QUEUED_AS) {
+            let remainder = message[idx + QUEUED_AS.len()..].trim();
+            if let Some(raw_id) = remainder.split_whitespace().next() {
+                let cleaned = raw_id
+                    .trim_matches(|c: char| matches!(c, '<' | '>' | '"' | '\'' | ';' | '.'));
+                if !cleaned.is_empty() {
+                    return Some(cleaned.to_string());
+                }
+            }
+        }
+
+        if let Some(start) = message.find('<') {
+            if let Some(end_rel) = message[start + 1..].find('>') {
+                let candidate = &message[start + 1..start + 1 + end_rel];
+                let cleaned = candidate.trim();
+                if !cleaned.is_empty() {
+                    return Some(cleaned.to_string());
+                }
+            }
+        }
+
+        Some(message)
+    }
+}
+
+#[async_trait]
+impl NodeExecutor for EmailExecutor {
+    async fn execute(
+        &self,
+        _node_type: &NodeType,
+        config: &Value,
+        context: &mut ExecutionContext,
+    ) -> Result<NodeOutput> {
+        // Extract SMTP config secret name
+        let smtp_config_secret = config["smtp_config_secret"]
+            .as_str()
+            .ok_or_else(|| anyhow!("smtp_config_secret is required"))?;
+
+        // Get SMTP config from secret storage
+        let secret_storage = context
+            .secret_storage
+            .as_ref()
+            .ok_or_else(|| anyhow!("Secret storage not available"))?;
+
+        let smtp_config_json = secret_storage
+            .get_secret(smtp_config_secret)?
+            .ok_or_else(|| anyhow!("SMTP config secret '{}' not found", smtp_config_secret))?;
+
+        let smtp_config: SmtpConfig = serde_json::from_str(&smtp_config_json)
+            .map_err(|e| anyhow!("Failed to parse SMTP config: {}", e))?;
+
+        // Resolve templated fields using context
+        let to = context.interpolate_value(&config["to"]);
+        let to_str = to
+            .as_str()
+            .ok_or_else(|| anyhow!("to field must be a string"))?;
+
+        let cc_str = config
+            .get("cc")
+            .and_then(|v| context.interpolate_value(v).as_str().map(String::from));
+
+        let bcc_str = config
+            .get("bcc")
+            .and_then(|v| context.interpolate_value(v).as_str().map(String::from));
+
+        let subject = context.interpolate_value(&config["subject"]);
+        let subject_str = subject
+            .as_str()
+            .ok_or_else(|| anyhow!("subject field must be a string"))?;
+
+        let body = context.interpolate_value(&config["body"]);
+        let body_str = body
+            .as_str()
+            .ok_or_else(|| anyhow!("body field must be a string"))?;
+
+        let is_html = config.get("html").and_then(|v| v.as_bool()).unwrap_or(false);
+
+        // Parse recipients
+        let to_addresses = Self::parse_recipients(to_str)?;
+        if to_addresses.is_empty() {
+            return Err(anyhow!("At least one recipient is required"));
+        }
+
+        let cc_addresses = if let Some(ref cc) = cc_str {
+            Self::parse_recipients(cc)?
+        } else {
+            vec![]
+        };
+
+        let bcc_addresses = if let Some(ref bcc) = bcc_str {
+            Self::parse_recipients(bcc)?
+        } else {
+            vec![]
+        };
+
+        // Collect all recipients for output
+        let all_recipients: Vec<String> = to_addresses
+            .iter()
+            .chain(cc_addresses.iter())
+            .chain(bcc_addresses.iter())
+            .map(|m| m.to_string())
+            .collect();
+
+        // Build sender mailbox
+        let from: Mailbox = smtp_config
+            .username
+            .parse()
+            .map_err(|e| anyhow!("Invalid sender email '{}': {}", smtp_config.username, e))?;
+
+        // Build email message
+        let message = Self::build_message(
+            &from,
+            to_addresses,
+            cc_addresses,
+            bcc_addresses,
+            subject_str,
+            body_str,
+            is_html,
+        )?;
+
+        // Build SMTP transport
+        let creds = Credentials::new(smtp_config.username.clone(), smtp_config.password.clone());
+
+        let mailer = if smtp_config.use_tls {
+            AsyncSmtpTransport::<Tokio1Executor>::starttls_relay(&smtp_config.server)?
+                .port(smtp_config.port)
+                .credentials(creds)
+                .build()
+        } else {
+            AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(&smtp_config.server)
+                .port(smtp_config.port)
+                .credentials(creds)
+                .build()
+        };
+
+        // Send email
+        let response = mailer
+            .send(message)
+            .await
+            .map_err(|e| anyhow!("Failed to send email: {}", e))?;
+
+        // Get current timestamp
+        let sent_at = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as i64;
+
+        // Extract message ID (provider response text) when available
+        let message_id = Self::extract_message_identifier(&response);
+
+        Ok(NodeOutput::Email(EmailOutput {
+            sent_at,
+            message_id,
+            recipients: all_recipients,
+            subject: subject_str.to_string(),
+            is_html,
+        }))
+    }
+}

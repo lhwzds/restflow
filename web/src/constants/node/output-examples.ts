@@ -41,6 +41,17 @@ export const PRINT_EXAMPLE = {
   },
 }
 
+export const EMAIL_EXAMPLE = {
+  type: 'Email',
+  data: {
+    sent_at: 1640000000000,
+    message_id: '250-OK-12345678',
+    recipients: ['user@example.com', 'admin@example.com'],
+    subject: 'Order Confirmation',
+    is_html: false,
+  },
+}
+
 export const MANUAL_TRIGGER_EXAMPLE = {
   type: 'ManualTrigger',
   data: {
@@ -73,6 +84,7 @@ export const NODE_OUTPUT_EXAMPLES: Record<string, any> = {
   Agent: AGENT_EXAMPLE,
   Python: PYTHON_EXAMPLE,
   Print: PRINT_EXAMPLE,
+  Email: EMAIL_EXAMPLE,
   ManualTrigger: MANUAL_TRIGGER_EXAMPLE,
   WebhookTrigger: WEBHOOK_TRIGGER_EXAMPLE,
   ScheduleTrigger: SCHEDULE_EXAMPLE,
