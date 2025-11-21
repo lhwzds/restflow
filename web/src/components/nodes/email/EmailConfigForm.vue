@@ -21,23 +21,42 @@ const emit = defineEmits<{
   'update:modelValue': [value: EmailConfig]
 }>()
 
-// Local copy of data
-const localData = ref<EmailConfig>({
+// Default values for email configuration
+const getDefaultValues = (): Partial<EmailConfig> => ({
   html: false,
   smtp_config_secret: 'smtp_config',
+})
+
+// Local copy of data with defaults applied
+const localData = ref<EmailConfig>({
+  ...getDefaultValues(),
+  ...props.modelValue,
 })
 
 watch(
   () => props.modelValue,
   (newValue) => {
-    localData.value = { ...localData.value, ...newValue }
+    localData.value = {
+      ...getDefaultValues(),
+      ...newValue,
+    }
   },
-  { immediate: true },
 )
 
-// Update data
+// Update data - convert empty strings to undefined for optional fields
 const updateData = () => {
-  emit('update:modelValue', { ...localData.value })
+  const data = { ...localData.value }
+
+  // Convert empty strings to undefined for optional fields (cc, bcc)
+  // This ensures proper serialization for Option<Templated<String>> in backend
+  if (data.cc !== undefined && (!data.cc || data.cc.trim() === '')) {
+    data.cc = undefined
+  }
+  if (data.bcc !== undefined && (!data.bcc || data.bcc.trim() === '')) {
+    data.bcc = undefined
+  }
+
+  emit('update:modelValue', data)
 }
 </script>
 
