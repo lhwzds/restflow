@@ -3,7 +3,7 @@ use crate::models::{EmailOutput, NodeOutput, NodeType};
 use crate::node::registry::NodeExecutor;
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
-use lettre::message::{header::ContentType, Mailbox, Message, MultiPart, SinglePart};
+use lettre::message::{header::ContentType, Mailbox, Message, SinglePart};
 use lettre::transport::smtp::{authentication::Credentials, response::Response};
 use lettre::{AsyncSmtpTransport, AsyncTransport, Tokio1Executor};
 use serde::{Deserialize, Serialize};
@@ -28,6 +28,19 @@ fn default_use_tls() -> bool {
 pub struct EmailExecutor;
 
 impl EmailExecutor {
+    /// Extract and interpolate a required string field from config
+    fn get_required_string_field(
+        context: &ExecutionContext,
+        config: &Value,
+        field: &str,
+    ) -> Result<String> {
+        let value = context.interpolate_value(&config[field]);
+        value
+            .as_str()
+            .map(String::from)
+            .ok_or_else(|| anyhow!("{} field must be a string", field))
+    }
+
     /// Parse comma-separated email addresses
     fn parse_recipients(addresses: &str) -> Result<Vec<Mailbox>> {
         addresses
@@ -72,18 +85,10 @@ impl EmailExecutor {
 
         // Build message body based on content type
         let message = if is_html {
-            message_builder.multipart(
-                MultiPart::alternative()
-                    .singlepart(
-                        SinglePart::builder()
-                            .header(ContentType::TEXT_PLAIN)
-                            .body(body.to_string()),
-                    )
-                    .singlepart(
-                        SinglePart::builder()
-                            .header(ContentType::TEXT_HTML)
-                            .body(body.to_string()),
-                    ),
+            message_builder.singlepart(
+                SinglePart::builder()
+                    .header(ContentType::TEXT_HTML)
+                    .body(body.to_string()),
             )?
         } else {
             message_builder.body(body.to_string())?
@@ -160,10 +165,7 @@ impl NodeExecutor for EmailExecutor {
             .map_err(|e| anyhow!("Failed to parse SMTP config: {}", e))?;
 
         // Resolve templated fields using context
-        let to = context.interpolate_value(&config["to"]);
-        let to_str = to
-            .as_str()
-            .ok_or_else(|| anyhow!("to field must be a string"))?;
+        let to_str = Self::get_required_string_field(context, config, "to")?;
 
         let cc_str = config
             .get("cc")
@@ -173,35 +175,28 @@ impl NodeExecutor for EmailExecutor {
             .get("bcc")
             .and_then(|v| context.interpolate_value(v).as_str().map(String::from));
 
-        let subject = context.interpolate_value(&config["subject"]);
-        let subject_str = subject
-            .as_str()
-            .ok_or_else(|| anyhow!("subject field must be a string"))?;
-
-        let body = context.interpolate_value(&config["body"]);
-        let body_str = body
-            .as_str()
-            .ok_or_else(|| anyhow!("body field must be a string"))?;
+        let subject_str = Self::get_required_string_field(context, config, "subject")?;
+        let body_str = Self::get_required_string_field(context, config, "body")?;
 
         let is_html = config.get("html").and_then(|v| v.as_bool()).unwrap_or(false);
 
         // Parse recipients
-        let to_addresses = Self::parse_recipients(to_str)?;
+        let to_addresses = Self::parse_recipients(&to_str)?;
         if to_addresses.is_empty() {
             return Err(anyhow!("At least one recipient is required"));
         }
 
-        let cc_addresses = if let Some(ref cc) = cc_str {
-            Self::parse_recipients(cc)?
-        } else {
-            vec![]
-        };
+        let cc_addresses = cc_str
+            .as_deref()
+            .map(Self::parse_recipients)
+            .transpose()?
+            .unwrap_or_default();
 
-        let bcc_addresses = if let Some(ref bcc) = bcc_str {
-            Self::parse_recipients(bcc)?
-        } else {
-            vec![]
-        };
+        let bcc_addresses = bcc_str
+            .as_deref()
+            .map(Self::parse_recipients)
+            .transpose()?
+            .unwrap_or_default();
 
         // Collect all recipients for output
         let all_recipients: Vec<String> = to_addresses
@@ -223,8 +218,8 @@ impl NodeExecutor for EmailExecutor {
             to_addresses,
             cc_addresses,
             bcc_addresses,
-            subject_str,
-            body_str,
+            &subject_str,
+            &body_str,
             is_html,
         )?;
 
