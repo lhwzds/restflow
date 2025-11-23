@@ -111,192 +111,180 @@ const updateData = () => {
 
 <template>
   <div class="email-config">
-    <!-- Email Content Section -->
-    <div class="form-section">
-      <h4 class="section-title">Email Content</h4>
-
-      <div class="form-group">
-        <label>To (required)</label>
-        <ExpressionInput
-          :model-value="localData.to || ''"
-          placeholder="user@example.com or {{trigger.payload.email}}"
-          @update:model-value="
-            (val) => {
-              localData.to = val
-              updateData()
-            }
-          "
-        />
-        <span class="form-hint">Recipient email address (comma-separated for multiple)</span>
-      </div>
-
-      <div class="form-group">
-        <label>CC (optional)</label>
-        <ExpressionInput
-          :model-value="localData.cc || ''"
-          placeholder="cc@example.com"
-          @update:model-value="
-            (val) => {
-              localData.cc = val
-              updateData()
-            }
-          "
-        />
-        <span class="form-hint">CC email addresses (comma-separated for multiple)</span>
-      </div>
-
-      <div class="form-group">
-        <label>BCC (optional)</label>
-        <ExpressionInput
-          :model-value="localData.bcc || ''"
-          placeholder="bcc@example.com"
-          @update:model-value="
-            (val) => {
-              localData.bcc = val
-              updateData()
-            }
-          "
-        />
-        <span class="form-hint">BCC email addresses (comma-separated for multiple)</span>
-      </div>
-
-      <div class="form-group">
-        <label>Subject</label>
-        <ExpressionInput
-          :model-value="localData.subject || ''"
-          placeholder="Order #{{trigger.payload.order_id}} Confirmed"
-          @update:model-value="
-            (val) => {
-              localData.subject = val
-              updateData()
-            }
-          "
-        />
-        <span class="form-hint">Email subject line</span>
-      </div>
-
-      <div class="form-group">
-        <label>Body</label>
-        <ExpressionInput
-          :model-value="localData.body || ''"
-          :multiline="true"
-          :placeholder="
-            localData.html
-              ? '<h1>Hello {{node.http1.data.body.name}}</h1><p>Your order has been confirmed!</p>'
-              : 'Hi {{node.http1.data.body.name}},\\n\\nYour order has been confirmed!'
-          "
-          @update:model-value="
-            (val) => {
-              localData.body = val
-              updateData()
-            }
-          "
-        />
-        <span class="form-hint">Email body content</span>
-      </div>
-
-      <div class="form-group checkbox-group">
-        <label class="checkbox-label">
-          <input v-model="localData.html" type="checkbox" @change="updateData" />
-          <span>Send as HTML email</span>
-        </label>
-        <span class="form-hint">If unchecked, sends as plain text email</span>
-      </div>
+    <div class="form-group">
+      <label>To (required)</label>
+      <ExpressionInput
+        :model-value="localData.to || ''"
+        placeholder="user@example.com or {{trigger.payload.email}}"
+        @update:model-value="
+          (val) => {
+            localData.to = val
+            updateData()
+          }
+        "
+      />
+      <span class="form-hint">Recipient email address (comma-separated for multiple)</span>
     </div>
 
-    <!-- SMTP Configuration Section -->
-    <div class="form-section">
-      <h4 class="section-title">SMTP Configuration</h4>
+    <div class="form-group">
+      <label>CC (optional)</label>
+      <ExpressionInput
+        :model-value="localData.cc || ''"
+        placeholder="cc@example.com"
+        @update:model-value="
+          (val) => {
+            localData.cc = val
+            updateData()
+          }
+        "
+      />
+      <span class="form-hint">CC email addresses (comma-separated for multiple)</span>
+    </div>
 
-      <div class="form-group">
-        <label>SMTP Server</label>
-        <input
-          v-model="localData.smtp_server"
-          type="text"
-          placeholder="smtp.gmail.com"
-          @input="updateData"
-        />
-        <span class="form-hint">SMTP server hostname (e.g., smtp.gmail.com, smtp.office365.com)</span>
-      </div>
+    <div class="form-group">
+      <label>BCC (optional)</label>
+      <ExpressionInput
+        :model-value="localData.bcc || ''"
+        placeholder="bcc@example.com"
+        @update:model-value="
+          (val) => {
+            localData.bcc = val
+            updateData()
+          }
+        "
+      />
+      <span class="form-hint">BCC email addresses (comma-separated for multiple)</span>
+    </div>
 
-      <div class="form-row">
-        <div class="form-group">
-          <label>SMTP Port</label>
+    <div class="form-group">
+      <label>Subject</label>
+      <ExpressionInput
+        :model-value="localData.subject || ''"
+        placeholder="Order #{{trigger.payload.order_id}} Confirmed"
+        @update:model-value="
+          (val) => {
+            localData.subject = val
+            updateData()
+          }
+        "
+      />
+      <span class="form-hint">Email subject line</span>
+    </div>
+
+    <div class="form-group">
+      <label>Body</label>
+      <ExpressionInput
+        :model-value="localData.body || ''"
+        :multiline="true"
+        :placeholder="
+          localData.html
+            ? '<h1>Hello {{node.http1.data.body.name}}</h1><p>Your order has been confirmed!</p>'
+            : 'Hi {{node.http1.data.body.name}},\\n\\nYour order has been confirmed!'
+        "
+        @update:model-value="
+          (val) => {
+            localData.body = val
+            updateData()
+          }
+        "
+      />
+      <span class="form-hint">Email body content</span>
+    </div>
+
+    <div class="form-group">
+      <label class="checkbox-label">
+        <input v-model="localData.html" type="checkbox" @change="updateData" />
+        <span>Send as HTML email</span>
+      </label>
+      <span class="form-hint">If unchecked, sends as plain text email</span>
+    </div>
+
+    <div class="form-group">
+      <label>SMTP Server</label>
+      <input
+        v-model="localData.smtp_server"
+        type="text"
+        placeholder="smtp.gmail.com"
+        @input="updateData"
+      />
+      <span class="form-hint">SMTP server hostname (e.g., smtp.gmail.com, smtp.office365.com)</span>
+    </div>
+
+    <div class="form-group">
+      <label>SMTP Port</label>
+      <input
+        v-model.number="localData.smtp_port"
+        type="number"
+        placeholder="587"
+        @input="updateData"
+      />
+      <span class="form-hint">587 (TLS) or 465 (SSL)</span>
+    </div>
+
+    <div class="form-group">
+      <label class="checkbox-label">
+        <input v-model="localData.smtp_use_tls" type="checkbox" @change="updateData" />
+        <span>Use TLS</span>
+      </label>
+      <span class="form-hint">Enable TLS encryption</span>
+    </div>
+
+    <div class="form-group">
+      <label>SMTP Username</label>
+      <input
+        v-model="localData.smtp_username"
+        type="text"
+        placeholder="your@email.com"
+        @input="updateData"
+      />
+      <span class="form-hint">Usually your email address (also used as sender address)</span>
+    </div>
+
+    <div class="form-group">
+      <label>SMTP Password</label>
+      <div class="api-key-mode">
+        <label class="radio-option">
           <input
-            v-model.number="localData.smtp_port"
-            type="number"
-            placeholder="587"
-            @input="updateData"
+            v-model="passwordMode"
+            type="radio"
+            value="direct"
+            @change="updateData"
           />
-          <span class="form-hint">587 (TLS) or 465 (SSL)</span>
-        </div>
-
-        <div class="form-group checkbox-group">
-          <label class="checkbox-label">
-            <input v-model="localData.smtp_use_tls" type="checkbox" @change="updateData" />
-            <span>Use TLS</span>
-          </label>
-          <span class="form-hint">Enable TLS encryption</span>
-        </div>
+          <span>Direct Input</span>
+        </label>
+        <label class="radio-option">
+          <input
+            v-model="passwordMode"
+            type="radio"
+            value="secret"
+            @change="updateData"
+          />
+          <span>Use Secret</span>
+        </label>
       </div>
 
-      <div class="form-group">
-        <label>SMTP Username</label>
-        <input
-          v-model="localData.smtp_username"
-          type="text"
-          placeholder="your@email.com"
-          @input="updateData"
-        />
-        <span class="form-hint">Usually your email address (also used as sender address)</span>
-      </div>
+      <input
+        v-if="passwordMode === 'direct'"
+        v-model="passwordDirect"
+        type="password"
+        placeholder="Enter SMTP password"
+        @input="updateData"
+      />
 
-      <div class="form-group">
-        <label>SMTP Password</label>
-        <div class="api-key-toggle">
-          <label class="radio-label">
-            <input
-              v-model="passwordMode"
-              type="radio"
-              value="direct"
-              @change="updateData"
-            />
-            <span>Direct Input</span>
-          </label>
-          <label class="radio-label">
-            <input
-              v-model="passwordMode"
-              type="radio"
-              value="secret"
-              @change="updateData"
-            />
-            <span>Use Secret</span>
-          </label>
-        </div>
+      <select
+        v-else
+        v-model="passwordSecret"
+        @change="updateData"
+      >
+        <option value="">Select a secret...</option>
+        <option v-for="secret in secrets" :key="secret.key" :value="secret.key">
+          {{ secret.key }}
+        </option>
+      </select>
 
-        <input
-          v-if="passwordMode === 'direct'"
-          v-model="passwordDirect"
-          type="password"
-          placeholder="Enter SMTP password"
-          @input="updateData"
-        />
-
-        <select
-          v-else
-          v-model="passwordSecret"
-          @change="updateData"
-        >
-          <option value="">Select a secret...</option>
-          <option v-for="secret in secrets" :key="secret.key" :value="secret.key">
-            {{ secret.key }}
-          </option>
-        </select>
-
-        <span class="form-hint">
-          {{ passwordMode === 'direct' ? 'Enter password directly (for Gmail, use App Password)' : 'Select secret containing SMTP password' }}
-        </span>
-      </div>
+      <span class="form-hint">
+        {{ passwordMode === 'direct' ? 'Enter password directly (for Gmail, use App Password)' : 'Select secret containing SMTP password' }}
+      </span>
     </div>
   </div>
 </template>
@@ -306,114 +294,87 @@ const updateData = () => {
   display: flex;
   flex-direction: column;
   gap: var(--rf-spacing-lg);
-  padding: var(--rf-spacing-md);
-}
-
-.form-section {
-  display: flex;
-  flex-direction: column;
-  gap: var(--rf-spacing-md);
-  padding: var(--rf-spacing-md);
-  background: var(--rf-color-bg-secondary);
-  border-radius: var(--rf-radius-medium);
-  border: 1px solid var(--rf-color-border-lighter);
-}
-
-.section-title {
-  margin: 0 0 var(--rf-spacing-sm) 0;
-  font-size: var(--rf-font-size-base);
-  font-weight: var(--rf-font-weight-semibold);
-  color: var(--rf-color-text-primary);
-  padding-bottom: var(--rf-spacing-sm);
-  border-bottom: 1px solid var(--rf-color-border-lighter);
 }
 
 .form-group {
-  display: flex;
-  flex-direction: column;
-  gap: var(--rf-spacing-xs);
+  margin-bottom: var(--rf-spacing-xl);
 
   label {
+    display: block;
+    margin-bottom: var(--rf-spacing-sm);
+    font-size: var(--rf-font-size-base);
     font-weight: var(--rf-font-weight-medium);
-    font-size: var(--rf-font-size-sm);
-    color: var(--rf-color-text-primary);
+    color: var(--rf-color-text-regular);
   }
 
   input[type='text'],
   input[type='password'],
   input[type='number'],
   select {
-    padding: var(--rf-spacing-sm);
-    border: 1px solid var(--rf-color-border);
-    border-radius: var(--rf-radius-medium);
-    font-size: var(--rf-font-size-sm);
-    color: var(--rf-color-text-primary);
-    background-color: var(--rf-color-surface);
-    transition: all 0.2s ease;
+    width: 100%;
+    padding: var(--rf-spacing-sm) var(--rf-spacing-md);
+    border: 1px solid var(--rf-color-border-light);
+    border-radius: var(--rf-radius-base);
+    font-size: var(--rf-font-size-base);
+    transition: border-color var(--rf-transition-fast);
 
     &:focus {
       outline: none;
-      border-color: var(--rf-color-primary);
-      box-shadow: 0 0 0 3px rgba(var(--rf-color-primary-rgb), 0.1);
+      border-color: var(--rf-color-border-focus);
+      box-shadow: var(--rf-shadow-focus);
     }
 
     &::placeholder {
-      color: var(--rf-color-text-tertiary);
+      color: var(--rf-color-text-placeholder);
     }
   }
 
   .form-hint {
+    display: block;
+    margin-top: var(--rf-spacing-xs);
     font-size: var(--rf-font-size-xs);
-    color: var(--rf-color-text-tertiary);
+    color: var(--rf-color-text-placeholder);
   }
 }
 
-.form-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--rf-spacing-md);
-}
-
-.checkbox-group {
-  .checkbox-label {
-    display: flex;
-    align-items: center;
-    gap: var(--rf-spacing-sm);
-    cursor: pointer;
-    font-weight: normal;
-
-    input[type='checkbox'] {
-      width: 18px;
-      height: 18px;
-      cursor: pointer;
-    }
-
-    span {
-      font-size: var(--rf-font-size-sm);
-    }
-  }
-}
-
-.api-key-toggle {
+.checkbox-label {
   display: flex;
-  gap: var(--rf-spacing-md);
-  margin-bottom: var(--rf-spacing-xs);
+  align-items: center;
+  gap: var(--rf-spacing-sm);
+  cursor: pointer;
 
-  .radio-label {
-    display: flex;
-    align-items: center;
-    gap: var(--rf-spacing-xs);
+  input[type='checkbox'] {
+    width: auto;
+    margin: 0;
     cursor: pointer;
-    font-weight: normal;
+  }
 
-    input[type='radio'] {
-      cursor: pointer;
-    }
+  span {
+    font-size: var(--rf-font-size-sm);
+    color: var(--rf-color-text-regular);
+  }
+}
 
-    span {
-      font-size: var(--rf-font-size-sm);
-      color: var(--rf-color-text-regular);
-    }
+.api-key-mode {
+  display: flex;
+  gap: var(--rf-spacing-lg);
+  margin-bottom: var(--rf-spacing-md);
+}
+
+.radio-option {
+  display: flex;
+  align-items: center;
+  gap: var(--rf-spacing-xs);
+  cursor: pointer;
+
+  input[type='radio'] {
+    width: auto;
+    margin: 0;
+  }
+
+  span {
+    font-size: var(--rf-font-size-sm);
+    color: var(--rf-color-text-regular);
   }
 }
 </style>
