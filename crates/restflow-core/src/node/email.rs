@@ -106,13 +106,13 @@ impl EmailExecutor {
             }
         }
 
-        if let Some(start) = message.find('<') {
-            if let Some(end_rel) = message[start + 1..].find('>') {
-                let candidate = &message[start + 1..start + 1 + end_rel];
-                let cleaned = candidate.trim();
-                if !cleaned.is_empty() {
-                    return Some(cleaned.to_string());
-                }
+        if let Some(start) = message.find('<')
+            && let Some(end_rel) = message[start + 1..].find('>')
+        {
+            let candidate = &message[start + 1..start + 1 + end_rel];
+            let cleaned = candidate.trim();
+            if !cleaned.is_empty() {
+                return Some(cleaned.to_string());
             }
         }
 
