@@ -219,6 +219,7 @@ impl WorkflowExecutor {
                 let subject = email_input.subject.resolve(context)?;
                 let body = email_input.body.resolve(context)?;
 
+                // Build config with SMTP fields
                 serde_json::json!({
                     "to": to,
                     "cc": cc,
@@ -226,7 +227,11 @@ impl WorkflowExecutor {
                     "subject": subject,
                     "body": body,
                     "html": email_input.html,
-                    "smtp_config_secret": email_input.smtp_config_secret,
+                    "smtp_server": email_input.smtp_server.clone(),
+                    "smtp_port": email_input.smtp_port,
+                    "smtp_username": email_input.smtp_username.clone(),
+                    "smtp_password_config": serde_json::to_value(&email_input.smtp_password_config)?,
+                    "smtp_use_tls": email_input.smtp_use_tls,
                 })
             }
             NodeInput::ManualTrigger(manual_input) => {

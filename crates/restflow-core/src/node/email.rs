@@ -1,29 +1,13 @@
 use crate::engine::context::ExecutionContext;
 use crate::models::{EmailOutput, NodeOutput, NodeType};
 use crate::node::registry::NodeExecutor;
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use async_trait::async_trait;
-use lettre::message::{header::ContentType, Mailbox, Message, SinglePart};
+use lettre::message::{Mailbox, Message, SinglePart, header::ContentType};
 use lettre::transport::smtp::{authentication::Credentials, response::Response};
 use lettre::{AsyncSmtpTransport, AsyncTransport, Tokio1Executor};
-use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::time::{SystemTime, UNIX_EPOCH};
-
-/// SMTP server configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SmtpConfig {
-    pub server: String,
-    pub port: u16,
-    pub username: String,
-    pub password: String,
-    #[serde(default = "default_use_tls")]
-    pub use_tls: bool,
-}
-
-fn default_use_tls() -> bool {
-    true
-}
 
 pub struct EmailExecutor;
 
@@ -64,9 +48,7 @@ impl EmailExecutor {
         body: &str,
         is_html: bool,
     ) -> Result<Message> {
-        let mut message_builder = Message::builder()
-            .from(from.clone())
-            .subject(subject);
+        let mut message_builder = Message::builder().from(from.clone()).subject(subject);
 
         // Add TO recipients
         for to in to_addresses {
@@ -116,8 +98,8 @@ impl EmailExecutor {
         if let Some(idx) = message_lower.find(QUEUED_AS) {
             let remainder = message[idx + QUEUED_AS.len()..].trim();
             if let Some(raw_id) = remainder.split_whitespace().next() {
-                let cleaned = raw_id
-                    .trim_matches(|c: char| matches!(c, '<' | '>' | '"' | '\'' | ';' | '.'));
+                let cleaned =
+                    raw_id.trim_matches(|c: char| matches!(c, '<' | '>' | '"' | '\'' | ';' | '.'));
                 if !cleaned.is_empty() {
                     return Some(cleaned.to_string());
                 }
@@ -146,23 +128,63 @@ impl NodeExecutor for EmailExecutor {
         config: &Value,
         context: &mut ExecutionContext,
     ) -> Result<NodeOutput> {
-        // Extract SMTP config secret name
-        let smtp_config_secret = config["smtp_config_secret"]
+        // Get SMTP configuration from individual fields
+        let smtp_server = config["smtp_server"]
             .as_str()
-            .ok_or_else(|| anyhow!("smtp_config_secret is required"))?;
+            .ok_or_else(|| anyhow!("smtp_server is required"))?
+            .to_string();
 
-        // Get SMTP config from secret storage
-        let secret_storage = context
-            .secret_storage
-            .as_ref()
-            .ok_or_else(|| anyhow!("Secret storage not available"))?;
+        let smtp_port = config["smtp_port"]
+            .as_u64()
+            .ok_or_else(|| anyhow!("smtp_port is required"))? as u16;
 
-        let smtp_config_json = secret_storage
-            .get_secret(smtp_config_secret)?
-            .ok_or_else(|| anyhow!("SMTP config secret '{}' not found", smtp_config_secret))?;
+        let smtp_username = config["smtp_username"]
+            .as_str()
+            .ok_or_else(|| anyhow!("smtp_username is required"))?
+            .to_string();
 
-        let smtp_config: SmtpConfig = serde_json::from_str(&smtp_config_json)
-            .map_err(|e| anyhow!("Failed to parse SMTP config: {}", e))?;
+        let smtp_use_tls = config
+            .get("smtp_use_tls")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true);
+
+        // Get password from config (Direct or Secret)
+        let password_config = &config["smtp_password_config"];
+        let smtp_password =
+            if let Some(config_type) = password_config.get("type").and_then(|v| v.as_str()) {
+                match config_type {
+                    "direct" => {
+                        // Direct password mode
+                        password_config["value"]
+                            .as_str()
+                            .ok_or_else(|| anyhow!("Direct password value is required"))?
+                            .to_string()
+                    }
+                    "secret" => {
+                        // Secret reference mode
+                        let secret_name = password_config["value"]
+                            .as_str()
+                            .ok_or_else(|| anyhow!("Secret name is required"))?;
+
+                        let secret_storage = context
+                            .secret_storage
+                            .as_ref()
+                            .ok_or_else(|| anyhow!("Secret storage not available"))?;
+
+                        secret_storage.get_secret(secret_name)?.ok_or_else(|| {
+                            anyhow!("SMTP password secret '{}' not found", secret_name)
+                        })?
+                    }
+                    _ => {
+                        return Err(anyhow!(
+                            "Invalid smtp_password_config type: {}",
+                            config_type
+                        ));
+                    }
+                }
+            } else {
+                return Err(anyhow!("smtp_password_config is required"));
+            };
 
         // Resolve templated fields using context
         let to_str = Self::get_required_string_field(context, config, "to")?;
@@ -178,7 +200,10 @@ impl NodeExecutor for EmailExecutor {
         let subject_str = Self::get_required_string_field(context, config, "subject")?;
         let body_str = Self::get_required_string_field(context, config, "body")?;
 
-        let is_html = config.get("html").and_then(|v| v.as_bool()).unwrap_or(false);
+        let is_html = config
+            .get("html")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
 
         // Parse recipients
         let to_addresses = Self::parse_recipients(&to_str)?;
@@ -207,10 +232,9 @@ impl NodeExecutor for EmailExecutor {
             .collect();
 
         // Build sender mailbox
-        let from: Mailbox = smtp_config
-            .username
+        let from: Mailbox = smtp_username
             .parse()
-            .map_err(|e| anyhow!("Invalid sender email '{}': {}", smtp_config.username, e))?;
+            .map_err(|e| anyhow!("Invalid sender email '{}': {}", smtp_username, e))?;
 
         // Build email message
         let message = Self::build_message(
@@ -224,16 +248,16 @@ impl NodeExecutor for EmailExecutor {
         )?;
 
         // Build SMTP transport
-        let creds = Credentials::new(smtp_config.username.clone(), smtp_config.password.clone());
+        let creds = Credentials::new(smtp_username.clone(), smtp_password.clone());
 
-        let mailer = if smtp_config.use_tls {
-            AsyncSmtpTransport::<Tokio1Executor>::starttls_relay(&smtp_config.server)?
-                .port(smtp_config.port)
+        let mailer = if smtp_use_tls {
+            AsyncSmtpTransport::<Tokio1Executor>::starttls_relay(&smtp_server)?
+                .port(smtp_port)
                 .credentials(creds)
                 .build()
         } else {
-            AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(&smtp_config.server)
-                .port(smtp_config.port)
+            AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(&smtp_server)
+                .port(smtp_port)
                 .credentials(creds)
                 .build()
         };
