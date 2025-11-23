@@ -3,7 +3,7 @@ members = ["crates/restflow-core", "crates/restflow-server", "crates/restflow-de
 resolver = "2"
 
 # Default to running server
-default-members = ["crates/restflow-server"]
+default-members = ["crates/restflow-server", "crates/restflow-core"]
 
 [workspace.package]
 version = "0.1.0"

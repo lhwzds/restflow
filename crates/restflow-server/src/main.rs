@@ -5,7 +5,9 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 mod api;
 
-use api::{agents::*, config::*, models::*, python::*, secrets::*, tasks::*, triggers::*, workflows::*};
+use api::{
+    agents::*, config::*, models::*, python::*, secrets::*, tasks::*, triggers::*, workflows::*,
+};
 use axum::{
     Router,
     http::{Method, header},

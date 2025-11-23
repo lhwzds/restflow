@@ -88,7 +88,14 @@ const nodeTemplates = ref<NodeTemplate[]>([
       subject: '',
       body: '',
       html: false,
-      smtp_config_secret: 'smtp_config',
+      smtp_server: '',
+      smtp_port: 587,
+      smtp_username: '',
+      smtp_password_config: {
+        type: 'direct',
+        value: '',
+      },
+      smtp_use_tls: true,
     },
   },
   {

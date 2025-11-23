@@ -1,9 +1,11 @@
-use crate::api::{state::AppState, ApiResponse};
-use axum::{extract::State, Json};
+use crate::api::{ApiResponse, state::AppState};
+use axum::{Json, extract::State};
 use restflow_core::models::{AIModel, ModelMetadataDTO};
 
 /// GET /api/models - List all available AI models with their metadata
-pub async fn list_models(State(_state): State<AppState>) -> Json<ApiResponse<Vec<ModelMetadataDTO>>> {
+pub async fn list_models(
+    State(_state): State<AppState>,
+) -> Json<ApiResponse<Vec<ModelMetadataDTO>>> {
     let models = AIModel::all_with_metadata();
     Json(ApiResponse::ok(models))
 }
@@ -40,9 +42,15 @@ mod tests {
         assert!(!first_model.name.is_empty());
 
         // Verify we have models from all providers
-        let has_openai = models.iter().any(|m| m.provider == restflow_core::models::Provider::OpenAI);
-        let has_anthropic = models.iter().any(|m| m.provider == restflow_core::models::Provider::Anthropic);
-        let has_deepseek = models.iter().any(|m| m.provider == restflow_core::models::Provider::DeepSeek);
+        let has_openai = models
+            .iter()
+            .any(|m| m.provider == restflow_core::models::Provider::OpenAI);
+        let has_anthropic = models
+            .iter()
+            .any(|m| m.provider == restflow_core::models::Provider::Anthropic);
+        let has_deepseek = models
+            .iter()
+            .any(|m| m.provider == restflow_core::models::Provider::DeepSeek);
 
         assert!(has_openai);
         assert!(has_anthropic);

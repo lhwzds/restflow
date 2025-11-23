@@ -146,6 +146,17 @@ pub struct ScheduleInput {
     pub payload: Option<Value>,
 }
 
+/// API key or password configuration (direct value or secret reference)
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "snake_case", tag = "type", content = "value")]
+pub enum ApiKeyConfig {
+    /// Direct password/key value
+    Direct(String),
+    /// Reference to secret name in secret manager
+    Secret(String),
+}
+
 /// Email send node input
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
@@ -162,8 +173,23 @@ pub struct EmailInput {
     pub body: Templated<String>,
     /// Send as HTML email (default: false for plain text)
     pub html: Option<bool>,
-    /// SMTP configuration secret name (from secret manager)
-    pub smtp_config_secret: String,
+
+    // SMTP configuration fields
+    /// SMTP server hostname (e.g., "smtp.gmail.com")
+    pub smtp_server: String,
+    /// SMTP server port (e.g., 587 for TLS, 465 for SSL)
+    pub smtp_port: u16,
+    /// SMTP username (usually the sender email address)
+    pub smtp_username: String,
+    /// SMTP password configuration (direct or from secret)
+    pub smtp_password_config: ApiKeyConfig,
+    /// Use TLS/STARTTLS encryption (default: true)
+    #[serde(default = "default_smtp_use_tls")]
+    pub smtp_use_tls: bool,
+}
+
+fn default_smtp_use_tls() -> bool {
+    true
 }
 
 impl NodeInput {

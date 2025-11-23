@@ -259,10 +259,7 @@ mod tests {
     #[test]
     fn test_display_name() {
         assert_eq!(AIModel::Gpt5.display_name(), "GPT-5");
-        assert_eq!(
-            AIModel::ClaudeSonnet4_5.display_name(),
-            "Claude Sonnet 4.5"
-        );
+        assert_eq!(AIModel::ClaudeSonnet4_5.display_name(), "Claude Sonnet 4.5");
         assert_eq!(AIModel::ClaudeHaiku4_5.display_name(), "Claude Haiku 4.5");
         assert_eq!(AIModel::DeepseekChat.display_name(), "DeepSeek Chat");
     }
