@@ -9,7 +9,7 @@ path = "src/main.rs"
 
 [dependencies]
 restflow-core = { workspace = true }
-axum = { version = "0.8.6", features = ["macros"] }
+axum = { version = "0.8.7", features = ["macros"] }
 mime_guess = "2.0.5"
 mimalloc = { version = "0.1", default-features = false }
 rust-embed = { version = "8.9.0", features = ["include-exclude", "interpolate-folder-path"] }
