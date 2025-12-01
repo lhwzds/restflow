@@ -30,7 +30,7 @@
     "axios": "^1.13.2",
     "dompurify": "^3.2.7",
     "element-plus": "^2.11.7",
-    "lucide-vue-next": "^0.546.0",
+    "lucide-vue-next": "^0.555.0",
     "marked": "^17.0.0",
     "pinia": "^3.0.4",
     "vue": "^3.5.25",
