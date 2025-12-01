@@ -84,6 +84,15 @@ jobs:
         shell: bash
         run: mkdir -p web/dist
 
+      # Windows-specific: Disable incremental compilation to avoid PDB linker errors (LNK1318)
+      # This is a known issue with MSVC linker when multiple link jobs run in parallel
+      - name: Configure Windows build environment
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          echo "CARGO_INCREMENTAL=0" >> $GITHUB_ENV
+          echo "CARGO_BUILD_JOBS=2" >> $GITHUB_ENV
+
       - name: Run Clippy
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
