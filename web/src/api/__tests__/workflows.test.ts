@@ -1,15 +1,10 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import MockAdapter from 'axios-mock-adapter'
 import { apiClient } from '@/api/config'
 import * as workflowsApi from '@/api/workflows'
 import type { Workflow } from '@/types/generated/Workflow'
 import type { ExecutionContext } from '@/types/generated/ExecutionContext'
 import { API_ENDPOINTS } from '@/constants'
-
-vi.mock('@/api/utils', () => ({
-  isTauri: () => false,
-  invokeCommand: vi.fn(),
-}))
 
 describe('Workflows API', () => {
   let mock: MockAdapter

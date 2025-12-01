@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/restflow-core", "crates/restflow-server", "crates/restflow-desktop", "crates/restflow-cli"]
+members = ["crates/restflow-core", "crates/restflow-server", "crates/restflow-cli"]
 resolver = "2"
 
 # Default to running server
@@ -20,10 +20,6 @@ tokio = { version = "1.47.1", features = ["full"] }
 uuid = { version = "1.18.1", features = ["v4", "serde"] }
 chrono = "0.4.42"
 tracing = "0.1"
-
-# Tauri dependencies
-tauri = { version = "2.9.3" }
-tauri-build = { version = "2.4.1" }
 
 [profile.release]
 # Optimize release builds
