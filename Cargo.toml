@@ -23,7 +23,7 @@ tracing = "0.1"
 
 # Tauri dependencies
 tauri = { version = "2.9.3" }
-tauri-build = { version = "2.4.1" }
+tauri-build = { version = "2.5.3" }
 
 [profile.release]
 # Optimize release builds
