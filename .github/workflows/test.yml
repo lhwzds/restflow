@@ -85,10 +85,10 @@ jobs:
         run: mkdir -p web/dist
 
       - name: Run Clippy
-        run: cargo clippy --workspace --exclude restflow-desktop --all-targets --all-features -- -D warnings
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
       - name: Run tests
-        run: cargo test --workspace --exclude restflow-desktop --verbose --all-features
+        run: cargo test --workspace --verbose --all-features
 
       - name: Build release
         run: cargo build --release --package restflow-server --target ${{ matrix.platform.target }}

@@ -1,5 +1,4 @@
 import { apiClient } from './config'
-import { isTauri, invokeCommand } from './utils'
 import type { Task } from '@/types/generated/Task'
 import type { TaskStatus } from '@/types/generated/TaskStatus'
 import { API_ENDPOINTS } from '@/constants'
@@ -22,15 +21,6 @@ export const getTaskStatus = async (
   result?: any
   error?: string
 }> => {
-  if (isTauri()) {
-    const task = await invokeCommand<Task>('get_task_status', { task_id: id })
-    return {
-      id: task.id,
-      status: task.status,
-      result: task.output,
-      error: task.error || undefined,
-    }
-  }
   const response = await apiClient.get<Task>(API_ENDPOINTS.TASK.STATUS(id))
   const task = response.data
   return {
@@ -48,13 +38,6 @@ export const listTasks = async (params?: {
   limit?: number
   offset?: number
 }): Promise<Task[]> => {
-  if (isTauri()) {
-    return invokeCommand<Task[]>('list_tasks', {
-      execution_id: params?.execution_id,
-      status: params?.status,
-      limit: params?.limit || 100,
-    })
-  }
   const response = await apiClient.get<Task[]>(API_ENDPOINTS.TASK.LIST, { params })
   return response.data
 }
@@ -64,51 +47,19 @@ export const getTasksByExecutionId = async (executionId: string): Promise<Task[]
 }
 
 export const getExecutionStatus = async (executionId: string): Promise<Task[]> => {
-  if (isTauri()) {
-    return invokeCommand<Task[]>('get_execution_status', {
-      execution_id: executionId,
-    })
-  }
   const response = await apiClient.get<Task[]>(API_ENDPOINTS.EXECUTION.STATUS(executionId))
   return response.data
 }
 
 export const testNodeExecution = async <T = any>(payload: NodeTestRequest): Promise<T> => {
-  if (isTauri()) {
-    throw new Error('Node testing is not supported in desktop mode yet')
-  }
-
   const response = await apiClient.post<T>(API_ENDPOINTS.EXECUTION.INLINE_RUN, payload)
-
   return response.data
 }
 
-export const executeNode = async (node: any, input: any = {}): Promise<string> => {
-  // For Tauri mode: merge runtime input into node.config if provided
-  // This ensures consistent behavior with HTTP API where node.config contains all data
-  let nodeToExecute = node
-  if (isTauri() && input && Object.keys(input).length > 0) {
-    // Merge input into node.config.data if config has nested structure
-    nodeToExecute = {
-      ...node,
-      config: {
-        ...node.config,
-        data: {
-          ...(node.config?.data || {}),
-          ...input,
-        },
-      },
-    }
-  }
-
-  if (isTauri()) {
-    return invokeCommand<string>('execute_node', {
-      node: nodeToExecute,
-    })
-  }
+export const executeNode = async (node: any, _input: any = {}): Promise<string> => {
   const response = await apiClient.post<{ task_id: string; message: string }>(
     API_ENDPOINTS.NODE.EXECUTE,
-    nodeToExecute,
+    node,
   )
   return response.data.task_id
 }
