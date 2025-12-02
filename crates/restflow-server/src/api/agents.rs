@@ -3,8 +3,8 @@ use axum::{
     Json,
     extract::{Path, State},
 };
-use restflow_core::node::agent::AgentNode;
-use restflow_core::storage::agent::StoredAgent;
+use restflow_workflow::node::agent::AgentNode;
+use restflow_workflow::storage::agent::StoredAgent;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -159,8 +159,8 @@ pub async fn execute_agent_inline(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use restflow_core::AppCore;
-    use restflow_core::models::AIModel;
+    use restflow_workflow::AppCore;
+    use restflow_workflow::models::AIModel;
     use std::sync::Arc;
     use tempfile::{TempDir, tempdir};
 

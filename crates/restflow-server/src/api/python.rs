@@ -3,7 +3,7 @@ use axum::{
     http::StatusCode,
     response::Json,
 };
-use restflow_core::python::TemplateInfo;
+use restflow_workflow::python::TemplateInfo;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;

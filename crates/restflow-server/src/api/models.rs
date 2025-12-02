@@ -1,6 +1,6 @@
 use crate::api::{ApiResponse, state::AppState};
 use axum::{Json, extract::State};
-use restflow_core::models::{AIModel, ModelMetadataDTO};
+use restflow_workflow::models::{AIModel, ModelMetadataDTO};
 
 /// GET /api/models - List all available AI models with their metadata
 pub async fn list_models(
@@ -14,7 +14,7 @@ pub async fn list_models(
 mod tests {
     use super::*;
     use crate::api::state::AppState;
-    use restflow_core::AppCore;
+    use restflow_workflow::AppCore;
     use std::sync::Arc;
     use tempfile::tempdir;
 
@@ -44,13 +44,13 @@ mod tests {
         // Verify we have models from all providers
         let has_openai = models
             .iter()
-            .any(|m| m.provider == restflow_core::models::Provider::OpenAI);
+            .any(|m| m.provider == restflow_workflow::models::Provider::OpenAI);
         let has_anthropic = models
             .iter()
-            .any(|m| m.provider == restflow_core::models::Provider::Anthropic);
+            .any(|m| m.provider == restflow_workflow::models::Provider::Anthropic);
         let has_deepseek = models
             .iter()
-            .any(|m| m.provider == restflow_core::models::Provider::DeepSeek);
+            .any(|m| m.provider == restflow_workflow::models::Provider::DeepSeek);
 
         assert!(has_openai);
         assert!(has_anthropic);

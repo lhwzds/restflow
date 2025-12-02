@@ -1,13 +1,17 @@
 [package]
-name = "restflow-core"
+name = "restflow-workflow"
 version.workspace = true
 edition.workspace = true
 
 [lib]
-name = "restflow_core"
+name = "restflow_workflow"
 path = "src/lib.rs"
 
 [dependencies]
+# Internal dependencies
+restflow-runtime = { path = "../restflow-runtime" }
+
+# External dependencies
 anyhow = "1.0.100"
 async-trait = "0.1.89"
 base64 = "0.22.1"
