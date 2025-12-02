@@ -631,7 +631,6 @@ impl PythonManager {
 
     /// Create a mock PythonManager for testing without initialization.
     /// This avoids downloading uv binary or creating filesystem structures.
-    #[cfg(test)]
     pub fn new_mock() -> Arc<Self> {
         Arc::new(Self {
             uv_binary: PathBuf::from("/tmp/test-uv"),
