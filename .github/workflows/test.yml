@@ -69,16 +69,22 @@ jobs:
           override: true
           components: clippy
 
-      - name: Cache Rust dependencies
+      # Cache cargo registry only (skip target directory to avoid PDB cache corruption on Windows)
+      - name: Cache Cargo registry
         uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            target
-          key: ${{ runner.os }}-${{ matrix.platform.target }}-cargo-test-v2-${{ hashFiles('Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-${{ matrix.platform.target }}-cargo-test-
+          key: ${{ runner.os }}-${{ matrix.platform.target }}-cargo-registry-v3-${{ hashFiles('Cargo.lock') }}
+
+      # Cache target directory (non-Windows only, Windows has PDB issues with cached artifacts)
+      - name: Cache target directory
+        if: runner.os != 'Windows'
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: ${{ runner.os }}-${{ matrix.platform.target }}-cargo-target-v3-${{ hashFiles('Cargo.lock') }}
 
       - name: Create frontend dist directory for tests
         shell: bash
@@ -86,14 +92,14 @@ jobs:
 
       # Windows-specific: Avoid PDB linker errors (LNK1318)
       # Root cause: mspdbsrv.exe has 2GB memory limit and PDB format has 64KB symbol limit
-      # Solution: Disable PDB generation entirely (not needed for CI)
       # See: https://github.com/rust-lang/cargo/issues/3161
       - name: Configure Windows build environment
         if: runner.os == 'Windows'
         shell: bash
         run: |
           echo "CARGO_INCREMENTAL=0" >> $GITHUB_ENV
-          echo "RUSTFLAGS=-C debuginfo=0" >> $GITHUB_ENV
+          echo "CARGO_BUILD_JOBS=1" >> $GITHUB_ENV
+          echo "RUSTFLAGS=-C debuginfo=0 -C link-arg=/DEBUG:NONE" >> $GITHUB_ENV
 
       - name: Run Clippy
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
