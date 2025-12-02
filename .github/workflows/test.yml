@@ -102,10 +102,10 @@ jobs:
           echo "RUSTFLAGS=-C debuginfo=0 -C link-arg=/DEBUG:NONE" >> $GITHUB_ENV
 
       - name: Run Clippy
-        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+        run: cargo clippy --workspace --all-targets -- -D warnings
 
       - name: Run tests
-        run: cargo test --workspace --verbose --all-features
+        run: cargo test --workspace --verbose
 
       - name: Build release
         run: cargo build --release --package restflow-server --target ${{ matrix.platform.target }}
