@@ -5,7 +5,7 @@ use axum::{
     http::StatusCode,
     response::IntoResponse,
 };
-use restflow_core::{models::Secret, services};
+use restflow_workflow::{models::Secret, services};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -100,7 +100,7 @@ fn is_valid_secret_key(key: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use restflow_core::AppCore;
+    use restflow_workflow::AppCore;
     use std::sync::Arc;
     use tempfile::{TempDir, tempdir};
 

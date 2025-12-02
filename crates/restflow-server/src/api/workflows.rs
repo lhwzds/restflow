@@ -3,8 +3,8 @@ use axum::{
     Json,
     extract::{Path, Query, State},
 };
-use restflow_core::models::{ExecutionHistoryPage, Workflow};
-use restflow_core::services::workflow as workflow_service;
+use restflow_workflow::models::{ExecutionHistoryPage, Workflow};
+use restflow_workflow::services::workflow as workflow_service;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tracing::{error, info};
@@ -170,7 +170,7 @@ pub async fn list_workflow_executions(
         (params.page, params.page_size)
     };
 
-    match restflow_core::services::task::list_execution_history(
+    match restflow_workflow::services::task::list_execution_history(
         &state,
         &workflow_id,
         page,
@@ -189,8 +189,8 @@ pub async fn list_workflow_executions(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use restflow_core::AppCore;
-    use restflow_core::models::{Node, NodeType};
+    use restflow_workflow::AppCore;
+    use restflow_workflow::models::{Node, NodeType};
     use std::sync::Arc;
     use tempfile::{TempDir, tempdir};
 

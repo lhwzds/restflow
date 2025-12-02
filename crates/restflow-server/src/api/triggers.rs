@@ -4,7 +4,7 @@ use axum::{
     extract::{Path, State},
     http::Method,
 };
-use restflow_core::{
+use restflow_workflow::{
     engine::trigger_manager::{TriggerStatus, WebhookResponse},
     models::TriggerConfig,
     services::triggers as trigger_service,
@@ -170,8 +170,8 @@ pub async fn handle_webhook_trigger(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use restflow_core::AppCore;
-    use restflow_core::models::{Node, NodeType, Workflow};
+    use restflow_workflow::AppCore;
+    use restflow_workflow::models::{Node, NodeType, Workflow};
     use std::sync::Arc;
     use tempfile::{TempDir, tempdir};
 

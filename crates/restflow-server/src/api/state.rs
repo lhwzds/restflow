@@ -1,4 +1,4 @@
-use restflow_core::AppCore;
+use restflow_workflow::AppCore;
 use std::sync::Arc;
 
 /// Application state shared across all API handlers

@@ -1,6 +1,6 @@
 use super::MIN_INPUT_HEIGHT;
 use crate::config;
-use restflow_core::{
+use restflow_workflow::{
     AppCore,
     models::AIModel,
     node::agent::{AgentNode, ApiKeyConfig},
@@ -261,7 +261,7 @@ impl TuiApp {
                 }
             }
             "/list" => {
-                use restflow_core::services::workflow;
+                use restflow_workflow::services::workflow;
                 match workflow::list_workflows(&self.core).await {
                     Ok(workflows) => {
                         if workflows.is_empty() {
@@ -291,7 +291,7 @@ impl TuiApp {
                     self.new_messages
                         .push(format!("⚡ Executing workflow: {}", workflow_id));
 
-                    use restflow_core::services::workflow;
+                    use restflow_workflow::services::workflow;
                     use serde_json::json;
                     match workflow::execute_workflow_by_id(&self.core, workflow_id, json!({})).await
                     {

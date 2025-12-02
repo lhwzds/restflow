@@ -1,6 +1,6 @@
 use crate::api::{ApiResponse, state::AppState};
 use axum::{Json, extract::State};
-use restflow_core::storage::SystemConfig;
+use restflow_workflow::storage::SystemConfig;
 
 // GET /api/config
 pub async fn get_config(State(state): State<AppState>) -> Json<ApiResponse<SystemConfig>> {

@@ -1,5 +1,5 @@
 use anyhow::Result;
-use restflow_core::{
+use restflow_workflow::{
     AppCore,
     models::AIModel,
     node::agent::{AgentNode, ApiKeyConfig},

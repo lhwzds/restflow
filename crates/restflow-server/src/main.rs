@@ -13,7 +13,7 @@ use axum::{
     http::{Method, header},
     routing::{get, post, put},
 };
-use restflow_core::{AppCore, paths};
+use restflow_workflow::{AppCore, paths};
 use std::sync::Arc;
 use tower_http::cors::CorsLayer;
 

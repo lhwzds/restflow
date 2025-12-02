@@ -3,7 +3,7 @@ use axum::{
     Json,
     extract::{Path, Query, State},
 };
-use restflow_core::models::{Node, NodeType, Task, TaskStatus};
+use restflow_workflow::models::{Node, NodeType, Task, TaskStatus};
 use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize)]
@@ -95,8 +95,8 @@ pub async fn execute_node(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use restflow_core::AppCore;
-    use restflow_core::models::{NodeType, Workflow};
+    use restflow_workflow::AppCore;
+    use restflow_workflow::models::{NodeType, Workflow};
     use std::sync::Arc;
     use std::time::{Duration, Instant};
     use tempfile::{TempDir, tempdir};
