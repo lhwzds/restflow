@@ -7,7 +7,6 @@
 //! - Runtime decisions
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 /// Unique node identifier
 pub type NodeId = String;
