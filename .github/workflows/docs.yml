@@ -65,11 +65,11 @@ jobs:
 
       # Generate Rust API documentation
       - name: Build Rust API docs
-        run: cargo doc --no-deps --document-private-items --all-features --package restflow-core --package restflow-server
+        run: cargo doc --no-deps --document-private-items --package restflow-workflow --package restflow-server --package restflow-runtime
 
       # Generate backend coverage report
       - name: Generate backend coverage report
-        run: cargo tarpaulin --out html --output-dir target/coverage --all-features --timeout 300 --packages restflow-core restflow-server
+        run: cargo tarpaulin --out html --output-dir target/coverage --timeout 300 --packages restflow-workflow restflow-server restflow-runtime
 
       # Install MkDocs
       - name: Setup Python
