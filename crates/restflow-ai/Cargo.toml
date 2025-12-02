@@ -23,7 +23,7 @@ chrono.workspace = true
 tracing.workspace = true
 
 # PyO3 for Python bindings (optional)
-pyo3 = { version = "0.23", features = ["extension-module"], optional = true }
+pyo3 = { version = "0.24", features = ["extension-module"], optional = true }
 
 # LLM providers (will add rig-core later)
 # rig-core = "0.22"
