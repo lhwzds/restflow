@@ -32,7 +32,11 @@ Access at http://localhost:3000
 
 ## Documentation
 
-- [API Reference](api/backend/) - Rust backend API documentation
+- **API Reference**:
+  - [Workflow API](https://docs.restflow.ai/api/restflow_workflow/) - Workflow engine
+  - [Runtime API](https://docs.restflow.ai/api/restflow_runtime/) - Shared infrastructure
+  - [AI API](https://docs.restflow.ai/api/restflow_ai/) - AI Agent framework
+  - [Server API](https://docs.restflow.ai/api/restflow_server/) - REST API server
 - **Test Coverage**:
   - [Frontend Coverage](coverage/frontend/) - Vue 3 + TypeScript (95 tests ✅)
   - [Backend Coverage](coverage/backend/tarpaulin-report.html) - Rust API
