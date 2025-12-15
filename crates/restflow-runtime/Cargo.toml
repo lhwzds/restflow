@@ -19,7 +19,7 @@ tracing.workspace = true
 chrono = { version = "0.4", features = ["serde"] }
 
 # HTTP client
-reqwest = "0.12.22"
+reqwest = "0.12.25"
 
 # Python execution
 sha2 = "0.10"
