@@ -21,11 +21,10 @@ down:
 logs:
 	docker compose logs -f
 
-# Clean up volumes and images
-clean:
-	docker compose -f docker-compose.dev.yml down -v 2>/dev/null || true
-	docker compose down -v 2>/dev/null || true
-	docker rmi restflow-restflow 2>/dev/null || true
+# Clean up volumes and images (includes down)
+clean: down
+	docker volume rm restflow_cargo-cache restflow_target-cache restflow_node-modules 2>/dev/null || true
+	docker rmi restflow-backend restflow-restflow 2>/dev/null || true
 
 # Run backend locally (no docker)
 run:
