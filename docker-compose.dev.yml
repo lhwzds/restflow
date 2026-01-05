@@ -30,7 +30,10 @@ services:
     command: sh -c "npm install && npm run dev -- --host"
     environment:
       - NODE_ENV=development
+      - VITE_API_TARGET=http://backend:3000
       - VITE_API_URL=http://localhost:3000
+    depends_on:
+      - backend
 
 volumes:
   cargo-cache:
