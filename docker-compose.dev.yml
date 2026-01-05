@@ -6,11 +6,13 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.dev
-    network_mode: host
+    ports:
+      - "3000:3000"
     volumes:
       - ./crates:/app/crates:cached
       - ./Cargo.toml:/app/Cargo.toml:ro
       - ./Cargo.lock:/app/Cargo.lock:ro
+      - ./web/dist:/app/web/dist:ro
       - cargo-cache:/usr/local/cargo/registry
       - target-cache:/app/target
     environment:
@@ -19,7 +21,8 @@ services:
 
   frontend:
     image: node:20-alpine
-    network_mode: host
+    ports:
+      - "5173:5173"
     working_dir: /app
     volumes:
       - ./web:/app:cached
@@ -27,6 +30,7 @@ services:
     command: sh -c "npm install && npm run dev -- --host"
     environment:
       - NODE_ENV=development
+      - VITE_API_URL=http://localhost:3000
 
 volumes:
   cargo-cache:

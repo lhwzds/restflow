@@ -8,7 +8,6 @@ use rust_embed::RustEmbed;
 #[derive(RustEmbed)]
 #[folder = "../../web/dist/"]
 #[include = "*"]
-#[cfg_attr(debug_assertions, exclude = "*")]
 pub struct Assets;
 
 pub async fn static_handler(uri: Uri) -> impl IntoResponse {
