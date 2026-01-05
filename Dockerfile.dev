@@ -1,0 +1,15 @@
+# Development Dockerfile with hot reload support
+FROM rust:bookworm
+
+# Install cargo-watch for hot reload
+RUN cargo install cargo-watch
+
+# Install system dependencies
+RUN apt-get update && \
+    apt-get install -y pkg-config libssl-dev && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Default command: watch and rebuild on changes
+CMD ["cargo", "watch", "-x", "run --bin restflow-server"]
