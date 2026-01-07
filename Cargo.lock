@@ -2111,10 +2111,11 @@ dependencies = [
  "async-trait",
  "chrono",
  "pyo3",
- "restflow-runtime",
+ "rig-core",
  "serde",
  "serde_json",
  "tempfile",
+ "thiserror",
  "tokio",
  "tracing",
  "uuid",
@@ -2137,32 +2138,6 @@ dependencies = [
  "tracing-subscriber",
  "unicode-width 0.2.0",
  "uuid",
-]
-
-[[package]]
-name = "restflow-runtime"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "chrono",
- "dirs",
- "flate2",
- "hex",
- "once_cell",
- "regex",
- "reqwest",
- "rig-core",
- "serde",
- "serde_json",
- "sha2",
- "tar",
- "tempfile",
- "thiserror",
- "tokio",
- "tracing",
- "uuid",
- "zip",
 ]
 
 [[package]]
@@ -2202,7 +2177,7 @@ dependencies = [
  "redb",
  "regex",
  "reqwest",
- "restflow-runtime",
+ "restflow-ai",
  "rig-core",
  "serde",
  "serde_json",

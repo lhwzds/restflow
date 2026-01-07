@@ -24,5 +24,5 @@ pub mod python;
 pub use graph::{Graph, GraphNode};
 pub use workflow_def::WorkflowDef;
 
-// Re-export useful utilities from runtime
-pub use restflow_runtime::{paths, python as python_runtime, tools as runtime_tools};
+// Re-export tools from this crate
+pub use tools::{AddTool, GetTimeTool};

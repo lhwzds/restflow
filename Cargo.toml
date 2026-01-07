@@ -3,7 +3,6 @@ members = [
     "crates/restflow-workflow",
     "crates/restflow-server",
     "crates/restflow-cli",
-    "crates/restflow-runtime",
     "crates/restflow-ai",
 ]
 resolver = "2"
@@ -18,7 +17,6 @@ edition = "2024"
 
 [workspace.dependencies]
 restflow-workflow = { path = "crates/restflow-workflow" }
-restflow-runtime = { path = "crates/restflow-runtime" }
 restflow-ai = { path = "crates/restflow-ai" }
 anyhow = "1.0.100"
 async-trait = "0.1.89"
