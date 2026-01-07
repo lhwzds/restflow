@@ -20,7 +20,7 @@ chrono = { version = "0.4", features = ["serde"] }
 tracing.workspace = true
 
 # PyO3 for Python bindings (optional)
-pyo3 = { version = "0.24.1", features = ["extension-module"], optional = true }
+pyo3 = { version = "0.27.2", features = ["extension-module"], optional = true }
 
 # LLM providers
 rig-core = "0.24.0"
