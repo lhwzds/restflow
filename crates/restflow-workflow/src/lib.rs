@@ -1,13 +1,13 @@
 pub mod engine;
 pub mod models;
 pub mod node;
+pub mod paths;
+pub mod python;
 pub mod services;
 pub mod storage;
 
-// Re-export from restflow-runtime (avoid code duplication)
-pub use restflow_runtime::paths;
-pub use restflow_runtime::python;
-pub use restflow_runtime::tools;
+// Re-export tools from restflow-ai
+pub use restflow_ai::tools;
 
 pub use models::*;
 

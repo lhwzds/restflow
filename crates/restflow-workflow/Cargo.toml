@@ -9,7 +9,7 @@ path = "src/lib.rs"
 
 [dependencies]
 # Internal dependencies
-restflow-runtime = { path = "../restflow-runtime" }
+restflow-ai = { path = "../restflow-ai" }
 
 # External dependencies
 anyhow = "1.0.100"
