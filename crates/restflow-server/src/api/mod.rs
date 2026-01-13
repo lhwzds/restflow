@@ -4,6 +4,7 @@ pub mod models;
 pub mod python;
 pub mod response;
 pub mod secrets;
+pub mod skills;
 pub mod state;
 pub mod tasks;
 pub mod triggers;
