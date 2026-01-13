@@ -23,7 +23,7 @@ tracing.workspace = true
 pyo3 = { version = "0.24.1", features = ["extension-module"], optional = true }
 
 # LLM providers
-rig-core = "0.24.0"
+rig-core = "0.28.0"
 thiserror = "2.0"
 
 [features]
