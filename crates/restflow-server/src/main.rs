@@ -6,7 +6,8 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 mod api;
 
 use api::{
-    agents::*, config::*, models::*, python::*, secrets::*, tasks::*, triggers::*, workflows::*,
+    agents::*, config::*, models::*, python::*, secrets::*, skills::*, tasks::*, triggers::*,
+    workflows::*,
 };
 use axum::{
     Router,
@@ -130,6 +131,14 @@ async fn main() {
             "/api/secrets/{key}",
             put(update_secret).delete(delete_secret),
         )
+        // Skills management
+        .route("/api/skills", get(list_skills).post(create_skill))
+        .route("/api/skills/import", post(import_skill))
+        .route(
+            "/api/skills/{id}",
+            get(get_skill).put(update_skill).delete(delete_skill),
+        )
+        .route("/api/skills/{id}/export", get(export_skill))
         .fallback(static_assets::static_handler)
         .layer(cors)
         .with_state(shared_state);

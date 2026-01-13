@@ -2,6 +2,7 @@ pub mod agent;
 pub mod config;
 pub mod execution_history;
 pub mod secrets;
+pub mod skill;
 pub mod task_queue;
 pub mod trigger;
 pub mod workflow;
@@ -14,6 +15,7 @@ pub use agent::AgentStorage;
 pub use config::{ConfigStorage, SystemConfig};
 pub use execution_history::ExecutionHistoryStorage;
 pub use secrets::SecretStorage;
+pub use skill::SkillStorage;
 pub use task_queue::TaskQueue;
 pub use trigger::TriggerStorage;
 pub use workflow::WorkflowStorage;
@@ -26,6 +28,7 @@ pub struct Storage {
     pub triggers: TriggerStorage,
     pub agents: AgentStorage,
     pub secrets: SecretStorage,
+    pub skills: SkillStorage,
     pub execution_history: ExecutionHistoryStorage,
 }
 
@@ -39,6 +42,7 @@ impl Storage {
         let triggers = TriggerStorage::new(db.clone())?;
         let agents = AgentStorage::new(db.clone())?;
         let secrets = SecretStorage::new(db.clone())?;
+        let skills = SkillStorage::new(db.clone())?;
         let execution_history = ExecutionHistoryStorage::new(db.clone())?;
 
         Ok(Self {
@@ -49,6 +53,7 @@ impl Storage {
             triggers,
             agents,
             secrets,
+            skills,
             execution_history,
         })
     }
