@@ -1,4 +1,4 @@
-.PHONY: dev prod build down logs clean help
+.PHONY: dev prod build down logs clean help run web local
 
 # Development mode with hot reload
 dev:
@@ -43,10 +43,15 @@ local:
 
 help:
 	@echo "Usage:"
-	@echo "  make dev    - Start dev mode (hot reload)"
-	@echo "  make prod   - Start production mode"
-	@echo "  make down   - Stop all containers"
-	@echo "  make logs   - View container logs"
-	@echo "  make clean  - Remove containers and volumes"
-	@echo "  make run    - Run backend locally"
-	@echo "  make web    - Run frontend locally"
+	@echo ""
+	@echo "  Docker:"
+	@echo "    make dev    - Start dev mode with docker (hot reload)"
+	@echo "    make prod   - Start production mode with docker"
+	@echo "    make down   - Stop all containers"
+	@echo "    make logs   - View container logs"
+	@echo "    make clean  - Remove containers and volumes"
+	@echo ""
+	@echo "  Local (no docker):"
+	@echo "    make run    - Run backend locally"
+	@echo "    make web    - Run frontend locally"
+	@echo "    make local  - Run both backend and frontend locally"
