@@ -31,6 +31,12 @@ const router = createRouter({
       component: () => import('../views/SecretManagement.vue'),
       meta: { title: 'Secrets Management' },
     },
+    {
+      path: '/skills',
+      name: 'skills',
+      component: () => import('../views/SkillManagement.vue'),
+      meta: { title: 'Skill Management' },
+    },
   ],
 })
 

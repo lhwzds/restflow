@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { DataAnalysis, Expand, Fold, Setting, Lock } from '@element-plus/icons-vue'
+import { DataAnalysis, Expand, Fold, Setting, Lock, Document } from '@element-plus/icons-vue'
 import { ElAside, ElButton, ElIcon, ElMenu, ElMenuItem } from 'element-plus'
 import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -16,6 +16,7 @@ const activeMenu = computed(() => {
   if (path.startsWith('/workflow')) return 'workflows' // Editor is part of workflows
   if (path.startsWith('/agents')) return 'agents'
   if (path.startsWith('/secrets')) return 'secrets'
+  if (path.startsWith('/skills')) return 'skills'
   return 'workflows'
 })
 
@@ -35,6 +36,9 @@ const handleMenuSelect = (index: string) => {
       break
     case 'secrets':
       router.push('/secrets')
+      break
+    case 'skills':
+      router.push('/skills')
       break
   }
 }
@@ -78,6 +82,11 @@ const handleMenuSelect = (index: string) => {
       <el-menu-item index="secrets">
         <el-icon><Lock /></el-icon>
         <template #title>Secrets</template>
+      </el-menu-item>
+
+      <el-menu-item index="skills">
+        <el-icon><Document /></el-icon>
+        <template #title>Skills</template>
       </el-menu-item>
     </el-menu>
   </el-aside>
