@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElButton, ElInput, ElRow, ElCol, ElUpload, type UploadFile } from 'element-plus'
+import { ElButton, ElInput, ElRow, ElCol, ElUpload, ElSkeleton, type UploadFile } from 'element-plus'
 import { Plus, Search, Upload } from '@element-plus/icons-vue'
 import HeaderBar from '../components/shared/HeaderBar.vue'
 import PageLayout from '../components/shared/PageLayout.vue'
@@ -108,7 +108,11 @@ async function handleFileUpload(file: UploadFile) {
         @clear="searchQuery = ''"
       />
 
-      <div v-if="filteredSkills.length > 0" class="skills-grid">
+      <div v-if="isLoading" class="loading-state">
+        <ElSkeleton :rows="3" animated />
+      </div>
+
+      <div v-else-if="filteredSkills.length > 0" class="skills-grid">
         <ElRow :gutter="16">
           <ElCol
             v-for="skill in filteredSkills"
@@ -126,7 +130,7 @@ async function handleFileUpload(file: UploadFile) {
       </div>
 
       <EmptyState
-        v-else
+        v-else-if="!isLoading"
         :search-query="searchQuery"
         item-name="skill"
         create-text="Create First"
@@ -146,6 +150,11 @@ async function handleFileUpload(file: UploadFile) {
 
   .search-input {
     width: var(--rf-size-xl);
+  }
+
+  .loading-state {
+    margin-top: var(--rf-spacing-xl);
+    padding: var(--rf-spacing-lg);
   }
 
   .skills-grid {

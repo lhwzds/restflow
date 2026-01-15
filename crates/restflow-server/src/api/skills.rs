@@ -24,7 +24,7 @@ pub struct CreateSkillRequest {
 
 /// Generate a short UUID (8 characters) for skill ID
 fn generate_skill_id() -> String {
-    Uuid::new_v4().to_string()[..8].to_string()
+    Uuid::new_v4().to_string()[..8].to_lowercase()
 }
 
 /// Request to update an existing skill
