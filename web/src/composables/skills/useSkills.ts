@@ -1,7 +1,6 @@
-import { ref, computed } from 'vue'
+import { ref } from 'vue'
 import {
   listSkills,
-  getSkill,
   createSkill,
   updateSkill,
   deleteSkill,
@@ -13,6 +12,7 @@ import {
 } from '@/api/skills'
 import type { Skill } from '@/types/generated/Skill'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { downloadAsFile } from '@/utils/download'
 
 export function useSkills() {
   const skills = ref<Skill[]>([])
@@ -117,16 +117,7 @@ export function useSkills() {
   async function handleExport(id: string): Promise<void> {
     try {
       const result = await exportSkill(id)
-      // Create a download link
-      const blob = new Blob([result.markdown], { type: 'text/markdown' })
-      const url = URL.createObjectURL(blob)
-      const link = document.createElement('a')
-      link.href = url
-      link.download = result.filename
-      document.body.appendChild(link)
-      link.click()
-      document.body.removeChild(link)
-      URL.revokeObjectURL(url)
+      downloadAsFile(result.markdown, result.filename, 'text/markdown')
       ElMessage.success('Skill exported successfully')
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to export skill'

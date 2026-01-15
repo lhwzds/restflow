@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import {
   ElButton,
@@ -15,7 +15,6 @@ const route = useRoute()
 const skillId = route.params.id as string
 
 const {
-  skill,
   formData,
   isLoading,
   isSaving,
