@@ -268,6 +268,60 @@ impl TaskQueue {
     pub fn notify_task_available(&self) {
         self.notify.notify_one();
     }
+
+    /// Clear all tasks from all queues (pending, processing, completed)
+    pub fn clear_all(&self) -> Result<(usize, usize, usize)> {
+        // First, collect all keys in a read transaction
+        let (pending_keys, processing_keys, completed_keys) = {
+            let read_txn = self.db.begin_read()?;
+
+            let pending = read_txn.open_table(PENDING)?;
+            let pending_keys: Vec<String> = pending
+                .iter()?
+                .filter_map(|e| e.ok().map(|(k, _)| k.value().to_string()))
+                .collect();
+
+            let processing = read_txn.open_table(PROCESSING)?;
+            let processing_keys: Vec<String> = processing
+                .iter()?
+                .filter_map(|e| e.ok().map(|(k, _)| k.value().to_string()))
+                .collect();
+
+            let completed = read_txn.open_table(COMPLETED)?;
+            let completed_keys: Vec<String> = completed
+                .iter()?
+                .filter_map(|e| e.ok().map(|(k, _)| k.value().to_string()))
+                .collect();
+
+            (pending_keys, processing_keys, completed_keys)
+        };
+
+        let pending_count = pending_keys.len();
+        let processing_count = processing_keys.len();
+        let completed_count = completed_keys.len();
+
+        // Then delete all keys in a write transaction
+        let write_txn = self.db.begin_write()?;
+        {
+            let mut pending = write_txn.open_table(PENDING)?;
+            for key in &pending_keys {
+                pending.remove(key.as_str())?;
+            }
+
+            let mut processing = write_txn.open_table(PROCESSING)?;
+            for key in &processing_keys {
+                processing.remove(key.as_str())?;
+            }
+
+            let mut completed = write_txn.open_table(COMPLETED)?;
+            for key in &completed_keys {
+                completed.remove(key.as_str())?;
+            }
+        }
+        write_txn.commit()?;
+
+        Ok((pending_count, processing_count, completed_count))
+    }
 }
 
 #[cfg(test)]

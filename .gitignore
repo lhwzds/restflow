@@ -20,4 +20,6 @@ __pycache__/
 *$py.class
 
 .playwright-mcp
-s
+
+# Claude Code
+.claude/
