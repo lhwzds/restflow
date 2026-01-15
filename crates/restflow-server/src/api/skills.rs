@@ -9,15 +9,22 @@ use axum::{
 };
 use restflow_workflow::{models::Skill, services};
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 /// Request to create a new skill
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CreateSkillRequest {
-    pub id: String,
+    /// Optional ID. If not provided, a UUID will be auto-generated.
+    pub id: Option<String>,
     pub name: String,
     pub description: Option<String>,
     pub tags: Option<Vec<String>>,
     pub content: String,
+}
+
+/// Generate a short UUID (8 characters) for skill ID
+fn generate_skill_id() -> String {
+    Uuid::new_v4().to_string()[..8].to_string()
 }
 
 /// Request to update an existing skill
@@ -32,7 +39,8 @@ pub struct UpdateSkillRequest {
 /// Request to import a skill from markdown
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ImportSkillRequest {
-    pub id: String,
+    /// Optional ID. If not provided, a UUID will be auto-generated.
+    pub id: Option<String>,
     pub markdown: String,
 }
 
@@ -71,20 +79,26 @@ pub async fn create_skill(
     State(state): State<AppState>,
     Json(payload): Json<CreateSkillRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
-    // Validate ID format
-    if !is_valid_skill_id(&payload.id) {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            "Invalid skill ID. Use lowercase letters, numbers, and hyphens only.".to_string(),
-        ));
-    }
+    // Generate ID if not provided, otherwise validate format
+    let id = match payload.id {
+        Some(id) => {
+            if !is_valid_skill_id(&id) {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    "Invalid skill ID. Use lowercase letters, numbers, and hyphens only.".to_string(),
+                ));
+            }
+            id
+        }
+        None => generate_skill_id(),
+    };
 
     // Check if skill already exists
-    match services::skills::skill_exists(&state, &payload.id).await {
+    match services::skills::skill_exists(&state, &id).await {
         Ok(true) => {
             return Err((
                 StatusCode::CONFLICT,
-                format!("Skill {} already exists", payload.id),
+                format!("Skill {} already exists", id),
             ))
         }
         Err(e) => return Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
@@ -92,7 +106,7 @@ pub async fn create_skill(
     }
 
     let skill = Skill::new(
-        payload.id,
+        id,
         payload.name,
         payload.description,
         payload.tags,
@@ -176,20 +190,26 @@ pub async fn import_skill(
     State(state): State<AppState>,
     Json(payload): Json<ImportSkillRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
-    // Validate ID format
-    if !is_valid_skill_id(&payload.id) {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            "Invalid skill ID. Use lowercase letters, numbers, and hyphens only.".to_string(),
-        ));
-    }
+    // Generate ID if not provided, otherwise validate format
+    let id = match payload.id {
+        Some(id) => {
+            if !is_valid_skill_id(&id) {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    "Invalid skill ID. Use lowercase letters, numbers, and hyphens only.".to_string(),
+                ));
+            }
+            id
+        }
+        None => generate_skill_id(),
+    };
 
     // Check if skill already exists
-    match services::skills::skill_exists(&state, &payload.id).await {
+    match services::skills::skill_exists(&state, &id).await {
         Ok(true) => {
             return Err((
                 StatusCode::CONFLICT,
-                format!("Skill {} already exists", payload.id),
+                format!("Skill {} already exists", id),
             ))
         }
         Err(e) => return Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
@@ -197,7 +217,7 @@ pub async fn import_skill(
     }
 
     // Parse markdown
-    let skill = match services::skills::import_skill_from_markdown(&payload.id, &payload.markdown) {
+    let skill = match services::skills::import_skill_from_markdown(&id, &payload.markdown) {
         Ok(s) => s,
         Err(e) => {
             return Err((
@@ -253,7 +273,7 @@ mod tests {
         let (app, _tmp_dir) = create_test_app().await;
 
         let request = CreateSkillRequest {
-            id: "test-skill".to_string(),
+            id: Some("test-skill".to_string()),
             name: "Test Skill".to_string(),
             description: Some("A test skill".to_string()),
             tags: Some(vec!["test".to_string()]),
@@ -265,11 +285,27 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_create_skill_auto_id() {
+        let (app, _tmp_dir) = create_test_app().await;
+
+        let request = CreateSkillRequest {
+            id: None, // Auto-generate ID
+            name: "Auto ID Skill".to_string(),
+            description: None,
+            tags: None,
+            content: "# Auto ID".to_string(),
+        };
+
+        let result = create_skill(State(app), Json(request)).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
     async fn test_create_skill_invalid_id() {
         let (app, _tmp_dir) = create_test_app().await;
 
         let request = CreateSkillRequest {
-            id: "Invalid_ID".to_string(),
+            id: Some("Invalid_ID".to_string()),
             name: "Test".to_string(),
             description: None,
             tags: None,
@@ -288,7 +324,7 @@ mod tests {
         let (app, _tmp_dir) = create_test_app().await;
 
         let create_req = CreateSkillRequest {
-            id: "test-skill".to_string(),
+            id: Some("test-skill".to_string()),
             name: "Test Skill".to_string(),
             description: None,
             tags: None,
@@ -321,7 +357,7 @@ mod tests {
         let (app, _tmp_dir) = create_test_app().await;
 
         let create_req = CreateSkillRequest {
-            id: "test-skill".to_string(),
+            id: Some("test-skill".to_string()),
             name: "Test Skill".to_string(),
             description: None,
             tags: None,
@@ -356,7 +392,7 @@ mod tests {
         let (app, _tmp_dir) = create_test_app().await;
 
         let create_req = CreateSkillRequest {
-            id: "test-skill".to_string(),
+            id: Some("test-skill".to_string()),
             name: "Test Skill".to_string(),
             description: None,
             tags: None,
@@ -378,7 +414,7 @@ mod tests {
         let (app, _tmp_dir) = create_test_app().await;
 
         let create_req = CreateSkillRequest {
-            id: "test-skill".to_string(),
+            id: Some("test-skill".to_string()),
             name: "Test Skill".to_string(),
             description: Some("A test".to_string()),
             tags: Some(vec!["test".to_string()]),
@@ -411,7 +447,7 @@ tags:
 # Imported Content"#;
 
         let request = ImportSkillRequest {
-            id: "imported-skill".to_string(),
+            id: Some("imported-skill".to_string()),
             markdown: markdown.to_string(),
         };
 
@@ -423,6 +459,25 @@ tags:
         let skill = get_result.unwrap().0.data.unwrap();
         assert_eq!(skill.name, "Imported Skill");
         assert_eq!(skill.description, Some("An imported skill".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_import_skill_auto_id() {
+        let (app, _tmp_dir) = create_test_app().await;
+
+        let markdown = r#"---
+name: Auto Import
+---
+
+# Content"#;
+
+        let request = ImportSkillRequest {
+            id: None, // Auto-generate ID
+            markdown: markdown.to_string(),
+        };
+
+        let result = import_skill(State(app), Json(request)).await;
+        assert!(result.is_ok());
     }
 
     #[test]

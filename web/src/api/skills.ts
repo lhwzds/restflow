@@ -3,7 +3,7 @@ import type { Skill } from '@/types/generated/Skill'
 import { API_ENDPOINTS } from '@/constants'
 
 export interface CreateSkillRequest {
-  id: string
+  id?: string // Optional - auto-generated if not provided
   name: string
   description?: string
   tags?: string[]
@@ -18,7 +18,7 @@ export interface UpdateSkillRequest {
 }
 
 export interface ImportSkillRequest {
-  id: string
+  id?: string // Optional - auto-generated if not provided
   markdown: string
 }
 

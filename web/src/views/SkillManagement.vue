@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref, computed } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElButton, ElInput, ElRow, ElCol, ElUpload, type UploadFile } from 'element-plus'
 import { Plus, Search, Upload } from '@element-plus/icons-vue'
 import HeaderBar from '../components/shared/HeaderBar.vue'
@@ -7,23 +8,16 @@ import PageLayout from '../components/shared/PageLayout.vue'
 import EmptyState from '../components/shared/EmptyState.vue'
 import SearchInfo from '../components/shared/SearchInfo.vue'
 import SkillCard from '../components/skills/SkillCard.vue'
-import SkillEditDialog from '../components/skills/SkillEditDialog.vue'
 import { useSkills } from '../composables/skills/useSkills'
 import type { Skill } from '@/types/generated/Skill'
+
+const router = useRouter()
 
 const {
   skills,
   isLoading,
-  selectedSkill,
-  isDialogVisible,
-  isCreating,
   loadSkills,
-  openCreateDialog,
-  openEditDialog,
   handleCreate,
-  handleUpdate,
-  handleDelete,
-  handleExport,
   handleImport,
 } = useSkills()
 
@@ -46,8 +40,20 @@ onMounted(() => {
   loadSkills()
 })
 
+// Navigate to skill editor
 function handleSkillClick(skill: Skill) {
-  openEditDialog(skill)
+  router.push(`/skill/${skill.id}`)
+}
+
+// Create new skill and navigate to editor
+async function handleNewSkill() {
+  const newSkill = await handleCreate({
+    name: 'Untitled Skill',
+    content: '# New Skill\n\nDescribe your skill instructions here...',
+  })
+  if (newSkill) {
+    router.push(`/skill/${newSkill.id}`)
+  }
 }
 
 async function handleFileUpload(file: UploadFile) {
@@ -58,14 +64,12 @@ async function handleFileUpload(file: UploadFile) {
     const content = e.target?.result as string
     if (!content) return
 
-    // Extract filename without extension for ID
-    const fileName = file.name.replace(/\.md$/, '')
-    const id = fileName.toLowerCase().replace(/[^a-z0-9]+/g, '-')
-
-    await handleImport({
-      id,
+    const importedSkill = await handleImport({
       markdown: content,
     })
+    if (importedSkill) {
+      router.push(`/skill/${importedSkill.id}`)
+    }
   }
   reader.readAsText(file.raw)
 
@@ -93,7 +97,7 @@ async function handleFileUpload(file: UploadFile) {
           >
             <ElButton :icon="Upload">Import</ElButton>
           </ElUpload>
-          <ElButton type="primary" :icon="Plus" @click="openCreateDialog">New Skill</ElButton>
+          <ElButton type="primary" :icon="Plus" @click="handleNewSkill">New Skill</ElButton>
         </template>
       </HeaderBar>
 
@@ -126,19 +130,8 @@ async function handleFileUpload(file: UploadFile) {
         :search-query="searchQuery"
         item-name="skill"
         create-text="Create First"
-        @action="openCreateDialog"
+        @action="handleNewSkill"
         @clear-search="searchQuery = ''"
-      />
-
-      <SkillEditDialog
-        :visible="isDialogVisible"
-        :skill="selectedSkill"
-        :is-creating="isCreating"
-        @update:visible="isDialogVisible = $event"
-        @create="handleCreate"
-        @update="handleUpdate"
-        @delete="handleDelete"
-        @export="handleExport"
       />
     </div>
   </PageLayout>

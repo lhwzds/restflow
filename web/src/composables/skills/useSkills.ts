@@ -58,17 +58,17 @@ export function useSkills() {
   }
 
   // Create a new skill
-  async function handleCreate(request: CreateSkillRequest): Promise<boolean> {
+  async function handleCreate(request: CreateSkillRequest): Promise<Skill | null> {
     try {
       const newSkill = await createSkill(request)
       skills.value.unshift(newSkill)
       ElMessage.success('Skill created successfully')
       closeDialog()
-      return true
+      return newSkill
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to create skill'
       ElMessage.error(message)
-      return false
+      return null
     }
   }
 
@@ -135,16 +135,16 @@ export function useSkills() {
   }
 
   // Import a skill from markdown
-  async function handleImport(request: ImportSkillRequest): Promise<boolean> {
+  async function handleImport(request: ImportSkillRequest): Promise<Skill | null> {
     try {
       const newSkill = await importSkill(request)
       skills.value.unshift(newSkill)
       ElMessage.success('Skill imported successfully')
-      return true
+      return newSkill
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to import skill'
       ElMessage.error(message)
-      return false
+      return null
     }
   }
 

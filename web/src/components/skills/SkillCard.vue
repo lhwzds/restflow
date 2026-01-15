@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { ElCard, ElTag, ElIcon } from 'element-plus'
+import { ElCard, ElIcon } from 'element-plus'
 import { Document, Clock } from '@element-plus/icons-vue'
 import type { Skill } from '@/types/generated/Skill'
 
@@ -35,14 +35,14 @@ function formatTime(timestamp?: number | null): string {
 
 const lastUpdated = computed(() => formatTime(props.skill.updated_at))
 
-const descriptionPreview = computed(() => {
-  const desc = props.skill.description || ''
-  if (!desc) return ''
-  if (desc.length <= 80) return desc
-  return desc.substring(0, 80) + '...'
+const contentPreview = computed(() => {
+  const content = props.skill.content || ''
+  // Get first non-empty line that isn't a heading marker
+  const lines = content.split('\n').filter((line) => line.trim() && !line.trim().startsWith('#'))
+  const firstLine = lines[0] || ''
+  if (firstLine.length <= 80) return firstLine
+  return firstLine.substring(0, 80) + '...'
 })
-
-const tagsList = computed(() => props.skill.tags || [])
 
 function handleClick() {
   emit('click', props.skill)
@@ -60,17 +60,8 @@ function handleClick() {
       </div>
     </div>
 
-    <div class="description-preview" :class="{ 'no-description': !descriptionPreview }">
-      {{ descriptionPreview || 'No description' }}
-    </div>
-
-    <div v-if="tagsList.length > 0" class="tags-section">
-      <ElTag v-for="tag in tagsList.slice(0, 3)" :key="tag" type="info" size="small" class="skill-tag">
-        {{ tag }}
-      </ElTag>
-      <ElTag v-if="tagsList.length > 3" type="info" size="small" class="skill-tag">
-        +{{ tagsList.length - 3 }}
-      </ElTag>
+    <div class="content-preview" :class="{ 'no-content': !contentPreview }">
+      {{ contentPreview || 'No content' }}
     </div>
 
     <div class="card-footer">
@@ -136,37 +127,21 @@ function handleClick() {
     }
   }
 
-  .description-preview {
+  .content-preview {
     color: var(--rf-color-text-regular);
     font-size: var(--rf-font-size-xs);
     line-height: 1.4;
     margin-bottom: var(--rf-spacing-sm);
-    height: 32px;
+    flex: 1;
     display: -webkit-box;
     -webkit-line-clamp: 2;
     line-clamp: 2;
     -webkit-box-orient: vertical;
     overflow: hidden;
 
-    &.no-description {
+    &.no-content {
       color: var(--rf-color-text-secondary);
       font-style: italic;
-    }
-  }
-
-  .tags-section {
-    display: flex;
-    align-items: center;
-    gap: var(--rf-spacing-3xs);
-    margin-bottom: var(--rf-spacing-xs);
-    flex-wrap: wrap;
-    overflow: hidden;
-    max-height: 24px;
-
-    .skill-tag {
-      padding: 1px var(--rf-spacing-xs);
-      font-size: var(--rf-font-size-xs);
-      white-space: nowrap;
     }
   }
 
