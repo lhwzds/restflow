@@ -37,6 +37,12 @@ const router = createRouter({
       component: () => import('../views/SkillManagement.vue'),
       meta: { title: 'Skill Management' },
     },
+    {
+      path: '/skill/:id',
+      name: 'skill-editor',
+      component: () => import('../views/SkillEditor.vue'),
+      meta: { title: 'Skill Editor' },
+    },
   ],
 })
 
