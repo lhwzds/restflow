@@ -51,6 +51,16 @@ export const API_ENDPOINTS = {
     DELETE: (key: string) => `${API_PREFIX}/secrets/${key}` as const,
   },
 
+  SKILL: {
+    LIST: `${API_PREFIX}/skills`,
+    CREATE: `${API_PREFIX}/skills`,
+    GET: (id: string) => `${API_PREFIX}/skills/${id}` as const,
+    UPDATE: (id: string) => `${API_PREFIX}/skills/${id}` as const,
+    DELETE: (id: string) => `${API_PREFIX}/skills/${id}` as const,
+    EXPORT: (id: string) => `${API_PREFIX}/skills/${id}/export` as const,
+    IMPORT: `${API_PREFIX}/skills/import`,
+  },
+
   PYTHON: {
     EXECUTE: `${API_PREFIX}/python/execute`,
     SCRIPTS: `${API_PREFIX}/python/scripts`,
