@@ -6,8 +6,9 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 mod api;
 
 use api::{
-    agents::*, config::*, models::*, python::*, secrets::*, skills::*, tasks::*, triggers::*,
-    workflows::*,
+    agents::*, config::*, models::*, python::*, secrets::*, skills::*,
+    tasks::{clear_all_tasks, execute_node, get_execution_status, get_task_status, list_tasks},
+    triggers::*, workflows::*,
 };
 use axum::{
     Router,
@@ -88,7 +89,7 @@ async fn main() {
         )
         .route("/api/executions/{execution_id}", get(get_execution_status))
         // Task management
-        .route("/api/tasks", get(list_tasks))
+        .route("/api/tasks", get(list_tasks).delete(clear_all_tasks))
         .route("/api/tasks/{task_id}", get(get_task_status))
         .route("/api/nodes/execute", post(execute_node))
         // System configuration

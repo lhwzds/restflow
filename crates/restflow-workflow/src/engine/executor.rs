@@ -278,6 +278,13 @@ impl WorkflowExecutor {
             .list_tasks(workflow_id, status)
             .map_err(|e| anyhow::anyhow!("Failed to list tasks: {}", e))
     }
+
+    /// Clear all tasks from all queues
+    pub async fn clear_all_tasks(&self) -> Result<(usize, usize, usize)> {
+        self.scheduler
+            .clear_all_tasks()
+            .map_err(|e| anyhow::anyhow!("Failed to clear tasks: {}", e))
+    }
 }
 
 struct Worker {

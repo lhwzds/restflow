@@ -391,6 +391,11 @@ impl Scheduler {
 
         Ok(())
     }
+
+    /// Clear all tasks from all queues
+    pub fn clear_all_tasks(&self) -> Result<(usize, usize, usize)> {
+        self.queue.clear_all()
+    }
 }
 
 #[cfg(test)]

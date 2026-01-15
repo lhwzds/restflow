@@ -92,6 +92,31 @@ pub async fn execute_node(
     }
 }
 
+#[derive(Serialize)]
+pub struct ClearTasksResponse {
+    pub pending_cleared: usize,
+    pub processing_cleared: usize,
+    pub completed_cleared: usize,
+    pub message: String,
+}
+
+pub async fn clear_all_tasks(
+    State(state): State<AppState>,
+) -> Json<ApiResponse<ClearTasksResponse>> {
+    match state.executor.clear_all_tasks().await {
+        Ok((pending, processing, completed)) => Json(ApiResponse::ok(ClearTasksResponse {
+            pending_cleared: pending,
+            processing_cleared: processing,
+            completed_cleared: completed,
+            message: format!(
+                "Cleared {} pending, {} processing, {} completed tasks",
+                pending, processing, completed
+            ),
+        })),
+        Err(e) => Json(ApiResponse::error(format!("Failed to clear tasks: {}", e))),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
