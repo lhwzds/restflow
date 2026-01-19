@@ -1,10 +1,7 @@
+//! TUI application state
+
 use super::MIN_INPUT_HEIGHT;
-use crate::config;
-use restflow_workflow::{
-    AppCore,
-    models::AIModel,
-    node::agent::{AgentNode, ApiKeyConfig},
-};
+use restflow_workflow::AppCore;
 use std::sync::Arc;
 use unicode_width::UnicodeWidthChar;
 
@@ -25,7 +22,6 @@ pub struct TuiApp {
     pub core: Arc<AppCore>,
     pub should_clear: bool,
     pub command_history: Vec<String>,
-    pub chat_agent: AgentNode,
     pub last_total_height: u16,
     pub last_terminal_height: u16,
 }
@@ -59,20 +55,6 @@ impl TuiApp {
             },
         ];
 
-        // Prefer env vars to avoid SecretStorage dependency during initialization
-        let api_key_config = if let Ok(key) = std::env::var("OPENAI_API_KEY") {
-            Some(ApiKeyConfig::Direct(key))
-        } else {
-            Some(ApiKeyConfig::Secret("OPENAI_API_KEY".to_string()))
-        };
-
-        let chat_agent = AgentNode::new(
-            AIModel::ClaudeSonnet4_5,
-            config::prompts::CLI_CHAT_ASSISTANT_PROMPT.to_string(),
-            Some(0.7),
-            api_key_config,
-        );
-
         Self {
             input: String::new(),
             cursor_position: 0,
@@ -83,7 +65,6 @@ impl TuiApp {
             core,
             should_clear: false,
             command_history: Vec::new(),
-            chat_agent,
             last_total_height: MIN_INPUT_HEIGHT,
             last_terminal_height: MIN_INPUT_HEIGHT,
         }
@@ -321,20 +302,12 @@ impl TuiApp {
                     self.new_messages
                         .push(format!("❌ Unknown command: {}", input));
                 } else {
-                    // AI chat mode - no "Thinking..." message as it would flash too quickly
-                    let secret_storage = Some(&self.core.storage.secrets);
-                    match self.chat_agent.execute(&input, secret_storage).await {
-                        Ok(response) => {
-                            for line in response.lines() {
-                                if !line.trim().is_empty() {
-                                    self.new_messages.push(format!("🤖 {}", line));
-                                }
-                            }
-                        }
-                        Err(e) => {
-                            self.new_messages.push(format!("❌ AI error: {}", e));
-                        }
-                    }
+                    // AI chat mode - placeholder for future implementation
+                    // TODO: Implement using restflow-ai AgentExecutor
+                    self.new_messages
+                        .push("🤖 AI chat is not yet implemented in CLI.".to_string());
+                    self.new_messages
+                        .push("   Please use the web interface for agent interactions.".to_string());
                 }
             }
         }

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, h, type FunctionalComponent } from 'vue'
-import { Globe, Mail, Code } from 'lucide-vue-next'
+import { Globe, Mail, Code, BookOpen } from 'lucide-vue-next'
 
 const props = defineProps<{
   tag: string
@@ -30,6 +30,7 @@ const toolConfig: Record<string, { icon: FunctionalComponent<{ size?: number }> 
   http_request: { icon: Globe, color: '#10B981', label: 'HTTP' },
   run_python: { icon: PythonIcon, color: '#3776AB', label: 'Python' },
   send_email: { icon: Mail, color: '#F59E0B', label: 'Email' },
+  skill: { icon: BookOpen, color: '#8B5CF6', label: 'Skill' },
 }
 
 const iconInfo = computed(() => {
