@@ -42,6 +42,31 @@ impl ToolOutput {
     }
 }
 
+/// Skill info for listing
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SkillInfo {
+    pub id: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub tags: Option<Vec<String>>,
+}
+
+/// Skill content for reading
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SkillContent {
+    pub id: String,
+    pub name: String,
+    pub content: String,
+}
+
+/// Provider trait for accessing skills (implemented in restflow-workflow)
+pub trait SkillProvider: Send + Sync {
+    /// List all available skills
+    fn list_skills(&self) -> Vec<SkillInfo>;
+    /// Get skill content by ID
+    fn get_skill(&self, id: &str) -> Option<SkillContent>;
+}
+
 /// Core trait for agent tools
 #[async_trait]
 pub trait Tool: Send + Sync {

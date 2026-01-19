@@ -173,21 +173,14 @@ impl NodeExecutor for AgentExecutor {
     async fn execute(
         &self,
         _node_type: &NodeType,
-        config: &Value,
-        context: &mut ExecutionContext,
+        _config: &Value,
+        _context: &mut ExecutionContext,
     ) -> Result<NodeOutput> {
-        use crate::node::agent::AgentNode;
-
-        let agent = AgentNode::from_config(config)?;
-        let input = config["input"].as_str().unwrap_or("Hello");
-
-        let secret_storage = context.secret_storage.as_ref().map(|s| s.as_ref());
-        let response = agent
-            .execute(input, secret_storage)
-            .await
-            .map_err(|e| anyhow::anyhow!("Agent execution failed: {}", e))?;
-
-        Ok(NodeOutput::Agent(AgentOutput { response }))
+        // TODO: Implement using restflow-ai AgentExecutor
+        // For now, return a placeholder message
+        Ok(NodeOutput::Agent(AgentOutput {
+            response: "Agent node execution is not yet implemented in workflow engine. Please use the web interface for agent interactions.".to_string(),
+        }))
     }
 }
 

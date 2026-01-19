@@ -7,13 +7,15 @@ mod email;
 mod http;
 mod python;
 mod registry;
+mod skill;
 mod traits;
 
 pub use email::EmailTool;
 pub use http::HttpTool;
 pub use python::PythonTool;
 pub use registry::ToolRegistry;
-pub use traits::{Tool, ToolOutput, ToolSchema};
+pub use skill::SkillTool;
+pub use traits::{SkillContent, SkillInfo, SkillProvider, Tool, ToolOutput, ToolSchema};
 
 /// Create a registry with default tools
 pub fn default_registry() -> ToolRegistry {

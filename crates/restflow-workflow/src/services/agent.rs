@@ -1,4 +1,9 @@
-use crate::{AppCore, node::agent::AgentNode, storage::agent::StoredAgent};
+//! Agent service layer
+//!
+//! Agent execution is handled by restflow-ai's AgentExecutor.
+//! Use restflow-server's /api/agents endpoints for agent execution.
+
+use crate::{node::agent::AgentNode, storage::agent::StoredAgent, AppCore};
 use anyhow::{Context, Result};
 use std::sync::Arc;
 
@@ -47,19 +52,5 @@ pub async fn delete_agent(core: &Arc<AppCore>, id: &str) -> Result<()> {
         .with_context(|| format!("Failed to delete agent {}", id))
 }
 
-pub async fn execute_agent(core: &Arc<AppCore>, id: &str, input: &str) -> Result<String> {
-    let stored_agent = get_agent(core, id).await?;
-
-    stored_agent
-        .agent
-        .execute(input, Some(&core.storage.secrets))
-        .await
-        .with_context(|| format!("Failed to execute agent {}", id))
-}
-
-pub async fn execute_agent_inline(core: &AppCore, agent: AgentNode, input: &str) -> Result<String> {
-    agent
-        .execute(input, Some(&core.storage.secrets))
-        .await
-        .context("Failed to execute inline agent")
-}
+// TODO: Implement agent execution using restflow-ai AgentExecutor
+// For now, agent execution should use restflow-server's /api/agents/execute endpoint
