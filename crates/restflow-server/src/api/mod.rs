@@ -7,6 +7,7 @@ pub mod secrets;
 pub mod skills;
 pub mod state;
 pub mod tasks;
+pub mod tools;
 pub mod triggers;
 pub mod workflows;
 

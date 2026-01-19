@@ -12,9 +12,9 @@ pub struct StoredAgent {
     pub id: String,
     pub name: String,
     pub agent: AgentNode,
-    #[ts(optional)]
+    #[ts(optional, type = "number")]
     pub created_at: Option<i64>,
-    #[ts(optional)]
+    #[ts(optional, type = "number")]
     pub updated_at: Option<i64>,
 }
 const AGENT_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("agents");

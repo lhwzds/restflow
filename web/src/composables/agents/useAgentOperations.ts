@@ -10,6 +10,13 @@ import type { CreateAgentRequest, UpdateAgentRequest } from '@/api/agents'
 import type { AgentNode } from '@/types/generated/AgentNode'
 import { SUCCESS_MESSAGES, ERROR_MESSAGES } from '@/constants'
 
+// Simple error message extraction
+function getErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error) return error.message
+  if (typeof error === 'string') return error
+  return fallback
+}
+
 export function useAgentOperations() {
   async function createAgent(name: string, agent: AgentNode) {
     try {
@@ -17,62 +24,53 @@ export function useAgentOperations() {
       const newAgent = await apiCreateAgent(request)
       ElMessage.success(SUCCESS_MESSAGES.AGENT_CREATED)
       return newAgent
-    } catch (error: any) {
-      const message = error.message || ERROR_MESSAGES.FAILED_TO_CREATE('Agent')
-      ElMessage.error(message)
+    } catch (error: unknown) {
+      ElMessage.error(getErrorMessage(error, ERROR_MESSAGES.FAILED_TO_CREATE('Agent')))
       throw error
     }
   }
 
-  // Update agent
   async function updateAgent(id: string, updates: UpdateAgentRequest) {
     try {
       const updatedAgent = await apiUpdateAgent(id, updates)
       ElMessage.success(SUCCESS_MESSAGES.AGENT_UPDATED)
       return updatedAgent
-    } catch (error: any) {
-      const message = error.message || ERROR_MESSAGES.FAILED_TO_UPDATE('Agent')
-      ElMessage.error(message)
+    } catch (error: unknown) {
+      ElMessage.error(getErrorMessage(error, ERROR_MESSAGES.FAILED_TO_UPDATE('Agent')))
       throw error
     }
   }
 
-  // Delete agent
   async function deleteAgent(id: string) {
     try {
       await apiDeleteAgent(id)
       ElMessage.success(SUCCESS_MESSAGES.AGENT_DELETED)
-    } catch (error: any) {
-      const message = error.message || ERROR_MESSAGES.FAILED_TO_DELETE('Agent')
-      ElMessage.error(message)
+    } catch (error: unknown) {
+      ElMessage.error(getErrorMessage(error, ERROR_MESSAGES.FAILED_TO_DELETE('Agent')))
       throw error
     }
   }
 
-  // Execute saved agent
   async function executeAgent(id: string, input: string) {
     try {
       ElMessage.info('Agent execution started')
       const response = await apiExecuteAgent(id, input)
       ElMessage.success('Agent execution completed successfully')
       return response
-    } catch (error: any) {
-      const message = error.message || ERROR_MESSAGES.FAILED_TO_CREATE('Agent execution')
-      ElMessage.error(message)
+    } catch (error: unknown) {
+      ElMessage.error(getErrorMessage(error, 'Agent execution failed'))
       throw error
     }
   }
 
-  // Execute unsaved agent (inline execution)
   async function executeAgentInline(agent: AgentNode, input: string) {
     try {
       ElMessage.info('Agent execution started')
       const response = await apiExecuteAgentInline(agent, input)
       ElMessage.success('Agent execution completed successfully')
       return response
-    } catch (error: any) {
-      const message = error.message || ERROR_MESSAGES.FAILED_TO_CREATE('Agent execution')
-      ElMessage.error(message)
+    } catch (error: unknown) {
+      ElMessage.error(getErrorMessage(error, 'Agent execution failed'))
       throw error
     }
   }

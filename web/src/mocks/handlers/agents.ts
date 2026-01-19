@@ -1,7 +1,6 @@
 import { http, HttpResponse, delay } from 'msw'
 import type { StoredAgent } from '@/types/generated/StoredAgent'
 import demoAgents from '../data/agents.json'
-import { chatHistories } from '../data/agent-chat-history'
 
 // BigInt values must be converted to numbers/strings for JSON.stringify()
 const toJsonAgent = (agent: StoredAgent): any => ({
@@ -160,16 +159,6 @@ export const agentHandlers = [
       data: {
         response: '[Demo] This is a sample execution result for inline agent.',
       },
-    })
-  }),
-
-  http.get('/api/agents/:id/chat-history', ({ params }) => {
-    const agentId = params.id as string
-    const history = chatHistories[agentId] || []
-
-    return HttpResponse.json({
-      success: true,
-      data: history,
     })
   }),
 ]

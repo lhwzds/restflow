@@ -1,3 +1,4 @@
+pub mod agent_execution;
 pub mod ai_model;
 pub mod execution;
 pub mod input;
@@ -9,6 +10,9 @@ pub mod task;
 pub mod trigger;
 pub mod workflow;
 
+pub use agent_execution::{
+    AgentExecuteResponse, ExecutionDetails, ExecutionStep, ToolCallInfo,
+};
 pub use ai_model::{AIModel, ModelMetadataDTO, Provider};
 pub use execution::{ExecutionHistoryPage, ExecutionStatus, ExecutionSummary};
 pub use input::{

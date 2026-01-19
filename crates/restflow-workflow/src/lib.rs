@@ -5,9 +5,7 @@ pub mod paths;
 pub mod python;
 pub mod services;
 pub mod storage;
-
-// Re-export tools from restflow-ai
-pub use restflow_ai::tools;
+pub mod tools;
 
 pub use models::*;
 
