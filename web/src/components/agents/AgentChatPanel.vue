@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { ElInput, ElButton, ElSkeleton, ElCollapse, ElCollapseItem, ElTag } from 'element-plus'
+import { ElInput, ElButton, ElSkeleton, ElTag } from 'element-plus'
 import { Promotion, Delete, User, CircleCheck, View, Hide } from '@element-plus/icons-vue'
 import type { StoredAgent } from '@/types/generated/StoredAgent'
 import { useAgentOperations } from '@/composables/agents/useAgentOperations'

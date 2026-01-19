@@ -13,10 +13,10 @@ const emit = defineEmits<{
   click: [agent: StoredAgent]
 }>()
 
-function formatTime(timestamp?: bigint | null): string {
+function formatTime(timestamp?: number | null): string {
   if (!timestamp) return 'Unknown time'
 
-  const date = new Date(Number(timestamp))
+  const date = new Date(timestamp)
   const now = new Date()
   const diff = now.getTime() - date.getTime()
 

@@ -9,12 +9,14 @@ import {
 import { ArrowLeft, Delete, Download } from '@element-plus/icons-vue'
 import PageLayout from '@/components/shared/PageLayout.vue'
 import MarkdownRenderer from '@/components/shared/MarkdownRenderer.vue'
+import SkillTagIcon from '@/components/skills/SkillTagIcon.vue'
 import { useSkillEditor } from '@/composables/skills/useSkillEditor'
 
 const route = useRoute()
 const skillId = route.params.id as string
 
 const {
+  skill,
   formData,
   isLoading,
   isSaving,
@@ -45,6 +47,9 @@ onMounted(() => {
             placeholder="Skill name"
             :disabled="isLoading"
           />
+          <div v-if="skill?.tags && skill.tags.length > 0" class="skill-tags">
+            <SkillTagIcon v-for="tag in skill.tags" :key="tag" :tag="tag" :size="18" />
+          </div>
         </div>
       </div>
       <div class="header-actions">
@@ -129,10 +134,15 @@ onMounted(() => {
     flex: 1;
 
     .title-section {
+      display: flex;
+      align-items: center;
+      gap: var(--rf-spacing-md);
       flex: 1;
-      max-width: 400px;
+      max-width: 500px;
 
       .title-input {
+        flex: 1;
+
         :deep(.el-input__wrapper) {
           box-shadow: none;
           background: transparent;
@@ -142,6 +152,12 @@ onMounted(() => {
           font-size: var(--rf-font-size-lg);
           font-weight: var(--rf-font-weight-semibold);
         }
+      }
+
+      .skill-tags {
+        display: flex;
+        gap: var(--rf-spacing-xs);
+        flex-shrink: 0;
       }
     }
   }

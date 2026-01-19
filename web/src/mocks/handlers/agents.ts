@@ -1,27 +1,24 @@
 import { http, HttpResponse, delay } from 'msw'
 import type { StoredAgent } from '@/types/generated/StoredAgent'
+import type { AgentNode } from '@/types/generated/AgentNode'
 import demoAgents from '../data/agents.json'
 
-// BigInt values must be converted to numbers/strings for JSON.stringify()
-const toJsonAgent = (agent: StoredAgent): any => ({
-  ...agent,
-  created_at: Number(agent.created_at),
-  updated_at: Number(agent.updated_at),
+// Convert JSON data (with string timestamps) to StoredAgent format
+const convertAgent = (agent: (typeof demoAgents)[number]): StoredAgent => ({
+  id: agent.id,
+  name: agent.name,
+  agent: agent.agent as AgentNode,
+  created_at: parseInt(agent.created_at, 10),
+  updated_at: parseInt(agent.updated_at, 10),
 })
 
-const convertToStoredAgent = (agent: any): StoredAgent => ({
-  ...agent,
-  created_at: BigInt(agent.created_at),
-  updated_at: BigInt(agent.updated_at),
-})
-
-let agents: StoredAgent[] = demoAgents.map(convertToStoredAgent)
+let agents: StoredAgent[] = demoAgents.map(convertAgent)
 
 export const agentHandlers = [
   http.get('/api/agents', () => {
     return HttpResponse.json({
       success: true,
-      data: agents.map(toJsonAgent),
+      data: agents,
     })
   }),
 
@@ -38,7 +35,7 @@ export const agentHandlers = [
     }
     return HttpResponse.json({
       success: true,
-      data: toJsonAgent(agent),
+      data: agent,
     })
   }),
 
@@ -65,14 +62,14 @@ export const agentHandlers = [
         api_key_config: null,
         tools: null,
       },
-      created_at: BigInt(Date.now()),
-      updated_at: BigInt(Date.now()),
+      created_at: Date.now(),
+      updated_at: Date.now(),
     }
     agents.push(newAgent)
     return HttpResponse.json(
       {
         success: true,
-        data: toJsonAgent(newAgent),
+        data: newAgent,
       },
       { status: 201 },
     )
@@ -103,12 +100,12 @@ export const agentHandlers = [
     agents[index] = {
       ...currentAgent,
       ...body,
-      id: currentAgent.id, // Ensure id is preserved
-      updated_at: BigInt(Date.now()),
+      id: currentAgent.id,
+      updated_at: Date.now(),
     } as StoredAgent
     return HttpResponse.json({
       success: true,
-      data: toJsonAgent(agents[index]!),
+      data: agents[index]!,
     })
   }),
 
