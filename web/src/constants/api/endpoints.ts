@@ -76,6 +76,10 @@ export const API_ENDPOINTS = {
   MODEL: {
     LIST: `${API_PREFIX}/models`,
   },
+
+  TOOL: {
+    LIST: `${API_PREFIX}/tools`,
+  },
 } as const
 
 export type ApiEndpoints = typeof API_ENDPOINTS

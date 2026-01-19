@@ -1,7 +1,14 @@
 import { apiClient } from './config'
 import type { StoredAgent } from '@/types/generated/StoredAgent'
 import type { AgentNode } from '@/types/generated/AgentNode'
+import type { AgentExecuteResponse } from '@/types/generated/AgentExecuteResponse'
+import type { ExecutionDetails } from '@/types/generated/ExecutionDetails'
+import type { ExecutionStep } from '@/types/generated/ExecutionStep'
+import type { ToolCallInfo } from '@/types/generated/ToolCallInfo'
 import { API_ENDPOINTS } from '@/constants'
+
+// Re-export generated types for convenience
+export type { AgentExecuteResponse, ExecutionDetails, ExecutionStep, ToolCallInfo }
 
 export interface CreateAgentRequest {
   name: string
@@ -37,27 +44,21 @@ export async function deleteAgent(id: string): Promise<void> {
   await apiClient.delete(API_ENDPOINTS.AGENT.DELETE(id))
 }
 
-export async function executeAgent(id: string, input: string): Promise<string> {
-  const response = await apiClient.post<{ response: string }>(API_ENDPOINTS.AGENT.EXECUTE(id), {
+export async function executeAgent(id: string, input: string): Promise<AgentExecuteResponse> {
+  const response = await apiClient.post<AgentExecuteResponse>(API_ENDPOINTS.AGENT.EXECUTE(id), {
     input,
   })
-  return response.data.response
+  return response.data
 }
 
-export async function executeAgentInline(agent: any, input: string): Promise<string> {
-  const response = await apiClient.post<{ response: string }>(API_ENDPOINTS.AGENT.EXECUTE_INLINE, {
+export async function executeAgentInline(
+  agent: AgentNode,
+  input: string,
+): Promise<AgentExecuteResponse> {
+  const response = await apiClient.post<AgentExecuteResponse>(API_ENDPOINTS.AGENT.EXECUTE_INLINE, {
     agent,
     input,
   })
-  return response.data.response
-}
-
-export interface ChatMessage {
-  role: 'user' | 'assistant'
-  content: string
-}
-
-export async function getChatHistory(id: string): Promise<ChatMessage[]> {
-  const response = await apiClient.get<ChatMessage[]>(`/api/agents/${id}/chat-history`)
   return response.data
 }
+

@@ -26,6 +26,12 @@ const router = createRouter({
       meta: { title: 'Agent Management' },
     },
     {
+      path: '/agent/:id',
+      name: 'agent-editor',
+      component: () => import('../views/AgentEditor.vue'),
+      meta: { title: 'Agent Editor' },
+    },
+    {
       path: '/secrets',
       name: 'secrets',
       component: () => import('../views/SecretManagement.vue'),

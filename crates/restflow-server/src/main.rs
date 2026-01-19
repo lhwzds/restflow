@@ -8,7 +8,7 @@ mod api;
 use api::{
     agents::*, config::*, models::*, python::*, secrets::*, skills::*,
     tasks::{clear_all_tasks, execute_node, get_execution_status, get_task_status, list_tasks},
-    triggers::*, workflows::*,
+    tools::*, triggers::*, workflows::*,
 };
 use axum::{
     Router,
@@ -96,6 +96,8 @@ async fn main() {
         .route("/api/config", get(get_config).put(update_config))
         // AI models metadata
         .route("/api/models", get(list_models))
+        // AI tools
+        .route("/api/tools", get(list_tools))
         // Trigger activation
         .route("/api/workflows/{id}/activate", put(activate_workflow))
         .route("/api/workflows/{id}/deactivate", put(deactivate_workflow))

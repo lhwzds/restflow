@@ -1,25 +1,29 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { ElInput, ElButton, ElSkeleton } from 'element-plus'
-import { Promotion, Delete, User, CircleCheck } from '@element-plus/icons-vue'
+import { ElInput, ElButton, ElSkeleton, ElCollapse, ElCollapseItem, ElTag } from 'element-plus'
+import { Promotion, Delete, User, CircleCheck, View, Hide } from '@element-plus/icons-vue'
 import type { StoredAgent } from '@/types/generated/StoredAgent'
 import { useAgentOperations } from '@/composables/agents/useAgentOperations'
 import MarkdownRenderer from '@/components/shared/MarkdownRenderer.vue'
-import { getChatHistory } from '@/api/agents'
+import ExecutionStepDisplay from '@/components/agents/ExecutionStepDisplay.vue'
+import { type ExecutionDetails, type ExecutionStep } from '@/api/agents'
 import { getModelDisplayName } from '@/utils/AIModels'
 
 const props = defineProps<{
   agent: StoredAgent
 }>()
 
-const { executeAgent } = useAgentOperations()
+// Use inline execution to test with current (possibly unsaved) configuration
+const { executeAgentInline } = useAgentOperations()
 
-// Chat message type (simplified - no ID needed)
+// Chat message type with execution details
 interface Message {
   role: 'user' | 'assistant'
   content: string
   timestamp: Date
   error?: boolean
+  executionDetails?: ExecutionDetails
+  showDetails?: boolean // Toggle for execution details visibility
 }
 
 const roleIcons = {
@@ -32,15 +36,36 @@ const input = ref('')
 const isLoading = ref(false)
 const messagesContainer = ref<HTMLElement>()
 
-function addMessage(role: 'user' | 'assistant', content: string, error = false) {
+function addMessage(
+  role: 'user' | 'assistant',
+  content: string,
+  error = false,
+  executionDetails?: ExecutionDetails,
+) {
   messages.value.push({
     role,
     content,
     timestamp: new Date(),
     error,
+    executionDetails,
+    showDetails: false,
   })
   // Auto-scroll handled by CSS scroll-behavior: smooth
   setTimeout(() => scrollToBottom(), 0)
+}
+
+function toggleDetails(index: number) {
+  const message = messages.value[index]
+  if (message) {
+    message.showDetails = !message.showDetails
+  }
+}
+
+// Filter execution steps for display (exclude system and user messages)
+function getDisplaySteps(details: ExecutionDetails): ExecutionStep[] {
+  return details.steps.filter(
+    (step) => step.step_type !== 'system' && step.step_type !== 'user',
+  )
 }
 
 // Scroll to bottom (simplified - let CSS handle smoothness)
@@ -59,10 +84,12 @@ async function handleSend() {
   isLoading.value = true
 
   try {
-    const response = await executeAgent(props.agent.id, userInput)
-    addMessage('assistant', response)
-  } catch (err: any) {
-    addMessage('assistant', err.message || 'Execution failed, please try again', true)
+    // Use inline execution with current agent config (supports unsaved changes)
+    const result = await executeAgentInline(props.agent.agent, userInput)
+    addMessage('assistant', result.response, false, result.execution_details ?? undefined)
+  } catch (err: unknown) {
+    const errorMessage = err instanceof Error ? err.message : 'Execution failed, please try again'
+    addMessage('assistant', errorMessage, true)
   } finally {
     isLoading.value = false
   }
@@ -87,36 +114,9 @@ function formatTime(date: Date): string {
   })
 }
 
-onMounted(async () => {
-  try {
-    // Try to load chat history from API
-    const history = await getChatHistory(props.agent.id)
-
-    if (history && history.length > 0) {
-      // Add historical messages with past timestamps
-      history.forEach((msg, index) => {
-        // Set timestamps in the past (most recent = 2 min ago, oldest = 10 min ago)
-        const minutesAgo = 2 + (history.length - 1 - index) * 2
-        const timestamp = new Date(Date.now() - minutesAgo * 60 * 1000)
-
-        messages.value.push({
-          role: msg.role,
-          content: msg.content,
-          timestamp,
-          error: false,
-        })
-      })
-
-      // Auto-scroll to bottom after loading history
-      setTimeout(() => scrollToBottom(), 100)
-    } else {
-      // No history available, show welcome message
-      addMessage('assistant', `Hello! I'm ${props.agent.name}. How can I help you?`)
-    }
-  } catch (error) {
-    // Fallback to welcome message on error (e.g., API not implemented)
-    addMessage('assistant', `Hello! I'm ${props.agent.name}. How can I help you?`)
-  }
+onMounted(() => {
+  // Show welcome message when chat panel loads
+  addMessage('assistant', `Hello! I'm ${props.agent.name}. How can I help you?`)
 })
 </script>
 
@@ -148,12 +148,49 @@ onMounted(async () => {
             <span class="message-time">
               {{ formatTime(message.timestamp) }}
             </span>
+            <!-- Execution details toggle -->
+            <template v-if="message.executionDetails">
+              <ElTag size="small" type="info" class="details-tag">
+                {{ message.executionDetails.iterations }} iterations
+              </ElTag>
+              <ElTag size="small" type="warning" class="details-tag">
+                {{ message.executionDetails.total_tokens }} tokens
+              </ElTag>
+              <ElButton
+                text
+                size="small"
+                :icon="message.showDetails ? Hide : View"
+                @click="toggleDetails(index)"
+              >
+                {{ message.showDetails ? 'Hide Details' : 'Show Details' }}
+              </ElButton>
+            </template>
           </div>
           <div :class="['message-text', { error: message.error }]">
             <MarkdownRenderer v-if="!message.error" :content="message.content" />
             <template v-else>
               {{ message.content }}
             </template>
+          </div>
+
+          <!-- Execution details panel -->
+          <div
+            v-if="message.executionDetails && message.showDetails"
+            class="execution-details-panel"
+          >
+            <div class="details-header">
+              <span>Execution Steps</span>
+              <ElTag size="small" :type="message.executionDetails.status === 'completed' ? 'success' : 'danger'">
+                {{ message.executionDetails.status }}
+              </ElTag>
+            </div>
+            <div class="steps-list">
+              <ExecutionStepDisplay
+                v-for="(step, stepIndex) in getDisplaySteps(message.executionDetails)"
+                :key="stepIndex"
+                :step="step"
+              />
+            </div>
           </div>
         </div>
       </div>
@@ -323,6 +360,34 @@ onMounted(async () => {
             pre {
               white-space: pre;
             }
+          }
+        }
+
+        .details-tag {
+          margin-left: var(--rf-spacing-sm);
+        }
+
+        .execution-details-panel {
+          margin-top: var(--rf-spacing-md);
+          padding: var(--rf-spacing-md);
+          background: var(--rf-color-bg-secondary);
+          border-radius: var(--rf-radius-base);
+          border: 1px solid var(--rf-color-border-lighter);
+
+          .details-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: var(--rf-spacing-md);
+            padding-bottom: var(--rf-spacing-sm);
+            border-bottom: 1px solid var(--rf-color-border-lighter);
+            font-weight: var(--rf-font-weight-semibold);
+            color: var(--rf-color-text-primary);
+          }
+
+          .steps-list {
+            max-height: 400px;
+            overflow-y: auto;
           }
         }
       }

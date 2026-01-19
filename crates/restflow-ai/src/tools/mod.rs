@@ -1,10 +1,25 @@
-//! AI Tools module - Agent tool implementations using rig
+//! AI Tools module - Agent tool implementations
 //!
 //! This module provides tools that can be used by AI agents.
-//! Tools implement rig's `Tool` trait for integration with LLM providers.
+//! Tools implement the `Tool` trait for integration with the agent executor.
 
-pub mod math_tools;
-pub mod time_tool;
+mod email;
+mod http;
+mod python;
+mod registry;
+mod traits;
 
-pub use math_tools::AddTool;
-pub use time_tool::GetTimeTool;
+pub use email::EmailTool;
+pub use http::HttpTool;
+pub use python::PythonTool;
+pub use registry::ToolRegistry;
+pub use traits::{Tool, ToolOutput, ToolSchema};
+
+/// Create a registry with default tools
+pub fn default_registry() -> ToolRegistry {
+    let mut registry = ToolRegistry::new();
+    registry.register(HttpTool::new());
+    registry.register(PythonTool::new());
+    registry.register(EmailTool::new());
+    registry
+}
