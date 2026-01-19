@@ -88,6 +88,7 @@ async fn run_agent_with_executor(
     agent_node: &AgentNode,
     input: &str,
     secret_storage: Option<&restflow_workflow::storage::SecretStorage>,
+    skill_storage: restflow_workflow::storage::skill::SkillStorage,
 ) -> Result<AgentExecuteResponse, String> {
     // Get API key
     let api_key = match &agent_node.api_key_config {
@@ -123,16 +124,17 @@ async fn run_agent_with_executor(
         }
     };
 
-    // Create tool registry with selected tools only
-    // If no tools configured, use empty registry (secure by default)
+    // Create tool registry with all tools (including skill tool with storage access)
+    let full_registry = restflow_workflow::services::tool_registry::create_tool_registry(skill_storage);
+
+    // Filter to only selected tools (secure by default)
     let tools = if let Some(ref tool_names) = agent_node.tools {
         if tool_names.is_empty() {
             Arc::new(ToolRegistry::new())
         } else {
-            let default_registry = restflow_ai::tools::default_registry();
             let mut filtered_registry = ToolRegistry::new();
             for name in tool_names {
-                if let Some(tool) = default_registry.get(name) {
+                if let Some(tool) = full_registry.get(name) {
                     filtered_registry.register_arc(tool);
                 } else {
                     warn!(tool_name = %name, "Configured tool not found in registry, skipping");
@@ -275,7 +277,13 @@ pub async fn execute_agent(
         }
     };
 
-    match run_agent_with_executor(&agent.agent, &request.input, Some(&state.storage.secrets)).await
+    match run_agent_with_executor(
+        &agent.agent,
+        &request.input,
+        Some(&state.storage.secrets),
+        state.storage.skills.clone(),
+    )
+    .await
     {
         Ok(response) => Json(ApiResponse::ok(response)),
         Err(e) => Json(ApiResponse::error(format!(
@@ -314,7 +322,14 @@ pub async fn execute_agent_inline(
         }
     };
 
-    match run_agent_with_executor(&agent, &input, Some(&state.storage.secrets)).await {
+    match run_agent_with_executor(
+        &agent,
+        &input,
+        Some(&state.storage.secrets),
+        state.storage.skills.clone(),
+    )
+    .await
+    {
         Ok(response) => Json(ApiResponse::ok(response)),
         Err(e) => Json(ApiResponse::error(format!(
             "Failed to execute agent: {}",
