@@ -1,7 +1,5 @@
 use crate::engine::context::ExecutionContext;
 use crate::models::{Node, NodeInput, NodeOutput, Workflow};
-use crate::storage::Storage;
-use anyhow::Result;
 use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -82,30 +80,32 @@ impl Task {
         }
     }
 
-    /// Get the node for this task (lazy-loaded)
-    pub fn get_node(&self, storage: &Storage) -> Result<&Node> {
-        self.node.get_or_try_init(|| {
-            let workflow = self.get_workflow(storage)?;
-            workflow
-                .nodes
-                .iter()
-                .find(|n| n.id == self.node_id)
-                .cloned()
-                .ok_or_else(|| anyhow::anyhow!("Node {} not found in workflow", self.node_id))
-        })
+    /// Get the cached workflow if it has been set via set_workflow().
+    ///
+    /// Returns None if the workflow has not been cached yet.
+    /// Use TaskResolver::get_workflow() to load from storage if not cached.
+    pub fn cached_workflow(&self) -> Option<Arc<Workflow>> {
+        self.workflow.get().cloned()
     }
 
-    /// Get the workflow for this task (lazy-loaded and shared)
-    pub fn get_workflow(&self, storage: &Storage) -> Result<Arc<Workflow>> {
-        self.workflow
-            .get_or_try_init(|| Ok(Arc::new(storage.workflows.get_workflow(&self.workflow_id)?)))
-            .cloned()
+    /// Get the cached node if it has been set via set_node().
+    ///
+    /// Returns None if the node has not been cached yet.
+    /// Use TaskResolver::get_node() to resolve from storage if not cached.
+    pub fn cached_node(&self) -> Option<&Node> {
+        self.node.get()
     }
 
-    /// Pre-populate the workflow Arc to avoid lazy loading from storage
-    /// This is useful when creating tasks from a workflow that's already in memory
+    /// Pre-populate the workflow Arc to avoid lazy loading from storage.
+    /// This is useful when creating tasks from a workflow that's already in memory.
     pub fn set_workflow(&self, workflow: Arc<Workflow>) -> Result<(), Arc<Workflow>> {
         self.workflow.set(workflow)
+    }
+
+    /// Pre-populate the node to avoid lazy loading from storage.
+    /// This is useful when creating tasks from a node that's already in memory.
+    pub fn set_node(&self, node: Node) -> Result<(), Node> {
+        self.node.set(node)
     }
 
     /// Mark task as running

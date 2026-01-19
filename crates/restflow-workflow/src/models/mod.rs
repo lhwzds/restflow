@@ -4,7 +4,6 @@ pub mod execution;
 pub mod input;
 pub mod node;
 pub mod output;
-pub mod secrets;
 pub mod skill;
 pub mod task;
 pub mod trigger;
@@ -24,7 +23,8 @@ pub use output::{
     AgentOutput, EmailOutput, HttpOutput, ManualTriggerOutput, NodeOutput, PrintOutput,
     PythonOutput, ScheduleOutput, WebhookTriggerOutput,
 };
-pub use secrets::Secret;
+// Secret is now defined in restflow-storage
+pub use restflow_storage::Secret;
 pub use skill::Skill;
 pub use task::{Task, TaskStatus};
 pub use trigger::{ActiveTrigger, AuthConfig, TriggerConfig};

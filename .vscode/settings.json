@@ -4,7 +4,7 @@
     "editor.defaultFormatter": "rust-lang.rust-analyzer",
     "editor.tabSize": 4
   },
-  "rust-analyzer.checkOnSave.command": "clippy",
+  "rust-analyzer.check.command": "clippy",
   "rust-analyzer.cargo.buildScripts.enable": true,
   "rust-analyzer.procMacro.enable": true,
   "rust-analyzer.cargo.features": "all",

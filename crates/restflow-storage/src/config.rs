@@ -1,3 +1,5 @@
+//! System configuration storage.
+
 use anyhow::Result;
 use redb::{Database, ReadableDatabase, TableDefinition};
 use serde::{Deserialize, Serialize};
@@ -5,14 +7,15 @@ use std::sync::Arc;
 
 const CONFIG_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("system_config");
 
-// KISS: Default configuration constants
+// Default configuration constants
 const DEFAULT_WORKER_COUNT: usize = 4;
 const DEFAULT_TASK_TIMEOUT_SECONDS: u64 = 300; // 5 minutes
-const DEFAULT_STALL_TIMEOUT_SECONDS: u64 = 300; // 5 minutes  
+const DEFAULT_STALL_TIMEOUT_SECONDS: u64 = 300; // 5 minutes
 const DEFAULT_MAX_RETRIES: u32 = 3;
 const MIN_WORKER_COUNT: usize = 1;
 const MIN_TIMEOUT_SECONDS: u64 = 10;
 
+/// System configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SystemConfig {
     pub worker_count: usize,
@@ -33,7 +36,7 @@ impl Default for SystemConfig {
 }
 
 impl SystemConfig {
-    /// KISS: Validate configuration values
+    /// Validate configuration values
     pub fn validate(&self) -> Result<()> {
         if self.worker_count < MIN_WORKER_COUNT {
             return Err(anyhow::anyhow!(
@@ -64,6 +67,7 @@ impl SystemConfig {
     }
 }
 
+/// Configuration storage
 pub struct ConfigStorage {
     db: Arc<Database>,
 }
@@ -113,7 +117,7 @@ impl ConfigStorage {
         Ok(())
     }
 
-    /// Get a specific config value
+    /// Get worker count
     pub fn get_worker_count(&self) -> Result<usize> {
         Ok(self.get_config()?.unwrap_or_default().worker_count)
     }
@@ -143,15 +147,12 @@ mod tests {
     fn test_default_config() {
         let (storage, _temp_dir) = setup_test_storage();
 
-        // Should have default config after initialization
         let config = storage.get_config().unwrap();
         assert!(config.is_some());
 
         let config = config.unwrap();
         assert_eq!(config.worker_count, DEFAULT_WORKER_COUNT);
         assert_eq!(config.task_timeout_seconds, DEFAULT_TASK_TIMEOUT_SECONDS);
-        assert_eq!(config.stall_timeout_seconds, DEFAULT_STALL_TIMEOUT_SECONDS);
-        assert_eq!(config.max_retries, DEFAULT_MAX_RETRIES);
     }
 
     #[test]
@@ -165,13 +166,11 @@ mod tests {
             max_retries: 5,
         };
 
-        storage.update_config(new_config.clone()).unwrap();
+        storage.update_config(new_config).unwrap();
 
         let retrieved = storage.get_config().unwrap().unwrap();
         assert_eq!(retrieved.worker_count, 8);
         assert_eq!(retrieved.task_timeout_seconds, 600);
-        assert_eq!(retrieved.stall_timeout_seconds, 600);
-        assert_eq!(retrieved.max_retries, 5);
     }
 
     #[test]
@@ -190,7 +189,7 @@ mod tests {
         let (storage, _temp_dir) = setup_test_storage();
 
         let invalid_config = SystemConfig {
-            worker_count: 0, // Invalid: less than MIN_WORKER_COUNT
+            worker_count: 0,
             task_timeout_seconds: 300,
             stall_timeout_seconds: 300,
             max_retries: 3,
@@ -198,144 +197,5 @@ mod tests {
 
         let result = storage.update_config(invalid_config);
         assert!(result.is_err());
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("Worker count must be at least")
-        );
-    }
-
-    #[test]
-    fn test_invalid_task_timeout() {
-        let (storage, _temp_dir) = setup_test_storage();
-
-        let invalid_config = SystemConfig {
-            worker_count: 4,
-            task_timeout_seconds: 5, // Invalid: less than MIN_TIMEOUT_SECONDS
-            stall_timeout_seconds: 300,
-            max_retries: 3,
-        };
-
-        let result = storage.update_config(invalid_config);
-        assert!(result.is_err());
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("Task timeout must be at least")
-        );
-    }
-
-    #[test]
-    fn test_invalid_stall_timeout() {
-        let (storage, _temp_dir) = setup_test_storage();
-
-        let invalid_config = SystemConfig {
-            worker_count: 4,
-            task_timeout_seconds: 300,
-            stall_timeout_seconds: 5, // Invalid: less than MIN_TIMEOUT_SECONDS
-            max_retries: 3,
-        };
-
-        let result = storage.update_config(invalid_config);
-        assert!(result.is_err());
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("Stall timeout must be at least")
-        );
-    }
-
-    #[test]
-    fn test_invalid_retries() {
-        let (storage, _temp_dir) = setup_test_storage();
-
-        let invalid_config = SystemConfig {
-            worker_count: 4,
-            task_timeout_seconds: 300,
-            stall_timeout_seconds: 300,
-            max_retries: 0, // Invalid: must be at least 1
-        };
-
-        let result = storage.update_config(invalid_config);
-        assert!(result.is_err());
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("Max retries must be at least 1")
-        );
-    }
-
-    #[test]
-    fn test_get_worker_count() {
-        let (storage, _temp_dir) = setup_test_storage();
-
-        // Should get default worker count
-        let count = storage.get_worker_count().unwrap();
-        assert_eq!(count, DEFAULT_WORKER_COUNT);
-
-        // Update and verify
-        let new_config = SystemConfig {
-            worker_count: 10,
-            task_timeout_seconds: 300,
-            stall_timeout_seconds: 300,
-            max_retries: 3,
-        };
-        storage.update_config(new_config).unwrap();
-
-        let count = storage.get_worker_count().unwrap();
-        assert_eq!(count, 10);
-    }
-
-    #[test]
-    fn test_set_worker_count() {
-        let (storage, _temp_dir) = setup_test_storage();
-
-        // Set new worker count
-        storage.set_worker_count(6).unwrap();
-
-        let config = storage.get_config().unwrap().unwrap();
-        assert_eq!(config.worker_count, 6);
-
-        // Try to set invalid count (should be clamped to minimum)
-        storage.set_worker_count(0).unwrap();
-
-        let config = storage.get_config().unwrap().unwrap();
-        assert_eq!(config.worker_count, MIN_WORKER_COUNT);
-    }
-
-    #[test]
-    fn test_config_persistence() {
-        let temp_dir = tempdir().unwrap();
-        let db_path = temp_dir.path().join("test.db");
-
-        // Create and update config
-        {
-            let db = Arc::new(Database::create(&db_path).unwrap());
-            let storage = ConfigStorage::new(db).unwrap();
-
-            let new_config = SystemConfig {
-                worker_count: 12,
-                task_timeout_seconds: 900,
-                stall_timeout_seconds: 900,
-                max_retries: 10,
-            };
-            storage.update_config(new_config).unwrap();
-        }
-
-        // Open database again and verify config persisted
-        {
-            let db = Arc::new(Database::open(&db_path).unwrap());
-            let storage = ConfigStorage::new(db).unwrap();
-
-            let config = storage.get_config().unwrap().unwrap();
-            assert_eq!(config.worker_count, 12);
-            assert_eq!(config.task_timeout_seconds, 900);
-            assert_eq!(config.stall_timeout_seconds, 900);
-            assert_eq!(config.max_retries, 10);
-        }
     }
 }

@@ -2082,6 +2082,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "restflow-storage"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64",
+ "chrono",
+ "redb",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "ts-rs",
+ "uuid",
+]
+
+[[package]]
 name = "restflow-workflow"
 version = "0.1.0"
 dependencies = [
@@ -2099,6 +2116,7 @@ dependencies = [
  "regex",
  "reqwest",
  "restflow-ai",
+ "restflow-storage",
  "serde",
  "serde_json",
  "serde_yaml",
