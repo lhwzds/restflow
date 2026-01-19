@@ -128,8 +128,11 @@ describe('Agents API', () => {
   describe('executeAgentInline', () => {
     it('should execute agent inline', async () => {
       const agent = {
-        model: 'claude-sonnet-4-5',
+        model: 'claude-sonnet-4-5' as const,
         prompt: 'Test',
+        temperature: null,
+        api_key_config: null,
+        tools: null,
       }
 
       mock.onPost(API_ENDPOINTS.AGENT.EXECUTE_INLINE).reply(200, {

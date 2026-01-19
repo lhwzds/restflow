@@ -43,12 +43,12 @@ const stepLabel = computed(() => {
   }
 })
 
-const tagType = computed(() => {
+const tagType = computed((): 'success' | 'warning' | 'info' | 'danger' | 'primary' => {
   switch (props.step.step_type) {
     case 'system':
       return 'info'
     case 'user':
-      return ''
+      return 'primary'
     case 'assistant':
       return 'success'
     case 'tool_call':

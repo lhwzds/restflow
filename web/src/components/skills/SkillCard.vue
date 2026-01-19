@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import { ElCard, ElIcon } from 'element-plus'
 import { Document, Clock } from '@element-plus/icons-vue'
 import type { Skill } from '@/types/generated/Skill'
+import SkillTagIcon from './SkillTagIcon.vue'
 
 const props = defineProps<{
   skill: Skill
@@ -65,6 +66,9 @@ function handleClick() {
     </div>
 
     <div class="card-footer">
+      <div class="tool-tags" v-if="skill.tags && skill.tags.length > 0">
+        <SkillTagIcon v-for="tag in skill.tags" :key="tag" :tag="tag" :size="14" />
+      </div>
       <div class="update-time">
         <ElIcon>
           <Clock />
@@ -149,6 +153,14 @@ function handleClick() {
     border-top: 1px solid var(--rf-color-border-lighter);
     padding-top: var(--rf-spacing-xs);
     margin-top: auto;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+
+    .tool-tags {
+      display: flex;
+      gap: var(--rf-spacing-xs);
+    }
 
     .update-time {
       display: flex;
