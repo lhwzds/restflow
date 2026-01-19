@@ -2,6 +2,7 @@ use crate::engine::context::ExecutionContext;
 use crate::engine::scheduler::Scheduler;
 use crate::models::{Node, NodeType};
 use crate::python::PythonManager;
+use crate::services::TaskResolver;
 use crate::storage::Storage;
 use anyhow::{Result, anyhow};
 use serde_json::Value;
@@ -344,7 +345,9 @@ impl Worker {
 
         debug!(worker_id = self.id, task_id = %task.id, node_id = %task.node_id, "Processing task");
 
-        let node = task.get_node(&self.storage)?;
+        // Use TaskResolver to resolve node from storage
+        let resolver = TaskResolver::new(&self.storage);
+        let node = resolver.get_node(&task)?;
 
         let mut context = task.context.clone();
         context.ensure_secret_storage(&self.storage);
@@ -393,7 +396,7 @@ impl Worker {
         }
 
         let result =
-            WorkflowExecutor::execute_node(node, &task.input, &mut context, self.registry.clone())
+            WorkflowExecutor::execute_node(&node, &task.input, &mut context, self.registry.clone())
                 .await;
 
         match result {

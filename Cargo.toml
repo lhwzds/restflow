@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "crates/restflow-storage",
     "crates/restflow-workflow",
     "crates/restflow-server",
     "crates/restflow-cli",
@@ -16,6 +17,7 @@ authors = ["RestFlow Team"]
 edition = "2024"
 
 [workspace.dependencies]
+restflow-storage = { path = "crates/restflow-storage" }
 restflow-workflow = { path = "crates/restflow-workflow" }
 restflow-ai = { path = "crates/restflow-ai" }
 anyhow = "1.0.100"

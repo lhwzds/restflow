@@ -1,6 +1,7 @@
 use crate::engine::context::{ExecutionContext, namespace};
 use crate::engine::graph::WorkflowGraph;
 use crate::models::{Node, Task, TaskStatus, Workflow};
+use crate::services::TaskResolver;
 use crate::storage::{Storage, TaskQueue};
 use anyhow::Result;
 use chrono::Utc;
@@ -52,8 +53,7 @@ impl Scheduler {
         )?;
 
         let priority = task.priority();
-        let serialized = serde_json::to_vec(&task)?;
-        self.queue.insert_pending(priority, &task_id, &serialized)?;
+        self.queue.insert_pending(priority, &task_id, &task)?;
 
         Ok(task_id)
     }
@@ -74,8 +74,7 @@ impl Scheduler {
         )?;
 
         let priority = task.priority();
-        let serialized = serde_json::to_vec(&task)?;
-        self.queue.insert_pending(priority, &task_id, &serialized)?;
+        self.queue.insert_pending(priority, &task_id, &task)?;
 
         Ok(task_id)
     }
@@ -217,9 +216,7 @@ impl Scheduler {
         output: Option<crate::models::NodeOutput>,
         error: Option<String>,
     ) -> Result<()> {
-        if let Some(data) = self.queue.get_from_processing(task_id)? {
-            let mut task: Task = serde_json::from_slice(&data)?;
-
+        if let Some(mut task) = self.queue.get_from_processing(task_id)? {
             match status {
                 TaskStatus::Completed => {
                     if let Some(output) = output {
@@ -234,8 +231,7 @@ impl Scheduler {
                 _ => {}
             }
 
-            let serialized = serde_json::to_vec(&task)?;
-            self.queue.move_to_completed(task_id, &serialized)?;
+            self.queue.move_to_completed(task_id, &task)?;
 
             let timestamp_ms = Utc::now().timestamp_millis();
             match status {
@@ -266,22 +262,19 @@ impl Scheduler {
     {
         let mut tasks = Vec::new();
 
-        for data in self.queue.get_all_pending()? {
-            let task: Task = serde_json::from_slice(&data)?;
+        for task in self.queue.get_all_pending()? {
             if filter(&task) {
                 tasks.push(task);
             }
         }
 
-        for data in self.queue.get_all_processing()? {
-            let task: Task = serde_json::from_slice(&data)?;
+        for task in self.queue.get_all_processing()? {
             if filter(&task) {
                 tasks.push(task);
             }
         }
 
-        for data in self.queue.get_all_completed()? {
-            let task: Task = serde_json::from_slice(&data)?;
+        for task in self.queue.get_all_completed()? {
             if filter(&task) {
                 tasks.push(task);
             }
@@ -298,12 +291,7 @@ impl Scheduler {
     }
 
     pub fn get_task(&self, task_id: &str) -> Result<Option<Task>> {
-        if let Some(data) = self.queue.get_from_any_table(task_id)? {
-            let task: Task = serde_json::from_slice(&data)?;
-            Ok(Some(task))
-        } else {
-            Ok(None)
-        }
+        self.queue.get_from_any_table(task_id)
     }
 
     pub fn list_tasks(
@@ -324,9 +312,7 @@ impl Scheduler {
         let mut recovered = 0;
         let now = chrono::Utc::now().timestamp_millis();
 
-        for data in self.queue.get_all_processing()? {
-            let mut task: Task = serde_json::from_slice(&data)?;
-
+        for mut task in self.queue.get_all_processing()? {
             if let Some(started_at) = task.started_at {
                 let stall_threshold_ms = DEFAULT_STALL_TIMEOUT_SECONDS * 1000;
                 if now - started_at > stall_threshold_ms {
@@ -335,10 +321,9 @@ impl Scheduler {
 
                     let task_id = task.id.clone();
                     let priority = task.priority();
-                    let serialized = serde_json::to_vec(&task)?;
 
                     self.queue.remove_from_processing(&task_id)?;
-                    self.queue.insert_pending(priority, &task_id, &serialized)?;
+                    self.queue.insert_pending(priority, &task_id, &task)?;
 
                     recovered += 1;
                 }
@@ -365,7 +350,9 @@ impl Scheduler {
         task: &Task,
         output: crate::models::NodeOutput,
     ) -> Result<()> {
-        let workflow = task.get_workflow(&self.storage)?;
+        // Use TaskResolver to get workflow (from cache or storage)
+        let resolver = TaskResolver::new(&self.storage);
+        let workflow = resolver.get_workflow(task)?;
 
         // Serialize NodeOutput to Value for context storage
         let output_value = serde_json::to_value(&output)?;
@@ -439,10 +426,9 @@ mod tests {
         task.started_at = Some(ten_minutes_ago);
 
         // Put task in processing
-        let serialized = serde_json::to_vec(&task).unwrap();
         scheduler
             .queue
-            .move_to_processing(0, &task.id, &serialized)
+            .move_to_processing(0, &task.id, &task)
             .unwrap();
 
         // Recover stalled tasks
@@ -474,10 +460,9 @@ mod tests {
 
         // Push to queue
         let priority = task.priority();
-        let serialized = serde_json::to_vec(&task).unwrap();
         scheduler
             .queue
-            .insert_pending(priority, &task_id, &serialized)
+            .insert_pending(priority, &task_id, &task)
             .unwrap();
 
         // Get task should find it in pending
@@ -528,7 +513,7 @@ mod tests {
         assert_eq!(pending_tasks.len(), 1, "Should have 1 pending task");
 
         // Verify task has correct execution_id
-        let task: Task = serde_json::from_slice(&pending_tasks[0]).unwrap();
+        let task = &pending_tasks[0];
         assert_eq!(task.execution_id, execution_id);
         assert_eq!(task.node_id, "start_node");
     }

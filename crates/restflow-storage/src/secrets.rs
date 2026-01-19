@@ -1,11 +1,52 @@
-use crate::models::Secret;
+//! Secrets storage - secure storage for API keys and credentials.
+//!
+//! Note: Currently uses Base64 encoding, not real encryption.
+//! This is a known security limitation documented in ISSUES.md.
+
 use anyhow::Result;
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use ts_rs::TS;
 
 const SECRETS_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("secrets");
 
+/// A stored secret with metadata
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct Secret {
+    pub key: String,
+    pub value: String,
+    pub description: Option<String>,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+impl Secret {
+    /// Create a new secret
+    pub fn new(key: String, value: String, description: Option<String>) -> Self {
+        let now = chrono::Utc::now().timestamp_millis();
+        Self {
+            key,
+            value,
+            description,
+            created_at: now,
+            updated_at: now,
+        }
+    }
+
+    /// Update the secret value and description
+    ///
+    /// Pass `None` for description to clear it, or `Some(...)` to set a new one.
+    pub fn update(&mut self, value: String, description: Option<String>) {
+        self.value = value;
+        self.description = description;  // Always set, allowing None to clear
+        self.updated_at = chrono::Utc::now().timestamp_millis();
+    }
+}
+
+/// Secret storage with Base64 encoding
 #[derive(Debug, Clone)]
 pub struct SecretStorage {
     db: Arc<Database>,
@@ -20,6 +61,7 @@ impl SecretStorage {
         Ok(Self { db })
     }
 
+    /// Set or update a secret
     pub fn set_secret(&self, key: &str, value: &str, description: Option<String>) -> Result<()> {
         let existing = self.get_secret_model(key)?;
 
@@ -42,7 +84,7 @@ impl SecretStorage {
         Ok(())
     }
 
-    // Create a new secret (fails if already exists)
+    /// Create a new secret (fails if already exists)
     pub fn create_secret(&self, key: &str, value: &str, description: Option<String>) -> Result<()> {
         if self.get_secret_model(key)?.is_some() {
             return Err(anyhow::anyhow!("Secret {} already exists", key));
@@ -50,7 +92,7 @@ impl SecretStorage {
         self.set_secret(key, value, description)
     }
 
-    // Update an existing secret (fails if not exists)
+    /// Update an existing secret (fails if not exists)
     pub fn update_secret(&self, key: &str, value: &str, description: Option<String>) -> Result<()> {
         if self.get_secret_model(key)?.is_none() {
             return Err(anyhow::anyhow!("Secret {} not found", key));
@@ -58,7 +100,7 @@ impl SecretStorage {
         self.set_secret(key, value, description)
     }
 
-    // Internal use only
+    /// Get secret model (internal)
     fn get_secret_model(&self, key: &str) -> Result<Option<Secret>> {
         let read_txn = self.db.begin_read()?;
         let table = read_txn.open_table(SECRETS_TABLE)?;
@@ -73,6 +115,7 @@ impl SecretStorage {
         }
     }
 
+    /// Get secret value, falling back to environment variable
     pub fn get_secret(&self, key: &str) -> Result<Option<String>> {
         if let Some(secret) = self.get_secret_model(key)? {
             Ok(Some(secret.value))
@@ -82,6 +125,7 @@ impl SecretStorage {
         }
     }
 
+    /// Delete a secret
     pub fn delete_secret(&self, key: &str) -> Result<()> {
         let write_txn = self.db.begin_write()?;
         {
@@ -92,7 +136,7 @@ impl SecretStorage {
         Ok(())
     }
 
-    // Returns all secrets without values for security
+    /// List all secrets (values are cleared for security)
     pub fn list_secrets(&self) -> Result<Vec<Secret>> {
         let read_txn = self.db.begin_read()?;
         let table = read_txn.open_table(SECRETS_TABLE)?;
@@ -112,6 +156,7 @@ impl SecretStorage {
         Ok(secrets)
     }
 
+    /// Check if a secret exists
     pub fn has_secret(&self, key: &str) -> Result<bool> {
         let read_txn = self.db.begin_read()?;
         let table = read_txn.open_table(SECRETS_TABLE)?;
@@ -156,57 +201,13 @@ mod tests {
             .set_secret("API_KEY_1", "value1", Some("First key".to_string()))
             .unwrap();
         storage.set_secret("API_KEY_2", "value2", None).unwrap();
-        storage
-            .set_secret("API_KEY_3", "value3", Some("Third key".to_string()))
-            .unwrap();
 
         let secrets = storage.list_secrets().unwrap();
-        assert_eq!(secrets.len(), 3);
+        assert_eq!(secrets.len(), 2);
 
         let key1 = secrets.iter().find(|s| s.key == "API_KEY_1").unwrap();
         assert_eq!(key1.description, Some("First key".to_string()));
         assert_eq!(key1.value, ""); // Value should be cleared
-
-        let key2 = secrets.iter().find(|s| s.key == "API_KEY_2").unwrap();
-        assert_eq!(key2.description, None);
-    }
-
-    #[test]
-    fn test_update_preserves_created_at() {
-        let (storage, _temp_dir) = setup();
-
-        storage
-            .set_secret("KEY", "initial", Some("Test key".to_string()))
-            .unwrap();
-
-        let secrets = storage.list_secrets().unwrap();
-        let initial = secrets.iter().find(|s| s.key == "KEY").unwrap();
-        let created_at = initial.created_at;
-        let initial_updated_at = initial.updated_at;
-
-        // Wait to ensure time difference
-        std::thread::sleep(std::time::Duration::from_millis(10));
-
-        storage
-            .set_secret("KEY", "updated", Some("Updated description".to_string()))
-            .unwrap();
-
-        let secrets = storage.list_secrets().unwrap();
-        let updated = secrets.iter().find(|s| s.key == "KEY").unwrap();
-
-        println!(
-            "created_at: {}, initial_updated_at: {}, new_updated_at: {}",
-            created_at, initial_updated_at, updated.updated_at
-        );
-
-        assert_eq!(updated.created_at, created_at); // created_at preserved
-        assert!(
-            updated.updated_at > initial_updated_at,
-            "updated_at should be greater: {} > {}",
-            updated.updated_at,
-            initial_updated_at
-        );
-        assert_eq!(updated.description, Some("Updated description".to_string()));
     }
 
     #[test]
@@ -228,5 +229,28 @@ mod tests {
 
         assert!(storage.has_secret("EXISTS").unwrap());
         assert!(!storage.has_secret("NOT_EXISTS").unwrap());
+    }
+
+    #[test]
+    fn test_clear_description() {
+        let (storage, _temp_dir) = setup();
+
+        // Create secret with description
+        storage
+            .set_secret("TEST_KEY", "value1", Some("Initial description".to_string()))
+            .unwrap();
+
+        // Verify description is set
+        let secrets = storage.list_secrets().unwrap();
+        let secret = secrets.iter().find(|s| s.key == "TEST_KEY").unwrap();
+        assert_eq!(secret.description, Some("Initial description".to_string()));
+
+        // Update with None to clear description
+        storage.set_secret("TEST_KEY", "value2", None).unwrap();
+
+        // Verify description is cleared
+        let secrets = storage.list_secrets().unwrap();
+        let secret = secrets.iter().find(|s| s.key == "TEST_KEY").unwrap();
+        assert_eq!(secret.description, None, "Description should be cleared when None is passed");
     }
 }

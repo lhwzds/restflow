@@ -1,50 +1,36 @@
-//! Skill storage implementation using redb.
+//! Typed skill storage wrapper.
 
 use crate::models::Skill;
 use anyhow::Result;
-use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
+use redb::Database;
 use std::sync::Arc;
 
-const SKILLS_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("skills");
-
+/// Typed skill storage wrapper around restflow-storage::SkillStorage.
 #[derive(Debug, Clone)]
 pub struct SkillStorage {
-    db: Arc<Database>,
+    inner: restflow_storage::SkillStorage,
 }
 
 impl SkillStorage {
     pub fn new(db: Arc<Database>) -> Result<Self> {
-        // Initialize the table
-        let write_txn = db.begin_write()?;
-        write_txn.open_table(SKILLS_TABLE)?;
-        write_txn.commit()?;
-
-        Ok(Self { db })
+        Ok(Self {
+            inner: restflow_storage::SkillStorage::new(db)?,
+        })
     }
 
     /// Create a new skill (fails if already exists)
     pub fn create(&self, skill: &Skill) -> Result<()> {
-        if self.get(&skill.id)?.is_some() {
+        if self.inner.exists(&skill.id)? {
             return Err(anyhow::anyhow!("Skill {} already exists", skill.id));
         }
-
-        let write_txn = self.db.begin_write()?;
-        {
-            let mut table = write_txn.open_table(SKILLS_TABLE)?;
-            let json = serde_json::to_string(skill)?;
-            table.insert(skill.id.as_str(), json.as_bytes())?;
-        }
-        write_txn.commit()?;
-        Ok(())
+        let json = serde_json::to_string(skill)?;
+        self.inner.put_raw(&skill.id, json.as_bytes())
     }
 
     /// Get a skill by ID
     pub fn get(&self, id: &str) -> Result<Option<Skill>> {
-        let read_txn = self.db.begin_read()?;
-        let table = read_txn.open_table(SKILLS_TABLE)?;
-
-        if let Some(data) = table.get(id)? {
-            let json = std::str::from_utf8(data.value())?;
+        if let Some(bytes) = self.inner.get_raw(id)? {
+            let json = std::str::from_utf8(&bytes)?;
             Ok(Some(serde_json::from_str(json)?))
         } else {
             Ok(None)
@@ -53,13 +39,10 @@ impl SkillStorage {
 
     /// List all skills
     pub fn list(&self) -> Result<Vec<Skill>> {
-        let read_txn = self.db.begin_read()?;
-        let table = read_txn.open_table(SKILLS_TABLE)?;
-
+        let raw_skills = self.inner.list_raw()?;
         let mut skills = Vec::new();
-        for item in table.iter()? {
-            let (_, value) = item?;
-            let json = std::str::from_utf8(value.value())?;
+        for (_, bytes) in raw_skills {
+            let json = std::str::from_utf8(&bytes)?;
             let skill: Skill = serde_json::from_str(json)?;
             skills.push(skill);
         }
@@ -72,36 +55,22 @@ impl SkillStorage {
 
     /// Update an existing skill
     pub fn update(&self, id: &str, skill: &Skill) -> Result<()> {
-        if self.get(id)?.is_none() {
+        if !self.inner.exists(id)? {
             return Err(anyhow::anyhow!("Skill {} not found", id));
         }
-
-        let write_txn = self.db.begin_write()?;
-        {
-            let mut table = write_txn.open_table(SKILLS_TABLE)?;
-            let json = serde_json::to_string(skill)?;
-            table.insert(id, json.as_bytes())?;
-        }
-        write_txn.commit()?;
-        Ok(())
+        let json = serde_json::to_string(skill)?;
+        self.inner.put_raw(id, json.as_bytes())
     }
 
     /// Delete a skill
     pub fn delete(&self, id: &str) -> Result<()> {
-        let write_txn = self.db.begin_write()?;
-        {
-            let mut table = write_txn.open_table(SKILLS_TABLE)?;
-            table.remove(id)?;
-        }
-        write_txn.commit()?;
+        self.inner.delete(id)?;
         Ok(())
     }
 
     /// Check if a skill exists
     pub fn exists(&self, id: &str) -> Result<bool> {
-        let read_txn = self.db.begin_read()?;
-        let table = read_txn.open_table(SKILLS_TABLE)?;
-        Ok(table.get(id)?.is_some())
+        self.inner.exists(id)
     }
 }
 

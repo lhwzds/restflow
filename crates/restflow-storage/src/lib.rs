@@ -1,10 +1,30 @@
-//! Storage layer with typed wrappers around restflow-storage.
+//! RestFlow Storage - Low-level storage abstraction layer
 //!
-//! This module provides type-safe access to the storage layer by wrapping
-//! the byte-level APIs from restflow-storage with Rust types from our models.
+//! This crate provides the persistence layer for RestFlow, using redb as the
+//! embedded database. It exposes byte-level APIs to avoid circular dependencies
+//! with the workflow crate's models.
+//!
+//! # Architecture
+//!
+//! The storage layer uses a simple key-value design with separate tables for
+//! different entity types. Higher-level type wrappers are provided by the
+//! restflow-workflow crate.
+//!
+//! # Tables
+//!
+//! - `workflows` - Workflow definitions
+//! - `skills` - Skill templates
+//! - `secrets` - Encrypted secrets
+//! - `agents` - Agent configurations
+//! - `active_triggers` - Active trigger state
+//! - `pending/processing/completed` - Task queue tables
+//! - `execution_history:data/index` - Execution history
+//! - `system_config` - System configuration
 
 pub mod agent;
+pub mod config;
 pub mod execution_history;
+pub mod secrets;
 pub mod skill;
 pub mod task_queue;
 pub mod trigger;
@@ -14,20 +34,16 @@ use anyhow::Result;
 use redb::Database;
 use std::sync::Arc;
 
-// Re-export types that are self-contained in restflow-storage
-pub use restflow_storage::{ConfigStorage, Secret, SecretStorage, SystemConfig};
-
 pub use agent::AgentStorage;
-pub use execution_history::ExecutionHistoryStorage;
+pub use config::{ConfigStorage, SystemConfig};
+pub use execution_history::{ExecutionHistoryPage, ExecutionHistoryStorage, ExecutionStatus, ExecutionSummary};
+pub use secrets::{Secret, SecretStorage};
 pub use skill::SkillStorage;
 pub use task_queue::TaskQueue;
 pub use trigger::TriggerStorage;
 pub use workflow::WorkflowStorage;
 
-/// Central storage manager that initializes all storage subsystems.
-///
-/// Provides typed access to all storage components through wrapper types
-/// that convert between Rust models and byte-level storage.
+/// Central storage manager that initializes all storage subsystems
 pub struct Storage {
     db: Arc<Database>,
     pub workflows: WorkflowStorage,
@@ -42,6 +58,9 @@ pub struct Storage {
 
 impl Storage {
     /// Create a new storage instance at the given path.
+    ///
+    /// This will create the database file if it doesn't exist and initialize
+    /// all required tables.
     pub fn new(path: &str) -> Result<Self> {
         let db = Arc::new(Database::create(path)?);
 

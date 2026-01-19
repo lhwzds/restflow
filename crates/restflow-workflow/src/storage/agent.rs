@@ -1,11 +1,14 @@
+//! Typed agent storage wrapper.
+
 use crate::node::agent::AgentNode;
 use anyhow::Result;
-use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
+use redb::Database;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use ts_rs::TS;
 use uuid::Uuid;
 
+/// Stored agent with metadata
 #[derive(Serialize, Deserialize, Debug, Clone, TS)]
 #[ts(export)]
 pub struct StoredAgent {
@@ -17,21 +20,19 @@ pub struct StoredAgent {
     #[ts(optional, type = "number")]
     pub updated_at: Option<i64>,
 }
-const AGENT_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("agents");
 
+/// Typed agent storage wrapper around restflow-storage::AgentStorage.
 pub struct AgentStorage {
-    db: Arc<Database>,
+    inner: restflow_storage::AgentStorage,
 }
 
 impl AgentStorage {
     pub fn new(db: Arc<Database>) -> Result<Self> {
-        // Ensure agents table exists, create if not
-        let write_txn = db.begin_write()?;
-        write_txn.open_table(AGENT_TABLE)?;
-        write_txn.commit()?;
-
-        Ok(Self { db })
+        Ok(Self {
+            inner: restflow_storage::AgentStorage::new(db)?,
+        })
     }
+
     pub fn create_agent(&self, name: String, agent: AgentNode) -> Result<StoredAgent> {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)?
@@ -44,22 +45,16 @@ impl AgentStorage {
             created_at: Some(now),
             updated_at: Some(now),
         };
-        let write_txn = self.db.begin_write()?;
-        {
-            let mut table = write_txn.open_table(AGENT_TABLE)?;
-            let json_bytes = serde_json::to_vec(&stored_agent)?;
-            table.insert(stored_agent.id.as_str(), json_bytes.as_slice())?;
-        }
-        write_txn.commit()?;
+
+        let json_bytes = serde_json::to_vec(&stored_agent)?;
+        self.inner.put_raw(&stored_agent.id, &json_bytes)?;
 
         Ok(stored_agent)
     }
 
     pub fn get_agent(&self, id: String) -> Result<Option<StoredAgent>> {
-        let read_txn = self.db.begin_read()?;
-        let table = read_txn.open_table(AGENT_TABLE)?;
-        if let Some(value) = table.get(id.as_str())? {
-            let agent: StoredAgent = serde_json::from_slice(value.value())?;
+        if let Some(bytes) = self.inner.get_raw(&id)? {
+            let agent: StoredAgent = serde_json::from_slice(&bytes)?;
             Ok(Some(agent))
         } else {
             Ok(None)
@@ -67,15 +62,13 @@ impl AgentStorage {
     }
 
     pub fn list_agents(&self) -> Result<Vec<StoredAgent>> {
-        let read_txn = self.db.begin_read()?;
-        let table = read_txn.open_table(AGENT_TABLE)?;
-        let mut agents = Vec::new();
-        for item in table.iter()? {
-            let (_, value) = item?;
-            let agent: StoredAgent = serde_json::from_slice(value.value())?;
-            agents.push(agent);
+        let agents = self.inner.list_raw()?;
+        let mut result = Vec::new();
+        for (_, bytes) in agents {
+            let agent: StoredAgent = serde_json::from_slice(&bytes)?;
+            result.push(agent);
         }
-        Ok(agents)
+        Ok(result)
     }
 
     pub fn update_agent(
@@ -87,39 +80,30 @@ impl AgentStorage {
         let mut existing_agent = self
             .get_agent(id.clone())?
             .ok_or_else(|| anyhow::anyhow!("Agent {} not found", id))?;
+
         if let Some(new_name) = name {
             existing_agent.name = new_name;
-        };
+        }
 
         if let Some(new_agent) = agent {
             existing_agent.agent = new_agent;
-        };
+        }
 
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)?
             .as_millis() as i64;
         existing_agent.updated_at = Some(now);
 
-        let write_txn = self.db.begin_write()?;
-        {
-            let mut table = write_txn.open_table(AGENT_TABLE)?;
-            let json_bytes = serde_json::to_vec(&existing_agent)?;
-            table.insert(existing_agent.id.as_str(), json_bytes.as_slice())?;
-        }
-        write_txn.commit()?;
+        let json_bytes = serde_json::to_vec(&existing_agent)?;
+        self.inner.put_raw(&existing_agent.id, &json_bytes)?;
 
         Ok(existing_agent)
     }
 
     pub fn delete_agent(&self, id: String) -> Result<()> {
-        let write_txn = self.db.begin_write()?;
-        {
-            let mut table = write_txn.open_table(AGENT_TABLE)?;
-            table
-                .remove(id.as_str())?
-                .ok_or_else(|| anyhow::anyhow!("Agent {} not found", id))?;
+        if !self.inner.delete(&id)? {
+            return Err(anyhow::anyhow!("Agent {} not found", id));
         }
-        write_txn.commit()?;
         Ok(())
     }
 }
