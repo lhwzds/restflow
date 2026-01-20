@@ -7,4 +7,4 @@ import type { TaskStatus } from "./TaskStatus";
 /**
  * Unified task structure that replaces both TaskRecord and WorkflowTask
  */
-export type Task = { id: string, execution_id: string, workflow_id: string, node_id: string, status: TaskStatus, created_at: bigint, started_at: bigint | null, completed_at: bigint | null, input: NodeInput, output: NodeOutput | null, error: string | null, context: ExecutionContext, };
+export type Task = { id: string, execution_id: string, workflow_id: string, node_id: string, status: TaskStatus, created_at: number, started_at: number | null, completed_at: number | null, input: NodeInput, output: NodeOutput | null, error: string | null, context: ExecutionContext, };

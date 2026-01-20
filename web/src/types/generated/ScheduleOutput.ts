@@ -3,4 +3,4 @@
 /**
  * Schedule trigger output
  */
-export type ScheduleOutput = { triggered_at: bigint, payload: any, };
+export type ScheduleOutput = { triggered_at: number, payload: any, };

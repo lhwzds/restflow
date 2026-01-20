@@ -19,7 +19,9 @@ pub struct Secret {
     pub key: String,
     pub value: String,
     pub description: Option<String>,
+    #[ts(type = "number")]
     pub created_at: i64,
+    #[ts(type = "number")]
     pub updated_at: i64,
 }
 

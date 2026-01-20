@@ -220,8 +220,8 @@ export const useExecutionStore = defineStore('execution', {
         input?: Json
         output?: Json
         error?: string | null
-        started_at?: bigint | null
-        completed_at?: bigint | null
+        started_at?: number | null
+        completed_at?: number | null
       }>,
     ) {
       tasks.forEach((task) => {
@@ -231,8 +231,8 @@ export const useExecutionStore = defineStore('execution', {
           input: task.input,
           output: task.output,
           error: task.error || undefined,
-          startTime: task.started_at ? Number(task.started_at) : undefined,
-          endTime: task.completed_at ? Number(task.completed_at) : undefined,
+          startTime: task.started_at ? task.started_at : undefined,
+          endTime: task.completed_at ? task.completed_at : undefined,
         })
       })
     },

@@ -4,4 +4,4 @@ import type { Templated } from "./Templated";
 /**
  * HTTP Request node input
  */
-export type HttpInput = { url: Templated<string>, method: string, headers: Templated<Record<string, string>> | undefined, body: Templated<any> | undefined, timeout_ms: bigint | null, };
+export type HttpInput = { url: Templated<string>, method: string, headers: Templated<Record<string, string>> | undefined, body: Templated<any> | undefined, timeout_ms: number | null, };

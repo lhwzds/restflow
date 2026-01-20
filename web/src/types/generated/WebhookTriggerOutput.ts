@@ -3,4 +3,4 @@
 /**
  * Webhook trigger output - received HTTP request data
  */
-export type WebhookTriggerOutput = { triggered_at: bigint, method: string, headers: Record<string, string>, body: any, query: Record<string, string>, };
+export type WebhookTriggerOutput = { triggered_at: number, method: string, headers: Record<string, string>, body: any, query: Record<string, string>, };

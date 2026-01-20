@@ -85,6 +85,7 @@ pub struct HttpInput {
     pub headers: Option<Templated<HashMap<String, String>>>,
     #[ts(type = "Templated<any> | undefined")]
     pub body: Option<Templated<Value>>,
+    #[ts(type = "number | null")]
     pub timeout_ms: Option<u64>,
 }
 

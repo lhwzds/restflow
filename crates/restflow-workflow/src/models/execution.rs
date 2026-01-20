@@ -21,8 +21,10 @@ pub struct ExecutionSummary {
     /// Execution status
     pub status: ExecutionStatus,
     /// Start time (millisecond timestamp)
+    #[ts(type = "number")]
     pub started_at: i64,
     /// Completion time (millisecond timestamp)
+    #[ts(type = "number | null")]
     pub completed_at: Option<i64>,
     /// Total number of tasks
     pub total_tasks: usize,
