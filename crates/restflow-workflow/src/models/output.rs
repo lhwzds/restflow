@@ -57,6 +57,7 @@ pub struct PrintOutput {
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct ManualTriggerOutput {
+    #[ts(type = "number")]
     pub triggered_at: i64,
     #[ts(type = "any")]
     pub payload: Value,
@@ -66,6 +67,7 @@ pub struct ManualTriggerOutput {
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct WebhookTriggerOutput {
+    #[ts(type = "number")]
     pub triggered_at: i64,
     pub method: String,
     #[ts(type = "Record<string, string>")]
@@ -80,6 +82,7 @@ pub struct WebhookTriggerOutput {
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct ScheduleOutput {
+    #[ts(type = "number")]
     pub triggered_at: i64,
     #[ts(type = "any")]
     pub payload: Value,
@@ -90,6 +93,7 @@ pub struct ScheduleOutput {
 #[ts(export)]
 pub struct EmailOutput {
     /// Unix timestamp (milliseconds) when email was sent
+    #[ts(type = "number")]
     pub sent_at: i64,
     /// Message ID from email server (if available)
     pub message_id: Option<String>,

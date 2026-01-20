@@ -331,7 +331,10 @@ pub struct TriggerStatus {
     pub is_active: bool,
     pub trigger_config: TriggerConfig,
     pub webhook_url: Option<String>,
+    #[ts(type = "number")]
     pub trigger_count: u64,
+    #[ts(type = "number | null")]
     pub last_triggered_at: Option<i64>,
+    #[ts(type = "number")]
     pub activated_at: i64,
 }

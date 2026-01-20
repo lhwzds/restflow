@@ -7,7 +7,7 @@ export type EmailOutput = {
 /**
  * Unix timestamp (milliseconds) when email was sent
  */
-sent_at: bigint, 
+sent_at: number, 
 /**
  * Message ID from email server (if available)
  */

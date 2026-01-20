@@ -25,8 +25,11 @@ pub struct Task {
     pub workflow_id: String,
     pub node_id: String,
     pub status: TaskStatus,
+    #[ts(type = "number")]
     pub created_at: i64,
+    #[ts(type = "number | null")]
     pub started_at: Option<i64>,
+    #[ts(type = "number | null")]
     pub completed_at: Option<i64>,
     pub input: NodeInput,
     pub output: Option<NodeOutput>,

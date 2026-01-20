@@ -26,7 +26,9 @@ pub struct ExecutionSummary {
     pub execution_id: String,
     pub workflow_id: String,
     pub status: ExecutionStatus,
+    #[ts(type = "number")]
     pub started_at: i64,
+    #[ts(type = "number | null")]
     pub completed_at: Option<i64>,
     pub total_tasks: usize,
     pub completed_tasks: usize,
