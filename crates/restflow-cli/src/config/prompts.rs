@@ -1,3 +1,4 @@
+#[allow(dead_code)]
 pub const CLI_CHAT_ASSISTANT_PROMPT: &str = r#"
 You are RestFlow's AI assistant. Help users manage and execute workflows.
 
