@@ -25,7 +25,7 @@ futures = "0.3"
 reqwest = { version = "0.12", features = ["json"] }
 
 # PyO3 for Python bindings (optional)
-pyo3 = { version = "0.24.1", features = ["extension-module"], optional = true }
+pyo3 = { version = "0.27.2", features = ["extension-module"], optional = true }
 
 [features]
 default = []
