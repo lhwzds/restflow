@@ -117,11 +117,11 @@ describe('Agents API', () => {
     it('should execute agent with input', async () => {
       mock.onPost(API_ENDPOINTS.AGENT.EXECUTE('agent1')).reply(200, {
         success: true,
-        data: { response: 'Hello, world!' },
+        data: { response: 'Hello, world!', execution_details: null },
       })
 
       const result = await agentsApi.executeAgent('agent1', 'test input')
-      expect(result).toBe('Hello, world!')
+      expect(result.response).toBe('Hello, world!')
     })
   })
 
@@ -137,11 +137,11 @@ describe('Agents API', () => {
 
       mock.onPost(API_ENDPOINTS.AGENT.EXECUTE_INLINE).reply(200, {
         success: true,
-        data: { response: 'Inline response' },
+        data: { response: 'Inline response', execution_details: null },
       })
 
       const result = await agentsApi.executeAgentInline(agent, 'test input')
-      expect(result).toBe('Inline response')
+      expect(result.response).toBe('Inline response')
     })
   })
 
