@@ -80,9 +80,7 @@ export function getAllModels(): ModelOption[] {
 /**
  * Get Element Plus tag type for provider (for UI styling)
  */
-export function getProviderTagType(
-  provider: Provider,
-): 'success' | 'warning' | 'info' | 'danger' {
+export function getProviderTagType(provider: Provider): 'success' | 'warning' | 'info' | 'danger' {
   switch (provider) {
     case 'openai':
       return 'success'

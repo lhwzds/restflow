@@ -1,0 +1,11 @@
+{
+  "$schema": "https://schemas.tauri.app/capability/2",
+  "identifier": "default",
+  "description": "Default capabilities for RestFlow desktop app",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "shell:allow-open",
+    "core:webview:allow-internal-toggle-devtools"
+  ]
+}

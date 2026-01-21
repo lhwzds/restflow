@@ -1,11 +1,7 @@
 <script setup lang="ts">
 import { onMounted } from 'vue'
 import { useRoute } from 'vue-router'
-import {
-  ElButton,
-  ElInput,
-  ElSkeleton,
-} from 'element-plus'
+import { ElButton, ElInput, ElSkeleton } from 'element-plus'
 import { ArrowLeft, Delete, Download } from '@element-plus/icons-vue'
 import PageLayout from '@/components/shared/PageLayout.vue'
 import MarkdownRenderer from '@/components/shared/MarkdownRenderer.vue'

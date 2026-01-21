@@ -3,4 +3,4 @@
 /**
  * Print node output
  */
-export type PrintOutput = { printed: string, };
+export type PrintOutput = { printed: string }

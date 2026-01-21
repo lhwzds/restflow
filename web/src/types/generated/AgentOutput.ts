@@ -3,4 +3,4 @@
 /**
  * AI Agent output
  */
-export type AgentOutput = { response: string, };
+export type AgentOutput = { response: string }

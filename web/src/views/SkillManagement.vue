@@ -1,7 +1,15 @@
 <script setup lang="ts">
 import { onMounted, ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElButton, ElInput, ElRow, ElCol, ElUpload, ElSkeleton, type UploadFile } from 'element-plus'
+import {
+  ElButton,
+  ElInput,
+  ElRow,
+  ElCol,
+  ElUpload,
+  ElSkeleton,
+  type UploadFile,
+} from 'element-plus'
 import { Plus, Search, Upload } from '@element-plus/icons-vue'
 import HeaderBar from '../components/shared/HeaderBar.vue'
 import PageLayout from '../components/shared/PageLayout.vue'
@@ -13,13 +21,7 @@ import type { Skill } from '@/types/generated/Skill'
 
 const router = useRouter()
 
-const {
-  skills,
-  isLoading,
-  loadSkills,
-  handleCreate,
-  handleImport,
-} = useSkills()
+const { skills, isLoading, loadSkills, handleCreate, handleImport } = useSkills()
 
 const searchQuery = ref('')
 
@@ -32,7 +34,7 @@ const filteredSkills = computed(() => {
     (skill) =>
       skill.name.toLowerCase().includes(query) ||
       skill.description?.toLowerCase().includes(query) ||
-      skill.tags?.some((tag) => tag.toLowerCase().includes(query))
+      skill.tags?.some((tag) => tag.toLowerCase().includes(query)),
   )
 })
 

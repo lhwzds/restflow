@@ -1,6 +1,9 @@
 import axios from 'axios'
 import type { ApiResponse } from '@/types/api'
 
+// Re-export Tauri utilities for use in API modules
+export { isTauri, tauriInvoke } from './tauri-client'
+
 export const API_BASE_URL = import.meta.env.VITE_API_URL || ''
 
 export const apiClient = axios.create({

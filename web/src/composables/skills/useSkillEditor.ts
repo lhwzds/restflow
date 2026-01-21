@@ -23,8 +23,7 @@ export function useSkillEditor(skillId: string) {
   const hasChanges = computed(() => {
     if (!skill.value) return false
     return (
-      formData.value.name !== skill.value.name ||
-      formData.value.content !== skill.value.content
+      formData.value.name !== skill.value.name || formData.value.content !== skill.value.content
     )
   })
 
@@ -124,7 +123,7 @@ export function useSkillEditor(skillId: string) {
             confirmButtonText: 'Leave',
             cancelButtonText: 'Stay',
             type: 'warning',
-          }
+          },
         )
         router.push('/skills')
       } catch {

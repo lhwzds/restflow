@@ -3,4 +3,4 @@
 /**
  * Manual trigger input - user initiated
  */
-export type ManualTriggerInput = { payload: any, };
+export type ManualTriggerInput = { payload: any }

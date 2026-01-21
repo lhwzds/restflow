@@ -124,8 +124,7 @@ const filteredNodes = computed(() => {
   }
   const query = searchQuery.value.toLowerCase()
   return nodeTemplates.value.filter(
-    (node) =>
-      node.label.toLowerCase().includes(query) || node.type.toLowerCase().includes(query),
+    (node) => node.label.toLowerCase().includes(query) || node.type.toLowerCase().includes(query),
   )
 })
 
@@ -148,12 +147,7 @@ const handleClick = (template: NodeTemplate) => {
     <!-- Search Box -->
     <div class="toolbar-search">
       <Search :size="14" class="search-icon" />
-      <input
-        v-model="searchQuery"
-        type="text"
-        placeholder="Search nodes..."
-        class="search-input"
-      />
+      <input v-model="searchQuery" type="text" placeholder="Search nodes..." class="search-input" />
     </div>
 
     <div class="node-list">
@@ -183,9 +177,7 @@ const handleClick = (template: NodeTemplate) => {
       </div>
     </div>
 
-    <div class="toolbar-hint">
-      {{ filteredNodes.length }} / {{ nodeTemplates.length }} nodes
-    </div>
+    <div class="toolbar-hint">{{ filteredNodes.length }} / {{ nodeTemplates.length }} nodes</div>
   </div>
 </template>
 
