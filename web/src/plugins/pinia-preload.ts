@@ -10,17 +10,15 @@ export function preloadPlugin({ store }: PiniaPluginContext) {
   if (store.$id === 'models') {
     // Start loading immediately (non-blocking)
     // The loadModels action will handle the actual API call
-    store
-      .loadModels()
-      .catch((error: Error) => {
-        console.error('[Preload] Failed to load AI models:', error)
+    store.loadModels().catch((error: Error) => {
+      console.error('[Preload] Failed to load AI models:', error)
 
-        // Show user-friendly notification
-        ElMessage.error({
-          message: 'Failed to load AI models. Some features may be unavailable.',
-          duration: 5000,
-          showClose: true,
-        })
+      // Show user-friendly notification
+      ElMessage.error({
+        message: 'Failed to load AI models. Some features may be unavailable.',
+        duration: 5000,
+        showClose: true,
       })
+    })
   }
 }

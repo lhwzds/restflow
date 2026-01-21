@@ -82,7 +82,8 @@ onMounted(() => {
 
 // Update data - convert empty strings to undefined for optional fields
 const updateData = () => {
-  const passwordValue = passwordMode.value === 'direct' ? passwordDirect.value : passwordSecret.value
+  const passwordValue =
+    passwordMode.value === 'direct' ? passwordDirect.value : passwordSecret.value
   const smtp_password_config = buildConfig(passwordMode.value, passwordValue)
 
   const data: EmailConfig = {
@@ -244,21 +245,11 @@ const updateData = () => {
       <label>SMTP Password</label>
       <div class="api-key-mode">
         <label class="radio-option">
-          <input
-            v-model="passwordMode"
-            type="radio"
-            value="direct"
-            @change="updateData"
-          />
+          <input v-model="passwordMode" type="radio" value="direct" @change="updateData" />
           <span>Direct Input</span>
         </label>
         <label class="radio-option">
-          <input
-            v-model="passwordMode"
-            type="radio"
-            value="secret"
-            @change="updateData"
-          />
+          <input v-model="passwordMode" type="radio" value="secret" @change="updateData" />
           <span>Use Secret</span>
         </label>
       </div>
@@ -271,11 +262,7 @@ const updateData = () => {
         @input="updateData"
       />
 
-      <select
-        v-else
-        v-model="passwordSecret"
-        @change="updateData"
-      >
+      <select v-else v-model="passwordSecret" @change="updateData">
         <option value="">Select a secret...</option>
         <option v-for="secret in secrets" :key="secret.key" :value="secret.key">
           {{ secret.key }}
@@ -283,7 +270,11 @@ const updateData = () => {
       </select>
 
       <span class="form-hint">
-        {{ passwordMode === 'direct' ? 'Enter password directly (for Gmail, use App Password)' : 'Select secret containing SMTP password' }}
+        {{
+          passwordMode === 'direct'
+            ? 'Enter password directly (for Gmail, use App Password)'
+            : 'Select secret containing SMTP password'
+        }}
       </span>
     </div>
   </div>

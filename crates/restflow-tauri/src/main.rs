@@ -44,6 +44,7 @@ fn main() {
             app.manage(state);
 
             info!("RestFlow initialized successfully");
+            info!("Press Cmd+Option+I (macOS) or Ctrl+Shift+I (Windows/Linux) to toggle DevTools");
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

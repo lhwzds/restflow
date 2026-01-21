@@ -63,9 +63,7 @@ function toggleDetails(index: number) {
 
 // Filter execution steps for display (exclude system and user messages)
 function getDisplaySteps(details: ExecutionDetails): ExecutionStep[] {
-  return details.steps.filter(
-    (step) => step.step_type !== 'system' && step.step_type !== 'user',
-  )
+  return details.steps.filter((step) => step.step_type !== 'system' && step.step_type !== 'user')
 }
 
 // Scroll to bottom (simplified - let CSS handle smoothness)
@@ -180,7 +178,10 @@ onMounted(() => {
           >
             <div class="details-header">
               <span>Execution Steps</span>
-              <ElTag size="small" :type="message.executionDetails.status === 'completed' ? 'success' : 'danger'">
+              <ElTag
+                size="small"
+                :type="message.executionDetails.status === 'completed' ? 'success' : 'danger'"
+              >
                 {{ message.executionDetails.status }}
               </ElTag>
             </div>

@@ -6,7 +6,7 @@ use restflow_workflow::models::ModelMetadataDTO;
 use restflow_workflow::services::tool_registry::create_tool_registry;
 use restflow_workflow::AIModel;
 use serde::Serialize;
-use tauri::State;
+use tauri::{State, Window};
 
 /// Get system configuration
 #[tauri::command]

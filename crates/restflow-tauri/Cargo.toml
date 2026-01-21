@@ -22,7 +22,7 @@ restflow-storage = { path = "../restflow-storage" }
 restflow-ai = { path = "../restflow-ai" }
 
 # Tauri
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["devtools"] }
 tauri-plugin-shell = "2"
 
 # Async runtime
