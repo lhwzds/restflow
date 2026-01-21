@@ -4,9 +4,15 @@
   "version": "0.1.0",
   "identifier": "com.restflow.app",
   "build": {
-    "beforeDevCommand": "cd ../../web && npm run dev",
+    "beforeDevCommand": {
+      "script": "npm run dev",
+      "cwd": "../../web"
+    },
     "devUrl": "http://localhost:5173",
-    "beforeBuildCommand": "cd ../../web && npm run build",
+    "beforeBuildCommand": {
+      "script": "npm run build",
+      "cwd": "../../web"
+    },
     "frontendDist": "../../web/dist"
   },
   "app": {
