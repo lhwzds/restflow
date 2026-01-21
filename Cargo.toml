@@ -5,10 +5,11 @@ members = [
     "crates/restflow-server",
     "crates/restflow-cli",
     "crates/restflow-ai",
+    "crates/restflow-tauri",
 ]
 resolver = "2"
 
-# Default to running server
+# Default to running server (will change to tauri later)
 default-members = ["crates/restflow-server", "crates/restflow-workflow"]
 
 [workspace.package]
