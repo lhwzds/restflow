@@ -117,19 +117,6 @@ describe('Workflows API - Tauri Mode', () => {
     })
   })
 
-  describe('executeInline', () => {
-    it('should throw error in Tauri mode', async () => {
-      const { isTauri } = await import('../config')
-      vi.mocked(isTauri).mockReturnValue(true)
-
-      const { executeInline } = await import('../workflows')
-
-      await expect(executeInline(mockWorkflow)).rejects.toThrow(
-        'executeInline is not supported in Tauri mode',
-      )
-    })
-  })
-
   describe('submitWorkflow', () => {
     it('should use Tauri invoke and return execution_id', async () => {
       const { isTauri, tauriInvoke } = await import('../config')

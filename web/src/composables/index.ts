@@ -14,4 +14,3 @@ export * from './persistence/useWorkflowImportExport'
 
 // Node composables
 export * from './node/useNodeOperations'
-export * from './node/useDragAndDrop'

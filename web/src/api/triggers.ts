@@ -1,4 +1,4 @@
-import { apiClient, isTauri, API_BASE_URL } from './config'
+import { apiClient, isTauri } from './config'
 import type { TriggerStatus } from '@/types/generated/TriggerStatus'
 import type { TestWorkflowResponse } from '@/types/api'
 import { API_ENDPOINTS } from '@/constants'
@@ -51,12 +51,4 @@ export const testWorkflow = async (
     },
   )
   return response.data
-}
-
-export const getWebhookUrl = (id: string): string => {
-  if (isTauri()) {
-    // In Tauri mode, webhooks are not available
-    return ''
-  }
-  return `${API_BASE_URL}${API_ENDPOINTS.TRIGGER.WEBHOOK(id)}`
 }

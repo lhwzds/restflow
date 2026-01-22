@@ -129,13 +129,6 @@ describe('Triggers API', () => {
     })
   })
 
-  describe('getWebhookUrl', () => {
-    it('should generate webhook URL', () => {
-      const url = triggersApi.getWebhookUrl('wf1')
-      expect(url).toContain('/api/triggers/webhook/wf1')
-    })
-  })
-
   describe('Error Handling', () => {
     it('should handle network timeout on activate', async () => {
       mock.onPut(API_ENDPOINTS.TRIGGER.ACTIVATE('wf1')).timeout()
