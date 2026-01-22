@@ -17,11 +17,6 @@ export interface UpdateSkillRequest {
   content?: string
 }
 
-export interface ImportSkillRequest {
-  id?: string // Optional - auto-generated if not provided
-  markdown: string
-}
-
 export interface ExportSkillResponse {
   id: string
   filename: string
@@ -105,25 +100,5 @@ export async function exportSkill(id: string): Promise<ExportSkillResponse> {
     }
   }
   const response = await apiClient.get<ExportSkillResponse>(API_ENDPOINTS.SKILL.EXPORT(id))
-  return response.data
-}
-
-// Import a skill from markdown format
-export async function importSkill(request: ImportSkillRequest): Promise<Skill> {
-  if (isTauri()) {
-    // Parse the markdown to create a skill JSON
-    const skill: Skill = {
-      id: request.id || crypto.randomUUID(),
-      name: 'Imported Skill',
-      description: '',
-      tags: [],
-      content: request.markdown,
-      created_at: Date.now(),
-      updated_at: Date.now(),
-    }
-    const json = JSON.stringify(skill)
-    return tauriInvoke<Skill>('import_skill', { json })
-  }
-  const response = await apiClient.post<Skill>(API_ENDPOINTS.SKILL.IMPORT, request)
   return response.data
 }

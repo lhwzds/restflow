@@ -1,6 +1,5 @@
 import { apiClient, isTauri, tauriInvoke } from './config'
 import type { Workflow } from '@/types/generated/Workflow'
-import type { ExecutionContext } from '@/types/generated/ExecutionContext'
 import type { ExecutionHistoryPage } from '@/types/generated/ExecutionHistoryPage'
 import { API_ENDPOINTS } from '@/constants'
 
@@ -42,19 +41,6 @@ export const deleteWorkflow = async (id: string): Promise<void> => {
     return tauriInvoke<void>('delete_workflow', { id })
   }
   await apiClient.delete<void>(API_ENDPOINTS.WORKFLOW.DELETE(id))
-}
-
-export const executeInline = async (workflow: Workflow): Promise<ExecutionContext> => {
-  // Note: executeInline is not implemented in Tauri yet, falls back to REST API
-  // This function is typically used for testing workflows without saving them
-  if (isTauri()) {
-    throw new Error('executeInline is not supported in Tauri mode. Please save the workflow first.')
-  }
-  const response = await apiClient.post<ExecutionContext>(
-    API_ENDPOINTS.EXECUTION.INLINE_RUN,
-    workflow,
-  )
-  return response.data
 }
 
 export const submitWorkflow = async (

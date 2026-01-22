@@ -3,8 +3,6 @@ import {
   createAgent as apiCreateAgent,
   updateAgent as apiUpdateAgent,
   deleteAgent as apiDeleteAgent,
-  executeAgent as apiExecuteAgent,
-  executeAgentInline as apiExecuteAgentInline,
 } from '@/api/agents'
 import type { CreateAgentRequest, UpdateAgentRequest } from '@/api/agents'
 import type { AgentNode } from '@/types/generated/AgentNode'
@@ -51,35 +49,9 @@ export function useAgentOperations() {
     }
   }
 
-  async function executeAgent(id: string, input: string) {
-    try {
-      ElMessage.info('Agent execution started')
-      const response = await apiExecuteAgent(id, input)
-      ElMessage.success('Agent execution completed successfully')
-      return response
-    } catch (error: unknown) {
-      ElMessage.error(getErrorMessage(error, 'Agent execution failed'))
-      throw error
-    }
-  }
-
-  async function executeAgentInline(agent: AgentNode, input: string) {
-    try {
-      ElMessage.info('Agent execution started')
-      const response = await apiExecuteAgentInline(agent, input)
-      ElMessage.success('Agent execution completed successfully')
-      return response
-    } catch (error: unknown) {
-      ElMessage.error(getErrorMessage(error, 'Agent execution failed'))
-      throw error
-    }
-  }
-
   return {
     createAgent,
     updateAgent,
     deleteAgent,
-    executeAgent,
-    executeAgentInline,
   }
 }

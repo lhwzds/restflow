@@ -81,26 +81,4 @@ describe('Triggers API - Tauri Mode', () => {
       )
     })
   })
-
-  describe('getWebhookUrl', () => {
-    it('should return empty string in Tauri mode', async () => {
-      const { isTauri } = await import('../config')
-      vi.mocked(isTauri).mockReturnValue(true)
-
-      const { getWebhookUrl } = await import('../triggers')
-      const result = getWebhookUrl('wf-1')
-
-      expect(result).toBe('')
-    })
-
-    it('should return proper URL in non-Tauri mode', async () => {
-      const { isTauri } = await import('../config')
-      vi.mocked(isTauri).mockReturnValue(false)
-
-      const { getWebhookUrl } = await import('../triggers')
-      const result = getWebhookUrl('wf-1')
-
-      expect(result).toContain('wf-1')
-    })
-  })
 })

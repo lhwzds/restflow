@@ -3,7 +3,6 @@ import MockAdapter from 'axios-mock-adapter'
 import { apiClient } from '@/api/config'
 import * as workflowsApi from '@/api/workflows'
 import type { Workflow } from '@/types/generated/Workflow'
-import type { ExecutionContext } from '@/types/generated/ExecutionContext'
 import { API_ENDPOINTS } from '@/constants'
 
 describe('Workflows API', () => {
@@ -95,27 +94,6 @@ describe('Workflows API', () => {
     })
   })
 
-  describe('executeInline', () => {
-    it('should execute workflow inline', async () => {
-      const workflow = createMockWorkflow('wf1')
-      const mockContext: ExecutionContext = {
-        execution_id: 'exec-1',
-        workflow_id: 'wf1',
-        data: {
-          'node.node1': { result: 'success' },
-        },
-      }
-
-      mock.onPost(API_ENDPOINTS.EXECUTION.INLINE_RUN).reply(200, {
-        success: true,
-        data: mockContext,
-      })
-
-      const result = await workflowsApi.executeInline(workflow)
-      expect(result).toEqual(mockContext)
-    })
-  })
-
   describe('submitWorkflow', () => {
     it('should submit workflow execution', async () => {
       mock.onPost(API_ENDPOINTS.EXECUTION.SUBMIT('wf1')).reply(200, {
@@ -155,16 +133,6 @@ describe('Workflows API', () => {
     it('should handle network error', async () => {
       mock.onGet(API_ENDPOINTS.WORKFLOW.LIST).networkError()
       await expect(workflowsApi.listWorkflows()).rejects.toThrow()
-    })
-
-    it('should handle failed execution', async () => {
-      mock.onPost(API_ENDPOINTS.EXECUTION.INLINE_RUN).reply(200, {
-        success: false,
-        message: 'Execution failed',
-      })
-      await expect(workflowsApi.executeInline(createMockWorkflow('test'))).rejects.toThrow(
-        'Execution failed',
-      )
     })
   })
 })
