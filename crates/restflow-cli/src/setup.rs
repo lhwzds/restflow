@@ -3,7 +3,7 @@
 //! Handles initialization of the RestFlow core for CLI usage.
 
 use anyhow::Result;
-use restflow_workflow::{paths, AppCore};
+use restflow_core::{paths, AppCore};
 use std::sync::Arc;
 
 /// Build the embedded RestFlow core

@@ -106,7 +106,7 @@ const agentForChat = computed(() => {
       prompt: formData.value.prompt,
       temperature: formData.value.temperature,
       api_key_config: formData.value.api_key_config,
-      tools: formData.value.tools.length > 0 ? formData.value.tools : null,
+      tools: formData.value.tools.length > 0 ? formData.value.tools : undefined,
     },
   }
 })

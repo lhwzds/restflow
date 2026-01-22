@@ -9,7 +9,6 @@ import {
 } from '@codemirror/language'
 import { autocompletion, completionKeymap } from '@codemirror/autocomplete'
 import { expressionLanguage } from './expressionLang'
-import { dragAndDropPlugin } from './dragAndDrop'
 
 /**
  * Base editor extensions for all CodeMirror instances
@@ -33,7 +32,7 @@ export function createExpressionExtensions(options?: {
   multiline?: boolean
   autocomplete?: boolean
 }): Extension[] {
-  const extensions: Extension[] = [...baseExtensions, expressionLanguage, dragAndDropPlugin()]
+  const extensions: Extension[] = [...baseExtensions, expressionLanguage]
 
   // Add autocomplete if enabled
   if (options?.autocomplete) {

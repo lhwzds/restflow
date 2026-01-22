@@ -2,15 +2,25 @@
 export * from './shared/useKeyboardShortcuts'
 export * from './shared/useUnsavedChanges'
 
-// List composables
-export * from './list/useWorkflowList'
+// Agent composables
+export * from './agents/useAgentsList'
+export * from './agents/useAgentEditor'
+export * from './agents/useAgentOperations'
+export * from './agents/useAgentPanelResize'
+export * from './agents/useAgentTools'
 
-// Execution composables
-export * from './execution/useAsyncWorkflowExecution'
+// Skill composables
+export * from './skills/useSkills'
+export * from './skills/useSkillEditor'
 
-// Persistence composables
-export * from './persistence/useWorkflowPersistence'
-export * from './persistence/useWorkflowImportExport'
+// Secret composables
+export * from './secrets/useSecretOperations'
+export * from './secrets/useSecretsData'
+export * from './secrets/useSecretsList'
 
-// Node composables
-export * from './node/useNodeOperations'
+// UI composables
+export * from './ui/useContextMenu'
+
+// Other composables
+export * from './useTheme'
+export * from './useApiKeyConfig'

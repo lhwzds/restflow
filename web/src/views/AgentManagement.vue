@@ -46,10 +46,10 @@ async function handleNewAgent() {
       name: 'Untitled Agent',
       agent: {
         model: 'claude-sonnet-4-5',
-        prompt: null,
+        prompt: undefined,
         temperature: 0.7,
-        api_key_config: null,
-        tools: null,
+        api_key_config: undefined,
+        tools: undefined,
       },
     })
     router.push(`/agent/${newAgent.id}`)

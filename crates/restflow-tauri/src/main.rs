@@ -19,7 +19,7 @@ fn main() {
     tracing_subscriber::registry()
         .with(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "restflow_tauri=info,restflow_workflow=info".into()),
+                .unwrap_or_else(|_| "restflow_tauri=info,restflow_core=info".into()),
         )
         .with(tracing_subscriber::fmt::layer())
         .init();
@@ -56,14 +56,6 @@ fn main() {
             commands::delete_skill,
             commands::export_skill,
             commands::import_skill,
-            // Workflows
-            commands::list_workflows,
-            commands::get_workflow,
-            commands::create_workflow,
-            commands::update_workflow,
-            commands::delete_workflow,
-            commands::execute_workflow,
-            commands::get_workflow_executions,
             // Agents
             commands::list_agents,
             commands::get_agent,

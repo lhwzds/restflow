@@ -11,9 +11,9 @@ import { getDefaultTemperature } from '@/utils/AIModels'
 export interface AgentFormData {
   name: string
   model: AIModel
-  prompt: string | null
-  temperature: number | null
-  api_key_config: ApiKeyConfig | null
+  prompt: string | undefined
+  temperature: number | undefined
+  api_key_config: ApiKeyConfig | undefined
   tools: string[]
 }
 
@@ -29,9 +29,9 @@ export function useAgentEditor(agentId: string) {
   const formData = ref<AgentFormData>({
     name: '',
     model: 'claude-sonnet-4-5',
-    prompt: null,
+    prompt: undefined,
     temperature: 0.7,
-    api_key_config: null,
+    api_key_config: undefined,
     tools: [],
   })
 
@@ -61,10 +61,7 @@ export function useAgentEditor(agentId: string) {
         name: data.name,
         model: data.agent.model,
         prompt: data.agent.prompt,
-        temperature:
-          data.agent.temperature !== null && data.agent.temperature !== undefined
-            ? data.agent.temperature
-            : getDefaultTemperature(data.agent.model),
+        temperature: data.agent.temperature ?? getDefaultTemperature(data.agent.model),
         api_key_config: data.agent.api_key_config,
         tools: data.agent.tools || [],
       }
@@ -90,10 +87,10 @@ export function useAgentEditor(agentId: string) {
 
       const agentData: AgentNode = {
         model: formData.value.model as AgentNode['model'],
-        prompt: formData.value.prompt?.trim() || null,
+        prompt: formData.value.prompt?.trim() || undefined,
         temperature: formData.value.temperature,
         api_key_config: formData.value.api_key_config,
-        tools: formData.value.tools.length > 0 ? formData.value.tools : null,
+        tools: formData.value.tools.length > 0 ? formData.value.tools : undefined,
       }
       updates.agent = agentData
 
@@ -105,10 +102,7 @@ export function useAgentEditor(agentId: string) {
         name: updatedAgent.name,
         model: updatedAgent.agent.model,
         prompt: updatedAgent.agent.prompt,
-        temperature:
-          updatedAgent.agent.temperature !== null && updatedAgent.agent.temperature !== undefined
-            ? updatedAgent.agent.temperature
-            : getDefaultTemperature(updatedAgent.agent.model),
+        temperature: updatedAgent.agent.temperature ?? getDefaultTemperature(updatedAgent.agent.model),
         api_key_config: updatedAgent.agent.api_key_config,
         tools: updatedAgent.agent.tools || [],
       }
@@ -155,10 +149,7 @@ export function useAgentEditor(agentId: string) {
       name: agent.value.name,
       model: agent.value.agent.model,
       prompt: agent.value.agent.prompt,
-      temperature:
-        agent.value.agent.temperature !== null && agent.value.agent.temperature !== undefined
-          ? agent.value.agent.temperature
-          : getDefaultTemperature(agent.value.agent.model),
+      temperature: agent.value.agent.temperature ?? getDefaultTemperature(agent.value.agent.model),
       api_key_config: agent.value.agent.api_key_config,
       tools: agent.value.agent.tools || [],
     }

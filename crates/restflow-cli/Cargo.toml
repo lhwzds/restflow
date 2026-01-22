@@ -10,7 +10,7 @@ path = "src/main.rs"
 
 [dependencies]
 # Core
-restflow-workflow = { workspace = true }
+restflow-core = { workspace = true }
 tokio = { workspace = true }
 anyhow = { workspace = true }
 serde = { workspace = true }

@@ -3,33 +3,32 @@
 /**
  * A skill represents a reusable AI prompt template
  */
-export type Skill = {
-  /**
-   * Unique identifier for the skill
-   */
-  id: string
-  /**
-   * Display name of the skill
-   */
-  name: string
-  /**
-   * Optional description of what the skill does
-   */
-  description: string | null
-  /**
-   * Optional tags for categorization
-   */
-  tags: Array<string> | null
-  /**
-   * The markdown content of the skill (instructions for the AI)
-   */
-  content: string
-  /**
-   * Timestamp when the skill was created (milliseconds since epoch)
-   */
-  created_at: number
-  /**
-   * Timestamp when the skill was last updated (milliseconds since epoch)
-   */
-  updated_at: number
-}
+export type Skill = { 
+/**
+ * Unique identifier for the skill
+ */
+id: string, 
+/**
+ * Display name of the skill
+ */
+name: string, 
+/**
+ * Optional description of what the skill does
+ */
+description: string | null, 
+/**
+ * Optional tags for categorization
+ */
+tags: Array<string> | null, 
+/**
+ * The markdown content of the skill (instructions for the AI)
+ */
+content: string, 
+/**
+ * Timestamp when the skill was created (milliseconds since epoch)
+ */
+created_at: number, 
+/**
+ * Timestamp when the skill was last updated (milliseconds since epoch)
+ */
+updated_at: number, };

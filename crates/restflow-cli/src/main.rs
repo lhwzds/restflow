@@ -3,7 +3,7 @@ mod setup;
 mod tui;
 
 use anyhow::Result;
-use restflow_workflow::paths;
+use restflow_core::paths;
 use setup::prepare_core;
 
 #[tokio::main]

@@ -1,6 +1,6 @@
 //! Application state management for Tauri
 
-use restflow_workflow::AppCore;
+use restflow_core::AppCore;
 use std::sync::Arc;
 
 /// Application state shared across Tauri commands

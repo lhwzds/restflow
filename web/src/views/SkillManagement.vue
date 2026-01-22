@@ -1,16 +1,8 @@
 <script setup lang="ts">
 import { onMounted, ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
-import {
-  ElButton,
-  ElInput,
-  ElRow,
-  ElCol,
-  ElUpload,
-  ElSkeleton,
-  type UploadFile,
-} from 'element-plus'
-import { Plus, Search, Upload } from '@element-plus/icons-vue'
+import { ElButton, ElInput, ElRow, ElCol, ElSkeleton } from 'element-plus'
+import { Plus, Search } from '@element-plus/icons-vue'
 import HeaderBar from '../components/shared/HeaderBar.vue'
 import PageLayout from '../components/shared/PageLayout.vue'
 import EmptyState from '../components/shared/EmptyState.vue'
@@ -21,7 +13,7 @@ import type { Skill } from '@/types/generated/Skill'
 
 const router = useRouter()
 
-const { skills, isLoading, loadSkills, handleCreate, handleImport } = useSkills()
+const { skills, isLoading, loadSkills, handleCreate } = useSkills()
 
 const searchQuery = ref('')
 
@@ -57,26 +49,6 @@ async function handleNewSkill() {
     router.push(`/skill/${newSkill.id}`)
   }
 }
-
-async function handleFileUpload(file: UploadFile) {
-  if (!file.raw) return false
-
-  const reader = new FileReader()
-  reader.onload = async (e) => {
-    const content = e.target?.result as string
-    if (!content) return
-
-    const importedSkill = await handleImport({
-      markdown: content,
-    })
-    if (importedSkill) {
-      router.push(`/skill/${importedSkill.id}`)
-    }
-  }
-  reader.readAsText(file.raw)
-
-  return false // Prevent default upload
-}
 </script>
 
 <template>
@@ -91,14 +63,6 @@ async function handleFileUpload(file: UploadFile) {
             clearable
             class="search-input"
           />
-          <ElUpload
-            :show-file-list="false"
-            accept=".md"
-            :before-upload="() => false"
-            :on-change="handleFileUpload"
-          >
-            <ElButton :icon="Upload">Import</ElButton>
-          </ElUpload>
           <ElButton type="primary" :icon="Plus" @click="handleNewSkill">New Skill</ElButton>
         </template>
       </HeaderBar>

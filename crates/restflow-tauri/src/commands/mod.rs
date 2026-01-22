@@ -7,11 +7,9 @@ pub mod agents;
 pub mod config;
 pub mod secrets;
 pub mod skills;
-pub mod workflows;
 
 // Re-export all commands for easy registration
 pub use agents::*;
 pub use config::*;
 pub use secrets::*;
 pub use skills::*;
-pub use workflows::*;

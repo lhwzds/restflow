@@ -5,19 +5,7 @@ const router = createRouter({
   routes: [
     {
       path: '/',
-      redirect: '/workflows',
-    },
-    {
-      path: '/workflows',
-      name: 'workflows',
-      component: () => import('../views/WorkflowList.vue'),
-      meta: { title: 'Workflows' },
-    },
-    {
-      path: '/workflow/:id',
-      name: 'workflow-editor',
-      component: () => import('../views/WorkflowEditor.vue'),
-      meta: { title: 'Editor' },
+      redirect: '/agents',
     },
     {
       path: '/agents',

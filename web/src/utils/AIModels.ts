@@ -47,8 +47,8 @@ export function getModelDisplayName(model: AIModel): string {
 /**
  * Get default temperature for a model
  */
-export function getDefaultTemperature(model: AIModel): number | null {
-  return supportsTemperature(model) ? 0.7 : null
+export function getDefaultTemperature(model: AIModel): number | undefined {
+  return supportsTemperature(model) ? 0.7 : undefined
 }
 
 /**

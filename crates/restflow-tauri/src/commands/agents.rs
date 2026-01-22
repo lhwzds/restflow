@@ -1,9 +1,9 @@
 //! Agent-related Tauri commands
 
 use crate::state::AppState;
-use restflow_workflow::node::agent::AgentNode;
-use restflow_workflow::storage::agent::StoredAgent;
-use restflow_workflow::AgentExecuteResponse;
+use restflow_core::models::AgentNode;
+use restflow_core::storage::agent::StoredAgent;
+use restflow_core::AgentExecuteResponse;
 use serde::Deserialize;
 use tauri::State;
 

@@ -2,11 +2,11 @@
 
 use crate::state::AppState;
 use restflow_storage::SystemConfig;
-use restflow_workflow::models::ModelMetadataDTO;
-use restflow_workflow::services::tool_registry::create_tool_registry;
-use restflow_workflow::AIModel;
+use restflow_core::models::ModelMetadataDTO;
+use restflow_core::services::tool_registry::create_tool_registry;
+use restflow_core::AIModel;
 use serde::Serialize;
-use tauri::{State, Window};
+use tauri::State;
 
 /// Get system configuration
 #[tauri::command]
@@ -60,7 +60,7 @@ pub struct ToolInfo {
 #[tauri::command]
 pub async fn get_available_tools(state: State<'_, AppState>) -> Result<Vec<ToolInfo>, String> {
     // Create a tool registry to get available tools
-    let skill_storage = restflow_workflow::storage::skill::SkillStorage::new(
+    let skill_storage = restflow_core::storage::skill::SkillStorage::new(
         state.core.storage.get_db(),
     )
     .map_err(|e| e.to_string())?;
