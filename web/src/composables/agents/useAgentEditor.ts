@@ -5,7 +5,8 @@ import type { StoredAgent } from '@/types/generated/StoredAgent'
 import type { AgentNode } from '@/types/generated/AgentNode'
 import type { ApiKeyConfig } from '@/types/generated/ApiKeyConfig'
 import type { AIModel } from '@/types/generated/AIModel'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { useToast } from '@/composables/useToast'
+import { useConfirm } from '@/composables/useConfirm'
 import { getDefaultTemperature } from '@/utils/AIModels'
 
 export interface AgentFormData {
@@ -19,6 +20,8 @@ export interface AgentFormData {
 
 export function useAgentEditor(agentId: string) {
   const router = useRouter()
+  const toast = useToast()
+  const { confirm } = useConfirm()
 
   const agent = ref<StoredAgent | null>(null)
   const isLoading = ref(true) // Start with loading state since we'll load immediately
@@ -107,11 +110,11 @@ export function useAgentEditor(agentId: string) {
         tools: updatedAgent.agent.tools || [],
       }
 
-      ElMessage.success('Agent saved successfully')
+      toast.success('Agent saved successfully')
       return true
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to save agent'
-      ElMessage.error(message)
+      toast.error(message)
       return false
     } finally {
       isSaving.value = false
@@ -122,22 +125,24 @@ export function useAgentEditor(agentId: string) {
   async function handleDelete(): Promise<boolean> {
     if (!agent.value) return false
 
-    try {
-      await ElMessageBox.confirm('Are you sure you want to delete this agent?', 'Delete Agent', {
-        confirmButtonText: 'Delete',
-        cancelButtonText: 'Cancel',
-        type: 'warning',
-      })
+    const confirmed = await confirm({
+      title: 'Delete Agent',
+      description: 'Are you sure you want to delete this agent?',
+      confirmText: 'Delete',
+      cancelText: 'Cancel',
+      variant: 'destructive',
+    })
 
+    if (!confirmed) return false
+
+    try {
       await deleteAgent(agent.value.id)
-      ElMessage.success('Agent deleted successfully')
+      toast.success('Agent deleted successfully')
       router.push('/agents')
       return true
     } catch (err) {
-      if (err !== 'cancel') {
-        const message = err instanceof Error ? err.message : 'Failed to delete agent'
-        ElMessage.error(message)
-      }
+      const message = err instanceof Error ? err.message : 'Failed to delete agent'
+      toast.error(message)
       return false
     }
   }
@@ -158,19 +163,15 @@ export function useAgentEditor(agentId: string) {
   // Navigate back with unsaved changes check
   async function goBack(): Promise<void> {
     if (hasChanges.value) {
-      try {
-        await ElMessageBox.confirm(
-          'You have unsaved changes. Are you sure you want to leave?',
-          'Unsaved Changes',
-          {
-            confirmButtonText: 'Leave',
-            cancelButtonText: 'Stay',
-            type: 'warning',
-          },
-        )
+      const confirmed = await confirm({
+        title: 'Unsaved Changes',
+        description: 'You have unsaved changes. Are you sure you want to leave?',
+        confirmText: 'Leave',
+        cancelText: 'Stay',
+        variant: 'destructive',
+      })
+      if (confirmed) {
         router.push('/agents')
-      } catch {
-        // User cancelled, stay on page
       }
     } else {
       router.push('/agents')

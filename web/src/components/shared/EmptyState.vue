@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { ElButton, ElEmpty } from 'element-plus'
+import { Button } from '@/components/ui/button'
+import { Inbox } from 'lucide-vue-next'
 
 interface Props {
   description?: string
@@ -36,8 +37,8 @@ const computedActionText = computed(() => {
   return props.searchQuery ? 'Clear search' : `${props.createText} ${props.itemName}`
 })
 
-const computedActionType = computed(() => {
-  return props.searchQuery ? 'default' : props.actionType
+const computedActionVariant = computed(() => {
+  return props.searchQuery ? 'outline' : 'default'
 })
 
 function handleAction() {
@@ -51,11 +52,13 @@ function handleAction() {
 
 <template>
   <div v-if="!isLoading" class="empty-state">
-    <ElEmpty :description="computedDescription">
-      <ElButton :type="computedActionType" @click="handleAction">
+    <div class="empty-state__content">
+      <Inbox class="empty-state__icon" :size="48" />
+      <p class="empty-state__description">{{ computedDescription }}</p>
+      <Button :variant="computedActionVariant" @click="handleAction">
         {{ computedActionText }}
-      </ElButton>
-    </ElEmpty>
+      </Button>
+    </div>
   </div>
 </template>
 
@@ -66,5 +69,24 @@ function handleAction() {
   align-items: center;
   min-height: var(--rf-size-xl);
   padding: var(--rf-spacing-xl);
+
+  &__content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--rf-spacing-lg);
+  }
+
+  &__icon {
+    color: var(--rf-color-text-secondary);
+    opacity: 0.5;
+  }
+
+  &__description {
+    color: var(--rf-color-text-secondary);
+    font-size: var(--rf-font-size-sm);
+    text-align: center;
+    margin: 0;
+  }
 }
 </style>

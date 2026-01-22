@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { ElCard, ElIcon } from 'element-plus'
-import { Document, Clock } from '@element-plus/icons-vue'
+import { FileText, Clock } from 'lucide-vue-next'
 import type { Skill } from '@/types/generated/Skill'
 import SkillTagIcon from './SkillTagIcon.vue'
+import { Card, CardContent } from '@/components/ui/card'
 
 const props = defineProps<{
   skill: Skill
@@ -51,32 +51,30 @@ function handleClick() {
 </script>
 
 <template>
-  <ElCard class="skill-card" :body-style="{ padding: '12px' }" shadow="hover" @click="handleClick">
-    <div class="card-header">
-      <div class="skill-name">
-        <ElIcon class="skill-icon">
-          <Document />
-        </ElIcon>
-        <span>{{ skill.name }}</span>
+  <Card class="skill-card" @click="handleClick">
+    <CardContent class="card-body">
+      <div class="card-header">
+        <div class="skill-name">
+          <FileText class="skill-icon" :size="16" />
+          <span>{{ skill.name }}</span>
+        </div>
       </div>
-    </div>
 
-    <div class="content-preview" :class="{ 'no-content': !contentPreview }">
-      {{ contentPreview || 'No content' }}
-    </div>
+      <div class="content-preview" :class="{ 'no-content': !contentPreview }">
+        {{ contentPreview || 'No content' }}
+      </div>
 
-    <div class="card-footer">
-      <div class="tool-tags" v-if="skill.tags && skill.tags.length > 0">
-        <SkillTagIcon v-for="tag in skill.tags" :key="tag" :tag="tag" :size="14" />
+      <div class="card-footer">
+        <div class="tool-tags" v-if="skill.tags && skill.tags.length > 0">
+          <SkillTagIcon v-for="tag in skill.tags" :key="tag" :tag="tag" :size="14" />
+        </div>
+        <div class="update-time">
+          <Clock :size="12" />
+          <span>{{ lastUpdated }}</span>
+        </div>
       </div>
-      <div class="update-time">
-        <ElIcon>
-          <Clock />
-        </ElIcon>
-        <span>{{ lastUpdated }}</span>
-      </div>
-    </div>
-  </ElCard>
+    </CardContent>
+  </Card>
 </template>
 
 <style lang="scss" scoped>
@@ -87,18 +85,17 @@ function handleClick() {
   overflow: hidden;
   height: 140px;
   width: 100%;
-  display: flex;
-  flex-direction: column;
-
-  :deep(.el-card__body) {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-  }
 
   &:hover {
     transform: translateY(-2px);
     box-shadow: var(--rf-shadow-md);
+  }
+
+  .card-body {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    padding: 12px;
   }
 
   .card-header {
@@ -168,10 +165,6 @@ function handleClick() {
       gap: var(--rf-spacing-xs);
       color: var(--rf-color-text-secondary);
       font-size: var(--rf-font-size-xs);
-
-      .el-icon {
-        font-size: var(--rf-font-size-xs);
-      }
     }
   }
 }

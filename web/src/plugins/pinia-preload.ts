@@ -1,5 +1,5 @@
 import type { PiniaPluginContext } from 'pinia'
-import { ElMessage } from 'element-plus'
+import { toast } from 'vue-sonner'
 
 /**
  * Pinia plugin to preload critical data when stores are initialized
@@ -14,11 +14,7 @@ export function preloadPlugin({ store }: PiniaPluginContext) {
       console.error('[Preload] Failed to load AI models:', error)
 
       // Show user-friendly notification
-      ElMessage.error({
-        message: 'Failed to load AI models. Some features may be unavailable.',
-        duration: 5000,
-        showClose: true,
-      })
+      toast.error('Failed to load AI models. Some features may be unavailable.')
     })
   }
 }

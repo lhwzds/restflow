@@ -1,14 +1,11 @@
-import ElementPlus from 'element-plus'
 import { createPinia } from 'pinia'
 import { createApp } from 'vue'
 
-import '@vue-flow/controls/dist/style.css'
-import '@vue-flow/core/dist/style.css'
-import '@vue-flow/core/dist/theme-default.css'
-import '@vue-flow/minimap/dist/style.css'
+/* Tailwind CSS v4 */
+import './styles/tailwind.css'
 
-import 'element-plus/dist/index.css'
-import 'element-plus/theme-chalk/dark/css-vars.css'
+/* vue-sonner toast styles */
+import 'vue-sonner/style.css'
 
 /* Custom theme overrides */
 import './styles/theme/index.scss'
@@ -37,6 +34,5 @@ enableMocking().then(() => {
 
   app.use(pinia)
   app.use(router)
-  app.use(ElementPlus)
   app.mount('#app')
 })

@@ -22,6 +22,7 @@
     "@codemirror/language": "^6.11.3",
     "@codemirror/state": "^6.5.2",
     "@codemirror/view": "^6.38.6",
+    "@tailwindcss/vite": "^4.1.18",
     "@tauri-apps/api": "^2.9.1",
     "@vue-flow/background": "^1.3.2",
     "@vue-flow/controls": "^1.1.3",
@@ -29,13 +30,18 @@
     "@vue-flow/minimap": "^1.5.3",
     "@vueuse/core": "^14.0.0",
     "axios": "^1.13.2",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
     "dompurify": "^3.2.7",
-    "element-plus": "^2.11.7",
     "lucide-vue-next": "^0.555.0",
     "marked": "^17.0.0",
     "pinia": "^3.0.4",
+    "radix-vue": "^1.9.17",
+    "tailwind-merge": "^3.4.0",
+    "tailwindcss": "^4.1.18",
     "vue": "^3.5.25",
-    "vue-router": "^4.6.3"
+    "vue-router": "^4.6.3",
+    "vue-sonner": "^2.0.9"
   },
   "devDependencies": {
     "@playwright/test": "^1.56.1",

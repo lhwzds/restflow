@@ -1,4 +1,4 @@
-import { ElMessage } from 'element-plus'
+import { useToast } from '@/composables/useToast'
 import {
   createAgent as apiCreateAgent,
   updateAgent as apiUpdateAgent,
@@ -17,14 +17,16 @@ function getErrorMessage(error: unknown, fallback: string): string {
 }
 
 export function useAgentOperations() {
+  const toast = useToast()
+
   async function createAgent(name: string, agent: AgentNode) {
     try {
       const request: CreateAgentRequest = { name, agent }
       const newAgent = await apiCreateAgent(request)
-      ElMessage.success(SUCCESS_MESSAGES.AGENT_CREATED)
+      toast.success(SUCCESS_MESSAGES.AGENT_CREATED)
       return newAgent
     } catch (error: unknown) {
-      ElMessage.error(getErrorMessage(error, ERROR_MESSAGES.FAILED_TO_CREATE('Agent')))
+      toast.error(getErrorMessage(error, ERROR_MESSAGES.FAILED_TO_CREATE('Agent')))
       throw error
     }
   }
@@ -32,10 +34,10 @@ export function useAgentOperations() {
   async function updateAgent(id: string, updates: UpdateAgentRequest) {
     try {
       const updatedAgent = await apiUpdateAgent(id, updates)
-      ElMessage.success(SUCCESS_MESSAGES.AGENT_UPDATED)
+      toast.success(SUCCESS_MESSAGES.AGENT_UPDATED)
       return updatedAgent
     } catch (error: unknown) {
-      ElMessage.error(getErrorMessage(error, ERROR_MESSAGES.FAILED_TO_UPDATE('Agent')))
+      toast.error(getErrorMessage(error, ERROR_MESSAGES.FAILED_TO_UPDATE('Agent')))
       throw error
     }
   }
@@ -43,9 +45,9 @@ export function useAgentOperations() {
   async function deleteAgent(id: string) {
     try {
       await apiDeleteAgent(id)
-      ElMessage.success(SUCCESS_MESSAGES.AGENT_DELETED)
+      toast.success(SUCCESS_MESSAGES.AGENT_DELETED)
     } catch (error: unknown) {
-      ElMessage.error(getErrorMessage(error, ERROR_MESSAGES.FAILED_TO_DELETE('Agent')))
+      toast.error(getErrorMessage(error, ERROR_MESSAGES.FAILED_TO_DELETE('Agent')))
       throw error
     }
   }
@@ -57,7 +59,7 @@ export function useAgentOperations() {
     try {
       return await apiExecuteAgentInline(agent, input)
     } catch (error: unknown) {
-      ElMessage.error(getErrorMessage(error, 'Failed to execute agent'))
+      toast.error(getErrorMessage(error, 'Failed to execute agent'))
       throw error
     }
   }

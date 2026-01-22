@@ -1,26 +1,24 @@
 <script setup lang="ts">
 import { computed, onMounted, toRef } from 'vue'
 import { useRoute } from 'vue-router'
-import {
-  ElButton,
-  ElInput,
-  ElSelect,
-  ElOption,
-  ElSlider,
-  ElRadioGroup,
-  ElRadio,
-  ElTag,
-  ElSkeleton,
-  ElDivider,
-} from 'element-plus'
-import { ArrowLeft, Delete, RefreshLeft } from '@element-plus/icons-vue'
+import { ArrowLeft, Trash2, RotateCcw, X } from 'lucide-vue-next'
 import PageLayout from '@/components/shared/PageLayout.vue'
 import AgentChatPanel from '@/components/agents/AgentChatPanel.vue'
 import { useAgentEditor } from '@/composables/agents/useAgentEditor'
 import { useAgentTools } from '@/composables/agents/useAgentTools'
 import { useSecretsData } from '@/composables/secrets/useSecretsData'
 import { useApiKeyConfig } from '@/composables/useApiKeyConfig'
-import { getAllModels, supportsTemperature, getModelDisplayName } from '@/utils/AIModels'
+import { getAllModels, supportsTemperature } from '@/utils/AIModels'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Slider } from '@/components/ui/slider'
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
+import { Badge } from '@/components/ui/badge'
+import { Skeleton } from '@/components/ui/skeleton'
+import { Separator } from '@/components/ui/separator'
+import { Label } from '@/components/ui/label'
 
 const route = useRoute()
 const agentId = route.params.id as string
@@ -46,7 +44,6 @@ const availableModels = computed(() => getAllModels())
 // Pass formData.tools directly - single source of truth, no sync needed
 const {
   selectedToolValue,
-  isLoading: isLoadingTools,
   error: toolsError,
   addTool,
   removeTool,
@@ -125,50 +122,56 @@ onMounted(async () => {
     <!-- Header -->
     <div class="editor-header">
       <div class="header-left">
-        <ElButton text :icon="ArrowLeft" @click="goBack">Back</ElButton>
+        <Button variant="ghost" @click="goBack">
+          <ArrowLeft class="mr-2 h-4 w-4" />
+          Back
+        </Button>
         <div class="title-section">
-          <ElInput
+          <Input
             v-model="formData.name"
             class="title-input"
             placeholder="Agent name"
             :disabled="isLoading"
           />
-          <ElTag v-if="agent" type="info" size="small" class="model-tag">
-            {{ getModelDisplayName(formData.model) }}
-          </ElTag>
         </div>
       </div>
       <div class="header-actions">
-        <ElButton
+        <Button
           v-if="hasChanges"
-          text
-          :icon="RefreshLeft"
+          variant="ghost"
           @click="resetForm"
           :disabled="isLoading"
         >
+          <RotateCcw class="mr-2 h-4 w-4" />
           Reset
-        </ElButton>
-        <ElButton text type="danger" :icon="Delete" @click="handleDelete" :disabled="isLoading">
+        </Button>
+        <Button variant="ghost" class="text-destructive" @click="handleDelete" :disabled="isLoading">
+          <Trash2 class="mr-2 h-4 w-4" />
           Delete
-        </ElButton>
-        <ElButton
-          type="primary"
+        </Button>
+        <Button
           @click="saveAgent"
-          :loading="isSaving"
-          :disabled="!hasChanges || isLoading"
+          :disabled="!hasChanges || isLoading || isSaving"
         >
-          Save
-        </ElButton>
+          {{ isSaving ? 'Saving...' : 'Save' }}
+        </Button>
       </div>
     </div>
 
     <!-- Main content -->
     <div class="editor-main">
-      <ElSkeleton v-if="isLoading" :rows="10" animated />
+      <div v-if="isLoading" class="loading-state">
+        <Skeleton class="h-8 w-full mb-4" />
+        <Skeleton class="h-4 w-3/4 mb-2" />
+        <Skeleton class="h-4 w-1/2 mb-2" />
+        <Skeleton class="h-32 w-full mb-4" />
+        <Skeleton class="h-4 w-2/3 mb-2" />
+        <Skeleton class="h-4 w-1/2" />
+      </div>
 
       <div v-else-if="error" class="error-state">
         <p>{{ error }}</p>
-        <ElButton @click="loadAgent">Retry</ElButton>
+        <Button @click="loadAgent">Retry</Button>
       </div>
 
       <div v-else-if="agent" class="split-editor">
@@ -183,77 +186,90 @@ onMounted(async () => {
               <h4 class="section-title">Model</h4>
               <div class="model-row">
                 <div class="model-select-wrapper">
-                  <ElSelect v-model="formData.model" placeholder="Select model">
-                    <ElOption
-                      v-for="model in availableModels"
-                      :key="model.value"
-                      :label="model.label"
-                      :value="model.value"
-                    />
-                  </ElSelect>
+                  <Select v-model="formData.model">
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select model" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem
+                        v-for="model in availableModels"
+                        :key="model.value"
+                        :value="model.value"
+                      >
+                        {{ model.label }}
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div v-if="!isOSeriesModel" class="temperature-wrapper">
                   <span class="temp-label">Temperature</span>
-                  <ElSlider
-                    v-model="temperatureValue"
+                  <Slider
+                    :model-value="[temperatureValue]"
+                    @update:model-value="(v) => { if (v && v[0] !== undefined) temperatureValue = v[0] }"
                     :min="0"
                     :max="2"
                     :step="0.1"
-                    :show-tooltip="true"
+                    class="temperature-slider"
                   />
-                  <span class="temp-value">{{ temperatureValue }}</span>
+                  <span class="temp-value">{{ temperatureValue.toFixed(1) }}</span>
                 </div>
               </div>
             </div>
 
-            <ElDivider />
+            <Separator />
 
             <!-- API Key Configuration -->
             <div class="config-section">
               <h4 class="section-title">API Key</h4>
-              <ElRadioGroup v-model="keyMode" class="key-mode-group">
-                <ElRadio value="direct">Direct Input</ElRadio>
-                <ElRadio value="secret">Use Secret</ElRadio>
-              </ElRadioGroup>
+              <RadioGroup v-model="keyMode" class="key-mode-group">
+                <div class="radio-option">
+                  <RadioGroupItem id="direct" value="direct" />
+                  <Label for="direct">Direct Input</Label>
+                </div>
+                <div class="radio-option">
+                  <RadioGroupItem id="secret" value="secret" />
+                  <Label for="secret">Use Secret</Label>
+                </div>
+              </RadioGroup>
 
-              <ElInput
+              <Input
                 v-if="keyMode === 'direct'"
                 v-model="apiKeyValue"
                 type="password"
                 placeholder="Enter API Key"
-                show-password
-                clearable
               />
-              <ElSelect
+              <Select
                 v-else
                 v-model="apiKeyValue"
-                placeholder="Select a secret"
-                clearable
-                style="width: 100%"
               >
-                <ElOption
-                  v-for="secret in secrets"
-                  :key="secret.key"
-                  :label="secret.description || secret.key"
-                  :value="secret.key"
-                />
-              </ElSelect>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select a secret" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem
+                    v-for="secret in secrets"
+                    :key="secret.key"
+                    :value="secret.key"
+                  >
+                    {{ secret.description || secret.key }}
+                  </SelectItem>
+                </SelectContent>
+              </Select>
             </div>
 
-            <ElDivider />
+            <Separator />
 
             <!-- System Prompt -->
             <div class="config-section">
               <h4 class="section-title">System Prompt</h4>
-              <ElInput
+              <Textarea
                 v-model="formData.prompt"
-                type="textarea"
                 placeholder="Enter system prompt (optional)"
-                :autosize="{ minRows: 3, maxRows: 8 }"
+                class="prompt-textarea"
               />
             </div>
 
-            <ElDivider />
+            <Separator />
 
             <!-- Tools Configuration -->
             <div class="config-section">
@@ -261,36 +277,43 @@ onMounted(async () => {
               <div v-if="toolsError" class="tools-error">
                 Failed to load tools: {{ toolsError }}
               </div>
-              <ElSelect
+              <Select
                 v-model="selectedToolValue"
-                placeholder="Select a tool to add"
-                clearable
-                :loading="isLoadingTools"
-                @change="addTool"
-                style="width: 100%; margin-bottom: var(--rf-spacing-sm)"
+                @update:model-value="addTool"
               >
-                <ElOption
-                  v-for="tool in getAvailableTools()"
-                  :key="tool.value"
-                  :label="tool.label"
-                  :value="tool.value"
-                >
-                  <div class="tool-option">
-                    <div class="tool-label">{{ tool.label }}</div>
-                    <div class="tool-description">{{ tool.description }}</div>
-                  </div>
-                </ElOption>
-              </ElSelect>
+                <SelectTrigger class="tools-select-trigger">
+                  <SelectValue placeholder="Select a tool to add" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem
+                    v-for="tool in getAvailableTools()"
+                    :key="tool.value"
+                    :value="tool.value"
+                  >
+                    <div class="tool-option">
+                      <div class="tool-label">{{ tool.label }}</div>
+                      <div class="tool-description">{{ tool.description }}</div>
+                    </div>
+                  </SelectItem>
+                </SelectContent>
+              </Select>
 
               <div v-if="formData.tools.length > 0" class="tools-tags">
-                <ElTag
+                <Badge
                   v-for="toolValue in formData.tools"
                   :key="toolValue"
-                  closable
-                  @close="removeTool(toolValue)"
+                  variant="secondary"
+                  class="tool-badge"
                 >
                   {{ getToolLabel(toolValue) }}
-                </ElTag>
+                  <button
+                    type="button"
+                    class="tool-remove-btn"
+                    @click="removeTool(toolValue)"
+                  >
+                    <X :size="12" />
+                  </button>
+                </Badge>
               </div>
               <div v-else class="no-tools-hint">No tools selected</div>
             </div>
@@ -340,20 +363,16 @@ onMounted(async () => {
 
       .title-input {
         flex: 1;
+        font-size: var(--rf-font-size-lg);
+        font-weight: var(--rf-font-weight-semibold);
+        border: none;
+        background: transparent;
+        box-shadow: none;
 
-        :deep(.el-input__wrapper) {
+        &:focus {
           box-shadow: none;
-          background: transparent;
+          border: none;
         }
-
-        :deep(.el-input__inner) {
-          font-size: var(--rf-font-size-lg);
-          font-weight: var(--rf-font-weight-semibold);
-        }
-      }
-
-      .model-tag {
-        flex-shrink: 0;
       }
     }
   }
@@ -369,6 +388,11 @@ onMounted(async () => {
   flex: 1;
   display: flex;
   overflow: hidden;
+
+  .loading-state {
+    width: 100%;
+    padding: var(--rf-spacing-xl);
+  }
 
   .error-state {
     display: flex;
@@ -441,9 +465,7 @@ onMounted(async () => {
     gap: var(--rf-spacing-md);
 
     .model-select-wrapper {
-      :deep(.el-select) {
-        width: 100%;
-      }
+      width: 100%;
     }
 
     .temperature-wrapper {
@@ -457,7 +479,7 @@ onMounted(async () => {
         flex-shrink: 0;
       }
 
-      :deep(.el-slider) {
+      .temperature-slider {
         flex: 1;
       }
 
@@ -472,6 +494,23 @@ onMounted(async () => {
   }
 
   .key-mode-group {
+    display: flex;
+    gap: var(--rf-spacing-md);
+    margin-bottom: var(--rf-spacing-sm);
+  }
+
+  .radio-option {
+    display: flex;
+    align-items: center;
+    gap: var(--rf-spacing-xs);
+  }
+
+  .prompt-textarea {
+    min-height: 80px;
+    resize: vertical;
+  }
+
+  .tools-select-trigger {
     margin-bottom: var(--rf-spacing-sm);
   }
 
@@ -479,6 +518,33 @@ onMounted(async () => {
     display: flex;
     flex-wrap: wrap;
     gap: var(--rf-spacing-xs);
+  }
+
+  .tool-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--rf-spacing-xs);
+    padding-right: var(--rf-spacing-xs);
+  }
+
+  .tool-remove-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 14px;
+    height: 14px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    color: inherit;
+    opacity: 0.7;
+    border-radius: 50%;
+
+    &:hover {
+      opacity: 1;
+      background: rgba(0, 0, 0, 0.1);
+    }
   }
 
   .no-tools-hint {
@@ -501,10 +567,6 @@ onMounted(async () => {
       color: var(--rf-color-text-secondary);
     }
   }
-}
-
-:deep(.el-divider--horizontal) {
-  margin: var(--rf-spacing-md) 0;
 }
 
 html.dark {
