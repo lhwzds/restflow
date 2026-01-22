@@ -1,6 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { isTauri, tauriInvoke } from '../tauri-client'
 
+// Declare global for Node.js environment in tests
+declare const global: typeof globalThis
+
 // Mock @tauri-apps/api/core
 vi.mock('@tauri-apps/api/core', () => ({
   invoke: vi.fn(),
@@ -32,7 +35,7 @@ describe('tauri-client', () => {
     })
 
     it('should return true when __TAURI_INTERNALS__ is present', () => {
-      ;(global.window as Record<string, unknown>).__TAURI_INTERNALS__ = {}
+      ;(global.window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {}
       expect(isTauri()).toBe(true)
     })
   })

@@ -1,7 +1,7 @@
 //! Skill-related Tauri commands
 
 use crate::state::AppState;
-use restflow_workflow::Skill;
+use restflow_core::Skill;
 use tauri::State;
 
 /// List all skills

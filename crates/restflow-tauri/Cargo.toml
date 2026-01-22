@@ -17,7 +17,7 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 # Internal dependencies
-restflow-workflow = { path = "../restflow-workflow" }
+restflow-core = { path = "../restflow-core" }
 restflow-storage = { path = "../restflow-storage" }
 restflow-ai = { path = "../restflow-ai" }
 

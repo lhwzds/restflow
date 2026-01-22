@@ -1,7 +1,7 @@
 //! TUI application state
 
 use super::MIN_INPUT_HEIGHT;
-use restflow_workflow::AppCore;
+use restflow_core::AppCore;
 use std::sync::Arc;
 use unicode_width::UnicodeWidthChar;
 
@@ -19,6 +19,8 @@ pub struct TuiApp {
     pub show_commands: bool,
     pub commands: Vec<Command>,
     pub selected_command: usize,
+    /// App core for future AI chat implementation
+    #[allow(dead_code)]
     pub core: Arc<AppCore>,
     pub should_clear: bool,
     pub command_history: Vec<String>,
@@ -241,61 +243,21 @@ impl TuiApp {
                         .push(format!("  {} - {}", cmd.name, cmd.description));
                 }
             }
-            "/list" => {
-                use restflow_workflow::services::workflow;
-                match workflow::list_workflows(&self.core).await {
-                    Ok(workflows) => {
-                        if workflows.is_empty() {
-                            self.new_messages
-                                .push("📋 No workflows available".to_string());
-                        } else {
-                            self.new_messages
-                                .push(format!("📋 Workflow list ({} total):", workflows.len()));
-                            for wf in workflows {
-                                self.new_messages
-                                    .push(format!("  • {} - {}", wf.id, wf.name));
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        self.new_messages
-                            .push(format!("❌ Failed to fetch workflow list: {}", e));
-                    }
-                }
+            "/list" | "/run" | "/create" => {
+                self.new_messages
+                    .push("⚠️ Workflow commands are deprecated.".to_string());
+                self.new_messages
+                    .push("   RestFlow now uses an Agent-centric architecture.".to_string());
+                self.new_messages
+                    .push("   Please use the web interface to manage agents and skills.".to_string());
             }
             cmd if cmd.starts_with("/run ") => {
-                let workflow_id = cmd.trim_start_matches("/run ").trim();
-                if workflow_id.is_empty() {
-                    self.new_messages
-                        .push("❌ Usage: /run <workflow_id>".to_string());
-                } else {
-                    self.new_messages
-                        .push(format!("⚡ Executing workflow: {}", workflow_id));
-
-                    use restflow_workflow::services::workflow;
-                    use serde_json::json;
-                    match workflow::execute_workflow_by_id(&self.core, workflow_id, json!({})).await
-                    {
-                        Ok(output) => {
-                            self.new_messages.push("✅ Execution succeeded".to_string());
-                            self.new_messages.push(format!("  Result: {}", output));
-                        }
-                        Err(e) => {
-                            self.new_messages
-                                .push(format!("❌ Execution failed: {}", e));
-                        }
-                    }
-                }
-            }
-            "/run" => {
                 self.new_messages
-                    .push("❌ Usage: /run <workflow_id>".to_string());
+                    .push("⚠️ Workflow commands are deprecated.".to_string());
                 self.new_messages
-                    .push("  Tip: run /list to view available workflows".to_string());
-            }
-            "/create" => {
+                    .push("   RestFlow now uses an Agent-centric architecture.".to_string());
                 self.new_messages
-                    .push("✨ Creating workflow... (feature coming soon)".to_string());
+                    .push("   Please use the web interface to manage agents and skills.".to_string());
             }
             _ => {
                 if input.starts_with('/') {

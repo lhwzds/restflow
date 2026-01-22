@@ -10,7 +10,7 @@
     "preview": "vite preview",
     "format": "prettier --write \"src/**/*.{js,ts,vue,css,scss,html,json}\"",
     "format:check": "prettier --check \"src/**/*.{js,ts,vue,css,scss,html,json}\"",
-    "generate:types": "cd ../crates/restflow-workflow && cargo test export_bindings",
+    "generate:types": "cd ../crates/restflow-core && cargo test export_bindings",
     "test": "vitest",
     "test:ui": "vitest --ui",
     "test:coverage": "vitest --coverage"

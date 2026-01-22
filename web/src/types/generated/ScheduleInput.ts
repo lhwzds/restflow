@@ -3,4 +3,4 @@
 /**
  * Schedule trigger node input
  */
-export type ScheduleInput = { cron: string; timezone: string | null; payload: any }
+export type ScheduleInput = { cron: string, timezone: string | null, payload: any, };

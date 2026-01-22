@@ -5,10 +5,8 @@ import {
   updateSkill,
   deleteSkill,
   exportSkill,
-  importSkill,
   type CreateSkillRequest,
   type UpdateSkillRequest,
-  type ImportSkillRequest,
 } from '@/api/skills'
 import type { Skill } from '@/types/generated/Skill'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -125,20 +123,6 @@ export function useSkills() {
     }
   }
 
-  // Import a skill from markdown
-  async function handleImport(request: ImportSkillRequest): Promise<Skill | null> {
-    try {
-      const newSkill = await importSkill(request)
-      skills.value.unshift(newSkill)
-      ElMessage.success('Skill imported successfully')
-      return newSkill
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to import skill'
-      ElMessage.error(message)
-      return null
-    }
-  }
-
   return {
     // State
     skills,
@@ -156,6 +140,5 @@ export function useSkills() {
     handleUpdate,
     handleDelete,
     handleExport,
-    handleImport,
   }
 }

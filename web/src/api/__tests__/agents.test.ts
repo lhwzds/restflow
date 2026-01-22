@@ -23,9 +23,9 @@ describe('Agents API', () => {
     agent: {
       model: 'claude-sonnet-4-5',
       prompt: 'You are a test assistant',
-      temperature: null,
-      api_key_config: null,
-      tools: null,
+      temperature: undefined,
+      api_key_config: undefined,
+      tools: undefined,
     },
   })
 
@@ -62,9 +62,9 @@ describe('Agents API', () => {
       const agentNode: AgentNode = {
         model: 'claude-sonnet-4-5',
         prompt: 'Test prompt',
-        temperature: null,
-        api_key_config: null,
-        tools: null,
+        temperature: undefined,
+        api_key_config: undefined,
+        tools: undefined,
       }
 
       const request: agentsApi.CreateAgentRequest = {
@@ -130,9 +130,9 @@ describe('Agents API', () => {
       const agent = {
         model: 'claude-sonnet-4-5' as const,
         prompt: 'Test',
-        temperature: null,
-        api_key_config: null,
-        tools: null,
+        temperature: undefined,
+        api_key_config: undefined,
+        tools: undefined,
       }
 
       mock.onPost(API_ENDPOINTS.AGENT.EXECUTE_INLINE).reply(200, {
@@ -169,9 +169,9 @@ describe('Agents API', () => {
         agent: {
           model: 'claude-sonnet-4-5',
           prompt: 'Test',
-          temperature: null,
-          api_key_config: null,
-          tools: null,
+          temperature: undefined,
+          api_key_config: undefined,
+          tools: undefined,
         },
       }
       await expect(agentsApi.createAgent(request)).rejects.toThrow('Database error')

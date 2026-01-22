@@ -7,7 +7,7 @@ use axum::{
     http::StatusCode,
     response::IntoResponse,
 };
-use restflow_workflow::{models::Skill, services};
+use restflow_core::{models::Skill, services};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -246,7 +246,7 @@ fn is_valid_skill_id(id: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use restflow_workflow::AppCore;
+    use restflow_core::AppCore;
     use std::sync::Arc;
     use tempfile::{TempDir, tempdir};
 

@@ -33,7 +33,7 @@ Access at http://localhost:3000
 ## Documentation
 
 - **API Reference**:
-  - [Workflow API](https://docs.restflow.ai/api/restflow_workflow/) - Workflow engine
+  - [Workflow API](https://docs.restflow.ai/api/restflow_core/) - Workflow engine
   - [Runtime API](https://docs.restflow.ai/api/restflow_runtime/) - Shared infrastructure
   - [AI API](https://docs.restflow.ai/api/restflow_ai/) - AI Agent framework
   - [Server API](https://docs.restflow.ai/api/restflow_server/) - REST API server

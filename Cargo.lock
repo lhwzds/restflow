@@ -4006,7 +4006,7 @@ dependencies = [
  "anyhow",
  "crossterm",
  "ratatui",
- "restflow-workflow",
+ "restflow-core",
  "rpassword",
  "serde",
  "serde_json",
@@ -4019,6 +4019,40 @@ dependencies = [
 ]
 
 [[package]]
+name = "restflow-core"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "base64 0.22.1",
+ "chrono",
+ "chrono-tz",
+ "dirs",
+ "flate2",
+ "hex",
+ "lettre",
+ "once_cell",
+ "redb",
+ "regex",
+ "reqwest",
+ "restflow-ai",
+ "restflow-storage",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "sha2",
+ "tar",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-cron-scheduler",
+ "tracing",
+ "ts-rs",
+ "uuid",
+ "zip",
+]
+
+[[package]]
 name = "restflow-server"
 version = "0.1.0"
 dependencies = [
@@ -4026,7 +4060,7 @@ dependencies = [
  "mimalloc",
  "mime_guess",
  "restflow-ai",
- "restflow-workflow",
+ "restflow-core",
  "rust-embed",
  "serde",
  "serde_json",
@@ -4063,8 +4097,8 @@ dependencies = [
  "anyhow",
  "chrono",
  "restflow-ai",
+ "restflow-core",
  "restflow-storage",
- "restflow-workflow",
  "serde",
  "serde_json",
  "tauri",
@@ -4074,40 +4108,6 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
-]
-
-[[package]]
-name = "restflow-workflow"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "base64 0.22.1",
- "chrono",
- "chrono-tz",
- "dirs",
- "flate2",
- "hex",
- "lettre",
- "once_cell",
- "redb",
- "regex",
- "reqwest",
- "restflow-ai",
- "restflow-storage",
- "serde",
- "serde_json",
- "serde_yaml",
- "sha2",
- "tar",
- "tempfile",
- "thiserror 2.0.18",
- "tokio",
- "tokio-cron-scheduler",
- "tracing",
- "ts-rs",
- "uuid",
- "zip",
 ]
 
 [[package]]
