@@ -1,11 +1,21 @@
 <script setup lang="ts">
-import { Plus, Search, CircleCheck, CircleClose, Delete, Edit } from '@element-plus/icons-vue'
+import { Plus, Search, Check, X, Trash2, Pencil, Eye, EyeOff } from 'lucide-vue-next'
 import HeaderBar from '../components/shared/HeaderBar.vue'
 import PageLayout from '../components/shared/PageLayout.vue'
 import EmptyState from '../components/shared/EmptyState.vue'
 import SearchInfo from '../components/shared/SearchInfo.vue'
-import { ElButton, ElTable, ElTableColumn, ElInput, ElMessageBox, ElMessage } from 'element-plus'
-import { onMounted, reactive, computed } from 'vue'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
+import { Skeleton } from '@/components/ui/skeleton'
+import { onMounted, reactive, computed, ref } from 'vue'
 import { useSecretsList } from '../composables/secrets/useSecretsList'
 import { useSecretOperations } from '../composables/secrets/useSecretOperations'
 import type { Secret } from '@/types/generated/Secret'
@@ -15,19 +25,30 @@ import {
   VALIDATION_MESSAGES,
   CONFIRM_MESSAGES,
 } from '@/constants'
+import { useToast } from '@/composables/useToast'
+import { useConfirm } from '@/composables/useConfirm'
+
+const toast = useToast()
+const { confirm } = useConfirm()
 
 const { isLoading, searchQuery, filteredSecrets, loadSecrets } = useSecretsList()
 const { createSecret, updateSecret, deleteSecret } = useSecretOperations()
 
+// Password visibility toggles
+const showNewPassword = ref(false)
+const showEditPassword = ref(false)
+
+interface NewRowData {
+  key: string
+  value: string
+  description: string
+  isNew: true
+}
+
 interface EditState {
   mode: 'idle' | 'creating' | 'editing'
   targetKey?: string
-  newRow?: {
-    key: string
-    value: string
-    description: string
-    isNew: boolean
-  }
+  newRow?: NewRowData
   editData: Record<
     string,
     {
@@ -37,17 +58,29 @@ interface EditState {
   >
 }
 
+type TableRowData = Secret | NewRowData
+
 const editState = reactive<EditState>({
   mode: 'idle',
   editData: {},
 })
 
-const tableData = computed(() => {
+const tableData = computed<TableRowData[]>(() => {
   if (editState.mode === 'creating' && editState.newRow) {
     return [editState.newRow, ...filteredSecrets.value]
   }
   return filteredSecrets.value
 })
+
+// Type guard for new row
+function isNewRow(row: TableRowData): row is NewRowData {
+  return 'isNew' in row && row.isNew === true
+}
+
+// Get key for row (handles both Secret and NewRowData)
+function getRowKey(row: TableRowData): string {
+  return isNewRow(row) ? '__new__' : row.key
+}
 
 onMounted(() => {
   loadSecrets()
@@ -56,6 +89,7 @@ onMounted(() => {
 function handleAddSecret() {
   editState.mode = 'creating'
   editState.newRow = { key: '', value: '', description: '', isNew: true }
+  showNewPassword.value = false
 }
 
 function handleEditSecret(row: Secret) {
@@ -65,6 +99,7 @@ function handleEditSecret(row: Secret) {
     value: '', // Security: require re-entry of secret value
     description: row.description || '',
   }
+  showEditPassword.value = false
 }
 
 function cancelEdit() {
@@ -74,68 +109,72 @@ function cancelEdit() {
   editState.mode = 'idle'
   editState.targetKey = undefined
   editState.newRow = undefined
+  showNewPassword.value = false
+  showEditPassword.value = false
 }
 
 async function saveNewSecret() {
   if (!editState.newRow?.key || !editState.newRow?.value) {
-    ElMessage.error(ERROR_MESSAGES.REQUIRED_FIELD_MISSING)
+    toast.error(ERROR_MESSAGES.REQUIRED_FIELD_MISSING)
     return
   }
 
   try {
     const formattedKey = editState.newRow.key.toUpperCase().replace(/[^A-Z0-9]/g, '_')
     await createSecret(formattedKey, editState.newRow.value, editState.newRow.description)
-    ElMessage.success(SUCCESS_MESSAGES.SECRET_CREATED)
+    toast.success(SUCCESS_MESSAGES.SECRET_CREATED)
 
     cancelEdit()
     await loadSecrets()
     searchQuery.value = '' // Clear search to ensure new secret is visible
   } catch (error: any) {
-    ElMessage.error(ERROR_MESSAGES.FAILED_TO_CREATE('secret') + ': ' + (error.message || error))
+    toast.error(ERROR_MESSAGES.FAILED_TO_CREATE('secret') + ': ' + (error.message || error))
   }
 }
 
 async function saveEditedSecret(key: string) {
   const data = editState.editData[key]
   if (!data?.value) {
-    ElMessage.error(VALIDATION_MESSAGES.REQUIRED_FIELD('secret value'))
+    toast.error(VALIDATION_MESSAGES.REQUIRED_FIELD('secret value'))
     return
   }
 
   try {
     await updateSecret(key, data.value, data.description)
-    ElMessage.success(SUCCESS_MESSAGES.SECRET_UPDATED)
+    toast.success(SUCCESS_MESSAGES.SECRET_UPDATED)
 
     delete editState.editData[key]
     editState.mode = 'idle'
     editState.targetKey = undefined
     await loadSecrets()
   } catch (error: any) {
-    ElMessage.error(ERROR_MESSAGES.FAILED_TO_UPDATE('secret') + ': ' + (error.message || error))
+    toast.error(ERROR_MESSAGES.FAILED_TO_UPDATE('secret') + ': ' + (error.message || error))
   }
 }
 
 async function handleDeleteSecret(row: Secret) {
-  try {
-    await ElMessageBox.confirm(CONFIRM_MESSAGES.DELETE_SECRET, 'Delete Confirmation', {
-      confirmButtonText: 'Confirm',
-      cancelButtonText: 'Cancel',
-      type: 'warning',
-    })
+  const confirmed = await confirm({
+    title: 'Delete Confirmation',
+    description: CONFIRM_MESSAGES.DELETE_SECRET,
+    confirmText: 'Confirm',
+    cancelText: 'Cancel',
+    variant: 'destructive',
+  })
 
+  if (!confirmed) return
+
+  try {
     await deleteSecret(row.key)
-    ElMessage.success(SUCCESS_MESSAGES.SECRET_DELETED)
+    toast.success(SUCCESS_MESSAGES.SECRET_DELETED)
     await loadSecrets()
   } catch (error: any) {
-    // Filter out user-initiated dialog cancellation
     const errorMessage = error?.message || error
-    if (errorMessage !== 'cancel' && errorMessage !== 'close' && error !== 'cancel') {
-      ElMessage.error(ERROR_MESSAGES.FAILED_TO_DELETE('secret') + ': ' + errorMessage)
-    }
+    toast.error(ERROR_MESSAGES.FAILED_TO_DELETE('secret') + ': ' + errorMessage)
   }
 }
 
-function isEditing(row: any): boolean {
+function isEditing(row: TableRowData): boolean {
+  if (isNewRow(row)) return false
   return editState.mode === 'editing' && editState.targetKey === row.key
 }
 
@@ -197,21 +236,18 @@ function setEditDescription(key: string, description: string) {
   <PageLayout variant="default">
     <HeaderBar title="Secrets Management">
       <template #actions>
-        <ElInput
-          v-model="searchQuery"
-          placeholder="Search secrets..."
-          :prefix-icon="Search"
-          clearable
-          class="search-input"
-        />
-        <ElButton
-          type="primary"
-          :icon="Plus"
-          @click="handleAddSecret"
-          :disabled="editState.mode === 'creating'"
-        >
+        <div class="search-input-wrapper">
+          <Search class="search-icon" :size="16" />
+          <Input
+            v-model="searchQuery"
+            placeholder="Search secrets..."
+            class="search-input"
+          />
+        </div>
+        <Button @click="handleAddSecret" :disabled="editState.mode === 'creating'">
+          <Plus class="mr-2 h-4 w-4" />
           New Secret
-        </ElButton>
+        </Button>
       </template>
     </HeaderBar>
 
@@ -222,119 +258,145 @@ function setEditDescription(key: string, description: string) {
       @clear="searchQuery = ''"
     />
 
-    <div v-if="tableData.length > 0 || editState.mode === 'creating'" class="table-section">
-      <ElTable
-        :data="tableData"
-        :loading="isLoading"
-        :row-key="(row) => (row.isNew ? '__new__' : row.key)"
-        stripe
-        style="width: 100%"
-        class="secrets-table"
-      >
-        <ElTableColumn prop="key" label="Key" min-width="200">
-          <template #default="{ row }">
-            <ElInput
-              v-if="row.isNew"
-              v-model="editState.newRow!.key"
-              placeholder="SECRET_KEY"
-              @blur="formatKeyOnBlur"
-            />
-            <span v-else class="secret-key">{{ row.key }}</span>
-          </template>
-        </ElTableColumn>
+    <div v-if="isLoading" class="loading-state">
+      <div class="skeleton-table">
+        <Skeleton class="h-10 w-full mb-2" />
+        <Skeleton v-for="i in 5" :key="i" class="h-14 w-full mb-2" />
+      </div>
+    </div>
 
-        <ElTableColumn label="Value" min-width="250">
-          <template #default="{ row }">
-            <ElInput
-              v-if="row.isNew"
-              v-model="editState.newRow!.value"
-              placeholder="Enter secret value"
-              type="password"
-              show-password
-            />
-            <ElInput
-              v-else-if="isEditing(row)"
-              :model-value="getEditValue(row.key)"
-              @update:model-value="(val) => setEditValue(row.key, val)"
-              placeholder="Enter new value"
-              type="password"
-              show-password
-            />
-            <span v-else class="masked-value">••••••••</span>
-          </template>
-        </ElTableColumn>
+    <div v-else-if="tableData.length > 0 || editState.mode === 'creating'" class="table-section">
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead class="w-[200px]">Key</TableHead>
+            <TableHead class="w-[250px]">Value</TableHead>
+            <TableHead class="w-[250px]">Description</TableHead>
+            <TableHead class="w-[150px]">Last Updated</TableHead>
+            <TableHead class="w-[150px] text-right">Actions</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          <TableRow v-for="row in tableData" :key="getRowKey(row)">
+            <!-- Key Column -->
+            <TableCell>
+              <Input
+                v-if="isNewRow(row)"
+                v-model="editState.newRow!.key"
+                placeholder="SECRET_KEY"
+                @blur="formatKeyOnBlur"
+              />
+              <span v-else class="secret-key">{{ row.key }}</span>
+            </TableCell>
 
-        <ElTableColumn prop="description" label="Description" min-width="250">
-          <template #default="{ row }">
-            <ElInput
-              v-if="row.isNew"
-              v-model="editState.newRow!.description"
-              placeholder="Optional description"
-            />
-            <ElInput
-              v-else-if="isEditing(row)"
-              :model-value="getEditDescription(row.key)"
-              @update:model-value="(val) => setEditDescription(row.key, val)"
-              placeholder="Optional description"
-            />
-            <span v-else class="secret-description">
-              {{ row.description || 'No description' }}
-            </span>
-          </template>
-        </ElTableColumn>
+            <!-- Value Column -->
+            <TableCell>
+              <div v-if="isNewRow(row)" class="password-input-wrapper">
+                <Input
+                  v-model="editState.newRow!.value"
+                  placeholder="Enter secret value"
+                  :type="showNewPassword ? 'text' : 'password'"
+                />
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  class="password-toggle"
+                  @click="showNewPassword = !showNewPassword"
+                  type="button"
+                >
+                  <Eye v-if="!showNewPassword" :size="16" />
+                  <EyeOff v-else :size="16" />
+                </Button>
+              </div>
+              <div v-else-if="isEditing(row)" class="password-input-wrapper">
+                <Input
+                  :model-value="getEditValue(row.key)"
+                  @update:model-value="(val: string | number) => setEditValue(row.key, String(val))"
+                  placeholder="Enter new value"
+                  :type="showEditPassword ? 'text' : 'password'"
+                />
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  class="password-toggle"
+                  @click="showEditPassword = !showEditPassword"
+                  type="button"
+                >
+                  <Eye v-if="!showEditPassword" :size="16" />
+                  <EyeOff v-else :size="16" />
+                </Button>
+              </div>
+              <span v-else class="masked-value">••••••••</span>
+            </TableCell>
 
-        <ElTableColumn prop="updated_at" label="Last Updated" width="150">
-          <template #default="{ row }">
-            <span v-if="!row.isNew" class="update-time">{{ formatDate(row.updated_at) }}</span>
-          </template>
-        </ElTableColumn>
+            <!-- Description Column -->
+            <TableCell>
+              <Input
+                v-if="isNewRow(row)"
+                v-model="editState.newRow!.description"
+                placeholder="Optional description"
+              />
+              <Input
+                v-else-if="isEditing(row)"
+                :model-value="getEditDescription(row.key)"
+                @update:model-value="(val: string | number) => setEditDescription(row.key, String(val))"
+                placeholder="Optional description"
+              />
+              <span v-else class="secret-description">
+                {{ row.description || 'No description' }}
+              </span>
+            </TableCell>
 
-        <ElTableColumn label="Actions" width="150" fixed="right">
-          <template #default="{ row }">
-            <div v-if="row.isNew" class="action-buttons">
-              <ElButton
-                :icon="CircleCheck"
-                circle
-                size="small"
-                type="primary"
-                @click="saveNewSecret"
-              />
-              <ElButton :icon="CircleClose" circle size="small" @click="cancelEdit" />
-            </div>
-            <div v-else-if="isEditing(row)" class="action-buttons">
-              <ElButton
-                :icon="CircleCheck"
-                circle
-                size="small"
-                type="primary"
-                @click="saveEditedSecret(row.key)"
-              />
-              <ElButton :icon="CircleClose" circle size="small" @click="cancelEdit" />
-            </div>
-            <div v-else class="action-buttons">
-              <ElButton
-                :icon="Edit"
-                circle
-                size="small"
-                @click="handleEditSecret(row)"
-                :disabled="editState.mode !== 'idle'"
-              />
-              <ElButton
-                :icon="Delete"
-                circle
-                size="small"
-                type="danger"
-                @click="handleDeleteSecret(row)"
-                :disabled="editState.mode !== 'idle'"
-              />
-            </div>
-          </template>
-        </ElTableColumn>
-      </ElTable>
+            <!-- Last Updated Column -->
+            <TableCell>
+              <span v-if="!isNewRow(row)" class="update-time">{{ formatDate(row.updated_at) }}</span>
+            </TableCell>
+
+            <!-- Actions Column -->
+            <TableCell class="text-right">
+              <div v-if="isNewRow(row)" class="action-buttons">
+                <Button variant="default" size="icon" @click="saveNewSecret">
+                  <Check :size="16" />
+                </Button>
+                <Button variant="ghost" size="icon" @click="cancelEdit">
+                  <X :size="16" />
+                </Button>
+              </div>
+              <div v-else-if="isEditing(row)" class="action-buttons">
+                <Button variant="default" size="icon" @click="saveEditedSecret(row.key)">
+                  <Check :size="16" />
+                </Button>
+                <Button variant="ghost" size="icon" @click="cancelEdit">
+                  <X :size="16" />
+                </Button>
+              </div>
+              <div v-else class="action-buttons">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  @click="handleEditSecret(row as Secret)"
+                  :disabled="editState.mode !== 'idle'"
+                >
+                  <Pencil :size="16" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  class="text-destructive hover:text-destructive"
+                  @click="handleDeleteSecret(row as Secret)"
+                  :disabled="editState.mode !== 'idle'"
+                >
+                  <Trash2 :size="16" />
+                </Button>
+              </div>
+            </TableCell>
+          </TableRow>
+        </TableBody>
+      </Table>
     </div>
 
     <EmptyState
-      v-if="filteredSecrets.length === 0 && editState.mode !== 'creating'"
+      v-if="filteredSecrets.length === 0 && editState.mode !== 'creating' && !isLoading"
       :search-query="searchQuery"
       :is-loading="isLoading"
       item-name="secret"
@@ -346,8 +408,30 @@ function setEditDescription(key: string, description: string) {
 </template>
 
 <style lang="scss" scoped>
-.search-input {
-  width: var(--rf-size-xl);
+.search-input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+
+  .search-icon {
+    position: absolute;
+    left: 10px;
+    color: var(--rf-color-text-secondary);
+    pointer-events: none;
+    z-index: 1;
+  }
+
+  .search-input {
+    width: var(--rf-size-xl);
+    padding-left: 32px;
+  }
+}
+
+.loading-state {
+  margin-top: var(--rf-spacing-xl);
+  padding: var(--rf-spacing-lg);
+  background: var(--rf-color-bg-container);
+  border-radius: var(--rf-radius-base);
 }
 
 .table-section {
@@ -359,35 +443,47 @@ function setEditDescription(key: string, description: string) {
   margin-bottom: var(--rf-spacing-xl);
 }
 
-.secrets-table {
-  :deep(.el-table__header) {
-    font-weight: var(--rf-font-weight-semibold);
+.secret-key {
+  font-family: 'Monaco', 'Courier New', monospace;
+  font-weight: var(--rf-font-weight-medium);
+  color: var(--rf-color-primary);
+}
+
+.masked-value {
+  font-family: 'Monaco', 'Courier New', monospace;
+  color: var(--rf-color-text-secondary);
+  letter-spacing: var(--rf-letter-spacing-wide);
+}
+
+.secret-description {
+  color: var(--rf-color-text-regular);
+}
+
+.update-time {
+  color: var(--rf-color-text-secondary);
+  font-size: var(--rf-font-size-sm);
+}
+
+.action-buttons {
+  display: flex;
+  gap: var(--rf-spacing-xs);
+  justify-content: flex-end;
+}
+
+.password-input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+
+  .password-toggle {
+    position: absolute;
+    right: 4px;
+    height: 28px;
+    width: 28px;
   }
 
-  .secret-key {
-    font-family: 'Monaco', 'Courier New', monospace;
-    font-weight: var(--rf-font-weight-medium);
-    color: var(--rf-color-primary);
-  }
-
-  .masked-value {
-    font-family: 'Monaco', 'Courier New', monospace;
-    color: var(--rf-color-text-secondary);
-    letter-spacing: var(--rf-letter-spacing-wide);
-  }
-
-  .secret-description {
-    color: var(--rf-color-text-regular);
-  }
-
-  .update-time {
-    color: var(--rf-color-text-secondary);
-    font-size: var(--rf-font-size-sm);
-  }
-
-  .action-buttons {
-    display: flex;
-    gap: var(--rf-spacing-sm);
+  :deep(input) {
+    padding-right: 36px;
   }
 }
 </style>

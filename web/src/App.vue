@@ -1,20 +1,34 @@
 <script setup lang="ts">
-import { ElContainer, ElMain } from 'element-plus'
 import SidePanel from './components/shared/SidePanel.vue'
+import { Sonner } from '@/components/ui/sonner'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 </script>
 
 <template>
-  <el-container style="height: 100vh">
+  <!-- Toast notifications -->
+  <Sonner />
+
+  <!-- Global confirm dialog -->
+  <ConfirmDialog />
+
+  <div class="app-container">
     <SidePanel />
 
-    <el-main class="app-main">
+    <main class="app-main">
       <router-view />
-    </el-main>
-  </el-container>
+    </main>
+  </div>
 </template>
 
 <style lang="scss">
+.app-container {
+  display: flex;
+  height: 100vh;
+}
+
 .app-main {
+  flex: 1;
+  overflow: auto;
   padding: 0;
   background-color: var(--rf-color-bg-page);
 }

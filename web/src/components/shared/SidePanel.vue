@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { DataAnalysis, Expand, Fold, Setting, Lock, Document } from '@element-plus/icons-vue'
-import { ElAside, ElButton, ElIcon, ElMenu, ElMenuItem } from 'element-plus'
+import { Settings, Lock, FileText, ChevronLeft, ChevronRight } from 'lucide-vue-next'
 import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import RestFlowLogo from './RestFlowLogo.vue'
+import { cn } from '@/lib/utils'
 
 const route = useRoute()
 const router = useRouter()
@@ -12,15 +12,11 @@ const isCollapsed = ref(false)
 
 const activeMenu = computed(() => {
   const path = route.path
-  if (path === '/workflows') return 'workflows'
-  if (path.startsWith('/workflow')) return 'workflows' // Editor is part of workflows
   if (path.startsWith('/agents')) return 'agents'
   if (path.startsWith('/secrets')) return 'secrets'
   if (path.startsWith('/skills')) return 'skills'
-  return 'workflows'
+  return 'agents'
 })
-
-const panelWidth = computed(() => (isCollapsed.value ? 'var(--rf-size-sm)' : 'var(--rf-size-lg)'))
 
 const toggleCollapse = () => {
   isCollapsed.value = !isCollapsed.value
@@ -28,9 +24,6 @@ const toggleCollapse = () => {
 
 const handleMenuSelect = (index: string) => {
   switch (index) {
-    case 'workflows':
-      router.push('/workflows')
-      break
     case 'agents':
       router.push('/agents')
       break
@@ -42,115 +35,159 @@ const handleMenuSelect = (index: string) => {
       break
   }
 }
+
+const menuItems = [
+  { key: 'agents', label: 'Agents', icon: Settings },
+  { key: 'secrets', label: 'Secrets', icon: Lock },
+  { key: 'skills', label: 'Skills', icon: FileText },
+]
 </script>
 
 <template>
-  <el-aside :width="panelWidth" class="side-panel">
-    <div class="panel-header" :class="{ collapsed: isCollapsed }">
-      <RestFlowLogo :show-text="!isCollapsed" :icon-size="32" :text-size="20" :gap="8" />
-      <el-button
-        v-if="!isCollapsed"
-        :icon="Fold"
-        size="large"
-        text
-        @click="toggleCollapse"
-        class="collapse-btn"
-      />
-    </div>
-
-    <div v-if="isCollapsed" class="collapsed-btn-container">
-      <el-button :icon="Expand" size="large" text @click="toggleCollapse" class="expand-btn" />
+  <aside :class="cn('side-panel', isCollapsed && 'collapsed')">
+    <div class="panel-header" :class="{ collapsed: isCollapsed }" @click="toggleCollapse">
+      <div class="logo-wrapper">
+        <RestFlowLogo :show-text="true" :icon-size="36" :text-size="24" :gap="10" />
+      </div>
+      <div class="collapse-indicator">
+        <ChevronRight v-if="isCollapsed" :size="16" />
+        <ChevronLeft v-else :size="16" />
+      </div>
     </div>
 
     <!-- Menu -->
-    <el-menu
-      :default-active="activeMenu"
-      class="panel-menu"
-      :collapse="isCollapsed"
-      @select="handleMenuSelect"
-    >
-      <el-menu-item index="workflows">
-        <el-icon><DataAnalysis /></el-icon>
-        <template #title>Workflows</template>
-      </el-menu-item>
-
-      <el-menu-item index="agents">
-        <el-icon><Setting /></el-icon>
-        <template #title>Agents</template>
-      </el-menu-item>
-
-      <el-menu-item index="secrets">
-        <el-icon><Lock /></el-icon>
-        <template #title>Secrets</template>
-      </el-menu-item>
-
-      <el-menu-item index="skills">
-        <el-icon><Document /></el-icon>
-        <template #title>Skills</template>
-      </el-menu-item>
-    </el-menu>
-  </el-aside>
+    <nav class="panel-menu">
+      <button
+        v-for="item in menuItems"
+        :key="item.key"
+        :class="cn('menu-item', activeMenu === item.key && 'active')"
+        @click="handleMenuSelect(item.key)"
+      >
+        <component :is="item.icon" :size="20" class="menu-icon" />
+        <span v-if="!isCollapsed" class="menu-label">{{ item.label }}</span>
+      </button>
+    </nav>
+  </aside>
 </template>
 
 <style lang="scss" scoped>
 .side-panel {
-  background-color: var(--rf-color-bg-container, #fff);
+  width: var(--rf-size-lg);
+  background-color: var(--rf-color-bg-container);
   border-right: 1px solid var(--rf-color-border-base);
   transition: width 0.3s ease;
   display: flex;
   flex-direction: column;
   height: 100%;
   overflow: hidden;
+
+  &.collapsed {
+    width: var(--rf-size-sm);
+  }
 }
 
 .panel-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: var(--rf-spacing-md);
+  padding: var(--rf-spacing-lg) var(--rf-spacing-xl);
   border-bottom: 1px solid var(--rf-color-border-base);
-  height: var(--rf-size-xs);
+  height: 60px;
+  cursor: pointer;
+  overflow: hidden;
+
+  &:hover {
+    background-color: var(--rf-color-bg-secondary);
+
+    .collapse-indicator {
+      opacity: 1;
+    }
+  }
+
+  &.collapsed {
+    justify-content: center;
+    padding: var(--rf-spacing-lg) var(--rf-spacing-sm);
+
+    .logo-wrapper {
+      :deep(.logo-text) {
+        width: 0;
+        opacity: 0;
+        margin-left: 0 !important;
+      }
+    }
+
+    .collapse-indicator {
+      position: absolute;
+      right: var(--rf-spacing-sm);
+    }
+  }
 }
 
-.panel-header.collapsed {
-  justify-content: center;
-  border-bottom: none;
-  height: 32px;
-  padding: var(--rf-spacing-lg) 0 0 0;
-}
-
-.collapse-btn {
-  margin-left: auto;
-  padding: var(--rf-spacing-xs) var(--rf-spacing-sm);
-}
-
-.collapsed-btn-container {
+.logo-wrapper {
   display: flex;
-  justify-content: center;
-  padding: var(--rf-spacing-xs) 0 var(--rf-spacing-xs) 0;
-  border-bottom: 1px solid var(--rf-color-border-base);
+  align-items: center;
+  overflow: hidden;
+
+  :deep(.logo-text) {
+    transition: width 0.3s ease, opacity 0.3s ease, margin-left 0.3s ease;
+    white-space: nowrap;
+    overflow: hidden;
+  }
 }
 
-.expand-btn {
-  padding: var(--rf-spacing-xs) var(--rf-spacing-sm);
+.collapse-indicator {
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  color: var(--rf-color-text-secondary);
+  flex-shrink: 0;
 }
 
 .panel-menu {
   flex: 1;
+  padding: var(--rf-spacing-sm) 0;
+}
+
+.menu-item {
+  display: flex;
+  align-items: center;
+  gap: var(--rf-spacing-md);
+  width: 100%;
+  padding: var(--rf-spacing-md) var(--rf-spacing-lg);
   border: none;
+  background: transparent;
+  cursor: pointer;
+  color: var(--rf-color-text-regular);
+  font-size: var(--rf-font-size-sm);
+  transition: all 0.2s ease;
+  text-align: left;
+
+  .collapsed & {
+    justify-content: center;
+    padding: var(--rf-spacing-md);
+  }
+
+  &:hover {
+    background-color: var(--rf-color-bg-secondary);
+    color: var(--rf-color-text-primary);
+  }
+
+  &.active {
+    background-color: var(--rf-color-primary-bg-light);
+    color: var(--rf-color-primary);
+
+    .menu-icon {
+      color: var(--rf-color-primary);
+    }
+  }
 }
 
-.panel-menu:not(.el-menu--collapse) {
-  width: var(--rf-size-lg);
+.menu-icon {
+  flex-shrink: 0;
 }
 
-.el-menu-item {
-  height: var(--rf-size-line-lg);
-  line-height: var(--rf-size-line-lg);
-}
-
-.el-menu-item.is-active {
-  background-color: var(--rf-color-primary-bg-light);
-  color: var(--rf-color-primary);
+.menu-label {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 </style>

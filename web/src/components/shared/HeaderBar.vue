@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { useSlots, computed, ref, nextTick } from 'vue'
-import { ElHeader, ElButton, ElInput } from 'element-plus'
 import { Sun, Moon, Github, Pencil } from 'lucide-vue-next'
 import { useTheme } from '../../composables/useTheme'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 
 interface Props {
   title: string
@@ -26,7 +27,12 @@ const hasLeftActions = computed(() => !!slots['left-actions'])
 // Edit state management
 const isEditing = ref(false)
 const editingName = ref('')
-const inputRef = ref<InstanceType<typeof ElInput> | null>(null)
+type InputExpose = {
+  focus: () => void
+  select: () => void
+}
+
+const inputRef = ref<InputExpose | null>(null)
 const isHovering = ref(false)
 
 /**
@@ -84,14 +90,14 @@ const handleKeydown = (event: Event | KeyboardEvent) => {
 </script>
 
 <template>
-  <el-header class="header-bar" :class="{ 'has-left-content': hasLeftActions }">
+  <header class="header-bar" :class="{ 'has-left-content': hasLeftActions }">
     <div v-if="hasLeftActions" class="header-left">
       <slot name="left-actions" />
     </div>
 
     <!-- Edit mode: show input -->
     <div v-if="isEditing" class="header-title-editor">
-      <el-input
+      <Input
         ref="inputRef"
         v-model="editingName"
         class="title-input"
@@ -116,14 +122,14 @@ const handleKeydown = (event: Event | KeyboardEvent) => {
     <div class="header-actions">
       <slot name="actions" />
 
-      <el-button
+      <Button
+        variant="ghost"
+        size="icon"
         @click="toggleDark()"
-        :icon="isDark ? Sun : Moon"
-        circle
-        text
-        size="large"
         :title="isDark ? 'Switch to light mode' : 'Switch to dark mode'"
-      />
+      >
+        <component :is="isDark ? Sun : Moon" :size="20" />
+      </Button>
 
       <a
         href="https://github.com/lhwzds/restflow"
@@ -132,10 +138,12 @@ const handleKeydown = (event: Event | KeyboardEvent) => {
         class="github-link"
         title="View on GitHub"
       >
-        <el-button :icon="Github" circle text size="large" />
+        <Button variant="ghost" size="icon">
+          <Github :size="20" />
+        </Button>
       </a>
     </div>
-  </el-header>
+  </header>
 </template>
 
 <style lang="scss" scoped>
@@ -209,20 +217,12 @@ const handleKeydown = (event: Event | KeyboardEvent) => {
   }
 
   .title-input {
-    :deep(.el-input__wrapper) {
-      font-size: var(--rf-font-size-2xl);
-      font-weight: var(--rf-font-weight-semibold);
-      padding: var(--rf-spacing-xs) var(--rf-spacing-md);
-      background-color: var(--rf-color-bg-container);
-      box-shadow: var(--rf-shadow-base);
-    }
-
-    :deep(.el-input__inner) {
-      font-size: var(--rf-font-size-2xl);
-      font-weight: var(--rf-font-weight-semibold);
-      color: var(--rf-color-text-primary);
-      text-align: center;
-    }
+    font-size: var(--rf-font-size-2xl);
+    font-weight: var(--rf-font-weight-semibold);
+    text-align: center;
+    padding: var(--rf-spacing-xs) var(--rf-spacing-md);
+    background-color: var(--rf-color-bg-container);
+    box-shadow: var(--rf-shadow-base);
   }
 }
 

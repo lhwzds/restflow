@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ElButton } from 'element-plus'
+import { Button } from '@/components/ui/button'
 
 interface Props {
   count: number
@@ -25,7 +25,7 @@ function handleClear() {
     <span class="search-info__text">
       Found {{ count }} {{ itemName }}{{ count !== 1 ? 's' : '' }} matching "{{ searchQuery }}"
     </span>
-    <ElButton link @click="handleClear">Clear</ElButton>
+    <Button variant="link" @click="handleClear">Clear</Button>
   </div>
 </template>
 

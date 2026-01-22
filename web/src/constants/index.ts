@@ -11,11 +11,9 @@ export {
   API_ENDPOINTS,
   API_PREFIX,
   type ApiEndpoints,
-  type WorkflowEndpoints,
-  type ExecutionEndpoints,
-  type TriggerEndpoints,
   type AgentEndpoints,
   type SecretEndpoints,
+  type SkillEndpoints,
 } from './api/endpoints'
 
 // ===== Node Related =====

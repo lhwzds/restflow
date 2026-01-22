@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { onMounted } from 'vue'
 import { useRoute } from 'vue-router'
-import { ElButton, ElInput, ElSkeleton } from 'element-plus'
-import { ArrowLeft, Delete, Download } from '@element-plus/icons-vue'
+import { ArrowLeft, Trash2, Download } from 'lucide-vue-next'
 import PageLayout from '@/components/shared/PageLayout.vue'
 import MarkdownRenderer from '@/components/shared/MarkdownRenderer.vue'
 import SkillTagIcon from '@/components/skills/SkillTagIcon.vue'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Skeleton } from '@/components/ui/skeleton'
 import { useSkillEditor } from '@/composables/skills/useSkillEditor'
 
 const route = useRoute()
@@ -35,9 +37,12 @@ onMounted(() => {
     <!-- Header -->
     <div class="editor-header">
       <div class="header-left">
-        <ElButton text :icon="ArrowLeft" @click="goBack">Back</ElButton>
+        <Button variant="ghost" @click="goBack">
+          <ArrowLeft class="mr-2 h-4 w-4" />
+          Back
+        </Button>
         <div class="title-section">
-          <ElInput
+          <Input
             v-model="formData.name"
             class="title-input"
             placeholder="Skill name"
@@ -49,30 +54,33 @@ onMounted(() => {
         </div>
       </div>
       <div class="header-actions">
-        <ElButton text type="danger" :icon="Delete" @click="handleDelete" :disabled="isLoading">
+        <Button variant="ghost" class="text-destructive" @click="handleDelete" :disabled="isLoading">
+          <Trash2 class="mr-2 h-4 w-4" />
           Delete
-        </ElButton>
-        <ElButton text :icon="Download" @click="handleExport" :disabled="isLoading">
+        </Button>
+        <Button variant="ghost" @click="handleExport" :disabled="isLoading">
+          <Download class="mr-2 h-4 w-4" />
           Export
-        </ElButton>
-        <ElButton
-          type="primary"
+        </Button>
+        <Button
           @click="saveSkill"
-          :loading="isSaving"
-          :disabled="!hasChanges || isLoading"
+          :disabled="!hasChanges || isLoading || isSaving"
         >
-          Save
-        </ElButton>
+          {{ isSaving ? 'Saving...' : 'Save' }}
+        </Button>
       </div>
     </div>
 
     <!-- Main content -->
     <div class="editor-main">
-      <ElSkeleton v-if="isLoading" :rows="10" animated />
+      <div v-if="isLoading" class="loading-state">
+        <Skeleton class="h-8 w-full mb-4" />
+        <Skeleton class="h-96 w-full" />
+      </div>
 
       <div v-else-if="error" class="error-state">
         <p>{{ error }}</p>
-        <ElButton @click="loadSkill">Retry</ElButton>
+        <Button @click="loadSkill">Retry</Button>
       </div>
 
       <div v-else class="split-editor">
@@ -138,15 +146,15 @@ onMounted(() => {
 
       .title-input {
         flex: 1;
+        font-size: var(--rf-font-size-lg);
+        font-weight: var(--rf-font-weight-semibold);
+        border: none;
+        background: transparent;
+        box-shadow: none;
 
-        :deep(.el-input__wrapper) {
+        &:focus {
           box-shadow: none;
-          background: transparent;
-        }
-
-        :deep(.el-input__inner) {
-          font-size: var(--rf-font-size-lg);
-          font-weight: var(--rf-font-weight-semibold);
+          border: none;
         }
       }
 
@@ -170,6 +178,11 @@ onMounted(() => {
   display: flex;
   overflow: hidden;
   padding: var(--rf-spacing-md);
+
+  .loading-state {
+    width: 100%;
+    padding: var(--rf-spacing-lg);
+  }
 
   .error-state {
     display: flex;
