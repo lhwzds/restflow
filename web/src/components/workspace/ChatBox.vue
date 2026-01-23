@@ -80,17 +80,33 @@ watch(inputMessage, async (newVal) => {
       </Button>
     </div>
 
-    <!-- Selectors Row -->
-    <div class="flex items-center gap-3 mb-2">
-      <!-- Agent Selector -->
-      <div class="flex items-center gap-2">
-        <Bot :size="16" class="text-muted-foreground" />
+    <!-- Input Area -->
+    <div
+      :class="cn(
+        'flex flex-col bg-background border rounded-xl p-3',
+        isExpanded ? 'border-primary/50' : 'border-border'
+      )"
+    >
+      <!-- Textarea -->
+      <Textarea
+        v-model="inputMessage"
+        placeholder="Ask the agent to do something..."
+        class="chat-textarea min-h-[40px] max-h-[120px] resize-none border-0 bg-transparent p-0 text-sm shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
+        :disabled="isExecuting"
+        @keydown="handleKeydown"
+        @input="handleInput"
+      />
+
+      <!-- Bottom Row: Agent | Model | Send -->
+      <div class="flex items-center gap-2 mt-2">
+        <!-- Agent Selector -->
         <Select
           :model-value="selectedAgent || ''"
           @update:model-value="emit('update:selectedAgent', $event || null)"
         >
-          <SelectTrigger class="w-[160px] h-8 text-sm">
-            <SelectValue placeholder="Select Agent" />
+          <SelectTrigger class="w-[180px] h-8 text-xs">
+            <Bot :size="14" class="mr-1 text-muted-foreground shrink-0" />
+            <SelectValue placeholder="Agent" />
           </SelectTrigger>
           <SelectContent>
             <SelectItem
@@ -102,17 +118,15 @@ watch(inputMessage, async (newVal) => {
             </SelectItem>
           </SelectContent>
         </Select>
-      </div>
 
-      <!-- Model Selector -->
-      <div class="flex items-center gap-2">
-        <Cpu :size="16" class="text-muted-foreground" />
+        <!-- Model Selector -->
         <Select
           :model-value="selectedModel"
           @update:model-value="emit('update:selectedModel', $event)"
         >
-          <SelectTrigger class="w-[180px] h-8 text-sm">
-            <SelectValue placeholder="Select Model" />
+          <SelectTrigger class="w-[180px] h-8 text-xs">
+            <Cpu :size="14" class="mr-1 text-muted-foreground shrink-0" />
+            <SelectValue placeholder="Model" />
           </SelectTrigger>
           <SelectContent>
             <SelectItem
@@ -124,34 +138,22 @@ watch(inputMessage, async (newVal) => {
             </SelectItem>
           </SelectContent>
         </Select>
+
+        <!-- Spacer -->
+        <div class="flex-1" />
+
+        <!-- Send Button -->
+        <Button
+          size="sm"
+          class="h-8 px-4"
+          :disabled="!inputMessage.trim() || isExecuting"
+          @click="handleSend"
+        >
+          <Loader2 v-if="isExecuting" :size="14" class="animate-spin mr-1" />
+          <Send v-else :size="14" class="mr-1" />
+          Send
+        </Button>
       </div>
-    </div>
-
-    <!-- Input Area -->
-    <div
-      :class="cn(
-        'flex items-end gap-2 bg-background border rounded-xl p-2 shadow-md',
-        isExpanded ? 'border-primary/50' : 'border-border'
-      )"
-    >
-      <Textarea
-        v-model="inputMessage"
-        placeholder="Ask the agent to do something..."
-        class="chat-textarea flex-1 min-h-[40px] max-h-[120px] resize-none border-0 bg-transparent p-2 text-sm focus-visible:ring-0 focus-visible:ring-offset-0"
-        :disabled="isExecuting"
-        @keydown="handleKeydown"
-        @input="handleInput"
-      />
-
-      <Button
-        size="icon"
-        class="h-9 w-9 shrink-0"
-        :disabled="!inputMessage.trim() || isExecuting"
-        @click="handleSend"
-      >
-        <Loader2 v-if="isExecuting" :size="16" class="animate-spin" />
-        <Send v-else :size="16" />
-      </Button>
     </div>
 
     <!-- Hints -->

@@ -151,7 +151,11 @@ const formatDate = (timestamp?: number) => {
     </div>
 
     <!-- File List -->
-    <div class="flex-1 overflow-auto p-4">
+    <div class="flex-1 overflow-auto p-4 relative">
+      <!-- Item Count -->
+      <span class="absolute top-2 right-4 text-xs text-muted-foreground bg-background/80 px-2 py-0.5 rounded">
+        {{ filteredItems.length }} items
+      </span>
       <!-- Grid View -->
       <div
         v-if="viewMode === 'grid'"
@@ -227,12 +231,5 @@ const formatDate = (timestamp?: number) => {
       </div>
     </div>
 
-    <!-- Status Bar -->
-    <div class="h-7 border-t flex items-center px-3 text-xs text-muted-foreground">
-      {{ filteredItems.length }} items
-      <span v-if="selected" class="ml-auto">
-        {{ items.find(i => i.path === selected)?.name }}
-      </span>
-    </div>
   </div>
 </template>
