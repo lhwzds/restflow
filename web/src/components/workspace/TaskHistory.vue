@@ -29,10 +29,10 @@ const formatTime = (timestamp: number) => {
 <template>
   <div class="h-full flex flex-col bg-muted/30">
     <!-- Header -->
-    <div class="h-12 px-3 flex items-center justify-between border-b">
-      <span class="text-sm font-medium text-muted-foreground">History</span>
-      <Button variant="ghost" size="icon" class="h-7 w-7" @click="emit('newTask')">
+    <div class="px-3 py-3">
+      <Button variant="outline" size="sm" class="w-full gap-2" @click="emit('newTask')">
         <Plus :size="16" />
+        <span>New Task</span>
       </Button>
     </div>
 
