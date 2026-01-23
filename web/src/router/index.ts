@@ -5,37 +5,13 @@ const router = createRouter({
   routes: [
     {
       path: '/',
-      redirect: '/agents',
+      redirect: '/workspace',
     },
     {
-      path: '/agents',
-      name: 'agents',
-      component: () => import('../views/AgentManagement.vue'),
-      meta: { title: 'Agent Management' },
-    },
-    {
-      path: '/agent/:id',
-      name: 'agent-editor',
-      component: () => import('../views/AgentEditor.vue'),
-      meta: { title: 'Agent Editor' },
-    },
-    {
-      path: '/secrets',
-      name: 'secrets',
-      component: () => import('../views/SecretManagement.vue'),
-      meta: { title: 'Secrets Management' },
-    },
-    {
-      path: '/skills',
-      name: 'skills',
-      component: () => import('../views/SkillManagement.vue'),
-      meta: { title: 'Skill Management' },
-    },
-    {
-      path: '/skill/:id',
-      name: 'skill-editor',
-      component: () => import('../views/SkillEditor.vue'),
-      meta: { title: 'Skill Editor' },
+      path: '/workspace',
+      name: 'workspace',
+      component: () => import('../views/SkillWorkspace.vue'),
+      meta: { title: 'RestFlow' },
     },
   ],
 })
