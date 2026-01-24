@@ -88,7 +88,8 @@ export function useEditorTabs() {
       if (tabs.value.length > 0) {
         // Activate the tab at the same index, or the last one
         const newIndex = Math.min(index, tabs.value.length - 1)
-        activeTabId.value = tabs.value[newIndex].id
+        const nextTab = tabs.value[newIndex]
+        activeTabId.value = nextTab?.id ?? null
       } else {
         activeTabId.value = null
       }

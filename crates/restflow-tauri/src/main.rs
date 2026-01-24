@@ -9,6 +9,7 @@
 )]
 
 use restflow_tauri_lib::commands;
+use restflow_tauri_lib::commands::PtyState;
 use restflow_tauri_lib::AppState;
 use tauri::Manager;
 use tracing::info;
@@ -42,6 +43,9 @@ fn main() {
             });
 
             app.manage(state);
+
+            // Initialize PTY state
+            app.manage(PtyState::new());
 
             info!("RestFlow initialized successfully");
             info!("Press Cmd+Option+I (macOS) or Ctrl+Shift+I (Windows/Linux) to toggle DevTools");
@@ -77,6 +81,13 @@ fn main() {
             commands::get_available_tools,
             commands::check_python_status,
             commands::init_python,
+            // Shell
+            commands::execute_shell,
+            // PTY
+            commands::spawn_pty,
+            commands::write_pty,
+            commands::resize_pty,
+            commands::close_pty,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
