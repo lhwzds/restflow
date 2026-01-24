@@ -8,8 +8,7 @@ import FileBrowser from '@/components/workspace/FileBrowser.vue'
 import ChatBox from '@/components/workspace/ChatBox.vue'
 import ExecutionPanel from '@/components/workspace/ExecutionPanel.vue'
 import SettingsDialog from '@/components/workspace/SettingsDialog.vue'
-import SkillEditor from '@/components/workspace/SkillEditor.vue'
-import AgentEditor from '@/components/workspace/AgentEditor.vue'
+import EditorPanel from '@/components/editor/EditorPanel.vue'
 import type {
   Task,
   ExecutionStep,
@@ -21,6 +20,7 @@ import type {
 import type { Skill } from '@/types/generated/Skill'
 import type { StoredAgent } from '@/types/generated/StoredAgent'
 import { useFileBrowser, type BrowserTab } from '@/composables/workspace/useFileBrowser'
+import { useEditorTabs } from '@/composables/editor/useEditorTabs'
 import { mockAgents, mockModels, mockTasks } from '@/mocks/workspace'
 import { createSkill } from '@/api/skills'
 import { createAgent } from '@/api/agents'
@@ -44,10 +44,8 @@ const { items, isLoading, loadItems } = useFileBrowser(activeTab)
 const currentPath = ref<string>(activeTab.value)
 const selectedItem = ref<FileItem<Skill | StoredAgent> | null>(null)
 
-// Editor state
-const isEditing = ref(false)
-const isCreatingNew = ref(false)
-const editingItem = ref<FileItem<Skill | StoredAgent> | null>(null)
+// Editor tabs state
+const { hasOpenTabs, openSkill, openAgent } = useEditorTabs()
 
 // Chat state
 const isExecuting = ref(false)
@@ -106,9 +104,12 @@ const onSelectItem = (item: FileItem) => {
 
 // Handle file open (double-click or from popover edit button)
 const onOpenItem = (item: FileItem) => {
-  editingItem.value = item as FileItem<Skill | StoredAgent>
-  isEditing.value = true
-  isCreatingNew.value = false
+  const typedItem = item as FileItem<Skill | StoredAgent>
+  if (activeTab.value === 'skills' && typedItem.data) {
+    openSkill(typedItem.data as Skill)
+  } else if (activeTab.value === 'agents' && typedItem.data) {
+    openAgent(typedItem.data as StoredAgent)
+  }
 }
 
 // Generate next available "Untitled-N" name
@@ -127,65 +128,58 @@ const getNextUntitledName = (prefix: string): string => {
   return `${prefix}-${maxNum + 1}`
 }
 
-// Handle create new - immediately create and save, then open editor
-const onCreateNew = async () => {
+// Create new skill
+const onCreateSkill = async () => {
   try {
-    if (activeTab.value === 'skills') {
-      const name = getNextUntitledName('Untitled')
-      const newSkill = await createSkill({
-        name,
-        content: '# New Skill\n\nWrite your skill instructions here...',
-      })
-      // Convert to FileItem and open editor
-      editingItem.value = {
-        id: newSkill.id,
-        name: newSkill.name,
-        path: `skills/${newSkill.id}`,
-        isDirectory: false,
-        data: newSkill,
-      }
-      isEditing.value = true
-      isCreatingNew.value = false
-      await loadItems() // Refresh list
-    } else {
-      const name = getNextUntitledName('Untitled')
-      const newAgent = await createAgent({
-        name,
-        agent: {
-          model: 'claude-sonnet-4-5',
-        },
-      })
-      editingItem.value = {
-        id: newAgent.id,
-        name: newAgent.name,
-        path: `agents/${newAgent.id}`,
-        isDirectory: false,
-        data: newAgent,
-      }
-      isEditing.value = true
-      isCreatingNew.value = false
-      await loadItems()
-    }
+    const name = getNextUntitledName('Untitled')
+    const newSkill = await createSkill({
+      name,
+      content: '# New Skill\n\nWrite your skill instructions here...',
+    })
+    openSkill(newSkill)
+    await loadItems()
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Failed to create'
+    const message = error instanceof Error ? error.message : 'Failed to create skill'
     toast.error(message)
   }
 }
 
-// Handle save complete
-const onSaveComplete = () => {
-  isEditing.value = false
-  editingItem.value = null
-  isCreatingNew.value = false
+// Create new agent
+const onCreateAgent = async () => {
+  try {
+    const name = getNextUntitledName('Untitled')
+    const newAgent = await createAgent({
+      name,
+      agent: {
+        model: 'claude-sonnet-4-5',
+      },
+    })
+    openAgent(newAgent)
+    await loadItems()
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to create agent'
+    toast.error(message)
+  }
+}
+
+// Handle create new from FileBrowser (based on activeTab)
+const onCreateNew = async () => {
+  if (activeTab.value === 'skills') {
+    await onCreateSkill()
+  } else {
+    await onCreateAgent()
+  }
+}
+
+// Handle save from editor panel
+const onEditorSave = () => {
   selectedItem.value = null
   loadItems() // Refresh the list
 }
 
-// Handle cancel edit
-const onCancelEdit = () => {
-  isEditing.value = false
-  editingItem.value = null
-  isCreatingNew.value = false
+// Handle close when all tabs closed
+const onEditorClose = () => {
+  selectedItem.value = null
 }
 
 // Handle chat send
@@ -276,22 +270,13 @@ const onCloseChat = () => {
 
       <!-- Center Content Area -->
       <div class="flex-1 flex flex-col min-w-0 overflow-hidden">
-        <!-- Editor Mode -->
-        <template v-if="isEditing">
-          <SkillEditor
-            v-if="activeTab === 'skills'"
-            :skill="editingItem?.data as Skill | undefined"
-            :is-new="isCreatingNew"
-            @save="onSaveComplete"
-            @cancel="onCancelEdit"
-            class="flex-1"
-          />
-          <AgentEditor
-            v-else
-            :agent="editingItem?.data as StoredAgent | undefined"
-            :is-new="isCreatingNew"
-            @save="onSaveComplete"
-            @cancel="onCancelEdit"
+        <!-- Editor Mode (with tabs) -->
+        <template v-if="hasOpenTabs">
+          <EditorPanel
+            @save="onEditorSave"
+            @close="onEditorClose"
+            @new-skill="onCreateSkill"
+            @new-agent="onCreateAgent"
             class="flex-1"
           />
         </template>
