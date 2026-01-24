@@ -111,14 +111,29 @@ const onOpenItem = (item: FileItem) => {
   isCreatingNew.value = false
 }
 
+// Generate next available "Untitled-N" name
+const getNextUntitledName = (prefix: string): string => {
+  const pattern = new RegExp(`^${prefix}-(\\d+)$`)
+  let maxNum = 0
+
+  for (const item of items.value) {
+    const match = item.name.match(pattern)
+    if (match && match[1]) {
+      const num = parseInt(match[1], 10)
+      if (num > maxNum) maxNum = num
+    }
+  }
+
+  return `${prefix}-${maxNum + 1}`
+}
+
 // Handle create new - immediately create and save, then open editor
 const onCreateNew = async () => {
   try {
     if (activeTab.value === 'skills') {
-      // Generate unique name
-      const timestamp = Date.now()
+      const name = getNextUntitledName('Untitled')
       const newSkill = await createSkill({
-        name: `Untitled-${timestamp}`,
+        name,
         content: '# New Skill\n\nWrite your skill instructions here...',
       })
       // Convert to FileItem and open editor
@@ -133,10 +148,9 @@ const onCreateNew = async () => {
       isCreatingNew.value = false
       await loadItems() // Refresh list
     } else {
-      // Create new agent
-      const timestamp = Date.now()
+      const name = getNextUntitledName('Untitled')
       const newAgent = await createAgent({
-        name: `Untitled-${timestamp}`,
+        name,
         agent: {
           model: 'claude-sonnet-4-5',
         },
