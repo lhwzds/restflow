@@ -28,7 +28,11 @@ const { isOpen, options, handleConfirm, handleCancel } = useConfirm()
           {{ options.cancelText }}
         </AlertDialogCancel>
         <AlertDialogAction
-          :class="options.variant === 'destructive' ? 'bg-destructive text-destructive-foreground hover:bg-destructive/90' : ''"
+          :class="
+            options.variant === 'destructive'
+              ? 'bg-destructive text-destructive-foreground hover:bg-destructive/90'
+              : ''
+          "
           @click="handleConfirm"
         >
           {{ options.confirmText }}

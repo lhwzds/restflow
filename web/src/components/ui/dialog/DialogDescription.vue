@@ -9,9 +9,7 @@ const props = defineProps<{
 </script>
 
 <template>
-  <DialogDescription
-    :class="cn('text-sm text-muted-foreground', props.class)"
-  >
+  <DialogDescription :class="cn('text-sm text-muted-foreground', props.class)">
     <slot />
   </DialogDescription>
 </template>

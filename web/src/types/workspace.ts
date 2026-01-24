@@ -30,12 +30,15 @@ export interface ModelOption {
   name: string
 }
 
-export interface FileItem {
+export interface FileItem<T = unknown> {
+  id: string
   name: string
   path: string
   isDirectory: boolean
   childCount?: number
   updatedAt?: number
+  // Store the original data (Skill or StoredAgent) for preview/edit
+  data?: T
 }
 
 export interface ChatMessage {

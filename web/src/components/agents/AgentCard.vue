@@ -35,13 +35,16 @@ const modelBadgeVariant = computed(() => {
   const provider = getProvider(props.agent.agent.model)
   const type = getProviderTagType(provider)
   // Map Element Plus tag types to Badge variants
-  const variantMap: Record<string, 'default' | 'secondary' | 'destructive' | 'outline' | 'success' | 'warning' | 'info'> = {
+  const variantMap: Record<
+    string,
+    'default' | 'secondary' | 'destructive' | 'outline' | 'success' | 'warning' | 'info'
+  > = {
     '': 'default',
-    'primary': 'default',
-    'success': 'success',
-    'warning': 'warning',
-    'danger': 'destructive',
-    'info': 'info',
+    primary: 'default',
+    success: 'success',
+    warning: 'warning',
+    danger: 'destructive',
+    info: 'info',
   }
   return variantMap[type] || 'secondary'
 })

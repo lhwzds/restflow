@@ -1,12 +1,7 @@
 <script setup lang="ts">
 import { ref, reactive, watch } from 'vue'
 import { Plus, Check, X, Trash2, Pencil, Eye, EyeOff, Key } from 'lucide-vue-next'
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useSecretsList } from '@/composables/secrets/useSecretsList'
@@ -63,7 +58,7 @@ watch(
     if (isOpen) {
       loadSecrets()
     }
-  }
+  },
 )
 
 function handleAddSecret() {
@@ -173,7 +168,6 @@ function setEditValue(key: string, value: string) {
     editState.editData[key].value = value
   }
 }
-
 </script>
 
 <template>
@@ -205,7 +199,10 @@ function setEditValue(key: string, value: string) {
         <!-- Secrets List -->
         <div class="flex-1 space-y-1 overflow-auto">
           <!-- New Secret Row -->
-          <div v-if="editState.mode === 'creating'" class="flex items-center gap-2 p-2 rounded-lg bg-muted/30">
+          <div
+            v-if="editState.mode === 'creating'"
+            class="flex items-center gap-2 p-2 rounded-lg bg-muted/30"
+          >
             <Input
               v-model="editState.newRow!.key"
               placeholder="KEY_NAME"
@@ -245,7 +242,9 @@ function setEditValue(key: string, value: string) {
           >
             <!-- Editing Mode -->
             <template v-if="isEditing(row)">
-              <span class="font-mono text-xs text-primary w-32 truncate shrink-0">{{ row.key }}</span>
+              <span class="font-mono text-xs text-primary w-32 truncate shrink-0">{{
+                row.key
+              }}</span>
               <div class="relative flex-1">
                 <Input
                   :model-value="getEditValue(row.key)"
@@ -274,7 +273,9 @@ function setEditValue(key: string, value: string) {
 
             <!-- View Mode -->
             <template v-else>
-              <span class="font-mono text-xs text-primary w-32 truncate shrink-0">{{ row.key }}</span>
+              <span class="font-mono text-xs text-primary w-32 truncate shrink-0">{{
+                row.key
+              }}</span>
               <span class="flex-1 text-xs text-muted-foreground">••••••••</span>
               <Button
                 variant="ghost"

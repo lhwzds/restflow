@@ -70,22 +70,19 @@ watch(inputMessage, async (newVal) => {
   <div class="transition-all duration-300">
     <!-- Close button when expanded -->
     <div v-if="isExpanded" class="flex justify-end pb-2">
-      <Button
-        variant="ghost"
-        size="icon"
-        class="h-7 w-7"
-        @click="emit('close')"
-      >
+      <Button variant="ghost" size="icon" class="h-7 w-7" @click="emit('close')">
         <X :size="16" />
       </Button>
     </div>
 
     <!-- Input Area -->
     <div
-      :class="cn(
-        'flex flex-col bg-background border rounded-xl p-3',
-        isExpanded ? 'border-primary/50' : 'border-border'
-      )"
+      :class="
+        cn(
+          'flex flex-col bg-background border rounded-xl p-3',
+          isExpanded ? 'border-primary/50' : 'border-border',
+        )
+      "
     >
       <!-- Textarea -->
       <Textarea
@@ -109,11 +106,7 @@ watch(inputMessage, async (newVal) => {
             <SelectValue placeholder="Agent" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem
-              v-for="agent in availableAgents"
-              :key="agent.id"
-              :value="agent.id"
-            >
+            <SelectItem v-for="agent in availableAgents" :key="agent.id" :value="agent.id">
               {{ agent.name }}
             </SelectItem>
           </SelectContent>
@@ -129,11 +122,7 @@ watch(inputMessage, async (newVal) => {
             <SelectValue placeholder="Model" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem
-              v-for="model in availableModels"
-              :key="model.id"
-              :value="model.id"
-            >
+            <SelectItem v-for="model in availableModels" :key="model.id" :value="model.id">
               {{ model.name }}
             </SelectItem>
           </SelectContent>
@@ -162,7 +151,9 @@ watch(inputMessage, async (newVal) => {
       class="mt-2 flex items-center justify-center gap-4 text-xs text-muted-foreground"
     >
       <span>Press <kbd class="px-1 py-0.5 bg-muted rounded text-[10px]">Enter</kbd> to send</span>
-      <span><kbd class="px-1 py-0.5 bg-muted rounded text-[10px]">Shift+Enter</kbd> for new line</span>
+      <span
+        ><kbd class="px-1 py-0.5 bg-muted rounded text-[10px]">Shift+Enter</kbd> for new line</span
+      >
     </div>
   </div>
 </template>

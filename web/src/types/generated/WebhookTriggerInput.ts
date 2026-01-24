@@ -3,4 +3,4 @@
 /**
  * Webhook trigger input - HTTP endpoint configuration
  */
-export type WebhookTriggerInput = { path: string, method: string, };
+export type WebhookTriggerInput = { path: string; method: string }
