@@ -75,9 +75,6 @@ const selectedItemId = computed(() => selectedItem.value?.id || null)
 watch(activeTab, (newTab) => {
   currentPath.value = newTab
   selectedItem.value = null
-  isEditing.value = false
-  editingItem.value = null
-  isCreatingNew.value = false
 })
 
 // Load items on mount
@@ -354,7 +351,7 @@ const onCloseChat = () => {
 
       <!-- Right Sidebar: Execution Panel -->
       <ExecutionPanel
-        v-if="(isChatExpanded || isExecuting) && !isEditing"
+        v-if="(isChatExpanded || isExecuting) && !hasOpenTabs"
         :steps="executionSteps"
         :is-executing="isExecuting"
         class="w-64 border-l shrink-0"

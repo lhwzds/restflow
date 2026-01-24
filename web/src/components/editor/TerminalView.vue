@@ -1,112 +1,156 @@
 <script setup lang="ts">
-import { ref, nextTick, onMounted } from 'vue'
-import { Loader2 } from 'lucide-vue-next'
+import { ref, onMounted, onUnmounted } from 'vue'
+import { Terminal } from '@xterm/xterm'
+import { FitAddon } from '@xterm/addon-fit'
+import { spawnPty, writePty, resizePty, closePty, onPtyOutput, onPtyClosed } from '@/api/pty'
+import { isTauri } from '@/api/tauri-client'
+import '@xterm/xterm/css/xterm.css'
 
 const props = defineProps<{
   tabId: string
 }>()
 
-interface OutputLine {
-  type: 'input' | 'output' | 'error'
-  content: string
-}
+const terminalRef = ref<HTMLElement | null>(null)
+const isConnected = ref(false)
+const error = ref<string | null>(null)
 
-const output = ref<OutputLine[]>([])
-const inputValue = ref('')
-const isRunning = ref(false)
-const outputContainer = ref<HTMLElement | null>(null)
+let term: Terminal | null = null
+let fitAddon: FitAddon | null = null
+let unlistenOutput: (() => void) | null = null
+let unlistenClosed: (() => void) | null = null
+let resizeObserver: ResizeObserver | null = null
 
-// Scroll to bottom when new output is added
-async function scrollToBottom() {
-  await nextTick()
-  if (outputContainer.value) {
-    outputContainer.value.scrollTop = outputContainer.value.scrollHeight
+onMounted(async () => {
+  if (!terminalRef.value) return
+
+  // Check if running in Tauri
+  if (!isTauri()) {
+    error.value = 'Terminal requires Tauri desktop app'
+    return
   }
-}
-
-// Handle command submission
-async function handleSubmit() {
-  const command = inputValue.value.trim()
-  if (!command || isRunning.value) return
-
-  // Add command to output
-  output.value.push({ type: 'input', content: `$ ${command}` })
-  inputValue.value = ''
-  isRunning.value = true
-  await scrollToBottom()
 
   try {
-    // TODO: Integrate with Tauri command execution
-    // For now, simulate command execution
-    await new Promise((resolve) => setTimeout(resolve, 500))
-
-    // Placeholder response
-    output.value.push({
-      type: 'output',
-      content: `[Command execution not yet implemented]\nCommand: ${command}`,
+    // Initialize xterm.js
+    term = new Terminal({
+      cursorBlink: true,
+      fontSize: 14,
+      fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+      theme: {
+        background: '#09090b',
+        foreground: '#fafafa',
+        cursor: '#fafafa',
+        cursorAccent: '#09090b',
+        selectionBackground: '#3f3f46',
+        black: '#09090b',
+        red: '#ef4444',
+        green: '#22c55e',
+        yellow: '#eab308',
+        blue: '#3b82f6',
+        magenta: '#a855f7',
+        cyan: '#06b6d4',
+        white: '#fafafa',
+        brightBlack: '#71717a',
+        brightRed: '#f87171',
+        brightGreen: '#4ade80',
+        brightYellow: '#facc15',
+        brightBlue: '#60a5fa',
+        brightMagenta: '#c084fc',
+        brightCyan: '#22d3ee',
+        brightWhite: '#ffffff',
+      },
     })
-  } catch (error) {
-    output.value.push({
-      type: 'error',
-      content: error instanceof Error ? error.message : 'Unknown error',
+
+    // Add fit addon for auto-resizing
+    fitAddon = new FitAddon()
+    term.loadAddon(fitAddon)
+
+    // Open terminal in DOM
+    term.open(terminalRef.value)
+    fitAddon.fit()
+
+    // Listen for PTY output
+    unlistenOutput = await onPtyOutput(props.tabId, (data) => {
+      term?.write(data)
     })
-  } finally {
-    isRunning.value = false
-    await scrollToBottom()
-  }
-}
 
-// Handle key events
-function handleKeyDown(event: KeyboardEvent) {
-  if (event.key === 'Enter' && !event.shiftKey) {
-    event.preventDefault()
-    handleSubmit()
-  }
-}
+    // Listen for PTY closed
+    unlistenClosed = await onPtyClosed(props.tabId, () => {
+      term?.write('\r\n\x1b[31m[Process exited]\x1b[0m\r\n')
+      isConnected.value = false
+    })
 
-onMounted(() => {
-  // Add welcome message
-  output.value.push({
-    type: 'output',
-    content: 'Terminal ready. Type a command and press Enter.',
-  })
+    // Spawn PTY session
+    await spawnPty(props.tabId, term.cols, term.rows)
+    isConnected.value = true
+
+    // Send user input to PTY
+    term.onData((data) => {
+      if (isConnected.value) {
+        writePty(props.tabId, data)
+      }
+    })
+
+    // Handle window resize
+    resizeObserver = new ResizeObserver(() => {
+      if (fitAddon && term && isConnected.value) {
+        fitAddon.fit()
+        resizePty(props.tabId, term.cols, term.rows)
+      }
+    })
+    resizeObserver.observe(terminalRef.value)
+
+    // Focus terminal
+    term.focus()
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : String(e)
+    console.error('Failed to initialize terminal:', e)
+  }
+})
+
+onUnmounted(async () => {
+  // Cleanup
+  resizeObserver?.disconnect()
+  unlistenOutput?.()
+  unlistenClosed?.()
+
+  if (isConnected.value) {
+    try {
+      await closePty(props.tabId)
+    } catch (e) {
+      console.error('Failed to close PTY:', e)
+    }
+  }
+
+  term?.dispose()
 })
 </script>
 
 <template>
-  <div class="h-full flex flex-col bg-zinc-950 text-zinc-100 font-mono text-sm">
-    <!-- Output Area -->
-    <div ref="outputContainer" class="flex-1 overflow-auto p-4 space-y-1">
-      <div
-        v-for="(line, index) in output"
-        :key="index"
-        :class="{
-          'text-zinc-400': line.type === 'output',
-          'text-green-400': line.type === 'input',
-          'text-red-400': line.type === 'error',
-        }"
-      >
-        <pre class="whitespace-pre-wrap break-words">{{ line.content }}</pre>
-      </div>
+  <div class="h-full w-full bg-zinc-950 relative">
+    <!-- Terminal container -->
+    <div ref="terminalRef" class="h-full w-full" />
 
-      <!-- Loading indicator -->
-      <div v-if="isRunning" class="flex items-center gap-2 text-zinc-500">
-        <Loader2 :size="14" class="animate-spin" />
-        <span>Running...</span>
+    <!-- Error overlay -->
+    <div
+      v-if="error"
+      class="absolute inset-0 flex items-center justify-center bg-zinc-950/90 text-red-400"
+    >
+      <div class="text-center p-4">
+        <p class="text-lg font-medium mb-2">Terminal Error</p>
+        <p class="text-sm text-zinc-400">{{ error }}</p>
       </div>
-    </div>
-
-    <!-- Input Area -->
-    <div class="border-t border-zinc-800 p-2 flex items-center gap-2">
-      <span class="text-green-400">$</span>
-      <input
-        v-model="inputValue"
-        type="text"
-        class="flex-1 bg-transparent outline-none text-zinc-100 placeholder:text-zinc-600"
-        placeholder="Enter command..."
-        :disabled="isRunning"
-        @keydown="handleKeyDown"
-      />
     </div>
   </div>
 </template>
+
+<style>
+/* Ensure xterm fills the container */
+.xterm {
+  height: 100%;
+  padding: 8px;
+}
+
+.xterm-viewport {
+  overflow-y: auto !important;
+}
+</style>
