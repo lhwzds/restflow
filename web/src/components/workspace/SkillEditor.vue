@@ -7,6 +7,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { createSkill, updateSkill } from '@/api/skills'
 import type { Skill } from '@/types/generated/Skill'
 import { useToast } from '@/composables/useToast'
+import { skillToMarkdown, parseMarkdown, newSkillTemplate } from '@/utils/skillMarkdown'
 
 const props = defineProps<{
   skill?: Skill | null
@@ -26,70 +27,6 @@ const fileName = ref('Untitled')
 
 // Raw markdown content (includes frontmatter)
 const rawContent = ref('')
-
-// Template for new skill
-const newSkillTemplate = `---
-description:
-tags: []
----
-
-# Skill Title
-
-Write your skill instructions here...
-`
-
-// Convert skill to markdown format with frontmatter
-function skillToMarkdown(skill: Skill): string {
-  const frontmatter: string[] = ['---']
-
-  if (skill.description) {
-    frontmatter.push(`description: ${skill.description}`)
-  }
-
-  if (skill.tags && skill.tags.length > 0) {
-    frontmatter.push(`tags: [${skill.tags.join(', ')}]`)
-  }
-
-  frontmatter.push('---')
-  frontmatter.push('')
-
-  return frontmatter.join('\n') + skill.content
-}
-
-// Parse markdown with frontmatter to extract metadata
-function parseMarkdown(content: string): { description?: string; tags?: string[]; body: string } {
-  const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/)
-
-  if (!frontmatterMatch) {
-    return { body: content }
-  }
-
-  const frontmatterStr = frontmatterMatch[1] || ''
-  const body = frontmatterMatch[2] || ''
-  const result: { description?: string; tags?: string[]; body: string } = { body: body.trim() }
-
-  // Parse frontmatter lines
-  const lines = frontmatterStr.split('\n')
-  for (const line of lines) {
-    const descMatch = line.match(/^description:\s*(.*)$/)
-    if (descMatch) {
-      const desc = descMatch[1]?.trim()
-      if (desc) {
-        result.description = desc
-      }
-    }
-
-    const tagsMatch = line.match(/^tags:\s*\[(.*)\]$/)
-    if (tagsMatch) {
-      const tagsStr = tagsMatch[1]?.trim()
-      if (tagsStr) {
-        result.tags = tagsStr.split(',').map((t) => t.trim()).filter(Boolean)
-      }
-    }
-  }
-
-  return result
-}
 
 // Initialize content from skill
 watch(
