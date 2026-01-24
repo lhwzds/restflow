@@ -13,7 +13,7 @@ const props = defineProps<SeparatorProps & { class?: HTMLAttributes['class'] }>(
       cn(
         'shrink-0 bg-border',
         props.orientation === 'vertical' ? 'h-full w-px' : 'h-px w-full',
-        props.class
+        props.class,
       )
     "
   />

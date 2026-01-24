@@ -105,7 +105,8 @@ export function useAgentEditor(agentId: string) {
         name: updatedAgent.name,
         model: updatedAgent.agent.model,
         prompt: updatedAgent.agent.prompt,
-        temperature: updatedAgent.agent.temperature ?? getDefaultTemperature(updatedAgent.agent.model),
+        temperature:
+          updatedAgent.agent.temperature ?? getDefaultTemperature(updatedAgent.agent.model),
         api_key_config: updatedAgent.agent.api_key_config,
         tools: updatedAgent.agent.tools || [],
       }

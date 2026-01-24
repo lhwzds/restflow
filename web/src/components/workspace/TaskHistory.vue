@@ -41,10 +41,12 @@ const formatTime = (timestamp: number) => {
       <button
         v-for="task in tasks"
         :key="task.id"
-        :class="cn(
-          'w-full px-3 py-2 text-left transition-colors hover:bg-muted/50',
-          currentTaskId === task.id && 'bg-muted'
-        )"
+        :class="
+          cn(
+            'w-full px-3 py-2 text-left transition-colors hover:bg-muted/50',
+            currentTaskId === task.id && 'bg-muted',
+          )
+        "
         @click="emit('select', task.id)"
       >
         <div class="flex items-start gap-2">
@@ -55,11 +57,7 @@ const formatTime = (timestamp: number) => {
               :size="14"
               class="animate-spin text-primary"
             />
-            <Check
-              v-else-if="task.status === 'completed'"
-              :size="14"
-              class="text-green-500"
-            />
+            <Check v-else-if="task.status === 'completed'" :size="14" class="text-green-500" />
             <MessageSquare v-else :size="14" class="text-muted-foreground" />
           </div>
 
@@ -74,10 +72,7 @@ const formatTime = (timestamp: number) => {
       </button>
 
       <!-- Empty State -->
-      <div
-        v-if="tasks.length === 0"
-        class="px-3 py-8 text-center text-sm text-muted-foreground"
-      >
+      <div v-if="tasks.length === 0" class="px-3 py-8 text-center text-sm text-muted-foreground">
         No tasks yet
       </div>
     </div>

@@ -3,24 +3,25 @@
 /**
  * Email send output
  */
-export type EmailOutput = { 
-/**
- * Unix timestamp (milliseconds) when email was sent
- */
-sent_at: number, 
-/**
- * Message ID from email server (if available)
- */
-message_id: string | null, 
-/**
- * List of recipients
- */
-recipients: Array<string>, 
-/**
- * Email subject
- */
-subject: string, 
-/**
- * Whether email was sent as HTML
- */
-is_html: boolean, };
+export type EmailOutput = {
+  /**
+   * Unix timestamp (milliseconds) when email was sent
+   */
+  sent_at: number
+  /**
+   * Message ID from email server (if available)
+   */
+  message_id: string | null
+  /**
+   * List of recipients
+   */
+  recipients: Array<string>
+  /**
+   * Email subject
+   */
+  subject: string
+  /**
+   * Whether email was sent as HTML
+   */
+  is_html: boolean
+}

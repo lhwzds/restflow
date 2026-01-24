@@ -1,5 +1,10 @@
 <script setup lang="ts">
-import { CollapsibleRoot, type CollapsibleRootEmits, type CollapsibleRootProps, useForwardPropsEmits } from 'radix-vue'
+import {
+  CollapsibleRoot,
+  type CollapsibleRootEmits,
+  type CollapsibleRootProps,
+  useForwardPropsEmits,
+} from 'radix-vue'
 
 const props = defineProps<CollapsibleRootProps>()
 const emits = defineEmits<CollapsibleRootEmits>()

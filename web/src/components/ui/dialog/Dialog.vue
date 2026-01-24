@@ -11,10 +11,7 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <DialogRoot
-    :open="props.open"
-    @update:open="emit('update:open', $event)"
-  >
+  <DialogRoot :open="props.open" @update:open="emit('update:open', $event)">
     <slot />
   </DialogRoot>
 </template>

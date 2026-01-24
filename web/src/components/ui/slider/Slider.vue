@@ -17,15 +17,11 @@ const emits = defineEmits<SliderRootEmits>()
 
 <template>
   <SliderRoot
-    :class="
-      cn('relative flex w-full touch-none select-none items-center', props.class)
-    "
+    :class="cn('relative flex w-full touch-none select-none items-center', props.class)"
     v-bind="props"
     @update:model-value="(v) => emits('update:modelValue', v)"
   >
-    <SliderTrack
-      class="relative h-1.5 w-full grow overflow-hidden rounded-full bg-primary/20"
-    >
+    <SliderTrack class="relative h-1.5 w-full grow overflow-hidden rounded-full bg-primary/20">
       <SliderRange class="absolute h-full bg-primary" />
     </SliderTrack>
     <SliderThumb

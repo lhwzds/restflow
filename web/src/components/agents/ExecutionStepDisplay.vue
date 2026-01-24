@@ -1,6 +1,14 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { MessageCircle, Wrench, Check, User, Settings, ChevronDown, ChevronRight } from 'lucide-vue-next'
+import {
+  MessageCircle,
+  Wrench,
+  Check,
+  User,
+  Settings,
+  ChevronDown,
+  ChevronRight,
+} from 'lucide-vue-next'
 import type { ExecutionStep } from '@/api/agents'
 import MarkdownRenderer from '@/components/shared/MarkdownRenderer.vue'
 import { Badge } from '@/components/ui/badge'
@@ -93,7 +101,9 @@ function formatArguments(args: Record<string, unknown>): string {
             v-for="tc in step.tool_calls"
             :key="tc.id"
             :open="openToolCalls.has(tc.id)"
-            @update:open="(open: boolean) => open ? openToolCalls.add(tc.id) : openToolCalls.delete(tc.id)"
+            @update:open="
+              (open: boolean) => (open ? openToolCalls.add(tc.id) : openToolCalls.delete(tc.id))
+            "
             class="tool-call-item"
           >
             <CollapsibleTrigger class="tool-call-trigger">

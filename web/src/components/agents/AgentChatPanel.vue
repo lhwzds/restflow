@@ -157,11 +157,7 @@ onMounted(() => {
               <Badge variant="warning" class="details-tag">
                 {{ message.executionDetails.total_tokens }} tokens
               </Badge>
-              <Button
-                variant="ghost"
-                size="sm"
-                @click="toggleDetails(index)"
-              >
+              <Button variant="ghost" size="sm" @click="toggleDetails(index)">
                 <component :is="message.showDetails ? EyeOff : Eye" class="mr-1 h-4 w-4" />
                 {{ message.showDetails ? 'Hide Details' : 'Show Details' }}
               </Button>
@@ -182,7 +178,9 @@ onMounted(() => {
             <div class="details-header">
               <span>Execution Steps</span>
               <Badge
-                :variant="message.executionDetails.status === 'completed' ? 'success' : 'destructive'"
+                :variant="
+                  message.executionDetails.status === 'completed' ? 'success' : 'destructive'
+                "
               >
                 {{ message.executionDetails.status }}
               </Badge>
@@ -217,11 +215,7 @@ onMounted(() => {
         :disabled="isLoading"
         @keydown="handleKeydown"
       />
-      <Button
-        :disabled="!input.trim() || isLoading"
-        @click="handleSend"
-        class="send-button"
-      >
+      <Button :disabled="!input.trim() || isLoading" @click="handleSend" class="send-button">
         <Loader2 v-if="isLoading" class="mr-2 h-4 w-4 animate-spin" />
         <Send v-else class="mr-2 h-4 w-4" />
         {{ isLoading ? 'Sending...' : 'Send' }}
