@@ -9,10 +9,16 @@ import type { Skill } from '@/types/generated/Skill'
 import { useToast } from '@/composables/useToast'
 import { skillToMarkdown, parseMarkdown, newSkillTemplate } from '@/utils/skillMarkdown'
 
-const props = defineProps<{
-  skill?: Skill | null
-  isNew?: boolean
-}>()
+const props = withDefaults(
+  defineProps<{
+    skill?: Skill | null
+    isNew?: boolean
+    showHeader?: boolean
+  }>(),
+  {
+    showHeader: true,
+  },
+)
 
 const emit = defineEmits<{
   save: [skill: Skill]
@@ -97,8 +103,8 @@ async function handleSave() {
 
 <template>
   <div class="h-full flex flex-col bg-background">
-    <!-- Header: File name + actions -->
-    <div class="h-11 border-b flex items-center px-3 gap-3 shrink-0">
+    <!-- Header: File name + actions (conditional) -->
+    <div v-if="showHeader" class="h-11 border-b flex items-center px-3 gap-3 shrink-0">
       <FileText :size="18" class="text-muted-foreground shrink-0" />
 
       <!-- Editable file name -->

@@ -23,10 +23,16 @@ import { useAgentTools } from '@/composables/agents/useAgentTools'
 import { getAllModels, getDefaultTemperature, supportsTemperature } from '@/utils/AIModels'
 import { useModelsStore } from '@/stores/modelsStore'
 
-const props = defineProps<{
-  agent?: StoredAgent | null
-  isNew?: boolean
-}>()
+const props = withDefaults(
+  defineProps<{
+    agent?: StoredAgent | null
+    isNew?: boolean
+    showHeader?: boolean
+  }>(),
+  {
+    showHeader: true,
+  },
+)
 
 const emit = defineEmits<{
   save: [agent: StoredAgent]
@@ -188,8 +194,8 @@ onMounted(async () => {
 
 <template>
   <div class="h-full flex flex-col bg-background">
-    <!-- Header -->
-    <div class="h-12 border-b flex items-center px-4 justify-between shrink-0">
+    <!-- Header (conditional) -->
+    <div v-if="showHeader" class="h-12 border-b flex items-center px-4 justify-between shrink-0">
       <h2 class="text-lg font-semibold">
         {{ isNew ? 'New Agent' : 'Edit Agent' }}
       </h2>
