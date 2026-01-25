@@ -113,10 +113,14 @@ const formatDate = (timestamp: number) => {
   <div class="h-full flex flex-col bg-background">
     <!-- Toolbar -->
     <div class="h-11 border-b flex items-center px-3 gap-2">
-      <!-- Breadcrumb (static) -->
-      <div class="flex-1 flex items-center gap-1 text-sm">
-        <span class="font-medium">Terminals</span>
+      <!-- Placeholder for navigation buttons (to align with FileBrowser) -->
+      <div class="flex gap-1">
+        <div class="h-7 w-7" />
+        <div class="h-7 w-7" />
       </div>
+
+      <!-- Spacer -->
+      <div class="flex-1" />
 
       <!-- Search -->
       <div class="relative w-40">
@@ -145,7 +149,7 @@ const formatDate = (timestamp: number) => {
       </div>
 
       <!-- Create Button -->
-      <Button size="sm" class="h-7" :disabled="isCreating" @click="handleCreateTerminal">
+      <Button size="sm" class="h-7 w-[120px]" :disabled="isCreating" @click="handleCreateTerminal">
         <Plus :size="14" class="mr-1" />
         New Terminal
       </Button>
