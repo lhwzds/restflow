@@ -19,6 +19,7 @@ import DOMPurify from 'dompurify'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
+import { Card, CardContent } from '@/components/ui/card'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { cn } from '@/lib/utils'
 import type { FileItem } from '@/types/workspace'
@@ -294,16 +295,18 @@ function getAgentInfo(item: FileItem) {
         </Popover>
 
         <!-- Create new item card -->
-        <button
+        <Card
           v-if="createLabel"
-          class="flex flex-col items-center p-3 rounded-lg cursor-pointer transition-all border-2 border-dashed hover:border-primary hover:bg-muted/50"
+          class="cursor-pointer border-dashed hover:border-primary transition-colors"
           @click="emit('create')"
         >
-          <div class="w-14 h-14 flex items-center justify-center mb-2">
-            <Plus class="w-10 h-10 text-muted-foreground" />
-          </div>
-          <span class="text-sm text-muted-foreground">{{ createLabel }}</span>
-        </button>
+          <CardContent
+            class="flex flex-col items-center justify-center p-6 text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <Plus :size="32" class="mb-2" />
+            <span class="text-sm">{{ createLabel }}</span>
+          </CardContent>
+        </Card>
       </div>
 
       <!-- List View -->
