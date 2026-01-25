@@ -248,16 +248,18 @@ impl TuiApp {
                     .push("⚠️ Workflow commands are deprecated.".to_string());
                 self.new_messages
                     .push("   RestFlow now uses an Agent-centric architecture.".to_string());
-                self.new_messages
-                    .push("   Please use the web interface to manage agents and skills.".to_string());
+                self.new_messages.push(
+                    "   Please use the web interface to manage agents and skills.".to_string(),
+                );
             }
             cmd if cmd.starts_with("/run ") => {
                 self.new_messages
                     .push("⚠️ Workflow commands are deprecated.".to_string());
                 self.new_messages
                     .push("   RestFlow now uses an Agent-centric architecture.".to_string());
-                self.new_messages
-                    .push("   Please use the web interface to manage agents and skills.".to_string());
+                self.new_messages.push(
+                    "   Please use the web interface to manage agents and skills.".to_string(),
+                );
             }
             _ => {
                 if input.starts_with('/') {
@@ -268,8 +270,9 @@ impl TuiApp {
                     // TODO: Implement using restflow-ai AgentExecutor
                     self.new_messages
                         .push("🤖 AI chat is not yet implemented in CLI.".to_string());
-                    self.new_messages
-                        .push("   Please use the web interface for agent interactions.".to_string());
+                    self.new_messages.push(
+                        "   Please use the web interface for agent interactions.".to_string(),
+                    );
                 }
             }
         }

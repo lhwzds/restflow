@@ -93,11 +93,7 @@ impl Evaluator for ExactMatchEvaluator {
         actual: &serde_json::Value,
         expected: &serde_json::Value,
     ) -> anyhow::Result<f64> {
-        if actual == expected {
-            Ok(1.0)
-        } else {
-            Ok(0.0)
-        }
+        if actual == expected { Ok(1.0) } else { Ok(0.0) }
     }
 }
 
@@ -186,9 +182,9 @@ impl EvalResult {
             passed,
             failed,
             accuracy,
-            avg_latency: 0.0,  // TODO: Calculate
-            total_tokens: 0,    // TODO: Calculate
-            total_cost: 0.0,    // TODO: Calculate
+            avg_latency: 0.0, // TODO: Calculate
+            total_tokens: 0,  // TODO: Calculate
+            total_cost: 0.0,  // TODO: Calculate
         }
     }
 
@@ -212,9 +208,7 @@ impl EvalRunner {
     /// Run evaluation on a dataset
     pub async fn run(&self, _dataset: &Dataset) -> anyhow::Result<EvalResult> {
         // TODO: Implement evaluation runner
-        Err(anyhow::anyhow!(
-            "Evaluation runner not yet implemented"
-        ))
+        Err(anyhow::anyhow!("Evaluation runner not yet implemented"))
     }
 }
 

@@ -1,9 +1,9 @@
 //! Agent-related Tauri commands
 
 use crate::state::AppState;
+use restflow_core::AgentExecuteResponse;
 use restflow_core::models::AgentNode;
 use restflow_core::storage::agent::StoredAgent;
-use restflow_core::AgentExecuteResponse;
 use serde::Deserialize;
 use tauri::State;
 
@@ -111,7 +111,10 @@ pub async fn execute_agent(
     // TODO: Implement full agent execution using restflow-ai AgentExecutor
     // For now, return a placeholder response
     Ok(AgentExecuteResponse {
-        response: format!("Agent execution not yet implemented. Prompt: {}", request.prompt),
+        response: format!(
+            "Agent execution not yet implemented. Prompt: {}",
+            request.prompt
+        ),
         execution_details: None,
     })
 }
@@ -126,7 +129,10 @@ pub async fn execute_agent_inline(
 ) -> Result<AgentExecuteResponse, String> {
     // TODO: Implement full agent execution using restflow-ai AgentExecutor
     Ok(AgentExecuteResponse {
-        response: format!("Inline agent execution not yet implemented. Prompt: {}", prompt),
+        response: format!(
+            "Inline agent execution not yet implemented. Prompt: {}",
+            prompt
+        ),
         execution_details: None,
     })
 }

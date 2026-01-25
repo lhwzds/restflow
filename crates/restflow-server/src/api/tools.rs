@@ -2,7 +2,7 @@
 
 use crate::api::ApiResponse;
 use axum::Json;
-use restflow_ai::tools::{default_registry, ToolSchema};
+use restflow_ai::tools::{ToolSchema, default_registry};
 use serde::{Deserialize, Serialize};
 
 /// Tool information exposed to frontend

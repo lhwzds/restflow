@@ -27,6 +27,7 @@ pub mod execution_history;
 pub mod secrets;
 pub mod skill;
 pub mod task_queue;
+pub mod terminal_session;
 pub mod trigger;
 pub mod workflow;
 
@@ -36,10 +37,13 @@ use std::sync::Arc;
 
 pub use agent::AgentStorage;
 pub use config::{ConfigStorage, SystemConfig};
-pub use execution_history::{ExecutionHistoryPage, ExecutionHistoryStorage, ExecutionStatus, ExecutionSummary};
+pub use execution_history::{
+    ExecutionHistoryPage, ExecutionHistoryStorage, ExecutionStatus, ExecutionSummary,
+};
 pub use secrets::{Secret, SecretStorage};
 pub use skill::SkillStorage;
 pub use task_queue::TaskQueue;
+pub use terminal_session::TerminalSessionStorage;
 pub use trigger::TriggerStorage;
 pub use workflow::WorkflowStorage;
 
@@ -53,6 +57,7 @@ pub struct Storage {
     pub agents: AgentStorage,
     pub secrets: SecretStorage,
     pub skills: SkillStorage,
+    pub terminal_sessions: TerminalSessionStorage,
     pub execution_history: ExecutionHistoryStorage,
 }
 
@@ -71,6 +76,7 @@ impl Storage {
         let agents = AgentStorage::new(db.clone())?;
         let secrets = SecretStorage::new(db.clone())?;
         let skills = SkillStorage::new(db.clone())?;
+        let terminal_sessions = TerminalSessionStorage::new(db.clone())?;
         let execution_history = ExecutionHistoryStorage::new(db.clone())?;
 
         Ok(Self {
@@ -82,6 +88,7 @@ impl Storage {
             agents,
             secrets,
             skills,
+            terminal_sessions,
             execution_history,
         })
     }

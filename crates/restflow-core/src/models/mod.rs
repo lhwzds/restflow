@@ -5,12 +5,11 @@ pub mod execution;
 pub mod input;
 pub mod output;
 pub mod skill;
+pub mod terminal_session;
 pub mod trigger;
 
 pub use agent::{AgentNode, ApiKeyConfig};
-pub use agent_execution::{
-    AgentExecuteResponse, ExecutionDetails, ExecutionStep, ToolCallInfo,
-};
+pub use agent_execution::{AgentExecuteResponse, ExecutionDetails, ExecutionStep, ToolCallInfo};
 pub use ai_model::{AIModel, ModelMetadataDTO, Provider};
 pub use execution::{ExecutionHistoryPage, ExecutionStatus, ExecutionSummary};
 pub use input::{
@@ -24,4 +23,5 @@ pub use output::{
 // Secret is now defined in restflow-storage
 pub use restflow_storage::Secret;
 pub use skill::Skill;
+pub use terminal_session::{TerminalSession, TerminalStatus};
 pub use trigger::{ActiveTrigger, AuthConfig, TriggerConfig};
