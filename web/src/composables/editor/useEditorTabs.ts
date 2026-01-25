@@ -1,6 +1,7 @@
 import { ref, computed } from 'vue'
 import type { Skill } from '@/types/generated/Skill'
 import type { StoredAgent } from '@/types/generated/StoredAgent'
+import type { TerminalSession } from '@/types/generated/TerminalSession'
 
 export type TabType = 'skill' | 'agent' | 'terminal'
 
@@ -8,16 +9,15 @@ export interface EditorTab {
   id: string
   type: TabType
   name: string
-  data?: Skill | StoredAgent
+  data?: Skill | StoredAgent | TerminalSession
   isDirty?: boolean
 }
 
 // Global state for editor tabs
 const tabs = ref<EditorTab[]>([])
 const activeTabId = ref<string | null>(null)
-
-// Counter for generating unique terminal names
-let terminalCounter = 0
+// When true, show file browser even when tabs are open
+const showBrowser = ref(false)
 
 export function useEditorTabs() {
   const activeTab = computed(() => {
@@ -27,11 +27,22 @@ export function useEditorTabs() {
 
   const hasOpenTabs = computed(() => tabs.value.length > 0)
 
+  // Show the file browser (hide editor content)
+  function enterBrowseMode() {
+    showBrowser.value = true
+  }
+
+  // Show the editor content (hide file browser)
+  function exitBrowseMode() {
+    showBrowser.value = false
+  }
+
   // Open a skill in a new tab or focus existing
   function openSkill(skill: Skill) {
     const existingTab = tabs.value.find((t) => t.type === 'skill' && t.id === skill.id)
     if (existingTab) {
       activeTabId.value = existingTab.id
+      showBrowser.value = false
       return
     }
 
@@ -43,6 +54,7 @@ export function useEditorTabs() {
     }
     tabs.value.push(tab)
     activeTabId.value = tab.id
+    showBrowser.value = false
   }
 
   // Open an agent in a new tab or focus existing
@@ -50,6 +62,7 @@ export function useEditorTabs() {
     const existingTab = tabs.value.find((t) => t.type === 'agent' && t.id === agent.id)
     if (existingTab) {
       activeTabId.value = existingTab.id
+      showBrowser.value = false
       return
     }
 
@@ -61,18 +74,31 @@ export function useEditorTabs() {
     }
     tabs.value.push(tab)
     activeTabId.value = tab.id
+    showBrowser.value = false
   }
 
-  // Create a new terminal tab
-  function openTerminal(): EditorTab {
-    terminalCounter++
+  // Open a terminal session in a new tab or focus existing
+  function openTerminal(session: TerminalSession): EditorTab {
+    // Check if already open
+    const existingTab = tabs.value.find((t) => t.type === 'terminal' && t.id === session.id)
+    if (existingTab) {
+      // Update session data (it may have changed, e.g., after restart)
+      existingTab.data = session
+      activeTabId.value = existingTab.id
+      showBrowser.value = false
+      return existingTab
+    }
+
+    // Create new tab for this session
     const tab: EditorTab = {
-      id: `terminal-${Date.now()}`,
+      id: session.id,
       type: 'terminal',
-      name: `Terminal ${terminalCounter}`,
+      name: session.name,
+      data: session,
     }
     tabs.value.push(tab)
     activeTabId.value = tab.id
+    showBrowser.value = false
     return tab
   }
 
@@ -100,6 +126,7 @@ export function useEditorTabs() {
   function switchTab(tabId: string) {
     if (tabs.value.some((t) => t.id === tabId)) {
       activeTabId.value = tabId
+      showBrowser.value = false
     }
   }
 
@@ -145,6 +172,9 @@ export function useEditorTabs() {
     activeTabId,
     activeTab,
     hasOpenTabs,
+    showBrowser,
+    enterBrowseMode,
+    exitBrowseMode,
     openSkill,
     openAgent,
     openTerminal,

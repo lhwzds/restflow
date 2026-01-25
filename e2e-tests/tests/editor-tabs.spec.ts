@@ -147,3 +147,112 @@ test.describe('Editor Tabs', () => {
     await expect(fileBrowser).toBeVisible()
   })
 })
+
+/**
+ * Agent Editor E2E Tests
+ * Tests the new markdown-based agent editor with floating config popover
+ */
+test.describe('Agent Editor', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto('/workspace')
+    await page.waitForLoadState('networkidle')
+    // Navigate to Agents tab
+    await page.getByRole('button', { name: 'Agents' }).click()
+  })
+
+  test('double-clicking an agent opens markdown editor with config button', async ({ page }) => {
+    // Find and double-click on an agent item
+    const agentItem = page.locator('button', { hasText: /Untitled-\d+/ }).first()
+    await agentItem.dblclick()
+
+    // Verify agent tab is shown with .agent extension
+    const tab = page.locator('[class*="rounded-t-md"]', { hasText: '.agent' })
+    await expect(tab).toBeVisible()
+
+    // Verify textarea editor is shown (for system prompt)
+    const editor = page.locator('textarea[placeholder*="system prompt"]')
+    await expect(editor).toBeVisible()
+
+    // Verify floating config button is visible
+    const configButton = page.locator('button').filter({ has: page.locator('svg') }).last()
+    await expect(configButton).toBeVisible()
+  })
+
+  test('clicking config button opens popover with model, temperature, tools', async ({ page }) => {
+    // Open an agent
+    const agentItem = page.locator('button', { hasText: /Untitled-\d+/ }).first()
+    await agentItem.dblclick()
+
+    // Click the config button (Settings icon)
+    const configButton = page.locator('button[class*="absolute"]')
+    await configButton.click()
+
+    // Verify popover content is visible
+    await expect(page.locator('text=Model')).toBeVisible()
+    await expect(page.locator('text=Temperature')).toBeVisible()
+    await expect(page.locator('text=Tools')).toBeVisible()
+  })
+
+  test('can edit system prompt in textarea', async ({ page }) => {
+    // Open an agent
+    const agentItem = page.locator('button', { hasText: /Untitled-\d+/ }).first()
+    await agentItem.dblclick()
+
+    // Find the textarea and type in it
+    const editor = page.locator('textarea[placeholder*="system prompt"]')
+    await editor.fill('You are a helpful assistant.')
+
+    // Verify the content was entered
+    await expect(editor).toHaveValue('You are a helpful assistant.')
+  })
+
+  test('New Agent creates agent with markdown editor', async ({ page }) => {
+    // First open an existing file to show the editor
+    const agentItem = page.locator('button', { hasText: /Untitled-\d+/ }).first()
+    await agentItem.dblclick()
+
+    // Click + and select New Agent
+    await page.getByRole('button', { name: 'New...' }).click()
+    await page.getByRole('menuitem', { name: 'New Agent' }).click()
+
+    // Wait for new tab
+    await page.waitForTimeout(500)
+
+    // Verify new agent tab is created
+    const agentTabs = page.locator('[class*="rounded-t-md"]', { hasText: '.agent' })
+    const count = await agentTabs.count()
+    expect(count).toBeGreaterThanOrEqual(1)
+
+    // Verify textarea is visible
+    const editor = page.locator('textarea[placeholder*="system prompt"]')
+    await expect(editor).toBeVisible()
+  })
+
+  test('switching between skill and agent tabs shows correct editor', async ({ page }) => {
+    // First go to Skills and open a skill
+    await page.getByRole('button', { name: 'Skills' }).click()
+    const skillItem = page.locator('button', { hasText: /Untitled-\d+/ }).first()
+    await skillItem.dblclick()
+
+    // Now open an agent
+    await page.getByRole('button', { name: 'New...' }).click()
+    await page.getByRole('menuitem', { name: 'New Agent' }).click()
+    await page.waitForTimeout(300)
+
+    // Verify agent editor is shown (has config button)
+    let configButton = page.locator('button[class*="absolute"]')
+    await expect(configButton).toBeVisible()
+
+    // Click on skill tab
+    const skillTab = page.locator('[class*="rounded-t-md"]', { hasText: '.md' }).first()
+    await skillTab.click()
+
+    // Skill editor should show markdown placeholder
+    const skillEditor = page.locator('textarea[placeholder*="Markdown"]')
+    await expect(skillEditor).toBeVisible()
+
+    // Config button should not be visible (skill doesn't have it)
+    configButton = page.locator('button[class*="absolute"]')
+    await expect(configButton).not.toBeVisible()
+  })
+})

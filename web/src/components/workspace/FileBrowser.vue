@@ -12,17 +12,14 @@ import {
   Plus,
   Tag,
   Bot,
+  Trash2,
 } from 'lucide-vue-next'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from '@/components/ui/popover'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { cn } from '@/lib/utils'
 import type { FileItem } from '@/types/workspace'
 import type { Skill } from '@/types/generated/Skill'
@@ -42,6 +39,7 @@ const emit = defineEmits<{
   select: [item: FileItem]
   open: [item: FileItem]
   create: []
+  delete: [item: FileItem]
 }>()
 
 const viewMode = ref<'grid' | 'list'>('grid')
@@ -221,7 +219,7 @@ function getAgentInfo(item: FileItem) {
             <button
               :class="
                 cn(
-                  'flex flex-col items-center p-3 rounded-lg cursor-pointer transition-all',
+                  'group relative flex flex-col items-center p-3 rounded-lg cursor-pointer transition-all',
                   selectedId === item.id ? 'bg-primary/10 ring-2 ring-primary' : 'hover:bg-muted',
                 )
               "
@@ -236,6 +234,17 @@ function getAgentInfo(item: FileItem) {
               <span class="text-xs text-muted-foreground">
                 {{ item.isDirectory ? `${item.childCount} items` : formatDate(item.updatedAt) }}
               </span>
+              <!-- Delete button (show on hover) -->
+              <Button
+                v-if="!item.isDirectory"
+                variant="ghost"
+                size="icon"
+                class="absolute top-1 right-1 h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive"
+                title="Delete"
+                @click.stop="emit('delete', item)"
+              >
+                <Trash2 :size="14" />
+              </Button>
             </button>
           </PopoverTrigger>
 
@@ -248,15 +257,26 @@ function getAgentInfo(item: FileItem) {
             </div>
 
             <!-- Tags -->
-            <div v-if="getTags(item).length > 0" class="px-3 py-1.5 border-b flex items-center gap-1.5 flex-wrap">
+            <div
+              v-if="getTags(item).length > 0"
+              class="px-3 py-1.5 border-b flex items-center gap-1.5 flex-wrap"
+            >
               <Tag :size="12" class="text-muted-foreground shrink-0" />
-              <Badge v-for="tag in getTags(item)" :key="tag" variant="secondary" class="text-[10px] px-1.5 py-0">
+              <Badge
+                v-for="tag in getTags(item)"
+                :key="tag"
+                variant="secondary"
+                class="text-[10px] px-1.5 py-0"
+              >
                 {{ tag }}
               </Badge>
             </div>
 
             <!-- Agent Info -->
-            <div v-if="getAgentInfo(item)" class="px-3 py-1.5 border-b text-[10px] text-muted-foreground">
+            <div
+              v-if="getAgentInfo(item)"
+              class="px-3 py-1.5 border-b text-[10px] text-muted-foreground"
+            >
               <div><strong>Model:</strong> {{ getAgentInfo(item)?.model }}</div>
               <div v-if="getAgentInfo(item)?.temperature !== undefined">
                 <strong>Temperature:</strong> {{ getAgentInfo(item)?.temperature }}
@@ -265,11 +285,25 @@ function getAgentInfo(item: FileItem) {
 
             <!-- Content -->
             <div class="px-3 py-2 max-h-[150px] overflow-auto">
-              <div v-html="getPreviewContent(item)" class="prose prose-xs dark:prose-invert max-w-none text-xs" />
+              <div
+                v-html="getPreviewContent(item)"
+                class="prose prose-xs dark:prose-invert max-w-none text-xs"
+              />
             </div>
-
           </PopoverContent>
         </Popover>
+
+        <!-- Create new item card -->
+        <button
+          v-if="createLabel"
+          class="flex flex-col items-center p-3 rounded-lg cursor-pointer transition-all border-2 border-dashed hover:border-primary hover:bg-muted/50"
+          @click="emit('create')"
+        >
+          <div class="w-14 h-14 flex items-center justify-center mb-2">
+            <Plus class="w-10 h-10 text-muted-foreground" />
+          </div>
+          <span class="text-sm text-muted-foreground">{{ createLabel }}</span>
+        </button>
       </div>
 
       <!-- List View -->
@@ -284,7 +318,7 @@ function getAgentInfo(item: FileItem) {
             <button
               :class="
                 cn(
-                  'w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-all text-left',
+                  'group w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-all text-left',
                   selectedId === item.id ? 'bg-primary/10 ring-1 ring-primary' : 'hover:bg-muted',
                 )
               "
@@ -301,6 +335,17 @@ function getAgentInfo(item: FileItem) {
               <span class="text-xs text-muted-foreground">
                 {{ item.isDirectory ? `${item.childCount} items` : formatDate(item.updatedAt) }}
               </span>
+              <!-- Delete button (show on hover) -->
+              <Button
+                v-if="!item.isDirectory"
+                variant="ghost"
+                size="icon"
+                class="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive shrink-0"
+                title="Delete"
+                @click.stop="emit('delete', item)"
+              >
+                <Trash2 :size="14" />
+              </Button>
             </button>
           </PopoverTrigger>
 
@@ -311,20 +356,44 @@ function getAgentInfo(item: FileItem) {
               <Bot v-else :size="16" class="text-muted-foreground" />
               <span class="font-medium text-sm truncate">{{ item.name }}</span>
             </div>
-            <div v-if="getTags(item).length > 0" class="px-3 py-1.5 border-b flex items-center gap-1.5 flex-wrap">
+            <div
+              v-if="getTags(item).length > 0"
+              class="px-3 py-1.5 border-b flex items-center gap-1.5 flex-wrap"
+            >
               <Tag :size="12" class="text-muted-foreground shrink-0" />
-              <Badge v-for="tag in getTags(item)" :key="tag" variant="secondary" class="text-[10px] px-1.5 py-0">
+              <Badge
+                v-for="tag in getTags(item)"
+                :key="tag"
+                variant="secondary"
+                class="text-[10px] px-1.5 py-0"
+              >
                 {{ tag }}
               </Badge>
             </div>
-            <div v-if="getAgentInfo(item)" class="px-3 py-1.5 border-b text-[10px] text-muted-foreground">
+            <div
+              v-if="getAgentInfo(item)"
+              class="px-3 py-1.5 border-b text-[10px] text-muted-foreground"
+            >
               <div><strong>Model:</strong> {{ getAgentInfo(item)?.model }}</div>
             </div>
             <div class="px-3 py-2 max-h-[150px] overflow-auto">
-              <div v-html="getPreviewContent(item)" class="prose prose-xs dark:prose-invert max-w-none text-xs" />
+              <div
+                v-html="getPreviewContent(item)"
+                class="prose prose-xs dark:prose-invert max-w-none text-xs"
+              />
             </div>
           </PopoverContent>
         </Popover>
+
+        <!-- Create new item row -->
+        <button
+          v-if="createLabel"
+          class="w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-all text-left border-2 border-dashed hover:border-primary hover:bg-muted/50"
+          @click="emit('create')"
+        >
+          <Plus :size="20" class="text-muted-foreground shrink-0" />
+          <span class="flex-1 text-sm text-muted-foreground">{{ createLabel }}</span>
+        </button>
       </div>
 
       <!-- Loading State -->
