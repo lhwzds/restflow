@@ -1,6 +1,6 @@
 //! Skills service layer for business logic.
 
-use crate::{models::Skill, AppCore};
+use crate::{AppCore, models::Skill};
 use anyhow::{Context, Result};
 use std::sync::Arc;
 

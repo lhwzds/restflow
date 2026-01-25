@@ -318,7 +318,9 @@ pub async fn execute_agent_inline(
             return Json(ApiResponse::error("Input must be a string".to_string()));
         }
         None => {
-            return Json(ApiResponse::error("Missing required field: input".to_string()));
+            return Json(ApiResponse::error(
+                "Missing required field: input".to_string(),
+            ));
         }
     };
 

@@ -3,10 +3,10 @@
 //! Uses separate tables for pending/processing/completed for O(1) pop performance.
 //! Pending uses composite key "{priority:020}:{task_id}" for uniqueness and correct ordering.
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use redb::{Database, ReadableDatabase, ReadableTable, ReadableTableMetadata, TableDefinition};
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use tokio::sync::Notify;
 
 const PENDING: TableDefinition<&str, &[u8]> = TableDefinition::new("pending");

@@ -114,16 +114,10 @@ pub enum GraphNode {
     },
 
     /// Nested graph
-    SubGraph {
-        id: NodeId,
-        graph: Box<Graph>,
-    },
+    SubGraph { id: NodeId, graph: Box<Graph> },
 
     /// Explicit parallel execution
-    Parallel {
-        id: NodeId,
-        branches: Vec<Graph>,
-    },
+    Parallel { id: NodeId, branches: Vec<Graph> },
 }
 
 /// Edge between nodes

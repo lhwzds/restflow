@@ -119,7 +119,10 @@ const handleClose = () => {
       </div>
 
       <!-- Agent Info (for agents) -->
-      <div v-if="agentInfo" class="px-3 py-1.5 border-b text-[10px] text-muted-foreground space-y-0.5">
+      <div
+        v-if="agentInfo"
+        class="px-3 py-1.5 border-b text-[10px] text-muted-foreground space-y-0.5"
+      >
         <div><strong>Model:</strong> {{ agentInfo.model }}</div>
         <div v-if="agentInfo.temperature !== undefined">
           <strong>Temperature:</strong> {{ agentInfo.temperature }}

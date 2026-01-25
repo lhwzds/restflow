@@ -6,6 +6,7 @@
 pub mod agent;
 pub mod execution_history;
 pub mod skill;
+pub mod terminal_session;
 pub mod trigger;
 
 use anyhow::Result;
@@ -18,6 +19,7 @@ pub use restflow_storage::{ConfigStorage, Secret, SecretStorage, SystemConfig};
 pub use agent::AgentStorage;
 pub use execution_history::ExecutionHistoryStorage;
 pub use skill::SkillStorage;
+pub use terminal_session::TerminalSessionStorage;
 pub use trigger::TriggerStorage;
 
 /// Central storage manager that initializes all storage subsystems.
@@ -31,6 +33,7 @@ pub struct Storage {
     pub agents: AgentStorage,
     pub secrets: SecretStorage,
     pub skills: SkillStorage,
+    pub terminal_sessions: TerminalSessionStorage,
     pub execution_history: ExecutionHistoryStorage,
 }
 
@@ -44,6 +47,7 @@ impl Storage {
         let agents = AgentStorage::new(db.clone())?;
         let secrets = SecretStorage::new(db.clone())?;
         let skills = SkillStorage::new(db.clone())?;
+        let terminal_sessions = TerminalSessionStorage::new(db.clone())?;
         let execution_history = ExecutionHistoryStorage::new(db.clone())?;
 
         Ok(Self {
@@ -53,6 +57,7 @@ impl Storage {
             agents,
             secrets,
             skills,
+            terminal_sessions,
             execution_history,
         })
     }
