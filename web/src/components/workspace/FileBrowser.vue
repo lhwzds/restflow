@@ -1,23 +1,25 @@
+<!--
+  FileBrowser Component - Design Decisions:
+
+  1. NO BORDER on "New Skill/Agent" button: The create button uses no border styling
+     because other file items in the grid/list also have no borders. This maintains
+     visual consistency. (Compare with TerminalBrowser which uses dashed border cards
+     because terminal items are displayed as cards with borders)
+
+  2. searchQuery and viewMode are PROPS, not local state: These controls are managed
+     in the parent (SkillWorkspace) and displayed in the header for a cleaner UI.
+     This component receives them as props and filters items accordingly.
+
+  3. Hover effect on "New" button: Uses text-primary color change on hover instead
+     of border, matching the borderless design of other items.
+-->
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import {
-  LayoutGrid,
-  List,
-  Folder,
-  FileText,
-  Search,
-  Loader2,
-  Plus,
-  Tag,
-  Bot,
-  Trash2,
-} from 'lucide-vue-next'
+import { Folder, FileText, Loader2, Plus, Tag, Bot, Trash2 } from 'lucide-vue-next'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
-import { Card, CardContent } from '@/components/ui/card'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { cn } from '@/lib/utils'
 import type { FileItem } from '@/types/workspace'
@@ -30,6 +32,8 @@ const props = defineProps<{
   isLoading?: boolean
   createLabel?: string
   previewType?: 'skill' | 'agent'
+  searchQuery: string
+  viewMode: 'grid' | 'list'
 }>()
 
 const emit = defineEmits<{
@@ -39,13 +43,11 @@ const emit = defineEmits<{
   delete: [item: FileItem]
 }>()
 
-const viewMode = ref<'grid' | 'list'>('grid')
-const searchQuery = ref('')
 const openPopoverId = ref<string | null>(null)
 
 const filteredItems = computed(() => {
-  if (!searchQuery.value) return props.items
-  const query = searchQuery.value.toLowerCase()
+  if (!props.searchQuery) return props.items
+  const query = props.searchQuery.toLowerCase()
   return props.items.filter((item) => item.name.toLowerCase().includes(query))
 })
 
@@ -111,53 +113,8 @@ function getAgentInfo(item: FileItem) {
 
 <template>
   <div class="h-full flex flex-col bg-background">
-    <!-- Toolbar -->
-    <div class="h-11 border-b flex items-center px-3 gap-2">
-      <!-- Spacer -->
-      <div class="flex-1" />
-
-      <!-- Search -->
-      <div class="relative w-40">
-        <Search :size="14" class="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
-        <Input v-model="searchQuery" placeholder="Search..." class="h-7 pl-7 text-sm" />
-      </div>
-
-      <!-- View Toggle -->
-      <div class="flex gap-0.5 border rounded-md p-0.5">
-        <Button
-          size="icon"
-          :variant="viewMode === 'list' ? 'secondary' : 'ghost'"
-          class="h-6 w-6"
-          @click="viewMode = 'list'"
-        >
-          <List :size="14" />
-        </Button>
-        <Button
-          size="icon"
-          :variant="viewMode === 'grid' ? 'secondary' : 'ghost'"
-          class="h-6 w-6"
-          @click="viewMode = 'grid'"
-        >
-          <LayoutGrid :size="14" />
-        </Button>
-      </div>
-
-      <!-- Create Button -->
-      <Button v-if="createLabel" size="sm" class="h-7 w-[120px]" @click="emit('create')">
-        <Plus :size="14" class="mr-1" />
-        {{ createLabel }}
-      </Button>
-    </div>
-
-    <!-- File List -->
-    <div class="flex-1 overflow-auto p-4 relative">
-      <!-- Item Count -->
-      <span
-        class="absolute top-2 right-4 text-xs text-muted-foreground bg-background/80 px-2 py-0.5 rounded"
-      >
-        {{ filteredItems.length }} items
-      </span>
-
+    <!-- Content Area -->
+    <div class="flex-1 overflow-auto p-4">
       <!-- Grid View -->
       <div
         v-if="viewMode === 'grid'"
@@ -247,19 +204,19 @@ function getAgentInfo(item: FileItem) {
           </PopoverContent>
         </Popover>
 
-        <!-- Create new item card -->
-        <Card
+        <!-- Create new item button (no border to match other file items which also have no border) -->
+        <button
           v-if="createLabel"
-          class="cursor-pointer border-dashed hover:border-primary transition-colors"
+          class="group flex flex-col items-center p-3 rounded-lg cursor-pointer transition-all hover:bg-muted"
           @click="emit('create')"
         >
-          <CardContent
-            class="flex flex-col items-center justify-center p-6 text-muted-foreground hover:text-foreground transition-colors"
-          >
-            <Plus :size="32" class="mb-2" />
-            <span class="text-sm">{{ createLabel }}</span>
-          </CardContent>
-        </Card>
+          <div class="w-14 h-14 flex items-center justify-center mb-2">
+            <Plus class="w-10 h-10 text-muted-foreground group-hover:text-primary transition-colors" />
+          </div>
+          <span class="text-sm text-muted-foreground group-hover:text-primary transition-colors">{{
+            createLabel
+          }}</span>
+        </button>
       </div>
 
       <!-- List View -->
@@ -341,14 +298,16 @@ function getAgentInfo(item: FileItem) {
           </PopoverContent>
         </Popover>
 
-        <!-- Create new item row -->
+        <!-- Create new item row (no border to match other file items) -->
         <button
           v-if="createLabel"
-          class="w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-all text-left border-2 border-dashed hover:border-primary hover:bg-muted/50"
+          class="group w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-all text-left hover:bg-muted"
           @click="emit('create')"
         >
-          <Plus :size="20" class="text-muted-foreground shrink-0" />
-          <span class="flex-1 text-sm text-muted-foreground">{{ createLabel }}</span>
+          <Plus :size="20" class="text-muted-foreground group-hover:text-primary transition-colors shrink-0" />
+          <span class="flex-1 text-sm text-muted-foreground group-hover:text-primary transition-colors">{{
+            createLabel
+          }}</span>
         </button>
       </div>
 

@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { ref, watch, onMounted, computed } from 'vue'
-import { Settings, Moon, Sun, Pin } from 'lucide-vue-next'
+import { Settings, Moon, Sun, Pin, Search, List, LayoutGrid } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import RestFlowLogo from '@/components/shared/RestFlowLogo.vue'
 import TaskHistory from '@/components/workspace/TaskHistory.vue'
 import FileBrowser from '@/components/workspace/FileBrowser.vue'
@@ -59,6 +60,26 @@ watch(activeTab, (newTab) => {
 })
 const { items, isLoading, loadItems } = useFileBrowser(browserTab)
 
+/**
+ * Browser controls state (shared by FileBrowser and TerminalBrowser)
+ *
+ * Design Decision: Controls are managed here and displayed in the header instead of
+ * inside each browser component. This provides:
+ * - Cleaner UI with controls in a consistent location
+ * - More vertical space for content
+ * - Unified state management across Skills/Agents/Terminals tabs
+ *
+ * The controls (item count, view toggle, search) are only shown in browse mode,
+ * hidden when in editor mode to reduce clutter.
+ */
+const searchQuery = ref('')
+const viewMode = ref<'grid' | 'list'>('grid')
+
+// Reset search when switching tabs to avoid confusion
+watch(activeTab, () => {
+  searchQuery.value = ''
+})
+
 // Split view state
 const { isEnabled: isSplitEnabled, pinTab } = useSplitView()
 
@@ -81,7 +102,20 @@ const {
 } = useEditorTabs()
 
 // Terminal sessions
-const { createSession } = useTerminalSessions()
+const { sessions, createSession } = useTerminalSessions()
+
+// Item count for current tab (used in header)
+const itemCount = computed(() => {
+  if (activeTab.value === 'terminals') {
+    const query = searchQuery.value.toLowerCase()
+    if (!query) return sessions.value.length
+    return sessions.value.filter((s) => s.name.toLowerCase().includes(query)).length
+  } else {
+    const query = searchQuery.value.toLowerCase()
+    if (!query) return items.value.length
+    return items.value.filter((i) => i.name.toLowerCase().includes(query)).length
+  }
+})
 
 // Create a new terminal session and open it
 async function onCreateTerminal() {
@@ -317,30 +351,80 @@ const onCloseChat = () => {
 
 <template>
   <div class="h-screen flex flex-col bg-background">
-    <!-- Top Navigation Bar -->
-    <header class="h-12 border-b flex items-center px-4 justify-between shrink-0">
-      <RestFlowLogo :icon-size="28" :text-size="18" />
+    <!--
+      Top Navigation Bar - Design Decisions:
+      1. Navigation is ALWAYS left-aligned (not centered) for consistency between
+         browse mode and editor mode
+      2. Active tab uses text color highlight (text-primary + font-medium) instead of
+         background highlight for a cleaner look
+      3. Browser controls (item count, view toggle, search) are in the header to
+         maximize content area, only shown in browse mode
+      4. Layout: [Logo][Nav] --- spacer --- [Controls][Theme][Settings]
+    -->
+    <header class="h-12 border-b flex items-center px-4 shrink-0">
+      <!-- Left: Logo + Navigation (always left-aligned for consistency) -->
+      <div class="flex items-center gap-4">
+        <RestFlowLogo :icon-size="28" :text-size="18" />
 
-      <nav class="flex gap-1">
-        <Button
-          v-for="tab in ['skills', 'agents', 'terminals'] as const"
-          :key="tab"
-          variant="ghost"
-          size="sm"
-          :class="activeTab === tab ? 'text-primary font-medium' : ''"
-          @click="onTabChange(tab)"
-        >
-          {{ tab.charAt(0).toUpperCase() + tab.slice(1) }}
-        </Button>
-      </nav>
+        <!-- Navigation tabs use text color for active state, not background -->
+        <nav class="flex gap-1">
+          <Button
+            v-for="tab in ['skills', 'agents', 'terminals'] as const"
+            :key="tab"
+            variant="ghost"
+            size="sm"
+            :class="['h-7 px-3', activeTab === tab ? 'text-primary font-medium' : 'text-muted-foreground']"
+            @click="onTabChange(tab)"
+          >
+            {{ tab.charAt(0).toUpperCase() + tab.slice(1) }}
+          </Button>
+        </nav>
+      </div>
 
-      <div class="flex gap-1">
-        <Button variant="ghost" size="icon" @click="toggleTheme">
-          <Sun v-if="isDark" :size="18" />
-          <Moon v-else :size="18" />
+      <!-- Spacer pushes controls to the right -->
+      <div class="flex-1" />
+
+      <!-- Right: Controls -->
+      <div class="flex items-center gap-2">
+        <!-- Browser controls only shown in browse mode to reduce clutter in editor -->
+        <template v-if="!hasOpenTabs || showBrowser">
+          <span class="text-xs text-muted-foreground">
+            {{ itemCount }} items
+          </span>
+
+          <div class="flex gap-0.5 border rounded-md p-0.5">
+            <Button
+              size="icon"
+              :variant="viewMode === 'list' ? 'secondary' : 'ghost'"
+              class="h-6 w-6"
+              @click="viewMode = 'list'"
+            >
+              <List :size="14" />
+            </Button>
+            <Button
+              size="icon"
+              :variant="viewMode === 'grid' ? 'secondary' : 'ghost'"
+              class="h-6 w-6"
+              @click="viewMode = 'grid'"
+            >
+              <LayoutGrid :size="14" />
+            </Button>
+          </div>
+
+          <div class="relative w-48">
+            <Search :size="14" class="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <Input v-model="searchQuery" placeholder="Search..." class="h-7 pl-7 text-sm" />
+          </div>
+
+          <div class="w-px h-5 bg-border mx-1" />
+        </template>
+
+        <Button variant="ghost" size="icon" class="h-8 w-8" @click="toggleTheme">
+          <Sun v-if="isDark" :size="16" />
+          <Moon v-else :size="16" />
         </Button>
-        <Button variant="ghost" size="icon" @click="showSettings = true">
-          <Settings :size="18" />
+        <Button variant="ghost" size="icon" class="h-8 w-8" @click="showSettings = true">
+          <Settings :size="16" />
         </Button>
       </div>
     </header>
@@ -391,6 +475,8 @@ const onCloseChat = () => {
               <!-- Terminal Browser -->
               <TerminalBrowser
                 v-if="activeTab === 'terminals'"
+                :search-query="searchQuery"
+                :view-mode="viewMode"
                 @open="onOpenTerminal"
                 :class="{ 'opacity-20 pointer-events-none': isChatExpanded }"
                 class="flex-1 transition-opacity duration-300"
@@ -404,6 +490,8 @@ const onCloseChat = () => {
                 :is-loading="isLoading"
                 :create-label="activeTab === 'skills' ? 'New Skill' : 'New Agent'"
                 :preview-type="activeTab === 'skills' ? 'skill' : 'agent'"
+                :search-query="searchQuery"
+                :view-mode="viewMode"
                 @select="onSelectItem"
                 @open="onOpenItem"
                 @create="onCreateNew"

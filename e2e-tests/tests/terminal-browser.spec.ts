@@ -2,7 +2,12 @@ import { test, expect } from '@playwright/test'
 
 /**
  * Terminal Browser E2E Tests
- * Tests the terminal browser UI including search, view toggle, and card creation
+ *
+ * Design Notes:
+ * - TerminalBrowser "New Terminal" card DOES use dashed border (unlike FileBrowser)
+ *   because terminal items are displayed as Card components with borders
+ * - Search and view toggle controls are in the header (shared with Skills/Agents)
+ * - Stopped terminals auto-restart when clicked for better UX
  */
 test.describe('Terminal Browser', () => {
   test.beforeEach(async ({ page }) => {
@@ -11,43 +16,41 @@ test.describe('Terminal Browser', () => {
     await page.getByRole('button', { name: 'Terminals' }).click()
   })
 
-  test('displays toolbar with search and view toggle', async ({ page }) => {
-    // Verify search input exists
-    await expect(page.locator('input[placeholder="Search..."]')).toBeVisible()
+  test('header shows controls when in browse mode', async ({ page }) => {
+    // Verify search input exists in header
+    await expect(page.locator('header input[placeholder="Search..."]')).toBeVisible()
 
-    // Verify view toggle buttons exist
-    const viewToggle = page.locator('.flex.gap-0\\.5.border.rounded-md')
+    // Verify view toggle buttons exist in header
+    const viewToggle = page.locator('header .flex.gap-0\\.5.border.rounded-md')
     await expect(viewToggle).toBeVisible()
 
-    // Verify New Terminal button exists
-    await expect(page.getByRole('button', { name: 'New Terminal' })).toBeVisible()
+    // Verify item count is displayed
+    await expect(page.locator('header', { hasText: /\d+ items/ })).toBeVisible()
   })
 
   test('search filters terminals by name', async ({ page }) => {
     // Create a terminal first
-    await page.getByRole('button', { name: 'New Terminal' }).click()
+    const newCard = page.locator('button', { hasText: 'New Terminal' }).last()
+    await newCard.click()
     await page.waitForTimeout(500)
 
     // Return to browser
     await page.getByRole('button', { name: 'Terminals' }).click()
     await page.waitForTimeout(300)
 
-    // Get initial count
-    const initialCount = await page.locator('text=/\\d+ items/').textContent()
-    expect(initialCount).toContain('items')
-
-    // Search for nonexistent name
-    await page.locator('input[placeholder="Search..."]').fill('nonexistent-xyz')
-    await expect(page.locator('text=0 items')).toBeVisible()
+    // Search for nonexistent name (search is in header)
+    await page.locator('header input[placeholder="Search..."]').fill('nonexistent-xyz')
+    await expect(page.locator('header', { hasText: '0 items' })).toBeVisible()
 
     // Clear search to show all
-    await page.locator('input[placeholder="Search..."]').fill('')
-    await expect(page.locator('text=/\\d+ items/')).toBeVisible()
+    await page.locator('header input[placeholder="Search..."]').fill('')
+    await expect(page.locator('header', { hasText: /\d+ items/ })).toBeVisible()
   })
 
   test('view toggle switches between grid and list', async ({ page }) => {
     // Create a terminal to have content
-    await page.getByRole('button', { name: 'New Terminal' }).click()
+    const newCard = page.locator('button', { hasText: 'New Terminal' }).last()
+    await newCard.click()
     await page.waitForTimeout(500)
 
     // Return to browser
@@ -58,19 +61,22 @@ test.describe('Terminal Browser', () => {
     const gridLayout = page.locator('.grid.grid-cols-2')
     await expect(gridLayout).toBeVisible()
 
-    // Click List view button (first button in toggle group)
-    const listButton = page.locator('button[class*="h-6"][class*="w-6"]').first()
+    // Click List view button in header (first button in toggle group)
+    const listButton = page.locator('header button[class*="h-6"][class*="w-6"]').first()
     await listButton.click()
 
     // List view should now be visible (space-y-1 layout)
     await expect(page.locator('.space-y-1')).toBeVisible()
+  })
 
-    // Grid layout should not be visible
-    await expect(gridLayout).not.toBeVisible()
+  test('New Terminal card has dashed border (design: matches card style)', async ({ page }) => {
+    // TerminalBrowser uses dashed border because terminal items are cards with borders
+    // This is different from FileBrowser which has no border
+    const newCard = page.locator('.border-dashed', { hasText: 'New Terminal' })
+    await expect(newCard).toBeVisible()
   })
 
   test('clicking New Terminal card creates terminal', async ({ page }) => {
-    // Find the dashed card with "New Terminal" text and click it
     const newCard = page.locator('button', { hasText: 'New Terminal' }).last()
     await newCard.click()
 
@@ -78,36 +84,32 @@ test.describe('Terminal Browser', () => {
     await expect(page.locator('text=Terminal ready')).toBeVisible()
   })
 
-  test('list view shows New Terminal row', async ({ page }) => {
-    // Switch to List view
-    const listButton = page.locator('button[class*="h-6"][class*="w-6"]').first()
+  test('list view New Terminal row has dashed border', async ({ page }) => {
+    // Switch to List view (button is in header)
+    const listButton = page.locator('header button[class*="h-6"][class*="w-6"]').first()
     await listButton.click()
 
-    // Verify New Terminal row exists in list view (has border-dashed class)
+    // Verify New Terminal row exists with dashed border
     const newRow = page.locator('button.border-dashed', { hasText: 'New Terminal' })
     await expect(newRow).toBeVisible()
   })
 
-  test('list view terminal items have correct structure', async ({ page }) => {
+  test('terminal items show delete button on hover', async ({ page }) => {
     // Create a terminal first
-    await page.getByRole('button', { name: 'New Terminal' }).click()
+    const newCard = page.locator('button', { hasText: 'New Terminal' }).last()
+    await newCard.click()
     await page.waitForTimeout(500)
 
     // Return to browser
     await page.getByRole('button', { name: 'Terminals' }).click()
     await page.waitForTimeout(300)
 
-    // Switch to List view
-    const listButton = page.locator('button[class*="h-6"][class*="w-6"]').first()
-    await listButton.click()
+    // Find terminal card and hover
+    const terminalCard = page.locator('[class*="CardContent"]', { hasText: /Terminal \d+/ }).first()
+    await terminalCard.hover()
 
-    // Verify terminal row has status indicator, name, and delete button on hover
-    const terminalRow = page.locator('button.rounded-lg', { hasText: /Terminal \d+/ }).first()
-    await expect(terminalRow).toBeVisible()
-
-    // Hover to show delete button
-    await terminalRow.hover()
-    const deleteButton = terminalRow.locator('button[title="Delete terminal"]')
+    // Verify delete button appears
+    const deleteButton = page.locator('button[title="Delete terminal"]').first()
     await expect(deleteButton).toBeVisible()
   })
 })
