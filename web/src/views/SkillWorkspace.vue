@@ -64,7 +64,6 @@ const { isEnabled: isSplitEnabled, pinTab } = useSplitView()
 
 // Drag and drop state
 const isDragOver = ref(false)
-const currentPath = ref<string>(activeTab.value)
 const selectedItem = ref<FileItem<Skill | StoredAgent> | null>(null)
 
 // Editor tabs state
@@ -119,9 +118,8 @@ const showSettings = ref(false)
 // Get selected item id for FileBrowser
 const selectedItemId = computed(() => selectedItem.value?.id || null)
 
-// Sync currentPath when tab changes
-watch(activeTab, (newTab) => {
-  currentPath.value = newTab
+// Reset selection when tab changes
+watch(activeTab, () => {
   selectedItem.value = null
 })
 
@@ -162,12 +160,6 @@ const handleDrop = (event: DragEvent) => {
   if (tabId) {
     pinTab(tabId)
   }
-}
-
-// Handle file navigation
-const onNavigate = (path: string) => {
-  currentPath.value = path
-  selectedItem.value = null
 }
 
 // Handle file selection (single click)
@@ -407,13 +399,11 @@ const onCloseChat = () => {
               <!-- File Browser (dimmed when chat expanded) -->
               <FileBrowser
                 v-else
-                :current-path="currentPath"
                 :selected-id="selectedItemId"
                 :items="items"
                 :is-loading="isLoading"
                 :create-label="activeTab === 'skills' ? 'New Skill' : 'New Agent'"
                 :preview-type="activeTab === 'skills' ? 'skill' : 'agent'"
-                @navigate="onNavigate"
                 @select="onSelectItem"
                 @open="onOpenItem"
                 @create="onCreateNew"
