@@ -1,8 +1,6 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import {
-  ChevronLeft,
-  ChevronRight,
   LayoutGrid,
   List,
   Folder,
@@ -27,7 +25,6 @@ import type { Skill } from '@/types/generated/Skill'
 import type { StoredAgent } from '@/types/generated/StoredAgent'
 
 const props = defineProps<{
-  currentPath: string
   selectedId: string | null
   items: FileItem[]
   isLoading?: boolean
@@ -36,7 +33,6 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  navigate: [path: string]
   select: [item: FileItem]
   open: [item: FileItem]
   create: []
@@ -52,25 +48,6 @@ const filteredItems = computed(() => {
   const query = searchQuery.value.toLowerCase()
   return props.items.filter((item) => item.name.toLowerCase().includes(query))
 })
-
-const pathSegments = computed(() => {
-  return props.currentPath.split('/').filter(Boolean)
-})
-
-const canGoBack = computed(() => pathSegments.value.length > 1)
-const canGoForward = ref(false)
-
-const goBack = () => {
-  if (canGoBack.value) {
-    const newPath = pathSegments.value.slice(0, -1).join('/')
-    emit('navigate', newPath || pathSegments.value[0] || 'agents')
-  }
-}
-
-const navigateToSegment = (index: number) => {
-  const newPath = pathSegments.value.slice(0, index + 1).join('/')
-  emit('navigate', newPath)
-}
 
 const onItemClick = (item: FileItem) => {
   emit('select', item)
@@ -136,16 +113,6 @@ function getAgentInfo(item: FileItem) {
   <div class="h-full flex flex-col bg-background">
     <!-- Toolbar -->
     <div class="h-11 border-b flex items-center px-3 gap-2">
-      <!-- Navigation -->
-      <div class="flex gap-1">
-        <Button size="icon" variant="ghost" class="h-7 w-7" :disabled="!canGoBack" @click="goBack">
-          <ChevronLeft :size="16" />
-        </Button>
-        <Button size="icon" variant="ghost" class="h-7 w-7" :disabled="!canGoForward">
-          <ChevronRight :size="16" />
-        </Button>
-      </div>
-
       <!-- Spacer -->
       <div class="flex-1" />
 

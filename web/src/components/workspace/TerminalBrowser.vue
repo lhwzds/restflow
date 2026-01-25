@@ -113,12 +113,6 @@ const formatDate = (timestamp: number) => {
   <div class="h-full flex flex-col bg-background">
     <!-- Toolbar -->
     <div class="h-11 border-b flex items-center px-3 gap-2">
-      <!-- Placeholder for navigation buttons (to align with FileBrowser) -->
-      <div class="flex gap-1">
-        <div class="h-7 w-7" />
-        <div class="h-7 w-7" />
-      </div>
-
       <!-- Spacer -->
       <div class="flex-1" />
 
