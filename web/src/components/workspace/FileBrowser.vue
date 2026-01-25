@@ -146,22 +146,8 @@ function getAgentInfo(item: FileItem) {
         </Button>
       </div>
 
-      <!-- Breadcrumb -->
-      <div class="flex-1 flex items-center gap-1 text-sm">
-        <button
-          v-for="(segment, index) in pathSegments"
-          :key="index"
-          class="flex items-center hover:text-primary transition-colors"
-          @click="navigateToSegment(index)"
-        >
-          <span v-if="index > 0" class="mx-1 text-muted-foreground">/</span>
-          <span
-            :class="index === pathSegments.length - 1 ? 'font-medium' : 'text-muted-foreground'"
-          >
-            {{ segment }}
-          </span>
-        </button>
-      </div>
+      <!-- Spacer -->
+      <div class="flex-1" />
 
       <!-- Search -->
       <div class="relative w-40">
@@ -190,7 +176,7 @@ function getAgentInfo(item: FileItem) {
       </div>
 
       <!-- Create Button -->
-      <Button v-if="createLabel" size="sm" class="h-7" @click="emit('create')">
+      <Button v-if="createLabel" size="sm" class="h-7 w-[120px]" @click="emit('create')">
         <Plus :size="14" class="mr-1" />
         {{ createLabel }}
       </Button>
