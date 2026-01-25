@@ -8,9 +8,10 @@
     windows_subsystem = "windows"
 )]
 
+use restflow_tauri_lib::AppState;
 use restflow_tauri_lib::commands;
 use restflow_tauri_lib::commands::PtyState;
-use restflow_tauri_lib::AppState;
+use restflow_tauri_lib::commands::pty::save_all_terminal_history_sync;
 use tauri::Manager;
 use tracing::info;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -51,6 +52,19 @@ fn main() {
             info!("Press Cmd+Option+I (macOS) or Ctrl+Shift+I (Windows/Linux) to toggle DevTools");
             Ok(())
         })
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { .. } = event {
+                // Save all terminal history before closing
+                let app = window.app_handle();
+                if let (Some(pty_state), Some(app_state)) =
+                    (app.try_state::<PtyState>(), app.try_state::<AppState>())
+                {
+                    info!("Saving terminal history before close...");
+                    save_all_terminal_history_sync(&pty_state, &app_state);
+                    info!("Terminal history saved");
+                }
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             // Skills
             commands::list_skills,
@@ -88,6 +102,17 @@ fn main() {
             commands::write_pty,
             commands::resize_pty,
             commands::close_pty,
+            commands::get_pty_status,
+            commands::get_pty_history,
+            commands::save_terminal_history,
+            commands::save_all_terminal_history,
+            commands::restart_terminal,
+            // Terminal Sessions
+            commands::list_terminal_sessions,
+            commands::get_terminal_session,
+            commands::create_terminal_session,
+            commands::rename_terminal_session,
+            commands::delete_terminal_session,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
