@@ -86,6 +86,7 @@ function handleSkillSave() {
 <template>
   <div
     v-if="isEnabled && pinnedTab"
+    data-testid="split-view-panel"
     class="h-full flex shrink-0 border-l"
     :style="{ width: `${splitWidth}px` }"
   >

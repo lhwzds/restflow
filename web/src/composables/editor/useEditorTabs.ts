@@ -2,6 +2,7 @@ import { ref, computed } from 'vue'
 import type { Skill } from '@/types/generated/Skill'
 import type { StoredAgent } from '@/types/generated/StoredAgent'
 import type { TerminalSession } from '@/types/generated/TerminalSession'
+import { useSplitView } from './useSplitView'
 
 export type TabType = 'skill' | 'agent' | 'terminal'
 
@@ -103,11 +104,16 @@ export function useEditorTabs() {
   }
 
   // Close a tab by id
+  // IMPORTANT: This also notifies split view to clean up if the closed tab was pinned
   function closeTab(tabId: string) {
     const index = tabs.value.findIndex((t) => t.id === tabId)
     if (index === -1) return
 
     tabs.value.splice(index, 1)
+
+    // Clean up split view state if this tab was pinned
+    const { handleTabClosed } = useSplitView()
+    handleTabClosed(tabId)
 
     // If we closed the active tab, activate another one
     if (activeTabId.value === tabId) {
@@ -162,7 +168,12 @@ export function useEditorTabs() {
   }
 
   // Close all tabs
+  // IMPORTANT: This also clears split view state
   function closeAllTabs() {
+    // Clean up split view state
+    const { unpinTab } = useSplitView()
+    unpinTab()
+
     tabs.value = []
     activeTabId.value = null
   }

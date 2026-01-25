@@ -3,6 +3,18 @@
  *
  * Manages the state of the split view panel where tabs can be pinned.
  * State is persisted to localStorage.
+ *
+ * Implementation Note:
+ * We use a Pin button (click) instead of drag-and-drop to pin tabs because
+ * Tauri's WebView has `dragDropEnabled` enabled by default, which intercepts
+ * HTML5 drag events to support file drag-drop from the system (e.g., Finder).
+ * This causes `dragover` and `drop` events to never fire, while only
+ * `dragstart` and `dragend` work. Since we need to preserve system file
+ * drag-drop functionality, a Pin button provides a reliable alternative.
+ *
+ * References:
+ * - https://github.com/tauri-apps/tauri/issues/8581
+ * - https://github.com/tauri-apps/tauri/issues/6695
  */
 
 import { ref, computed, watch } from 'vue'
