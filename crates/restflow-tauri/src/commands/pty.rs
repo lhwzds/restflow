@@ -1,11 +1,15 @@
 //! PTY (Pseudo-Terminal) management for interactive shell sessions
 
-use portable_pty::{native_pty_system, CommandBuilder, PtySize};
+use crate::state::AppState;
+use portable_pty::{CommandBuilder, PtySize, native_pty_system};
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use tauri::{AppHandle, Emitter, State};
+
+/// Maximum size of output history buffer (1MB)
+const MAX_HISTORY_SIZE: usize = 1_000_000;
 
 /// Shared state for managing PTY sessions
 pub struct PtyState {
@@ -24,12 +28,48 @@ impl PtyState {
             sessions: Arc::new(Mutex::new(HashMap::new())),
         }
     }
+
+    /// Get all running session IDs
+    pub fn get_running_session_ids(&self) -> Vec<String> {
+        self.sessions
+            .lock()
+            .map(|s| s.keys().cloned().collect())
+            .unwrap_or_default()
+    }
+
+    /// Get the output buffer for a session
+    pub fn get_output_buffer(&self, session_id: &str) -> Option<String> {
+        self.sessions
+            .lock()
+            .ok()
+            .and_then(|s| s.get(session_id).map(|session| session.get_output()))
+    }
+
+    /// Remove a session and return its output buffer
+    pub fn remove_session(&self, session_id: &str) -> Option<String> {
+        self.sessions
+            .lock()
+            .ok()
+            .and_then(|mut s| s.remove(session_id).map(|session| session.get_output()))
+    }
 }
 
-/// A PTY session with writer handle
+/// A PTY session with writer handle and output buffer
 struct PtySession {
     writer: Box<dyn Write + Send>,
     master: Box<dyn portable_pty::MasterPty + Send>,
+    /// Accumulated output for history preservation
+    output_buffer: Arc<Mutex<String>>,
+}
+
+impl PtySession {
+    /// Get the current output buffer content
+    fn get_output(&self) -> String {
+        self.output_buffer
+            .lock()
+            .map(|b| b.clone())
+            .unwrap_or_default()
+    }
 }
 
 /// Event payload for PTY output
@@ -37,6 +77,18 @@ struct PtySession {
 struct PtyOutputPayload {
     session_id: String,
     data: String,
+}
+
+/// Append data to output buffer with size limit
+fn append_to_buffer(buffer: &Arc<Mutex<String>>, data: &str) {
+    if let Ok(mut buf) = buffer.lock() {
+        buf.push_str(data);
+        // Keep last 90% when exceeding max size to avoid frequent truncation
+        if buf.len() > MAX_HISTORY_SIZE {
+            let keep_from = buf.len() - (MAX_HISTORY_SIZE * 9 / 10);
+            *buf = buf[keep_from..].to_string();
+        }
+    }
 }
 
 /// Spawn a new PTY session
@@ -48,6 +100,15 @@ pub async fn spawn_pty(
     cols: u16,
     rows: u16,
 ) -> Result<(), String> {
+    // Check if session already exists
+    {
+        let sessions = state.sessions.lock().map_err(|e| e.to_string())?;
+        if sessions.contains_key(&session_id) {
+            // Already running, just return
+            return Ok(());
+        }
+    }
+
     let pty_system = native_pty_system();
 
     // Create PTY with specified size
@@ -85,10 +146,15 @@ pub async fn spawn_pty(
         .try_clone_reader()
         .map_err(|e| format!("Failed to clone PTY reader: {}", e))?;
 
+    // Create output buffer
+    let output_buffer = Arc::new(Mutex::new(String::new()));
+    let buffer_clone = output_buffer.clone();
+
     // Store session
     let session = PtySession {
         writer,
         master: pair.master,
+        output_buffer,
     };
 
     {
@@ -118,13 +184,18 @@ pub async fn spawn_pty(
                 Ok(n) => {
                     // Convert bytes to string (lossy for non-UTF8)
                     let data = String::from_utf8_lossy(&buf[..n]).to_string();
+
+                    // Emit to frontend
                     let _ = app_clone.emit(
                         "pty_output",
                         PtyOutputPayload {
                             session_id: session_id_clone.clone(),
-                            data,
+                            data: data.clone(),
                         },
                     );
+
+                    // Accumulate to history buffer
+                    append_to_buffer(&buffer_clone, &data);
                 }
                 Err(e) => {
                     tracing::error!("PTY read error: {}", e);
@@ -203,6 +274,152 @@ pub async fn close_pty(state: State<'_, PtyState>, session_id: String) -> Result
     }
 }
 
+/// Check if a PTY session is running
+#[tauri::command]
+pub async fn get_pty_status(
+    state: State<'_, PtyState>,
+    session_id: String,
+) -> Result<bool, String> {
+    let sessions = state.sessions.lock().map_err(|e| e.to_string())?;
+    Ok(sessions.contains_key(&session_id))
+}
+
+/// Get the accumulated output history for a PTY session
+///
+/// This is used to restore terminal content when reconnecting to a running PTY.
+#[tauri::command]
+pub async fn get_pty_history(
+    state: State<'_, PtyState>,
+    session_id: String,
+) -> Result<String, String> {
+    state
+        .get_output_buffer(&session_id)
+        .ok_or_else(|| format!("Session not found: {}", session_id))
+}
+
+/// Save terminal history for a single session
+#[tauri::command]
+pub async fn save_terminal_history(
+    pty_state: State<'_, PtyState>,
+    app_state: State<'_, AppState>,
+    session_id: String,
+) -> Result<(), String> {
+    // Get current output buffer
+    let history = pty_state.get_output_buffer(&session_id);
+
+    if let Some(history) = history {
+        // Get and update the terminal session
+        let mut session = app_state
+            .core
+            .storage
+            .terminal_sessions
+            .get(&session_id)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| format!("Terminal session not found: {}", session_id))?;
+
+        session.update_history(history);
+
+        app_state
+            .core
+            .storage
+            .terminal_sessions
+            .update(&session_id, &session)
+            .map_err(|e| e.to_string())?;
+
+        tracing::debug!("Saved history for terminal: {}", session_id);
+    }
+
+    Ok(())
+}
+
+/// Save history for all running terminals (called on app close)
+#[tauri::command]
+pub async fn save_all_terminal_history(
+    pty_state: State<'_, PtyState>,
+    app_state: State<'_, AppState>,
+) -> Result<(), String> {
+    let session_ids = pty_state.get_running_session_ids();
+
+    for session_id in session_ids {
+        // Get output buffer and remove session
+        if let Some(history) = pty_state.remove_session(&session_id) {
+            // Update terminal session in storage
+            if let Ok(Some(mut session)) = app_state.core.storage.terminal_sessions.get(&session_id)
+            {
+                session.set_stopped(Some(history));
+
+                if let Err(e) = app_state
+                    .core
+                    .storage
+                    .terminal_sessions
+                    .update(&session_id, &session)
+                {
+                    tracing::error!("Failed to save terminal {}: {}", session_id, e);
+                } else {
+                    tracing::info!("Saved and stopped terminal: {}", session_id);
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Restart a stopped terminal session
+#[tauri::command]
+pub async fn restart_terminal(
+    app_state: State<'_, AppState>,
+    session_id: String,
+) -> Result<restflow_core::TerminalSession, String> {
+    // Get and update the terminal session
+    let mut session = app_state
+        .core
+        .storage
+        .terminal_sessions
+        .get(&session_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Terminal session not found: {}", session_id))?;
+
+    // Mark as running (clear history to start fresh)
+    session.set_running();
+    session.history = None;
+
+    app_state
+        .core
+        .storage
+        .terminal_sessions
+        .update(&session_id, &session)
+        .map_err(|e| e.to_string())?;
+
+    tracing::info!("Restarted terminal: {}", session_id);
+    Ok(session)
+}
+
+/// Synchronous version of save_all_terminal_history for use in window close handler
+pub fn save_all_terminal_history_sync(pty_state: &PtyState, app_state: &AppState) {
+    let session_ids = pty_state.get_running_session_ids();
+
+    for session_id in session_ids {
+        if let Some(history) = pty_state.remove_session(&session_id) {
+            if let Ok(Some(mut session)) = app_state.core.storage.terminal_sessions.get(&session_id)
+            {
+                session.set_stopped(Some(history));
+
+                if let Err(e) = app_state
+                    .core
+                    .storage
+                    .terminal_sessions
+                    .update(&session_id, &session)
+                {
+                    tracing::error!("Failed to save terminal {}: {}", session_id, e);
+                } else {
+                    tracing::info!("Saved and stopped terminal: {}", session_id);
+                }
+            }
+        }
+    }
+}
+
 /// Get the default shell for the current platform
 fn get_default_shell() -> &'static str {
     #[cfg(target_os = "windows")]
@@ -220,5 +437,108 @@ fn get_default_shell() -> &'static str {
                 Box::leak(s.into_boxed_str()) as &str
             })
             .unwrap_or("/bin/bash")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Test that PtyState initializes correctly
+    #[test]
+    fn test_pty_state_new() {
+        let state = PtyState::new();
+        assert!(state.get_running_session_ids().is_empty());
+    }
+
+    /// Test that get_output_buffer returns None for non-existent session
+    #[test]
+    fn test_get_output_buffer_not_found() {
+        let state = PtyState::new();
+        assert!(state.get_output_buffer("nonexistent").is_none());
+    }
+
+    /// Test that get_running_session_ids returns empty list initially
+    #[test]
+    fn test_get_running_session_ids_empty() {
+        let state = PtyState::new();
+        assert!(state.get_running_session_ids().is_empty());
+    }
+
+    /// Test that remove_session returns None for non-existent session
+    #[test]
+    fn test_remove_session_not_found() {
+        let state = PtyState::new();
+        assert!(state.remove_session("nonexistent").is_none());
+    }
+
+    /// Test append_to_buffer basic functionality
+    #[test]
+    fn test_append_to_buffer_basic() {
+        let buffer = Arc::new(Mutex::new(String::new()));
+
+        append_to_buffer(&buffer, "Hello ");
+        append_to_buffer(&buffer, "World!");
+
+        let content = buffer.lock().unwrap().clone();
+        assert_eq!(content, "Hello World!");
+    }
+
+    /// Test append_to_buffer with multiple appends
+    #[test]
+    fn test_append_to_buffer_multiple() {
+        let buffer = Arc::new(Mutex::new(String::new()));
+
+        for i in 0..100 {
+            append_to_buffer(&buffer, &format!("line-{}\n", i));
+        }
+
+        let content = buffer.lock().unwrap();
+        assert!(content.starts_with("line-0\n"));
+        assert!(content.ends_with("line-99\n"));
+    }
+
+    /// Test buffer size limit enforcement
+    #[test]
+    fn test_buffer_size_limit() {
+        let buffer = Arc::new(Mutex::new(String::new()));
+
+        // Write data larger than MAX_HISTORY_SIZE
+        let large_data = "x".repeat(MAX_HISTORY_SIZE + 100);
+        append_to_buffer(&buffer, &large_data);
+
+        let content = buffer.lock().unwrap();
+        // Should be truncated to approximately 90% of max size
+        assert!(content.len() <= MAX_HISTORY_SIZE);
+        assert!(content.len() >= MAX_HISTORY_SIZE * 9 / 10);
+    }
+
+    /// Test that buffer truncation preserves the end of content
+    #[test]
+    fn test_buffer_truncation_preserves_end() {
+        let buffer = Arc::new(Mutex::new(String::new()));
+
+        // Fill with pattern where we can verify the end is preserved
+        let chunk = "ABCDEFGHIJ"; // 10 characters
+        let chunks_needed = (MAX_HISTORY_SIZE / 10) + 20; // Exceed limit
+
+        for i in 0..chunks_needed {
+            append_to_buffer(&buffer, &format!("{}-{:05}\n", chunk, i));
+        }
+
+        let content = buffer.lock().unwrap();
+        // The last chunk should be present
+        let last_chunk = format!("{}-{:05}\n", chunk, chunks_needed - 1);
+        assert!(
+            content.ends_with(&last_chunk),
+            "Buffer should preserve the most recent content"
+        );
+    }
+
+    /// Test PtyState default trait
+    #[test]
+    fn test_pty_state_default() {
+        let state = PtyState::default();
+        assert!(state.get_running_session_ids().is_empty());
     }
 }

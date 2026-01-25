@@ -46,6 +46,9 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # Time
 chrono = "0.4"
 
+# UUID for unique session IDs
+uuid = { version = "1.11", features = ["v4"] }
+
 [features]
 # This feature is used for production builds or when a dev server is not specified
 custom-protocol = ["tauri/custom-protocol"]
