@@ -15,6 +15,7 @@ const emit = defineEmits<{
   close: []
   newSkill: []
   newAgent: []
+  pin: [tabId: string]
 }>()
 
 const { tabs, activeTabId, activeTab, openTerminal, closeTab, switchTab, updateTabData } =
@@ -93,6 +94,7 @@ function handleCancel() {
         @new-skill="emit('newSkill')"
         @new-agent="emit('newAgent')"
         @new-terminal="handleNewTerminal"
+        @pin="emit('pin', $event)"
       />
     </div>
 

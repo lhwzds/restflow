@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, watch, onMounted, computed } from 'vue'
-import { Settings, Moon, Sun, Pin, Search, List, LayoutGrid } from 'lucide-vue-next'
+import { Settings, Moon, Sun, Search, List, LayoutGrid } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import RestFlowLogo from '@/components/shared/RestFlowLogo.vue'
@@ -81,10 +81,24 @@ watch(activeTab, () => {
 })
 
 // Split view state
-const { isEnabled: isSplitEnabled, pinTab } = useSplitView()
+//
+// Note: We use a Pin button instead of drag-and-drop for split view because
+// Tauri's `dragDropEnabled` (enabled by default) intercepts HTML5 drag events
+// to support file drag-drop from the system (e.g., Finder). This causes
+// `dragover` and `drop` events to never fire in the WebView, while only
+// `dragstart` and `dragend` work. Since we need system file drag-drop
+// functionality, we use a Pin button as the reliable alternative.
+//
+// References:
+// - https://github.com/tauri-apps/tauri/issues/8581
+// - https://github.com/tauri-apps/tauri/issues/6695
+const { togglePin } = useSplitView()
 
-// Drag and drop state
-const isDragOver = ref(false)
+// Handle pin button click from TabBar
+const handlePinTab = (tabId: string) => {
+  togglePin(tabId)
+}
+
 const selectedItem = ref<FileItem<Skill | StoredAgent> | null>(null)
 
 // Editor tabs state
@@ -175,25 +189,6 @@ const onTabChange = (tab: WorkspaceTab) => {
 // Handle terminal open from TerminalBrowser
 const onOpenTerminal = (_tab: EditorTab) => {
   // Tab is already opened by TerminalBrowser, nothing extra to do
-}
-
-// Handle drag over for split view drop zone
-const handleDragOver = (event: DragEvent) => {
-  event.preventDefault()
-  isDragOver.value = true
-}
-
-const handleDragLeave = () => {
-  isDragOver.value = false
-}
-
-const handleDrop = (event: DragEvent) => {
-  event.preventDefault()
-  isDragOver.value = false
-  const tabId = event.dataTransfer?.getData('text/plain')
-  if (tabId) {
-    pinTab(tabId)
-  }
 }
 
 // Handle file selection (single click)
@@ -373,7 +368,10 @@ const onCloseChat = () => {
             :key="tab"
             variant="ghost"
             size="sm"
-            :class="['h-7 px-3', activeTab === tab ? 'text-primary font-medium' : 'text-muted-foreground']"
+            :class="[
+              'h-7 px-3',
+              activeTab === tab ? 'text-primary font-medium' : 'text-muted-foreground',
+            ]"
             @click="onTabChange(tab)"
           >
             {{ tab.charAt(0).toUpperCase() + tab.slice(1) }}
@@ -388,9 +386,7 @@ const onCloseChat = () => {
       <div class="flex items-center gap-2">
         <!-- Browser controls only shown in browse mode to reduce clutter in editor -->
         <template v-if="!hasOpenTabs || showBrowser">
-          <span class="text-xs text-muted-foreground">
-            {{ itemCount }} items
-          </span>
+          <span class="text-xs text-muted-foreground"> {{ itemCount }} items </span>
 
           <div class="flex gap-0.5 border rounded-md p-0.5">
             <Button
@@ -412,7 +408,10 @@ const onCloseChat = () => {
           </div>
 
           <div class="relative w-48">
-            <Search :size="14" class="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <Search
+              :size="14"
+              class="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground"
+            />
             <Input v-model="searchQuery" placeholder="Search..." class="h-7 pl-7 text-sm" />
           </div>
 
@@ -451,6 +450,7 @@ const onCloseChat = () => {
               @close="onEditorClose"
               @new-skill="onCreateSkill"
               @new-agent="onCreateAgent"
+              @pin="handlePinTab"
               class="flex-1"
             />
           </template>
@@ -467,6 +467,7 @@ const onCloseChat = () => {
                 @new-skill="onCreateSkill"
                 @new-agent="onCreateAgent"
                 @new-terminal="onCreateTerminal"
+                @pin="handlePinTab"
               />
             </div>
 
@@ -549,29 +550,6 @@ const onCloseChat = () => {
               />
             </div>
           </template>
-        </div>
-
-        <!-- Drop zone indicator (when dragging) -->
-        <div
-          v-if="isDragOver"
-          class="w-[400px] shrink-0 border-l-2 border-dashed border-primary bg-primary/5 flex items-center justify-center"
-          @dragover.prevent
-          @dragleave="handleDragLeave"
-          @drop="handleDrop"
-        >
-          <div class="text-center text-primary">
-            <Pin :size="32" class="mx-auto mb-2" />
-            <p class="text-sm font-medium">Drop to pin</p>
-          </div>
-        </div>
-
-        <!-- Invisible drop target (when not dragging and no split) -->
-        <div
-          v-else-if="!isSplitEnabled && hasOpenTabs"
-          class="w-2 shrink-0 opacity-0 hover:opacity-100 transition-opacity"
-          @dragover="handleDragOver"
-        >
-          <div class="h-full border-l-2 border-dashed border-muted-foreground/30" />
         </div>
 
         <!-- Split View Container -->
