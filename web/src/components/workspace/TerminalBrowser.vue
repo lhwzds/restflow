@@ -1,12 +1,30 @@
+<!--
+  TerminalBrowser Component - Design Decisions:
+
+  1. DASHED BORDER on "New Terminal" card: Unlike FileBrowser, terminal items are
+     displayed as Card components with borders. The "New Terminal" button uses a
+     dashed border Card to match this visual style and maintain consistency.
+     (Compare with FileBrowser which uses no border because file items have no borders)
+
+  2. searchQuery and viewMode are PROPS, not local state: These controls are managed
+     in the parent (SkillWorkspace) and displayed in the header for a cleaner UI.
+
+  3. Auto-restart stopped sessions: When clicking a stopped terminal, it automatically
+     restarts the PTY session for better UX.
+-->
 <script setup lang="ts">
-import { Terminal, Plus, Trash2, Loader2, Search, List, LayoutGrid } from 'lucide-vue-next'
+import { Terminal, Plus, Trash2, Loader2 } from 'lucide-vue-next'
 import { ref, computed } from 'vue'
 import { useEditorTabs, type EditorTab } from '@/composables/editor/useEditorTabs'
 import { useTerminalSessions, type TerminalSession } from '@/composables/editor/useTerminalSessions'
 import { closePty } from '@/api/pty'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
+
+const props = defineProps<{
+  searchQuery: string
+  viewMode: 'grid' | 'list'
+}>()
 
 const emit = defineEmits<{
   open: [tab: EditorTab]
@@ -18,14 +36,10 @@ const { sessions, isLoading, createSession, deleteSession, restartSession } = us
 const isCreating = ref(false)
 const deletingIds = ref<Set<string>>(new Set())
 
-// Search and view mode
-const searchQuery = ref('')
-const viewMode = ref<'grid' | 'list'>('grid')
-
 // Filter sessions by search query
 const filteredSessions = computed(() => {
-  if (!searchQuery.value) return sessions.value
-  const query = searchQuery.value.toLowerCase()
+  if (!props.searchQuery) return sessions.value
+  const query = props.searchQuery.toLowerCase()
   return sessions.value.filter((session) => session.name.toLowerCase().includes(query))
 })
 
@@ -111,53 +125,8 @@ const formatDate = (timestamp: number) => {
 
 <template>
   <div class="h-full flex flex-col bg-background">
-    <!-- Toolbar -->
-    <div class="h-11 border-b flex items-center px-3 gap-2">
-      <!-- Spacer -->
-      <div class="flex-1" />
-
-      <!-- Search -->
-      <div class="relative w-40">
-        <Search :size="14" class="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
-        <Input v-model="searchQuery" placeholder="Search..." class="h-7 pl-7 text-sm" />
-      </div>
-
-      <!-- View Toggle -->
-      <div class="flex gap-0.5 border rounded-md p-0.5">
-        <Button
-          size="icon"
-          :variant="viewMode === 'list' ? 'secondary' : 'ghost'"
-          class="h-6 w-6"
-          @click="viewMode = 'list'"
-        >
-          <List :size="14" />
-        </Button>
-        <Button
-          size="icon"
-          :variant="viewMode === 'grid' ? 'secondary' : 'ghost'"
-          class="h-6 w-6"
-          @click="viewMode = 'grid'"
-        >
-          <LayoutGrid :size="14" />
-        </Button>
-      </div>
-
-      <!-- Create Button -->
-      <Button size="sm" class="h-7 w-[120px]" :disabled="isCreating" @click="handleCreateTerminal">
-        <Plus :size="14" class="mr-1" />
-        New Terminal
-      </Button>
-    </div>
-
     <!-- Content Area -->
-    <div class="flex-1 overflow-auto p-4 relative">
-      <!-- Item Count -->
-      <span
-        class="absolute top-2 right-4 text-xs text-muted-foreground bg-background/80 px-2 py-0.5 rounded"
-      >
-        {{ filteredSessions.length }} items
-      </span>
-
+    <div class="flex-1 overflow-auto p-4">
       <!-- Loading state -->
       <div v-if="isLoading" class="flex flex-col items-center justify-center h-full text-muted-foreground">
         <Loader2 :size="32" class="mb-2 animate-spin" />
@@ -217,7 +186,7 @@ const formatDate = (timestamp: number) => {
           </Button>
         </Card>
 
-        <!-- Create new terminal card -->
+        <!-- Create new terminal card (uses Card with dashed border to match other terminal cards) -->
         <Card
           class="cursor-pointer border-dashed hover:border-primary transition-colors"
           :class="{ 'opacity-50': isCreating }"
@@ -281,7 +250,7 @@ const formatDate = (timestamp: number) => {
           </Button>
         </button>
 
-        <!-- Create new terminal row -->
+        <!-- Create new terminal row (uses dashed border to match card style in grid view) -->
         <button
           class="w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-all text-left border-2 border-dashed hover:border-primary hover:bg-muted/50"
           :class="{ 'opacity-50': isCreating }"

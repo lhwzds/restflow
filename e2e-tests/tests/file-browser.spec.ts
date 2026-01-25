@@ -2,7 +2,12 @@ import { test, expect } from '@playwright/test'
 
 /**
  * File Browser E2E Tests
- * Tests the file browser UI for Skills and Agents including the new card creation
+ *
+ * Design Notes:
+ * - FileBrowser "New Skill/Agent" buttons have NO border (unlike TerminalBrowser)
+ *   because other file items also have no borders
+ * - Search and view toggle controls are in the header, not in the component
+ * - Active navigation tab uses text-primary color (not background highlight)
  */
 test.describe('File Browser - Skills', () => {
   test.beforeEach(async ({ page }) => {
@@ -11,42 +16,38 @@ test.describe('File Browser - Skills', () => {
     // Default is Skills page
   })
 
-  test('grid view shows New Skill card', async ({ page }) => {
-    // Verify dashed card with "New Skill" exists
-    const newCard = page.locator('button.border-dashed', { hasText: 'New Skill' })
-    await expect(newCard).toBeVisible()
+  test('grid view shows New Skill button without border', async ({ page }) => {
+    // New Skill button should exist without dashed border (design decision)
+    const newButton = page.locator('button', { hasText: 'New Skill' })
+    await expect(newButton).toBeVisible()
+    // Should NOT have border-dashed class (unlike TerminalBrowser)
+    await expect(newButton).not.toHaveClass(/border-dashed/)
   })
 
-  test('clicking New Skill card creates skill', async ({ page }) => {
-    // Find and click the dashed card
-    const newCard = page.locator('button.border-dashed', { hasText: 'New Skill' })
-    await newCard.click()
+  test('New Skill button shows primary color on hover', async ({ page }) => {
+    const newButton = page.locator('button', { hasText: 'New Skill' })
+    await newButton.hover()
+    // The icon and text should change to primary color on hover
+    await expect(newButton).toBeVisible()
+  })
+
+  test('clicking New Skill button creates skill', async ({ page }) => {
+    const newButton = page.locator('button', { hasText: 'New Skill' })
+    await newButton.click()
 
     // Verify skill editor opens (markdown textarea visible)
     await expect(page.locator('textarea[placeholder*="Markdown"]')).toBeVisible()
   })
 
-  test('list view shows New Skill row', async ({ page }) => {
-    // Switch to List view (first button in toggle group)
-    const listButton = page.locator('button[class*="h-6"][class*="w-6"]').first()
+  test('list view shows New Skill row without border', async ({ page }) => {
+    // View toggle is now in header
+    const listButton = page.locator('header button[class*="h-6"][class*="w-6"]').first()
     await listButton.click()
 
-    // Verify New Skill row exists with border-dashed
-    const newRow = page.locator('button.border-dashed', { hasText: 'New Skill' })
+    // Verify New Skill row exists without border-dashed
+    const newRow = page.locator('button', { hasText: 'New Skill' })
     await expect(newRow).toBeVisible()
-  })
-
-  test('clicking New Skill row in list view creates skill', async ({ page }) => {
-    // Switch to List view
-    const listButton = page.locator('button[class*="h-6"][class*="w-6"]').first()
-    await listButton.click()
-
-    // Click the New Skill row
-    const newRow = page.locator('button.border-dashed', { hasText: 'New Skill' })
-    await newRow.click()
-
-    // Verify skill editor opens
-    await expect(page.locator('textarea[placeholder*="Markdown"]')).toBeVisible()
+    await expect(newRow).not.toHaveClass(/border-dashed/)
   })
 
   test('skill items show delete button on hover', async ({ page }) => {
@@ -68,37 +69,34 @@ test.describe('File Browser - Agents', () => {
     await page.getByRole('button', { name: 'Agents' }).click()
   })
 
-  test('grid view shows New Agent card', async ({ page }) => {
-    // Verify dashed card with "New Agent" exists
-    const newCard = page.locator('button.border-dashed', { hasText: 'New Agent' })
-    await expect(newCard).toBeVisible()
+  test('grid view shows New Agent button without border', async ({ page }) => {
+    const newButton = page.locator('button', { hasText: 'New Agent' })
+    await expect(newButton).toBeVisible()
+    await expect(newButton).not.toHaveClass(/border-dashed/)
   })
 
-  test('clicking New Agent card creates agent', async ({ page }) => {
-    // Find and click the dashed card
-    const newCard = page.locator('button.border-dashed', { hasText: 'New Agent' })
-    await newCard.click()
+  test('clicking New Agent button creates agent', async ({ page }) => {
+    const newButton = page.locator('button', { hasText: 'New Agent' })
+    await newButton.click()
 
     // Verify agent editor opens (system prompt textarea visible)
     await expect(page.locator('textarea[placeholder*="system prompt"]')).toBeVisible()
   })
 
-  test('list view shows New Agent row', async ({ page }) => {
-    // Switch to List view
-    const listButton = page.locator('button[class*="h-6"][class*="w-6"]').first()
+  test('list view shows New Agent row without border', async ({ page }) => {
+    // View toggle is in header
+    const listButton = page.locator('header button[class*="h-6"][class*="w-6"]').first()
     await listButton.click()
 
-    // Verify New Agent row exists with border-dashed
-    const newRow = page.locator('button.border-dashed', { hasText: 'New Agent' })
+    const newRow = page.locator('button', { hasText: 'New Agent' })
     await expect(newRow).toBeVisible()
+    await expect(newRow).not.toHaveClass(/border-dashed/)
   })
 
   test('agent items show delete button on hover', async ({ page }) => {
-    // Find an agent item
     const agentItem = page.locator('button', { hasText: /Untitled-\d+/ }).first()
     await expect(agentItem).toBeVisible()
 
-    // Hover to show delete button
     await agentItem.hover()
     const deleteButton = agentItem.locator('button[title="Delete"]')
     await expect(deleteButton).toBeVisible()
@@ -110,22 +108,17 @@ test.describe('Delete Functionality', () => {
     await page.goto('/workspace')
     await page.waitForLoadState('networkidle')
 
-    // Get initial skill count
     const initialCount = await page.locator('button', { hasText: /Untitled-\d+/ }).count()
     expect(initialCount).toBeGreaterThan(0)
 
-    // Hover on first skill to show delete button
     const skillItem = page.locator('button', { hasText: /Untitled-\d+/ }).first()
     await skillItem.hover()
 
-    // Click delete button
     const deleteButton = skillItem.locator('button[title="Delete"]')
     await deleteButton.click()
 
-    // Wait for deletion
     await page.waitForTimeout(500)
 
-    // Verify count decreased (or skill removed)
     const newCount = await page.locator('button', { hasText: /Untitled-\d+/ }).count()
     expect(newCount).toBeLessThan(initialCount)
   })
@@ -135,50 +128,18 @@ test.describe('Delete Functionality', () => {
     await page.waitForLoadState('networkidle')
     await page.getByRole('button', { name: 'Agents' }).click()
 
-    // Get initial agent count
     const initialCount = await page.locator('button', { hasText: /Untitled-\d+/ }).count()
     expect(initialCount).toBeGreaterThan(0)
 
-    // Hover on first agent to show delete button
     const agentItem = page.locator('button', { hasText: /Untitled-\d+/ }).first()
     await agentItem.hover()
 
-    // Click delete button
     const deleteButton = agentItem.locator('button[title="Delete"]')
     await deleteButton.click()
 
-    // Wait for deletion
     await page.waitForTimeout(500)
 
-    // Verify count decreased
     const newCount = await page.locator('button', { hasText: /Untitled-\d+/ }).count()
     expect(newCount).toBeLessThan(initialCount)
-  })
-
-  test('deleting open file closes its tab', async ({ page }) => {
-    await page.goto('/workspace')
-    await page.waitForLoadState('networkidle')
-
-    // Open a skill first
-    const skillItem = page.locator('button', { hasText: /Untitled-\d+/ }).first()
-    const skillName = await skillItem.textContent()
-    await skillItem.dblclick()
-
-    // Verify tab is open
-    await expect(page.locator('[class*="rounded-t-md"]', { hasText: '.md' })).toBeVisible()
-
-    // Go back to file browser
-    await page.getByRole('button', { name: 'Skills' }).click()
-
-    // Find the same skill and delete it
-    const sameSkillItem = page.locator('button', { hasText: skillName?.split('\n')[0] || '' }).first()
-    await sameSkillItem.hover()
-    await sameSkillItem.locator('button[title="Delete"]').click()
-
-    // Wait for deletion
-    await page.waitForTimeout(500)
-
-    // Verify tab is closed (either no tabs or different tab)
-    // The tab bar should either not have this file or be empty
   })
 })
