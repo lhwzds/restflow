@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue'
-import { X, Save, Loader2, Plus } from 'lucide-vue-next'
+import { X, Save, Loader2, Bot, Settings, Plus } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -14,6 +14,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Slider } from '@/components/ui/slider'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { createAgent, updateAgent } from '@/api/agents'
 import type { StoredAgent } from '@/types/generated/StoredAgent'
 import type { AgentNode } from '@/types/generated/AgentNode'
@@ -44,17 +45,13 @@ const modelsStore = useModelsStore()
 const isSaving = ref(false)
 
 // Form data
-const formData = ref({
-  name: '',
-  model: 'claude-sonnet-4-5' as AIModel,
-  prompt: '',
-  temperature: 0.7,
-  tools: [] as string[],
-})
+const name = ref('')
+const model = ref<AIModel>('claude-sonnet-4-5')
+const prompt = ref('')
+const temperature = ref(0.7)
+const tools = ref<string[]>([])
 
-// Tool management - create a ref that syncs with formData.tools
-const formableTools = ref<string[]>([])
-
+// Tool management
 const {
   isLoading: isLoadingTools,
   selectedToolValue,
@@ -63,51 +60,30 @@ const {
   removeTool,
   getToolLabel,
   getAvailableTools,
-} = useAgentTools(formableTools)
-
-// Sync formableTools with formData.tools
-watch(
-  () => formData.value.tools,
-  (newTools) => {
-    formableTools.value = [...newTools]
-  },
-  { deep: true },
-)
-
-watch(
-  formableTools,
-  (newTools) => {
-    formData.value.tools = [...newTools]
-  },
-  { deep: true },
-)
+} = useAgentTools(tools)
 
 // Get all available models
 const models = computed(() => getAllModels())
 
 // Check if current model supports temperature
-const showTemperature = computed(() => supportsTemperature(formData.value.model))
+const showTemperature = computed(() => supportsTemperature(model.value))
 
 // Initialize form data from agent
 watch(
   () => props.agent,
   (agent) => {
     if (agent) {
-      formData.value = {
-        name: agent.name,
-        model: agent.agent.model,
-        prompt: agent.agent.prompt || '',
-        temperature: agent.agent.temperature ?? getDefaultTemperature(agent.agent.model) ?? 0.7,
-        tools: [...(agent.agent.tools || [])],
-      }
+      name.value = agent.name
+      model.value = agent.agent.model
+      prompt.value = agent.agent.prompt || ''
+      temperature.value = agent.agent.temperature ?? getDefaultTemperature(agent.agent.model) ?? 0.7
+      tools.value = [...(agent.agent.tools || [])]
     } else {
-      formData.value = {
-        name: '',
-        model: 'claude-sonnet-4-5',
-        prompt: '',
-        temperature: 0.7,
-        tools: [],
-      }
+      name.value = ''
+      model.value = 'claude-sonnet-4-5'
+      prompt.value = ''
+      temperature.value = 0.7
+      tools.value = []
     }
   },
   { immediate: true },
@@ -115,36 +91,44 @@ watch(
 
 // Handle model change
 function onModelChange(value: string) {
-  const model = value as AIModel
-  formData.value.model = model
+  const newModel = value as AIModel
+  model.value = newModel
   // Reset temperature when switching to a model that doesn't support it
-  if (!supportsTemperature(model)) {
-    formData.value.temperature = 0.7
+  if (!supportsTemperature(newModel)) {
+    temperature.value = 0.7
   }
 }
 
 // Handle temperature slider change
 function onTemperatureChange(value: number[] | undefined) {
   if (value && value[0] !== undefined) {
-    formData.value.temperature = value[0]
+    temperature.value = value[0]
   }
 }
 
 // Check if form has changes
 const hasChanges = computed(() => {
-  if (!props.agent) return formData.value.name.trim() !== ''
+  if (!props.agent) return name.value.trim() !== ''
   return (
-    formData.value.name !== props.agent.name ||
-    formData.value.model !== props.agent.agent.model ||
-    formData.value.prompt !== (props.agent.agent.prompt || '') ||
-    formData.value.temperature !== (props.agent.agent.temperature ?? 0.7) ||
-    JSON.stringify(formData.value.tools) !== JSON.stringify(props.agent.agent.tools || [])
+    name.value !== props.agent.name ||
+    model.value !== props.agent.agent.model ||
+    prompt.value !== (props.agent.agent.prompt || '') ||
+    temperature.value !== (props.agent.agent.temperature ?? 0.7) ||
+    JSON.stringify(tools.value) !== JSON.stringify(props.agent.agent.tools || [])
   )
+})
+
+// Check if can save
+const canSave = computed(() => {
+  if (!props.agent) {
+    return name.value.trim() !== '' && name.value !== 'Untitled'
+  }
+  return hasChanges.value
 })
 
 // Save the agent
 async function handleSave() {
-  if (!formData.value.name.trim()) {
+  if (!name.value.trim()) {
     toast.error('Name is required')
     return
   }
@@ -152,10 +136,10 @@ async function handleSave() {
   isSaving.value = true
   try {
     const agentNode: AgentNode = {
-      model: formData.value.model,
-      prompt: formData.value.prompt.trim() || undefined,
-      temperature: showTemperature.value ? formData.value.temperature : undefined,
-      tools: formData.value.tools.length > 0 ? formData.value.tools : undefined,
+      model: model.value,
+      prompt: prompt.value.trim() || undefined,
+      temperature: showTemperature.value ? temperature.value : undefined,
+      tools: tools.value.length > 0 ? tools.value : undefined,
     }
 
     let savedAgent: StoredAgent
@@ -163,14 +147,14 @@ async function handleSave() {
     if (props.isNew || !props.agent) {
       // Create new agent
       savedAgent = await createAgent({
-        name: formData.value.name.trim(),
+        name: name.value.trim(),
         agent: agentNode,
       })
       toast.success('Agent created successfully')
     } else {
       // Update existing agent
       savedAgent = await updateAgent(props.agent.id, {
-        name: formData.value.name.trim(),
+        name: name.value.trim(),
         agent: agentNode,
       })
       toast.success('Agent saved successfully')
@@ -194,121 +178,136 @@ onMounted(async () => {
 
 <template>
   <div class="h-full flex flex-col bg-background">
-    <!-- Header (conditional) -->
-    <div v-if="showHeader" class="h-12 border-b flex items-center px-4 justify-between shrink-0">
-      <h2 class="text-lg font-semibold">
-        {{ isNew ? 'New Agent' : 'Edit Agent' }}
-      </h2>
-      <div class="flex items-center gap-2">
-        <Button variant="outline" size="sm" :disabled="isSaving" @click="emit('cancel')">
-          <X :size="16" class="mr-1" />
-          Cancel
-        </Button>
-        <Button size="sm" :disabled="isSaving || !hasChanges" @click="handleSave">
-          <Loader2 v-if="isSaving" :size="16" class="mr-1 animate-spin" />
-          <Save v-else :size="16" class="mr-1" />
-          Save
-        </Button>
-      </div>
+    <!-- Header: Icon + Name + Actions (similar to SkillEditor) -->
+    <div v-if="showHeader" class="h-11 border-b flex items-center px-3 gap-3 shrink-0">
+      <Bot :size="18" class="text-muted-foreground shrink-0" />
+
+      <!-- Editable name -->
+      <Input
+        v-model="name"
+        class="h-7 text-sm font-medium border-none shadow-none focus-visible:ring-0 px-1 bg-transparent"
+        :class="{ 'text-muted-foreground italic': name === 'Untitled' || name === '' }"
+        placeholder="Enter agent name..."
+      />
+
+      <span class="text-muted-foreground text-sm">.agent</span>
+
+      <div class="flex-1" />
+
+      <!-- Actions -->
+      <Button variant="ghost" size="sm" class="h-7" :disabled="isSaving" @click="emit('cancel')">
+        <X :size="14" class="mr-1" />
+        Cancel
+      </Button>
+      <Button size="sm" class="h-7" :disabled="isSaving || !canSave" @click="handleSave">
+        <Loader2 v-if="isSaving" :size="14" class="mr-1 animate-spin" />
+        <Save v-else :size="14" class="mr-1" />
+        Save
+      </Button>
     </div>
 
-    <!-- Form -->
-    <div class="flex-1 overflow-auto p-4">
-      <div class="max-w-[48rem] mx-auto space-y-6">
-        <!-- Name -->
-        <div class="space-y-2">
-          <Label for="name">Name</Label>
-          <Input id="name" v-model="formData.name" placeholder="Enter agent name" />
-        </div>
+    <!-- Main Editor with Floating Config -->
+    <div class="flex-1 relative">
+      <!-- Floating Config Button (top-right) -->
+      <Popover>
+        <PopoverTrigger as-child>
+          <Button
+            variant="outline"
+            size="icon"
+            class="absolute top-3 right-6 z-10 h-8 w-8 bg-background/80 backdrop-blur-sm"
+          >
+            <Settings :size="16" />
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent class="w-80" align="end">
+          <div class="space-y-4">
+            <!-- Model Select -->
+            <div class="space-y-2">
+              <Label>Model</Label>
+              <Select :model-value="model" @update:model-value="onModelChange">
+                <SelectTrigger class="w-full">
+                  <SelectValue placeholder="Select a model" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem v-for="m in models" :key="m.value" :value="m.value">
+                    {{ m.label }}
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
 
-        <!-- Model -->
-        <div class="space-y-2">
-          <Label for="model">Model</Label>
-          <Select :model-value="formData.model" @update:model-value="onModelChange">
-            <SelectTrigger class="w-full">
-              <SelectValue placeholder="Select a model" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem v-for="model in models" :key="model.value" :value="model.value">
-                {{ model.label }}
-              </SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
+            <!-- Temperature Slider -->
+            <div v-if="showTemperature" class="space-y-2">
+              <Label>Temperature: {{ temperature.toFixed(1) }}</Label>
+              <Slider
+                :model-value="[temperature]"
+                :min="0"
+                :max="2"
+                :step="0.1"
+                class="w-full"
+                @update:model-value="onTemperatureChange"
+              />
+              <p class="text-xs text-muted-foreground">
+                Lower = focused, Higher = creative
+              </p>
+            </div>
 
-        <!-- Temperature -->
-        <div v-if="showTemperature" class="space-y-2">
-          <Label>Temperature: {{ formData.temperature.toFixed(1) }}</Label>
-          <Slider
-            :model-value="[formData.temperature]"
-            :min="0"
-            :max="2"
-            :step="0.1"
-            class="w-full"
-            @update:model-value="onTemperatureChange"
-          />
-          <p class="text-xs text-muted-foreground">
-            Lower values produce more focused output, higher values produce more creative output.
-          </p>
-        </div>
-
-        <!-- Tools -->
-        <div class="space-y-2">
-          <Label>Tools</Label>
-          <div class="flex flex-wrap gap-2 mb-2">
-            <Badge
-              v-for="tool in formData.tools"
-              :key="tool"
-              variant="secondary"
-              class="text-xs gap-1 pr-1"
-            >
-              {{ getToolLabel(tool) }}
-              <button type="button" class="hover:text-destructive" @click="removeTool(tool)">
-                <X :size="12" />
-              </button>
-            </Badge>
-            <span v-if="formData.tools.length === 0" class="text-xs text-muted-foreground">
-              No tools selected
-            </span>
-          </div>
-          <div class="flex gap-2">
-            <Select v-model="selectedToolValue">
-              <SelectTrigger class="flex-1">
-                <SelectValue placeholder="Add a tool..." />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem
-                  v-for="tool in getAvailableTools()"
-                  :key="tool.value"
-                  :value="tool.value"
+            <!-- Tools -->
+            <div class="space-y-2">
+              <Label>Tools</Label>
+              <div class="flex flex-wrap gap-1.5 mb-2">
+                <Badge
+                  v-for="tool in tools"
+                  :key="tool"
+                  variant="secondary"
+                  class="text-xs gap-1 pr-1"
                 >
-                  {{ tool.label }}
-                </SelectItem>
-              </SelectContent>
-            </Select>
-            <Button
-              type="button"
-              variant="outline"
-              size="icon"
-              :disabled="!selectedToolValue || isLoadingTools"
-              @click="addTool"
-            >
-              <Plus :size="16" />
-            </Button>
+                  {{ getToolLabel(tool) }}
+                  <button type="button" class="hover:text-destructive" @click="removeTool(tool)">
+                    <X :size="12" />
+                  </button>
+                </Badge>
+                <span v-if="tools.length === 0" class="text-xs text-muted-foreground">
+                  No tools selected
+                </span>
+              </div>
+              <div class="flex gap-2">
+                <Select v-model="selectedToolValue">
+                  <SelectTrigger class="flex-1 h-8">
+                    <SelectValue placeholder="Add a tool..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem
+                      v-for="tool in getAvailableTools()"
+                      :key="tool.value"
+                      :value="tool.value"
+                    >
+                      {{ tool.label }}
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  class="h-8 w-8"
+                  :disabled="!selectedToolValue || isLoadingTools"
+                  @click="addTool"
+                >
+                  <Plus :size="14" />
+                </Button>
+              </div>
+            </div>
           </div>
-        </div>
+        </PopoverContent>
+      </Popover>
 
-        <!-- System Prompt -->
-        <div class="space-y-2">
-          <Label for="prompt">System Prompt</Label>
-          <Textarea
-            id="prompt"
-            v-model="formData.prompt"
-            placeholder="Write the system prompt for this agent..."
-            class="min-h-[200px] font-mono text-sm"
-          />
-        </div>
-      </div>
+      <!-- Main Textarea (full height) -->
+      <Textarea
+        v-model="prompt"
+        class="h-full resize-none border-0 rounded-none focus-visible:ring-0 font-mono text-sm p-4 bg-background"
+        placeholder="Write your system prompt here..."
+      />
     </div>
   </div>
 </template>
