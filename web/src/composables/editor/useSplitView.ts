@@ -20,9 +20,24 @@
 import { ref, computed, watch } from 'vue'
 
 const STORAGE_KEY = 'restflow-split-view'
-const DEFAULT_WIDTH = 400
-const MIN_WIDTH = 300
-const MAX_WIDTH = 600
+
+// All widths are ratios of window width for responsive behavior
+const DEFAULT_WIDTH_RATIO = 0.3 // 30% of window width
+const MIN_WIDTH_RATIO = 0.2 // 20% of window width
+const MAX_WIDTH_RATIO = 0.7 // 70% of window width
+
+// Calculate actual pixel values from ratios
+function getDefaultWidth() {
+  return Math.floor(window.innerWidth * DEFAULT_WIDTH_RATIO)
+}
+
+function getMinWidth() {
+  return Math.floor(window.innerWidth * MIN_WIDTH_RATIO)
+}
+
+function getMaxWidth() {
+  return Math.floor(window.innerWidth * MAX_WIDTH_RATIO)
+}
 
 interface SplitViewState {
   enabled: boolean
@@ -34,7 +49,7 @@ interface SplitViewState {
 const state = ref<SplitViewState>({
   enabled: false,
   pinnedTabId: null,
-  width: DEFAULT_WIDTH,
+  width: getDefaultWidth(),
 })
 
 // Load from localStorage on module initialization
@@ -45,7 +60,7 @@ if (saved) {
     state.value = {
       enabled: parsed.enabled ?? false,
       pinnedTabId: parsed.pinnedTabId ?? null,
-      width: parsed.width ?? DEFAULT_WIDTH,
+      width: parsed.width ?? getDefaultWidth(),
     }
   } catch {
     console.warn('Failed to parse split view state from localStorage')
@@ -95,9 +110,10 @@ export function useSplitView() {
 
   /**
    * Resize split view width
+   * Min/max widths are dynamically calculated based on window width
    */
   function setSplitWidth(width: number) {
-    state.value.width = Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, width))
+    state.value.width = Math.max(getMinWidth(), Math.min(getMaxWidth(), width))
   }
 
   /**
@@ -126,7 +142,12 @@ export function useSplitView() {
     setSplitWidth,
     isPinned,
     handleTabClosed,
-    MIN_WIDTH,
-    MAX_WIDTH,
+    // Export ratio constants and helper functions
+    DEFAULT_WIDTH_RATIO,
+    MIN_WIDTH_RATIO,
+    MAX_WIDTH_RATIO,
+    getDefaultWidth,
+    getMinWidth,
+    getMaxWidth,
   }
 }
