@@ -457,8 +457,8 @@ const onCloseChat = () => {
 
           <!-- Browse Mode -->
           <template v-else>
-            <!-- Tab Bar (shown when tabs are open in browse mode) -->
-            <div v-if="hasOpenTabs" class="h-10 border-b bg-muted/30 flex items-end shrink-0">
+            <!-- Tab Bar (always shown to allow creating new tabs) -->
+            <div class="h-10 border-b bg-muted/30 flex items-end shrink-0">
               <TabBar
                 :tabs="tabs"
                 :active-tab-id="activeTabId"
