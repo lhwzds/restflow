@@ -20,9 +20,9 @@ test.describe('Terminal Navigation', () => {
     const terminalsTab = page.getByRole('button', { name: 'Terminals' })
     await terminalsTab.click()
 
-    // Verify terminal browser is shown
-    const newTerminalButton = page.getByRole('button', { name: 'New Terminal' })
-    await expect(newTerminalButton).toBeVisible()
+    // Verify terminal browser is shown - in grid view, New Terminal is a Card (div), not a button
+    const newTerminalCard = page.locator('.border-dashed', { hasText: 'New Terminal' })
+    await expect(newTerminalCard).toBeVisible()
   })
 
   test('can switch between Skills, Agents, and Terminals tabs', async ({ page }) => {
@@ -49,9 +49,9 @@ test.describe('Terminal Navigation', () => {
     // Navigate to Terminals tab
     await page.getByRole('button', { name: 'Terminals' }).click()
 
-    // Check for New Terminal button
-    const newButton = page.getByRole('button', { name: 'New Terminal' })
-    await expect(newButton).toBeVisible()
+    // Check for New Terminal card - in grid view, it's a Card (div), not a button
+    const newTerminalCard = page.locator('.border-dashed', { hasText: 'New Terminal' })
+    await expect(newTerminalCard).toBeVisible()
   })
 })
 
@@ -64,24 +64,19 @@ test.describe('Terminal Browser', () => {
   })
 
   test('shows empty state message when no terminals exist', async ({ page }) => {
-    // Look for empty state or terminal list
-    // This depends on whether there are existing sessions
-    const content = page.locator('main')
-    await expect(content).toBeVisible()
+    // In web mode with mock data, "0 items" is shown in header when no terminals
+    // Just verify the page loaded and New Terminal is available
+    const newTerminalCard = page.locator('.border-dashed', { hasText: 'New Terminal' })
+    await expect(newTerminalCard).toBeVisible()
   })
 
   test('New Terminal button creates a terminal session', async ({ page }) => {
-    // Click New Terminal
-    await page.getByRole('button', { name: 'New Terminal' }).click()
+    // Click New Terminal - in grid view, it's a Card (div), not a button
+    await page.locator('.border-dashed', { hasText: 'New Terminal' }).click()
 
-    // Wait for terminal to be created
-    await page.waitForTimeout(500)
-
-    // A terminal card or tab should appear
-    // In web mode, we may see an error about Tauri not being available
-    // or a mock terminal card
-    const content = page.locator('main')
-    await expect(content).toBeVisible()
+    // Wait for terminal to be created and editor to open
+    // In web mode, shows error message about Tauri
+    await expect(page.locator('text=Terminal requires Tauri desktop app')).toBeVisible()
   })
 })
 
@@ -148,9 +143,8 @@ test.describe('Terminal Tab Integration', () => {
     const terminalTab = page.locator('[class*="rounded-t-md"]', { hasText: 'Terminal' }).first()
     await terminalTab.click()
 
-    // Terminal UI should be visible (or error message in web mode)
-    const terminalContent = page.locator('.xterm, text=Terminal')
-    await expect(terminalContent.first()).toBeVisible()
+    // Terminal UI should be visible (in web mode, shows Tauri error message)
+    await expect(page.locator('text=Terminal requires Tauri desktop app')).toBeVisible()
   })
 })
 

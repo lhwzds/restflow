@@ -8,6 +8,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { isTauri } from './tauri-client'
 import type { TerminalSession } from '@/types/generated/TerminalSession'
+import { stopMockTerminal, restartMockTerminal } from './terminal-sessions'
 
 /**
  * PTY output event payload
@@ -65,7 +66,9 @@ export async function resizePty(sessionId: string, cols: number, rows: number): 
  */
 export async function closePty(sessionId: string): Promise<void> {
   if (!isTauri()) {
-    throw new Error('PTY is only available in Tauri desktop app')
+    // Web mode: update mock session status
+    stopMockTerminal(sessionId)
+    return
   }
   return invoke('close_pty', { sessionId })
 }
@@ -165,7 +168,12 @@ export async function saveAllTerminalHistory(): Promise<void> {
  */
 export async function restartTerminal(sessionId: string): Promise<TerminalSession> {
   if (!isTauri()) {
-    throw new Error('PTY is only available in Tauri desktop app')
+    // Web mode: update mock session status and return it
+    const session = restartMockTerminal(sessionId)
+    if (!session) {
+      throw new Error(`Terminal session not found: ${sessionId}`)
+    }
+    return session
   }
   return invoke<TerminalSession>('restart_terminal', { sessionId })
 }

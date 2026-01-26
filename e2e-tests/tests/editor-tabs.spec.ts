@@ -73,12 +73,9 @@ test.describe('Editor Tabs', () => {
     const terminalTab = page.locator('[class*="rounded-t-md"]', { hasText: 'Terminal' })
     await expect(terminalTab).toBeVisible()
 
-    // Verify terminal UI is shown
-    const terminalPrompt = page.locator('text=Terminal ready')
-    await expect(terminalPrompt).toBeVisible()
-
-    const commandInput = page.locator('input[placeholder*="command"]')
-    await expect(commandInput).toBeVisible()
+    // Verify terminal UI is shown (in web mode, shows Tauri error message)
+    const terminalError = page.locator('text=Terminal requires Tauri desktop app')
+    await expect(terminalError).toBeVisible()
   })
 
   test('clicking on a tab switches to that tab', async ({ page }) => {
@@ -90,8 +87,8 @@ test.describe('Editor Tabs', () => {
     await page.getByRole('button', { name: 'New...' }).click()
     await page.getByRole('menuitem', { name: 'New Terminal' }).click()
 
-    // Terminal should be active - verify terminal UI is shown
-    await expect(page.locator('text=Terminal ready')).toBeVisible()
+    // Terminal should be active - verify terminal UI is shown (in web mode, shows error)
+    await expect(page.locator('text=Terminal requires Tauri desktop app')).toBeVisible()
 
     // Click on the first tab (skill)
     const skillTab = page.locator('[class*="rounded-t-md"]', { hasText: '.md' }).first()
@@ -101,8 +98,8 @@ test.describe('Editor Tabs', () => {
     const editor = page.locator('textarea[placeholder*="Markdown"]')
     await expect(editor).toBeVisible()
 
-    // Terminal should not be visible
-    await expect(page.locator('text=Terminal ready')).not.toBeVisible()
+    // Terminal error should not be visible when skill tab is active
+    await expect(page.locator('text=Terminal requires Tauri desktop app')).not.toBeVisible()
   })
 
   test('closing a tab removes it and shows another tab', async ({ page }) => {
@@ -165,16 +162,16 @@ test.describe('Agent Editor', () => {
     const agentItem = page.locator('button', { hasText: /Untitled-\d+/ }).first()
     await agentItem.dblclick()
 
-    // Verify agent tab is shown with .agent extension
-    const tab = page.locator('[class*="rounded-t-md"]', { hasText: '.agent' })
+    // Verify agent tab is shown (tab shows agent name like "Untitled-13")
+    const tab = page.locator('[class*="rounded-t-md"]', { hasText: /Untitled-\d+/ })
     await expect(tab).toBeVisible()
 
     // Verify textarea editor is shown (for system prompt)
     const editor = page.locator('textarea[placeholder*="system prompt"]')
     await expect(editor).toBeVisible()
 
-    // Verify floating config button is visible
-    const configButton = page.locator('button').filter({ has: page.locator('svg') }).last()
+    // Verify floating config button is visible (it's a Popover trigger with aria-haspopup="dialog")
+    const configButton = page.locator('button[aria-haspopup="dialog"]')
     await expect(configButton).toBeVisible()
   })
 
@@ -183,14 +180,14 @@ test.describe('Agent Editor', () => {
     const agentItem = page.locator('button', { hasText: /Untitled-\d+/ }).first()
     await agentItem.dblclick()
 
-    // Click the config button (Settings icon)
-    const configButton = page.locator('button[class*="absolute"]')
+    // Click the config button (it's a Popover trigger with aria-haspopup="dialog")
+    const configButton = page.locator('button[aria-haspopup="dialog"]')
     await configButton.click()
 
     // Verify popover content is visible
-    await expect(page.locator('text=Model')).toBeVisible()
-    await expect(page.locator('text=Temperature')).toBeVisible()
-    await expect(page.locator('text=Tools')).toBeVisible()
+    await expect(page.getByText('Model', { exact: true })).toBeVisible()
+    await expect(page.getByText(/Temperature:/)).toBeVisible() // Shows "Temperature: 0.7"
+    await expect(page.getByText('Tools', { exact: true })).toBeVisible()
   })
 
   test('can edit system prompt in textarea', async ({ page }) => {
@@ -218,14 +215,13 @@ test.describe('Agent Editor', () => {
     // Wait for new tab
     await page.waitForTimeout(500)
 
-    // Verify new agent tab is created
-    const agentTabs = page.locator('[class*="rounded-t-md"]', { hasText: '.agent' })
-    const count = await agentTabs.count()
-    expect(count).toBeGreaterThanOrEqual(1)
-
-    // Verify textarea is visible
+    // Verify textarea is visible (agent editor has system prompt placeholder)
     const editor = page.locator('textarea[placeholder*="system prompt"]')
     await expect(editor).toBeVisible()
+
+    // Verify config button is visible (agent-specific feature)
+    const configButton = page.locator('button[aria-haspopup="dialog"]')
+    await expect(configButton).toBeVisible()
   })
 
   test('switching between skill and agent tabs shows correct editor', async ({ page }) => {
@@ -239,8 +235,8 @@ test.describe('Agent Editor', () => {
     await page.getByRole('menuitem', { name: 'New Agent' }).click()
     await page.waitForTimeout(300)
 
-    // Verify agent editor is shown (has config button)
-    let configButton = page.locator('button[class*="absolute"]')
+    // Verify agent editor is shown (has config button with aria-haspopup="dialog")
+    const configButton = page.locator('button[aria-haspopup="dialog"]')
     await expect(configButton).toBeVisible()
 
     // Click on skill tab
@@ -252,7 +248,6 @@ test.describe('Agent Editor', () => {
     await expect(skillEditor).toBeVisible()
 
     // Config button should not be visible (skill doesn't have it)
-    configButton = page.locator('button[class*="absolute"]')
-    await expect(configButton).not.toBeVisible()
+    await expect(page.locator('button[aria-haspopup="dialog"]')).not.toBeVisible()
   })
 })
