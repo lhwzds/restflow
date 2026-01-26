@@ -116,8 +116,9 @@ export function stopMockTerminal(id: string): TerminalSession | null {
   if (session) {
     session.status = 'stopped' as TerminalStatus
     session.stopped_at = Date.now()
+    return session
   }
-  return session
+  return null
 }
 
 // Web mode helper: restart a mock terminal
@@ -126,6 +127,7 @@ export function restartMockTerminal(id: string): TerminalSession | null {
   if (session) {
     session.status = 'running' as TerminalStatus
     session.stopped_at = null
+    return session
   }
-  return session
+  return null
 }
