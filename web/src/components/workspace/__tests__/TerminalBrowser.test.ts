@@ -16,6 +16,8 @@ vi.mock('@/composables/editor/useEditorTabs', () => ({
   }),
 }))
 
+const mockRefreshSessions = vi.fn(() => Promise.resolve())
+
 vi.mock('@/composables/editor/useTerminalSessions', () => ({
   useTerminalSessions: () => ({
     sessions: mockSessionsArray,
@@ -26,9 +28,10 @@ vi.mock('@/composables/editor/useTerminalSessions', () => ({
         name: 'Terminal 1',
         status: 'running',
         created_at: Date.now(),
-        updated_at: Date.now(),
         history: null,
         stopped_at: null,
+        working_directory: null,
+        startup_command: null,
       }),
     ),
     deleteSession: vi.fn(() => Promise.resolve()),
@@ -38,16 +41,41 @@ vi.mock('@/composables/editor/useTerminalSessions', () => ({
         name: 'Terminal 1',
         status: 'running',
         created_at: Date.now(),
-        updated_at: Date.now(),
         history: null,
         stopped_at: null,
+        working_directory: null,
+        startup_command: null,
       }),
     ),
+    updateSession: vi.fn((id: string) =>
+      Promise.resolve({
+        id,
+        name: 'Terminal 1',
+        status: 'running',
+        created_at: Date.now(),
+        history: null,
+        stopped_at: null,
+        working_directory: '~/projects',
+        startup_command: 'npm run dev',
+      }),
+    ),
+    refreshSessions: mockRefreshSessions,
   }),
 }))
 
 vi.mock('@/api/pty', () => ({
   closePty: vi.fn(() => Promise.resolve()),
+}))
+
+const mockToast = {
+  success: vi.fn(),
+  error: vi.fn(),
+  warning: vi.fn(),
+  info: vi.fn(),
+}
+
+vi.mock('@/composables/useToast', () => ({
+  useToast: () => mockToast,
 }))
 
 // Helper to create mock session
@@ -56,9 +84,10 @@ const createMockSession = (overrides: Partial<TerminalSession> = {}): TerminalSe
   name: 'Terminal 1',
   status: 'running',
   created_at: Date.now(),
-  updated_at: Date.now(),
   history: null,
   stopped_at: null,
+  working_directory: null,
+  startup_command: null,
   ...overrides,
 })
 
@@ -67,6 +96,8 @@ describe('TerminalBrowser', () => {
     vi.clearAllMocks()
     mockSessionsArray.value = []
     mockIsLoadingRef.value = false
+    mockToast.success.mockClear()
+    mockToast.error.mockClear()
   })
 
   describe('empty state behavior', () => {
@@ -275,6 +306,81 @@ describe('TerminalBrowser', () => {
 
       // Should emit 'open' event with the new tab
       expect(wrapper.emitted('open')).toBeTruthy()
+    })
+  })
+
+  describe('stop terminal action', () => {
+    it('should show stop button only for running terminals in grid view', async () => {
+      mockSessionsArray.value = [
+        createMockSession({ id: 'running-1', name: 'Running Terminal', status: 'running' }),
+        createMockSession({ id: 'stopped-1', name: 'Stopped Terminal', status: 'stopped' }),
+      ]
+
+      const wrapper = mount(TerminalBrowser, {
+        props: {
+          searchQuery: '',
+          viewMode: 'grid',
+        },
+      })
+
+      await flushPromises()
+
+      // Get all buttons with title "Stop terminal"
+      const stopButtons = wrapper.findAll('button[title="Stop terminal"]')
+      // Should only have 1 stop button (for the running terminal)
+      expect(stopButtons.length).toBe(1)
+    })
+
+    it('should show stop button only for running terminals in list view', async () => {
+      mockSessionsArray.value = [
+        createMockSession({ id: 'running-1', name: 'Running Terminal', status: 'running' }),
+        createMockSession({ id: 'stopped-1', name: 'Stopped Terminal', status: 'stopped' }),
+      ]
+
+      const wrapper = mount(TerminalBrowser, {
+        props: {
+          searchQuery: '',
+          viewMode: 'list',
+        },
+      })
+
+      await flushPromises()
+
+      // Get all buttons with title "Stop terminal"
+      const stopButtons = wrapper.findAll('button[title="Stop terminal"]')
+      // Should only have 1 stop button (for the running terminal)
+      expect(stopButtons.length).toBe(1)
+    })
+
+    it('should call closePty, refreshSessions and show toast when stop button is clicked', async () => {
+      const { closePty } = await import('@/api/pty')
+
+      mockSessionsArray.value = [
+        createMockSession({ id: 'running-1', name: 'Running Terminal', status: 'running' }),
+      ]
+
+      const wrapper = mount(TerminalBrowser, {
+        props: {
+          searchQuery: '',
+          viewMode: 'grid',
+        },
+      })
+
+      await flushPromises()
+
+      // Find and click the stop button
+      const stopButton = wrapper.find('button[title="Stop terminal"]')
+      expect(stopButton.exists()).toBe(true)
+
+      await stopButton.trigger('click')
+      await flushPromises()
+
+      // Should call closePty
+      expect(closePty).toHaveBeenCalledWith('running-1')
+      // Should call refreshSessions
+      expect(mockRefreshSessions).toHaveBeenCalled()
+      // Should show success toast
+      expect(mockToast.success).toHaveBeenCalledWith('Terminal "Running Terminal" stopped')
     })
   })
 })

@@ -303,16 +303,37 @@ pub async fn resize_pty(
     Ok(())
 }
 
-/// Close PTY session
+/// Close PTY session and update database status
 #[tauri::command]
-pub async fn close_pty(state: State<'_, PtyState>, session_id: String) -> Result<(), String> {
-    let mut sessions = state.sessions.lock().map_err(|e| e.to_string())?;
+pub async fn close_pty(
+    state: State<'_, PtyState>,
+    app_state: State<'_, crate::AppState>,
+    session_id: String,
+) -> Result<(), String> {
+    // Get output buffer and remove from PTY state
+    let history = state.remove_session(&session_id);
 
-    if sessions.remove(&session_id).is_some() {
+    if history.is_some() {
         tracing::info!("Closed PTY session: {}", session_id);
+
+        // Update terminal session in database to stopped status
+        if let Ok(Some(mut session)) = app_state.core.storage.terminal_sessions.get(&session_id) {
+            session.set_stopped(history);
+            if let Err(e) = app_state
+                .core
+                .storage
+                .terminal_sessions
+                .update(&session_id, &session)
+            {
+                tracing::warn!("Failed to update terminal session status: {}", e);
+            }
+        }
+
         Ok(())
     } else {
-        Err(format!("Session not found: {}", session_id))
+        // PTY not found, but check if session exists in database
+        // This can happen if PTY was already closed
+        Err(format!("PTY session not found: {}", session_id))
     }
 }
 
