@@ -28,4 +28,12 @@ history: string | null,
 /**
  * Timestamp when the session was last stopped/saved (milliseconds since epoch)
  */
-stopped_at: number | null, };
+stopped_at: number | null, 
+/**
+ * Working directory for the terminal (default: $HOME)
+ */
+working_directory: string | null, 
+/**
+ * Command to execute after terminal starts
+ */
+startup_command: string | null, };

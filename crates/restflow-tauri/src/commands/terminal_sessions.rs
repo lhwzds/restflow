@@ -86,6 +86,42 @@ pub async fn rename_terminal_session(
     Ok(session)
 }
 
+/// Update a terminal session's configuration
+#[tauri::command]
+pub async fn update_terminal_session(
+    state: State<'_, AppState>,
+    id: String,
+    name: Option<String>,
+    working_directory: Option<String>,
+    startup_command: Option<String>,
+) -> Result<TerminalSession, String> {
+    let mut session = state
+        .core
+        .storage
+        .terminal_sessions
+        .get(&id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Terminal session '{}' not found", id))?;
+
+    // Update name if provided
+    if let Some(new_name) = name {
+        session.rename(new_name);
+    }
+
+    // Update startup config
+    // Note: We use the provided values directly, allowing explicit None to clear
+    session.set_config(working_directory, startup_command);
+
+    state
+        .core
+        .storage
+        .terminal_sessions
+        .update(&id, &session)
+        .map_err(|e| e.to_string())?;
+
+    Ok(session)
+}
+
 /// Delete a terminal session by ID
 #[tauri::command]
 pub async fn delete_terminal_session(state: State<'_, AppState>, id: String) -> Result<(), String> {

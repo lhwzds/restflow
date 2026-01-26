@@ -13,9 +13,10 @@ const mockSession: TerminalSession = {
   name: 'Terminal 1',
   status: 'running',
   created_at: 1000,
-  updated_at: 2000,
   history: null,
   stopped_at: null,
+  working_directory: null,
+  startup_command: null,
 }
 
 describe('Terminal Sessions API', () => {
@@ -129,6 +130,61 @@ describe('Terminal Sessions API', () => {
       await expect(renameTerminalSession('terminal-abc123', 'New Name')).rejects.toThrow(
         'Terminal sessions are only available in Tauri mode',
       )
+    })
+  })
+
+  describe('updateTerminalSession', () => {
+    it('should update session with working_directory and startup_command', async () => {
+      const { isTauri, tauriInvoke } = await import('../config')
+      const updatedSession = {
+        ...mockSession,
+        working_directory: '~/projects',
+        startup_command: 'npm run dev',
+      }
+      vi.mocked(isTauri).mockReturnValue(true)
+      vi.mocked(tauriInvoke).mockResolvedValue(updatedSession)
+
+      const { updateTerminalSession } = await import('../terminal-sessions')
+      const result = await updateTerminalSession('terminal-abc123', {
+        working_directory: '~/projects',
+        startup_command: 'npm run dev',
+      })
+
+      expect(tauriInvoke).toHaveBeenCalledWith('update_terminal_session', {
+        id: 'terminal-abc123',
+        name: undefined,
+        workingDirectory: '~/projects',
+        startupCommand: 'npm run dev',
+      })
+      expect(result).toEqual(updatedSession)
+    })
+
+    it('should update session with only name', async () => {
+      const { isTauri, tauriInvoke } = await import('../config')
+      const updatedSession = { ...mockSession, name: 'Dev Server' }
+      vi.mocked(isTauri).mockReturnValue(true)
+      vi.mocked(tauriInvoke).mockResolvedValue(updatedSession)
+
+      const { updateTerminalSession } = await import('../terminal-sessions')
+      const result = await updateTerminalSession('terminal-abc123', { name: 'Dev Server' })
+
+      expect(tauriInvoke).toHaveBeenCalledWith('update_terminal_session', {
+        id: 'terminal-abc123',
+        name: 'Dev Server',
+        workingDirectory: undefined,
+        startupCommand: undefined,
+      })
+      expect(result).toEqual(updatedSession)
+    })
+
+    it('should throw error when not in Tauri mode', async () => {
+      const { isTauri } = await import('../config')
+      vi.mocked(isTauri).mockReturnValue(false)
+
+      const { updateTerminalSession } = await import('../terminal-sessions')
+      await expect(
+        updateTerminalSession('terminal-abc123', { working_directory: '~/projects' }),
+      ).rejects.toThrow('Terminal sessions are only available in Tauri mode')
     })
   })
 

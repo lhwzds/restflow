@@ -13,13 +13,22 @@
      restarts the PTY session for better UX.
 -->
 <script setup lang="ts">
-import { Terminal, Plus, Trash2, Loader2 } from 'lucide-vue-next'
+import { Terminal, Plus, Trash2, Loader2, Settings } from 'lucide-vue-next'
 import { ref, computed } from 'vue'
 import { useEditorTabs, type EditorTab } from '@/composables/editor/useEditorTabs'
 import { useTerminalSessions, type TerminalSession } from '@/composables/editor/useTerminalSessions'
 import { closePty } from '@/api/pty'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '@/components/ui/dialog'
 
 const props = defineProps<{
   searchQuery: string
@@ -31,10 +40,18 @@ const emit = defineEmits<{
 }>()
 
 const { openTerminal, closeTab } = useEditorTabs()
-const { sessions, isLoading, createSession, deleteSession, restartSession } = useTerminalSessions()
+const { sessions, isLoading, createSession, deleteSession, restartSession, updateSession } =
+  useTerminalSessions()
 
 const isCreating = ref(false)
 const deletingIds = ref<Set<string>>(new Set())
+
+// Settings dialog state
+const settingsOpen = ref(false)
+const settingsSession = ref<TerminalSession | null>(null)
+const settingsWorkingDir = ref('')
+const settingsStartupCmd = ref('')
+const isSavingSettings = ref(false)
 
 // Filter sessions by search query
 const filteredSessions = computed(() => {
@@ -121,6 +138,33 @@ const formatDate = (timestamp: number) => {
     minute: '2-digit',
   })
 }
+
+// Open settings dialog for a session
+const handleOpenSettings = (event: Event, session: TerminalSession) => {
+  event.stopPropagation()
+  settingsSession.value = session
+  settingsWorkingDir.value = session.working_directory ?? ''
+  settingsStartupCmd.value = session.startup_command ?? ''
+  settingsOpen.value = true
+}
+
+// Save terminal settings
+const handleSaveSettings = async () => {
+  if (!settingsSession.value || isSavingSettings.value) return
+
+  isSavingSettings.value = true
+  try {
+    await updateSession(settingsSession.value.id, {
+      working_directory: settingsWorkingDir.value || null,
+      startup_command: settingsStartupCmd.value || null,
+    })
+    settingsOpen.value = false
+  } catch (error) {
+    console.error('Failed to save terminal settings:', error)
+  } finally {
+    isSavingSettings.value = false
+  }
+}
 </script>
 
 <template>
@@ -175,18 +219,31 @@ const formatDate = (timestamp: number) => {
               )
             }}</span>
           </CardContent>
-          <!-- Delete button (show on hover) -->
-          <Button
-            variant="ghost"
-            size="icon"
-            class="absolute top-1 right-1 h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive"
-            title="Delete terminal"
-            :disabled="deletingIds.has(session.id)"
-            @click="handleDeleteSession($event, session)"
+          <!-- Action buttons (show on hover) -->
+          <div
+            class="absolute top-1 right-1 flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
           >
-            <Loader2 v-if="deletingIds.has(session.id)" :size="14" class="animate-spin" />
-            <Trash2 v-else :size="14" />
-          </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              class="h-6 w-6 text-muted-foreground hover:text-foreground"
+              title="Terminal settings"
+              @click="handleOpenSettings($event, session)"
+            >
+              <Settings :size="14" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              class="h-6 w-6 text-muted-foreground hover:text-destructive"
+              title="Delete terminal"
+              :disabled="deletingIds.has(session.id)"
+              @click="handleDeleteSession($event, session)"
+            >
+              <Loader2 v-if="deletingIds.has(session.id)" :size="14" class="animate-spin" />
+              <Trash2 v-else :size="14" />
+            </Button>
+          </div>
         </Card>
 
         <!-- Create new terminal card (uses Card with dashed border to match other terminal cards) -->
@@ -243,18 +300,29 @@ const formatDate = (timestamp: number) => {
             )
           }}</span>
 
-          <!-- Delete button (show on hover) -->
-          <Button
-            variant="ghost"
-            size="icon"
-            class="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive shrink-0"
-            title="Delete terminal"
-            :disabled="deletingIds.has(session.id)"
-            @click="handleDeleteSession($event, session)"
-          >
-            <Loader2 v-if="deletingIds.has(session.id)" :size="14" class="animate-spin" />
-            <Trash2 v-else :size="14" />
-          </Button>
+          <!-- Action buttons (show on hover) -->
+          <div class="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+            <Button
+              variant="ghost"
+              size="icon"
+              class="h-6 w-6 text-muted-foreground hover:text-foreground"
+              title="Terminal settings"
+              @click="handleOpenSettings($event, session)"
+            >
+              <Settings :size="14" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              class="h-6 w-6 text-muted-foreground hover:text-destructive"
+              title="Delete terminal"
+              :disabled="deletingIds.has(session.id)"
+              @click="handleDeleteSession($event, session)"
+            >
+              <Loader2 v-if="deletingIds.has(session.id)" :size="14" class="animate-spin" />
+              <Trash2 v-else :size="14" />
+            </Button>
+          </div>
         </button>
 
         <!-- Create new terminal row (uses dashed border to match card style in grid view) -->
@@ -268,5 +336,51 @@ const formatDate = (timestamp: number) => {
         </button>
       </div>
     </div>
+
+    <!-- Terminal Settings Dialog -->
+    <Dialog v-model:open="settingsOpen">
+      <DialogContent class="max-w-[28rem]">
+        <DialogHeader>
+          <DialogTitle>Terminal Settings</DialogTitle>
+          <DialogDescription>
+            Configure startup options for {{ settingsSession?.name }}
+          </DialogDescription>
+        </DialogHeader>
+
+        <div class="space-y-4 py-4">
+          <div class="space-y-2">
+            <label class="text-sm font-medium">Working Directory</label>
+            <Input
+              v-model="settingsWorkingDir"
+              placeholder="e.g., ~/projects (default: $HOME)"
+              class="font-mono text-sm"
+            />
+            <p class="text-xs text-muted-foreground">
+              Initial directory when terminal starts. Leave empty for home directory.
+            </p>
+          </div>
+
+          <div class="space-y-2">
+            <label class="text-sm font-medium">Startup Command</label>
+            <Input
+              v-model="settingsStartupCmd"
+              placeholder="e.g., npm run dev"
+              class="font-mono text-sm"
+            />
+            <p class="text-xs text-muted-foreground">
+              Command to execute automatically after terminal starts.
+            </p>
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" @click="settingsOpen = false">Cancel</Button>
+          <Button :disabled="isSavingSettings" @click="handleSaveSettings">
+            <Loader2 v-if="isSavingSettings" :size="16" class="mr-2 animate-spin" />
+            Save
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   </div>
 </template>
