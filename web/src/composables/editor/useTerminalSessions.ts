@@ -142,6 +142,31 @@ export function useTerminalSessions() {
     }
   }
 
+  /**
+   * Update a terminal session's configuration
+   */
+  async function updateSession(
+    id: string,
+    params: {
+      name?: string
+      working_directory?: string | null
+      startup_command?: string | null
+    },
+  ): Promise<TerminalSession> {
+    try {
+      const updated = await terminalApi.updateTerminalSession(id, params)
+      // Update local state
+      const index = sessions.value.findIndex((s) => s.id === id)
+      if (index !== -1) {
+        sessions.value[index] = updated
+      }
+      return updated
+    } catch (error) {
+      console.error('Failed to update terminal session:', error)
+      throw error
+    }
+  }
+
   // Computed filters
   const runningSessions = computed(() => sessions.value.filter((s) => s.status === 'running'))
 
@@ -158,6 +183,7 @@ export function useTerminalSessions() {
     createSession,
     deleteSession,
     renameSession,
+    updateSession,
     getSession,
     restartSession,
     updateSessionLocal,

@@ -79,6 +79,20 @@ struct PtyOutputPayload {
     data: String,
 }
 
+/// Expand tilde (~) in path to actual home directory
+fn expand_tilde(path: &str) -> String {
+    if path.starts_with("~/") {
+        if let Ok(home) = std::env::var("HOME") {
+            return format!("{}{}", home, &path[1..]);
+        }
+    } else if path == "~" {
+        if let Ok(home) = std::env::var("HOME") {
+            return home;
+        }
+    }
+    path.to_string()
+}
+
 /// Append data to output buffer with size limit
 fn append_to_buffer(buffer: &Arc<Mutex<String>>, data: &str) {
     if let Ok(mut buf) = buffer.lock() {
@@ -96,6 +110,7 @@ fn append_to_buffer(buffer: &Arc<Mutex<String>>, data: &str) {
 pub async fn spawn_pty(
     app: AppHandle,
     state: State<'_, PtyState>,
+    app_state: State<'_, crate::AppState>,
     session_id: String,
     cols: u16,
     rows: u16,
@@ -108,6 +123,14 @@ pub async fn spawn_pty(
             return Ok(());
         }
     }
+
+    // Get session configuration from database
+    let terminal_session = app_state
+        .core
+        .storage
+        .terminal_sessions
+        .get(&session_id)
+        .map_err(|e| e.to_string())?;
 
     let pty_system = native_pty_system();
 
@@ -123,7 +146,14 @@ pub async fn spawn_pty(
 
     // Build shell command based on platform
     let mut cmd = CommandBuilder::new(get_default_shell());
-    cmd.cwd(std::env::var("HOME").unwrap_or_else(|_| "/".to_string()));
+
+    // Use configured working directory or default to $HOME
+    let cwd = terminal_session
+        .as_ref()
+        .and_then(|s| s.working_directory.clone())
+        .map(|p| expand_tilde(&p))
+        .unwrap_or_else(|| std::env::var("HOME").unwrap_or_else(|_| "/".to_string()));
+    cmd.cwd(&cwd);
 
     // Set TERM environment variable for proper terminal emulation
     cmd.env("TERM", "xterm-256color");
@@ -135,10 +165,22 @@ pub async fn spawn_pty(
         .map_err(|e| format!("Failed to spawn shell: {}", e))?;
 
     // Get writer for sending input to PTY
-    let writer = pair
+    let mut writer = pair
         .master
         .take_writer()
         .map_err(|e| format!("Failed to get PTY writer: {}", e))?;
+
+    // Execute startup command if configured
+    if let Some(ref session) = terminal_session
+        && let Some(ref startup_cmd) = session.startup_command
+        && !startup_cmd.is_empty()
+    {
+        // Small delay to let shell initialize
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        let cmd_with_newline = format!("{}\n", startup_cmd);
+        let _ = writer.write_all(cmd_with_newline.as_bytes());
+        let _ = writer.flush();
+    }
 
     // Clone reader for the output thread
     let mut reader = pair
@@ -400,21 +442,21 @@ pub fn save_all_terminal_history_sync(pty_state: &PtyState, app_state: &AppState
     let session_ids = pty_state.get_running_session_ids();
 
     for session_id in session_ids {
-        if let Some(history) = pty_state.remove_session(&session_id) {
-            if let Ok(Some(mut session)) = app_state.core.storage.terminal_sessions.get(&session_id)
-            {
-                session.set_stopped(Some(history));
+        if let Some(history) = pty_state.remove_session(&session_id)
+            && let Ok(Some(mut session)) =
+                app_state.core.storage.terminal_sessions.get(&session_id)
+        {
+            session.set_stopped(Some(history));
 
-                if let Err(e) = app_state
-                    .core
-                    .storage
-                    .terminal_sessions
-                    .update(&session_id, &session)
-                {
-                    tracing::error!("Failed to save terminal {}: {}", session_id, e);
-                } else {
-                    tracing::info!("Saved and stopped terminal: {}", session_id);
-                }
+            if let Err(e) = app_state
+                .core
+                .storage
+                .terminal_sessions
+                .update(&session_id, &session)
+            {
+                tracing::error!("Failed to save terminal {}: {}", session_id, e);
+            } else {
+                tracing::info!("Saved and stopped terminal: {}", session_id);
             }
         }
     }
@@ -540,5 +582,37 @@ mod tests {
     fn test_pty_state_default() {
         let state = PtyState::default();
         assert!(state.get_running_session_ids().is_empty());
+    }
+
+    /// Test expand_tilde with home directory
+    #[test]
+    fn test_expand_tilde_home() {
+        // Save original HOME and set test value
+        let original_home = std::env::var("HOME").ok();
+        // SAFETY: This is a single-threaded test, so modifying env vars is safe
+        unsafe {
+            std::env::set_var("HOME", "/Users/test");
+        }
+
+        assert_eq!(expand_tilde("~"), "/Users/test");
+        assert_eq!(expand_tilde("~/projects"), "/Users/test/projects");
+        assert_eq!(expand_tilde("~/a/b/c"), "/Users/test/a/b/c");
+
+        // Restore original HOME
+        // SAFETY: This is a single-threaded test, so modifying env vars is safe
+        if let Some(home) = original_home {
+            unsafe {
+                std::env::set_var("HOME", home);
+            }
+        }
+    }
+
+    /// Test expand_tilde without tilde
+    #[test]
+    fn test_expand_tilde_no_tilde() {
+        assert_eq!(expand_tilde("/absolute/path"), "/absolute/path");
+        assert_eq!(expand_tilde("relative/path"), "relative/path");
+        assert_eq!(expand_tilde(""), "");
+        assert_eq!(expand_tilde("~suffix"), "~suffix"); // Not ~/
     }
 }

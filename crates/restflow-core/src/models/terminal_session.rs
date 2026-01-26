@@ -37,6 +37,12 @@ pub struct TerminalSession {
     #[serde(default)]
     #[ts(type = "number | null")]
     pub stopped_at: Option<i64>,
+    /// Working directory for the terminal (default: $HOME)
+    #[serde(default)]
+    pub working_directory: Option<String>,
+    /// Command to execute after terminal starts
+    #[serde(default)]
+    pub startup_command: Option<String>,
 }
 
 impl TerminalSession {
@@ -50,7 +56,15 @@ impl TerminalSession {
             status: TerminalStatus::Running,
             history: None,
             stopped_at: None,
+            working_directory: None,
+            startup_command: None,
         }
+    }
+
+    /// Update the session's startup configuration
+    pub fn set_config(&mut self, working_directory: Option<String>, startup_command: Option<String>) {
+        self.working_directory = working_directory;
+        self.startup_command = startup_command;
     }
 
     /// Update the session's name
@@ -139,5 +153,32 @@ mod tests {
         // Test serde default for old data migration
         let status: TerminalStatus = Default::default();
         assert_eq!(status, TerminalStatus::Stopped);
+    }
+
+    #[test]
+    fn test_terminal_session_config() {
+        let mut session =
+            TerminalSession::new("terminal-123".to_string(), "Terminal 1".to_string());
+
+        // Initially no config
+        assert!(session.working_directory.is_none());
+        assert!(session.startup_command.is_none());
+
+        // Set config
+        session.set_config(
+            Some("/home/user/projects".to_string()),
+            Some("ls -la".to_string()),
+        );
+
+        assert_eq!(
+            session.working_directory,
+            Some("/home/user/projects".to_string())
+        );
+        assert_eq!(session.startup_command, Some("ls -la".to_string()));
+
+        // Clear config
+        session.set_config(None, None);
+        assert!(session.working_directory.is_none());
+        assert!(session.startup_command.is_none());
     }
 }

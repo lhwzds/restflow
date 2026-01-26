@@ -124,6 +124,7 @@ fn main() {
             commands::get_terminal_session,
             commands::create_terminal_session,
             commands::rename_terminal_session,
+            commands::update_terminal_session,
             commands::delete_terminal_session,
         ])
         .run(tauri::generate_context!())
