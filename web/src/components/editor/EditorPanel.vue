@@ -120,9 +120,10 @@ function handleCancel() {
         class="h-full"
       />
 
-      <!-- Terminal -->
+      <!-- Terminal: key forces remount when switching between different terminals -->
       <TerminalView
         v-else-if="activeTab?.type === 'terminal' && activeTerminalSession"
+        :key="activeTab.id"
         :tab-id="activeTab.id"
         :session="activeTerminalSession"
         class="h-full"

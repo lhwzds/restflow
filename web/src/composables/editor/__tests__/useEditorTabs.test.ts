@@ -130,13 +130,55 @@ describe('useEditorTabs', () => {
 
       closeAllTabs()
     })
+
+    it('should open multiple terminals and switch between them', async () => {
+      const { useEditorTabs } = await import('../useEditorTabs')
+      const { tabs, activeTabId, activeTab, openTerminal, switchTab, closeAllTabs } =
+        useEditorTabs()
+
+      closeAllTabs()
+
+      const session1: TerminalSession = { ...mockSession, id: 'terminal-1', name: 'Terminal 1' }
+      const session2: TerminalSession = { ...mockSession, id: 'terminal-2', name: 'Terminal 2' }
+
+      // Open first terminal
+      openTerminal(session1)
+      expect(tabs.value).toHaveLength(1)
+      expect(activeTabId.value).toBe('terminal-1')
+      expect(activeTab.value?.data).toEqual(session1)
+
+      // Open second terminal
+      openTerminal(session2)
+      expect(tabs.value).toHaveLength(2)
+      expect(activeTabId.value).toBe('terminal-2')
+      expect(activeTab.value?.data).toEqual(session2)
+
+      // Switch back to first terminal
+      switchTab('terminal-1')
+      expect(activeTabId.value).toBe('terminal-1')
+      expect(activeTab.value?.data).toEqual(session1)
+
+      // Switch to second terminal
+      switchTab('terminal-2')
+      expect(activeTabId.value).toBe('terminal-2')
+      expect(activeTab.value?.data).toEqual(session2)
+
+      closeAllTabs()
+    })
   })
 
   describe('switchTab', () => {
     it('should switch to a tab and exit browse mode', async () => {
       const { useEditorTabs } = await import('../useEditorTabs')
-      const { activeTabId, showBrowser, openSkill, openAgent, switchTab, enterBrowseMode, closeAllTabs } =
-        useEditorTabs()
+      const {
+        activeTabId,
+        showBrowser,
+        openSkill,
+        openAgent,
+        switchTab,
+        enterBrowseMode,
+        closeAllTabs,
+      } = useEditorTabs()
 
       closeAllTabs()
       openSkill(mockSkill)
