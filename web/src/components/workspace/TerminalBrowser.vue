@@ -128,14 +128,17 @@ const formatDate = (timestamp: number) => {
     <!-- Content Area -->
     <div class="flex-1 overflow-auto p-4">
       <!-- Loading state -->
-      <div v-if="isLoading" class="flex flex-col items-center justify-center h-full text-muted-foreground">
+      <div
+        v-if="isLoading"
+        class="flex flex-col items-center justify-center h-full text-muted-foreground"
+      >
         <Loader2 :size="32" class="mb-2 animate-spin" />
         <span class="text-sm">Loading...</span>
       </div>
 
       <!-- Grid View -->
       <div
-        v-else-if="viewMode === 'grid' && filteredSessions.length > 0"
+        v-else-if="viewMode === 'grid'"
         class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4"
       >
         <!-- Existing terminal sessions -->
@@ -203,7 +206,7 @@ const formatDate = (timestamp: number) => {
       </div>
 
       <!-- List View -->
-      <div v-else-if="viewMode === 'list' && filteredSessions.length > 0" class="space-y-1">
+      <div v-else-if="viewMode === 'list'" class="space-y-1">
         <button
           v-for="session in filteredSessions"
           :key="session.id"
@@ -217,7 +220,11 @@ const formatDate = (timestamp: number) => {
             class="h-2 w-2 rounded-full bg-green-500 inline-block animate-pulse shrink-0"
             title="Running"
           />
-          <span v-else class="h-2 w-2 rounded-full bg-gray-400 inline-block shrink-0" title="Stopped" />
+          <span
+            v-else
+            class="h-2 w-2 rounded-full bg-gray-400 inline-block shrink-0"
+            title="Stopped"
+          />
 
           <!-- Icon -->
           <Loader2
@@ -259,15 +266,6 @@ const formatDate = (timestamp: number) => {
           <Plus :size="20" class="text-muted-foreground shrink-0" />
           <span class="flex-1 text-sm text-muted-foreground">New Terminal</span>
         </button>
-      </div>
-
-      <!-- Empty state -->
-      <div
-        v-else-if="filteredSessions.length === 0"
-        class="flex flex-col items-center justify-center h-full text-muted-foreground"
-      >
-        <Terminal :size="48" class="mb-2 opacity-50" />
-        <span class="text-sm">No terminals found</span>
       </div>
     </div>
   </div>
