@@ -22,6 +22,7 @@ import { useToast } from '@/composables/useToast'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card'
 import {
   Dialog,
   DialogContent,
@@ -258,77 +259,123 @@ const handleStopSession = async (event: Event, session: TerminalSession) => {
         class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4"
       >
         <!-- Existing terminal sessions -->
-        <Card
+        <HoverCard
           v-for="session in filteredSessions"
           :key="session.id"
-          class="group relative cursor-pointer hover:border-primary transition-colors"
-          :class="{ 'opacity-50': deletingIds.has(session.id) || openingIds.has(session.id) }"
-          @click="handleOpenSession(session)"
+          :open-delay="500"
+          :close-delay="100"
         >
-          <CardContent class="flex flex-col items-center justify-center p-6">
-            <!-- Status indicator -->
-            <div class="absolute top-2 left-2">
-              <span
-                v-if="session.status === 'running'"
-                class="h-2 w-2 rounded-full bg-green-500 inline-block animate-pulse"
-                title="Running"
-              />
-              <span v-else class="h-2 w-2 rounded-full bg-gray-400 inline-block" title="Stopped" />
+          <HoverCardTrigger as-child>
+            <Card
+              class="group relative cursor-pointer hover:border-primary transition-colors"
+              :class="{ 'opacity-50': deletingIds.has(session.id) || openingIds.has(session.id) }"
+              @click="handleOpenSession(session)"
+            >
+              <CardContent class="flex flex-col items-center justify-center p-6">
+                <!-- Status indicator -->
+                <div class="absolute top-2 left-2">
+                  <span
+                    v-if="session.status === 'running'"
+                    class="h-2 w-2 rounded-full bg-green-500 inline-block animate-pulse"
+                    title="Running"
+                  />
+                  <span
+                    v-else
+                    class="h-2 w-2 rounded-full bg-gray-400 inline-block"
+                    title="Stopped"
+                  />
+                </div>
+                <!-- Loading spinner when opening -->
+                <Loader2
+                  v-if="openingIds.has(session.id)"
+                  :size="32"
+                  class="text-muted-foreground mb-2 animate-spin"
+                />
+                <Terminal v-else :size="32" class="text-muted-foreground mb-2" />
+                <span class="text-sm font-medium truncate w-full text-center">{{
+                  session.name
+                }}</span>
+                <span class="text-xs text-muted-foreground mt-1">{{
+                  formatDate(
+                    session.status === 'stopped' && session.stopped_at
+                      ? session.stopped_at
+                      : session.created_at,
+                  )
+                }}</span>
+              </CardContent>
+              <!-- Action buttons (show on hover) -->
+              <div
+                class="absolute top-1 right-1 flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+              >
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  class="h-6 w-6 text-muted-foreground hover:text-foreground"
+                  title="Terminal settings"
+                  @click="handleOpenSettings($event, session)"
+                >
+                  <Settings :size="14" />
+                </Button>
+                <Button
+                  v-if="session.status === 'running'"
+                  variant="ghost"
+                  size="icon"
+                  class="h-6 w-6 text-muted-foreground hover:text-orange-500"
+                  title="Stop terminal"
+                  :disabled="stoppingIds.has(session.id)"
+                  @click="handleStopSession($event, session)"
+                >
+                  <Loader2 v-if="stoppingIds.has(session.id)" :size="14" class="animate-spin" />
+                  <Square v-else :size="14" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  class="h-6 w-6 text-muted-foreground hover:text-destructive"
+                  title="Delete terminal"
+                  :disabled="deletingIds.has(session.id)"
+                  @click="handleDeleteSession($event, session)"
+                >
+                  <Loader2 v-if="deletingIds.has(session.id)" :size="14" class="animate-spin" />
+                  <Trash2 v-else :size="14" />
+                </Button>
+              </div>
+            </Card>
+          </HoverCardTrigger>
+
+          <HoverCardContent class="w-64 p-0" side="right" :side-offset="8">
+            <!-- Header -->
+            <div class="px-3 py-2 border-b flex items-center gap-2">
+              <Terminal :size="16" class="text-muted-foreground" />
+              <span class="font-medium text-sm truncate">{{ session.name }}</span>
             </div>
-            <!-- Loading spinner when opening -->
-            <Loader2
-              v-if="openingIds.has(session.id)"
-              :size="32"
-              class="text-muted-foreground mb-2 animate-spin"
-            />
-            <Terminal v-else :size="32" class="text-muted-foreground mb-2" />
-            <span class="text-sm font-medium truncate w-full text-center">{{ session.name }}</span>
-            <span class="text-xs text-muted-foreground mt-1">{{
-              formatDate(
-                session.status === 'stopped' && session.stopped_at
-                  ? session.stopped_at
-                  : session.created_at,
-              )
-            }}</span>
-          </CardContent>
-          <!-- Action buttons (show on hover) -->
-          <div
-            class="absolute top-1 right-1 flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
-          >
-            <Button
-              variant="ghost"
-              size="icon"
-              class="h-6 w-6 text-muted-foreground hover:text-foreground"
-              title="Terminal settings"
-              @click="handleOpenSettings($event, session)"
-            >
-              <Settings :size="14" />
-            </Button>
-            <Button
-              v-if="session.status === 'running'"
-              variant="ghost"
-              size="icon"
-              class="h-6 w-6 text-muted-foreground hover:text-orange-500"
-              title="Stop terminal"
-              :disabled="stoppingIds.has(session.id)"
-              @click="handleStopSession($event, session)"
-            >
-              <Loader2 v-if="stoppingIds.has(session.id)" :size="14" class="animate-spin" />
-              <Square v-else :size="14" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              class="h-6 w-6 text-muted-foreground hover:text-destructive"
-              title="Delete terminal"
-              :disabled="deletingIds.has(session.id)"
-              @click="handleDeleteSession($event, session)"
-            >
-              <Loader2 v-if="deletingIds.has(session.id)" :size="14" class="animate-spin" />
-              <Trash2 v-else :size="14" />
-            </Button>
-          </div>
-        </Card>
+
+            <!-- Status -->
+            <div class="px-3 py-2 border-b flex items-center gap-2">
+              <span
+                :class="session.status === 'running' ? 'text-green-500' : 'text-muted-foreground'"
+              >
+                {{ session.status === 'running' ? '● Running' : '○ Stopped' }}
+              </span>
+            </div>
+
+            <!-- Configuration -->
+            <div class="px-3 py-2 text-xs text-muted-foreground space-y-1">
+              <div v-if="session.working_directory">
+                <strong>Directory:</strong> {{ session.working_directory }}
+              </div>
+              <div v-if="session.startup_command">
+                <strong>Command:</strong> {{ session.startup_command }}
+              </div>
+              <div
+                v-if="!session.working_directory && !session.startup_command"
+                class="italic text-muted-foreground/70"
+              >
+                No configuration set
+              </div>
+            </div>
+          </HoverCardContent>
+        </HoverCard>
 
         <!-- Create new terminal card (uses Card with dashed border to match other terminal cards) -->
         <Card
@@ -348,78 +395,120 @@ const handleStopSession = async (event: Event, session: TerminalSession) => {
 
       <!-- List View -->
       <div v-else-if="viewMode === 'list'" class="space-y-1">
-        <button
+        <HoverCard
           v-for="session in filteredSessions"
           :key="session.id"
-          class="group w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-all text-left hover:bg-muted"
-          :class="{ 'opacity-50': deletingIds.has(session.id) || openingIds.has(session.id) }"
-          @click="handleOpenSession(session)"
+          :open-delay="500"
+          :close-delay="100"
         >
-          <!-- Status indicator -->
-          <span
-            v-if="session.status === 'running'"
-            class="h-2 w-2 rounded-full bg-green-500 inline-block animate-pulse shrink-0"
-            title="Running"
-          />
-          <span
-            v-else
-            class="h-2 w-2 rounded-full bg-gray-400 inline-block shrink-0"
-            title="Stopped"
-          />
-
-          <!-- Icon -->
-          <Loader2
-            v-if="openingIds.has(session.id)"
-            :size="20"
-            class="text-muted-foreground shrink-0 animate-spin"
-          />
-          <Terminal v-else :size="20" class="text-muted-foreground shrink-0" />
-
-          <span class="flex-1 text-sm truncate">{{ session.name }}</span>
-          <span class="text-xs text-muted-foreground">{{
-            formatDate(
-              session.status === 'stopped' && session.stopped_at
-                ? session.stopped_at
-                : session.created_at,
-            )
-          }}</span>
-
-          <!-- Action buttons (show on hover) -->
-          <div class="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-            <Button
-              variant="ghost"
-              size="icon"
-              class="h-6 w-6 text-muted-foreground hover:text-foreground"
-              title="Terminal settings"
-              @click="handleOpenSettings($event, session)"
+          <HoverCardTrigger as-child>
+            <button
+              class="group w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-all text-left hover:bg-muted"
+              :class="{ 'opacity-50': deletingIds.has(session.id) || openingIds.has(session.id) }"
+              @click="handleOpenSession(session)"
             >
-              <Settings :size="14" />
-            </Button>
-            <Button
-              v-if="session.status === 'running'"
-              variant="ghost"
-              size="icon"
-              class="h-6 w-6 text-muted-foreground hover:text-orange-500"
-              title="Stop terminal"
-              :disabled="stoppingIds.has(session.id)"
-              @click="handleStopSession($event, session)"
-            >
-              <Loader2 v-if="stoppingIds.has(session.id)" :size="14" class="animate-spin" />
-              <Square v-else :size="14" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              class="h-6 w-6 text-muted-foreground hover:text-destructive"
-              title="Delete terminal"
-              :disabled="deletingIds.has(session.id)"
-              @click="handleDeleteSession($event, session)"
-            >
-              <Loader2 v-if="deletingIds.has(session.id)" :size="14" class="animate-spin" />
-              <Trash2 v-else :size="14" />
-            </Button>
-          </div>
-        </button>
+              <!-- Status indicator -->
+              <span
+                v-if="session.status === 'running'"
+                class="h-2 w-2 rounded-full bg-green-500 inline-block animate-pulse shrink-0"
+                title="Running"
+              />
+              <span
+                v-else
+                class="h-2 w-2 rounded-full bg-gray-400 inline-block shrink-0"
+                title="Stopped"
+              />
+
+              <!-- Icon -->
+              <Loader2
+                v-if="openingIds.has(session.id)"
+                :size="20"
+                class="text-muted-foreground shrink-0 animate-spin"
+              />
+              <Terminal v-else :size="20" class="text-muted-foreground shrink-0" />
+
+              <span class="flex-1 text-sm truncate">{{ session.name }}</span>
+              <span class="text-xs text-muted-foreground">{{
+                formatDate(
+                  session.status === 'stopped' && session.stopped_at
+                    ? session.stopped_at
+                    : session.created_at,
+                )
+              }}</span>
+
+              <!-- Action buttons (show on hover) -->
+              <div
+                class="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+              >
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  class="h-6 w-6 text-muted-foreground hover:text-foreground"
+                  title="Terminal settings"
+                  @click="handleOpenSettings($event, session)"
+                >
+                  <Settings :size="14" />
+                </Button>
+                <Button
+                  v-if="session.status === 'running'"
+                  variant="ghost"
+                  size="icon"
+                  class="h-6 w-6 text-muted-foreground hover:text-orange-500"
+                  title="Stop terminal"
+                  :disabled="stoppingIds.has(session.id)"
+                  @click="handleStopSession($event, session)"
+                >
+                  <Loader2 v-if="stoppingIds.has(session.id)" :size="14" class="animate-spin" />
+                  <Square v-else :size="14" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  class="h-6 w-6 text-muted-foreground hover:text-destructive"
+                  title="Delete terminal"
+                  :disabled="deletingIds.has(session.id)"
+                  @click="handleDeleteSession($event, session)"
+                >
+                  <Loader2 v-if="deletingIds.has(session.id)" :size="14" class="animate-spin" />
+                  <Trash2 v-else :size="14" />
+                </Button>
+              </div>
+            </button>
+          </HoverCardTrigger>
+
+          <HoverCardContent class="w-64 p-0" side="right" :side-offset="8">
+            <!-- Header -->
+            <div class="px-3 py-2 border-b flex items-center gap-2">
+              <Terminal :size="16" class="text-muted-foreground" />
+              <span class="font-medium text-sm truncate">{{ session.name }}</span>
+            </div>
+
+            <!-- Status -->
+            <div class="px-3 py-2 border-b flex items-center gap-2">
+              <span
+                :class="session.status === 'running' ? 'text-green-500' : 'text-muted-foreground'"
+              >
+                {{ session.status === 'running' ? '● Running' : '○ Stopped' }}
+              </span>
+            </div>
+
+            <!-- Configuration -->
+            <div class="px-3 py-2 text-xs text-muted-foreground space-y-1">
+              <div v-if="session.working_directory">
+                <strong>Directory:</strong> {{ session.working_directory }}
+              </div>
+              <div v-if="session.startup_command">
+                <strong>Command:</strong> {{ session.startup_command }}
+              </div>
+              <div
+                v-if="!session.working_directory && !session.startup_command"
+                class="italic text-muted-foreground/70"
+              >
+                No configuration set
+              </div>
+            </div>
+          </HoverCardContent>
+        </HoverCard>
 
         <!-- Create new terminal row (uses dashed border to match card style in grid view) -->
         <button
