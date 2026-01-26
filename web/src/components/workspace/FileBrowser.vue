@@ -14,13 +14,13 @@
      of border, matching the borderless design of other items.
 -->
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { computed } from 'vue'
 import { Folder, FileText, Loader2, Plus, Tag, Bot, Trash2 } from 'lucide-vue-next'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card'
 import { cn } from '@/lib/utils'
 import type { FileItem } from '@/types/workspace'
 import type { Skill } from '@/types/generated/Skill'
@@ -43,24 +43,16 @@ const emit = defineEmits<{
   delete: [item: FileItem]
 }>()
 
-const openPopoverId = ref<string | null>(null)
-
 const filteredItems = computed(() => {
   if (!props.searchQuery) return props.items
   const query = props.searchQuery.toLowerCase()
   return props.items.filter((item) => item.name.toLowerCase().includes(query))
 })
 
+// Single click opens the item (previously was double-click behavior)
 const onItemClick = (item: FileItem) => {
   emit('select', item)
-  openPopoverId.value = item.id
-}
-
-const onItemDblClick = (item: FileItem) => {
-  openPopoverId.value = null
-  if (item.isDirectory) {
-    emit('navigate', item.path)
-  } else {
+  if (!item.isDirectory) {
     emit('open', item)
   }
 }
@@ -120,13 +112,8 @@ function getAgentInfo(item: FileItem) {
         v-if="viewMode === 'grid'"
         class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4"
       >
-        <Popover
-          v-for="item in filteredItems"
-          :key="item.id"
-          :open="openPopoverId === item.id"
-          @update:open="(open: boolean) => (openPopoverId = open ? item.id : null)"
-        >
-          <PopoverTrigger as-child>
+        <HoverCard v-for="item in filteredItems" :key="item.id" :open-delay="500" :close-delay="100">
+          <HoverCardTrigger as-child>
             <button
               :class="
                 cn(
@@ -135,7 +122,6 @@ function getAgentInfo(item: FileItem) {
                 )
               "
               @click="onItemClick(item)"
-              @dblclick="onItemDblClick(item)"
             >
               <div class="w-14 h-14 flex items-center justify-center mb-2">
                 <Folder v-if="item.isDirectory" class="w-12 h-12 text-blue-500 fill-blue-500/20" />
@@ -157,9 +143,9 @@ function getAgentInfo(item: FileItem) {
                 <Trash2 :size="14" />
               </Button>
             </button>
-          </PopoverTrigger>
+          </HoverCardTrigger>
 
-          <PopoverContent v-if="!item.isDirectory" class="w-72 p-0" side="right" :side-offset="8">
+          <HoverCardContent v-if="!item.isDirectory" class="w-72 p-0" side="right" :side-offset="8">
             <!-- Header -->
             <div class="px-3 py-2 border-b flex items-center gap-2">
               <FileText v-if="previewType === 'skill'" :size="16" class="text-muted-foreground" />
@@ -201,8 +187,8 @@ function getAgentInfo(item: FileItem) {
                 class="prose prose-xs dark:prose-invert max-w-none text-xs"
               />
             </div>
-          </PopoverContent>
-        </Popover>
+          </HoverCardContent>
+        </HoverCard>
 
         <!-- Create new item button (no border to match other file items which also have no border) -->
         <button
@@ -221,13 +207,8 @@ function getAgentInfo(item: FileItem) {
 
       <!-- List View -->
       <div v-else class="space-y-1">
-        <Popover
-          v-for="item in filteredItems"
-          :key="item.id"
-          :open="openPopoverId === item.id"
-          @update:open="(open: boolean) => (openPopoverId = open ? item.id : null)"
-        >
-          <PopoverTrigger as-child>
+        <HoverCard v-for="item in filteredItems" :key="item.id" :open-delay="500" :close-delay="100">
+          <HoverCardTrigger as-child>
             <button
               :class="
                 cn(
@@ -236,7 +217,6 @@ function getAgentInfo(item: FileItem) {
                 )
               "
               @click="onItemClick(item)"
-              @dblclick="onItemDblClick(item)"
             >
               <Folder
                 v-if="item.isDirectory"
@@ -260,9 +240,9 @@ function getAgentInfo(item: FileItem) {
                 <Trash2 :size="14" />
               </Button>
             </button>
-          </PopoverTrigger>
+          </HoverCardTrigger>
 
-          <PopoverContent v-if="!item.isDirectory" class="w-72 p-0" side="right" :side-offset="8">
+          <HoverCardContent v-if="!item.isDirectory" class="w-72 p-0" side="right" :side-offset="8">
             <!-- Same content as grid view -->
             <div class="px-3 py-2 border-b flex items-center gap-2">
               <FileText v-if="previewType === 'skill'" :size="16" class="text-muted-foreground" />
@@ -295,8 +275,8 @@ function getAgentInfo(item: FileItem) {
                 class="prose prose-xs dark:prose-invert max-w-none text-xs"
               />
             </div>
-          </PopoverContent>
-        </Popover>
+          </HoverCardContent>
+        </HoverCard>
 
         <!-- Create new item row (no border to match other file items) -->
         <button
