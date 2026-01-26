@@ -44,6 +44,9 @@ const toast = useToast()
 const modelsStore = useModelsStore()
 const isSaving = ref(false)
 
+// Settings popover state (controlled)
+const settingsOpen = ref(false)
+
 // Form data
 const name = ref('')
 const model = ref<AIModel>('claude-sonnet-4-5')
@@ -208,18 +211,26 @@ onMounted(async () => {
 
     <!-- Main Editor with Floating Config -->
     <div class="flex-1 relative">
-      <!-- Floating Config Button (top-right) -->
-      <Popover>
-        <PopoverTrigger as-child>
-          <Button
-            variant="outline"
-            size="icon"
-            class="absolute top-3 right-6 z-10 h-8 w-8 bg-background/80 backdrop-blur-sm"
-          >
-            <Settings :size="16" />
-          </Button>
-        </PopoverTrigger>
-        <PopoverContent class="w-80" align="end">
+      <!-- Main Textarea (full height) -->
+      <Textarea
+        v-model="prompt"
+        class="h-full resize-none border-0 rounded-none focus-visible:ring-0 font-mono text-sm p-4 bg-background"
+        placeholder="Write your system prompt here..."
+      />
+
+      <!-- Floating Config Button Container - separate div to ensure proper click handling -->
+      <div class="absolute top-3 right-6 z-20">
+        <Popover v-model:open="settingsOpen">
+          <PopoverTrigger as-child>
+            <Button
+              variant="outline"
+              size="icon"
+              class="h-8 w-8 bg-background/80 backdrop-blur-sm"
+            >
+              <Settings :size="16" />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent class="w-80" align="end">
           <div class="space-y-4">
             <!-- Model Select -->
             <div class="space-y-2">
@@ -299,15 +310,9 @@ onMounted(async () => {
               </div>
             </div>
           </div>
-        </PopoverContent>
-      </Popover>
-
-      <!-- Main Textarea (full height) -->
-      <Textarea
-        v-model="prompt"
-        class="h-full resize-none border-0 rounded-none focus-visible:ring-0 font-mono text-sm p-4 bg-background"
-        placeholder="Write your system prompt here..."
-      />
+          </PopoverContent>
+        </Popover>
+      </div>
     </div>
   </div>
 </template>
