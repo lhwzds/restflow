@@ -81,16 +81,28 @@ struct PtyOutputPayload {
 
 /// Expand tilde (~) in path to actual home directory
 fn expand_tilde(path: &str) -> String {
-    if path.starts_with("~/") {
-        if let Ok(home) = std::env::var("HOME") {
-            return format!("{}{}", home, &path[1..]);
-        }
-    } else if path == "~" {
-        if let Ok(home) = std::env::var("HOME") {
-            return home;
-        }
+    if path.starts_with("~/")
+        && let Ok(home) = std::env::var("HOME")
+    {
+        return format!("{}{}", home, &path[1..]);
+    } else if path == "~"
+        && let Ok(home) = std::env::var("HOME")
+    {
+        return home;
     }
     path.to_string()
+}
+
+/// Find the last valid UTF-8 boundary in a byte slice.
+/// Returns the index up to which the bytes form valid UTF-8.
+fn find_utf8_boundary(bytes: &[u8]) -> usize {
+    match std::str::from_utf8(bytes) {
+        Ok(_) => bytes.len(), // All bytes are valid UTF-8
+        Err(e) => {
+            // e.valid_up_to() tells us where the valid UTF-8 ends
+            e.valid_up_to()
+        }
+    }
 }
 
 /// Append data to output buffer with size limit
@@ -210,10 +222,24 @@ pub async fn spawn_pty(
 
     thread::spawn(move || {
         let mut buf = [0u8; 4096];
+        let mut incomplete_utf8: Vec<u8> = Vec::new();
+
         loop {
             match reader.read(&mut buf) {
                 Ok(0) => {
                     // EOF - PTY closed
+                    // Flush any remaining incomplete bytes as lossy
+                    if !incomplete_utf8.is_empty() {
+                        let data = String::from_utf8_lossy(&incomplete_utf8).to_string();
+                        let _ = app_clone.emit(
+                            "pty_output",
+                            PtyOutputPayload {
+                                session_id: session_id_clone.clone(),
+                                data: data.clone(),
+                            },
+                        );
+                        append_to_buffer(&buffer_clone, &data);
+                    }
                     let _ = app_clone.emit(
                         "pty_closed",
                         PtyOutputPayload {
@@ -224,20 +250,34 @@ pub async fn spawn_pty(
                     break;
                 }
                 Ok(n) => {
-                    // Convert bytes to string (lossy for non-UTF8)
-                    let data = String::from_utf8_lossy(&buf[..n]).to_string();
+                    // Prepend any incomplete UTF-8 bytes from previous read
+                    let mut bytes = std::mem::take(&mut incomplete_utf8);
+                    bytes.extend_from_slice(&buf[..n]);
 
-                    // Emit to frontend
-                    let _ = app_clone.emit(
-                        "pty_output",
-                        PtyOutputPayload {
-                            session_id: session_id_clone.clone(),
-                            data: data.clone(),
-                        },
-                    );
+                    // Find the last valid UTF-8 boundary
+                    let valid_up_to = find_utf8_boundary(&bytes);
 
-                    // Accumulate to history buffer
-                    append_to_buffer(&buffer_clone, &data);
+                    if valid_up_to > 0 {
+                        // Convert valid UTF-8 portion to string
+                        let data = String::from_utf8_lossy(&bytes[..valid_up_to]).to_string();
+
+                        // Emit to frontend
+                        let _ = app_clone.emit(
+                            "pty_output",
+                            PtyOutputPayload {
+                                session_id: session_id_clone.clone(),
+                                data: data.clone(),
+                            },
+                        );
+
+                        // Accumulate to history buffer
+                        append_to_buffer(&buffer_clone, &data);
+                    }
+
+                    // Save any incomplete UTF-8 bytes for next iteration
+                    if valid_up_to < bytes.len() {
+                        incomplete_utf8 = bytes[valid_up_to..].to_vec();
+                    }
                 }
                 Err(e) => {
                     tracing::error!("PTY read error: {}", e);
@@ -635,5 +675,99 @@ mod tests {
         assert_eq!(expand_tilde("relative/path"), "relative/path");
         assert_eq!(expand_tilde(""), "");
         assert_eq!(expand_tilde("~suffix"), "~suffix"); // Not ~/
+    }
+
+    /// Test find_utf8_boundary with valid complete UTF-8
+    #[test]
+    fn test_find_utf8_boundary_valid_ascii() {
+        let bytes = b"Hello World";
+        assert_eq!(find_utf8_boundary(bytes), bytes.len());
+    }
+
+    /// Test find_utf8_boundary with valid UTF-8 including multi-byte characters
+    #[test]
+    fn test_find_utf8_boundary_valid_multibyte() {
+        // Box-drawing character "─" is 3 bytes: E2 94 80
+        let s = "───";
+        let bytes = s.as_bytes();
+        assert_eq!(find_utf8_boundary(bytes), bytes.len());
+    }
+
+    /// Test find_utf8_boundary with incomplete UTF-8 at end (1 byte of 3-byte char)
+    #[test]
+    fn test_find_utf8_boundary_incomplete_1_of_3() {
+        // "─" is E2 94 80, we have "Hello" + first byte of "─"
+        let mut bytes = b"Hello".to_vec();
+        bytes.push(0xE2); // First byte of 3-byte UTF-8 sequence
+        assert_eq!(find_utf8_boundary(&bytes), 5); // Only "Hello" is valid
+    }
+
+    /// Test find_utf8_boundary with incomplete UTF-8 at end (2 bytes of 3-byte char)
+    #[test]
+    fn test_find_utf8_boundary_incomplete_2_of_3() {
+        // "─" is E2 94 80, we have "Hello" + first 2 bytes of "─"
+        let mut bytes = b"Hello".to_vec();
+        bytes.push(0xE2); // First byte
+        bytes.push(0x94); // Second byte
+        assert_eq!(find_utf8_boundary(&bytes), 5); // Only "Hello" is valid
+    }
+
+    /// Test find_utf8_boundary with box-drawing characters split
+    #[test]
+    fn test_find_utf8_boundary_box_drawing_split() {
+        // Simulate reading "───" but last character is split
+        // "──" (6 bytes) + first 2 bytes of third "─"
+        let full = "──";
+        let mut bytes = full.as_bytes().to_vec();
+        bytes.push(0xE2);
+        bytes.push(0x94);
+        // Now we have 8 bytes: 6 valid + 2 incomplete
+        assert_eq!(find_utf8_boundary(&bytes), 6);
+    }
+
+    /// Test find_utf8_boundary with empty input
+    #[test]
+    fn test_find_utf8_boundary_empty() {
+        let bytes: &[u8] = &[];
+        assert_eq!(find_utf8_boundary(bytes), 0);
+    }
+
+    /// Test find_utf8_boundary with mixed ASCII and multibyte
+    #[test]
+    fn test_find_utf8_boundary_mixed() {
+        // "Hello─World" with incomplete char at end
+        let mut bytes = "Hello─World".as_bytes().to_vec();
+        bytes.push(0xE2); // Start of incomplete 3-byte sequence
+        let valid_len = "Hello─World".len();
+        assert_eq!(find_utf8_boundary(&bytes), valid_len);
+    }
+
+    /// Test find_utf8_boundary with 2-byte UTF-8 character split
+    #[test]
+    fn test_find_utf8_boundary_2byte_split() {
+        // "é" is C3 A9 (2 bytes), split at boundary
+        let mut bytes = b"cafe".to_vec();
+        bytes.push(0xC3); // First byte of "é"
+        assert_eq!(find_utf8_boundary(&bytes), 4); // Only "cafe" is valid
+    }
+
+    /// Test find_utf8_boundary with 4-byte UTF-8 character (emoji)
+    #[test]
+    fn test_find_utf8_boundary_4byte_emoji() {
+        // "😀" is F0 9F 98 80 (4 bytes)
+        let emoji = "😀";
+        let bytes = emoji.as_bytes();
+        assert_eq!(find_utf8_boundary(bytes), 4);
+    }
+
+    /// Test find_utf8_boundary with incomplete 4-byte emoji
+    #[test]
+    fn test_find_utf8_boundary_4byte_emoji_split() {
+        // "Hello" + first 3 bytes of "😀" (F0 9F 98 80)
+        let mut bytes = b"Hello".to_vec();
+        bytes.push(0xF0);
+        bytes.push(0x9F);
+        bytes.push(0x98);
+        assert_eq!(find_utf8_boundary(&bytes), 5); // Only "Hello" is valid
     }
 }

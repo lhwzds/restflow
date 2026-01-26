@@ -1,5 +1,4 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { useSplitView } from '../useSplitView'
 
 // Mock localStorage
 const localStorageMock = (() => {

@@ -35,9 +35,10 @@ vi.mock('@/composables/editor/useTerminalSessions', () => ({
         name: 'Terminal 1',
         status: 'running',
         created_at: Date.now(),
-        updated_at: Date.now(),
         history: null,
         stopped_at: null,
+        working_directory: null,
+        startup_command: null,
       }),
     ),
   }),
@@ -83,9 +84,10 @@ const createMockSession = (id: string, name: string): TerminalSession => ({
   name,
   status: 'running',
   created_at: Date.now(),
-  updated_at: Date.now(),
   history: null,
   stopped_at: null,
+  working_directory: null,
+  startup_command: null,
 })
 
 // Helper to create mock terminal tab

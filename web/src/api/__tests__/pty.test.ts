@@ -275,7 +275,7 @@ describe('PTY API', () => {
       expect(unlisten).toBe(mockUnlisten)
 
       // Simulate event
-      const eventHandler = vi.mocked(listen).mock.calls[0][1]
+      const eventHandler = vi.mocked(listen).mock.calls[0]![1]
       eventHandler({ payload: { session_id: 'session-1', data: 'output' } } as never)
       expect(callback).toHaveBeenCalledWith('output')
 
@@ -299,7 +299,7 @@ describe('PTY API', () => {
       expect(unlisten).toBe(mockUnlisten)
 
       // Simulate event
-      const eventHandler = vi.mocked(listen).mock.calls[0][1]
+      const eventHandler = vi.mocked(listen).mock.calls[0]![1]
       eventHandler({ payload: { session_id: 'session-1', data: '' } } as never)
       expect(callback).toHaveBeenCalled()
 

@@ -19,9 +19,10 @@ const createMockSession = (overrides: Partial<TerminalSession> = {}): TerminalSe
   name: 'Terminal 1',
   status: 'running',
   created_at: 1000,
-  updated_at: 2000,
   history: null,
   stopped_at: null,
+  working_directory: null,
+  startup_command: null,
   ...overrides,
 })
 
@@ -156,8 +157,8 @@ describe('useTerminalSessions', () => {
       const result = await renameSession('session-1', 'New Name')
 
       expect(terminalApi.renameTerminalSession).toHaveBeenCalledWith('session-1', 'New Name')
-      expect(result.name).toBe('New Name')
-      expect(sessions.value[0].name).toBe('New Name')
+      expect(result!.name).toBe('New Name')
+      expect(sessions.value[0]!.name).toBe('New Name')
     })
   })
 
@@ -177,8 +178,8 @@ describe('useTerminalSessions', () => {
       const result = await restartSession('session-1')
 
       expect(ptyApi.restartTerminal).toHaveBeenCalledWith('session-1')
-      expect(result.status).toBe('running')
-      expect(sessions.value[0].status).toBe('running')
+      expect(result!.status).toBe('running')
+      expect(sessions.value[0]!.status).toBe('running')
     })
   })
 
@@ -213,7 +214,7 @@ describe('useTerminalSessions', () => {
       await refreshSessions()
 
       expect(runningSessions.value).toHaveLength(1)
-      expect(runningSessions.value[0].id).toBe('running')
+      expect(runningSessions.value[0]!.id).toBe('running')
     })
 
     it('should filter stopped sessions', async () => {
@@ -228,7 +229,7 @@ describe('useTerminalSessions', () => {
       await refreshSessions()
 
       expect(stoppedSessions.value).toHaveLength(1)
-      expect(stoppedSessions.value[0].id).toBe('stopped')
+      expect(stoppedSessions.value[0]!.id).toBe('stopped')
     })
   })
 
@@ -246,7 +247,7 @@ describe('useTerminalSessions', () => {
       const updatedSession = { ...originalSession, name: 'Updated' }
       updateSessionLocal(updatedSession)
 
-      expect(sessions.value[0].name).toBe('Updated')
+      expect(sessions.value[0]!.name).toBe('Updated')
       // Should not call API
       expect(terminalApi.renameTerminalSession).not.toHaveBeenCalled()
     })

@@ -17,7 +17,7 @@ const mockSkill: Skill = {
 const mockAgent: StoredAgent = {
   id: 'agent-1',
   name: 'Test Agent',
-  agent: { model: 'test-model' },
+  agent: { model: 'gpt-5' },
   created_at: 1000,
   updated_at: 2000,
 }
@@ -27,9 +27,10 @@ const mockSession: TerminalSession = {
   name: 'Terminal 1',
   status: 'running',
   created_at: 1000,
-  updated_at: 2000,
   history: null,
   stopped_at: null,
+  working_directory: null,
+  startup_command: null,
 }
 
 describe('useEditorTabs', () => {
@@ -107,7 +108,7 @@ describe('useEditorTabs', () => {
       openAgent(mockAgent)
 
       expect(tabs.value).toHaveLength(1)
-      expect(tabs.value[0].type).toBe('agent')
+      expect(tabs.value[0]!.type).toBe('agent')
       expect(showBrowser.value).toBe(false)
 
       closeAllTabs()
@@ -125,7 +126,7 @@ describe('useEditorTabs', () => {
       openTerminal(mockSession)
 
       expect(tabs.value).toHaveLength(1)
-      expect(tabs.value[0].type).toBe('terminal')
+      expect(tabs.value[0]!.type).toBe('terminal')
       expect(showBrowser.value).toBe(false)
 
       closeAllTabs()
@@ -250,13 +251,13 @@ describe('useEditorTabs', () => {
 
       closeAllTabs()
       openSkill(mockSkill)
-      expect(tabs.value[0].isDirty).toBeUndefined()
+      expect(tabs.value[0]!.isDirty).toBeUndefined()
 
       setTabDirty('skill-1', true)
-      expect(tabs.value[0].isDirty).toBe(true)
+      expect(tabs.value[0]!.isDirty).toBe(true)
 
       setTabDirty('skill-1', false)
-      expect(tabs.value[0].isDirty).toBe(false)
+      expect(tabs.value[0]!.isDirty).toBe(false)
 
       closeAllTabs()
     })
@@ -273,9 +274,9 @@ describe('useEditorTabs', () => {
       const updatedSkill = { ...mockSkill, name: 'Updated Skill' }
       updateTabData('skill-1', updatedSkill)
 
-      expect(tabs.value[0].data).toEqual(updatedSkill)
-      expect(tabs.value[0].name).toBe('Updated Skill.md')
-      expect(tabs.value[0].isDirty).toBe(false)
+      expect(tabs.value[0]!.data).toEqual(updatedSkill)
+      expect(tabs.value[0]!.name).toBe('Updated Skill.md')
+      expect(tabs.value[0]!.isDirty).toBe(false)
 
       closeAllTabs()
     })

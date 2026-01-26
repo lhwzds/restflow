@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
-import { ref, computed } from 'vue'
+import { ref } from 'vue'
 import TerminalBrowser from '../TerminalBrowser.vue'
 import type { TerminalSession } from '@/types/generated/TerminalSession'
 
@@ -280,7 +280,7 @@ describe('TerminalBrowser', () => {
       const cards = wrapper.findAll('.border-dashed')
       expect(cards.length).toBeGreaterThan(0)
 
-      await cards[0].trigger('click')
+      await cards[0]!.trigger('click')
       await flushPromises()
 
       // Should emit 'open' event with the new tab

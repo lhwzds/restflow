@@ -2,6 +2,8 @@
 import { ref, onMounted, onUnmounted, watch } from 'vue'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
+import { Unicode11Addon } from '@xterm/addon-unicode11'
+import { WebglAddon } from '@xterm/addon-webgl'
 import {
   spawnPty,
   writePty,
@@ -65,14 +67,29 @@ function initReadonlyTerminal() {
   term = new Terminal({
     cursorBlink: false,
     fontSize: 14,
-    fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+    fontFamily: '"SF Mono", Menlo, Monaco, "Cascadia Code", "Segoe UI Mono", "Roboto Mono", "Oxygen Mono", "Ubuntu Monospace", "Source Code Pro", "Fira Mono", "Droid Sans Mono", "Courier New", monospace',
     theme: terminalTheme,
     disableStdin: true, // Disable input for readonly mode
+    letterSpacing: 0,
+    lineHeight: 1.0,
+    allowProposedApi: true, // Required for unicode11 addon
   })
 
   fitAddon = new FitAddon()
+  const unicode11Addon = new Unicode11Addon()
   term.loadAddon(fitAddon)
+  term.loadAddon(unicode11Addon)
+  term.unicode.activeVersion = '11'
   term.open(terminalRef.value)
+
+  // Try to load WebGL addon for better rendering
+  try {
+    const webglAddon = new WebglAddon()
+    term.loadAddon(webglAddon)
+  } catch (e) {
+    console.warn('WebGL addon failed to load, using canvas renderer:', e)
+  }
+
   fitAddon.fit()
 
   // Write history content
@@ -103,13 +120,28 @@ async function initInteractiveTerminal() {
   term = new Terminal({
     cursorBlink: true,
     fontSize: 14,
-    fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+    fontFamily: '"SF Mono", Menlo, Monaco, "Cascadia Code", "Segoe UI Mono", "Roboto Mono", "Oxygen Mono", "Ubuntu Monospace", "Source Code Pro", "Fira Mono", "Droid Sans Mono", "Courier New", monospace',
     theme: terminalTheme,
+    letterSpacing: 0,
+    lineHeight: 1.0,
+    allowProposedApi: true, // Required for unicode11 addon
   })
 
   fitAddon = new FitAddon()
+  const unicode11Addon = new Unicode11Addon()
   term.loadAddon(fitAddon)
+  term.loadAddon(unicode11Addon)
+  term.unicode.activeVersion = '11'
   term.open(terminalRef.value)
+
+  // Try to load WebGL addon for better rendering
+  try {
+    const webglAddon = new WebglAddon()
+    term.loadAddon(webglAddon)
+  } catch (e) {
+    console.warn('WebGL addon failed to load, using canvas renderer:', e)
+  }
+
   fitAddon.fit()
 
   // Listen for PTY output

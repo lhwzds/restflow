@@ -22,9 +22,10 @@ const createMockSession = (overrides: Partial<TerminalSession> = {}): TerminalSe
   name: 'Terminal 1',
   status: 'running',
   created_at: 1000,
-  updated_at: 2000,
   history: null,
   stopped_at: null,
+  working_directory: null,
+  startup_command: null,
   ...overrides,
 })
 

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
-import { ref, computed } from 'vue'
+import { ref } from 'vue'
 import SplitContainer from '../SplitContainer.vue'
 import type { EditorTab } from '@/composables/editor/useEditorTabs'
 import type { Skill } from '@/types/generated/Skill'
@@ -88,9 +88,10 @@ const createTerminalTab = (): EditorTab => ({
     name: 'Terminal 1',
     status: 'running',
     created_at: 1000,
-    updated_at: 2000,
     history: null,
     stopped_at: null,
+    working_directory: null,
+    startup_command: null,
   },
 })
 
