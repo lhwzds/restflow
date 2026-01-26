@@ -76,6 +76,24 @@ impl TerminalSessionStorage {
         self.inner.exists(id)
     }
 
+    /// Mark all running sessions as stopped.
+    /// This should be called on app startup to clean up stale sessions
+    /// from previous runs where the PTY processes no longer exist.
+    pub fn mark_all_stopped(&self) -> Result<usize> {
+        let sessions = self.list()?;
+        let mut count = 0;
+
+        for mut session in sessions {
+            if session.is_running() {
+                session.set_stopped(session.history.clone());
+                self.update(&session.id, &session)?;
+                count += 1;
+            }
+        }
+
+        Ok(count)
+    }
+
     /// Get the next available terminal name (Terminal 1, Terminal 2, etc.)
     pub fn get_next_name(&self) -> Result<String> {
         let sessions = self.list()?;
@@ -171,6 +189,31 @@ mod tests {
 
         storage.delete("terminal-001").unwrap();
         assert!(!storage.exists("terminal-001").unwrap());
+    }
+
+    #[test]
+    fn test_mark_all_stopped() {
+        let (storage, _temp_dir) = setup();
+
+        // Create some sessions
+        let session1 = TerminalSession::new("terminal-001".to_string(), "Terminal 1".to_string());
+        let mut session2 = TerminalSession::new("terminal-002".to_string(), "Terminal 2".to_string());
+        session2.set_stopped(None); // Already stopped
+
+        storage.create(&session1).unwrap();
+        storage.create(&session2).unwrap();
+
+        // Verify initial state
+        assert!(storage.get("terminal-001").unwrap().unwrap().is_running());
+        assert!(!storage.get("terminal-002").unwrap().unwrap().is_running());
+
+        // Mark all as stopped
+        let count = storage.mark_all_stopped().unwrap();
+        assert_eq!(count, 1); // Only 1 was running
+
+        // Verify all are now stopped
+        assert!(!storage.get("terminal-001").unwrap().unwrap().is_running());
+        assert!(!storage.get("terminal-002").unwrap().unwrap().is_running());
     }
 
     #[test]
