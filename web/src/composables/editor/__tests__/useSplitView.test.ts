@@ -152,27 +152,30 @@ describe('useSplitView', () => {
   })
 
   describe('splitWidth', () => {
-    it('should have default width of 400', async () => {
+    it('should have default width based on window width ratio', async () => {
       const { useSplitView } = await import('../useSplitView')
-      const { splitWidth } = useSplitView()
+      const { splitWidth, getDefaultWidth } = useSplitView()
 
-      expect(splitWidth.value).toBe(400)
+      // Default width should be calculated from window width
+      expect(splitWidth.value).toBe(getDefaultWidth())
     })
 
     it('should set width within bounds', async () => {
       const { useSplitView } = await import('../useSplitView')
-      const { splitWidth, setSplitWidth, MIN_WIDTH, MAX_WIDTH } = useSplitView()
+      const { splitWidth, setSplitWidth, getMinWidth, getMaxWidth } = useSplitView()
 
-      setSplitWidth(500)
-      expect(splitWidth.value).toBe(500)
+      // Set a valid width in the middle
+      const midWidth = Math.floor((getMinWidth() + getMaxWidth()) / 2)
+      setSplitWidth(midWidth)
+      expect(splitWidth.value).toBe(midWidth)
 
-      // Should clamp to min
-      setSplitWidth(100)
-      expect(splitWidth.value).toBe(MIN_WIDTH)
+      // Should clamp to min (dynamic based on window width)
+      setSplitWidth(10)
+      expect(splitWidth.value).toBe(getMinWidth())
 
-      // Should clamp to max
-      setSplitWidth(1000)
-      expect(splitWidth.value).toBe(MAX_WIDTH)
+      // Should clamp to max (dynamic based on window width)
+      setSplitWidth(10000)
+      expect(splitWidth.value).toBe(getMaxWidth())
     })
   })
 

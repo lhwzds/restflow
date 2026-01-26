@@ -90,11 +90,16 @@ function handleSkillSave() {
     class="h-full flex shrink-0 border-l"
     :style="{ width: `${splitWidth}px` }"
   >
-    <!-- Resize handle -->
-    <div
-      class="w-1 h-full cursor-ew-resize hover:bg-primary/20 active:bg-primary/40 transition-colors"
-      @mousedown="startDragging"
-    />
+    <!-- Resize handle - w-0 keeps layout unchanged, absolute positioning expands hit area -->
+    <div class="relative w-0">
+      <div
+        class="absolute inset-y-0 -left-1.5 w-3 cursor-ew-resize flex items-center justify-center group z-10"
+        @mousedown="startDragging"
+      >
+        <!-- Visual line stays 1px -->
+        <div class="w-px h-full bg-border group-hover:bg-primary/50 group-active:bg-primary transition-colors" />
+      </div>
+    </div>
 
     <!-- Content -->
     <div class="flex-1 flex flex-col min-w-0 overflow-hidden">
