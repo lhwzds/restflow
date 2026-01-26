@@ -112,4 +112,132 @@ test.describe('Terminal Browser', () => {
     const deleteButton = page.locator('button[title="Delete terminal"]').first()
     await expect(deleteButton).toBeVisible()
   })
+
+  test('running terminal shows stop button on hover', async ({ page }) => {
+    // Create a terminal first
+    const newCard = page.locator('button', { hasText: 'New Terminal' }).last()
+    await newCard.click()
+    await page.waitForTimeout(500)
+
+    // Return to browser
+    await page.getByRole('button', { name: 'Terminals' }).click()
+    await page.waitForTimeout(300)
+
+    // Find terminal card and hover
+    const terminalCard = page.locator('[class*="CardContent"]', { hasText: /Terminal \d+/ }).first()
+    await terminalCard.hover()
+
+    // Verify stop button appears for running terminal
+    const stopButton = page.locator('button[title="Stop terminal"]').first()
+    await expect(stopButton).toBeVisible()
+  })
+
+  test('clicking stop button stops the terminal', async ({ page }) => {
+    // Create a terminal first
+    const newCard = page.locator('button', { hasText: 'New Terminal' }).last()
+    await newCard.click()
+    await page.waitForTimeout(500)
+
+    // Return to browser
+    await page.getByRole('button', { name: 'Terminals' }).click()
+    await page.waitForTimeout(300)
+
+    // Find terminal card and hover
+    const terminalCard = page.locator('[class*="CardContent"]', { hasText: /Terminal \d+/ }).first()
+    await terminalCard.hover()
+
+    // Click stop button
+    const stopButton = page.locator('button[title="Stop terminal"]').first()
+    await stopButton.click()
+    await page.waitForTimeout(500)
+
+    // After stopping, hover again to check stop button is gone
+    await terminalCard.hover()
+
+    // Stop button should not be visible for stopped terminal
+    await expect(page.locator('button[title="Stop terminal"]')).not.toBeVisible()
+  })
+
+  test('settings button opens terminal settings dialog', async ({ page }) => {
+    // Create a terminal first
+    const newCard = page.locator('button', { hasText: 'New Terminal' }).last()
+    await newCard.click()
+    await page.waitForTimeout(500)
+
+    // Return to browser
+    await page.getByRole('button', { name: 'Terminals' }).click()
+    await page.waitForTimeout(300)
+
+    // Find terminal card and hover
+    const terminalCard = page.locator('[class*="CardContent"]', { hasText: /Terminal \d+/ }).first()
+    await terminalCard.hover()
+
+    // Click settings button
+    const settingsButton = page.locator('button[title="Terminal settings"]').first()
+    await settingsButton.click()
+
+    // Verify settings dialog opens
+    await expect(page.getByRole('dialog')).toBeVisible()
+    await expect(page.getByText('Terminal Settings')).toBeVisible()
+
+    // Verify settings fields are present
+    await expect(page.getByLabel('Working Directory')).toBeVisible()
+    await expect(page.getByLabel('Startup Command')).toBeVisible()
+  })
+
+  test('settings dialog shows restart prompt after saving for running terminal', async ({ page }) => {
+    // Create a terminal first
+    const newCard = page.locator('button', { hasText: 'New Terminal' }).last()
+    await newCard.click()
+    await page.waitForTimeout(500)
+
+    // Return to browser
+    await page.getByRole('button', { name: 'Terminals' }).click()
+    await page.waitForTimeout(300)
+
+    // Find terminal card and hover
+    const terminalCard = page.locator('[class*="CardContent"]', { hasText: /Terminal \d+/ }).first()
+    await terminalCard.hover()
+
+    // Click settings button
+    const settingsButton = page.locator('button[title="Terminal settings"]').first()
+    await settingsButton.click()
+    await page.waitForTimeout(200)
+
+    // Fill in a setting
+    await page.getByLabel('Working Directory').fill('~/projects')
+
+    // Click save
+    await page.getByRole('button', { name: 'Save' }).click()
+    await page.waitForTimeout(300)
+
+    // Verify restart prompt appears in the same dialog
+    await expect(page.getByText('Settings saved!')).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Later' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Restart Now' })).toBeVisible()
+  })
+
+  test('list view shows stop button for running terminals', async ({ page }) => {
+    // Create a terminal first
+    const newCard = page.locator('button', { hasText: 'New Terminal' }).last()
+    await newCard.click()
+    await page.waitForTimeout(500)
+
+    // Return to browser
+    await page.getByRole('button', { name: 'Terminals' }).click()
+    await page.waitForTimeout(300)
+
+    // Switch to List view
+    const listButton = page.locator('header button[class*="h-6"][class*="w-6"]').first()
+    await listButton.click()
+    await page.waitForTimeout(200)
+
+    // Find terminal row and hover
+    const terminalRow = page.locator('button', { hasText: /Terminal \d+/ }).first()
+    await terminalRow.hover()
+
+    // Verify stop button appears
+    const stopButton = page.locator('button[title="Stop terminal"]').first()
+    await expect(stopButton).toBeVisible()
+  })
 })

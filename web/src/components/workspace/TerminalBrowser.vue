@@ -13,11 +13,12 @@
      restarts the PTY session for better UX.
 -->
 <script setup lang="ts">
-import { Terminal, Plus, Trash2, Loader2, Settings } from 'lucide-vue-next'
+import { Terminal, Plus, Trash2, Loader2, Settings, Square } from 'lucide-vue-next'
 import { ref, computed } from 'vue'
 import { useEditorTabs, type EditorTab } from '@/composables/editor/useEditorTabs'
 import { useTerminalSessions, type TerminalSession } from '@/composables/editor/useTerminalSessions'
 import { closePty } from '@/api/pty'
+import { useToast } from '@/composables/useToast'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -40,8 +41,16 @@ const emit = defineEmits<{
 }>()
 
 const { openTerminal, closeTab } = useEditorTabs()
-const { sessions, isLoading, createSession, deleteSession, restartSession, updateSession } =
-  useTerminalSessions()
+const {
+  sessions,
+  isLoading,
+  createSession,
+  deleteSession,
+  restartSession,
+  updateSession,
+  refreshSessions,
+} = useTerminalSessions()
+const toast = useToast()
 
 const isCreating = ref(false)
 const deletingIds = ref<Set<string>>(new Set())
@@ -52,6 +61,9 @@ const settingsSession = ref<TerminalSession | null>(null)
 const settingsWorkingDir = ref('')
 const settingsStartupCmd = ref('')
 const isSavingSettings = ref(false)
+const settingsSaved = ref(false)
+const isRestarting = ref(false)
+const stoppingIds = ref<Set<string>>(new Set())
 
 // Filter sessions by search query
 const filteredSessions = computed(() => {
@@ -145,6 +157,7 @@ const handleOpenSettings = (event: Event, session: TerminalSession) => {
   settingsSession.value = session
   settingsWorkingDir.value = session.working_directory ?? ''
   settingsStartupCmd.value = session.startup_command ?? ''
+  settingsSaved.value = false
   settingsOpen.value = true
 }
 
@@ -154,15 +167,74 @@ const handleSaveSettings = async () => {
 
   isSavingSettings.value = true
   try {
-    await updateSession(settingsSession.value.id, {
+    const updatedSession = await updateSession(settingsSession.value.id, {
       working_directory: settingsWorkingDir.value || null,
       startup_command: settingsStartupCmd.value || null,
     })
-    settingsOpen.value = false
+    // Update local reference with new data
+    settingsSession.value = updatedSession
+    settingsSaved.value = true
+
+    // If terminal is not running, close dialog immediately
+    if (updatedSession.status !== 'running') {
+      settingsOpen.value = false
+    }
+    // Otherwise, keep dialog open to show restart option
   } catch (error) {
     console.error('Failed to save terminal settings:', error)
   } finally {
     isSavingSettings.value = false
+  }
+}
+
+// Handle restart from settings dialog
+const handleRestartFromSettings = async () => {
+  if (!settingsSession.value) return
+
+  isRestarting.value = true
+  const sessionId = settingsSession.value.id
+  const sessionName = settingsSession.value.name
+  try {
+    // Close the current PTY
+    await closePty(sessionId)
+    // Close the tab if open
+    closeTab(sessionId)
+    // Close settings dialog
+    settingsOpen.value = false
+    // Get fresh session data and reopen
+    const freshSession = sessions.value.find((s) => s.id === sessionId)
+    if (freshSession) {
+      await handleOpenSession(freshSession)
+      toast.success(`Terminal "${sessionName}" restarted`)
+    }
+  } catch (error) {
+    console.error('Failed to restart terminal:', error)
+    toast.error('Failed to restart terminal')
+  } finally {
+    isRestarting.value = false
+  }
+}
+
+// Stop a running terminal
+const handleStopSession = async (event: Event, session: TerminalSession) => {
+  event.stopPropagation()
+
+  if (stoppingIds.value.has(session.id) || session.status !== 'running') return
+
+  stoppingIds.value.add(session.id)
+  try {
+    // Close the tab if open
+    closeTab(session.id)
+    // Close the PTY (this also updates database status)
+    await closePty(session.id)
+    // Refresh sessions to update UI
+    await refreshSessions()
+    toast.success(`Terminal "${session.name}" stopped`)
+  } catch (error) {
+    console.error('Failed to stop terminal:', error)
+    toast.error('Failed to stop terminal')
+  } finally {
+    stoppingIds.value.delete(session.id)
   }
 }
 </script>
@@ -231,6 +303,18 @@ const handleSaveSettings = async () => {
               @click="handleOpenSettings($event, session)"
             >
               <Settings :size="14" />
+            </Button>
+            <Button
+              v-if="session.status === 'running'"
+              variant="ghost"
+              size="icon"
+              class="h-6 w-6 text-muted-foreground hover:text-orange-500"
+              title="Stop terminal"
+              :disabled="stoppingIds.has(session.id)"
+              @click="handleStopSession($event, session)"
+            >
+              <Loader2 v-if="stoppingIds.has(session.id)" :size="14" class="animate-spin" />
+              <Square v-else :size="14" />
             </Button>
             <Button
               variant="ghost"
@@ -312,6 +396,18 @@ const handleSaveSettings = async () => {
               <Settings :size="14" />
             </Button>
             <Button
+              v-if="session.status === 'running'"
+              variant="ghost"
+              size="icon"
+              class="h-6 w-6 text-muted-foreground hover:text-orange-500"
+              title="Stop terminal"
+              :disabled="stoppingIds.has(session.id)"
+              @click="handleStopSession($event, session)"
+            >
+              <Loader2 v-if="stoppingIds.has(session.id)" :size="14" class="animate-spin" />
+              <Square v-else :size="14" />
+            </Button>
+            <Button
               variant="ghost"
               size="icon"
               class="h-6 w-6 text-muted-foreground hover:text-destructive"
@@ -354,6 +450,7 @@ const handleSaveSettings = async () => {
               v-model="settingsWorkingDir"
               placeholder="e.g., ~/projects (default: $HOME)"
               class="font-mono text-sm"
+              :disabled="settingsSaved"
             />
             <p class="text-xs text-muted-foreground">
               Initial directory when terminal starts. Leave empty for home directory.
@@ -366,19 +463,44 @@ const handleSaveSettings = async () => {
               v-model="settingsStartupCmd"
               placeholder="e.g., npm run dev"
               class="font-mono text-sm"
+              :disabled="settingsSaved"
             />
             <p class="text-xs text-muted-foreground">
               Command to execute automatically after terminal starts.
             </p>
           </div>
+
+          <!-- Saved + Restart prompt (shown after save when terminal is running) -->
+          <div
+            v-if="settingsSaved && settingsSession?.status === 'running'"
+            class="rounded-lg bg-muted p-3 space-y-2"
+          >
+            <p class="text-sm text-green-600 font-medium">✓ Settings saved!</p>
+            <p class="text-sm text-muted-foreground">
+              Restart the terminal to apply the new configuration?
+            </p>
+          </div>
         </div>
 
         <DialogFooter>
-          <Button variant="outline" @click="settingsOpen = false">Cancel</Button>
-          <Button :disabled="isSavingSettings" @click="handleSaveSettings">
-            <Loader2 v-if="isSavingSettings" :size="16" class="mr-2 animate-spin" />
-            Save
-          </Button>
+          <!-- Before save -->
+          <template v-if="!settingsSaved">
+            <Button variant="outline" @click="settingsOpen = false">Cancel</Button>
+            <Button :disabled="isSavingSettings" @click="handleSaveSettings">
+              <Loader2 v-if="isSavingSettings" :size="16" class="mr-2 animate-spin" />
+              Save
+            </Button>
+          </template>
+          <!-- After save (running terminal) -->
+          <template v-else>
+            <Button variant="outline" :disabled="isRestarting" @click="settingsOpen = false">
+              Later
+            </Button>
+            <Button :disabled="isRestarting" @click="handleRestartFromSettings">
+              <Loader2 v-if="isRestarting" :size="16" class="mr-2 animate-spin" />
+              Restart Now
+            </Button>
+          </template>
         </DialogFooter>
       </DialogContent>
     </Dialog>
