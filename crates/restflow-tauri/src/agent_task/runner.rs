@@ -546,16 +546,19 @@ mod tests {
         }
     }
 
-    fn create_test_storage() -> Arc<AgentTaskStorage> {
+    /// Creates test storage and returns it along with the TempDir.
+    /// The TempDir must be kept alive for the duration of the test to prevent
+    /// the database from being deleted (important on Windows).
+    fn create_test_storage() -> (Arc<AgentTaskStorage>, tempfile::TempDir) {
         let temp_dir = tempdir().unwrap();
         let db_path = temp_dir.path().join("test.db");
         let db = Arc::new(redb::Database::create(db_path).unwrap());
-        Arc::new(AgentTaskStorage::new(db).unwrap())
+        (Arc::new(AgentTaskStorage::new(db).unwrap()), temp_dir)
     }
 
     #[tokio::test]
     async fn test_runner_start_stop() {
-        let storage = create_test_storage();
+        let (storage, _temp_dir) = create_test_storage();
         let executor = Arc::new(MockExecutor::new());
         let notifier = Arc::new(NoopNotificationSender);
 
@@ -585,7 +588,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_runner_executes_runnable_task() {
-        let storage = create_test_storage();
+        let (storage, _temp_dir) = create_test_storage();
         let executor = Arc::new(MockExecutor::new());
         let notifier = Arc::new(MockNotifier::new());
 
@@ -633,7 +636,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_runner_handles_failure() {
-        let storage = create_test_storage();
+        let (storage, _temp_dir) = create_test_storage();
         let executor = Arc::new(MockExecutor::with_failure());
         let notifier = Arc::new(MockNotifier::new());
 
@@ -677,7 +680,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_runner_respects_concurrency_limit() {
-        let storage = create_test_storage();
+        let (storage, _temp_dir) = create_test_storage();
         let executor = Arc::new(MockExecutor::with_delay(500)); // 500ms delay
         let notifier = Arc::new(NoopNotificationSender);
 
@@ -715,8 +718,9 @@ mod tests {
         let running = runner.running_task_count().await;
         assert!(running <= 2, "Should respect concurrency limit");
 
-        // Wait for all to complete
-        tokio::time::sleep(Duration::from_millis(2000)).await;
+        // Wait for all to complete (5 tasks * 500ms each / 2 concurrent = 1250ms min)
+        // Add generous buffer for Windows CI
+        tokio::time::sleep(Duration::from_millis(4000)).await;
 
         handle.stop().await.unwrap();
 
@@ -726,7 +730,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_runner_check_now() {
-        let storage = create_test_storage();
+        let (storage, _temp_dir) = create_test_storage();
         let executor = Arc::new(MockExecutor::new());
         let notifier = Arc::new(NoopNotificationSender);
 
@@ -770,7 +774,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_runner_run_task_now() {
-        let storage = create_test_storage();
+        let (storage, _temp_dir) = create_test_storage();
         let executor = Arc::new(MockExecutor::new());
         let notifier = Arc::new(NoopNotificationSender);
 
@@ -811,7 +815,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_runner_skips_paused_tasks() {
-        let storage = create_test_storage();
+        let (storage, _temp_dir) = create_test_storage();
         let executor = Arc::new(MockExecutor::new());
         let notifier = Arc::new(NoopNotificationSender);
 
@@ -852,7 +856,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_runner_sends_notifications() {
-        let storage = create_test_storage();
+        let (storage, _temp_dir) = create_test_storage();
         let executor = Arc::new(MockExecutor::new());
         let notifier = Arc::new(MockNotifier::new());
 
@@ -894,7 +898,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_runner_notify_on_failure_only() {
-        let storage = create_test_storage();
+        let (storage, _temp_dir) = create_test_storage();
         let executor = Arc::new(MockExecutor::new()); // This succeeds
         let notifier = Arc::new(MockNotifier::new());
 
@@ -937,7 +941,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_running_task_tracking() {
-        let storage = create_test_storage();
+        let (storage, _temp_dir) = create_test_storage();
         let executor = Arc::new(MockExecutor::with_delay(500));
         let notifier = Arc::new(NoopNotificationSender);
 
@@ -967,15 +971,15 @@ mod tests {
         let handle = runner.clone().start();
 
         // Wait for task to start (allow extra time for Windows CI)
-        tokio::time::sleep(Duration::from_millis(300)).await;
+        tokio::time::sleep(Duration::from_millis(500)).await;
 
         // Should show as running
         let running_ids = runner.running_task_ids().await;
         assert_eq!(running_ids.len(), 1);
         assert_eq!(running_ids[0], task.id);
 
-        // Wait for completion (500ms task + buffer for Windows CI)
-        tokio::time::sleep(Duration::from_millis(800)).await;
+        // Wait for completion (500ms task + generous buffer for Windows CI)
+        tokio::time::sleep(Duration::from_millis(1500)).await;
 
         // Should no longer be running
         assert_eq!(runner.running_task_count().await, 0);
