@@ -5,7 +5,9 @@
 
 pub mod commands;
 pub mod error;
+pub mod mcp;
 pub mod state;
 
 pub use error::TauriError;
+pub use mcp::RestFlowMcpServer;
 pub use state::AppState;
