@@ -18,7 +18,7 @@ use crate::workflow_def::WorkflowDef;
 /// Register a workflow with the engine
 #[cfg(feature = "python")]
 #[pyfunction]
-fn _register_workflow(_name: &str, _wrapper: PyObject) -> PyResult<()> {
+fn _register_workflow(_name: &str, _wrapper: Py<PyAny>) -> PyResult<()> {
     // TODO: Implement workflow registration
     Ok(())
 }
@@ -26,7 +26,7 @@ fn _register_workflow(_name: &str, _wrapper: PyObject) -> PyResult<()> {
 /// Register a step function
 #[cfg(feature = "python")]
 #[pyfunction]
-fn _register_step(_name: &str, _wrapper: PyObject) -> PyResult<()> {
+fn _register_step(_name: &str, _wrapper: Py<PyAny>) -> PyResult<()> {
     // TODO: Implement step registration
     Ok(())
 }
@@ -34,7 +34,7 @@ fn _register_step(_name: &str, _wrapper: PyObject) -> PyResult<()> {
 /// Register a tool
 #[cfg(feature = "python")]
 #[pyfunction]
-fn _register_tool(_name: &str, _wrapper: PyObject) -> PyResult<()> {
+fn _register_tool(_name: &str, _wrapper: Py<PyAny>) -> PyResult<()> {
     // TODO: Implement tool registration
     Ok(())
 }
@@ -63,9 +63,9 @@ fn _compile_workflow(workflow_json: &str) -> PyResult<String> {
 #[pyfunction]
 fn _execute_workflow(
     _graph_json: &str,
-    _args: Vec<PyObject>,
-    _kwargs: PyObject,
-) -> PyResult<PyObject> {
+    _args: Vec<Py<PyAny>>,
+    _kwargs: Py<PyAny>,
+) -> PyResult<Py<PyAny>> {
     // TODO: Implement workflow execution
     Err(PyErr::new::<pyo3::exceptions::PyNotImplementedError, _>(
         "Workflow execution not yet implemented",
@@ -75,7 +75,7 @@ fn _execute_workflow(
 /// Resume a workflow from checkpoint
 #[cfg(feature = "python")]
 #[pyfunction]
-fn _resume_workflow(_execution_id: &str) -> PyResult<PyObject> {
+fn _resume_workflow(_execution_id: &str) -> PyResult<Py<PyAny>> {
     // TODO: Implement workflow resume
     Err(PyErr::new::<pyo3::exceptions::PyNotImplementedError, _>(
         "Workflow resume not yet implemented",
@@ -91,7 +91,7 @@ fn _run_agent(
     _model: &str,
     _max_iterations: usize,
     _temperature: f64,
-) -> PyResult<PyObject> {
+) -> PyResult<Py<PyAny>> {
     // TODO: Implement agent execution
     Err(PyErr::new::<pyo3::exceptions::PyNotImplementedError, _>(
         "Agent execution not yet implemented",
@@ -101,7 +101,7 @@ fn _run_agent(
 /// Resume an agent from checkpoint
 #[cfg(feature = "python")]
 #[pyfunction]
-fn _resume_agent(_execution_id: &str) -> PyResult<PyObject> {
+fn _resume_agent(_execution_id: &str) -> PyResult<Py<PyAny>> {
     // TODO: Implement agent resume
     Err(PyErr::new::<pyo3::exceptions::PyNotImplementedError, _>(
         "Agent resume not yet implemented",

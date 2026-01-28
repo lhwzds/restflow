@@ -5,20 +5,23 @@ import type { StoredAgent } from '@/types/generated/StoredAgent'
 import type { AgentNode } from '@/types/generated/AgentNode'
 import type { ApiKeyConfig } from '@/types/generated/ApiKeyConfig'
 import type { AIModel } from '@/types/generated/AIModel'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { useToast } from '@/composables/useToast'
+import { useConfirm } from '@/composables/useConfirm'
 import { getDefaultTemperature } from '@/utils/AIModels'
 
 export interface AgentFormData {
   name: string
   model: AIModel
-  prompt: string | null
-  temperature: number | null
-  api_key_config: ApiKeyConfig | null
+  prompt: string | undefined
+  temperature: number | undefined
+  api_key_config: ApiKeyConfig | undefined
   tools: string[]
 }
 
 export function useAgentEditor(agentId: string) {
   const router = useRouter()
+  const toast = useToast()
+  const { confirm } = useConfirm()
 
   const agent = ref<StoredAgent | null>(null)
   const isLoading = ref(true) // Start with loading state since we'll load immediately
@@ -29,9 +32,9 @@ export function useAgentEditor(agentId: string) {
   const formData = ref<AgentFormData>({
     name: '',
     model: 'claude-sonnet-4-5',
-    prompt: null,
+    prompt: undefined,
     temperature: 0.7,
-    api_key_config: null,
+    api_key_config: undefined,
     tools: [],
   })
 
@@ -61,10 +64,7 @@ export function useAgentEditor(agentId: string) {
         name: data.name,
         model: data.agent.model,
         prompt: data.agent.prompt,
-        temperature:
-          data.agent.temperature !== null && data.agent.temperature !== undefined
-            ? data.agent.temperature
-            : getDefaultTemperature(data.agent.model),
+        temperature: data.agent.temperature ?? getDefaultTemperature(data.agent.model),
         api_key_config: data.agent.api_key_config,
         tools: data.agent.tools || [],
       }
@@ -90,10 +90,10 @@ export function useAgentEditor(agentId: string) {
 
       const agentData: AgentNode = {
         model: formData.value.model as AgentNode['model'],
-        prompt: formData.value.prompt?.trim() || null,
+        prompt: formData.value.prompt?.trim() || undefined,
         temperature: formData.value.temperature,
         api_key_config: formData.value.api_key_config,
-        tools: formData.value.tools.length > 0 ? formData.value.tools : null,
+        tools: formData.value.tools.length > 0 ? formData.value.tools : undefined,
       }
       updates.agent = agentData
 
@@ -106,18 +106,16 @@ export function useAgentEditor(agentId: string) {
         model: updatedAgent.agent.model,
         prompt: updatedAgent.agent.prompt,
         temperature:
-          updatedAgent.agent.temperature !== null && updatedAgent.agent.temperature !== undefined
-            ? updatedAgent.agent.temperature
-            : getDefaultTemperature(updatedAgent.agent.model),
+          updatedAgent.agent.temperature ?? getDefaultTemperature(updatedAgent.agent.model),
         api_key_config: updatedAgent.agent.api_key_config,
         tools: updatedAgent.agent.tools || [],
       }
 
-      ElMessage.success('Agent saved successfully')
+      toast.success('Agent saved successfully')
       return true
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to save agent'
-      ElMessage.error(message)
+      toast.error(message)
       return false
     } finally {
       isSaving.value = false
@@ -128,22 +126,24 @@ export function useAgentEditor(agentId: string) {
   async function handleDelete(): Promise<boolean> {
     if (!agent.value) return false
 
-    try {
-      await ElMessageBox.confirm('Are you sure you want to delete this agent?', 'Delete Agent', {
-        confirmButtonText: 'Delete',
-        cancelButtonText: 'Cancel',
-        type: 'warning',
-      })
+    const confirmed = await confirm({
+      title: 'Delete Agent',
+      description: 'Are you sure you want to delete this agent?',
+      confirmText: 'Delete',
+      cancelText: 'Cancel',
+      variant: 'destructive',
+    })
 
+    if (!confirmed) return false
+
+    try {
       await deleteAgent(agent.value.id)
-      ElMessage.success('Agent deleted successfully')
+      toast.success('Agent deleted successfully')
       router.push('/agents')
       return true
     } catch (err) {
-      if (err !== 'cancel') {
-        const message = err instanceof Error ? err.message : 'Failed to delete agent'
-        ElMessage.error(message)
-      }
+      const message = err instanceof Error ? err.message : 'Failed to delete agent'
+      toast.error(message)
       return false
     }
   }
@@ -155,10 +155,7 @@ export function useAgentEditor(agentId: string) {
       name: agent.value.name,
       model: agent.value.agent.model,
       prompt: agent.value.agent.prompt,
-      temperature:
-        agent.value.agent.temperature !== null && agent.value.agent.temperature !== undefined
-          ? agent.value.agent.temperature
-          : getDefaultTemperature(agent.value.agent.model),
+      temperature: agent.value.agent.temperature ?? getDefaultTemperature(agent.value.agent.model),
       api_key_config: agent.value.agent.api_key_config,
       tools: agent.value.agent.tools || [],
     }
@@ -167,19 +164,15 @@ export function useAgentEditor(agentId: string) {
   // Navigate back with unsaved changes check
   async function goBack(): Promise<void> {
     if (hasChanges.value) {
-      try {
-        await ElMessageBox.confirm(
-          'You have unsaved changes. Are you sure you want to leave?',
-          'Unsaved Changes',
-          {
-            confirmButtonText: 'Leave',
-            cancelButtonText: 'Stay',
-            type: 'warning',
-          },
-        )
+      const confirmed = await confirm({
+        title: 'Unsaved Changes',
+        description: 'You have unsaved changes. Are you sure you want to leave?',
+        confirmText: 'Leave',
+        cancelText: 'Stay',
+        variant: 'destructive',
+      })
+      if (confirmed) {
         router.push('/agents')
-      } catch {
-        // User cancelled, stay on page
       }
     } else {
       router.push('/agents')

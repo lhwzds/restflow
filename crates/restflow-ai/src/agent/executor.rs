@@ -115,8 +115,8 @@ impl AgentExecutor {
         // Core loop (Swarm-inspired simplicity)
         while state.iteration < state.max_iterations && !state.is_terminal() {
             // 1. LLM call
-            let mut request = CompletionRequest::new(state.messages.clone())
-                .with_tools(self.tools.schemas());
+            let mut request =
+                CompletionRequest::new(state.messages.clone()).with_tools(self.tools.schemas());
 
             // Only set temperature if explicitly configured (some models don't support it)
             if let Some(temp) = config.temperature {
@@ -230,9 +230,10 @@ impl AgentExecutor {
             .map(|t| format!("- {}: {}", t.name(), t.description()))
             .collect();
 
-        let base = config.system_prompt.as_deref().unwrap_or(
-            "You are a helpful AI assistant that can use tools to accomplish tasks.",
-        );
+        let base = config
+            .system_prompt
+            .as_deref()
+            .unwrap_or("You are a helpful AI assistant that can use tools to accomplish tasks.");
 
         format!("{}\n\nAvailable tools:\n{}", base, tools_desc.join("\n"))
     }

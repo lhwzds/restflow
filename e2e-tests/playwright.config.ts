@@ -27,7 +27,8 @@ export default defineConfig({
 
   use: {
     // Base URL - can be overridden with BASE_URL env variable
-    baseURL: process.env.BASE_URL || 'http://localhost:3000',
+    // Default to Vite dev server port (5173)
+    baseURL: process.env.BASE_URL || 'http://localhost:5173',
 
     // Action timeout: 10 seconds for individual actions
     actionTimeout: 10000,

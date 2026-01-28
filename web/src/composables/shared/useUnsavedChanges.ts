@@ -1,11 +1,13 @@
-import { onBeforeUnmount, computed } from 'vue'
+import { onBeforeUnmount, ref, computed, type Ref } from 'vue'
 import { onBeforeRouteLeave } from 'vue-router'
-import { useWorkflowStore } from '../../stores/workflowStore'
 
-export function useUnsavedChanges() {
-  const workflowStore = useWorkflowStore()
-
-  const hasChanges = computed(() => workflowStore.hasUnsavedChanges)
+/**
+ * Composable for handling unsaved changes warnings.
+ * Can be used with any component that tracks dirty state.
+ */
+export function useUnsavedChanges(isDirty?: Ref<boolean>) {
+  const internalDirty = ref(false)
+  const hasChanges = computed(() => isDirty?.value ?? internalDirty.value)
 
   // Browser navigation prevention
   const handleBeforeUnload = (e: BeforeUnloadEvent) => {
@@ -24,7 +26,7 @@ export function useUnsavedChanges() {
     onBeforeRouteLeave((_to, _from, next) => {
       if (hasChanges.value) {
         if (window.confirm('You have unsaved changes. Are you sure you want to leave?')) {
-          workflowStore.markAsSaved()
+          internalDirty.value = false
           next()
         } else {
           next(false)
@@ -42,9 +44,17 @@ export function useUnsavedChanges() {
     window.removeEventListener('beforeunload', handleBeforeUnload)
   })
 
+  function markAsDirty() {
+    internalDirty.value = true
+  }
+
+  function markAsSaved() {
+    internalDirty.value = false
+  }
+
   return {
     hasChanges,
-    markAsDirty: workflowStore.markAsDirty,
-    markAsSaved: workflowStore.markAsSaved,
+    markAsDirty,
+    markAsSaved,
   }
 }

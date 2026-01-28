@@ -2,7 +2,7 @@
 
 use async_trait::async_trait;
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::sync::Arc;
 
 use crate::error::Result;
@@ -10,7 +10,7 @@ use crate::tools::traits::{SkillProvider, Tool, ToolOutput};
 
 #[derive(Debug, Deserialize)]
 struct SkillInput {
-    action: String, // "list" or "read"
+    action: String,     // "list" or "read"
     id: Option<String>, // Required for "read" action
 }
 
@@ -98,29 +98,28 @@ mod tests {
         }
 
         fn get_skill(&self, id: &str) -> Option<SkillContent> {
-            self.skills.iter().find(|(info, _)| info.id == id).map(|(info, content)| {
-                SkillContent {
+            self.skills
+                .iter()
+                .find(|(info, _)| info.id == id)
+                .map(|(info, content)| SkillContent {
                     id: info.id.clone(),
                     name: info.name.clone(),
                     content: content.clone(),
-                }
-            })
+                })
         }
     }
 
     fn create_mock_provider() -> Arc<dyn SkillProvider> {
         Arc::new(MockSkillProvider {
-            skills: vec![
-                (
-                    SkillInfo {
-                        id: "test-skill".to_string(),
-                        name: "Test Skill".to_string(),
-                        description: Some("A test skill".to_string()),
-                        tags: Some(vec!["test".to_string()]),
-                    },
-                    "# Test Skill Content\n\nThis is a test.".to_string(),
-                ),
-            ],
+            skills: vec![(
+                SkillInfo {
+                    id: "test-skill".to_string(),
+                    name: "Test Skill".to_string(),
+                    description: Some("A test skill".to_string()),
+                    tags: Some(vec!["test".to_string()]),
+                },
+                "# Test Skill Content\n\nThis is a test.".to_string(),
+            )],
         })
     }
 
@@ -148,17 +147,28 @@ mod tests {
     #[tokio::test]
     async fn test_read_skill() {
         let tool = SkillTool::new(create_mock_provider());
-        let result = tool.execute(json!({ "action": "read", "id": "test-skill" })).await.unwrap();
+        let result = tool
+            .execute(json!({ "action": "read", "id": "test-skill" }))
+            .await
+            .unwrap();
 
         assert!(result.success);
         assert_eq!(result.result["id"], "test-skill");
-        assert!(result.result["content"].as_str().unwrap().contains("Test Skill Content"));
+        assert!(
+            result.result["content"]
+                .as_str()
+                .unwrap()
+                .contains("Test Skill Content")
+        );
     }
 
     #[tokio::test]
     async fn test_read_skill_not_found() {
         let tool = SkillTool::new(create_mock_provider());
-        let result = tool.execute(json!({ "action": "read", "id": "nonexistent" })).await.unwrap();
+        let result = tool
+            .execute(json!({ "action": "read", "id": "nonexistent" }))
+            .await
+            .unwrap();
 
         assert!(!result.success);
         assert!(result.error.unwrap().contains("not found"));

@@ -1,13 +1,16 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { ElInput, ElButton, ElSkeleton, ElTag } from 'element-plus'
-import { Promotion, Delete, User, CircleCheck, View, Hide } from '@element-plus/icons-vue'
+import { Send, Trash2, User, CircleCheck, Eye, EyeOff, Loader2 } from 'lucide-vue-next'
 import type { StoredAgent } from '@/types/generated/StoredAgent'
 import { useAgentOperations } from '@/composables/agents/useAgentOperations'
 import MarkdownRenderer from '@/components/shared/MarkdownRenderer.vue'
 import ExecutionStepDisplay from '@/components/agents/ExecutionStepDisplay.vue'
 import { type ExecutionDetails, type ExecutionStep } from '@/api/agents'
 import { getModelDisplayName } from '@/utils/AIModels'
+import { Button } from '@/components/ui/button'
+import { Textarea } from '@/components/ui/textarea'
+import { Skeleton } from '@/components/ui/skeleton'
+import { Badge } from '@/components/ui/badge'
 
 const props = defineProps<{
   agent: StoredAgent
@@ -26,6 +29,7 @@ interface Message {
   showDetails?: boolean // Toggle for execution details visibility
 }
 
+// Role icons mapping for avatar display
 const roleIcons = {
   user: User,
   assistant: CircleCheck,
@@ -63,9 +67,7 @@ function toggleDetails(index: number) {
 
 // Filter execution steps for display (exclude system and user messages)
 function getDisplaySteps(details: ExecutionDetails): ExecutionStep[] {
-  return details.steps.filter(
-    (step) => step.step_type !== 'system' && step.step_type !== 'user',
-  )
+  return details.steps.filter((step) => step.step_type !== 'system' && step.step_type !== 'user')
 }
 
 // Scroll to bottom (simplified - let CSS handle smoothness)
@@ -127,17 +129,16 @@ onMounted(() => {
         <h3>{{ agent.name }}</h3>
         <span class="model-tag">{{ getModelDisplayName(agent.agent.model) }}</span>
       </div>
-      <ElButton v-if="messages.length > 1" :icon="Delete" text @click="handleClear">
+      <Button v-if="messages.length > 1" variant="ghost" @click="handleClear">
+        <Trash2 class="mr-2 h-4 w-4" />
         Clear Chat
-      </ElButton>
+      </Button>
     </div>
 
     <div ref="messagesContainer" class="messages-container">
       <div v-for="(message, index) in messages" :key="index" :class="['message', message.role]">
         <div class="message-avatar">
-          <ElIcon>
-            <component :is="roleIcons[message.role]" />
-          </ElIcon>
+          <component :is="roleIcons[message.role]" :size="16" />
         </div>
 
         <div class="message-content">
@@ -150,20 +151,16 @@ onMounted(() => {
             </span>
             <!-- Execution details toggle -->
             <template v-if="message.executionDetails">
-              <ElTag size="small" type="info" class="details-tag">
+              <Badge variant="info" class="details-tag">
                 {{ message.executionDetails.iterations }} iterations
-              </ElTag>
-              <ElTag size="small" type="warning" class="details-tag">
+              </Badge>
+              <Badge variant="warning" class="details-tag">
                 {{ message.executionDetails.total_tokens }} tokens
-              </ElTag>
-              <ElButton
-                text
-                size="small"
-                :icon="message.showDetails ? Hide : View"
-                @click="toggleDetails(index)"
-              >
+              </Badge>
+              <Button variant="ghost" size="sm" @click="toggleDetails(index)">
+                <component :is="message.showDetails ? EyeOff : Eye" class="mr-1 h-4 w-4" />
                 {{ message.showDetails ? 'Hide Details' : 'Show Details' }}
-              </ElButton>
+              </Button>
             </template>
           </div>
           <div :class="['message-text', { error: message.error }]">
@@ -180,9 +177,13 @@ onMounted(() => {
           >
             <div class="details-header">
               <span>Execution Steps</span>
-              <ElTag size="small" :type="message.executionDetails.status === 'completed' ? 'success' : 'danger'">
+              <Badge
+                :variant="
+                  message.executionDetails.status === 'completed' ? 'success' : 'destructive'
+                "
+              >
                 {{ message.executionDetails.status }}
-              </ElTag>
+              </Badge>
             </div>
             <div class="steps-list">
               <ExecutionStepDisplay
@@ -197,35 +198,28 @@ onMounted(() => {
 
       <div v-if="isLoading" class="message assistant loading">
         <div class="message-avatar">
-          <ElIcon>
-            <CircleCheck />
-          </ElIcon>
+          <CircleCheck :size="16" />
         </div>
         <div class="message-content">
-          <ElSkeleton :rows="2" animated />
+          <Skeleton class="h-4 w-full mb-2" />
+          <Skeleton class="h-4 w-3/4" />
         </div>
       </div>
     </div>
 
     <div class="input-area">
-      <ElInput
+      <Textarea
         v-model="input"
-        type="textarea"
         placeholder="Type a message... (Ctrl+Enter to send)"
-        :autosize="{ minRows: 2, maxRows: 4 }"
+        class="chat-textarea"
         :disabled="isLoading"
         @keydown="handleKeydown"
       />
-      <ElButton
-        type="primary"
-        :icon="Promotion"
-        :loading="isLoading"
-        :disabled="!input.trim() || isLoading"
-        @click="handleSend"
-        class="send-button"
-      >
+      <Button :disabled="!input.trim() || isLoading" @click="handleSend" class="send-button">
+        <Loader2 v-if="isLoading" class="mr-2 h-4 w-4 animate-spin" />
+        <Send v-else class="mr-2 h-4 w-4" />
         {{ isLoading ? 'Sending...' : 'Send' }}
-      </ElButton>
+      </Button>
     </div>
   </div>
 </template>
@@ -400,24 +394,17 @@ onMounted(() => {
     border-top: 1px solid var(--rf-color-border-lighter);
     display: flex;
     gap: var(--rf-spacing-md);
-    align-items: stretch;
+    align-items: flex-end;
 
-    :deep(.el-textarea) {
+    .chat-textarea {
       flex: 1;
-      display: flex;
-    }
-
-    :deep(.el-textarea__inner) {
-      height: 100%;
+      min-height: 60px;
+      max-height: 120px;
+      resize: none;
     }
 
     .send-button {
-      align-self: center;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: var(--rf-spacing-sm) var(--rf-spacing-md);
-      margin-left: var(--rf-spacing-sm);
+      flex-shrink: 0;
     }
   }
 }

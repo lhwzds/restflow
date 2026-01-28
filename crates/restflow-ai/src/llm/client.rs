@@ -66,10 +66,7 @@ impl Message {
     }
 
     /// Create an assistant message with tool calls
-    pub fn assistant_with_tool_calls(
-        content: Option<String>,
-        tool_calls: Vec<ToolCall>,
-    ) -> Self {
+    pub fn assistant_with_tool_calls(content: Option<String>, tool_calls: Vec<ToolCall>) -> Self {
         Self {
             role: Role::Assistant,
             content: content.unwrap_or_default(),

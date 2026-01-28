@@ -1,21 +1,15 @@
 <script setup lang="ts">
-import { ElContainer, ElMain } from 'element-plus'
-import SidePanel from './components/shared/SidePanel.vue'
+import { Sonner } from '@/components/ui/sonner'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 </script>
 
 <template>
-  <el-container style="height: 100vh">
-    <SidePanel />
+  <!-- Toast notifications -->
+  <Sonner />
 
-    <el-main class="app-main">
-      <router-view />
-    </el-main>
-  </el-container>
+  <!-- Global confirm dialog -->
+  <ConfirmDialog />
+
+  <!-- All pages now use their own layout -->
+  <router-view />
 </template>
-
-<style lang="scss">
-.app-main {
-  padding: 0;
-  background-color: var(--rf-color-bg-page);
-}
-</style>

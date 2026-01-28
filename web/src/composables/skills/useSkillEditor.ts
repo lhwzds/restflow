@@ -2,11 +2,14 @@ import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { getSkill, updateSkill, deleteSkill, exportSkill } from '@/api/skills'
 import type { Skill } from '@/types/generated/Skill'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { useToast } from '@/composables/useToast'
+import { useConfirm } from '@/composables/useConfirm'
 import { downloadAsFile } from '@/utils/download'
 
 export function useSkillEditor(skillId: string) {
   const router = useRouter()
+  const toast = useToast()
+  const { confirm } = useConfirm()
 
   const skill = ref<Skill | null>(null)
   const isLoading = ref(false)
@@ -23,8 +26,7 @@ export function useSkillEditor(skillId: string) {
   const hasChanges = computed(() => {
     if (!skill.value) return false
     return (
-      formData.value.name !== skill.value.name ||
-      formData.value.content !== skill.value.content
+      formData.value.name !== skill.value.name || formData.value.content !== skill.value.content
     )
   })
 
@@ -64,11 +66,11 @@ export function useSkillEditor(skillId: string) {
         name: formData.value.name,
         content: formData.value.content,
       }
-      ElMessage.success('Skill saved successfully')
+      toast.success('Skill saved successfully')
       return true
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to save skill'
-      ElMessage.error(message)
+      toast.error(message)
       return false
     } finally {
       isSaving.value = false
@@ -79,22 +81,24 @@ export function useSkillEditor(skillId: string) {
   async function handleDelete(): Promise<boolean> {
     if (!skill.value) return false
 
-    try {
-      await ElMessageBox.confirm('Are you sure you want to delete this skill?', 'Delete Skill', {
-        confirmButtonText: 'Delete',
-        cancelButtonText: 'Cancel',
-        type: 'warning',
-      })
+    const confirmed = await confirm({
+      title: 'Delete Skill',
+      description: 'Are you sure you want to delete this skill?',
+      confirmText: 'Delete',
+      cancelText: 'Cancel',
+      variant: 'destructive',
+    })
 
+    if (!confirmed) return false
+
+    try {
       await deleteSkill(skill.value.id)
-      ElMessage.success('Skill deleted successfully')
+      toast.success('Skill deleted successfully')
       router.push('/skills')
       return true
     } catch (err) {
-      if (err !== 'cancel') {
-        const message = err instanceof Error ? err.message : 'Failed to delete skill'
-        ElMessage.error(message)
-      }
+      const message = err instanceof Error ? err.message : 'Failed to delete skill'
+      toast.error(message)
       return false
     }
   }
@@ -106,29 +110,25 @@ export function useSkillEditor(skillId: string) {
     try {
       const result = await exportSkill(skill.value.id)
       downloadAsFile(result.markdown, result.filename, 'text/markdown')
-      ElMessage.success('Skill exported successfully')
+      toast.success('Skill exported successfully')
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to export skill'
-      ElMessage.error(message)
+      toast.error(message)
     }
   }
 
   // Navigate back with unsaved changes check
   async function goBack(): Promise<void> {
     if (hasChanges.value) {
-      try {
-        await ElMessageBox.confirm(
-          'You have unsaved changes. Are you sure you want to leave?',
-          'Unsaved Changes',
-          {
-            confirmButtonText: 'Leave',
-            cancelButtonText: 'Stay',
-            type: 'warning',
-          }
-        )
+      const confirmed = await confirm({
+        title: 'Unsaved Changes',
+        description: 'You have unsaved changes. Are you sure you want to leave?',
+        confirmText: 'Leave',
+        cancelText: 'Stay',
+        variant: 'destructive',
+      })
+      if (confirmed) {
         router.push('/skills')
-      } catch {
-        // User cancelled, stay on page
       }
     } else {
       router.push('/skills')

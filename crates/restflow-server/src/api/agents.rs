@@ -7,11 +7,11 @@ use restflow_ai::{
     AgentConfig, AgentExecutor, AgentState, AgentStatus, AnthropicClient, LlmClient, OpenAIClient,
     Role, ToolRegistry,
 };
-use restflow_workflow::models::{
-    AgentExecuteResponse, ExecutionDetails, ExecutionStep, Provider, ToolCallInfo,
+use restflow_core::models::{
+    AgentExecuteResponse, AgentNode, ApiKeyConfig, ExecutionDetails, ExecutionStep, Provider,
+    ToolCallInfo,
 };
-use restflow_workflow::node::agent::{AgentNode, ApiKeyConfig};
-use restflow_workflow::storage::agent::StoredAgent;
+use restflow_core::storage::agent::StoredAgent;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
@@ -87,8 +87,8 @@ fn status_to_string(status: &AgentStatus) -> String {
 async fn run_agent_with_executor(
     agent_node: &AgentNode,
     input: &str,
-    secret_storage: Option<&restflow_workflow::storage::SecretStorage>,
-    skill_storage: restflow_workflow::storage::skill::SkillStorage,
+    secret_storage: Option<&restflow_core::storage::SecretStorage>,
+    skill_storage: restflow_core::storage::skill::SkillStorage,
 ) -> Result<AgentExecuteResponse, String> {
     // Get API key
     let api_key = match &agent_node.api_key_config {
@@ -125,7 +125,7 @@ async fn run_agent_with_executor(
     };
 
     // Create tool registry with all tools (including skill tool with storage access)
-    let full_registry = restflow_workflow::services::tool_registry::create_tool_registry(skill_storage);
+    let full_registry = restflow_core::services::tool_registry::create_tool_registry(skill_storage);
 
     // Filter to only selected tools (secure by default)
     let tools = if let Some(ref tool_names) = agent_node.tools {
@@ -318,7 +318,9 @@ pub async fn execute_agent_inline(
             return Json(ApiResponse::error("Input must be a string".to_string()));
         }
         None => {
-            return Json(ApiResponse::error("Missing required field: input".to_string()));
+            return Json(ApiResponse::error(
+                "Missing required field: input".to_string(),
+            ));
         }
     };
 
@@ -341,8 +343,8 @@ pub async fn execute_agent_inline(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use restflow_workflow::AppCore;
-    use restflow_workflow::models::AIModel;
+    use restflow_core::AppCore;
+    use restflow_core::models::AIModel;
     use std::sync::Arc;
     use tempfile::{TempDir, tempdir};
 

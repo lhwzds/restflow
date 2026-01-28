@@ -234,8 +234,7 @@ impl ExecutionHistoryStorage {
         if start_index < end_index {
             for exec_id in &exec_ids[start_index..end_index] {
                 if let Some(summary_bytes) = data.get(exec_id.as_str())? {
-                    let summary: ExecutionSummary =
-                        serde_json::from_slice(summary_bytes.value())?;
+                    let summary: ExecutionSummary = serde_json::from_slice(summary_bytes.value())?;
                     items.push(summary);
                 }
             }
