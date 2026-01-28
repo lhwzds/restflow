@@ -4,29 +4,33 @@ import { Settings, Moon, Sun, Search, List, LayoutGrid } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import RestFlowLogo from '@/components/shared/RestFlowLogo.vue'
-import TaskHistory from '@/components/workspace/TaskHistory.vue'
+// TODO: not finished yet, hidden for now
+// import TaskHistory from '@/components/workspace/TaskHistory.vue'
 import FileBrowser from '@/components/workspace/FileBrowser.vue'
 import TerminalBrowser from '@/components/workspace/TerminalBrowser.vue'
-import ChatBox from '@/components/workspace/ChatBox.vue'
-import ExecutionPanel from '@/components/workspace/ExecutionPanel.vue'
+// TODO: not finished yet, hidden for now
+// import ChatBox from '@/components/workspace/ChatBox.vue'
+// import ExecutionPanel from '@/components/workspace/ExecutionPanel.vue'
 import SettingsDialog from '@/components/workspace/SettingsDialog.vue'
 import EditorPanel from '@/components/editor/EditorPanel.vue'
 import TabBar from '@/components/editor/TabBar.vue'
 import SplitContainer from '@/components/editor/SplitContainer.vue'
-import type {
-  Task,
-  ExecutionStep,
-  AgentFile,
-  ModelOption,
-  ChatMessage,
-  FileItem,
-} from '@/types/workspace'
+// TODO: not finished yet, hidden for now
+// import type {
+//   Task,
+//   ExecutionStep,
+//   AgentFile,
+//   ModelOption,
+//   ChatMessage,
+// } from '@/types/workspace'
+import type { FileItem } from '@/types/workspace'
 import type { Skill } from '@/types/generated/Skill'
 import type { StoredAgent } from '@/types/generated/StoredAgent'
 import { useFileBrowser, type BrowserTab } from '@/composables/workspace/useFileBrowser'
 import { useEditorTabs, type EditorTab } from '@/composables/editor/useEditorTabs'
 import { useSplitView } from '@/composables/editor/useSplitView'
-import { mockAgents, mockModels, mockTasks } from '@/mocks/workspace'
+// TODO: not finished yet, hidden for now
+// import { mockAgents, mockModels, mockTasks } from '@/mocks/workspace'
 import { createSkill, deleteSkill } from '@/api/skills'
 import { createAgent, deleteAgent } from '@/api/agents'
 import { useToast } from '@/composables/useToast'
@@ -142,23 +146,27 @@ async function onCreateTerminal() {
   }
 }
 
+// TODO: not finished yet, hidden for now
 // Chat state
-const isExecuting = ref(false)
-const isChatExpanded = ref(false)
-const messages = ref<ChatMessage[]>([])
-const executionSteps = ref<ExecutionStep[]>([])
+// const isExecuting = ref(false)
+// const isChatExpanded = ref(false)
+// const messages = ref<ChatMessage[]>([])
+// const executionSteps = ref<ExecutionStep[]>([])
 
+// TODO: not finished yet, hidden for now
 // Agent and Model selection
-const selectedAgent = ref<string | null>(null)
-const selectedModel = ref('claude-sonnet-4-5')
+// const selectedAgent = ref<string | null>(null)
+// const selectedModel = ref('claude-sonnet-4-5')
 
+// TODO: not finished yet, hidden for now
 // Use mock data for agents dropdown (will be replaced with API calls)
-const availableAgents = ref<AgentFile[]>(mockAgents)
-const availableModels: ModelOption[] = mockModels
+// const availableAgents = ref<AgentFile[]>(mockAgents)
+// const availableModels: ModelOption[] = mockModels
 
+// TODO: not finished yet, hidden for now
 // Task history
-const tasks = ref<Task[]>(mockTasks)
-const currentTaskId = ref<string | null>(null)
+// const tasks = ref<Task[]>(mockTasks)
+// const currentTaskId = ref<string | null>(null)
 
 // Settings dialog
 const showSettings = ref(false)
@@ -298,50 +306,53 @@ const onEditorClose = () => {
   selectedItem.value = null
 }
 
+// TODO: not finished yet, hidden for now
 // Handle new task from TaskHistory
-const onNewTask = () => {
-  currentTaskId.value = null
-  messages.value = []
-  isChatExpanded.value = false
-}
+// const onNewTask = () => {
+//   currentTaskId.value = null
+//   messages.value = []
+//   isChatExpanded.value = false
+// }
 
+// TODO: not finished yet, hidden for now
 // Handle chat send
-const onSendMessage = async (message: string) => {
-  isChatExpanded.value = true
-  isExecuting.value = true
+// const onSendMessage = async (message: string) => {
+//   isChatExpanded.value = true
+//   isExecuting.value = true
+//
+//   messages.value.push({ role: 'user', content: message })
+//
+//   // Simulate execution steps
+//   executionSteps.value = [{ type: 'skill_read', name: 'git/commit', status: 'running' }]
+//
+//   // TODO: Integrate with actual agent execution
+//   setTimeout(() => {
+//     if (executionSteps.value[0]) {
+//       executionSteps.value[0].status = 'completed'
+//     }
+//     executionSteps.value.push({ type: 'script_run', name: 'scripts/diff.py', status: 'running' })
+//
+//     setTimeout(() => {
+//       if (executionSteps.value[1]) {
+//         executionSteps.value[1].status = 'completed'
+//       }
+//       messages.value.push({
+//         role: 'assistant',
+//         content:
+//           "I've analyzed the changes and generated a commit message:\n\n```\nfeat(api): add REST client with retry logic\n```",
+//       })
+//       isExecuting.value = false
+//     }, 1500)
+//   }, 1000)
+// }
 
-  messages.value.push({ role: 'user', content: message })
-
-  // Simulate execution steps
-  executionSteps.value = [{ type: 'skill_read', name: 'git/commit', status: 'running' }]
-
-  // TODO: Integrate with actual agent execution
-  setTimeout(() => {
-    if (executionSteps.value[0]) {
-      executionSteps.value[0].status = 'completed'
-    }
-    executionSteps.value.push({ type: 'script_run', name: 'scripts/diff.py', status: 'running' })
-
-    setTimeout(() => {
-      if (executionSteps.value[1]) {
-        executionSteps.value[1].status = 'completed'
-      }
-      messages.value.push({
-        role: 'assistant',
-        content:
-          "I've analyzed the changes and generated a commit message:\n\n```\nfeat(api): add REST client with retry logic\n```",
-      })
-      isExecuting.value = false
-    }, 1500)
-  }, 1000)
-}
-
+// TODO: not finished yet, hidden for now
 // Handle chat close
-const onCloseChat = () => {
-  isChatExpanded.value = false
-  messages.value = []
-  executionSteps.value = []
-}
+// const onCloseChat = () => {
+//   isChatExpanded.value = false
+//   messages.value = []
+//   executionSteps.value = []
+// }
 </script>
 
 <template>
@@ -430,7 +441,7 @@ const onCloseChat = () => {
 
     <!-- Main Content -->
     <div class="flex-1 flex overflow-hidden">
-      <!-- Left Sidebar: Task History -->
+      <!-- TODO: not finished yet, hidden for now
       <TaskHistory
         :tasks="tasks"
         :current-task-id="currentTaskId"
@@ -438,8 +449,9 @@ const onCloseChat = () => {
         @new-task="onNewTask"
         class="w-56 border-r shrink-0"
       />
+      -->
 
-      <!-- Center Content Area (includes split view) -->
+      <!-- Center Content Area -->
       <div class="flex-1 flex min-w-0 overflow-hidden">
         <!-- Main Panel -->
         <div class="flex-1 flex flex-col min-w-0 overflow-hidden">
@@ -479,11 +491,10 @@ const onCloseChat = () => {
                 :search-query="searchQuery"
                 :view-mode="viewMode"
                 @open="onOpenTerminal"
-                :class="{ 'opacity-20 pointer-events-none': isChatExpanded }"
-                class="flex-1 transition-opacity duration-300"
+                class="flex-1"
               />
 
-              <!-- File Browser (dimmed when chat expanded) -->
+              <!-- File Browser -->
               <FileBrowser
                 v-else
                 :selected-id="selectedItemId"
@@ -497,16 +508,14 @@ const onCloseChat = () => {
                 @open="onOpenItem"
                 @create="onCreateNew"
                 @delete="onDeleteItem"
-                :class="{ 'opacity-20 pointer-events-none': isChatExpanded }"
-                class="flex-1 transition-opacity duration-300"
+                class="flex-1"
               />
 
-              <!-- Overlay: Chat View (when expanded) -->
+              <!-- TODO: not finished yet, hidden for now
               <div
                 v-if="isChatExpanded"
                 class="absolute inset-0 flex flex-col bg-background/95 backdrop-blur-sm overflow-hidden"
               >
-                <!-- Chat Messages -->
                 <div class="flex-1 overflow-auto px-8 py-6">
                   <div class="space-y-4">
                     <div
@@ -522,19 +531,17 @@ const onCloseChat = () => {
                       </div>
                       <div class="whitespace-pre-wrap break-words">{{ msg.content }}</div>
                     </div>
-
                     <div v-if="isExecuting" class="flex items-center gap-2 text-muted-foreground">
-                      <div
-                        class="animate-spin h-4 w-4 border-2 border-primary border-t-transparent rounded-full"
-                      />
+                      <div class="animate-spin h-4 w-4 border-2 border-primary border-t-transparent rounded-full" />
                       <span>Processing...</span>
                     </div>
                   </div>
                 </div>
               </div>
+              -->
             </div>
 
-            <!-- Floating Chat Box (always at bottom) -->
+            <!-- TODO: not finished yet, hidden for now
             <div class="shrink-0 px-8 pb-4">
               <ChatBox
                 :is-expanded="isChatExpanded"
@@ -549,6 +556,7 @@ const onCloseChat = () => {
                 @update:selected-model="selectedModel = $event"
               />
             </div>
+            -->
           </template>
         </div>
 
@@ -556,13 +564,14 @@ const onCloseChat = () => {
         <SplitContainer @save="onEditorSave" />
       </div>
 
-      <!-- Right Sidebar: Execution Panel -->
+      <!-- TODO: not finished yet, hidden for now
       <ExecutionPanel
         v-if="(isChatExpanded || isExecuting) && !hasOpenTabs"
         :steps="executionSteps"
         :is-executing="isExecuting"
         class="w-64 border-l shrink-0"
       />
+      -->
     </div>
 
     <!-- Settings Dialog -->
