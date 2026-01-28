@@ -1,46 +1,39 @@
 # RestFlow
 
-🦀 **Let your workflows run while you rest**
+🦀 **Visual workflow automation powered by Rust & AI agents**
 
-Built with Rust for blazing-fast automation with AI agents
+!!! warning "开发中"
+    项目正在积极开发中，功能可能会有变化。
 
-!!! warning "Development Status"
-    Currently in early development
+## 快速开始
 
-## Quick Start
-
-Start with Docker:
+Docker 部署：
 
 ```bash
 docker compose up -d --build
 ```
 
-Access at http://localhost:3000
+访问 http://localhost:3000
 
-## Tech Stack
+## 技术栈
 
-**Frontend**
+**前端**
 - Vue 3 + TypeScript
-- Pinia (State Management)
-- Vue Flow (Visual Editor)
-- Element Plus (UI)
+- shadcn-vue + Tailwind CSS v4
+- xterm.js (终端)
+- Tauri (桌面应用)
 
-**Backend**
-- Rust (Axum framework)
-- Redb (Embedded database)
-- Tokio (Async runtime)
+**后端**
+- Rust (Axum)
+- Redb (嵌入式数据库)
+- Tokio (异步运行时)
 
-## Documentation
+## 文档
 
-- **API Reference**:
-  - [Workflow API](https://docs.restflow.ai/api/restflow_core/) - Workflow engine
-  - [Runtime API](https://docs.restflow.ai/api/restflow_runtime/) - Shared infrastructure
-  - [AI API](https://docs.restflow.ai/api/restflow_ai/) - AI Agent framework
-  - [Server API](https://docs.restflow.ai/api/restflow_server/) - REST API server
-- **Test Coverage**:
-  - [Frontend Coverage](coverage/frontend/) - Vue 3 + TypeScript (95 tests ✅)
-  - [Backend Coverage](coverage/backend/tarpaulin-report.html) - Rust API
-- [GitHub Repository](https://github.com/lhwzds/restflow) - Source code
+- [Core API](https://docs.restflow.ai/api/restflow_core/)
+- [AI API](https://docs.restflow.ai/api/restflow_ai/)
+- [Server API](https://docs.restflow.ai/api/restflow_server/)
+- [GitHub](https://github.com/lhwzds/restflow)
 
 ## License
 
