@@ -137,7 +137,7 @@ describe('agentTaskStore', () => {
       const result = await store.updateTask('task-1', { name: 'Updated Name' })
 
       expect(result).toEqual(updatedTask)
-      expect(store.tasks[0].name).toBe('Updated Name')
+      expect(store.tasks[0]!.name).toBe('Updated Name')
     })
   })
 
@@ -152,7 +152,7 @@ describe('agentTaskStore', () => {
 
       expect(result).toBe(true)
       expect(store.tasks).toHaveLength(1)
-      expect(store.tasks[0].id).toBe('task-2')
+      expect(store.tasks[0]!.id).toBe('task-2')
     })
 
     it('should clear selected task if deleted', async () => {
@@ -179,7 +179,7 @@ describe('agentTaskStore', () => {
       const result = await store.pauseTask('task-1')
 
       expect(result).toBe(true)
-      expect(store.tasks[0].status).toBe('paused')
+      expect(store.tasks[0]!.status).toBe('paused')
     })
 
     it('should resume a paused task', async () => {
@@ -192,7 +192,7 @@ describe('agentTaskStore', () => {
       const result = await store.resumeTask('task-2')
 
       expect(result).toBe(true)
-      expect(store.tasks[0].status).toBe('active')
+      expect(store.tasks[0]!.status).toBe('active')
     })
   })
 
@@ -203,7 +203,7 @@ describe('agentTaskStore', () => {
       store.statusFilter = 'paused'
 
       expect(store.filteredTasks).toHaveLength(1)
-      expect(store.filteredTasks[0].status).toBe('paused')
+      expect(store.filteredTasks[0]!.status).toBe('paused')
     })
 
     it('should filter by search query', () => {
@@ -212,7 +212,7 @@ describe('agentTaskStore', () => {
       store.searchQuery = 'Another'
 
       expect(store.filteredTasks).toHaveLength(1)
-      expect(store.filteredTasks[0].name).toBe('Another Task')
+      expect(store.filteredTasks[0]!.name).toBe('Another Task')
     })
 
     it('should sort by name ascending', () => {
@@ -221,8 +221,8 @@ describe('agentTaskStore', () => {
       store.sortField = 'name'
       store.sortOrder = 'asc'
 
-      expect(store.filteredTasks[0].name).toBe('Another Task')
-      expect(store.filteredTasks[1].name).toBe('Test Task')
+      expect(store.filteredTasks[0]!.name).toBe('Another Task')
+      expect(store.filteredTasks[1]!.name).toBe('Test Task')
     })
 
     it('should sort by created_at descending by default', () => {
@@ -230,7 +230,7 @@ describe('agentTaskStore', () => {
       store.tasks = [mockTask, mockTask2]
 
       // mockTask has later created_at, should come first in desc order
-      expect(store.filteredTasks[0].id).toBe('task-1')
+      expect(store.filteredTasks[0]!.id).toBe('task-1')
     })
   })
 
@@ -324,7 +324,7 @@ describe('agentTaskStore', () => {
       const updatedTask = { ...mockTask, name: 'Locally Updated' }
       store.updateTaskLocally(updatedTask)
 
-      expect(store.tasks[0].name).toBe('Locally Updated')
+      expect(store.tasks[0]!.name).toBe('Locally Updated')
     })
 
     it('should add new task if not exists', () => {
@@ -343,7 +343,7 @@ describe('agentTaskStore', () => {
       store.removeTaskLocally('task-1')
 
       expect(store.tasks).toHaveLength(1)
-      expect(store.tasks[0].id).toBe('task-2')
+      expect(store.tasks[0]!.id).toBe('task-2')
     })
   })
 })
