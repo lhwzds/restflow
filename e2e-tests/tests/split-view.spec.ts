@@ -8,6 +8,8 @@ import { test, expect } from '@playwright/test'
  * - Pinned tabs show reduced opacity in the TabBar to indicate they're pinned
  * - Closing a pinned tab from TabBar should automatically close split view
  * - Split view state persists to localStorage
+ *
+ * Note: Tests create their own items since the app starts with an empty database.
  */
 test.describe('Split View', () => {
   test.beforeEach(async ({ page }) => {
@@ -19,16 +21,15 @@ test.describe('Split View', () => {
   })
 
   test('can open a skill in split view by dragging to drop zone', async ({ page }) => {
-    // Open a skill first
-    const skillItem = page.locator('button', { hasText: /Untitled-\d+/ }).first()
-    await skillItem.dblclick()
+    // Create a skill first
+    await page.locator('button', { hasText: 'New Skill' }).click()
     await page.waitForTimeout(300)
 
     // Verify editor is open
     await expect(page.locator('textarea[placeholder*="Markdown"]')).toBeVisible()
 
     // Find the tab in TabBar and drag to split view drop zone
-    const tabButton = page.locator('[data-testid="tab-bar"] button', { hasText: /Untitled-\d+/ }).first()
+    const tabButton = page.locator('[data-testid="tab-bar"] button', { hasText: '.md' }).first()
     const dropZone = page.locator('[data-testid="split-view-drop-zone"]')
 
     // If drop zone exists, perform drag
@@ -43,9 +44,8 @@ test.describe('Split View', () => {
 
   test('closing pinned tab from TabBar closes split view', async ({ page }) => {
     // This is the critical bug fix test
-    // Open a skill
-    const skillItem = page.locator('button', { hasText: /Untitled-\d+/ }).first()
-    await skillItem.dblclick()
+    // Create a skill first
+    await page.locator('button', { hasText: 'New Skill' }).click()
     await page.waitForTimeout(300)
 
     // Set up split view via localStorage (simulating pinning)
@@ -72,8 +72,8 @@ test.describe('Split View', () => {
       await page.reload()
       await page.waitForLoadState('networkidle')
 
-      // Open the same skill again
-      await skillItem.dblclick()
+      // Re-create the skill to get a tab open again
+      await page.locator('button', { hasText: 'New Skill' }).click()
       await page.waitForTimeout(300)
 
       // Close the tab from TabBar
