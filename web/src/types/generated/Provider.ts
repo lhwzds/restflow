@@ -3,4 +3,4 @@
 /**
  * AI model provider
  */
-export type Provider = 'openai' | 'anthropic' | 'deepseek'
+export type Provider = "openai" | "anthropic" | "deepseek";
