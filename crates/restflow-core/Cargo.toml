@@ -37,5 +37,5 @@ tokio = { version = "1.47.1", features = ["full"] }
 tokio-cron-scheduler = "0.15.1"
 tracing = "0.1"
 ts-rs = "11.0"
-uuid = { version = "1.19.0", features = ["v4", "serde"] }
+uuid = { version = "1.20.0", features = ["v4", "serde"] }
 zip = "7.0.0"
