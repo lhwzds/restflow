@@ -1,6 +1,6 @@
 site_name: RestFlow
-site_url: https://docs.restflow.ai
-site_description: Visual workflow automation powered by Rust & AI agents
+site_url: https://lhwzds.github.io/restflow/
+site_description: Let your workflows run while you rest
 repo_url: https://github.com/lhwzds/restflow
 repo_name: lhwzds/restflow
 
@@ -39,7 +39,8 @@ plugins:
 nav:
   - Home: index.md
   - API Reference:
-      - Core API: https://docs.restflow.ai/api/restflow_core/
+      - Workflow API: https://docs.restflow.ai/api/restflow_workflow/
+      - Runtime API: https://docs.restflow.ai/api/restflow_runtime/
       - AI API: https://docs.restflow.ai/api/restflow_ai/
       - Server API: https://docs.restflow.ai/api/restflow_server/
   - Test Coverage:
