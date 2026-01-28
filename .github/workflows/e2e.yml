@@ -55,6 +55,8 @@ jobs:
           npx playwright install --with-deps chromium
 
       - name: Run E2E tests
+        env:
+          BASE_URL: http://localhost:3000
         run: |
           cd e2e-tests
           npm test
