@@ -214,6 +214,10 @@ impl AgentTaskRunner {
                 continue;
             }
 
+            // Add to running set BEFORE spawning to prevent race conditions
+            // where the next poll cycle picks up the same task
+            self.running_tasks.write().await.insert(task.id.clone());
+
             let runner = Arc::new(self.clone_for_task());
             let task_id = task.id.clone();
 
@@ -263,6 +267,9 @@ impl AgentTaskRunner {
             }
         }
 
+        // Add to running set BEFORE spawning to prevent race conditions
+        self.running_tasks.write().await.insert(task_id.to_string());
+
         let runner = Arc::new(self.clone_for_task());
         let task_id = task_id.to_string();
 
@@ -272,9 +279,8 @@ impl AgentTaskRunner {
     }
 
     /// Execute a single task
+    /// Note: Task must already be in running_tasks before calling this
     async fn execute_task(&self, task_id: &str) {
-        // Mark as running in our tracking set
-        self.running_tasks.write().await.insert(task_id.to_string());
 
         let start_time = chrono::Utc::now().timestamp_millis();
 
@@ -960,16 +966,16 @@ mod tests {
 
         let handle = runner.clone().start();
 
-        // Wait for task to start
-        tokio::time::sleep(Duration::from_millis(200)).await;
+        // Wait for task to start (allow extra time for Windows CI)
+        tokio::time::sleep(Duration::from_millis(300)).await;
 
         // Should show as running
         let running_ids = runner.running_task_ids().await;
         assert_eq!(running_ids.len(), 1);
         assert_eq!(running_ids[0], task.id);
 
-        // Wait for completion
-        tokio::time::sleep(Duration::from_millis(500)).await;
+        // Wait for completion (500ms task + buffer for Windows CI)
+        tokio::time::sleep(Duration::from_millis(800)).await;
 
         // Should no longer be running
         assert_eq!(runner.running_task_count().await, 0);
