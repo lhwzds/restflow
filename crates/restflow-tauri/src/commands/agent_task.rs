@@ -277,6 +277,7 @@ mod tests {
     use super::*;
     use tempfile::tempdir;
 
+    #[allow(dead_code)]
     async fn create_test_state() -> AppState {
         let temp_dir = tempdir().unwrap();
         let db_path = temp_dir.path().join("test.db");
