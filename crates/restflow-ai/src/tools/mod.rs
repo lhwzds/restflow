@@ -8,6 +8,7 @@ mod http;
 mod python;
 mod registry;
 mod skill;
+mod telegram;
 mod traits;
 
 pub use email::EmailTool;
@@ -15,6 +16,7 @@ pub use http::HttpTool;
 pub use python::PythonTool;
 pub use registry::ToolRegistry;
 pub use skill::SkillTool;
+pub use telegram::{TelegramTool, send_telegram_notification};
 pub use traits::{SkillContent, SkillInfo, SkillProvider, Tool, ToolOutput, ToolSchema};
 
 /// Create a registry with default tools
@@ -23,5 +25,6 @@ pub fn default_registry() -> ToolRegistry {
     registry.register(HttpTool::new());
     registry.register(PythonTool::new());
     registry.register(EmailTool::new());
+    registry.register(TelegramTool::new());
     registry
 }
