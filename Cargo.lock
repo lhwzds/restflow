@@ -4432,10 +4432,12 @@ name = "restflow-tauri"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "chrono",
  "clap",
  "dirs",
  "portable-pty",
+ "redb",
  "restflow-ai",
  "restflow-core",
  "restflow-storage",
