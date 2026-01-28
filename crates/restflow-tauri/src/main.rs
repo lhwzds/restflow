@@ -186,6 +186,7 @@ fn get_db_path(app: &tauri::App) -> String {
 }
 
 /// Get the default database path for MCP mode (without Tauri app context)
+#[allow(dead_code)]
 fn get_default_db_path() -> String {
     // Try to use the same path as Tauri would use
     if let Some(data_dir) = dirs::data_dir() {
