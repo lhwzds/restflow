@@ -2,13 +2,21 @@
 //!
 //! This is the main entry point for the RestFlow desktop application.
 //! It initializes the Tauri runtime and registers all command handlers.
+//!
+//! # MCP Mode
+//!
+//! When run with `--mcp-mode`, the application starts as an MCP server
+//! instead of the GUI, allowing AI assistants like Claude Code to interact
+//! with RestFlow via the Model Context Protocol.
 
 #![cfg_attr(
     all(not(debug_assertions), target_os = "windows"),
     windows_subsystem = "windows"
 )]
 
+use clap::Parser;
 use restflow_tauri_lib::AppState;
+use restflow_tauri_lib::RestFlowMcpServer;
 use restflow_tauri_lib::commands;
 use restflow_tauri_lib::commands::PtyState;
 use restflow_tauri_lib::commands::pty::save_all_terminal_history_sync;
@@ -16,15 +24,43 @@ use tauri::Manager;
 use tracing::info;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
+/// RestFlow Desktop Application
+#[derive(Parser, Debug)]
+#[command(name = "restflow-tauri")]
+#[command(about = "RestFlow - Visual workflow automation with AI integration")]
+struct Args {
+    /// Run as MCP server instead of GUI
+    #[arg(long)]
+    mcp_mode: bool,
+
+    /// Database path (defaults to app data directory)
+    #[arg(long)]
+    db_path: Option<String>,
+}
+
 fn main() {
+    let args = Args::parse();
     // Initialize tracing
+    // For MCP mode, use stderr to avoid interfering with stdio transport
+    let filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| {
+            if args.mcp_mode {
+                "restflow_tauri=warn,restflow_core=warn".into()
+            } else {
+                "restflow_tauri=info,restflow_core=info".into()
+            }
+        });
+
     tracing_subscriber::registry()
-        .with(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "restflow_tauri=info,restflow_core=info".into()),
-        )
-        .with(tracing_subscriber::fmt::layer())
+        .with(filter)
+        .with(tracing_subscriber::fmt::layer().with_writer(std::io::stderr))
         .init();
+
+    // If MCP mode is requested, run as MCP server
+    if args.mcp_mode {
+        run_mcp_server(args.db_path);
+        return;
+    }
 
     info!("Starting RestFlow Desktop Application");
 
@@ -147,4 +183,58 @@ fn get_db_path(app: &tauri::App) -> String {
 
     // Fallback to current directory
     "restflow.db".to_string()
+}
+
+/// Get the default database path for MCP mode (without Tauri app context)
+fn get_default_db_path() -> String {
+    // Try to use the same path as Tauri would use
+    if let Some(data_dir) = dirs::data_dir() {
+        let app_data_dir = data_dir.join("com.restflow.app");
+        if let Err(e) = std::fs::create_dir_all(&app_data_dir) {
+            tracing::warn!(error = %e, "Failed to create app data directory, using current directory");
+            return "restflow.db".to_string();
+        }
+        let db_path = app_data_dir.join("restflow.db");
+        return db_path.to_string_lossy().to_string();
+    }
+
+    // Fallback to current directory
+    "restflow.db".to_string()
+}
+
+/// Get the default database path for MCP mode
+/// Uses a separate database file to avoid conflicts with the GUI
+fn get_mcp_db_path() -> String {
+    // Try to use the same directory as the GUI database, but with a different filename
+    if let Some(data_dir) = dirs::data_dir() {
+        let app_dir = data_dir.join("com.restflow.app");
+        if std::fs::create_dir_all(&app_dir).is_ok() {
+            return app_dir.join("restflow-mcp.db").to_string_lossy().to_string();
+        }
+    }
+    // Fallback to current directory
+    "restflow-mcp.db".to_string()
+}
+
+/// Run RestFlow as an MCP server
+fn run_mcp_server(db_path: Option<String>) {
+    tracing::info!("Starting RestFlow MCP Server");
+
+    let rt = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
+
+    rt.block_on(async {
+        let db_path = db_path.unwrap_or_else(get_mcp_db_path);
+        tracing::info!(db_path = %db_path, "Initializing database for MCP server");
+
+        let state = AppState::new(&db_path)
+            .await
+            .expect("Failed to initialize AppState");
+
+        let mcp_server = RestFlowMcpServer::new(state.core);
+
+        if let Err(e) = mcp_server.run().await {
+            tracing::error!(error = %e, "MCP server error");
+            std::process::exit(1);
+        }
+    });
 }
