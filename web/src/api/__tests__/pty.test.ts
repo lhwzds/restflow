@@ -118,13 +118,14 @@ describe('PTY API', () => {
       expect(invoke).toHaveBeenCalledWith('close_pty', { sessionId: 'session-1' })
     })
 
-    it('should not throw in web mode (updates mock session)', async () => {
+    it('should throw error when not in Tauri mode', async () => {
       const { isTauri } = await import('../tauri-client')
       vi.mocked(isTauri).mockReturnValue(false)
 
       const { closePty } = await import('../pty')
-      // Web mode: silently updates mock session status, doesn't throw
-      await expect(closePty('session-1')).resolves.toBeUndefined()
+      await expect(closePty('session-1')).rejects.toThrow(
+        'PTY is only available in Tauri desktop app',
+      )
     })
   })
 
@@ -249,14 +250,13 @@ describe('PTY API', () => {
       expect(result).toEqual(mockSession)
     })
 
-    it('should throw error for non-existent session in web mode', async () => {
+    it('should throw error when not in Tauri mode', async () => {
       const { isTauri } = await import('../tauri-client')
       vi.mocked(isTauri).mockReturnValue(false)
 
       const { restartTerminal } = await import('../pty')
-      // Web mode: throws if session not found in mock sessions
-      await expect(restartTerminal('non-existent-session')).rejects.toThrow(
-        'Terminal session not found: non-existent-session',
+      await expect(restartTerminal('session-1')).rejects.toThrow(
+        'PTY is only available in Tauri desktop app',
       )
     })
   })
