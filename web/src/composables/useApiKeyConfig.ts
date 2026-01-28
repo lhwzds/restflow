@@ -8,9 +8,9 @@ export function useApiKeyConfig() {
   /**
    * Build an ApiKeyConfig object from mode and value
    */
-  const buildConfig = (mode: 'direct' | 'secret', value: string): ApiKeyConfig | null => {
+  const buildConfig = (mode: 'direct' | 'secret', value: string): ApiKeyConfig | undefined => {
     if (!value || !value.trim()) {
-      return null
+      return undefined
     }
 
     return {
@@ -23,7 +23,7 @@ export function useApiKeyConfig() {
    * Extract mode and value from ApiKeyConfig
    */
   const extractConfig = (
-    config: ApiKeyConfig | null,
+    config: ApiKeyConfig | undefined,
   ): { mode: 'direct' | 'secret'; value: string } => {
     if (!config) {
       return { mode: 'direct', value: '' }
@@ -39,8 +39,8 @@ export function useApiKeyConfig() {
    * Check if two ApiKeyConfig objects are different
    */
   const isConfigChanged = (
-    oldConfig: ApiKeyConfig | null,
-    newConfig: ApiKeyConfig | null,
+    oldConfig: ApiKeyConfig | undefined,
+    newConfig: ApiKeyConfig | undefined,
   ): boolean => {
     // Both null
     if (!oldConfig && !newConfig) {
@@ -59,7 +59,7 @@ export function useApiKeyConfig() {
   /**
    * Get display text for API key config
    */
-  const getConfigDisplay = (config: ApiKeyConfig | null): string => {
+  const getConfigDisplay = (config: ApiKeyConfig | undefined): string => {
     if (!config) {
       return 'Not configured'
     }

@@ -3,7 +3,7 @@
 use async_trait::async_trait;
 use reqwest::Client;
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::error::Result;
 use crate::tools::traits::{Tool, ToolOutput};
@@ -89,7 +89,7 @@ impl Tool for HttpTool {
                 return Ok(ToolOutput::error(format!(
                     "Unknown method: {}",
                     params.method
-                )))
+                )));
             }
         };
 
@@ -116,8 +116,8 @@ impl Tool for HttpTool {
                 let body = response.text().await.unwrap_or_default();
 
                 // Try to parse as JSON, fallback to string
-                let result =
-                    serde_json::from_str::<Value>(&body).unwrap_or_else(|_| json!({ "text": body }));
+                let result = serde_json::from_str::<Value>(&body)
+                    .unwrap_or_else(|_| json!({ "text": body }));
 
                 Ok(ToolOutput::success(json!({
                     "status": status,

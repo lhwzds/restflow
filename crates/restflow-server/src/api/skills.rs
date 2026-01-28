@@ -7,7 +7,7 @@ use axum::{
     http::StatusCode,
     response::IntoResponse,
 };
-use restflow_workflow::{models::Skill, services};
+use restflow_core::{models::Skill, services};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -85,7 +85,8 @@ pub async fn create_skill(
             if !is_valid_skill_id(&id) {
                 return Err((
                     StatusCode::BAD_REQUEST,
-                    "Invalid skill ID. Use lowercase letters, numbers, and hyphens only.".to_string(),
+                    "Invalid skill ID. Use lowercase letters, numbers, and hyphens only."
+                        .to_string(),
                 ));
             }
             id
@@ -95,12 +96,7 @@ pub async fn create_skill(
 
     // Check if skill already exists
     match services::skills::skill_exists(&state, &id).await {
-        Ok(true) => {
-            return Err((
-                StatusCode::CONFLICT,
-                format!("Skill {} already exists", id),
-            ))
-        }
+        Ok(true) => return Err((StatusCode::CONFLICT, format!("Skill {} already exists", id))),
         Err(e) => return Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
         _ => {}
     }
@@ -196,7 +192,8 @@ pub async fn import_skill(
             if !is_valid_skill_id(&id) {
                 return Err((
                     StatusCode::BAD_REQUEST,
-                    "Invalid skill ID. Use lowercase letters, numbers, and hyphens only.".to_string(),
+                    "Invalid skill ID. Use lowercase letters, numbers, and hyphens only."
+                        .to_string(),
                 ));
             }
             id
@@ -206,12 +203,7 @@ pub async fn import_skill(
 
     // Check if skill already exists
     match services::skills::skill_exists(&state, &id).await {
-        Ok(true) => {
-            return Err((
-                StatusCode::CONFLICT,
-                format!("Skill {} already exists", id),
-            ))
-        }
+        Ok(true) => return Err((StatusCode::CONFLICT, format!("Skill {} already exists", id))),
         Err(e) => return Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
         _ => {}
     }
@@ -223,7 +215,7 @@ pub async fn import_skill(
             return Err((
                 StatusCode::BAD_REQUEST,
                 format!("Invalid markdown format: {}", e),
-            ))
+            ));
         }
     };
 
@@ -246,7 +238,7 @@ fn is_valid_skill_id(id: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use restflow_workflow::AppCore;
+    use restflow_core::AppCore;
     use std::sync::Arc;
     use tempfile::{TempDir, tempdir};
 
@@ -374,12 +366,8 @@ mod tests {
             content: None,
         };
 
-        let result = update_skill(
-            State(app),
-            Path("test-skill".to_string()),
-            Json(update_req),
-        )
-        .await;
+        let result =
+            update_skill(State(app), Path("test-skill".to_string()), Json(update_req)).await;
 
         assert!(result.is_ok());
         let skill = result.unwrap().0.data.unwrap();

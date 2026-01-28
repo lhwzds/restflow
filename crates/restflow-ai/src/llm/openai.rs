@@ -159,8 +159,7 @@ impl LlmClient for OpenAIClient {
                             r#type: "function".to_string(),
                             function: OpenAIMessageFunction {
                                 name: tc.name.clone(),
-                                arguments: serde_json::to_string(&tc.arguments)
-                                    .unwrap_or_default(),
+                                arguments: serde_json::to_string(&tc.arguments).unwrap_or_default(),
                             },
                         })
                         .collect()

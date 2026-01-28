@@ -1,9 +1,18 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-import { ElTag, ElCollapse, ElCollapseItem, ElIcon } from 'element-plus'
-import { ChatDotRound, Tools, Check, User, Setting } from '@element-plus/icons-vue'
+import { computed, ref } from 'vue'
+import {
+  MessageCircle,
+  Wrench,
+  Check,
+  User,
+  Settings,
+  ChevronDown,
+  ChevronRight,
+} from 'lucide-vue-next'
 import type { ExecutionStep } from '@/api/agents'
 import MarkdownRenderer from '@/components/shared/MarkdownRenderer.vue'
+import { Badge } from '@/components/ui/badge'
+import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible'
 
 const props = defineProps<{
   step: ExecutionStep
@@ -12,17 +21,17 @@ const props = defineProps<{
 const stepIcon = computed(() => {
   switch (props.step.step_type) {
     case 'system':
-      return Setting
+      return Settings
     case 'user':
       return User
     case 'assistant':
-      return ChatDotRound
+      return MessageCircle
     case 'tool_call':
-      return Tools
+      return Wrench
     case 'tool_result':
       return Check
     default:
-      return ChatDotRound
+      return MessageCircle
   }
 })
 
@@ -43,12 +52,12 @@ const stepLabel = computed(() => {
   }
 })
 
-const tagType = computed((): 'success' | 'warning' | 'info' | 'danger' | 'primary' => {
+const badgeVariant = computed((): 'success' | 'warning' | 'info' | 'destructive' | 'default' => {
   switch (props.step.step_type) {
     case 'system':
       return 'info'
     case 'user':
-      return 'primary'
+      return 'default'
     case 'assistant':
       return 'success'
     case 'tool_call':
@@ -60,6 +69,9 @@ const tagType = computed((): 'success' | 'warning' | 'info' | 'danger' | 'primar
   }
 })
 
+// Track open state for each tool call
+const openToolCalls = ref<Set<string>>(new Set())
+
 const stepClass = computed(() => `step-${props.step.step_type}`)
 
 function formatArguments(args: Record<string, unknown>): string {
@@ -70,12 +82,10 @@ function formatArguments(args: Record<string, unknown>): string {
 <template>
   <div :class="['execution-step', stepClass]">
     <div class="step-header">
-      <ElIcon :size="16" class="step-icon">
-        <component :is="stepIcon" />
-      </ElIcon>
-      <ElTag size="small" :type="tagType">
+      <component :is="stepIcon" :size="16" class="step-icon" />
+      <Badge :variant="badgeVariant">
         {{ stepLabel }}
-      </ElTag>
+      </Badge>
     </div>
 
     <div class="step-content">
@@ -86,22 +96,33 @@ function formatArguments(args: Record<string, unknown>): string {
 
       <!-- Tool calls display -->
       <template v-if="step.tool_calls && step.tool_calls.length > 0">
-        <ElCollapse class="tool-calls-collapse">
-          <ElCollapseItem v-for="tc in step.tool_calls" :key="tc.id">
-            <template #title>
-              <div class="tool-call-title">
-                <ElIcon><Tools /></ElIcon>
-                <span class="tool-name">{{ tc.name }}</span>
-              </div>
-            </template>
-            <div class="tool-call-detail">
+        <div class="tool-calls-list">
+          <Collapsible
+            v-for="tc in step.tool_calls"
+            :key="tc.id"
+            :open="openToolCalls.has(tc.id)"
+            @update:open="
+              (open: boolean) => (open ? openToolCalls.add(tc.id) : openToolCalls.delete(tc.id))
+            "
+            class="tool-call-item"
+          >
+            <CollapsibleTrigger class="tool-call-trigger">
+              <component
+                :is="openToolCalls.has(tc.id) ? ChevronDown : ChevronRight"
+                :size="14"
+                class="trigger-icon"
+              />
+              <Wrench :size="14" class="tool-icon" />
+              <span class="tool-name">{{ tc.name }}</span>
+            </CollapsibleTrigger>
+            <CollapsibleContent class="tool-call-content">
               <div class="tool-args">
                 <div class="label">Arguments:</div>
                 <pre class="args-json">{{ formatArguments(tc.arguments) }}</pre>
               </div>
-            </div>
-          </ElCollapseItem>
-        </ElCollapse>
+            </CollapsibleContent>
+          </Collapsible>
+        </div>
       </template>
     </div>
   </div>
@@ -116,24 +137,24 @@ function formatArguments(args: Record<string, unknown>): string {
   border-radius: 0 var(--rf-radius-small) var(--rf-radius-small) 0;
 
   &.step-system {
-    border-left-color: var(--el-color-info);
+    border-left-color: hsl(var(--info));
     opacity: 0.7;
   }
 
   &.step-user {
-    border-left-color: var(--el-color-primary);
+    border-left-color: hsl(var(--primary));
   }
 
   &.step-assistant {
-    border-left-color: var(--el-color-success);
+    border-left-color: hsl(var(--success, 142 76% 36%));
   }
 
   &.step-tool_call {
-    border-left-color: var(--el-color-warning);
+    border-left-color: hsl(var(--warning, 48 96% 53%));
   }
 
   &.step-tool_result {
-    border-left-color: var(--el-color-success);
+    border-left-color: hsl(var(--success, 142 76% 36%));
   }
 
   .step-header {
@@ -166,34 +187,53 @@ function formatArguments(args: Record<string, unknown>): string {
       }
     }
 
-    .tool-calls-collapse {
+    .tool-calls-list {
       margin-top: var(--rf-spacing-sm);
-
-      :deep(.el-collapse-item__header) {
-        height: auto;
-        min-height: 32px;
-        padding: var(--rf-spacing-xs) 0;
-        background: transparent;
-      }
-
-      :deep(.el-collapse-item__content) {
-        padding-bottom: var(--rf-spacing-sm);
-      }
     }
 
-    .tool-call-title {
+    .tool-call-item {
+      margin-bottom: var(--rf-spacing-xs);
+    }
+
+    .tool-call-trigger {
       display: flex;
       align-items: center;
       gap: var(--rf-spacing-xs);
       font-size: var(--rf-font-size-sm);
+      cursor: pointer;
+      padding: var(--rf-spacing-xs) 0;
+      width: 100%;
+      background: transparent;
+      border: none;
+      text-align: left;
+      color: var(--rf-color-text-primary);
+
+      &:hover {
+        color: var(--rf-color-primary);
+      }
+
+      .trigger-icon {
+        color: var(--rf-color-text-secondary);
+        flex-shrink: 0;
+      }
+
+      .tool-icon {
+        color: hsl(var(--warning, 48 96% 53%));
+        flex-shrink: 0;
+      }
 
       .tool-name {
         font-weight: var(--rf-font-weight-semibold);
-        color: var(--el-color-warning);
+        color: hsl(var(--warning, 48 96% 53%));
       }
     }
 
-    .tool-call-detail {
+    .tool-call-content {
+      padding-left: var(--rf-spacing-lg);
+      padding-bottom: var(--rf-spacing-sm);
+    }
+
+    .tool-args {
       .label {
         font-size: var(--rf-font-size-xs);
         color: var(--rf-color-text-secondary);

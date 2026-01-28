@@ -3,6 +3,7 @@ import type { ModelMetadataDTO } from '@/types/generated/ModelMetadataDTO'
 import type { AIModel } from '@/types/generated/AIModel'
 import type { Provider } from '@/types/generated/Provider'
 import { API_ENDPOINTS } from '@/constants/api/endpoints'
+import { isTauri, tauriInvoke } from '@/api/config'
 
 interface ModelsState {
   models: ModelMetadataDTO[]
@@ -23,16 +24,20 @@ export const useModelsStore = defineStore('models', {
     /**
      * Get metadata for a specific model
      */
-    getModelMetadata: (state) => (model: AIModel): ModelMetadataDTO | undefined => {
-      return state.models.find((m) => m.model === model)
-    },
+    getModelMetadata:
+      (state) =>
+      (model: AIModel): ModelMetadataDTO | undefined => {
+        return state.models.find((m) => m.model === model)
+      },
 
     /**
      * Get all models for a specific provider
      */
-    getModelsByProvider: (state) => (provider: Provider): ModelMetadataDTO[] => {
-      return state.models.filter((m) => m.provider === provider)
-    },
+    getModelsByProvider:
+      (state) =>
+      (provider: Provider): ModelMetadataDTO[] => {
+        return state.models.filter((m) => m.provider === provider)
+      },
 
     /**
      * Get all available models
@@ -59,19 +64,26 @@ export const useModelsStore = defineStore('models', {
       this.error = null
 
       try {
-        const response = await fetch(API_ENDPOINTS.MODEL.LIST)
-
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}: ${response.statusText}`)
-        }
-
-        const result = await response.json()
-
-        if (result.success && result.data) {
-          this.models = result.data
+        if (isTauri()) {
+          // Use Tauri invoke for desktop app
+          this.models = await tauriInvoke<ModelMetadataDTO[]>('get_available_models')
           this.loaded = true
         } else {
-          throw new Error(result.message || 'Invalid response format')
+          // Use REST API for web
+          const response = await fetch(API_ENDPOINTS.MODEL.LIST)
+
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+          }
+
+          const result = await response.json()
+
+          if (result.success && result.data) {
+            this.models = result.data
+            this.loaded = true
+          } else {
+            throw new Error(result.message || 'Invalid response format')
+          }
         }
       } catch (error) {
         this.error = error instanceof Error ? error.message : 'Unknown error'

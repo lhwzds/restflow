@@ -5,17 +5,13 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 mod api;
 
-use api::{
-    agents::*, config::*, models::*, python::*, secrets::*, skills::*,
-    tasks::{clear_all_tasks, execute_node, get_execution_status, get_task_status, list_tasks},
-    tools::*, triggers::*, workflows::*,
-};
+use api::{agents::*, config::*, models::*, python::*, secrets::*, skills::*, tools::*};
 use axum::{
     Router,
     http::{Method, header},
     routing::{get, post, put},
 };
-use restflow_workflow::{AppCore, paths};
+use restflow_core::{AppCore, paths};
 use std::sync::Arc;
 use tower_http::cors::CorsLayer;
 
@@ -72,49 +68,12 @@ async fn main() {
 
     let app = Router::new()
         .route("/health", get(health))
-        // Workflow CRUD
-        .route("/api/workflows", get(list_workflows).post(create_workflow))
-        .route(
-            "/api/workflows/{id}",
-            get(get_workflow)
-                .put(update_workflow)
-                .delete(delete_workflow),
-        )
-        // Workflow execution
-        .route("/api/workflows/execute", post(execute_workflow)) // Inline workflow execution (awaits completion)
-        // Full workflow execution uses async: POST /api/workflows/{id}/executions
-        .route(
-            "/api/workflows/{workflow_id}/executions",
-            get(list_workflow_executions).post(submit_workflow),
-        )
-        .route("/api/executions/{execution_id}", get(get_execution_status))
-        // Task management
-        .route("/api/tasks", get(list_tasks).delete(clear_all_tasks))
-        .route("/api/tasks/{task_id}", get(get_task_status))
-        .route("/api/nodes/execute", post(execute_node))
         // System configuration
         .route("/api/config", get(get_config).put(update_config))
         // AI models metadata
         .route("/api/models", get(list_models))
         // AI tools
         .route("/api/tools", get(list_tools))
-        // Trigger activation
-        .route("/api/workflows/{id}/activate", put(activate_workflow))
-        .route("/api/workflows/{id}/deactivate", put(deactivate_workflow))
-        .route(
-            "/api/workflows/{id}/trigger-status",
-            get(get_workflow_trigger_status),
-        )
-        .route("/api/workflows/{id}/test", post(test_workflow_trigger))
-        // Webhook endpoints - accepts GET/POST/PUT/DELETE/PATCH for maximum flexibility
-        .route(
-            "/api/triggers/webhook/{webhook_id}",
-            get(handle_webhook_trigger)
-                .post(handle_webhook_trigger)
-                .put(handle_webhook_trigger)
-                .delete(handle_webhook_trigger)
-                .patch(handle_webhook_trigger),
-        )
         // Python integration
         .route("/api/python/execute", post(execute_script))
         .route("/api/python/scripts", get(list_scripts))

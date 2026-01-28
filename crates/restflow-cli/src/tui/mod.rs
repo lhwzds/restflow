@@ -20,7 +20,7 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Wrap},
 };
-use restflow_workflow::AppCore;
+use restflow_core::AppCore;
 use state::TuiApp;
 use std::{io::Write, sync::Arc, time::Duration};
 use viewport::ViewportTerminal;

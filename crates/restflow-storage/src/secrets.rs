@@ -43,7 +43,7 @@ impl Secret {
     /// Pass `None` for description to clear it, or `Some(...)` to set a new one.
     pub fn update(&mut self, value: String, description: Option<String>) {
         self.value = value;
-        self.description = description;  // Always set, allowing None to clear
+        self.description = description; // Always set, allowing None to clear
         self.updated_at = chrono::Utc::now().timestamp_millis();
     }
 }
@@ -239,7 +239,11 @@ mod tests {
 
         // Create secret with description
         storage
-            .set_secret("TEST_KEY", "value1", Some("Initial description".to_string()))
+            .set_secret(
+                "TEST_KEY",
+                "value1",
+                Some("Initial description".to_string()),
+            )
             .unwrap();
 
         // Verify description is set
@@ -253,6 +257,9 @@ mod tests {
         // Verify description is cleared
         let secrets = storage.list_secrets().unwrap();
         let secret = secrets.iter().find(|s| s.key == "TEST_KEY").unwrap();
-        assert_eq!(secret.description, None, "Description should be cleared when None is passed");
+        assert_eq!(
+            secret.description, None,
+            "Description should be cleared when None is passed"
+        );
     }
 }

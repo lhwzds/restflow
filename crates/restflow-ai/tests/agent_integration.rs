@@ -36,8 +36,10 @@ async fn test_agent_with_anthropic() {
     tools.register(HttpTool::new());
 
     let executor = AgentExecutor::new(llm, Arc::new(tools));
-    let config = AgentConfig::new("Use the http tool to fetch https://httpbin.org/get and tell me what the origin IP is")
-        .with_max_iterations(5);
+    let config = AgentConfig::new(
+        "Use the http tool to fetch https://httpbin.org/get and tell me what the origin IP is",
+    )
+    .with_max_iterations(5);
 
     let result = executor.run(config).await.unwrap();
 

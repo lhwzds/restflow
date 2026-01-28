@@ -2,6 +2,38 @@
 import type { ExecutionStatus } from "./ExecutionStatus";
 
 /**
- * Execution summary stored in the database
+ * Execution summary - used for execution history list
  */
-export type ExecutionSummary = { execution_id: string, workflow_id: string, status: ExecutionStatus, started_at: number, completed_at: number | null, total_tasks: number, completed_tasks: number, failed_tasks: number, };
+export type ExecutionSummary = { 
+/**
+ * Execution ID
+ */
+execution_id: string, 
+/**
+ * Workflow ID
+ */
+workflow_id: string, 
+/**
+ * Execution status
+ */
+status: ExecutionStatus, 
+/**
+ * Start time (millisecond timestamp)
+ */
+started_at: number, 
+/**
+ * Completion time (millisecond timestamp)
+ */
+completed_at: number | null, 
+/**
+ * Total number of tasks
+ */
+total_tasks: number, 
+/**
+ * Number of completed tasks
+ */
+completed_tasks: number, 
+/**
+ * Number of failed tasks
+ */
+failed_tasks: number, };

@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { ElCard, ElTag, ElIcon } from 'element-plus'
-import { User, Clock } from '@element-plus/icons-vue'
+import { User, Clock } from 'lucide-vue-next'
 import type { StoredAgent } from '@/types/generated/StoredAgent'
 import { getModelDisplayName, getProvider, getProviderTagType } from '@/utils/AIModels'
+import { Card, CardContent } from '@/components/ui/card'
+import { Badge } from '@/components/ui/badge'
 
 const props = defineProps<{
   agent: StoredAgent
@@ -30,9 +31,22 @@ function formatTime(timestamp?: number | null): string {
 
 const lastUpdated = computed(() => formatTime(props.agent.updated_at))
 const modelName = computed(() => getModelDisplayName(props.agent.agent.model))
-const modelTagType = computed(() => {
+const modelBadgeVariant = computed(() => {
   const provider = getProvider(props.agent.agent.model)
-  return getProviderTagType(provider)
+  const type = getProviderTagType(provider)
+  // Map Element Plus tag types to Badge variants
+  const variantMap: Record<
+    string,
+    'default' | 'secondary' | 'destructive' | 'outline' | 'success' | 'warning' | 'info'
+  > = {
+    '': 'default',
+    primary: 'default',
+    success: 'success',
+    warning: 'warning',
+    danger: 'destructive',
+    info: 'info',
+  }
+  return variantMap[type] || 'secondary'
 })
 
 const promptPreview = computed(() => {
@@ -50,44 +64,42 @@ function handleClick() {
 </script>
 
 <template>
-  <ElCard class="agent-card" :body-style="{ padding: '12px' }" shadow="hover" @click="handleClick">
-    <div class="card-header">
-      <div class="agent-name">
-        <ElIcon class="agent-icon">
-          <User />
-        </ElIcon>
-        <span>{{ agent.name }}</span>
+  <Card class="agent-card" @click="handleClick">
+    <CardContent class="card-body">
+      <div class="card-header">
+        <div class="agent-name">
+          <User class="agent-icon" :size="16" />
+          <span>{{ agent.name }}</span>
+        </div>
+        <Badge :variant="modelBadgeVariant">
+          {{ modelName }}
+        </Badge>
       </div>
-      <ElTag :type="modelTagType" size="small">
-        {{ modelName }}
-      </ElTag>
-    </div>
 
-    <div class="prompt-preview" :class="{ 'no-prompt': !promptPreview }">
-      {{ promptPreview || 'No system prompt configured' }}
-    </div>
-
-    <div v-if="toolsList.length > 0" class="tools-section">
-      <span class="tools-label">Tools:</span>
-      <ElTag v-for="tool in toolsList" :key="tool" type="info" size="small" class="tool-tag">
-        {{ tool }}
-      </ElTag>
-    </div>
-
-    <div v-if="agent.agent.temperature != null" class="temperature-section">
-      <span class="temp-label">Temperature:</span>
-      <span class="temp-value">{{ agent.agent.temperature }}</span>
-    </div>
-
-    <div class="card-footer">
-      <div class="update-time">
-        <ElIcon>
-          <Clock />
-        </ElIcon>
-        <span>{{ lastUpdated }}</span>
+      <div class="prompt-preview" :class="{ 'no-prompt': !promptPreview }">
+        {{ promptPreview || 'No system prompt configured' }}
       </div>
-    </div>
-  </ElCard>
+
+      <div v-if="toolsList.length > 0" class="tools-section">
+        <span class="tools-label">Tools:</span>
+        <Badge v-for="tool in toolsList" :key="tool" variant="info" class="tool-tag">
+          {{ tool }}
+        </Badge>
+      </div>
+
+      <div v-if="agent.agent.temperature != null" class="temperature-section">
+        <span class="temp-label">Temperature:</span>
+        <span class="temp-value">{{ agent.agent.temperature }}</span>
+      </div>
+
+      <div class="card-footer">
+        <div class="update-time">
+          <Clock :size="12" />
+          <span>{{ lastUpdated }}</span>
+        </div>
+      </div>
+    </CardContent>
+  </Card>
 </template>
 
 <style lang="scss" scoped>
@@ -98,18 +110,17 @@ function handleClick() {
   overflow: hidden;
   height: var(--rf-size-lg);
   width: 100%;
-  display: flex;
-  flex-direction: column;
-
-  :deep(.el-card__body) {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-  }
 
   &:hover {
     transform: translateY(var(--rf-transform-lift-sm));
     box-shadow: var(--rf-shadow-md);
+  }
+
+  .card-body {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    padding: 12px;
   }
 
   .card-header {
@@ -213,10 +224,6 @@ function handleClick() {
       gap: var(--rf-spacing-xs);
       color: var(--rf-color-text-secondary);
       font-size: var(--rf-font-size-xs);
-
-      .el-icon {
-        font-size: var(--rf-font-size-xs);
-      }
     }
   }
 }

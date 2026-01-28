@@ -22,50 +22,6 @@ describe('Constants - API Endpoints', () => {
     expect(API_PREFIX).toBe('/api')
   })
 
-  describe('WORKFLOW endpoints', () => {
-    it('should have static endpoints', () => {
-      expect(API_ENDPOINTS.WORKFLOW.LIST).toBe('/api/workflows')
-      expect(API_ENDPOINTS.WORKFLOW.CREATE).toBe('/api/workflows')
-    })
-
-    it('should generate dynamic endpoints', () => {
-      expect(API_ENDPOINTS.WORKFLOW.GET('test-id')).toBe('/api/workflows/test-id')
-      expect(API_ENDPOINTS.WORKFLOW.UPDATE('test-id')).toBe('/api/workflows/test-id')
-      expect(API_ENDPOINTS.WORKFLOW.DELETE('test-id')).toBe('/api/workflows/test-id')
-    })
-  })
-
-  describe('EXECUTION endpoints', () => {
-    it('should have correct paths', () => {
-      expect(API_ENDPOINTS.EXECUTION.INLINE_RUN).toBe('/api/workflows/execute')
-      expect(API_ENDPOINTS.EXECUTION.SUBMIT('wf1')).toBe('/api/workflows/wf1/executions')
-      expect(API_ENDPOINTS.EXECUTION.STATUS('exec1')).toBe('/api/executions/exec1')
-    })
-  })
-
-  describe('TASK endpoints', () => {
-    it('should have correct paths', () => {
-      expect(API_ENDPOINTS.TASK.LIST).toBe('/api/tasks')
-      expect(API_ENDPOINTS.TASK.STATUS('task1')).toBe('/api/tasks/task1')
-    })
-  })
-
-  describe('NODE endpoints', () => {
-    it('should have correct execute path', () => {
-      expect(API_ENDPOINTS.NODE.EXECUTE).toBe('/api/nodes/execute')
-    })
-  })
-
-  describe('TRIGGER endpoints', () => {
-    it('should have correct paths', () => {
-      expect(API_ENDPOINTS.TRIGGER.ACTIVATE('wf1')).toBe('/api/workflows/wf1/activate')
-      expect(API_ENDPOINTS.TRIGGER.DEACTIVATE('wf1')).toBe('/api/workflows/wf1/deactivate')
-      expect(API_ENDPOINTS.TRIGGER.STATUS('wf1')).toBe('/api/workflows/wf1/trigger-status')
-      expect(API_ENDPOINTS.TRIGGER.TEST('wf1')).toBe('/api/workflows/wf1/test')
-      expect(API_ENDPOINTS.TRIGGER.WEBHOOK('wf1')).toBe('/api/triggers/webhook/wf1')
-    })
-  })
-
   describe('AGENT endpoints', () => {
     it('should have correct paths', () => {
       expect(API_ENDPOINTS.AGENT.LIST).toBe('/api/agents')
@@ -84,6 +40,16 @@ describe('Constants - API Endpoints', () => {
       expect(API_ENDPOINTS.SECRET.CREATE).toBe('/api/secrets')
       expect(API_ENDPOINTS.SECRET.UPDATE('KEY1')).toBe('/api/secrets/KEY1')
       expect(API_ENDPOINTS.SECRET.DELETE('KEY1')).toBe('/api/secrets/KEY1')
+    })
+  })
+
+  describe('SKILL endpoints', () => {
+    it('should have correct paths', () => {
+      expect(API_ENDPOINTS.SKILL.LIST).toBe('/api/skills')
+      expect(API_ENDPOINTS.SKILL.CREATE).toBe('/api/skills')
+      expect(API_ENDPOINTS.SKILL.GET('skill1')).toBe('/api/skills/skill1')
+      expect(API_ENDPOINTS.SKILL.UPDATE('skill1')).toBe('/api/skills/skill1')
+      expect(API_ENDPOINTS.SKILL.DELETE('skill1')).toBe('/api/skills/skill1')
     })
   })
 })

@@ -47,8 +47,8 @@ export function getModelDisplayName(model: AIModel): string {
 /**
  * Get default temperature for a model
  */
-export function getDefaultTemperature(model: AIModel): number | null {
-  return supportsTemperature(model) ? 0.7 : null
+export function getDefaultTemperature(model: AIModel): number | undefined {
+  return supportsTemperature(model) ? 0.7 : undefined
 }
 
 /**
@@ -80,9 +80,7 @@ export function getAllModels(): ModelOption[] {
 /**
  * Get Element Plus tag type for provider (for UI styling)
  */
-export function getProviderTagType(
-  provider: Provider,
-): 'success' | 'warning' | 'info' | 'danger' {
+export function getProviderTagType(provider: Provider): 'success' | 'warning' | 'info' | 'danger' {
   switch (provider) {
     case 'openai':
       return 'success'

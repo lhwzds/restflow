@@ -5,16 +5,17 @@ import {
   updateSkill,
   deleteSkill,
   exportSkill,
-  importSkill,
   type CreateSkillRequest,
   type UpdateSkillRequest,
-  type ImportSkillRequest,
 } from '@/api/skills'
 import type { Skill } from '@/types/generated/Skill'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { useToast } from '@/composables/useToast'
+import { useConfirm } from '@/composables/useConfirm'
 import { downloadAsFile } from '@/utils/download'
 
 export function useSkills() {
+  const toast = useToast()
+  const { confirm } = useConfirm()
   const skills = ref<Skill[]>([])
   const isLoading = ref(false)
   const error = ref<string | null>(null)
@@ -62,12 +63,12 @@ export function useSkills() {
     try {
       const newSkill = await createSkill(request)
       skills.value.unshift(newSkill)
-      ElMessage.success('Skill created successfully')
+      toast.success('Skill created successfully')
       closeDialog()
       return newSkill
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to create skill'
-      ElMessage.error(message)
+      toast.error(message)
       return null
     }
   }
@@ -80,35 +81,37 @@ export function useSkills() {
       if (index !== -1) {
         skills.value[index] = updatedSkill
       }
-      ElMessage.success('Skill updated successfully')
+      toast.success('Skill updated successfully')
       closeDialog()
       return true
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to update skill'
-      ElMessage.error(message)
+      toast.error(message)
       return false
     }
   }
 
   // Delete a skill
   async function handleDelete(id: string): Promise<boolean> {
-    try {
-      await ElMessageBox.confirm('Are you sure you want to delete this skill?', 'Delete Skill', {
-        confirmButtonText: 'Delete',
-        cancelButtonText: 'Cancel',
-        type: 'warning',
-      })
+    const confirmed = await confirm({
+      title: 'Delete Skill',
+      description: 'Are you sure you want to delete this skill?',
+      confirmText: 'Delete',
+      cancelText: 'Cancel',
+      variant: 'destructive',
+    })
 
+    if (!confirmed) return false
+
+    try {
       await deleteSkill(id)
       skills.value = skills.value.filter((s) => s.id !== id)
-      ElMessage.success('Skill deleted successfully')
+      toast.success('Skill deleted successfully')
       closeDialog()
       return true
     } catch (err) {
-      if (err !== 'cancel') {
-        const message = err instanceof Error ? err.message : 'Failed to delete skill'
-        ElMessage.error(message)
-      }
+      const message = err instanceof Error ? err.message : 'Failed to delete skill'
+      toast.error(message)
       return false
     }
   }
@@ -118,24 +121,10 @@ export function useSkills() {
     try {
       const result = await exportSkill(id)
       downloadAsFile(result.markdown, result.filename, 'text/markdown')
-      ElMessage.success('Skill exported successfully')
+      toast.success('Skill exported successfully')
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to export skill'
-      ElMessage.error(message)
-    }
-  }
-
-  // Import a skill from markdown
-  async function handleImport(request: ImportSkillRequest): Promise<Skill | null> {
-    try {
-      const newSkill = await importSkill(request)
-      skills.value.unshift(newSkill)
-      ElMessage.success('Skill imported successfully')
-      return newSkill
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to import skill'
-      ElMessage.error(message)
-      return null
+      toast.error(message)
     }
   }
 
@@ -156,6 +145,5 @@ export function useSkills() {
     handleUpdate,
     handleDelete,
     handleExport,
-    handleImport,
   }
 }

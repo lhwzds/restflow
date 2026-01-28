@@ -68,7 +68,10 @@ mod tests {
 
     #[test]
     fn test_trace_event_tool_call() {
-        let event = TraceEvent::tool_call("http_request", &serde_json::json!({"url": "http://example.com"}));
+        let event = TraceEvent::tool_call(
+            "http_request",
+            &serde_json::json!({"url": "http://example.com"}),
+        );
         assert_eq!(event.event_type, "tool_call");
         assert_eq!(event.data["tool"], "http_request");
     }

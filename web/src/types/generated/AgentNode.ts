@@ -3,29 +3,26 @@ import type { AIModel } from "./AIModel";
 import type { ApiKeyConfig } from "./ApiKeyConfig";
 
 /**
- * Agent configuration node
- *
- * This struct holds the configuration for an AI agent.
- * Execution is handled by restflow-ai's AgentExecutor.
+ * Agent configuration for AI-powered execution
  */
 export type AgentNode = { 
 /**
- * The AI model to use
+ * AI model to use for this agent
  */
 model: AIModel, 
 /**
  * System prompt for the agent
  */
-prompt: string | null, 
+prompt?: string, 
 /**
- * Temperature for generation (0.0-1.0)
+ * Temperature setting for model responses
  */
-temperature: number | null, 
+temperature?: number, 
 /**
- * API key configuration
+ * API key configuration (direct or from secret)
  */
-api_key_config: ApiKeyConfig | null, 
+api_key_config?: ApiKeyConfig, 
 /**
- * Tool names to enable for this agent
+ * List of tool names the agent is allowed to use
  */
-tools: Array<string> | null, };
+tools?: Array<string>, };

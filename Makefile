@@ -1,4 +1,4 @@
-.PHONY: dev prod build down logs clean help run web local
+.PHONY: dev prod build down logs clean help run web local tauri tauri-build
 
 # Development mode with hot reload
 dev:
@@ -41,6 +41,14 @@ local:
 	@echo "Starting frontend..."
 	@cd web && npm run dev
 
+# Run Tauri desktop app in dev mode
+tauri:
+	cd crates/restflow-tauri && cargo tauri dev
+
+# Build Tauri desktop app for production
+tauri-build:
+	cd crates/restflow-tauri && cargo tauri build
+
 help:
 	@echo "Usage:"
 	@echo ""
@@ -55,3 +63,7 @@ help:
 	@echo "    make run    - Run backend locally"
 	@echo "    make web    - Run frontend locally"
 	@echo "    make local  - Run both backend and frontend locally"
+	@echo ""
+	@echo "  Tauri Desktop:"
+	@echo "    make tauri       - Run Tauri desktop app in dev mode"
+	@echo "    make tauri-build - Build Tauri desktop app for production"
