@@ -130,6 +130,17 @@ fn main() {
             commands::delete_agent,
             commands::execute_agent,
             commands::execute_agent_inline,
+            // Agent Tasks
+            commands::list_agent_tasks,
+            commands::list_agent_tasks_by_status,
+            commands::get_agent_task,
+            commands::create_agent_task,
+            commands::update_agent_task,
+            commands::delete_agent_task,
+            commands::pause_agent_task,
+            commands::resume_agent_task,
+            commands::get_agent_task_events,
+            commands::get_runnable_agent_tasks,
             // Secrets
             commands::list_secrets,
             commands::create_secret,
