@@ -40,9 +40,11 @@ use anyhow::Result;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
+use ts_rs::TS;
 
 /// A search result with relevance score.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct ScoredChunk {
     /// The memory chunk
     pub chunk: MemoryChunk,
@@ -55,7 +57,8 @@ pub struct ScoredChunk {
 }
 
 /// Breakdown of how the score was calculated.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, TS)]
+#[ts(export)]
 pub struct ScoreBreakdown {
     /// Score contribution from keyword frequency
     pub frequency_score: f64,
@@ -66,7 +69,8 @@ pub struct ScoreBreakdown {
 }
 
 /// Results from a ranked search.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct RankedSearchResult {
     /// Scored chunks sorted by relevance
     pub chunks: Vec<ScoredChunk>,
