@@ -283,7 +283,7 @@ async function handleCreateTask(request: CreateAgentTaskRequest) {
         <DropdownMenuSeparator class="h-6 w-px bg-border mx-1" />
 
         <!-- Refresh -->
-        <Button variant="ghost" size="icon" :disabled="isLoading" @click="handleRefresh">
+        <Button variant="ghost" size="icon" :disabled="isLoading" @click="handleRefresh" aria-label="Refresh">
           <RefreshCw :size="16" :class="{ 'animate-spin': isLoading }" />
         </Button>
 
