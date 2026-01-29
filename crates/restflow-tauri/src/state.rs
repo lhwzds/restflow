@@ -3,7 +3,8 @@
 use crate::agent_task::runner::{
     AgentExecutor, AgentTaskRunner, NotificationSender, RunnerConfig, RunnerHandle,
 };
-use crate::commands::agent_task::ActiveTaskInfo;
+use crate::agent_task::{HeartbeatConfig, HeartbeatHandle, HeartbeatRunner};
+use crate::commands::agent_task::{ActiveTaskInfo, HeartbeatStatus};
 use anyhow::Result;
 use restflow_core::AppCore;
 use std::collections::HashMap;
@@ -21,6 +22,12 @@ pub struct RunningTaskState {
     pub execution_mode: String,
 }
 
+/// Heartbeat runner state
+struct HeartbeatState {
+    handle: HeartbeatHandle,
+    runner: Arc<HeartbeatRunner>,
+}
+
 /// Application state shared across Tauri commands
 pub struct AppState {
     pub core: Arc<AppCore>,
@@ -28,6 +35,8 @@ pub struct AppState {
     runner_handle: RwLock<Option<RunnerHandle>>,
     /// Currently running tasks (task_id -> RunningTaskState)
     running_tasks: RwLock<HashMap<String, RunningTaskState>>,
+    /// Heartbeat runner state
+    heartbeat_state: RwLock<Option<HeartbeatState>>,
 }
 
 impl AppState {
@@ -37,6 +46,7 @@ impl AppState {
             core,
             runner_handle: RwLock::new(None),
             running_tasks: RwLock::new(HashMap::new()),
+            heartbeat_state: RwLock::new(None),
         })
     }
 
@@ -158,5 +168,93 @@ impl AppState {
     /// Get count of running tasks
     pub async fn running_task_count(&self) -> usize {
         self.running_tasks.read().await.len()
+    }
+
+    // ========================================================================
+    // Heartbeat Runner Management
+    // ========================================================================
+
+    /// Start the heartbeat runner with the provided Tauri app handle.
+    ///
+    /// This spawns a background task that sends periodic heartbeat events.
+    /// If a heartbeat runner is already active, this will stop it first.
+    pub async fn start_heartbeat(&self, app_handle: tauri::AppHandle) -> Result<()> {
+        self.start_heartbeat_with_config(app_handle, HeartbeatConfig::default())
+            .await
+    }
+
+    /// Start the heartbeat runner with custom configuration.
+    pub async fn start_heartbeat_with_config(
+        &self,
+        app_handle: tauri::AppHandle,
+        config: HeartbeatConfig,
+    ) -> Result<()> {
+        // Stop existing heartbeat runner if any
+        self.stop_heartbeat().await?;
+
+        let runner = Arc::new(HeartbeatRunner::new(config));
+        let handle = runner.clone().start_with_tauri(app_handle);
+        info!("Heartbeat runner started");
+
+        let mut guard = self.heartbeat_state.write().await;
+        *guard = Some(HeartbeatState { handle, runner });
+
+        Ok(())
+    }
+
+    /// Stop the heartbeat runner if it's running.
+    pub async fn stop_heartbeat(&self) -> Result<()> {
+        let mut guard = self.heartbeat_state.write().await;
+        if let Some(state) = guard.take() {
+            info!("Stopping heartbeat runner");
+            if let Err(e) = state.handle.stop().await {
+                error!("Error stopping heartbeat runner: {}", e);
+                // Don't propagate - runner may have already stopped
+            }
+        }
+        Ok(())
+    }
+
+    /// Check if the heartbeat runner is currently active.
+    pub async fn is_heartbeat_active(&self) -> bool {
+        self.heartbeat_state.read().await.is_some()
+    }
+
+    /// Get heartbeat runner status.
+    pub async fn get_heartbeat_status(&self) -> Result<HeartbeatStatus> {
+        let guard = self.heartbeat_state.read().await;
+        if let Some(state) = guard.as_ref() {
+            Ok(HeartbeatStatus {
+                active: true,
+                sequence: state.runner.current_sequence(),
+                uptime_ms: state.runner.uptime_ms(),
+            })
+        } else {
+            Ok(HeartbeatStatus {
+                active: false,
+                sequence: 0,
+                uptime_ms: 0,
+            })
+        }
+    }
+
+    /// Acknowledge a heartbeat from the frontend.
+    pub async fn ack_heartbeat(&self, sequence: u64) -> Result<()> {
+        let guard = self.heartbeat_state.read().await;
+        if let Some(state) = guard.as_ref() {
+            state.handle.ack(sequence).await
+        } else {
+            anyhow::bail!("No heartbeat runner is active")
+        }
+    }
+
+    /// Update task counts for heartbeat reporting.
+    pub async fn update_heartbeat_counts(&self, active: u32, pending: u32) -> Result<()> {
+        let guard = self.heartbeat_state.read().await;
+        if let Some(state) = guard.as_ref() {
+            state.handle.update_counts(active, pending).await
+        } else {
+            anyhow::bail!("No heartbeat runner is active")
+        }
     }
 }

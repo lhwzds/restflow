@@ -11,6 +11,7 @@
 //! - `pty_cli_executor`: PTY-based executor for interactive CLI tools
 //! - `notifier`: Telegram notification sender for task results
 //! - `events`: Real-time streaming events for frontend updates
+//! - `heartbeat`: Periodic health monitoring and connection status
 //! - `AgentExecutor`: Trait for executing agents (allows dependency injection)
 //! - `NotificationSender`: Trait for sending notifications (allows DI)
 //! - `TaskEventEmitter`: Trait for emitting real-time events (allows DI)
@@ -20,7 +21,7 @@
 //! ```ignore
 //! use restflow_tauri::agent_task::{
 //!     AgentTaskRunner, RunnerConfig, RealAgentExecutor, CliExecutor,
-//!     PtyCliExecutor, TelegramNotifier, TaskStreamEvent
+//!     PtyCliExecutor, TelegramNotifier, TaskStreamEvent, HeartbeatRunner
 //! };
 //!
 //! // For API-based execution:
@@ -42,8 +43,13 @@
 //!
 //! let handle = runner.clone().start();
 //!
+//! // Start heartbeat monitoring
+//! let heartbeat = Arc::new(HeartbeatRunner::new(HeartbeatConfig::default()));
+//! let heartbeat_handle = heartbeat.start_with_tauri(app_handle);
+//!
 //! // Later, to stop:
 //! handle.stop().await?;
+//! heartbeat_handle.stop().await?;
 //! ```
 //!
 //! # Streaming Events
@@ -69,10 +75,36 @@
 //!     "task-123", "Task completed successfully", 1500
 //! ));
 //! ```
+//!
+//! # Heartbeat Events
+//!
+//! The heartbeat module provides connection monitoring:
+//!
+//! ```ignore
+//! use restflow_tauri::agent_task::heartbeat::{HeartbeatEvent, HEARTBEAT_EVENT};
+//! use tauri::Manager;
+//!
+//! // Frontend listens to heartbeat events
+//! app_handle.listen(HEARTBEAT_EVENT, |event| {
+//!     let heartbeat: HeartbeatEvent = serde_json::from_str(event.payload()).unwrap();
+//!     match heartbeat {
+//!         HeartbeatEvent::Pulse(pulse) => {
+//!             // Update connection status, task counts, etc.
+//!         }
+//!         HeartbeatEvent::StatusChange(status) => {
+//!             // Handle runner status changes
+//!         }
+//!         HeartbeatEvent::Warning(warning) => {
+//!             // Display warning to user
+//!         }
+//!     }
+//! });
+//! ```
 
 pub mod cli_executor;
 pub mod events;
 pub mod executor;
+pub mod heartbeat;
 pub mod notifier;
 pub mod pty_cli_executor;
 pub mod runner;
@@ -83,6 +115,11 @@ pub use events::{
     TaskStreamEvent, TauriEventEmitter, TASK_STREAM_EVENT,
 };
 pub use executor::RealAgentExecutor;
+pub use heartbeat::{
+    ChannelHeartbeatEmitter, HeartbeatConfig, HeartbeatEmitter, HeartbeatEvent, HeartbeatHandle,
+    HeartbeatPulse, HeartbeatRunner, HeartbeatWarning, NoopHeartbeatEmitter, RunnerStatus,
+    RunnerStatusEvent, SystemStats, TauriHeartbeatEmitter, HEARTBEAT_EVENT,
+};
 pub use notifier::TelegramNotifier;
 pub use pty_cli_executor::PtyCliExecutor;
 pub use runner::{

@@ -487,6 +487,73 @@ pub fn get_task_stream_event_name() -> String {
     TASK_STREAM_EVENT.to_string()
 }
 
+// ============================================================================
+// Heartbeat Commands
+// ============================================================================
+
+use crate::agent_task::HEARTBEAT_EVENT;
+
+/// Get the heartbeat event name for frontend subscription
+///
+/// # Usage
+///
+/// ```typescript
+/// import { listen } from '@tauri-apps/api/event';
+/// import type { HeartbeatEvent } from './types/generated';
+///
+/// const unlisten = await listen<HeartbeatEvent>('agent-task:heartbeat', (event) => {
+///   console.log('Heartbeat:', event.payload);
+/// });
+/// ```
+#[tauri::command]
+pub fn get_heartbeat_event_name() -> String {
+    HEARTBEAT_EVENT.to_string()
+}
+
+/// Heartbeat status response
+#[derive(Debug, Clone, Serialize)]
+pub struct HeartbeatStatus {
+    /// Whether heartbeat runner is active
+    pub active: bool,
+    /// Current sequence number
+    pub sequence: u64,
+    /// Uptime in milliseconds
+    pub uptime_ms: u64,
+}
+
+/// Get heartbeat runner status
+#[tauri::command]
+pub async fn get_heartbeat_status(state: State<'_, AppState>) -> Result<HeartbeatStatus, String> {
+    state.get_heartbeat_status().await.map_err(|e| e.to_string())
+}
+
+/// Acknowledge a heartbeat from the frontend
+///
+/// This helps the runner track connection health. Call this after receiving
+/// a heartbeat pulse to confirm the frontend is still connected.
+#[tauri::command]
+pub async fn ack_heartbeat(state: State<'_, AppState>, sequence: u64) -> Result<(), String> {
+    state
+        .ack_heartbeat(sequence)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Update task counts for heartbeat reporting
+///
+/// Called by the runner to update active/pending task counts shown in heartbeat pulses.
+#[tauri::command]
+pub async fn update_heartbeat_counts(
+    state: State<'_, AppState>,
+    active: u32,
+    pending: u32,
+) -> Result<(), String> {
+    state
+        .update_heartbeat_counts(active, pending)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
