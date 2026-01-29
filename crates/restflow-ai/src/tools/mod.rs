@@ -4,6 +4,7 @@
 //! Tools implement the `Tool` trait for integration with the agent executor.
 
 mod email;
+mod file_memory;
 mod http;
 mod python;
 mod registry;
@@ -12,6 +13,10 @@ mod telegram;
 mod traits;
 
 pub use email::EmailTool;
+pub use file_memory::{
+    DeleteMemoryTool, FileMemoryConfig, ListMemoryTool, MemoryEntry, MemoryEntryMeta,
+    ReadMemoryTool, SaveMemoryTool,
+};
 pub use http::HttpTool;
 pub use python::PythonTool;
 pub use registry::ToolRegistry;
