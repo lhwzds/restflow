@@ -35,6 +35,11 @@ const mockTask: AgentTask = {
     notify_on_failure_only: false,
     include_output: true,
   },
+  memory: {
+    max_messages: 100,
+    enable_file_memory: false,
+    persist_on_complete: false,
+  },
   status: 'active',
   created_at: Date.now(),
   updated_at: Date.now(),
