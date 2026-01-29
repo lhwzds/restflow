@@ -298,7 +298,7 @@ impl MemorySession {
 ///
 /// Supports keyword search, tag filtering, time range filtering,
 /// and source type filtering.
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct MemorySearchQuery {
     /// Agent ID to search within (required)
@@ -345,6 +345,23 @@ pub struct MemorySearchQuery {
 
 fn default_limit() -> u32 {
     50
+}
+
+impl Default for MemorySearchQuery {
+    fn default() -> Self {
+        Self {
+            agent_id: String::new(),
+            query: None,
+            search_mode: SearchMode::default(),
+            session_id: None,
+            tags: Vec::new(),
+            source_type: None,
+            from_time: None,
+            to_time: None,
+            limit: default_limit(),
+            offset: 0,
+        }
+    }
 }
 
 impl MemorySearchQuery {
