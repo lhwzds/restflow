@@ -4,6 +4,7 @@ import { Plus, Check, X, Trash2, Pencil, Eye, EyeOff, Key } from 'lucide-vue-nex
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Separator } from '@/components/ui/separator'
 import { useSecretsList } from '@/composables/secrets/useSecretsList'
 import { useSecretOperations } from '@/composables/secrets/useSecretOperations'
 import type { Secret } from '@/types/generated/Secret'
@@ -15,6 +16,7 @@ import {
 } from '@/constants'
 import { useToast } from '@/composables/useToast'
 import { useConfirm } from '@/composables/useConfirm'
+import TelegramConfig from './TelegramConfig.vue'
 
 const props = defineProps<{
   open: boolean
@@ -172,13 +174,20 @@ function setEditValue(key: string, value: string) {
 
 <template>
   <Dialog :open="props.open" @update:open="emit('update:open', $event)">
-    <DialogContent class="w-[500px] max-w-[500px] h-[320px] flex flex-col">
+    <DialogContent class="w-[500px] max-w-[500px] h-[520px] flex flex-col">
       <DialogHeader>
         <DialogTitle>Settings</DialogTitle>
       </DialogHeader>
 
-      <!-- Secrets Section -->
-      <div class="flex-1 flex flex-col space-y-3 overflow-hidden">
+      <!-- Scrollable content area -->
+      <div class="flex-1 overflow-y-auto space-y-4 pr-1">
+        <!-- Telegram Config Section -->
+        <TelegramConfig />
+
+        <Separator />
+
+        <!-- Secrets Section -->
+        <div class="flex flex-col space-y-3">
         <div class="flex items-center justify-between">
           <h3 class="text-sm font-medium flex items-center gap-2">
             <Key :size="14" />
@@ -305,6 +314,7 @@ function setEditValue(key: string, value: string) {
           >
             No secrets yet
           </div>
+        </div>
         </div>
       </div>
     </DialogContent>
