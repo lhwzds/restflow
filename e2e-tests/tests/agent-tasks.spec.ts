@@ -77,8 +77,8 @@ test.describe('Agent Tasks', () => {
     await page.locator('button', { hasText: 'New Task' }).click()
     await expect(page.locator('[role="dialog"]')).toBeVisible()
 
-    // Check for form fields
-    await expect(page.locator('input[placeholder*="Task name"]')).toBeVisible()
+    // Check for form fields - name input has placeholder "My scheduled task"
+    await expect(page.locator('input[placeholder*="scheduled task"]')).toBeVisible()
     await expect(page.locator('button', { hasText: 'Create' })).toBeVisible()
     await expect(page.locator('button', { hasText: 'Cancel' })).toBeVisible()
   })
@@ -149,8 +149,8 @@ test.describe('Agent Tasks - Task Creation Flow', () => {
     await page.locator('button', { hasText: 'New Task' }).click()
     await expect(page.locator('[role="dialog"]')).toBeVisible()
 
-    // Fill in task name
-    await page.locator('input[placeholder*="Task name"]').fill('Test Task E2E')
+    // Fill in task name - name input has placeholder "My scheduled task"
+    await page.locator('input[placeholder*="scheduled task"]').fill('Test Task E2E')
 
     // Select a schedule type if present
     const scheduleSelect = page.locator('[data-testid="schedule-type"]')
