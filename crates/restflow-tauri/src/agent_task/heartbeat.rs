@@ -259,22 +259,12 @@ impl HeartbeatEmitter for NoopHeartbeatEmitter {
 }
 
 /// Internal state for the heartbeat runner
+#[derive(Default)]
 struct HeartbeatState {
     active_tasks: u32,
     pending_tasks: u32,
     last_ack_sequence: u64,
     missed_heartbeats: u32,
-}
-
-impl Default for HeartbeatState {
-    fn default() -> Self {
-        Self {
-            active_tasks: 0,
-            pending_tasks: 0,
-            last_ack_sequence: 0,
-            missed_heartbeats: 0,
-        }
-    }
 }
 
 /// The HeartbeatRunner that sends periodic heartbeat events
@@ -552,13 +542,13 @@ mod tests {
         // Drain events until we find a pulse with our counts
         let mut found = false;
         for _ in 0..10 {
-            if let Ok(Some(event)) = timeout(Duration::from_millis(100), rx.recv()).await {
-                if let HeartbeatEvent::Pulse(pulse) = event {
-                    if pulse.active_tasks == 5 && pulse.pending_tasks == 10 {
-                        found = true;
-                        break;
-                    }
-                }
+            if let Ok(Some(HeartbeatEvent::Pulse(pulse))) =
+                timeout(Duration::from_millis(100), rx.recv()).await
+                && pulse.active_tasks == 5
+                && pulse.pending_tasks == 10
+            {
+                found = true;
+                break;
             }
         }
 
@@ -584,11 +574,11 @@ mod tests {
         // Wait for first pulse and get its sequence
         let mut first_sequence = 0u64;
         for _ in 0..5 {
-            if let Ok(Some(event)) = timeout(Duration::from_millis(200), rx.recv()).await {
-                if let HeartbeatEvent::Pulse(pulse) = event {
-                    first_sequence = pulse.sequence;
-                    break;
-                }
+            if let Ok(Some(HeartbeatEvent::Pulse(pulse))) =
+                timeout(Duration::from_millis(200), rx.recv()).await
+            {
+                first_sequence = pulse.sequence;
+                break;
             }
         }
 
@@ -600,13 +590,12 @@ mod tests {
         // Verify we can still receive more pulses after acking
         let mut received_more = false;
         for _ in 0..5 {
-            if let Ok(Some(event)) = timeout(Duration::from_millis(200), rx.recv()).await {
-                if let HeartbeatEvent::Pulse(pulse) = event {
-                    if pulse.sequence > first_sequence {
-                        received_more = true;
-                        break;
-                    }
-                }
+            if let Ok(Some(HeartbeatEvent::Pulse(pulse))) =
+                timeout(Duration::from_millis(200), rx.recv()).await
+                && pulse.sequence > first_sequence
+            {
+                received_more = true;
+                break;
             }
         }
 
