@@ -7,13 +7,16 @@
 //! - Sending notifications on completion/failure
 
 use anyhow::{anyhow, Result};
+use restflow_core::models::{AgentTask, AgentTaskStatus, ExecutionMode, NotificationConfig};
 use restflow_core::storage::AgentTaskStorage;
-use restflow_core::models::{AgentTask, AgentTaskStatus, NotificationConfig};
 use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
 use tokio::time::{interval, Duration};
 use tracing::{debug, error, info, warn};
+
+use super::cli_executor::CliExecutor;
+use super::pty_cli_executor::PtyCliExecutor;
 
 /// Message types for controlling the runner
 #[derive(Debug)]
@@ -295,17 +298,51 @@ impl AgentTaskRunner {
         };
 
         info!(
-            "Executing task '{}' (id={}, agent={})",
-            task.name, task.id, task.agent_id
+            "Executing task '{}' (id={}, agent={}, mode={:?})",
+            task.name, task.id, task.agent_id, task.execution_mode
         );
 
-        // Execute the agent with timeout
-        let timeout = Duration::from_secs(self.config.task_timeout_secs);
-        let result = tokio::time::timeout(
-            timeout,
-            self.executor.execute(&task.agent_id, task.input.as_deref()),
-        )
-        .await;
+        // Execute the agent based on execution mode
+        let result = match &task.execution_mode {
+            ExecutionMode::Api => {
+                // Use the injected API executor
+                debug!("Using API executor for task '{}'", task.name);
+                let timeout = Duration::from_secs(self.config.task_timeout_secs);
+                tokio::time::timeout(
+                    timeout,
+                    self.executor.execute(&task.agent_id, task.input.as_deref()),
+                )
+                .await
+            }
+            ExecutionMode::Cli(cli_config) => {
+                // Use CLI executor based on use_pty flag
+                debug!(
+                    "Using {} executor for task '{}' (binary: {})",
+                    if cli_config.use_pty { "PTY CLI" } else { "CLI" },
+                    task.name,
+                    cli_config.binary
+                );
+                let timeout = Duration::from_secs(cli_config.timeout_secs);
+
+                if cli_config.use_pty {
+                    // Use PTY-based executor for interactive CLIs
+                    let executor = PtyCliExecutor::new(cli_config.clone());
+                    tokio::time::timeout(
+                        timeout,
+                        executor.execute(&task.agent_id, task.input.as_deref()),
+                    )
+                    .await
+                } else {
+                    // Use standard CLI executor
+                    let executor = CliExecutor::new(cli_config.clone());
+                    tokio::time::timeout(
+                        timeout,
+                        executor.execute(&task.agent_id, task.input.as_deref()),
+                    )
+                    .await
+                }
+            }
+        };
 
         let duration_ms = chrono::Utc::now().timestamp_millis() - start_time;
 
