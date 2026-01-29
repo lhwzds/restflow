@@ -725,10 +725,10 @@ mod tests {
         // Collect several pulses
         let mut sequences = Vec::new();
         for _ in 0..3 {
-            if let Ok(Some(event)) = timeout(Duration::from_millis(100), rx.recv()).await {
-                if let HeartbeatEvent::Pulse(pulse) = event {
-                    sequences.push(pulse.sequence);
-                }
+            if let Ok(Some(HeartbeatEvent::Pulse(pulse))) =
+                timeout(Duration::from_millis(100), rx.recv()).await
+            {
+                sequences.push(pulse.sequence);
             }
         }
 
@@ -764,10 +764,10 @@ mod tests {
 
         // Get first pulse
         let first_uptime = loop {
-            if let Ok(Some(event)) = timeout(Duration::from_millis(200), rx.recv()).await {
-                if let HeartbeatEvent::Pulse(pulse) = event {
-                    break pulse.uptime_ms;
-                }
+            if let Ok(Some(HeartbeatEvent::Pulse(pulse))) =
+                timeout(Duration::from_millis(200), rx.recv()).await
+            {
+                break pulse.uptime_ms;
             }
         };
 
@@ -775,10 +775,10 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(100)).await;
 
         let second_uptime = loop {
-            if let Ok(Some(event)) = timeout(Duration::from_millis(200), rx.recv()).await {
-                if let HeartbeatEvent::Pulse(pulse) = event {
-                    break pulse.uptime_ms;
-                }
+            if let Ok(Some(HeartbeatEvent::Pulse(pulse))) =
+                timeout(Duration::from_millis(200), rx.recv()).await
+            {
+                break pulse.uptime_ms;
             }
         };
 

@@ -26,7 +26,7 @@ import {
 import { useTaskStreamEvents } from '@/composables/agents/useTaskStreamEvents'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardHeader } from '@/components/ui/card'
 
 const props = withDefaults(
   defineProps<{
@@ -64,7 +64,6 @@ const taskIdRef = toRef(() => props.taskId)
 // Use the task stream events composable
 const {
   state,
-  isListening,
   isRunning,
   isCompleted,
   isFailed,
