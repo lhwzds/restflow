@@ -56,9 +56,11 @@
 //! ```
 
 mod chunker;
+mod export;
 mod search;
 
 pub use chunker::{TextChunker, TextChunkerBuilder};
+pub use export::{ExportOptions, ExportResult, MemoryExporter, MemoryExporterBuilder};
 pub use search::{
     RankedSearchResult, ScoreBreakdown, ScoredChunk, SearchConfig, SearchEngine,
     SearchEngineBuilder,
