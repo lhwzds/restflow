@@ -7,20 +7,15 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 /// Execution mode for agent tasks
-#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, TS, PartialEq)]
 #[ts(export)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum ExecutionMode {
     /// Use restflow-ai API executor (default)
+    #[default]
     Api,
     /// Use external CLI tool (e.g., claude, aider)
     Cli(CliExecutionConfig),
-}
-
-impl Default for ExecutionMode {
-    fn default() -> Self {
-        Self::Api
-    }
 }
 
 /// Configuration for CLI-based execution
