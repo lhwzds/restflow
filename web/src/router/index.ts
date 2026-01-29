@@ -13,12 +13,6 @@ const router = createRouter({
       component: () => import('../views/SkillWorkspace.vue'),
       meta: { title: 'RestFlow' },
     },
-    {
-      path: '/agent-tasks',
-      name: 'agent-tasks',
-      component: () => import('../views/AgentTaskList.vue'),
-      meta: { title: 'Agent Tasks - RestFlow' },
-    },
   ],
 })
 
