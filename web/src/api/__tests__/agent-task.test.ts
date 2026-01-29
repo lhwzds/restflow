@@ -25,6 +25,7 @@ describe('Agent Task API', () => {
     agent_id: 'agent-001',
     input: null,
     schedule: { type: 'interval', interval_ms: 3600000, start_at: null },
+    execution_mode: { type: 'api' },
     notification: {
       telegram_enabled: false,
       telegram_bot_token: null,
