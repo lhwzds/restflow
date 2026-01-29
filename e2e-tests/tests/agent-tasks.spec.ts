@@ -141,6 +141,23 @@ test.describe('Agent Tasks', () => {
 
 test.describe('Agent Tasks - Task Creation Flow', () => {
   test.beforeEach(async ({ page }) => {
+    // First, create an agent so we have one available for task creation
+    await page.goto('/workspace')
+    await page.waitForLoadState('networkidle')
+
+    // Navigate to Agents tab
+    const agentsTab = page.getByRole('button', { name: 'Agents' })
+    await agentsTab.click()
+    await page.waitForLoadState('networkidle')
+
+    // Create a new agent via UI
+    const newAgentButton = page.locator('button', { hasText: 'New Agent' })
+    await newAgentButton.click()
+
+    // Wait for agent to be created (editor should open)
+    await page.waitForTimeout(500)
+
+    // Now navigate to agent tasks
     await page.goto('/agent-tasks')
     await page.waitForLoadState('networkidle')
   })
@@ -170,6 +187,5 @@ test.describe('Agent Tasks - Task Creation Flow', () => {
     await page.waitForTimeout(500)
 
     // Dialog should close on success
-    // Note: This may fail if validation errors occur or no agents exist
   })
 })
