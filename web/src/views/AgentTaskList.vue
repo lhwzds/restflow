@@ -7,6 +7,7 @@
  */
 
 import { ref, computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import {
   Plus,
@@ -17,6 +18,7 @@ import {
   Filter,
   Clock,
   ArrowUpDown,
+  ArrowLeft,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -45,7 +47,13 @@ import { useConfirm } from '@/composables/useConfirm'
 
 const toast = useToast()
 const { confirm } = useConfirm()
+const router = useRouter()
 const store = useAgentTaskStore()
+
+// Navigate back to workspace
+const navigateBack = () => {
+  router.push('/workspace')
+}
 
 // Store state
 const { filteredTasks, isLoading, error, statusFilter, statusCounts, searchQuery, sortField, sortOrder } =
@@ -185,6 +193,14 @@ async function handleCreateTask(request: CreateAgentTaskRequest) {
     <!-- Header -->
     <header class="list-header">
       <div class="header-left">
+        <Button
+          variant="ghost"
+          size="icon"
+          class="back-btn"
+          @click="navigateBack"
+        >
+          <ArrowLeft :size="18" />
+        </Button>
         <h1 class="title">
           <Clock :size="24" />
           Agent Tasks
@@ -355,6 +371,10 @@ async function handleCreateTask(request: CreateAgentTaskRequest) {
     display: flex;
     align-items: center;
     gap: var(--rf-spacing-md);
+
+    .back-btn {
+      margin-right: var(--rf-spacing-xs);
+    }
 
     .title {
       display: flex;
