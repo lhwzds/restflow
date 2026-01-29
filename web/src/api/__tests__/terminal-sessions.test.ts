@@ -45,15 +45,11 @@ describe('Terminal Sessions API', () => {
       const { isTauri } = await import('../config')
       vi.mocked(isTauri).mockReturnValue(false)
 
-      const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-
       const { listTerminalSessions } = await import('../terminal-sessions')
       const result = await listTerminalSessions()
 
+      // Web mode returns mock sessions array (initially empty)
       expect(result).toEqual([])
-      expect(consoleSpy).toHaveBeenCalledWith('Terminal sessions are only available in Tauri mode')
-
-      consoleSpy.mockRestore()
     })
   })
 
@@ -70,13 +66,14 @@ describe('Terminal Sessions API', () => {
       expect(result).toEqual(mockSession)
     })
 
-    it('should throw error when not in Tauri mode', async () => {
+    it('should throw error when session not found in web mode', async () => {
       const { isTauri } = await import('../config')
       vi.mocked(isTauri).mockReturnValue(false)
 
       const { getTerminalSession } = await import('../terminal-sessions')
+      // Web mode throws when session not found in mock sessions
       await expect(getTerminalSession('terminal-abc123')).rejects.toThrow(
-        'Terminal sessions are only available in Tauri mode',
+        'Terminal session not found: terminal-abc123',
       )
     })
   })
@@ -94,14 +91,17 @@ describe('Terminal Sessions API', () => {
       expect(result).toEqual(mockSession)
     })
 
-    it('should throw error when not in Tauri mode', async () => {
+    it('should create mock session in web mode', async () => {
       const { isTauri } = await import('../config')
       vi.mocked(isTauri).mockReturnValue(false)
 
       const { createTerminalSession } = await import('../terminal-sessions')
-      await expect(createTerminalSession()).rejects.toThrow(
-        'Terminal sessions are only available in Tauri mode',
-      )
+      const result = await createTerminalSession()
+
+      // Web mode creates a mock session
+      expect(result).toHaveProperty('id')
+      expect(result).toHaveProperty('name')
+      expect(result.status).toBe('running')
     })
   })
 
@@ -122,13 +122,14 @@ describe('Terminal Sessions API', () => {
       expect(result).toEqual(updatedSession)
     })
 
-    it('should throw error when not in Tauri mode', async () => {
+    it('should throw error when session not found in web mode', async () => {
       const { isTauri } = await import('../config')
       vi.mocked(isTauri).mockReturnValue(false)
 
       const { renameTerminalSession } = await import('../terminal-sessions')
+      // Web mode throws when session not found
       await expect(renameTerminalSession('terminal-abc123', 'New Name')).rejects.toThrow(
-        'Terminal sessions are only available in Tauri mode',
+        'Terminal session not found: terminal-abc123',
       )
     })
   })
@@ -177,14 +178,15 @@ describe('Terminal Sessions API', () => {
       expect(result).toEqual(updatedSession)
     })
 
-    it('should throw error when not in Tauri mode', async () => {
+    it('should throw error when session not found in web mode', async () => {
       const { isTauri } = await import('../config')
       vi.mocked(isTauri).mockReturnValue(false)
 
       const { updateTerminalSession } = await import('../terminal-sessions')
+      // Web mode throws when session not found
       await expect(
         updateTerminalSession('terminal-abc123', { working_directory: '~/projects' }),
-      ).rejects.toThrow('Terminal sessions are only available in Tauri mode')
+      ).rejects.toThrow('Terminal session not found: terminal-abc123')
     })
   })
 
@@ -200,14 +202,13 @@ describe('Terminal Sessions API', () => {
       expect(tauriInvoke).toHaveBeenCalledWith('delete_terminal_session', { id: 'terminal-abc123' })
     })
 
-    it('should throw error when not in Tauri mode', async () => {
+    it('should silently succeed in web mode (no-op if session not found)', async () => {
       const { isTauri } = await import('../config')
       vi.mocked(isTauri).mockReturnValue(false)
 
       const { deleteTerminalSession } = await import('../terminal-sessions')
-      await expect(deleteTerminalSession('terminal-abc123')).rejects.toThrow(
-        'Terminal sessions are only available in Tauri mode',
-      )
+      // Web mode silently succeeds (removes from mock sessions if exists)
+      await expect(deleteTerminalSession('terminal-abc123')).resolves.toBeUndefined()
     })
   })
 })
