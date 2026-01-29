@@ -354,13 +354,13 @@ impl MemoryStorage {
 
 /// Check if a MemorySource matches a SourceTypeFilter
 fn matches_source_type(source: &MemorySource, filter: &SourceTypeFilter) -> bool {
-    match (source, filter) {
-        (MemorySource::TaskExecution { .. }, SourceTypeFilter::TaskExecution) => true,
-        (MemorySource::Conversation { .. }, SourceTypeFilter::Conversation) => true,
-        (MemorySource::ManualNote, SourceTypeFilter::ManualNote) => true,
-        (MemorySource::AgentGenerated { .. }, SourceTypeFilter::AgentGenerated) => true,
-        _ => false,
-    }
+    matches!(
+        (source, filter),
+        (MemorySource::TaskExecution { .. }, SourceTypeFilter::TaskExecution)
+            | (MemorySource::Conversation { .. }, SourceTypeFilter::Conversation)
+            | (MemorySource::ManualNote, SourceTypeFilter::ManualNote)
+            | (MemorySource::AgentGenerated { .. }, SourceTypeFilter::AgentGenerated)
+    )
 }
 
 #[cfg(test)]
