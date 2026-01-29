@@ -79,8 +79,9 @@ test.describe('Agent Tasks', () => {
 
     // Check for form fields - name input has placeholder "My scheduled task"
     await expect(page.locator('input[placeholder*="scheduled task"]')).toBeVisible()
-    await expect(page.locator('button', { hasText: 'Create' })).toBeVisible()
-    await expect(page.locator('button', { hasText: 'Cancel' })).toBeVisible()
+    // Use exact text to avoid matching "Created" dropdown button
+    await expect(page.getByRole('button', { name: 'Create Task' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Cancel' })).toBeVisible()
   })
 
   test('can close create task dialog', async ({ page }) => {
@@ -152,20 +153,23 @@ test.describe('Agent Tasks - Task Creation Flow', () => {
     // Fill in task name - name input has placeholder "My scheduled task"
     await page.locator('input[placeholder*="scheduled task"]').fill('Test Task E2E')
 
-    // Select a schedule type if present
-    const scheduleSelect = page.locator('[data-testid="schedule-type"]')
-    if (await scheduleSelect.isVisible()) {
-      await scheduleSelect.click()
-      await page.locator('[role="option"]').first().click()
-    }
+    // Select an agent (required field) - click the agent select trigger
+    const agentSelect = page.locator('[role="dialog"]').locator('#agent')
+    await agentSelect.click()
+    // Wait for dropdown and select first available agent
+    const firstAgent = page.locator('[role="option"]').first()
+    await expect(firstAgent).toBeVisible({ timeout: 5000 })
+    await firstAgent.click()
 
-    // Submit the form
-    await page.locator('[role="dialog"] button', { hasText: 'Create' }).click()
+    // Default schedule (interval 1 hour) is valid, no need to change
+
+    // Submit the form - use getByRole for exact match
+    await page.getByRole('button', { name: 'Create Task' }).click()
 
     // Wait for dialog to close or success message
     await page.waitForTimeout(500)
 
     // Dialog should close on success
-    // Note: This may fail if validation errors occur
+    // Note: This may fail if validation errors occur or no agents exist
   })
 })
