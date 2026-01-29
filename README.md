@@ -40,7 +40,7 @@ RestFlow is an **AI assistant that can execute workflows**. Unlike traditional w
 │                                                             │
 │   ┌─────────────┐    ┌─────────────┐    ┌─────────────┐     │
 │   │  AI Agent   │───►│  Workflow   │───►│    Send     │     │
-│   │  Understans │    │  Skills     │    │ Notification│     │
+│   │  Understands│    │  Skills     │    │ Notification│     │
 │   └─────────────┘    │  Python     │    └─────────────┘     │
 │                      └─────────────┘                        │
 │                                                             │
@@ -51,7 +51,6 @@ RestFlow is an **AI assistant that can execute workflows**. Unlike traditional w
 
 - **🤖 AI Agent Core** - ReAct loop with multi-provider LLM support (Anthropic, OpenAI, DeepSeek)
 - **📋 Skill System** - Define agent capabilities via prompts, workflows, or code
-- **⚡ Workflow Engine** - Visual drag-and-drop workflow editor
 - **🔧 Built-in Tools** - HTTP requests, Python scripts, Email, and more
 - **📅 Task Scheduling** - Cron-based automation with Telegram notifications
 - **💻 Desktop App** - Native Tauri application with integrated terminal
