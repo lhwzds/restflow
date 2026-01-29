@@ -57,10 +57,6 @@ RestFlow is an **AI assistant that can execute workflows**. Unlike traditional w
 - **💻 Desktop App** - Native Tauri application with integrated terminal
 - **🔌 MCP Support** - Model Context Protocol for AI tool integration
 
-## Demo
-
-![RestFlow Workflow Execution](./docs/content/images/workflow-execution.gif)
-
 ## Quick Start
 
 ### Desktop App (Recommended)
