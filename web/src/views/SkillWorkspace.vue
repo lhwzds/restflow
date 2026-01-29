@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { ref, watch, onMounted, computed } from 'vue'
-import { useRouter } from 'vue-router'
-import { Settings, Moon, Sun, Search, List, LayoutGrid, CalendarClock } from 'lucide-vue-next'
+import { Settings, Moon, Sun, Search, List, LayoutGrid } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import RestFlowLogo from '@/components/shared/RestFlowLogo.vue'
@@ -9,6 +8,7 @@ import RestFlowLogo from '@/components/shared/RestFlowLogo.vue'
 // import TaskHistory from '@/components/workspace/TaskHistory.vue'
 import FileBrowser from '@/components/workspace/FileBrowser.vue'
 import TerminalBrowser from '@/components/workspace/TerminalBrowser.vue'
+import TaskBrowser from '@/components/workspace/TaskBrowser.vue'
 // TODO: not finished yet, hidden for now
 // import ChatBox from '@/components/workspace/ChatBox.vue'
 // import ExecutionPanel from '@/components/workspace/ExecutionPanel.vue'
@@ -37,6 +37,7 @@ import { createAgent, deleteAgent } from '@/api/agents'
 import { useToast } from '@/composables/useToast'
 import { useTerminalAutoSave } from '@/composables/editor/useTerminalAutoSave'
 import { useTerminalSessions } from '@/composables/editor/useTerminalSessions'
+import { useAgentTaskStore } from '@/stores/agentTaskStore'
 
 // Enable terminal auto-save (saves history periodically)
 useTerminalAutoSave()
@@ -50,22 +51,16 @@ const toggleTheme = () => {
 }
 
 const toast = useToast()
-const router = useRouter()
 
-// Navigate to agent tasks page
-const navigateToAgentTasks = () => {
-  router.push('/agent-tasks')
-}
-
-// Workspace tab type (extended to include terminals)
-type WorkspaceTab = BrowserTab | 'terminals'
+// Workspace tab type (extended to include terminals and tasks)
+type WorkspaceTab = BrowserTab | 'terminals' | 'tasks'
 const activeTab = ref<WorkspaceTab>('skills')
 
 // File browser state (only used for skills/agents)
 // Separate ref for browser tab that useFileBrowser can watch
 const browserTab = ref<BrowserTab>('skills')
 watch(activeTab, (newTab) => {
-  if (newTab !== 'terminals') {
+  if (newTab !== 'terminals' && newTab !== 'tasks') {
     browserTab.value = newTab
   }
 })
@@ -129,14 +124,21 @@ const {
 // Terminal sessions
 const { sessions, createSession } = useTerminalSessions()
 
+// Task store
+const taskStore = useAgentTaskStore()
+
 // Item count for current tab (used in header)
 const itemCount = computed(() => {
+  const query = searchQuery.value.toLowerCase()
   if (activeTab.value === 'terminals') {
-    const query = searchQuery.value.toLowerCase()
     if (!query) return sessions.value.length
     return sessions.value.filter((s) => s.name.toLowerCase().includes(query)).length
+  } else if (activeTab.value === 'tasks') {
+    if (!query) return taskStore.tasks.length
+    return taskStore.tasks.filter(
+      (t) => t.name.toLowerCase().includes(query) || t.description?.toLowerCase().includes(query)
+    ).length
   } else {
-    const query = searchQuery.value.toLowerCase()
     if (!query) return items.value.length
     return items.value.filter((i) => i.name.toLowerCase().includes(query)).length
   }
@@ -382,7 +384,7 @@ const onEditorClose = () => {
         <!-- Navigation tabs use text color for active state, not background -->
         <nav class="flex gap-1">
           <Button
-            v-for="tab in ['skills', 'agents', 'terminals'] as const"
+            v-for="tab in ['skills', 'agents', 'terminals', 'tasks'] as const"
             :key="tab"
             variant="ghost"
             size="sm"
@@ -393,16 +395,6 @@ const onEditorClose = () => {
             @click="onTabChange(tab)"
           >
             {{ tab.charAt(0).toUpperCase() + tab.slice(1) }}
-          </Button>
-          <div class="w-px h-5 bg-border mx-1 self-center" />
-          <Button
-            variant="ghost"
-            size="sm"
-            class="h-7 px-3 text-muted-foreground gap-1.5"
-            @click="navigateToAgentTasks"
-          >
-            <CalendarClock :size="14" />
-            Tasks
           </Button>
         </nav>
       </div>
@@ -511,7 +503,15 @@ const onEditorClose = () => {
                 class="flex-1"
               />
 
-              <!-- File Browser -->
+              <!-- Task Browser -->
+              <TaskBrowser
+                v-else-if="activeTab === 'tasks'"
+                :search-query="searchQuery"
+                :view-mode="viewMode"
+                class="flex-1"
+              />
+
+              <!-- File Browser (Skills/Agents) -->
               <FileBrowser
                 v-else
                 :selected-id="selectedItemId"
