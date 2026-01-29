@@ -4366,6 +4366,7 @@ dependencies = [
  "cron",
  "dirs",
  "flate2",
+ "futures",
  "hex",
  "lettre",
  "once_cell",
