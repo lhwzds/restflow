@@ -7,7 +7,7 @@
  */
 
 import { ref, reactive, watch, computed } from 'vue'
-import { Plus, Calendar, Clock, Bell } from 'lucide-vue-next'
+import { Plus, Calendar, Bell } from 'lucide-vue-next'
 import {
   Dialog,
   DialogContent,
