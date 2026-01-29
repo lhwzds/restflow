@@ -151,13 +151,13 @@ test.describe('Agent Tasks', () => {
     const newTaskCard = page.locator('.border-dashed', { hasText: 'New Task' })
     await expect(newTaskCard).toBeVisible()
 
-    // Click list view toggle (second button in the view toggle group)
-    const listViewButton = page.locator('header .flex button[class*="h-6"]').last()
+    // Click list view toggle (first button in the view toggle group - order is: List, Grid)
+    const listViewButton = page.locator('header .flex button[class*="h-6"]').first()
     await listViewButton.click()
     await page.waitForTimeout(200)
 
-    // In list view, New Task is a button with border-dashed
-    const newTaskListButton = page.locator('button.border-dashed', { hasText: 'New Task' })
+    // In list view, New Task is a button with border-dashed class (within .space-y-1 list container)
+    const newTaskListButton = page.locator('.space-y-1 > button.border-dashed', { hasText: 'New Task' })
     await expect(newTaskListButton).toBeVisible()
   })
 })
