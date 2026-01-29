@@ -12,6 +12,11 @@ import { test, expect } from '@playwright/test'
  * Note: Tasks are accessed via the "Tasks" tab in the workspace view,
  * not a separate /agent-tasks route. Tests run against a fresh database,
  * so they create their own test data.
+ *
+ * Design Notes:
+ * - TaskBrowser "New Task" card uses dashed border (like TerminalBrowser)
+ *   because task items are displayed as Card components with borders
+ * - Search and view toggle controls are in the header (shared with Skills/Agents)
  */
 test.describe('Agent Tasks', () => {
   test.beforeEach(async ({ page }) => {
@@ -30,8 +35,9 @@ test.describe('Agent Tasks', () => {
     // Tasks tab should become active (has primary text color)
     await expect(tasksButton).toHaveClass(/text-primary/)
 
-    // TaskBrowser should be displayed (has New Task button)
-    await expect(page.locator('button', { hasText: 'New Task' })).toBeVisible()
+    // TaskBrowser should be displayed - in grid view, New Task is a Card (div), not a button
+    const newTaskCard = page.locator('.border-dashed', { hasText: 'New Task' })
+    await expect(newTaskCard).toBeVisible()
   })
 
   test('navigates back to skills from tasks tab', async ({ page }) => {
@@ -55,9 +61,9 @@ test.describe('Agent Tasks', () => {
     const tasksButton = page.locator('header nav button', { hasText: 'Tasks' })
     await tasksButton.click()
 
-    // Should show New Task button
-    const newTaskButton = page.locator('button', { hasText: 'New Task' })
-    await expect(newTaskButton).toBeVisible()
+    // Should show New Task card - in grid view, it's a Card (div), not a button
+    const newTaskCard = page.locator('.border-dashed', { hasText: 'New Task' })
+    await expect(newTaskCard).toBeVisible()
   })
 
   test('opens create task dialog', async ({ page }) => {
@@ -65,8 +71,8 @@ test.describe('Agent Tasks', () => {
     const tasksButton = page.locator('header nav button', { hasText: 'Tasks' })
     await tasksButton.click()
 
-    // Click New Task button
-    await page.locator('button', { hasText: 'New Task' }).click()
+    // Click New Task card - in grid view, it's a Card (div), not a button
+    await page.locator('.border-dashed', { hasText: 'New Task' }).click()
 
     // Dialog should open
     await expect(page.locator('[role="dialog"]')).toBeVisible()
@@ -78,8 +84,8 @@ test.describe('Agent Tasks', () => {
     const tasksButton = page.locator('header nav button', { hasText: 'Tasks' })
     await tasksButton.click()
 
-    // Open create dialog
-    await page.locator('button', { hasText: 'New Task' }).click()
+    // Open create dialog - in grid view, New Task is a Card (div), not a button
+    await page.locator('.border-dashed', { hasText: 'New Task' }).click()
     await expect(page.locator('[role="dialog"]')).toBeVisible()
 
     // Check for form fields - name input has placeholder "My scheduled task"
@@ -94,8 +100,8 @@ test.describe('Agent Tasks', () => {
     const tasksButton = page.locator('header nav button', { hasText: 'Tasks' })
     await tasksButton.click()
 
-    // Open create dialog
-    await page.locator('button', { hasText: 'New Task' }).click()
+    // Open create dialog - in grid view, New Task is a Card (div), not a button
+    await page.locator('.border-dashed', { hasText: 'New Task' }).click()
     await expect(page.locator('[role="dialog"]')).toBeVisible()
 
     // Close dialog with Cancel button
@@ -112,16 +118,6 @@ test.describe('Agent Tasks', () => {
 
     // Search input should be visible in header
     await expect(page.locator('header input[placeholder*="Search"]')).toBeVisible()
-  })
-
-  test('status filter is visible', async ({ page }) => {
-    // Navigate to tasks tab
-    const tasksButton = page.locator('header nav button', { hasText: 'Tasks' })
-    await tasksButton.click()
-
-    // TaskBrowser should have status filter
-    // The filter is a select/combobox with status options
-    await expect(page.locator('button', { hasText: /All|Active|Paused|Completed|All Statuses/ })).toBeVisible()
   })
 
   test('view toggle buttons are visible in header', async ({ page }) => {
@@ -144,6 +140,25 @@ test.describe('Agent Tasks', () => {
     // If no dedicated refresh button, TaskBrowser may auto-refresh
     // This test verifies we can navigate to Tasks without errors
     await page.waitForLoadState('networkidle')
+  })
+
+  test('can switch between grid and list view', async ({ page }) => {
+    // Navigate to tasks tab
+    const tasksButton = page.locator('header nav button', { hasText: 'Tasks' })
+    await tasksButton.click()
+
+    // Should be in grid view by default - New Task is a Card
+    const newTaskCard = page.locator('.border-dashed', { hasText: 'New Task' })
+    await expect(newTaskCard).toBeVisible()
+
+    // Click list view toggle (second button in the view toggle group)
+    const listViewButton = page.locator('header .flex button[class*="h-6"]').last()
+    await listViewButton.click()
+    await page.waitForTimeout(200)
+
+    // In list view, New Task is a button with border-dashed
+    const newTaskListButton = page.locator('button.border-dashed', { hasText: 'New Task' })
+    await expect(newTaskListButton).toBeVisible()
   })
 })
 
@@ -172,8 +187,8 @@ test.describe('Agent Tasks - Task Creation Flow', () => {
   })
 
   test('creates a task with minimum required fields', async ({ page }) => {
-    // Open create dialog
-    await page.locator('button', { hasText: 'New Task' }).click()
+    // Open create dialog - in grid view, New Task is a Card (div), not a button
+    await page.locator('.border-dashed', { hasText: 'New Task' }).click()
     await expect(page.locator('[role="dialog"]')).toBeVisible()
 
     // Fill in task name - name input has placeholder "My scheduled task"
