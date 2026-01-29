@@ -49,6 +49,19 @@ export const API_ENDPOINTS = {
   TOOL: {
     LIST: `${API_PREFIX}/tools`,
   },
+
+  AGENT_TASK: {
+    LIST: `${API_PREFIX}/agent-tasks`,
+    CREATE: `${API_PREFIX}/agent-tasks`,
+    GET: (id: string) => `${API_PREFIX}/agent-tasks/${id}` as const,
+    UPDATE: (id: string) => `${API_PREFIX}/agent-tasks/${id}` as const,
+    DELETE: (id: string) => `${API_PREFIX}/agent-tasks/${id}` as const,
+    PAUSE: (id: string) => `${API_PREFIX}/agent-tasks/${id}/pause` as const,
+    RESUME: (id: string) => `${API_PREFIX}/agent-tasks/${id}/resume` as const,
+    EVENTS: (id: string) => `${API_PREFIX}/agent-tasks/${id}/events` as const,
+    LIST_BY_STATUS: (status: string) => `${API_PREFIX}/agent-tasks?status=${status}` as const,
+    RUNNABLE: `${API_PREFIX}/agent-tasks/runnable`,
+  },
 } as const
 
 export type ApiEndpoints = typeof API_ENDPOINTS
@@ -56,3 +69,4 @@ export type AgentEndpoints = typeof API_ENDPOINTS.AGENT
 export type SecretEndpoints = typeof API_ENDPOINTS.SECRET
 export type ModelEndpoints = typeof API_ENDPOINTS.MODEL
 export type SkillEndpoints = typeof API_ENDPOINTS.SKILL
+export type AgentTaskEndpoints = typeof API_ENDPOINTS.AGENT_TASK

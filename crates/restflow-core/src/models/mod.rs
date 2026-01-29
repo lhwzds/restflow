@@ -1,5 +1,6 @@
 pub mod agent;
 pub mod agent_execution;
+pub mod agent_task;
 pub mod ai_model;
 pub mod execution;
 pub mod input;
@@ -9,6 +10,9 @@ pub mod terminal_session;
 pub mod trigger;
 
 pub use agent::{AgentNode, ApiKeyConfig};
+pub use agent_task::{
+    AgentTask, AgentTaskStatus, NotificationConfig, TaskEvent, TaskEventType, TaskSchedule,
+};
 pub use agent_execution::{AgentExecuteResponse, ExecutionDetails, ExecutionStep, ToolCallInfo};
 pub use ai_model::{AIModel, ModelMetadataDTO, Provider};
 pub use execution::{ExecutionHistoryPage, ExecutionStatus, ExecutionSummary};

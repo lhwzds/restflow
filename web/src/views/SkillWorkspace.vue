@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, watch, onMounted, computed } from 'vue'
-import { Settings, Moon, Sun, Search, List, LayoutGrid } from 'lucide-vue-next'
+import { useRouter } from 'vue-router'
+import { Settings, Moon, Sun, Search, List, LayoutGrid, CalendarClock } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import RestFlowLogo from '@/components/shared/RestFlowLogo.vue'
@@ -49,6 +50,12 @@ const toggleTheme = () => {
 }
 
 const toast = useToast()
+const router = useRouter()
+
+// Navigate to agent tasks page
+const navigateToAgentTasks = () => {
+  router.push('/agent-tasks')
+}
 
 // Workspace tab type (extended to include terminals)
 type WorkspaceTab = BrowserTab | 'terminals'
@@ -386,6 +393,16 @@ const onEditorClose = () => {
             @click="onTabChange(tab)"
           >
             {{ tab.charAt(0).toUpperCase() + tab.slice(1) }}
+          </Button>
+          <div class="w-px h-5 bg-border mx-1 self-center" />
+          <Button
+            variant="ghost"
+            size="sm"
+            class="h-7 px-3 text-muted-foreground gap-1.5"
+            @click="navigateToAgentTasks"
+          >
+            <CalendarClock :size="14" />
+            Tasks
           </Button>
         </nav>
       </div>
