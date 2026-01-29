@@ -100,6 +100,7 @@ pub mod events;
 pub mod executor;
 pub mod heartbeat;
 pub mod notifier;
+pub mod persist;
 pub mod runner;
 
 pub use events::{
@@ -113,7 +114,8 @@ pub use heartbeat::{
     HEARTBEAT_EVENT,
 };
 pub use notifier::TelegramNotifier;
+pub use persist::{MemoryPersister, PersistConfig, PersistResult};
 pub use runner::{
-    AgentExecutor, AgentTaskRunner, NoopNotificationSender, NotificationSender, RunnerConfig,
-    RunnerHandle,
+    AgentExecutor, AgentTaskRunner, ExecutionResult, NoopNotificationSender, NotificationSender,
+    RunnerConfig, RunnerHandle,
 };
