@@ -1,4 +1,5 @@
 pub mod engine;
+pub mod memory;
 pub mod models;
 pub mod node;
 pub mod paths;
