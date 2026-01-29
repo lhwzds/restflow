@@ -8,8 +8,6 @@ import { test, expect } from '@playwright/test'
  *
  * Note: Full PTY terminal functionality requires Tauri desktop app.
  * These tests cover the UI interactions that work in web mode.
- *
- * Note: Tests create their own items since the app starts with an empty database.
  */
 test.describe('Terminal Navigation', () => {
   test.beforeEach(async ({ page }) => {
@@ -89,8 +87,9 @@ test.describe('Terminal Tab Integration', () => {
   })
 
   test('creating terminal from + menu opens terminal tab', async ({ page }) => {
-    // First create a skill to show the editor
-    await page.locator('button', { hasText: 'New Skill' }).click()
+    // First open a file to show the editor
+    const skillItem = page.locator('button', { hasText: /Untitled-\d+/ }).first()
+    await skillItem.dblclick()
 
     // Click + and select New Terminal
     await page.getByRole('button', { name: 'New...' }).click()
@@ -102,8 +101,9 @@ test.describe('Terminal Tab Integration', () => {
   })
 
   test('can create multiple terminal tabs', async ({ page }) => {
-    // Create a skill first to show the editor
-    await page.locator('button', { hasText: 'New Skill' }).click()
+    // Open a file first
+    const skillItem = page.locator('button', { hasText: /Untitled-\d+/ }).first()
+    await skillItem.dblclick()
 
     // Create first terminal
     await page.getByRole('button', { name: 'New...' }).click()
@@ -122,8 +122,9 @@ test.describe('Terminal Tab Integration', () => {
   })
 
   test('switching between terminal and skill tabs preserves state', async ({ page }) => {
-    // Create a skill first
-    await page.locator('button', { hasText: 'New Skill' }).click()
+    // Open a skill
+    const skillItem = page.locator('button', { hasText: /Untitled-\d+/ }).first()
+    await skillItem.dblclick()
 
     // Create a terminal
     await page.getByRole('button', { name: 'New...' }).click()
@@ -154,8 +155,9 @@ test.describe('Terminal Tab Close Behavior', () => {
   })
 
   test('closing terminal tab removes it from tab bar', async ({ page }) => {
-    // Create a skill first
-    await page.locator('button', { hasText: 'New Skill' }).click()
+    // Open a skill
+    const skillItem = page.locator('button', { hasText: /Untitled-\d+/ }).first()
+    await skillItem.dblclick()
 
     // Create a terminal
     await page.getByRole('button', { name: 'New...' }).click()
@@ -176,8 +178,13 @@ test.describe('Terminal Tab Close Behavior', () => {
   })
 
   test('closing last tab returns to file browser', async ({ page }) => {
-    // Create a skill (to have a tab)
-    await page.locator('button', { hasText: 'New Skill' }).click()
+    // Navigate to Terminals
+    await page.getByRole('button', { name: 'Terminals' }).click()
+
+    // Open a skill first (to have a tab)
+    await page.getByRole('button', { name: 'Skills' }).click()
+    const skillItem = page.locator('button', { hasText: /Untitled-\d+/ }).first()
+    await skillItem.dblclick()
 
     // Close the tab
     const tab = page.locator('[class*="rounded-t-md"]', { hasText: '.md' })

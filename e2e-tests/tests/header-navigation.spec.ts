@@ -11,8 +11,6 @@ import { test, expect } from '@playwright/test'
  * - Browser controls (item count, view toggle, search) are only shown
  *   in browse mode, hidden in editor mode to reduce clutter
  * - Layout: [Logo][Nav] --- spacer --- [Controls][Theme][Settings]
- *
- * Note: Tests create their own items since the app starts with an empty database.
  */
 test.describe('Header Navigation', () => {
   test.beforeEach(async ({ page }) => {
@@ -65,8 +63,9 @@ test.describe('Header Navigation', () => {
   })
 
   test('browser controls hidden in editor mode', async ({ page }) => {
-    // Create a skill to enter editor mode
-    await page.locator('button', { hasText: 'New Skill' }).click()
+    // Open a skill to enter editor mode
+    const skillItem = page.locator('button', { hasText: /Untitled-\d+/ }).first()
+    await skillItem.dblclick()
 
     // Wait for editor to open
     await page.waitForTimeout(300)
@@ -76,8 +75,9 @@ test.describe('Header Navigation', () => {
   })
 
   test('navigation stays left-aligned in editor mode', async ({ page }) => {
-    // Create a skill to enter editor mode
-    await page.locator('button', { hasText: 'New Skill' }).click()
+    // Open a skill to enter editor mode
+    const skillItem = page.locator('button', { hasText: /Untitled-\d+/ }).first()
+    await skillItem.dblclick()
     await page.waitForTimeout(300)
 
     // Navigation should still be visible and in header
@@ -91,8 +91,9 @@ test.describe('Header Navigation', () => {
   })
 
   test('clicking nav tab in editor mode returns to browse mode', async ({ page }) => {
-    // Create a skill to enter editor mode
-    await page.locator('button', { hasText: 'New Skill' }).click()
+    // Open a skill to enter editor mode
+    const skillItem = page.locator('button', { hasText: /Untitled-\d+/ }).first()
+    await skillItem.dblclick()
     await page.waitForTimeout(300)
 
     // Click Skills tab to return to browse mode
@@ -119,8 +120,9 @@ test.describe('Header Navigation', () => {
     const themeButton = page.locator('header button').filter({ has: page.locator('svg') }).nth(-2)
     await expect(themeButton).toBeVisible()
 
-    // Enter editor mode by creating a skill
-    await page.locator('button', { hasText: 'New Skill' }).click()
+    // Enter editor mode
+    const skillItem = page.locator('button', { hasText: /Untitled-\d+/ }).first()
+    await skillItem.dblclick()
     await page.waitForTimeout(300)
 
     // Theme toggle should still be visible

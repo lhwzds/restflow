@@ -3,9 +3,6 @@ import { test, expect } from '@playwright/test'
 /**
  * Editor Tabs E2E Tests
  * Tests the multi-tab editor functionality for Skills, Agents, and Terminals
- *
- * Note: Tests create their own items since the app starts with an empty database.
- * Items open on single-click (not double-click).
  */
 test.describe('Editor Tabs', () => {
   test.beforeEach(async ({ page }) => {
@@ -14,9 +11,10 @@ test.describe('Editor Tabs', () => {
     await page.waitForLoadState('networkidle')
   })
 
-  test('clicking a skill opens it in a new tab', async ({ page }) => {
-    // Create a skill first by clicking New Skill
-    await page.locator('button', { hasText: 'New Skill' }).click()
+  test('double-clicking a skill opens it in a new tab', async ({ page }) => {
+    // Find and double-click on a skill item
+    const skillItem = page.locator('button', { hasText: /Untitled-\d+/ }).first()
+    await skillItem.dblclick()
 
     // Verify editor panel is shown with the tab
     const tab = page.locator('[class*="rounded-t-md"]', { hasText: '.md' })
@@ -28,8 +26,9 @@ test.describe('Editor Tabs', () => {
   })
 
   test('clicking + button shows dropdown menu with options', async ({ page }) => {
-    // First create a skill to show the editor
-    await page.locator('button', { hasText: 'New Skill' }).click()
+    // First open a file to show the editor
+    const skillItem = page.locator('button', { hasText: /Untitled-\d+/ }).first()
+    await skillItem.dblclick()
 
     // Click the + button
     const plusButton = page.getByRole('button', { name: 'New...' })
@@ -42,8 +41,9 @@ test.describe('Editor Tabs', () => {
   })
 
   test('New Skill menu item creates a new skill tab', async ({ page }) => {
-    // First create a skill to show the editor
-    await page.locator('button', { hasText: 'New Skill' }).click()
+    // First open a file to show the editor
+    const skillItem = page.locator('button', { hasText: /Untitled-\d+/ }).first()
+    await skillItem.dblclick()
 
     // Get initial tab count
     const initialTabs = await page.locator('[class*="rounded-t-md"]').count()
@@ -61,8 +61,9 @@ test.describe('Editor Tabs', () => {
   })
 
   test('New Terminal menu item creates a terminal tab', async ({ page }) => {
-    // First create a skill to show the editor
-    await page.locator('button', { hasText: 'New Skill' }).click()
+    // First open a file to show the editor
+    const skillItem = page.locator('button', { hasText: /Untitled-\d+/ }).first()
+    await skillItem.dblclick()
 
     // Click + and select New Terminal
     await page.getByRole('button', { name: 'New...' }).click()
@@ -78,8 +79,9 @@ test.describe('Editor Tabs', () => {
   })
 
   test('clicking on a tab switches to that tab', async ({ page }) => {
-    // Create a skill first
-    await page.locator('button', { hasText: 'New Skill' }).click()
+    // Open first skill
+    const skillItem = page.locator('button', { hasText: /Untitled-\d+/ }).first()
+    await skillItem.dblclick()
 
     // Create a terminal
     await page.getByRole('button', { name: 'New...' }).click()
@@ -101,8 +103,9 @@ test.describe('Editor Tabs', () => {
   })
 
   test('closing a tab removes it and shows another tab', async ({ page }) => {
-    // Create a skill first
-    await page.locator('button', { hasText: 'New Skill' }).click()
+    // Open first skill
+    const skillItem = page.locator('button', { hasText: /Untitled-\d+/ }).first()
+    await skillItem.dblclick()
 
     // Create a terminal
     await page.getByRole('button', { name: 'New...' }).click()
@@ -127,8 +130,9 @@ test.describe('Editor Tabs', () => {
   })
 
   test('closing all tabs returns to file browser', async ({ page }) => {
-    // Create a skill first
-    await page.locator('button', { hasText: 'New Skill' }).click()
+    // Open first skill
+    const skillItem = page.locator('button', { hasText: /Untitled-\d+/ }).first()
+    await skillItem.dblclick()
 
     // Close the tab
     const tab = page.locator('[class*="rounded-t-md"]', { hasText: '.md' })
@@ -153,12 +157,13 @@ test.describe('Agent Editor', () => {
     await page.getByRole('button', { name: 'Agents' }).click()
   })
 
-  test('clicking an agent opens markdown editor with config button', async ({ page }) => {
-    // Create an agent first
-    await page.locator('button', { hasText: 'New Agent' }).click()
+  test('double-clicking an agent opens markdown editor with config button', async ({ page }) => {
+    // Find and double-click on an agent item
+    const agentItem = page.locator('button', { hasText: /Untitled-\d+/ }).first()
+    await agentItem.dblclick()
 
-    // Verify agent tab is shown
-    const tab = page.locator('[class*="rounded-t-md"]')
+    // Verify agent tab is shown (tab shows agent name like "Untitled-13")
+    const tab = page.locator('[class*="rounded-t-md"]', { hasText: /Untitled-\d+/ })
     await expect(tab).toBeVisible()
 
     // Verify textarea editor is shown (for system prompt)
@@ -171,8 +176,9 @@ test.describe('Agent Editor', () => {
   })
 
   test('clicking config button opens popover with model, temperature, tools', async ({ page }) => {
-    // Create an agent first
-    await page.locator('button', { hasText: 'New Agent' }).click()
+    // Open an agent
+    const agentItem = page.locator('button', { hasText: /Untitled-\d+/ }).first()
+    await agentItem.dblclick()
 
     // Click the config button (it's a Popover trigger with aria-haspopup="dialog")
     const configButton = page.locator('button[aria-haspopup="dialog"]')
@@ -185,8 +191,9 @@ test.describe('Agent Editor', () => {
   })
 
   test('can edit system prompt in textarea', async ({ page }) => {
-    // Create an agent first
-    await page.locator('button', { hasText: 'New Agent' }).click()
+    // Open an agent
+    const agentItem = page.locator('button', { hasText: /Untitled-\d+/ }).first()
+    await agentItem.dblclick()
 
     // Find the textarea and type in it
     const editor = page.locator('textarea[placeholder*="system prompt"]')
@@ -197,8 +204,9 @@ test.describe('Agent Editor', () => {
   })
 
   test('New Agent creates agent with markdown editor', async ({ page }) => {
-    // First create an agent to show the editor
-    await page.locator('button', { hasText: 'New Agent' }).click()
+    // First open an existing file to show the editor
+    const agentItem = page.locator('button', { hasText: /Untitled-\d+/ }).first()
+    await agentItem.dblclick()
 
     // Click + and select New Agent
     await page.getByRole('button', { name: 'New...' }).click()
@@ -217,11 +225,12 @@ test.describe('Agent Editor', () => {
   })
 
   test('switching between skill and agent tabs shows correct editor', async ({ page }) => {
-    // First go to Skills and create a skill
+    // First go to Skills and open a skill
     await page.getByRole('button', { name: 'Skills' }).click()
-    await page.locator('button', { hasText: 'New Skill' }).click()
+    const skillItem = page.locator('button', { hasText: /Untitled-\d+/ }).first()
+    await skillItem.dblclick()
 
-    // Now create an agent
+    // Now open an agent
     await page.getByRole('button', { name: 'New...' }).click()
     await page.getByRole('menuitem', { name: 'New Agent' }).click()
     await page.waitForTimeout(300)
