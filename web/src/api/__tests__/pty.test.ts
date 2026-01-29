@@ -13,6 +13,12 @@ vi.mock('../tauri-client', () => ({
   isTauri: vi.fn(),
 }))
 
+// Mock terminal-sessions module for web mode tests
+vi.mock('../terminal-sessions', () => ({
+  stopMockTerminal: vi.fn(),
+  restartMockTerminal: vi.fn(),
+}))
+
 describe('PTY API', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -118,14 +124,15 @@ describe('PTY API', () => {
       expect(invoke).toHaveBeenCalledWith('close_pty', { sessionId: 'session-1' })
     })
 
-    it('should throw error when not in Tauri mode', async () => {
+    it('should call stopMockTerminal in web mode', async () => {
       const { isTauri } = await import('../tauri-client')
+      const { stopMockTerminal } = await import('../terminal-sessions')
       vi.mocked(isTauri).mockReturnValue(false)
 
       const { closePty } = await import('../pty')
-      await expect(closePty('session-1')).rejects.toThrow(
-        'PTY is only available in Tauri desktop app',
-      )
+      await closePty('session-1')
+
+      expect(stopMockTerminal).toHaveBeenCalledWith('session-1')
     })
   })
 
@@ -250,13 +257,38 @@ describe('PTY API', () => {
       expect(result).toEqual(mockSession)
     })
 
-    it('should throw error when not in Tauri mode', async () => {
+    it('should return restarted mock session in web mode', async () => {
       const { isTauri } = await import('../tauri-client')
+      const { restartMockTerminal } = await import('../terminal-sessions')
+      const mockSession = {
+        id: 'session-1',
+        name: 'Terminal 1',
+        status: 'running' as const,
+        created_at: 1000,
+        stopped_at: null,
+        history: null,
+        working_directory: null,
+        startup_command: null,
+      }
       vi.mocked(isTauri).mockReturnValue(false)
+      vi.mocked(restartMockTerminal).mockReturnValue(mockSession)
+
+      const { restartTerminal } = await import('../pty')
+      const result = await restartTerminal('session-1')
+
+      expect(restartMockTerminal).toHaveBeenCalledWith('session-1')
+      expect(result).toEqual(mockSession)
+    })
+
+    it('should throw error when session not found in web mode', async () => {
+      const { isTauri } = await import('../tauri-client')
+      const { restartMockTerminal } = await import('../terminal-sessions')
+      vi.mocked(isTauri).mockReturnValue(false)
+      vi.mocked(restartMockTerminal).mockReturnValue(null)
 
       const { restartTerminal } = await import('../pty')
       await expect(restartTerminal('session-1')).rejects.toThrow(
-        'PTY is only available in Tauri desktop app',
+        'Terminal session not found: session-1',
       )
     })
   })
