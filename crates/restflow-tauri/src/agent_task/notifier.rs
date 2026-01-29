@@ -42,10 +42,10 @@ impl TelegramNotifier {
     /// 2. System-level secret `TELEGRAM_BOT_TOKEN`
     fn resolve_bot_token(&self, config: &NotificationConfig) -> Result<String> {
         // First, check task-level bot token
-        if let Some(ref token) = config.telegram_bot_token {
-            if !token.is_empty() {
-                return Ok(token.clone());
-            }
+        if let Some(ref token) = config.telegram_bot_token
+            && !token.is_empty()
+        {
+            return Ok(token.clone());
         }
 
         // Fall back to system-level secret
@@ -183,8 +183,10 @@ mod tests {
         let (secrets, _temp_dir) = create_test_secrets();
         let notifier = TelegramNotifier::new(secrets);
 
-        let mut config = NotificationConfig::default();
-        config.telegram_bot_token = Some("config-token-123".to_string());
+        let config = NotificationConfig {
+            telegram_bot_token: Some("config-token-123".to_string()),
+            ..Default::default()
+        };
 
         let token = notifier.resolve_bot_token(&config).unwrap();
         assert_eq!(token, "config-token-123");
@@ -219,8 +221,10 @@ mod tests {
         let notifier = TelegramNotifier::new(secrets);
 
         // Config token should take priority
-        let mut config = NotificationConfig::default();
-        config.telegram_bot_token = Some("config-token-123".to_string());
+        let config = NotificationConfig {
+            telegram_bot_token: Some("config-token-123".to_string()),
+            ..Default::default()
+        };
 
         let token = notifier.resolve_bot_token(&config).unwrap();
         assert_eq!(token, "config-token-123");
@@ -237,8 +241,10 @@ mod tests {
         let notifier = TelegramNotifier::new(secrets);
 
         // Empty config token should fall back to secrets
-        let mut config = NotificationConfig::default();
-        config.telegram_bot_token = Some("".to_string());
+        let config = NotificationConfig {
+            telegram_bot_token: Some("".to_string()),
+            ..Default::default()
+        };
 
         let token = notifier.resolve_bot_token(&config).unwrap();
         assert_eq!(token, "secret-token-456");
@@ -371,8 +377,10 @@ mod tests {
         let notifier = TelegramNotifier::new(secrets);
         let task = create_test_task();
 
-        let mut config = NotificationConfig::default();
-        config.telegram_chat_id = Some("".to_string());
+        let config = NotificationConfig {
+            telegram_chat_id: Some("".to_string()),
+            ..Default::default()
+        };
 
         let result = notifier.send(&config, &task, true, "output").await;
         assert!(result.is_err());

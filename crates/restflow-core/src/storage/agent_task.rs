@@ -10,6 +10,7 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 /// Typed agent task storage wrapper around restflow-storage::AgentTaskStorage.
+#[derive(Clone)]
 pub struct AgentTaskStorage {
     inner: restflow_storage::AgentTaskStorage,
 }
