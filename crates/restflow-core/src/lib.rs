@@ -1,3 +1,4 @@
+pub mod channel;
 pub mod engine;
 pub mod models;
 pub mod node;
