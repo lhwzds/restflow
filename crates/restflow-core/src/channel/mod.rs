@@ -89,10 +89,12 @@
 //! ```
 
 mod router;
+pub mod telegram;
 mod traits;
 mod types;
 
 pub use router::ChannelRouter;
+pub use telegram::{TelegramChannel, TelegramConfig};
 pub use traits::{Channel, StreamReceiver, WebhookReceiver};
 pub use types::{
     ChannelType, ConversationContext, InboundMessage, MessageLevel, OutboundMessage,
