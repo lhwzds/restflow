@@ -8,6 +8,7 @@ pub mod output;
 pub mod skill;
 pub mod terminal_session;
 pub mod trigger;
+pub mod webhook;
 
 pub use agent::{AgentNode, ApiKeyConfig};
 pub use agent_task::{
@@ -30,3 +31,4 @@ pub use restflow_storage::Secret;
 pub use skill::Skill;
 pub use terminal_session::{TerminalSession, TerminalStatus};
 pub use trigger::{ActiveTrigger, AuthConfig, TriggerConfig};
+pub use webhook::{WebhookConfig, WebhookEvent, WebhookRequest, WebhookResponse};
