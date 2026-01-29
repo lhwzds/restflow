@@ -149,7 +149,7 @@ pub mod mock {
 
         /// Create an unconfigured mock channel
         pub fn unconfigured(channel_type: ChannelType) -> Self {
-            let mut channel = Self::new(channel_type);
+            let channel = Self::new(channel_type);
             channel.configured.store(false, Ordering::SeqCst);
             channel
         }
