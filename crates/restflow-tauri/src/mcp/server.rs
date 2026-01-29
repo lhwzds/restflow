@@ -751,7 +751,7 @@ mod tests {
     fn test_tool_definitions() {
         // Verify tool definitions are correct without needing RequestContext
         // The actual list_tools method would be called by the MCP framework
-        let expected_tools = vec![
+        let expected_tools = [
             "list_skills",
             "get_skill",
             "create_skill",

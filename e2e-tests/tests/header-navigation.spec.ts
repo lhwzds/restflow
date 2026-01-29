@@ -11,6 +11,9 @@ import { test, expect } from '@playwright/test'
  * - Browser controls (item count, view toggle, search) are only shown
  *   in browse mode, hidden in editor mode to reduce clutter
  * - Layout: [Logo][Nav] --- spacer --- [Controls][Theme][Settings]
+ *
+ * Note: Tests create items first since CI starts with an empty database.
+ * FileBrowser uses single-click to open items (not double-click).
  */
 test.describe('Header Navigation', () => {
   test.beforeEach(async ({ page }) => {
@@ -26,10 +29,11 @@ test.describe('Header Navigation', () => {
     const nav = page.locator('header nav')
     await expect(nav).toBeVisible()
 
-    // All three tabs should be visible
+    // All four tabs should be visible
     await expect(page.getByRole('button', { name: 'Skills' })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Agents' })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Terminals' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Tasks' })).toBeVisible()
   })
 
   test('active tab has primary text color (not background)', async ({ page }) => {
@@ -63,9 +67,9 @@ test.describe('Header Navigation', () => {
   })
 
   test('browser controls hidden in editor mode', async ({ page }) => {
-    // Open a skill to enter editor mode
-    const skillItem = page.locator('button', { hasText: /Untitled-\d+/ }).first()
-    await skillItem.dblclick()
+    // Create and open a skill to enter editor mode
+    const newSkillButton = page.locator('button', { hasText: 'New Skill' })
+    await newSkillButton.click()
 
     // Wait for editor to open
     await page.waitForTimeout(300)
@@ -75,9 +79,9 @@ test.describe('Header Navigation', () => {
   })
 
   test('navigation stays left-aligned in editor mode', async ({ page }) => {
-    // Open a skill to enter editor mode
-    const skillItem = page.locator('button', { hasText: /Untitled-\d+/ }).first()
-    await skillItem.dblclick()
+    // Create and open a skill to enter editor mode
+    const newSkillButton = page.locator('button', { hasText: 'New Skill' })
+    await newSkillButton.click()
     await page.waitForTimeout(300)
 
     // Navigation should still be visible and in header
@@ -88,12 +92,13 @@ test.describe('Header Navigation', () => {
     await expect(page.getByRole('button', { name: 'Skills' })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Agents' })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Terminals' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Tasks' })).toBeVisible()
   })
 
   test('clicking nav tab in editor mode returns to browse mode', async ({ page }) => {
-    // Open a skill to enter editor mode
-    const skillItem = page.locator('button', { hasText: /Untitled-\d+/ }).first()
-    await skillItem.dblclick()
+    // Create and open a skill to enter editor mode
+    const newSkillButton = page.locator('button', { hasText: 'New Skill' })
+    await newSkillButton.click()
     await page.waitForTimeout(300)
 
     // Click Skills tab to return to browse mode
@@ -121,8 +126,8 @@ test.describe('Header Navigation', () => {
     await expect(themeButton).toBeVisible()
 
     // Enter editor mode
-    const skillItem = page.locator('button', { hasText: /Untitled-\d+/ }).first()
-    await skillItem.dblclick()
+    const newSkillButton = page.locator('button', { hasText: 'New Skill' })
+    await newSkillButton.click()
     await page.waitForTimeout(300)
 
     // Theme toggle should still be visible
