@@ -10,7 +10,7 @@ pub mod mcp;
 pub mod state;
 
 pub use agent_task::{
-    AgentTaskRunner, RealAgentExecutor, RunnerConfig, RunnerHandle, TelegramNotifier,
+    AgentTaskRunner, CliExecutor, RealAgentExecutor, RunnerConfig, RunnerHandle, TelegramNotifier,
 };
 pub use error::TauriError;
 pub use mcp::RestFlowMcpServer;
