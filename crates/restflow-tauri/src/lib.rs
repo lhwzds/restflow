@@ -10,8 +10,8 @@ pub mod mcp;
 pub mod state;
 
 pub use agent_task::{
-    AgentTaskRunner, CliExecutor, HeartbeatConfig, HeartbeatEvent, HeartbeatHandle,
-    HeartbeatRunner, PtyCliExecutor, RealAgentExecutor, RunnerConfig, RunnerHandle,
+    AgentTaskRunner, HeartbeatEmitter, HeartbeatEvent, HeartbeatPulse, NoopHeartbeatEmitter,
+    RealAgentExecutor, RunnerConfig, RunnerHandle, RunnerStatus, TauriHeartbeatEmitter,
     TelegramNotifier, HEARTBEAT_EVENT,
 };
 pub use error::TauriError;

@@ -7,49 +7,44 @@
 //!
 //! - `runner`: The background task runner that polls for and executes tasks
 //! - `executor`: Real agent executor that bridges to restflow_ai
-//! - `cli_executor`: CLI-based executor for external coding agents (claude, aider)
-//! - `pty_cli_executor`: PTY-based executor for interactive CLI tools
 //! - `notifier`: Telegram notification sender for task results
 //! - `events`: Real-time streaming events for frontend updates
-//! - `heartbeat`: Periodic health monitoring and connection status
+//! - `heartbeat`: Status types and emitters (integrated into runner)
 //! - `AgentExecutor`: Trait for executing agents (allows dependency injection)
 //! - `NotificationSender`: Trait for sending notifications (allows DI)
 //! - `TaskEventEmitter`: Trait for emitting real-time events (allows DI)
+//!
+//! # Execution Modes
+//!
+//! - **API Mode**: Uses the injected `AgentExecutor` for LLM API-based execution
+//! - **CLI Mode**: Should use existing `PtyState` + `TerminalSession` infrastructure
+//!   via the terminal_sessions commands
 //!
 //! # Usage
 //!
 //! ```ignore
 //! use restflow_tauri::agent_task::{
-//!     AgentTaskRunner, RunnerConfig, RealAgentExecutor, CliExecutor,
-//!     PtyCliExecutor, TelegramNotifier, TaskStreamEvent, HeartbeatRunner
+//!     AgentTaskRunner, RunnerConfig, RealAgentExecutor,
+//!     TelegramNotifier, TaskStreamEvent, TauriHeartbeatEmitter
 //! };
 //!
 //! // For API-based execution:
 //! let executor = Arc::new(RealAgentExecutor::new(storage.clone()));
-//!
-//! // For CLI-based execution (non-interactive):
-//! let cli_executor = Arc::new(CliExecutor::default_claude());
-//!
-//! // For PTY-based execution (interactive CLIs):
-//! let pty_executor = Arc::new(PtyCliExecutor::default_claude());
-//!
 //! let notifier = Arc::new(TelegramNotifier::new(storage.secrets.clone()));
-//! let runner = Arc::new(AgentTaskRunner::new(
+//! let heartbeat_emitter = Arc::new(TauriHeartbeatEmitter::new(app_handle.clone()));
+//!
+//! let runner = Arc::new(AgentTaskRunner::with_heartbeat_emitter(
 //!     task_storage,
 //!     executor,
 //!     notifier,
 //!     RunnerConfig::default(),
+//!     heartbeat_emitter,
 //! ));
 //!
 //! let handle = runner.clone().start();
 //!
-//! // Start heartbeat monitoring
-//! let heartbeat = Arc::new(HeartbeatRunner::new(HeartbeatConfig::default()));
-//! let heartbeat_handle = heartbeat.start_with_tauri(app_handle);
-//!
 //! // Later, to stop:
 //! handle.stop().await?;
-//! heartbeat_handle.stop().await?;
 //! ```
 //!
 //! # Streaming Events
@@ -62,7 +57,7 @@
 //!
 //! // Emit task started event
 //! app_handle.emit(TASK_STREAM_EVENT, TaskStreamEvent::started(
-//!     "task-123", "My Task", "agent-456", "cli:claude"
+//!     "task-123", "My Task", "agent-456", "api"
 //! ));
 //!
 //! // Stream output
@@ -76,12 +71,12 @@
 //! ));
 //! ```
 //!
-//! # Heartbeat Events
+//! # Status Events
 //!
-//! The heartbeat module provides connection monitoring:
+//! The runner emits heartbeat events inline during its poll cycle:
 //!
 //! ```ignore
-//! use restflow_tauri::agent_task::heartbeat::{HeartbeatEvent, HEARTBEAT_EVENT};
+//! use restflow_tauri::agent_task::{HeartbeatEvent, HEARTBEAT_EVENT};
 //! use tauri::Manager;
 //!
 //! // Frontend listens to heartbeat events
@@ -101,27 +96,23 @@
 //! });
 //! ```
 
-pub mod cli_executor;
 pub mod events;
 pub mod executor;
 pub mod heartbeat;
 pub mod notifier;
-pub mod pty_cli_executor;
 pub mod runner;
 
-pub use cli_executor::CliExecutor;
 pub use events::{
     ChannelEventEmitter, ExecutionStats, NoopEventEmitter, StreamEventKind, TaskEventEmitter,
     TaskStreamEvent, TauriEventEmitter, TASK_STREAM_EVENT,
 };
 pub use executor::RealAgentExecutor;
 pub use heartbeat::{
-    ChannelHeartbeatEmitter, HeartbeatConfig, HeartbeatEmitter, HeartbeatEvent, HeartbeatHandle,
-    HeartbeatPulse, HeartbeatRunner, HeartbeatWarning, NoopHeartbeatEmitter, RunnerStatus,
-    RunnerStatusEvent, SystemStats, TauriHeartbeatEmitter, HEARTBEAT_EVENT,
+    ChannelHeartbeatEmitter, HeartbeatEmitter, HeartbeatEvent, HeartbeatPulse, HeartbeatWarning,
+    NoopHeartbeatEmitter, RunnerStatus, RunnerStatusEvent, SystemStats, TauriHeartbeatEmitter,
+    HEARTBEAT_EVENT,
 };
 pub use notifier::TelegramNotifier;
-pub use pty_cli_executor::PtyCliExecutor;
 pub use runner::{
     AgentExecutor, AgentTaskRunner, NoopNotificationSender, NotificationSender, RunnerConfig,
     RunnerHandle,

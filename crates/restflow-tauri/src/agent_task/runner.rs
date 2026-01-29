@@ -9,14 +9,17 @@
 use anyhow::{anyhow, Result};
 use restflow_core::models::{AgentTask, AgentTaskStatus, ExecutionMode, NotificationConfig};
 use restflow_core::storage::AgentTaskStorage;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
-use tokio::time::{interval, Duration};
+use tokio::time::{interval, Duration, Instant};
 use tracing::{debug, error, info, warn};
 
-use super::cli_executor::CliExecutor;
-use super::pty_cli_executor::PtyCliExecutor;
+use super::heartbeat::{
+    HeartbeatEmitter, HeartbeatEvent, HeartbeatPulse, NoopHeartbeatEmitter, RunnerStatus,
+    RunnerStatusEvent,
+};
 
 /// Message types for controlling the runner
 #[derive(Debug)]
@@ -108,6 +111,9 @@ pub struct AgentTaskRunner {
     notifier: Arc<dyn NotificationSender>,
     config: RunnerConfig,
     running_tasks: Arc<RwLock<HashSet<String>>>,
+    heartbeat_emitter: Arc<dyn HeartbeatEmitter>,
+    sequence: AtomicU64,
+    start_time: Instant,
 }
 
 impl AgentTaskRunner {
@@ -124,6 +130,29 @@ impl AgentTaskRunner {
             notifier,
             config,
             running_tasks: Arc::new(RwLock::new(HashSet::new())),
+            heartbeat_emitter: Arc::new(NoopHeartbeatEmitter),
+            sequence: AtomicU64::new(0),
+            start_time: Instant::now(),
+        }
+    }
+
+    /// Create a new AgentTaskRunner with a heartbeat emitter for status updates
+    pub fn with_heartbeat_emitter(
+        storage: Arc<AgentTaskStorage>,
+        executor: Arc<dyn AgentExecutor>,
+        notifier: Arc<dyn NotificationSender>,
+        config: RunnerConfig,
+        heartbeat_emitter: Arc<dyn HeartbeatEmitter>,
+    ) -> Self {
+        Self {
+            storage,
+            executor,
+            notifier,
+            config,
+            running_tasks: Arc::new(RwLock::new(HashSet::new())),
+            heartbeat_emitter,
+            sequence: AtomicU64::new(0),
+            start_time: Instant::now(),
         }
     }
 
@@ -142,21 +171,28 @@ impl AgentTaskRunner {
     /// Main run loop
     async fn run_loop(self: Arc<Self>, mut command_rx: mpsc::Receiver<RunnerCommand>) {
         let mut poll_interval = interval(Duration::from_millis(self.config.poll_interval_ms));
-        
+
         info!(
             "AgentTaskRunner started (poll_interval={}ms, max_concurrent={})",
             self.config.poll_interval_ms, self.config.max_concurrent_tasks
         );
 
+        // Emit initial status
+        self.emit_status(RunnerStatus::Running, Some("Runner started".to_string()))
+            .await;
+
         loop {
             tokio::select! {
                 _ = poll_interval.tick() => {
+                    // Emit status pulse during each poll cycle
+                    self.emit_heartbeat_pulse().await;
                     self.check_and_run_tasks().await;
                 }
                 cmd = command_rx.recv() => {
                     match cmd {
                         Some(RunnerCommand::Stop) => {
                             info!("AgentTaskRunner stopping...");
+                            self.emit_status(RunnerStatus::Stopping, Some("Runner stopping".to_string())).await;
                             break;
                         }
                         Some(RunnerCommand::CheckNow) => {
@@ -176,7 +212,50 @@ impl AgentTaskRunner {
             }
         }
 
+        self.emit_status(RunnerStatus::Stopped, Some("Runner stopped".to_string()))
+            .await;
         info!("AgentTaskRunner stopped");
+    }
+
+    /// Emit a heartbeat pulse with current status
+    async fn emit_heartbeat_pulse(&self) {
+        let sequence = self.sequence.fetch_add(1, Ordering::SeqCst) + 1;
+        let running_count = self.running_tasks.read().await.len() as u32;
+        let pending_count = self
+            .storage
+            .list_runnable_tasks(chrono::Utc::now().timestamp_millis())
+            .map(|t| t.len() as u32)
+            .unwrap_or(0);
+        let uptime_ms = self.start_time.elapsed().as_millis() as u64;
+
+        let pulse = HeartbeatPulse {
+            sequence,
+            timestamp: chrono::Utc::now().timestamp_millis(),
+            active_tasks: running_count,
+            pending_tasks: pending_count,
+            uptime_ms,
+            stats: None,
+        };
+
+        debug!(
+            "Emitting heartbeat: seq={}, active={}, pending={}",
+            sequence, running_count, pending_count
+        );
+
+        self.heartbeat_emitter
+            .emit(HeartbeatEvent::Pulse(pulse))
+            .await;
+    }
+
+    /// Emit a status change event
+    async fn emit_status(&self, status: RunnerStatus, message: Option<String>) {
+        self.heartbeat_emitter
+            .emit(HeartbeatEvent::StatusChange(RunnerStatusEvent {
+                status,
+                timestamp: chrono::Utc::now().timestamp_millis(),
+                message,
+            }))
+            .await;
     }
 
     /// Check for runnable tasks and execute them
@@ -315,32 +394,17 @@ impl AgentTaskRunner {
                 .await
             }
             ExecutionMode::Cli(cli_config) => {
-                // Use CLI executor based on use_pty flag
-                debug!(
-                    "Using {} executor for task '{}' (binary: {})",
-                    if cli_config.use_pty { "PTY CLI" } else { "CLI" },
-                    task.name,
-                    cli_config.binary
+                // CLI mode should use existing PtyState + TerminalSession infrastructure
+                // This is handled via the terminal_sessions commands, not inline here
+                warn!(
+                    "CLI mode for task '{}' (binary: {}) - use existing PTY infrastructure via terminal sessions",
+                    task.name, cli_config.binary
                 );
-                let timeout = Duration::from_secs(cli_config.timeout_secs);
-
-                if cli_config.use_pty {
-                    // Use PTY-based executor for interactive CLIs
-                    let executor = PtyCliExecutor::new(cli_config.clone());
-                    tokio::time::timeout(
-                        timeout,
-                        executor.execute(&task.agent_id, task.input.as_deref()),
-                    )
-                    .await
-                } else {
-                    // Use standard CLI executor
-                    let executor = CliExecutor::new(cli_config.clone());
-                    tokio::time::timeout(
-                        timeout,
-                        executor.execute(&task.agent_id, task.input.as_deref()),
-                    )
-                    .await
-                }
+                // Return error indicating CLI should be executed via terminal sessions
+                Ok(Err(anyhow!(
+                    "CLI mode execution should use existing PTY/TerminalSession infrastructure. \
+                     Create a terminal session with the CLI command instead."
+                )))
             }
         };
 
@@ -454,6 +518,9 @@ impl AgentTaskRunner {
             notifier: self.notifier.clone(),
             config: self.config.clone(),
             running_tasks: self.running_tasks.clone(),
+            heartbeat_emitter: self.heartbeat_emitter.clone(),
+            sequence: AtomicU64::new(self.sequence.load(Ordering::SeqCst)),
+            start_time: self.start_time,
         }
     }
 
