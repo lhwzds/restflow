@@ -2,7 +2,7 @@
 //!
 //! This module provides utilities for managing agent memory, including:
 //! - Text chunking for efficient storage
-//! - Search engine for memory retrieval (TODO)
+//! - Search engine with relevance scoring for memory retrieval
 //! - Markdown export for human-readable output (TODO)
 //!
 //! # Architecture
@@ -13,7 +13,7 @@
 //! │                                                              │
 //! │  ┌────────────────┐  ┌────────────────┐  ┌────────────────┐ │
 //! │  │   TextChunker  │  │  SearchEngine  │  │    Exporter    │ │
-//! │  │    (B3) ✓      │  │     (B4)       │  │     (B5)       │ │
+//! │  │    (B3) ✓      │  │    (B4) ✓      │  │     (B5)       │ │
 //! │  └────────────────┘  └────────────────┘  └────────────────┘ │
 //! │          │                   │                   │          │
 //! │          └───────────────────┼───────────────────┘          │
@@ -24,7 +24,42 @@
 //! │                    └───────────────────┘                    │
 //! └─────────────────────────────────────────────────────────────┘
 //! ```
+//!
+//! # Search Engine
+//!
+//! The [`SearchEngine`] provides relevance-scored search with:
+//!
+//! - **Frequency scoring**: Higher scores for content with more keyword matches
+//! - **Recency scoring**: More recent memories get higher scores
+//! - **Tag matching**: Bonus for matching tags
+//! - **Configurable weights**: Customize the balance between factors
+//!
+//! ## Example
+//!
+//! ```ignore
+//! use restflow_core::memory::{SearchEngine, SearchEngineBuilder};
+//!
+//! // Create with default config (60% frequency, 30% recency, 10% tags)
+//! let engine = SearchEngine::new(storage);
+//!
+//! // Or customize with builder
+//! let engine = SearchEngineBuilder::new(storage)
+//!     .frequency_focused()  // 80% frequency, 10% recency
+//!     .min_score(10.0)      // Filter low-relevance results
+//!     .build();
+//!
+//! // Search and get scored results
+//! let results = engine.search_ranked(&query)?;
+//! for result in results.chunks {
+//!     println!("Score: {:.1} | {}", result.score, result.chunk.content);
+//! }
+//! ```
 
 mod chunker;
+mod search;
 
 pub use chunker::{TextChunker, TextChunkerBuilder};
+pub use search::{
+    RankedSearchResult, ScoreBreakdown, ScoredChunk, SearchConfig, SearchEngine,
+    SearchEngineBuilder,
+};
