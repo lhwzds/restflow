@@ -527,6 +527,7 @@ Here is the fixed code:
     }
 
     #[tokio::test]
+    #[cfg(unix)] // Uses bash which is not available on Windows
     async fn test_executor_timeout() {
         // Test timeout by creating a custom binary configuration that ignores input
         // We use "bash -c" as the binary and make input irrelevant
@@ -555,8 +556,9 @@ Here is the fixed code:
     }
 
     #[tokio::test]
+    #[cfg(unix)] // Uses 'false' command which is not available on Windows
     async fn test_executor_exit_code_failure() {
-        // Use 'false' command which always exits with code 1
+        // Use 'false' command which only exists on Unix systems
         let config = CliExecutionConfig {
             binary: "false".to_string(),
             args: vec![],
