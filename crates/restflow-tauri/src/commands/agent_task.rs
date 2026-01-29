@@ -1,11 +1,29 @@
 //! Agent Task Tauri commands
 //!
 //! Provides IPC commands for managing scheduled agent tasks from the frontend.
+//!
+//! # Streaming Events
+//!
+//! The `run_agent_task_streaming` command executes a task immediately and streams
+//! real-time events to the frontend via Tauri's event system. Frontend should
+//! listen to the `agent-task:stream` event to receive `TaskStreamEvent` updates.
+//!
+//! ```typescript
+//! import { listen } from '@tauri-apps/api/event';
+//! import type { TaskStreamEvent } from './types/generated';
+//!
+//! const unlisten = await listen<TaskStreamEvent>('agent-task:stream', (event) => {
+//!   console.log('Task event:', event.payload);
+//! });
+//! ```
 
+use crate::agent_task::{TaskStreamEvent, TauriEventEmitter, TASK_STREAM_EVENT};
 use crate::state::AppState;
-use restflow_core::models::{AgentTask, AgentTaskStatus, ExecutionMode, NotificationConfig, TaskEvent, TaskSchedule};
-use serde::Deserialize;
-use tauri::State;
+use restflow_core::models::{
+    AgentTask, AgentTaskStatus, ExecutionMode, NotificationConfig, TaskEvent, TaskSchedule,
+};
+use serde::{Deserialize, Serialize};
+use tauri::{AppHandle, Emitter, State};
 
 /// Request to create a new agent task
 #[derive(Debug, Deserialize)]
@@ -278,6 +296,195 @@ pub async fn get_runnable_agent_tasks(
         .agent_tasks
         .list_runnable_tasks(current_time)
         .map_err(|e| e.to_string())
+}
+
+// ============================================================================
+// Streaming Event Commands
+// ============================================================================
+
+/// Response for streaming task execution
+#[derive(Debug, Clone, Serialize)]
+pub struct StreamingTaskResponse {
+    /// Task ID that was started
+    pub task_id: String,
+    /// Event channel name to listen on
+    pub event_channel: String,
+    /// Whether the task is already running (queued)
+    pub already_running: bool,
+}
+
+/// Run an agent task immediately and stream events to the frontend.
+///
+/// This command triggers immediate execution of a task and emits real-time
+/// events via Tauri's event system. The frontend should listen to the
+/// `agent-task:stream` event to receive `TaskStreamEvent` updates.
+///
+/// # Arguments
+///
+/// * `id` - The ID of the agent task to run
+///
+/// # Returns
+///
+/// Returns a `StreamingTaskResponse` with the task ID and event channel name.
+///
+/// # Events
+///
+/// The following events are emitted on the `agent-task:stream` channel:
+/// - `started` - Task execution has begun
+/// - `output` - Output from the task (stdout/stderr)
+/// - `progress` - Progress updates for long-running tasks
+/// - `completed` - Task finished successfully
+/// - `failed` - Task failed with an error
+/// - `cancelled` - Task was cancelled (timeout or user request)
+/// - `heartbeat` - Periodic heartbeat while task is running
+///
+/// # Example (Frontend)
+///
+/// ```typescript
+/// import { invoke } from '@tauri-apps/api/core';
+/// import { listen } from '@tauri-apps/api/event';
+///
+/// // Start listening before invoking
+/// const unlisten = await listen<TaskStreamEvent>('agent-task:stream', (event) => {
+///   if (event.payload.task_id === taskId) {
+///     switch (event.payload.kind.type) {
+///       case 'started':
+///         console.log('Task started:', event.payload.kind.task_name);
+///         break;
+///       case 'output':
+///         console.log('Output:', event.payload.kind.text);
+///         break;
+///       case 'completed':
+///         console.log('Done:', event.payload.kind.result);
+///         break;
+///     }
+///   }
+/// });
+///
+/// // Trigger task execution
+/// const response = await invoke('run_agent_task_streaming', { id: 'task-123' });
+/// console.log('Started task:', response.task_id);
+/// ```
+#[tauri::command]
+pub async fn run_agent_task_streaming(
+    state: State<'_, AppState>,
+    app_handle: AppHandle,
+    id: String,
+) -> Result<StreamingTaskResponse, String> {
+    // Check if task exists
+    let task = state
+        .core
+        .storage
+        .agent_tasks
+        .get_task(&id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Agent task '{}' not found", id))?;
+
+    // Check if already running
+    let already_running = state.is_task_running(&id).await;
+    if already_running {
+        return Ok(StreamingTaskResponse {
+            task_id: id,
+            event_channel: TASK_STREAM_EVENT.to_string(),
+            already_running: true,
+        });
+    }
+
+    // Emit started event (emitter stored for future use in enhanced streaming)
+    let _emitter = TauriEventEmitter::new(app_handle.clone());
+    let execution_mode_str = match &task.execution_mode {
+        ExecutionMode::Api => "api".to_string(),
+        ExecutionMode::Cli(cfg) => format!("cli:{}", cfg.binary),
+    };
+
+    let started_event = TaskStreamEvent::started(
+        &task.id,
+        &task.name,
+        &task.agent_id,
+        &execution_mode_str,
+    );
+
+    if let Err(e) = app_handle.emit(TASK_STREAM_EVENT, &started_event) {
+        tracing::warn!("Failed to emit started event: {}", e);
+    }
+
+    // Trigger the task execution via runner (which will emit more events)
+    if let Err(e) = state.run_task_now(id.clone()).await {
+        // Emit failed event
+        let failed_event = TaskStreamEvent::failed(&id, e.to_string(), 0, false);
+        let _ = app_handle.emit(TASK_STREAM_EVENT, &failed_event);
+        return Err(e.to_string());
+    }
+
+    Ok(StreamingTaskResponse {
+        task_id: id,
+        event_channel: TASK_STREAM_EVENT.to_string(),
+        already_running: false,
+    })
+}
+
+/// Information about an active/running task
+#[derive(Debug, Clone, Serialize)]
+pub struct ActiveTaskInfo {
+    /// Task ID
+    pub task_id: String,
+    /// Task name
+    pub task_name: String,
+    /// Agent ID being executed
+    pub agent_id: String,
+    /// When the task started (milliseconds since epoch)
+    pub started_at: i64,
+    /// Execution mode
+    pub execution_mode: String,
+}
+
+/// Get list of currently running/active agent tasks
+///
+/// Returns information about all tasks that are currently being executed.
+#[tauri::command]
+pub async fn get_active_agent_tasks(
+    state: State<'_, AppState>,
+) -> Result<Vec<ActiveTaskInfo>, String> {
+    state.get_active_tasks().await.map_err(|e| e.to_string())
+}
+
+/// Emit a test event to verify the streaming system is working
+///
+/// This is useful for debugging and testing the event system from the frontend.
+#[tauri::command]
+pub async fn emit_test_task_event(
+    app_handle: AppHandle,
+    task_id: String,
+    message: String,
+) -> Result<(), String> {
+    let event = TaskStreamEvent::output(&task_id, &message, false);
+    app_handle
+        .emit(TASK_STREAM_EVENT, &event)
+        .map_err(|e| e.to_string())
+}
+
+/// Subscribe to task stream events
+///
+/// This is a no-op command that documents the event subscription pattern.
+/// In Tauri v2, the frontend uses `listen()` to subscribe to events.
+///
+/// # Usage
+///
+/// ```typescript
+/// import { listen } from '@tauri-apps/api/event';
+/// import type { TaskStreamEvent } from './types/generated';
+///
+/// // Subscribe to all task events
+/// const unlisten = await listen<TaskStreamEvent>('agent-task:stream', (event) => {
+///   console.log('Received event:', event.payload);
+/// });
+///
+/// // Later, unsubscribe
+/// unlisten();
+/// ```
+#[tauri::command]
+pub fn get_task_stream_event_name() -> String {
+    TASK_STREAM_EVENT.to_string()
 }
 
 #[cfg(test)]

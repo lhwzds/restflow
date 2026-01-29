@@ -7,11 +7,16 @@ import type { StreamEventKind } from "./StreamEventKind";
  * This is the primary event type emitted via Tauri's event system
  * for real-time updates during task execution.
  */
-export type TaskStreamEvent = {
-  /** ID of the task this event belongs to */
-  task_id: string;
-  /** Timestamp of the event (milliseconds since epoch) */
-  timestamp: number;
-  /** The kind of event and its associated data */
-  kind: StreamEventKind;
-};
+export type TaskStreamEvent = { 
+/**
+ * ID of the task this event belongs to
+ */
+task_id: string, 
+/**
+ * Timestamp of the event (milliseconds since epoch)
+ */
+timestamp: number, 
+/**
+ * The kind of event and its associated data
+ */
+kind: StreamEventKind, };

@@ -80,7 +80,7 @@ pub mod runner;
 pub use cli_executor::CliExecutor;
 pub use events::{
     ChannelEventEmitter, ExecutionStats, NoopEventEmitter, StreamEventKind, TaskEventEmitter,
-    TaskStreamEvent, TASK_STREAM_EVENT,
+    TaskStreamEvent, TauriEventEmitter, TASK_STREAM_EVENT,
 };
 pub use executor::RealAgentExecutor;
 pub use notifier::TelegramNotifier;

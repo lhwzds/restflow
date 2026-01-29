@@ -4,70 +4,80 @@ import type { ExecutionStats } from "./ExecutionStats";
 /**
  * Discriminated union for different stream event types
  */
-export type StreamEventKind =
-  /** Task execution has started */
-  | {
-      type: "started";
-      /** Name of the task */
-      task_name: string;
-      /** Agent ID being executed */
-      agent_id: string;
-      /** Execution mode description (e.g., "api", "cli:claude", "cli:aider") */
-      execution_mode: string;
-    }
-  /** Output from task execution (stdout or stderr) */
-  | {
-      type: "output";
-      /** The output text */
-      text: string;
-      /** Whether this is stderr (true) or stdout (false) */
-      is_stderr: boolean;
-      /** Whether this is a complete line (ends with newline) */
-      is_complete: boolean;
-    }
-  /** Progress update (for long-running tasks) */
-  | {
-      type: "progress";
-      /** Current step or phase description */
-      phase: string;
-      /** Progress percentage (0-100), if determinable */
-      percent?: number;
-      /** Additional details about current progress */
-      details?: string;
-    }
-  /** Task completed successfully */
-  | {
-      type: "completed";
-      /** Final result/output from the task */
-      result: string;
-      /** Execution duration in milliseconds */
-      duration_ms: number;
-      /** Summary statistics */
-      stats?: ExecutionStats;
-    }
-  /** Task failed with an error */
-  | {
-      type: "failed";
-      /** Error message */
-      error: string;
-      /** Error code, if available */
-      error_code?: string;
-      /** Execution duration in milliseconds before failure */
-      duration_ms: number;
-      /** Whether the error is recoverable (can retry) */
-      recoverable: boolean;
-    }
-  /** Task was cancelled (e.g., timeout or user cancellation) */
-  | {
-      type: "cancelled";
-      /** Reason for cancellation */
-      reason: string;
-      /** Execution duration in milliseconds before cancellation */
-      duration_ms: number;
-    }
-  /** Heartbeat to indicate the task is still running */
-  | {
-      type: "heartbeat";
-      /** How long the task has been running (milliseconds) */
-      elapsed_ms: number;
-    };
+export type StreamEventKind = { "type": "started", 
+/**
+ * Name of the task
+ */
+task_name: string, 
+/**
+ * Agent ID being executed
+ */
+agent_id: string, 
+/**
+ * Execution mode description (e.g., "api", "cli:claude", "cli:aider")
+ */
+execution_mode: string, } | { "type": "output", 
+/**
+ * The output text
+ */
+text: string, 
+/**
+ * Whether this is stderr (true) or stdout (false)
+ */
+is_stderr: boolean, 
+/**
+ * Whether this is a complete line (ends with newline)
+ */
+is_complete: boolean, } | { "type": "progress", 
+/**
+ * Current step or phase description
+ */
+phase: string, 
+/**
+ * Progress percentage (0-100), if determinable
+ */
+percent: number | null, 
+/**
+ * Additional details about current progress
+ */
+details: string | null, } | { "type": "completed", 
+/**
+ * Final result/output from the task
+ */
+result: string, 
+/**
+ * Execution duration in milliseconds
+ */
+duration_ms: number, 
+/**
+ * Summary statistics
+ */
+stats: ExecutionStats | null, } | { "type": "failed", 
+/**
+ * Error message
+ */
+error: string, 
+/**
+ * Error code, if available
+ */
+error_code: string | null, 
+/**
+ * Execution duration in milliseconds before failure
+ */
+duration_ms: number, 
+/**
+ * Whether the error is recoverable (can retry)
+ */
+recoverable: boolean, } | { "type": "cancelled", 
+/**
+ * Reason for cancellation
+ */
+reason: string, 
+/**
+ * Execution duration in milliseconds before cancellation
+ */
+duration_ms: number, } | { "type": "heartbeat", 
+/**
+ * How long the task has been running (milliseconds)
+ */
+elapsed_ms: number, };

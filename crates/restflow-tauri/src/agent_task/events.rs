@@ -364,6 +364,43 @@ impl TaskEventEmitter for ChannelEventEmitter {
     }
 }
 
+/// Tauri-based event emitter that uses AppHandle to emit events to the frontend
+///
+/// This emitter integrates with Tauri's event system to stream real-time
+/// task execution updates to the frontend via the `agent-task:stream` event.
+///
+/// # Example
+///
+/// ```ignore
+/// use restflow_tauri::agent_task::events::TauriEventEmitter;
+/// use tauri::Manager;
+///
+/// // In a Tauri command
+/// let emitter = TauriEventEmitter::new(app_handle.clone());
+/// emitter.emit(TaskStreamEvent::started("task-1", "My Task", "agent-1", "api")).await;
+/// ```
+#[derive(Clone)]
+pub struct TauriEventEmitter {
+    app_handle: tauri::AppHandle,
+}
+
+impl TauriEventEmitter {
+    /// Create a new Tauri event emitter
+    pub fn new(app_handle: tauri::AppHandle) -> Self {
+        Self { app_handle }
+    }
+}
+
+#[async_trait::async_trait]
+impl TaskEventEmitter for TauriEventEmitter {
+    async fn emit(&self, event: TaskStreamEvent) {
+        use tauri::Emitter;
+        if let Err(e) = self.app_handle.emit(TASK_STREAM_EVENT, &event) {
+            tracing::warn!("Failed to emit task stream event: {}", e);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -595,5 +632,80 @@ mod tests {
         let emitter = NoopEventEmitter;
         // Should not panic
         emitter.emit(TaskStreamEvent::started("task-1", "Test", "agent-1", "api")).await;
+    }
+
+    #[test]
+    fn test_task_stream_event_constant() {
+        // Verify the event name constant for frontend usage
+        assert_eq!(TASK_STREAM_EVENT, "agent-task:stream");
+    }
+
+    #[test]
+    fn test_event_json_structure() {
+        // Test that the JSON structure matches what the frontend expects
+        let event = TaskStreamEvent::started("task-123", "Build Project", "agent-456", "cli:claude");
+        let json = serde_json::to_value(&event).unwrap();
+
+        // Verify structure
+        assert!(json.get("task_id").is_some());
+        assert!(json.get("timestamp").is_some());
+        assert!(json.get("kind").is_some());
+
+        // Verify kind has type discriminator
+        let kind = json.get("kind").unwrap();
+        assert_eq!(kind.get("type").unwrap(), "started");
+        assert_eq!(kind.get("task_name").unwrap(), "Build Project");
+        assert_eq!(kind.get("agent_id").unwrap(), "agent-456");
+        assert_eq!(kind.get("execution_mode").unwrap(), "cli:claude");
+    }
+
+    #[test]
+    fn test_output_event_json_structure() {
+        let event = TaskStreamEvent::output("task-1", "Building crate...\n", false);
+        let json = serde_json::to_value(&event).unwrap();
+
+        let kind = json.get("kind").unwrap();
+        assert_eq!(kind.get("type").unwrap(), "output");
+        assert_eq!(kind.get("text").unwrap(), "Building crate...\n");
+        assert_eq!(kind.get("is_stderr").unwrap(), false);
+        assert_eq!(kind.get("is_complete").unwrap(), true);
+    }
+
+    #[test]
+    fn test_completed_event_json_structure() {
+        let stats = ExecutionStats {
+            output_lines: Some(150),
+            output_bytes: Some(8000),
+            api_calls: Some(3),
+            tokens_used: Some(1500),
+        };
+        let event = TaskStreamEvent::completed_with_stats("task-1", "Build successful", 45000, stats);
+        let json = serde_json::to_value(&event).unwrap();
+
+        let kind = json.get("kind").unwrap();
+        assert_eq!(kind.get("type").unwrap(), "completed");
+        assert_eq!(kind.get("duration_ms").unwrap(), 45000);
+
+        let stats = kind.get("stats").unwrap();
+        assert_eq!(stats.get("output_lines").unwrap(), 150);
+        assert_eq!(stats.get("tokens_used").unwrap(), 1500);
+    }
+
+    #[test]
+    fn test_failed_event_json_structure() {
+        let event = TaskStreamEvent::failed_with_code(
+            "task-1",
+            "Build failed: syntax error",
+            "E_COMPILE",
+            5000,
+            true,
+        );
+        let json = serde_json::to_value(&event).unwrap();
+
+        let kind = json.get("kind").unwrap();
+        assert_eq!(kind.get("type").unwrap(), "failed");
+        assert_eq!(kind.get("error").unwrap(), "Build failed: syntax error");
+        assert_eq!(kind.get("error_code").unwrap(), "E_COMPILE");
+        assert_eq!(kind.get("recoverable").unwrap(), true);
     }
 }

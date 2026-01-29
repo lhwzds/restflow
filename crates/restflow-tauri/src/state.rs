@@ -3,17 +3,31 @@
 use crate::agent_task::runner::{
     AgentExecutor, AgentTaskRunner, NotificationSender, RunnerConfig, RunnerHandle,
 };
+use crate::commands::agent_task::ActiveTaskInfo;
 use anyhow::Result;
 use restflow_core::AppCore;
+use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{error, info};
+
+/// Information about a running task stored in state
+#[derive(Debug, Clone)]
+pub struct RunningTaskState {
+    pub task_id: String,
+    pub task_name: String,
+    pub agent_id: String,
+    pub started_at: i64,
+    pub execution_mode: String,
+}
 
 /// Application state shared across Tauri commands
 pub struct AppState {
     pub core: Arc<AppCore>,
     /// Handle to control the background agent task runner
     runner_handle: RwLock<Option<RunnerHandle>>,
+    /// Currently running tasks (task_id -> RunningTaskState)
+    running_tasks: RwLock<HashMap<String, RunningTaskState>>,
 }
 
 impl AppState {
@@ -22,6 +36,7 @@ impl AppState {
         Ok(Self {
             core,
             runner_handle: RwLock::new(None),
+            running_tasks: RwLock::new(HashMap::new()),
         })
     }
 
@@ -102,5 +117,46 @@ impl AppState {
         } else {
             anyhow::bail!("No runner is active")
         }
+    }
+
+    // ========================================================================
+    // Running Task Tracking
+    // ========================================================================
+
+    /// Check if a task is currently running
+    pub async fn is_task_running(&self, task_id: &str) -> bool {
+        self.running_tasks.read().await.contains_key(task_id)
+    }
+
+    /// Mark a task as running
+    pub async fn mark_task_running(&self, state: RunningTaskState) {
+        let mut guard = self.running_tasks.write().await;
+        guard.insert(state.task_id.clone(), state);
+    }
+
+    /// Mark a task as completed (remove from running)
+    pub async fn mark_task_completed(&self, task_id: &str) {
+        let mut guard = self.running_tasks.write().await;
+        guard.remove(task_id);
+    }
+
+    /// Get list of all currently running tasks
+    pub async fn get_active_tasks(&self) -> Result<Vec<ActiveTaskInfo>> {
+        let guard = self.running_tasks.read().await;
+        Ok(guard
+            .values()
+            .map(|state| ActiveTaskInfo {
+                task_id: state.task_id.clone(),
+                task_name: state.task_name.clone(),
+                agent_id: state.agent_id.clone(),
+                started_at: state.started_at,
+                execution_mode: state.execution_mode.clone(),
+            })
+            .collect())
+    }
+
+    /// Get count of running tasks
+    pub async fn running_task_count(&self) -> usize {
+        self.running_tasks.read().await.len()
     }
 }
