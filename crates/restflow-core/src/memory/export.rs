@@ -830,7 +830,7 @@ mod tests {
         exporter.storage().create_session(&session).unwrap();
 
         // Test different source types
-        let sources = vec![
+        let sources = [
             MemorySource::TaskExecution {
                 task_id: "task-1".to_string(),
             },
