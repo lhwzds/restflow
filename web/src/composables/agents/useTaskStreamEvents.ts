@@ -5,7 +5,7 @@
  * including output buffering, status tracking, and event history.
  */
 
-import { ref, computed, onUnmounted, type Ref, type ComputedRef } from 'vue'
+import { ref, computed, onUnmounted, type Ref } from 'vue'
 import type { TaskStreamEvent } from '@/types/generated/TaskStreamEvent'
 import type { StreamEventKind } from '@/types/generated/StreamEventKind'
 import type { ExecutionStats } from '@/types/generated/ExecutionStats'

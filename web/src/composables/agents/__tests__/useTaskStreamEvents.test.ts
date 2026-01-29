@@ -99,7 +99,7 @@ describe('useTaskStreamEvents', () => {
     const { onTaskStreamEventForTask, getActiveAgentTasks } = await import('@/api/agent-task')
     vi.mocked(onTaskStreamEventForTask).mockImplementation(async (_taskId, callback) => {
       mockEventCallback = callback
-      return mockUnlisten
+      return mockUnlisten as unknown as () => void
     })
     vi.mocked(getActiveAgentTasks).mockResolvedValue([])
   })
@@ -192,8 +192,8 @@ describe('useTaskStreamEvents', () => {
 
       expect(state.value?.stdout).toBe('Hello world\n')
       expect(state.value?.outputLines).toHaveLength(1)
-      expect(state.value?.outputLines[0].text).toBe('Hello world\n')
-      expect(state.value?.outputLines[0].isStderr).toBe(false)
+      expect(state.value?.outputLines?.[0]?.text).toBe('Hello world\n')
+      expect(state.value?.outputLines?.[0]?.isStderr).toBe(false)
     })
 
     it('should handle stderr output', async () => {
@@ -207,7 +207,7 @@ describe('useTaskStreamEvents', () => {
       await nextTick()
 
       expect(state.value?.stderr).toBe('Error!\n')
-      expect(state.value?.outputLines[0].isStderr).toBe(true)
+      expect(state.value?.outputLines?.[0]?.isStderr).toBe(true)
     })
 
     it('should handle progress event', async () => {
@@ -356,8 +356,8 @@ describe('useTaskStreamEvents', () => {
       await nextTick()
 
       expect(state.value?.outputLines).toHaveLength(5)
-      expect(state.value?.outputLines[0].text).toBe('Line 5\n')
-      expect(state.value?.outputLines[4].text).toBe('Line 9\n')
+      expect(state.value?.outputLines?.[0]?.text).toBe('Line 5\n')
+      expect(state.value?.outputLines?.[4]?.text).toBe('Line 9\n')
     })
   })
 
@@ -393,7 +393,7 @@ describe('useMultiTaskStreamEvents', () => {
     const { onTaskStreamEvent, getActiveAgentTasks } = await import('@/api/agent-task')
     vi.mocked(onTaskStreamEvent).mockImplementation(async (callback) => {
       mockEventCallback = callback
-      return mockUnlisten
+      return mockUnlisten as unknown as () => void
     })
     vi.mocked(getActiveAgentTasks).mockResolvedValue([])
   })
@@ -468,8 +468,8 @@ describe('useMultiTaskStreamEvents', () => {
 
       expect(runningTasks.value).toHaveLength(1)
       expect(finishedTasks.value).toHaveLength(1)
-      expect(runningTasks.value[0].taskId).toBe('task-2')
-      expect(finishedTasks.value[0].taskId).toBe('task-1')
+      expect(runningTasks.value[0]?.taskId).toBe('task-2')
+      expect(finishedTasks.value[0]?.taskId).toBe('task-1')
     })
   })
 
