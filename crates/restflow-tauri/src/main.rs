@@ -17,6 +17,7 @@
 use clap::Parser;
 use restflow_tauri_lib::AppState;
 use restflow_tauri_lib::RestFlowMcpServer;
+use restflow_tauri_lib::{RealAgentExecutor, TelegramNotifier};
 use restflow_tauri_lib::commands;
 use restflow_tauri_lib::commands::PtyState;
 use restflow_tauri_lib::commands::pty::save_all_terminal_history_sync;
@@ -79,6 +80,20 @@ fn main() {
                     .expect("Failed to initialize AppState")
             });
 
+            // Start the agent task runner with real executor and Telegram notifier
+            rt.block_on(async {
+                let storage = state.core.storage.clone();
+                let secrets = std::sync::Arc::new(state.core.storage.secrets.clone());
+                let executor = RealAgentExecutor::new(storage);
+                let notifier = TelegramNotifier::new(secrets);
+
+                if let Err(e) = state.start_runner(executor, notifier, None).await {
+                    tracing::warn!(error = %e, "Failed to start agent task runner");
+                } else {
+                    info!("Agent task runner started");
+                }
+            });
+
             // Mark all running terminal sessions as stopped on startup
             // (PTY processes don't survive app restart)
             match state.core.storage.terminal_sessions.mark_all_stopped() {
@@ -102,8 +117,25 @@ fn main() {
         })
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { .. } = event {
-                // Save all terminal history before closing
                 let app = window.app_handle();
+
+                // Stop the agent task runner gracefully
+                if let Some(app_state) = app.try_state::<AppState>() {
+                    info!("Stopping agent task runner...");
+                    // Use tokio's current thread runtime for sync context
+                    let rt = tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build()
+                        .expect("Failed to create shutdown runtime");
+                    rt.block_on(async {
+                        if let Err(e) = app_state.stop_runner().await {
+                            tracing::warn!(error = %e, "Error stopping agent task runner");
+                        }
+                    });
+                    info!("Agent task runner stopped");
+                }
+
+                // Save all terminal history before closing
                 if let (Some(pty_state), Some(app_state)) =
                     (app.try_state::<PtyState>(), app.try_state::<AppState>())
                 {
