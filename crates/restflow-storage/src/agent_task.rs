@@ -13,6 +13,7 @@ const TASK_EVENT_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("tas
 const TASK_EVENT_INDEX_TABLE: TableDefinition<&str, &str> = TableDefinition::new("task_event_index");
 
 /// Low-level agent task storage with byte-level API
+#[derive(Clone)]
 pub struct AgentTaskStorage {
     db: Arc<Database>,
 }
