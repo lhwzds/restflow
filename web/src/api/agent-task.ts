@@ -11,6 +11,7 @@ import type { AgentTaskStatus } from '@/types/generated/AgentTaskStatus'
 import type { TaskEvent } from '@/types/generated/TaskEvent'
 import type { TaskSchedule } from '@/types/generated/TaskSchedule'
 import type { NotificationConfig } from '@/types/generated/NotificationConfig'
+import type { ExecutionMode } from '@/types/generated/ExecutionMode'
 import { API_ENDPOINTS } from '@/constants'
 
 // Re-export types for convenience
@@ -20,6 +21,7 @@ export type {
   TaskEvent,
   TaskSchedule,
   NotificationConfig,
+  ExecutionMode,
 }
 
 /**
@@ -38,6 +40,8 @@ export interface CreateAgentTaskRequest {
   input?: string
   /** Optional notification configuration */
   notification?: NotificationConfig
+  /** Optional execution mode (API or CLI) */
+  execution_mode?: ExecutionMode
 }
 
 /**

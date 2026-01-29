@@ -3,7 +3,7 @@
 //! Provides IPC commands for managing scheduled agent tasks from the frontend.
 
 use crate::state::AppState;
-use restflow_core::models::{AgentTask, AgentTaskStatus, NotificationConfig, TaskEvent, TaskSchedule};
+use restflow_core::models::{AgentTask, AgentTaskStatus, ExecutionMode, NotificationConfig, TaskEvent, TaskSchedule};
 use serde::Deserialize;
 use tauri::State;
 
@@ -25,6 +25,9 @@ pub struct CreateAgentTaskRequest {
     /// Optional notification configuration
     #[serde(default)]
     pub notification: Option<NotificationConfig>,
+    /// Optional execution mode (API or CLI)
+    #[serde(default)]
+    pub execution_mode: Option<ExecutionMode>,
 }
 
 /// Request to update an existing agent task
@@ -119,6 +122,11 @@ pub async fn create_agent_task(
 
     if let Some(notification) = request.notification {
         task.notification = notification;
+        needs_update = true;
+    }
+
+    if let Some(execution_mode) = request.execution_mode {
+        task.execution_mode = execution_mode;
         needs_update = true;
     }
 
