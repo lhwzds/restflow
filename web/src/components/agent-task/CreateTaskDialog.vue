@@ -7,7 +7,7 @@
  */
 
 import { ref, reactive, watch, computed } from 'vue'
-import { Plus, Calendar, Bell } from 'lucide-vue-next'
+import { Plus, Calendar, Bell, Terminal } from 'lucide-vue-next'
 import {
   Dialog,
   DialogContent,
@@ -30,6 +30,7 @@ import {
 import type { StoredAgent } from '@/types/generated/StoredAgent'
 import type { TaskSchedule } from '@/types/generated/TaskSchedule'
 import type { NotificationConfig } from '@/types/generated/NotificationConfig'
+import type { ExecutionMode } from '@/types/generated/ExecutionMode'
 import type { CreateAgentTaskRequest } from '@/api/agent-task'
 import { listAgents } from '@/api/agents'
 import { useToast } from '@/composables/useToast'
@@ -60,6 +61,13 @@ interface FormState {
   // Cron schedule
   cronExpression: string
   cronTimezone: string
+  // Execution mode
+  executionModeType: 'api' | 'cli'
+  cliBinary: string
+  cliArgs: string
+  cliWorkingDir: string
+  cliTimeoutSecs: number
+  cliUsePty: boolean
   // Notification
   notificationEnabled: boolean
   telegramBotToken: string
@@ -79,6 +87,12 @@ const initialState: FormState = {
   intervalMinutes: 0,
   cronExpression: '0 9 * * *',
   cronTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+  executionModeType: 'api',
+  cliBinary: 'claude',
+  cliArgs: '',
+  cliWorkingDir: '',
+  cliTimeoutSecs: 300,
+  cliUsePty: false,
   notificationEnabled: false,
   telegramBotToken: '',
   telegramChatId: '',
@@ -101,6 +115,9 @@ const isValid = computed(() => {
   if (form.scheduleType === 'interval' && form.intervalHours === 0 && form.intervalMinutes === 0)
     return false
   if (form.scheduleType === 'cron' && !form.cronExpression.trim()) return false
+
+  // Validate execution mode
+  if (form.executionModeType === 'cli' && !form.cliBinary.trim()) return false
 
   // Validate notification if enabled
   if (form.notificationEnabled) {
@@ -171,6 +188,25 @@ function buildNotificationConfig(): NotificationConfig {
 }
 
 /**
+ * Build execution mode config from form state
+ */
+function buildExecutionMode(): ExecutionMode {
+  if (form.executionModeType === 'api') {
+    return { type: 'api' }
+  }
+  // Parse args string into array (split by spaces, respecting quotes would be nice but keep it simple)
+  const args = form.cliArgs.trim() ? form.cliArgs.trim().split(/\s+/) : []
+  return {
+    type: 'cli',
+    binary: form.cliBinary,
+    args,
+    working_dir: form.cliWorkingDir.trim() || null,
+    timeout_secs: BigInt(form.cliTimeoutSecs),
+    use_pty: form.cliUsePty,
+  }
+}
+
+/**
  * Handle form submission
  */
 async function handleSubmit() {
@@ -185,6 +221,7 @@ async function handleSubmit() {
       description: form.description.trim() || undefined,
       input: form.input.trim() || undefined,
       notification: buildNotificationConfig(),
+      execution_mode: buildExecutionMode(),
     }
 
     emit('create', request)
@@ -253,6 +290,91 @@ function handleCancel() {
             placeholder="Optional input to send to the agent..."
             :rows="2"
           />
+        </div>
+
+        <!-- Execution Mode Section -->
+        <div class="space-y-3 p-3 border rounded-lg bg-muted/30">
+          <div class="flex items-center gap-2 text-sm font-medium">
+            <Terminal :size="14" />
+            Execution Mode
+          </div>
+
+          <div class="space-y-1">
+            <Label for="executionMode">Mode</Label>
+            <Select v-model="form.executionModeType">
+              <SelectTrigger id="executionMode">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="api">API (RestFlow AI)</SelectItem>
+                <SelectItem value="cli">CLI (External Tool)</SelectItem>
+              </SelectContent>
+            </Select>
+            <p class="text-xs text-muted-foreground">
+              {{ form.executionModeType === 'api' ? 'Use built-in RestFlow AI executor' : 'Use external CLI tool like Claude Code, Aider, etc.' }}
+            </p>
+          </div>
+
+          <!-- CLI Configuration -->
+          <template v-if="form.executionModeType === 'cli'">
+            <div class="space-y-1">
+              <Label for="cliBinary">CLI Binary *</Label>
+              <Input
+                id="cliBinary"
+                v-model="form.cliBinary"
+                placeholder="claude"
+                class="font-mono"
+              />
+              <p class="text-xs text-muted-foreground">
+                Command to run (e.g., "claude", "aider", "codex")
+              </p>
+            </div>
+
+            <div class="space-y-1">
+              <Label for="cliArgs">Arguments</Label>
+              <Input
+                id="cliArgs"
+                v-model="form.cliArgs"
+                placeholder="-p --dangerously-skip-permissions"
+                class="font-mono"
+              />
+              <p class="text-xs text-muted-foreground">
+                Additional CLI arguments (space-separated)
+              </p>
+            </div>
+
+            <div class="space-y-1">
+              <Label for="cliWorkingDir">Working Directory</Label>
+              <Input
+                id="cliWorkingDir"
+                v-model="form.cliWorkingDir"
+                placeholder="/path/to/project"
+                class="font-mono"
+              />
+            </div>
+
+            <div class="flex items-center gap-4">
+              <div class="space-y-1 flex-1">
+                <Label for="cliTimeout">Timeout (seconds)</Label>
+                <Input
+                  id="cliTimeout"
+                  v-model.number="form.cliTimeoutSecs"
+                  type="number"
+                  min="30"
+                  max="7200"
+                  class="w-24"
+                />
+              </div>
+              <label class="flex items-center gap-2 text-sm cursor-pointer pt-5">
+                <input
+                  v-model="form.cliUsePty"
+                  type="checkbox"
+                  class="h-4 w-4 rounded border-gray-300"
+                />
+                Use PTY (interactive mode)
+              </label>
+            </div>
+          </template>
         </div>
 
         <!-- Schedule Section -->

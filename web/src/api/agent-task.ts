@@ -6,11 +6,15 @@
  */
 
 import { apiClient, isTauri, tauriInvoke } from './config'
+import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import type { AgentTask } from '@/types/generated/AgentTask'
 import type { AgentTaskStatus } from '@/types/generated/AgentTaskStatus'
 import type { TaskEvent } from '@/types/generated/TaskEvent'
 import type { TaskSchedule } from '@/types/generated/TaskSchedule'
 import type { NotificationConfig } from '@/types/generated/NotificationConfig'
+import type { ExecutionMode } from '@/types/generated/ExecutionMode'
+import type { TaskStreamEvent } from '@/types/generated/TaskStreamEvent'
+import type { StreamEventKind } from '@/types/generated/StreamEventKind'
 import { API_ENDPOINTS } from '@/constants'
 
 // Re-export types for convenience
@@ -20,7 +24,15 @@ export type {
   TaskEvent,
   TaskSchedule,
   NotificationConfig,
+  ExecutionMode,
+  TaskStreamEvent,
+  StreamEventKind,
 }
+
+/**
+ * Event name for task stream events (matches Rust constant TASK_STREAM_EVENT)
+ */
+export const TASK_STREAM_EVENT = 'agent-task:stream'
 
 /**
  * Request to create a new agent task
@@ -38,6 +50,8 @@ export interface CreateAgentTaskRequest {
   input?: string
   /** Optional notification configuration */
   notification?: NotificationConfig
+  /** Optional execution mode (API or CLI) */
+  execution_mode?: ExecutionMode
 }
 
 /**
@@ -274,4 +288,108 @@ export function getStatusColor(status: AgentTaskStatus): string {
     failed: 'danger',
   }
   return colorMap[status] || 'default'
+}
+
+// ============================================================================
+// Task Stream Event Handling
+// ============================================================================
+
+/**
+ * Listen for all task stream events
+ *
+ * This registers a listener for all task execution events. Use this for
+ * global monitoring or when managing multiple concurrent tasks.
+ *
+ * @param callback - Function to call with each event
+ * @returns Unlisten function to stop listening
+ */
+export async function onTaskStreamEvent(
+  callback: (event: TaskStreamEvent) => void,
+): Promise<UnlistenFn> {
+  if (!isTauri()) {
+    // In web mode, return a no-op unlisten function
+    console.warn('Task stream events are only available in Tauri desktop app')
+    return () => {}
+  }
+
+  return listen<TaskStreamEvent>(TASK_STREAM_EVENT, (event) => {
+    callback(event.payload)
+  })
+}
+
+/**
+ * Listen for stream events for a specific task
+ *
+ * This filters events to only those belonging to the specified task.
+ * Use this when monitoring a single task's execution.
+ *
+ * @param taskId - Task ID to filter events
+ * @param callback - Function to call with each matching event
+ * @returns Unlisten function to stop listening
+ */
+export async function onTaskStreamEventForTask(
+  taskId: string,
+  callback: (event: TaskStreamEvent) => void,
+): Promise<UnlistenFn> {
+  if (!isTauri()) {
+    console.warn('Task stream events are only available in Tauri desktop app')
+    return () => {}
+  }
+
+  return listen<TaskStreamEvent>(TASK_STREAM_EVENT, (event) => {
+    if (event.payload.task_id === taskId) {
+      callback(event.payload)
+    }
+  })
+}
+
+/**
+ * Type guard for checking event kind
+ */
+export function isEventKind<T extends StreamEventKind['type']>(
+  event: TaskStreamEvent,
+  type: T,
+): event is TaskStreamEvent & { kind: Extract<StreamEventKind, { type: T }> } {
+  return event.kind.type === type
+}
+
+/**
+ * Run a task with streaming support
+ *
+ * This is a convenience wrapper that invokes the Tauri command to run
+ * a task with real-time event streaming.
+ *
+ * @param taskId - ID of the task to run
+ * @returns Promise that resolves when the task starts (not when it completes)
+ */
+export async function runAgentTaskStreaming(taskId: string): Promise<void> {
+  if (!isTauri()) {
+    throw new Error('Streaming task execution is only available in Tauri desktop app')
+  }
+  return tauriInvoke<void>('run_agent_task_streaming', { taskId })
+}
+
+/**
+ * Get list of currently active (running) task IDs
+ *
+ * @returns Array of task IDs that are currently running
+ */
+export async function getActiveAgentTasks(): Promise<string[]> {
+  if (!isTauri()) {
+    return []
+  }
+  return tauriInvoke<string[]>('get_active_agent_tasks')
+}
+
+/**
+ * Cancel a running task
+ *
+ * @param taskId - ID of the task to cancel
+ * @returns true if cancellation was requested successfully
+ */
+export async function cancelAgentTask(taskId: string): Promise<boolean> {
+  if (!isTauri()) {
+    throw new Error('Task cancellation is only available in Tauri desktop app')
+  }
+  return tauriInvoke<boolean>('cancel_agent_task', { taskId })
 }

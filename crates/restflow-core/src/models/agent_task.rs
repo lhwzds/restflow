@@ -6,6 +6,54 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+/// Execution mode for agent tasks
+#[derive(Debug, Clone, Default, Serialize, Deserialize, TS, PartialEq)]
+#[ts(export)]
+#[serde(tag = "type", rename_all = "lowercase")]
+pub enum ExecutionMode {
+    /// Use restflow-ai API executor (default)
+    #[default]
+    Api,
+    /// Use external CLI tool (e.g., claude, aider)
+    Cli(CliExecutionConfig),
+}
+
+/// Configuration for CLI-based execution
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
+#[ts(export)]
+pub struct CliExecutionConfig {
+    /// CLI binary name (e.g., "claude", "aider")
+    pub binary: String,
+    /// Additional arguments to pass to the CLI
+    #[serde(default)]
+    pub args: Vec<String>,
+    /// Working directory for CLI execution
+    #[serde(default)]
+    pub working_dir: Option<String>,
+    /// Timeout in seconds for CLI execution
+    #[serde(default = "default_timeout_secs")]
+    pub timeout_secs: u64,
+    /// Whether to use PTY for interactive mode
+    #[serde(default)]
+    pub use_pty: bool,
+}
+
+fn default_timeout_secs() -> u64 {
+    300 // 5 minutes default
+}
+
+impl Default for CliExecutionConfig {
+    fn default() -> Self {
+        Self {
+            binary: "claude".to_string(),
+            args: vec![],
+            working_dir: None,
+            timeout_secs: default_timeout_secs(),
+            use_pty: false,
+        }
+    }
+}
+
 /// Status of an agent task
 #[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq, Default)]
 #[ts(export)]
@@ -166,6 +214,9 @@ pub struct AgentTask {
     pub input: Option<String>,
     /// Schedule configuration
     pub schedule: TaskSchedule,
+    /// Execution mode (API or CLI)
+    #[serde(default)]
+    pub execution_mode: ExecutionMode,
     /// Notification configuration
     #[serde(default)]
     pub notification: NotificationConfig,
@@ -215,6 +266,7 @@ impl AgentTask {
             agent_id,
             input: None,
             schedule,
+            execution_mode: ExecutionMode::default(),
             notification: NotificationConfig::default(),
             status: AgentTaskStatus::Active,
             created_at: now,
@@ -225,6 +277,19 @@ impl AgentTask {
             failure_count: 0,
             last_error: None,
         }
+    }
+
+    /// Create a new agent task with CLI execution mode
+    pub fn new_with_cli(
+        id: String,
+        name: String,
+        agent_id: String,
+        schedule: TaskSchedule,
+        cli_config: CliExecutionConfig,
+    ) -> Self {
+        let mut task = Self::new(id, name, agent_id, schedule);
+        task.execution_mode = ExecutionMode::Cli(cli_config);
+        task
     }
 
     /// Calculate the next run time based on the schedule
@@ -601,5 +666,100 @@ mod tests {
     fn test_status_default() {
         let status: AgentTaskStatus = Default::default();
         assert_eq!(status, AgentTaskStatus::Active);
+    }
+
+    #[test]
+    fn test_execution_mode_default() {
+        let mode: ExecutionMode = Default::default();
+        assert_eq!(mode, ExecutionMode::Api);
+    }
+
+    #[test]
+    fn test_cli_execution_config_default() {
+        let config = CliExecutionConfig::default();
+        assert_eq!(config.binary, "claude");
+        assert!(config.args.is_empty());
+        assert!(config.working_dir.is_none());
+        assert_eq!(config.timeout_secs, 300);
+        assert!(!config.use_pty);
+    }
+
+    #[test]
+    fn test_agent_task_with_api_execution() {
+        let task = AgentTask::new(
+            "task-123".to_string(),
+            "Test Task".to_string(),
+            "agent-456".to_string(),
+            TaskSchedule::default(),
+        );
+        assert_eq!(task.execution_mode, ExecutionMode::Api);
+    }
+
+    #[test]
+    fn test_agent_task_with_cli_execution() {
+        let cli_config = CliExecutionConfig {
+            binary: "aider".to_string(),
+            args: vec!["--yes".to_string()],
+            working_dir: Some("/tmp/test".to_string()),
+            timeout_secs: 600,
+            use_pty: true,
+        };
+
+        let task = AgentTask::new_with_cli(
+            "task-123".to_string(),
+            "CLI Task".to_string(),
+            "agent-456".to_string(),
+            TaskSchedule::default(),
+            cli_config.clone(),
+        );
+
+        match &task.execution_mode {
+            ExecutionMode::Cli(config) => {
+                assert_eq!(config.binary, "aider");
+                assert_eq!(config.args, vec!["--yes".to_string()]);
+                assert_eq!(config.working_dir, Some("/tmp/test".to_string()));
+                assert_eq!(config.timeout_secs, 600);
+                assert!(config.use_pty);
+            }
+            _ => panic!("Expected CLI execution mode"),
+        }
+    }
+
+    #[test]
+    fn test_execution_mode_serialization() {
+        // Test API mode serialization
+        let api_mode = ExecutionMode::Api;
+        let json = serde_json::to_string(&api_mode).unwrap();
+        assert!(json.contains("api"));
+
+        // Test CLI mode serialization
+        let cli_mode = ExecutionMode::Cli(CliExecutionConfig {
+            binary: "claude".to_string(),
+            args: vec!["-p".to_string()],
+            working_dir: None,
+            timeout_secs: 300,
+            use_pty: false,
+        });
+        let json = serde_json::to_string(&cli_mode).unwrap();
+        assert!(json.contains("cli"));
+        assert!(json.contains("claude"));
+    }
+
+    #[test]
+    fn test_execution_mode_deserialization() {
+        // Test API mode deserialization
+        let json = r#"{"type":"api"}"#;
+        let mode: ExecutionMode = serde_json::from_str(json).unwrap();
+        assert_eq!(mode, ExecutionMode::Api);
+
+        // Test CLI mode deserialization
+        let json = r#"{"type":"cli","binary":"aider","args":[],"timeout_secs":300,"use_pty":false}"#;
+        let mode: ExecutionMode = serde_json::from_str(json).unwrap();
+        match mode {
+            ExecutionMode::Cli(config) => {
+                assert_eq!(config.binary, "aider");
+            }
+            _ => panic!("Expected CLI mode"),
+        }
     }
 }

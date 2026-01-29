@@ -28,6 +28,7 @@ const mockTask: AgentTask = {
   agent_id: 'agent-1',
   input: 'test input',
   schedule: { type: 'once', run_at: Date.now() + 3600000 },
+  execution_mode: { type: 'api' },
   notification: {
     telegram_enabled: false,
     telegram_bot_token: null,
