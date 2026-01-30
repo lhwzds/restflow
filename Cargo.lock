@@ -4600,11 +4600,13 @@ name = "restflow-cli"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "chrono",
  "clap",
  "colored",
  "comfy-table",
  "crossterm",
  "ratatui",
+ "restflow-ai",
  "restflow-core",
  "rpassword",
  "serde",
