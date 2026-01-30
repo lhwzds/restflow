@@ -4,22 +4,60 @@
 //! - Polling storage for runnable tasks
 //! - Executing agents on schedule
 //! - Handling task lifecycle (start, complete, fail)
+//! - Persisting conversation memory to long-term storage
 //! - Sending notifications on completion/failure
 
 use anyhow::{anyhow, Result};
+use restflow_ai::llm::Message;
 use restflow_core::models::{AgentTask, AgentTaskStatus, ExecutionMode, NotificationConfig};
-use restflow_core::storage::AgentTaskStorage;
-use std::sync::atomic::{AtomicU64, Ordering};
+use restflow_core::storage::{AgentTaskStorage, MemoryStorage};
 use std::collections::HashSet;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
 use tokio::time::{interval, Duration, Instant};
 use tracing::{debug, error, info, warn};
 
+use super::persist::MemoryPersister;
+
 use super::heartbeat::{
     HeartbeatEmitter, HeartbeatEvent, HeartbeatPulse, NoopHeartbeatEmitter, RunnerStatus,
     RunnerStatusEvent,
 };
+
+/// Result of agent execution including conversation messages.
+///
+/// This extended result allows the runner to persist the conversation
+/// to long-term memory after task completion.
+#[derive(Debug, Clone)]
+pub struct ExecutionResult {
+    /// The final output/answer from the agent
+    pub output: String,
+    /// All messages from the conversation (for memory persistence)
+    pub messages: Vec<Message>,
+    /// Whether the execution was successful
+    pub success: bool,
+}
+
+impl ExecutionResult {
+    /// Create a successful execution result.
+    pub fn success(output: String, messages: Vec<Message>) -> Self {
+        Self {
+            output,
+            messages,
+            success: true,
+        }
+    }
+
+    /// Create a failed execution result.
+    pub fn failure(error: String) -> Self {
+        Self {
+            output: error,
+            messages: Vec::new(),
+            success: false,
+        }
+    }
+}
 
 /// Message types for controlling the runner
 #[derive(Debug)]
@@ -87,8 +125,11 @@ impl RunnerHandle {
 /// Agent executor trait for dependency injection
 #[async_trait::async_trait]
 pub trait AgentExecutor: Send + Sync {
-    /// Execute an agent with the given input
-    async fn execute(&self, agent_id: &str, input: Option<&str>) -> Result<String>;
+    /// Execute an agent with the given input.
+    ///
+    /// Returns an `ExecutionResult` containing the output and conversation
+    /// messages for optional memory persistence.
+    async fn execute(&self, agent_id: &str, input: Option<&str>) -> Result<ExecutionResult>;
 }
 
 /// Notification sender trait for dependency injection
@@ -114,6 +155,8 @@ pub struct AgentTaskRunner {
     heartbeat_emitter: Arc<dyn HeartbeatEmitter>,
     sequence: AtomicU64,
     start_time: Instant,
+    /// Optional memory persister for long-term memory storage
+    memory_persister: Option<MemoryPersister>,
 }
 
 impl AgentTaskRunner {
@@ -133,6 +176,7 @@ impl AgentTaskRunner {
             heartbeat_emitter: Arc::new(NoopHeartbeatEmitter),
             sequence: AtomicU64::new(0),
             start_time: Instant::now(),
+            memory_persister: None,
         }
     }
 
@@ -153,6 +197,32 @@ impl AgentTaskRunner {
             heartbeat_emitter,
             sequence: AtomicU64::new(0),
             start_time: Instant::now(),
+            memory_persister: None,
+        }
+    }
+
+    /// Create a new AgentTaskRunner with memory persistence enabled.
+    ///
+    /// When memory persistence is enabled, conversation messages from task
+    /// executions are stored in long-term memory for later retrieval and search.
+    pub fn with_memory_persistence(
+        storage: Arc<AgentTaskStorage>,
+        executor: Arc<dyn AgentExecutor>,
+        notifier: Arc<dyn NotificationSender>,
+        config: RunnerConfig,
+        heartbeat_emitter: Arc<dyn HeartbeatEmitter>,
+        memory_storage: MemoryStorage,
+    ) -> Self {
+        Self {
+            storage,
+            executor,
+            notifier,
+            config,
+            running_tasks: Arc::new(RwLock::new(HashSet::new())),
+            heartbeat_emitter,
+            sequence: AtomicU64::new(0),
+            start_time: Instant::now(),
+            memory_persister: Some(MemoryPersister::new(memory_storage)),
         }
     }
 
@@ -411,7 +481,7 @@ impl AgentTaskRunner {
         let duration_ms = chrono::Utc::now().timestamp_millis() - start_time;
 
         match result {
-            Ok(Ok(output)) => {
+            Ok(Ok(exec_result)) => {
                 // Success
                 info!(
                     "Task '{}' completed successfully (duration={}ms)",
@@ -420,14 +490,19 @@ impl AgentTaskRunner {
 
                 if let Err(e) = self.storage.complete_task_execution(
                     task_id,
-                    Some(output.clone()),
+                    Some(exec_result.output.clone()),
                     duration_ms,
                 ) {
                     error!("Failed to record task completion: {}", e);
                 }
 
+                // Persist conversation to long-term memory if enabled
+                if task.memory.persist_on_complete {
+                    self.persist_memory(&task, &exec_result.messages);
+                }
+
                 // Send notification if configured
-                self.send_notification(&task, true, &output).await;
+                self.send_notification(&task, true, &exec_result.output).await;
             }
             Ok(Err(e)) => {
                 // Execution error
@@ -463,6 +538,45 @@ impl AgentTaskRunner {
 
         // Remove from running set
         self.running_tasks.write().await.remove(task_id);
+    }
+
+    /// Persist conversation messages to long-term memory.
+    ///
+    /// Called after successful task execution when `persist_on_complete` is enabled.
+    fn persist_memory(&self, task: &AgentTask, messages: &[Message]) {
+        let Some(persister) = &self.memory_persister else {
+            debug!("Memory persistence not configured, skipping");
+            return;
+        };
+
+        if messages.is_empty() {
+            debug!("No messages to persist for task '{}'", task.name);
+            return;
+        }
+
+        // Generate tags from task metadata
+        // Note: AgentTask doesn't have a tags field, so we use task name and agent_id
+        let tags: Vec<String> = vec![
+            format!("task:{}", task.id),
+            format!("agent:{}", task.agent_id),
+        ];
+
+        match persister.persist(messages, &task.agent_id, &task.id, &task.name, &tags) {
+            Ok(result) => {
+                if result.chunk_count > 0 {
+                    info!(
+                        "Persisted {} memory chunks for task '{}' (session: {})",
+                        result.chunk_count, task.name, result.session_id
+                    );
+                }
+            }
+            Err(e) => {
+                warn!(
+                    "Failed to persist memory for task '{}': {}",
+                    task.name, e
+                );
+            }
+        }
     }
 
     /// Send notification for task completion/failure
@@ -521,6 +635,7 @@ impl AgentTaskRunner {
             heartbeat_emitter: self.heartbeat_emitter.clone(),
             sequence: AtomicU64::new(self.sequence.load(Ordering::SeqCst)),
             start_time: self.start_time,
+            memory_persister: self.memory_persister.clone(),
         }
     }
 
@@ -598,7 +713,7 @@ mod tests {
 
     #[async_trait::async_trait]
     impl AgentExecutor for MockExecutor {
-        async fn execute(&self, agent_id: &str, input: Option<&str>) -> Result<String> {
+        async fn execute(&self, agent_id: &str, input: Option<&str>) -> Result<ExecutionResult> {
             self.call_count.fetch_add(1, Ordering::SeqCst);
 
             if self.delay_ms > 0 {
@@ -608,10 +723,9 @@ mod tests {
             if self.should_fail {
                 Err(anyhow!("Mock execution failure"))
             } else {
-                Ok(format!(
-                    "Executed agent {} with input: {:?}",
-                    agent_id, input
-                ))
+                let output = format!("Executed agent {} with input: {:?}", agent_id, input);
+                // Return empty messages for mock - real executor would return actual conversation
+                Ok(ExecutionResult::success(output, Vec::new()))
             }
         }
     }

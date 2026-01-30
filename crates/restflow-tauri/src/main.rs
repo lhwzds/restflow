@@ -205,6 +205,24 @@ fn main() {
             commands::rename_terminal_session,
             commands::update_terminal_session,
             commands::delete_terminal_session,
+            // Memory
+            commands::search_memory,
+            commands::search_memory_advanced,
+            commands::get_memory_chunk,
+            commands::list_memory_chunks,
+            commands::list_memory_chunks_by_tag,
+            commands::create_memory_chunk,
+            commands::delete_memory_chunk,
+            commands::delete_memory_chunks_for_agent,
+            commands::get_memory_session,
+            commands::list_memory_sessions,
+            commands::list_memory_chunks_for_session,
+            commands::create_memory_session,
+            commands::delete_memory_session,
+            commands::get_memory_stats,
+            commands::export_memory_markdown,
+            commands::export_memory_session_markdown,
+            commands::export_memory_advanced,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -6,6 +6,7 @@
 pub mod agent_task;
 pub mod agents;
 pub mod config;
+pub mod memory;
 pub mod pty;
 pub mod secrets;
 pub mod shell;
@@ -16,6 +17,7 @@ pub mod terminal_sessions;
 pub use agent_task::*;
 pub use agents::*;
 pub use config::*;
+pub use memory::*;
 pub use pty::*;
 pub use secrets::*;
 pub use shell::*;

@@ -15,7 +15,7 @@ use restflow_ai::{
 };
 use restflow_core::{models::ApiKeyConfig, storage::Storage, AIModel, Provider};
 
-use super::runner::AgentExecutor;
+use super::runner::{AgentExecutor, ExecutionResult};
 
 /// Real agent executor that bridges to restflow_ai::AgentExecutor.
 ///
@@ -140,8 +140,8 @@ impl AgentExecutor for RealAgentExecutor {
     /// 4. Builds the system prompt (from agent config or skill)
     /// 5. Creates the tool registry
     /// 6. Executes the agent via restflow_ai::AgentExecutor
-    /// 7. Returns the final answer or error message
-    async fn execute(&self, agent_id: &str, input: Option<&str>) -> Result<String> {
+    /// 7. Returns the execution result with output and messages
+    async fn execute(&self, agent_id: &str, input: Option<&str>) -> Result<ExecutionResult> {
         // 1. Load agent from storage
         let stored_agent = self
             .storage
@@ -183,9 +183,11 @@ impl AgentExecutor for RealAgentExecutor {
         let executor = AiAgentExecutor::new(llm, tools);
         let result = executor.run(config).await?;
 
-        // 7. Return result
+        // 7. Return result with messages for memory persistence
         if result.success {
-            Ok(result.answer.unwrap_or_else(|| "Task completed".to_string()))
+            let output = result.answer.unwrap_or_else(|| "Task completed".to_string());
+            let messages = result.state.messages.clone();
+            Ok(ExecutionResult::success(output, messages))
         } else {
             Err(anyhow!(
                 "Agent execution failed: {}",
