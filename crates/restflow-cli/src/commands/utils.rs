@@ -53,11 +53,9 @@ pub fn slugify(input: &str) -> String {
         if ch.is_ascii_alphanumeric() {
             output.push(ch.to_ascii_lowercase());
             last_dash = false;
-        } else if ch.is_whitespace() || ch == '-' || ch == '_' {
-            if !last_dash && !output.is_empty() {
-                output.push('-');
-                last_dash = true;
-            }
+        } else if (ch.is_whitespace() || ch == '-' || ch == '_') && !last_dash && !output.is_empty() {
+            output.push('-');
+            last_dash = true;
         }
     }
 
