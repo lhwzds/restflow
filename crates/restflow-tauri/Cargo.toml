@@ -27,6 +27,7 @@ tauri-plugin-shell = "2"
 
 # Async runtime
 tokio = { version = "1.47", features = ["full"] }
+tokio-stream = "0.1"
 
 # PTY support
 portable-pty = "0.8"

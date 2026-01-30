@@ -4,6 +4,7 @@
 //! exposing the workflow engine functionality through Tauri commands.
 
 pub mod agent_task;
+pub mod channel;
 pub mod commands;
 pub mod error;
 pub mod main_agent;
@@ -16,6 +17,7 @@ pub use agent_task::{
     RealAgentExecutor, RunnerConfig, RunnerHandle, RunnerStatus, TauriHeartbeatEmitter,
     TelegramNotifier, HEARTBEAT_EVENT,
 };
+pub use channel::{start_message_handler, MessageHandlerConfig, SystemStatus, TaskTrigger};
 pub use error::TauriError;
 pub use main_agent::{
     AgentDefinition, AgentDefinitionRegistry, AgentSession, MainAgent, MainAgentConfig,
@@ -24,7 +26,7 @@ pub use main_agent::{
     SubagentTracker, TauriMainAgentEmitter, MAIN_AGENT_EVENT,
 };
 pub use mcp::RestFlowMcpServer;
-pub use state::AppState;
+pub use state::{AppState, AppTaskTrigger};
 pub use webhook::{
     WebhookServerBuilder, WebhookServerConfig, WebhookServerError, WebhookServerHandle,
     WebhookState,
