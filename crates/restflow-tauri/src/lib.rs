@@ -8,6 +8,7 @@ pub mod commands;
 pub mod error;
 pub mod mcp;
 pub mod state;
+pub mod webhook;
 
 pub use agent_task::{
     AgentTaskRunner, HeartbeatEmitter, HeartbeatEvent, HeartbeatPulse, NoopHeartbeatEmitter,
@@ -17,3 +18,7 @@ pub use agent_task::{
 pub use error::TauriError;
 pub use mcp::RestFlowMcpServer;
 pub use state::AppState;
+pub use webhook::{
+    WebhookServerBuilder, WebhookServerConfig, WebhookServerError, WebhookServerHandle,
+    WebhookState,
+};
