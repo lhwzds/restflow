@@ -5,7 +5,7 @@
  * Handles session lifecycle, messaging, and UI state.
  */
 
-import { ref, computed, watch, onMounted, type Ref, type ComputedRef, type WritableComputedRef } from 'vue'
+import { ref, computed, watch, onMounted, type Ref, type ComputedRef } from 'vue'
 import { useChatSessionStore } from '@/stores/chatSessionStore'
 import type { ChatSession } from '@/types/generated/ChatSession'
 import type { ChatSessionSummary } from '@/types/generated/ChatSessionSummary'
@@ -110,7 +110,10 @@ export function useChatSession(options: UseChatSessionOptions = {}): ChatSession
 
     // Auto-select most recent session if enabled and sessions exist
     if (options.autoSelectRecent && sessions.value.length > 0 && !store.currentSessionId) {
-      await store.selectSession(sessions.value[0].id)
+      const firstSession = sessions.value[0]
+      if (firstSession) {
+        await store.selectSession(firstSession.id)
+      }
     }
   }
 
