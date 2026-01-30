@@ -10,6 +10,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use restflow_core::channel::ChannelRouter;
 use restflow_core::models::AgentTask;
+use restflow_core::security::SecurityChecker;
 use restflow_core::AppCore;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -33,6 +34,8 @@ pub struct AppState {
     runner_handle: RwLock<Option<RunnerHandle>>,
     /// Currently running tasks (task_id -> RunningTaskState)
     running_tasks: RwLock<HashMap<String, RunningTaskState>>,
+    /// Security checker for command execution control
+    security_checker: Arc<SecurityChecker>,
     /// Channel router for message handling
     pub channel_router: Arc<ChannelRouter>,
 }
@@ -40,13 +43,25 @@ pub struct AppState {
 impl AppState {
     pub async fn new(db_path: &str) -> anyhow::Result<Self> {
         let core = Arc::new(AppCore::new(db_path).await?);
+        let security_checker = Arc::new(SecurityChecker::with_defaults());
         let channel_router = Arc::new(ChannelRouter::new());
         Ok(Self {
             core,
             runner_handle: RwLock::new(None),
             running_tasks: RwLock::new(HashMap::new()),
+            security_checker,
             channel_router,
         })
+    }
+
+    /// Get a reference to the security checker.
+    pub fn security_checker(&self) -> &SecurityChecker {
+        &self.security_checker
+    }
+
+    /// Get the security checker as an Arc (for sharing with tools).
+    pub fn security_checker_arc(&self) -> Arc<SecurityChecker> {
+        self.security_checker.clone()
     }
 
     /// Get a reference to the channel router
