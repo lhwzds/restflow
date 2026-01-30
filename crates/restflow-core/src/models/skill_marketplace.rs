@@ -308,11 +308,12 @@ pub struct SkillAuthor {
 }
 
 /// Skill source information
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Default)]
 #[ts(export)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum SkillSource {
     /// Local skill (user-created)
+    #[default]
     Local,
     /// Built-in skill (bundled with RestFlow)
     Builtin,
@@ -341,12 +342,6 @@ pub enum SkillSource {
         #[serde(rename = "ref")]
         git_ref: Option<String>,
     },
-}
-
-impl Default for SkillSource {
-    fn default() -> Self {
-        SkillSource::Local
-    }
 }
 
 /// Extended skill metadata for marketplace
