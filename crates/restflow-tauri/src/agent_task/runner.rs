@@ -430,6 +430,33 @@ impl AgentTaskRunner {
         });
     }
 
+    /// Cancel a running task
+    async fn cancel_task(&self, task_id: &str) {
+        if !self.running_tasks.read().await.contains(task_id) {
+            debug!("Cancel requested for task {}, but it is not running", task_id);
+        }
+
+        let cancel_sender = self.cancel_senders.write().await.remove(task_id);
+        if let Some(sender) = cancel_sender {
+            if sender.send(()).is_err() {
+                debug!(
+                    "Cancel signal for task {} dropped (task already finished)",
+                    task_id
+                );
+            }
+            return;
+        }
+
+        // No cancel channel found; if the task is marked running in storage, pause it.
+        if let Ok(Some(task)) = self.storage.get_task(task_id)
+            && task.status == AgentTaskStatus::Running
+        {
+            if let Err(e) = self.storage.pause_task(task_id) {
+                error!("Failed to mark task {} as paused: {}", task_id, e);
+            }
+        }
+    }
+
     /// Execute a single task
     /// Note: Task must already be in running_tasks before calling this
     async fn execute_task(&self, task_id: &str) {
