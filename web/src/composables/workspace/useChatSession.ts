@@ -5,9 +5,10 @@
  * Handles session lifecycle, messaging, and UI state.
  */
 
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted, type Ref, type ComputedRef, type WritableComputedRef } from 'vue'
 import { useChatSessionStore } from '@/stores/chatSessionStore'
 import type { ChatSession } from '@/types/generated/ChatSession'
+import type { ChatSessionSummary } from '@/types/generated/ChatSessionSummary'
 import type { ChatMessage } from '@/types/generated/ChatMessage'
 import type { ChatRole } from '@/types/generated/ChatRole'
 
@@ -23,23 +24,23 @@ export interface UseChatSessionOptions {
 }
 
 export interface ChatSessionComposable {
-  // State
-  sessions: ReturnType<typeof useChatSessionStore>['filteredSummaries']
-  currentSession: ReturnType<typeof useChatSessionStore>['currentSession']
-  messages: ReturnType<typeof useChatSessionStore>['currentMessages']
-  isLoading: ReturnType<typeof useChatSessionStore>['isLoading']
-  isLoadingSession: ReturnType<typeof useChatSessionStore>['isLoadingSession']
-  isSending: ReturnType<typeof useChatSessionStore>['isSending']
-  error: ReturnType<typeof useChatSessionStore>['error']
+  // State (computed refs from store)
+  sessions: ComputedRef<ChatSessionSummary[]>
+  currentSession: ComputedRef<ChatSession | null>
+  messages: ComputedRef<ChatMessage[]>
+  isLoading: ComputedRef<boolean>
+  isLoadingSession: ComputedRef<boolean>
+  isSending: ComputedRef<boolean>
+  error: ComputedRef<string | null>
 
-  // Local UI state
-  inputMessage: ReturnType<typeof ref<string>>
-  isExpanded: ReturnType<typeof ref<boolean>>
+  // Local UI state (refs)
+  inputMessage: Ref<string>
+  isExpanded: Ref<boolean>
 
-  // Computed
-  hasSession: ReturnType<typeof computed<boolean>>
-  hasMessages: ReturnType<typeof computed<boolean>>
-  canSend: ReturnType<typeof computed<boolean>>
+  // Computed (derived)
+  hasSession: ComputedRef<boolean>
+  hasMessages: ComputedRef<boolean>
+  canSend: ComputedRef<boolean>
 
   // Actions
   loadSessions: () => Promise<void>
