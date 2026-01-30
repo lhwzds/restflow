@@ -5,6 +5,7 @@
 
 pub mod agent_task;
 pub mod channel;
+pub mod chat;
 pub mod commands;
 pub mod error;
 pub mod main_agent;
@@ -18,6 +19,10 @@ pub use agent_task::{
     TelegramNotifier, HEARTBEAT_EVENT,
 };
 pub use channel::{start_message_handler, MessageHandlerConfig, SystemStatus, TaskTrigger};
+pub use chat::{
+    ChatStreamEvent, ChatStreamKind, ChatStreamState, StepStatus, StreamCancelHandle,
+    StreamManager, CHAT_STREAM_EVENT,
+};
 pub use error::TauriError;
 pub use main_agent::{
     AgentDefinition, AgentDefinitionRegistry, AgentSession, MainAgent, MainAgentConfig,
