@@ -8,7 +8,9 @@ use ts_rs::TS;
 use uuid::Uuid;
 
 /// Credential type representing different authentication methods
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+///
+/// Note: Debug is manually implemented to prevent logging sensitive values.
+#[derive(Clone, Serialize, Deserialize, TS)]
 #[ts(export, export_to = "../../web/src/types/generated/")]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Credential {
@@ -45,6 +47,42 @@ pub enum Credential {
         #[serde(skip_serializing_if = "Option::is_none")]
         email: Option<String>,
     },
+}
+
+// Manual Debug implementation to prevent logging sensitive credential values
+impl std::fmt::Debug for Credential {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Credential::ApiKey { email, .. } => f
+                .debug_struct("ApiKey")
+                .field("key", &"[REDACTED]")
+                .field("email", email)
+                .finish(),
+            Credential::Token {
+                expires_at, email, ..
+            } => f
+                .debug_struct("Token")
+                .field("token", &"[REDACTED]")
+                .field("expires_at", expires_at)
+                .field("email", email)
+                .finish(),
+            Credential::OAuth {
+                refresh_token,
+                expires_at,
+                email,
+                ..
+            } => f
+                .debug_struct("OAuth")
+                .field("access_token", &"[REDACTED]")
+                .field(
+                    "refresh_token",
+                    &refresh_token.as_ref().map(|_| "[REDACTED]"),
+                )
+                .field("expires_at", expires_at)
+                .field("email", email)
+                .finish(),
+        }
+    }
 }
 
 impl Credential {
@@ -536,5 +574,56 @@ mod tests {
     #[test]
     fn test_profile_health_default() {
         assert_eq!(ProfileHealth::default(), ProfileHealth::Unknown);
+    }
+
+    #[test]
+    fn test_credential_debug_masks_sensitive_values() {
+        // Test ApiKey Debug implementation
+        let api_key = Credential::ApiKey {
+            key: "sk-ant-api03-secret-key-12345".to_string(),
+            email: Some("test@example.com".to_string()),
+        };
+        let debug_str = format!("{:?}", api_key);
+        assert!(
+            !debug_str.contains("sk-ant-api03-secret-key-12345"),
+            "API key should be redacted in Debug output"
+        );
+        assert!(
+            debug_str.contains("[REDACTED]"),
+            "Debug output should contain [REDACTED]"
+        );
+
+        // Test Token Debug implementation
+        let token = Credential::Token {
+            token: "super-secret-token".to_string(),
+            expires_at: None,
+            email: None,
+        };
+        let debug_str = format!("{:?}", token);
+        assert!(
+            !debug_str.contains("super-secret-token"),
+            "Token should be redacted in Debug output"
+        );
+
+        // Test OAuth Debug implementation
+        let oauth = Credential::OAuth {
+            access_token: "access-token-secret".to_string(),
+            refresh_token: Some("refresh-token-secret".to_string()),
+            expires_at: None,
+            email: Some("user@example.com".to_string()),
+        };
+        let debug_str = format!("{:?}", oauth);
+        assert!(
+            !debug_str.contains("access-token-secret"),
+            "Access token should be redacted"
+        );
+        assert!(
+            !debug_str.contains("refresh-token-secret"),
+            "Refresh token should be redacted"
+        );
+        assert!(
+            debug_str.contains("user@example.com"),
+            "Email should still be visible"
+        );
     }
 }
