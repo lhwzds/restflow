@@ -150,7 +150,7 @@ impl std::fmt::Display for AuthProvider {
 }
 
 /// Health status of an auth profile
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[ts(export, export_to = "../../web/src/types/generated/")]
 #[serde(rename_all = "snake_case")]
 pub enum ProfileHealth {
@@ -161,13 +161,8 @@ pub enum ProfileHealth {
     /// Profile is permanently disabled
     Disabled,
     /// Profile status is unknown (not yet tested)
+    #[default]
     Unknown,
-}
-
-impl Default for ProfileHealth {
-    fn default() -> Self {
-        Self::Unknown
-    }
 }
 
 /// Authentication profile combining credential with metadata
@@ -246,10 +241,10 @@ impl AuthProfile {
         if self.credential.is_expired() {
             return false;
         }
-        if let Some(cooldown_until) = self.cooldown_until {
-            if cooldown_until > Utc::now() {
-                return false;
-            }
+        if let Some(cooldown_until) = self.cooldown_until
+            && cooldown_until > Utc::now()
+        {
+            return false;
         }
         true
     }

@@ -258,29 +258,29 @@ impl CredentialDiscoverer for EnvVarDiscoverer {
         let mut profiles = Vec::new();
 
         for (env_var, provider) in &self.env_vars {
-            if let Ok(value) = std::env::var(env_var) {
-                if !value.is_empty() {
-                    let credential = Credential::ApiKey {
-                        key: value,
-                        email: None,
-                    };
+            if let Ok(value) = std::env::var(env_var)
+                && !value.is_empty()
+            {
+                let credential = Credential::ApiKey {
+                    key: value,
+                    email: None,
+                };
 
-                    let profile = AuthProfile::new(
-                        format!("${}", env_var),
-                        credential,
-                        self.source(),
-                        *provider,
-                    );
+                let profile = AuthProfile::new(
+                    format!("${}", env_var),
+                    credential,
+                    self.source(),
+                    *provider,
+                );
 
-                    info!(
-                        profile_id = %profile.id,
-                        env_var = env_var,
-                        provider = ?provider,
-                        "Discovered credential from environment"
-                    );
+                info!(
+                    profile_id = %profile.id,
+                    env_var = env_var,
+                    provider = ?provider,
+                    "Discovered credential from environment"
+                );
 
-                    profiles.push(profile);
-                }
+                profiles.push(profile);
             }
         }
 
