@@ -10,6 +10,8 @@
 //! - `notifier`: Telegram notification sender for task results
 //! - `events`: Real-time streaming events for frontend updates
 //! - `heartbeat`: Status types and emitters (integrated into runner)
+//! - `retry`: Retry mechanism for transient failures
+//! - `failover`: Model failover system for automatic fallback
 //! - `AgentExecutor`: Trait for executing agents (allows dependency injection)
 //! - `NotificationSender`: Trait for sending notifications (allows DI)
 //! - `TaskEventEmitter`: Trait for emitting real-time events (allows DI)
@@ -25,7 +27,8 @@
 //! ```ignore
 //! use restflow_tauri::agent_task::{
 //!     AgentTaskRunner, RunnerConfig, RealAgentExecutor,
-//!     TelegramNotifier, TaskStreamEvent, TauriHeartbeatEmitter
+//!     TelegramNotifier, TaskStreamEvent, TauriHeartbeatEmitter,
+//!     RetryConfig, FailoverConfig, FailoverManager
 //! };
 //!
 //! // For API-based execution:
@@ -95,12 +98,47 @@
 //!     }
 //! });
 //! ```
+//!
+//! # Retry Example
+//!
+//! ```ignore
+//! use restflow_tauri::agent_task::retry::{RetryConfig, RetryState};
+//!
+//! let config = RetryConfig::default();
+//! let mut state = RetryState::new();
+//!
+//! // After a failure
+//! if state.should_retry(&config, "Connection timeout") {
+//!     state.record_failure("Connection timeout", &config);
+//!     // Wait before retrying
+//! }
+//! ```
+//!
+//! # Failover Example
+//!
+//! ```ignore
+//! use restflow_tauri::agent_task::failover::{FailoverConfig, FailoverManager};
+//! use restflow_core::AIModel;
+//!
+//! let config = FailoverConfig::with_fallbacks(
+//!     AIModel::ClaudeSonnet4_5,
+//!     vec![AIModel::Gpt5, AIModel::DeepseekChat],
+//! );
+//! let manager = FailoverManager::new(config);
+//!
+//! // Get the best available model
+//! if let Some(model) = manager.get_available_model().await {
+//!     // Use this model
+//! }
+//! ```
 
 pub mod events;
 pub mod executor;
+pub mod failover;
 pub mod heartbeat;
 pub mod notifier;
 pub mod persist;
+pub mod retry;
 pub mod runner;
 
 pub use events::{
@@ -108,6 +146,7 @@ pub use events::{
     TaskStreamEvent, TauriEventEmitter, TASK_STREAM_EVENT,
 };
 pub use executor::RealAgentExecutor;
+pub use failover::{execute_with_failover, FailoverConfig, FailoverManager, ModelStatus};
 pub use heartbeat::{
     ChannelHeartbeatEmitter, HeartbeatEmitter, HeartbeatEvent, HeartbeatPulse, HeartbeatWarning,
     NoopHeartbeatEmitter, RunnerStatus, RunnerStatusEvent, SystemStats, TauriHeartbeatEmitter,
@@ -115,6 +154,7 @@ pub use heartbeat::{
 };
 pub use notifier::TelegramNotifier;
 pub use persist::{MemoryPersister, PersistConfig, PersistResult};
+pub use retry::{is_transient_error, ErrorCategory, RetryConfig, RetryState};
 pub use runner::{
     AgentExecutor, AgentTaskRunner, ExecutionResult, NoopNotificationSender, NotificationSender,
     RunnerConfig, RunnerHandle,
