@@ -5,6 +5,7 @@
 
 pub mod agent;
 pub mod agent_task;
+pub mod chat_session;
 pub mod execution_history;
 pub mod memory;
 pub mod skill;
@@ -20,6 +21,7 @@ pub use restflow_storage::{ConfigStorage, Secret, SecretStorage, SystemConfig};
 
 pub use agent::AgentStorage;
 pub use agent_task::AgentTaskStorage;
+pub use chat_session::ChatSessionStorage;
 pub use execution_history::ExecutionHistoryStorage;
 pub use memory::MemoryStorage;
 pub use skill::SkillStorage;
@@ -41,6 +43,7 @@ pub struct Storage {
     pub terminal_sessions: TerminalSessionStorage,
     pub execution_history: ExecutionHistoryStorage,
     pub memory: MemoryStorage,
+    pub chat_sessions: ChatSessionStorage,
 }
 
 impl Storage {
@@ -57,6 +60,7 @@ impl Storage {
         let terminal_sessions = TerminalSessionStorage::new(db.clone())?;
         let execution_history = ExecutionHistoryStorage::new(db.clone())?;
         let memory = MemoryStorage::new(db.clone())?;
+        let chat_sessions = ChatSessionStorage::new(db.clone())?;
 
         Ok(Self {
             db,
@@ -69,6 +73,7 @@ impl Storage {
             terminal_sessions,
             execution_history,
             memory,
+            chat_sessions,
         })
     }
 
