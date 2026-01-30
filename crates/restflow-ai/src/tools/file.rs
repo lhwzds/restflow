@@ -196,12 +196,11 @@ impl FileTool {
         };
 
         // Create parent directories if needed
-        if let Some(parent) = path.parent() {
-            if !parent.exists() {
-                if let Err(e) = fs::create_dir_all(parent).await {
-                    return ToolOutput::error(format!("Cannot create directory: {}", e));
-                }
-            }
+        if let Some(parent) = path.parent()
+            && !parent.exists()
+            && let Err(e) = fs::create_dir_all(parent).await
+        {
+            return ToolOutput::error(format!("Cannot create directory: {}", e));
         }
 
         let result = if append {
@@ -265,10 +264,10 @@ impl FileTool {
                 }
 
                 let name = entry.file_name().to_string_lossy().to_string();
-                if let Some(p) = pattern {
-                    if !glob_match(p, &name) {
-                        continue;
-                    }
+                if let Some(p) = pattern
+                    && !glob_match(p, &name)
+                {
+                    continue;
                 }
 
                 let file_type = match entry.file_type().await {
@@ -353,14 +352,15 @@ impl FileTool {
                 };
 
                 // Apply pattern filter
-                if let Some(p) = pattern {
-                    if !glob_match(p, &name) && !glob_match(p, &relative_path) {
-                        // Still recurse into directories even if they don't match
-                        if file_type == "dir" {
-                            self.list_recursive(&entry_path, entries, pattern, base).await;
-                        }
-                        continue;
+                if let Some(p) = pattern
+                    && !glob_match(p, &name)
+                    && !glob_match(p, &relative_path)
+                {
+                    // Still recurse into directories even if they don't match
+                    if file_type == "dir" {
+                        self.list_recursive(&entry_path, entries, pattern, base).await;
                     }
+                    continue;
                 }
 
                 let size = match entry.metadata().await {
@@ -429,10 +429,10 @@ impl FileTool {
             if dir.is_file() {
                 // Search in single file
                 let name = dir.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-                if let Some(p) = file_pattern {
-                    if !glob_match(p, &name) {
-                        return;
-                    }
+                if let Some(p) = file_pattern
+                    && !glob_match(p, &name)
+                {
+                    return;
                 }
                 self.search_in_file(dir, regex, matches, base).await;
                 return;
@@ -470,10 +470,10 @@ impl FileTool {
                     }
 
                     // Apply file pattern filter
-                    if let Some(p) = file_pattern {
-                        if !glob_match(p, &name) {
-                            continue;
-                        }
+                    if let Some(p) = file_pattern
+                        && !glob_match(p, &name)
+                    {
+                        continue;
                     }
 
                     self.search_in_file(&entry_path, regex, matches, base).await;
