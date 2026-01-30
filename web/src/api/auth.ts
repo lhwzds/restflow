@@ -77,7 +77,7 @@ export async function authGetAvailableProfiles(): Promise<AuthProfile[]> {
  * Get a specific profile by ID
  */
 export async function authGetProfile(profileId: string): Promise<AuthProfile | null> {
-  return invoke<AuthProfile | null>('auth_get_profile', { profileId });
+  return invoke<AuthProfile | null>('auth_get_profile', { profile_id: profileId });
 }
 
 /**
@@ -91,42 +91,42 @@ export async function authAddProfile(request: AddProfileRequest): Promise<Profil
  * Remove a profile
  */
 export async function authRemoveProfile(profileId: string): Promise<ProfileResponse> {
-  return invoke<ProfileResponse>('auth_remove_profile', { profileId });
+  return invoke<ProfileResponse>('auth_remove_profile', { profile_id: profileId });
 }
 
 /**
  * Update a profile
  */
 export async function authUpdateProfile(profileId: string, update: ProfileUpdate): Promise<ProfileResponse> {
-  return invoke<ProfileResponse>('auth_update_profile', { profileId, update });
+  return invoke<ProfileResponse>('auth_update_profile', { profile_id: profileId, update });
 }
 
 /**
  * Enable a profile
  */
 export async function authEnableProfile(profileId: string): Promise<ProfileResponse> {
-  return invoke<ProfileResponse>('auth_enable_profile', { profileId });
+  return invoke<ProfileResponse>('auth_enable_profile', { profile_id: profileId });
 }
 
 /**
  * Disable a profile
  */
 export async function authDisableProfile(profileId: string, reason: string): Promise<ProfileResponse> {
-  return invoke<ProfileResponse>('auth_disable_profile', { profileId, reason });
+  return invoke<ProfileResponse>('auth_disable_profile', { profile_id: profileId, reason });
 }
 
 /**
  * Mark a profile as successfully used
  */
 export async function authMarkSuccess(profileId: string): Promise<ProfileResponse> {
-  return invoke<ProfileResponse>('auth_mark_success', { profileId });
+  return invoke<ProfileResponse>('auth_mark_success', { profile_id: profileId });
 }
 
 /**
  * Mark a profile as failed
  */
 export async function authMarkFailure(profileId: string): Promise<ProfileResponse> {
-  return invoke<ProfileResponse>('auth_mark_failure', { profileId });
+  return invoke<ProfileResponse>('auth_mark_failure', { profile_id: profileId });
 }
 
 /**
