@@ -5,6 +5,7 @@ pub mod ai_model;
 pub mod execution;
 pub mod input;
 pub mod output;
+pub mod security;
 pub mod skill;
 pub mod terminal_session;
 pub mod trigger;
@@ -30,3 +31,7 @@ pub use restflow_storage::Secret;
 pub use skill::Skill;
 pub use terminal_session::{TerminalSession, TerminalStatus};
 pub use trigger::{ActiveTrigger, AuthConfig, TriggerConfig};
+pub use security::{
+    ApprovalStatus, CommandPattern, PendingApproval, SecurityAction, SecurityCheckResult,
+    SecurityPolicy,
+};
