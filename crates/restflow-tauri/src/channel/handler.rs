@@ -52,27 +52,27 @@ pub fn start_message_handler<T: TaskTrigger + 'static>(
     }
 
     for channel_type in interactive_channels {
-        if let Some(channel) = router.get(channel_type) {
-            if let Some(stream) = channel.start_receiving() {
-                let router = router.clone();
-                let trigger = task_trigger.clone();
-                let config = config.clone();
+        if let Some(channel) = router.get(channel_type)
+            && let Some(stream) = channel.start_receiving()
+        {
+            let router = router.clone();
+            let trigger = task_trigger.clone();
+            let config = config.clone();
 
-                tokio::spawn(async move {
-                    info!("Listening for messages on {:?}", channel_type);
+            tokio::spawn(async move {
+                info!("Listening for messages on {:?}", channel_type);
 
-                    let mut stream = stream;
-                    while let Some(message) = stream.next().await {
-                        if let Err(e) =
-                            handle_message(&router, trigger.as_ref(), &message, &config).await
-                        {
-                            error!("Error handling message: {}", e);
-                        }
+                let mut stream = stream;
+                while let Some(message) = stream.next().await {
+                    if let Err(e) =
+                        handle_message(&router, trigger.as_ref(), &message, &config).await
+                    {
+                        error!("Error handling message: {}", e);
                     }
+                }
 
-                    warn!("Message stream ended for {:?}", channel_type);
-                });
-            }
+                warn!("Message stream ended for {:?}", channel_type);
+            });
         }
     }
 }
@@ -93,10 +93,10 @@ async fn handle_message(
     router.record_conversation(message, None).await;
 
     // Check if this conversation is linked to an active task
-    if let Some(context) = router.get_conversation(&message.conversation_id).await {
-        if let Some(task_id) = &context.task_id {
-            return forward_to_task(router, trigger, task_id, message).await;
-        }
+    if let Some(context) = router.get_conversation(&message.conversation_id).await
+        && let Some(task_id) = &context.task_id
+    {
+        return forward_to_task(router, trigger, task_id, message).await;
     }
 
     // Check for commands

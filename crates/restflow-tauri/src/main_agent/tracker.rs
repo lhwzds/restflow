@@ -209,10 +209,10 @@ impl SubagentTracker {
 
         // Use select to wait for any completion
         // For simplicity, we just wait for the first one
-        if let Some(id) = ids.first() {
-            if let Some(result) = self.wait(id).await {
-                return Some((id.clone(), result));
-            }
+        if let Some(id) = ids.first()
+            && let Some(result) = self.wait(id).await
+        {
+            return Some((id.clone(), result));
         }
 
         None

@@ -172,15 +172,14 @@ async fn cmd_stop(
     message: &InboundMessage,
 ) -> Result<()> {
     // Check if this conversation has an active task
-    if let Some(context) = router.get_conversation(&message.conversation_id).await {
-        if let Some(task_id) = context.task_id {
-            trigger.stop_task(&task_id).await?;
-            router.clear_task(&message.conversation_id).await?;
+    if let Some(context) = router.get_conversation(&message.conversation_id).await
+        && let Some(task_id) = context.task_id
+    {
+        trigger.stop_task(&task_id).await?;
+        router.clear_task(&message.conversation_id).await?;
 
-            let response =
-                OutboundMessage::new(&message.conversation_id, "⏹️ Task stopped.");
-            return router.send_to(message.channel_type, response).await;
-        }
+        let response = OutboundMessage::new(&message.conversation_id, "⏹️ Task stopped.");
+        return router.send_to(message.channel_type, response).await;
     }
 
     let response = OutboundMessage::new(

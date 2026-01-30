@@ -9,7 +9,7 @@ import {
   ChevronDown,
   ChevronRight,
 } from 'lucide-vue-next'
-import type { ExecutionStep } from '@/api/agents'
+import type { ExecutionStep, ToolCallInfo } from '@/api/agents'
 import MarkdownRenderer from '@/components/shared/MarkdownRenderer.vue'
 import { Badge } from '@/components/ui/badge'
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible'
@@ -17,6 +17,22 @@ import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/component
 const props = defineProps<{
   step: ExecutionStep
 }>()
+
+// Access content from the data field (ExecutionStep stores optional data in 'data')
+const stepContent = computed<string | undefined>(() => {
+  const data = props.step.data as Record<string, unknown> | null | undefined
+  return data?.content as string | undefined
+})
+
+// Access tool_calls from the data field
+const stepToolCalls = computed<ToolCallInfo[]>(() => {
+  const data = props.step.data as Record<string, unknown> | null | undefined
+  const toolCalls = data?.tool_calls
+  if (Array.isArray(toolCalls)) {
+    return toolCalls as ToolCallInfo[]
+  }
+  return []
+})
 
 const stepIcon = computed(() => {
   switch (props.step.step_type) {
@@ -90,15 +106,15 @@ function formatArguments(args: Record<string, unknown>): string {
 
     <div class="step-content">
       <!-- Content display -->
-      <div v-if="step.content" class="content-text">
-        <MarkdownRenderer :content="step.content" />
+      <div v-if="stepContent" class="content-text">
+        <MarkdownRenderer :content="stepContent" />
       </div>
 
       <!-- Tool calls display -->
-      <template v-if="step.tool_calls && step.tool_calls.length > 0">
+      <template v-if="stepToolCalls.length > 0">
         <div class="tool-calls-list">
           <Collapsible
-            v-for="tc in step.tool_calls"
+            v-for="tc in stepToolCalls"
             :key="tc.id"
             :open="openToolCalls.has(tc.id)"
             @update:open="
