@@ -90,14 +90,6 @@ impl FileTool {
                 base.join(&path)
             };
 
-            // Canonicalize if the path exists, otherwise just normalize
-            let canonical = if resolved.exists() {
-                resolved.canonicalize().map_err(|e| e.to_string())?
-            } else {
-                // For non-existent paths, normalize manually
-                normalize_path(&resolved)
-            };
-
             // Check if the canonical path is within base
             let canonical_base = if base.exists() {
                 base.canonicalize().map_err(|e| e.to_string())?
@@ -105,11 +97,32 @@ impl FileTool {
                 normalize_path(base)
             };
 
-            if !canonical.starts_with(&canonical_base) {
+            if resolved.exists() {
+                let canonical = resolved.canonicalize().map_err(|e| e.to_string())?;
+                if !canonical.starts_with(&canonical_base) {
+                    return Err("Path escapes base directory".to_string());
+                }
+                return Ok(canonical);
+            }
+
+            if base.exists() {
+                let Some((ancestor, suffix)) = find_existing_ancestor(&resolved) else {
+                    return Err("Path escapes base directory".to_string());
+                };
+                let canonical_parent = ancestor.canonicalize().map_err(|e| e.to_string())?;
+                let candidate = normalize_path(&canonical_parent.join(suffix));
+                if !candidate.starts_with(&canonical_base) {
+                    return Err("Path escapes base directory".to_string());
+                }
+                return Ok(candidate);
+            }
+
+            let normalized = normalize_path(&resolved);
+            if !normalized.starts_with(&canonical_base) {
                 return Err("Path escapes base directory".to_string());
             }
 
-            Ok(canonical)
+            Ok(normalized)
         } else {
             // No base directory restriction
             if path.is_absolute() {
@@ -772,6 +785,23 @@ fn normalize_path(path: &Path) -> PathBuf {
     result
 }
 
+fn find_existing_ancestor(path: &Path) -> Option<(PathBuf, PathBuf)> {
+    let mut ancestor = path.to_path_buf();
+    loop {
+        if ancestor.exists() {
+            let suffix = path
+                .strip_prefix(&ancestor)
+                .unwrap_or_else(|_| Path::new(""))
+                .to_path_buf();
+            return Some((ancestor, suffix));
+        }
+
+        if !ancestor.pop() {
+            return None;
+        }
+    }
+}
+
 /// Check if a file is likely binary based on extension
 fn is_likely_binary(name: &str) -> bool {
     let binary_extensions = [
@@ -1124,6 +1154,31 @@ mod tests {
             "path": "../../../etc/passwd"
         })).await.unwrap();
         
+        assert!(!output.success);
+        assert!(output.error.as_ref().unwrap().contains("escapes base directory"));
+    }
+
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn test_base_dir_symlink_escape_blocked() {
+        use std::os::unix::fs::symlink;
+
+        let base_dir = TempDir::new().unwrap();
+        let outside_dir = TempDir::new().unwrap();
+        let tool = FileTool::new().with_base_dir(base_dir.path());
+
+        let link_path = base_dir.path().join("link");
+        symlink(outside_dir.path(), &link_path).unwrap();
+
+        let output = tool
+            .execute(serde_json::json!({
+                "action": "write",
+                "path": "link/newfile.txt",
+                "content": "nope"
+            }))
+            .await
+            .unwrap();
+
         assert!(!output.success);
         assert!(output.error.as_ref().unwrap().contains("escapes base directory"));
     }
