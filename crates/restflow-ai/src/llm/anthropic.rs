@@ -129,6 +129,7 @@ enum AnthropicStreamEvent {
         delta: ContentBlockDelta,
     },
     ContentBlockStop {
+        #[allow(dead_code)]
         index: usize,
     },
     MessageDelta {
@@ -144,7 +145,9 @@ enum AnthropicStreamEvent {
 
 #[derive(Debug, Deserialize)]
 struct MessageStartPayload {
+    #[allow(dead_code)]
     id: String,
+    #[allow(dead_code)]
     model: String,
     usage: Option<InputUsage>,
 }
@@ -169,6 +172,7 @@ enum ContentBlockStartPayload {
 
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
+#[allow(clippy::enum_variant_names)]
 enum ContentBlockDelta {
     TextDelta { text: String },
     InputJsonDelta { partial_json: String },

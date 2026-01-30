@@ -456,10 +456,10 @@ impl LlmClient for OpenAIClient {
                                 }
 
                                 // Handle content delta
-                                if let Some(content) = choice.delta.content {
-                                    if !content.is_empty() {
-                                        yield Ok(StreamChunk::text(&content));
-                                    }
+                                if let Some(content) = choice.delta.content
+                                    && !content.is_empty()
+                                {
+                                    yield Ok(StreamChunk::text(&content));
                                 }
 
                                 // Handle tool calls delta
@@ -469,10 +469,10 @@ impl LlmClient for OpenAIClient {
                                         if let Some(id) = &tc.id {
                                             tool_call_ids.insert(tc.index, id.clone());
                                         }
-                                        if let Some(func) = &tc.function {
-                                            if let Some(name) = &func.name {
-                                                tool_call_names.insert(tc.index, name.clone());
-                                            }
+                                        if let Some(func) = &tc.function
+                                            && let Some(name) = &func.name
+                                        {
+                                            tool_call_names.insert(tc.index, name.clone());
                                         }
 
                                         let arguments = tc.function.as_ref().and_then(|f| f.arguments.clone());

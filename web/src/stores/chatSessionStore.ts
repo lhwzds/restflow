@@ -293,7 +293,8 @@ export const useChatSessionStore = defineStore('chatSession', {
         const session = await chatSessionApi.renameChatSession(id, name)
         this.sessions.set(id, session)
         // Update summary
-        const summary = this.summaries.find((s) => s.id === id)
+        const summaryIndex = this.summaries.findIndex((s) => s.id === id)
+        const summary = this.summaries[summaryIndex]
         if (summary) {
           summary.name = name
         }
@@ -321,7 +322,8 @@ export const useChatSessionStore = defineStore('chatSession', {
         const session = await chatSessionApi.sendChatMessage(this.currentSessionId, content)
         this.sessions.set(session.id, session)
         // Update summary
-        const summary = this.summaries.find((s) => s.id === session.id)
+        const summaryIndex = this.summaries.findIndex((s) => s.id === session.id)
+        const summary = this.summaries[summaryIndex]
         if (summary) {
           summary.message_count = session.messages.length
           summary.updated_at = session.updated_at
@@ -347,7 +349,8 @@ export const useChatSessionStore = defineStore('chatSession', {
         const session = await chatSessionApi.addChatMessage(sessionId, message)
         this.sessions.set(sessionId, session)
         // Update summary
-        const summary = this.summaries.find((s) => s.id === sessionId)
+        const summaryIndex = this.summaries.findIndex((s) => s.id === sessionId)
+        const summary = this.summaries[summaryIndex]
         if (summary) {
           summary.message_count = session.messages.length
           summary.updated_at = session.updated_at
@@ -380,7 +383,8 @@ export const useChatSessionStore = defineStore('chatSession', {
     updateSessionLocally(session: ChatSession): void {
       this.sessions.set(session.id, session)
       // Update summary if exists
-      const summary = this.summaries.find((s) => s.id === session.id)
+      const summaryIndex = this.summaries.findIndex((s) => s.id === session.id)
+      const summary = this.summaries[summaryIndex]
       if (summary) {
         summary.message_count = session.messages.length
         summary.updated_at = session.updated_at

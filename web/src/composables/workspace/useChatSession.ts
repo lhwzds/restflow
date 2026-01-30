@@ -5,10 +5,9 @@
  * Handles session lifecycle, messaging, and UI state.
  */
 
-import { ref, computed, watch, onMounted, type Ref, type ComputedRef } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import { useChatSessionStore } from '@/stores/chatSessionStore'
 import type { ChatSession } from '@/types/generated/ChatSession'
-import type { ChatSessionSummary } from '@/types/generated/ChatSessionSummary'
 import type { ChatMessage } from '@/types/generated/ChatMessage'
 import type { ChatRole } from '@/types/generated/ChatRole'
 
@@ -21,37 +20,6 @@ export interface UseChatSessionOptions {
   skillId?: string
   /** Auto-select most recent session */
   autoSelectRecent?: boolean
-}
-
-export interface ChatSessionComposable {
-  // State (computed refs from store)
-  sessions: ComputedRef<ChatSessionSummary[]>
-  currentSession: ComputedRef<ChatSession | null>
-  messages: ComputedRef<ChatMessage[]>
-  isLoading: ComputedRef<boolean>
-  isLoadingSession: ComputedRef<boolean>
-  isSending: ComputedRef<boolean>
-  error: ComputedRef<string | null>
-
-  // Local UI state (refs)
-  inputMessage: Ref<string>
-  isExpanded: Ref<boolean>
-
-  // Computed (derived)
-  hasSession: ComputedRef<boolean>
-  hasMessages: ComputedRef<boolean>
-  canSend: ComputedRef<boolean>
-
-  // Actions
-  loadSessions: () => Promise<void>
-  createSession: (agentId: string, model: string, name?: string) => Promise<ChatSession | null>
-  selectSession: (id: string | null) => Promise<void>
-  deleteSession: (id: string) => Promise<boolean>
-  renameSession: (id: string, name: string) => Promise<ChatSession | null>
-  sendMessage: () => Promise<void>
-  clearInput: () => void
-  toggleExpanded: () => void
-  clearError: () => void
 }
 
 /**
@@ -73,7 +41,7 @@ export interface ChatSessionComposable {
  * </script>
  * ```
  */
-export function useChatSession(options: UseChatSessionOptions = {}): ChatSessionComposable {
+export function useChatSession(options: UseChatSessionOptions = {}) {
   const store = useChatSessionStore()
 
   // Local UI state
@@ -109,11 +77,9 @@ export function useChatSession(options: UseChatSessionOptions = {}): ChatSession
     await store.fetchSummaries()
 
     // Auto-select most recent session if enabled and sessions exist
-    if (options.autoSelectRecent && sessions.value.length > 0 && !store.currentSessionId) {
-      const firstSession = sessions.value[0]
-      if (firstSession) {
-        await store.selectSession(firstSession.id)
-      }
+    const firstSession = sessions.value[0]
+    if (options.autoSelectRecent && firstSession && !store.currentSessionId) {
+      await store.selectSession(firstSession.id)
     }
   }
 
@@ -293,3 +259,6 @@ export function formatSessionTime(timestamp: bigint): string {
     day: 'numeric',
   })
 }
+
+/** Return type of useChatSession - inferred from implementation */
+export type ChatSessionComposable = ReturnType<typeof useChatSession>

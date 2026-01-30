@@ -5,7 +5,7 @@
  * Renders markdown content with streaming support.
  * Handles incomplete syntax during streaming and shows a typing indicator.
  */
-import { computed, ref, watch } from 'vue'
+import { computed } from 'vue'
 import MarkdownRenderer from './MarkdownRenderer.vue'
 
 const props = defineProps<{
