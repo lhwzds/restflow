@@ -205,6 +205,27 @@ fn main() {
             commands::rename_terminal_session,
             commands::update_terminal_session,
             commands::delete_terminal_session,
+            // Security
+            commands::get_security_policy,
+            commands::update_security_policy,
+            commands::get_security_summary,
+            commands::set_default_security_action,
+            commands::add_allowlist_pattern,
+            commands::add_blocklist_pattern,
+            commands::add_approval_required_pattern,
+            commands::remove_allowlist_pattern,
+            commands::remove_blocklist_pattern,
+            commands::remove_approval_required_pattern,
+            commands::list_pending_approvals,
+            commands::get_pending_approval,
+            commands::approve_command,
+            commands::reject_command,
+            commands::get_task_pending_approvals,
+            commands::get_agent_pending_approvals,
+            commands::check_approval_status,
+            commands::remove_approval,
+            commands::cleanup_expired_approvals,
+            commands::preview_command_security,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
