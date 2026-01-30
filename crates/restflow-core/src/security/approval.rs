@@ -234,7 +234,7 @@ impl ApprovalManager {
                     let resolved = approval.clone();
                     // We can't hold the lock during async callback, so we'll skip notifications
                     // In a real implementation, you might want to collect these and notify after releasing the lock
-                    let _ = callback.on_resolved(&resolved);
+                    let _ = callback.on_resolved(&resolved).await;
                 }
             }
         }
