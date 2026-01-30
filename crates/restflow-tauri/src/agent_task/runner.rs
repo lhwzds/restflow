@@ -450,10 +450,9 @@ impl AgentTaskRunner {
         // No cancel channel found; if the task is marked running in storage, pause it.
         if let Ok(Some(task)) = self.storage.get_task(task_id)
             && task.status == AgentTaskStatus::Running
+            && let Err(e) = self.storage.pause_task(task_id)
         {
-            if let Err(e) = self.storage.pause_task(task_id) {
-                error!("Failed to mark task {} as paused: {}", task_id, e);
-            }
+            error!("Failed to mark task {} as paused: {}", task_id, e);
         }
     }
 
