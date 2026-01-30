@@ -137,6 +137,7 @@ pub mod executor;
 pub mod failover;
 pub mod heartbeat;
 pub mod notifier;
+pub mod persist;
 pub mod retry;
 pub mod runner;
 
@@ -152,8 +153,9 @@ pub use heartbeat::{
     HEARTBEAT_EVENT,
 };
 pub use notifier::TelegramNotifier;
+pub use persist::{MemoryPersister, PersistConfig, PersistResult};
 pub use retry::{is_transient_error, ErrorCategory, RetryConfig, RetryState};
 pub use runner::{
-    AgentExecutor, AgentTaskRunner, NoopNotificationSender, NotificationSender, RunnerConfig,
-    RunnerHandle,
+    AgentExecutor, AgentTaskRunner, ExecutionResult, NoopNotificationSender, NotificationSender,
+    RunnerConfig, RunnerHandle,
 };

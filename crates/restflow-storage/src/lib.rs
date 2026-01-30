@@ -25,6 +25,7 @@ pub mod agent;
 pub mod agent_task;
 pub mod config;
 pub mod execution_history;
+pub mod memory;
 pub mod secrets;
 pub mod skill;
 pub mod task_queue;
@@ -42,6 +43,7 @@ pub use config::{ConfigStorage, SystemConfig};
 pub use execution_history::{
     ExecutionHistoryPage, ExecutionHistoryStorage, ExecutionStatus, ExecutionSummary,
 };
+pub use memory::MemoryStorage;
 pub use secrets::{Secret, SecretStorage};
 pub use skill::SkillStorage;
 pub use task_queue::TaskQueue;
@@ -62,6 +64,7 @@ pub struct Storage {
     pub skills: SkillStorage,
     pub terminal_sessions: TerminalSessionStorage,
     pub execution_history: ExecutionHistoryStorage,
+    pub memory: MemoryStorage,
 }
 
 impl Storage {
@@ -82,6 +85,7 @@ impl Storage {
         let skills = SkillStorage::new(db.clone())?;
         let terminal_sessions = TerminalSessionStorage::new(db.clone())?;
         let execution_history = ExecutionHistoryStorage::new(db.clone())?;
+        let memory = MemoryStorage::new(db.clone())?;
 
         Ok(Self {
             db,
@@ -95,6 +99,7 @@ impl Storage {
             skills,
             terminal_sessions,
             execution_history,
+            memory,
         })
     }
 
