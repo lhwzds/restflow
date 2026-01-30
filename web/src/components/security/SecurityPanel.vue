@@ -37,7 +37,6 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from '@/components/ui/dialog'
 import {
   Collapsible,
@@ -49,7 +48,6 @@ import type { SecurityPolicy } from '@/types/generated/SecurityPolicy'
 import type { SecurityAction } from '@/types/generated/SecurityAction'
 import type { SecuritySummary } from '@/types/generated/SecuritySummary'
 import type { PendingApproval } from '@/types/generated/PendingApproval'
-import type { CommandPattern } from '@/types/generated/CommandPattern'
 import {
   getSecurityPolicy,
   getSecuritySummary,
@@ -86,8 +84,7 @@ const addDialogType = ref<'allowlist' | 'blocklist' | 'approval_required'>('allo
 const newPattern = ref('')
 const newPatternDescription = ref('')
 
-// Preview dialog state
-const showPreviewDialog = ref(false)
+// Preview state
 const previewCommand = ref('')
 const previewResult = ref<{ action: SecurityAction; description: string } | null>(null)
 
@@ -290,24 +287,6 @@ function getAddDialogTitle(): string {
     approval_required: 'Add to Approval Required',
   }
   return titles[addDialogType.value] || 'Add Pattern'
-}
-
-function getListIcon(type: 'allowlist' | 'blocklist' | 'approval_required') {
-  const icons = {
-    allowlist: ShieldCheck,
-    blocklist: ShieldX,
-    approval_required: ShieldAlert,
-  }
-  return icons[type]
-}
-
-function getListColor(type: 'allowlist' | 'blocklist' | 'approval_required') {
-  const colors = {
-    allowlist: 'text-green-500',
-    blocklist: 'text-red-500',
-    approval_required: 'text-yellow-500',
-  }
-  return colors[type]
 }
 
 // ============================================================================

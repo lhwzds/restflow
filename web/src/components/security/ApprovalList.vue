@@ -24,14 +24,6 @@ const emit = defineEmits<{
 }>()
 
 /**
- * Format timestamp for display
- */
-function formatTime(timestamp: bigint): string {
-  const date = new Date(Number(timestamp))
-  return date.toLocaleString()
-}
-
-/**
  * Calculate remaining time until expiration
  */
 function getRemainingTime(expiresAt: bigint): string {
