@@ -4,8 +4,12 @@ use crate::agent_task::runner::{
     AgentExecutor, AgentTaskRunner, NotificationSender, RunnerConfig, RunnerHandle,
 };
 use crate::agent_task::{HeartbeatEmitter, TauriHeartbeatEmitter};
+use crate::channel::{SystemStatus, TaskTrigger};
 use crate::commands::agent_task::ActiveTaskInfo;
 use anyhow::Result;
+use async_trait::async_trait;
+use restflow_core::channel::ChannelRouter;
+use restflow_core::models::AgentTask;
 use restflow_core::security::SecurityChecker;
 use restflow_core::AppCore;
 use std::collections::HashMap;
@@ -32,17 +36,21 @@ pub struct AppState {
     running_tasks: RwLock<HashMap<String, RunningTaskState>>,
     /// Security checker for command execution control
     security_checker: Arc<SecurityChecker>,
+    /// Channel router for message handling
+    pub channel_router: Arc<ChannelRouter>,
 }
 
 impl AppState {
     pub async fn new(db_path: &str) -> anyhow::Result<Self> {
         let core = Arc::new(AppCore::new(db_path).await?);
         let security_checker = Arc::new(SecurityChecker::with_defaults());
+        let channel_router = Arc::new(ChannelRouter::new());
         Ok(Self {
             core,
             runner_handle: RwLock::new(None),
             running_tasks: RwLock::new(HashMap::new()),
             security_checker,
+            channel_router,
         })
     }
 
@@ -54,6 +62,11 @@ impl AppState {
     /// Get the security checker as an Arc (for sharing with tools).
     pub fn security_checker_arc(&self) -> Arc<SecurityChecker> {
         self.security_checker.clone()
+    }
+
+    /// Get a reference to the channel router
+    pub fn channel_router(&self) -> Arc<ChannelRouter> {
+        self.channel_router.clone()
     }
 
     /// Start the agent task runner with the provided executor and notifier.
@@ -215,5 +228,119 @@ impl AppState {
     /// Get count of running tasks
     pub async fn running_task_count(&self) -> usize {
         self.running_tasks.read().await.len()
+    }
+}
+
+// ============================================================================
+// TaskTrigger Implementation
+// ============================================================================
+
+/// Wrapper to implement TaskTrigger for AppState
+///
+/// This struct wraps an Arc<AppState> to implement the TaskTrigger trait,
+/// allowing the channel message handler to interact with tasks.
+pub struct AppTaskTrigger {
+    state: Arc<AppState>,
+}
+
+impl AppTaskTrigger {
+    /// Create a new AppTaskTrigger
+    pub fn new(state: Arc<AppState>) -> Self {
+        Self { state }
+    }
+}
+
+#[async_trait]
+impl TaskTrigger for AppTaskTrigger {
+    async fn list_tasks(&self) -> Result<Vec<AgentTask>> {
+        self.state.core.storage.agent_tasks.list_tasks()
+    }
+
+    async fn find_and_run_task(&self, name_or_id: &str) -> Result<AgentTask> {
+        // Try to find by ID first
+        if let Ok(Some(task)) = self.state.core.storage.agent_tasks.get_task(name_or_id) {
+            // Trigger the task to run
+            self.state.run_task_now(task.id.clone()).await?;
+            return Ok(task);
+        }
+
+        // Try to find by name
+        let tasks = self.state.core.storage.agent_tasks.list_tasks()?;
+        let task = tasks
+            .into_iter()
+            .find(|t| t.name.to_lowercase() == name_or_id.to_lowercase())
+            .ok_or_else(|| anyhow::anyhow!("Task not found: {}", name_or_id))?;
+
+        // Trigger the task to run
+        self.state.run_task_now(task.id.clone()).await?;
+        Ok(task)
+    }
+
+    async fn stop_task(&self, task_id: &str) -> Result<()> {
+        // Mark the task as completed/stopped in our tracking
+        self.state.mark_task_completed(task_id).await;
+
+        // Update task status in storage
+        if let Ok(Some(mut task)) = self.state.core.storage.agent_tasks.get_task(task_id) {
+            task.status = restflow_core::models::AgentTaskStatus::Paused;
+            self.state.core.storage.agent_tasks.update_task(&task)?;
+        }
+
+        Ok(())
+    }
+
+    async fn get_status(&self) -> Result<SystemStatus> {
+        let runner_active = self.state.is_runner_active().await;
+        let active_count = self.state.running_task_count().await;
+
+        // Count pending (active but not running) tasks
+        let tasks = self.state.core.storage.agent_tasks.list_tasks()?;
+        let pending_count = tasks
+            .iter()
+            .filter(|t| t.status == restflow_core::models::AgentTaskStatus::Active)
+            .count();
+
+        // Count completed today
+        let today_start = chrono::Utc::now()
+            .date_naive()
+            .and_hms_opt(0, 0, 0)
+            .map(|dt| dt.and_utc().timestamp_millis())
+            .unwrap_or(0);
+
+        let completed_today = tasks
+            .iter()
+            .filter(|t| {
+                t.status == restflow_core::models::AgentTaskStatus::Completed
+                    && t.updated_at >= today_start
+            })
+            .count();
+
+        Ok(SystemStatus {
+            runner_active,
+            active_count,
+            pending_count,
+            completed_today,
+        })
+    }
+
+    async fn send_input_to_task(&self, _task_id: &str, _input: &str) -> Result<()> {
+        // TODO: Implement task input forwarding once we have a task input channel
+        // For now, this is a placeholder that will be implemented when we add
+        // interactive task support
+        info!(
+            "Task input forwarding not yet implemented: {} -> {}",
+            _task_id, _input
+        );
+        Ok(())
+    }
+
+    async fn handle_approval(&self, _task_id: &str, _approved: bool) -> Result<bool> {
+        // TODO: Implement approval handling once we have the approval queue
+        // For now, this is a placeholder
+        info!(
+            "Task approval handling not yet implemented: {} approved={}",
+            _task_id, _approved
+        );
+        Ok(false)
     }
 }

@@ -1,1 +1,1 @@
-{"default":{"identifier":"default","description":"Default capabilities for RestFlow desktop app","local":true,"windows":["main"],"permissions":["core:default","shell:allow-open","core:webview:allow-internal-toggle-devtools"]}}
+{"default":{"identifier":"default","description":"Default capabilities for RestFlow desktop app","local":true,"windows":["main"],"permissions":["core:default","core:window:allow-start-dragging","core:window:allow-set-focus","shell:allow-open","core:webview:allow-internal-toggle-devtools"]}}

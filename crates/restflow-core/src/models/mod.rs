@@ -2,6 +2,7 @@ pub mod agent;
 pub mod agent_execution;
 pub mod agent_task;
 pub mod ai_model;
+pub mod chat_session;
 pub mod execution;
 pub mod input;
 pub mod memory;
@@ -41,4 +42,8 @@ pub use trigger::{ActiveTrigger, AuthConfig, TriggerConfig};
 pub use security::{
     ApprovalStatus, CommandPattern, PendingApproval, SecurityAction, SecurityCheckResult,
     SecurityPolicy,
+};
+pub use chat_session::{
+    ChatExecutionStatus, ChatMessage, ChatRole, ChatSession, ChatSessionMetadata,
+    ChatSessionSummary, ExecutionStepInfo, MessageExecution,
 };

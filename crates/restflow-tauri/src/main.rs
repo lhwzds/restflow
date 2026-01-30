@@ -67,7 +67,18 @@ fn main() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_decorum::init())
         .setup(|app| {
+            // Set traffic lights position on macOS
+            // This keeps them always visible with overlay titlebar
+            #[cfg(target_os = "macos")]
+            {
+                use tauri_plugin_decorum::WebviewWindowExt;
+                if let Some(window) = app.get_webview_window("main") {
+                    // Position traffic lights at (12, 16) from top-left
+                    let _ = window.set_traffic_lights_inset(12.0, 16.0);
+                }
+            }
             // Initialize application state
             let rt = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
 
@@ -223,6 +234,19 @@ fn main() {
             commands::export_memory_markdown,
             commands::export_memory_session_markdown,
             commands::export_memory_advanced,
+            // Chat Sessions
+            commands::create_chat_session,
+            commands::list_chat_sessions,
+            commands::list_chat_session_summaries,
+            commands::get_chat_session,
+            commands::rename_chat_session,
+            commands::delete_chat_session,
+            commands::add_chat_message,
+            commands::send_chat_message,
+            commands::list_chat_sessions_by_agent,
+            commands::list_chat_sessions_by_skill,
+            commands::get_chat_session_count,
+            commands::clear_old_chat_sessions,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
