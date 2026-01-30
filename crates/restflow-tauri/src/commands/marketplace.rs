@@ -226,7 +226,7 @@ pub async fn marketplace_check_gating(
 
     // Check gating requirements
     let checker = GatingChecker::new();
-    Ok(checker.check(&manifest.gating).await)
+    Ok(checker.check(&manifest.gating))
 }
 
 /// Install a skill from marketplace
@@ -258,7 +258,7 @@ pub async fn marketplace_install_skill(
 
     // Check gating requirements
     let checker = GatingChecker::new();
-    let gating_result = checker.check(&manifest.gating).await;
+    let gating_result = checker.check(&manifest.gating);
     if !gating_result.passed {
         return Err(format!("Gating requirements not met: {}", gating_result.summary));
     }
