@@ -7,6 +7,7 @@
 //! - Dynamic workflow definition (WorkflowDef)
 //! - Graph engine with runtime decisions
 //! - Evaluation engine
+//! - Memory system (working memory with sliding window)
 //! - Python SDK via PyO3
 
 pub mod agent;
@@ -14,6 +15,7 @@ pub mod error;
 pub mod eval;
 pub mod graph;
 pub mod llm;
+pub mod memory;
 pub mod tools;
 pub mod workflow_def;
 
@@ -29,4 +31,5 @@ pub use tools::{
     EmailTool, HttpTool, PythonTool, SkillContent, SkillInfo, SkillProvider, SkillTool, Tool,
     ToolOutput, ToolRegistry, ToolSchema,
 };
+pub use memory::{WorkingMemory, DEFAULT_MAX_MESSAGES};
 pub use workflow_def::WorkflowDef;

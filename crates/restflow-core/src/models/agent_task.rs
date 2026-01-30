@@ -136,6 +136,42 @@ fn default_true() -> bool {
     true
 }
 
+fn default_max_messages() -> usize {
+    100
+}
+
+/// Memory configuration for agent task execution
+///
+/// Controls working memory behavior and persistence settings.
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
+#[ts(export)]
+pub struct MemoryConfig {
+    /// Maximum number of messages to keep in working memory
+    /// Older messages are discarded (no summarization)
+    #[serde(default = "default_max_messages")]
+    pub max_messages: usize,
+
+    /// Enable file memory tools (save_memory, read_memory, etc.)
+    /// Allows agents to persist important information to disk
+    #[serde(default = "default_true")]
+    pub enable_file_memory: bool,
+
+    /// Persist conversation to long-term memory on task completion
+    /// Working memory is chunked and stored for future retrieval
+    #[serde(default = "default_true")]
+    pub persist_on_complete: bool,
+}
+
+impl Default for MemoryConfig {
+    fn default() -> Self {
+        Self {
+            max_messages: default_max_messages(),
+            enable_file_memory: true,
+            persist_on_complete: true,
+        }
+    }
+}
+
 impl Default for NotificationConfig {
     fn default() -> Self {
         Self {
@@ -220,6 +256,9 @@ pub struct AgentTask {
     /// Notification configuration
     #[serde(default)]
     pub notification: NotificationConfig,
+    /// Memory configuration
+    #[serde(default)]
+    pub memory: MemoryConfig,
     /// Current status of the task
     #[serde(default)]
     pub status: AgentTaskStatus,
@@ -246,6 +285,9 @@ pub struct AgentTask {
     /// Last error message if failed
     #[serde(default)]
     pub last_error: Option<String>,
+    /// Webhook configuration for external triggers
+    #[serde(default)]
+    pub webhook: Option<super::webhook::WebhookConfig>,
 }
 
 impl AgentTask {
@@ -268,6 +310,7 @@ impl AgentTask {
             schedule,
             execution_mode: ExecutionMode::default(),
             notification: NotificationConfig::default(),
+            memory: MemoryConfig::default(),
             status: AgentTaskStatus::Active,
             created_at: now,
             updated_at: now,
@@ -276,6 +319,7 @@ impl AgentTask {
             success_count: 0,
             failure_count: 0,
             last_error: None,
+            webhook: None,
         }
     }
 
@@ -761,5 +805,86 @@ mod tests {
             }
             _ => panic!("Expected CLI mode"),
         }
+    }
+
+    #[test]
+    fn test_memory_config_defaults() {
+        let config = MemoryConfig::default();
+
+        assert_eq!(config.max_messages, 100);
+        assert!(config.enable_file_memory);
+        assert!(config.persist_on_complete);
+    }
+
+    #[test]
+    fn test_memory_config_custom() {
+        let config = MemoryConfig {
+            max_messages: 50,
+            enable_file_memory: false,
+            persist_on_complete: true,
+        };
+
+        assert_eq!(config.max_messages, 50);
+        assert!(!config.enable_file_memory);
+        assert!(config.persist_on_complete);
+    }
+
+    #[test]
+    fn test_agent_task_with_memory_config() {
+        let task = AgentTask::new(
+            "task-123".to_string(),
+            "Test Task".to_string(),
+            "agent-456".to_string(),
+            TaskSchedule::default(),
+        );
+
+        // Default memory config should be applied
+        assert_eq!(task.memory.max_messages, 100);
+        assert!(task.memory.enable_file_memory);
+        assert!(task.memory.persist_on_complete);
+    }
+
+    #[test]
+    fn test_memory_config_serialization() {
+        let config = MemoryConfig {
+            max_messages: 75,
+            enable_file_memory: true,
+            persist_on_complete: false,
+        };
+
+        let json = serde_json::to_string(&config).unwrap();
+        let deserialized: MemoryConfig = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(deserialized.max_messages, 75);
+        assert!(deserialized.enable_file_memory);
+        assert!(!deserialized.persist_on_complete);
+    }
+
+    #[test]
+    fn test_memory_config_deserialization_with_defaults() {
+        // Test deserializing with missing fields uses defaults
+        let json = r#"{}"#;
+        let config: MemoryConfig = serde_json::from_str(json).unwrap();
+
+        assert_eq!(config.max_messages, 100);
+        assert!(config.enable_file_memory);
+        assert!(config.persist_on_complete);
+    }
+
+    #[test]
+    fn test_agent_task_serialization_with_memory() {
+        let task = AgentTask::new(
+            "task-123".to_string(),
+            "Test Task".to_string(),
+            "agent-456".to_string(),
+            TaskSchedule::default(),
+        );
+
+        let json = serde_json::to_string(&task).unwrap();
+        assert!(json.contains("memory"));
+        assert!(json.contains("max_messages"));
+
+        let deserialized: AgentTask = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.memory.max_messages, 100);
     }
 }
