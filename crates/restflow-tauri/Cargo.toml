@@ -29,6 +29,9 @@ tauri-plugin-shell = "2"
 tokio = { version = "1.47", features = ["full"] }
 tokio-stream = "0.1"
 
+# Concurrent data structures
+dashmap = "6"
+
 # PTY support
 portable-pty = "0.8"
 
