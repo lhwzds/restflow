@@ -4,6 +4,7 @@ import type { ExecutionMode } from "./ExecutionMode";
 import type { MemoryConfig } from "./MemoryConfig";
 import type { NotificationConfig } from "./NotificationConfig";
 import type { TaskSchedule } from "./TaskSchedule";
+import type { WebhookConfig } from "./WebhookConfig";
 
 /**
  * An agent task represents a scheduled execution of an agent
@@ -76,4 +77,8 @@ failure_count: number,
 /**
  * Last error message if failed
  */
-last_error: string | null, };
+last_error: string | null, 
+/**
+ * Webhook configuration for external triggers
+ */
+webhook: WebhookConfig | null, };

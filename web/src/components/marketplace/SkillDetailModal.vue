@@ -58,7 +58,9 @@ watch(() => props.open, async (isOpen) => {
         versions.value = versionsResult.value
         if (versions.value.length > 0 && !selectedVersion.value) {
           const v = versions.value[0]
-          selectedVersion.value = `${v.major}.${v.minor}.${v.patch}`
+          if (v) {
+            selectedVersion.value = `${v.major}.${v.minor}.${v.patch}`
+          }
         }
       }
       if (gatingResultData.status === 'fulfilled') {
@@ -96,6 +98,18 @@ async function handleInstall() {
     })
   } finally {
     installing.value = false
+  }
+}
+
+function openRepository() {
+  if (props.skill?.repository) {
+    window.open(props.skill.repository, '_blank')
+  }
+}
+
+function openHomepage() {
+  if (props.skill?.homepage) {
+    window.open(props.skill.homepage, '_blank')
   }
 }
 </script>
@@ -240,7 +254,7 @@ async function handleInstall() {
             v-if="skill?.repository"
             variant="outline"
             size="sm"
-            @click="window.open(skill.repository, '_blank')"
+            @click="openRepository"
           >
             <ExternalLink class="w-4 h-4 mr-1" />
             Repository
@@ -249,7 +263,7 @@ async function handleInstall() {
             v-if="skill?.homepage"
             variant="outline"
             size="sm"
-            @click="window.open(skill.homepage, '_blank')"
+            @click="openHomepage"
           >
             <ExternalLink class="w-4 h-4 mr-1" />
             Homepage

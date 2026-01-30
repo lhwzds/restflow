@@ -9,6 +9,8 @@ use std::collections::HashMap;
 use thiserror::Error;
 
 use crate::models::{SkillManifest, SkillVersion};
+#[cfg(test)]
+use crate::models::SkillDependency;
 
 /// Errors that can occur during dependency resolution
 #[derive(Debug, Error)]

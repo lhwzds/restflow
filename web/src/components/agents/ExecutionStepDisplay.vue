@@ -18,16 +18,14 @@ const props = defineProps<{
   step: ExecutionStep
 }>()
 
-// Access content from the data field (ExecutionStep stores optional data in 'data')
+// Access content from ExecutionStep
 const stepContent = computed<string | undefined>(() => {
-  const data = props.step.data as Record<string, unknown> | null | undefined
-  return data?.content as string | undefined
+  return props.step.content || undefined
 })
 
-// Access tool_calls from the data field
+// Access tool_calls from ExecutionStep
 const stepToolCalls = computed<ToolCallInfo[]>(() => {
-  const data = props.step.data as Record<string, unknown> | null | undefined
-  const toolCalls = data?.tool_calls
+  const toolCalls = props.step.tool_calls
   if (Array.isArray(toolCalls)) {
     return toolCalls as ToolCallInfo[]
   }
