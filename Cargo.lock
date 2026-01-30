@@ -4324,6 +4324,7 @@ dependencies = [
  "chrono",
  "futures",
  "pyo3",
+ "regex",
  "reqwest 0.13.1",
  "serde",
  "serde_json",

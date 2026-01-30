@@ -5,6 +5,7 @@
 
 mod bash;
 mod email;
+mod file;
 mod http;
 mod python;
 mod registry;
@@ -14,6 +15,7 @@ mod traits;
 
 pub use bash::{BashTool, BashInput, BashOutput};
 pub use email::EmailTool;
+pub use file::{FileTool, FileAction};
 pub use http::HttpTool;
 pub use python::PythonTool;
 pub use registry::ToolRegistry;
@@ -25,6 +27,7 @@ pub use traits::{SkillContent, SkillInfo, SkillProvider, Tool, ToolOutput, ToolS
 pub fn default_registry() -> ToolRegistry {
     let mut registry = ToolRegistry::new();
     registry.register(BashTool::new());
+    registry.register(FileTool::new());
     registry.register(HttpTool::new());
     registry.register(PythonTool::new());
     registry.register(EmailTool::new());
