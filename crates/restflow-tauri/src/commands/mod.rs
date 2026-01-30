@@ -5,6 +5,7 @@
 
 pub mod agent_task;
 pub mod agents;
+pub mod auth;
 pub mod config;
 pub mod memory;
 pub mod pty;
@@ -16,6 +17,7 @@ pub mod terminal_sessions;
 // Re-export all commands for easy registration
 pub use agent_task::*;
 pub use agents::*;
+pub use auth::*;
 pub use config::*;
 pub use memory::*;
 pub use pty::*;

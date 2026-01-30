@@ -20,6 +20,7 @@ use restflow_tauri_lib::RestFlowMcpServer;
 use restflow_tauri_lib::{RealAgentExecutor, TelegramNotifier};
 use restflow_tauri_lib::commands;
 use restflow_tauri_lib::commands::PtyState;
+use restflow_tauri_lib::commands::AuthState;
 use restflow_tauri_lib::commands::pty::save_all_terminal_history_sync;
 use tauri::Manager;
 use tracing::info;
@@ -110,6 +111,9 @@ fn main() {
 
             // Initialize PTY state
             app.manage(PtyState::new());
+
+            // Initialize Auth Profile Manager state
+            app.manage(AuthState::new());
 
             info!("RestFlow initialized successfully");
             info!("Press Cmd+Option+I (macOS) or Ctrl+Shift+I (Windows/Linux) to toggle DevTools");
@@ -223,6 +227,23 @@ fn main() {
             commands::export_memory_markdown,
             commands::export_memory_session_markdown,
             commands::export_memory_advanced,
+            // Auth Profiles
+            commands::auth_initialize,
+            commands::auth_discover,
+            commands::auth_list_profiles,
+            commands::auth_get_profiles_for_provider,
+            commands::auth_get_available_profiles,
+            commands::auth_get_profile,
+            commands::auth_add_profile,
+            commands::auth_remove_profile,
+            commands::auth_update_profile,
+            commands::auth_enable_profile,
+            commands::auth_disable_profile,
+            commands::auth_mark_success,
+            commands::auth_mark_failure,
+            commands::auth_get_api_key,
+            commands::auth_get_summary,
+            commands::auth_clear,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
