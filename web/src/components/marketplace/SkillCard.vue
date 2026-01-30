@@ -57,6 +57,12 @@ function handleUninstall() {
 function handleViewDetails() {
   emit('view-details', props.skill.manifest.id)
 }
+
+function openRepository() {
+  if (props.skill.manifest.repository) {
+    window.open(props.skill.manifest.repository, '_blank')
+  }
+}
 </script>
 
 <template>
@@ -139,7 +145,7 @@ function handleViewDetails() {
           variant="ghost"
           size="sm"
           v-if="skill.manifest.repository"
-          @click.stop="() => window.open(skill.manifest.repository!, '_blank')"
+          @click.stop="openRepository"
         >
           <ExternalLink class="w-4 h-4" />
         </Button>
