@@ -14,6 +14,7 @@ pub mod agent;
 pub mod error;
 pub mod eval;
 pub mod graph;
+mod http_client;
 pub mod llm;
 pub mod memory;
 pub mod tools;

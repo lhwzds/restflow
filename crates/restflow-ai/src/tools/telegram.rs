@@ -6,6 +6,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::error::Result;
+use crate::http_client::build_http_client;
 use crate::tools::traits::{Tool, ToolOutput};
 
 const TELEGRAM_API_BASE: &str = "https://api.telegram.org";
@@ -44,7 +45,7 @@ impl TelegramTool {
     /// Create a new Telegram tool with default client
     pub fn new() -> Self {
         Self {
-            client: Client::new(),
+            client: build_http_client(),
         }
     }
 
@@ -189,7 +190,7 @@ pub async fn send_telegram_notification(
     message: &str,
     parse_mode: Option<&str>,
 ) -> std::result::Result<(), String> {
-    let client = Client::new();
+    let client = build_http_client();
     let url = format!("{}/bot{}/sendMessage", TELEGRAM_API_BASE, bot_token);
 
     let mut payload = json!({

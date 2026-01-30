@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::error::{AiError, Result};
+use crate::http_client::build_http_client;
 use crate::llm::client::{
     CompletionRequest, CompletionResponse, FinishReason, LlmClient, Role, TokenUsage, ToolCall,
 };
@@ -21,7 +22,7 @@ impl AnthropicClient {
     /// Create a new Anthropic client
     pub fn new(api_key: impl Into<String>) -> Self {
         Self {
-            client: Client::new(),
+            client: build_http_client(),
             api_key: api_key.into(),
             model: "claude-sonnet-4-20250514".to_string(),
         }
