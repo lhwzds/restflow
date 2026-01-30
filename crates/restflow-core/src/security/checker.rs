@@ -446,8 +446,10 @@ mod tests {
     async fn test_set_policy() {
         let checker = create_test_checker();
 
-        let mut new_policy = SecurityPolicy::default();
-        new_policy.default_action = SecurityAction::Block;
+        let new_policy = SecurityPolicy {
+            default_action: SecurityAction::Block,
+            ..Default::default()
+        };
 
         checker.set_policy(new_policy).await;
 

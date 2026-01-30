@@ -109,11 +109,10 @@ impl CommandPattern {
 fn glob_match(pattern: &str, text: &str) -> bool {
     // Special case: if pattern ends with " *", also try matching without it
     // This allows "ls *" to match both "ls" and "ls -la"
-    if pattern.ends_with(" *") {
-        let base_pattern = &pattern[..pattern.len() - 2];
-        if text == base_pattern {
-            return true;
-        }
+    if let Some(base_pattern) = pattern.strip_suffix(" *")
+        && text == base_pattern
+    {
+        return true;
     }
 
     let pattern_chars: Vec<char> = pattern.chars().collect();
