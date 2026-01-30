@@ -9,6 +9,7 @@ pub mod memory;
 pub mod output;
 pub mod security;
 pub mod skill;
+pub mod skill_marketplace;
 pub mod terminal_session;
 pub mod trigger;
 pub mod webhook;
@@ -37,6 +38,11 @@ pub use output::{
 // Secret is now defined in restflow-storage
 pub use restflow_storage::Secret;
 pub use skill::Skill;
+pub use skill_marketplace::{
+    BinaryRequirement, EnvVarRequirement, GatingCheckResult, GatingRequirements,
+    InstallStatus, InstalledSkill, OsType, SkillAuthor, SkillDependency, SkillManifest,
+    SkillPermission, SkillPermissions, SkillSource, SkillVersion, VersionRequirement,
+};
 pub use terminal_session::{TerminalSession, TerminalStatus};
 pub use trigger::{ActiveTrigger, AuthConfig, TriggerConfig};
 pub use security::{

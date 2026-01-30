@@ -46,6 +46,7 @@ describe('Agent Task API', () => {
     success_count: 0,
     failure_count: 0,
     last_error: null,
+    webhook: null,
     ...overrides,
   })
 
