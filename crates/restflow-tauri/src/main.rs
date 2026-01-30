@@ -223,6 +223,19 @@ fn main() {
             commands::export_memory_markdown,
             commands::export_memory_session_markdown,
             commands::export_memory_advanced,
+            // Chat Sessions
+            commands::create_chat_session,
+            commands::list_chat_sessions,
+            commands::list_chat_session_summaries,
+            commands::get_chat_session,
+            commands::rename_chat_session,
+            commands::delete_chat_session,
+            commands::add_chat_message,
+            commands::send_chat_message,
+            commands::list_chat_sessions_by_agent,
+            commands::list_chat_sessions_by_skill,
+            commands::get_chat_session_count,
+            commands::clear_old_chat_sessions,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
