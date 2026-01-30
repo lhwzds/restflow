@@ -178,8 +178,7 @@ async fn cmd_stop(
         trigger.stop_task(&task_id).await?;
         router.clear_task(&message.conversation_id).await?;
 
-        let response =
-            OutboundMessage::new(&message.conversation_id, "⏹️ Task stopped.");
+        let response = OutboundMessage::new(&message.conversation_id, "⏹️ Task stopped.");
         return router.send_to(message.channel_type, response).await;
     }
 
