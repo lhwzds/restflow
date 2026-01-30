@@ -3,9 +3,20 @@
 use restflow_ai::{AgentConfig, AgentExecutor, HttpTool, OpenAIClient, ToolRegistry};
 use std::sync::Arc;
 
+fn disable_system_proxy_for_tests() {
+    static INIT: std::sync::Once = std::sync::Once::new();
+    INIT.call_once(|| {
+        // Safety: set once for the process before any HTTP clients are built.
+        unsafe {
+            std::env::set_var("RESTFLOW_DISABLE_SYSTEM_PROXY", "1");
+        }
+    });
+}
+
 #[tokio::test]
 #[ignore] // Requires OPENAI_API_KEY environment variable
 async fn test_agent_with_http_tool() {
+    disable_system_proxy_for_tests();
     let api_key = std::env::var("OPENAI_API_KEY").expect("OPENAI_API_KEY required");
 
     let llm = Arc::new(OpenAIClient::new(api_key));
@@ -29,6 +40,7 @@ async fn test_agent_with_http_tool() {
 async fn test_agent_with_anthropic() {
     use restflow_ai::AnthropicClient;
 
+    disable_system_proxy_for_tests();
     let api_key = std::env::var("ANTHROPIC_API_KEY").expect("ANTHROPIC_API_KEY required");
 
     let llm = Arc::new(AnthropicClient::new(api_key));
@@ -52,6 +64,7 @@ async fn test_agent_with_anthropic() {
 async fn test_tool_registry() {
     use restflow_ai::{EmailTool, PythonTool};
 
+    disable_system_proxy_for_tests();
     let mut registry = ToolRegistry::new();
     registry.register(HttpTool::new());
     registry.register(PythonTool::new());

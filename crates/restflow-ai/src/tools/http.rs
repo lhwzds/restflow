@@ -6,6 +6,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::error::Result;
+use crate::http_client::build_http_client;
 use crate::tools::traits::{Tool, ToolOutput};
 
 #[derive(Debug, Deserialize)]
@@ -31,7 +32,7 @@ impl HttpTool {
     /// Create a new HTTP tool with default client
     pub fn new() -> Self {
         Self {
-            client: Client::new(),
+            client: build_http_client(),
         }
     }
 
