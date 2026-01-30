@@ -6,6 +6,7 @@
 pub mod agent_task;
 pub mod commands;
 pub mod error;
+pub mod main_agent;
 pub mod mcp;
 pub mod state;
 pub mod webhook;
@@ -16,6 +17,12 @@ pub use agent_task::{
     TelegramNotifier, HEARTBEAT_EVENT,
 };
 pub use error::TauriError;
+pub use main_agent::{
+    AgentDefinition, AgentDefinitionRegistry, AgentSession, MainAgent, MainAgentConfig,
+    MainAgentEvent, MainAgentEventEmitter, MainAgentEventKind, NoopMainAgentEmitter,
+    SessionMessage, SpawnHandle, SpawnRequest, SubagentResult, SubagentState, SubagentStatus,
+    SubagentTracker, TauriMainAgentEmitter, MAIN_AGENT_EVENT,
+};
 pub use mcp::RestFlowMcpServer;
 pub use state::AppState;
 pub use webhook::{
