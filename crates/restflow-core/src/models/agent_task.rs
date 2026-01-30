@@ -246,6 +246,9 @@ pub struct AgentTask {
     /// Last error message if failed
     #[serde(default)]
     pub last_error: Option<String>,
+    /// Webhook configuration for external triggers
+    #[serde(default)]
+    pub webhook: Option<super::webhook::WebhookConfig>,
 }
 
 impl AgentTask {
@@ -276,6 +279,7 @@ impl AgentTask {
             success_count: 0,
             failure_count: 0,
             last_error: None,
+            webhook: None,
         }
     }
 
