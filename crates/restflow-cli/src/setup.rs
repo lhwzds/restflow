@@ -3,16 +3,15 @@
 //! Handles initialization of the RestFlow core for CLI usage.
 
 use anyhow::Result;
-use restflow_core::{AppCore, paths};
+use restflow_core::{paths, AppCore};
 use std::sync::Arc;
 
 /// Build the embedded RestFlow core
-pub async fn prepare_core() -> Result<Arc<AppCore>> {
-    init_core().await
-}
-
-async fn init_core() -> Result<Arc<AppCore>> {
-    let db_path = paths::ensure_database_path_string()?;
+pub async fn prepare_core(db_path: Option<String>) -> Result<Arc<AppCore>> {
+    let db_path = match db_path {
+        Some(path) => path,
+        None => paths::ensure_database_path_string()?,
+    };
     Ok(Arc::new(AppCore::new(&db_path).await?))
 }
 
