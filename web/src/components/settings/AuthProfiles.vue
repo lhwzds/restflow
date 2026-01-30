@@ -203,6 +203,20 @@ function maskApiKey(key: string): string {
   return `${key.slice(0, 4)}...${key.slice(-4)}`;
 }
 
+function getCredentialKey(credential: AuthProfile['credential']): string {
+  if (!credential) return '';
+  switch (credential.type) {
+    case 'api_key':
+      return credential.key;
+    case 'token':
+      return credential.token;
+    case 'o_auth':
+      return credential.access_token;
+    default:
+      return '';
+  }
+}
+
 // Lifecycle
 onMounted(loadProfiles);
 </script>
@@ -362,7 +376,7 @@ onMounted(loadProfiles);
                 </div>
               </div>
               <CardDescription v-if="profile.credential">
-                {{ maskApiKey(profile.credential.key || profile.credential.access_token || '') }}
+                {{ maskApiKey(getCredentialKey(profile.credential)) }}
               </CardDescription>
             </CardHeader>
             <CardContent>
