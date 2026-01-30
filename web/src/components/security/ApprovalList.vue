@@ -26,9 +26,13 @@ const emit = defineEmits<{
 /**
  * Calculate remaining time until expiration
  */
+function toEpochMs(timestampSeconds: bigint): number {
+  return Number(timestampSeconds) * 1000
+}
+
 function getRemainingTime(expiresAt: bigint): string {
   const now = Date.now()
-  const expiry = Number(expiresAt)
+  const expiry = toEpochMs(expiresAt)
   const diff = expiry - now
 
   if (diff <= 0) return 'Expired'
@@ -46,7 +50,7 @@ function getRemainingTime(expiresAt: bigint): string {
  * Check if approval is expired
  */
 function isExpired(approval: PendingApproval): boolean {
-  return approval.status === 'expired' || Number(approval.expires_at) <= Date.now()
+  return approval.status === 'expired' || toEpochMs(approval.expires_at) <= Date.now()
 }
 
 const pendingApprovals = computed(() =>

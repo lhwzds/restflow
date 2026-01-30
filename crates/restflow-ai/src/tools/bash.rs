@@ -137,9 +137,6 @@ pub struct BashInput {
     /// Timeout in seconds (optional, default: 120)
     #[serde(default)]
     pub timeout: Option<u64>,
-    /// Run in background (optional) - returns immediately
-    #[serde(default)]
-    pub background: Option<bool>,
 }
 
 /// Output from bash command execution
@@ -184,10 +181,6 @@ impl Tool for BashTool {
                 "timeout": {
                     "type": "integer",
                     "description": "Timeout in seconds (default: 120)"
-                },
-                "background": {
-                    "type": "boolean",
-                    "description": "Run command in background"
                 }
             },
             "required": ["command"]
@@ -339,14 +332,12 @@ mod tests {
         let input: BashInput = serde_json::from_value(serde_json::json!({
             "command": "ls -la",
             "workdir": "/tmp",
-            "timeout": 60,
-            "background": true
+            "timeout": 60
         }))
         .unwrap();
         assert_eq!(input.command, "ls -la");
         assert_eq!(input.workdir, Some("/tmp".to_string()));
         assert_eq!(input.timeout, Some(60));
-        assert_eq!(input.background, Some(true));
     }
 
     #[tokio::test]
