@@ -98,6 +98,18 @@ async function handleInstall() {
     installing.value = false
   }
 }
+
+function openRepository() {
+  if (props.skill?.repository) {
+    window.open(props.skill.repository, '_blank')
+  }
+}
+
+function openHomepage() {
+  if (props.skill?.homepage) {
+    window.open(props.skill.homepage, '_blank')
+  }
+}
 </script>
 
 <template>
@@ -240,7 +252,7 @@ async function handleInstall() {
             v-if="skill?.repository"
             variant="outline"
             size="sm"
-            @click="window.open(skill.repository, '_blank')"
+            @click="openRepository"
           >
             <ExternalLink class="w-4 h-4 mr-1" />
             Repository
@@ -249,7 +261,7 @@ async function handleInstall() {
             v-if="skill?.homepage"
             variant="outline"
             size="sm"
-            @click="window.open(skill.homepage, '_blank')"
+            @click="openHomepage"
           >
             <ExternalLink class="w-4 h-4 mr-1" />
             Homepage

@@ -246,6 +246,7 @@ impl Default for GatingChecker {
 mod tests {
     use super::*;
     use crate::models::{EnvVarRequirement, VersionRequirement};
+    use crate::OsType;
 
     #[test]
     fn test_os_check() {
