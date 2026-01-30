@@ -72,6 +72,11 @@ export const useChatSessionStore = defineStore('chatSession', {
         result = result.filter((s) => s.agent_id === this.agentFilter)
       }
 
+      // Apply skill filter
+      if (this.skillFilter) {
+        result = result.filter((s) => s.skill_id === this.skillFilter)
+      }
+
       // Apply search filter
       if (this.searchQuery.trim()) {
         const query = this.searchQuery.toLowerCase()

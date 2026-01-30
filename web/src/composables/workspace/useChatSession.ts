@@ -230,7 +230,7 @@ export function useChatSession(options: UseChatSessionOptions = {}): ChatSession
  */
 export function createUserMessage(content: string): ChatMessage {
   return {
-    role: 'User' as ChatRole,
+    role: 'user' as ChatRole,
     content,
     timestamp: BigInt(Date.now()),
     execution: null,
@@ -242,7 +242,7 @@ export function createUserMessage(content: string): ChatMessage {
  */
 export function createAssistantMessage(content: string): ChatMessage {
   return {
-    role: 'Assistant' as ChatRole,
+    role: 'assistant' as ChatRole,
     content,
     timestamp: BigInt(Date.now()),
     execution: null,
