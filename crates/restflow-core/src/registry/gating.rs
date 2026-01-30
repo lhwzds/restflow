@@ -314,9 +314,13 @@ mod tests {
             min_restflow_version: None,
         };
 
-        let result = checker.check(&requirements);
-        
         #[cfg(unix)]
-        assert!(result.passed, "Check failed: {}", result.summary);
+        {
+            let result = checker.check(&requirements);
+            assert!(result.passed, "Check failed: {}", result.summary);
+        }
+        
+        #[cfg(not(unix))]
+        let _ = checker.check(&requirements);
     }
 }
