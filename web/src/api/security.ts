@@ -165,7 +165,7 @@ export async function listPendingApprovals(): Promise<PendingApproval[]> {
  */
 export async function getPendingApproval(approvalId: string): Promise<PendingApproval | null> {
   if (isTauri()) {
-    return tauriInvoke<PendingApproval | null>('get_pending_approval', { approvalId })
+    return tauriInvoke<PendingApproval | null>('get_pending_approval', { approval_id: approvalId })
   }
   throw new Error('Security API requires Tauri environment')
 }
@@ -175,7 +175,7 @@ export async function getPendingApproval(approvalId: string): Promise<PendingApp
  */
 export async function approveCommand(approvalId: string): Promise<boolean> {
   if (isTauri()) {
-    return tauriInvoke<boolean>('approve_command', { approvalId })
+    return tauriInvoke<boolean>('approve_command', { approval_id: approvalId })
   }
   throw new Error('Security API requires Tauri environment')
 }
@@ -196,7 +196,7 @@ export async function rejectCommand(approvalId: string, reason?: string): Promis
  */
 export async function getTaskPendingApprovals(taskId: string): Promise<PendingApproval[]> {
   if (isTauri()) {
-    return tauriInvoke<PendingApproval[]>('get_task_pending_approvals', { taskId })
+    return tauriInvoke<PendingApproval[]>('get_task_pending_approvals', { task_id: taskId })
   }
   throw new Error('Security API requires Tauri environment')
 }
@@ -206,7 +206,7 @@ export async function getTaskPendingApprovals(taskId: string): Promise<PendingAp
  */
 export async function getAgentPendingApprovals(agentId: string): Promise<PendingApproval[]> {
   if (isTauri()) {
-    return tauriInvoke<PendingApproval[]>('get_agent_pending_approvals', { agentId })
+    return tauriInvoke<PendingApproval[]>('get_agent_pending_approvals', { agent_id: agentId })
   }
   throw new Error('Security API requires Tauri environment')
 }
@@ -216,7 +216,7 @@ export async function getAgentPendingApprovals(agentId: string): Promise<Pending
  */
 export async function checkApprovalStatus(approvalId: string): Promise<ApprovalStatus | null> {
   if (isTauri()) {
-    return tauriInvoke<ApprovalStatus | null>('check_approval_status', { approvalId })
+    return tauriInvoke<ApprovalStatus | null>('check_approval_status', { approval_id: approvalId })
   }
   throw new Error('Security API requires Tauri environment')
 }
@@ -226,7 +226,7 @@ export async function checkApprovalStatus(approvalId: string): Promise<ApprovalS
  */
 export async function removeApproval(approvalId: string): Promise<PendingApproval | null> {
   if (isTauri()) {
-    return tauriInvoke<PendingApproval | null>('remove_approval', { approvalId })
+    return tauriInvoke<PendingApproval | null>('remove_approval', { approval_id: approvalId })
   }
   throw new Error('Security API requires Tauri environment')
 }

@@ -260,6 +260,20 @@ pub async fn resume_agent_task(
         .map_err(|e| e.to_string())
 }
 
+/// Cancel a running agent task
+#[tauri::command]
+pub async fn cancel_agent_task(
+    state: State<'_, AppState>,
+    task_id: String,
+) -> Result<bool, String> {
+    state
+        .cancel_task(task_id)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(true)
+}
+
 /// Get events for a specific task
 #[tauri::command]
 pub async fn get_agent_task_events(
