@@ -5,7 +5,12 @@
   "windows": ["main"],
   "permissions": [
     "core:default",
+    "core:window:allow-start-dragging",
+    "core:window:allow-set-focus",
     "shell:allow-open",
     "core:webview:allow-internal-toggle-devtools"
-  ]
+  ],
+  "_comments": {
+    "window-dragging": "core:window:allow-start-dragging and core:window:allow-set-focus are required for data-tauri-drag-region to work properly with titleBarStyle: Overlay on macOS. Without these permissions, dragging only works on first attempt. See: https://github.com/tauri-apps/tauri/issues/9503"
+  }
 }

@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ref, watch, onMounted, computed } from 'vue'
+import { ref, watch, onMounted, onUnmounted, computed } from 'vue'
+import { getCurrentWindow } from '@tauri-apps/api/window'
 import { Settings, Moon, Sun, Search, List, LayoutGrid } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -41,6 +42,26 @@ import { useAgentTaskStore } from '@/stores/agentTaskStore'
 
 // Enable terminal auto-save (saves history periodically)
 useTerminalAutoSave()
+
+// Fullscreen detection for hiding traffic light backgrounds
+const isFullscreen = ref(false)
+let unlistenFullscreen: (() => void) | null = null
+
+onMounted(async () => {
+  const appWindow = getCurrentWindow()
+  // Check initial state
+  isFullscreen.value = await appWindow.isFullscreen()
+  // Listen for fullscreen changes
+  unlistenFullscreen = await appWindow.onResized(async () => {
+    isFullscreen.value = await appWindow.isFullscreen()
+  })
+})
+
+onUnmounted(() => {
+  if (unlistenFullscreen) {
+    unlistenFullscreen()
+  }
+})
 
 // Theme toggle
 const isDark = ref(document.documentElement.classList.contains('dark'))
@@ -376,9 +397,24 @@ const onEditorClose = () => {
          maximize content area, only shown in browse mode
       4. Layout: [Logo][Nav] --- spacer --- [Controls][Theme][Settings]
     -->
-    <header class="h-12 border-b flex items-center px-4 shrink-0">
-      <!-- Left: Logo + Navigation (always left-aligned for consistency) -->
-      <div class="flex items-center gap-4">
+    <header class="titlebar h-12 border-b flex items-center shrink-0 bg-background relative" data-tauri-drag-region>
+      <!--
+        Traffic light backgrounds - 3 orange circles behind macOS window buttons.
+        These provide contrast so inactive traffic lights remain visible.
+        Hidden in fullscreen mode since traffic lights move to menu bar.
+
+        IMPORTANT: Do NOT modify these pixel values - they are precisely calibrated:
+        - left: 13px, 33px, 53px (horizontal positions for red, yellow, green)
+        - top: 14px (vertical position)
+        - size: 12x12px (matches traffic light button size)
+      -->
+      <template v-if="!isFullscreen">
+        <div class="absolute left-[13px] top-[14px] w-[12px] h-[12px] rounded-full bg-orange-400 dark:bg-orange-500" />
+        <div class="absolute left-[33px] top-[14px] w-[12px] h-[12px] rounded-full bg-orange-400 dark:bg-orange-500" />
+        <div class="absolute left-[53px] top-[14px] w-[12px] h-[12px] rounded-full bg-orange-400 dark:bg-orange-500" />
+      </template>
+      <!-- Left: Traffic light spacer (70px) + Logo + Navigation -->
+      <div class="flex items-center gap-3 pl-[70px] relative z-10">
         <RestFlowLogo :icon-size="28" :text-size="18" />
 
         <!-- Navigation tabs use text color for active state, not background -->
@@ -595,3 +631,32 @@ const onEditorClose = () => {
     <SettingsDialog v-model:open="showSettings" />
   </div>
 </template>
+
+<style scoped>
+/*
+ * macOS Titlebar Drag Region
+ *
+ * With titleBarStyle: "Overlay" in tauri.conf.json, we need to:
+ * 1. Add data-tauri-drag-region attribute to the header element
+ * 2. Use -webkit-app-region: drag CSS for the draggable area
+ * 3. Use -webkit-app-region: no-drag for interactive elements
+ * 4. Add permissions in capabilities/default.json:
+ *    - core:window:allow-start-dragging
+ *    - core:window:allow-set-focus
+ *
+ * Without the permissions, dragging only works on the first attempt.
+ * See: https://github.com/tauri-apps/tauri/issues/9503
+ */
+.titlebar {
+  -webkit-app-region: drag;
+  padding-right: 1rem;
+}
+
+/* All interactive elements should not trigger drag */
+.titlebar button,
+.titlebar input,
+.titlebar nav,
+.titlebar a {
+  -webkit-app-region: no-drag;
+}
+</style>
