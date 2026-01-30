@@ -343,6 +343,12 @@ pub enum SkillSource {
     },
 }
 
+impl Default for SkillSource {
+    fn default() -> Self {
+        SkillSource::Local
+    }
+}
+
 /// Extended skill metadata for marketplace
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
@@ -374,6 +380,7 @@ pub struct SkillManifest {
     /// Gating requirements
     pub gating: GatingRequirements,
     /// Source information
+    #[serde(default)]
     pub source: SkillSource,
     /// Icon URL or data URI
     pub icon: Option<String>,
@@ -551,6 +558,39 @@ mod tests {
             VersionRequirement::parse("*"),
             Some(VersionRequirement::Any)
         ));
+    }
+
+    #[test]
+    fn test_manifest_deserialize_without_source() {
+        let json = r#"
+        {
+          "id": "test-skill",
+          "name": "Test Skill",
+          "version": { "major": 1, "minor": 2, "patch": 3, "prerelease": null },
+          "description": null,
+          "author": null,
+          "license": null,
+          "homepage": null,
+          "repository": null,
+          "keywords": [],
+          "categories": [],
+          "dependencies": [],
+          "permissions": { "required": [], "optional": [] },
+          "gating": {
+            "binaries": [],
+            "env_vars": [],
+            "supported_os": [],
+            "min_restflow_version": null
+          },
+          "icon": null,
+          "readme": null,
+          "changelog": null,
+          "metadata": {}
+        }
+        "#;
+
+        let manifest: SkillManifest = serde_json::from_str(json).unwrap();
+        assert!(matches!(manifest.source, SkillSource::Local));
     }
 
     #[test]

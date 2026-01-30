@@ -42,6 +42,17 @@ pub struct SearchResultResponse {
     pub source: String,
 }
 
+fn resolve_content_version(
+    requested: Option<String>,
+    fallback: Option<SkillVersion>,
+) -> Result<SkillVersion, String> {
+    if let Some(version) = requested {
+        SkillVersion::parse(&version).ok_or_else(|| format!("Invalid version: {}", version))
+    } else {
+        fallback.ok_or_else(|| "Version is required".to_string())
+    }
+}
+
 impl From<SkillSearchResult> for SearchResultResponse {
     fn from(result: SkillSearchResult) -> Self {
         let source = match &result.manifest.source {
@@ -181,20 +192,28 @@ pub async fn marketplace_get_content(
 ) -> Result<String, String> {
     use restflow_core::registry::SkillProvider;
     
-    let version = version
-        .and_then(|v| SkillVersion::parse(&v))
-        .unwrap_or_else(|| SkillVersion::new(0, 0, 1));
-    
     let source = source.unwrap_or_else(|| "marketplace".to_string());
     
     match source.as_str() {
         "marketplace" => {
             let provider = MarketplaceProvider::new();
-            provider.get_content(&id, &version).await.map_err(|e| e.to_string())
+            let fallback_version = if version.is_none() {
+                Some(provider.get_manifest(&id).await.map_err(|e| e.to_string())?.version)
+            } else {
+                None
+            };
+            let resolved_version = resolve_content_version(version, fallback_version)?;
+            provider.get_content(&id, &resolved_version).await.map_err(|e| e.to_string())
         }
         "github" => {
             let provider = GitHubProvider::new();
-            provider.get_content(&id, &version).await.map_err(|e| e.to_string())
+            let fallback_version = if version.is_none() {
+                Some(provider.get_manifest(&id).await.map_err(|e| e.to_string())?.version)
+            } else {
+                None
+            };
+            let resolved_version = resolve_content_version(version, fallback_version)?;
+            provider.get_content(&id, &resolved_version).await.map_err(|e| e.to_string())
         }
         _ => Err(format!("Unknown source: {}", source)),
     }
@@ -309,4 +328,38 @@ pub async fn marketplace_list_installed(
     state: State<'_, AppState>,
 ) -> Result<Vec<restflow_core::Skill>, String> {
     state.core.storage.skills.list().map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resolve_content_version_uses_fallback_when_missing() {
+        let fallback = SkillVersion::new(1, 2, 3);
+        let resolved = resolve_content_version(None, Some(fallback.clone())).unwrap();
+        assert_eq!(resolved, fallback);
+    }
+
+    #[test]
+    fn resolve_content_version_parses_requested() {
+        let resolved = resolve_content_version(
+            Some("1.2.3-beta.1".to_string()),
+            None,
+        )
+        .unwrap();
+        assert_eq!(resolved.prerelease.as_deref(), Some("beta.1"));
+    }
+
+    #[test]
+    fn resolve_content_version_errors_on_invalid_requested() {
+        let error = resolve_content_version(Some("not-a-version".to_string()), None).unwrap_err();
+        assert_eq!(error, "Invalid version: not-a-version");
+    }
+
+    #[test]
+    fn resolve_content_version_errors_without_requested_or_fallback() {
+        let error = resolve_content_version(None, None).unwrap_err();
+        assert_eq!(error, "Version is required");
+    }
 }

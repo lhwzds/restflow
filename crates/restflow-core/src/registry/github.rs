@@ -196,8 +196,15 @@ impl GitHubProvider {
             let content = resp.text().await
                 .map_err(|e| SkillProviderError::Network(e.to_string()))?;
             
-            let manifest: SkillManifest = toml::from_str(&content)
+            let mut manifest: SkillManifest = toml::from_str(&content)
                 .map_err(|e| SkillProviderError::Parse(e.to_string()))?;
+
+            manifest.source = SkillSource::GitHub {
+                owner: repo.owner.login.clone(),
+                repo: repo.name.clone(),
+                git_ref: Some(repo.default_branch.clone()),
+                path: None,
+            };
             
             return Ok(manifest);
         }
@@ -216,8 +223,15 @@ impl GitHubProvider {
             let content = resp.text().await
                 .map_err(|e| SkillProviderError::Network(e.to_string()))?;
             
-            let manifest: SkillManifest = serde_json::from_str(&content)
+            let mut manifest: SkillManifest = serde_json::from_str(&content)
                 .map_err(|e| SkillProviderError::Parse(e.to_string()))?;
+
+            manifest.source = SkillSource::GitHub {
+                owner: repo.owner.login.clone(),
+                repo: repo.name.clone(),
+                git_ref: Some(repo.default_branch.clone()),
+                path: None,
+            };
             
             return Ok(manifest);
         }
