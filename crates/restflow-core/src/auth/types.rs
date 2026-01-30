@@ -169,6 +169,8 @@ pub enum AuthProvider {
     /// Anthropic Claude API
     Anthropic,
     /// OpenAI API
+    #[serde(rename = "openai")]
+    #[ts(rename = "openai")]
     OpenAI,
     /// Google Gemini API
     Google,
