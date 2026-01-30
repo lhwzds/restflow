@@ -11,6 +11,7 @@ import { Download, ExternalLink, Github, Package, AlertTriangle, Check, X } from
 import type { SkillManifest, SkillVersion, GatingCheckResult } from '@/types/generated'
 import { getSkillContent, getSkillVersions, checkSkillGating, installSkill } from '@/api/marketplace'
 import { useToast } from '@/components/ui/toast/use-toast'
+import { formatSkillVersion } from '@/utils/skillVersion'
 
 const props = defineProps<{
   open: boolean
@@ -34,10 +35,11 @@ const gatingResult = ref<GatingCheckResult | null>(null)
 const selectedVersion = ref<string>('')
 const activeTab = ref('readme')
 
+const versionKey = (version: SkillVersion) => formatSkillVersion(version)
+
 const versionString = computed(() => {
   if (!props.skill?.version) return '0.0.0'
-  const v = props.skill.version
-  return `${v.major}.${v.minor}.${v.patch}${v.prerelease ? `-${v.prerelease}` : ''}`
+  return formatSkillVersion(props.skill.version)
 })
 
 watch(() => props.open, async (isOpen) => {
@@ -59,7 +61,7 @@ watch(() => props.open, async (isOpen) => {
         if (versions.value.length > 0 && !selectedVersion.value) {
           const v = versions.value[0]
           if (v) {
-            selectedVersion.value = `${v.major}.${v.minor}.${v.patch}`
+            selectedVersion.value = versionKey(v)
           }
         }
       }
@@ -227,16 +229,15 @@ function openHomepage() {
             <div v-else-if="versions.length" class="space-y-2">
               <div
                 v-for="version in versions"
-                :key="`${version.major}.${version.minor}.${version.patch}`"
+                :key="versionKey(version)"
                 class="flex items-center justify-between p-2 rounded-md hover:bg-muted cursor-pointer"
-                :class="{ 'bg-muted': selectedVersion === `${version.major}.${version.minor}.${version.patch}` }"
-                @click="selectedVersion = `${version.major}.${version.minor}.${version.patch}`"
+                :class="{ 'bg-muted': selectedVersion === versionKey(version) }"
+                @click="selectedVersion = versionKey(version)"
               >
                 <span class="font-mono">
-                  v{{ version.major }}.{{ version.minor }}.{{ version.patch }}
-                  {{ version.prerelease ? `-${version.prerelease}` : '' }}
+                  v{{ versionKey(version) }}
                 </span>
-                <Badge v-if="selectedVersion === `${version.major}.${version.minor}.${version.patch}`" variant="default">
+                <Badge v-if="selectedVersion === versionKey(version)" variant="default">
                   Selected
                 </Badge>
               </div>
