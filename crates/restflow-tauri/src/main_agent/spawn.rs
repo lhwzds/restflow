@@ -3,16 +3,17 @@
 //! This module handles spawning sub-agents that run in parallel,
 //! with timeout support and completion notifications.
 
+use super::MainAgentConfig;
 use super::definition::{AgentDefinition, AgentDefinitionRegistry};
 use super::events::{MainAgentEvent, MainAgentEventEmitter, MainAgentEventKind};
 use super::tracker::{SubagentResult, SubagentTracker};
-use super::MainAgentConfig;
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use restflow_ai::llm::CompletionRequest;
 use restflow_ai::{LlmClient, Message};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use tokio::time::{timeout, Duration};
+use tokio::sync::oneshot;
+use tokio::time::{Duration, timeout};
 use ts_rs::TS;
 
 /// Request to spawn a sub-agent
@@ -60,6 +61,7 @@ pub fn spawn_subagent(
     llm_client: Arc<dyn LlmClient>,
     event_emitter: Arc<dyn MainAgentEventEmitter>,
     config: MainAgentConfig,
+    session_id: String,
     request: SpawnRequest,
 ) -> Result<SpawnHandle> {
     // Check parallel limit
@@ -93,14 +95,17 @@ pub fn spawn_subagent(
     let sid = task_id.clone();
     let tracker_clone = tracker.clone();
     let emitter_clone = event_emitter.clone();
+    let session_id_clone = session_id.clone();
 
     // Spawn the Tokio task
+    let (completion_tx, completion_rx) = oneshot::channel();
+
     let handle = tokio::spawn(async move {
         let start = std::time::Instant::now();
 
         // Emit started event
         emitter_clone.emit(MainAgentEvent {
-            session_id: String::new(), // Session ID not available in spawn context
+            session_id: session_id_clone.clone(),
             timestamp: chrono::Utc::now().timestamp_millis(),
             kind: MainAgentEventKind::SubagentSpawned {
                 task_id: sid.clone(),
@@ -117,6 +122,7 @@ pub fn spawn_subagent(
                 agent_def,
                 task.clone(),
                 emitter_clone.clone(),
+                session_id_clone.clone(),
                 sid.clone(),
             ),
         )
@@ -124,25 +130,30 @@ pub fn spawn_subagent(
 
         let duration_ms = start.elapsed().as_millis() as u64;
 
-        let subagent_result = match result {
-            Ok(Ok(output)) => SubagentResult {
-                success: true,
-                output,
-                summary: None, // TODO: Generate summary
-                duration_ms,
-                tokens_used: None,
-                error: None,
-            },
-            Ok(Err(e)) => SubagentResult {
-                success: false,
-                output: String::new(),
-                summary: None,
-                duration_ms,
-                tokens_used: None,
-                error: Some(e.to_string()),
-            },
-            Err(_) => {
-                tracker_clone.mark_timed_out(&sid);
+        let (subagent_result, timed_out) = match result {
+            Ok(Ok(output)) => (
+                SubagentResult {
+                    success: true,
+                    output,
+                    summary: None, // TODO: Generate summary
+                    duration_ms,
+                    tokens_used: None,
+                    error: None,
+                },
+                false,
+            ),
+            Ok(Err(e)) => (
+                SubagentResult {
+                    success: false,
+                    output: String::new(),
+                    summary: None,
+                    duration_ms,
+                    tokens_used: None,
+                    error: Some(e.to_string()),
+                },
+                false,
+            ),
+            Err(_) => (
                 SubagentResult {
                     success: false,
                     output: String::new(),
@@ -150,13 +161,14 @@ pub fn spawn_subagent(
                     duration_ms,
                     tokens_used: None,
                     error: Some("Sub-agent timed out".to_string()),
-                }
-            }
+                },
+                true,
+            ),
         };
 
         // Emit completed event
         emitter_clone.emit(MainAgentEvent {
-            session_id: String::new(),
+            session_id: session_id_clone.clone(),
             timestamp: chrono::Utc::now().timestamp_millis(),
             kind: MainAgentEventKind::SubagentCompleted {
                 task_id: sid.clone(),
@@ -167,6 +179,13 @@ pub fn spawn_subagent(
             },
         });
 
+        let _ = completion_tx.send(subagent_result.clone());
+        if timed_out {
+            tracker_clone.mark_timed_out(&sid, subagent_result.clone());
+        } else {
+            tracker_clone.mark_completed(&sid, subagent_result.clone());
+        }
+
         subagent_result
     });
 
@@ -176,6 +195,7 @@ pub fn spawn_subagent(
         agent_name_for_register,
         task_for_register,
         handle,
+        completion_rx,
     );
 
     Ok(SpawnHandle {
@@ -190,6 +210,7 @@ async fn execute_subagent(
     agent_def: AgentDefinition,
     task: String,
     event_emitter: Arc<dyn MainAgentEventEmitter>,
+    session_id: String,
     task_id: String,
 ) -> Result<String> {
     // Build system prompt for sub-agent
@@ -202,7 +223,7 @@ async fn execute_subagent(
 
     // Emit progress event
     event_emitter.emit(MainAgentEvent {
-        session_id: String::new(),
+        session_id: session_id.clone(),
         timestamp: chrono::Utc::now().timestamp_millis(),
         kind: MainAgentEventKind::SubagentProgress {
             task_id: task_id.clone(),
@@ -213,10 +234,7 @@ async fn execute_subagent(
 
     // TODO: Implement full ReAct loop with the sub-agent
     // For now, we'll make a simple LLM call
-    let messages = vec![
-        Message::system(system_prompt),
-        Message::user(task),
-    ];
+    let messages = vec![Message::system(system_prompt), Message::user(task)];
 
     let request = CompletionRequest::new(messages).with_max_tokens(4096);
 
@@ -224,7 +242,7 @@ async fn execute_subagent(
 
     // Emit completion progress
     event_emitter.emit(MainAgentEvent {
-        session_id: String::new(),
+        session_id: session_id.clone(),
         timestamp: chrono::Utc::now().timestamp_millis(),
         kind: MainAgentEventKind::SubagentProgress {
             task_id,

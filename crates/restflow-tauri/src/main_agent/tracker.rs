@@ -5,7 +5,7 @@
 
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 use ts_rs::TS;
 
@@ -88,6 +88,9 @@ pub struct SubagentTracker {
     /// Tokio JoinHandles for waiting/cancelling
     handles: DashMap<String, JoinHandle<SubagentResult>>,
 
+    /// Completion waiters for sub-agent results
+    completion_waiters: DashMap<String, oneshot::Receiver<SubagentResult>>,
+
     /// Completion notification sender
     completion_tx: mpsc::Sender<SubagentCompletion>,
 }
@@ -98,6 +101,7 @@ impl SubagentTracker {
         Self {
             states: DashMap::new(),
             handles: DashMap::new(),
+            completion_waiters: DashMap::new(),
             completion_tx,
         }
     }
@@ -109,6 +113,7 @@ impl SubagentTracker {
         agent_name: String,
         task: String,
         handle: JoinHandle<SubagentResult>,
+        completion_rx: oneshot::Receiver<SubagentResult>,
     ) {
         let state = SubagentState {
             id: id.clone(),
@@ -121,7 +126,8 @@ impl SubagentTracker {
         };
 
         self.states.insert(id.clone(), state);
-        self.handles.insert(id, handle);
+        self.handles.insert(id.clone(), handle);
+        self.completion_waiters.insert(id, completion_rx);
     }
 
     /// Get state of a specific sub-agent
@@ -161,29 +167,47 @@ impl SubagentTracker {
 
     /// Wait for a specific sub-agent to complete
     pub async fn wait(&self, id: &str) -> Option<SubagentResult> {
-        if let Some((_, handle)) = self.handles.remove(id) {
-            match handle.await {
+        if let Some(state) = self.states.get(id) {
+            if let Some(result) = state.result.clone() {
+                self.completion_waiters.remove(id);
+                return Some(result);
+            }
+        }
+
+        if let Some((_, receiver)) = self.completion_waiters.remove(id) {
+            match receiver.await {
                 Ok(result) => {
-                    self.mark_completed(id, result.clone());
-                    Some(result)
+                    if self.states.get(id).and_then(|s| s.result.clone()).is_none() {
+                        self.mark_completed(id, result.clone());
+                    }
+                    return Some(result);
                 }
-                Err(e) => {
-                    let result = SubagentResult {
-                        success: false,
-                        output: String::new(),
-                        summary: None,
-                        duration_ms: 0,
-                        tokens_used: None,
-                        error: Some(format!("Task panicked: {}", e)),
-                    };
-                    self.mark_completed(id, result.clone());
-                    Some(result)
+                Err(_) => {
+                    if let Some((_, handle)) = self.handles.remove(id) {
+                        match handle.await {
+                            Ok(result) => {
+                                self.mark_completed(id, result.clone());
+                                return Some(result);
+                            }
+                            Err(e) => {
+                                let result = SubagentResult {
+                                    success: false,
+                                    output: String::new(),
+                                    summary: None,
+                                    duration_ms: 0,
+                                    tokens_used: None,
+                                    error: Some(format!("Task panicked: {}", e)),
+                                };
+                                self.mark_completed(id, result.clone());
+                                return Some(result);
+                            }
+                        }
+                    }
                 }
             }
-        } else {
-            // Already completed, get from states
-            self.states.get(id).and_then(|s| s.result.clone())
         }
+
+        self.states.get(id).and_then(|s| s.result.clone())
     }
 
     /// Wait for all running sub-agents to complete
@@ -222,6 +246,7 @@ impl SubagentTracker {
     pub fn cancel(&self, id: &str) -> bool {
         if let Some((_, handle)) = self.handles.remove(id) {
             handle.abort();
+            self.completion_waiters.remove(id);
             if let Some(mut state) = self.states.get_mut(id) {
                 state.status = SubagentStatus::Cancelled;
                 state.completed_at = Some(chrono::Utc::now().timestamp_millis());
@@ -258,6 +283,7 @@ impl SubagentTracker {
 
         // Remove the handle if it exists
         self.handles.remove(id);
+        self.completion_waiters.remove(id);
 
         // Send completion notification
         let _ = self.completion_tx.try_send(SubagentCompletion {
@@ -267,24 +293,23 @@ impl SubagentTracker {
     }
 
     /// Mark a sub-agent as timed out
-    pub fn mark_timed_out(&self, id: &str) {
+    pub fn mark_timed_out(&self, id: &str, result: SubagentResult) {
         if let Some(mut state) = self.states.get_mut(id) {
             state.status = SubagentStatus::TimedOut;
             state.completed_at = Some(chrono::Utc::now().timestamp_millis());
-            state.result = Some(SubagentResult {
-                success: false,
-                output: String::new(),
-                summary: None,
-                duration_ms: 0,
-                tokens_used: None,
-                error: Some("Sub-agent timed out".to_string()),
-            });
+            state.result = Some(result.clone());
         }
 
         // Abort and remove the handle
         if let Some((_, handle)) = self.handles.remove(id) {
             handle.abort();
         }
+        self.completion_waiters.remove(id);
+
+        let _ = self.completion_tx.try_send(SubagentCompletion {
+            id: id.to_string(),
+            result,
+        });
     }
 
     /// Clean up completed sub-agents older than the given age
@@ -324,15 +349,18 @@ mod tests {
         let tracker = SubagentTracker::new(tx);
 
         // Register a sub-agent
-        let handle = tokio::spawn(async {
-            SubagentResult {
+        let (completion_tx, completion_rx) = oneshot::channel();
+        let handle = tokio::spawn(async move {
+            let result = SubagentResult {
                 success: true,
                 output: "Done".to_string(),
                 summary: None,
                 duration_ms: 100,
                 tokens_used: Some(50),
                 error: None,
-            }
+            };
+            let _ = completion_tx.send(result.clone());
+            result
         });
 
         tracker.register(
@@ -340,6 +368,7 @@ mod tests {
             "researcher".to_string(),
             "Research X".to_string(),
             handle,
+            completion_rx,
         );
 
         assert_eq!(tracker.running_count(), 1);
@@ -359,6 +388,7 @@ mod tests {
         let tracker = SubagentTracker::new(tx);
 
         // Register a long-running sub-agent
+        let (_completion_tx, completion_rx) = oneshot::channel();
         let handle = tokio::spawn(async {
             tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
             SubagentResult {
@@ -376,6 +406,7 @@ mod tests {
             "coder".to_string(),
             "Code Y".to_string(),
             handle,
+            completion_rx,
         );
 
         assert!(tracker.is_running("task-1"));

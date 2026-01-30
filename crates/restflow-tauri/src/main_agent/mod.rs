@@ -43,24 +43,26 @@ pub mod spawn;
 pub mod tools;
 pub mod tracker;
 
-pub use definition::{builtin_agents, AgentDefinition, AgentDefinitionRegistry};
+pub use definition::{AgentDefinition, AgentDefinitionRegistry, builtin_agents};
 pub use events::{
-    MainAgentEvent, MainAgentEventEmitter, MainAgentEventKind, NoopMainAgentEmitter,
-    TauriMainAgentEmitter, MAIN_AGENT_EVENT,
+    MAIN_AGENT_EVENT, MainAgentEvent, MainAgentEventEmitter, MainAgentEventKind,
+    NoopMainAgentEmitter, TauriMainAgentEmitter,
 };
 pub use session::{
     AgentSession, ChatRole, MessageExecution, MessageSource, SessionMessage, SessionMetadata,
 };
 pub use spawn::{SpawnHandle, SpawnPriority, SpawnRequest};
 pub use tools::{ListAgentsTool, SpawnAgentTool, UseSkillTool, WaitAgentsTool};
-pub use tracker::{SubagentCompletion, SubagentResult, SubagentState, SubagentStatus, SubagentTracker};
+pub use tracker::{
+    SubagentCompletion, SubagentResult, SubagentState, SubagentStatus, SubagentTracker,
+};
 
 use anyhow::Result;
 use restflow_ai::LlmClient;
 use restflow_core::storage::Storage;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use tokio::sync::{mpsc, RwLock};
+use tokio::sync::{RwLock, mpsc};
 use ts_rs::TS;
 
 /// Main Agent configuration
@@ -243,6 +245,7 @@ impl MainAgent {
             self.llm_client.clone(),
             self.event_emitter.clone(),
             self.config.clone(),
+            self.id.clone(),
             request,
         )
     }
