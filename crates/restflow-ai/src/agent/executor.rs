@@ -269,8 +269,9 @@ impl AgentExecutor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::llm::{CompletionResponse, Role, ToolCall, TokenUsage};
+    use crate::llm::{CompletionResponse, FinishReason, Role, StreamChunk, StreamResult, ToolCall, TokenUsage};
     use async_trait::async_trait;
+    use futures::stream;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Mutex;
 
@@ -333,6 +334,24 @@ mod tests {
                 })
             } else {
                 Ok(responses.remove(0))
+            }
+        }
+
+        fn complete_stream(&self, request: CompletionRequest) -> StreamResult {
+            // For mock: convert the sync response to a single-chunk stream
+            let response = futures::executor::block_on(self.complete(request));
+            match response {
+                Ok(resp) => {
+                    let chunk = StreamChunk {
+                        text: resp.content.unwrap_or_default(),
+                        thinking: None,
+                        tool_call_delta: None,
+                        finish_reason: Some(resp.finish_reason),
+                        usage: resp.usage,
+                    };
+                    Box::pin(stream::once(async move { Ok(chunk) }))
+                }
+                Err(e) => Box::pin(stream::once(async move { Err(e) })),
             }
         }
     }
