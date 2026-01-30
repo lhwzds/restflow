@@ -195,7 +195,6 @@ impl CredentialDiscoverer for ClaudeCodeDiscoverer {
 
             info!(
                 profile_id = %profile.id,
-                email = ?oauth.email,
                 "Discovered Claude Code credential"
             );
 
