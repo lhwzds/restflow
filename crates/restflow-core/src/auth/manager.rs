@@ -87,10 +87,10 @@ impl AuthProfileManager {
             let summary = self.discover().await?;
             
             // Load any saved manual profiles
-            if let Some(path) = &self.config.profiles_path {
-                if let Err(e) = self.load_manual_profiles(path).await {
-                    warn!(error = %e, "Failed to load manual profiles");
-                }
+            if let Some(path) = &self.config.profiles_path
+                && let Err(e) = self.load_manual_profiles(path).await
+            {
+                warn!(error = %e, "Failed to load manual profiles");
             }
             
             Ok(summary)
