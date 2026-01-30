@@ -178,17 +178,25 @@ impl ChannelRouter {
     /// This should be called when processing inbound messages to enable
     /// auto-routing of replies.
     pub async fn record_conversation(&self, message: &InboundMessage, task_id: Option<String>) {
+        let mut conversations = self.conversations.write().await;
+        let existing_task_id = if task_id.is_none() {
+            conversations
+                .get(&message.conversation_id)
+                .and_then(|ctx| ctx.task_id.clone())
+        } else {
+            None
+        };
+
         let mut context = ConversationContext::new(
             &message.conversation_id,
             message.channel_type,
             &message.sender_id,
         );
         
-        if let Some(tid) = task_id {
+        if let Some(tid) = task_id.or(existing_task_id) {
             context = context.with_task_id(tid);
         }
 
-        let mut conversations = self.conversations.write().await;
         conversations.insert(message.conversation_id.clone(), context);
     }
 
