@@ -60,6 +60,7 @@ pub fn slugify(input: &str) -> String {
             output.push('-');
             last_dash = true;
         }
+        }
     }
 
     if output.ends_with('-') {
