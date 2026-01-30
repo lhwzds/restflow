@@ -350,6 +350,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg(unix)] // BashTool uses 'sh -c' which is Unix-specific
     async fn test_bash_tool_execute_simple() {
         let tool = BashTool::new();
         let output = tool
@@ -367,6 +368,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg(unix)] // BashTool uses 'sh -c' which is Unix-specific
     async fn test_bash_tool_execute_with_workdir() {
         let tool = BashTool::new();
         let output = tool
@@ -383,6 +385,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg(unix)] // BashTool uses 'sh -c' which is Unix-specific
     async fn test_bash_tool_execute_nonzero_exit() {
         let tool = BashTool::new();
         let output = tool
@@ -399,6 +402,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg(unix)] // BashTool uses 'sh -c' which is Unix-specific
     async fn test_bash_tool_execute_with_stderr() {
         let tool = BashTool::new();
         let output = tool
@@ -414,6 +418,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg(unix)] // BashTool uses 'sh -c' which is Unix-specific
     async fn test_bash_tool_execute_timeout() {
         let tool = BashTool::new().with_timeout(1);
         let output = tool
@@ -428,6 +433,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg(unix)] // BashTool uses 'sh -c' which is Unix-specific
     async fn test_bash_tool_execute_with_duration() {
         let tool = BashTool::new();
         let output = tool
@@ -443,6 +449,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg(unix)] // BashTool uses 'sh -c' which is Unix-specific
     async fn test_bash_tool_execute_invalid_command() {
         let tool = BashTool::new();
         let output = tool
@@ -458,6 +465,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg(unix)] // BashTool uses 'sh -c' which is Unix-specific
     async fn test_bash_tool_default_workdir() {
         let tool = BashTool::new().with_workdir("/tmp");
         let output = tool
@@ -473,6 +481,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg(unix)] // BashTool uses 'sh -c' which is Unix-specific
     async fn test_bash_tool_input_timeout_override() {
         let tool = BashTool::new().with_timeout(60);
         let output = tool
