@@ -8,12 +8,14 @@ pub mod output;
 pub mod skill;
 pub mod terminal_session;
 pub mod trigger;
+pub mod webhook;
 
 pub use agent::{AgentNode, ApiKeyConfig};
 pub use agent_task::{
     AgentTask, AgentTaskStatus, CliExecutionConfig, ExecutionMode, NotificationConfig, TaskEvent,
     TaskEventType, TaskSchedule,
 };
+pub use webhook::{WebhookConfig, WebhookRateLimiter, WebhookRequest, WebhookResponse};
 pub use agent_execution::{AgentExecuteResponse, ExecutionDetails, ExecutionStep, ToolCallInfo};
 pub use ai_model::{AIModel, ModelMetadataDTO, Provider};
 pub use execution::{ExecutionHistoryPage, ExecutionStatus, ExecutionSummary};

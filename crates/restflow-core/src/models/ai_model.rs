@@ -30,7 +30,7 @@ pub struct ModelMetadataDTO {
 }
 
 /// AI model enum - Single Source of Truth for all supported models
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
 #[ts(export)]
 #[serde(rename_all = "kebab-case")]
 pub enum AIModel {

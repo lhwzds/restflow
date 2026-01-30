@@ -55,6 +55,10 @@ async-trait = "0.1"
 # UUID for unique session IDs
 uuid = { version = "1.11", features = ["v4"] }
 
+# HTTP server for webhooks
+axum = "0.8"
+tower-http = { version = "0.6", features = ["cors", "trace"] }
+
 # MCP (Model Context Protocol) server
 rmcp = { version = "0.8", features = ["server"] }
 schemars = "0.8"
@@ -68,6 +72,7 @@ dirs = "6"
 [dev-dependencies]
 tempfile = "3"
 redb = "3.1"
+tower = { version = "0.5", features = ["util"] }
 
 [features]
 # This feature is used for production builds or when a dev server is not specified
