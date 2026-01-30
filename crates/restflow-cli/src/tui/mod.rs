@@ -47,12 +47,11 @@ async fn run_app(
             return Ok(());
         }
 
-        if event::poll(Duration::from_millis(100))? {
-            if let Event::Key(key) = event::read()? {
-                if keybindings::handle_key(app, key).await? {
-                    return Ok(());
-                }
-            }
+        if event::poll(Duration::from_millis(100))?
+            && let Event::Key(key) = event::read()?
+            && keybindings::handle_key(app, key).await?
+        {
+            return Ok(());
         }
 
         app.tick().await?;
