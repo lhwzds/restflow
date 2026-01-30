@@ -300,9 +300,9 @@ function getAgentInfo(item: FileItem) {
         <span class="text-sm">Loading...</span>
       </div>
 
-      <!-- Empty State -->
+      <!-- Empty State (only show when no createLabel, i.e., no create button available) -->
       <div
-        v-else-if="filteredItems.length === 0"
+        v-else-if="filteredItems.length === 0 && !createLabel"
         class="flex flex-col items-center justify-center h-full text-muted-foreground"
       >
         <Folder :size="48" class="mb-2 opacity-50" />
