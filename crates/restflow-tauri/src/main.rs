@@ -67,7 +67,18 @@ fn main() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_decorum::init())
         .setup(|app| {
+            // Set traffic lights position on macOS
+            // This keeps them always visible with overlay titlebar
+            #[cfg(target_os = "macos")]
+            {
+                use tauri_plugin_decorum::WebviewWindowExt;
+                if let Some(window) = app.get_webview_window("main") {
+                    // Position traffic lights at (12, 16) from top-left
+                    let _ = window.set_traffic_lights_inset(12.0, 16.0);
+                }
+            }
             // Initialize application state
             let rt = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
 
