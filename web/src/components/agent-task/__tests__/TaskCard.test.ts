@@ -49,6 +49,7 @@ const createMockTask = (overrides: Partial<AgentTask> = {}): AgentTask => ({
   success_count: 5,
   failure_count: 1,
   last_error: null,
+  webhook: null,
   ...overrides,
 })
 
