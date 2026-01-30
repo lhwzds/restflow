@@ -189,6 +189,18 @@ impl AppState {
         }
     }
 
+    /// Cancel a running task.
+    ///
+    /// Returns an error if no runner is active.
+    pub async fn cancel_task(&self, task_id: String) -> Result<()> {
+        let guard = self.runner_handle.read().await;
+        if let Some(handle) = guard.as_ref() {
+            handle.cancel_task(task_id).await
+        } else {
+            anyhow::bail!("No runner is active")
+        }
+    }
+
     // ========================================================================
     // Running Task Tracking
     // ========================================================================
@@ -277,14 +289,27 @@ impl TaskTrigger for AppTaskTrigger {
     }
 
     async fn stop_task(&self, task_id: &str) -> Result<()> {
+        let cancel_requested = if self.state.is_runner_active().await {
+            match self.state.cancel_task(task_id.to_string()).await {
+                Ok(()) => true,
+                Err(e) => {
+                    error!("Failed to request cancel for task {}: {}", task_id, e);
+                    false
+                }
+            }
+        } else {
+            false
+        };
+
+        // If the task isn't running (or cancel couldn't be requested), pause it directly.
+        if let Ok(Some(task)) = self.state.core.storage.agent_tasks.get_task(task_id) {
+            if task.status != restflow_core::models::AgentTaskStatus::Running || !cancel_requested {
+                self.state.core.storage.agent_tasks.pause_task(task_id)?;
+            }
+        }
+
         // Mark the task as completed/stopped in our tracking
         self.state.mark_task_completed(task_id).await;
-
-        // Update task status in storage
-        if let Ok(Some(mut task)) = self.state.core.storage.agent_tasks.get_task(task_id) {
-            task.status = restflow_core::models::AgentTaskStatus::Paused;
-            self.state.core.storage.agent_tasks.update_task(&task)?;
-        }
 
         Ok(())
     }

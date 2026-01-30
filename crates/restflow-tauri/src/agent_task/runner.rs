@@ -11,10 +11,10 @@ use anyhow::{anyhow, Result};
 use restflow_ai::llm::Message;
 use restflow_core::models::{AgentTask, AgentTaskStatus, ExecutionMode, NotificationConfig};
 use restflow_core::storage::{AgentTaskStorage, MemoryStorage};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use tokio::sync::{mpsc, RwLock};
+use tokio::sync::{mpsc, oneshot, RwLock};
 use tokio::time::{interval, Duration, Instant};
 use tracing::{debug, error, info, warn};
 
@@ -68,6 +68,8 @@ pub enum RunnerCommand {
     CheckNow,
     /// Run a specific task immediately (bypassing schedule)
     RunTaskNow(String),
+    /// Cancel a running task
+    CancelTask(String),
 }
 
 /// Configuration for the AgentTaskRunner
@@ -120,6 +122,14 @@ impl RunnerHandle {
             .await
             .map_err(|e| anyhow!("Failed to send run task command: {}", e))
     }
+
+    /// Cancel a running task
+    pub async fn cancel_task(&self, task_id: String) -> Result<()> {
+        self.command_tx
+            .send(RunnerCommand::CancelTask(task_id))
+            .await
+            .map_err(|e| anyhow!("Failed to send cancel task command: {}", e))
+    }
 }
 
 /// Agent executor trait for dependency injection
@@ -152,6 +162,7 @@ pub struct AgentTaskRunner {
     notifier: Arc<dyn NotificationSender>,
     config: RunnerConfig,
     running_tasks: Arc<RwLock<HashSet<String>>>,
+    cancel_senders: Arc<RwLock<HashMap<String, oneshot::Sender<()>>>>,
     heartbeat_emitter: Arc<dyn HeartbeatEmitter>,
     sequence: AtomicU64,
     start_time: Instant,
@@ -173,6 +184,7 @@ impl AgentTaskRunner {
             notifier,
             config,
             running_tasks: Arc::new(RwLock::new(HashSet::new())),
+            cancel_senders: Arc::new(RwLock::new(HashMap::new())),
             heartbeat_emitter: Arc::new(NoopHeartbeatEmitter),
             sequence: AtomicU64::new(0),
             start_time: Instant::now(),
@@ -194,6 +206,7 @@ impl AgentTaskRunner {
             notifier,
             config,
             running_tasks: Arc::new(RwLock::new(HashSet::new())),
+            cancel_senders: Arc::new(RwLock::new(HashMap::new())),
             heartbeat_emitter,
             sequence: AtomicU64::new(0),
             start_time: Instant::now(),
@@ -219,6 +232,7 @@ impl AgentTaskRunner {
             notifier,
             config,
             running_tasks: Arc::new(RwLock::new(HashSet::new())),
+            cancel_senders: Arc::new(RwLock::new(HashMap::new())),
             heartbeat_emitter,
             sequence: AtomicU64::new(0),
             start_time: Instant::now(),
@@ -272,6 +286,10 @@ impl AgentTaskRunner {
                         Some(RunnerCommand::RunTaskNow(task_id)) => {
                             debug!("Manual run triggered for task: {}", task_id);
                             self.run_task_immediate(&task_id).await;
+                        }
+                        Some(RunnerCommand::CancelTask(task_id)) => {
+                            debug!("Cancel requested for task: {}", task_id);
+                            self.cancel_task(&task_id).await;
                         }
                         None => {
                             info!("Command channel closed, stopping runner");
@@ -369,12 +387,17 @@ impl AgentTaskRunner {
             // Add to running set BEFORE spawning to prevent race conditions
             // where the next poll cycle picks up the same task
             self.running_tasks.write().await.insert(task.id.clone());
+            let (cancel_tx, cancel_rx) = oneshot::channel();
+            self.cancel_senders
+                .write()
+                .await
+                .insert(task.id.clone(), cancel_tx);
 
             let runner = Arc::new(self.clone_for_task());
             let task_id = task.id.clone();
 
             tokio::spawn(async move {
-                runner.execute_task(&task_id).await;
+                runner.execute_task(&task_id, cancel_rx).await;
             });
         }
     }
@@ -421,19 +444,50 @@ impl AgentTaskRunner {
 
         // Add to running set BEFORE spawning to prevent race conditions
         self.running_tasks.write().await.insert(task_id.to_string());
+        let (cancel_tx, cancel_rx) = oneshot::channel();
+        self.cancel_senders
+            .write()
+            .await
+            .insert(task_id.to_string(), cancel_tx);
 
         let runner = Arc::new(self.clone_for_task());
         let task_id = task_id.to_string();
 
         tokio::spawn(async move {
-            runner.execute_task(&task_id).await;
+            runner.execute_task(&task_id, cancel_rx).await;
         });
+    }
+
+    /// Cancel a running task
+    async fn cancel_task(&self, task_id: &str) {
+        if !self.running_tasks.read().await.contains(task_id) {
+            debug!("Cancel requested for task {}, but it is not running", task_id);
+        }
+
+        let cancel_sender = self.cancel_senders.write().await.remove(task_id);
+        if let Some(sender) = cancel_sender {
+            if sender.send(()).is_err() {
+                debug!(
+                    "Cancel signal for task {} dropped (task already finished)",
+                    task_id
+                );
+            }
+            return;
+        }
+
+        // No cancel channel found; if the task is marked running in storage, pause it.
+        if let Ok(Some(task)) = self.storage.get_task(task_id) {
+            if task.status == AgentTaskStatus::Running {
+                if let Err(e) = self.storage.pause_task(task_id) {
+                    error!("Failed to mark task {} as paused: {}", task_id, e);
+                }
+            }
+        }
     }
 
     /// Execute a single task
     /// Note: Task must already be in running_tasks before calling this
-    async fn execute_task(&self, task_id: &str) {
-
+    async fn execute_task(&self, task_id: &str, mut cancel_rx: oneshot::Receiver<()>) {
         let start_time = chrono::Utc::now().timestamp_millis();
 
         // Start execution in storage
@@ -441,7 +495,7 @@ impl AgentTaskRunner {
             Ok(task) => task,
             Err(e) => {
                 error!("Failed to start task execution for {}: {}", task_id, e);
-                self.running_tasks.write().await.remove(task_id);
+                self.cleanup_task_tracking(task_id).await;
                 return;
             }
         };
@@ -451,31 +505,48 @@ impl AgentTaskRunner {
             task.name, task.id, task.agent_id, task.execution_mode
         );
 
-        // Execute the agent based on execution mode
-        let result = match &task.execution_mode {
-            ExecutionMode::Api => {
-                // Use the injected API executor
-                debug!("Using API executor for task '{}'", task.name);
-                let timeout = Duration::from_secs(self.config.task_timeout_secs);
-                tokio::time::timeout(
-                    timeout,
-                    self.executor.execute(&task.agent_id, task.input.as_deref()),
-                )
-                .await
+        let exec_future = async {
+            match &task.execution_mode {
+                ExecutionMode::Api => {
+                    // Use the injected API executor
+                    debug!("Using API executor for task '{}'", task.name);
+                    let timeout = Duration::from_secs(self.config.task_timeout_secs);
+                    tokio::time::timeout(
+                        timeout,
+                        self.executor.execute(&task.agent_id, task.input.as_deref()),
+                    )
+                    .await
+                }
+                ExecutionMode::Cli(cli_config) => {
+                    // CLI mode should use existing PtyState + TerminalSession infrastructure
+                    // This is handled via the terminal_sessions commands, not inline here
+                    warn!(
+                        "CLI mode for task '{}' (binary: {}) - use existing PTY infrastructure via terminal sessions",
+                        task.name, cli_config.binary
+                    );
+                    // Return error indicating CLI should be executed via terminal sessions
+                    Ok(Err(anyhow!(
+                        "CLI mode execution should use existing PTY/TerminalSession infrastructure. \
+                         Create a terminal session with the CLI command instead."
+                    )))
+                }
             }
-            ExecutionMode::Cli(cli_config) => {
-                // CLI mode should use existing PtyState + TerminalSession infrastructure
-                // This is handled via the terminal_sessions commands, not inline here
-                warn!(
-                    "CLI mode for task '{}' (binary: {}) - use existing PTY infrastructure via terminal sessions",
-                    task.name, cli_config.binary
+        };
+
+        let result = tokio::select! {
+            _ = &mut cancel_rx => {
+                let duration_ms = chrono::Utc::now().timestamp_millis() - start_time;
+                info!(
+                    "Task '{}' cancelled by user (duration={}ms)",
+                    task.name, duration_ms
                 );
-                // Return error indicating CLI should be executed via terminal sessions
-                Ok(Err(anyhow!(
-                    "CLI mode execution should use existing PTY/TerminalSession infrastructure. \
-                     Create a terminal session with the CLI command instead."
-                )))
+                if let Err(e) = self.storage.pause_task(task_id) {
+                    error!("Failed to mark task {} as paused: {}", task_id, e);
+                }
+                self.cleanup_task_tracking(task_id).await;
+                return;
             }
+            result = exec_future => result,
         };
 
         let duration_ms = chrono::Utc::now().timestamp_millis() - start_time;
@@ -536,8 +607,13 @@ impl AgentTaskRunner {
             }
         }
 
-        // Remove from running set
+        self.cleanup_task_tracking(task_id).await;
+    }
+
+    /// Remove a task from runner tracking maps.
+    async fn cleanup_task_tracking(&self, task_id: &str) {
         self.running_tasks.write().await.remove(task_id);
+        self.cancel_senders.write().await.remove(task_id);
     }
 
     /// Persist conversation messages to long-term memory.
@@ -632,6 +708,7 @@ impl AgentTaskRunner {
             notifier: self.notifier.clone(),
             config: self.config.clone(),
             running_tasks: self.running_tasks.clone(),
+            cancel_senders: self.cancel_senders.clone(),
             heartbeat_emitter: self.heartbeat_emitter.clone(),
             sequence: AtomicU64::new(self.sequence.load(Ordering::SeqCst)),
             start_time: self.start_time,
