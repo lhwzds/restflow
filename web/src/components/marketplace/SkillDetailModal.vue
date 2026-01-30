@@ -58,7 +58,9 @@ watch(() => props.open, async (isOpen) => {
         versions.value = versionsResult.value
         if (versions.value.length > 0 && !selectedVersion.value) {
           const v = versions.value[0]
-          selectedVersion.value = `${v.major}.${v.minor}.${v.patch}`
+          if (v) {
+            selectedVersion.value = `${v.major}.${v.minor}.${v.patch}`
+          }
         }
       }
       if (gatingResultData.status === 'fulfilled') {

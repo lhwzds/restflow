@@ -1,7 +1,7 @@
 import { ref, computed, type Component } from 'vue'
 
 const TOAST_LIMIT = 1
-const TOAST_REMOVE_DELAY = 1000000
+const _TOAST_REMOVE_DELAY = 1000000
 
 export type ToasterToast = {
   id: string
