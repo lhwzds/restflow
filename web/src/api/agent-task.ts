@@ -17,6 +17,14 @@ import type { TaskStreamEvent } from '@/types/generated/TaskStreamEvent'
 import type { StreamEventKind } from '@/types/generated/StreamEventKind'
 import { API_ENDPOINTS } from '@/constants'
 
+export interface ActiveTaskInfo {
+  task_id: string
+  task_name: string
+  agent_id: string
+  started_at: number
+  execution_mode: string
+}
+
 // Re-export types for convenience
 export type {
   AgentTask,
@@ -167,7 +175,7 @@ export async function resumeAgentTask(id: string): Promise<AgentTask> {
  */
 export async function getAgentTaskEvents(taskId: string, limit?: number): Promise<TaskEvent[]> {
   if (isTauri()) {
-    return tauriInvoke<TaskEvent[]>('get_agent_task_events', { taskId, limit })
+    return tauriInvoke<TaskEvent[]>('get_agent_task_events', { task_id: taskId, limit })
   }
   const url = limit
     ? `${API_ENDPOINTS.AGENT_TASK.EVENTS(taskId)}?limit=${limit}`
@@ -366,7 +374,7 @@ export async function runAgentTaskStreaming(taskId: string): Promise<void> {
   if (!isTauri()) {
     throw new Error('Streaming task execution is only available in Tauri desktop app')
   }
-  return tauriInvoke<void>('run_agent_task_streaming', { taskId })
+  return tauriInvoke<void>('run_agent_task_streaming', { id: taskId })
 }
 
 /**
@@ -374,11 +382,11 @@ export async function runAgentTaskStreaming(taskId: string): Promise<void> {
  *
  * @returns Array of task IDs that are currently running
  */
-export async function getActiveAgentTasks(): Promise<string[]> {
+export async function getActiveAgentTasks(): Promise<ActiveTaskInfo[]> {
   if (!isTauri()) {
     return []
   }
-  return tauriInvoke<string[]>('get_active_agent_tasks')
+  return tauriInvoke<ActiveTaskInfo[]>('get_active_agent_tasks')
 }
 
 /**
@@ -391,5 +399,5 @@ export async function cancelAgentTask(taskId: string): Promise<boolean> {
   if (!isTauri()) {
     throw new Error('Task cancellation is only available in Tauri desktop app')
   }
-  return tauriInvoke<boolean>('cancel_agent_task', { taskId })
+  return tauriInvoke<boolean>('cancel_agent_task', { task_id: taskId })
 }

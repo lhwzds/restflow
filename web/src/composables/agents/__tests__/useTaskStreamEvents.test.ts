@@ -427,7 +427,22 @@ describe('useMultiTaskStreamEvents', () => {
 
     it('should load active tasks on start', async () => {
       const { getActiveAgentTasks } = await import('@/api/agent-task')
-      vi.mocked(getActiveAgentTasks).mockResolvedValue(['task-1', 'task-2'])
+      vi.mocked(getActiveAgentTasks).mockResolvedValue([
+        {
+          task_id: 'task-1',
+          task_name: 'Task One',
+          agent_id: 'agent-1',
+          started_at: Date.now(),
+          execution_mode: 'api',
+        },
+        {
+          task_id: 'task-2',
+          task_name: 'Task Two',
+          agent_id: 'agent-2',
+          started_at: Date.now(),
+          execution_mode: 'cli:claude',
+        },
+      ])
 
       const { useMultiTaskStreamEvents } = await import('../useTaskStreamEvents')
       const { tasks, startListening } = useMultiTaskStreamEvents()

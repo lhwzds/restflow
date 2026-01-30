@@ -83,8 +83,8 @@ export async function updateTerminalSession(
     return tauriInvoke<TerminalSession>('update_terminal_session', {
       id,
       name: params.name,
-      workingDirectory: params.working_directory,
-      startupCommand: params.startup_command,
+      working_directory: params.working_directory,
+      startup_command: params.startup_command,
     })
   }
   // Web mode: update mock session

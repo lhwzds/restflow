@@ -154,8 +154,8 @@ describe('Terminal Sessions API', () => {
       expect(tauriInvoke).toHaveBeenCalledWith('update_terminal_session', {
         id: 'terminal-abc123',
         name: undefined,
-        workingDirectory: '~/projects',
-        startupCommand: 'npm run dev',
+        working_directory: '~/projects',
+        startup_command: 'npm run dev',
       })
       expect(result).toEqual(updatedSession)
     })
@@ -172,8 +172,8 @@ describe('Terminal Sessions API', () => {
       expect(tauriInvoke).toHaveBeenCalledWith('update_terminal_session', {
         id: 'terminal-abc123',
         name: 'Dev Server',
-        workingDirectory: undefined,
-        startupCommand: undefined,
+        working_directory: undefined,
+        startup_command: undefined,
       })
       expect(result).toEqual(updatedSession)
     })

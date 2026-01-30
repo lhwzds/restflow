@@ -413,12 +413,16 @@ export function useMultiTaskStreamEvents(options: UseTaskStreamEventsOptions = {
     unlistenFn = await onTaskStreamEvent(handleEvent)
 
     // Load currently active tasks
-    const activeIds = await getActiveAgentTasks()
-    for (const taskId of activeIds) {
-      if (!tasks.value.has(taskId)) {
-        const state = createInitialState(taskId)
+    const activeTasks = await getActiveAgentTasks()
+    for (const task of activeTasks) {
+      if (!tasks.value.has(task.task_id)) {
+        const state = createInitialState(task.task_id)
         state.status = 'running'
-        tasks.value.set(taskId, state)
+        state.taskName = task.task_name
+        state.agentId = task.agent_id
+        state.executionMode = task.execution_mode
+        state.startedAt = task.started_at
+        tasks.value.set(task.task_id, state)
       }
     }
   }

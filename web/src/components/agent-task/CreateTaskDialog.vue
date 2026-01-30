@@ -201,7 +201,7 @@ function buildExecutionMode(): ExecutionMode {
     binary: form.cliBinary,
     args,
     working_dir: form.cliWorkingDir.trim() || null,
-    timeout_secs: BigInt(form.cliTimeoutSecs),
+    timeout_secs: Number(form.cliTimeoutSecs) as unknown as bigint,
     use_pty: form.cliUsePty,
   }
 }
