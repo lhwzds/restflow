@@ -218,28 +218,24 @@ impl ApprovalManager {
     /// Returns the number of approvals that were expired.
     pub async fn cleanup_expired(&self) -> usize {
         let mut pending = self.pending.write().await;
-        let mut expired_ids = Vec::new();
+        let mut expired_approvals = Vec::new();
 
-        for (id, approval) in pending.iter_mut() {
+        for approval in pending.values_mut() {
             if approval.status == ApprovalStatus::Pending && approval.is_expired() {
                 approval.expire();
-                expired_ids.push(id.clone());
+                expired_approvals.push(approval.clone());
             }
         }
+        drop(pending);
 
         // Notify callbacks for expired approvals
         if let Some(callback) = &self.callback {
-            for id in &expired_ids {
-                if let Some(approval) = pending.get(id) {
-                    let resolved = approval.clone();
-                    // We can't hold the lock during async callback, so we'll skip notifications
-                    // In a real implementation, you might want to collect these and notify after releasing the lock
-                    let _ = callback.on_resolved(&resolved).await;
-                }
+            for approval in &expired_approvals {
+                let _ = callback.on_resolved(approval).await;
             }
         }
 
-        expired_ids.len()
+        expired_approvals.len()
     }
 
     /// Get pending approvals for a specific task.
