@@ -5,7 +5,7 @@
  * token updates, status tracking, and cancellation support.
  */
 
-import { ref, computed, onUnmounted, type ComputedRef } from 'vue'
+import { ref, computed, onUnmounted, type Ref, type ComputedRef } from 'vue'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { sendChatMessageStream, cancelChatStream } from '@/api/chat-stream'
 import type { ChatStreamEvent } from '@/types/generated/ChatStreamEvent'
