@@ -88,6 +88,7 @@ impl BashTool {
             .arg("-c")
             .arg(command)
             .current_dir(workdir)
+            .kill_on_drop(true)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .output()
