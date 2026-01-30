@@ -263,10 +263,10 @@ impl SkillProvider for LocalSkillProvider {
                 }
 
                 // Filter by category
-                if let Some(ref cat) = query.category {
-                    if !m.categories.iter().any(|c| c == cat) {
-                        return false;
-                    }
+                if let Some(ref cat) = query.category
+                    && !m.categories.iter().any(|c| c == cat)
+                {
+                    return false;
                 }
 
                 // Filter by tags
@@ -320,7 +320,7 @@ impl SkillProvider for LocalSkillProvider {
         if content_path.exists() {
             tokio::fs::read_to_string(&content_path)
                 .await
-                .map_err(|e| SkillProviderError::Io(e))
+                .map_err(SkillProviderError::Io)
         } else {
             // Try reading from manifest
             let manifest = self.get_manifest(id).await?;

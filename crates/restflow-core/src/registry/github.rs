@@ -26,6 +26,7 @@ const GITHUB_API_URL: &str = "https://api.github.com";
 const CACHE_TTL: Duration = Duration::from_secs(600); // 10 minutes
 
 /// GitHub repository search result
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct GitHubSearchResponse {
     total_count: u64,
@@ -33,6 +34,7 @@ struct GitHubSearchResponse {
 }
 
 /// GitHub repository
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct GitHubRepo {
     id: u64,
@@ -50,6 +52,7 @@ struct GitHubRepo {
 }
 
 /// GitHub repository owner
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct GitHubOwner {
     login: String,
@@ -57,6 +60,7 @@ struct GitHubOwner {
 }
 
 /// GitHub license
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct GitHubLicense {
     key: String,
@@ -65,6 +69,7 @@ struct GitHubLicense {
 }
 
 /// GitHub release
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct GitHubRelease {
     id: u64,
@@ -78,6 +83,7 @@ struct GitHubRelease {
 }
 
 /// GitHub release asset
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct GitHubAsset {
     id: u64,
@@ -114,7 +120,8 @@ pub struct GitHubProvider {
     token: Option<String>,
     /// Cache for manifests
     manifest_cache: Arc<RwLock<HashMap<String, CacheEntry<SkillManifest>>>>,
-    /// Cache for repo to manifest mapping
+    /// Cache for repo to manifest mapping (reserved for future use)
+    #[allow(dead_code)]
     repo_cache: Arc<RwLock<HashMap<String, CacheEntry<Vec<SkillSearchResult>>>>>,
 }
 
@@ -183,16 +190,16 @@ impl GitHubProvider {
         // Try TOML first, then JSON
         let response = self.client.get(&manifest_url).send().await;
         
-        if let Ok(resp) = response {
-            if resp.status().is_success() {
-                let content = resp.text().await
-                    .map_err(|e| SkillProviderError::Network(e.to_string()))?;
-                
-                let manifest: SkillManifest = toml::from_str(&content)
-                    .map_err(|e| SkillProviderError::Parse(e.to_string()))?;
-                
-                return Ok(manifest);
-            }
+        if let Ok(resp) = response
+            && resp.status().is_success()
+        {
+            let content = resp.text().await
+                .map_err(|e| SkillProviderError::Network(e.to_string()))?;
+            
+            let manifest: SkillManifest = toml::from_str(&content)
+                .map_err(|e| SkillProviderError::Parse(e.to_string()))?;
+            
+            return Ok(manifest);
         }
 
         // Try JSON manifest
@@ -203,16 +210,16 @@ impl GitHubProvider {
         
         let response = self.client.get(&manifest_url).send().await;
         
-        if let Ok(resp) = response {
-            if resp.status().is_success() {
-                let content = resp.text().await
-                    .map_err(|e| SkillProviderError::Network(e.to_string()))?;
-                
-                let manifest: SkillManifest = serde_json::from_str(&content)
-                    .map_err(|e| SkillProviderError::Parse(e.to_string()))?;
-                
-                return Ok(manifest);
-            }
+        if let Ok(resp) = response
+            && resp.status().is_success()
+        {
+            let content = resp.text().await
+                .map_err(|e| SkillProviderError::Network(e.to_string()))?;
+            
+            let manifest: SkillManifest = serde_json::from_str(&content)
+                .map_err(|e| SkillProviderError::Parse(e.to_string()))?;
+            
+            return Ok(manifest);
         }
 
         // No manifest found, create one from repo metadata
@@ -357,10 +364,10 @@ impl SkillProvider for GitHubProvider {
         // Check cache
         {
             let cache = self.manifest_cache.read().await;
-            if let Some(entry) = cache.get(id) {
-                if !entry.is_expired() {
-                    return Ok(entry.data.clone());
-                }
+            if let Some(entry) = cache.get(id)
+                && !entry.is_expired()
+            {
+                return Ok(entry.data.clone());
             }
         }
 
@@ -420,11 +427,11 @@ impl SkillProvider for GitHubProvider {
             
             let response = self.client.get(&content_url).send().await;
             
-            if let Ok(resp) = response {
-                if resp.status().is_success() {
-                    return resp.text().await
-                        .map_err(|e| SkillProviderError::Network(e.to_string()));
-                }
+            if let Ok(resp) = response
+                && resp.status().is_success()
+            {
+                return resp.text().await
+                    .map_err(|e| SkillProviderError::Network(e.to_string()));
             }
         }
 

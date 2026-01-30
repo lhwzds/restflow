@@ -65,16 +65,15 @@ pub struct SkillRegistry {
 impl SkillRegistry {
     /// Create a new skill registry with the given configuration
     pub fn new(config: SkillRegistryConfig) -> Self {
-        let mut providers: Vec<Arc<dyn SkillProvider>> = Vec::new();
-
-        // Add local provider
-        providers.push(Arc::new(LocalSkillProvider::new(config.skills_dir.clone())));
-
-        // Add builtin provider
-        providers.push(Arc::new(BuiltinSkillProvider::new()));
+        let mut providers: Vec<Arc<dyn SkillProvider>> = vec![
+            // Add local provider
+            Arc::new(LocalSkillProvider::new(config.skills_dir.clone())),
+            // Add builtin provider
+            Arc::new(BuiltinSkillProvider::new()),
+        ];
 
         // Sort by priority (descending)
-        providers.sort_by(|a, b| b.priority().cmp(&a.priority()));
+        providers.sort_by_key(|p| std::cmp::Reverse(p.priority()));
 
         Self {
             config,
@@ -92,7 +91,7 @@ impl SkillRegistry {
     /// Add a custom provider
     pub fn add_provider(&mut self, provider: Arc<dyn SkillProvider>) {
         self.providers.push(provider);
-        self.providers.sort_by(|a, b| b.priority().cmp(&a.priority()));
+        self.providers.sort_by_key(|p| std::cmp::Reverse(p.priority()));
     }
 
     /// Search for skills across all providers
@@ -274,7 +273,7 @@ impl SkillRegistry {
         if skill_dir.exists() {
             tokio::fs::remove_dir_all(&skill_dir)
                 .await
-                .map_err(|e| SkillProviderError::Io(e))?;
+                .map_err(SkillProviderError::Io)?;
         }
 
         Ok(())
@@ -398,7 +397,7 @@ impl SkillRegistry {
     }
 
     /// Load an installed skill from disk
-    async fn load_installed_skill(&self, path: &PathBuf) -> Result<InstalledSkill, SkillProviderError> {
+    async fn load_installed_skill(&self, path: &std::path::Path) -> Result<InstalledSkill, SkillProviderError> {
         let manifest_path = path.join("skill.json");
         let content_path = path.join("skill.md");
         let metadata_path = path.join("metadata.json");

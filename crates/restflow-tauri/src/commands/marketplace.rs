@@ -281,9 +281,9 @@ pub async fn marketplace_install_skill(
     let skill = Skill {
         id: manifest.id.clone(),
         name: manifest.name.clone(),
-        description: manifest.description.clone().unwrap_or_default(),
+        description: manifest.description.clone(),
+        tags: Some(manifest.keywords.clone()),
         content: content.unwrap_or_default(),
-        enabled: true,
         created_at: chrono::Utc::now().timestamp_millis(),
         updated_at: chrono::Utc::now().timestamp_millis(),
     };

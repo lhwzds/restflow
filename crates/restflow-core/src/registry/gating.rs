@@ -47,11 +47,11 @@ impl GatingChecker {
         }
 
         // Check RestFlow version
-        if let Some(ref min_version) = requirements.min_restflow_version {
-            if self.restflow_version.compare(min_version) < 0 {
-                result.restflow_version_ok = false;
-                result.passed = false;
-            }
+        if let Some(ref min_version) = requirements.min_restflow_version
+            && self.restflow_version.compare(min_version) < 0
+        {
+            result.restflow_version_ok = false;
+            result.passed = false;
         }
 
         // Check binaries
@@ -133,21 +133,20 @@ impl GatingChecker {
         requirement: &BinaryRequirement,
     ) -> bool {
         // Try to compile the pattern as a regex
-        if let Ok(re) = regex::Regex::new(pattern) {
-            if let Some(caps) = re.captures(output) {
-                // Try to get named groups or positional groups
-                let version_str = caps
-                    .name("version")
-                    .or_else(|| caps.get(1))
-                    .map(|m| m.as_str());
+        if let Ok(re) = regex::Regex::new(pattern)
+            && let Some(caps) = re.captures(output)
+        {
+            // Try to get named groups or positional groups
+            let version_str = caps
+                .name("version")
+                .or_else(|| caps.get(1))
+                .map(|m| m.as_str());
 
-                if let Some(v) = version_str {
-                    if let Some(version) = SkillVersion::parse(v) {
-                        if let Some(ref req) = requirement.version {
-                            return version.satisfies(req);
-                        }
-                    }
-                }
+            if let Some(v) = version_str
+                && let Some(version) = SkillVersion::parse(v)
+                && let Some(ref req) = requirement.version
+            {
+                return version.satisfies(req);
             }
         }
         false
@@ -158,14 +157,12 @@ impl GatingChecker {
         // Look for patterns like "1.2.3" or "v1.2.3"
         let re = regex::Regex::new(r"v?(\d+\.\d+\.\d+)").unwrap();
         
-        if let Some(caps) = re.captures(output) {
-            if let Some(m) = caps.get(1) {
-                if let Some(version) = SkillVersion::parse(m.as_str()) {
-                    if let Some(ref req) = requirement.version {
-                        return version.satisfies(req);
-                    }
-                }
-            }
+        if let Some(caps) = re.captures(output)
+            && let Some(m) = caps.get(1)
+            && let Some(version) = SkillVersion::parse(m.as_str())
+            && let Some(ref req) = requirement.version
+        {
+            return version.satisfies(req);
         }
         
         // If no version requirement, just return true (binary exists)
@@ -196,13 +193,13 @@ impl GatingChecker {
             ));
         }
 
-        if !result.restflow_version_ok {
-            if let Some(ref min) = requirements.min_restflow_version {
-                issues.push(format!(
-                    "RestFlow version {} required (have: {})",
-                    min, self.restflow_version
-                ));
-            }
+        if !result.restflow_version_ok
+            && let Some(ref min) = requirements.min_restflow_version
+        {
+            issues.push(format!(
+                "RestFlow version {} required (have: {})",
+                min, self.restflow_version
+            ));
         }
 
         if !result.missing_binaries.is_empty() {

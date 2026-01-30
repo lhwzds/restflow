@@ -21,6 +21,7 @@ pub const DEFAULT_MARKETPLACE_URL: &str = "https://api.restflow.dev/v1";
 const CACHE_TTL: Duration = Duration::from_secs(300); // 5 minutes
 
 /// RestFlow Marketplace API response for skill list
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct MarketplaceSkillListResponse {
     skills: Vec<MarketplaceSkill>,
@@ -30,6 +31,7 @@ struct MarketplaceSkillListResponse {
 }
 
 /// Skill data from the marketplace API
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct MarketplaceSkill {
     id: String,
@@ -251,10 +253,10 @@ impl SkillProvider for MarketplaceProvider {
         // Check cache
         {
             let cache = self.search_cache.read().await;
-            if let Some(entry) = cache.get(&cache_key) {
-                if !entry.is_expired() {
-                    return Ok(entry.data.clone());
-                }
+            if let Some(entry) = cache.get(&cache_key)
+                && !entry.is_expired()
+            {
+                return Ok(entry.data.clone());
             }
         }
 
@@ -337,10 +339,10 @@ impl SkillProvider for MarketplaceProvider {
         // Check cache
         {
             let cache = self.manifest_cache.read().await;
-            if let Some(entry) = cache.get(id) {
-                if !entry.is_expired() {
-                    return Ok(entry.data.clone());
-                }
+            if let Some(entry) = cache.get(id)
+                && !entry.is_expired()
+            {
+                return Ok(entry.data.clone());
             }
         }
 
@@ -379,7 +381,7 @@ impl SkillProvider for MarketplaceProvider {
             "{}/skills/{}/content?version={}",
             self.base_url,
             urlencoding::encode(id),
-            version.to_string()
+            version
         );
         
         let response = self.request(&url).await?;

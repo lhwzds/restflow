@@ -6,6 +6,7 @@
 //! - Checking gating requirements before installation
 
 mod provider;
+#[allow(clippy::module_inception)]
 mod registry;
 mod gating;
 mod resolver;
