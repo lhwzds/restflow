@@ -36,7 +36,7 @@ import {
   type ManagerSummary,
   type AddProfileRequest,
 } from '@/api/auth';
-import type { AuthProfile, AuthProvider } from '@/types/generated';
+import type { AuthProfile, AuthProvider, Credential } from '@/types/generated';
 
 // State
 const profiles = ref<AuthProfile[]>([]);
@@ -203,6 +203,22 @@ function maskApiKey(key: string): string {
   return `${key.slice(0, 4)}...${key.slice(-4)}`;
 }
 
+/**
+ * Safely extract the displayable credential value from a Credential union type
+ */
+function getCredentialDisplayValue(credential: Credential): string {
+  switch (credential.type) {
+    case 'api_key':
+      return credential.key;
+    case 'token':
+      return credential.token;
+    case 'o_auth':
+      return credential.access_token;
+    default:
+      return '';
+  }
+}
+
 // Lifecycle
 onMounted(loadProfiles);
 </script>
@@ -362,7 +378,7 @@ onMounted(loadProfiles);
                 </div>
               </div>
               <CardDescription v-if="profile.credential">
-                {{ maskApiKey(profile.credential.key || profile.credential.access_token || '') }}
+                {{ maskApiKey(getCredentialDisplayValue(profile.credential)) }}
               </CardDescription>
             </CardHeader>
             <CardContent>
