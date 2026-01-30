@@ -5,7 +5,7 @@
 
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, Mutex};
 use tokio::task::JoinHandle;
 use ts_rs::TS;
 
@@ -90,15 +90,21 @@ pub struct SubagentTracker {
 
     /// Completion notification sender
     completion_tx: mpsc::Sender<SubagentCompletion>,
+    /// Completion notification receiver
+    completion_rx: Mutex<mpsc::Receiver<SubagentCompletion>>,
 }
 
 impl SubagentTracker {
     /// Create a new tracker
-    pub fn new(completion_tx: mpsc::Sender<SubagentCompletion>) -> Self {
+    pub fn new(
+        completion_tx: mpsc::Sender<SubagentCompletion>,
+        completion_rx: mpsc::Receiver<SubagentCompletion>,
+    ) -> Self {
         Self {
             states: DashMap::new(),
             handles: DashMap::new(),
             completion_tx,
+            completion_rx: Mutex::new(completion_rx),
         }
     }
 
@@ -110,6 +116,12 @@ impl SubagentTracker {
         task: String,
         handle: JoinHandle<SubagentResult>,
     ) {
+        self.register_state(id.clone(), agent_name, task);
+        self.attach_handle(id, handle);
+    }
+
+    /// Register a new sub-agent state before attaching a handle
+    pub fn register_state(&self, id: String, agent_name: String, task: String) {
         let state = SubagentState {
             id: id.clone(),
             agent_name,
@@ -120,7 +132,11 @@ impl SubagentTracker {
             result: None,
         };
 
-        self.states.insert(id.clone(), state);
+        self.states.insert(id, state);
+    }
+
+    /// Attach a join handle to an existing sub-agent state
+    pub fn attach_handle(&self, id: String, handle: JoinHandle<SubagentResult>) {
         self.handles.insert(id, handle);
     }
 
@@ -164,7 +180,14 @@ impl SubagentTracker {
         if let Some((_, handle)) = self.handles.remove(id) {
             match handle.await {
                 Ok(result) => {
-                    self.mark_completed(id, result.clone());
+                    let already_completed = self
+                        .states
+                        .get(id)
+                        .map(|state| state.result.is_some())
+                        .unwrap_or(false);
+                    if !already_completed {
+                        self.mark_completed(id, result.clone());
+                    }
                     Some(result)
                 }
                 Err(e) => {
@@ -176,7 +199,14 @@ impl SubagentTracker {
                         tokens_used: None,
                         error: Some(format!("Task panicked: {}", e)),
                     };
-                    self.mark_completed(id, result.clone());
+                    let already_completed = self
+                        .states
+                        .get(id)
+                        .map(|state| state.result.is_some())
+                        .unwrap_or(false);
+                    if !already_completed {
+                        self.mark_completed(id, result.clone());
+                    }
                     Some(result)
                 }
             }
@@ -201,21 +231,10 @@ impl SubagentTracker {
 
     /// Wait for any sub-agent to complete
     pub async fn wait_any(&self) -> Option<(String, SubagentResult)> {
-        let ids: Vec<String> = self.handles.iter().map(|r| r.key().clone()).collect();
-
-        if ids.is_empty() {
-            return None;
-        }
-
-        // Use select to wait for any completion
-        // For simplicity, we just wait for the first one
-        if let Some(id) = ids.first()
-            && let Some(result) = self.wait(id).await
-        {
-            return Some((id.clone(), result));
-        }
-
-        None
+        let mut rx = self.completion_rx.lock().await;
+        rx.recv()
+            .await
+            .map(|completion| (completion.id, completion.result))
     }
 
     /// Cancel a running sub-agent
@@ -268,23 +287,35 @@ impl SubagentTracker {
 
     /// Mark a sub-agent as timed out
     pub fn mark_timed_out(&self, id: &str) {
-        if let Some(mut state) = self.states.get_mut(id) {
-            state.status = SubagentStatus::TimedOut;
-            state.completed_at = Some(chrono::Utc::now().timestamp_millis());
-            state.result = Some(SubagentResult {
+        self.mark_timed_out_with_result(
+            id,
+            SubagentResult {
                 success: false,
                 output: String::new(),
                 summary: None,
                 duration_ms: 0,
                 tokens_used: None,
                 error: Some("Sub-agent timed out".to_string()),
-            });
+            },
+        );
+    }
+
+    /// Mark a sub-agent as timed out with a specific result
+    pub fn mark_timed_out_with_result(&self, id: &str, result: SubagentResult) {
+        if let Some(mut state) = self.states.get_mut(id) {
+            state.status = SubagentStatus::TimedOut;
+            state.completed_at = Some(chrono::Utc::now().timestamp_millis());
+            state.result = Some(result.clone());
         }
 
-        // Abort and remove the handle
-        if let Some((_, handle)) = self.handles.remove(id) {
-            handle.abort();
-        }
+        // Remove the handle if it exists
+        self.handles.remove(id);
+
+        // Send completion notification
+        let _ = self.completion_tx.try_send(SubagentCompletion {
+            id: id.to_string(),
+            result,
+        });
     }
 
     /// Clean up completed sub-agents older than the given age
@@ -312,6 +343,18 @@ impl SubagentTracker {
     pub fn completion_sender(&self) -> mpsc::Sender<SubagentCompletion> {
         self.completion_tx.clone()
     }
+
+    /// Poll completion notifications without blocking
+    pub async fn poll_completions(&self) -> Vec<SubagentCompletion> {
+        let mut rx = self.completion_rx.lock().await;
+        let mut completions = Vec::new();
+
+        while let Ok(completion) = rx.try_recv() {
+            completions.push(completion);
+        }
+
+        completions
+    }
 }
 
 #[cfg(test)]
@@ -320,8 +363,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_tracker_basic() {
-        let (tx, _rx) = mpsc::channel(10);
-        let tracker = SubagentTracker::new(tx);
+        let (tx, rx) = mpsc::channel(10);
+        let tracker = SubagentTracker::new(tx, rx);
 
         // Register a sub-agent
         let handle = tokio::spawn(async {
@@ -355,8 +398,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_tracker_cancel() {
-        let (tx, _rx) = mpsc::channel(10);
-        let tracker = SubagentTracker::new(tx);
+        let (tx, rx) = mpsc::channel(10);
+        let tracker = SubagentTracker::new(tx, rx);
 
         // Register a long-running sub-agent
         let handle = tokio::spawn(async {
