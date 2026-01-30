@@ -3,7 +3,9 @@
 //! This module provides tools that can be used by AI agents.
 //! Tools implement the `Tool` trait for integration with the agent executor.
 
+mod bash;
 mod email;
+mod file;
 mod file_memory;
 mod http;
 mod python;
@@ -12,7 +14,9 @@ mod skill;
 mod telegram;
 mod traits;
 
+pub use bash::{BashTool, BashInput, BashOutput};
 pub use email::EmailTool;
+pub use file::{FileTool, FileAction};
 pub use file_memory::{
     DeleteMemoryTool, FileMemoryConfig, ListMemoryTool, MemoryEntry, MemoryEntryMeta,
     ReadMemoryTool, SaveMemoryTool,
@@ -27,6 +31,8 @@ pub use traits::{SkillContent, SkillInfo, SkillProvider, Tool, ToolOutput, ToolS
 /// Create a registry with default tools
 pub fn default_registry() -> ToolRegistry {
     let mut registry = ToolRegistry::new();
+    registry.register(BashTool::new());
+    registry.register(FileTool::new());
     registry.register(HttpTool::new());
     registry.register(PythonTool::new());
     registry.register(EmailTool::new());

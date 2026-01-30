@@ -7,6 +7,7 @@ pub mod execution;
 pub mod input;
 pub mod memory;
 pub mod output;
+pub mod security;
 pub mod skill;
 pub mod skill_marketplace;
 pub mod terminal_session;
@@ -44,6 +45,10 @@ pub use skill_marketplace::{
 };
 pub use terminal_session::{TerminalSession, TerminalStatus};
 pub use trigger::{ActiveTrigger, AuthConfig, TriggerConfig};
+pub use security::{
+    ApprovalStatus, CommandPattern, PendingApproval, SecurityAction, SecurityCheckResult,
+    SecurityPolicy,
+};
 pub use chat_session::{
     ChatExecutionStatus, ChatMessage, ChatRole, ChatSession, ChatSessionMetadata,
     ChatSessionSummary, ExecutionStepInfo, MessageExecution,
