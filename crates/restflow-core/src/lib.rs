@@ -5,6 +5,7 @@ pub mod models;
 pub mod node;
 pub mod paths;
 pub mod python;
+pub mod registry;
 pub mod services;
 pub mod storage;
 
