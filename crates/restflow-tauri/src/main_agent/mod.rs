@@ -49,7 +49,8 @@ pub use events::{
     TauriMainAgentEmitter, MAIN_AGENT_EVENT,
 };
 pub use session::{
-    AgentSession, ChatRole, MessageExecution, MessageSource, SessionMessage, SessionMetadata,
+    AgentSession, ChatRole, MessageSource, SessionMessage, SessionMessageExecution,
+    SessionMetadata,
 };
 pub use spawn::{SpawnHandle, SpawnPriority, SpawnRequest};
 pub use tools::{ListAgentsTool, SpawnAgentTool, UseSkillTool, WaitAgentsTool};
@@ -115,10 +116,6 @@ pub struct MainAgent {
     /// Event emitter for frontend updates
     event_emitter: Arc<dyn MainAgentEventEmitter>,
 
-    /// Channel for sub-agent completion notifications
-    completion_tx: mpsc::Sender<SubagentCompletion>,
-    completion_rx: Arc<RwLock<mpsc::Receiver<SubagentCompletion>>>,
-
     /// Configuration
     config: MainAgentConfig,
 }
@@ -132,11 +129,10 @@ impl MainAgent {
         event_emitter: Arc<dyn MainAgentEventEmitter>,
         config: MainAgentConfig,
     ) -> Result<Self> {
-        let (completion_tx, completion_rx) = mpsc::channel(100);
-
         let session = AgentSession::new(id.clone(), config.default_model.clone());
         let agent_definitions = Arc::new(AgentDefinitionRegistry::with_builtins());
-        let running_subagents = Arc::new(SubagentTracker::new(completion_tx.clone()));
+        let (completion_tx, completion_rx) = mpsc::channel(100);
+        let running_subagents = Arc::new(SubagentTracker::new(completion_tx, completion_rx));
 
         Ok(Self {
             id,
@@ -146,8 +142,6 @@ impl MainAgent {
             running_subagents,
             storage,
             event_emitter,
-            completion_tx,
-            completion_rx: Arc::new(RwLock::new(completion_rx)),
             config,
         })
     }
@@ -242,6 +236,7 @@ impl MainAgent {
             self.agent_definitions.clone(),
             self.llm_client.clone(),
             self.event_emitter.clone(),
+            self.id.clone(),
             self.config.clone(),
             request,
         )
@@ -283,14 +278,7 @@ impl MainAgent {
 
     /// Check for completed sub-agents and process their results
     pub async fn poll_completions(&self) -> Vec<SubagentCompletion> {
-        let mut rx = self.completion_rx.write().await;
-        let mut completions = Vec::new();
-
-        while let Ok(completion) = rx.try_recv() {
-            completions.push(completion);
-        }
-
-        completions
+        self.running_subagents.poll_completions().await
     }
 }
 
