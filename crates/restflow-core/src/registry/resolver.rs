@@ -8,7 +8,7 @@ use petgraph::graph::{DiGraph, NodeIndex};
 use std::collections::HashMap;
 use thiserror::Error;
 
-use crate::models::{SkillManifest, SkillVersion};
+use crate::models::{SkillDependency, SkillManifest, SkillVersion};
 
 /// Errors that can occur during dependency resolution
 #[derive(Debug, Error)]
