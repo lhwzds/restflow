@@ -6,13 +6,19 @@ use anyhow::Result;
 use restflow_core::{AppCore, paths};
 use std::sync::Arc;
 
+use crate::config::CliConfig;
+
 /// Build the embedded RestFlow core
-pub async fn prepare_core() -> Result<Arc<AppCore>> {
-    init_core().await
+pub async fn prepare_core(config: &CliConfig) -> Result<Arc<AppCore>> {
+    init_core(config).await
 }
 
-async fn init_core() -> Result<Arc<AppCore>> {
-    let db_path = paths::ensure_database_path_string()?;
+async fn init_core(config: &CliConfig) -> Result<Arc<AppCore>> {
+    let db_path = config
+        .default
+        .db_path
+        .clone()
+        .unwrap_or(paths::ensure_database_path_string()?);
     Ok(Arc::new(AppCore::new(&db_path).await?))
 }
 

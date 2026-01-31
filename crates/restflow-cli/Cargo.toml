@@ -19,10 +19,19 @@ uuid = { workspace = true }
 
 rpassword = "7.0"
 
+# CLI
+clap = { version = "4", features = ["derive"] }
+clap_complete = "4"
+
+# Config
+toml = "0.8"
+dirs = "5"
+
 # TUI
 ratatui = "0.30"
 crossterm = "0.29"
 unicode-width = "0.2"
+syntect = "5"
 
 # Logging
 tracing = { workspace = true }

@@ -1,3 +1,6 @@
+mod highlight;
+mod history;
+mod shell;
 mod state;
 mod viewport;
 mod welcome;
@@ -25,6 +28,9 @@ use state::TuiApp;
 use std::{io::Write, sync::Arc, time::Duration};
 use viewport::ViewportTerminal;
 
+use crate::config::CliConfig;
+use highlight::SyntaxHighlighter;
+
 const COLOR_USER: &str = "\x1b[32m";
 const COLOR_ERROR: &str = "\x1b[31m";
 const COLOR_SUCCESS: &str = "\x1b[32m";
@@ -40,8 +46,8 @@ const COMMAND_PANEL_MAX_HEIGHT: u16 = 10;
 const VIEWPORT_MAX_HEIGHT: u16 = MAX_INPUT_HEIGHT + COMMAND_PANEL_MAX_HEIGHT;
 
 /// Run the TUI interface using inline viewport mode without AlternateScreen
-pub async fn run(core: Arc<AppCore>) -> Result<()> {
-    welcome::show_welcome(false)?;
+pub async fn run(core: Arc<AppCore>, config: &CliConfig) -> Result<()> {
+    welcome::show_welcome(false, config)?;
     enable_raw_mode()?;
 
     let mut terminal = ViewportTerminal::new()?;
@@ -49,7 +55,7 @@ pub async fn run(core: Arc<AppCore>) -> Result<()> {
 
     terminal.setup_viewport_from(cursor_y, MIN_INPUT_HEIGHT)?;
 
-    let mut app = TuiApp::new(core);
+    let mut app = TuiApp::new(core, config);
 
     let res = run_app(&mut terminal, &mut app).await;
 
@@ -74,7 +80,9 @@ async fn run_app(terminal: &mut ViewportTerminal, app: &mut TuiApp) -> Result<()
         }
 
         for msg in app.new_messages.drain(..) {
-            terminal.insert_history_line(&format_message(&msg))?;
+            for line in format_message_lines(&msg, app.syntax_highlighter.as_ref()) {
+                terminal.insert_history_line(&line)?;
+            }
         }
 
         let viewport_height = app
@@ -114,6 +122,12 @@ async fn run_app(terminal: &mut ViewportTerminal, app: &mut TuiApp) -> Result<()
                 }
                 KeyCode::Up if app.show_commands => {
                     app.previous_command();
+                }
+                KeyCode::Up => {
+                    app.history_previous();
+                }
+                KeyCode::Down => {
+                    app.history_next();
                 }
                 KeyCode::Enter => {
                     if key.modifiers.contains(KeyModifiers::SHIFT) {
@@ -156,6 +170,62 @@ fn format_message(msg: &str) -> String {
     } else {
         msg.to_string()
     }
+}
+
+fn format_message_lines(msg: &str, highlighter: Option<&SyntaxHighlighter>) -> Vec<String> {
+    if msg.is_empty() {
+        return vec![String::new()];
+    }
+
+    let mut lines = Vec::new();
+    let mut in_code_block = false;
+    let mut code_lang = String::new();
+    let mut code_buffer = String::new();
+
+    for line in msg.lines() {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("```") {
+            if in_code_block {
+                lines.extend(format_code_block(&code_buffer, &code_lang, highlighter));
+                code_buffer.clear();
+                code_lang.clear();
+                in_code_block = false;
+            } else {
+                code_lang = trimmed.trim_start_matches("```").trim().to_string();
+                in_code_block = true;
+            }
+            continue;
+        }
+
+        if in_code_block {
+            code_buffer.push_str(line);
+            code_buffer.push('\n');
+        } else {
+            lines.push(format_message(line));
+        }
+    }
+
+    if in_code_block {
+        lines.extend(format_code_block(&code_buffer, &code_lang, highlighter));
+    }
+
+    if msg.ends_with('\n') {
+        lines.push(String::new());
+    }
+
+    lines
+}
+
+fn format_code_block(
+    code: &str,
+    language: &str,
+    highlighter: Option<&SyntaxHighlighter>,
+) -> Vec<String> {
+    if let Some(highlighter) = highlighter {
+        return highlighter.highlight_block(code, language);
+    }
+
+    code.lines().map(str::to_string).collect()
 }
 
 fn render_bottom_ui(f: &mut Frame, app: &mut TuiApp, viewport_start_y: u16) {
