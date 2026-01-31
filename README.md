@@ -75,6 +75,26 @@ docker compose up -d --build
 
 Access at http://localhost:3000
 
+### CLI (TUI)
+
+Launch the interactive terminal UI:
+
+```bash
+cargo run -p restflow-cli -- chat
+```
+
+Theme selection:
+
+```bash
+restflow --theme light chat
+```
+
+Generate shell completions:
+
+```bash
+restflow completions bash > restflow.bash
+```
+
 ### Try the Online Demo
 
 **[restflow.ai](https://restflow.ai)** - Live demo deployed on Vercel
