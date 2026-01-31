@@ -33,18 +33,21 @@ async fn start(core: Arc<AppCore>, foreground: bool) -> Result<()> {
 
             let exe = std::env::current_exe()?;
             let mut command = Command::new(exe);
-            command
-                .arg("daemon")
-                .arg("start")
-                .arg("--foreground")
-                .stdin(Stdio::null())
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .pre_exec(|| {
-                    nix::unistd::setsid().map(|_| ()).map_err(|err| {
-                        std::io::Error::new(std::io::ErrorKind::Other, err)
-                    })
-                });
+            // SAFETY: setsid() creates a new session and is safe to call from pre_exec
+            unsafe {
+                command
+                    .arg("daemon")
+                    .arg("start")
+                    .arg("--foreground")
+                    .stdin(Stdio::null())
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .pre_exec(|| {
+                        nix::unistd::setsid().map(|_| ()).map_err(|err| {
+                            std::io::Error::new(std::io::ErrorKind::Other, err)
+                        })
+                    });
+            }
 
             let child = command.spawn()?;
             println!("Daemon started (PID: {})", child.id());
