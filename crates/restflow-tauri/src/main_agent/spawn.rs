@@ -73,6 +73,12 @@ pub fn spawn_subagent(
         ));
     }
 
+    if session_id.trim().is_empty() {
+        return Err(anyhow!(
+            "Main agent session id is required for sub-agent events"
+        ));
+    }
+
     // Get agent definition
     let agent_def = definitions
         .get(&request.agent_id)
@@ -99,8 +105,10 @@ pub fn spawn_subagent(
 
     // Spawn the Tokio task
     let (completion_tx, completion_rx) = oneshot::channel();
+    let (start_tx, start_rx) = oneshot::channel();
 
     let handle = tokio::spawn(async move {
+        let _ = start_rx.await;
         let start = std::time::Instant::now();
 
         // Emit started event
@@ -197,6 +205,8 @@ pub fn spawn_subagent(
         handle,
         completion_rx,
     );
+
+    let _ = start_tx.send(());
 
     Ok(SpawnHandle {
         id: task_id,
