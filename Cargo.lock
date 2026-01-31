@@ -4605,6 +4605,7 @@ dependencies = [
  "colored",
  "comfy-table",
  "crossterm",
+ "futures",
  "ratatui",
  "restflow-ai",
  "restflow-core",
