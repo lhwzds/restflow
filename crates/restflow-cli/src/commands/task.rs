@@ -1,11 +1,9 @@
 use anyhow::{bail, Result};
 use comfy_table::{Cell, Table};
 use std::sync::Arc;
-use std::time::Instant;
 use tokio::time::{sleep, Duration};
 
 use crate::cli::TaskCommands;
-use crate::commands::agent::execute_agent_for_task;
 use crate::commands::utils::{format_timestamp, preview_text};
 use crate::output::{json::print_json, OutputFormat};
 use restflow_core::models::{AgentTaskStatus, TaskEvent, TaskEventType, TaskSchedule};
@@ -160,6 +158,17 @@ async fn cancel_task(core: &Arc<AppCore>, id: &str, format: OutputFormat) -> Res
 }
 
 async fn watch_task(core: &Arc<AppCore>, id: &str, _format: OutputFormat) -> Result<()> {
+    let task = core
+        .storage
+        .agent_tasks
+        .get_task(id)?
+        .ok_or_else(|| anyhow::anyhow!("Task not found: {}", id))?;
+
+    println!("Watching task: {} ({})", task.name, task.id);
+    println!("Agent: {}", task.agent_id);
+    println!("Status: {}", task_status_label(&task.status));
+    println!("Press Ctrl+C to stop watching.\n");
+
     let mut events = core.storage.agent_tasks.list_events_for_task(id)?;
 
     if events.is_empty() {
@@ -173,78 +182,72 @@ async fn watch_task(core: &Arc<AppCore>, id: &str, _format: OutputFormat) -> Res
     let mut last_seen_id = events.first().map(|event| event.id.clone());
 
     loop {
-        sleep(Duration::from_secs(1)).await;
-        events = core.storage.agent_tasks.list_events_for_task(id)?;
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {
+                println!("\nStopped watching");
+                return Ok(());
+            }
+            _ = sleep(Duration::from_secs(1)) => {
+                events = core.storage.agent_tasks.list_events_for_task(id)?;
 
-        let mut new_events = Vec::new();
-        if let Some(ref last_id) = last_seen_id {
-            if let Some(pos) = events.iter().position(|event| event.id == *last_id) {
-                if pos > 0 {
-                    new_events.extend(events[..pos].iter().rev());
+                let mut new_events = Vec::new();
+                if let Some(ref last_id) = last_seen_id {
+                    if let Some(pos) = events.iter().position(|event| event.id == *last_id) {
+                        if pos > 0 {
+                            new_events.extend(events[..pos].iter().rev());
+                        }
+                    } else {
+                        new_events.extend(events.iter().rev());
+                    }
+                } else {
+                    new_events.extend(events.iter().rev());
                 }
-            } else {
-                new_events.extend(events.iter().rev());
-            }
-        } else {
-            new_events.extend(events.iter().rev());
-        }
 
-        for event in new_events {
-            print_task_event(event);
-            if matches!(event.event_type, TaskEventType::Completed | TaskEventType::Failed) {
-                return Ok(());
-            }
-        }
+                for event in new_events {
+                    print_task_event(event);
+                    if matches!(event.event_type, TaskEventType::Completed | TaskEventType::Failed) {
+                        return Ok(());
+                    }
+                }
 
-        last_seen_id = events.first().map(|event| event.id.clone());
+                last_seen_id = events.first().map(|event| event.id.clone());
 
-        if let Some(task) = core.storage.agent_tasks.get_task(id)? {
-            if matches!(task.status, AgentTaskStatus::Completed | AgentTaskStatus::Failed) {
-                return Ok(());
+                if let Some(task) = core.storage.agent_tasks.get_task(id)? {
+                    if matches!(task.status, AgentTaskStatus::Completed | AgentTaskStatus::Failed) {
+                        return Ok(());
+                    }
+                }
             }
         }
     }
 }
 
 async fn run_task(core: &Arc<AppCore>, id: &str, format: OutputFormat) -> Result<()> {
+    if format.is_json() {
+        bail!("JSON output is not supported for task run yet");
+    }
+
     let task = core
         .storage
         .agent_tasks
         .get_task(id)?
         .ok_or_else(|| anyhow::anyhow!("Task not found: {}", id))?;
 
-    let input = task
-        .input
-        .clone()
-        .ok_or_else(|| anyhow::anyhow!("Task input is required to run"))?;
-
-    core.storage.agent_tasks.start_task_execution(id)?;
-
-    let started = Instant::now();
-    let result = execute_agent_for_task(core, &task.agent_id, &input).await;
-    let duration_ms = started.elapsed().as_millis() as i64;
-
-    match result {
-        Ok(response) => {
-            core.storage
-                .agent_tasks
-                .complete_task_execution(id, Some(response.response.clone()), duration_ms)?;
-
-            if format.is_json() {
-                return print_json(&response);
-            }
-
-            println!("{}", response.response);
-            println!("\nDuration: {} ms", duration_ms);
-            Ok(())
-        }
-        Err(err) => {
-            core.storage
-                .agent_tasks
-                .fail_task_execution(id, err.to_string(), duration_ms)?;
-            Err(err)
-        }
+    if task.input.as_ref().map_or(true, |input| input.trim().is_empty()) {
+        bail!("Task input is required to run");
     }
+
+    if crate::daemon::is_daemon_running() {
+        bail!("Daemon is running. Stop it before running tasks inline.");
+    }
+
+    let mut runner = crate::daemon::CliTaskRunner::new(core.clone());
+    runner.start().await?;
+    runner.run_task_now(id).await?;
+
+    let watch_result = watch_task(core, id, format).await;
+    runner.stop().await?;
+    watch_result
 }
 
 fn parse_task_status(input: &str) -> Result<AgentTaskStatus> {
