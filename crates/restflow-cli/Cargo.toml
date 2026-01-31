@@ -19,6 +19,11 @@ uuid = { workspace = true }
 
 rpassword = "7.0"
 
+# CLI
+clap = { version = "4", features = ["derive", "env"] }
+colored = "2"
+comfy-table = "7"
+
 # TUI
 ratatui = "0.30"
 crossterm = "0.29"
