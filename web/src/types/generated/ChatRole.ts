@@ -3,4 +3,4 @@
 /**
  * Message role in the conversation
  */
-export type ChatRole = "System" | "User" | "Assistant" | "Tool";
+export type ChatRole = "system" | "user" | "assistant" | "tool";
