@@ -1,0 +1,31 @@
+.ie \n(.g .ds Aq \(aq
+.el .ds Aq '
+.TH restflow 1  "restflow 0.1.0" 
+.SH NAME
+restflow \- RestFlow CLI
+.SH SYNOPSIS
+\fBrestflow\fR [\fB\-\-theme\fR] [\fB\-h\fR|\fB\-\-help\fR] [\fB\-V\fR|\fB\-\-version\fR] [\fIsubcommands\fR]
+.SH DESCRIPTION
+RestFlow CLI
+.SH OPTIONS
+.TP
+\fB\-\-theme\fR \fI<THEME>\fR [default: dark]
+Theme to use for TUI rendering (dark or light)
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Print help
+.TP
+\fB\-V\fR, \fB\-\-version\fR
+Print version
+.SH SUBCOMMANDS
+.TP
+restflow\-chat(1)
+Launch the interactive chat TUI
+.TP
+restflow\-completions(1)
+Generate shell completions
+.TP
+restflow\-help(1)
+Print this message or the help of the given subcommand(s)
+.SH VERSION
+v0.1.0
