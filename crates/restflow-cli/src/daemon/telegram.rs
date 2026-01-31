@@ -1,6 +1,7 @@
 use anyhow::{Result, anyhow};
 use futures::StreamExt;
 use restflow_core::channel::{Channel, InboundMessage, OutboundMessage, TelegramChannel};
+use restflow_core::process::ProcessRegistry;
 use restflow_core::storage::Storage;
 use restflow_tauri_lib::{AgentExecutor, RealAgentExecutor};
 use std::sync::Arc;
@@ -38,7 +39,8 @@ impl TelegramAgent {
         };
 
         let agent_id = resolve_agent_id(&storage)?;
-        let executor = Arc::new(RealAgentExecutor::new(storage));
+        let process_registry = Arc::new(ProcessRegistry::new());
+        let executor = Arc::new(RealAgentExecutor::new(storage, process_registry));
         let channel = TelegramChannel::with_token(token);
 
         Ok(Some(Self {
