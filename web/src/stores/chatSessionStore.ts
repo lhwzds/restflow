@@ -251,7 +251,7 @@ export const useChatSessionStore = defineStore('chatSession', {
           name: session.name,
           agent_id: session.agent_id,
           model: session.model,
-          skill_id: session.skill_id,
+          skill_id: session.skill_id ?? null,
           message_count: 0,
           updated_at: session.updated_at,
           last_message_preview: null,
