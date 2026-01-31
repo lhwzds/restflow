@@ -18,6 +18,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }
+futures = "0.3"
 
 rpassword = "7.0"
 
