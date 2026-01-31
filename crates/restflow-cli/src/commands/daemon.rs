@@ -2,6 +2,7 @@ use crate::cli::DaemonCommands;
 use crate::daemon::{cleanup_stale_pid, pid_file, read_pid, CliTaskRunner};
 use anyhow::Result;
 use restflow_core::AppCore;
+#[cfg(unix)]
 use std::process::{Command, Stdio};
 use std::sync::Arc;
 
