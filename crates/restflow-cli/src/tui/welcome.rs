@@ -4,9 +4,11 @@ use crossterm::{
 };
 use std::io::{self, Write};
 
+use crate::config::CliConfig;
+
 const CONTENT_WIDTH: usize = 49;
 
-pub fn show_welcome(clear_screen: bool) -> io::Result<()> {
+pub fn show_welcome(clear_screen: bool, config: &CliConfig) -> io::Result<()> {
     if clear_screen {
         execute!(io::stdout(), Clear(ClearType::All))?;
     }
@@ -25,6 +27,12 @@ pub fn show_welcome(clear_screen: bool) -> io::Result<()> {
     println!();
     println!("{}", border);
     print_row(&format!("[◉─◉] RestFlow (v{})", version));
+    if let Some(agent) = config.default.agent.as_ref() {
+        print_row(&format!("Default agent: {agent}"));
+    }
+    if let Some(model) = config.default.model.as_ref() {
+        print_row(&format!("Default model: {model}"));
+    }
     print_row("");
     print_row("💡 Quick start:");
     print_row("   Type text  -> Chat with AI");
