@@ -18,14 +18,36 @@ const props = defineProps<{
   step: ExecutionStep
 }>()
 
+type ExecutionStepData = {
+  content?: string
+  tool_calls?: ToolCallInfo[]
+}
+
+type ExecutionStepWithData = ExecutionStep & {
+  content?: string
+  tool_calls?: ToolCallInfo[]
+  data?: ExecutionStepData | null
+}
+
 // Access content from ExecutionStep
 const stepContent = computed<string | undefined>(() => {
-  return props.step.content || undefined
+  const step = props.step as ExecutionStepWithData
+  if (typeof step.content === 'string' && step.content.length > 0) {
+    return step.content
+  }
+  if (step.data && typeof step.data === 'object') {
+    const dataContent = step.data.content
+    if (typeof dataContent === 'string' && dataContent.length > 0) {
+      return dataContent
+    }
+  }
+  return undefined
 })
 
 // Access tool_calls from ExecutionStep
 const stepToolCalls = computed<ToolCallInfo[]>(() => {
-  const toolCalls = props.step.tool_calls
+  const step = props.step as ExecutionStepWithData
+  const toolCalls = step.tool_calls ?? step.data?.tool_calls
   if (Array.isArray(toolCalls)) {
     return toolCalls as ToolCallInfo[]
   }
