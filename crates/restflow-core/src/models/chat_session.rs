@@ -363,7 +363,7 @@ pub struct ChatSessionSummary {
     pub agent_id: String,
     /// Model used
     pub model: String,
-    /// Skill ID (if session is tied to a skill)
+    /// Optional skill ID for context-aware sessions
     #[serde(skip_serializing_if = "Option::is_none")]
     pub skill_id: Option<String>,
     /// Number of messages

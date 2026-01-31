@@ -7,7 +7,12 @@ edition.workspace = true
 name = "restflow_core"
 path = "src/lib.rs"
 
+[features]
+default = []
+keychain = ["keyring"]
+
 [dependencies]
+keyring = { version = "3.6", optional = true, features = ["apple-native"] }
 # Internal dependencies
 restflow-ai = { path = "../restflow-ai" }
 restflow-storage = { path = "../restflow-storage" }
@@ -41,7 +46,7 @@ toml = "0.8"
 tokio-cron-scheduler = "0.15.1"
 tokio-stream = "0.1"
 tracing = "0.1"
-ts-rs = "11.0"
+ts-rs = { version = "11.0", features = ["chrono-impl"] }
 uuid = { version = "1.20.0", features = ["v4", "serde"] }
 zip = "7.2.0"
 urlencoding = "2.1.3"

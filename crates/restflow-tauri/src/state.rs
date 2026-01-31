@@ -302,10 +302,10 @@ impl TaskTrigger for AppTaskTrigger {
         };
 
         // If the task isn't running (or cancel couldn't be requested), pause it directly.
-        if let Ok(Some(task)) = self.state.core.storage.agent_tasks.get_task(task_id) {
-            if task.status != restflow_core::models::AgentTaskStatus::Running || !cancel_requested {
-                self.state.core.storage.agent_tasks.pause_task(task_id)?;
-            }
+        if let Ok(Some(task)) = self.state.core.storage.agent_tasks.get_task(task_id)
+            && (task.status != restflow_core::models::AgentTaskStatus::Running || !cancel_requested)
+        {
+            self.state.core.storage.agent_tasks.pause_task(task_id)?;
         }
 
         // Mark the task as completed/stopped in our tracking
