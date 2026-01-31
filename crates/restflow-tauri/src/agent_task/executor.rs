@@ -13,7 +13,9 @@ use restflow_ai::{
     AgentConfig, AgentExecutor as AiAgentExecutor, AnthropicClient, LlmClient, OpenAIClient,
     ToolRegistry,
 };
-use restflow_core::{AIModel, Provider, models::ApiKeyConfig, storage::Storage};
+use restflow_core::{
+    AIModel, Provider, models::ApiKeyConfig, process::ProcessRegistry, storage::Storage,
+};
 
 use super::runner::{AgentExecutor, ExecutionResult};
 
@@ -27,12 +29,16 @@ use super::runner::{AgentExecutor, ExecutionResult};
 /// - Executes the agent via the ReAct loop
 pub struct RealAgentExecutor {
     storage: Arc<Storage>,
+    process_registry: Arc<ProcessRegistry>,
 }
 
 impl RealAgentExecutor {
     /// Create a new RealAgentExecutor with access to storage.
-    pub fn new(storage: Arc<Storage>) -> Self {
-        Self { storage }
+    pub fn new(storage: Arc<Storage>, process_registry: Arc<ProcessRegistry>) -> Self {
+        Self {
+            storage,
+            process_registry,
+        }
     }
 
     /// Get the API key for a model, resolving from config or secrets.
@@ -108,17 +114,7 @@ impl RealAgentExecutor {
     /// If the agent has specific tools configured, only those tools are registered.
     /// Otherwise, a default set of tools is used.
     fn build_tool_registry(&self, _tool_names: Option<&[String]>) -> Arc<ToolRegistry> {
-        // For Phase 1, we create an empty registry
-        // Tools will be added in a future phase based on agent configuration
-        let registry = ToolRegistry::new();
-
-        // TODO: In future phases, register tools based on tool_names:
-        // - HttpTool for HTTP requests
-        // - EmailTool for sending emails
-        // - TelegramTool for Telegram messages
-        // - PythonTool for Python execution
-        // - SkillTool for skill-based execution
-
+        let registry = ToolRegistry::new().with_process_tool(self.process_registry.clone());
         Arc::new(registry)
     }
 }
@@ -209,7 +205,7 @@ mod tests {
     #[test]
     fn test_executor_creation() {
         let (storage, _temp_dir) = create_test_storage();
-        let executor = RealAgentExecutor::new(storage);
+        let executor = RealAgentExecutor::new(storage, Arc::new(ProcessRegistry::new()));
         // Executor should be created successfully
         assert!(Arc::strong_count(&executor.storage) >= 1);
     }
@@ -217,7 +213,7 @@ mod tests {
     #[tokio::test]
     async fn test_executor_agent_not_found() {
         let (storage, _temp_dir) = create_test_storage();
-        let executor = RealAgentExecutor::new(storage);
+        let executor = RealAgentExecutor::new(storage, Arc::new(ProcessRegistry::new()));
 
         let result = executor.execute("nonexistent-agent", None).await;
         assert!(result.is_err());
@@ -238,7 +234,7 @@ mod tests {
         let agents = storage.agents.list_agents().unwrap();
         let agent_id = &agents[0].id;
 
-        let executor = RealAgentExecutor::new(storage);
+        let executor = RealAgentExecutor::new(storage, Arc::new(ProcessRegistry::new()));
         let result = executor.execute(agent_id, Some("test input")).await;
 
         // Should fail due to missing API key (no ANTHROPIC_API_KEY secret configured)
@@ -254,16 +250,16 @@ mod tests {
     #[test]
     fn test_build_tool_registry() {
         let (storage, _temp_dir) = create_test_storage();
-        let executor = RealAgentExecutor::new(storage);
+        let executor = RealAgentExecutor::new(storage, Arc::new(ProcessRegistry::new()));
 
         // Build with no tools
         let registry = executor.build_tool_registry(None);
-        assert!(registry.list().is_empty());
+        assert!(!registry.list().is_empty());
 
-        // Build with tool names (currently returns empty, tools added in future)
+        // Build with tool names (currently ignored in this phase)
         let tool_names = vec!["http".to_string(), "email".to_string()];
         let registry = executor.build_tool_registry(Some(&tool_names));
-        // For Phase 1, registry is empty until tools are implemented
-        assert!(registry.list().is_empty());
+        assert!(!registry.list().is_empty());
+        assert!(registry.has("process"));
     }
 }
