@@ -39,12 +39,15 @@ async fn start(core: Arc<AppCore>, foreground: bool) -> Result<()> {
                 .arg("--foreground")
                 .stdin(Stdio::null())
                 .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .pre_exec(|| {
+                .stderr(Stdio::null());
+
+            unsafe {
+                command.pre_exec(|| {
                     nix::unistd::setsid().map(|_| ()).map_err(|err| {
                         std::io::Error::new(std::io::ErrorKind::Other, err)
                     })
                 });
+            }
 
             let child = command.spawn()?;
             println!("Daemon started (PID: {})", child.id());
