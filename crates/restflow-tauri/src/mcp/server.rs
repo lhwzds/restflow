@@ -11,8 +11,8 @@ use rmcp::{
         CallToolRequestParam, CallToolResult, Content, Implementation, ListToolsResult,
         PaginatedRequestParam, ServerCapabilities, ServerInfo, Tool,
     },
-    service::{RequestContext, RoleServer},
     schemars::{self, JsonSchema},
+    service::{RequestContext, RoleServer},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -256,9 +256,7 @@ impl ServerHandler for RestFlowMcpServer {
     fn get_info(&self) -> ServerInfo {
         ServerInfo {
             protocol_version: Default::default(),
-            capabilities: ServerCapabilities::builder()
-                .enable_tools()
-                .build(),
+            capabilities: ServerCapabilities::builder().enable_tools().build(),
             server_info: Implementation {
                 name: "restflow".to_string(),
                 title: Some("RestFlow MCP Server".to_string()),
@@ -332,39 +330,44 @@ impl ServerHandler for RestFlowMcpServer {
         let result = match request.name.as_ref() {
             "list_skills" => self.handle_list_skills().await,
             "get_skill" => {
-                let params: GetSkillParams = serde_json::from_value(
-                    Value::Object(request.arguments.unwrap_or_default()),
-                )
-                .map_err(|e| McpError::invalid_params(format!("Invalid parameters: {}", e), None))?;
+                let params: GetSkillParams =
+                    serde_json::from_value(Value::Object(request.arguments.unwrap_or_default()))
+                        .map_err(|e| {
+                            McpError::invalid_params(format!("Invalid parameters: {}", e), None)
+                        })?;
                 self.handle_get_skill(params).await
             }
             "create_skill" => {
-                let params: CreateSkillParams = serde_json::from_value(
-                    Value::Object(request.arguments.unwrap_or_default()),
-                )
-                .map_err(|e| McpError::invalid_params(format!("Invalid parameters: {}", e), None))?;
+                let params: CreateSkillParams =
+                    serde_json::from_value(Value::Object(request.arguments.unwrap_or_default()))
+                        .map_err(|e| {
+                            McpError::invalid_params(format!("Invalid parameters: {}", e), None)
+                        })?;
                 self.handle_create_skill(params).await
             }
             "update_skill" => {
-                let params: UpdateSkillParams = serde_json::from_value(
-                    Value::Object(request.arguments.unwrap_or_default()),
-                )
-                .map_err(|e| McpError::invalid_params(format!("Invalid parameters: {}", e), None))?;
+                let params: UpdateSkillParams =
+                    serde_json::from_value(Value::Object(request.arguments.unwrap_or_default()))
+                        .map_err(|e| {
+                            McpError::invalid_params(format!("Invalid parameters: {}", e), None)
+                        })?;
                 self.handle_update_skill(params).await
             }
             "delete_skill" => {
-                let params: DeleteSkillParams = serde_json::from_value(
-                    Value::Object(request.arguments.unwrap_or_default()),
-                )
-                .map_err(|e| McpError::invalid_params(format!("Invalid parameters: {}", e), None))?;
+                let params: DeleteSkillParams =
+                    serde_json::from_value(Value::Object(request.arguments.unwrap_or_default()))
+                        .map_err(|e| {
+                            McpError::invalid_params(format!("Invalid parameters: {}", e), None)
+                        })?;
                 self.handle_delete_skill(params).await
             }
             "list_agents" => self.handle_list_agents().await,
             "get_agent" => {
-                let params: GetAgentParams = serde_json::from_value(
-                    Value::Object(request.arguments.unwrap_or_default()),
-                )
-                .map_err(|e| McpError::invalid_params(format!("Invalid parameters: {}", e), None))?;
+                let params: GetAgentParams =
+                    serde_json::from_value(Value::Object(request.arguments.unwrap_or_default()))
+                        .map_err(|e| {
+                            McpError::invalid_params(format!("Invalid parameters: {}", e), None)
+                        })?;
                 self.handle_get_agent(params).await
             }
             _ => Err(format!("Unknown tool: {}", request.name)),
@@ -380,7 +383,7 @@ impl ServerHandler for RestFlowMcpServer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use restflow_core::models::{AgentNode, AIModel, ApiKeyConfig, Skill};
+    use restflow_core::models::{AIModel, AgentNode, ApiKeyConfig, Skill};
     use restflow_core::storage::agent::StoredAgent;
     use tempfile::TempDir;
 
@@ -392,11 +395,7 @@ mod tests {
     async fn create_test_server() -> (RestFlowMcpServer, TempDir) {
         let temp_dir = tempfile::tempdir().unwrap();
         let db_path = temp_dir.path().join("test.db");
-        let core = Arc::new(
-            AppCore::new(db_path.to_str().unwrap())
-                .await
-                .unwrap(),
-        );
+        let core = Arc::new(AppCore::new(db_path.to_str().unwrap()).await.unwrap());
         (RestFlowMcpServer::new(core), temp_dir)
     }
 

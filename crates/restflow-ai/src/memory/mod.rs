@@ -24,4 +24,4 @@
 
 mod working;
 
-pub use working::{WorkingMemory, DEFAULT_MAX_MESSAGES};
+pub use working::{DEFAULT_MAX_MESSAGES, WorkingMemory};

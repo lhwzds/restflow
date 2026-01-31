@@ -77,9 +77,9 @@ pub struct PersistConfig {
 impl Default for PersistConfig {
     fn default() -> Self {
         Self {
-            chunk_size: 1600,       // ~400 tokens
-            chunk_overlap: 320,     // ~80 tokens overlap
-            min_content_length: 100, // Minimum 100 chars to persist
+            chunk_size: 1600,               // ~400 tokens
+            chunk_overlap: 320,             // ~80 tokens overlap
+            min_content_length: 100,        // Minimum 100 chars to persist
             include_system_messages: false, // System prompts often repeated, skip by default
         }
     }
@@ -232,10 +232,7 @@ impl MemoryPersister {
                 );
             } else {
                 dedup_count += 1;
-                debug!(
-                    "Chunk deduplicated - existing chunk {} found",
-                    stored_id
-                );
+                debug!("Chunk deduplicated - existing chunk {} found", stored_id);
             }
         }
 
@@ -350,10 +347,7 @@ mod tests {
         let (storage, _temp_dir) = create_test_storage();
         let persister = MemoryPersister::new(storage);
 
-        let messages = vec![
-            Message::user("Hello"),
-            Message::assistant("Hi there!"),
-        ];
+        let messages = vec![Message::user("Hello"), Message::assistant("Hi there!")];
 
         let text = persister.format_conversation(&messages);
         assert!(text.contains("[User]: Hello"));
@@ -418,7 +412,13 @@ mod tests {
 
         let messages = create_test_messages();
         let result = persister
-            .persist(&messages, "agent-1", "task-1", "Daily Report", &["daily".to_string()])
+            .persist(
+                &messages,
+                "agent-1",
+                "task-1",
+                "Daily Report",
+                &["daily".to_string()],
+            )
             .unwrap();
 
         // Should have created a session
@@ -441,10 +441,7 @@ mod tests {
         let persister = MemoryPersister::new(storage);
 
         // Very short conversation
-        let messages = vec![
-            Message::user("Hi"),
-            Message::assistant("Hello"),
-        ];
+        let messages = vec![Message::user("Hi"), Message::assistant("Hello")];
 
         let result = persister
             .persist(&messages, "agent-1", "task-1", "Test", &[])
@@ -526,7 +523,10 @@ mod tests {
         // Create a longer conversation that will require multiple chunks
         let mut messages = Vec::new();
         for i in 0..20 {
-            messages.push(Message::user(format!("This is message number {} with some extra content to make it longer.", i)));
+            messages.push(Message::user(format!(
+                "This is message number {} with some extra content to make it longer.",
+                i
+            )));
             messages.push(Message::assistant(format!("Response {} - I understand your message and here is my detailed reply with additional information.", i)));
         }
 
@@ -535,7 +535,10 @@ mod tests {
             .unwrap();
 
         // Should have created multiple chunks
-        assert!(result.chunk_count > 1, "Expected multiple chunks for long conversation");
+        assert!(
+            result.chunk_count > 1,
+            "Expected multiple chunks for long conversation"
+        );
 
         // Verify chunks were stored
         let chunks = storage.list_chunks_for_session(&result.session_id).unwrap();

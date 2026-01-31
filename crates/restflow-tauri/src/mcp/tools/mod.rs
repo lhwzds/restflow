@@ -2,5 +2,5 @@
 //!
 //! This module contains the tool implementations that are exposed via MCP.
 
-pub mod skills;
 pub mod agents;
+pub mod skills;

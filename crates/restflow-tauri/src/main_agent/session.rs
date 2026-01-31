@@ -107,7 +107,10 @@ impl AgentSession {
             role: ChatRole::Tool,
             content,
             timestamp: Utc::now().timestamp_millis(),
-            source: MessageSource::SubagentResult { agent_id: agent_id.clone(), agent_name },
+            source: MessageSource::SubagentResult {
+                agent_id: agent_id.clone(),
+                agent_name,
+            },
             subagent_id: Some(agent_id),
             execution: None,
         };
@@ -122,7 +125,9 @@ impl AgentSession {
             role: ChatRole::System,
             content,
             timestamp: Utc::now().timestamp_millis(),
-            source: MessageSource::SkillInjection { skill_id: skill_id.clone() },
+            source: MessageSource::SkillInjection {
+                skill_id: skill_id.clone(),
+            },
             subagent_id: None,
             execution: None,
         };
@@ -185,6 +190,7 @@ pub struct SessionMessage {
 /// Message role in the conversation
 #[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
 #[ts(export)]
+#[serde(rename_all = "snake_case")]
 pub enum ChatRole {
     System,
     User,
