@@ -33,11 +33,12 @@ export async function createChatSession(
   request: CreateChatSessionRequest
 ): Promise<ChatSession> {
   if (isTauri()) {
+    // Tauri v2 uses camelCase for parameter names by default
     return tauriInvoke<ChatSession>('create_chat_session', {
-      agent_id: request.agentId,
+      agentId: request.agentId,
       model: request.model,
       name: request.name,
-      skill_id: request.skillId,
+      skillId: request.skillId,
     })
   }
   const response = await apiClient.post<ChatSession>('/api/chat-sessions', request)
@@ -129,7 +130,7 @@ export async function addChatMessage(
   message: ChatMessage
 ): Promise<ChatSession> {
   if (isTauri()) {
-    return tauriInvoke<ChatSession>('add_chat_message', { session_id: sessionId, message })
+    return tauriInvoke<ChatSession>('add_chat_message', { sessionId, message })
   }
   const response = await apiClient.post<ChatSession>(
     `/api/chat-sessions/${sessionId}/messages`,
@@ -153,7 +154,7 @@ export async function sendChatMessage(
   content: string
 ): Promise<ChatSession> {
   if (isTauri()) {
-    return tauriInvoke<ChatSession>('send_chat_message', { session_id: sessionId, content })
+    return tauriInvoke<ChatSession>('send_chat_message', { sessionId, content })
   }
   const response = await apiClient.post<ChatSession>(
     `/api/chat-sessions/${sessionId}/send`,
@@ -170,7 +171,7 @@ export async function sendChatMessage(
  */
 export async function listChatSessionsByAgent(agentId: string): Promise<ChatSession[]> {
   if (isTauri()) {
-    return tauriInvoke<ChatSession[]>('list_chat_sessions_by_agent', { agent_id: agentId })
+    return tauriInvoke<ChatSession[]>('list_chat_sessions_by_agent', { agentId })
   }
   const response = await apiClient.get<ChatSession[]>(
     `/api/chat-sessions?agent_id=${encodeURIComponent(agentId)}`
@@ -186,7 +187,7 @@ export async function listChatSessionsByAgent(agentId: string): Promise<ChatSess
  */
 export async function listChatSessionsBySkill(skillId: string): Promise<ChatSession[]> {
   if (isTauri()) {
-    return tauriInvoke<ChatSession[]>('list_chat_sessions_by_skill', { skill_id: skillId })
+    return tauriInvoke<ChatSession[]>('list_chat_sessions_by_skill', { skillId })
   }
   const response = await apiClient.get<ChatSession[]>(
     `/api/chat-sessions?skill_id=${encodeURIComponent(skillId)}`
