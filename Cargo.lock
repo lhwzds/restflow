@@ -4762,6 +4762,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "assert_cmd",
+ "async-trait",
  "chrono",
  "clap",
  "clap_complete",
@@ -4775,6 +4776,7 @@ dependencies = [
  "nix 0.29.0",
  "predicates",
  "ratatui",
+ "redb",
  "restflow-ai",
  "restflow-core",
  "restflow-tauri",

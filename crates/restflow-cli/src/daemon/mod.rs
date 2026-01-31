@@ -1,4 +1,5 @@
 mod runner;
+mod telegram;
 
 use anyhow::Result;
 use std::path::PathBuf;
