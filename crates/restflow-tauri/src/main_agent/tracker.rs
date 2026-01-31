@@ -207,11 +207,11 @@ impl SubagentTracker {
 
     /// Wait for a specific sub-agent to complete
     pub async fn wait(&self, id: &str) -> Option<SubagentResult> {
-        if let Some(state) = self.states.get(id) {
-            if let Some(result) = state.result.clone() {
-                self.completion_waiters.remove(id);
-                return Some(result);
-            }
+        if let Some(state) = self.states.get(id)
+            && let Some(result) = state.result.clone()
+        {
+            self.completion_waiters.remove(id);
+            return Some(result);
         }
 
         if let Some((_, receiver)) = self.completion_waiters.remove(id) {
