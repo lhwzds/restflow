@@ -58,6 +58,7 @@ pub use tracker::{
 };
 
 use anyhow::Result;
+use restflow_ai::llm::{CompletionRequest, Message, Role};
 use restflow_ai::LlmClient;
 use restflow_core::storage::Storage;
 use serde::{Deserialize, Serialize};
@@ -231,10 +232,48 @@ impl MainAgent {
     }
 
     /// Run the ReAct (Reason + Act) loop
-    async fn run_react_loop(&self, _initial_message: &str) -> Result<String> {
-        // TODO: Implement full ReAct loop with tool calls
-        // For now, return a placeholder
-        Ok("ReAct loop not yet fully implemented".to_string())
+    async fn run_react_loop(&self, initial_message: &str) -> Result<String> {
+        let session = self.session.read().await;
+        let mut messages: Vec<Message> = Vec::new();
+        let has_system = session
+            .messages
+            .iter()
+            .any(|message| message.role == ChatRole::System);
+
+        if !has_system {
+            messages.push(Message::system(
+                "You are the RestFlow main agent. Provide helpful, concise responses.",
+            ));
+        }
+
+        for message in &session.messages {
+            let role = match message.role {
+                ChatRole::System => Role::System,
+                ChatRole::User => Role::User,
+                ChatRole::Assistant => Role::Assistant,
+                ChatRole::Tool => Role::Tool,
+            };
+            messages.push(Message {
+                role,
+                content: message.content.clone(),
+                tool_call_id: None,
+                name: None,
+                tool_calls: None,
+            });
+        }
+
+        if messages.is_empty() {
+            messages.push(Message::user(initial_message));
+        }
+
+        let request = CompletionRequest::new(messages);
+        let response = self.llm_client.complete(request).await?;
+
+        if !response.tool_calls.is_empty() {
+            return Ok("Tool calls are not supported in the main agent yet.".to_string());
+        }
+
+        Ok(response.content.unwrap_or_default())
     }
 
     /// Spawn a sub-agent to work on a task in parallel
