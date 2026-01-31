@@ -197,7 +197,8 @@ mod tests {
 
         // Create some sessions
         let session1 = TerminalSession::new("terminal-001".to_string(), "Terminal 1".to_string());
-        let mut session2 = TerminalSession::new("terminal-002".to_string(), "Terminal 2".to_string());
+        let mut session2 =
+            TerminalSession::new("terminal-002".to_string(), "Terminal 2".to_string());
         session2.set_stopped(None); // Already stopped
 
         storage.create(&session1).unwrap();

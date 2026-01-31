@@ -5,7 +5,7 @@
 
 use std::net::SocketAddr;
 use std::sync::Arc;
-use tokio::sync::{oneshot, RwLock};
+use tokio::sync::{RwLock, oneshot};
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 use tracing::{error, info};
@@ -16,7 +16,7 @@ use restflow_core::storage::AgentTaskStorage;
 /// Type alias for the task trigger callback function
 pub type TriggerCallback = Arc<dyn Fn(String, Option<String>) -> String + Send + Sync>;
 
-use super::handler::{webhook_router, WebhookState};
+use super::handler::{WebhookState, webhook_router};
 
 /// Configuration for the webhook server
 #[derive(Debug, Clone)]

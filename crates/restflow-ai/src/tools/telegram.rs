@@ -79,14 +79,13 @@ impl TelegramTool {
             payload["disable_notification"] = json!(true);
         }
 
-        let response = self.client
-            .post(&url)
-            .json(&payload)
-            .send()
-            .await?;
+        let response = self.client.post(&url).json(&payload).send().await?;
 
         let status = response.status();
-        let body: Value = response.json().await.unwrap_or_else(|_| json!({"error": "Failed to parse response"}));
+        let body: Value = response
+            .json()
+            .await
+            .unwrap_or_else(|_| json!({"error": "Failed to parse response"}));
 
         if status.is_success() && body.get("ok").and_then(|v| v.as_bool()).unwrap_or(false) {
             Ok(body)
@@ -95,7 +94,10 @@ impl TelegramTool {
                 .get("description")
                 .and_then(|v| v.as_str())
                 .unwrap_or("Unknown error");
-            Err(crate::error::AiError::Tool(format!("Telegram API error: {}", error_desc)))
+            Err(crate::error::AiError::Tool(format!(
+                "Telegram API error: {}",
+                error_desc
+            )))
         }
     }
 }
