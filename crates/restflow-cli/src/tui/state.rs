@@ -22,9 +22,9 @@ pub struct Command {
 }
 
 #[derive(Debug, Default, Clone)]
-struct TokenCounter {
-    input: u32,
-    output: u32,
+pub(super) struct TokenCounter {
+    pub(super) input: u32,
+    pub(super) output: u32,
 }
 
 pub struct TuiApp {
@@ -254,7 +254,6 @@ impl TuiApp {
                 ChatRole::User => "**User**",
                 ChatRole::Assistant => "**Assistant**",
                 ChatRole::System => "**System**",
-                ChatRole::Error => "**Error**",
             };
             content.push_str(&format!("{}\n{}\n\n", role, message.content));
             if let Some(execution) = &message.execution {
@@ -293,7 +292,6 @@ impl TuiApp {
                 ChatRole::User => Some(LlmMessage::user(&msg.content)),
                 ChatRole::Assistant => Some(LlmMessage::assistant(&msg.content)),
                 ChatRole::System => Some(LlmMessage::system(&msg.content)),
-                ChatRole::Error => None,
             })
             .collect()
     }
@@ -331,9 +329,9 @@ impl TuiApp {
             return;
         }
 
-        let Some(session) = self.ensure_session_mut() else {
-            return;
-        };
+        if self.current_session.is_none() {
+            self.start_new_session();
+        }
 
         let agent_id = match self.current_agent_id.clone() {
             Some(id) => id,
@@ -413,8 +411,13 @@ impl TuiApp {
         let memory = create_working_memory(&system_prompt, &history, config.max_memory_messages);
         let state = AgentState::new(uuid::Uuid::new_v4().to_string(), config.max_iterations);
 
-        session.add_message(ChatMessage::user(&input));
-        session.auto_name_from_first_message();
+        {
+            let Some(session) = self.ensure_session_mut() else {
+                return;
+            };
+            session.add_message(ChatMessage::user(&input));
+            session.auto_name_from_first_message();
+        }
         self.save_session();
 
         let (event_tx, event_rx) = mpsc::unbounded_channel();
@@ -442,7 +445,12 @@ impl TuiApp {
             return;
         };
 
+        let mut events = Vec::new();
         while let Ok(event) = rx.try_recv() {
+            events.push(event);
+        }
+
+        for event in events {
             self.handle_stream_event(event);
         }
     }

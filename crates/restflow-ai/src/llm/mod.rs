@@ -7,6 +7,6 @@ mod openai;
 pub use anthropic::AnthropicClient;
 pub use client::{
     CompletionRequest, CompletionResponse, FinishReason, LlmClient, Message, Role, StreamChunk,
-    StreamResult, TokenUsage, ToolCall,
+    StreamResult, TokenUsage, ToolCall, ToolCallDelta,
 };
 pub use openai::OpenAIClient;
