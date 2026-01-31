@@ -1,4 +1,5 @@
 mod state;
+mod stream;
 mod viewport;
 mod welcome;
 
@@ -109,6 +110,9 @@ async fn run_app(terminal: &mut ViewportTerminal, app: &mut TuiApp) -> Result<()
                 KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                     return Ok(());
                 }
+                KeyCode::Esc => {
+                    app.cancel_streaming();
+                }
                 KeyCode::Down | KeyCode::Tab if app.show_commands => {
                     app.next_command();
                 }
@@ -137,6 +141,8 @@ async fn run_app(terminal: &mut ViewportTerminal, app: &mut TuiApp) -> Result<()
                 _ => {}
             }
         }
+
+        app.poll_events().await;
 
         if app.input == "/exit" {
             return Ok(());
@@ -225,13 +231,32 @@ fn render_input(f: &mut Frame, area: Rect, app: &TuiApp) {
     let horizontal = "─".repeat(area.width as usize);
     let line_style = Style::default().fg(Color::DarkGray);
 
+    let agent_name = if app.current_agent_name.is_empty() {
+        "No agent"
+    } else {
+        app.current_agent_name.as_str()
+    };
+    let status_text = format!(
+        " {} | {} | Tokens: {}/{} ",
+        agent_name,
+        app.activity_status,
+        app.token_counter.input,
+        app.token_counter.output
+    );
+    let mut top_line = status_text;
+    if top_line.len() < area.width as usize {
+        top_line.push_str(&"─".repeat(area.width as usize - top_line.len()));
+    } else {
+        top_line.truncate(area.width as usize);
+    }
+
     let top = Rect {
         x: area.x,
         y: area.y,
         width: area.width,
         height: 1,
     };
-    f.render_widget(Paragraph::new(horizontal.clone()).style(line_style), top);
+    f.render_widget(Paragraph::new(top_line).style(line_style), top);
 
     if area.height > 1 {
         let bottom = Rect {
