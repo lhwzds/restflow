@@ -74,7 +74,10 @@ export const useChatSessionStore = defineStore('chatSession', {
 
       // Apply skill filter
       if (this.skillFilter) {
-        result = result.filter((s) => s.skill_id === this.skillFilter)
+        result = result.filter((s) => {
+          const skillId = (s as ChatSessionSummary & { skill_id?: string }).skill_id
+          return skillId === this.skillFilter
+        })
       }
 
       // Apply search filter
