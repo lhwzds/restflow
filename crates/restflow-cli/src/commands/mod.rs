@@ -1,6 +1,7 @@
 pub mod agent;
 pub mod chat;
 pub mod config;
+pub mod daemon;
 pub mod info;
 pub mod mcp;
 pub mod memory;

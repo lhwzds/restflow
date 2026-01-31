@@ -42,6 +42,12 @@ pub enum Commands {
         command: TaskCommands,
     },
 
+    /// Daemon management
+    Daemon {
+        #[command(subcommand)]
+        command: DaemonCommands,
+    },
+
     /// Skill management
     Skill {
         #[command(subcommand)]
@@ -189,6 +195,22 @@ pub enum TaskCommands {
 
     /// Run task immediately
     Run { id: String },
+}
+
+#[derive(Subcommand)]
+pub enum DaemonCommands {
+    /// Start daemon
+    Start {
+        /// Run in foreground
+        #[arg(long)]
+        foreground: bool,
+    },
+
+    /// Stop daemon
+    Stop,
+
+    /// Show daemon status
+    Status,
 }
 
 #[derive(Subcommand)]
