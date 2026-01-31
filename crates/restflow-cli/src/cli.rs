@@ -1,4 +1,5 @@
 use clap::{Args, Parser, Subcommand};
+use clap_complete::Shell;
 
 use crate::output::OutputFormat;
 
@@ -26,6 +27,13 @@ pub struct Cli {
 pub enum Commands {
     /// Start interactive TUI chat
     Chat(ChatArgs),
+
+    /// Generate shell completions
+    Completions {
+        /// Shell to generate completions for
+        #[arg(value_enum)]
+        shell: Shell,
+    },
 
     /// Run an agent directly
     Run(RunArgs),
