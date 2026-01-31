@@ -1,6 +1,7 @@
 mod cli;
 mod commands;
 mod config;
+mod daemon;
 mod output;
 mod setup;
 mod tui;
@@ -39,6 +40,7 @@ async fn main() -> Result<()> {
             commands::agent::run(core, command, cli.format).await
         }
         Some(Commands::Task { command }) => commands::task::run(core, command, cli.format).await,
+        Some(Commands::Daemon { command }) => commands::daemon::run(core, command).await,
         Some(Commands::Skill { command }) => {
             commands::skill::run(core, command, cli.format).await
         }
