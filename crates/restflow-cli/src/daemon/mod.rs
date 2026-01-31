@@ -1,9 +1,11 @@
 mod runner;
+mod telegram;
 
 use anyhow::Result;
 use std::path::PathBuf;
 
 pub use runner::CliTaskRunner;
+pub use telegram::{TelegramAgent, TelegramAgentHandle};
 
 pub fn pid_file() -> PathBuf {
     let base = dirs::runtime_dir().unwrap_or_else(|| PathBuf::from("/tmp"));
