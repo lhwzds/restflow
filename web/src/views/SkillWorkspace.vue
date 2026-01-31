@@ -5,40 +5,41 @@ import { Settings, Moon, Sun, Search, List, LayoutGrid } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import RestFlowLogo from '@/components/shared/RestFlowLogo.vue'
-// TODO: not finished yet, hidden for now
-// import TaskHistory from '@/components/workspace/TaskHistory.vue'
+import TaskHistory from '@/components/workspace/TaskHistory.vue'
 import FileBrowser from '@/components/workspace/FileBrowser.vue'
 import TerminalBrowser from '@/components/workspace/TerminalBrowser.vue'
 import TaskBrowser from '@/components/workspace/TaskBrowser.vue'
-// TODO: not finished yet, hidden for now
-// import ChatBox from '@/components/workspace/ChatBox.vue'
-// import ExecutionPanel from '@/components/workspace/ExecutionPanel.vue'
+import ChatBox from '@/components/workspace/ChatBox.vue'
+import ExecutionPanel from '@/components/workspace/ExecutionPanel.vue'
 import SettingsDialog from '@/components/workspace/SettingsDialog.vue'
 import EditorPanel from '@/components/editor/EditorPanel.vue'
 import TabBar from '@/components/editor/TabBar.vue'
 import SplitContainer from '@/components/editor/SplitContainer.vue'
-// TODO: not finished yet, hidden for now
-// import type {
-//   Task,
-//   ExecutionStep,
-//   AgentFile,
-//   ModelOption,
-//   ChatMessage,
-// } from '@/types/workspace'
+import type {
+  Task,
+  ExecutionStep,
+  AgentFile,
+  ModelOption,
+  StepStatus,
+  StepType,
+} from '@/types/workspace'
 import type { FileItem } from '@/types/workspace'
 import type { Skill } from '@/types/generated/Skill'
 import type { StoredAgent } from '@/types/generated/StoredAgent'
+import type { ChatMessage } from '@/types/generated/ChatMessage'
+import type { ChatSessionSummary } from '@/types/generated/ChatSessionSummary'
 import { useFileBrowser, type BrowserTab } from '@/composables/workspace/useFileBrowser'
 import { useEditorTabs, type EditorTab } from '@/composables/editor/useEditorTabs'
 import { useSplitView } from '@/composables/editor/useSplitView'
-// TODO: not finished yet, hidden for now
-// import { mockAgents, mockModels, mockTasks } from '@/mocks/workspace'
+import { useChatSession } from '@/composables/workspace/useChatSession'
 import { createSkill, deleteSkill } from '@/api/skills'
-import { createAgent, deleteAgent } from '@/api/agents'
+import { createAgent, deleteAgent, listAgents } from '@/api/agents'
 import { useToast } from '@/composables/useToast'
 import { useTerminalAutoSave } from '@/composables/editor/useTerminalAutoSave'
 import { useTerminalSessions } from '@/composables/editor/useTerminalSessions'
 import { useAgentTaskStore } from '@/stores/agentTaskStore'
+import { useChatSessionStore } from '@/stores/chatSessionStore'
+import { useModelsStore } from '@/stores/modelsStore'
 
 // Enable terminal auto-save (saves history periodically)
 useTerminalAutoSave()
@@ -148,6 +149,64 @@ const { sessions, createSession } = useTerminalSessions()
 // Task store
 const taskStore = useAgentTaskStore()
 
+// Chat session state
+const chatSessionStore = useChatSessionStore()
+const modelsStore = useModelsStore()
+const {
+  sessions: chatSessions,
+  currentSession,
+  messages: chatMessages,
+  inputMessage,
+  isSending,
+  isExpanded: isChatExpanded,
+  createSession: createChatSession,
+  selectSession: selectChatSession,
+  sendMessage: sendChatMessage,
+} = useChatSession({ autoLoad: true, autoSelectRecent: true })
+
+const selectedAgent = ref<string | null>(null)
+const selectedModel = ref('')
+
+const availableAgents = ref<AgentFile[]>([])
+const availableModels = ref<ModelOption[]>([])
+
+const currentTaskId = computed(() => chatSessionStore.currentSessionId)
+
+const tasks = computed<Task[]>(() =>
+  chatSessions.value.map((session: ChatSessionSummary) => ({
+    id: session.id,
+    name: session.name,
+    status:
+      session.id === currentTaskId.value && isSending.value
+        ? 'running'
+        : session.message_count > 0
+          ? 'completed'
+          : 'pending',
+    createdAt: Number(session.updated_at),
+  }))
+)
+
+const messages = computed<ChatMessage[]>(() => chatMessages.value)
+
+const executionSteps = computed<ExecutionStep[]>(() => {
+  const latestExecution = [...messages.value]
+    .reverse()
+    .find((message) => message.execution?.steps?.length)
+
+  if (!latestExecution?.execution) {
+    return []
+  }
+
+  return latestExecution.execution.steps.map((step) => ({
+    type: mapStepType(step.step_type),
+    name: step.name,
+    status: mapStepStatus(step.status),
+    duration: step.duration_ms ? Number(step.duration_ms) : undefined,
+  }))
+})
+
+const isExecuting = computed(() => isSending.value)
+
 // Item count for current tab (used in header)
 const itemCount = computed(() => {
   const query = searchQuery.value.toLowerCase()
@@ -176,27 +235,64 @@ async function onCreateTerminal() {
   }
 }
 
-// TODO: not finished yet, hidden for now
-// Chat state
-// const isExecuting = ref(false)
-// const isChatExpanded = ref(false)
-// const messages = ref<ChatMessage[]>([])
-// const executionSteps = ref<ExecutionStep[]>([])
+const loadAgents = async () => {
+  try {
+    const agents = await listAgents()
+    availableAgents.value = agents.map((agent) => ({
+      id: agent.id,
+      name: agent.name,
+      path: `agents/${agent.id}`,
+    }))
 
-// TODO: not finished yet, hidden for now
-// Agent and Model selection
-// const selectedAgent = ref<string | null>(null)
-// const selectedModel = ref('claude-sonnet-4-5')
+    if (!selectedAgent.value && availableAgents.value.length > 0) {
+      selectedAgent.value = availableAgents.value[0]?.id ?? null
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to load agents'
+    toast.error(message)
+  }
+}
 
-// TODO: not finished yet, hidden for now
-// Use mock data for agents dropdown (will be replaced with API calls)
-// const availableAgents = ref<AgentFile[]>(mockAgents)
-// const availableModels: ModelOption[] = mockModels
+const loadModels = async () => {
+  try {
+    await modelsStore.loadModels()
+    availableModels.value = modelsStore.getAllModels.map((model) => ({
+      id: model.model,
+      name: model.name,
+    }))
 
-// TODO: not finished yet, hidden for now
-// Task history
-// const tasks = ref<Task[]>(mockTasks)
-// const currentTaskId = ref<string | null>(null)
+    if (!selectedModel.value && availableModels.value.length > 0) {
+      selectedModel.value = availableModels.value[0]?.id ?? ''
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to load models'
+    toast.error(message)
+  }
+}
+
+const mapStepType = (value: string): StepType => {
+  switch (value) {
+    case 'skill_read':
+    case 'script_run':
+    case 'api_call':
+    case 'thinking':
+      return value
+    default:
+      return 'thinking'
+  }
+}
+
+const mapStepStatus = (value: string): StepStatus => {
+  switch (value) {
+    case 'pending':
+    case 'running':
+    case 'completed':
+    case 'failed':
+      return value
+    default:
+      return 'pending'
+  }
+}
 
 // Settings dialog
 const showSettings = ref(false)
@@ -212,6 +308,15 @@ watch(activeTab, () => {
 // Load items on mount
 onMounted(() => {
   loadItems()
+  loadAgents()
+  loadModels()
+})
+
+watch(currentSession, (session) => {
+  if (session) {
+    selectedAgent.value = session.agent_id
+    selectedModel.value = session.model
+  }
 })
 
 // Handle tab change (navigation bar click)
@@ -336,53 +441,59 @@ const onEditorClose = () => {
   selectedItem.value = null
 }
 
-// TODO: not finished yet, hidden for now
+const ensureChatSession = async (): Promise<boolean> => {
+  if (chatSessionStore.currentSessionId) {
+    return true
+  }
+
+  if (!selectedAgent.value) {
+    toast.error('Select an agent to start a chat')
+    return false
+  }
+
+  if (!selectedModel.value) {
+    toast.error('Select a model to start a chat')
+    return false
+  }
+
+  const session = await createChatSession(selectedAgent.value, selectedModel.value)
+  if (!session) {
+    toast.error('Failed to create chat session')
+    return false
+  }
+
+  return true
+}
+
 // Handle new task from TaskHistory
-// const onNewTask = () => {
-//   currentTaskId.value = null
-//   messages.value = []
-//   isChatExpanded.value = false
-// }
+const onNewTask = async () => {
+  await selectChatSession(null)
+  inputMessage.value = ''
+  isChatExpanded.value = false
+}
 
-// TODO: not finished yet, hidden for now
+const onSelectTask = async (taskId: string) => {
+  await selectChatSession(taskId)
+}
+
 // Handle chat send
-// const onSendMessage = async (message: string) => {
-//   isChatExpanded.value = true
-//   isExecuting.value = true
-//
-//   messages.value.push({ role: 'user', content: message })
-//
-//   // Simulate execution steps
-//   executionSteps.value = [{ type: 'skill_read', name: 'git/commit', status: 'running' }]
-//
-//   // TODO: Integrate with actual agent execution
-//   setTimeout(() => {
-//     if (executionSteps.value[0]) {
-//       executionSteps.value[0].status = 'completed'
-//     }
-//     executionSteps.value.push({ type: 'script_run', name: 'scripts/diff.py', status: 'running' })
-//
-//     setTimeout(() => {
-//       if (executionSteps.value[1]) {
-//         executionSteps.value[1].status = 'completed'
-//       }
-//       messages.value.push({
-//         role: 'assistant',
-//         content:
-//           "I've analyzed the changes and generated a commit message:\n\n```\nfeat(api): add REST client with retry logic\n```",
-//       })
-//       isExecuting.value = false
-//     }, 1500)
-//   }, 1000)
-// }
+const onSendMessage = async (message: string) => {
+  const canSend = await ensureChatSession()
+  if (!canSend) return
 
-// TODO: not finished yet, hidden for now
+  isChatExpanded.value = true
+  inputMessage.value = message
+  await sendChatMessage()
+
+  if (chatSessionStore.error) {
+    toast.error(chatSessionStore.error)
+  }
+}
+
 // Handle chat close
-// const onCloseChat = () => {
-//   isChatExpanded.value = false
-//   messages.value = []
-//   executionSteps.value = []
-// }
+const onCloseChat = () => {
+  isChatExpanded.value = false
+}
 </script>
 
 <template>
@@ -486,15 +597,13 @@ const onEditorClose = () => {
 
     <!-- Main Content -->
     <div class="flex-1 flex overflow-hidden">
-      <!-- TODO: not finished yet, hidden for now
       <TaskHistory
         :tasks="tasks"
         :current-task-id="currentTaskId"
-        @select="currentTaskId = $event"
+        @select="onSelectTask"
         @new-task="onNewTask"
         class="w-56 border-r shrink-0"
       />
-      -->
 
       <!-- Center Content Area -->
       <div class="flex-1 flex min-w-0 overflow-hidden">
@@ -564,7 +673,6 @@ const onEditorClose = () => {
                 class="flex-1"
               />
 
-              <!-- TODO: not finished yet, hidden for now
               <div
                 v-if="isChatExpanded"
                 class="absolute inset-0 flex flex-col bg-background/95 backdrop-blur-sm overflow-hidden"
@@ -580,7 +688,7 @@ const onEditorClose = () => {
                       ]"
                     >
                       <div class="text-xs text-muted-foreground mb-1">
-                        {{ msg.role === 'user' ? 'You' : 'Agent' }}
+                        {{ msg.role === 'user' ? 'You' : msg.role === 'assistant' ? 'Agent' : 'System' }}
                       </div>
                       <div class="whitespace-pre-wrap break-words">{{ msg.content }}</div>
                     </div>
@@ -591,10 +699,8 @@ const onEditorClose = () => {
                   </div>
                 </div>
               </div>
-              -->
             </div>
 
-            <!-- TODO: not finished yet, hidden for now
             <div class="shrink-0 px-8 pb-4">
               <ChatBox
                 :is-expanded="isChatExpanded"
@@ -609,7 +715,6 @@ const onEditorClose = () => {
                 @update:selected-model="selectedModel = $event"
               />
             </div>
-            -->
           </template>
         </div>
 
@@ -617,14 +722,12 @@ const onEditorClose = () => {
         <SplitContainer @save="onEditorSave" />
       </div>
 
-      <!-- TODO: not finished yet, hidden for now
       <ExecutionPanel
         v-if="(isChatExpanded || isExecuting) && !hasOpenTabs"
         :steps="executionSteps"
         :is-executing="isExecuting"
         class="w-64 border-l shrink-0"
       />
-      -->
     </div>
 
     <!-- Settings Dialog -->
