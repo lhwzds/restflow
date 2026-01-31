@@ -198,10 +198,10 @@ async fn watch_task(core: &Arc<AppCore>, id: &str, _format: OutputFormat) -> Res
 
         last_seen_id = events.first().map(|event| event.id.clone());
 
-        if let Some(task) = core.storage.agent_tasks.get_task(id)? {
-            if matches!(task.status, AgentTaskStatus::Completed | AgentTaskStatus::Failed) {
-                return Ok(());
-            }
+        if let Some(task) = core.storage.agent_tasks.get_task(id)?
+            && matches!(task.status, AgentTaskStatus::Completed | AgentTaskStatus::Failed)
+        {
+            return Ok(());
         }
     }
 }
