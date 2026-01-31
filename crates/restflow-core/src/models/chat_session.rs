@@ -363,6 +363,9 @@ pub struct ChatSessionSummary {
     pub agent_id: String,
     /// Model used
     pub model: String,
+    /// Skill ID (if session is tied to a skill)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub skill_id: Option<String>,
     /// Number of messages
     pub message_count: u32,
     /// Last update timestamp
@@ -388,6 +391,7 @@ impl From<&ChatSession> for ChatSessionSummary {
             name: session.name.clone(),
             agent_id: session.agent_id.clone(),
             model: session.model.clone(),
+            skill_id: session.skill_id.clone(),
             message_count: session.metadata.message_count,
             updated_at: session.updated_at,
             last_message_preview,
