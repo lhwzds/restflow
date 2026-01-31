@@ -51,13 +51,11 @@ fn render_message(message: &ChatMessage, show_tools: bool) -> ListItem<'static> 
                 Span::raw("     "),
                 Span::raw(tool.input.clone()),
             ]));
-            if tool.expanded {
-                if let Some(output) = &tool.output {
-                    lines.push(Line::from(vec![
-                        Span::raw("     "),
-                        Span::raw(output.clone()),
-                    ]));
-                }
+            if tool.expanded && let Some(output) = &tool.output {
+                lines.push(Line::from(vec![
+                    Span::raw("     "),
+                    Span::raw(output.clone()),
+                ]));
             }
         }
     }
