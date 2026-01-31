@@ -287,8 +287,7 @@ mod tests {
 
     #[test]
     fn test_outbound_message_formatting() {
-        let msg = OutboundMessage::success("123", "Task completed")
-            .with_title("Build Job");
+        let msg = OutboundMessage::success("123", "Task completed").with_title("Build Job");
         let formatted = msg.formatted_content();
         assert!(formatted.contains("✅"));
         assert!(formatted.contains("*Build Job*"));
@@ -315,10 +314,10 @@ mod tests {
     #[test]
     fn test_conversation_context_staleness() {
         let mut ctx = ConversationContext::new("conv-1", ChannelType::Telegram, "user-1");
-        
+
         // Fresh context is not stale
         assert!(!ctx.is_stale(1000));
-        
+
         // Manually set old timestamp
         ctx.last_activity = chrono::Utc::now().timestamp_millis() - 5000;
         assert!(ctx.is_stale(1000));

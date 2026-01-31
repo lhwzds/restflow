@@ -5,8 +5,9 @@
 
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
-use tokio::sync::{mpsc, Mutex};
-use tokio::task::JoinHandle;
+use std::sync::Arc;
+use tokio::sync::{mpsc, oneshot, Mutex};
+use tokio::task::{AbortHandle, JoinHandle};
 use ts_rs::TS;
 
 /// Sub-agent running state
@@ -85,11 +86,15 @@ pub struct SubagentTracker {
     /// All sub-agent states
     states: DashMap<String, SubagentState>,
 
-    /// Tokio JoinHandles for waiting/cancelling
-    handles: DashMap<String, JoinHandle<SubagentResult>>,
+    /// Abort handles for cancelling running sub-agents
+    abort_handles: DashMap<String, AbortHandle>,
+
+    /// Completion waiters for sub-agent results
+    completion_waiters: DashMap<String, oneshot::Receiver<SubagentResult>>,
 
     /// Completion notification sender
     completion_tx: mpsc::Sender<SubagentCompletion>,
+
     /// Completion notification receiver
     completion_rx: Mutex<mpsc::Receiver<SubagentCompletion>>,
 }
@@ -102,7 +107,8 @@ impl SubagentTracker {
     ) -> Self {
         Self {
             states: DashMap::new(),
-            handles: DashMap::new(),
+            abort_handles: DashMap::new(),
+            completion_waiters: DashMap::new(),
             completion_tx,
             completion_rx: Mutex::new(completion_rx),
         }
@@ -110,18 +116,13 @@ impl SubagentTracker {
 
     /// Register a new sub-agent
     pub fn register(
-        &self,
+        self: &Arc<Self>,
         id: String,
         agent_name: String,
         task: String,
         handle: JoinHandle<SubagentResult>,
+        completion_rx: oneshot::Receiver<SubagentResult>,
     ) {
-        self.register_state(id.clone(), agent_name, task);
-        self.attach_handle(id, handle);
-    }
-
-    /// Register a new sub-agent state before attaching a handle
-    pub fn register_state(&self, id: String, agent_name: String, task: String) {
         let state = SubagentState {
             id: id.clone(),
             agent_name,
@@ -132,12 +133,41 @@ impl SubagentTracker {
             result: None,
         };
 
-        self.states.insert(id, state);
-    }
+        let abort_handle = handle.abort_handle();
 
-    /// Attach a join handle to an existing sub-agent state
-    pub fn attach_handle(&self, id: String, handle: JoinHandle<SubagentResult>) {
-        self.handles.insert(id, handle);
+        self.states.insert(id.clone(), state);
+        self.abort_handles.insert(id.clone(), abort_handle);
+        self.completion_waiters.insert(id.clone(), completion_rx);
+
+        let tracker = Arc::clone(self);
+        let id_for_task = id.clone();
+        tokio::spawn(async move {
+            let join_result = handle.await;
+            if tracker
+                .get(&id_for_task)
+                .and_then(|state| state.result.clone())
+                .is_some()
+            {
+                return;
+            }
+
+            match join_result {
+                Ok(result) => {
+                    tracker.mark_completed(&id_for_task, result);
+                }
+                Err(e) => {
+                    let result = SubagentResult {
+                        success: false,
+                        output: String::new(),
+                        summary: None,
+                        duration_ms: 0,
+                        tokens_used: None,
+                        error: Some(format!("Task panicked: {}", e)),
+                    };
+                    tracker.mark_completed(&id_for_task, result);
+                }
+            }
+        });
     }
 
     /// Get state of a specific sub-agent
@@ -177,48 +207,37 @@ impl SubagentTracker {
 
     /// Wait for a specific sub-agent to complete
     pub async fn wait(&self, id: &str) -> Option<SubagentResult> {
-        if let Some((_, handle)) = self.handles.remove(id) {
-            match handle.await {
+        if let Some(state) = self.states.get(id) {
+            if let Some(result) = state.result.clone() {
+                self.completion_waiters.remove(id);
+                return Some(result);
+            }
+        }
+
+        if let Some((_, receiver)) = self.completion_waiters.remove(id) {
+            match receiver.await {
                 Ok(result) => {
-                    let already_completed = self
-                        .states
-                        .get(id)
-                        .map(|state| state.result.is_some())
-                        .unwrap_or(false);
-                    if !already_completed {
+                    if self.states.get(id).and_then(|s| s.result.clone()).is_none() {
                         self.mark_completed(id, result.clone());
                     }
-                    Some(result)
+                    return Some(result);
                 }
-                Err(e) => {
-                    let result = SubagentResult {
-                        success: false,
-                        output: String::new(),
-                        summary: None,
-                        duration_ms: 0,
-                        tokens_used: None,
-                        error: Some(format!("Task panicked: {}", e)),
-                    };
-                    let already_completed = self
-                        .states
-                        .get(id)
-                        .map(|state| state.result.is_some())
-                        .unwrap_or(false);
-                    if !already_completed {
-                        self.mark_completed(id, result.clone());
-                    }
-                    Some(result)
+                Err(_) => {
+                    return self.states.get(id).and_then(|s| s.result.clone());
                 }
             }
-        } else {
-            // Already completed, get from states
-            self.states.get(id).and_then(|s| s.result.clone())
         }
+
+        self.states.get(id).and_then(|s| s.result.clone())
     }
 
     /// Wait for all running sub-agents to complete
     pub async fn wait_all(&self) -> Vec<SubagentResult> {
-        let ids: Vec<String> = self.handles.iter().map(|r| r.key().clone()).collect();
+        let ids: Vec<String> = self
+            .abort_handles
+            .iter()
+            .map(|r| r.key().clone())
+            .collect();
 
         let mut results = Vec::new();
         for id in ids {
@@ -239,8 +258,9 @@ impl SubagentTracker {
 
     /// Cancel a running sub-agent
     pub fn cancel(&self, id: &str) -> bool {
-        if let Some((_, handle)) = self.handles.remove(id) {
+        if let Some((_, handle)) = self.abort_handles.remove(id) {
             handle.abort();
+            self.completion_waiters.remove(id);
             if let Some(mut state) = self.states.get_mut(id) {
                 state.status = SubagentStatus::Cancelled;
                 state.completed_at = Some(chrono::Utc::now().timestamp_millis());
@@ -253,7 +273,11 @@ impl SubagentTracker {
 
     /// Cancel all running sub-agents
     pub fn cancel_all(&self) -> usize {
-        let ids: Vec<String> = self.handles.iter().map(|r| r.key().clone()).collect();
+        let ids: Vec<String> = self
+            .abort_handles
+            .iter()
+            .map(|r| r.key().clone())
+            .collect();
         let mut cancelled = 0;
         for id in ids {
             if self.cancel(&id) {
@@ -276,7 +300,8 @@ impl SubagentTracker {
         }
 
         // Remove the handle if it exists
-        self.handles.remove(id);
+        self.abort_handles.remove(id);
+        self.completion_waiters.remove(id);
 
         // Send completion notification
         let _ = self.completion_tx.try_send(SubagentCompletion {
@@ -309,7 +334,8 @@ impl SubagentTracker {
         }
 
         // Remove the handle if it exists
-        self.handles.remove(id);
+        self.abort_handles.remove(id);
+        self.completion_waiters.remove(id);
 
         // Send completion notification
         let _ = self.completion_tx.try_send(SubagentCompletion {
@@ -364,18 +390,21 @@ mod tests {
     #[tokio::test]
     async fn test_tracker_basic() {
         let (tx, rx) = mpsc::channel(10);
-        let tracker = SubagentTracker::new(tx, rx);
+        let tracker = Arc::new(SubagentTracker::new(tx, rx));
 
         // Register a sub-agent
-        let handle = tokio::spawn(async {
-            SubagentResult {
+        let (completion_tx, completion_rx) = oneshot::channel();
+        let handle = tokio::spawn(async move {
+            let result = SubagentResult {
                 success: true,
                 output: "Done".to_string(),
                 summary: None,
                 duration_ms: 100,
                 tokens_used: Some(50),
                 error: None,
-            }
+            };
+            let _ = completion_tx.send(result.clone());
+            result
         });
 
         tracker.register(
@@ -383,6 +412,7 @@ mod tests {
             "researcher".to_string(),
             "Research X".to_string(),
             handle,
+            completion_rx,
         );
 
         assert_eq!(tracker.running_count(), 1);
@@ -399,9 +429,10 @@ mod tests {
     #[tokio::test]
     async fn test_tracker_cancel() {
         let (tx, rx) = mpsc::channel(10);
-        let tracker = SubagentTracker::new(tx, rx);
+        let tracker = Arc::new(SubagentTracker::new(tx, rx));
 
         // Register a long-running sub-agent
+        let (_completion_tx, completion_rx) = oneshot::channel();
         let handle = tokio::spawn(async {
             tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
             SubagentResult {
@@ -419,6 +450,7 @@ mod tests {
             "coder".to_string(),
             "Code Y".to_string(),
             handle,
+            completion_rx,
         );
 
         assert!(tracker.is_running("task-1"));

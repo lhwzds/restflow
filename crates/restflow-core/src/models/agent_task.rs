@@ -292,12 +292,7 @@ pub struct AgentTask {
 
 impl AgentTask {
     /// Create a new agent task with the given parameters
-    pub fn new(
-        id: String,
-        name: String,
-        agent_id: String,
-        schedule: TaskSchedule,
-    ) -> Self {
+    pub fn new(id: String, name: String, agent_id: String, schedule: TaskSchedule) -> Self {
         let now = chrono::Utc::now().timestamp_millis();
         let next_run = Self::calculate_next_run(&schedule, now);
 
@@ -346,7 +341,10 @@ impl AgentTask {
                     None // Already passed
                 }
             }
-            TaskSchedule::Interval { interval_ms, start_at } => {
+            TaskSchedule::Interval {
+                interval_ms,
+                start_at,
+            } => {
                 let start = start_at.unwrap_or(from_time);
                 if start > from_time {
                     Some(start)
@@ -357,7 +355,10 @@ impl AgentTask {
                     Some(start + (intervals_passed + 1) * interval_ms)
                 }
             }
-            TaskSchedule::Cron { expression, timezone } => {
+            TaskSchedule::Cron {
+                expression,
+                timezone,
+            } => {
                 // Parse and calculate next cron time
                 Self::next_cron_time(expression, timezone.as_deref(), from_time)
             }
@@ -532,7 +533,9 @@ mod tests {
     #[test]
     fn test_once_schedule_calculation() {
         let future_time = chrono::Utc::now().timestamp_millis() + 10000;
-        let schedule = TaskSchedule::Once { run_at: future_time };
+        let schedule = TaskSchedule::Once {
+            run_at: future_time,
+        };
 
         let next = AgentTask::calculate_next_run(&schedule, chrono::Utc::now().timestamp_millis());
         assert_eq!(next, Some(future_time));
@@ -540,7 +543,8 @@ mod tests {
         // Past time should return None
         let past_time = chrono::Utc::now().timestamp_millis() - 10000;
         let schedule_past = TaskSchedule::Once { run_at: past_time };
-        let next_past = AgentTask::calculate_next_run(&schedule_past, chrono::Utc::now().timestamp_millis());
+        let next_past =
+            AgentTask::calculate_next_run(&schedule_past, chrono::Utc::now().timestamp_millis());
         assert!(next_past.is_none());
     }
 
@@ -627,7 +631,7 @@ mod tests {
     fn test_should_run() {
         // Use a future timestamp to ensure next_run_at is set
         let future_time = chrono::Utc::now().timestamp_millis() + 100000;
-        
+
         let mut task = AgentTask::new(
             "task-123".to_string(),
             "Test Task".to_string(),
@@ -698,7 +702,10 @@ mod tests {
         let schedule = TaskSchedule::default();
 
         match schedule {
-            TaskSchedule::Interval { interval_ms, start_at } => {
+            TaskSchedule::Interval {
+                interval_ms,
+                start_at,
+            } => {
                 assert_eq!(interval_ms, 3600000);
                 assert!(start_at.is_none());
             }
@@ -797,7 +804,8 @@ mod tests {
         assert_eq!(mode, ExecutionMode::Api);
 
         // Test CLI mode deserialization
-        let json = r#"{"type":"cli","binary":"aider","args":[],"timeout_secs":300,"use_pty":false}"#;
+        let json =
+            r#"{"type":"cli","binary":"aider","args":[],"timeout_secs":300,"use_pty":false}"#;
         let mode: ExecutionMode = serde_json::from_str(json).unwrap();
         match mode {
             ExecutionMode::Cli(config) => {

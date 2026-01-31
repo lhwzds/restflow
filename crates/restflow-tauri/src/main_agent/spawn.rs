@@ -12,6 +12,7 @@ use restflow_ai::llm::CompletionRequest;
 use restflow_ai::{LlmClient, Message};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use tokio::sync::oneshot;
 use tokio::time::{timeout, Duration};
 use ts_rs::TS;
 
@@ -59,8 +60,8 @@ pub fn spawn_subagent(
     definitions: Arc<AgentDefinitionRegistry>,
     llm_client: Arc<dyn LlmClient>,
     event_emitter: Arc<dyn MainAgentEventEmitter>,
-    session_id: String,
     config: MainAgentConfig,
+    session_id: String,
     request: SpawnRequest,
 ) -> Result<SpawnHandle> {
     // Check parallel limit
@@ -69,6 +70,12 @@ pub fn spawn_subagent(
         return Err(anyhow!(
             "Max parallel agents ({}) reached",
             config.max_parallel_agents
+        ));
+    }
+
+    if session_id.trim().is_empty() {
+        return Err(anyhow!(
+            "Main agent session id is required for sub-agent events"
         ));
     }
 
@@ -92,24 +99,21 @@ pub fn spawn_subagent(
     let agent_name = agent_def.name.clone();
     let _agent_id = request.agent_id.clone();
     let sid = task_id.clone();
-    let session_id_for_task = session_id.clone();
     let tracker_clone = tracker.clone();
     let emitter_clone = event_emitter.clone();
-
-    // Register state before spawning to avoid completion races
-    tracker.register_state(
-        task_id.clone(),
-        agent_name_for_register,
-        task_for_register,
-    );
+    let session_id_clone = session_id.clone();
 
     // Spawn the Tokio task
+    let (completion_tx, completion_rx) = oneshot::channel();
+    let (start_tx, start_rx) = oneshot::channel();
+
     let handle = tokio::spawn(async move {
+        let _ = start_rx.await;
         let start = std::time::Instant::now();
 
         // Emit started event
         emitter_clone.emit(MainAgentEvent {
-            session_id: session_id_for_task.clone(),
+            session_id: session_id_clone.clone(),
             timestamp: chrono::Utc::now().timestamp_millis(),
             kind: MainAgentEventKind::SubagentSpawned {
                 task_id: sid.clone(),
@@ -126,8 +130,8 @@ pub fn spawn_subagent(
                 agent_def,
                 task.clone(),
                 emitter_clone.clone(),
+                session_id_clone.clone(),
                 sid.clone(),
-                session_id_for_task.clone(),
             ),
         )
         .await;
@@ -178,7 +182,7 @@ pub fn spawn_subagent(
 
         // Emit completed event
         emitter_clone.emit(MainAgentEvent {
-            session_id: session_id_for_task.clone(),
+            session_id: session_id_clone.clone(),
             timestamp: chrono::Utc::now().timestamp_millis(),
             kind: MainAgentEventKind::SubagentCompleted {
                 task_id: sid.clone(),
@@ -189,11 +193,20 @@ pub fn spawn_subagent(
             },
         });
 
+        let _ = completion_tx.send(subagent_result.clone());
         subagent_result
     });
 
-    // Attach handle after spawn
-    tracker.attach_handle(task_id.clone(), handle);
+    // Register with tracker
+    tracker.register(
+        task_id.clone(),
+        agent_name_for_register,
+        task_for_register,
+        handle,
+        completion_rx,
+    );
+
+    let _ = start_tx.send(());
 
     Ok(SpawnHandle {
         id: task_id,
@@ -207,12 +220,12 @@ async fn execute_subagent(
     agent_def: AgentDefinition,
     task: String,
     event_emitter: Arc<dyn MainAgentEventEmitter>,
-    task_id: String,
     session_id: String,
+    task_id: String,
 ) -> Result<String> {
     // Build system prompt for sub-agent
     let system_prompt = format!(
-        "{}\n\n## Your Task\n{}\n\n## Important\n\
+        "{}\n\n## Your Task\n{}\n\n## Important\
          You are a sub-agent focused on this specific task. \
          Complete it thoroughly and return your results.",
         agent_def.system_prompt, task
@@ -231,10 +244,7 @@ async fn execute_subagent(
 
     // TODO: Implement full ReAct loop with the sub-agent
     // For now, we'll make a simple LLM call
-    let messages = vec![
-        Message::system(system_prompt),
-        Message::user(task),
-    ];
+    let messages = vec![Message::system(system_prompt), Message::user(task)];
 
     let request = CompletionRequest::new(messages).with_max_tokens(4096);
 

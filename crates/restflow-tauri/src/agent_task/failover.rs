@@ -65,8 +65,8 @@ impl Default for FailoverConfig {
         Self {
             primary: AIModel::ClaudeSonnet4_5,
             fallbacks: vec![AIModel::Gpt5, AIModel::DeepseekChat],
-            cooldown_secs: 300,       // 5 minutes
-            failure_threshold: 3,      // 3 consecutive failures
+            cooldown_secs: 300,   // 5 minutes
+            failure_threshold: 3, // 3 consecutive failures
             auto_recover: true,
         }
     }
@@ -129,7 +129,9 @@ impl ModelHealth {
 
     /// Check if the model is currently in cooldown
     fn is_in_cooldown(&self, now: i64) -> bool {
-        self.cooldown_until.map(|until| now < until).unwrap_or(false)
+        self.cooldown_until
+            .map(|until| now < until)
+            .unwrap_or(false)
     }
 
     /// Check if the model is available (not in cooldown)
@@ -141,11 +143,7 @@ impl ModelHealth {
     fn remaining_cooldown_ms(&self, now: i64) -> Option<i64> {
         self.cooldown_until.and_then(|until| {
             let remaining = until - now;
-            if remaining > 0 {
-                Some(remaining)
-            } else {
-                None
-            }
+            if remaining > 0 { Some(remaining) } else { None }
         })
     }
 
@@ -364,9 +362,7 @@ impl FailoverManager {
                 available: h.is_available(now),
                 consecutive_failures: h.consecutive_failures,
                 success_rate: h.success_rate(),
-                cooldown_remaining_secs: h
-                    .remaining_cooldown_ms(now)
-                    .map(|ms| (ms / 1000) as u64),
+                cooldown_remaining_secs: h.remaining_cooldown_ms(now).map(|ms| (ms / 1000) as u64),
                 last_error: h.last_error.clone(),
             },
             None => ModelStatus {

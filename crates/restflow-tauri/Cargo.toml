@@ -59,6 +59,9 @@ async-trait = "0.1"
 # UUID for unique session IDs
 uuid = { version = "1.11", features = ["v4"] }
 
+# Concurrent collections
+dashmap = "6"
+
 # HTTP server for webhooks
 axum = "0.8"
 tower-http = { version = "0.6", features = ["cors", "trace"] }

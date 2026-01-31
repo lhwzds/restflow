@@ -12,8 +12,8 @@
 //! - **Statistics**: Track memory usage per agent
 
 use crate::models::memory::{
-    MemoryChunk, MemorySearchQuery, MemorySearchResult, MemorySession, MemorySource,
-    MemoryStats, SearchMode, SourceTypeFilter,
+    MemoryChunk, MemorySearchQuery, MemorySearchResult, MemorySession, MemorySource, MemoryStats,
+    SearchMode, SourceTypeFilter,
 };
 use anyhow::Result;
 use redb::Database;
@@ -356,10 +356,17 @@ impl MemoryStorage {
 fn matches_source_type(source: &MemorySource, filter: &SourceTypeFilter) -> bool {
     matches!(
         (source, filter),
-        (MemorySource::TaskExecution { .. }, SourceTypeFilter::TaskExecution)
-            | (MemorySource::Conversation { .. }, SourceTypeFilter::Conversation)
-            | (MemorySource::ManualNote, SourceTypeFilter::ManualNote)
-            | (MemorySource::AgentGenerated { .. }, SourceTypeFilter::AgentGenerated)
+        (
+            MemorySource::TaskExecution { .. },
+            SourceTypeFilter::TaskExecution
+        ) | (
+            MemorySource::Conversation { .. },
+            SourceTypeFilter::Conversation
+        ) | (MemorySource::ManualNote, SourceTypeFilter::ManualNote)
+            | (
+                MemorySource::AgentGenerated { .. },
+                SourceTypeFilter::AgentGenerated
+            )
     )
 }
 
@@ -396,10 +403,8 @@ mod tests {
     fn test_deduplication() {
         let storage = create_test_storage();
 
-        let chunk1 =
-            MemoryChunk::new("agent-001".to_string(), "Duplicate content".to_string());
-        let chunk2 =
-            MemoryChunk::new("agent-001".to_string(), "Duplicate content".to_string());
+        let chunk1 = MemoryChunk::new("agent-001".to_string(), "Duplicate content".to_string());
+        let chunk2 = MemoryChunk::new("agent-001".to_string(), "Duplicate content".to_string());
 
         let id1 = storage.store_chunk(&chunk1).unwrap();
         let id2 = storage.store_chunk(&chunk2).unwrap();
@@ -494,9 +499,8 @@ mod tests {
     fn test_create_and_get_session() {
         let storage = create_test_storage();
 
-        let session =
-            MemorySession::new("agent-001".to_string(), "Test Session".to_string())
-                .with_description("A test session".to_string());
+        let session = MemorySession::new("agent-001".to_string(), "Test Session".to_string())
+            .with_description("A test session".to_string());
 
         let id = storage.create_session(&session).unwrap();
         assert_eq!(id, session.id);
@@ -609,12 +613,9 @@ mod tests {
     fn test_search_regex() {
         let storage = create_test_storage();
 
-        let chunk1 =
-            MemoryChunk::new("agent-001".to_string(), "error: code 404".to_string());
-        let chunk2 =
-            MemoryChunk::new("agent-001".to_string(), "error: code 500".to_string());
-        let chunk3 =
-            MemoryChunk::new("agent-001".to_string(), "success: code 200".to_string());
+        let chunk1 = MemoryChunk::new("agent-001".to_string(), "error: code 404".to_string());
+        let chunk2 = MemoryChunk::new("agent-001".to_string(), "error: code 500".to_string());
+        let chunk3 = MemoryChunk::new("agent-001".to_string(), "success: code 200".to_string());
 
         storage.store_chunk(&chunk1).unwrap();
         storage.store_chunk(&chunk2).unwrap();
@@ -676,10 +677,7 @@ mod tests {
 
         // Create 10 chunks
         for i in 0..10 {
-            let chunk = MemoryChunk::new(
-                "agent-001".to_string(),
-                format!("Content {}", i),
-            );
+            let chunk = MemoryChunk::new("agent-001".to_string(), format!("Content {}", i));
             storage.store_chunk(&chunk).unwrap();
         }
 

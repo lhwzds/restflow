@@ -124,8 +124,8 @@ pub trait StreamReceiver: Channel {
 #[cfg(test)]
 pub mod mock {
     use super::*;
-    use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
     use tokio::sync::mpsc;
 
     /// A mock channel for testing
@@ -201,10 +201,10 @@ mod tests {
     #[tokio::test]
     async fn test_mock_channel_send() {
         let channel = MockChannel::new(ChannelType::Telegram);
-        
+
         let msg = OutboundMessage::new("chat-123", "Hello");
         channel.send(msg).await.unwrap();
-        
+
         let sent = channel.get_sent_messages().await;
         assert_eq!(sent.len(), 1);
         assert_eq!(sent[0].content, "Hello");
@@ -219,7 +219,7 @@ mod tests {
     #[tokio::test]
     async fn test_channel_defaults() {
         let channel = MockChannel::new(ChannelType::Telegram);
-        
+
         assert_eq!(channel.name(), "Telegram");
         assert!(channel.supports_interaction());
     }
@@ -227,9 +227,12 @@ mod tests {
     #[tokio::test]
     async fn test_send_text_convenience() {
         let channel = MockChannel::new(ChannelType::Telegram);
-        
-        channel.send_text("chat-456", "Quick message").await.unwrap();
-        
+
+        channel
+            .send_text("chat-456", "Quick message")
+            .await
+            .unwrap();
+
         let sent = channel.get_sent_messages().await;
         assert_eq!(sent.len(), 1);
         assert_eq!(sent[0].conversation_id, "chat-456");

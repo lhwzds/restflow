@@ -38,8 +38,8 @@ impl AgentTaskStorage {
         self.inner.put_task_raw(&task.id, &json_bytes)?;
 
         // Create a "created" event
-        let event = TaskEvent::new(task.id.clone(), TaskEventType::Created)
-            .with_message("Task created");
+        let event =
+            TaskEvent::new(task.id.clone(), TaskEventType::Created).with_message("Task created");
         self.add_event(&event)?;
 
         Ok(task)
@@ -75,7 +75,10 @@ impl AgentTaskStorage {
     /// List tasks that are ready to run
     pub fn list_runnable_tasks(&self, current_time: i64) -> Result<Vec<AgentTask>> {
         let tasks = self.list_tasks()?;
-        Ok(tasks.into_iter().filter(|t| t.should_run(current_time)).collect())
+        Ok(tasks
+            .into_iter()
+            .filter(|t| t.should_run(current_time))
+            .collect())
     }
 
     /// Update an existing agent task
@@ -103,8 +106,8 @@ impl AgentTaskStorage {
         self.update_task(&task)?;
 
         // Record the pause event
-        let event = TaskEvent::new(task.id.clone(), TaskEventType::Paused)
-            .with_message("Task paused");
+        let event =
+            TaskEvent::new(task.id.clone(), TaskEventType::Paused).with_message("Task paused");
         self.add_event(&event)?;
 
         Ok(task)
@@ -120,8 +123,8 @@ impl AgentTaskStorage {
         self.update_task(&task)?;
 
         // Record the resume event
-        let event = TaskEvent::new(task.id.clone(), TaskEventType::Resumed)
-            .with_message("Task resumed");
+        let event =
+            TaskEvent::new(task.id.clone(), TaskEventType::Resumed).with_message("Task resumed");
         self.add_event(&event)?;
 
         Ok(task)
@@ -171,7 +174,12 @@ impl AgentTaskStorage {
     }
 
     /// Mark a task as failed
-    pub fn fail_task_execution(&self, id: &str, error: String, duration_ms: i64) -> Result<AgentTask> {
+    pub fn fail_task_execution(
+        &self,
+        id: &str,
+        error: String,
+        duration_ms: i64,
+    ) -> Result<AgentTask> {
         let mut task = self
             .get_task(id)?
             .ok_or_else(|| anyhow::anyhow!("Task {} not found", id))?;
@@ -223,7 +231,11 @@ impl AgentTaskStorage {
     }
 
     /// List recent events for a task (with limit)
-    pub fn list_recent_events_for_task(&self, task_id: &str, limit: usize) -> Result<Vec<TaskEvent>> {
+    pub fn list_recent_events_for_task(
+        &self,
+        task_id: &str,
+        limit: usize,
+    ) -> Result<Vec<TaskEvent>> {
         let events = self.list_events_for_task(task_id)?;
         Ok(events.into_iter().take(limit).collect())
     }
@@ -325,8 +337,12 @@ mod tests {
 
         storage.pause_task(&task2.id).unwrap();
 
-        let active_tasks = storage.list_tasks_by_status(AgentTaskStatus::Active).unwrap();
-        let paused_tasks = storage.list_tasks_by_status(AgentTaskStatus::Paused).unwrap();
+        let active_tasks = storage
+            .list_tasks_by_status(AgentTaskStatus::Active)
+            .unwrap();
+        let paused_tasks = storage
+            .list_tasks_by_status(AgentTaskStatus::Paused)
+            .unwrap();
 
         assert_eq!(active_tasks.len(), 1);
         assert_eq!(active_tasks[0].id, task1.id);
@@ -535,7 +551,9 @@ mod tests {
             .create_task(
                 "Future Task".to_string(),
                 "agent-002".to_string(),
-                TaskSchedule::Once { run_at: future_time },
+                TaskSchedule::Once {
+                    run_at: future_time,
+                },
             )
             .unwrap();
 

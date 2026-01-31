@@ -62,7 +62,11 @@ impl TerminalSession {
     }
 
     /// Update the session's startup configuration
-    pub fn set_config(&mut self, working_directory: Option<String>, startup_command: Option<String>) {
+    pub fn set_config(
+        &mut self,
+        working_directory: Option<String>,
+        startup_command: Option<String>,
+    ) {
         self.working_directory = working_directory;
         self.startup_command = startup_command;
     }

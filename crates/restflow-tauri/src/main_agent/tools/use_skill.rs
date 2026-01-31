@@ -1,9 +1,9 @@
 //! use_skill tool - Load and activate a skill.
 
 use crate::main_agent::MainAgent;
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::sync::Arc;
 use ts_rs::TS;
 
@@ -62,8 +62,8 @@ impl UseSkillTool {
 
     /// Execute the tool
     pub async fn execute(&self, input: Value) -> Result<Value> {
-        let params: UseSkillParams = serde_json::from_value(input)
-            .map_err(|e| anyhow!("Invalid parameters: {}", e))?;
+        let params: UseSkillParams =
+            serde_json::from_value(input).map_err(|e| anyhow!("Invalid parameters: {}", e))?;
 
         if params.list {
             // List available skills

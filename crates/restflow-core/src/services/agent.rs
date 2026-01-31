@@ -64,11 +64,7 @@ mod tests {
     async fn create_test_core() -> Arc<AppCore> {
         let temp_dir = tempdir().unwrap();
         let db_path = temp_dir.path().join("test.db");
-        Arc::new(
-            AppCore::new(db_path.to_str().unwrap())
-                .await
-                .unwrap(),
-        )
+        Arc::new(AppCore::new(db_path.to_str().unwrap()).await.unwrap())
     }
 
     fn create_test_agent_node(prompt: &str) -> AgentNode {

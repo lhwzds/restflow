@@ -61,8 +61,8 @@ pub struct TextChunker {
 impl Default for TextChunker {
     fn default() -> Self {
         Self {
-            chunk_size: 1600,   // ~400 tokens
-            overlap: 320,       // ~80 tokens (20% overlap)
+            chunk_size: 1600, // ~400 tokens
+            overlap: 320,     // ~80 tokens (20% overlap)
             min_chunk_size: 200,
         }
     }
@@ -453,7 +453,11 @@ mod tests {
         let text = "word ".repeat(100); // 500 chars
         let chunks = chunker.chunk(&text, "agent-1", None, MemorySource::ManualNote);
 
-        assert!(chunks.len() > 1, "Expected multiple chunks, got {}", chunks.len());
+        assert!(
+            chunks.len() > 1,
+            "Expected multiple chunks, got {}",
+            chunks.len()
+        );
     }
 
     #[test]

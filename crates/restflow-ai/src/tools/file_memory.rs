@@ -204,7 +204,12 @@ impl Tool for SaveMemoryTool {
         let entry_path = self.config.entry_path(&id);
         let entry_json = match serde_json::to_string_pretty(&entry) {
             Ok(j) => j,
-            Err(e) => return Ok(ToolOutput::error(format!("Failed to serialize entry: {}", e))),
+            Err(e) => {
+                return Ok(ToolOutput::error(format!(
+                    "Failed to serialize entry: {}",
+                    e
+                )));
+            }
         };
 
         if let Err(e) = fs::write(&entry_path, entry_json).await {
@@ -352,11 +357,7 @@ impl Tool for ReadMemoryTool {
         // Filter by tag
         if let Some(ref tag) = params.tag {
             let tag_lower = tag.to_lowercase();
-            results.retain(|m| {
-                m.tags
-                    .iter()
-                    .any(|t| t.to_lowercase().contains(&tag_lower))
-            });
+            results.retain(|m| m.tags.iter().any(|t| t.to_lowercase().contains(&tag_lower)));
         }
 
         // Filter by search term in title
@@ -459,11 +460,7 @@ impl Tool for ListMemoryTool {
         // Filter by tag
         if let Some(ref tag) = params.tag {
             let tag_lower = tag.to_lowercase();
-            results.retain(|m| {
-                m.tags
-                    .iter()
-                    .any(|t| t.to_lowercase().contains(&tag_lower))
-            });
+            results.retain(|m| m.tags.iter().any(|t| t.to_lowercase().contains(&tag_lower)));
         }
 
         // Sort by updated_at descending
@@ -683,10 +680,7 @@ mod tests {
         let id = save_result.result["id"].as_str().unwrap().to_string();
 
         // Read it back by ID
-        let read_result = read_tool
-            .execute(json!({ "id": id }))
-            .await
-            .unwrap();
+        let read_result = read_tool.execute(json!({ "id": id })).await.unwrap();
 
         assert!(read_result.success);
         assert!(read_result.result["found"].as_bool().unwrap());
@@ -873,10 +867,8 @@ mod tests {
     async fn test_session_isolation() {
         let temp_dir = TempDir::new().unwrap();
 
-        let config1 = FileMemoryConfig::new(temp_dir.path(), "agent")
-            .with_session("session-1");
-        let config2 = FileMemoryConfig::new(temp_dir.path(), "agent")
-            .with_session("session-2");
+        let config1 = FileMemoryConfig::new(temp_dir.path(), "agent").with_session("session-1");
+        let config2 = FileMemoryConfig::new(temp_dir.path(), "agent").with_session("session-2");
 
         let save1 = SaveMemoryTool::new(config1.clone());
         let list1 = ListMemoryTool::new(config1);

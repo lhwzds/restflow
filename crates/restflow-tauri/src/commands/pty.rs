@@ -504,8 +504,7 @@ pub fn save_all_terminal_history_sync(pty_state: &PtyState, app_state: &AppState
 
     for session_id in session_ids {
         if let Some(history) = pty_state.remove_session(&session_id)
-            && let Ok(Some(mut session)) =
-                app_state.core.storage.terminal_sessions.get(&session_id)
+            && let Ok(Some(mut session)) = app_state.core.storage.terminal_sessions.get(&session_id)
         {
             session.set_stopped(Some(history));
 

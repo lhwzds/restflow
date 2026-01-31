@@ -4,11 +4,11 @@
 //! external systems to trigger agent task executions.
 
 use axum::{
+    Router,
     extract::{Path, State},
     http::{HeaderMap, StatusCode},
     response::Json,
     routing::{get, post},
-    Router,
 };
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -106,7 +106,9 @@ async fn trigger_task(
             warn!(task_id = %task_id, "No webhook configured for task");
             return Err((
                 StatusCode::FORBIDDEN,
-                Json(WebhookResponse::error("Webhook not configured for this task")),
+                Json(WebhookResponse::error(
+                    "Webhook not configured for this task",
+                )),
             ));
         }
     };

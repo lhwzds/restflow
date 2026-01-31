@@ -197,7 +197,11 @@ impl SearchEngine {
             .collect();
 
         // Sort by score (highest first)
-        scored_chunks.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        scored_chunks.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
 
         let total_count = scored_chunks.len() as u32;
 
@@ -206,11 +210,7 @@ impl SearchEngine {
         let limit = query.limit as usize;
         let has_more = total_count > query.offset + query.limit;
 
-        let paginated: Vec<_> = scored_chunks
-            .into_iter()
-            .skip(offset)
-            .take(limit)
-            .collect();
+        let paginated: Vec<_> = scored_chunks.into_iter().skip(offset).take(limit).collect();
 
         Ok(RankedSearchResult {
             chunks: paginated,
@@ -226,11 +226,8 @@ impl SearchEngine {
 
         // Calculate frequency score
         if let Some(ref search_text) = query.query {
-            let (freq_score, matches) = self.calculate_frequency_score(
-                &chunk.content,
-                search_text,
-                &query.search_mode,
-            );
+            let (freq_score, matches) =
+                self.calculate_frequency_score(&chunk.content, search_text, &query.search_mode);
             breakdown.frequency_score = freq_score;
             match_count = matches;
         } else {
@@ -653,11 +650,8 @@ mod tests {
             "Important rust information".to_string(),
         )
         .with_created_at(one_week_ago);
-        let chunk_new = MemoryChunk::new(
-            "agent-001".to_string(),
-            "Another rust fact".to_string(),
-        )
-        .with_created_at(now);
+        let chunk_new = MemoryChunk::new("agent-001".to_string(), "Another rust fact".to_string())
+            .with_created_at(now);
 
         engine.storage().store_chunk(&chunk_old).unwrap();
         engine.storage().store_chunk(&chunk_new).unwrap();
@@ -706,9 +700,7 @@ mod tests {
         let db = Arc::new(Database::create(db_path).unwrap());
         let storage = MemoryStorage::new(db).unwrap();
 
-        let engine = SearchEngineBuilder::new(storage)
-            .min_score(50.0)
-            .build();
+        let engine = SearchEngineBuilder::new(storage).min_score(50.0).build();
 
         // Store chunks with very different relevance
         let chunk_relevant = MemoryChunk::new(

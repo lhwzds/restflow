@@ -80,7 +80,10 @@ pub enum MainAgentEventKind {
     },
 
     /// Skill loaded
-    SkillLoaded { skill_id: String, skill_name: String },
+    SkillLoaded {
+        skill_id: String,
+        skill_name: String,
+    },
 
     /// Assistant token (streaming)
     AssistantToken { text: String, token_count: u32 },

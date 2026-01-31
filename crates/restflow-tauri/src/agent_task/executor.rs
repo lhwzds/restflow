@@ -5,7 +5,7 @@
 //! It loads agent configuration from storage, builds the appropriate LLM
 //! client, and executes the agent with the configured tools.
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use async_trait::async_trait;
 use std::sync::Arc;
 
@@ -13,7 +13,7 @@ use restflow_ai::{
     AgentConfig, AgentExecutor as AiAgentExecutor, AnthropicClient, LlmClient, OpenAIClient,
     ToolRegistry,
 };
-use restflow_core::{models::ApiKeyConfig, storage::Storage, AIModel, Provider};
+use restflow_core::{AIModel, Provider, models::ApiKeyConfig, storage::Storage};
 
 use super::runner::{AgentExecutor, ExecutionResult};
 
@@ -81,22 +81,16 @@ impl RealAgentExecutor {
     }
 
     /// Create an LLM client for the given model.
-    fn create_llm_client(
-        &self,
-        model: AIModel,
-        api_key: &str,
-    ) -> Result<Arc<dyn LlmClient>> {
+    fn create_llm_client(&self, model: AIModel, api_key: &str) -> Result<Arc<dyn LlmClient>> {
         let model_str = model.as_str();
 
         match model.provider() {
             Provider::OpenAI => {
-                let client = OpenAIClient::new(api_key)
-                    .with_model(model_str);
+                let client = OpenAIClient::new(api_key).with_model(model_str);
                 Ok(Arc::new(client))
             }
             Provider::Anthropic => {
-                let client = AnthropicClient::new(api_key)
-                    .with_model(model_str);
+                let client = AnthropicClient::new(api_key).with_model(model_str);
                 Ok(Arc::new(client))
             }
             Provider::DeepSeek => {
@@ -185,7 +179,9 @@ impl AgentExecutor for RealAgentExecutor {
 
         // 7. Return result with messages for memory persistence
         if result.success {
-            let output = result.answer.unwrap_or_else(|| "Task completed".to_string());
+            let output = result
+                .answer
+                .unwrap_or_else(|| "Task completed".to_string());
             let messages = result.state.messages.clone();
             Ok(ExecutionResult::success(output, messages))
         } else {

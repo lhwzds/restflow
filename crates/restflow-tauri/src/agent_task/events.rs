@@ -173,11 +173,7 @@ impl TaskStreamEvent {
     }
 
     /// Create an output event
-    pub fn output(
-        task_id: impl Into<String>,
-        text: impl Into<String>,
-        is_stderr: bool,
-    ) -> Self {
+    pub fn output(task_id: impl Into<String>, text: impl Into<String>, is_stderr: bool) -> Self {
         let text = text.into();
         let is_complete = text.ends_with('\n');
         Self::new(
@@ -455,7 +451,8 @@ mod tests {
 
     #[test]
     fn test_progress_event() {
-        let event = TaskStreamEvent::progress("task-1", "Compiling", Some(50), Some("main.rs".into()));
+        let event =
+            TaskStreamEvent::progress("task-1", "Compiling", Some(50), Some("main.rs".into()));
 
         match &event.kind {
             StreamEventKind::Progress {
@@ -531,7 +528,8 @@ mod tests {
 
     #[test]
     fn test_failed_with_code() {
-        let event = TaskStreamEvent::failed_with_code("task-1", "API Error", "E_API_001", 1000, false);
+        let event =
+            TaskStreamEvent::failed_with_code("task-1", "API Error", "E_API_001", 1000, false);
 
         match &event.kind {
             StreamEventKind::Failed {
@@ -551,7 +549,10 @@ mod tests {
         let event = TaskStreamEvent::cancelled("task-1", "User requested", 3000);
 
         match &event.kind {
-            StreamEventKind::Cancelled { reason, duration_ms } => {
+            StreamEventKind::Cancelled {
+                reason,
+                duration_ms,
+            } => {
                 assert_eq!(reason, "User requested");
                 assert_eq!(*duration_ms, 3000);
             }
@@ -612,9 +613,15 @@ mod tests {
     async fn test_channel_emitter() {
         let (emitter, mut receiver) = ChannelEventEmitter::new();
 
-        emitter.emit(TaskStreamEvent::started("task-1", "Test", "agent-1", "api")).await;
-        emitter.emit(TaskStreamEvent::output("task-1", "Hello\n", false)).await;
-        emitter.emit(TaskStreamEvent::completed("task-1", "Done", 1000)).await;
+        emitter
+            .emit(TaskStreamEvent::started("task-1", "Test", "agent-1", "api"))
+            .await;
+        emitter
+            .emit(TaskStreamEvent::output("task-1", "Hello\n", false))
+            .await;
+        emitter
+            .emit(TaskStreamEvent::completed("task-1", "Done", 1000))
+            .await;
 
         let mut events = Vec::new();
         while let Ok(event) = receiver.try_recv() {
@@ -631,7 +638,9 @@ mod tests {
     async fn test_noop_emitter() {
         let emitter = NoopEventEmitter;
         // Should not panic
-        emitter.emit(TaskStreamEvent::started("task-1", "Test", "agent-1", "api")).await;
+        emitter
+            .emit(TaskStreamEvent::started("task-1", "Test", "agent-1", "api"))
+            .await;
     }
 
     #[test]
@@ -643,7 +652,8 @@ mod tests {
     #[test]
     fn test_event_json_structure() {
         // Test that the JSON structure matches what the frontend expects
-        let event = TaskStreamEvent::started("task-123", "Build Project", "agent-456", "cli:claude");
+        let event =
+            TaskStreamEvent::started("task-123", "Build Project", "agent-456", "cli:claude");
         let json = serde_json::to_value(&event).unwrap();
 
         // Verify structure
@@ -679,7 +689,8 @@ mod tests {
             api_calls: Some(3),
             tokens_used: Some(1500),
         };
-        let event = TaskStreamEvent::completed_with_stats("task-1", "Build successful", 45000, stats);
+        let event =
+            TaskStreamEvent::completed_with_stats("task-1", "Build successful", 45000, stats);
         let json = serde_json::to_value(&event).unwrap();
 
         let kind = json.get("kind").unwrap();

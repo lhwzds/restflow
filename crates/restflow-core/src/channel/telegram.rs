@@ -3,14 +3,14 @@
 //! Implements bidirectional communication with Telegram via Bot API.
 //! Supports both sending messages and receiving via long-polling.
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use async_trait::async_trait;
 use futures::Stream;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::pin::Pin;
-use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 
@@ -317,9 +317,9 @@ impl Channel for TelegramChannel {
             info!("Telegram polling stopped");
         });
 
-        Some(Box::pin(tokio_stream::wrappers::UnboundedReceiverStream::new(
-            rx,
-        )))
+        Some(Box::pin(
+            tokio_stream::wrappers::UnboundedReceiverStream::new(rx),
+        ))
     }
 }
 
@@ -435,8 +435,7 @@ mod tests {
     fn test_format_message() {
         let channel = TelegramChannel::with_token("test");
 
-        let msg = OutboundMessage::success("123", "Task completed")
-            .with_title("Build Job");
+        let msg = OutboundMessage::success("123", "Task completed").with_title("Build Job");
         let formatted = channel.format_message(&msg);
 
         assert!(formatted.contains("✅"));

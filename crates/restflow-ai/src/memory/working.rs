@@ -94,13 +94,16 @@ impl WorkingMemory {
         // If at capacity, remove oldest non-system message
         while self.messages.len() >= self.max_messages {
             if let Some(removed) = self.remove_oldest_non_system() {
-                self.token_count = self.token_count.saturating_sub(Self::estimate_tokens(&removed));
+                self.token_count = self
+                    .token_count
+                    .saturating_sub(Self::estimate_tokens(&removed));
             } else {
                 // All messages are system messages - rare edge case
                 // Just remove the oldest one
                 if let Some(removed) = self.messages.pop_front() {
-                    self.token_count =
-                        self.token_count.saturating_sub(Self::estimate_tokens(&removed));
+                    self.token_count = self
+                        .token_count
+                        .saturating_sub(Self::estimate_tokens(&removed));
                 }
                 break;
             }

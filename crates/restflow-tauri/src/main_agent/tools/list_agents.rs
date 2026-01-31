@@ -1,9 +1,9 @@
 //! list_agents tool - List available agent types and running agents.
 
 use crate::main_agent::MainAgent;
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::sync::Arc;
 use ts_rs::TS;
 
@@ -57,8 +57,8 @@ impl ListAgentsTool {
 
     /// Execute the tool
     pub async fn execute(&self, input: Value) -> Result<Value> {
-        let params: ListAgentsParams = serde_json::from_value(input)
-            .map_err(|e| anyhow!("Invalid parameters: {}", e))?;
+        let params: ListAgentsParams =
+            serde_json::from_value(input).map_err(|e| anyhow!("Invalid parameters: {}", e))?;
 
         // Get available agent definitions
         let definitions = self.main_agent.agent_definitions();

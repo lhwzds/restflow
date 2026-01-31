@@ -78,10 +78,7 @@ impl AgentDefinitionRegistry {
 
     /// List callable agent definitions
     pub fn callable(&self) -> Vec<&AgentDefinition> {
-        self.definitions
-            .values()
-            .filter(|d| d.callable)
-            .collect()
+        self.definitions.values().filter(|d| d.callable).collect()
     }
 
     /// Find agents by tag
@@ -106,7 +103,8 @@ pub fn builtin_agents() -> Vec<AgentDefinition> {
             id: "researcher".to_string(),
             name: "Researcher".to_string(),
             description: "Conducts research, gathers information, and synthesizes findings. \
-                         Use for tasks requiring information gathering and analysis.".to_string(),
+                         Use for tasks requiring information gathering and analysis."
+                .to_string(),
             system_prompt: RESEARCHER_PROMPT.to_string(),
             allowed_tools: vec!["http_request".to_string(), "read".to_string()],
             model: None,
@@ -118,7 +116,8 @@ pub fn builtin_agents() -> Vec<AgentDefinition> {
             id: "coder".to_string(),
             name: "Coder".to_string(),
             description: "Writes, modifies, and debugs code. \
-                         Use for programming tasks and code generation.".to_string(),
+                         Use for programming tasks and code generation."
+                .to_string(),
             system_prompt: CODER_PROMPT.to_string(),
             allowed_tools: vec![
                 "read".to_string(),
@@ -135,7 +134,8 @@ pub fn builtin_agents() -> Vec<AgentDefinition> {
             id: "reviewer".to_string(),
             name: "Reviewer".to_string(),
             description: "Reviews code, documents, or content for quality and issues. \
-                         Use for review and quality assurance tasks.".to_string(),
+                         Use for review and quality assurance tasks."
+                .to_string(),
             system_prompt: REVIEWER_PROMPT.to_string(),
             allowed_tools: vec!["read".to_string(), "grep".to_string()],
             model: None,
@@ -147,7 +147,8 @@ pub fn builtin_agents() -> Vec<AgentDefinition> {
             id: "writer".to_string(),
             name: "Writer".to_string(),
             description: "Creates written content, documentation, and reports. \
-                         Use for content creation and documentation tasks.".to_string(),
+                         Use for content creation and documentation tasks."
+                .to_string(),
             system_prompt: WRITER_PROMPT.to_string(),
             allowed_tools: vec!["read".to_string(), "write".to_string()],
             model: None,
@@ -159,7 +160,8 @@ pub fn builtin_agents() -> Vec<AgentDefinition> {
             id: "analyst".to_string(),
             name: "Analyst".to_string(),
             description: "Analyzes data and provides insights. \
-                         Use for data analysis and interpretation tasks.".to_string(),
+                         Use for data analysis and interpretation tasks."
+                .to_string(),
             system_prompt: ANALYST_PROMPT.to_string(),
             allowed_tools: vec!["read".to_string(), "python".to_string()],
             model: None,

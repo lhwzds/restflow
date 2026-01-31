@@ -46,9 +46,7 @@ pub async fn create_chat_session(
 ///
 /// Returns sessions sorted by updated_at descending (most recent first).
 #[tauri::command]
-pub async fn list_chat_sessions(
-    state: State<'_, AppState>,
-) -> Result<Vec<ChatSession>, String> {
+pub async fn list_chat_sessions(state: State<'_, AppState>) -> Result<Vec<ChatSession>, String> {
     state
         .core
         .storage
@@ -116,10 +114,7 @@ pub async fn rename_chat_session(
 
 /// Delete a chat session.
 #[tauri::command]
-pub async fn delete_chat_session(
-    state: State<'_, AppState>,
-    id: String,
-) -> Result<bool, String> {
+pub async fn delete_chat_session(state: State<'_, AppState>, id: String) -> Result<bool, String> {
     state
         .core
         .storage
@@ -240,9 +235,7 @@ pub async fn list_chat_sessions_by_skill(
 
 /// Get the count of chat sessions.
 #[tauri::command]
-pub async fn get_chat_session_count(
-    state: State<'_, AppState>,
-) -> Result<usize, String> {
+pub async fn get_chat_session_count(state: State<'_, AppState>) -> Result<usize, String> {
     state
         .core
         .storage

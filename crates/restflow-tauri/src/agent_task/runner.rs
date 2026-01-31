@@ -7,7 +7,7 @@
 //! - Persisting conversation memory to long-term storage
 //! - Sending notifications on completion/failure
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use restflow_ai::llm::Message;
 use restflow_core::models::{AgentTask, AgentTaskStatus, ExecutionMode, NotificationConfig};
 use restflow_core::storage::{AgentTaskStorage, MemoryStorage};
@@ -367,7 +367,10 @@ impl AgentTaskRunner {
 
         // Check concurrency limit
         let running_count = self.running_tasks.read().await.len();
-        let available_slots = self.config.max_concurrent_tasks.saturating_sub(running_count);
+        let available_slots = self
+            .config
+            .max_concurrent_tasks
+            .saturating_sub(running_count);
 
         if available_slots == 0 {
             debug!(
@@ -572,16 +575,17 @@ impl AgentTaskRunner {
                 }
 
                 // Send notification if configured
-                self.send_notification(&task, true, &exec_result.output).await;
+                self.send_notification(&task, true, &exec_result.output)
+                    .await;
             }
             Ok(Err(e)) => {
                 // Execution error
                 let error_msg = format!("Execution error: {}", e);
                 error!("Task '{}' failed: {}", task.name, error_msg);
 
-                if let Err(e) = self
-                    .storage
-                    .fail_task_execution(task_id, error_msg.clone(), duration_ms)
+                if let Err(e) =
+                    self.storage
+                        .fail_task_execution(task_id, error_msg.clone(), duration_ms)
                 {
                     error!("Failed to record task failure: {}", e);
                 }
@@ -591,12 +595,15 @@ impl AgentTaskRunner {
             }
             Err(_) => {
                 // Timeout
-                let error_msg = format!("Task timed out after {} seconds", self.config.task_timeout_secs);
+                let error_msg = format!(
+                    "Task timed out after {} seconds",
+                    self.config.task_timeout_secs
+                );
                 error!("Task '{}' timed out", task.name);
 
-                if let Err(e) = self
-                    .storage
-                    .fail_task_execution(task_id, error_msg.clone(), duration_ms)
+                if let Err(e) =
+                    self.storage
+                        .fail_task_execution(task_id, error_msg.clone(), duration_ms)
                 {
                     error!("Failed to record task timeout: {}", e);
                 }
@@ -646,10 +653,7 @@ impl AgentTaskRunner {
                 }
             }
             Err(e) => {
-                warn!(
-                    "Failed to persist memory for task '{}': {}",
-                    task.name, e
-                );
+                warn!("Failed to persist memory for task '{}': {}", task.name, e);
             }
         }
     }
@@ -682,7 +686,10 @@ impl AgentTaskRunner {
             Ok(()) => {
                 if let Err(e) = self.storage.record_notification_sent(
                     &task.id,
-                    format!("Notification sent: {}", if success { "success" } else { "failure" }),
+                    format!(
+                        "Notification sent: {}",
+                        if success { "success" } else { "failure" }
+                    ),
                 ) {
                     warn!("Failed to record notification sent event: {}", e);
                 }
@@ -861,12 +868,7 @@ mod tests {
             ..Default::default()
         };
 
-        let runner = Arc::new(AgentTaskRunner::new(
-            storage,
-            executor,
-            notifier,
-            config,
-        ));
+        let runner = Arc::new(AgentTaskRunner::new(storage, executor, notifier, config));
 
         let handle = runner.clone().start();
 
@@ -1092,7 +1094,9 @@ mod tests {
             .create_task(
                 "Future Task".to_string(),
                 "agent-001".to_string(),
-                TaskSchedule::Once { run_at: future_time },
+                TaskSchedule::Once {
+                    run_at: future_time,
+                },
             )
             .unwrap();
 
@@ -1255,12 +1259,7 @@ mod tests {
             ..Default::default()
         };
 
-        let runner = Arc::new(AgentTaskRunner::new(
-            storage,
-            executor,
-            notifier,
-            config,
-        ));
+        let runner = Arc::new(AgentTaskRunner::new(storage, executor, notifier, config));
 
         let handle = runner.clone().start();
 

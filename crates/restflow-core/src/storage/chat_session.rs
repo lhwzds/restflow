@@ -245,7 +245,10 @@ mod tests {
         assert_eq!(summaries.len(), 1);
         assert_eq!(summaries[0].name, "Test Chat");
         assert_eq!(summaries[0].message_count, 1);
-        assert_eq!(summaries[0].last_message_preview, Some("Hello!".to_string()));
+        assert_eq!(
+            summaries[0].last_message_preview,
+            Some("Hello!".to_string())
+        );
     }
 
     #[test]

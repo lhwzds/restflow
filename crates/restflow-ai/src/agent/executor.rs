@@ -9,7 +9,7 @@ use serde_json::Value;
 use crate::agent::state::{AgentState, AgentStatus};
 use crate::error::{AiError, Result};
 use crate::llm::{CompletionRequest, FinishReason, LlmClient, Message};
-use crate::memory::{WorkingMemory, DEFAULT_MAX_MESSAGES};
+use crate::memory::{DEFAULT_MAX_MESSAGES, WorkingMemory};
 use crate::tools::ToolRegistry;
 
 /// Configuration for agent execution
@@ -269,11 +269,13 @@ impl AgentExecutor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::llm::{CompletionResponse, FinishReason, Role, StreamChunk, StreamResult, ToolCall, TokenUsage};
+    use crate::llm::{
+        CompletionResponse, FinishReason, Role, StreamChunk, StreamResult, ToolCall, TokenUsage,
+    };
     use async_trait::async_trait;
     use futures::stream;
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Mutex;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     /// Mock LLM client for testing
     struct MockLlmClient {
@@ -358,8 +360,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_agent_config_max_memory_messages() {
-        let config = AgentConfig::new("Test goal")
-            .with_max_memory_messages(50);
+        let config = AgentConfig::new("Test goal").with_max_memory_messages(50);
         assert_eq!(config.max_memory_messages, 50);
     }
 
@@ -455,8 +456,7 @@ mod tests {
         let executor = AgentExecutor::new(mock_llm.clone(), tools);
 
         // Set a very small memory limit
-        let config = AgentConfig::new("Multi-turn task")
-            .with_max_memory_messages(4); // system + user + assistant + tool_result
+        let config = AgentConfig::new("Multi-turn task").with_max_memory_messages(4); // system + user + assistant + tool_result
 
         let result = executor.run(config).await.unwrap();
         assert!(result.success);
@@ -495,8 +495,7 @@ mod tests {
         let tools = Arc::new(ToolRegistry::new());
         let executor = AgentExecutor::new(mock_llm, tools);
 
-        let config = AgentConfig::new("Test")
-            .with_max_memory_messages(100); // Large enough to hold all
+        let config = AgentConfig::new("Test").with_max_memory_messages(100); // Large enough to hold all
 
         let result = executor.run(config).await.unwrap();
 

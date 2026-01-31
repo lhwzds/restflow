@@ -1,9 +1,9 @@
 //! spawn_agent tool - Spawn a sub-agent to work on a task in parallel.
 
-use crate::main_agent::{spawn::SpawnRequest, MainAgent};
-use anyhow::{anyhow, Result};
+use crate::main_agent::{MainAgent, spawn::SpawnRequest};
+use anyhow::{Result, anyhow};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::sync::Arc;
 use ts_rs::TS;
 
@@ -79,8 +79,8 @@ impl SpawnAgentTool {
 
     /// Execute the tool
     pub async fn execute(&self, input: Value) -> Result<Value> {
-        let params: SpawnAgentParams = serde_json::from_value(input)
-            .map_err(|e| anyhow!("Invalid parameters: {}", e))?;
+        let params: SpawnAgentParams =
+            serde_json::from_value(input).map_err(|e| anyhow!("Invalid parameters: {}", e))?;
 
         let request = SpawnRequest {
             agent_id: params.agent.clone(),
