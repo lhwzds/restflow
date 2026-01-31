@@ -101,7 +101,9 @@ impl CliConfig {
 fn set_env_if_missing(key: &str, value: &Option<String>) {
     if std::env::var_os(key).is_none() {
         if let Some(val) = value.as_ref().map(|v| v.trim()).filter(|v| !v.is_empty()) {
-            std::env::set_var(key, val);
+            unsafe {
+                std::env::set_var(key, val);
+            }
         }
     }
 }
