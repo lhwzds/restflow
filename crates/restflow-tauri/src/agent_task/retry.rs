@@ -50,11 +50,11 @@ impl Default for RetryConfig {
     fn default() -> Self {
         Self {
             max_retries: 3,
-            initial_delay_secs: 60,       // 1 minute
-            max_delay_secs: 3600,         // 1 hour
-            backoff_multiplier: 2.0,      // Double each time
+            initial_delay_secs: 60,  // 1 minute
+            max_delay_secs: 3600,    // 1 hour
+            backoff_multiplier: 2.0, // Double each time
             jitter_enabled: true,
-            jitter_factor: 0.25,          // Up to 25% variation
+            jitter_factor: 0.25, // Up to 25% variation
         }
     }
 }
@@ -82,7 +82,7 @@ impl RetryConfig {
         Self {
             max_retries: 5,
             initial_delay_secs: 30,
-            max_delay_secs: 1800,  // 30 minutes
+            max_delay_secs: 1800, // 30 minutes
             backoff_multiplier: 1.5,
             jitter_enabled: true,
             jitter_factor: 0.2,
@@ -93,8 +93,8 @@ impl RetryConfig {
     pub fn conservative() -> Self {
         Self {
             max_retries: 2,
-            initial_delay_secs: 120,  // 2 minutes
-            max_delay_secs: 7200,     // 2 hours
+            initial_delay_secs: 120, // 2 minutes
+            max_delay_secs: 7200,    // 2 hours
             backoff_multiplier: 3.0,
             jitter_enabled: true,
             jitter_factor: 0.3,
@@ -140,8 +140,8 @@ impl RetryState {
     /// Uses exponential backoff with optional jitter
     pub fn calculate_delay(&self, config: &RetryConfig) -> Duration {
         // Base delay with exponential backoff
-        let base_delay = config.initial_delay_secs as f64
-            * config.backoff_multiplier.powi(self.attempt as i32);
+        let base_delay =
+            config.initial_delay_secs as f64 * config.backoff_multiplier.powi(self.attempt as i32);
 
         // Cap at maximum delay
         let capped_delay = base_delay.min(config.max_delay_secs as f64);
@@ -236,11 +236,7 @@ impl RetryState {
                     secs
                 )
             }
-            _ => format!(
-                "Retry {}/{} ready",
-                self.attempt + 1,
-                config.max_retries
-            ),
+            _ => format!("Retry {}/{} ready", self.attempt + 1, config.max_retries),
         }
     }
 }

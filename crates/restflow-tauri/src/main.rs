@@ -17,11 +17,11 @@
 use clap::Parser;
 use restflow_tauri_lib::AppState;
 use restflow_tauri_lib::RestFlowMcpServer;
-use restflow_tauri_lib::{RealAgentExecutor, TelegramNotifier};
 use restflow_tauri_lib::commands;
 use restflow_tauri_lib::commands::PtyState;
 use restflow_tauri_lib::commands::AuthState;
 use restflow_tauri_lib::commands::pty::save_all_terminal_history_sync;
+use restflow_tauri_lib::{RealAgentExecutor, TelegramNotifier};
 use tauri::Manager;
 use tracing::info;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -44,14 +44,13 @@ fn main() {
     let args = Args::parse();
     // Initialize tracing
     // For MCP mode, use stderr to avoid interfering with stdio transport
-    let filter = tracing_subscriber::EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| {
-            if args.mcp_mode {
-                "restflow_tauri=warn,restflow_core=warn".into()
-            } else {
-                "restflow_tauri=info,restflow_core=info".into()
-            }
-        });
+    let filter = tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+        if args.mcp_mode {
+            "restflow_tauri=warn,restflow_core=warn".into()
+        } else {
+            "restflow_tauri=info,restflow_core=info".into()
+        }
+    });
 
     tracing_subscriber::registry()
         .with(filter)
@@ -322,7 +321,10 @@ fn get_mcp_db_path() -> String {
     if let Some(data_dir) = dirs::data_dir() {
         let app_dir = data_dir.join("com.restflow.app");
         if std::fs::create_dir_all(&app_dir).is_ok() {
-            return app_dir.join("restflow-mcp.db").to_string_lossy().to_string();
+            return app_dir
+                .join("restflow-mcp.db")
+                .to_string_lossy()
+                .to_string();
         }
     }
     // Fallback to current directory

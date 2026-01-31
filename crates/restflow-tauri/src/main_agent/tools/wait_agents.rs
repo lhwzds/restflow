@@ -1,11 +1,11 @@
 //! wait_agents tool - Wait for sub-agents to complete.
 
 use crate::main_agent::MainAgent;
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::sync::Arc;
-use tokio::time::{timeout, Duration};
+use tokio::time::{Duration, timeout};
 use ts_rs::TS;
 
 /// Parameters for wait_agents tool
@@ -68,19 +68,14 @@ impl WaitAgentsTool {
 
     /// Execute the tool
     pub async fn execute(&self, input: Value) -> Result<Value> {
-        let params: WaitAgentsParams = serde_json::from_value(input)
-            .map_err(|e| anyhow!("Invalid parameters: {}", e))?;
+        let params: WaitAgentsParams =
+            serde_json::from_value(input).map_err(|e| anyhow!("Invalid parameters: {}", e))?;
 
         let tracker = self.main_agent.running_subagents();
 
         let results = if params.task_ids.is_empty() {
             // Wait for all running sub-agents
-            match timeout(
-                Duration::from_secs(params.timeout_secs),
-                tracker.wait_all(),
-            )
-            .await
-            {
+            match timeout(Duration::from_secs(params.timeout_secs), tracker.wait_all()).await {
                 Ok(results) => results,
                 Err(_) => {
                     return Ok(json!({
@@ -94,12 +89,7 @@ impl WaitAgentsTool {
             // Wait for specific sub-agents
             let mut results = Vec::new();
             for id in &params.task_ids {
-                match timeout(
-                    Duration::from_secs(params.timeout_secs),
-                    tracker.wait(id),
-                )
-                .await
-                {
+                match timeout(Duration::from_secs(params.timeout_secs), tracker.wait(id)).await {
                     Ok(Some(result)) => results.push(result),
                     Ok(None) => {
                         // Sub-agent not found

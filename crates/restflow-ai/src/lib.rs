@@ -28,9 +28,9 @@ pub use agent::{AgentConfig, AgentExecutor, AgentResult, AgentState, AgentStatus
 pub use error::{AiError, Result};
 pub use graph::{Graph, GraphNode};
 pub use llm::{AnthropicClient, LlmClient, Message, OpenAIClient, Role};
+pub use memory::{DEFAULT_MAX_MESSAGES, WorkingMemory};
 pub use tools::{
     EmailTool, HttpTool, PythonTool, SkillContent, SkillInfo, SkillProvider, SkillTool, Tool,
     ToolOutput, ToolRegistry, ToolSchema,
 };
-pub use memory::{WorkingMemory, DEFAULT_MAX_MESSAGES};
 pub use workflow_def::WorkflowDef;

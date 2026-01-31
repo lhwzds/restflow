@@ -2,14 +2,16 @@
 //!
 //! Routes messages to appropriate channels and tracks conversation context.
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{debug, info};
 
 use super::traits::Channel;
-use super::types::{ChannelType, ConversationContext, InboundMessage, MessageLevel, OutboundMessage};
+use super::types::{
+    ChannelType, ConversationContext, InboundMessage, MessageLevel, OutboundMessage,
+};
 
 /// Multi-channel router for sending and receiving messages
 ///
@@ -86,11 +88,7 @@ impl ChannelRouter {
     }
 
     /// Send message to a specific channel
-    pub async fn send_to(
-        &self,
-        channel_type: ChannelType,
-        message: OutboundMessage,
-    ) -> Result<()> {
+    pub async fn send_to(&self, channel_type: ChannelType, message: OutboundMessage) -> Result<()> {
         let channel = self
             .channels
             .get(&channel_type)
@@ -137,7 +135,7 @@ impl ChannelRouter {
 
         let channel_type = context.channel_type;
         drop(conversations); // Release lock before sending
-        
+
         self.send_to(channel_type, message).await
     }
 
@@ -192,7 +190,7 @@ impl ChannelRouter {
             message.channel_type,
             &message.sender_id,
         );
-        
+
         if let Some(tid) = task_id.or(existing_task_id) {
             context = context.with_task_id(tid);
         }
@@ -206,7 +204,7 @@ impl ChannelRouter {
         let context = conversations
             .get_mut(conversation_id)
             .ok_or_else(|| anyhow!("Unknown conversation: {}", conversation_id))?;
-        
+
         context.task_id = Some(task_id.to_string());
         context.touch();
         Ok(())
@@ -247,11 +245,11 @@ impl ChannelRouter {
         let before = conversations.len();
         conversations.retain(|_, ctx| !ctx.is_stale(max_age_ms));
         let removed = before - conversations.len();
-        
+
         if removed > 0 {
             debug!("Cleaned up {} stale conversations", removed);
         }
-        
+
         removed
     }
 
@@ -312,14 +310,17 @@ mod tests {
         router.register(channel);
 
         let message = OutboundMessage::new("chat-123", "Hello");
-        router.send_to(ChannelType::Telegram, message).await.unwrap();
+        router
+            .send_to(ChannelType::Telegram, message)
+            .await
+            .unwrap();
     }
 
     #[tokio::test]
     async fn test_send_to_unregistered_channel() {
         let router = ChannelRouter::new();
         let message = OutboundMessage::new("chat-123", "Hello");
-        
+
         let result = router.send_to(ChannelType::Telegram, message).await;
         assert!(result.is_err());
     }
@@ -337,7 +338,7 @@ mod tests {
     #[tokio::test]
     async fn test_conversation_tracking() {
         let router = ChannelRouter::new();
-        
+
         let inbound = InboundMessage::new(
             "msg-1",
             ChannelType::Telegram,
@@ -345,9 +346,11 @@ mod tests {
             "chat-456",
             "Hello",
         );
-        
-        router.record_conversation(&inbound, Some("task-1".to_string())).await;
-        
+
+        router
+            .record_conversation(&inbound, Some("task-1".to_string()))
+            .await;
+
         let context = router.get_conversation("chat-456").await.unwrap();
         assert_eq!(context.channel_type, ChannelType::Telegram);
         assert_eq!(context.user_id, "user-123");
@@ -358,7 +361,7 @@ mod tests {
     async fn test_reply_auto_routing() {
         let mut router = ChannelRouter::new();
         router.register(MockChannel::new(ChannelType::Telegram));
-        
+
         // First, record a conversation
         let inbound = InboundMessage::new(
             "msg-1",
@@ -368,7 +371,7 @@ mod tests {
             "Hello",
         );
         router.record_conversation(&inbound, None).await;
-        
+
         // Now reply - should auto-route to Telegram
         router.reply("chat-456", "Hi back!").await.unwrap();
     }
@@ -376,7 +379,7 @@ mod tests {
     #[tokio::test]
     async fn test_reply_unknown_conversation() {
         let router = ChannelRouter::new();
-        
+
         let result = router.reply("unknown-conv", "Hello").await;
         assert!(result.is_err());
     }
@@ -384,7 +387,7 @@ mod tests {
     #[tokio::test]
     async fn test_find_conversation_by_task() {
         let router = ChannelRouter::new();
-        
+
         let inbound = InboundMessage::new(
             "msg-1",
             ChannelType::Telegram,
@@ -392,12 +395,14 @@ mod tests {
             "chat-456",
             "Hello",
         );
-        router.record_conversation(&inbound, Some("task-99".to_string())).await;
-        
+        router
+            .record_conversation(&inbound, Some("task-99".to_string()))
+            .await;
+
         let found = router.find_conversation_by_task("task-99").await;
         assert!(found.is_some());
         assert_eq!(found.unwrap().conversation_id, "chat-456");
-        
+
         let not_found = router.find_conversation_by_task("task-nonexistent").await;
         assert!(not_found.is_none());
     }
@@ -405,7 +410,7 @@ mod tests {
     #[tokio::test]
     async fn test_associate_and_clear_task() {
         let router = ChannelRouter::new();
-        
+
         // Record conversation without task
         let inbound = InboundMessage::new(
             "msg-1",
@@ -415,12 +420,12 @@ mod tests {
             "Hello",
         );
         router.record_conversation(&inbound, None).await;
-        
+
         // Associate task
         router.associate_task("chat-456", "task-1").await.unwrap();
         let ctx = router.get_conversation("chat-456").await.unwrap();
         assert_eq!(ctx.task_id, Some("task-1".to_string()));
-        
+
         // Clear task
         router.clear_task("chat-456").await.unwrap();
         let ctx = router.get_conversation("chat-456").await.unwrap();
@@ -445,10 +450,7 @@ mod tests {
     #[tokio::test]
     async fn test_broadcast_with_defaults() {
         let mut router = ChannelRouter::new();
-        router.register_with_default(
-            MockChannel::new(ChannelType::Telegram),
-            "default-chat",
-        );
+        router.register_with_default(MockChannel::new(ChannelType::Telegram), "default-chat");
 
         let results = router.broadcast("Announcement", MessageLevel::Info).await;
         assert_eq!(results.len(), 1);
@@ -458,7 +460,7 @@ mod tests {
     #[tokio::test]
     async fn test_cleanup_stale_conversations() {
         let router = ChannelRouter::new();
-        
+
         // Add a conversation
         let inbound = InboundMessage::new(
             "msg-1",
@@ -468,7 +470,7 @@ mod tests {
             "Hello",
         );
         router.record_conversation(&inbound, None).await;
-        
+
         // Manually make it stale
         {
             let mut conversations = router.conversations.write().await;
@@ -476,7 +478,7 @@ mod tests {
                 ctx.last_activity = chrono::Utc::now().timestamp_millis() - 100000;
             }
         }
-        
+
         // Clean up with shorter threshold
         let removed = router.cleanup_stale_conversations(1000).await;
         assert_eq!(removed, 1);
