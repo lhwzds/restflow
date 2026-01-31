@@ -3,8 +3,9 @@
 //! Manages credential profiles with selection, health tracking, and failover.
 
 use super::discoverer::CompositeDiscoverer;
+use super::refresh::{AnthropicRefresher, OAuthRefresher};
 use super::types::{
-    AuthProfile, AuthProvider, CredentialSource, DiscoverySummary, ProfileHealth,
+    AuthProfile, AuthProvider, Credential, CredentialSource, DiscoverySummary, ProfileHealth,
     ProfileSelection,
 };
 use anyhow::{anyhow, Context, Result};
@@ -64,6 +65,7 @@ pub struct AuthProfileManager {
     config: AuthManagerConfig,
     profiles: Arc<RwLock<HashMap<String, AuthProfile>>>,
     discoverer: CompositeDiscoverer,
+    refreshers: HashMap<AuthProvider, Arc<dyn OAuthRefresher>>,
 }
 
 impl AuthProfileManager {
@@ -74,10 +76,14 @@ impl AuthProfileManager {
 
     /// Create a new auth profile manager with custom config
     pub fn with_config(config: AuthManagerConfig) -> Self {
+        let mut refreshers: HashMap<AuthProvider, Arc<dyn OAuthRefresher>> = HashMap::new();
+        refreshers.insert(AuthProvider::Anthropic, Arc::new(AnthropicRefresher::default()));
+
         Self {
             config,
             profiles: Arc::new(RwLock::new(HashMap::new())),
             discoverer: CompositeDiscoverer::with_defaults(),
+            refreshers,
         }
     }
 
@@ -171,6 +177,10 @@ impl AuthProfileManager {
 
     /// Select the best available profile for a provider
     pub async fn select_profile(&self, provider: AuthProvider) -> Option<ProfileSelection> {
+        if let Err(error) = self.refresh_expired_profiles(provider).await {
+            warn!(%error, provider = %provider, "Failed to refresh expired OAuth profiles");
+        }
+
         let profiles = self.profiles.read().await;
         
         let mut available: Vec<_> = profiles
@@ -202,6 +212,58 @@ impl AuthProfileManager {
             reason,
             alternatives,
         })
+    }
+
+    async fn refresh_expired_profiles(&self, provider: AuthProvider) -> Result<usize> {
+        let refresher = match self.refreshers.get(&provider) {
+            Some(refresher) => refresher.clone(),
+            None => return Ok(0),
+        };
+
+        let candidates: Vec<(String, Credential)> = {
+            let profiles = self.profiles.read().await;
+            profiles
+                .values()
+                .filter(|profile| {
+                    profile.provider == provider
+                        && profile.credential.is_expired()
+                        && profile.credential.can_refresh()
+                })
+                .map(|profile| (profile.id.clone(), profile.credential.clone()))
+                .collect()
+        };
+
+        if candidates.is_empty() {
+            return Ok(0);
+        }
+
+        let mut refreshed = 0;
+
+        for (profile_id, credential) in candidates {
+            let email = credential.get_email().map(|value| value.to_string());
+            let updated = refresher.refresh(&credential).await;
+            match updated {
+                Ok(updated) => {
+                    let mut profiles = self.profiles.write().await;
+                    if let Some(profile) = profiles.get_mut(&profile_id) {
+                        profile.credential = Credential::OAuth {
+                            access_token: updated.access_token,
+                            refresh_token: updated
+                                .refresh_token
+                                .or_else(|| credential_refresh_token(&credential)),
+                            expires_at: updated.expires_at,
+                            email,
+                        };
+                        refreshed += 1;
+                    }
+                }
+                Err(error) => {
+                    warn!(%error, profile_id, provider = %provider, "Failed to refresh OAuth token");
+                }
+            }
+        }
+
+        Ok(refreshed)
     }
 
     /// Get the best API key for a provider
@@ -442,6 +504,16 @@ impl AuthProfileManager {
         tokio::fs::write(path, content).await?;
 
         Ok(())
+    }
+}
+
+fn credential_refresh_token(credential: &Credential) -> Option<String> {
+    match credential {
+        Credential::OAuth {
+            refresh_token: Some(token),
+            ..
+        } => Some(token.clone()),
+        _ => None,
     }
 }
 

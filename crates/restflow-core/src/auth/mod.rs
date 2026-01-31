@@ -8,8 +8,10 @@
 
 pub mod discoverer;
 pub mod manager;
+pub mod refresh;
 pub mod types;
 
 pub use discoverer::*;
 pub use manager::*;
+pub use refresh::*;
 pub use types::*;
