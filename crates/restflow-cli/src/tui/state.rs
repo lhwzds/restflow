@@ -603,7 +603,7 @@ impl TuiApp {
         if current_line == "/" {
             self.show_commands = true;
             self.selected_command = 0;
-        } else if !current_line.starts_with('/') {
+        } else {
             self.show_commands = false;
         }
     }
@@ -854,5 +854,78 @@ impl TuiApp {
         if self.cursor_position < char_count {
             self.cursor_position += 1;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::TuiApp;
+    use restflow_core::AppCore;
+    use std::sync::Arc;
+
+    async fn test_core() -> Arc<AppCore> {
+        let temp_dir = tempfile::tempdir().expect("temp dir");
+        let db_path = temp_dir.path().join("test.db");
+        Arc::new(
+            AppCore::new(db_path.to_str().expect("db path"))
+                .await
+                .expect("core"),
+        )
+    }
+
+    #[tokio::test]
+    async fn test_input_insert_delete() {
+        let core = test_core().await;
+        let mut app = TuiApp::new(core);
+        app.enter_char('H');
+        app.enter_char('i');
+        assert_eq!(app.input, "Hi");
+        assert_eq!(app.cursor_position, 2);
+
+        app.delete_char();
+        assert_eq!(app.input, "H");
+        assert_eq!(app.cursor_position, 1);
+    }
+
+    #[tokio::test]
+    async fn test_command_menu_visibility() {
+        let core = test_core().await;
+        let mut app = TuiApp::new(core);
+        app.enter_char('/');
+        assert!(app.show_commands);
+
+        app.enter_char('h');
+        assert!(!app.show_commands);
+    }
+
+    #[tokio::test]
+    async fn test_submit_help_command() {
+        let core = test_core().await;
+        let mut app = TuiApp::new(core);
+        app.input = "/help".to_string();
+        app.cursor_position = app.input.chars().count();
+        app.submit().await;
+
+        assert!(
+            app.new_messages
+                .iter()
+                .any(|msg| msg.contains("Available commands"))
+        );
+        assert!(app.input.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_submit_unknown_command() {
+        let core = test_core().await;
+        let mut app = TuiApp::new(core);
+        app.input = "/unknown".to_string();
+        app.cursor_position = app.input.chars().count();
+        app.submit().await;
+
+        assert!(
+            app.new_messages
+                .iter()
+                .any(|msg| msg.contains("Unknown command"))
+        );
     }
 }

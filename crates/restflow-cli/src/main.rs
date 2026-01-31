@@ -8,9 +8,11 @@ mod setup;
 mod tui;
 
 use anyhow::Result;
-use clap::Parser;
+use clap::{CommandFactory, Parser};
+use clap_complete::generate;
 use cli::{Cli, Commands};
 use restflow_core::paths;
+use std::io;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -35,7 +37,8 @@ async fn main() -> Result<()> {
         .init();
 
     if let Some(Commands::Completions { shell }) = cli.command {
-        completions::generate_completions(shell);
+        let mut cmd = Cli::command();
+        generate(shell, &mut cmd, "restflow", &mut io::stdout());
         return Ok(());
     }
 
@@ -48,14 +51,10 @@ async fn main() -> Result<()> {
     match cli.command {
         Some(Commands::Chat(args)) => commands::chat::run(core, args).await,
         Some(Commands::Run(args)) => commands::run::run(core, args, cli.format).await,
-        Some(Commands::Agent { command }) => {
-            commands::agent::run(core, command, cli.format).await
-        }
+        Some(Commands::Agent { command }) => commands::agent::run(core, command, cli.format).await,
         Some(Commands::Task { command }) => commands::task::run(core, command, cli.format).await,
         Some(Commands::Daemon { command }) => commands::daemon::run(core, command).await,
-        Some(Commands::Skill { command }) => {
-            commands::skill::run(core, command, cli.format).await
-        }
+        Some(Commands::Skill { command }) => commands::skill::run(core, command, cli.format).await,
         Some(Commands::Memory { command }) => {
             commands::memory::run(core, command, cli.format).await
         }
@@ -68,5 +67,6 @@ async fn main() -> Result<()> {
         Some(Commands::Mcp) => commands::mcp::run(core).await,
         Some(Commands::Info) => commands::info::run(),
         None => commands::chat::run(core, Default::default()).await,
+        Some(Commands::Completions { .. }) => Ok(()),
     }
 }

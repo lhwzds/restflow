@@ -1,7 +1,20 @@
-use clap::{Args, Parser, Subcommand};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 use clap_complete::Shell;
 
-use crate::output::OutputFormat;
+/// Output format for CLI commands
+#[derive(ValueEnum, Clone, Copy, Debug, Default)]
+pub enum OutputFormat {
+    #[default]
+    Text,
+    Json,
+}
+
+impl OutputFormat {
+    #[allow(dead_code)]
+    pub fn is_json(self) -> bool {
+        matches!(self, OutputFormat::Json)
+    }
+}
 
 #[derive(Parser)]
 #[command(name = "restflow")]
@@ -30,7 +43,6 @@ pub enum Commands {
 
     /// Generate shell completions
     Completions {
-        /// Shell to generate completions for
         #[arg(value_enum)]
         shell: Shell,
     },
