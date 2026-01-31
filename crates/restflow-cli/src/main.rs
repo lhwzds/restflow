@@ -1,5 +1,6 @@
 mod cli;
 mod commands;
+mod completions;
 mod config;
 mod output;
 mod setup;
@@ -13,6 +14,8 @@ use restflow_core::paths;
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
+    let config = config::CliConfig::load();
+    config.apply_api_key_env();
 
     // Configure logging: always write to file (needed for TUI mode)
     let log_dir = paths::ensure_data_dir()?.join("logs");
@@ -30,7 +33,16 @@ async fn main() -> Result<()> {
         .with_env_filter(level)
         .init();
 
-    let core = setup::prepare_core(cli.db_path.clone()).await?;
+    if let Some(Commands::Completions { shell }) = cli.command {
+        completions::generate_completions(shell);
+        return Ok(());
+    }
+
+    let db_path = cli
+        .db_path
+        .clone()
+        .or_else(|| config.default.db_path.clone());
+    let core = setup::prepare_core(db_path).await?;
 
     match cli.command {
         Some(Commands::Chat(args)) => commands::chat::run(core, args).await,
