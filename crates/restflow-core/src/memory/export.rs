@@ -641,15 +641,12 @@ mod tests {
         let exporter = create_test_exporter();
 
         // Create chunks without session
-        let chunk1 =
-            MemoryChunk::new("agent-001".to_string(), "Memory one".to_string())
-                .with_created_at(now_ms() - 2000);
-        let chunk2 =
-            MemoryChunk::new("agent-001".to_string(), "Memory two".to_string())
-                .with_created_at(now_ms() - 1000);
-        let chunk3 =
-            MemoryChunk::new("agent-001".to_string(), "Memory three".to_string())
-                .with_created_at(now_ms());
+        let chunk1 = MemoryChunk::new("agent-001".to_string(), "Memory one".to_string())
+            .with_created_at(now_ms() - 2000);
+        let chunk2 = MemoryChunk::new("agent-001".to_string(), "Memory two".to_string())
+            .with_created_at(now_ms() - 1000);
+        let chunk3 = MemoryChunk::new("agent-001".to_string(), "Memory three".to_string())
+            .with_created_at(now_ms());
 
         exporter.storage().store_chunk(&chunk1).unwrap();
         exporter.storage().store_chunk(&chunk2).unwrap();
@@ -791,8 +788,8 @@ mod tests {
         let now = now_ms();
 
         // Create chunks in reverse order
-        let chunk3 = MemoryChunk::new("agent-001".to_string(), "Third".to_string())
-            .with_created_at(now);
+        let chunk3 =
+            MemoryChunk::new("agent-001".to_string(), "Third".to_string()).with_created_at(now);
         let chunk1 = MemoryChunk::new("agent-001".to_string(), "First".to_string())
             .with_created_at(now - 2000);
         let chunk2 = MemoryChunk::new("agent-001".to_string(), "Second".to_string())

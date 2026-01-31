@@ -4,7 +4,7 @@
 //! `NotificationSender` trait to send task completion/failure
 //! notifications via Telegram Bot API.
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use async_trait::async_trait;
 use std::sync::Arc;
 
@@ -66,10 +66,7 @@ impl TelegramNotifier {
         let status_emoji = if success { "✅" } else { "❌" };
         let status_text = if success { "Completed" } else { "Failed" };
 
-        let mut formatted = format!(
-            "{} *Task {}*: {}\n\n",
-            status_emoji, status_text, task.name
-        );
+        let mut formatted = format!("{} *Task {}*: {}\n\n", status_emoji, status_text, task.name);
 
         // Add task details
         formatted.push_str(&format!("🤖 Agent: `{}`\n", task.agent_id));
@@ -259,7 +256,12 @@ mod tests {
         let result = notifier.resolve_bot_token(&config);
 
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("No Telegram bot token"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("No Telegram bot token")
+        );
     }
 
     #[test]

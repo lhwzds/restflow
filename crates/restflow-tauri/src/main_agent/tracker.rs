@@ -6,7 +6,7 @@
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot, Mutex};
 use tokio::task::{AbortHandle, JoinHandle};
 use ts_rs::TS;
 
@@ -94,16 +94,23 @@ pub struct SubagentTracker {
 
     /// Completion notification sender
     completion_tx: mpsc::Sender<SubagentCompletion>,
+
+    /// Completion notification receiver
+    completion_rx: Mutex<mpsc::Receiver<SubagentCompletion>>,
 }
 
 impl SubagentTracker {
     /// Create a new tracker
-    pub fn new(completion_tx: mpsc::Sender<SubagentCompletion>) -> Self {
+    pub fn new(
+        completion_tx: mpsc::Sender<SubagentCompletion>,
+        completion_rx: mpsc::Receiver<SubagentCompletion>,
+    ) -> Self {
         Self {
             states: DashMap::new(),
             abort_handles: DashMap::new(),
             completion_waiters: DashMap::new(),
             completion_tx,
+            completion_rx: Mutex::new(completion_rx),
         }
     }
 
@@ -241,6 +248,14 @@ impl SubagentTracker {
         results
     }
 
+    /// Wait for any sub-agent to complete
+    pub async fn wait_any(&self) -> Option<(String, SubagentResult)> {
+        let mut rx = self.completion_rx.lock().await;
+        rx.recv()
+            .await
+            .map(|completion| (completion.id, completion.result))
+    }
+
     /// Cancel a running sub-agent
     pub fn cancel(&self, id: &str) -> bool {
         if let Some((_, handle)) = self.abort_handles.remove(id) {
@@ -296,19 +311,33 @@ impl SubagentTracker {
     }
 
     /// Mark a sub-agent as timed out
-    pub fn mark_timed_out(&self, id: &str, result: SubagentResult) {
+    pub fn mark_timed_out(&self, id: &str) {
+        self.mark_timed_out_with_result(
+            id,
+            SubagentResult {
+                success: false,
+                output: String::new(),
+                summary: None,
+                duration_ms: 0,
+                tokens_used: None,
+                error: Some("Sub-agent timed out".to_string()),
+            },
+        );
+    }
+
+    /// Mark a sub-agent as timed out with a specific result
+    pub fn mark_timed_out_with_result(&self, id: &str, result: SubagentResult) {
         if let Some(mut state) = self.states.get_mut(id) {
             state.status = SubagentStatus::TimedOut;
             state.completed_at = Some(chrono::Utc::now().timestamp_millis());
             state.result = Some(result.clone());
         }
 
-        // Abort and remove the handle
-        if let Some((_, handle)) = self.abort_handles.remove(id) {
-            handle.abort();
-        }
+        // Remove the handle if it exists
+        self.abort_handles.remove(id);
         self.completion_waiters.remove(id);
 
+        // Send completion notification
         let _ = self.completion_tx.try_send(SubagentCompletion {
             id: id.to_string(),
             result,
@@ -340,6 +369,18 @@ impl SubagentTracker {
     pub fn completion_sender(&self) -> mpsc::Sender<SubagentCompletion> {
         self.completion_tx.clone()
     }
+
+    /// Poll completion notifications without blocking
+    pub async fn poll_completions(&self) -> Vec<SubagentCompletion> {
+        let mut rx = self.completion_rx.lock().await;
+        let mut completions = Vec::new();
+
+        while let Ok(completion) = rx.try_recv() {
+            completions.push(completion);
+        }
+
+        completions
+    }
 }
 
 #[cfg(test)]
@@ -348,8 +389,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_tracker_basic() {
-        let (tx, _rx) = mpsc::channel(10);
-        let tracker = Arc::new(SubagentTracker::new(tx));
+        let (tx, rx) = mpsc::channel(10);
+        let tracker = Arc::new(SubagentTracker::new(tx, rx));
 
         // Register a sub-agent
         let (completion_tx, completion_rx) = oneshot::channel();
@@ -387,8 +428,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_tracker_cancel() {
-        let (tx, _rx) = mpsc::channel(10);
-        let tracker = Arc::new(SubagentTracker::new(tx));
+        let (tx, rx) = mpsc::channel(10);
+        let tracker = Arc::new(SubagentTracker::new(tx, rx));
 
         // Register a long-running sub-agent
         let (_completion_tx, completion_rx) = oneshot::channel();

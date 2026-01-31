@@ -34,10 +34,10 @@ export async function createChatSession(
 ): Promise<ChatSession> {
   if (isTauri()) {
     return tauriInvoke<ChatSession>('create_chat_session', {
-      agentId: request.agentId,
+      agent_id: request.agentId,
       model: request.model,
       name: request.name,
-      skillId: request.skillId,
+      skill_id: request.skillId,
     })
   }
   const response = await apiClient.post<ChatSession>('/api/chat-sessions', request)
@@ -129,7 +129,7 @@ export async function addChatMessage(
   message: ChatMessage
 ): Promise<ChatSession> {
   if (isTauri()) {
-    return tauriInvoke<ChatSession>('add_chat_message', { sessionId, message })
+    return tauriInvoke<ChatSession>('add_chat_message', { session_id: sessionId, message })
   }
   const response = await apiClient.post<ChatSession>(
     `/api/chat-sessions/${sessionId}/messages`,
@@ -153,7 +153,7 @@ export async function sendChatMessage(
   content: string
 ): Promise<ChatSession> {
   if (isTauri()) {
-    return tauriInvoke<ChatSession>('send_chat_message', { sessionId, content })
+    return tauriInvoke<ChatSession>('send_chat_message', { session_id: sessionId, content })
   }
   const response = await apiClient.post<ChatSession>(
     `/api/chat-sessions/${sessionId}/send`,
@@ -170,7 +170,7 @@ export async function sendChatMessage(
  */
 export async function listChatSessionsByAgent(agentId: string): Promise<ChatSession[]> {
   if (isTauri()) {
-    return tauriInvoke<ChatSession[]>('list_chat_sessions_by_agent', { agentId })
+    return tauriInvoke<ChatSession[]>('list_chat_sessions_by_agent', { agent_id: agentId })
   }
   const response = await apiClient.get<ChatSession[]>(
     `/api/chat-sessions?agent_id=${encodeURIComponent(agentId)}`
@@ -186,7 +186,7 @@ export async function listChatSessionsByAgent(agentId: string): Promise<ChatSess
  */
 export async function listChatSessionsBySkill(skillId: string): Promise<ChatSession[]> {
   if (isTauri()) {
-    return tauriInvoke<ChatSession[]>('list_chat_sessions_by_skill', { skillId })
+    return tauriInvoke<ChatSession[]>('list_chat_sessions_by_skill', { skill_id: skillId })
   }
   const response = await apiClient.get<ChatSession[]>(
     `/api/chat-sessions?skill_id=${encodeURIComponent(skillId)}`
@@ -201,7 +201,7 @@ export async function listChatSessionsBySkill(skillId: string): Promise<ChatSess
  */
 export async function countChatSessions(): Promise<number> {
   if (isTauri()) {
-    return tauriInvoke<number>('count_chat_sessions')
+    return tauriInvoke<number>('get_chat_session_count')
   }
   const response = await apiClient.get<{ count: number }>('/api/chat-sessions/count')
   return response.data.count
@@ -215,7 +215,10 @@ export async function countChatSessions(): Promise<number> {
  */
 export async function cleanupOldChatSessions(olderThanDays: number): Promise<number> {
   if (isTauri()) {
-    return tauriInvoke<number>('cleanup_old_chat_sessions', { olderThanDays })
+    const olderThanMs = Date.now() - olderThanDays * 24 * 60 * 60 * 1000
+    return tauriInvoke<number>('clear_old_chat_sessions', {
+      older_than_ms: Math.floor(olderThanMs),
+    })
   }
   const response = await apiClient.delete<{ deleted: number }>(
     `/api/chat-sessions/cleanup?older_than_days=${olderThanDays}`

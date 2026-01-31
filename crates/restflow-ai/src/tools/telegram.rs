@@ -6,6 +6,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::error::Result;
+use crate::http_client::build_http_client;
 use crate::tools::traits::{Tool, ToolOutput};
 
 const TELEGRAM_API_BASE: &str = "https://api.telegram.org";
@@ -44,7 +45,7 @@ impl TelegramTool {
     /// Create a new Telegram tool with default client
     pub fn new() -> Self {
         Self {
-            client: Client::new(),
+            client: build_http_client(),
         }
     }
 
@@ -78,14 +79,13 @@ impl TelegramTool {
             payload["disable_notification"] = json!(true);
         }
 
-        let response = self.client
-            .post(&url)
-            .json(&payload)
-            .send()
-            .await?;
+        let response = self.client.post(&url).json(&payload).send().await?;
 
         let status = response.status();
-        let body: Value = response.json().await.unwrap_or_else(|_| json!({"error": "Failed to parse response"}));
+        let body: Value = response
+            .json()
+            .await
+            .unwrap_or_else(|_| json!({"error": "Failed to parse response"}));
 
         if status.is_success() && body.get("ok").and_then(|v| v.as_bool()).unwrap_or(false) {
             Ok(body)
@@ -94,7 +94,10 @@ impl TelegramTool {
                 .get("description")
                 .and_then(|v| v.as_str())
                 .unwrap_or("Unknown error");
-            Err(crate::error::AiError::Tool(format!("Telegram API error: {}", error_desc)))
+            Err(crate::error::AiError::Tool(format!(
+                "Telegram API error: {}",
+                error_desc
+            )))
         }
     }
 }
@@ -189,7 +192,7 @@ pub async fn send_telegram_notification(
     message: &str,
     parse_mode: Option<&str>,
 ) -> std::result::Result<(), String> {
-    let client = Client::new();
+    let client = build_http_client();
     let url = format!("{}/bot{}/sendMessage", TELEGRAM_API_BASE, bot_token);
 
     let mut payload = json!({

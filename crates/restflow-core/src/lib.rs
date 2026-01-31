@@ -1,3 +1,4 @@
+pub mod auth;
 pub mod channel;
 pub mod engine;
 pub mod memory;
@@ -5,6 +6,8 @@ pub mod models;
 pub mod node;
 pub mod paths;
 pub mod python;
+pub mod registry;
+pub mod security;
 pub mod services;
 pub mod storage;
 

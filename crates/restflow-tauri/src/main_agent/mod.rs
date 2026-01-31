@@ -43,19 +43,18 @@ pub mod spawn;
 pub mod tools;
 pub mod tracker;
 
-pub use definition::{AgentDefinition, AgentDefinitionRegistry, builtin_agents};
+pub use definition::{builtin_agents, AgentDefinition, AgentDefinitionRegistry};
 pub use events::{
-    MAIN_AGENT_EVENT, MainAgentEvent, MainAgentEventEmitter, MainAgentEventKind,
-    NoopMainAgentEmitter, TauriMainAgentEmitter,
+    MainAgentEvent, MainAgentEventEmitter, MainAgentEventKind, NoopMainAgentEmitter,
+    TauriMainAgentEmitter, MAIN_AGENT_EVENT,
 };
 pub use session::{
-    AgentSession, ChatRole, MessageExecution, MessageSource, SessionMessage, SessionMetadata,
+    AgentSession, ChatRole, MessageSource, SessionMessage, SessionMessageExecution,
+    SessionMetadata,
 };
 pub use spawn::{SpawnHandle, SpawnPriority, SpawnRequest};
 pub use tools::{ListAgentsTool, SpawnAgentTool, UseSkillTool, WaitAgentsTool};
-pub use tracker::{
-    SubagentCompletion, SubagentResult, SubagentState, SubagentStatus, SubagentTracker,
-};
+pub use tracker::{SubagentCompletion, SubagentResult, SubagentState, SubagentStatus, SubagentTracker};
 
 use anyhow::Result;
 use restflow_ai::llm::{CompletionRequest, Message, Role};
@@ -63,7 +62,7 @@ use restflow_ai::LlmClient;
 use restflow_core::storage::Storage;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use tokio::sync::{RwLock, mpsc};
+use tokio::sync::{mpsc, RwLock};
 use ts_rs::TS;
 
 /// Main Agent configuration
@@ -118,10 +117,6 @@ pub struct MainAgent {
     /// Event emitter for frontend updates
     event_emitter: Arc<dyn MainAgentEventEmitter>,
 
-    /// Channel for sub-agent completion notifications
-    completion_tx: mpsc::Sender<SubagentCompletion>,
-    completion_rx: Arc<RwLock<mpsc::Receiver<SubagentCompletion>>>,
-
     /// Configuration
     config: MainAgentConfig,
 }
@@ -135,11 +130,10 @@ impl MainAgent {
         event_emitter: Arc<dyn MainAgentEventEmitter>,
         config: MainAgentConfig,
     ) -> Result<Self> {
-        let (completion_tx, completion_rx) = mpsc::channel(100);
-
         let session = AgentSession::new(id.clone(), config.default_model.clone());
         let agent_definitions = Arc::new(AgentDefinitionRegistry::with_builtins());
-        let running_subagents = Arc::new(SubagentTracker::new(completion_tx.clone()));
+        let (completion_tx, completion_rx) = mpsc::channel(100);
+        let running_subagents = Arc::new(SubagentTracker::new(completion_tx, completion_rx));
 
         Ok(Self {
             id,
@@ -149,8 +143,6 @@ impl MainAgent {
             running_subagents,
             storage,
             event_emitter,
-            completion_tx,
-            completion_rx: Arc::new(RwLock::new(completion_rx)),
             config,
         })
     }
@@ -325,14 +317,7 @@ impl MainAgent {
 
     /// Check for completed sub-agents and process their results
     pub async fn poll_completions(&self) -> Vec<SubagentCompletion> {
-        let mut rx = self.completion_rx.write().await;
-        let mut completions = Vec::new();
-
-        while let Ok(completion) = rx.try_recv() {
-            completions.push(completion);
-        }
-
-        completions
+        self.running_subagents.poll_completions().await
     }
 }
 

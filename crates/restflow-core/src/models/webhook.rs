@@ -61,7 +61,11 @@ impl WebhookConfig {
 
     /// Get the full webhook URL for a task
     pub fn webhook_url(&self, base_url: &str, task_id: &str) -> String {
-        format!("{}/hooks/trigger/{}", base_url.trim_end_matches('/'), task_id)
+        format!(
+            "{}/hooks/trigger/{}",
+            base_url.trim_end_matches('/'),
+            task_id
+        )
     }
 }
 

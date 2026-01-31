@@ -72,6 +72,11 @@ export const useChatSessionStore = defineStore('chatSession', {
         result = result.filter((s) => s.agent_id === this.agentFilter)
       }
 
+      // Apply skill filter
+      if (this.skillFilter) {
+        result = result.filter((s) => s.skill_id === this.skillFilter)
+      }
+
       // Apply search filter
       if (this.searchQuery.trim()) {
         const query = this.searchQuery.toLowerCase()
@@ -246,6 +251,7 @@ export const useChatSessionStore = defineStore('chatSession', {
           name: session.name,
           agent_id: session.agent_id,
           model: session.model,
+          skill_id: session.skill_id ?? null,
           message_count: 0,
           updated_at: session.updated_at,
           last_message_preview: null,
@@ -293,7 +299,8 @@ export const useChatSessionStore = defineStore('chatSession', {
         const session = await chatSessionApi.renameChatSession(id, name)
         this.sessions.set(id, session)
         // Update summary
-        const summary = this.summaries.find((s) => s.id === id)
+        const summaryIndex = this.summaries.findIndex((s) => s.id === id)
+        const summary = this.summaries[summaryIndex]
         if (summary) {
           summary.name = name
         }
@@ -321,7 +328,8 @@ export const useChatSessionStore = defineStore('chatSession', {
         const session = await chatSessionApi.sendChatMessage(this.currentSessionId, content)
         this.sessions.set(session.id, session)
         // Update summary
-        const summary = this.summaries.find((s) => s.id === session.id)
+        const summaryIndex = this.summaries.findIndex((s) => s.id === session.id)
+        const summary = this.summaries[summaryIndex]
         if (summary) {
           summary.message_count = session.messages.length
           summary.updated_at = session.updated_at
@@ -347,7 +355,8 @@ export const useChatSessionStore = defineStore('chatSession', {
         const session = await chatSessionApi.addChatMessage(sessionId, message)
         this.sessions.set(sessionId, session)
         // Update summary
-        const summary = this.summaries.find((s) => s.id === sessionId)
+        const summaryIndex = this.summaries.findIndex((s) => s.id === sessionId)
+        const summary = this.summaries[summaryIndex]
         if (summary) {
           summary.message_count = session.messages.length
           summary.updated_at = session.updated_at
@@ -380,7 +389,8 @@ export const useChatSessionStore = defineStore('chatSession', {
     updateSessionLocally(session: ChatSession): void {
       this.sessions.set(session.id, session)
       // Update summary if exists
-      const summary = this.summaries.find((s) => s.id === session.id)
+      const summaryIndex = this.summaries.findIndex((s) => s.id === session.id)
+      const summary = this.summaries[summaryIndex]
       if (summary) {
         summary.message_count = session.messages.length
         summary.updated_at = session.updated_at

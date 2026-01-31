@@ -64,7 +64,11 @@ impl AgentSession {
     }
 
     /// Add an assistant message to the session
-    pub fn add_assistant_message(&mut self, content: String, execution: Option<MessageExecution>) {
+    pub fn add_assistant_message(
+        &mut self,
+        content: String,
+        execution: Option<SessionMessageExecution>,
+    ) {
         let message = SessionMessage {
             role: ChatRole::Assistant,
             content,
@@ -93,7 +97,12 @@ impl AgentSession {
     }
 
     /// Add a sub-agent result message
-    pub fn add_subagent_result(&mut self, content: String, agent_id: String, agent_name: String) {
+    pub fn add_subagent_result(
+        &mut self,
+        content: String,
+        agent_id: String,
+        agent_name: String,
+    ) {
         let message = SessionMessage {
             role: ChatRole::Tool,
             content,
@@ -175,7 +184,7 @@ pub struct SessionMessage {
     pub subagent_id: Option<String>,
 
     /// Execution details (for assistant messages)
-    pub execution: Option<MessageExecution>,
+    pub execution: Option<SessionMessageExecution>,
 }
 
 /// Message role in the conversation
@@ -209,9 +218,9 @@ pub enum MessageSource {
 /// Execution details for an assistant message
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
-pub struct MessageExecution {
+pub struct SessionMessageExecution {
     /// Execution steps performed
-    pub steps: Vec<ExecutionStep>,
+    pub steps: Vec<SessionExecutionStep>,
 
     /// Total duration in milliseconds
     pub duration_ms: u64,
@@ -220,13 +229,13 @@ pub struct MessageExecution {
     pub tokens_used: u32,
 
     /// Execution status
-    pub status: ExecutionStatus,
+    pub status: SessionExecutionStatus,
 }
 
 /// A step in the execution process
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
-pub struct ExecutionStep {
+pub struct SessionExecutionStep {
     /// Step type (e.g., "thinking", "tool_call", "subagent_spawn")
     pub step_type: String,
 
@@ -247,7 +256,7 @@ pub struct ExecutionStep {
 /// Execution status
 #[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
 #[ts(export)]
-pub enum ExecutionStatus {
+pub enum SessionExecutionStatus {
     Running,
     Completed,
     Failed,

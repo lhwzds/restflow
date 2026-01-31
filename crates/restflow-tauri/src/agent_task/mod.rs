@@ -142,19 +142,19 @@ pub mod retry;
 pub mod runner;
 
 pub use events::{
-    ChannelEventEmitter, ExecutionStats, NoopEventEmitter, StreamEventKind, TaskEventEmitter,
-    TaskStreamEvent, TauriEventEmitter, TASK_STREAM_EVENT,
+    ChannelEventEmitter, ExecutionStats, NoopEventEmitter, StreamEventKind, TASK_STREAM_EVENT,
+    TaskEventEmitter, TaskStreamEvent, TauriEventEmitter,
 };
 pub use executor::RealAgentExecutor;
-pub use failover::{execute_with_failover, FailoverConfig, FailoverManager, ModelStatus};
+pub use failover::{FailoverConfig, FailoverManager, ModelStatus, execute_with_failover};
 pub use heartbeat::{
-    ChannelHeartbeatEmitter, HeartbeatEmitter, HeartbeatEvent, HeartbeatPulse, HeartbeatWarning,
-    NoopHeartbeatEmitter, RunnerStatus, RunnerStatusEvent, SystemStats, TauriHeartbeatEmitter,
-    HEARTBEAT_EVENT,
+    ChannelHeartbeatEmitter, HEARTBEAT_EVENT, HeartbeatEmitter, HeartbeatEvent, HeartbeatPulse,
+    HeartbeatWarning, NoopHeartbeatEmitter, RunnerStatus, RunnerStatusEvent, SystemStats,
+    TauriHeartbeatEmitter,
 };
 pub use notifier::TelegramNotifier;
 pub use persist::{MemoryPersister, PersistConfig, PersistResult};
-pub use retry::{is_transient_error, ErrorCategory, RetryConfig, RetryState};
+pub use retry::{ErrorCategory, RetryConfig, RetryState, is_transient_error};
 pub use runner::{
     AgentExecutor, AgentTaskRunner, ExecutionResult, NoopNotificationSender, NotificationSender,
     RunnerConfig, RunnerHandle,

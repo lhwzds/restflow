@@ -1,6 +1,9 @@
 //! LLM client trait and types
 
+use std::pin::Pin;
+
 use async_trait::async_trait;
+use futures::Stream;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -122,6 +125,80 @@ pub struct TokenUsage {
     pub total_tokens: u32,
 }
 
+/// A chunk of streamed response
+#[derive(Debug, Clone)]
+pub struct StreamChunk {
+    /// Text content in this chunk
+    pub text: String,
+    /// Thinking/reasoning content (for extended thinking models)
+    pub thinking: Option<String>,
+    /// Tool call being built incrementally
+    pub tool_call_delta: Option<ToolCallDelta>,
+    /// Finish reason (set on final chunk)
+    pub finish_reason: Option<FinishReason>,
+    /// Usage statistics (typically on final chunk)
+    pub usage: Option<TokenUsage>,
+}
+
+impl StreamChunk {
+    /// Create a text chunk
+    pub fn text(text: impl Into<String>) -> Self {
+        Self {
+            text: text.into(),
+            thinking: None,
+            tool_call_delta: None,
+            finish_reason: None,
+            usage: None,
+        }
+    }
+
+    /// Create a thinking chunk
+    pub fn thinking(content: impl Into<String>) -> Self {
+        Self {
+            text: String::new(),
+            thinking: Some(content.into()),
+            tool_call_delta: None,
+            finish_reason: None,
+            usage: None,
+        }
+    }
+
+    /// Create a final chunk with usage
+    pub fn final_chunk(finish_reason: FinishReason, usage: Option<TokenUsage>) -> Self {
+        Self {
+            text: String::new(),
+            thinking: None,
+            tool_call_delta: None,
+            finish_reason: Some(finish_reason),
+            usage,
+        }
+    }
+
+    /// Check if this is an empty chunk
+    pub fn is_empty(&self) -> bool {
+        self.text.is_empty()
+            && self.thinking.is_none()
+            && self.tool_call_delta.is_none()
+            && self.finish_reason.is_none()
+    }
+}
+
+/// Delta for incremental tool call building
+#[derive(Debug, Clone)]
+pub struct ToolCallDelta {
+    /// Tool call index
+    pub index: usize,
+    /// Tool call ID (may be partial)
+    pub id: Option<String>,
+    /// Tool name (may be partial)
+    pub name: Option<String>,
+    /// Arguments JSON fragment
+    pub arguments: Option<String>,
+}
+
+/// Type alias for boxed stream of chunks
+pub type StreamResult = Pin<Box<dyn Stream<Item = Result<StreamChunk>> + Send>>;
+
 /// LLM completion request
 #[derive(Debug, Clone)]
 pub struct CompletionRequest {
@@ -170,6 +247,17 @@ pub trait LlmClient: Send + Sync {
     /// Get model name
     fn model(&self) -> &str;
 
-    /// Complete a chat request
+    /// Complete a chat request (non-streaming)
     async fn complete(&self, request: CompletionRequest) -> Result<CompletionResponse>;
+
+    /// Complete a chat request with streaming response
+    ///
+    /// Returns a stream of chunks that can be processed as they arrive.
+    /// The final chunk will contain the finish_reason and usage statistics.
+    fn complete_stream(&self, request: CompletionRequest) -> StreamResult;
+
+    /// Check if this client supports streaming
+    fn supports_streaming(&self) -> bool {
+        true
+    }
 }

@@ -17,10 +17,11 @@
 use clap::Parser;
 use restflow_tauri_lib::AppState;
 use restflow_tauri_lib::RestFlowMcpServer;
-use restflow_tauri_lib::{RealAgentExecutor, TelegramNotifier};
 use restflow_tauri_lib::commands;
 use restflow_tauri_lib::commands::PtyState;
+use restflow_tauri_lib::commands::AuthState;
 use restflow_tauri_lib::commands::pty::save_all_terminal_history_sync;
+use restflow_tauri_lib::{RealAgentExecutor, TelegramNotifier};
 use tauri::Manager;
 use tracing::info;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -43,14 +44,13 @@ fn main() {
     let args = Args::parse();
     // Initialize tracing
     // For MCP mode, use stderr to avoid interfering with stdio transport
-    let filter = tracing_subscriber::EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| {
-            if args.mcp_mode {
-                "restflow_tauri=warn,restflow_core=warn".into()
-            } else {
-                "restflow_tauri=info,restflow_core=info".into()
-            }
-        });
+    let filter = tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+        if args.mcp_mode {
+            "restflow_tauri=warn,restflow_core=warn".into()
+        } else {
+            "restflow_tauri=info,restflow_core=info".into()
+        }
+    });
 
     tracing_subscriber::registry()
         .with(filter)
@@ -122,6 +122,9 @@ fn main() {
             // Initialize PTY state
             app.manage(PtyState::new());
 
+            // Initialize Auth Profile Manager state
+            app.manage(AuthState::new());
+
             info!("RestFlow initialized successfully");
             info!("Press Cmd+Option+I (macOS) or Ctrl+Shift+I (Windows/Linux) to toggle DevTools");
             Ok(())
@@ -182,8 +185,14 @@ fn main() {
             commands::delete_agent_task,
             commands::pause_agent_task,
             commands::resume_agent_task,
+            commands::cancel_agent_task,
             commands::get_agent_task_events,
             commands::get_runnable_agent_tasks,
+            commands::run_agent_task_streaming,
+            commands::get_active_agent_tasks,
+            commands::get_task_stream_event_name,
+            commands::get_heartbeat_event_name,
+            commands::emit_test_task_event,
             // Secrets
             commands::list_secrets,
             commands::create_secret,
@@ -247,6 +256,23 @@ fn main() {
             commands::list_chat_sessions_by_skill,
             commands::get_chat_session_count,
             commands::clear_old_chat_sessions,
+            // Auth Profiles
+            commands::auth_initialize,
+            commands::auth_discover,
+            commands::auth_list_profiles,
+            commands::auth_get_profiles_for_provider,
+            commands::auth_get_available_profiles,
+            commands::auth_get_profile,
+            commands::auth_add_profile,
+            commands::auth_remove_profile,
+            commands::auth_update_profile,
+            commands::auth_enable_profile,
+            commands::auth_disable_profile,
+            commands::auth_mark_success,
+            commands::auth_mark_failure,
+            commands::auth_get_api_key,
+            commands::auth_get_summary,
+            commands::auth_clear,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -295,7 +321,10 @@ fn get_mcp_db_path() -> String {
     if let Some(data_dir) = dirs::data_dir() {
         let app_dir = data_dir.join("com.restflow.app");
         if std::fs::create_dir_all(&app_dir).is_ok() {
-            return app_dir.join("restflow-mcp.db").to_string_lossy().to_string();
+            return app_dir
+                .join("restflow-mcp.db")
+                .to_string_lossy()
+                .to_string();
         }
     }
     // Fallback to current directory

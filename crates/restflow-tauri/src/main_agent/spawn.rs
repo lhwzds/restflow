@@ -3,17 +3,17 @@
 //! This module handles spawning sub-agents that run in parallel,
 //! with timeout support and completion notifications.
 
-use super::MainAgentConfig;
 use super::definition::{AgentDefinition, AgentDefinitionRegistry};
 use super::events::{MainAgentEvent, MainAgentEventEmitter, MainAgentEventKind};
 use super::tracker::{SubagentResult, SubagentTracker};
-use anyhow::{Result, anyhow};
+use super::MainAgentConfig;
+use anyhow::{anyhow, Result};
 use restflow_ai::llm::CompletionRequest;
 use restflow_ai::{LlmClient, Message};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::oneshot;
-use tokio::time::{Duration, timeout};
+use tokio::time::{timeout, Duration};
 use ts_rs::TS;
 
 /// Request to spawn a sub-agent
@@ -174,6 +174,12 @@ pub fn spawn_subagent(
             ),
         };
 
+        if timed_out {
+            tracker_clone.mark_timed_out_with_result(&sid, subagent_result.clone());
+        } else {
+            tracker_clone.mark_completed(&sid, subagent_result.clone());
+        }
+
         // Emit completed event
         emitter_clone.emit(MainAgentEvent {
             session_id: session_id_clone.clone(),
@@ -188,12 +194,6 @@ pub fn spawn_subagent(
         });
 
         let _ = completion_tx.send(subagent_result.clone());
-        if timed_out {
-            tracker_clone.mark_timed_out(&sid, subagent_result.clone());
-        } else {
-            tracker_clone.mark_completed(&sid, subagent_result.clone());
-        }
-
         subagent_result
     });
 
@@ -225,7 +225,7 @@ async fn execute_subagent(
 ) -> Result<String> {
     // Build system prompt for sub-agent
     let system_prompt = format!(
-        "{}\n\n## Your Task\n{}\n\n## Important\n\
+        "{}\n\n## Your Task\n{}\n\n## Important\
          You are a sub-agent focused on this specific task. \
          Complete it thoroughly and return your results.",
         agent_def.system_prompt, task
@@ -252,7 +252,7 @@ async fn execute_subagent(
 
     // Emit completion progress
     event_emitter.emit(MainAgentEvent {
-        session_id: session_id.clone(),
+        session_id,
         timestamp: chrono::Utc::now().timestamp_millis(),
         kind: MainAgentEventKind::SubagentProgress {
             task_id,

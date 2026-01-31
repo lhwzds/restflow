@@ -10,7 +10,8 @@ use std::sync::Arc;
 const AGENT_TASK_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("agent_tasks");
 const TASK_EVENT_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("task_events");
 /// Index table: task_id -> event_id (for listing events by task)
-const TASK_EVENT_INDEX_TABLE: TableDefinition<&str, &str> = TableDefinition::new("task_event_index");
+const TASK_EVENT_INDEX_TABLE: TableDefinition<&str, &str> =
+    TableDefinition::new("task_event_index");
 
 /// Low-level agent task storage with byte-level API
 #[derive(Clone)]

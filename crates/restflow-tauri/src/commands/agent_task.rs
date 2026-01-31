@@ -17,7 +17,7 @@
 //! });
 //! ```
 
-use crate::agent_task::{TaskStreamEvent, TauriEventEmitter, TASK_STREAM_EVENT};
+use crate::agent_task::{TASK_STREAM_EVENT, TaskStreamEvent, TauriEventEmitter};
 use crate::state::AppState;
 use restflow_core::models::{
     AgentTask, AgentTaskStatus, ExecutionMode, NotificationConfig, TaskEvent, TaskSchedule,
@@ -98,10 +98,7 @@ pub async fn list_agent_tasks_by_status(
 
 /// Get an agent task by ID
 #[tauri::command]
-pub async fn get_agent_task(
-    state: State<'_, AppState>,
-    id: String,
-) -> Result<AgentTask, String> {
+pub async fn get_agent_task(state: State<'_, AppState>, id: String) -> Result<AgentTask, String> {
     state
         .core
         .storage
@@ -220,10 +217,7 @@ pub async fn update_agent_task(
 
 /// Delete an agent task
 #[tauri::command]
-pub async fn delete_agent_task(
-    state: State<'_, AppState>,
-    id: String,
-) -> Result<bool, String> {
+pub async fn delete_agent_task(state: State<'_, AppState>, id: String) -> Result<bool, String> {
     state
         .core
         .storage
@@ -234,10 +228,7 @@ pub async fn delete_agent_task(
 
 /// Pause an agent task
 #[tauri::command]
-pub async fn pause_agent_task(
-    state: State<'_, AppState>,
-    id: String,
-) -> Result<AgentTask, String> {
+pub async fn pause_agent_task(state: State<'_, AppState>, id: String) -> Result<AgentTask, String> {
     state
         .core
         .storage
@@ -258,6 +249,20 @@ pub async fn resume_agent_task(
         .agent_tasks
         .resume_task(&id)
         .map_err(|e| e.to_string())
+}
+
+/// Cancel a running agent task
+#[tauri::command]
+pub async fn cancel_agent_task(
+    state: State<'_, AppState>,
+    task_id: String,
+) -> Result<bool, String> {
+    state
+        .cancel_task(task_id)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(true)
 }
 
 /// Get events for a specific task
@@ -397,12 +402,8 @@ pub async fn run_agent_task_streaming(
         ExecutionMode::Cli(cfg) => format!("cli:{}", cfg.binary),
     };
 
-    let started_event = TaskStreamEvent::started(
-        &task.id,
-        &task.name,
-        &task.agent_id,
-        &execution_mode_str,
-    );
+    let started_event =
+        TaskStreamEvent::started(&task.id, &task.name, &task.agent_id, &execution_mode_str);
 
     if let Err(e) = app_handle.emit(TASK_STREAM_EVENT, &started_event) {
         tracing::warn!("Failed to emit started event: {}", e);
@@ -596,7 +597,10 @@ mod tests {
 
         let request: CreateAgentTaskRequest = serde_json::from_str(json).unwrap();
         match request.schedule {
-            TaskSchedule::Cron { expression, timezone } => {
+            TaskSchedule::Cron {
+                expression,
+                timezone,
+            } => {
                 assert_eq!(expression, "0 9 * * *");
                 assert_eq!(timezone, Some("America/Los_Angeles".to_string()));
             }
