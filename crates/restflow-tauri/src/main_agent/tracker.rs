@@ -223,25 +223,6 @@ impl SubagentTracker {
         results
     }
 
-    /// Wait for any sub-agent to complete
-    pub async fn wait_any(&self) -> Option<(String, SubagentResult)> {
-        let ids: Vec<String> = self.handles.iter().map(|r| r.key().clone()).collect();
-
-        if ids.is_empty() {
-            return None;
-        }
-
-        // Use select to wait for any completion
-        // For simplicity, we just wait for the first one
-        if let Some(id) = ids.first() {
-            if let Some(result) = self.wait(id).await {
-                return Some((id.clone(), result));
-            }
-        }
-
-        None
-    }
-
     /// Cancel a running sub-agent
     pub fn cancel(&self, id: &str) -> bool {
         if let Some((_, handle)) = self.handles.remove(id) {
