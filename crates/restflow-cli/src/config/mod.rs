@@ -1,4 +1,4 @@
-mod cli_config;
 pub mod prompts;
+pub mod settings;
 
-pub use cli_config::CliConfig;
+pub use settings::{ApiKeysConfig, CliConfig, DefaultConfig, TuiConfig};

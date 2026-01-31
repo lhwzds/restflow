@@ -12,6 +12,7 @@ path = "src/main.rs"
 # Core
 restflow-core = { workspace = true }
 restflow-ai = { workspace = true }
+restflow-tauri = { path = "../restflow-tauri" }
 tokio = { workspace = true }
 anyhow = { workspace = true }
 serde = { workspace = true }
@@ -28,18 +29,22 @@ clap_complete = "4.5"
 colored = "2.1"
 comfy-table = "7"
 indicatif = "0.17"
-dirs = "5.0"
+dirs = "6"
 toml = "0.8"
 
 # TUI
 ratatui = "0.30"
 crossterm = "0.29"
 unicode-width = "0.2"
+syntect = "5"
 
 # Logging
 tracing = { workspace = true }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-appender = "0.2"
+
+[target.'cfg(unix)'.dependencies]
+nix = { version = "0.29", features = ["signal", "process"] }
 
 [build-dependencies]
 clap = { version = "4.5", features = ["derive"] }

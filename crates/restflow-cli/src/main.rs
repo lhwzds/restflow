@@ -1,16 +1,16 @@
 mod cli;
 mod commands;
+mod completions;
 mod config;
+mod daemon;
 mod output;
 mod setup;
 mod tui;
 
 use anyhow::Result;
-use clap::{CommandFactory, Parser};
-use clap_complete::generate;
+use clap::Parser;
 use cli::{Cli, Commands};
 use restflow_core::paths;
-use std::io;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -35,8 +35,7 @@ async fn main() -> Result<()> {
         .init();
 
     if let Some(Commands::Completions { shell }) = cli.command {
-        let mut cmd = Cli::command();
-        generate(shell, &mut cmd, "restflow", &mut io::stdout());
+        completions::generate_completions(shell);
         return Ok(());
     }
 
@@ -51,10 +50,19 @@ async fn main() -> Result<()> {
         Some(Commands::Run(args)) => commands::run::run(core, args, cli.format).await,
         Some(Commands::Agent { command }) => commands::agent::run(core, command, cli.format).await,
         Some(Commands::Task { command }) => commands::task::run(core, command, cli.format).await,
-        Some(Commands::Skill { command }) => commands::skill::run(core, command, cli.format).await,
-        Some(Commands::Memory { command }) => commands::memory::run(core, command, cli.format).await,
-        Some(Commands::Secret { command }) => commands::secret::run(core, command, cli.format).await,
-        Some(Commands::Config { command }) => commands::config::run(core, command, cli.format).await,
+        Some(Commands::Daemon { command }) => commands::daemon::run(core, command).await,
+        Some(Commands::Skill { command }) => {
+            commands::skill::run(core, command, cli.format).await
+        }
+        Some(Commands::Memory { command }) => {
+            commands::memory::run(core, command, cli.format).await
+        }
+        Some(Commands::Secret { command }) => {
+            commands::secret::run(core, command, cli.format).await
+        }
+        Some(Commands::Config { command }) => {
+            commands::config::run(core, command, cli.format).await
+        }
         Some(Commands::Mcp) => commands::mcp::run(core).await,
         Some(Commands::Info) => commands::info::run(),
         None => commands::chat::run(core, Default::default()).await,

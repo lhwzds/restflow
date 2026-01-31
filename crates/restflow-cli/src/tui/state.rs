@@ -1,19 +1,22 @@
 //! TUI application state
 
-use super::MIN_INPUT_HEIGHT;
+use super::{highlight::SyntaxHighlighter, history::InputHistory, shell, MIN_INPUT_HEIGHT};
 use crate::tui::stream::{
-    StreamCancelHandle, StreamEvent, StreamingExecutor, build_system_prompt,
-    create_working_memory, format_tool_output,
+    build_system_prompt, create_working_memory, format_tool_output, StreamCancelHandle,
+    StreamEvent, StreamingExecutor,
 };
 use restflow_ai::llm::Message as LlmMessage;
 use restflow_ai::{AgentConfig, AgentState, AnthropicClient, OpenAIClient};
 use restflow_core::models::{
     ApiKeyConfig, ChatMessage, ChatRole, ChatSession, ExecutionStepInfo, MessageExecution,
 };
-use restflow_core::{AppCore, models::AIModel, models::Provider};
+use restflow_core::{models::AIModel, models::Provider, AppCore};
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use unicode_width::UnicodeWidthChar;
+
+use crate::config::CliConfig;
+use crate::tui::highlight::theme_for_config;
 
 #[derive(Debug, Clone)]
 pub struct Command {
@@ -38,6 +41,10 @@ pub struct TuiApp {
     pub core: Arc<AppCore>,
     pub should_clear: bool,
     pub command_history: Vec<String>,
+    pub input_history: InputHistory,
+    pub default_agent: Option<String>,
+    pub default_model: Option<String>,
+    pub syntax_highlighter: Option<SyntaxHighlighter>,
     pub last_total_height: u16,
     pub last_terminal_height: u16,
     pub current_agent_id: Option<String>,
@@ -55,7 +62,7 @@ pub struct TuiApp {
 }
 
 impl TuiApp {
-    pub fn new(core: Arc<AppCore>) -> Self {
+    pub fn new(core: Arc<AppCore>, config: &CliConfig) -> Self {
         let commands = vec![
             Command {
                 name: "/help".to_string(),
@@ -87,6 +94,12 @@ impl TuiApp {
             },
         ];
 
+        let syntax_highlighter = if config.tui.syntax_highlight {
+            Some(SyntaxHighlighter::new(theme_for_config(&config.tui.theme)))
+        } else {
+            None
+        };
+
         let mut app = Self {
             input: String::new(),
             cursor_position: 0,
@@ -97,6 +110,10 @@ impl TuiApp {
             core,
             should_clear: false,
             command_history: Vec::new(),
+            input_history: InputHistory::new(config.tui.history_size),
+            default_agent: config.default.agent.clone(),
+            default_model: config.default.model.clone(),
+            syntax_highlighter,
             last_total_height: MIN_INPUT_HEIGHT,
             last_terminal_height: MIN_INPUT_HEIGHT,
             current_agent_id: None,
@@ -668,6 +685,7 @@ impl TuiApp {
         let byte_idx = self.char_to_byte_idx(self.cursor_position);
         self.input.insert(byte_idx, c);
         self.cursor_position += 1;
+        self.input_history.reset_navigation();
         self.refresh_command_menu();
     }
 
@@ -676,6 +694,7 @@ impl TuiApp {
             self.cursor_position -= 1;
             let byte_idx = self.char_to_byte_idx(self.cursor_position);
             self.input.remove(byte_idx);
+            self.input_history.reset_navigation();
             self.refresh_command_menu();
         }
     }
@@ -700,6 +719,52 @@ impl TuiApp {
         }
     }
 
+    pub fn history_previous(&mut self) {
+        if let Some(entry) = self.input_history.previous(&self.input) {
+            self.input = entry;
+            self.cursor_position = self.input.chars().count();
+            self.show_commands = false;
+        }
+    }
+
+    pub fn history_next(&mut self) {
+        if let Some(entry) = self.input_history.next() {
+            self.input = entry;
+            self.cursor_position = self.input.chars().count();
+            self.show_commands = false;
+        }
+    }
+
+    async fn execute_shell(&mut self, input: &str) {
+        let command = input.trim_start_matches('!').trim();
+        if command.is_empty() {
+            return;
+        }
+
+        self.new_messages.push(format!("$ {}", command));
+
+        match shell::run_shell_command(command).await {
+            Ok(output) => {
+                if !output.stdout.trim().is_empty() {
+                    self.new_messages.push(output.stdout.trim_end().to_string());
+                }
+                if !output.stderr.trim().is_empty() {
+                    self.new_messages
+                        .push(format!("❌ {}", output.stderr.trim_end()));
+                }
+                if let Some(code) = output.status {
+                    if code != 0 {
+                        self.new_messages.push(format!("Exit code: {code}"));
+                    }
+                }
+            }
+            Err(err) => {
+                self.new_messages
+                    .push(format!("❌ Failed to run command: {err}"));
+            }
+        }
+    }
+
     pub async fn submit(&mut self) {
         if self.input.is_empty() {
             return;
@@ -717,6 +782,17 @@ impl TuiApp {
             self.command_history.push(input.clone());
         }
 
+        self.input_history.add(input.clone());
+        let _ = self.input_history.save();
+
+        if input.starts_with('!') {
+            self.execute_shell(&input).await;
+            self.input.clear();
+            self.cursor_position = 0;
+            self.show_commands = false;
+            return;
+        }
+
         match input.as_str() {
             "/clear" => {
                 self.should_clear = true;
@@ -727,6 +803,12 @@ impl TuiApp {
                 for cmd in &self.commands {
                     self.new_messages
                         .push(format!("  {} - {}", cmd.name, cmd.description));
+                }
+                if let Some(agent) = self.default_agent.as_ref() {
+                    self.new_messages.push(format!("  Default agent: {agent}"));
+                }
+                if let Some(model) = self.default_model.as_ref() {
+                    self.new_messages.push(format!("  Default model: {model}"));
                 }
             }
             "/new" => {
@@ -778,6 +860,7 @@ impl TuiApp {
 #[cfg(test)]
 mod tests {
     use super::TuiApp;
+    use crate::config::CliConfig;
     use restflow_core::AppCore;
     use std::sync::Arc;
 
@@ -794,7 +877,8 @@ mod tests {
     #[tokio::test]
     async fn test_input_insert_delete() {
         let core = test_core().await;
-        let mut app = TuiApp::new(core);
+        let config = CliConfig::default();
+        let mut app = TuiApp::new(core, &config);
         app.enter_char('H');
         app.enter_char('i');
         assert_eq!(app.input, "Hi");
@@ -808,7 +892,8 @@ mod tests {
     #[tokio::test]
     async fn test_command_menu_visibility() {
         let core = test_core().await;
-        let mut app = TuiApp::new(core);
+        let config = CliConfig::default();
+        let mut app = TuiApp::new(core, &config);
         app.enter_char('/');
         assert!(app.show_commands);
 
@@ -819,7 +904,8 @@ mod tests {
     #[tokio::test]
     async fn test_submit_help_command() {
         let core = test_core().await;
-        let mut app = TuiApp::new(core);
+        let config = CliConfig::default();
+        let mut app = TuiApp::new(core, &config);
         app.input = "/help".to_string();
         app.cursor_position = app.input.chars().count();
         app.submit().await;
@@ -835,7 +921,8 @@ mod tests {
     #[tokio::test]
     async fn test_submit_unknown_command() {
         let core = test_core().await;
-        let mut app = TuiApp::new(core);
+        let config = CliConfig::default();
+        let mut app = TuiApp::new(core, &config);
         app.input = "/unknown".to_string();
         app.cursor_position = app.input.chars().count();
         app.submit().await;

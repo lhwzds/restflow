@@ -43,6 +43,7 @@ pub enum Commands {
 
     /// Generate shell completions
     Completions {
+        /// Shell to generate completions for
         #[arg(value_enum)]
         shell: Shell,
     },
@@ -60,6 +61,12 @@ pub enum Commands {
     Task {
         #[command(subcommand)]
         command: TaskCommands,
+    },
+
+    /// Daemon management
+    Daemon {
+        #[command(subcommand)]
+        command: DaemonCommands,
     },
 
     /// Skill management
@@ -209,6 +216,22 @@ pub enum TaskCommands {
 
     /// Run task immediately
     Run { id: String },
+}
+
+#[derive(Subcommand)]
+pub enum DaemonCommands {
+    /// Start daemon
+    Start {
+        /// Run in foreground
+        #[arg(long)]
+        foreground: bool,
+    },
+
+    /// Stop daemon
+    Stop,
+
+    /// Show daemon status
+    Status,
 }
 
 #[derive(Subcommand)]
