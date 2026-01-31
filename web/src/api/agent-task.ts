@@ -175,7 +175,7 @@ export async function resumeAgentTask(id: string): Promise<AgentTask> {
  */
 export async function getAgentTaskEvents(taskId: string, limit?: number): Promise<TaskEvent[]> {
   if (isTauri()) {
-    return tauriInvoke<TaskEvent[]>('get_agent_task_events', { task_id: taskId, limit })
+    return tauriInvoke<TaskEvent[]>('get_agent_task_events', { taskId, limit })
   }
   const url = limit
     ? `${API_ENDPOINTS.AGENT_TASK.EVENTS(taskId)}?limit=${limit}`
@@ -399,5 +399,5 @@ export async function cancelAgentTask(taskId: string): Promise<boolean> {
   if (!isTauri()) {
     throw new Error('Task cancellation is only available in Tauri desktop app')
   }
-  return tauriInvoke<boolean>('cancel_agent_task', { task_id: taskId })
+  return tauriInvoke<boolean>('cancel_agent_task', { taskId })
 }
