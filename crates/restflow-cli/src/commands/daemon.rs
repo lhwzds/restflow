@@ -2,6 +2,7 @@ use crate::cli::DaemonCommands;
 use crate::daemon::{cleanup_stale_pid, pid_file, read_pid, CliTaskRunner};
 use anyhow::Result;
 use restflow_core::AppCore;
+use std::process::{Command, Stdio};
 use std::sync::Arc;
 
 pub async fn run(core: Arc<AppCore>, command: DaemonCommands) -> Result<()> {
@@ -28,19 +29,26 @@ async fn start(core: Arc<AppCore>, foreground: bool) -> Result<()> {
 
         #[cfg(unix)]
         {
-            use fork::{daemon, Fork};
+            use std::os::unix::process::CommandExt;
 
-            match daemon(false, false) {
-                Ok(Fork::Child) => {
-                    let rt = tokio::runtime::Runtime::new()?;
-                    rt.block_on(run_daemon(core))
-                }
-                Ok(Fork::Parent(pid)) => {
-                    println!("Daemon started (PID: {})", pid);
-                    Ok(())
-                }
-                Err(err) => Err(anyhow::anyhow!("Fork failed: {}", err)),
-            }
+            let exe = std::env::current_exe()?;
+            let mut command = Command::new(exe);
+            command
+                .arg("daemon")
+                .arg("start")
+                .arg("--foreground")
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .pre_exec(|| {
+                    nix::unistd::setsid().map(|_| ()).map_err(|err| {
+                        std::io::Error::new(std::io::ErrorKind::Other, err)
+                    })
+                });
+
+            let child = command.spawn()?;
+            println!("Daemon started (PID: {})", child.id());
+            Ok(())
         }
 
         #[cfg(not(unix))]
