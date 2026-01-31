@@ -2,12 +2,21 @@
 .el .ds Aq '
 .TH chat 1  "chat " 
 .SH NAME
-chat \- Launch the interactive chat TUI
+chat \- Start interactive TUI chat
 .SH SYNOPSIS
-\fBchat\fR [\fB\-h\fR|\fB\-\-help\fR] 
+\fBchat\fR [\fB\-a\fR|\fB\-\-agent\fR] [\fB\-s\fR|\fB\-\-session\fR] [\fB\-m\fR|\fB\-\-message\fR] [\fB\-h\fR|\fB\-\-help\fR] 
 .SH DESCRIPTION
-Launch the interactive chat TUI
+Start interactive TUI chat
 .SH OPTIONS
+.TP
+\fB\-a\fR, \fB\-\-agent\fR \fI<AGENT>\fR
+Agent ID to use
+.TP
+\fB\-s\fR, \fB\-\-session\fR \fI<SESSION>\fR
+Session ID to continue
+.TP
+\fB\-m\fR, \fB\-\-message\fR \fI<MESSAGE>\fR
+Initial message to send
 .TP
 \fB\-h\fR, \fB\-\-help\fR
 Print help
