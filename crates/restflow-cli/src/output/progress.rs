@@ -1,6 +1,7 @@
 use indicatif::{ProgressBar, ProgressStyle};
 use std::time::Duration;
 
+#[allow(dead_code)]
 pub fn spinner(message: &str) -> ProgressBar {
     let pb = ProgressBar::new_spinner();
     pb.set_style(
