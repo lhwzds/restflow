@@ -11,6 +11,7 @@ pub enum OutputFormat {
 }
 
 impl OutputFormat {
+    #[allow(dead_code)]
     pub fn is_json(self) -> bool {
         matches!(self, OutputFormat::Json)
     }

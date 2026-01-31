@@ -106,6 +106,7 @@ impl CommandPattern {
 /// Supports `*` as a wildcard that matches any sequence of characters (including empty).
 /// Special handling: trailing ` *` (space + wildcard) also matches when there are no arguments.
 /// This means `ls *` matches both `ls` and `ls -la`.
+#[allow(clippy::needless_range_loop)]
 fn glob_match(pattern: &str, text: &str) -> bool {
     // Special case: if pattern ends with " *", also try matching without it
     // This allows "ls *" to match both "ls" and "ls -la"
