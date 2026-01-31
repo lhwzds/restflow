@@ -18,16 +18,25 @@ const props = defineProps<{
   step: ExecutionStep
 }>()
 
-// Access content from ExecutionStep
 const stepContent = computed<string | undefined>(() => {
-  return props.step.content || undefined
+  const data = props.step.data
+  if (typeof data === 'string') {
+    return data
+  }
+  if (data && typeof data === 'object' && 'content' in data) {
+    const content = (data as { content?: unknown }).content
+    return typeof content === 'string' ? content : undefined
+  }
+  return undefined
 })
 
-// Access tool_calls from ExecutionStep
 const stepToolCalls = computed<ToolCallInfo[]>(() => {
-  const toolCalls = props.step.tool_calls
-  if (Array.isArray(toolCalls)) {
-    return toolCalls as ToolCallInfo[]
+  const data = props.step.data
+  if (data && typeof data === 'object' && 'tool_calls' in data) {
+    const toolCalls = (data as { tool_calls?: unknown }).tool_calls
+    if (Array.isArray(toolCalls)) {
+      return toolCalls as ToolCallInfo[]
+    }
   }
   return []
 })
@@ -62,7 +71,7 @@ const stepLabel = computed(() => {
     case 'tool_result':
       return 'Tool Result'
     default:
-      return 'Step'
+      return props.step.name || 'Step'
   }
 })
 
