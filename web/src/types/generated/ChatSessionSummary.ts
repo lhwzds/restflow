@@ -21,6 +21,10 @@ agent_id: string,
  */
 model: string, 
 /**
+ * Skill ID (if session is skill-scoped)
+ */
+skill_id: string | null, 
+/**
  * Number of messages
  */
 message_count: number, 
