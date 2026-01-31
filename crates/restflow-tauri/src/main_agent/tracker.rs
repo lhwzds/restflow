@@ -5,8 +5,9 @@
 
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot};
-use tokio::task::JoinHandle;
+use tokio::task::{AbortHandle, JoinHandle};
 use ts_rs::TS;
 
 /// Sub-agent running state
@@ -85,8 +86,8 @@ pub struct SubagentTracker {
     /// All sub-agent states
     states: DashMap<String, SubagentState>,
 
-    /// Tokio JoinHandles for waiting/cancelling
-    handles: DashMap<String, JoinHandle<SubagentResult>>,
+    /// Abort handles for cancelling running sub-agents
+    abort_handles: DashMap<String, AbortHandle>,
 
     /// Completion waiters for sub-agent results
     completion_waiters: DashMap<String, oneshot::Receiver<SubagentResult>>,
@@ -100,7 +101,7 @@ impl SubagentTracker {
     pub fn new(completion_tx: mpsc::Sender<SubagentCompletion>) -> Self {
         Self {
             states: DashMap::new(),
-            handles: DashMap::new(),
+            abort_handles: DashMap::new(),
             completion_waiters: DashMap::new(),
             completion_tx,
         }
@@ -108,7 +109,7 @@ impl SubagentTracker {
 
     /// Register a new sub-agent
     pub fn register(
-        &self,
+        self: &Arc<Self>,
         id: String,
         agent_name: String,
         task: String,
@@ -125,9 +126,41 @@ impl SubagentTracker {
             result: None,
         };
 
+        let abort_handle = handle.abort_handle();
+
         self.states.insert(id.clone(), state);
-        self.handles.insert(id.clone(), handle);
-        self.completion_waiters.insert(id, completion_rx);
+        self.abort_handles.insert(id.clone(), abort_handle);
+        self.completion_waiters.insert(id.clone(), completion_rx);
+
+        let tracker = Arc::clone(self);
+        let id_for_task = id.clone();
+        tokio::spawn(async move {
+            let join_result = handle.await;
+            if tracker
+                .get(&id_for_task)
+                .and_then(|state| state.result.clone())
+                .is_some()
+            {
+                return;
+            }
+
+            match join_result {
+                Ok(result) => {
+                    tracker.mark_completed(&id_for_task, result);
+                }
+                Err(e) => {
+                    let result = SubagentResult {
+                        success: false,
+                        output: String::new(),
+                        summary: None,
+                        duration_ms: 0,
+                        tokens_used: None,
+                        error: Some(format!("Task panicked: {}", e)),
+                    };
+                    tracker.mark_completed(&id_for_task, result);
+                }
+            }
+        });
     }
 
     /// Get state of a specific sub-agent
@@ -183,26 +216,7 @@ impl SubagentTracker {
                     return Some(result);
                 }
                 Err(_) => {
-                    if let Some((_, handle)) = self.handles.remove(id) {
-                        match handle.await {
-                            Ok(result) => {
-                                self.mark_completed(id, result.clone());
-                                return Some(result);
-                            }
-                            Err(e) => {
-                                let result = SubagentResult {
-                                    success: false,
-                                    output: String::new(),
-                                    summary: None,
-                                    duration_ms: 0,
-                                    tokens_used: None,
-                                    error: Some(format!("Task panicked: {}", e)),
-                                };
-                                self.mark_completed(id, result.clone());
-                                return Some(result);
-                            }
-                        }
-                    }
+                    return self.states.get(id).and_then(|s| s.result.clone());
                 }
             }
         }
@@ -212,7 +226,11 @@ impl SubagentTracker {
 
     /// Wait for all running sub-agents to complete
     pub async fn wait_all(&self) -> Vec<SubagentResult> {
-        let ids: Vec<String> = self.handles.iter().map(|r| r.key().clone()).collect();
+        let ids: Vec<String> = self
+            .abort_handles
+            .iter()
+            .map(|r| r.key().clone())
+            .collect();
 
         let mut results = Vec::new();
         for id in ids {
@@ -225,7 +243,7 @@ impl SubagentTracker {
 
     /// Cancel a running sub-agent
     pub fn cancel(&self, id: &str) -> bool {
-        if let Some((_, handle)) = self.handles.remove(id) {
+        if let Some((_, handle)) = self.abort_handles.remove(id) {
             handle.abort();
             self.completion_waiters.remove(id);
             if let Some(mut state) = self.states.get_mut(id) {
@@ -240,7 +258,11 @@ impl SubagentTracker {
 
     /// Cancel all running sub-agents
     pub fn cancel_all(&self) -> usize {
-        let ids: Vec<String> = self.handles.iter().map(|r| r.key().clone()).collect();
+        let ids: Vec<String> = self
+            .abort_handles
+            .iter()
+            .map(|r| r.key().clone())
+            .collect();
         let mut cancelled = 0;
         for id in ids {
             if self.cancel(&id) {
@@ -263,7 +285,7 @@ impl SubagentTracker {
         }
 
         // Remove the handle if it exists
-        self.handles.remove(id);
+        self.abort_handles.remove(id);
         self.completion_waiters.remove(id);
 
         // Send completion notification
@@ -282,7 +304,7 @@ impl SubagentTracker {
         }
 
         // Abort and remove the handle
-        if let Some((_, handle)) = self.handles.remove(id) {
+        if let Some((_, handle)) = self.abort_handles.remove(id) {
             handle.abort();
         }
         self.completion_waiters.remove(id);
@@ -327,7 +349,7 @@ mod tests {
     #[tokio::test]
     async fn test_tracker_basic() {
         let (tx, _rx) = mpsc::channel(10);
-        let tracker = SubagentTracker::new(tx);
+        let tracker = Arc::new(SubagentTracker::new(tx));
 
         // Register a sub-agent
         let (completion_tx, completion_rx) = oneshot::channel();
@@ -366,7 +388,7 @@ mod tests {
     #[tokio::test]
     async fn test_tracker_cancel() {
         let (tx, _rx) = mpsc::channel(10);
-        let tracker = SubagentTracker::new(tx);
+        let tracker = Arc::new(SubagentTracker::new(tx));
 
         // Register a long-running sub-agent
         let (_completion_tx, completion_rx) = oneshot::channel();
