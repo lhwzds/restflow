@@ -1,5 +1,7 @@
 pub mod agent;
+pub mod auth;
 pub mod chat;
+pub mod claude;
 pub mod config;
 pub mod daemon;
 pub mod info;
@@ -7,6 +9,7 @@ pub mod mcp;
 pub mod memory;
 pub mod run;
 pub mod secret;
+pub mod session;
 pub mod skill;
 pub mod task;
 pub mod utils;

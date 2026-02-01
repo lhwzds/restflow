@@ -11,6 +11,12 @@ pub struct SkillStorage {
     inner: restflow_storage::SkillStorage,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SkillUpsertOutcome {
+    Created,
+    Updated,
+}
+
 impl SkillStorage {
     pub fn new(db: Arc<Database>) -> Result<Self> {
         Ok(Self {
@@ -66,6 +72,17 @@ impl SkillStorage {
     pub fn delete(&self, id: &str) -> Result<()> {
         self.inner.delete(id)?;
         Ok(())
+    }
+
+    /// Create or update a skill
+    pub fn upsert(&self, skill: &Skill) -> Result<SkillUpsertOutcome> {
+        if self.inner.exists(&skill.id)? {
+            self.update(&skill.id, skill)?;
+            Ok(SkillUpsertOutcome::Updated)
+        } else {
+            self.create(skill)?;
+            Ok(SkillUpsertOutcome::Created)
+        }
     }
 
     /// Check if a skill exists

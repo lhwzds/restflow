@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test'
+import { createAgentInBrowser, createAgentAndOpenEditor, createSkillInBrowser, createSkillAndOpenEditor } from './helpers'
 
 /**
  * File Browser E2E Tests
@@ -32,11 +33,7 @@ test.describe('File Browser - Skills', () => {
   })
 
   test('clicking New Skill button creates skill', async ({ page }) => {
-    const newButton = page.locator('button', { hasText: 'New Skill' })
-    await newButton.click()
-
-    // Verify skill editor opens (markdown textarea visible)
-    await expect(page.locator('textarea[placeholder*="Markdown"]')).toBeVisible()
+    await createSkillAndOpenEditor(page)
   })
 
   test('list view shows New Skill row without border', async ({ page }) => {
@@ -51,9 +48,7 @@ test.describe('File Browser - Skills', () => {
   })
 
   test('skill items show delete button on hover', async ({ page }) => {
-    // Find a skill item
-    const skillItem = page.locator('button', { hasText: /Untitled-\d+/ }).first()
-    await expect(skillItem).toBeVisible()
+    const skillItem = await createSkillInBrowser(page)
 
     // Hover to show delete button
     await skillItem.hover()
@@ -76,11 +71,7 @@ test.describe('File Browser - Agents', () => {
   })
 
   test('clicking New Agent button creates agent', async ({ page }) => {
-    const newButton = page.locator('button', { hasText: 'New Agent' })
-    await newButton.click()
-
-    // Verify agent editor opens (system prompt textarea visible)
-    await expect(page.locator('textarea[placeholder*="system prompt"]')).toBeVisible()
+    await createAgentAndOpenEditor(page)
   })
 
   test('list view shows New Agent row without border', async ({ page }) => {
@@ -94,8 +85,7 @@ test.describe('File Browser - Agents', () => {
   })
 
   test('agent items show delete button on hover', async ({ page }) => {
-    const agentItem = page.locator('button', { hasText: /Untitled-\d+/ }).first()
-    await expect(agentItem).toBeVisible()
+    const agentItem = await createAgentInBrowser(page)
 
     await agentItem.hover()
     const deleteButton = agentItem.locator('button[title="Delete"]')
@@ -111,12 +101,7 @@ test.describe('Agent Editor Settings', () => {
   })
 
   test('settings button is clickable and opens popover', async ({ page }) => {
-    // Create a new agent to open the editor
-    const newButton = page.locator('button', { hasText: 'New Agent' })
-    await newButton.click()
-
-    // Wait for editor to open
-    await expect(page.locator('textarea[placeholder*="system prompt"]')).toBeVisible()
+    await createAgentAndOpenEditor(page)
 
     // Find the settings button in the editor
     // The editor settings button uses Popover which has aria-haspopup="dialog"
@@ -132,11 +117,7 @@ test.describe('Agent Editor Settings', () => {
   })
 
   test('can change model in settings popover', async ({ page }) => {
-    // Create a new agent
-    const newButton = page.locator('button', { hasText: 'New Agent' })
-    await newButton.click()
-
-    await expect(page.locator('textarea[placeholder*="system prompt"]')).toBeVisible()
+    await createAgentAndOpenEditor(page)
 
     // Open settings - the editor settings button uses Popover with aria-haspopup="dialog"
     const settingsButton = page.locator('button[aria-haspopup="dialog"]')
@@ -160,6 +141,8 @@ test.describe('Delete Functionality', () => {
     await page.goto('/workspace')
     await page.waitForLoadState('networkidle')
 
+    await createSkillInBrowser(page)
+
     const initialCount = await page.locator('button', { hasText: /Untitled-\d+/ }).count()
     expect(initialCount).toBeGreaterThan(0)
 
@@ -180,8 +163,9 @@ test.describe('Delete Functionality', () => {
     await page.waitForLoadState('networkidle')
     await page.getByRole('button', { name: 'Agents' }).click()
 
+    const agentItem = await createAgentInBrowser(page)
+
     // Get the specific agent name we'll delete
-    const agentItem = page.locator('button', { hasText: /Untitled-\d+/ }).first()
     const agentName = await agentItem.locator('span, div').filter({ hasText: /Untitled-\d+/ }).first().textContent()
     expect(agentName).toBeTruthy()
 

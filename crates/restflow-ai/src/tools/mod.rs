@@ -8,20 +8,22 @@ mod email;
 mod file;
 mod file_memory;
 mod http;
+mod process;
 mod python;
 mod registry;
 mod skill;
 mod telegram;
 mod traits;
 
-pub use bash::{BashTool, BashInput, BashOutput};
+pub use bash::{BashInput, BashOutput, BashTool};
 pub use email::EmailTool;
-pub use file::{FileTool, FileAction};
+pub use file::{FileAction, FileTool};
 pub use file_memory::{
     DeleteMemoryTool, FileMemoryConfig, ListMemoryTool, MemoryEntry, MemoryEntryMeta,
     ReadMemoryTool, SaveMemoryTool,
 };
 pub use http::HttpTool;
+pub use process::{ProcessLog, ProcessManager, ProcessPollResult, ProcessSessionInfo, ProcessTool};
 pub use python::PythonTool;
 pub use registry::ToolRegistry;
 pub use skill::SkillTool;

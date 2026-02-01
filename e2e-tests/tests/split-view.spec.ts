@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test'
+import { createAgentInBrowser, createSkillInBrowser } from './helpers'
 
 /**
  * Split View E2E Tests
@@ -20,9 +21,8 @@ test.describe('Split View', () => {
 
   test('can open a skill in split view by dragging to drop zone', async ({ page }) => {
     // Open a skill first
-    const skillItem = page.locator('button', { hasText: /Untitled-\d+/ }).first()
-    await skillItem.dblclick()
-    await page.waitForTimeout(300)
+    const skillItem = await createSkillInBrowser(page)
+    await skillItem.click()
 
     // Verify editor is open
     await expect(page.locator('textarea[placeholder*="Markdown"]')).toBeVisible()
@@ -44,9 +44,8 @@ test.describe('Split View', () => {
   test('closing pinned tab from TabBar closes split view', async ({ page }) => {
     // This is the critical bug fix test
     // Open a skill
-    const skillItem = page.locator('button', { hasText: /Untitled-\d+/ }).first()
-    await skillItem.dblclick()
-    await page.waitForTimeout(300)
+    const skillItem = await createSkillInBrowser(page)
+    await skillItem.click()
 
     // Set up split view via localStorage (simulating pinning)
     const tabId = await page.evaluate(() => {
@@ -73,8 +72,8 @@ test.describe('Split View', () => {
       await page.waitForLoadState('networkidle')
 
       // Open the same skill again
-      await skillItem.dblclick()
-      await page.waitForTimeout(300)
+      const reopenedSkill = page.locator('button', { hasText: /Untitled-\d+/ }).first()
+      await reopenedSkill.click()
 
       // Close the tab from TabBar
       const closeButton = page.locator('[data-testid="tab-bar"] button[title="Close"]').first()
@@ -230,13 +229,15 @@ test.describe('Split View with Skills', () => {
     // 3. Open skill B in main editor
     // 4. Both should be visible side by side
 
+    await createSkillInBrowser(page)
+    await createSkillInBrowser(page)
+
     const skills = page.locator('button', { hasText: /Untitled-\d+/ })
     const skillCount = await skills.count()
 
     if (skillCount >= 2) {
       // Open first skill
-      await skills.first().dblclick()
-      await page.waitForTimeout(300)
+      await skills.first().click()
 
       // Verify editor opened
       await expect(page.locator('textarea[placeholder*="Markdown"]')).toBeVisible()
@@ -253,9 +254,8 @@ test.describe('Split View with Agents', () => {
   })
 
   test('can open agent in editor', async ({ page }) => {
-    const agentItem = page.locator('button', { hasText: /Untitled-\d+/ }).first()
-    await agentItem.dblclick()
-    await page.waitForTimeout(300)
+    const agentItem = await createAgentInBrowser(page)
+    await agentItem.click()
 
     // Verify agent editor opened
     await expect(page.locator('textarea[placeholder*="system prompt"]')).toBeVisible()

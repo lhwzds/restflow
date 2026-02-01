@@ -86,17 +86,72 @@ pub enum Commands {
         command: SecretCommands,
     },
 
+    /// Authentication management
+    Auth {
+        #[command(subcommand)]
+        command: AuthCommands,
+    },
+
+    /// Security management
+    Security {
+        #[command(subcommand)]
+        command: SecurityCommands,
+    },
+
     /// Configuration
     Config {
         #[command(subcommand)]
         command: ConfigCommands,
     },
 
-    /// Start as MCP server
-    Mcp,
+    /// MCP server management
+    Mcp {
+        #[command(subcommand)]
+        command: McpCommands,
+    },
 
     /// Show system information
     Info,
+
+    /// Execute via Claude Code CLI (uses OAuth)
+    Claude(ClaudeArgs),
+
+    /// Manage chat sessions
+    Session {
+        #[command(subcommand)]
+        command: SessionCommands,
+    },
+}
+
+#[derive(Args)]
+pub struct ClaudeArgs {
+    /// Prompt to send to Claude
+    #[arg(short, long)]
+    pub prompt: Option<String>,
+
+    /// Model to use (opus, sonnet, haiku)
+    #[arg(short, long, default_value = "sonnet")]
+    pub model: String,
+
+    /// Session ID for conversation persistence
+    #[arg(short = 's', long)]
+    pub session: Option<String>,
+
+    /// Create a new session and use it
+    #[arg(long)]
+    pub new_session: bool,
+
+    /// Working directory
+    #[arg(short = 'w', long)]
+    pub cwd: Option<String>,
+
+    /// Timeout in seconds
+    #[arg(long, default_value = "300")]
+    pub timeout: u64,
+
+    /// Auth profile ID to use (defaults to first available Anthropic profile)
+    #[arg(long)]
+    pub auth_profile: Option<String>,
 }
 
 #[derive(Args, Default)]
@@ -172,6 +227,10 @@ pub enum AgentCommands {
 
         #[arg(short, long)]
         input: Option<String>,
+
+        /// Optional chat session ID for message mirroring
+        #[arg(long)]
+        session: Option<String>,
     },
 }
 
@@ -317,6 +376,36 @@ pub enum SecretCommands {
 }
 
 #[derive(Subcommand)]
+pub enum AuthCommands {
+    /// Show authentication status
+    Status,
+
+    /// Discover credentials from all sources
+    Discover,
+
+    /// List all credential profiles
+    List,
+
+    /// Show profile details
+    Show { id: String },
+
+    /// Add manual API key
+    Add {
+        #[arg(long)]
+        provider: String,
+
+        #[arg(long)]
+        key: String,
+
+        #[arg(long)]
+        name: Option<String>,
+    },
+
+    /// Remove a profile
+    Remove { id: String },
+}
+
+#[derive(Subcommand)]
 pub enum ConfigCommands {
     /// Show configuration
     Show,
@@ -326,4 +415,138 @@ pub enum ConfigCommands {
 
     /// Set config value
     Set { key: String, value: String },
+
+    /// Reset configuration to defaults
+    Reset,
+}
+
+#[derive(Subcommand)]
+pub enum SecurityCommands {
+    /// List pending approvals
+    Approvals,
+
+    /// Approve a request
+    Approve { id: String },
+
+    /// Reject a request
+    Reject { id: String },
+
+    /// Manage allowlist
+    Allowlist {
+        #[command(subcommand)]
+        action: AllowlistAction,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum AllowlistAction {
+    /// Show allowlist
+    Show,
+
+    /// Add allowlist pattern
+    Add {
+        pattern: String,
+
+        #[arg(short, long)]
+        description: Option<String>,
+    },
+
+    /// Remove allowlist pattern by index
+    Remove { index: usize },
+}
+
+#[derive(Subcommand)]
+pub enum McpCommands {
+    /// List MCP servers
+    List,
+
+    /// Add MCP server
+    Add { name: String, command: String },
+
+    /// Remove MCP server
+    Remove { name: String },
+
+    /// Start MCP server
+    Start { name: String },
+
+    /// Stop MCP server
+    Stop { name: String },
+}
+
+#[derive(Subcommand)]
+pub enum SessionCommands {
+    /// List all sessions
+    List,
+
+    /// Show a session's conversation
+    Show {
+        /// Session ID
+        id: String,
+    },
+
+    /// Create a new session
+    Create {
+        /// Agent ID to associate with
+        #[arg(long, default_value = "claude-cli")]
+        agent: String,
+
+        /// Model name
+        #[arg(long, default_value = "claude-code")]
+        model: String,
+    },
+
+    /// Delete a session
+    Delete {
+        /// Session ID
+        id: String,
+    },
+
+    /// Search across sessions
+    Search {
+        /// Search query
+        query: String,
+
+        /// Agent ID to filter by
+        #[arg(long)]
+        agent: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum SessionCommands {
+    /// List all sessions
+    List,
+
+    /// Show a session's conversation
+    Show {
+        /// Session ID
+        id: String,
+    },
+
+    /// Create a new session
+    Create {
+        /// Agent ID to associate with
+        #[arg(long, default_value = "claude-cli")]
+        agent: String,
+
+        /// Model name
+        #[arg(long, default_value = "claude-code")]
+        model: String,
+    },
+
+    /// Delete a session
+    Delete {
+        /// Session ID
+        id: String,
+    },
+
+    /// Search across sessions
+    Search {
+        /// Search query
+        query: String,
+
+        /// Agent ID to filter by
+        #[arg(long)]
+        agent: Option<String>,
+    },
 }

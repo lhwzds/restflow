@@ -14,9 +14,9 @@ pub mod state;
 pub mod webhook;
 
 pub use agent_task::{
-    AgentTaskRunner, HEARTBEAT_EVENT, HeartbeatEmitter, HeartbeatEvent, HeartbeatPulse,
-    NoopHeartbeatEmitter, RealAgentExecutor, RunnerConfig, RunnerHandle, RunnerStatus,
-    TauriHeartbeatEmitter, TelegramNotifier,
+    AgentExecutor, AgentTaskRunner, HEARTBEAT_EVENT, HeartbeatEmitter, HeartbeatEvent,
+    HeartbeatPulse, NoopHeartbeatEmitter, RealAgentExecutor, RunnerConfig, RunnerHandle,
+    RunnerStatus, TauriHeartbeatEmitter, TelegramNotifier,
 };
 pub use channel::{start_message_handler, MessageHandlerConfig, SystemStatus, TaskTrigger};
 pub use chat::{

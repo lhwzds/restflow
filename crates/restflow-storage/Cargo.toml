@@ -15,7 +15,9 @@ tokio = { workspace = true }
 chrono.workspace = true
 uuid.workspace = true
 redb = "3.1"
+aes-gcm = "0.10"
 base64 = "0.22"
+rand = "0.8"
 ts-rs = "11.0"
 tracing = { workspace = true }
 

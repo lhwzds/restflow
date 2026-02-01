@@ -9,6 +9,7 @@ pub mod memory;
 pub mod output;
 pub mod security;
 pub mod skill;
+pub mod skill_folder;
 pub mod skill_marketplace;
 pub mod terminal_session;
 pub mod trigger;
@@ -28,7 +29,7 @@ pub use input::{
 };
 pub use memory::{
     MemoryChunk, MemorySearchQuery, MemorySearchResult, MemorySession, MemorySource, MemoryStats,
-    SearchMode, SourceTypeFilter,
+    SearchMode, SourceTypeFilter, UnifiedSearchQuery,
 };
 pub use output::{
     AgentOutput, EmailOutput, HttpOutput, ManualTriggerOutput, NodeOutput, PrintOutput,
@@ -42,6 +43,7 @@ pub use chat_session::{
 };
 pub use restflow_storage::Secret;
 pub use skill::Skill;
+pub use skill_folder::{SkillGating, SkillReference, SkillScript};
 pub use skill_marketplace::{
     BinaryRequirement, EnvVarRequirement, GatingCheckResult, GatingRequirements,
     InstallStatus, InstalledSkill, OsType, SkillAuthor, SkillDependency, SkillManifest,
@@ -50,6 +52,6 @@ pub use skill_marketplace::{
 pub use terminal_session::{TerminalSession, TerminalStatus};
 pub use trigger::{ActiveTrigger, AuthConfig, TriggerConfig};
 pub use security::{
-    ApprovalStatus, CommandPattern, PendingApproval, SecurityAction, SecurityCheckResult,
-    SecurityPolicy,
+    AgentSecurityConfig, ApprovalStatus, AskMode, CommandPattern, PendingApproval, SecurityAction,
+    SecurityCheckResult, SecurityMode, SecurityPolicy,
 };
