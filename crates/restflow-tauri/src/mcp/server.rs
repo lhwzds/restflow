@@ -916,7 +916,8 @@ mod tests {
     // =========================================================================
 
     #[tokio::test]
-    async fn test_list_agents_empty() {
+    async fn test_list_agents_default() {
+        // AppCore creates a default agent on initialization
         let (server, _temp_dir) = create_test_server().await;
 
         let result = server.handle_list_agents().await;
@@ -924,11 +925,14 @@ mod tests {
         assert!(result.is_ok());
         let json = result.unwrap();
         let agents: Vec<AgentSummary> = serde_json::from_str(&json).unwrap();
-        assert!(agents.is_empty());
+        // Expect exactly one default agent created by AppCore
+        assert_eq!(agents.len(), 1);
+        assert_eq!(agents[0].name, "Default Assistant");
     }
 
     #[tokio::test]
     async fn test_list_agents_multiple() {
+        // AppCore creates a default agent, so we start with 1
         let (server, _temp_dir) = create_test_server().await;
 
         let agent1 = create_test_agent_node("Prompt 1");
@@ -946,7 +950,8 @@ mod tests {
         assert!(result.is_ok());
         let json = result.unwrap();
         let agents: Vec<AgentSummary> = serde_json::from_str(&json).unwrap();
-        assert_eq!(agents.len(), 2);
+        // 1 default + 2 created = 3 agents
+        assert_eq!(agents.len(), 3);
     }
 
     #[tokio::test]
