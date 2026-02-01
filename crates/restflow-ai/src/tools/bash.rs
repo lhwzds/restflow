@@ -20,12 +20,14 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::process::Stdio;
+use std::sync::Arc;
 use std::time::Instant;
 use tokio::process::Command;
 use tokio::time::{timeout, Duration};
 
 use super::traits::{Tool, ToolOutput};
 use crate::error::Result;
+use crate::security::SecurityGate;
 
 /// Default timeout for command execution in seconds
 const DEFAULT_TIMEOUT_SECS: u64 = 120;
@@ -42,6 +44,12 @@ pub struct BashTool {
     timeout_secs: u64,
     /// Maximum output size in bytes
     max_output_bytes: usize,
+    /// Optional security gate
+    security_gate: Option<Arc<dyn SecurityGate>>,
+    /// Agent identifier for security checks
+    agent_id: Option<String>,
+    /// Task identifier for security checks
+    task_id: Option<String>,
 }
 
 impl Default for BashTool {
@@ -57,6 +65,9 @@ impl BashTool {
             default_workdir: None,
             timeout_secs: DEFAULT_TIMEOUT_SECS,
             max_output_bytes: DEFAULT_MAX_OUTPUT_BYTES,
+            security_gate: None,
+            agent_id: None,
+            task_id: None,
         }
     }
 
@@ -75,6 +86,19 @@ impl BashTool {
     /// Set maximum output size in bytes
     pub fn with_max_output(mut self, bytes: usize) -> Self {
         self.max_output_bytes = bytes;
+        self
+    }
+
+    /// Attach a security gate for command approval
+    pub fn with_security(
+        mut self,
+        security_gate: Arc<dyn SecurityGate>,
+        agent_id: impl Into<String>,
+        task_id: impl Into<String>,
+    ) -> Self {
+        self.security_gate = Some(security_gate);
+        self.agent_id = Some(agent_id.into());
+        self.task_id = Some(task_id.into());
         self
     }
 
@@ -199,6 +223,42 @@ impl Tool for BashTool {
 
         // Determine timeout
         let timeout_secs = input.timeout.unwrap_or(self.timeout_secs);
+
+        if let Some(security_gate) = &self.security_gate {
+            let agent_id = self
+                .agent_id
+                .as_deref()
+                .ok_or_else(|| crate::error::AiError::Tool("Missing agent_id".into()))?;
+            let task_id = self
+                .task_id
+                .as_deref()
+                .ok_or_else(|| crate::error::AiError::Tool("Missing task_id".into()))?;
+
+            let decision = security_gate
+                .check_command(&input.command, task_id, agent_id, Some(&workdir))
+                .await?;
+
+            if !decision.allowed {
+                if decision.requires_approval {
+                    return Ok(ToolOutput {
+                        success: false,
+                        result: serde_json::json!({
+                            "pending_approval": true,
+                            "approval_id": decision.approval_id,
+                        }),
+                        error: decision.reason,
+                    });
+                }
+
+                return Ok(ToolOutput {
+                    success: false,
+                    result: serde_json::json!({
+                        "blocked": true,
+                    }),
+                    error: decision.reason,
+                });
+            }
+        }
 
         let start = Instant::now();
 

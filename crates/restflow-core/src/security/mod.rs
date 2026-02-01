@@ -60,6 +60,10 @@
 
 mod approval;
 mod checker;
+mod config_store;
+mod path_resolver;
+mod shell_parser;
 
 pub use approval::{ApprovalCallback, ApprovalManager};
 pub use checker::SecurityChecker;
+pub use config_store::SecurityConfigStore;
