@@ -511,3 +511,42 @@ pub enum SessionCommands {
         agent: Option<String>,
     },
 }
+
+#[derive(Subcommand)]
+pub enum SessionCommands {
+    /// List all sessions
+    List,
+
+    /// Show a session's conversation
+    Show {
+        /// Session ID
+        id: String,
+    },
+
+    /// Create a new session
+    Create {
+        /// Agent ID to associate with
+        #[arg(long, default_value = "claude-cli")]
+        agent: String,
+
+        /// Model name
+        #[arg(long, default_value = "claude-code")]
+        model: String,
+    },
+
+    /// Delete a session
+    Delete {
+        /// Session ID
+        id: String,
+    },
+
+    /// Search across sessions
+    Search {
+        /// Search query
+        query: String,
+
+        /// Agent ID to filter by
+        #[arg(long)]
+        agent: Option<String>,
+    },
+}
