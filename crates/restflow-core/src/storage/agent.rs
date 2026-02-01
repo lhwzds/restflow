@@ -118,7 +118,7 @@ mod tests {
         use crate::models::ApiKeyConfig;
 
         AgentNode {
-            model: AIModel::ClaudeSonnet4_5,
+            model: Some(AIModel::ClaudeSonnet4_5),
             prompt: Some("You are a helpful assistant".to_string()),
             temperature: Some(0.7),
             api_key_config: Some(ApiKeyConfig::Direct("test_key".to_string())),
