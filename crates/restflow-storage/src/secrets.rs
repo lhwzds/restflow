@@ -3,7 +3,7 @@
 use crate::encryption::SecretEncryptor;
 use anyhow::{Context, Result};
 use base64::{engine::general_purpose::STANDARD, Engine as _};
-use rand::RngCore;
+use rand::Rng;
 use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
 use serde::{Deserialize, Serialize};
 use std::env;
@@ -255,8 +255,7 @@ fn load_master_key(db: &Arc<Database>) -> Result<[u8; 32]> {
         return Ok(key);
     }
 
-    let mut key = [0u8; 32];
-    rand::rngs::OsRng.fill_bytes(&mut key);
+    let key: [u8; 32] = rand::rngs::OsRng.gen();
     store_master_key_in_db(db, &key)?;
     Ok(key)
 }
@@ -311,8 +310,9 @@ fn read_master_key_from_db(db: &Arc<Database>) -> Result<Option<[u8; 32]>> {
                 "Stored master key must be 32 bytes"
             ));
         }
-        let mut key = [0u8; 32];
-        key.copy_from_slice(payload);
+        let key: [u8; 32] = payload
+            .try_into()
+            .map_err(|_| anyhow::anyhow!("Stored master key must be 32 bytes"))?;
         Ok(Some(key))
     } else {
         Ok(None)

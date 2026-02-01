@@ -1,7 +1,7 @@
 use anyhow::Result;
 use aes_gcm::aead::{Aead, KeyInit};
 use aes_gcm::{Aes256Gcm, Nonce};
-use rand::RngCore;
+use rand::Rng;
 
 const NONCE_SIZE: usize = 12;
 
@@ -25,8 +25,7 @@ impl SecretEncryptor {
     }
 
     pub fn encrypt(&self, plaintext: &[u8]) -> Result<Vec<u8>> {
-        let mut nonce_bytes = [0u8; NONCE_SIZE];
-        rand::rngs::OsRng.fill_bytes(&mut nonce_bytes);
+        let nonce_bytes: [u8; NONCE_SIZE] = rand::rngs::OsRng.gen();
         let nonce = Nonce::from_slice(&nonce_bytes);
 
         let mut ciphertext = self
