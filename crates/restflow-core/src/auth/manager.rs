@@ -251,7 +251,7 @@ impl AuthProfileManager {
                             access_token: updated.access_token,
                             refresh_token: updated
                                 .refresh_token
-                                .or_else(|| credential_refresh_token(&credential)),
+                                .or_else(|| credential.refresh_token().map(|value| value.to_string())),
                             expires_at: updated.expires_at,
                             email,
                         };
@@ -508,16 +508,6 @@ impl AuthProfileManager {
     }
 }
 
-fn credential_refresh_token(credential: &Credential) -> Option<String> {
-    match credential {
-        Credential::OAuth {
-            refresh_token: Some(token),
-            ..
-        } => Some(token.clone()),
-        _ => None,
-    }
-}
-
 impl Default for AuthProfileManager {
     fn default() -> Self {
         Self::new()
@@ -559,6 +549,40 @@ mod tests {
             CredentialSource::Manual,
             provider,
         )
+    }
+
+    #[test]
+    fn test_credential_refresh_token_extracts_oauth() {
+        let cred = Credential::OAuth {
+            access_token: "access".to_string(),
+            refresh_token: Some("refresh".to_string()),
+            expires_at: None,
+            email: None,
+        };
+
+        assert_eq!(cred.refresh_token(), Some("refresh"));
+    }
+
+    #[test]
+    fn test_credential_refresh_token_returns_none_for_api_key() {
+        let cred = Credential::ApiKey {
+            key: "key".to_string(),
+            email: None,
+        };
+
+        assert_eq!(cred.refresh_token(), None);
+    }
+
+    #[test]
+    fn test_credential_refresh_token_returns_none_without_refresh() {
+        let cred = Credential::OAuth {
+            access_token: "access".to_string(),
+            refresh_token: None,
+            expires_at: None,
+            email: None,
+        };
+
+        assert_eq!(cred.refresh_token(), None);
     }
 
     #[tokio::test]
