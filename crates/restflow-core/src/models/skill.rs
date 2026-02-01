@@ -4,6 +4,8 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+use crate::models::skill_folder::{SkillGating, SkillReference, SkillScript};
+
 /// A skill represents a reusable AI prompt template
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
@@ -18,6 +20,21 @@ pub struct Skill {
     pub tags: Option<Vec<String>>,
     /// The markdown content of the skill (instructions for the AI)
     pub content: String,
+    /// Optional folder path for skills stored on disk
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub folder_path: Option<String>,
+    /// Optional suggested tools for the skill
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub suggested_tools: Vec<String>,
+    /// Optional scripts defined by the skill
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub scripts: Vec<SkillScript>,
+    /// Optional references defined by the skill
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub references: Vec<SkillReference>,
+    /// Optional gating requirements for the skill
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gating: Option<SkillGating>,
     /// Timestamp when the skill was created (milliseconds since epoch)
     #[ts(type = "number")]
     pub created_at: i64,
@@ -42,6 +59,11 @@ impl Skill {
             description,
             tags,
             content,
+            folder_path: None,
+            suggested_tools: Vec::new(),
+            scripts: Vec::new(),
+            references: Vec::new(),
+            gating: None,
             created_at: now,
             updated_at: now,
         }
@@ -79,6 +101,14 @@ pub struct SkillFrontmatter {
     pub description: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tags: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub suggested_tools: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scripts: Option<Vec<SkillScript>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub references: Option<Vec<SkillReference>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gating: Option<SkillGating>,
 }
 
 impl Skill {
@@ -88,6 +118,22 @@ impl Skill {
             name: self.name.clone(),
             description: self.description.clone(),
             tags: self.tags.clone(),
+            suggested_tools: if self.suggested_tools.is_empty() {
+                None
+            } else {
+                Some(self.suggested_tools.clone())
+            },
+            scripts: if self.scripts.is_empty() {
+                None
+            } else {
+                Some(self.scripts.clone())
+            },
+            references: if self.references.is_empty() {
+                None
+            } else {
+                Some(self.references.clone())
+            },
+            gating: self.gating.clone(),
         };
 
         let yaml = serde_yaml::to_string(&frontmatter).unwrap_or_default();
@@ -115,13 +161,20 @@ impl Skill {
         // Parse the YAML frontmatter
         let frontmatter: SkillFrontmatter = serde_yaml::from_str(frontmatter_str)?;
 
-        Ok(Self::new(
+        let mut skill = Self::new(
             id.to_string(),
             frontmatter.name,
             frontmatter.description,
             frontmatter.tags,
             content,
-        ))
+        );
+
+        skill.suggested_tools = frontmatter.suggested_tools.unwrap_or_default();
+        skill.scripts = frontmatter.scripts.unwrap_or_default();
+        skill.references = frontmatter.references.unwrap_or_default();
+        skill.gating = frontmatter.gating;
+
+        Ok(skill)
     }
 }
 

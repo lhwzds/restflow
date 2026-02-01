@@ -92,14 +92,23 @@ pub enum Commands {
         command: AuthCommands,
     },
 
+    /// Security management
+    Security {
+        #[command(subcommand)]
+        command: SecurityCommands,
+    },
+
     /// Configuration
     Config {
         #[command(subcommand)]
         command: ConfigCommands,
     },
 
-    /// Start as MCP server
-    Mcp,
+    /// MCP server management
+    Mcp {
+        #[command(subcommand)]
+        command: McpCommands,
+    },
 
     /// Show system information
     Info,
@@ -406,6 +415,101 @@ pub enum ConfigCommands {
 
     /// Set config value
     Set { key: String, value: String },
+
+    /// Reset configuration to defaults
+    Reset,
+}
+
+#[derive(Subcommand)]
+pub enum SecurityCommands {
+    /// List pending approvals
+    Approvals,
+
+    /// Approve a request
+    Approve { id: String },
+
+    /// Reject a request
+    Reject { id: String },
+
+    /// Manage allowlist
+    Allowlist {
+        #[command(subcommand)]
+        action: AllowlistAction,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum AllowlistAction {
+    /// Show allowlist
+    Show,
+
+    /// Add allowlist pattern
+    Add {
+        pattern: String,
+
+        #[arg(short, long)]
+        description: Option<String>,
+    },
+
+    /// Remove allowlist pattern by index
+    Remove { index: usize },
+}
+
+#[derive(Subcommand)]
+pub enum McpCommands {
+    /// List MCP servers
+    List,
+
+    /// Add MCP server
+    Add { name: String, command: String },
+
+    /// Remove MCP server
+    Remove { name: String },
+
+    /// Start MCP server
+    Start { name: String },
+
+    /// Stop MCP server
+    Stop { name: String },
+}
+
+#[derive(Subcommand)]
+pub enum SessionCommands {
+    /// List all sessions
+    List,
+
+    /// Show a session's conversation
+    Show {
+        /// Session ID
+        id: String,
+    },
+
+    /// Create a new session
+    Create {
+        /// Agent ID to associate with
+        #[arg(long, default_value = "claude-cli")]
+        agent: String,
+
+        /// Model name
+        #[arg(long, default_value = "claude-code")]
+        model: String,
+    },
+
+    /// Delete a session
+    Delete {
+        /// Session ID
+        id: String,
+    },
+
+    /// Search across sessions
+    Search {
+        /// Search query
+        query: String,
+
+        /// Agent ID to filter by
+        #[arg(long)]
+        agent: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]

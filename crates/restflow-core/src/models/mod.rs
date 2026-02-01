@@ -9,6 +9,7 @@ pub mod memory;
 pub mod output;
 pub mod security;
 pub mod skill;
+pub mod skill_folder;
 pub mod skill_marketplace;
 pub mod terminal_session;
 pub mod trigger;
@@ -42,6 +43,7 @@ pub use chat_session::{
 };
 pub use restflow_storage::Secret;
 pub use skill::Skill;
+pub use skill_folder::{SkillGating, SkillReference, SkillScript};
 pub use skill_marketplace::{
     BinaryRequirement, EnvVarRequirement, GatingCheckResult, GatingRequirements,
     InstallStatus, InstalledSkill, OsType, SkillAuthor, SkillDependency, SkillManifest,
