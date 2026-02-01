@@ -80,8 +80,6 @@ async fn main() {
         .route("/api/models", get(list_models))
         // AI tools
         .route("/api/tools", get(list_tools))
-        // Memory search
-        .route("/api/memory/search", get(search_memory))
         // Python integration
         .route("/api/python/execute", post(execute_script))
         .route("/api/python/scripts", get(list_scripts))
@@ -109,6 +107,8 @@ async fn main() {
             get(get_skill).put(update_skill).delete(delete_skill),
         )
         .route("/api/skills/{id}/export", get(export_skill))
+        // Memory routes (search, chunks, stats, export, import)
+        .nest("/api/memory", memory_routes())
         .fallback(static_assets::static_handler)
         .layer(cors)
         .layer(axum::middleware::from_fn(auth_middleware))
