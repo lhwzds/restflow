@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test'
+import { createSkillInBrowser } from './helpers'
 
 /**
  * Terminal Feature E2E Tests
@@ -88,8 +89,8 @@ test.describe('Terminal Tab Integration', () => {
 
   test('creating terminal from + menu opens terminal tab', async ({ page }) => {
     // First open a file to show the editor
-    const skillItem = page.locator('button', { hasText: /Untitled-\d+/ }).first()
-    await skillItem.dblclick()
+    const skillItem = await createSkillInBrowser(page)
+    await skillItem.click()
 
     // Click + and select New Terminal
     await page.getByRole('button', { name: 'New...' }).click()
@@ -102,8 +103,8 @@ test.describe('Terminal Tab Integration', () => {
 
   test('can create multiple terminal tabs', async ({ page }) => {
     // Open a file first
-    const skillItem = page.locator('button', { hasText: /Untitled-\d+/ }).first()
-    await skillItem.dblclick()
+    const skillItem = await createSkillInBrowser(page)
+    await skillItem.click()
 
     // Create first terminal
     await page.getByRole('button', { name: 'New...' }).click()
@@ -123,8 +124,8 @@ test.describe('Terminal Tab Integration', () => {
 
   test('switching between terminal and skill tabs preserves state', async ({ page }) => {
     // Open a skill
-    const skillItem = page.locator('button', { hasText: /Untitled-\d+/ }).first()
-    await skillItem.dblclick()
+    const skillItem = await createSkillInBrowser(page)
+    await skillItem.click()
 
     // Create a terminal
     await page.getByRole('button', { name: 'New...' }).click()
@@ -156,8 +157,8 @@ test.describe('Terminal Tab Close Behavior', () => {
 
   test('closing terminal tab removes it from tab bar', async ({ page }) => {
     // Open a skill
-    const skillItem = page.locator('button', { hasText: /Untitled-\d+/ }).first()
-    await skillItem.dblclick()
+    const skillItem = await createSkillInBrowser(page)
+    await skillItem.click()
 
     // Create a terminal
     await page.getByRole('button', { name: 'New...' }).click()
@@ -183,8 +184,8 @@ test.describe('Terminal Tab Close Behavior', () => {
 
     // Open a skill first (to have a tab)
     await page.getByRole('button', { name: 'Skills' }).click()
-    const skillItem = page.locator('button', { hasText: /Untitled-\d+/ }).first()
-    await skillItem.dblclick()
+    const skillItem = await createSkillInBrowser(page)
+    await skillItem.click()
 
     // Close the tab
     const tab = page.locator('[class*="rounded-t-md"]', { hasText: '.md' })

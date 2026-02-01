@@ -7,8 +7,7 @@ use restflow_ai::{
     AgentConfig, AgentExecutor, AgentState, AgentStatus, AnthropicClient, LlmClient, OpenAIClient,
     Role, ToolRegistry,
 };
-use restflow_ai::agent::{AgentContext, MemoryContext, SkillSummary, load_workspace_context};
-use restflow_core::memory::{ChatSessionMirror, SearchEngine};
+use restflow_core::memory::{ChatSessionMirror, MessageMirror};
 use restflow_core::models::{
     AgentExecuteResponse, AgentNode, ApiKeyConfig, ExecutionDetails, ExecutionStep, Provider,
     ToolCallInfo,
@@ -96,8 +95,6 @@ async fn run_agent_with_executor(
     skill_storage: restflow_core::storage::skill::SkillStorage,
     memory_storage: restflow_core::storage::memory::MemoryStorage,
     chat_storage: restflow_core::storage::chat_session::ChatSessionStorage,
-    agent_id: Option<&str>,
-    workdir: Option<&std::path::Path>,
 ) -> Result<AgentExecuteResponse, String> {
     // Get API key
     let api_key = match &agent_node.api_key_config {
@@ -134,9 +131,9 @@ async fn run_agent_with_executor(
 
     // Create tool registry with all tools (including skill tool with storage access)
     let full_registry = restflow_core::services::tool_registry::create_tool_registry(
-        skill_storage.clone(),
-        memory_storage.clone(),
-        chat_storage.clone(),
+        skill_storage,
+        memory_storage,
+        chat_storage,
     );
 
     // Filter to only selected tools (secure by default)
@@ -159,65 +156,11 @@ async fn run_agent_with_executor(
         Arc::new(ToolRegistry::new())
     };
 
-    // Build agent context (skills, memories, workspace)
-    let mut agent_context = AgentContext::new();
-
-    let skills = match skill_storage.list() {
-        Ok(skills) => skills,
-        Err(err) => {
-            warn!(error = %err, "Failed to list skills for agent context");
-            Vec::new()
-        }
-    };
-
-    if !skills.is_empty() {
-        let summaries = skills
-            .into_iter()
-            .map(|skill| SkillSummary {
-                id: skill.id,
-                name: skill.name,
-                description: skill.description,
-            })
-            .collect::<Vec<_>>();
-        agent_context = agent_context.with_skills(summaries);
-    }
-
-    if let Some(id) = agent_id {
-        let engine = SearchEngine::new(memory_storage.clone());
-        let query = restflow_core::models::memory::MemorySearchQuery::new(id.to_string())
-            .with_query(input.to_string())
-            .paginate(5, 0);
-        if let Ok(results) = engine.search_ranked(&query) {
-            if !results.chunks.is_empty() {
-                let memories = results
-                    .chunks
-                    .into_iter()
-                    .map(|scored| MemoryContext {
-                        content: scored.chunk.content,
-                        score: scored.score,
-                    })
-                    .collect::<Vec<_>>();
-                agent_context = agent_context.with_memories(memories);
-            }
-        }
-    }
-
-    if let Some(dir) = workdir {
-        if let Some(ws_content) = load_workspace_context(dir) {
-            agent_context = agent_context.with_workspace_context(ws_content);
-        }
-        agent_context = agent_context.with_workdir(dir.display().to_string());
-    }
-
     // Build agent config
     let mut config = AgentConfig::new(input);
 
     if let Some(ref prompt) = agent_node.prompt {
         config = config.with_system_prompt(prompt);
-    }
-
-    if !agent_context.is_empty() {
-        config = config.with_agent_context(agent_context);
     }
 
     // Only set temperature for models that support it
@@ -343,8 +286,6 @@ pub async fn execute_agent(
         }
     };
 
-    let workdir = std::env::current_dir().ok();
-
     match run_agent_with_executor(
         &agent.agent,
         &request.input,
@@ -352,8 +293,6 @@ pub async fn execute_agent(
         state.storage.skills.clone(),
         state.storage.memory.clone(),
         state.storage.chat_sessions.clone(),
-        Some(&agent.id),
-        workdir.as_deref(),
     )
     .await
     {
@@ -418,8 +357,6 @@ pub async fn execute_agent_inline(
         }
     };
 
-    let workdir = std::env::current_dir().ok();
-
     match run_agent_with_executor(
         &agent,
         &input,
@@ -427,8 +364,6 @@ pub async fn execute_agent_inline(
         state.storage.skills.clone(),
         state.storage.memory.clone(),
         state.storage.chat_sessions.clone(),
-        None,
-        workdir.as_deref(),
     )
     .await
     {

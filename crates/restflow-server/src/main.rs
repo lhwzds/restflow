@@ -4,11 +4,13 @@ mod static_assets;
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 mod api;
+mod auth;
 
 use api::{
-    agent_tasks::*, agents::*, chat_sessions::*, config::*, memory::memory_routes, models::*,
-    python::*, secrets::*, security::*, skills::*, tools::*,
+    agents::*, config::*, memory::memory_routes, models::*, python::*, secrets::*, skills::*,
+    tools::*,
 };
+use auth::{auth_middleware, ApiKeyManager};
 use axum::{
     Router,
     http::{Method, header},
@@ -66,7 +68,9 @@ async fn main() {
         ])
         .allow_headers([header::CONTENT_TYPE, header::AUTHORIZATION]);
 
-    let shared_state = api::state::AppState::new(core.clone());
+    // AppState is now just an alias for Arc<AppCore>
+    let shared_state = core.clone();
+    let api_key_manager = ApiKeyManager::from_env();
 
     let app = Router::new()
         .route("/health", get(health))
@@ -89,47 +93,6 @@ async fn main() {
         )
         .route("/api/agents/{id}/execute", post(execute_agent))
         .route("/api/agents/execute-inline", post(execute_agent_inline))
-        // Agent tasks
-        .route("/api/agent-tasks", get(list_agent_tasks).post(create_agent_task))
-        .route(
-            "/api/agent-tasks/{id}",
-            get(get_agent_task)
-                .put(update_agent_task)
-                .delete(delete_agent_task),
-        )
-        .route("/api/agent-tasks/{id}/pause", post(pause_agent_task))
-        .route("/api/agent-tasks/{id}/resume", post(resume_agent_task))
-        .route("/api/agent-tasks/{id}/run", post(run_agent_task))
-        .route("/api/agent-tasks/{id}/events", get(get_agent_task_events))
-        .route("/api/agent-tasks/{id}/stream", get(stream_agent_task_events))
-        // Chat sessions
-        .route("/api/chat-sessions", get(list_chat_sessions).post(create_chat_session))
-        .route(
-            "/api/chat-sessions/{id}",
-            get(get_chat_session).delete(delete_chat_session),
-        )
-        .route(
-            "/api/chat-sessions/{id}/messages",
-            post(add_chat_message),
-        )
-        .route(
-            "/api/chat-sessions/{id}/summary",
-            get(get_chat_session_summary),
-        )
-        // Security
-        .route("/api/security/approvals", get(list_pending_approvals))
-        .route(
-            "/api/security/approvals/{id}/approve",
-            post(approve_security_approval),
-        )
-        .route(
-            "/api/security/approvals/{id}/reject",
-            post(reject_security_approval),
-        )
-        .route(
-            "/api/security/allowlist",
-            get(get_security_allowlist).put(update_security_allowlist),
-        )
         // Secret management
         .route("/api/secrets", get(list_secrets).post(create_secret))
         .route(
@@ -148,6 +111,8 @@ async fn main() {
         .nest("/api/memory", memory_routes())
         .fallback(static_assets::static_handler)
         .layer(cors)
+        .layer(axum::middleware::from_fn(auth_middleware))
+        .layer(axum::Extension(api_key_manager))
         .with_state(shared_state);
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000")

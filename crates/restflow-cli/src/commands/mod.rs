@@ -9,7 +9,6 @@ pub mod mcp;
 pub mod memory;
 pub mod run;
 pub mod secret;
-pub mod security;
 pub mod session;
 pub mod skill;
 pub mod task;
