@@ -61,5 +61,7 @@ impl SecurityConfigStore {
         Arc::new(self)
     }
 
-    fn persist(&self) {}
+    fn persist(&self) {
+        let _ = self.config_path.as_ref();
+    }
 }
