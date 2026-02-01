@@ -134,7 +134,7 @@ async fn run_agent_with_executor(
     };
 
     // Create tool registry with all tools (including skill tool with storage access)
-    let full_registry = restflow_core::services::tool_registry::create_tool_registry(skill_storage);
+    let full_registry = restflow_core::services::tool_registry::create_tool_registry(skill_storage.clone());
 
     // Filter to only selected tools (secure by default)
     let tools = if let Some(ref tool_names) = agent_node.tools {
