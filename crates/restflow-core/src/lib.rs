@@ -1,10 +1,12 @@
 pub mod auth;
 pub mod channel;
 pub mod engine;
+pub mod loader;
 pub mod memory;
 pub mod models;
 pub mod node;
 pub mod paths;
+pub mod process;
 pub mod python;
 pub mod registry;
 pub mod security;
@@ -28,9 +30,16 @@ pub struct AppCore {
     pub python_manager: OnceCell<Arc<python::PythonManager>>,
 }
 
+/// Default agent prompt embedded at compile time
+const DEFAULT_AGENT_PROMPT: &str = include_str!("../assets/default_agent.md");
+const DEFAULT_AGENT_NAME: &str = "Default Assistant";
+
 impl AppCore {
     pub async fn new(db_path: &str) -> anyhow::Result<Self> {
         let storage = Arc::new(Storage::new(db_path)?);
+
+        // Ensure default agent exists on first run
+        Self::ensure_default_agent(&storage)?;
 
         info!("Initializing RestFlow (Agent-centric mode)");
 
@@ -38,6 +47,20 @@ impl AppCore {
             storage,
             python_manager: OnceCell::new(),
         })
+    }
+
+    /// Create default agent if no agents exist
+    fn ensure_default_agent(storage: &Storage) -> anyhow::Result<()> {
+        let agents = storage.agents.list_agents()?;
+        if agents.is_empty() {
+            info!("Creating default agent...");
+            let agent_node = models::AgentNode::new().with_prompt(DEFAULT_AGENT_PROMPT);
+            storage
+                .agents
+                .create_agent(DEFAULT_AGENT_NAME.to_string(), agent_node)?;
+            info!("Default agent created: {}", DEFAULT_AGENT_NAME);
+        }
+        Ok(())
     }
 
     pub async fn get_python_manager(&self) -> anyhow::Result<Arc<python::PythonManager>> {

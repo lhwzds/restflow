@@ -233,7 +233,11 @@ async fn run_task(core: &Arc<AppCore>, id: &str, format: OutputFormat) -> Result
         .get_task(id)?
         .ok_or_else(|| anyhow::anyhow!("Task not found: {}", id))?;
 
-    if task.input.as_ref().map_or(true, |input| input.trim().is_empty()) {
+    if task
+        .input
+        .as_ref()
+        .is_none_or(|input| input.trim().is_empty())
+    {
         bail!("Task input is required to run");
     }
 

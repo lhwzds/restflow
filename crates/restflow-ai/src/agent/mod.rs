@@ -7,10 +7,12 @@
 //! 4. Observe - Record the result
 //! 5. Repeat until goal is achieved or max iterations
 
+mod context;
 mod executor;
 mod state;
 mod trace;
 
+pub use context::{AgentContext, MemoryContext, SkillSummary, load_workspace_context};
 pub use executor::{AgentConfig, AgentExecutor, AgentResult};
 pub use state::{AgentState, AgentStatus};
 pub use trace::TraceEvent;

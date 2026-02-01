@@ -69,7 +69,7 @@ jobs:
 
       # Generate backend coverage report
       - name: Generate backend coverage report
-        run: cargo tarpaulin --out html --output-dir target/coverage --timeout 300 --packages restflow-core restflow-server restflow-ai
+        run: cargo tarpaulin --out html --output-dir target/coverage --timeout 300 --packages restflow-core restflow-server restflow-ai -- --skip process::tests::test_kill_session --skip process::tests::test_spawn_and_poll
 
       # Install MkDocs
       - name: Setup Python

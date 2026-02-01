@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test'
+import { createAgentAndOpenEditor } from './helpers'
 
 /**
  * Agent Tasks E2E Tests
@@ -173,12 +174,7 @@ test.describe('Agent Tasks - Task Creation Flow', () => {
     await agentsTab.click()
     await page.waitForLoadState('networkidle')
 
-    // Create a new agent via UI
-    const newAgentButton = page.locator('button', { hasText: 'New Agent' })
-    await newAgentButton.click()
-
-    // Wait for agent to be created (editor should open)
-    await page.waitForTimeout(500)
+    await createAgentAndOpenEditor(page)
 
     // Now navigate to tasks tab
     const tasksTab = page.getByRole('button', { name: 'Tasks' })

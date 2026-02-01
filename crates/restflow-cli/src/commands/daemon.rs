@@ -2,6 +2,7 @@ use crate::cli::DaemonCommands;
 use crate::daemon::{cleanup_stale_pid, pid_file, read_pid, CliTaskRunner};
 use anyhow::Result;
 use restflow_core::AppCore;
+#[cfg(unix)]
 use std::process::{Command, Stdio};
 use std::sync::Arc;
 
@@ -15,11 +16,9 @@ pub async fn run(core: Arc<AppCore>, command: DaemonCommands) -> Result<()> {
 
 async fn start(core: Arc<AppCore>, foreground: bool) -> Result<()> {
     cleanup_stale_pid()?;
-    if let Some(pid) = read_pid() {
-        if is_process_running(pid) {
-            println!("Daemon already running (PID: {})", pid);
-            return Ok(());
-        }
+    if let Some(pid) = read_pid() && is_process_running(pid) {
+        println!("Daemon already running (PID: {})", pid);
+        return Ok(());
     }
 
     if foreground {
@@ -44,7 +43,7 @@ async fn start(core: Arc<AppCore>, foreground: bool) -> Result<()> {
                     .stderr(Stdio::null())
                     .pre_exec(|| {
                         nix::unistd::setsid().map(|_| ()).map_err(|err| {
-                            std::io::Error::new(std::io::ErrorKind::Other, err)
+                            std::io::Error::other(err)
                         })
                     });
             }
@@ -159,7 +158,7 @@ fn is_process_running(pid: i32) -> bool {
         use nix::sys::signal::kill;
         use nix::unistd::Pid;
 
-        return kill(Pid::from_raw(pid), None).is_ok();
+        kill(Pid::from_raw(pid), None).is_ok()
     }
 
     #[cfg(not(unix))]

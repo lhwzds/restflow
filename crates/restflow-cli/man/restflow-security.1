@@ -1,0 +1,29 @@
+.ie \n(.g .ds Aq \(aq
+.el .ds Aq '
+.TH security 1  "security " 
+.SH NAME
+security \- Security management
+.SH SYNOPSIS
+\fBsecurity\fR [\fB\-h\fR|\fB\-\-help\fR] <\fIsubcommands\fR>
+.SH DESCRIPTION
+Security management
+.SH OPTIONS
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Print help
+.SH SUBCOMMANDS
+.TP
+security\-approvals(1)
+List pending approvals
+.TP
+security\-approve(1)
+Approve a request
+.TP
+security\-reject(1)
+Reject a request
+.TP
+security\-allowlist(1)
+Manage allowlist
+.TP
+security\-help(1)
+Print this message or the help of the given subcommand(s)

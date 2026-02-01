@@ -396,6 +396,8 @@ impl TuiApp {
         let llm = self.build_llm(agent.agent.model, api_key);
         let tool_registry = restflow_core::services::tool_registry::create_tool_registry(
             self.core.storage.skills.clone(),
+            self.core.storage.memory.clone(),
+            self.core.storage.chat_sessions.clone(),
         );
         let tools = if let Some(selected_tools) = agent.agent.tools.as_ref() {
             let mut filtered = restflow_ai::ToolRegistry::new();
