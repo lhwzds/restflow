@@ -86,6 +86,12 @@ pub enum Commands {
         command: SecretCommands,
     },
 
+    /// Authentication management
+    Auth {
+        #[command(subcommand)]
+        command: AuthCommands,
+    },
+
     /// Configuration
     Config {
         #[command(subcommand)]
@@ -314,6 +320,36 @@ pub enum SecretCommands {
 
     /// Check if secret exists
     Has { key: String },
+}
+
+#[derive(Subcommand)]
+pub enum AuthCommands {
+    /// Show authentication status
+    Status,
+
+    /// Discover credentials from all sources
+    Discover,
+
+    /// List all credential profiles
+    List,
+
+    /// Show profile details
+    Show { id: String },
+
+    /// Add manual API key
+    Add {
+        #[arg(long)]
+        provider: String,
+
+        #[arg(long)]
+        key: String,
+
+        #[arg(long)]
+        name: Option<String>,
+    },
+
+    /// Remove a profile
+    Remove { id: String },
 }
 
 #[derive(Subcommand)]
