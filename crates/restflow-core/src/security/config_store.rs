@@ -61,9 +61,5 @@ impl SecurityConfigStore {
         Arc::new(self)
     }
 
-    fn persist(&self) {
-        if self.config_path.is_none() {
-            return;
-        }
-    }
+    fn persist(&self) {}
 }

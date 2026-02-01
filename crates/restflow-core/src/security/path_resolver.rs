@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone)]
 pub struct CommandResolution {
+    #[allow(dead_code)]
     pub raw_executable: String,
     pub resolved_path: Option<PathBuf>,
     pub executable_name: String,
