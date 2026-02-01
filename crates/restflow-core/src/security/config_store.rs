@@ -10,6 +10,7 @@ use crate::models::security::AgentSecurityConfig;
 pub struct SecurityConfigStore {
     default_config: RwLock<AgentSecurityConfig>,
     agents: DashMap<String, AgentSecurityConfig>,
+    #[allow(dead_code)]
     config_path: Option<PathBuf>,
 }
 
