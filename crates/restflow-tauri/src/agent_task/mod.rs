@@ -7,6 +7,7 @@
 //!
 //! - `runner`: The background task runner that polls for and executes tasks
 //! - `executor`: Real agent executor that bridges to restflow_ai
+//! - `cli_executor`: CLI agent executor for external tools (Claude Code, Aider)
 //! - `notifier`: Telegram notification sender for task results
 //! - `events`: Real-time streaming events for frontend updates
 //! - `heartbeat`: Status types and emitters (integrated into runner)
@@ -19,8 +20,7 @@
 //! # Execution Modes
 //!
 //! - **API Mode**: Uses the injected `AgentExecutor` for LLM API-based execution
-//! - **CLI Mode**: Should use existing ProcessRegistry + TerminalSession infrastructure
-//!   via the terminal_sessions commands
+//! - **CLI Mode**: Uses `CliAgentExecutor` for external CLI tools (claude, aider, etc.)
 //!
 //! # Usage
 //!
@@ -132,6 +132,7 @@
 //! }
 //! ```
 
+pub mod cli_executor;
 pub mod events;
 pub mod executor;
 pub mod failover;
@@ -141,6 +142,7 @@ pub mod persist;
 pub mod retry;
 pub mod runner;
 
+pub use cli_executor::{CliAgentExecutor, create_cli_executor_with_events};
 pub use events::{
     ChannelEventEmitter, ExecutionStats, NoopEventEmitter, StreamEventKind, TASK_STREAM_EVENT,
     TaskEventEmitter, TaskStreamEvent, TauriEventEmitter,

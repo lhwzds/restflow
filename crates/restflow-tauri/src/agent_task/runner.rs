@@ -545,17 +545,36 @@ impl AgentTaskRunner {
                     .await
                 }
                 ExecutionMode::Cli(cli_config) => {
-                    // CLI mode should use existing ProcessRegistry + TerminalSession infrastructure
-                    // This is handled via the terminal_sessions commands, not inline here
-                    warn!(
-                        "CLI mode for task '{}' (binary: {}) - use existing PTY infrastructure via terminal sessions",
+                    // Use CliAgentExecutor for CLI-based execution
+                    use super::cli_executor::CliAgentExecutor;
+
+                    info!(
+                        "Using CLI executor for task '{}' (binary: {})",
                         task.name, cli_config.binary
                     );
-                    // Return error indicating CLI should be executed via terminal sessions
-                    Ok(Err(anyhow!(
-                        "CLI mode execution should use existing PTY/TerminalSession infrastructure. \
-                         Create a terminal session with the CLI command instead."
-                    )))
+
+                    // Create CLI executor with event streaming
+                    let event_emitter = self.event_emitter.clone();
+                    let task_id_for_events = task_id.to_string();
+
+                    let cli_executor =
+                        CliAgentExecutor::with_output_callback(move |line| {
+                            let event =
+                                TaskStreamEvent::output(&task_id_for_events, line, false);
+                            let emitter = event_emitter.clone();
+                            // Spawn a task to emit the event asynchronously
+                            tokio::spawn(async move {
+                                emitter.emit(event).await;
+                            });
+                        });
+
+                    // Execute with timeout
+                    let timeout = Duration::from_secs(cli_config.timeout_secs);
+                    tokio::time::timeout(
+                        timeout,
+                        cli_executor.execute_cli(cli_config, task.input.as_deref()),
+                    )
+                    .await
                 }
             }
         };
