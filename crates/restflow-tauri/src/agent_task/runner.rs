@@ -592,7 +592,10 @@ impl AgentTaskRunner {
             }
             Err(_) => {
                 // Timeout
-                let error_msg = format!("Task timed out after {} seconds", self.config.task_timeout_secs);
+                let error_msg = format!(
+                    "Task timed out after {} seconds",
+                    self.config.task_timeout_secs
+                );
                 error!("Task '{}' timed out", task.name);
 
                 if let Err(e) = self
@@ -607,7 +610,43 @@ impl AgentTaskRunner {
             }
         }
 
+        self.trigger_callback_tasks(task_id).await;
         self.cleanup_task_tracking(task_id).await;
+    }
+
+    /// Trigger callback-scheduled tasks after a task finishes.
+    async fn trigger_callback_tasks(&self, task_id: &str) {
+        let callback_tasks = match self.storage.list_callback_tasks(task_id) {
+            Ok(tasks) => tasks,
+            Err(e) => {
+                warn!("Failed to list callback tasks for {}: {}", task_id, e);
+                return;
+            }
+        };
+
+        if callback_tasks.is_empty() {
+            return;
+        }
+
+        let now = chrono::Utc::now().timestamp_millis();
+
+        for mut task in callback_tasks {
+            if matches!(task.status, AgentTaskStatus::Paused | AgentTaskStatus::Completed) {
+                continue;
+            }
+
+            if self.running_tasks.read().await.contains(&task.id) {
+                continue;
+            }
+
+            task.status = AgentTaskStatus::Active;
+            task.next_run_at = Some(now);
+            task.updated_at = now;
+
+            if let Err(e) = self.storage.update_task(&task) {
+                warn!("Failed to schedule callback task {}: {}", task.id, e);
+            }
+        }
     }
 
     /// Remove a task from runner tracking maps.
@@ -927,6 +966,54 @@ mod tests {
         let updated_task = storage.get_task(&task.id).unwrap().unwrap();
         assert_eq!(updated_task.status, AgentTaskStatus::Completed);
         assert_eq!(updated_task.success_count, 1);
+    }
+
+    #[tokio::test]
+    async fn test_runner_triggers_callback_tasks() {
+        let (storage, _temp_dir) = create_test_storage();
+        let executor = Arc::new(MockExecutor::new());
+        let notifier = Arc::new(NoopNotificationSender);
+
+        let past_time = chrono::Utc::now().timestamp_millis() - 1000;
+        let mut primary = storage
+            .create_task(
+                "Primary Task".to_string(),
+                "agent-001".to_string(),
+                TaskSchedule::Once { run_at: past_time },
+            )
+            .unwrap();
+        primary.next_run_at = Some(past_time);
+        storage.update_task(&primary).unwrap();
+
+        let _callback = storage
+            .create_task(
+                "Callback Task".to_string(),
+                "agent-001".to_string(),
+                TaskSchedule::Callback {
+                    after_task_id: primary.id.clone(),
+                },
+            )
+            .unwrap();
+
+        let config = RunnerConfig {
+            poll_interval_ms: 100,
+            ..Default::default()
+        };
+
+        let runner = Arc::new(AgentTaskRunner::new(
+            storage.clone(),
+            executor.clone(),
+            notifier,
+            config,
+        ));
+
+        let handle = runner.clone().start();
+
+        tokio::time::sleep(Duration::from_millis(800)).await;
+
+        handle.stop().await.unwrap();
+
+        assert_eq!(executor.call_count(), 2);
     }
 
     #[tokio::test]

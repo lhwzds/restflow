@@ -23,4 +23,16 @@ expression: string,
 /**
  * Timezone for the cron expression (e.g., "America/Los_Angeles")
  */
-timezone: string | null, };
+timezone: string | null, } | { "type": "callback", 
+/**
+ * Task ID that triggers this task
+ */
+after_task_id: string, } | { "type": "list", 
+/**
+ * Ordered list of inputs to execute
+ */
+items: Array<string>, 
+/**
+ * Current index in the list
+ */
+current_index: number, };

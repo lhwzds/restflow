@@ -100,6 +100,20 @@ pub enum TaskSchedule {
         #[serde(default)]
         timezone: Option<String>,
     },
+    /// Run when another task finishes execution
+    Callback {
+        /// Task ID that triggers this task
+        after_task_id: String,
+    },
+    /// Run sequentially over a list of inputs
+    List {
+        /// Ordered list of inputs to execute
+        #[serde(default)]
+        items: Vec<String>,
+        /// Current index in the list
+        #[serde(default)]
+        current_index: usize,
+    },
 }
 
 impl Default for TaskSchedule {
@@ -361,6 +375,17 @@ impl AgentTask {
                 // Parse and calculate next cron time
                 Self::next_cron_time(expression, timezone.as_deref(), from_time)
             }
+            TaskSchedule::Callback { .. } => None,
+            TaskSchedule::List {
+                items,
+                current_index,
+            } => {
+                if *current_index >= items.len() {
+                    None
+                } else {
+                    Some(from_time)
+                }
+            }
         }
     }
 
@@ -398,6 +423,17 @@ impl AgentTask {
         self.updated_at = now;
     }
 
+    /// Get the current list item for list schedules
+    pub fn current_list_item(&self) -> Option<&String> {
+        match &self.schedule {
+            TaskSchedule::List {
+                items,
+                current_index,
+            } => items.get(*current_index),
+            _ => None,
+        }
+    }
+
     /// Mark the task as running
     pub fn set_running(&mut self) {
         self.status = AgentTaskStatus::Running;
@@ -412,10 +448,29 @@ impl AgentTask {
         self.updated_at = chrono::Utc::now().timestamp_millis();
 
         // Determine next status based on schedule type
-        match &self.schedule {
+        match &mut self.schedule {
             TaskSchedule::Once { .. } => {
                 self.status = AgentTaskStatus::Completed;
                 self.next_run_at = None;
+            }
+            TaskSchedule::Callback { .. } => {
+                self.status = AgentTaskStatus::Active;
+                self.next_run_at = None;
+                self.updated_at = chrono::Utc::now().timestamp_millis();
+            }
+            TaskSchedule::List {
+                items,
+                current_index,
+            } => {
+                *current_index = current_index.saturating_add(1);
+                if *current_index >= items.len() {
+                    self.status = AgentTaskStatus::Completed;
+                    self.next_run_at = None;
+                } else {
+                    self.status = AgentTaskStatus::Active;
+                    self.next_run_at = Some(chrono::Utc::now().timestamp_millis());
+                }
+                self.updated_at = chrono::Utc::now().timestamp_millis();
             }
             _ => {
                 self.status = AgentTaskStatus::Active;
@@ -572,6 +627,47 @@ mod tests {
         let next = AgentTask::calculate_next_run(&schedule, now);
         assert!(next.is_some());
         assert!(next.unwrap() > now);
+    }
+
+    #[test]
+    fn test_callback_schedule_calculation() {
+        let schedule = TaskSchedule::Callback {
+            after_task_id: "task-001".to_string(),
+        };
+
+        let now = chrono::Utc::now().timestamp_millis();
+        let next = AgentTask::calculate_next_run(&schedule, now);
+        assert!(next.is_none());
+    }
+
+    #[test]
+    fn test_list_schedule_progression() {
+        let schedule = TaskSchedule::List {
+            items: vec!["first".to_string(), "second".to_string()],
+            current_index: 0,
+        };
+
+        let mut task = AgentTask::new(
+            "task-123".to_string(),
+            "List Task".to_string(),
+            "agent-456".to_string(),
+            schedule,
+        );
+
+        assert_eq!(task.current_list_item(), Some(&"first".to_string()));
+
+        task.set_running();
+        task.set_completed();
+
+        assert_eq!(task.status, AgentTaskStatus::Active);
+        assert_eq!(task.current_list_item(), Some(&"second".to_string()));
+        assert!(task.next_run_at.is_some());
+
+        task.set_running();
+        task.set_completed();
+
+        assert_eq!(task.status, AgentTaskStatus::Completed);
+        assert!(task.next_run_at.is_none());
     }
 
     #[test]

@@ -246,6 +246,30 @@ export function createCronSchedule(expression: string, timezone?: string): TaskS
 }
 
 /**
+ * Helper to create a callback schedule
+ * @param afterTaskId - Task ID to trigger after
+ */
+export function createCallbackSchedule(afterTaskId: string): TaskSchedule {
+  return {
+    type: 'callback',
+    after_task_id: afterTaskId,
+  }
+}
+
+/**
+ * Helper to create a list schedule
+ * @param items - Ordered list of inputs to execute
+ * @param currentIndex - Index to start from
+ */
+export function createListSchedule(items: string[], currentIndex = 0): TaskSchedule {
+  return {
+    type: 'list',
+    items,
+    current_index: currentIndex,
+  }
+}
+
+/**
  * Format schedule for display
  */
 export function formatSchedule(schedule: TaskSchedule): string {
@@ -265,6 +289,10 @@ export function formatSchedule(schedule: TaskSchedule): string {
     }
     case 'cron':
       return `Cron: ${schedule.expression}${schedule.timezone ? ` (${schedule.timezone})` : ''}`
+    case 'callback':
+      return `After task ${schedule.after_task_id}`
+    case 'list':
+      return `List (${schedule.items.length} items, index ${schedule.current_index + 1})`
     default:
       return 'Unknown schedule'
   }

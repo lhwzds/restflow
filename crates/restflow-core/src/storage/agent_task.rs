@@ -4,7 +4,7 @@
 //! APIs from restflow-storage with Rust types from our models.
 
 use crate::models::{AgentTask, AgentTaskStatus, TaskEvent, TaskEventType, TaskSchedule};
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use redb::Database;
 use std::sync::Arc;
 use uuid::Uuid;
@@ -85,6 +85,18 @@ impl AgentTaskStorage {
         Ok(())
     }
 
+    /// List tasks that should run after a specific task finishes
+    pub fn list_callback_tasks(&self, parent_id: &str) -> Result<Vec<AgentTask>> {
+        let tasks = self.list_tasks()?;
+        Ok(tasks
+            .into_iter()
+            .filter(|task| match &task.schedule {
+                TaskSchedule::Callback { after_task_id } => after_task_id == parent_id,
+                _ => false,
+            })
+            .collect())
+    }
+
     /// Delete an agent task and all its events
     pub fn delete_task(&self, id: &str) -> Result<bool> {
         // First delete all events for this task
@@ -132,6 +144,17 @@ impl AgentTaskStorage {
         let mut task = self
             .get_task(id)?
             .ok_or_else(|| anyhow::anyhow!("Task {} not found", id))?;
+
+        if let TaskSchedule::List {
+            items,
+            current_index,
+        } = &task.schedule
+        {
+            if *current_index >= items.len() {
+                return Err(anyhow!("List schedule has no remaining items"));
+            }
+            task.input = Some(items[*current_index].clone());
+        }
 
         task.set_running();
         self.update_task(&task)?;
