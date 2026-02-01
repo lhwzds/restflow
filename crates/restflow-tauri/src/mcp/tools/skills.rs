@@ -10,3 +10,4 @@
 // - create_skill: Create a new skill
 // - update_skill: Update an existing skill
 // - delete_skill: Delete a skill
+// - skill_execute: Fetch a skill for execution context
