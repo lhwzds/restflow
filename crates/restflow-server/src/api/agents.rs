@@ -4,9 +4,10 @@ use axum::{
     extract::{Path, State},
 };
 use restflow_ai::{
-    AgentConfig, AgentContext, AgentExecutor, AgentState, AgentStatus, AnthropicClient, LlmClient,
-    MemoryContext, OpenAIClient, Role, SkillSummary, ToolRegistry, load_workspace_context,
+    AgentConfig, AgentExecutor, AgentState, AgentStatus, AnthropicClient, LlmClient, OpenAIClient,
+    Role, ToolRegistry,
 };
+use restflow_ai::agent::{AgentContext, MemoryContext, SkillSummary, load_workspace_context};
 use restflow_core::memory::{ChatSessionMirror, MessageMirror, SearchEngine};
 use restflow_core::models::{
     AgentExecuteResponse, AgentNode, ApiKeyConfig, ExecutionDetails, ExecutionStep,
@@ -15,7 +16,7 @@ use restflow_core::models::{
 use restflow_core::storage::agent::StoredAgent;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::path::Path;
+use std::path::Path as FsPath;
 use std::sync::Arc;
 use tracing::warn;
 
@@ -97,7 +98,7 @@ async fn run_agent_with_executor(
     skill_storage: restflow_core::storage::skill::SkillStorage,
     memory_storage: restflow_core::storage::memory::MemoryStorage,
     chat_storage: restflow_core::storage::chat_session::ChatSessionStorage,
-    workdir: Option<&Path>,
+    workdir: Option<&FsPath>,
 ) -> Result<AgentExecuteResponse, String> {
     // Get API key
     let api_key = match &agent_node.api_key_config {
