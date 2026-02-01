@@ -346,6 +346,10 @@ impl AuthProfile {
     pub fn get_api_key(&self) -> &str {
         self.credential.get_auth_value()
     }
+
+    pub fn is_oauth(&self) -> bool {
+        self.get_api_key().starts_with("sk-ant-oat")
+    }
 }
 
 /// Summary of discovered profiles

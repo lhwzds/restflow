@@ -10,11 +10,13 @@ use restflow_ai::{
     AgentConfig, AgentExecutor, AgentState, AgentStatus, AnthropicClient, LlmClient, OpenAIClient,
     Role, ToolRegistry,
 };
+use restflow_core::auth::{AuthManagerConfig, AuthProfileManager, AuthProvider};
 use restflow_core::memory::{ChatSessionMirror, MessageMirror};
 use restflow_core::models::{
     AgentExecuteResponse, AgentNode, ApiKeyConfig, ExecutionDetails, ExecutionStep, Provider,
     ToolCallInfo,
 };
+use restflow_core::paths;
 use restflow_core::services::tool_registry::create_tool_registry;
 use restflow_core::{AppCore, services::agent as agent_service};
 use serde_json::json;
@@ -268,6 +270,59 @@ fn status_to_string(status: &AgentStatus) -> String {
     }
 }
 
+async fn resolve_api_key(
+    agent_node: &AgentNode,
+    secret_storage: Option<&restflow_core::storage::SecretStorage>,
+    provider: Provider,
+) -> Result<String> {
+    if let Some(config) = &agent_node.api_key_config {
+        match config {
+            ApiKeyConfig::Direct(key) => {
+                if !key.is_empty() {
+                    return Ok(key.clone());
+                }
+            }
+            ApiKeyConfig::Secret(secret_name) => {
+                if let Some(storage) = secret_storage {
+                    return storage
+                        .get_secret(secret_name)?
+                        .ok_or_else(|| anyhow::anyhow!("Secret '{}' not found", secret_name));
+                }
+                bail!("Secret storage not available");
+            }
+        }
+    }
+
+    if let Some(key) = resolve_api_key_from_profiles(provider).await? {
+        return Ok(key);
+    }
+
+    bail!("No API key configured");
+}
+
+async fn resolve_api_key_from_profiles(provider: Provider) -> Result<Option<String>> {
+    let mut config = AuthManagerConfig::default();
+    let profiles_path = paths::ensure_data_dir()?.join("auth_profiles.json");
+    config.profiles_path = Some(profiles_path);
+
+    let manager = AuthProfileManager::with_config(config);
+    manager.initialize().await?;
+
+    let selection = match provider {
+        Provider::Anthropic => {
+            if let Some(selection) = manager.select_profile(AuthProvider::Anthropic).await {
+                Some(selection)
+            } else {
+                manager.select_profile(AuthProvider::ClaudeCode).await
+            }
+        }
+        Provider::OpenAI => manager.select_profile(AuthProvider::OpenAI).await,
+        Provider::DeepSeek => None,
+    };
+
+    Ok(selection.map(|profile| profile.profile.get_api_key().to_string()))
+}
+
 async fn run_agent_with_executor(
     agent_node: &AgentNode,
     input: &str,
@@ -276,22 +331,10 @@ async fn run_agent_with_executor(
     memory_storage: restflow_core::storage::memory::MemoryStorage,
     chat_storage: restflow_core::storage::chat_session::ChatSessionStorage,
 ) -> Result<AgentExecuteResponse> {
-    let api_key = match &agent_node.api_key_config {
-        Some(ApiKeyConfig::Direct(key)) => key.clone(),
-        Some(ApiKeyConfig::Secret(secret_name)) => {
-            if let Some(storage) = secret_storage {
-                storage
-                    .get_secret(secret_name)?
-                    .ok_or_else(|| anyhow::anyhow!("Secret '{}' not found", secret_name))?
-            } else {
-                bail!("Secret storage not available");
-            }
-        }
-        None => bail!("No API key configured"),
-    };
-
     // Get model (required for execution)
     let model = agent_node.require_model().map_err(|e| anyhow::anyhow!(e))?;
+
+    let api_key = resolve_api_key(agent_node, secret_storage, model.provider()).await?;
 
     let llm: Arc<dyn LlmClient> = match model.provider() {
         Provider::OpenAI => Arc::new(OpenAIClient::new(&api_key).with_model(model.as_str())),
