@@ -11,7 +11,10 @@ use restflow_ai::tools::{ProcessLog, ProcessManager, ProcessPollResult, ProcessS
 
 mod session;
 
-pub use session::{FinishedSession, ProcessSession, SessionOutput};
+pub use session::{
+    FinishedSession, ProcessOutputListener, ProcessSession, ProcessSessionMetadata,
+    ProcessSessionSource, SessionOutput,
+};
 
 const DEFAULT_MAX_OUTPUT_BYTES: usize = 1_000_000;
 const DEFAULT_TTL_SECONDS: u64 = 30 * 60;
@@ -21,6 +24,44 @@ const DEFAULT_PTY_SIZE: PtySize = PtySize {
     pixel_width: 0,
     pixel_height: 0,
 };
+
+#[derive(Clone)]
+pub struct ProcessSpawnOptions {
+    pub session_id: Option<String>,
+    pub cwd: Option<String>,
+    pub source: ProcessSessionSource,
+    pub metadata: ProcessSessionMetadata,
+    pub pty_size: PtySize,
+    pub output_listener: Option<Arc<dyn ProcessOutputListener>>,
+}
+
+impl Default for ProcessSpawnOptions {
+    fn default() -> Self {
+        Self {
+            session_id: None,
+            cwd: None,
+            source: ProcessSessionSource::default(),
+            metadata: ProcessSessionMetadata::default(),
+            pty_size: DEFAULT_PTY_SIZE,
+            output_listener: None,
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct ProcessShellOptions {
+    pub spawn: ProcessSpawnOptions,
+    pub startup_command: Option<String>,
+}
+
+impl Default for ProcessShellOptions {
+    fn default() -> Self {
+        Self {
+            spawn: ProcessSpawnOptions::default(),
+            startup_command: None,
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct ProcessRegistry {
@@ -186,7 +227,9 @@ impl ProcessRegistry {
                             if let Ok(mut output) = session.output.lock() {
                                 Self::append_output(&mut output, &data, max_output);
                             }
+                            session.emit_output(&data);
                         }
+                        session.emit_closed();
                         session.mark_read_closed();
                         break;
                     }
@@ -199,6 +242,7 @@ impl ProcessRegistry {
                             if let Ok(mut output) = session.output.lock() {
                                 Self::append_output(&mut output, &data, max_output);
                             }
+                            session.emit_output(&data);
                         }
                         if valid_up_to < bytes.len() {
                             incomplete_utf8 = bytes[valid_up_to..].to_vec();
@@ -206,6 +250,7 @@ impl ProcessRegistry {
                     }
                     Err(e) => {
                         tracing::error!(error = %e, "Process output read error");
+                        session.emit_closed();
                         session.mark_read_closed();
                         break;
                     }
@@ -215,11 +260,22 @@ impl ProcessRegistry {
     }
 
     pub fn spawn(&self, command: &str, cwd: Option<String>) -> Result<String> {
+        let mut options = ProcessSpawnOptions::default();
+        options.cwd = cwd;
+        options.source = ProcessSessionSource::Agent;
+        self.spawn_with_options(command, options)
+    }
+
+    pub fn spawn_with_options(
+        &self,
+        command: &str,
+        options: ProcessSpawnOptions,
+    ) -> Result<String> {
         let pty_system = native_pty_system();
-        let pair = pty_system.openpty(DEFAULT_PTY_SIZE)?;
+        let pair = pty_system.openpty(options.pty_size)?;
 
         let mut cmd = Self::build_shell_command(command);
-        if let Some(cwd) = cwd.as_ref() {
+        if let Some(cwd) = options.cwd.as_ref() {
             cmd.cwd(cwd);
         }
         cmd.env("TERM", "xterm-256color");
@@ -228,15 +284,68 @@ impl ProcessRegistry {
         let writer = pair.master.take_writer()?;
         let reader = pair.master.try_clone_reader()?;
 
-        let session_id = Uuid::new_v4().to_string();
+        let session_id = options
+            .session_id
+            .unwrap_or_else(|| Uuid::new_v4().to_string());
         let output = Arc::new(Mutex::new(SessionOutput::default()));
         let session = Arc::new(ProcessSession::new(
             session_id.clone(),
             command.to_string(),
-            cwd,
+            options.cwd.clone(),
             current_timestamp_ms(),
+            options.source,
+            options.metadata,
             writer,
+            pair.master,
             output.clone(),
+            options.output_listener,
+            child,
+        ));
+
+        Self::create_reader_thread(session.clone(), reader, self.max_output_bytes);
+
+        self.sessions.insert(session_id.clone(), session);
+        Ok(session_id)
+    }
+
+    pub fn spawn_shell(&self, shell: &str, options: ProcessShellOptions) -> Result<String> {
+        let pty_system = native_pty_system();
+        let pair = pty_system.openpty(options.spawn.pty_size)?;
+
+        let mut cmd = CommandBuilder::new(shell);
+        if let Some(cwd) = options.spawn.cwd.as_ref() {
+            cmd.cwd(cwd);
+        }
+        cmd.env("TERM", "xterm-256color");
+
+        let child = pair.slave.spawn_command(cmd)?;
+        let mut writer = pair.master.take_writer()?;
+        let reader = pair.master.try_clone_reader()?;
+
+        if let Some(startup) = options.startup_command.as_ref() {
+            if !startup.is_empty() {
+                std::thread::sleep(Duration::from_millis(100));
+                let _ = writer.write_all(format!("{}\n", startup).as_bytes());
+                let _ = writer.flush();
+            }
+        }
+
+        let session_id = options
+            .spawn
+            .session_id
+            .unwrap_or_else(|| Uuid::new_v4().to_string());
+        let output = Arc::new(Mutex::new(SessionOutput::default()));
+        let session = Arc::new(ProcessSession::new(
+            session_id.clone(),
+            shell.to_string(),
+            options.spawn.cwd.clone(),
+            current_timestamp_ms(),
+            options.spawn.source,
+            options.spawn.metadata,
+            writer,
+            pair.master,
+            output.clone(),
+            options.spawn.output_listener,
             child,
         ));
 
@@ -295,6 +404,15 @@ impl ProcessRegistry {
         Ok(())
     }
 
+    pub fn resize(&self, session_id: &str, size: PtySize) -> Result<()> {
+        let session = self
+            .sessions
+            .get(session_id)
+            .ok_or_else(|| anyhow::anyhow!("Session not found: {}", session_id))?;
+        session.resize(size)?;
+        Ok(())
+    }
+
     pub fn kill(&self, session_id: &str) -> Result<()> {
         let session = self
             .sessions
@@ -302,6 +420,51 @@ impl ProcessRegistry {
             .ok_or_else(|| anyhow::anyhow!("Session not found: {}", session_id))?;
         session.kill()?;
         Ok(())
+    }
+
+    pub fn get_output_buffer(&self, session_id: &str) -> Option<String> {
+        self.sessions.get(session_id).and_then(|session| {
+            session
+                .output
+                .lock()
+                .ok()
+                .map(|o| o.aggregated.clone())
+        })
+    }
+
+    pub fn remove_session(&self, session_id: &str) -> Option<String> {
+        if let Some((_, session)) = self.sessions.remove(session_id) {
+            let _ = session.kill();
+            return session
+                .output
+                .lock()
+                .ok()
+                .map(|o| o.aggregated.clone());
+        }
+
+        if let Some((_, finished)) = self.finished.remove(session_id) {
+            return Some(finished.output);
+        }
+
+        None
+    }
+
+    pub fn list_session_ids_by_source(&self, source: ProcessSessionSource) -> Vec<String> {
+        self.sessions
+            .iter()
+            .filter_map(|entry| {
+                let session = entry.value();
+                if session.source == source {
+                    Some(session.id.clone())
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+
+    pub fn has_session(&self, session_id: &str) -> bool {
+        self.sessions.contains_key(session_id)
     }
 
     pub fn list(&self) -> Vec<ProcessSessionInfo> {

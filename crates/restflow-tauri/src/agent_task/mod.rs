@@ -19,7 +19,7 @@
 //! # Execution Modes
 //!
 //! - **API Mode**: Uses the injected `AgentExecutor` for LLM API-based execution
-//! - **CLI Mode**: Should use existing `PtyState` + `TerminalSession` infrastructure
+//! - **CLI Mode**: Should use existing ProcessRegistry + TerminalSession infrastructure
 //!   via the terminal_sessions commands
 //!
 //! # Usage
