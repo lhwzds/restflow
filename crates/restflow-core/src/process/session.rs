@@ -61,6 +61,7 @@ impl std::fmt::Debug for ProcessSession {
 }
 
 impl ProcessSession {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         id: String,
         command: String,

@@ -296,13 +296,13 @@ pub async fn create_agent_task(
                 needs_update = true;
             }
 
-            if needs_update {
-                if let Err(e) = state.storage.agent_tasks.update_task(&task) {
-                    return Json(ApiResponse::error(format!(
-                        "Failed to update agent task: {}",
-                        e
-                    )));
-                }
+            if needs_update
+                && let Err(e) = state.storage.agent_tasks.update_task(&task)
+            {
+                return Json(ApiResponse::error(format!(
+                    "Failed to update agent task: {}",
+                    e
+                )));
             }
 
             Json(ApiResponse::ok_with_message(

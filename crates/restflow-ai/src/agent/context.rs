@@ -121,11 +121,11 @@ pub fn load_workspace_context(workdir: &Path) -> Option<String> {
 
     for filename in candidates {
         let path = workdir.join(filename);
-        if path.exists() {
-            if let Ok(content) = std::fs::read_to_string(&path) {
-                tracing::debug!(path = %path.display(), "Loaded workspace context");
-                return Some(content);
-            }
+        if path.exists()
+            && let Ok(content) = std::fs::read_to_string(&path)
+        {
+            tracing::debug!(path = %path.display(), "Loaded workspace context");
+            return Some(content);
         }
     }
 

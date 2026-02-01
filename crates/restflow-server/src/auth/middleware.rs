@@ -43,10 +43,10 @@ pub async fn auth_middleware(req: Request, next: Next) -> Response {
         None => return unauthorized(),
     };
 
-    if let Some(manager) = req.extensions().get::<Arc<ApiKeyManager>>() {
-        if manager.validate_key(&token).is_some() {
-            return next.run(req).await;
-        }
+    if let Some(manager) = req.extensions().get::<Arc<ApiKeyManager>>()
+        && manager.validate_key(&token).is_some()
+    {
+        return next.run(req).await;
     }
 
     if let Ok(secret) = env::var("RESTFLOW_API_JWT_SECRET") {
