@@ -3,11 +3,19 @@
 //! The `SecurityChecker` evaluates commands against a `SecurityPolicy` and
 //! coordinates with the `ApprovalManager` for commands that require user approval.
 
+use std::path::Path;
 use std::sync::Arc;
+
+use async_trait::async_trait;
 use tokio::sync::RwLock;
 
-use super::ApprovalManager;
-use crate::models::security::{SecurityAction, SecurityCheckResult, SecurityPolicy};
+use super::{ApprovalManager, SecurityConfigStore};
+use crate::models::security::{
+    AgentSecurityConfig, AskMode, SecurityAction, SecurityCheckResult, SecurityMode, SecurityPolicy,
+};
+use crate::security::path_resolver::{matches_path_pattern, CommandResolution};
+use crate::security::shell_parser;
+use restflow_ai::{SecurityDecision, SecurityGate};
 
 /// Security checker for validating commands.
 ///
@@ -19,22 +27,32 @@ pub struct SecurityChecker {
 
     /// Manager for approval requests
     approval_manager: Arc<ApprovalManager>,
+
+    /// Per-agent security configuration
+    config_store: Arc<SecurityConfigStore>,
 }
 
 impl SecurityChecker {
     /// Create a new security checker with the given policy and approval manager.
     pub fn new(policy: SecurityPolicy, approval_manager: Arc<ApprovalManager>) -> Self {
+        let config_store = SecurityConfigStore::new(AgentSecurityConfig::from_policy(policy.clone()))
+            .shared();
         Self {
             policy: RwLock::new(policy),
             approval_manager,
+            config_store,
         }
     }
 
     /// Create a new security checker with default policy and a new approval manager.
     pub fn with_defaults() -> Self {
+        let policy = SecurityPolicy::default();
+        let config_store = SecurityConfigStore::new(AgentSecurityConfig::from_policy(policy.clone()))
+            .shared();
         Self {
-            policy: RwLock::new(SecurityPolicy::default()),
+            policy: RwLock::new(policy),
             approval_manager: Arc::new(ApprovalManager::new()),
+            config_store,
         }
     }
 
@@ -46,13 +64,26 @@ impl SecurityChecker {
     /// Update the security policy.
     pub async fn set_policy(&self, policy: SecurityPolicy) {
         let mut current = self.policy.write().await;
-        *current = policy;
+        *current = policy.clone();
+        self.config_store
+            .set_default_config(AgentSecurityConfig::from_policy(policy))
+            .await;
     }
 
     /// Get a clone of the current security policy.
     pub async fn get_policy(&self) -> SecurityPolicy {
         let policy = self.policy.read().await;
         policy.clone()
+    }
+
+    /// Set per-agent security configuration.
+    pub fn set_agent_config(&self, agent_id: &str, config: AgentSecurityConfig) {
+        self.config_store.set_agent_config(agent_id, config);
+    }
+
+    /// Remove per-agent security configuration.
+    pub fn remove_agent_config(&self, agent_id: &str) {
+        self.config_store.remove_agent_config(agent_id);
     }
 
     /// Check if a command is allowed to execute.
@@ -83,58 +114,135 @@ impl SecurityChecker {
         agent_id: &str,
         workdir: Option<String>,
     ) -> anyhow::Result<SecurityCheckResult> {
-        let policy = self.policy.read().await;
         let command_trimmed = command.trim();
 
-        // Check blocklist first - always block
-        for pattern in &policy.blocklist {
-            if pattern.matches(command_trimmed) {
+        let analysis = match shell_parser::analyze_command(command_trimmed) {
+            Ok(analysis) => analysis,
+            Err(reason) => {
+                return Ok(SecurityCheckResult::blocked(reason, None));
+            }
+        };
+
+        let mut config = self.config_store.get_default_config().await;
+        if let Some(agent_config) = self.config_store.get_agent_config(agent_id) {
+            config = config.merge_with(agent_config);
+        }
+
+        if analysis.has_chain {
+            return Ok(SecurityCheckResult::blocked(
+                "Command chaining not allowed".to_string(),
+                None,
+            ));
+        }
+
+        if analysis.has_pipe && !config.allow_pipeline {
+            return Ok(SecurityCheckResult::blocked(
+                "Pipeline commands not allowed".to_string(),
+                None,
+            ));
+        }
+
+        if analysis.has_redirect && !config.allow_redirect {
+            return Ok(SecurityCheckResult::blocked(
+                "Redirect commands not allowed".to_string(),
+                None,
+            ));
+        }
+
+        if !config.allowed_paths.is_empty() {
+            let Some(workdir_value) = workdir.as_deref() else {
                 return Ok(SecurityCheckResult::blocked(
-                    format!("Command blocked by policy: {}", pattern.pattern),
-                    Some(pattern.pattern.clone()),
+                    "Working directory required by policy".to_string(),
+                    None,
+                ));
+            };
+
+            let workdir_path = Path::new(workdir_value);
+            let allowed = config.allowed_paths.iter().any(|allowed| {
+                let allowed_path = Path::new(allowed);
+                workdir_path.starts_with(allowed_path)
+            });
+
+            if !allowed {
+                return Ok(SecurityCheckResult::blocked(
+                    "Working directory not allowed".to_string(),
+                    None,
                 ));
             }
         }
 
-        // Check allowlist - always allow
-        for pattern in &policy.allowlist {
-            if pattern.matches(command_trimmed) {
-                return Ok(SecurityCheckResult::allowed(Some(format!(
-                    "Command allowed by policy: {}",
-                    pattern.pattern
-                ))));
+        let workdir_path = workdir.as_deref().map(Path::new);
+        let resolution = CommandResolution::resolve(command_trimmed, workdir_path);
+
+        enum Decision {
+            Allow,
+            Block,
+            RequireApproval,
+            Miss,
+        }
+
+        let mut decision = Decision::Miss;
+
+        for pattern in &config.blocklist {
+            if matches_pattern(pattern, command_trimmed, resolution.as_ref()) {
+                decision = Decision::Block;
+                break;
             }
         }
 
-        // Check approval_required
-        for pattern in &policy.approval_required {
-            if pattern.matches(command_trimmed) {
-                // Create an approval request
-                let approval_id = self
-                    .approval_manager
-                    .create_approval(command, task_id, agent_id, workdir)
-                    .await?;
-
-                return Ok(SecurityCheckResult::requires_approval(
-                    approval_id,
-                    Some(format!(
-                        "Command requires approval (matched: {})",
-                        pattern.pattern
-                    )),
-                ));
+        if matches!(decision, Decision::Miss) {
+            for pattern in &config.allowlist {
+                if matches_pattern(pattern, command_trimmed, resolution.as_ref()) {
+                    decision = Decision::Allow;
+                    break;
+                }
             }
         }
 
-        // Apply default action
-        match policy.default_action {
-            SecurityAction::Allow => Ok(SecurityCheckResult::allowed(Some(
-                "Command allowed by default policy".to_string(),
+        if matches!(decision, Decision::Miss) {
+            for pattern in &config.approval_required {
+                if matches_pattern(pattern, command_trimmed, resolution.as_ref()) {
+                    decision = Decision::RequireApproval;
+                    break;
+                }
+            }
+        }
+
+        if matches!(decision, Decision::Miss) {
+            decision = match config.mode {
+                SecurityMode::Deny => Decision::Block,
+                SecurityMode::Allowlist => Decision::Miss,
+                SecurityMode::Full => Decision::Allow,
+            };
+        }
+
+        decision = match config.ask {
+            AskMode::Always => match decision {
+                Decision::Block => Decision::Block,
+                _ => Decision::RequireApproval,
+            },
+            AskMode::OnMiss => match decision {
+                Decision::Miss => Decision::RequireApproval,
+                _ => decision,
+            },
+            AskMode::Off => match decision {
+                Decision::Miss => match config.mode {
+                    SecurityMode::Allowlist | SecurityMode::Deny => Decision::Block,
+                    SecurityMode::Full => Decision::Allow,
+                },
+                _ => decision,
+            },
+        };
+
+        match decision {
+            Decision::Allow => Ok(SecurityCheckResult::allowed(Some(
+                "Command allowed by policy".to_string(),
             ))),
-            SecurityAction::Block => Ok(SecurityCheckResult::blocked(
-                "Command blocked by default policy".to_string(),
+            Decision::Block => Ok(SecurityCheckResult::blocked(
+                "Command blocked by policy".to_string(),
                 None,
             )),
-            SecurityAction::RequireApproval => {
+            Decision::RequireApproval => {
                 let approval_id = self
                     .approval_manager
                     .create_approval(command, task_id, agent_id, workdir)
@@ -142,9 +250,13 @@ impl SecurityChecker {
 
                 Ok(SecurityCheckResult::requires_approval(
                     approval_id,
-                    Some("Command requires approval by default policy".to_string()),
+                    Some("Command requires approval by policy".to_string()),
                 ))
             }
+            Decision::Miss => Ok(SecurityCheckResult::blocked(
+                "Command blocked by policy".to_string(),
+                None,
+            )),
         }
     }
 
@@ -185,32 +297,92 @@ impl SecurityChecker {
     ///
     /// This is useful for UI previews or validation without side effects.
     pub async fn would_allow(&self, command: &str) -> SecurityAction {
-        let policy = self.policy.read().await;
         let command_trimmed = command.trim();
 
-        // Check blocklist first
-        for pattern in &policy.blocklist {
-            if pattern.matches(command_trimmed) {
-                return SecurityAction::Block;
+        let analysis = match shell_parser::analyze_command(command_trimmed) {
+            Ok(analysis) => analysis,
+            Err(_) => return SecurityAction::Block,
+        };
+
+        let config = self.config_store.get_default_config().await;
+        if analysis.has_chain {
+            return SecurityAction::Block;
+        }
+        if analysis.has_pipe && !config.allow_pipeline {
+            return SecurityAction::Block;
+        }
+        if analysis.has_redirect && !config.allow_redirect {
+            return SecurityAction::Block;
+        }
+
+        let resolution = CommandResolution::resolve(command_trimmed, None);
+
+        enum Decision {
+            Allow,
+            Block,
+            RequireApproval,
+            Miss,
+        }
+
+        let mut decision = Decision::Miss;
+
+        for pattern in &config.blocklist {
+            if matches_pattern(pattern, command_trimmed, resolution.as_ref()) {
+                decision = Decision::Block;
+                break;
             }
         }
 
-        // Check allowlist
-        for pattern in &policy.allowlist {
-            if pattern.matches(command_trimmed) {
-                return SecurityAction::Allow;
+        if matches!(decision, Decision::Miss) {
+            for pattern in &config.allowlist {
+                if matches_pattern(pattern, command_trimmed, resolution.as_ref()) {
+                    decision = Decision::Allow;
+                    break;
+                }
             }
         }
 
-        // Check approval_required
-        for pattern in &policy.approval_required {
-            if pattern.matches(command_trimmed) {
-                return SecurityAction::RequireApproval;
+        if matches!(decision, Decision::Miss) {
+            for pattern in &config.approval_required {
+                if matches_pattern(pattern, command_trimmed, resolution.as_ref()) {
+                    decision = Decision::RequireApproval;
+                    break;
+                }
             }
         }
 
-        // Return default action
-        policy.default_action
+        if matches!(decision, Decision::Miss) {
+            decision = match config.mode {
+                SecurityMode::Deny => Decision::Block,
+                SecurityMode::Allowlist => Decision::Miss,
+                SecurityMode::Full => Decision::Allow,
+            };
+        }
+
+        decision = match config.ask {
+            AskMode::Always => match decision {
+                Decision::Block => Decision::Block,
+                _ => Decision::RequireApproval,
+            },
+            AskMode::OnMiss => match decision {
+                Decision::Miss => Decision::RequireApproval,
+                _ => decision,
+            },
+            AskMode::Off => match decision {
+                Decision::Miss => match config.mode {
+                    SecurityMode::Allowlist | SecurityMode::Deny => Decision::Block,
+                    SecurityMode::Full => Decision::Allow,
+                },
+                _ => decision,
+            },
+        };
+
+        match decision {
+            Decision::Allow => SecurityAction::Allow,
+            Decision::Block => SecurityAction::Block,
+            Decision::RequireApproval => SecurityAction::RequireApproval,
+            Decision::Miss => SecurityAction::Block,
+        }
     }
 
     /// Add a pattern to the allowlist.
@@ -222,6 +394,9 @@ impl SecurityChecker {
             crate::models::security::CommandPattern::new(pattern)
         };
         policy.allowlist.push(cmd_pattern);
+        self.config_store
+            .set_default_config(AgentSecurityConfig::from_policy(policy.clone()))
+            .await;
     }
 
     /// Add a pattern to the blocklist.
@@ -233,6 +408,9 @@ impl SecurityChecker {
             crate::models::security::CommandPattern::new(pattern)
         };
         policy.blocklist.push(cmd_pattern);
+        self.config_store
+            .set_default_config(AgentSecurityConfig::from_policy(policy.clone()))
+            .await;
     }
 
     /// Add a pattern to the approval_required list.
@@ -244,13 +422,67 @@ impl SecurityChecker {
             crate::models::security::CommandPattern::new(pattern)
         };
         policy.approval_required.push(cmd_pattern);
+        self.config_store
+            .set_default_config(AgentSecurityConfig::from_policy(policy.clone()))
+            .await;
     }
 
     /// Set the default action for commands that don't match any pattern.
     pub async fn set_default_action(&self, action: SecurityAction) {
         let mut policy = self.policy.write().await;
         policy.default_action = action;
+        self.config_store
+            .set_default_config(AgentSecurityConfig::from_policy(policy.clone()))
+            .await;
     }
+}
+
+#[async_trait]
+impl SecurityGate for SecurityChecker {
+    async fn check_command(
+        &self,
+        command: &str,
+        task_id: &str,
+        agent_id: &str,
+        workdir: Option<&str>,
+    ) -> restflow_ai::Result<SecurityDecision> {
+        let workdir = workdir.map(|value| value.to_string());
+        let result = self
+            .check_command_with_workdir(command, task_id, agent_id, workdir)
+            .await
+            .map_err(|err| restflow_ai::AiError::Tool(err.to_string()))?;
+
+        if result.allowed {
+            return Ok(SecurityDecision::allowed(result.reason));
+        }
+
+        if result.requires_approval {
+            let approval_id = result
+                .approval_id
+                .unwrap_or_else(|| "unknown".to_string());
+            return Ok(SecurityDecision::requires_approval(
+                approval_id,
+                result.reason,
+            ));
+        }
+
+        Ok(SecurityDecision::blocked(result.reason))
+    }
+}
+
+fn matches_pattern(
+    pattern: &crate::models::security::CommandPattern,
+    command: &str,
+    resolution: Option<&CommandResolution>,
+) -> bool {
+    if pattern.pattern.contains('/') {
+        if let Some(resolution) = resolution {
+            return matches_path_pattern(&pattern.pattern, resolution);
+        }
+        return false;
+    }
+
+    pattern.matches(command)
 }
 
 #[cfg(test)]
@@ -292,6 +524,53 @@ mod tests {
         assert!(!result.allowed);
         assert!(!result.requires_approval);
         assert!(result.reason.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_block_pipe_by_default() {
+        let checker = create_test_checker();
+        let result = checker
+            .check_command("ls | grep foo", "task-1", "agent-1")
+            .await
+            .unwrap();
+
+        assert!(!result.allowed);
+        assert!(!result.requires_approval);
+        assert!(result
+            .reason
+            .unwrap_or_default()
+            .contains("Pipeline commands not allowed"));
+    }
+
+    #[tokio::test]
+    async fn test_allow_pipe_when_enabled_for_agent() {
+        let checker = create_test_checker();
+        let mut config = AgentSecurityConfig::default();
+        config.allow_pipeline = true;
+        checker.set_agent_config("agent-1", config);
+
+        let result = checker
+            .check_command("ls | grep foo", "task-1", "agent-1")
+            .await
+            .unwrap();
+
+        assert!(result.allowed);
+    }
+
+    #[tokio::test]
+    async fn test_block_redirect_by_default() {
+        let checker = create_test_checker();
+        let result = checker
+            .check_command("echo hi > output.txt", "task-1", "agent-1")
+            .await
+            .unwrap();
+
+        assert!(!result.allowed);
+        assert!(!result.requires_approval);
+        assert!(result
+            .reason
+            .unwrap_or_default()
+            .contains("Redirect commands not allowed"));
     }
 
     #[tokio::test]

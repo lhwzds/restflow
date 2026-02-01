@@ -62,6 +62,130 @@ pub enum SecurityAction {
     RequireApproval,
 }
 
+/// Security mode for a given agent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS, Default)]
+#[ts(export)]
+#[serde(rename_all = "snake_case")]
+pub enum SecurityMode {
+    /// Block all commands
+    Deny,
+    /// Only allow commands in the allowlist
+    #[default]
+    Allowlist,
+    /// Allow all commands (dangerous!)
+    Full,
+}
+
+/// Approval behavior for commands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS, Default)]
+#[ts(export)]
+#[serde(rename_all = "snake_case")]
+pub enum AskMode {
+    /// Never ask for approval
+    Off,
+    /// Ask when a command is not allowlisted
+    #[default]
+    OnMiss,
+    /// Always ask for approval
+    Always,
+}
+
+/// Per-agent security configuration.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct AgentSecurityConfig {
+    /// Security mode for this agent
+    #[serde(default)]
+    pub mode: SecurityMode,
+
+    /// Ask mode for approval
+    #[serde(default)]
+    pub ask: AskMode,
+
+    /// Agent-specific allowlist (merged with global)
+    #[serde(default)]
+    pub allowlist: Vec<CommandPattern>,
+
+    /// Agent-specific blocklist (merged with global)
+    #[serde(default)]
+    pub blocklist: Vec<CommandPattern>,
+
+    /// Agent-specific approval-required list
+    #[serde(default)]
+    pub approval_required: Vec<CommandPattern>,
+
+    /// Allow pipeline commands
+    #[serde(default)]
+    pub allow_pipeline: bool,
+
+    /// Allow redirect commands
+    #[serde(default)]
+    pub allow_redirect: bool,
+
+    /// Allowed working directories
+    #[serde(default)]
+    pub allowed_paths: Vec<String>,
+}
+
+impl AgentSecurityConfig {
+    pub fn from_policy(policy: SecurityPolicy) -> Self {
+        let (mode, ask) = match policy.default_action {
+            SecurityAction::Allow => (SecurityMode::Full, AskMode::Off),
+            SecurityAction::Block => (SecurityMode::Deny, AskMode::Off),
+            SecurityAction::RequireApproval => (SecurityMode::Allowlist, AskMode::OnMiss),
+        };
+
+        Self {
+            mode,
+            ask,
+            allowlist: policy.allowlist,
+            blocklist: policy.blocklist,
+            approval_required: policy.approval_required,
+            allow_pipeline: false,
+            allow_redirect: false,
+            allowed_paths: Vec::new(),
+        }
+    }
+
+    pub fn to_policy(&self) -> SecurityPolicy {
+        let default_action = match (self.mode, self.ask) {
+            (SecurityMode::Deny, _) => SecurityAction::Block,
+            (SecurityMode::Allowlist, AskMode::Off) => SecurityAction::Block,
+            (SecurityMode::Allowlist, AskMode::OnMiss) => SecurityAction::RequireApproval,
+            (SecurityMode::Allowlist, AskMode::Always) => SecurityAction::RequireApproval,
+            (SecurityMode::Full, AskMode::Off) => SecurityAction::Allow,
+            (SecurityMode::Full, AskMode::OnMiss) => SecurityAction::RequireApproval,
+            (SecurityMode::Full, AskMode::Always) => SecurityAction::RequireApproval,
+        };
+
+        SecurityPolicy {
+            default_action,
+            allowlist: self.allowlist.clone(),
+            blocklist: self.blocklist.clone(),
+            approval_required: self.approval_required.clone(),
+            approval_timeout_secs: default_approval_timeout(),
+        }
+    }
+
+    pub fn merge_with(mut self, overrides: AgentSecurityConfig) -> AgentSecurityConfig {
+        self.allowlist.extend(overrides.allowlist);
+        self.blocklist.extend(overrides.blocklist);
+        self.approval_required.extend(overrides.approval_required);
+        self.mode = overrides.mode;
+        self.ask = overrides.ask;
+        self.allow_pipeline = overrides.allow_pipeline;
+        self.allow_redirect = overrides.allow_redirect;
+        self.allowed_paths = overrides.allowed_paths;
+        self
+    }
+}
+
+impl Default for AgentSecurityConfig {
+    fn default() -> Self {
+        Self::from_policy(SecurityPolicy::default())
+    }
+}
+
 /// Pattern for matching commands.
 ///
 /// Supports glob-style patterns with `*` for wildcard matching.
