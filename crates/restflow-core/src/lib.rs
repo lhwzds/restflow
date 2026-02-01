@@ -1,6 +1,7 @@
 pub mod auth;
 pub mod channel;
 pub mod engine;
+pub mod loader;
 pub mod memory;
 pub mod models;
 pub mod node;
@@ -53,9 +54,10 @@ impl AppCore {
         let agents = storage.agents.list_agents()?;
         if agents.is_empty() {
             info!("Creating default agent...");
-            let agent_node = models::AgentNode::new()
-                .with_prompt(DEFAULT_AGENT_PROMPT);
-            storage.agents.create_agent(DEFAULT_AGENT_NAME.to_string(), agent_node)?;
+            let agent_node = models::AgentNode::new().with_prompt(DEFAULT_AGENT_PROMPT);
+            storage
+                .agents
+                .create_agent(DEFAULT_AGENT_NAME.to_string(), agent_node)?;
             info!("Default agent created: {}", DEFAULT_AGENT_NAME);
         }
         Ok(())
