@@ -218,6 +218,10 @@ pub enum AgentCommands {
 
         #[arg(short, long)]
         input: Option<String>,
+
+        /// Optional chat session ID for message mirroring
+        #[arg(long)]
+        session: Option<String>,
     },
 }
 
