@@ -18,9 +18,7 @@ impl SecretEncryptor {
             ));
         }
 
-        let mut key = [0u8; 32];
-        key.copy_from_slice(master_key);
-        let cipher = Aes256Gcm::new_from_slice(&key)
+        let cipher = Aes256Gcm::new_from_slice(master_key)
             .map_err(|err| anyhow::anyhow!("Invalid master key length: {:?}", err))?;
 
         Ok(Self { cipher })
