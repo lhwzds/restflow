@@ -5,6 +5,7 @@ use crate::models::{MemorySearchQuery, SearchMode, UnifiedSearchQuery};
 use crate::storage::{ChatSessionStorage, MemoryStorage};
 use crate::storage::skill::SkillStorage;
 use restflow_ai::{SkillContent, SkillInfo, SkillProvider, SkillTool, Tool, ToolOutput, ToolRegistry};
+use restflow_ai::error::AiError;
 use serde_json::json;
 use std::sync::Arc;
 
@@ -138,12 +139,12 @@ impl Tool for MemorySearchTool {
         let query = input
             .get("query")
             .and_then(|value| value.as_str())
-            .ok_or_else(|| restflow_ai::error::Error::Tool("Missing query parameter".to_string()))?;
+            .ok_or_else(|| AiError::Tool("Missing query parameter".to_string()))?;
         let agent_id = input
             .get("agent_id")
             .and_then(|value| value.as_str())
             .ok_or_else(|| {
-                restflow_ai::error::Error::Tool("Missing agent_id parameter".to_string())
+                AiError::Tool("Missing agent_id parameter".to_string())
             })?;
         let include_sessions = input
             .get("include_sessions")
@@ -169,7 +170,7 @@ impl Tool for MemorySearchTool {
         let results = self
             .engine
             .search(&unified_query)
-            .map_err(|e| restflow_ai::error::Error::Tool(e.to_string()))?;
+            .map_err(|e| AiError::Tool(e.to_string()))?;
 
         Ok(ToolOutput::success(serde_json::to_value(results)?))
     }
