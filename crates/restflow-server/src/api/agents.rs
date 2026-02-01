@@ -377,7 +377,9 @@ mod tests {
 
         assert!(body.success);
         assert!(body.data.is_some());
-        assert_eq!(body.data.unwrap().len(), 0);
+        let agents = body.data.unwrap();
+        assert_eq!(agents.len(), 1);
+        assert_eq!(agents[0].name, "Default Assistant");
     }
 
     #[tokio::test]
