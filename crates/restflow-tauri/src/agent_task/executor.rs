@@ -141,14 +141,18 @@ impl AgentExecutor for RealAgentExecutor {
 
         let agent_node = &stored_agent.agent;
 
+        // Get model (required for execution)
+        let model = agent_node.require_model()
+            .map_err(|e| anyhow!(e))?;
+
         // 2. Resolve API key
         let api_key = self.resolve_api_key(
-            agent_node.model.provider(),
+            model.provider(),
             agent_node.api_key_config.as_ref(),
         )?;
 
         // 3. Create LLM client
-        let llm = self.create_llm_client(agent_node.model, &api_key)?;
+        let llm = self.create_llm_client(model, &api_key)?;
 
         // 4. Build tool registry
         let tools = self.build_tool_registry(agent_node.tools.as_deref());
@@ -163,7 +167,7 @@ impl AgentExecutor for RealAgentExecutor {
         }
 
         // Set temperature if supported and configured
-        if agent_node.model.supports_temperature()
+        if model.supports_temperature()
             && let Some(temp) = agent_node.temperature
         {
             config = config.with_temperature(temp as f32);
@@ -225,7 +229,7 @@ mod tests {
         let (storage, _temp_dir) = create_test_storage();
 
         // Create an agent without API key
-        let agent_node = AgentNode::new(AIModel::ClaudeSonnet4_5);
+        let agent_node = AgentNode::with_model(AIModel::ClaudeSonnet4_5);
         storage
             .agents
             .create_agent("Test Agent".to_string(), agent_node)

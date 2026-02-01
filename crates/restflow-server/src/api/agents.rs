@@ -106,19 +106,22 @@ async fn run_agent_with_executor(
         None => return Err("No API key configured".to_string()),
     };
 
+    // Get model (required for execution)
+    let model = agent_node.require_model().map_err(|e| e.to_string())?;
+
     // Create LLM client based on model provider
-    let llm: Arc<dyn LlmClient> = match agent_node.model.provider() {
+    let llm: Arc<dyn LlmClient> = match model.provider() {
         Provider::OpenAI => {
-            Arc::new(OpenAIClient::new(&api_key).with_model(agent_node.model.as_str()))
+            Arc::new(OpenAIClient::new(&api_key).with_model(model.as_str()))
         }
         Provider::Anthropic => {
-            Arc::new(AnthropicClient::new(&api_key).with_model(agent_node.model.as_str()))
+            Arc::new(AnthropicClient::new(&api_key).with_model(model.as_str()))
         }
         Provider::DeepSeek => {
             // DeepSeek uses OpenAI-compatible API
             Arc::new(
                 OpenAIClient::new(&api_key)
-                    .with_model(agent_node.model.as_str())
+                    .with_model(model.as_str())
                     .with_base_url("https://api.deepseek.com/v1"),
             )
         }
@@ -155,7 +158,7 @@ async fn run_agent_with_executor(
     }
 
     // Only set temperature for models that support it
-    if agent_node.model.supports_temperature()
+    if model.supports_temperature()
         && let Some(temp) = agent_node.temperature
     {
         config = config.with_temperature(temp as f32);

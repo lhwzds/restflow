@@ -43,10 +43,14 @@ async fn list_agents(core: &Arc<AppCore>, format: OutputFormat) -> Result<()> {
     table.set_header(vec!["ID", "Name", "Model", "Updated"]);
 
     for agent in agents {
+        let model_str = agent.agent.model
+            .as_ref()
+            .map(|m| m.as_str())
+            .unwrap_or("(not set)");
         table.add_row(vec![
             Cell::new(short_id(&agent.id)),
             Cell::new(agent.name),
-            Cell::new(agent.agent.model.as_str()),
+            Cell::new(model_str),
             Cell::new(format_timestamp(agent.updated_at)),
         ]);
     }
@@ -63,8 +67,12 @@ async fn show_agent(core: &Arc<AppCore>, id: &str, format: OutputFormat) -> Resu
 
     println!("ID:          {}", agent.id);
     println!("Name:        {}", agent.name);
-    println!("Model:       {}", agent.agent.model.as_str());
-    println!("Provider:    {:?}", agent.agent.model.provider());
+    if let Some(model) = &agent.agent.model {
+        println!("Model:       {}", model.as_str());
+        println!("Provider:    {:?}", model.provider());
+    } else {
+        println!("Model:       (not set - will auto-select based on auth profile)");
+    }
     println!("Created:     {}", format_timestamp(agent.created_at));
     println!("Updated:     {}", format_timestamp(agent.updated_at));
     println!("Tools:       {}", format_tools(&agent.agent.tools));
@@ -83,12 +91,10 @@ async fn create_agent(
     prompt: Option<String>,
     format: OutputFormat,
 ) -> Result<()> {
-    let model = match model {
-        Some(value) => parse_model(&value)?,
-        None => restflow_core::models::AIModel::ClaudeSonnet4_5,
+    let mut agent_node = match model {
+        Some(value) => AgentNode::with_model(parse_model(&value)?),
+        None => AgentNode::new(),
     };
-
-    let mut agent_node = AgentNode::new(model);
     if let Some(prompt) = prompt {
         agent_node = agent_node.with_prompt(prompt);
     }
@@ -113,7 +119,7 @@ async fn update_agent(
     let mut existing = agent_service::get_agent(core, id).await?;
 
     if let Some(model) = model {
-        existing.agent.model = parse_model(&model)?;
+        existing.agent.model = Some(parse_model(&model)?);
     }
 
     let updated = agent_service::update_agent(core, id, name, Some(existing.agent)).await?;
@@ -250,14 +256,18 @@ async fn run_agent_with_executor(
         None => bail!("No API key configured"),
     };
 
-    let llm: Arc<dyn LlmClient> = match agent_node.model.provider() {
-        Provider::OpenAI => Arc::new(OpenAIClient::new(&api_key).with_model(agent_node.model.as_str())),
+    // Get model (required for execution)
+    let model = agent_node.require_model()
+        .map_err(|e| anyhow::anyhow!(e))?;
+
+    let llm: Arc<dyn LlmClient> = match model.provider() {
+        Provider::OpenAI => Arc::new(OpenAIClient::new(&api_key).with_model(model.as_str())),
         Provider::Anthropic => {
-            Arc::new(AnthropicClient::new(&api_key).with_model(agent_node.model.as_str()))
+            Arc::new(AnthropicClient::new(&api_key).with_model(model.as_str()))
         }
         Provider::DeepSeek => Arc::new(
             OpenAIClient::new(&api_key)
-                .with_model(agent_node.model.as_str())
+                .with_model(model.as_str())
                 .with_base_url("https://api.deepseek.com/v1"),
         ),
     };
@@ -288,7 +298,7 @@ async fn run_agent_with_executor(
         config = config.with_system_prompt(prompt);
     }
 
-    if agent_node.model.supports_temperature()
+    if model.supports_temperature()
         && let Some(temp) = agent_node.temperature
     {
         config = config.with_temperature(temp as f32);
