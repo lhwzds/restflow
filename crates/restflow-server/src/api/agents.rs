@@ -398,7 +398,7 @@ mod tests {
 
         let data = body.data.unwrap();
         assert_eq!(data.name, "Test Agent");
-        assert_eq!(data.agent.model, AIModel::ClaudeSonnet4_5);
+        assert_eq!(data.agent.model, Some(AIModel::ClaudeSonnet4_5));
     }
 
     #[tokio::test]
