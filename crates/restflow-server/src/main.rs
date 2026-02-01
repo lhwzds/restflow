@@ -4,8 +4,13 @@ mod static_assets;
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 mod api;
+mod auth;
 
-use api::{agents::*, config::*, models::*, python::*, secrets::*, skills::*, tools::*};
+use api::{
+    agents::*, config::*, memory::memory_routes, models::*, python::*, secrets::*, skills::*,
+    tools::*,
+};
+use auth::{auth_middleware, ApiKeyManager};
 use axum::{
     Router,
     http::{Method, header},
@@ -65,6 +70,7 @@ async fn main() {
 
     // AppState is now just an alias for Arc<AppCore>
     let shared_state = core.clone();
+    let api_key_manager = ApiKeyManager::from_env();
 
     let app = Router::new()
         .route("/health", get(health))
@@ -101,8 +107,12 @@ async fn main() {
             get(get_skill).put(update_skill).delete(delete_skill),
         )
         .route("/api/skills/{id}/export", get(export_skill))
+        // Memory routes (search, chunks, stats, export, import)
+        .nest("/api/memory", memory_routes())
         .fallback(static_assets::static_handler)
         .layer(cors)
+        .layer(axum::middleware::from_fn(auth_middleware))
+        .layer(axum::Extension(api_key_manager))
         .with_state(shared_state);
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000")

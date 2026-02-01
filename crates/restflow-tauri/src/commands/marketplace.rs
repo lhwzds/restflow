@@ -258,6 +258,7 @@ pub async fn marketplace_install_skill(
 ) -> Result<(), String> {
     use restflow_core::registry::SkillProvider;
     use restflow_core::Skill;
+    use restflow_core::models::{OsType, SkillGating};
     
     let version = version.and_then(|v| SkillVersion::parse(&v));
     let source = source.unwrap_or_else(|| "marketplace".to_string());
@@ -296,6 +297,57 @@ pub async fn marketplace_install_skill(
         _ => None,
     };
 
+    let gating = if manifest.gating.binaries.is_empty()
+        && manifest.gating.env_vars.is_empty()
+        && manifest.gating.supported_os.is_empty()
+    {
+        None
+    } else {
+        Some(SkillGating {
+            bins: if manifest.gating.binaries.is_empty() {
+                None
+            } else {
+                Some(
+                    manifest
+                        .gating
+                        .binaries
+                        .iter()
+                        .map(|binary| binary.name.clone())
+                        .collect(),
+                )
+            },
+            env: if manifest.gating.env_vars.is_empty() {
+                None
+            } else {
+                Some(
+                    manifest
+                        .gating
+                        .env_vars
+                        .iter()
+                        .map(|env_var| env_var.name.clone())
+                        .collect(),
+                )
+            },
+            os: if manifest.gating.supported_os.is_empty() {
+                None
+            } else {
+                Some(
+                    manifest
+                        .gating
+                        .supported_os
+                        .iter()
+                        .map(|os| match os {
+                            OsType::Windows => "windows".to_string(),
+                            OsType::MacOS => "macos".to_string(),
+                            OsType::Linux => "linux".to_string(),
+                            OsType::Any => "any".to_string(),
+                        })
+                        .collect(),
+                )
+            },
+        })
+    };
+
     // Create a Skill from the manifest
     let skill = Skill {
         id: manifest.id.clone(),
@@ -303,6 +355,11 @@ pub async fn marketplace_install_skill(
         description: manifest.description.clone(),
         tags: Some(manifest.keywords.clone()),
         content: content.unwrap_or_default(),
+        folder_path: None,
+        suggested_tools: Vec::new(),
+        scripts: Vec::new(),
+        references: Vec::new(),
+        gating,
         created_at: chrono::Utc::now().timestamp_millis(),
         updated_at: chrono::Utc::now().timestamp_millis(),
     };

@@ -8,10 +8,11 @@ use crate::channel::{SystemStatus, TaskTrigger};
 use crate::commands::agent_task::ActiveTaskInfo;
 use anyhow::Result;
 use async_trait::async_trait;
+use restflow_core::AppCore;
 use restflow_core::channel::ChannelRouter;
 use restflow_core::models::AgentTask;
+use restflow_core::process::ProcessRegistry;
 use restflow_core::security::SecurityChecker;
-use restflow_core::AppCore;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -38,6 +39,8 @@ pub struct AppState {
     security_checker: Arc<SecurityChecker>,
     /// Channel router for message handling
     pub channel_router: Arc<ChannelRouter>,
+    /// Process registry for background process tool
+    pub process_registry: Arc<ProcessRegistry>,
 }
 
 impl AppState {
@@ -45,12 +48,14 @@ impl AppState {
         let core = Arc::new(AppCore::new(db_path).await?);
         let security_checker = Arc::new(SecurityChecker::with_defaults());
         let channel_router = Arc::new(ChannelRouter::new());
+        let process_registry = Arc::new(ProcessRegistry::new());
         Ok(Self {
             core,
             runner_handle: RwLock::new(None),
             running_tasks: RwLock::new(HashMap::new()),
             security_checker,
             channel_router,
+            process_registry,
         })
     }
 

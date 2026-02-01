@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test'
+import { createSkillAndOpenEditor } from './helpers'
 
 /**
  * Header Navigation E2E Tests
@@ -67,22 +68,14 @@ test.describe('Header Navigation', () => {
   })
 
   test('browser controls hidden in editor mode', async ({ page }) => {
-    // Create and open a skill to enter editor mode
-    const newSkillButton = page.locator('button', { hasText: 'New Skill' })
-    await newSkillButton.click()
-
-    // Wait for editor to open
-    await page.waitForTimeout(300)
+    await createSkillAndOpenEditor(page)
 
     // Controls should be hidden in editor mode
     await expect(page.locator('header input[placeholder="Search..."]')).not.toBeVisible()
   })
 
   test('navigation stays left-aligned in editor mode', async ({ page }) => {
-    // Create and open a skill to enter editor mode
-    const newSkillButton = page.locator('button', { hasText: 'New Skill' })
-    await newSkillButton.click()
-    await page.waitForTimeout(300)
+    await createSkillAndOpenEditor(page)
 
     // Navigation should still be visible and in header
     const nav = page.locator('header nav')
@@ -96,10 +89,7 @@ test.describe('Header Navigation', () => {
   })
 
   test('clicking nav tab in editor mode returns to browse mode', async ({ page }) => {
-    // Create and open a skill to enter editor mode
-    const newSkillButton = page.locator('button', { hasText: 'New Skill' })
-    await newSkillButton.click()
-    await page.waitForTimeout(300)
+    await createSkillAndOpenEditor(page)
 
     // Click Skills tab to return to browse mode
     await page.getByRole('button', { name: 'Skills' }).click()
@@ -126,9 +116,7 @@ test.describe('Header Navigation', () => {
     await expect(themeButton).toBeVisible()
 
     // Enter editor mode
-    const newSkillButton = page.locator('button', { hasText: 'New Skill' })
-    await newSkillButton.click()
-    await page.waitForTimeout(300)
+    await createSkillAndOpenEditor(page)
 
     // Theme toggle should still be visible
     await expect(themeButton).toBeVisible()

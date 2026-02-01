@@ -18,7 +18,6 @@ use clap::Parser;
 use restflow_tauri_lib::AppState;
 use restflow_tauri_lib::RestFlowMcpServer;
 use restflow_tauri_lib::commands;
-use restflow_tauri_lib::commands::PtyState;
 use restflow_tauri_lib::commands::AuthState;
 use restflow_tauri_lib::commands::pty::save_all_terminal_history_sync;
 use restflow_tauri_lib::{RealAgentExecutor, TelegramNotifier};
@@ -95,7 +94,7 @@ fn main() {
             rt.block_on(async {
                 let storage = state.core.storage.clone();
                 let secrets = std::sync::Arc::new(state.core.storage.secrets.clone());
-                let executor = RealAgentExecutor::new(storage);
+                let executor = RealAgentExecutor::new(storage, state.process_registry.clone());
                 let notifier = TelegramNotifier::new(secrets);
 
                 if let Err(e) = state.start_runner(executor, notifier, None).await {
@@ -118,9 +117,6 @@ fn main() {
             }
 
             app.manage(state);
-
-            // Initialize PTY state
-            app.manage(PtyState::new());
 
             // Initialize Auth Profile Manager state
             app.manage(AuthState::new());
@@ -150,11 +146,9 @@ fn main() {
                 }
 
                 // Save all terminal history before closing
-                if let (Some(pty_state), Some(app_state)) =
-                    (app.try_state::<PtyState>(), app.try_state::<AppState>())
-                {
+                if let Some(app_state) = app.try_state::<AppState>() {
                     info!("Saving terminal history before close...");
-                    save_all_terminal_history_sync(&pty_state, &app_state);
+                    save_all_terminal_history_sync(&app_state);
                     info!("Terminal history saved");
                 }
             }

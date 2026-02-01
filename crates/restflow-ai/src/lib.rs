@@ -17,6 +17,7 @@ pub mod graph;
 mod http_client;
 pub mod llm;
 pub mod memory;
+pub mod security;
 pub mod tools;
 pub mod workflow_def;
 
@@ -29,6 +30,7 @@ pub use error::{AiError, Result};
 pub use graph::{Graph, GraphNode};
 pub use llm::{AnthropicClient, LlmClient, Message, OpenAIClient, Role};
 pub use memory::{DEFAULT_MAX_MESSAGES, WorkingMemory};
+pub use security::{SecurityDecision, SecurityGate};
 pub use tools::{
     EmailTool, HttpTool, PythonTool, SkillContent, SkillInfo, SkillProvider, SkillTool, Tool,
     ToolOutput, ToolRegistry, ToolSchema,

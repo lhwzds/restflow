@@ -7,6 +7,7 @@ use restflow_ai::{
     AgentConfig, AgentExecutor, AgentState, AgentStatus, AnthropicClient, LlmClient, OpenAIClient,
     Role, ToolRegistry,
 };
+use restflow_core::memory::{ChatSessionMirror, MessageMirror};
 use restflow_core::models::{
     AgentExecuteResponse, AgentNode, ApiKeyConfig, ExecutionDetails, ExecutionStep, Provider,
     ToolCallInfo,
@@ -32,6 +33,9 @@ pub struct UpdateAgentRequest {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ExecuteAgentRequest {
     pub input: String,
+    /// Optional session ID for conversation persistence.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
 }
 
 /// Convert AgentState messages to ExecutionSteps for frontend
@@ -89,6 +93,8 @@ async fn run_agent_with_executor(
     input: &str,
     secret_storage: Option<&restflow_core::storage::SecretStorage>,
     skill_storage: restflow_core::storage::skill::SkillStorage,
+    memory_storage: restflow_core::storage::memory::MemoryStorage,
+    chat_storage: restflow_core::storage::chat_session::ChatSessionStorage,
 ) -> Result<AgentExecuteResponse, String> {
     // Get API key
     let api_key = match &agent_node.api_key_config {
@@ -106,26 +112,29 @@ async fn run_agent_with_executor(
         None => return Err("No API key configured".to_string()),
     };
 
+    // Get model (required for execution)
+    let model = agent_node.require_model().map_err(|e| e.to_string())?;
+
     // Create LLM client based on model provider
-    let llm: Arc<dyn LlmClient> = match agent_node.model.provider() {
-        Provider::OpenAI => {
-            Arc::new(OpenAIClient::new(&api_key).with_model(agent_node.model.as_str()))
-        }
-        Provider::Anthropic => {
-            Arc::new(AnthropicClient::new(&api_key).with_model(agent_node.model.as_str()))
-        }
+    let llm: Arc<dyn LlmClient> = match model.provider() {
+        Provider::OpenAI => Arc::new(OpenAIClient::new(&api_key).with_model(model.as_str())),
+        Provider::Anthropic => Arc::new(AnthropicClient::new(&api_key).with_model(model.as_str())),
         Provider::DeepSeek => {
             // DeepSeek uses OpenAI-compatible API
             Arc::new(
                 OpenAIClient::new(&api_key)
-                    .with_model(agent_node.model.as_str())
+                    .with_model(model.as_str())
                     .with_base_url("https://api.deepseek.com/v1"),
             )
         }
     };
 
     // Create tool registry with all tools (including skill tool with storage access)
-    let full_registry = restflow_core::services::tool_registry::create_tool_registry(skill_storage);
+    let full_registry = restflow_core::services::tool_registry::create_tool_registry(
+        skill_storage,
+        memory_storage,
+        chat_storage,
+    );
 
     // Filter to only selected tools (secure by default)
     let tools = if let Some(ref tool_names) = agent_node.tools {
@@ -155,7 +164,7 @@ async fn run_agent_with_executor(
     }
 
     // Only set temperature for models that support it
-    if agent_node.model.supports_temperature()
+    if model.supports_temperature()
         && let Some(temp) = agent_node.temperature
     {
         config = config.with_temperature(temp as f32);
@@ -282,10 +291,34 @@ pub async fn execute_agent(
         &request.input,
         Some(&state.storage.secrets),
         state.storage.skills.clone(),
+        state.storage.memory.clone(),
+        state.storage.chat_sessions.clone(),
     )
     .await
     {
-        Ok(response) => Json(ApiResponse::ok(response)),
+        Ok(response) => {
+            if let Some(ref session_id) = request.session_id {
+                let mirror = ChatSessionMirror::new(Arc::new(state.storage.chat_sessions.clone()));
+
+                if let Err(e) = mirror.mirror_user(session_id, &request.input).await {
+                    warn!(error = %e, "Failed to mirror user message");
+                }
+
+                let tokens = response
+                    .execution_details
+                    .as_ref()
+                    .map(|details| details.total_tokens);
+
+                if let Err(e) = mirror
+                    .mirror_assistant(session_id, &response.response, tokens)
+                    .await
+                {
+                    warn!(error = %e, "Failed to mirror assistant message");
+                }
+            }
+
+            Json(ApiResponse::ok(response))
+        }
         Err(e) => Json(ApiResponse::error(format!(
             "Failed to execute agent: {}",
             e
@@ -329,6 +362,8 @@ pub async fn execute_agent_inline(
         &input,
         Some(&state.storage.secrets),
         state.storage.skills.clone(),
+        state.storage.memory.clone(),
+        state.storage.chat_sessions.clone(),
     )
     .await
     {
@@ -357,7 +392,7 @@ mod tests {
 
     fn create_test_agent() -> AgentNode {
         AgentNode {
-            model: AIModel::ClaudeSonnet4_5,
+            model: Some(AIModel::ClaudeSonnet4_5),
             prompt: Some("You are a test assistant".to_string()),
             temperature: None,
             api_key_config: None,
@@ -374,7 +409,9 @@ mod tests {
 
         assert!(body.success);
         assert!(body.data.is_some());
-        assert_eq!(body.data.unwrap().len(), 0);
+        let agents = body.data.unwrap();
+        assert_eq!(agents.len(), 1);
+        assert_eq!(agents[0].name, "Default Assistant");
     }
 
     #[tokio::test]
@@ -395,7 +432,7 @@ mod tests {
 
         let data = body.data.unwrap();
         assert_eq!(data.name, "Test Agent");
-        assert_eq!(data.agent.model, AIModel::ClaudeSonnet4_5);
+        assert_eq!(data.agent.model, Some(AIModel::ClaudeSonnet4_5));
     }
 
     #[tokio::test]
