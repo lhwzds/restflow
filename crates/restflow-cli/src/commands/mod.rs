@@ -1,5 +1,6 @@
 pub mod agent;
 pub mod auth;
+pub mod claude;
 pub mod chat;
 pub mod config;
 pub mod daemon;

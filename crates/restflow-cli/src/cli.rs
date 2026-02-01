@@ -103,6 +103,40 @@ pub enum Commands {
 
     /// Show system information
     Info,
+
+    /// Execute via Claude Code CLI (uses OAuth)
+    Claude(ClaudeArgs),
+}
+
+#[derive(Args)]
+pub struct ClaudeArgs {
+    /// Prompt to send to Claude
+    #[arg(short, long)]
+    pub prompt: Option<String>,
+
+    /// Model to use (opus, sonnet, haiku)
+    #[arg(short, long, default_value = "sonnet")]
+    pub model: String,
+
+    /// Session ID for conversation continuity
+    #[arg(long)]
+    pub session_id: Option<String>,
+
+    /// Resume existing session
+    #[arg(long)]
+    pub resume: bool,
+
+    /// Working directory
+    #[arg(short = 'w', long)]
+    pub cwd: Option<String>,
+
+    /// Timeout in seconds
+    #[arg(long, default_value = "300")]
+    pub timeout: u64,
+
+    /// Auth profile ID to use (defaults to first available Anthropic profile)
+    #[arg(long)]
+    pub auth_profile: Option<String>,
 }
 
 #[derive(Args, Default)]
