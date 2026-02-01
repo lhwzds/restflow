@@ -277,10 +277,9 @@ fn decode_master_key(value: &str) -> Result<[u8; 32]> {
     let trimmed = value.trim();
     if trimmed.len() == 64 && trimmed.chars().all(|c| c.is_ascii_hexdigit()) {
         let mut key = [0u8; 32];
-        for i in 0..32 {
-            let start = i * 2;
-            let byte = u8::from_str_radix(&trimmed[start..start + 2], 16)
-                .context("Invalid hex master key")?;
+        for (i, chunk) in trimmed.as_bytes().chunks(2).enumerate() {
+            let hex = std::str::from_utf8(chunk).context("Invalid hex master key")?;
+            let byte = u8::from_str_radix(hex, 16).context("Invalid hex master key")?;
             key[i] = byte;
         }
         return Ok(key);
