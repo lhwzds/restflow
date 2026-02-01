@@ -341,6 +341,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg(unix)]
     async fn test_cli_executor_working_dir() {
         let executor = CliAgentExecutor::new();
         let config = CliExecutionConfig {
@@ -357,5 +358,26 @@ mod tests {
         let result = result.unwrap();
         // On macOS, /tmp is a symlink to /private/tmp
         assert!(result.output.contains("tmp"));
+    }
+
+    #[tokio::test]
+    #[cfg(windows)]
+    async fn test_cli_executor_working_dir() {
+        let executor = CliAgentExecutor::new();
+        // Use cd command on Windows to print current directory
+        let config = CliExecutionConfig {
+            binary: "cmd".to_string(),
+            args: vec!["/C".to_string(), "cd".to_string()],
+            working_dir: Some(std::env::temp_dir().to_string_lossy().to_string()),
+            timeout_secs: 10,
+            use_pty: false,
+        };
+
+        let result = executor.execute_cli(&config, None).await;
+        assert!(result.is_ok());
+
+        let result = result.unwrap();
+        // Output should contain the temp directory path
+        assert!(result.output.to_lowercase().contains("temp"));
     }
 }
