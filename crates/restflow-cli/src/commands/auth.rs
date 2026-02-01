@@ -82,7 +82,8 @@ async fn list_profiles(manager: &AuthProfileManager, format: OutputFormat) -> Re
     let mut profiles = manager.list_profiles().await;
     profiles.sort_by(|a, b| {
         a.provider
-            .cmp(&b.provider)
+            .to_string()
+            .cmp(&b.provider.to_string())
             .then_with(|| a.name.cmp(&b.name))
     });
 
@@ -100,10 +101,10 @@ async fn list_profiles(manager: &AuthProfileManager, format: OutputFormat) -> Re
         "Available",
     ]);
 
-    for profile in profiles {
+    for profile in &profiles {
         table.add_row(vec![
             Cell::new(short_id(&profile.id)),
-            Cell::new(profile.name),
+            Cell::new(&profile.name),
             Cell::new(profile.provider.to_string()),
             Cell::new(profile.source.to_string()),
             Cell::new(format_health(&profile.health)),
