@@ -50,6 +50,6 @@ pub use skill_marketplace::{
 pub use terminal_session::{TerminalSession, TerminalStatus};
 pub use trigger::{ActiveTrigger, AuthConfig, TriggerConfig};
 pub use security::{
-    ApprovalStatus, CommandPattern, PendingApproval, SecurityAction, SecurityCheckResult,
-    SecurityPolicy,
+    AgentSecurityConfig, ApprovalStatus, AskMode, CommandPattern, PendingApproval, SecurityAction,
+    SecurityCheckResult, SecurityMode, SecurityPolicy,
 };
