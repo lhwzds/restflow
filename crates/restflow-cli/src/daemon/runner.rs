@@ -3,6 +3,7 @@ use async_trait::async_trait;
 use restflow_core::AppCore;
 use restflow_core::channel::ChannelRouter;
 use restflow_core::models::{AgentTask, AgentTaskStatus};
+use restflow_core::process::ProcessRegistry;
 use restflow_tauri_lib::{
     AgentTaskRunner, MessageHandlerConfig, RealAgentExecutor, RunnerConfig, RunnerHandle,
     SystemStatus, TaskTrigger, TelegramNotifier, start_message_handler,
@@ -37,8 +38,9 @@ impl CliTaskRunner {
 
         let storage = self.core.storage.clone();
         let secrets = Arc::new(self.core.storage.secrets.clone());
+        let process_registry = Arc::new(ProcessRegistry::new());
 
-        let executor = RealAgentExecutor::new(storage.clone());
+        let executor = RealAgentExecutor::new(storage.clone(), process_registry);
         let notifier = TelegramNotifier::new(secrets);
 
         let runner = Arc::new(AgentTaskRunner::new(

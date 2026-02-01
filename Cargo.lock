@@ -4964,6 +4964,7 @@ dependencies = [
  "ts-rs",
  "urlencoding",
  "uuid",
+ "walkdir",
  "which",
  "zip",
 ]
@@ -4974,6 +4975,7 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "chrono",
+ "futures",
  "hex",
  "jsonwebtoken",
  "mimalloc",
