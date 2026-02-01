@@ -34,6 +34,8 @@ pub mod terminal_session;
 pub mod trigger;
 pub mod workflow;
 
+mod encryption;
+
 use anyhow::Result;
 use redb::Database;
 use std::sync::Arc;
