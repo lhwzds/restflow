@@ -1014,10 +1014,16 @@ mod tests {
             "delete_skill",
             "list_agents",
             "get_agent",
+            "memory_search",
+            "memory_store",
+            "memory_stats",
+            "skill_execute",
+            "chat_session_list",
+            "chat_session_get",
         ];
 
         // Verify we have definitions for all expected tools
-        assert_eq!(expected_tools.len(), 7);
+        assert_eq!(expected_tools.len(), 13);
     }
 
     #[tokio::test]
