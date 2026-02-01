@@ -38,6 +38,9 @@ plugins:
 
 nav:
   - Home: index.md
+  - Guide:
+      - CLI Reference: cli.md
+      - Authentication: auth.md
   - API Reference:
       - Core API: https://docs.restflow.ai/api/restflow_core/
       - AI API: https://docs.restflow.ai/api/restflow_ai/
