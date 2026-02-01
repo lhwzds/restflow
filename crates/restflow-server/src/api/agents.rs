@@ -383,10 +383,11 @@ mod tests {
     use std::sync::Arc;
     use tempfile::{TempDir, tempdir};
 
-    async fn create_test_app() -> (Arc<AppCore>, TempDir) {
+    async fn create_test_app() -> (AppState, TempDir) {
         let temp_dir = tempdir().unwrap();
         let db_path = temp_dir.path().join("test.db");
-        let app = Arc::new(AppCore::new(db_path.to_str().unwrap()).await.unwrap());
+        let core = Arc::new(AppCore::new(db_path.to_str().unwrap()).await.unwrap());
+        let app = AppState::new(core);
         (app, temp_dir)
     }
 
