@@ -471,6 +471,9 @@ pub enum McpCommands {
 
     /// Stop MCP server
     Stop { name: String },
+
+    /// Run the built-in MCP server over stdio
+    Serve,
 }
 
 #[derive(Subcommand)]
