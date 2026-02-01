@@ -3,7 +3,7 @@
 use crate::encryption::SecretEncryptor;
 use anyhow::{Context, Result};
 use base64::{engine::general_purpose::STANDARD, Engine as _};
-use rand::Rng;
+use rand::RngCore;
 use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
 use serde::{Deserialize, Serialize};
 use std::env;
@@ -255,7 +255,8 @@ fn load_master_key(db: &Arc<Database>) -> Result<[u8; 32]> {
         return Ok(key);
     }
 
-    let key: [u8; 32] = rand::rngs::OsRng.gen();
+    let mut key = [0u8; 32];
+    rand::rngs::OsRng.fill_bytes(&mut key);
     store_master_key_in_db(db, &key)?;
     Ok(key)
 }
