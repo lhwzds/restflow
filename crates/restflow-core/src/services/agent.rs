@@ -169,7 +169,7 @@ mod tests {
         assert_eq!(updated.name, "Test Agent"); // Name unchanged
         assert_eq!(updated.agent.prompt, Some("Updated prompt".to_string()));
         assert_eq!(updated.agent.temperature, Some(0.9));
-        assert_eq!(updated.agent.model, AIModel::Gpt5Mini);
+        assert_eq!(updated.agent.model, Some(AIModel::Gpt5Mini));
     }
 
     #[tokio::test]
