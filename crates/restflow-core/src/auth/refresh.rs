@@ -6,7 +6,11 @@ use async_trait::async_trait;
 use chrono::{DateTime, Duration, Utc};
 use reqwest::Client;
 use serde::Deserialize;
+use std::time::Duration as StdDuration;
 
+/// Anthropic public OAuth client ID for CLI/desktop applications.
+/// This is not a secret - it is safe to include in source code.
+/// See: https://docs.anthropic.com/en/docs/oauth
 const ANTHROPIC_CLIENT_ID: &str = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
 const ANTHROPIC_TOKEN_URL: &str = "https://console.anthropic.com/v1/oauth/token";
 
@@ -32,7 +36,10 @@ pub struct AnthropicRefresher {
 impl Default for AnthropicRefresher {
     fn default() -> Self {
         Self {
-            client: Client::new(),
+            client: Client::builder()
+                .timeout(StdDuration::from_secs(30))
+                .build()
+                .unwrap_or_default(),
         }
     }
 }
@@ -90,5 +97,28 @@ impl OAuthRefresher for AnthropicRefresher {
             refresh_token: response.refresh_token,
             expires_at,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_refreshed_credential_creation() {
+        let cred = RefreshedCredential {
+            access_token: "new_token".to_string(),
+            refresh_token: Some("new_refresh".to_string()),
+            expires_at: Some(Utc::now()),
+        };
+
+        assert_eq!(cred.access_token, "new_token");
+        assert!(cred.refresh_token.is_some());
+    }
+
+    #[test]
+    fn test_anthropic_refresher_provider() {
+        let refresher = AnthropicRefresher::default();
+        assert_eq!(refresher.provider(), AuthProvider::Anthropic);
     }
 }
