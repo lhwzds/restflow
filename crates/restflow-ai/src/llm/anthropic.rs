@@ -3,6 +3,7 @@
 use async_trait::async_trait;
 use futures::StreamExt;
 use reqwest::Client;
+use reqwest::header::{AUTHORIZATION, CONTENT_TYPE, HeaderMap, HeaderName, HeaderValue};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -17,15 +18,35 @@ use crate::llm::client::{
 pub struct AnthropicClient {
     client: Client,
     api_key: String,
+    auth_type: AnthropicAuthType,
     model: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AnthropicAuthType {
+    ApiKey,
+    OAuth,
+}
+
+impl AnthropicAuthType {
+    fn from_key(key: &str) -> Self {
+        if key.starts_with("sk-ant-oat") {
+            Self::OAuth
+        } else {
+            Self::ApiKey
+        }
+    }
 }
 
 impl AnthropicClient {
     /// Create a new Anthropic client
     pub fn new(api_key: impl Into<String>) -> Self {
+        let api_key = api_key.into();
+        let auth_type = AnthropicAuthType::from_key(&api_key);
         Self {
             client: build_http_client(),
-            api_key: api_key.into(),
+            api_key,
+            auth_type,
             model: "claude-sonnet-4-20250514".to_string(),
         }
     }
@@ -35,6 +56,60 @@ impl AnthropicClient {
         self.model = model.into();
         self
     }
+
+    fn build_auth_headers(&self) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+
+        match self.auth_type {
+            AnthropicAuthType::OAuth => {
+                headers.insert(
+                    AUTHORIZATION,
+                    HeaderValue::from_str(&format!("Bearer {}", self.api_key)).unwrap(),
+                );
+            }
+            AnthropicAuthType::ApiKey => {
+                headers.insert(
+                    HeaderName::from_static("x-api-key"),
+                    HeaderValue::from_str(&self.api_key).unwrap(),
+                );
+            }
+        }
+
+        headers.insert(
+            HeaderName::from_static("anthropic-version"),
+            HeaderValue::from_static("2023-06-01"),
+        );
+        headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+
+        headers
+    }
+}
+
+fn build_auth_headers(api_key: &str, auth_type: AnthropicAuthType) -> HeaderMap {
+    let mut headers = HeaderMap::new();
+
+    match auth_type {
+        AnthropicAuthType::OAuth => {
+            headers.insert(
+                AUTHORIZATION,
+                HeaderValue::from_str(&format!("Bearer {}", api_key)).unwrap(),
+            );
+        }
+        AnthropicAuthType::ApiKey => {
+            headers.insert(
+                HeaderName::from_static("x-api-key"),
+                HeaderValue::from_str(api_key).unwrap(),
+            );
+        }
+    }
+
+    headers.insert(
+        HeaderName::from_static("anthropic-version"),
+        HeaderValue::from_static("2023-06-01"),
+    );
+    headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+
+    headers
 }
 
 #[derive(Serialize)]
@@ -299,9 +374,7 @@ impl LlmClient for AnthropicClient {
         let response = self
             .client
             .post("https://api.anthropic.com/v1/messages")
-            .header("x-api-key", &self.api_key)
-            .header("anthropic-version", "2023-06-01")
-            .header("Content-Type", "application/json")
+            .headers(self.build_auth_headers())
             .json(&body)
             .send()
             .await?;
@@ -356,6 +429,7 @@ impl LlmClient for AnthropicClient {
         let client = self.client.clone();
         let api_key = self.api_key.clone();
         let model = self.model.clone();
+        let auth_type = self.auth_type;
 
         Box::pin(async_stream::stream! {
             // Extract system message
@@ -449,9 +523,7 @@ impl LlmClient for AnthropicClient {
 
             let response = match client
                 .post("https://api.anthropic.com/v1/messages")
-                .header("x-api-key", &api_key)
-                .header("anthropic-version", "2023-06-01")
-                .header("Content-Type", "application/json")
+                .headers(build_auth_headers(&api_key, auth_type))
                 .json(&body)
                 .send()
                 .await
@@ -608,5 +680,29 @@ impl LlmClient for AnthropicClient {
                 }
             }
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_auth_type_detection() {
+        assert_eq!(
+            AnthropicAuthType::from_key("sk-ant-oat01-xxx"),
+            AnthropicAuthType::OAuth
+        );
+        assert_eq!(
+            AnthropicAuthType::from_key("sk-ant-api03-xxx"),
+            AnthropicAuthType::ApiKey
+        );
+    }
+
+    #[test]
+    fn test_oauth_headers() {
+        let headers = build_auth_headers("sk-ant-oat01-test", AnthropicAuthType::OAuth);
+        assert!(headers.contains_key(AUTHORIZATION));
+        assert!(!headers.contains_key("x-api-key"));
     }
 }

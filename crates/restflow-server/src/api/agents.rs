@@ -8,11 +8,13 @@ use restflow_ai::{
     Role, ToolRegistry,
 };
 use restflow_ai::agent::{AgentContext, MemoryContext, SkillSummary, load_workspace_context};
+use restflow_core::auth::{AuthManagerConfig, AuthProfileManager, AuthProvider};
 use restflow_core::memory::{ChatSessionMirror, MessageMirror, SearchEngine};
 use restflow_core::models::{
     AgentExecuteResponse, AgentNode, ApiKeyConfig, ExecutionDetails, ExecutionStep,
     MemorySearchQuery, Provider, ToolCallInfo,
 };
+use restflow_core::paths;
 use restflow_core::storage::agent::StoredAgent;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -99,24 +101,12 @@ async fn run_agent_with_executor(
     chat_storage: restflow_core::storage::chat_session::ChatSessionStorage,
     workdir: Option<&std::path::Path>,
 ) -> Result<AgentExecuteResponse, String> {
-    // Get API key
-    let api_key = match &agent_node.api_key_config {
-        Some(ApiKeyConfig::Direct(key)) => key.clone(),
-        Some(ApiKeyConfig::Secret(secret_name)) => {
-            if let Some(storage) = secret_storage {
-                storage
-                    .get_secret(secret_name)
-                    .map_err(|e| format!("Failed to get secret: {}", e))?
-                    .ok_or_else(|| format!("Secret '{}' not found", secret_name))?
-            } else {
-                return Err("Secret manager not available".to_string());
-            }
-        }
-        None => return Err("No API key configured".to_string()),
-    };
-
     // Get model (required for execution)
     let model = agent_node.require_model().map_err(|e| e.to_string())?;
+
+    // Get API key
+    let api_key = resolve_api_key(agent_node, secret_storage, model.provider())
+        .await?;
 
     // Create LLM client based on model provider
     let llm: Arc<dyn LlmClient> = match model.provider() {
@@ -255,6 +245,65 @@ async fn run_agent_with_executor(
         response,
         execution_details: Some(execution_details),
     })
+}
+
+async fn resolve_api_key(
+    agent_node: &AgentNode,
+    secret_storage: Option<&restflow_core::storage::SecretStorage>,
+    provider: Provider,
+) -> Result<String, String> {
+    if let Some(config) = &agent_node.api_key_config {
+        match config {
+            ApiKeyConfig::Direct(key) => {
+                if !key.is_empty() {
+                    return Ok(key.clone());
+                }
+            }
+            ApiKeyConfig::Secret(secret_name) => {
+                if let Some(storage) = secret_storage {
+                    return storage
+                        .get_secret(secret_name)
+                        .map_err(|e| format!("Failed to get secret: {}", e))?
+                        .ok_or_else(|| format!("Secret '{}' not found", secret_name));
+                }
+                return Err("Secret manager not available".to_string());
+            }
+        }
+    }
+
+    if let Some(key) = resolve_api_key_from_profiles(provider).await? {
+        return Ok(key);
+    }
+
+    Err("No API key configured".to_string())
+}
+
+async fn resolve_api_key_from_profiles(provider: Provider) -> Result<Option<String>, String> {
+    let mut config = AuthManagerConfig::default();
+    let profiles_path = paths::ensure_data_dir()
+        .map_err(|e| format!("Failed to resolve data dir: {}", e))?
+        .join("auth_profiles.json");
+    config.profiles_path = Some(profiles_path);
+
+    let manager = AuthProfileManager::with_config(config);
+    manager
+        .initialize()
+        .await
+        .map_err(|e| format!("Failed to initialize auth profiles: {}", e))?;
+
+    let selection = match provider {
+        Provider::Anthropic => {
+            if let Some(selection) = manager.select_profile(AuthProvider::Anthropic).await {
+                Some(selection)
+            } else {
+                manager.select_profile(AuthProvider::ClaudeCode).await
+            }
+        }
+        Provider::OpenAI => manager.select_profile(AuthProvider::OpenAI).await,
+        Provider::DeepSeek => None,
+    };
+
+    Ok(selection.map(|profile| profile.profile.get_api_key().to_string()))
 }
 
 // GET /api/agents
