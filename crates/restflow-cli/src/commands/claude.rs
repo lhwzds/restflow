@@ -119,18 +119,77 @@ async fn setup_claude_token(token: &str) -> Result<()> {
     Ok(())
 }
 
-fn generate_mcp_config() -> Result<PathBuf> {
+fn parse_viewport(viewport: &str) -> Result<(u32, u32)> {
+    let parts: Vec<&str> = viewport.split('x').collect();
+    if parts.len() != 2 {
+        bail!("Viewport must be in WIDTHxHEIGHT format (example: 1280x720)");
+    }
+
+    let width = parts[0]
+        .parse::<u32>()
+        .map_err(|_| anyhow::anyhow!("Viewport width must be a number"))?;
+    let height = parts[1]
+        .parse::<u32>()
+        .map_err(|_| anyhow::anyhow!("Viewport height must be a number"))?;
+
+    Ok((width, height))
+}
+
+async fn ensure_npx_available() -> Result<()> {
+    let output = Command::new("npx")
+        .arg("--version")
+        .output()
+        .await
+        .map_err(|_| anyhow::anyhow!("npx is required for Playwright MCP (install Node.js)"))?;
+
+    if !output.status.success() {
+        bail!("npx is required for Playwright MCP (install Node.js)");
+    }
+
+    Ok(())
+}
+
+async fn generate_mcp_config(args: &ClaudeArgs) -> Result<PathBuf> {
     let config_dir = paths::ensure_data_dir()?;
     let config_path = config_dir.join("claude_mcp.json");
-    let config = serde_json::json!({
-        "mcpServers": {
-            "restflow": {
-                "command": "restflow",
-                "args": ["mcp", "start", "restflow"],
-                "env": {}
-            }
+
+    let mut servers = serde_json::Map::new();
+    servers.insert(
+        "restflow".to_string(),
+        serde_json::json!({
+            "command": "restflow",
+            "args": ["mcp", "start", "restflow"],
+            "env": {}
+        }),
+    );
+
+    if args.browser {
+        ensure_npx_available().await?;
+        let mut playwright_args = vec!["-y".to_string(), "@playwright/mcp".to_string()];
+
+        if args.headless {
+            playwright_args.push("--headless".to_string());
+        } else {
+            playwright_args.push("--headless=false".to_string());
         }
-    });
+
+        if let Some(ref viewport) = args.viewport {
+            let (width, height) = parse_viewport(viewport)?;
+            playwright_args.push("--viewport-size".to_string());
+            playwright_args.push(format!("{}x{}", width, height));
+        }
+
+        servers.insert(
+            "playwright".to_string(),
+            serde_json::json!({
+                "command": "npx",
+                "args": playwright_args,
+                "env": {}
+            }),
+        );
+    }
+
+    let config = serde_json::json!({ "mcpServers": servers });
 
     std::fs::write(&config_path, serde_json::to_string_pretty(&config)?)?;
     Ok(config_path)
@@ -218,7 +277,7 @@ pub async fn run(core: Arc<AppCore>, args: ClaudeArgs, format: OutputFormat) -> 
         setup_claude_token(&oauth_token).await?;
     }
 
-    let mcp_config_path = generate_mcp_config()?;
+    let mcp_config_path = generate_mcp_config(&args).await?;
 
     // Build environment with OAuth token
     // Use CLAUDE_CODE_OAUTH_TOKEN for setup tokens (sk-ant-oat01-...)

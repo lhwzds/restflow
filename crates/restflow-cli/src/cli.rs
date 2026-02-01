@@ -149,6 +149,18 @@ pub struct ClaudeArgs {
     #[arg(long, default_value = "300")]
     pub timeout: u64,
 
+    /// Enable Playwright browser tools via MCP
+    #[arg(long)]
+    pub browser: bool,
+
+    /// Run Playwright in headless mode (use --headless=false for headed)
+    #[arg(long, default_value_t = true)]
+    pub headless: bool,
+
+    /// Set Playwright viewport size, e.g. 1280x720
+    #[arg(long)]
+    pub viewport: Option<String>,
+
     /// Auth profile ID to use (defaults to first available Anthropic profile)
     #[arg(long)]
     pub auth_profile: Option<String>,
