@@ -1,7 +1,30 @@
-use portable_pty::{Child, ChildKiller, ExitStatus};
+use portable_pty::{Child, ChildKiller, ExitStatus, MasterPty, PtySize};
 use std::io::Write;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProcessSessionSource {
+    User,
+    Agent,
+}
+
+impl Default for ProcessSessionSource {
+    fn default() -> Self {
+        Self::Agent
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct ProcessSessionMetadata {
+    pub agent_id: Option<String>,
+    pub task_id: Option<String>,
+}
+
+pub trait ProcessOutputListener: Send + Sync {
+    fn on_output(&self, session_id: &str, data: &str);
+    fn on_closed(&self, session_id: &str);
+}
 
 #[derive(Debug, Default)]
 pub struct SessionOutput {
@@ -14,8 +37,12 @@ pub struct ProcessSession {
     pub command: String,
     pub cwd: Option<String>,
     pub started_at: i64,
+    pub source: ProcessSessionSource,
+    pub metadata: ProcessSessionMetadata,
     pub writer: Mutex<Box<dyn Write + Send>>,
+    pub master: Mutex<Box<dyn MasterPty + Send>>,
     pub output: Arc<Mutex<SessionOutput>>,
+    pub output_listener: Option<Arc<dyn ProcessOutputListener>>,
     pub child: Mutex<Box<dyn Child + Send + Sync>>,
     pub killer: Mutex<Box<dyn ChildKiller + Send + Sync>>,
     exit_status: Mutex<Option<ExitStatus>>,
@@ -39,8 +66,12 @@ impl ProcessSession {
         command: String,
         cwd: Option<String>,
         started_at: i64,
+        source: ProcessSessionSource,
+        metadata: ProcessSessionMetadata,
         writer: Box<dyn Write + Send>,
+        master: Box<dyn MasterPty + Send>,
         output: Arc<Mutex<SessionOutput>>,
+        output_listener: Option<Arc<dyn ProcessOutputListener>>,
         child: Box<dyn Child + Send + Sync>,
     ) -> Self {
         let killer = child.clone_killer();
@@ -49,8 +80,12 @@ impl ProcessSession {
             command,
             cwd,
             started_at,
+            source,
+            metadata,
             writer: Mutex::new(writer),
+            master: Mutex::new(master),
             output,
+            output_listener,
             child: Mutex::new(child),
             killer: Mutex::new(killer),
             exit_status: Mutex::new(None),
@@ -66,6 +101,27 @@ impl ProcessSession {
             .map_err(|_| anyhow::anyhow!("Process session lock poisoned"))?;
         killer.kill()?;
         Ok(())
+    }
+
+    pub fn resize(&self, size: PtySize) -> anyhow::Result<()> {
+        let master = self
+            .master
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Process session lock poisoned"))?;
+        master.resize(size)?;
+        Ok(())
+    }
+
+    pub fn emit_output(&self, data: &str) {
+        if let Some(listener) = self.output_listener.as_ref() {
+            listener.on_output(&self.id, data);
+        }
+    }
+
+    pub fn emit_closed(&self) {
+        if let Some(listener) = self.output_listener.as_ref() {
+            listener.on_closed(&self.id);
+        }
     }
 
     pub fn mark_read_closed(&self) {
