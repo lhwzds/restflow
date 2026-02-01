@@ -9,9 +9,9 @@ use chrono::{DateTime, Utc};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use tracing::{debug, info};
 #[cfg(feature = "keychain")]
 use tracing::warn;
+use tracing::{debug, info};
 
 /// Result of a credential discovery attempt
 #[derive(Debug, Clone)]
@@ -109,6 +109,107 @@ impl Default for ClaudeCodeDiscoverer {
     }
 }
 
+/// Codex CLI credentials discoverer
+///
+/// Reads credentials from ~/.codex/auth.json
+pub struct CodexCliDiscoverer {
+    /// Path to the credentials file
+    credentials_path: PathBuf,
+}
+
+impl CodexCliDiscoverer {
+    /// Create a new Codex CLI discoverer with default path
+    pub fn new() -> Self {
+        let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
+        Self {
+            credentials_path: home.join(".codex").join("auth.json"),
+        }
+    }
+
+    /// Create a discoverer with a custom path (for testing)
+    pub fn with_path(path: PathBuf) -> Self {
+        Self {
+            credentials_path: path,
+        }
+    }
+}
+
+impl Default for CodexCliDiscoverer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Codex CLI credentials file structure
+#[derive(Debug, Deserialize)]
+struct CodexCredentialsFile {
+    tokens: CodexTokenFile,
+}
+
+#[derive(Debug, Deserialize)]
+struct CodexTokenFile {
+    access_token: String,
+    refresh_token: Option<String>,
+    account_id: Option<String>,
+}
+
+#[async_trait]
+impl CredentialDiscoverer for CodexCliDiscoverer {
+    fn source(&self) -> CredentialSource {
+        CredentialSource::CodexCli
+    }
+
+    fn name(&self) -> &str {
+        "Codex CLI"
+    }
+
+    async fn is_available(&self) -> bool {
+        self.credentials_path.exists()
+    }
+
+    async fn discover(&self) -> DiscoveryResult {
+        let content = match std::fs::read_to_string(&self.credentials_path) {
+            Ok(content) => content,
+            Err(err) => {
+                return DiscoveryResult::error(
+                    format!("Failed to read Codex credentials: {err}"),
+                    self.source(),
+                );
+            }
+        };
+
+        let parsed: CodexCredentialsFile = match serde_json::from_str(&content) {
+            Ok(parsed) => parsed,
+            Err(err) => {
+                return DiscoveryResult::error(
+                    format!("Failed to parse Codex credentials: {err}"),
+                    self.source(),
+                );
+            }
+        };
+
+        if parsed.tokens.access_token.trim().is_empty() {
+            return DiscoveryResult::empty(self.source());
+        }
+
+        let credential = Credential::OAuth {
+            access_token: parsed.tokens.access_token,
+            refresh_token: parsed.tokens.refresh_token,
+            expires_at: None,
+            email: parsed.tokens.account_id,
+        };
+
+        let profile = AuthProfile::new(
+            "Codex CLI",
+            credential,
+            self.source(),
+            AuthProvider::OpenAICodex,
+        );
+
+        DiscoveryResult::success(vec![profile], self.source())
+    }
+}
+
 /// Claude Code credentials file structure
 #[derive(Debug, Deserialize)]
 struct ClaudeCredentialsFile {
@@ -174,9 +275,9 @@ impl CredentialDiscoverer for ClaudeCodeDiscoverer {
         let mut profiles = Vec::new();
 
         if let Some(oauth) = creds.claude_ai_oauth {
-            let expires_at = oauth.expires_at.map(|ts| {
-                DateTime::from_timestamp_millis(ts).unwrap_or_else(Utc::now)
-            });
+            let expires_at = oauth
+                .expires_at
+                .map(|ts| DateTime::from_timestamp_millis(ts).unwrap_or_else(Utc::now));
 
             let credential = Credential::OAuth {
                 access_token: oauth.access_token,
@@ -191,7 +292,8 @@ impl CredentialDiscoverer for ClaudeCodeDiscoverer {
                 .map(|e| format!("Claude Code ({})", e))
                 .unwrap_or_else(|| "Claude Code".to_string());
 
-            let profile = AuthProfile::new(name, credential, self.source(), AuthProvider::ClaudeCode);
+            let profile =
+                AuthProfile::new(name, credential, self.source(), AuthProvider::ClaudeCode);
 
             info!(
                 profile_id = %profile.id,
@@ -448,6 +550,7 @@ impl CompositeDiscoverer {
     pub fn with_defaults() -> Self {
         let mut composite = Self::new();
         composite.add(Box::new(ClaudeCodeDiscoverer::new()));
+        composite.add(Box::new(CodexCliDiscoverer::new()));
         composite.add(Box::new(EnvVarDiscoverer::new()));
         #[cfg(feature = "keychain")]
         composite.add(Box::new(KeychainDiscoverer::new()));
@@ -604,9 +707,7 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let creds_path = temp_dir.path().join(".credentials.json");
 
-        tokio::fs::write(&creds_path, "invalid json")
-            .await
-            .unwrap();
+        tokio::fs::write(&creds_path, "invalid json").await.unwrap();
 
         let discoverer = ClaudeCodeDiscoverer::with_path(creds_path);
         let result = discoverer.discover().await;

@@ -2,6 +2,7 @@ pub mod agent;
 pub mod auth;
 pub mod chat;
 pub mod claude;
+pub mod codex;
 pub mod config;
 pub mod daemon;
 pub mod info;

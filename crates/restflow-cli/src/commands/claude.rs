@@ -126,7 +126,7 @@ fn generate_mcp_config() -> Result<PathBuf> {
         "mcpServers": {
             "restflow": {
                 "command": "restflow",
-                "args": ["mcp", "start", "restflow"],
+                "args": ["mcp", "serve"],
                 "env": {}
             }
         }

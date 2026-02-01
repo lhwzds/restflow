@@ -87,17 +87,19 @@ pub async fn spawn_pty(
         .map(|p| expand_tilde(&p))
         .unwrap_or_else(|| std::env::var("HOME").unwrap_or_else(|_| "/".to_string()));
 
-    let mut spawn = ProcessSpawnOptions::default();
-    spawn.session_id = Some(session_id.clone());
-    spawn.cwd = Some(cwd);
-    spawn.source = ProcessSessionSource::User;
-    spawn.pty_size = PtySize {
-        rows,
-        cols,
-        pixel_width: 0,
-        pixel_height: 0,
+    let spawn = ProcessSpawnOptions {
+        session_id: Some(session_id.clone()),
+        cwd: Some(cwd),
+        source: ProcessSessionSource::User,
+        pty_size: PtySize {
+            rows,
+            cols,
+            pixel_width: 0,
+            pixel_height: 0,
+        },
+        output_listener: Some(Arc::new(TauriPtyOutputListener::new(app.clone()))),
+        ..Default::default()
     };
-    spawn.output_listener = Some(Arc::new(TauriPtyOutputListener::new(app.clone())));
 
     let options = ProcessShellOptions {
         spawn,
@@ -245,21 +247,21 @@ pub async fn save_all_terminal_history(
         .list_session_ids_by_source(ProcessSessionSource::User);
 
     for session_id in session_ids {
-        if let Some(history) = app_state.process_registry.remove_session(&session_id) {
-            if let Ok(Some(mut session)) = app_state.core.storage.terminal_sessions.get(&session_id)
-            {
-                session.set_stopped(Some(history));
+        if let Some(history) = app_state.process_registry.remove_session(&session_id)
+            && let Ok(Some(mut session)) =
+                app_state.core.storage.terminal_sessions.get(&session_id)
+        {
+            session.set_stopped(Some(history));
 
-                if let Err(e) = app_state
-                    .core
-                    .storage
-                    .terminal_sessions
-                    .update(&session_id, &session)
-                {
-                    tracing::error!("Failed to save terminal {}: {}", session_id, e);
-                } else {
-                    tracing::info!("Saved and stopped terminal: {}", session_id);
-                }
+            if let Err(e) = app_state
+                .core
+                .storage
+                .terminal_sessions
+                .update(&session_id, &session)
+            {
+                tracing::error!("Failed to save terminal {}: {}", session_id, e);
+            } else {
+                tracing::info!("Saved and stopped terminal: {}", session_id);
             }
         }
     }
@@ -302,21 +304,21 @@ pub fn save_all_terminal_history_sync(app_state: &AppState) {
         .list_session_ids_by_source(ProcessSessionSource::User);
 
     for session_id in session_ids {
-        if let Some(history) = app_state.process_registry.remove_session(&session_id) {
-            if let Ok(Some(mut session)) = app_state.core.storage.terminal_sessions.get(&session_id)
-            {
-                session.set_stopped(Some(history));
+        if let Some(history) = app_state.process_registry.remove_session(&session_id)
+            && let Ok(Some(mut session)) =
+                app_state.core.storage.terminal_sessions.get(&session_id)
+        {
+            session.set_stopped(Some(history));
 
-                if let Err(e) = app_state
-                    .core
-                    .storage
-                    .terminal_sessions
-                    .update(&session_id, &session)
-                {
-                    tracing::error!("Failed to save terminal {}: {}", session_id, e);
-                } else {
-                    tracing::info!("Saved and stopped terminal: {}", session_id);
-                }
+            if let Err(e) = app_state
+                .core
+                .storage
+                .terminal_sessions
+                .update(&session_id, &session)
+            {
+                tracing::error!("Failed to save terminal {}: {}", session_id, e);
+            } else {
+                tracing::info!("Saved and stopped terminal: {}", session_id);
             }
         }
     }
