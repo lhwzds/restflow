@@ -81,7 +81,8 @@ mod tests {
     async fn test_list_agents_empty() {
         let core = create_test_core().await;
         let agents = list_agents(&core).await.unwrap();
-        assert!(agents.is_empty());
+        assert_eq!(agents.len(), 1);
+        assert_eq!(agents[0].name, "Default Assistant");
     }
 
     #[tokio::test]
@@ -124,9 +125,10 @@ mod tests {
             .unwrap();
 
         let agents = list_agents(&core).await.unwrap();
-        assert_eq!(agents.len(), 3);
+        assert_eq!(agents.len(), 4);
 
         let names: Vec<String> = agents.iter().map(|a| a.name.clone()).collect();
+        assert!(names.contains(&"Default Assistant".to_string()));
         assert!(names.contains(&"Agent 1".to_string()));
         assert!(names.contains(&"Agent 2".to_string()));
         assert!(names.contains(&"Agent 3".to_string()));
