@@ -19,7 +19,6 @@ use restflow_tauri_lib::AppState;
 use restflow_tauri_lib::RestFlowMcpServer;
 use restflow_tauri_lib::commands;
 use restflow_tauri_lib::commands::AuthState;
-use restflow_tauri_lib::commands::PtyState;
 use restflow_tauri_lib::commands::pty::save_all_terminal_history_sync;
 use restflow_tauri_lib::{RealAgentExecutor, TelegramNotifier};
 use tauri::Manager;
@@ -119,9 +118,6 @@ fn main() {
 
             app.manage(state);
 
-            // Initialize PTY state
-            app.manage(PtyState::new());
-
             // Initialize Auth Profile Manager state
             app.manage(AuthState::new());
 
@@ -150,11 +146,9 @@ fn main() {
                 }
 
                 // Save all terminal history before closing
-                if let (Some(pty_state), Some(app_state)) =
-                    (app.try_state::<PtyState>(), app.try_state::<AppState>())
-                {
+                if let Some(app_state) = app.try_state::<AppState>() {
                     info!("Saving terminal history before close...");
-                    save_all_terminal_history_sync(&pty_state, &app_state);
+                    save_all_terminal_history_sync(&app_state);
                     info!("Terminal history saved");
                 }
             }

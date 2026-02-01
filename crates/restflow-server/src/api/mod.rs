@@ -1,5 +1,6 @@
 pub mod agents;
 pub mod config;
+pub mod memory;
 pub mod models;
 pub mod python;
 pub mod response;

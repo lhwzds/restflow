@@ -18,6 +18,7 @@ use tokio::sync::{mpsc, oneshot, RwLock};
 use tokio::time::{interval, Duration, Instant};
 use tracing::{debug, error, info, warn};
 
+use super::events::{NoopEventEmitter, TaskEventEmitter, TaskStreamEvent};
 use super::persist::MemoryPersister;
 
 use super::heartbeat::{
@@ -164,6 +165,7 @@ pub struct AgentTaskRunner {
     running_tasks: Arc<RwLock<HashSet<String>>>,
     cancel_senders: Arc<RwLock<HashMap<String, oneshot::Sender<()>>>>,
     heartbeat_emitter: Arc<dyn HeartbeatEmitter>,
+    event_emitter: Arc<dyn TaskEventEmitter>,
     sequence: AtomicU64,
     start_time: Instant,
     /// Optional memory persister for long-term memory storage
@@ -186,6 +188,7 @@ impl AgentTaskRunner {
             running_tasks: Arc::new(RwLock::new(HashSet::new())),
             cancel_senders: Arc::new(RwLock::new(HashMap::new())),
             heartbeat_emitter: Arc::new(NoopHeartbeatEmitter),
+            event_emitter: Arc::new(NoopEventEmitter),
             sequence: AtomicU64::new(0),
             start_time: Instant::now(),
             memory_persister: None,
@@ -208,6 +211,7 @@ impl AgentTaskRunner {
             running_tasks: Arc::new(RwLock::new(HashSet::new())),
             cancel_senders: Arc::new(RwLock::new(HashMap::new())),
             heartbeat_emitter,
+            event_emitter: Arc::new(NoopEventEmitter),
             sequence: AtomicU64::new(0),
             start_time: Instant::now(),
             memory_persister: None,
@@ -234,10 +238,17 @@ impl AgentTaskRunner {
             running_tasks: Arc::new(RwLock::new(HashSet::new())),
             cancel_senders: Arc::new(RwLock::new(HashMap::new())),
             heartbeat_emitter,
+            event_emitter: Arc::new(NoopEventEmitter),
             sequence: AtomicU64::new(0),
             start_time: Instant::now(),
             memory_persister: Some(MemoryPersister::new(memory_storage)),
         }
+    }
+
+    /// Attach a task event emitter for streaming updates.
+    pub fn with_event_emitter(mut self, event_emitter: Arc<dyn TaskEventEmitter>) -> Self {
+        self.event_emitter = event_emitter;
+        self
     }
 
     /// Start the runner and return a handle for controlling it
@@ -507,6 +518,20 @@ impl AgentTaskRunner {
             task.name, task.id, task.agent_id, task.execution_mode
         );
 
+        let execution_mode_str = match &task.execution_mode {
+            ExecutionMode::Api => "api".to_string(),
+            ExecutionMode::Cli(cfg) => format!("cli:{}", cfg.binary),
+        };
+
+        self.event_emitter
+            .emit(TaskStreamEvent::started(
+                &task.id,
+                &task.name,
+                &task.agent_id,
+                &execution_mode_str,
+            ))
+            .await;
+
         let exec_future = async {
             match &task.execution_mode {
                 ExecutionMode::Api => {
@@ -520,7 +545,7 @@ impl AgentTaskRunner {
                     .await
                 }
                 ExecutionMode::Cli(cli_config) => {
-                    // CLI mode should use existing PtyState + TerminalSession infrastructure
+                    // CLI mode should use existing ProcessRegistry + TerminalSession infrastructure
                     // This is handled via the terminal_sessions commands, not inline here
                     warn!(
                         "CLI mode for task '{}' (binary: {}) - use existing PTY infrastructure via terminal sessions",
@@ -542,6 +567,13 @@ impl AgentTaskRunner {
                     "Task '{}' cancelled by user (duration={}ms)",
                     task.name, duration_ms
                 );
+                self.event_emitter
+                    .emit(TaskStreamEvent::cancelled(
+                        task_id,
+                        "Cancelled by user",
+                        duration_ms,
+                    ))
+                    .await;
                 if let Err(e) = self.storage.pause_task(task_id) {
                     error!("Failed to mark task {} as paused: {}", task_id, e);
                 }
@@ -560,6 +592,14 @@ impl AgentTaskRunner {
                     "Task '{}' completed successfully (duration={}ms)",
                     task.name, duration_ms
                 );
+
+                self.event_emitter
+                    .emit(TaskStreamEvent::completed(
+                        task_id,
+                        &exec_result.output,
+                        duration_ms,
+                    ))
+                    .await;
 
                 if let Err(e) = self.storage.complete_task_execution(
                     task_id,
@@ -583,6 +623,15 @@ impl AgentTaskRunner {
                 let error_msg = format!("Execution error: {}", e);
                 error!("Task '{}' failed: {}", task.name, error_msg);
 
+                self.event_emitter
+                    .emit(TaskStreamEvent::failed(
+                        task_id,
+                        &error_msg,
+                        duration_ms,
+                        false,
+                    ))
+                    .await;
+
                 if let Err(e) =
                     self.storage
                         .fail_task_execution(task_id, error_msg.clone(), duration_ms)
@@ -600,6 +649,14 @@ impl AgentTaskRunner {
                     self.config.task_timeout_secs
                 );
                 error!("Task '{}' timed out", task.name);
+
+                self.event_emitter
+                    .emit(TaskStreamEvent::timeout(
+                        task_id,
+                        self.config.task_timeout_secs,
+                        duration_ms,
+                    ))
+                    .await;
 
                 if let Err(e) =
                     self.storage
@@ -716,6 +773,7 @@ impl AgentTaskRunner {
             running_tasks: self.running_tasks.clone(),
             cancel_senders: self.cancel_senders.clone(),
             heartbeat_emitter: self.heartbeat_emitter.clone(),
+            event_emitter: self.event_emitter.clone(),
             sequence: AtomicU64::new(self.sequence.load(Ordering::SeqCst)),
             start_time: self.start_time,
             memory_persister: self.memory_persister.clone(),
