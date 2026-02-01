@@ -107,7 +107,7 @@ pub fn memory_routes() -> Router<AppState> {
     Router::new()
         .route("/search", get(search_memory).post(search_memory_advanced))
         .route("/chunks", post(create_memory_chunk))
-        .route("/chunks/:id", delete(delete_memory_chunk))
+        .route("/chunks/{id}", delete(delete_memory_chunk))
         .route("/stats", get(get_memory_stats))
         .route("/export", get(export_memory))
         .route("/import", post(import_memory))

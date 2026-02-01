@@ -217,9 +217,13 @@ impl AgentExecutor for RealAgentExecutor {
 
         loop {
             let input_ref = input_owned.as_deref();
-            let result = execute_with_failover(&failover_manager, |model| async {
-                self.execute_with_model(&agent_node, model, input_ref, primary_provider)
-                    .await
+            let agent_node_clone = agent_node.clone();
+            let result = execute_with_failover(&failover_manager, |model| {
+                let node = agent_node_clone.clone();
+                async move {
+                    self.execute_with_model(&node, model, input_ref, primary_provider)
+                        .await
+                }
             })
             .await;
 

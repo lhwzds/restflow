@@ -8,7 +8,7 @@ mod auth;
 
 use api::{
     agents::*, config::*, memory::memory_routes, models::*, python::*, secrets::*, skills::*,
-    tools::*,
+    state::AppState, tools::*,
 };
 use auth::{auth_middleware, ApiKeyManager};
 use axum::{
@@ -68,8 +68,8 @@ async fn main() {
         ])
         .allow_headers([header::CONTENT_TYPE, header::AUTHORIZATION]);
 
-    // AppState is now just an alias for Arc<AppCore>
-    let shared_state = core.clone();
+    // Create AppState with security checker
+    let shared_state = AppState::new(core.clone());
     let api_key_manager = ApiKeyManager::from_env();
 
     let app = Router::new()

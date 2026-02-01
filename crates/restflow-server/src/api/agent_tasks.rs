@@ -123,6 +123,8 @@ async fn run_agent_with_executor(
     input: &str,
     secret_storage: Option<&restflow_core::storage::SecretStorage>,
     skill_storage: restflow_core::storage::skill::SkillStorage,
+    memory_storage: restflow_core::storage::memory::MemoryStorage,
+    chat_storage: restflow_core::storage::ChatSessionStorage,
 ) -> Result<AgentExecuteResponse, String> {
     // Get API key
     let api_key = match &agent_node.api_key_config {
@@ -162,7 +164,11 @@ async fn run_agent_with_executor(
     };
 
     // Create tool registry with all tools (including skill tool with storage access)
-    let full_registry = restflow_core::services::tool_registry::create_tool_registry(skill_storage);
+    let full_registry = restflow_core::services::tool_registry::create_tool_registry(
+        skill_storage,
+        memory_storage,
+        chat_storage,
+    );
 
     // Filter to only selected tools (secure by default)
     let tools = if let Some(ref tool_names) = agent_node.tools {
@@ -476,6 +482,8 @@ pub async fn run_agent_task(
         &input,
         Some(&state.storage.secrets),
         state.storage.skills.clone(),
+        state.storage.memory.clone(),
+        state.storage.chat_sessions.clone(),
     )
     .await;
 

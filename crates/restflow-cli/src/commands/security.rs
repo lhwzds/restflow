@@ -64,21 +64,24 @@ async fn reject_request(id: &str, format: OutputFormat) -> Result<()> {
 
 fn update_approval_status(id: &str, status: ApprovalStatus, format: OutputFormat) -> Result<()> {
     let mut approvals = load_approvals()?;
-    let approval = resolve_approval_mut(&mut approvals, id)?;
+    let index = resolve_approval_index(&approvals, id)?;
 
     match status {
-        ApprovalStatus::Approved => approval.approve(),
-        ApprovalStatus::Rejected => approval.reject(None),
+        ApprovalStatus::Approved => approvals[index].approve(),
+        ApprovalStatus::Rejected => approvals[index].reject(None),
         _ => {}
     }
+
+    let updated_id = approvals[index].id.clone();
+    let updated_status = approvals[index].status.clone();
 
     save_approvals(&approvals)?;
 
     if format.is_json() {
-        return print_json(&json!({ "id": approval.id, "status": approval.status }));
+        return print_json(&json!({ "id": updated_id, "status": updated_status }));
     }
 
-    println!("Updated approval {id}: {:?}", approval.status);
+    println!("Updated approval {id}: {:?}", updated_status);
     Ok(())
 }
 
@@ -204,17 +207,18 @@ fn approvals_path() -> Result<std::path::PathBuf> {
     Ok(paths::ensure_data_dir()?.join(APPROVALS_FILE))
 }
 
-fn resolve_approval_mut<'a>(
-    approvals: &'a mut [PendingApproval],
-    id: &str,
-) -> Result<&'a mut PendingApproval> {
-    if let Some(approval) = approvals.iter_mut().find(|a| a.id == id) {
-        return Ok(approval);
+fn resolve_approval_index(approvals: &[PendingApproval], id: &str) -> Result<usize> {
+    // Try exact match first
+    if let Some(index) = approvals.iter().position(|a| a.id == id) {
+        return Ok(index);
     }
 
+    // Try prefix match
     let matches: Vec<_> = approvals
-        .iter_mut()
-        .filter(|approval| approval.id.starts_with(id))
+        .iter()
+        .enumerate()
+        .filter(|(_, approval)| approval.id.starts_with(id))
+        .map(|(i, _)| i)
         .collect();
 
     if matches.is_empty() {
@@ -225,7 +229,7 @@ fn resolve_approval_mut<'a>(
         bail!("Approval id '{id}' is ambiguous");
     }
 
-    Ok(matches.into_iter().next().unwrap())
+    Ok(matches[0])
 }
 
 fn short_id(value: &str) -> String {
