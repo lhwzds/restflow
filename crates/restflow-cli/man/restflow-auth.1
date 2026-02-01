@@ -1,0 +1,35 @@
+.ie \n(.g .ds Aq \(aq
+.el .ds Aq '
+.TH auth 1  "auth " 
+.SH NAME
+auth \- Authentication management
+.SH SYNOPSIS
+\fBauth\fR [\fB\-h\fR|\fB\-\-help\fR] <\fIsubcommands\fR>
+.SH DESCRIPTION
+Authentication management
+.SH OPTIONS
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Print help
+.SH SUBCOMMANDS
+.TP
+auth\-status(1)
+Show authentication status
+.TP
+auth\-discover(1)
+Discover credentials from all sources
+.TP
+auth\-list(1)
+List all credential profiles
+.TP
+auth\-show(1)
+Show profile details
+.TP
+auth\-add(1)
+Add manual API key
+.TP
+auth\-remove(1)
+Remove a profile
+.TP
+auth\-help(1)
+Print this message or the help of the given subcommand(s)
