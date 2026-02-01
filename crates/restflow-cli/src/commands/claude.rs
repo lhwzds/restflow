@@ -1,15 +1,18 @@
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
+use restflow_core::AppCore;
 use restflow_core::auth::{AuthManagerConfig, AuthProfileManager, AuthProvider};
+use restflow_core::models::chat_session::{ChatMessage, ChatSession};
 use restflow_core::paths;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::process::Command;
 use tokio::time::timeout;
 
 use crate::cli::ClaudeArgs;
 use crate::commands::utils::read_stdin_to_string;
-use crate::output::{json::print_json, OutputFormat};
+use crate::output::{OutputFormat, json::print_json};
 
 /// Claude CLI output structure (matches actual claude CLI JSON output)
 #[derive(Debug, Deserialize, Serialize)]
@@ -48,7 +51,6 @@ impl ClaudeOutput {
     }
 }
 
-
 /// Get API key from RestFlow auth profile
 async fn get_api_key_from_profile(profile_id: Option<&str>) -> Result<String> {
     let mut config = AuthManagerConfig::default();
@@ -83,15 +85,78 @@ async fn get_api_key_from_profile(profile_id: Option<&str>) -> Result<String> {
     Ok(claude_code_profile.get_api_key().to_string())
 }
 
-pub async fn run(args: ClaudeArgs, format: OutputFormat) -> Result<()> {
+async fn resolve_session_id(core: &Arc<AppCore>, args: &ClaudeArgs) -> Result<Option<String>> {
+    if args.new_session && args.session.is_some() {
+        bail!("Use either --session or --new-session, not both");
+    }
+
+    if args.new_session {
+        let mut session = ChatSession::new("claude-cli".to_string(), args.model.clone());
+        session.rename(format!("Claude CLI - {}", args.model));
+        core.storage.chat_sessions.create(&session)?;
+        return Ok(Some(session.id));
+    }
+
+    if let Some(ref id) = args.session {
+        if let Some(session) = core.storage.chat_sessions.get(id)? {
+            return Ok(Some(session.id));
+        }
+
+        let sessions = core.storage.chat_sessions.list()?;
+        let mut matches = sessions
+            .iter()
+            .filter(|session| session.id.starts_with(id))
+            .collect::<Vec<_>>();
+
+        return match matches.len() {
+            0 => bail!("Session not found: {}", id),
+            1 => Ok(Some(matches.remove(0).id.clone())),
+            _ => bail!("Session id is ambiguous: {}", id),
+        };
+    }
+
+    Ok(None)
+}
+
+fn save_conversation(
+    core: &Arc<AppCore>,
+    session_id: &str,
+    user_input: &str,
+    assistant_output: &str,
+) -> Result<()> {
+    let mut session = core
+        .storage
+        .chat_sessions
+        .get(session_id)?
+        .ok_or_else(|| anyhow::anyhow!("Session not found: {}", session_id))?;
+
+    session.add_message(ChatMessage::user(user_input));
+    session.add_message(ChatMessage::assistant(assistant_output));
+
+    if session.messages.len() == 2 {
+        session.auto_name_from_first_message();
+    }
+
+    core.storage.chat_sessions.save(&session)?;
+    Ok(())
+}
+
+pub async fn run(core: Arc<AppCore>, args: ClaudeArgs, format: OutputFormat) -> Result<()> {
     // Get prompt from args or stdin
-    let prompt = match args.prompt {
-        Some(p) => p,
+    let prompt = match args.prompt.as_ref() {
+        Some(p) => p.clone(),
         None => read_stdin_to_string()?,
     };
 
     if prompt.is_empty() {
         bail!("Prompt is required");
+    }
+
+    let session_id = resolve_session_id(&core, &args).await?;
+    if args.new_session {
+        if let Some(ref id) = session_id {
+            eprintln!("Created session: {}", id);
+        }
     }
 
     // Get OAuth token from RestFlow auth profile
@@ -114,12 +179,8 @@ pub async fn run(args: ClaudeArgs, format: OutputFormat) -> Result<()> {
         .arg(&args.model);
 
     // Session handling
-    if let Some(ref session_id) = args.session_id {
-        if args.resume {
-            cmd.arg("--resume").arg(session_id);
-        } else {
-            cmd.arg("--session-id").arg(session_id);
-        }
+    if let Some(ref id) = session_id {
+        cmd.arg("--session-id").arg(id);
     }
 
     // Working directory
@@ -139,7 +200,7 @@ pub async fn run(args: ClaudeArgs, format: OutputFormat) -> Result<()> {
 
     // Parse output even if exit code is non-zero (claude CLI returns JSON even on error)
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let result: ClaudeOutput = match serde_json::from_str(&stdout) {
+    let mut result: ClaudeOutput = match serde_json::from_str(&stdout) {
         Ok(parsed) => parsed,
         Err(e) => {
             if !output.status.success() {
@@ -150,11 +211,25 @@ pub async fn run(args: ClaudeArgs, format: OutputFormat) -> Result<()> {
         }
     };
 
+    if let Some(ref id) = session_id {
+        if result.session_id.is_none() {
+            result.session_id = Some(id.clone());
+        }
+    }
+
     // Check for error in response
     if result.is_error == Some(true)
         && let Some(text) = result.get_text()
     {
         bail!("Claude CLI error: {}", text);
+    }
+
+    if let Some(ref id) = session_id {
+        if let Some(text) = result.get_text() {
+            if let Err(err) = save_conversation(&core, id, &prompt, text) {
+                tracing::warn!(session_id = %id, error = %err, "Failed to save CLI conversation");
+            }
+        }
     }
 
     if format.is_json() {
@@ -170,8 +245,8 @@ pub async fn run(args: ClaudeArgs, format: OutputFormat) -> Result<()> {
                 usage.output_tokens.unwrap_or(0)
             );
         }
-        if let Some(ref session_id) = result.session_id {
-            eprintln!("[Session: {}]", session_id);
+        if let Some(ref id) = result.session_id {
+            eprintln!("[Session: {}]", id);
         }
     }
 

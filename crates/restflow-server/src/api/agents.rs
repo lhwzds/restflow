@@ -7,6 +7,7 @@ use restflow_ai::{
     AgentConfig, AgentExecutor, AgentState, AgentStatus, AnthropicClient, LlmClient, OpenAIClient,
     Role, ToolRegistry,
 };
+use restflow_core::memory::{ChatSessionMirror, MessageMirror};
 use restflow_core::models::{
     AgentExecuteResponse, AgentNode, ApiKeyConfig, ExecutionDetails, ExecutionStep, Provider,
     ToolCallInfo,
@@ -32,6 +33,9 @@ pub struct UpdateAgentRequest {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ExecuteAgentRequest {
     pub input: String,
+    /// Optional session ID for conversation persistence.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
 }
 
 /// Convert AgentState messages to ExecutionSteps for frontend
@@ -89,6 +93,8 @@ async fn run_agent_with_executor(
     input: &str,
     secret_storage: Option<&restflow_core::storage::SecretStorage>,
     skill_storage: restflow_core::storage::skill::SkillStorage,
+    memory_storage: restflow_core::storage::memory::MemoryStorage,
+    chat_storage: restflow_core::storage::chat_session::ChatSessionStorage,
 ) -> Result<AgentExecuteResponse, String> {
     // Get API key
     let api_key = match &agent_node.api_key_config {
@@ -111,12 +117,8 @@ async fn run_agent_with_executor(
 
     // Create LLM client based on model provider
     let llm: Arc<dyn LlmClient> = match model.provider() {
-        Provider::OpenAI => {
-            Arc::new(OpenAIClient::new(&api_key).with_model(model.as_str()))
-        }
-        Provider::Anthropic => {
-            Arc::new(AnthropicClient::new(&api_key).with_model(model.as_str()))
-        }
+        Provider::OpenAI => Arc::new(OpenAIClient::new(&api_key).with_model(model.as_str())),
+        Provider::Anthropic => Arc::new(AnthropicClient::new(&api_key).with_model(model.as_str())),
         Provider::DeepSeek => {
             // DeepSeek uses OpenAI-compatible API
             Arc::new(
@@ -128,7 +130,11 @@ async fn run_agent_with_executor(
     };
 
     // Create tool registry with all tools (including skill tool with storage access)
-    let full_registry = restflow_core::services::tool_registry::create_tool_registry(skill_storage);
+    let full_registry = restflow_core::services::tool_registry::create_tool_registry(
+        skill_storage,
+        memory_storage,
+        chat_storage,
+    );
 
     // Filter to only selected tools (secure by default)
     let tools = if let Some(ref tool_names) = agent_node.tools {
@@ -285,10 +291,34 @@ pub async fn execute_agent(
         &request.input,
         Some(&state.storage.secrets),
         state.storage.skills.clone(),
+        state.storage.memory.clone(),
+        state.storage.chat_sessions.clone(),
     )
     .await
     {
-        Ok(response) => Json(ApiResponse::ok(response)),
+        Ok(response) => {
+            if let Some(ref session_id) = request.session_id {
+                let mirror = ChatSessionMirror::new(Arc::new(state.storage.chat_sessions.clone()));
+
+                if let Err(e) = mirror.mirror_user(session_id, &request.input).await {
+                    warn!(error = %e, "Failed to mirror user message");
+                }
+
+                let tokens = response
+                    .execution_details
+                    .as_ref()
+                    .map(|details| details.total_tokens);
+
+                if let Err(e) = mirror
+                    .mirror_assistant(session_id, &response.response, tokens)
+                    .await
+                {
+                    warn!(error = %e, "Failed to mirror assistant message");
+                }
+            }
+
+            Json(ApiResponse::ok(response))
+        }
         Err(e) => Json(ApiResponse::error(format!(
             "Failed to execute agent: {}",
             e
@@ -332,6 +362,8 @@ pub async fn execute_agent_inline(
         &input,
         Some(&state.storage.secrets),
         state.storage.skills.clone(),
+        state.storage.memory.clone(),
+        state.storage.chat_sessions.clone(),
     )
     .await
     {

@@ -6,8 +6,8 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 mod api;
 
 use api::{
-    agent_tasks::*, agents::*, chat_sessions::*, config::*, memory::*, models::*, python::*,
-    secrets::*, security::*, skills::*, tools::*,
+    agent_tasks::*, agents::*, chat_sessions::*, config::*, memory::memory_routes, models::*,
+    python::*, secrets::*, security::*, skills::*, tools::*,
 };
 use axum::{
     Router,
@@ -116,10 +116,6 @@ async fn main() {
             "/api/chat-sessions/{id}/summary",
             get(get_chat_session_summary),
         )
-        // Memory
-        .route("/api/memory/search", post(search_memory))
-        .route("/api/memory/chunks", post(create_memory_chunk))
-        .route("/api/memory/stats", get(get_memory_stats))
         // Security
         .route("/api/security/approvals", get(list_pending_approvals))
         .route(
@@ -148,6 +144,8 @@ async fn main() {
             get(get_skill).put(update_skill).delete(delete_skill),
         )
         .route("/api/skills/{id}/export", get(export_skill))
+        // Memory routes (search, chunks, stats, export, import)
+        .nest("/api/memory", memory_routes())
         .fallback(static_assets::static_handler)
         .layer(cors)
         .with_state(shared_state);
