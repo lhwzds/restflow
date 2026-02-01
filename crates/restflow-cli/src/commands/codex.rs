@@ -17,6 +17,7 @@ struct CodexAuthFile {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct CodexAuthTokens {
     access_token: String,
     refresh_token: Option<String>,
@@ -46,6 +47,7 @@ fn ensure_codex_credentials() -> Result<CodexAuthTokens> {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct CodexJsonlLine {
     #[serde(rename = "type")]
     line_type: Option<String>,
@@ -163,13 +165,13 @@ pub async fn run(_core: Arc<AppCore>, args: CodexArgs, format: OutputFormat) -> 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let mut result = parse_jsonl_output(&stdout)?;
 
-    if result.session_id.is_none() {
-        if let Some(thread_id) = result.text.lines().find_map(|line| {
+    if result.session_id.is_none()
+        && let Some(thread_id) = result.text.lines().find_map(|line| {
             line.strip_prefix("[Session: ")
                 .and_then(|l| l.strip_suffix(']'))
-        }) {
-            result.session_id = Some(thread_id.to_string());
-        }
+        })
+    {
+        result.session_id = Some(thread_id.to_string());
     }
 
     if !output.status.success() {

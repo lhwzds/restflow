@@ -118,7 +118,7 @@ async fn start_server(core: Arc<AppCore>, name: &str, format: OutputFormat) -> R
         bail!("MCP server already running: {name}");
     }
 
-    let mut child = spawn_command(&server.command)?;
+    let child = spawn_command(&server.command)?;
     let pid = child.id() as i32;
 
     server.status = "running".to_string();
