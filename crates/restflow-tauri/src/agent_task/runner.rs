@@ -520,7 +520,7 @@ impl AgentTaskRunner {
                     .await
                 }
                 ExecutionMode::Cli(cli_config) => {
-                    // CLI mode should use existing PtyState + TerminalSession infrastructure
+                    // CLI mode should use existing ProcessRegistry + TerminalSession infrastructure
                     // This is handled via the terminal_sessions commands, not inline here
                     warn!(
                         "CLI mode for task '{}' (binary: {}) - use existing PTY infrastructure via terminal sessions",
