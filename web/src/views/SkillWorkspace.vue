@@ -27,6 +27,7 @@ import type { FileItem } from '@/types/workspace'
 import type { Skill } from '@/types/generated/Skill'
 import type { StoredAgent } from '@/types/generated/StoredAgent'
 import type { ChatMessage } from '@/types/generated/ChatMessage'
+import type { ExecutionStep as ApiExecutionStep } from '@/types/generated/ExecutionStep'
 import type { ChatSessionSummary } from '@/types/generated/ChatSessionSummary'
 import { useFileBrowser, type BrowserTab } from '@/composables/workspace/useFileBrowser'
 import { useEditorTabs, type EditorTab } from '@/composables/editor/useEditorTabs'
@@ -197,12 +198,16 @@ const executionSteps = computed<ExecutionStep[]>(() => {
     return []
   }
 
-  return latestExecution.execution.steps.map((step) => ({
-    type: mapStepType(step.step_type),
-    name: step.name,
-    status: mapStepStatus(step.status),
-    duration: step.duration_ms ? Number(step.duration_ms) : undefined,
-  }))
+  return latestExecution.execution.steps.map((step, index, steps) => {
+    const isLastStep = index === steps.length - 1
+    const status: StepStatus = isSending.value && isLastStep ? 'running' : 'completed'
+
+    return {
+      type: mapStepType(step.step_type),
+      name: formatStepName(step),
+      status,
+    }
+  })
 })
 
 const isExecuting = computed(() => isSending.value)
@@ -272,26 +277,36 @@ const loadModels = async () => {
 
 const mapStepType = (value: string): StepType => {
   switch (value) {
-    case 'skill_read':
-    case 'script_run':
-    case 'api_call':
-    case 'thinking':
-      return value
+    case 'tool_call':
+      return 'api_call'
+    case 'tool_result':
+      return 'script_run'
+    case 'system':
+    case 'user':
+    case 'assistant':
     default:
       return 'thinking'
   }
 }
 
-const mapStepStatus = (value: string): StepStatus => {
-  switch (value) {
-    case 'pending':
-    case 'running':
-    case 'completed':
-    case 'failed':
-      return value
-    default:
-      return 'pending'
+const formatStepName = (step: ApiExecutionStep): string => {
+  if (step.step_type === 'tool_call') {
+    const toolName = step.tool_calls?.[0]?.name
+    return toolName ? `Tool call: ${toolName}` : 'Tool call'
   }
+
+  if (step.step_type === 'tool_result') {
+    return 'Tool result'
+  }
+
+  if (step.content) {
+    const firstLine = step.content.split('\n')[0]?.trim()
+    if (firstLine) {
+      return firstLine.length > 80 ? `${firstLine.slice(0, 80)}...` : firstLine
+    }
+  }
+
+  return step.step_type
 }
 
 // Settings dialog

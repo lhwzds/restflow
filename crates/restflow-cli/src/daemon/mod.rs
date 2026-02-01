@@ -21,16 +21,15 @@ pub fn read_pid() -> Option<i32> {
 
 pub fn is_daemon_running() -> bool {
     if let Some(pid) = read_pid() {
-        return is_process_running(pid);
+        is_process_running(pid)
+    } else {
+        false
     }
-    false
 }
 
 pub fn cleanup_stale_pid() -> Result<()> {
-    if let Some(pid) = read_pid() {
-        if !is_process_running(pid) {
-            let _ = std::fs::remove_file(pid_file());
-        }
+    if let Some(pid) = read_pid() && !is_process_running(pid) {
+        let _ = std::fs::remove_file(pid_file());
     }
     Ok(())
 }
@@ -41,7 +40,7 @@ fn is_process_running(pid: i32) -> bool {
         use nix::sys::signal::kill;
         use nix::unistd::Pid;
 
-        return kill(Pid::from_raw(pid), None).is_ok();
+        kill(Pid::from_raw(pid), None).is_ok()
     }
 
     #[cfg(not(unix))]
