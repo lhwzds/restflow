@@ -160,7 +160,7 @@ mod tests {
 
         let mut new_agent_node = create_test_agent_node("Updated prompt");
         new_agent_node.temperature = Some(0.9);
-        new_agent_node.model = AIModel::Gpt5Mini;
+        new_agent_node.model = Some(AIModel::Gpt5Mini);
 
         let updated = update_agent(&core, &created.id, None, Some(new_agent_node))
             .await
