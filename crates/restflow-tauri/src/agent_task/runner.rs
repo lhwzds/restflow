@@ -755,6 +755,7 @@ mod tests {
     use super::*;
     use restflow_core::models::TaskSchedule;
     use std::sync::atomic::{AtomicU32, Ordering};
+    use std::time::Instant;
     use tempfile::tempdir;
 
     /// Mock executor for testing
@@ -1015,8 +1016,17 @@ mod tests {
         assert!(running <= 2, "Should respect concurrency limit");
 
         // Wait for all to complete (5 tasks * 500ms each / 2 concurrent = 1250ms min)
-        // Add generous buffer for Windows CI
-        tokio::time::sleep(Duration::from_millis(4000)).await;
+        // Use a retry loop to reduce timing flakes on Windows CI.
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            if executor.call_count() >= 5 {
+                break;
+            }
+            if Instant::now() >= deadline {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
 
         handle.stop().await.unwrap();
 
