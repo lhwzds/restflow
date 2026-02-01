@@ -545,8 +545,10 @@ mod tests {
     #[tokio::test]
     async fn test_allow_pipe_when_enabled_for_agent() {
         let checker = create_test_checker();
-        let mut config = AgentSecurityConfig::default();
-        config.allow_pipeline = true;
+        let config = AgentSecurityConfig {
+            allow_pipeline: true,
+            ..Default::default()
+        };
         checker.set_agent_config("agent-1", config);
 
         let result = checker
