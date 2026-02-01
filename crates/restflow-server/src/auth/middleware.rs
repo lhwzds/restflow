@@ -25,6 +25,19 @@ pub async fn auth_middleware(req: Request, next: Next) -> Response {
         return next.run(req).await;
     }
 
+    let has_api_keys = env::var("RESTFLOW_API_KEYS")
+        .ok()
+        .map(|value| !value.trim().is_empty())
+        .unwrap_or(false);
+    let has_jwt_secret = env::var("RESTFLOW_API_JWT_SECRET")
+        .ok()
+        .map(|value| !value.trim().is_empty())
+        .unwrap_or(false);
+
+    if !has_api_keys && !has_jwt_secret {
+        return next.run(req).await;
+    }
+
     let token = match extract_bearer(req.headers().get(axum::http::header::AUTHORIZATION)) {
         Some(token) => token,
         None => return unauthorized(),
