@@ -36,7 +36,7 @@ const DEFAULT_TIMEOUT_SECS: u64 = 120;
 const DEFAULT_MAX_OUTPUT_BYTES: usize = 100_000;
 
 /// Bash command execution tool
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct BashTool {
     /// Default working directory for commands
     default_workdir: Option<String>,
