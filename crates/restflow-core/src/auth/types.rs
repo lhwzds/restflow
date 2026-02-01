@@ -166,8 +166,10 @@ impl std::fmt::Display for CredentialSource {
 #[ts(export, export_to = "../../web/src/types/generated/")]
 #[serde(rename_all = "snake_case")]
 pub enum AuthProvider {
-    /// Anthropic Claude API
+    /// Anthropic Claude API (direct API calls)
     Anthropic,
+    /// Claude Code CLI (OAuth token via CLAUDE_CODE_OAUTH_TOKEN)
+    ClaudeCode,
     /// OpenAI API
     #[serde(rename = "openai")]
     #[ts(rename = "openai")]
@@ -182,6 +184,7 @@ impl std::fmt::Display for AuthProvider {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             AuthProvider::Anthropic => write!(f, "Anthropic"),
+            AuthProvider::ClaudeCode => write!(f, "ClaudeCode"),
             AuthProvider::OpenAI => write!(f, "OpenAI"),
             AuthProvider::Google => write!(f, "Google"),
             AuthProvider::Other => write!(f, "Other"),

@@ -199,11 +199,12 @@ async fn remove_profile(
 
 fn parse_provider(value: &str) -> Result<AuthProvider> {
     match value.to_lowercase().as_str() {
-        "anthropic" | "claude" => Ok(AuthProvider::Anthropic),
+        "anthropic" => Ok(AuthProvider::Anthropic),
+        "claude-code" | "claudecode" => Ok(AuthProvider::ClaudeCode),
         "openai" => Ok(AuthProvider::OpenAI),
         "google" | "gemini" => Ok(AuthProvider::Google),
         "other" => Ok(AuthProvider::Other),
-        _ => bail!("Unsupported provider: {value}"),
+        _ => bail!("Unsupported provider: {value}. Valid options: anthropic, claude-code, openai, google, other"),
     }
 }
 

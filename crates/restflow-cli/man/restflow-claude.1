@@ -1,0 +1,34 @@
+.ie \n(.g .ds Aq \(aq
+.el .ds Aq '
+.TH claude 1  "claude " 
+.SH NAME
+claude \- Execute via Claude Code CLI (uses OAuth)
+.SH SYNOPSIS
+\fBclaude\fR [\fB\-p\fR|\fB\-\-prompt\fR] [\fB\-m\fR|\fB\-\-model\fR] [\fB\-\-session\-id\fR] [\fB\-\-resume\fR] [\fB\-w\fR|\fB\-\-cwd\fR] [\fB\-\-timeout\fR] [\fB\-\-auth\-profile\fR] [\fB\-h\fR|\fB\-\-help\fR] 
+.SH DESCRIPTION
+Execute via Claude Code CLI (uses OAuth)
+.SH OPTIONS
+.TP
+\fB\-p\fR, \fB\-\-prompt\fR \fI<PROMPT>\fR
+Prompt to send to Claude
+.TP
+\fB\-m\fR, \fB\-\-model\fR \fI<MODEL>\fR [default: sonnet]
+Model to use (opus, sonnet, haiku)
+.TP
+\fB\-\-session\-id\fR \fI<SESSION_ID>\fR
+Session ID for conversation continuity
+.TP
+\fB\-\-resume\fR
+Resume existing session
+.TP
+\fB\-w\fR, \fB\-\-cwd\fR \fI<CWD>\fR
+Working directory
+.TP
+\fB\-\-timeout\fR \fI<TIMEOUT>\fR [default: 300]
+Timeout in seconds
+.TP
+\fB\-\-auth\-profile\fR \fI<AUTH_PROFILE>\fR
+Auth profile ID to use (defaults to first available Anthropic profile)
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Print help
