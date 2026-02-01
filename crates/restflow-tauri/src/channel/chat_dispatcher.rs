@@ -288,10 +288,10 @@ impl ChatDispatcher {
         );
 
         // 3. Send typing indicator if enabled
-        if self.config.send_typing_indicator {
-            if let Err(e) = self.send_typing_indicator(message).await {
-                warn!("Failed to send typing indicator: {}", e);
-            }
+        if self.config.send_typing_indicator
+            && let Err(e) = self.send_typing_indicator(message).await
+        {
+            warn!("Failed to send typing indicator: {}", e);
         }
 
         // 4. Execute agent
@@ -374,11 +374,13 @@ mod tests {
     use tokio::time::Duration;
 
     /// Mock executor for testing.
+    #[allow(dead_code)]
     struct MockExecutor {
         call_count: AtomicU32,
         response: String,
     }
 
+    #[allow(dead_code)]
     impl MockExecutor {
         fn new(response: impl Into<String>) -> Self {
             Self {
@@ -407,6 +409,7 @@ mod tests {
         (Arc::new(storage), temp_dir)
     }
 
+    #[allow(dead_code)]
     fn create_message(content: &str) -> InboundMessage {
         InboundMessage::new("msg-1", ChannelType::Telegram, "user-1", "chat-1", content)
     }

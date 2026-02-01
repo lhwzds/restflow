@@ -104,22 +104,18 @@ impl MessageDebouncer {
         }
 
         // Collect all pending messages
-        let combined = {
-            let mut pending = self.pending.lock().await;
-            if let Some(buffer) = pending.remove(conversation_id) {
-                let combined = buffer.messages.join("\n");
-                debug!(
-                    "Debounce: collected {} messages for {}",
-                    buffer.messages.len(),
-                    conversation_id
-                );
-                Some(combined)
-            } else {
-                None
-            }
-        };
-
-        combined
+        let mut pending = self.pending.lock().await;
+        if let Some(buffer) = pending.remove(conversation_id) {
+            let combined = buffer.messages.join("\n");
+            debug!(
+                "Debounce: collected {} messages for {}",
+                buffer.messages.len(),
+                conversation_id
+            );
+            Some(combined)
+        } else {
+            None
+        }
     }
 
     /// Get the current timeout duration.

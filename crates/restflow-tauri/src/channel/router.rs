@@ -42,17 +42,17 @@ impl MessageRouter {
     /// Route an inbound message to the appropriate handler.
     pub async fn route(&self, message: &InboundMessage) -> RouteDecision {
         // 1. Check if conversation is linked to an active task
-        if let Some(ctx) = self.channel_router.get_conversation(&message.conversation_id).await {
-            if let Some(task_id) = ctx.task_id {
-                return RouteDecision::ForwardToTask { task_id };
-            }
+        if let Some(ctx) = self.channel_router.get_conversation(&message.conversation_id).await
+            && let Some(task_id) = ctx.task_id
+        {
+            return RouteDecision::ForwardToTask { task_id };
         }
 
         // 2. Check for commands
-        if message.content.starts_with(&self.command_prefix) {
-            if let Some((command, args)) = self.parse_command(&message.content) {
-                return RouteDecision::HandleCommand { command, args };
-            }
+        if message.content.starts_with(&self.command_prefix)
+            && let Some((command, args)) = self.parse_command(&message.content)
+        {
+            return RouteDecision::HandleCommand { command, args };
         }
 
         // 3. Default: dispatch to AI chat
