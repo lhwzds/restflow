@@ -1,10 +1,12 @@
 mod runner;
+mod stream;
 mod telegram;
 
 use anyhow::Result;
 use std::path::PathBuf;
 
 pub use runner::CliTaskRunner;
+pub use stream::CliEventEmitter;
 pub use telegram::{TelegramAgent, TelegramAgentHandle};
 
 pub fn pid_file() -> PathBuf {

@@ -14,9 +14,16 @@ use restflow_ai::{
     ToolRegistry,
 };
 use restflow_core::{
-    AIModel, Provider, models::ApiKeyConfig, process::ProcessRegistry, storage::Storage,
+    AIModel,
+    Provider,
+    models::{AgentNode, ApiKeyConfig},
+    process::ProcessRegistry,
+    storage::Storage,
 };
+use tokio::time::sleep;
 
+use super::failover::{FailoverConfig, FailoverManager, execute_with_failover};
+use super::retry::{RetryConfig, RetryState};
 use super::runner::{AgentExecutor, ExecutionResult};
 
 /// Real agent executor that bridges to restflow_ai::AgentExecutor.
@@ -86,6 +93,21 @@ impl RealAgentExecutor {
         ))
     }
 
+    /// Resolve API key, avoiding mismatched agent-level keys for fallback providers.
+    fn resolve_api_key_for_model(
+        &self,
+        provider: Provider,
+        agent_api_key_config: Option<&ApiKeyConfig>,
+        primary_provider: Provider,
+    ) -> Result<String> {
+        let config = if provider == primary_provider {
+            agent_api_key_config
+        } else {
+            None
+        };
+        self.resolve_api_key(provider, config)
+    }
+
     /// Create an LLM client for the given model.
     fn create_llm_client(&self, model: AIModel, api_key: &str) -> Result<Arc<dyn LlmClient>> {
         let model_str = model.as_str();
@@ -117,6 +139,52 @@ impl RealAgentExecutor {
         let registry = ToolRegistry::new().with_process_tool(self.process_registry.clone());
         Arc::new(registry)
     }
+
+    async fn execute_with_model(
+        &self,
+        agent_node: &AgentNode,
+        model: AIModel,
+        input: Option<&str>,
+        primary_provider: Provider,
+    ) -> Result<ExecutionResult> {
+        let api_key = self.resolve_api_key_for_model(
+            model.provider(),
+            agent_node.api_key_config.as_ref(),
+            primary_provider,
+        )?;
+
+        let llm = self.create_llm_client(model, &api_key)?;
+        let tools = self.build_tool_registry(agent_node.tools.as_deref());
+
+        let goal = input.unwrap_or("Execute the agent task");
+        let mut config = AgentConfig::new(goal);
+
+        if let Some(prompt) = &agent_node.prompt {
+            config = config.with_system_prompt(prompt);
+        }
+
+        if model.supports_temperature()
+            && let Some(temp) = agent_node.temperature
+        {
+            config = config.with_temperature(temp as f32);
+        }
+
+        let executor = AiAgentExecutor::new(llm, tools);
+        let result = executor.run(config).await?;
+
+        if result.success {
+            let output = result
+                .answer
+                .unwrap_or_else(|| "Task completed".to_string());
+            let messages = result.state.messages.clone();
+            Ok(ExecutionResult::success(output, messages))
+        } else {
+            Err(anyhow!(
+                "Agent execution failed: {}",
+                result.error.unwrap_or_else(|| "Unknown error".to_string())
+            ))
+        }
+    }
 }
 
 #[async_trait]
@@ -132,63 +200,42 @@ impl AgentExecutor for RealAgentExecutor {
     /// 6. Executes the agent via restflow_ai::AgentExecutor
     /// 7. Returns the execution result with output and messages
     async fn execute(&self, agent_id: &str, input: Option<&str>) -> Result<ExecutionResult> {
-        // 1. Load agent from storage
         let stored_agent = self
             .storage
             .agents
             .get_agent(agent_id.to_string())?
             .ok_or_else(|| anyhow!("Agent '{}' not found", agent_id))?;
 
-        let agent_node = &stored_agent.agent;
+        let agent_node = stored_agent.agent.clone();
+        let primary_model = agent_node.require_model().map_err(|e| anyhow!(e))?;
+        let primary_provider = primary_model.provider();
 
-        // Get model (required for execution)
-        let model = agent_node.require_model()
-            .map_err(|e| anyhow!(e))?;
+        let failover_manager = FailoverManager::new(FailoverConfig::with_primary(primary_model));
+        let retry_config = RetryConfig::default();
+        let mut retry_state = RetryState::new();
+        let input_owned = input.map(|value| value.to_string());
 
-        // 2. Resolve API key
-        let api_key = self.resolve_api_key(
-            model.provider(),
-            agent_node.api_key_config.as_ref(),
-        )?;
+        loop {
+            let input_ref = input_owned.as_deref();
+            let result = execute_with_failover(&failover_manager, |model| async {
+                self.execute_with_model(&agent_node, model, input_ref, primary_provider)
+                    .await
+            })
+            .await;
 
-        // 3. Create LLM client
-        let llm = self.create_llm_client(model, &api_key)?;
-
-        // 4. Build tool registry
-        let tools = self.build_tool_registry(agent_node.tools.as_deref());
-
-        // 5. Build agent config
-        let goal = input.unwrap_or("Execute the agent task");
-        let mut config = AgentConfig::new(goal);
-
-        // Set system prompt from agent configuration
-        if let Some(prompt) = &agent_node.prompt {
-            config = config.with_system_prompt(prompt);
-        }
-
-        // Set temperature if supported and configured
-        if model.supports_temperature()
-            && let Some(temp) = agent_node.temperature
-        {
-            config = config.with_temperature(temp as f32);
-        }
-
-        // 6. Create and run the executor
-        let executor = AiAgentExecutor::new(llm, tools);
-        let result = executor.run(config).await?;
-
-        // 7. Return result with messages for memory persistence
-        if result.success {
-            let output = result
-                .answer
-                .unwrap_or_else(|| "Task completed".to_string());
-            let messages = result.state.messages.clone();
-            Ok(ExecutionResult::success(output, messages))
-        } else {
-            Err(anyhow!(
-                "Agent execution failed: {}",
-                result.error.unwrap_or_else(|| "Unknown error".to_string())
-            ))
+            match result {
+                Ok((exec_result, _model)) => return Ok(exec_result),
+                Err(err) => {
+                    let error_msg = err.to_string();
+                    if retry_state.should_retry(&retry_config, &error_msg) {
+                        retry_state.record_failure(&error_msg, &retry_config);
+                        let delay = retry_state.calculate_delay(&retry_config);
+                        sleep(delay).await;
+                        continue;
+                    }
+                    return Err(err);
+                }
+            }
         }
     }
 }

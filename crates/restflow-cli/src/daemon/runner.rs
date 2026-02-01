@@ -2,11 +2,12 @@ use anyhow::Result;
 use restflow_core::process::ProcessRegistry;
 use restflow_core::AppCore;
 use restflow_tauri_lib::{
-    AgentTaskRunner, RealAgentExecutor, RunnerConfig, RunnerHandle, TelegramNotifier,
+    AgentTaskRunner, NoopHeartbeatEmitter, RealAgentExecutor, RunnerConfig, RunnerHandle,
+    TelegramNotifier,
 };
 use std::sync::Arc;
 
-use super::TelegramAgentHandle;
+use super::{CliEventEmitter, TelegramAgentHandle};
 
 pub struct CliTaskRunner {
     core: Arc<AppCore>,
@@ -36,16 +37,24 @@ impl CliTaskRunner {
         let executor = RealAgentExecutor::new(storage.clone(), self.process_registry.clone());
         let notifier = TelegramNotifier::new(secrets);
 
-        let runner = Arc::new(AgentTaskRunner::new(
-            Arc::new(storage.agent_tasks.clone()),
-            Arc::new(executor),
-            Arc::new(notifier),
-            RunnerConfig {
-                poll_interval_ms: 30_000,
-                max_concurrent_tasks: 5,
-                task_timeout_secs: 3600,
-            },
-        ));
+        let heartbeat_emitter = Arc::new(NoopHeartbeatEmitter);
+        let event_emitter = Arc::new(CliEventEmitter::new());
+
+        let runner = Arc::new(
+            AgentTaskRunner::with_memory_persistence(
+                Arc::new(storage.agent_tasks.clone()),
+                Arc::new(executor),
+                Arc::new(notifier),
+                RunnerConfig {
+                    poll_interval_ms: 30_000,
+                    max_concurrent_tasks: 5,
+                    task_timeout_secs: 3600,
+                },
+                heartbeat_emitter,
+                storage.memory.clone(),
+            )
+            .with_event_emitter(event_emitter),
+        );
 
         let handle = runner.start();
         self.handle = Some(handle);
