@@ -48,19 +48,10 @@ impl Default for ProcessSpawnOptions {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct ProcessShellOptions {
     pub spawn: ProcessSpawnOptions,
     pub startup_command: Option<String>,
-}
-
-impl Default for ProcessShellOptions {
-    fn default() -> Self {
-        Self {
-            spawn: ProcessSpawnOptions::default(),
-            startup_command: None,
-        }
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -260,9 +251,11 @@ impl ProcessRegistry {
     }
 
     pub fn spawn(&self, command: &str, cwd: Option<String>) -> Result<String> {
-        let mut options = ProcessSpawnOptions::default();
-        options.cwd = cwd;
-        options.source = ProcessSessionSource::Agent;
+        let options = ProcessSpawnOptions {
+            cwd,
+            source: ProcessSessionSource::Agent,
+            ..Default::default()
+        };
         self.spawn_with_options(command, options)
     }
 
@@ -322,12 +315,12 @@ impl ProcessRegistry {
         let mut writer = pair.master.take_writer()?;
         let reader = pair.master.try_clone_reader()?;
 
-        if let Some(startup) = options.startup_command.as_ref() {
-            if !startup.is_empty() {
-                std::thread::sleep(Duration::from_millis(100));
-                let _ = writer.write_all(format!("{}\n", startup).as_bytes());
-                let _ = writer.flush();
-            }
+        if let Some(startup) = options.startup_command.as_ref()
+            && !startup.is_empty()
+        {
+            std::thread::sleep(Duration::from_millis(100));
+            let _ = writer.write_all(format!("{}\n", startup).as_bytes());
+            let _ = writer.flush();
         }
 
         let session_id = options
