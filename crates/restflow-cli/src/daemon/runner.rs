@@ -1,16 +1,25 @@
 use anyhow::Result;
 use restflow_core::AppCore;
-use restflow_tauri_lib::{AgentTaskRunner, RealAgentExecutor, RunnerConfig, RunnerHandle, TelegramNotifier};
+use restflow_tauri_lib::{
+    AgentTaskRunner, RealAgentExecutor, RunnerConfig, RunnerHandle, TelegramNotifier,
+};
 use std::sync::Arc;
+
+use super::TelegramAgentHandle;
 
 pub struct CliTaskRunner {
     core: Arc<AppCore>,
     handle: Option<RunnerHandle>,
+    telegram_handle: Option<TelegramAgentHandle>,
 }
 
 impl CliTaskRunner {
     pub fn new(core: Arc<AppCore>) -> Self {
-        Self { core, handle: None }
+        Self {
+            core,
+            handle: None,
+            telegram_handle: None,
+        }
     }
 
     pub async fn start(&mut self) -> Result<()> {
@@ -38,6 +47,20 @@ impl CliTaskRunner {
         let handle = runner.start();
         self.handle = Some(handle);
 
+        if self.telegram_handle.is_none() {
+            match super::TelegramAgent::from_storage(self.core.storage.clone()) {
+                Ok(Some(agent)) => {
+                    self.telegram_handle = Some(agent.start());
+                }
+                Ok(None) => {
+                    tracing::info!("Telegram agent disabled: TELEGRAM_BOT_TOKEN not configured");
+                }
+                Err(err) => {
+                    tracing::warn!("Failed to start Telegram agent: {}", err);
+                }
+            }
+        }
+
         tracing::info!("Task runner started");
         Ok(())
     }
@@ -47,6 +70,12 @@ impl CliTaskRunner {
             handle.stop().await?;
             tracing::info!("Task runner stopped");
         }
+
+        if let Some(handle) = self.telegram_handle.take() {
+            handle.stop().await;
+            tracing::info!("Telegram agent stopped");
+        }
+
         Ok(())
     }
 
