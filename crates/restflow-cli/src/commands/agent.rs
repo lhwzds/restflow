@@ -318,6 +318,7 @@ async fn run_agent_with_executor(
     })
 }
 
+#[allow(dead_code)]
 pub async fn execute_agent_for_task(
     core: &Arc<AppCore>,
     agent_id: &str,
