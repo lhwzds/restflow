@@ -16,7 +16,6 @@ use restflow_core::models::{
 use restflow_core::storage::agent::StoredAgent;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::path::Path as FsPath;
 use std::sync::Arc;
 use tracing::warn;
 
@@ -98,7 +97,7 @@ async fn run_agent_with_executor(
     skill_storage: restflow_core::storage::skill::SkillStorage,
     memory_storage: restflow_core::storage::memory::MemoryStorage,
     chat_storage: restflow_core::storage::chat_session::ChatSessionStorage,
-    workdir: Option<&FsPath>,
+    workdir: Option<&std::path::Path>,
 ) -> Result<AgentExecuteResponse, String> {
     // Get API key
     let api_key = match &agent_node.api_key_config {
