@@ -475,7 +475,9 @@ fn matches_pattern(
     command: &str,
     resolution: Option<&CommandResolution>,
 ) -> bool {
-    if pattern.pattern.contains('/') {
+    // Only use path matching for patterns that start with '/' (executable paths like /usr/bin/python)
+    // Other patterns containing '/' (like "rm -rf /") should use regular glob matching
+    if pattern.pattern.starts_with('/') {
         if let Some(resolution) = resolution {
             return matches_path_pattern(&pattern.pattern, resolution);
         }

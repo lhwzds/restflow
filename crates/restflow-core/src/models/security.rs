@@ -494,6 +494,7 @@ impl Default for SecurityPolicy {
             ],
             blocklist: vec![
                 // Extremely dangerous commands
+                CommandPattern::with_description("rm -rf /", "Delete root directory"),
                 CommandPattern::with_description("rm -rf /*", "Delete entire filesystem"),
                 CommandPattern::with_description("rm -rf ~/*", "Delete home directory"),
                 CommandPattern::with_description("rm -rf $HOME/*", "Delete home directory"),
