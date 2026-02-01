@@ -584,17 +584,6 @@ mod tests {
         assert_eq!(cred.refresh_token(), None);
     }
 
-        AuthProfile::new(
-            name,
-            Credential::ApiKey {
-                key: format!("test-key-{}", name),
-                email: None,
-            },
-            CredentialSource::Manual,
-            provider,
-        )
-    }
-
     #[tokio::test]
     async fn test_manager_new() {
         let manager = AuthProfileManager::new();
