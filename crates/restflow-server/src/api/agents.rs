@@ -4,14 +4,16 @@ use axum::{
     extract::{Path, State},
 };
 use restflow_ai::{
-    AgentConfig, AgentExecutor, AgentState, AgentStatus, AnthropicClient, LlmClient, OpenAIClient,
-    Role, ToolRegistry,
+    AgentConfig, AgentContext, AgentExecutor, AgentState, AgentStatus, AnthropicClient, LlmClient,
+    MemoryContext, OpenAIClient, Role, SkillSummary, ToolRegistry, load_workspace_context,
 };
+use restflow_core::memory::SearchEngine;
 use restflow_core::models::{
     AgentExecuteResponse, AgentNode, ApiKeyConfig, ExecutionDetails, ExecutionStep, Provider,
     ToolCallInfo,
 };
 use restflow_core::storage::agent::StoredAgent;
+use restflow_core::storage::memory::MemoryStorage;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
@@ -89,6 +91,9 @@ async fn run_agent_with_executor(
     input: &str,
     secret_storage: Option<&restflow_core::storage::SecretStorage>,
     skill_storage: restflow_core::storage::skill::SkillStorage,
+    memory_storage: Option<&MemoryStorage>,
+    agent_id: Option<&str>,
+    workdir: Option<&std::path::Path>,
 ) -> Result<AgentExecuteResponse, String> {
     // Get API key
     let api_key = match &agent_node.api_key_config {
@@ -150,11 +155,65 @@ async fn run_agent_with_executor(
         Arc::new(ToolRegistry::new())
     };
 
+    // Build agent context (skills, memories, workspace)
+    let mut agent_context = AgentContext::new();
+
+    let skills = match skill_storage.list() {
+        Ok(skills) => skills,
+        Err(err) => {
+            warn!(error = %err, "Failed to list skills for agent context");
+            Vec::new()
+        }
+    };
+
+    if !skills.is_empty() {
+        let summaries = skills
+            .into_iter()
+            .map(|skill| SkillSummary {
+                id: skill.id,
+                name: skill.name,
+                description: skill.description,
+            })
+            .collect::<Vec<_>>();
+        agent_context = agent_context.with_skills(summaries);
+    }
+
+    if let (Some(storage), Some(id)) = (memory_storage, agent_id) {
+        let engine = SearchEngine::new(storage.clone());
+        let query = restflow_core::models::memory::MemorySearchQuery::new(id.to_string())
+            .with_query(input.to_string())
+            .paginate(5, 0);
+        if let Ok(results) = engine.search_ranked(&query) {
+            if !results.chunks.is_empty() {
+                let memories = results
+                    .chunks
+                    .into_iter()
+                    .map(|scored| MemoryContext {
+                        content: scored.chunk.content,
+                        score: scored.score,
+                    })
+                    .collect::<Vec<_>>();
+                agent_context = agent_context.with_memories(memories);
+            }
+        }
+    }
+
+    if let Some(dir) = workdir {
+        if let Some(ws_content) = load_workspace_context(dir) {
+            agent_context = agent_context.with_workspace_context(ws_content);
+        }
+        agent_context = agent_context.with_workdir(dir.display().to_string());
+    }
+
     // Build agent config
     let mut config = AgentConfig::new(input);
 
     if let Some(ref prompt) = agent_node.prompt {
         config = config.with_system_prompt(prompt);
+    }
+
+    if !agent_context.is_empty() {
+        config = config.with_agent_context(agent_context);
     }
 
     // Only set temperature for models that support it
@@ -280,11 +339,16 @@ pub async fn execute_agent(
         }
     };
 
+    let workdir = std::env::current_dir().ok();
+
     match run_agent_with_executor(
         &agent.agent,
         &request.input,
         Some(&state.storage.secrets),
         state.storage.skills.clone(),
+        Some(&state.storage.memory),
+        Some(&agent.id),
+        workdir.as_deref(),
     )
     .await
     {
@@ -327,11 +391,16 @@ pub async fn execute_agent_inline(
         }
     };
 
+    let workdir = std::env::current_dir().ok();
+
     match run_agent_with_executor(
         &agent,
         &input,
         Some(&state.storage.secrets),
         state.storage.skills.clone(),
+        Some(&state.storage.memory),
+        None,
+        workdir.as_deref(),
     )
     .await
     {
