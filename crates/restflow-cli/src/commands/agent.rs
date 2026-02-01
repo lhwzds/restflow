@@ -1,21 +1,22 @@
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use comfy_table::{Cell, Table};
 use std::sync::Arc;
 use std::time::Instant;
 
 use crate::cli::AgentCommands;
 use crate::commands::utils::{format_timestamp, parse_model, read_stdin_to_string};
-use crate::output::{json::print_json, OutputFormat};
+use crate::output::{OutputFormat, json::print_json};
 use restflow_ai::{
     AgentConfig, AgentExecutor, AgentState, AgentStatus, AnthropicClient, LlmClient, OpenAIClient,
     Role, ToolRegistry,
 };
+use restflow_core::memory::{ChatSessionMirror, MessageMirror};
 use restflow_core::models::{
     AgentExecuteResponse, AgentNode, ApiKeyConfig, ExecutionDetails, ExecutionStep, Provider,
     ToolCallInfo,
 };
 use restflow_core::services::tool_registry::create_tool_registry;
-use restflow_core::{services::agent as agent_service, AppCore};
+use restflow_core::{AppCore, services::agent as agent_service};
 use serde_json::json;
 use tracing::warn;
 
@@ -23,12 +24,18 @@ pub async fn run(core: Arc<AppCore>, command: AgentCommands, format: OutputForma
     match command {
         AgentCommands::List => list_agents(&core, format).await,
         AgentCommands::Show { id } => show_agent(&core, &id, format).await,
-        AgentCommands::Create { name, model, prompt } => {
-            create_agent(&core, &name, model, prompt, format).await
+        AgentCommands::Create {
+            name,
+            model,
+            prompt,
+        } => create_agent(&core, &name, model, prompt, format).await,
+        AgentCommands::Update { id, name, model } => {
+            update_agent(&core, &id, name, model, format).await
         }
-        AgentCommands::Update { id, name, model } => update_agent(&core, &id, name, model, format).await,
         AgentCommands::Delete { id } => delete_agent(&core, &id, format).await,
-        AgentCommands::Exec { id, input } => exec_agent(&core, &id, input, format).await,
+        AgentCommands::Exec { id, input, session } => {
+            exec_agent(&core, &id, input, session, format).await
+        }
     }
 }
 
@@ -43,10 +50,16 @@ async fn list_agents(core: &Arc<AppCore>, format: OutputFormat) -> Result<()> {
     table.set_header(vec!["ID", "Name", "Model", "Updated"]);
 
     for agent in agents {
+        let model_str = agent
+            .agent
+            .model
+            .as_ref()
+            .map(|m| m.as_str())
+            .unwrap_or("(not set)");
         table.add_row(vec![
             Cell::new(short_id(&agent.id)),
             Cell::new(agent.name),
-            Cell::new(agent.agent.model.as_str()),
+            Cell::new(model_str),
             Cell::new(format_timestamp(agent.updated_at)),
         ]);
     }
@@ -63,8 +76,12 @@ async fn show_agent(core: &Arc<AppCore>, id: &str, format: OutputFormat) -> Resu
 
     println!("ID:          {}", agent.id);
     println!("Name:        {}", agent.name);
-    println!("Model:       {}", agent.agent.model.as_str());
-    println!("Provider:    {:?}", agent.agent.model.provider());
+    if let Some(model) = &agent.agent.model {
+        println!("Model:       {}", model.as_str());
+        println!("Provider:    {:?}", model.provider());
+    } else {
+        println!("Model:       (not set - will auto-select based on auth profile)");
+    }
     println!("Created:     {}", format_timestamp(agent.created_at));
     println!("Updated:     {}", format_timestamp(agent.updated_at));
     println!("Tools:       {}", format_tools(&agent.agent.tools));
@@ -83,12 +100,10 @@ async fn create_agent(
     prompt: Option<String>,
     format: OutputFormat,
 ) -> Result<()> {
-    let model = match model {
-        Some(value) => parse_model(&value)?,
-        None => restflow_core::models::AIModel::ClaudeSonnet4_5,
+    let mut agent_node = match model {
+        Some(value) => AgentNode::with_model(parse_model(&value)?),
+        None => AgentNode::new(),
     };
-
-    let mut agent_node = AgentNode::new(model);
     if let Some(prompt) = prompt {
         agent_node = agent_node.with_prompt(prompt);
     }
@@ -113,7 +128,7 @@ async fn update_agent(
     let mut existing = agent_service::get_agent(core, id).await?;
 
     if let Some(model) = model {
-        existing.agent.model = parse_model(&model)?;
+        existing.agent.model = Some(parse_model(&model)?);
     }
 
     let updated = agent_service::update_agent(core, id, name, Some(existing.agent)).await?;
@@ -141,6 +156,7 @@ async fn exec_agent(
     core: &Arc<AppCore>,
     id: &str,
     input: Option<String>,
+    session: Option<String>,
     format: OutputFormat,
 ) -> Result<()> {
     let agent = agent_service::get_agent(core, id).await?;
@@ -159,9 +175,31 @@ async fn exec_agent(
         &input,
         Some(&core.storage.secrets),
         core.storage.skills.clone(),
+        core.storage.memory.clone(),
+        core.storage.chat_sessions.clone(),
     )
     .await?;
     let duration_ms = started.elapsed().as_millis() as i64;
+
+    if let Some(ref session_id) = session {
+        let mirror = ChatSessionMirror::new(Arc::new(core.storage.chat_sessions.clone()));
+
+        if let Err(e) = mirror.mirror_user(session_id, &input).await {
+            warn!(error = %e, "Failed to mirror user message");
+        }
+
+        let tokens = response
+            .execution_details
+            .as_ref()
+            .map(|details| details.total_tokens);
+
+        if let Err(e) = mirror
+            .mirror_assistant(session_id, &response.response, tokens)
+            .await
+        {
+            warn!(error = %e, "Failed to mirror assistant message");
+        }
+    }
 
     if format.is_json() {
         return print_json(&response);
@@ -235,6 +273,8 @@ async fn run_agent_with_executor(
     input: &str,
     secret_storage: Option<&restflow_core::storage::SecretStorage>,
     skill_storage: restflow_core::storage::skill::SkillStorage,
+    memory_storage: restflow_core::storage::memory::MemoryStorage,
+    chat_storage: restflow_core::storage::chat_session::ChatSessionStorage,
 ) -> Result<AgentExecuteResponse> {
     let api_key = match &agent_node.api_key_config {
         Some(ApiKeyConfig::Direct(key)) => key.clone(),
@@ -250,19 +290,20 @@ async fn run_agent_with_executor(
         None => bail!("No API key configured"),
     };
 
-    let llm: Arc<dyn LlmClient> = match agent_node.model.provider() {
-        Provider::OpenAI => Arc::new(OpenAIClient::new(&api_key).with_model(agent_node.model.as_str())),
-        Provider::Anthropic => {
-            Arc::new(AnthropicClient::new(&api_key).with_model(agent_node.model.as_str()))
-        }
+    // Get model (required for execution)
+    let model = agent_node.require_model().map_err(|e| anyhow::anyhow!(e))?;
+
+    let llm: Arc<dyn LlmClient> = match model.provider() {
+        Provider::OpenAI => Arc::new(OpenAIClient::new(&api_key).with_model(model.as_str())),
+        Provider::Anthropic => Arc::new(AnthropicClient::new(&api_key).with_model(model.as_str())),
         Provider::DeepSeek => Arc::new(
             OpenAIClient::new(&api_key)
-                .with_model(agent_node.model.as_str())
+                .with_model(model.as_str())
                 .with_base_url("https://api.deepseek.com/v1"),
         ),
     };
 
-    let full_registry = create_tool_registry(skill_storage);
+    let full_registry = create_tool_registry(skill_storage, memory_storage, chat_storage);
 
     let tools = if let Some(ref tool_names) = agent_node.tools {
         if tool_names.is_empty() {
@@ -288,7 +329,7 @@ async fn run_agent_with_executor(
         config = config.with_system_prompt(prompt);
     }
 
-    if agent_node.model.supports_temperature()
+    if model.supports_temperature()
         && let Some(temp) = agent_node.temperature
     {
         config = config.with_temperature(temp as f32);
@@ -318,6 +359,7 @@ async fn run_agent_with_executor(
     })
 }
 
+#[allow(dead_code)]
 pub async fn execute_agent_for_task(
     core: &Arc<AppCore>,
     agent_id: &str,
@@ -330,6 +372,8 @@ pub async fn execute_agent_for_task(
         input,
         Some(&core.storage.secrets),
         core.storage.skills.clone(),
+        core.storage.memory.clone(),
+        core.storage.chat_sessions.clone(),
     )
     .await
 }

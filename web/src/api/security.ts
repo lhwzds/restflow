@@ -185,7 +185,7 @@ export async function approveCommand(approvalId: string): Promise<boolean> {
  */
 export async function rejectCommand(approvalId: string, reason?: string): Promise<boolean> {
   if (isTauri()) {
-    const request: RejectRequest = { approvalId, reason: reason ?? null }
+    const request: RejectRequest = { approval_id: approvalId, reason: reason ?? null }
     return tauriInvoke<boolean>('reject_command', { request })
   }
   throw new Error('Security API requires Tauri environment')

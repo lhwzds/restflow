@@ -118,7 +118,7 @@ mod tests {
         use crate::models::ApiKeyConfig;
 
         AgentNode {
-            model: AIModel::ClaudeSonnet4_5,
+            model: Some(AIModel::ClaudeSonnet4_5),
             prompt: Some("You are a helpful assistant".to_string()),
             temperature: Some(0.7),
             api_key_config: Some(ApiKeyConfig::Direct("test_key".to_string())),
@@ -146,7 +146,7 @@ mod tests {
 
         let agent = retrieved.unwrap();
         assert_eq!(agent.name, "Test Agent");
-        assert_eq!(agent.agent.model, AIModel::ClaudeSonnet4_5);
+        assert_eq!(agent.agent.model, Some(AIModel::ClaudeSonnet4_5));
     }
 
     #[test]
@@ -190,7 +190,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(updated.name, "Updated Name");
-        assert_eq!(updated.agent.model, AIModel::ClaudeSonnet4_5);
+        assert_eq!(updated.agent.model, Some(AIModel::ClaudeSonnet4_5));
 
         let mut new_agent_node = create_test_agent_node();
         new_agent_node.temperature = Some(0.9);

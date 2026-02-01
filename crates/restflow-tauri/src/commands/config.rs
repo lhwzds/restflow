@@ -60,11 +60,16 @@ pub struct ToolInfo {
 #[tauri::command]
 pub async fn get_available_tools(state: State<'_, AppState>) -> Result<Vec<ToolInfo>, String> {
     // Create a tool registry to get available tools
+    let db = state.core.storage.get_db();
     let skill_storage =
-        restflow_core::storage::skill::SkillStorage::new(state.core.storage.get_db())
+        restflow_core::storage::skill::SkillStorage::new(db.clone()).map_err(|e| e.to_string())?;
+    let memory_storage =
+        restflow_core::storage::memory::MemoryStorage::new(db.clone()).map_err(|e| e.to_string())?;
+    let chat_storage =
+        restflow_core::storage::chat_session::ChatSessionStorage::new(db)
             .map_err(|e| e.to_string())?;
 
-    let registry = create_tool_registry(skill_storage);
+    let registry = create_tool_registry(skill_storage, memory_storage, chat_storage);
 
     // Get tool names and descriptions
     let tools: Vec<ToolInfo> = registry

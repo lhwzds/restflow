@@ -6,6 +6,7 @@ use std::time::Duration;
 
 use serde_json::Value;
 
+use crate::agent::context::AgentContext;
 use crate::agent::state::{AgentState, AgentStatus};
 use crate::error::{AiError, Result};
 use crate::llm::{CompletionRequest, FinishReason, LlmClient, Message};
@@ -28,6 +29,8 @@ pub struct AgentConfig {
     /// Maximum messages to retain in working memory (default: 100)
     /// When this limit is reached, oldest non-system messages are evicted.
     pub max_memory_messages: usize,
+    /// Optional agent context injected into the system prompt.
+    pub agent_context: Option<AgentContext>,
 }
 
 impl AgentConfig {
@@ -42,6 +45,7 @@ impl AgentConfig {
             tool_timeout: Duration::from_secs(30),
             max_tool_result_length: 4000,
             max_memory_messages: DEFAULT_MAX_MESSAGES,
+            agent_context: None,
         }
     }
 
@@ -84,6 +88,12 @@ impl AgentConfig {
     /// Set temperature
     pub fn with_temperature(mut self, temp: f32) -> Self {
         self.temperature = Some(temp);
+        self
+    }
+
+    /// Set agent context for prompt injection
+    pub fn with_agent_context(mut self, context: AgentContext) -> Self {
+        self.agent_context = Some(context);
         self
     }
 }
@@ -249,6 +259,14 @@ impl AgentExecutor {
     }
 
     fn build_system_prompt(&self, config: &AgentConfig) -> String {
+        let mut sections = Vec::new();
+
+        let base = config
+            .system_prompt
+            .as_deref()
+            .unwrap_or("You are a helpful AI assistant that can use tools to accomplish tasks.");
+        sections.push(base.to_string());
+
         let tools_desc: Vec<String> = self
             .tools
             .list()
@@ -257,12 +275,18 @@ impl AgentExecutor {
             .map(|t| format!("- {}: {}", t.name(), t.description()))
             .collect();
 
-        let base = config
-            .system_prompt
-            .as_deref()
-            .unwrap_or("You are a helpful AI assistant that can use tools to accomplish tasks.");
+        if !tools_desc.is_empty() {
+            sections.push(format!("## Available Tools\n\n{}", tools_desc.join("\n")));
+        }
 
-        format!("{}\n\nAvailable tools:\n{}", base, tools_desc.join("\n"))
+        if let Some(ref context) = config.agent_context {
+            let context_str = context.format_for_prompt();
+            if !context_str.is_empty() {
+                sections.push(context_str);
+            }
+        }
+
+        sections.join("\n\n")
     }
 }
 

@@ -57,11 +57,18 @@
 
 mod chunker;
 mod export;
+mod mirror;
 mod search;
+mod unified_search;
 
 pub use chunker::{TextChunker, TextChunkerBuilder};
 pub use export::{ExportOptions, ExportResult, MemoryExporter, MemoryExporterBuilder};
+pub use mirror::{ChatSessionMirror, MessageMirror, NoopMirror};
 pub use search::{
     RankedSearchResult, ScoreBreakdown, ScoredChunk, SearchConfig, SearchEngine,
     SearchEngineBuilder,
+};
+pub use unified_search::{
+    SearchResultSource, SourceCounts, UnifiedSearchConfig, UnifiedSearchEngine,
+    UnifiedSearchResult, UnifiedSearchResults,
 };

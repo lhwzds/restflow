@@ -21,7 +21,8 @@ mod tests {
     async fn create_test_state() -> AppState {
         let temp_dir = tempdir().unwrap();
         let db_path = temp_dir.path().join("test.db");
-        Arc::new(AppCore::new(db_path.to_str().unwrap()).await.unwrap())
+        let core = Arc::new(AppCore::new(db_path.to_str().unwrap()).await.unwrap());
+        AppState::new(core)
     }
 
     #[tokio::test]

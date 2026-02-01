@@ -69,7 +69,7 @@ mod tests {
 
     fn create_test_agent_node(prompt: &str) -> AgentNode {
         AgentNode {
-            model: AIModel::ClaudeSonnet4_5,
+            model: Some(AIModel::ClaudeSonnet4_5),
             prompt: Some(prompt.to_string()),
             temperature: Some(0.7),
             api_key_config: Some(ApiKeyConfig::Direct("test_key".to_string())),
@@ -81,7 +81,8 @@ mod tests {
     async fn test_list_agents_empty() {
         let core = create_test_core().await;
         let agents = list_agents(&core).await.unwrap();
-        assert!(agents.is_empty());
+        assert_eq!(agents.len(), 1);
+        assert_eq!(agents[0].name, "Default Assistant");
     }
 
     #[tokio::test]
@@ -124,9 +125,10 @@ mod tests {
             .unwrap();
 
         let agents = list_agents(&core).await.unwrap();
-        assert_eq!(agents.len(), 3);
+        assert_eq!(agents.len(), 4);
 
         let names: Vec<String> = agents.iter().map(|a| a.name.clone()).collect();
+        assert!(names.contains(&"Default Assistant".to_string()));
         assert!(names.contains(&"Agent 1".to_string()));
         assert!(names.contains(&"Agent 2".to_string()));
         assert!(names.contains(&"Agent 3".to_string()));
@@ -160,7 +162,7 @@ mod tests {
 
         let mut new_agent_node = create_test_agent_node("Updated prompt");
         new_agent_node.temperature = Some(0.9);
-        new_agent_node.model = AIModel::Gpt5Mini;
+        new_agent_node.model = Some(AIModel::Gpt5Mini);
 
         let updated = update_agent(&core, &created.id, None, Some(new_agent_node))
             .await
@@ -169,7 +171,7 @@ mod tests {
         assert_eq!(updated.name, "Test Agent"); // Name unchanged
         assert_eq!(updated.agent.prompt, Some("Updated prompt".to_string()));
         assert_eq!(updated.agent.temperature, Some(0.9));
-        assert_eq!(updated.agent.model, AIModel::Gpt5Mini);
+        assert_eq!(updated.agent.model, Some(AIModel::Gpt5Mini));
     }
 
     #[tokio::test]
