@@ -125,6 +125,17 @@ impl Credential {
         )
     }
 
+    /// Get the refresh token if this is an OAuth credential with one.
+    pub fn refresh_token(&self) -> Option<&str> {
+        match self {
+            Credential::OAuth {
+                refresh_token: Some(token),
+                ..
+            } => Some(token.as_str()),
+            _ => None,
+        }
+    }
+
     /// Get a display-safe version of the credential (masked)
     pub fn masked(&self) -> String {
         let value = self.get_auth_value();
