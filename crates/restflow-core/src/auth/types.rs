@@ -153,6 +153,8 @@ impl Credential {
 pub enum CredentialSource {
     /// Discovered from Claude Code credentials file
     ClaudeCode,
+    /// Discovered from Codex CLI credentials file
+    CodexCli,
     /// Retrieved from macOS Keychain
     Keychain,
     /// Read from environment variable
@@ -165,6 +167,7 @@ impl std::fmt::Display for CredentialSource {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             CredentialSource::ClaudeCode => write!(f, "Claude Code"),
+            CredentialSource::CodexCli => write!(f, "Codex CLI"),
             CredentialSource::Keychain => write!(f, "Keychain"),
             CredentialSource::Environment => write!(f, "Environment"),
             CredentialSource::Manual => write!(f, "Manual"),
@@ -195,6 +198,10 @@ pub enum AuthProvider {
     #[serde(rename = "openai")]
     #[ts(rename = "openai")]
     OpenAI,
+    /// OpenAI Codex CLI
+    #[serde(rename = "openai_codex")]
+    #[ts(rename = "openai_codex")]
+    OpenAICodex,
     /// Google Gemini API
     Google,
     /// Other/Custom provider
@@ -207,6 +214,7 @@ impl std::fmt::Display for AuthProvider {
             AuthProvider::Anthropic => write!(f, "Anthropic"),
             AuthProvider::ClaudeCode => write!(f, "ClaudeCode"),
             AuthProvider::OpenAI => write!(f, "OpenAI"),
+            AuthProvider::OpenAICodex => write!(f, "OpenAICodex"),
             AuthProvider::Google => write!(f, "Google"),
             AuthProvider::Other => write!(f, "Other"),
         }
@@ -588,6 +596,7 @@ mod tests {
     #[test]
     fn test_credential_source_display() {
         assert_eq!(format!("{}", CredentialSource::ClaudeCode), "Claude Code");
+        assert_eq!(format!("{}", CredentialSource::CodexCli), "Codex CLI");
         assert_eq!(format!("{}", CredentialSource::Keychain), "Keychain");
         assert_eq!(format!("{}", CredentialSource::Environment), "Environment");
         assert_eq!(format!("{}", CredentialSource::Manual), "Manual");
@@ -597,6 +606,7 @@ mod tests {
     fn test_auth_provider_display() {
         assert_eq!(format!("{}", AuthProvider::Anthropic), "Anthropic");
         assert_eq!(format!("{}", AuthProvider::OpenAI), "OpenAI");
+        assert_eq!(format!("{}", AuthProvider::OpenAICodex), "OpenAICodex");
         assert_eq!(format!("{}", AuthProvider::Google), "Google");
         assert_eq!(format!("{}", AuthProvider::Other), "Other");
     }

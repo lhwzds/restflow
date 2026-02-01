@@ -72,6 +72,7 @@ async fn main() -> Result<()> {
         Some(Commands::Mcp { command }) => commands::mcp::run(core, command, cli.format).await,
         Some(Commands::Info) => commands::info::run(),
         Some(Commands::Claude(args)) => commands::claude::run(core, args, cli.format).await,
+        Some(Commands::Codex(args)) => commands::codex::run(core, args, cli.format).await,
         None => commands::chat::run(core, Default::default()).await,
         Some(Commands::Completions { .. }) => Ok(()),
     }

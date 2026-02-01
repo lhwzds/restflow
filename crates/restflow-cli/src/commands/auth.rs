@@ -1,4 +1,4 @@
-use anyhow::{anyhow, bail, Result};
+use anyhow::{Result, anyhow, bail};
 use comfy_table::{Cell, Table};
 use restflow_core::auth::{
     AuthManagerConfig, AuthProfile, AuthProfileManager, AuthProvider, Credential, CredentialSource,
@@ -6,7 +6,7 @@ use restflow_core::auth::{
 use restflow_core::paths;
 
 use crate::cli::AuthCommands;
-use crate::output::{json::print_json, OutputFormat};
+use crate::output::{OutputFormat, json::print_json};
 
 pub async fn run(command: AuthCommands, format: OutputFormat) -> Result<()> {
     let manager = create_manager()?;
@@ -202,9 +202,12 @@ fn parse_provider(value: &str) -> Result<AuthProvider> {
         "anthropic" => Ok(AuthProvider::Anthropic),
         "claude-code" | "claudecode" => Ok(AuthProvider::ClaudeCode),
         "openai" => Ok(AuthProvider::OpenAI),
+        "openai-codex" | "openai_codex" | "codex" => Ok(AuthProvider::OpenAICodex),
         "google" | "gemini" => Ok(AuthProvider::Google),
         "other" => Ok(AuthProvider::Other),
-        _ => bail!("Unsupported provider: {value}. Valid options: anthropic, claude-code, openai, google, other"),
+        _ => bail!(
+            "Unsupported provider: {value}. Valid options: anthropic, claude-code, openai, openai-codex, google, other"
+        ),
     }
 }
 
