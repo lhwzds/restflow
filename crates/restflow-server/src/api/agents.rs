@@ -360,7 +360,7 @@ mod tests {
 
     fn create_test_agent() -> AgentNode {
         AgentNode {
-            model: AIModel::ClaudeSonnet4_5,
+            model: Some(AIModel::ClaudeSonnet4_5),
             prompt: Some("You are a test assistant".to_string()),
             temperature: None,
             api_key_config: None,
