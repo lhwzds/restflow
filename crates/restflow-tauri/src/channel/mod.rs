@@ -6,6 +6,7 @@
 //! - Processing inbound messages from interactive channels (Telegram, etc.)
 //! - Routing commands (/help, /tasks, /run, /status, /stop)
 //! - Forwarding messages to running tasks
+//! - Dispatching natural language messages to AI chat
 //! - Handling approval/rejection responses
 //!
 //! # Architecture
@@ -18,20 +19,20 @@
 //!                     │
 //!                     ▼
 //! ┌─────────────────────────────────────────┐
-//! │           MessageHandler                │
-//! │   (handler.rs - routes messages)        │
+//! │           MessageRouter                 │
+//! │    (router.rs - routing decisions)      │
 //! └─────────────────────────────────────────┘
 //!                     │
-//!        ┌────────────┼────────────┐
-//!        ▼            ▼            ▼
-//! ┌────────────┐ ┌──────────┐ ┌───────────┐
-//! │  Commands  │ │ Forwarder│ │   Help    │
-//! │ commands.rs│ │forwarder │ │ (default) │
-//! └────────────┘ └──────────┘ └───────────┘
-//!        │            │
-//!        └────────────┘
-//!                │
-//!                ▼
+//!        ┌────────────┼────────────┬────────────┐
+//!        ▼            ▼            ▼            ▼
+//! ┌────────────┐ ┌──────────┐ ┌───────────┐ ┌─────────────┐
+//! │  Commands  │ │ Forwarder│ │   Chat    │ │   Ignore    │
+//! │ commands.rs│ │forwarder │ │ Dispatcher│ │             │
+//! └────────────┘ └──────────┘ └───────────┘ └─────────────┘
+//!        │            │              │
+//!        └────────────┴──────────────┘
+//!                     │
+//!                     ▼
 //! ┌─────────────────────────────────────────┐
 //! │          TaskTrigger Trait              │
 //! │   (trigger.rs - task operations)        │
@@ -46,21 +47,33 @@
 //! # Usage
 //!
 //! ```ignore
-//! use restflow_tauri::channel::{start_message_handler, MessageHandlerConfig};
+//! use restflow_tauri::channel::{
+//!     start_message_handler, start_message_handler_with_chat,
+//!     MessageHandlerConfig, ChatDispatcher, ChatDispatcherConfig,
+//! };
 //!
-//! // In your app setup:
+//! // Basic setup (commands + task forwarding only):
 //! let router: Arc<ChannelRouter> = /* from state */;
 //! let task_trigger: Arc<dyn TaskTrigger> = /* your implementation */;
-//!
 //! start_message_handler(router, task_trigger, MessageHandlerConfig::default());
+//!
+//! // With AI chat support:
+//! let chat_dispatcher: Arc<ChatDispatcher> = /* create dispatcher */;
+//! start_message_handler_with_chat(router, task_trigger, chat_dispatcher, config);
 //! ```
 
+mod chat_dispatcher;
 mod commands;
+mod debounce;
 mod forwarder;
 mod handler;
+mod router;
 mod trigger;
 
-pub use handler::{start_message_handler, MessageHandlerConfig};
+pub use chat_dispatcher::{ChatDispatcher, ChatDispatcherConfig, ChatError, ChatSessionManager};
+pub use debounce::MessageDebouncer;
+pub use handler::{start_message_handler, start_message_handler_with_chat, MessageHandlerConfig};
+pub use router::{MessageRouter, RouteDecision};
 pub use trigger::{SystemStatus, TaskTrigger};
 
 // Re-export for convenience
