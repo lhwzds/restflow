@@ -16,7 +16,6 @@ use restflow_core::models::{
 };
 use restflow_core::storage::agent::StoredAgent;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use std::{convert::Infallible, sync::Arc, time::Instant};
 use tracing::warn;
 
@@ -385,7 +384,7 @@ pub async fn update_agent_task(
 pub async fn delete_agent_task(
     State(state): State<AppState>,
     Path(id): Path<String>,
-) -> Json<ApiResponse<Value>> {
+) -> Json<ApiResponse<()>> {
     match state.storage.agent_tasks.delete_task(&id) {
         Ok(deleted) => {
             if deleted {
