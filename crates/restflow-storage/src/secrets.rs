@@ -58,6 +58,15 @@ pub struct SecretStorage {
     encryptor: Arc<SecretEncryptor>,
 }
 
+impl std::fmt::Debug for SecretStorage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SecretStorage")
+            .field("db", &"<redb::Database>")
+            .field("encryptor", &"<SecretEncryptor>")
+            .finish()
+    }
+}
+
 impl SecretStorage {
     pub fn new(db: Arc<Database>) -> Result<Self> {
         let write_txn = db.begin_write()?;
