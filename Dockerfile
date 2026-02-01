@@ -7,7 +7,14 @@ RUN npm config set fetch-retries 10 \
     && npm config set fetch-retry-maxtimeout 300000 \
     && npm config set fetch-retry-factor 2 \
     && npm config set fetch-timeout 300000 \
-    && npm ci --prefer-offline --no-audit --no-fund
+    && for i in 1 2 3; do \
+         if npm ci --prefer-offline --no-audit --no-fund; then \
+           exit 0; \
+         fi; \
+         echo "npm ci failed, retrying ($i/3)..." >&2; \
+         sleep $((i * 10)); \
+       done; \
+    exit 1
 
 COPY web/ ./
 RUN npm run build
