@@ -4,6 +4,9 @@
 //! to AI assistants like Claude Code.
 
 use restflow_core::AppCore;
+use restflow_core::models::{
+    ChatSessionSummary, MemoryChunk, MemorySearchQuery, MemorySource, SearchMode,
+};
 use rmcp::{
     ErrorData as McpError, ServerHandler, ServiceExt,
     handler::server::tool::cached_schema_for_type,
@@ -107,6 +110,65 @@ pub struct GetAgentParams {
     pub id: String,
 }
 
+/// Parameters for memory_search tool
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct MemorySearchParams {
+    /// Search query string
+    pub query: String,
+    /// Agent ID to scope the search
+    pub agent_id: String,
+    /// Maximum number of results to return
+    #[serde(default = "default_memory_limit")]
+    pub limit: u32,
+}
+
+/// Parameters for memory_store tool
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct MemoryStoreParams {
+    /// Agent ID to store memory under
+    pub agent_id: String,
+    /// Memory content to store
+    pub content: String,
+    /// Optional tags for categorization
+    #[serde(default)]
+    pub tags: Vec<String>,
+}
+
+/// Parameters for memory_stats tool
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct MemoryStatsParams {
+    /// Agent ID to fetch stats for
+    pub agent_id: String,
+}
+
+/// Parameters for skill_execute tool
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct SkillExecuteParams {
+    /// Skill ID to execute
+    pub skill_id: String,
+    /// Optional input provided to the skill
+    #[serde(default)]
+    pub input: Option<String>,
+}
+
+/// Parameters for chat_session_list tool
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct ChatSessionListParams {
+    /// Optional agent ID filter
+    #[serde(default)]
+    pub agent_id: Option<String>,
+    /// Maximum number of sessions to return
+    #[serde(default = "default_session_limit")]
+    pub limit: u32,
+}
+
+/// Parameters for chat_session_get tool
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct ChatSessionGetParams {
+    /// Session ID to retrieve
+    pub session_id: String,
+}
+
 // ============================================================================
 // Response Types
 // ============================================================================
@@ -135,6 +197,14 @@ pub struct AgentSummary {
 /// Empty parameters (for tools with no parameters)
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct EmptyParams {}
+
+fn default_memory_limit() -> u32 {
+    10
+}
+
+fn default_session_limit() -> u32 {
+    20
+}
 
 // ============================================================================
 // Tool Implementations
@@ -246,6 +316,114 @@ impl RestFlowMcpServer {
         serde_json::to_string_pretty(&agent)
             .map_err(|e| format!("Failed to serialize agent: {}", e))
     }
+
+    async fn handle_memory_search(&self, params: MemorySearchParams) -> Result<String, String> {
+        let query = MemorySearchQuery::new(params.agent_id)
+            .with_query(params.query)
+            .with_mode(SearchMode::Keyword)
+            .paginate(params.limit, 0);
+
+        let results = self
+            .core
+            .storage
+            .memory
+            .search(&query)
+            .map_err(|e| format!("Failed to search memory: {}", e))?;
+
+        serde_json::to_string_pretty(&results)
+            .map_err(|e| format!("Failed to serialize search results: {}", e))
+    }
+
+    async fn handle_memory_store(&self, params: MemoryStoreParams) -> Result<String, String> {
+        let mut chunk = MemoryChunk::new(params.agent_id, params.content)
+            .with_source(MemorySource::ManualNote);
+
+        if !params.tags.is_empty() {
+            chunk = chunk.with_tags(params.tags);
+        }
+
+        let id = self
+            .core
+            .storage
+            .memory
+            .store_chunk(&chunk)
+            .map_err(|e| format!("Failed to store memory: {}", e))?;
+
+        Ok(format!("Stored memory chunk: {}", id))
+    }
+
+    async fn handle_memory_stats(&self, params: MemoryStatsParams) -> Result<String, String> {
+        let stats = self
+            .core
+            .storage
+            .memory
+            .get_stats(&params.agent_id)
+            .map_err(|e| format!("Failed to load memory stats: {}", e))?;
+
+        serde_json::to_string_pretty(&stats)
+            .map_err(|e| format!("Failed to serialize memory stats: {}", e))
+    }
+
+    async fn handle_skill_execute(&self, params: SkillExecuteParams) -> Result<String, String> {
+        let skill = restflow_core::services::skills::get_skill(&self.core, &params.skill_id)
+            .await
+            .map_err(|e| format!("Failed to get skill: {}", e))?
+            .ok_or_else(|| format!("Skill not found: {}", params.skill_id))?;
+
+        let response = serde_json::json!({
+            "skill_id": skill.id,
+            "name": skill.name,
+            "content": skill.content,
+            "input": params.input,
+            "note": "Skill execution is not supported via MCP. Use the content with the input as context."
+        });
+
+        serde_json::to_string_pretty(&response)
+            .map_err(|e| format!("Failed to serialize skill response: {}", e))
+    }
+
+    async fn handle_chat_session_list(
+        &self,
+        params: ChatSessionListParams,
+    ) -> Result<String, String> {
+        let limit = params.limit as usize;
+        let summaries: Vec<ChatSessionSummary> = if let Some(agent_id) = params.agent_id {
+            self.core
+                .storage
+                .chat_sessions
+                .list_by_agent(&agent_id)
+                .map_err(|e| format!("Failed to list sessions: {}", e))?
+                .into_iter()
+                .map(ChatSessionSummary::from)
+                .take(limit)
+                .collect()
+        } else {
+            self.core
+                .storage
+                .chat_sessions
+                .list_summaries()
+                .map_err(|e| format!("Failed to list sessions: {}", e))?
+                .into_iter()
+                .take(limit)
+                .collect()
+        };
+
+        serde_json::to_string_pretty(&summaries)
+            .map_err(|e| format!("Failed to serialize sessions: {}", e))
+    }
+
+    async fn handle_chat_session_get(&self, params: ChatSessionGetParams) -> Result<String, String> {
+        let session = self
+            .core
+            .storage
+            .chat_sessions
+            .get(&params.session_id)
+            .map_err(|e| format!("Failed to get session: {}", e))?
+            .ok_or_else(|| format!("Session not found: {}", params.session_id))?;
+
+        serde_json::to_string_pretty(&session)
+            .map_err(|e| format!("Failed to serialize session: {}", e))
+    }
 }
 
 // ============================================================================
@@ -265,9 +443,9 @@ impl ServerHandler for RestFlowMcpServer {
                 website_url: None,
             },
             instructions: Some(
-                "RestFlow MCP Server - Manage skills, agents, and workflows. \
-                Use list_skills to see available skills, get_skill to read a skill's content, \
-                create_skill to create new skills, and similar tools for agents."
+                "RestFlow MCP Server - Manage skills, agents, memory, and chat sessions. \
+                Use list_skills/get_skill to access skills, list_agents/get_agent for agents, \
+                memory_search/memory_store for memory, and chat_session_list/chat_session_get for sessions."
                     .to_string(),
             ),
         }
@@ -313,6 +491,36 @@ impl ServerHandler for RestFlowMcpServer {
                 "get_agent",
                 "Get the full configuration of an agent by its ID. Returns the complete agent including model, prompt, temperature, and tools.",
                 cached_schema_for_type::<GetAgentParams>(),
+            ),
+            Tool::new(
+                "memory_search",
+                "Search memory chunks for an agent using keyword matching.",
+                cached_schema_for_type::<MemorySearchParams>(),
+            ),
+            Tool::new(
+                "memory_store",
+                "Store a new memory chunk for an agent.",
+                cached_schema_for_type::<MemoryStoreParams>(),
+            ),
+            Tool::new(
+                "memory_stats",
+                "Get memory statistics for an agent.",
+                cached_schema_for_type::<MemoryStatsParams>(),
+            ),
+            Tool::new(
+                "skill_execute",
+                "Fetch a skill's content for execution context.",
+                cached_schema_for_type::<SkillExecuteParams>(),
+            ),
+            Tool::new(
+                "chat_session_list",
+                "List chat sessions (optionally filtered by agent).",
+                cached_schema_for_type::<ChatSessionListParams>(),
+            ),
+            Tool::new(
+                "chat_session_get",
+                "Get a chat session by ID, including its message history.",
+                cached_schema_for_type::<ChatSessionGetParams>(),
             ),
         ];
 
@@ -369,6 +577,54 @@ impl ServerHandler for RestFlowMcpServer {
                             McpError::invalid_params(format!("Invalid parameters: {}", e), None)
                         })?;
                 self.handle_get_agent(params).await
+            }
+            "memory_search" => {
+                let params: MemorySearchParams =
+                    serde_json::from_value(Value::Object(request.arguments.unwrap_or_default()))
+                        .map_err(|e| {
+                            McpError::invalid_params(format!("Invalid parameters: {}", e), None)
+                        })?;
+                self.handle_memory_search(params).await
+            }
+            "memory_store" => {
+                let params: MemoryStoreParams =
+                    serde_json::from_value(Value::Object(request.arguments.unwrap_or_default()))
+                        .map_err(|e| {
+                            McpError::invalid_params(format!("Invalid parameters: {}", e), None)
+                        })?;
+                self.handle_memory_store(params).await
+            }
+            "memory_stats" => {
+                let params: MemoryStatsParams =
+                    serde_json::from_value(Value::Object(request.arguments.unwrap_or_default()))
+                        .map_err(|e| {
+                            McpError::invalid_params(format!("Invalid parameters: {}", e), None)
+                        })?;
+                self.handle_memory_stats(params).await
+            }
+            "skill_execute" => {
+                let params: SkillExecuteParams =
+                    serde_json::from_value(Value::Object(request.arguments.unwrap_or_default()))
+                        .map_err(|e| {
+                            McpError::invalid_params(format!("Invalid parameters: {}", e), None)
+                        })?;
+                self.handle_skill_execute(params).await
+            }
+            "chat_session_list" => {
+                let params: ChatSessionListParams =
+                    serde_json::from_value(Value::Object(request.arguments.unwrap_or_default()))
+                        .map_err(|e| {
+                            McpError::invalid_params(format!("Invalid parameters: {}", e), None)
+                        })?;
+                self.handle_chat_session_list(params).await
+            }
+            "chat_session_get" => {
+                let params: ChatSessionGetParams =
+                    serde_json::from_value(Value::Object(request.arguments.unwrap_or_default()))
+                        .map_err(|e| {
+                            McpError::invalid_params(format!("Invalid parameters: {}", e), None)
+                        })?;
+                self.handle_chat_session_get(params).await
             }
             _ => Err(format!("Unknown tool: {}", request.name)),
         };
