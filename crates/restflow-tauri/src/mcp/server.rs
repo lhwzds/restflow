@@ -393,7 +393,7 @@ impl RestFlowMcpServer {
                 .chat_sessions
                 .list_by_agent(&agent_id)
                 .map_err(|e| format!("Failed to list sessions: {}", e))?
-                .into_iter()
+                .iter()
                 .map(ChatSessionSummary::from)
                 .take(limit)
                 .collect()

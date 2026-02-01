@@ -116,6 +116,9 @@ pub enum Commands {
     /// Execute via Claude Code CLI (uses OAuth)
     Claude(ClaudeArgs),
 
+    /// Execute via OpenAI Codex CLI
+    Codex(CodexArgs),
+
     /// Manage chat sessions
     Session {
         #[command(subcommand)]
@@ -152,6 +155,29 @@ pub struct ClaudeArgs {
     /// Auth profile ID to use (defaults to first available Anthropic profile)
     #[arg(long)]
     pub auth_profile: Option<String>,
+}
+
+#[derive(Args)]
+pub struct CodexArgs {
+    /// Prompt to send to Codex
+    #[arg(short, long)]
+    pub prompt: Option<String>,
+
+    /// Model to use
+    #[arg(short, long, default_value = "gpt-5")]
+    pub model: String,
+
+    /// Session ID for conversation persistence
+    #[arg(short = 's', long)]
+    pub session: Option<String>,
+
+    /// Working directory
+    #[arg(short = 'w', long)]
+    pub cwd: Option<String>,
+
+    /// Timeout in seconds
+    #[arg(long, default_value = "300")]
+    pub timeout: u64,
 }
 
 #[derive(Args, Default)]
@@ -471,6 +497,9 @@ pub enum McpCommands {
 
     /// Stop MCP server
     Stop { name: String },
+
+    /// Run the built-in MCP server over stdio
+    Serve,
 }
 
 #[derive(Subcommand)]

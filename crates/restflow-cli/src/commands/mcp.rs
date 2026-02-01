@@ -20,6 +20,7 @@ pub async fn run(core: Arc<AppCore>, command: McpCommands, format: OutputFormat)
         McpCommands::Remove { name } => remove_server(&name, format).await,
         McpCommands::Start { name } => start_server(core, &name, format).await,
         McpCommands::Stop { name } => stop_server(&name, format).await,
+        McpCommands::Serve => serve_builtin(core).await,
     }
 }
 
@@ -96,11 +97,15 @@ async fn remove_server(name: &str, format: OutputFormat) -> Result<()> {
     Ok(())
 }
 
+async fn serve_builtin(core: Arc<AppCore>) -> Result<()> {
+    let server = RestFlowMcpServer::new(core);
+    server.run().await?;
+    Ok(())
+}
+
 async fn start_server(core: Arc<AppCore>, name: &str, format: OutputFormat) -> Result<()> {
     if name == "restflow" {
-        let server = RestFlowMcpServer::new(core);
-        server.run().await?;
-        return Ok(());
+        return serve_builtin(core).await;
     }
 
     let mut servers = load_servers()?;
