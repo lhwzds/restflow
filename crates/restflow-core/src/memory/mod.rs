@@ -57,10 +57,12 @@
 
 mod chunker;
 mod export;
+mod mirror;
 mod search;
 
 pub use chunker::{TextChunker, TextChunkerBuilder};
 pub use export::{ExportOptions, ExportResult, MemoryExporter, MemoryExporterBuilder};
+pub use mirror::{ChatSessionMirror, MessageMirror, NoopMirror};
 pub use search::{
     RankedSearchResult, ScoreBreakdown, ScoredChunk, SearchConfig, SearchEngine,
     SearchEngineBuilder,
