@@ -73,7 +73,7 @@ fn update_approval_status(id: &str, status: ApprovalStatus, format: OutputFormat
     }
 
     let updated_id = approvals[index].id.clone();
-    let updated_status = approvals[index].status.clone();
+    let updated_status = approvals[index].status;
 
     save_approvals(&approvals)?;
 

@@ -97,6 +97,7 @@ impl CliTaskRunner {
         Ok(())
     }
 
+    #[allow(dead_code)]
     pub async fn is_running(&self) -> bool {
         self.handle.read().await.is_some()
     }

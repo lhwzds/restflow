@@ -4,7 +4,7 @@
 .SH NAME
 claude \- Execute via Claude Code CLI (uses OAuth)
 .SH SYNOPSIS
-\fBclaude\fR [\fB\-p\fR|\fB\-\-prompt\fR] [\fB\-m\fR|\fB\-\-model\fR] [\fB\-s\fR|\fB\-\-session\fR] [\fB\-\-new\-session\fR] [\fB\-w\fR|\fB\-\-cwd\fR] [\fB\-\-timeout\fR] [\fB\-\-auth\-profile\fR] [\fB\-h\fR|\fB\-\-help\fR] 
+\fBclaude\fR [\fB\-p\fR|\fB\-\-prompt\fR] [\fB\-m\fR|\fB\-\-model\fR] [\fB\-s\fR|\fB\-\-session\fR] [\fB\-\-new\-session\fR] [\fB\-w\fR|\fB\-\-cwd\fR] [\fB\-\-timeout\fR] [\fB\-\-browser\fR] [\fB\-\-headless\fR] [\fB\-\-viewport\fR] [\fB\-\-auth\-profile\fR] [\fB\-h\fR|\fB\-\-help\fR] 
 .SH DESCRIPTION
 Execute via Claude Code CLI (uses OAuth)
 .SH OPTIONS
@@ -26,6 +26,15 @@ Working directory
 .TP
 \fB\-\-timeout\fR \fI<TIMEOUT>\fR [default: 300]
 Timeout in seconds
+.TP
+\fB\-\-browser\fR
+Enable Playwright browser tools via MCP
+.TP
+\fB\-\-headless\fR
+Run Playwright in headless mode (use \-\-headless=false for headed)
+.TP
+\fB\-\-viewport\fR \fI<VIEWPORT>\fR
+Set Playwright viewport size, e.g. 1280x720
 .TP
 \fB\-\-auth\-profile\fR \fI<AUTH_PROFILE>\fR
 Auth profile ID to use (defaults to first available Anthropic profile)
