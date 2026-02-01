@@ -191,7 +191,7 @@ impl CredentialDiscoverer for ClaudeCodeDiscoverer {
                 .map(|e| format!("Claude Code ({})", e))
                 .unwrap_or_else(|| "Claude Code".to_string());
 
-            let profile = AuthProfile::new(name, credential, self.source(), AuthProvider::Anthropic);
+            let profile = AuthProfile::new(name, credential, self.source(), AuthProvider::ClaudeCode);
 
             info!(
                 profile_id = %profile.id,
@@ -595,7 +595,7 @@ mod tests {
 
         let profile = &result.profiles[0];
         assert_eq!(profile.source, CredentialSource::ClaudeCode);
-        assert_eq!(profile.provider, AuthProvider::Anthropic);
+        assert_eq!(profile.provider, AuthProvider::ClaudeCode);
         assert!(profile.name.contains("test@example.com"));
     }
 

@@ -77,7 +77,8 @@ impl AuthProfileManager {
     /// Create a new auth profile manager with custom config
     pub fn with_config(config: AuthManagerConfig) -> Self {
         let mut refreshers: HashMap<AuthProvider, Arc<dyn OAuthRefresher>> = HashMap::new();
-        refreshers.insert(AuthProvider::Anthropic, Arc::new(AnthropicRefresher::default()));
+        // ClaudeCode OAuth tokens (from `claude login`) can be refreshed using Anthropic's OAuth endpoint
+        refreshers.insert(AuthProvider::ClaudeCode, Arc::new(AnthropicRefresher::default()));
 
         Self {
             config,
