@@ -7,6 +7,7 @@ use serde_json::Value;
 
 use crate::error::{AiError, Result};
 use crate::tools::traits::{Tool, ToolOutput, ToolSchema};
+use crate::tools::{ProcessManager, ProcessTool};
 
 /// Registry for managing available tools
 pub struct ToolRegistry {
@@ -37,6 +38,12 @@ impl ToolRegistry {
     pub fn register_arc(&mut self, tool: Arc<dyn Tool>) {
         let name = tool.name().to_string();
         self.tools.insert(name, tool);
+    }
+
+    /// Register the process tool with a shared process manager
+    pub fn with_process_tool(mut self, manager: Arc<dyn ProcessManager>) -> Self {
+        self.register(ProcessTool::new(manager));
+        self
     }
 
     /// Get a tool by name

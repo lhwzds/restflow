@@ -1,4 +1,5 @@
 use anyhow::Result;
+use restflow_core::process::ProcessRegistry;
 use restflow_core::AppCore;
 use restflow_tauri_lib::{
     AgentTaskRunner, RealAgentExecutor, RunnerConfig, RunnerHandle, TelegramNotifier,
@@ -11,6 +12,7 @@ pub struct CliTaskRunner {
     core: Arc<AppCore>,
     handle: Option<RunnerHandle>,
     telegram_handle: Option<TelegramAgentHandle>,
+    process_registry: Arc<ProcessRegistry>,
 }
 
 impl CliTaskRunner {
@@ -19,6 +21,7 @@ impl CliTaskRunner {
             core,
             handle: None,
             telegram_handle: None,
+            process_registry: Arc::new(ProcessRegistry::new()),
         }
     }
 
@@ -30,7 +33,7 @@ impl CliTaskRunner {
         let storage = self.core.storage.clone();
         let secrets = Arc::new(self.core.storage.secrets.clone());
 
-        let executor = RealAgentExecutor::new(storage.clone());
+        let executor = RealAgentExecutor::new(storage.clone(), self.process_registry.clone());
         let notifier = TelegramNotifier::new(secrets);
 
         let runner = Arc::new(AgentTaskRunner::new(

@@ -32,7 +32,7 @@
 //! };
 //!
 //! // For API-based execution:
-//! let executor = Arc::new(RealAgentExecutor::new(storage.clone()));
+//! let executor = Arc::new(RealAgentExecutor::new(storage.clone(), process_registry.clone()));
 //! let notifier = Arc::new(TelegramNotifier::new(storage.secrets.clone()));
 //! let heartbeat_emitter = Arc::new(TauriHeartbeatEmitter::new(app_handle.clone()));
 //!
