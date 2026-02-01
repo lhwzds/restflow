@@ -28,7 +28,7 @@ pub use input::{
 };
 pub use memory::{
     MemoryChunk, MemorySearchQuery, MemorySearchResult, MemorySession, MemorySource, MemoryStats,
-    SearchMode, SourceTypeFilter,
+    SearchMode, SourceTypeFilter, UnifiedSearchQuery,
 };
 pub use output::{
     AgentOutput, EmailOutput, HttpOutput, ManualTriggerOutput, NodeOutput, PrintOutput,

@@ -418,6 +418,57 @@ impl MemorySearchQuery {
     }
 }
 
+/// Unified search query combining memory and chat session filters.
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Default)]
+#[ts(export)]
+pub struct UnifiedSearchQuery {
+    /// Base memory search query.
+    #[serde(flatten)]
+    pub base: MemorySearchQuery,
+
+    /// Whether to include chat sessions in search.
+    #[serde(default)]
+    pub include_sessions: bool,
+
+    /// Filter to specific session IDs.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub session_ids: Vec<String>,
+
+    /// Filter to sessions with a specific agent ID.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_agent_id: Option<String>,
+}
+
+impl UnifiedSearchQuery {
+    /// Create a new unified search query.
+    pub fn new(base: MemorySearchQuery) -> Self {
+        Self {
+            base,
+            include_sessions: true,
+            session_ids: Vec::new(),
+            session_agent_id: None,
+        }
+    }
+
+    /// Enable or disable session search.
+    pub fn with_sessions(mut self, include_sessions: bool) -> Self {
+        self.include_sessions = include_sessions;
+        self
+    }
+
+    /// Restrict search to specific session IDs.
+    pub fn with_session_ids(mut self, session_ids: Vec<String>) -> Self {
+        self.session_ids = session_ids;
+        self
+    }
+
+    /// Override agent ID used when searching sessions.
+    pub fn with_session_agent_id(mut self, agent_id: Option<String>) -> Self {
+        self.session_agent_id = agent_id;
+        self
+    }
+}
+
 /// Search mode for memory queries.
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Default, PartialEq)]
 #[ts(export)]

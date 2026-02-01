@@ -5,7 +5,7 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 mod api;
 
-use api::{agents::*, config::*, models::*, python::*, secrets::*, skills::*, tools::*};
+use api::{agents::*, config::*, memory::*, models::*, python::*, secrets::*, skills::*, tools::*};
 use axum::{
     Router,
     http::{Method, header},
@@ -74,6 +74,8 @@ async fn main() {
         .route("/api/models", get(list_models))
         // AI tools
         .route("/api/tools", get(list_tools))
+        // Memory search
+        .route("/api/memory/search", get(search_memory))
         // Python integration
         .route("/api/python/execute", post(execute_script))
         .route("/api/python/scripts", get(list_scripts))

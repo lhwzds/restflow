@@ -175,6 +175,8 @@ async fn exec_agent(
         &input,
         Some(&core.storage.secrets),
         core.storage.skills.clone(),
+        core.storage.memory.clone(),
+        core.storage.chat_sessions.clone(),
     )
     .await?;
     let duration_ms = started.elapsed().as_millis() as i64;
@@ -271,6 +273,8 @@ async fn run_agent_with_executor(
     input: &str,
     secret_storage: Option<&restflow_core::storage::SecretStorage>,
     skill_storage: restflow_core::storage::skill::SkillStorage,
+    memory_storage: restflow_core::storage::memory::MemoryStorage,
+    chat_storage: restflow_core::storage::chat_session::ChatSessionStorage,
 ) -> Result<AgentExecuteResponse> {
     let api_key = match &agent_node.api_key_config {
         Some(ApiKeyConfig::Direct(key)) => key.clone(),
@@ -299,7 +303,7 @@ async fn run_agent_with_executor(
         ),
     };
 
-    let full_registry = create_tool_registry(skill_storage);
+    let full_registry = create_tool_registry(skill_storage, memory_storage, chat_storage);
 
     let tools = if let Some(ref tool_names) = agent_node.tools {
         if tool_names.is_empty() {
@@ -368,6 +372,8 @@ pub async fn execute_agent_for_task(
         input,
         Some(&core.storage.secrets),
         core.storage.skills.clone(),
+        core.storage.memory.clone(),
+        core.storage.chat_sessions.clone(),
     )
     .await
 }
