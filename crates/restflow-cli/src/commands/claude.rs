@@ -5,8 +5,10 @@ use restflow_core::models::chat_session::{ChatMessage, ChatSession};
 use restflow_core::paths;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
 use tokio::time::timeout;
 
@@ -83,6 +85,55 @@ async fn get_api_key_from_profile(profile_id: Option<&str>) -> Result<String> {
         })?;
 
     Ok(claude_code_profile.get_api_key().to_string())
+}
+
+fn claude_credentials_path() -> Option<PathBuf> {
+    dirs::home_dir().map(|home| home.join(".claude").join("credentials.json"))
+}
+
+fn is_claude_configured() -> bool {
+    claude_credentials_path()
+        .map(|path| path.exists())
+        .unwrap_or(false)
+}
+
+async fn setup_claude_token(token: &str) -> Result<()> {
+    let mut cmd = Command::new("claude");
+    cmd.arg("setup-token")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+
+    let mut child = cmd.spawn()?;
+    if let Some(mut stdin) = child.stdin.take() {
+        stdin.write_all(token.as_bytes()).await?;
+        stdin.write_all(b"\n").await?;
+    }
+
+    let output = child.wait_with_output().await?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        bail!("Failed to setup Claude token: {}", stderr.trim());
+    }
+
+    Ok(())
+}
+
+fn generate_mcp_config() -> Result<PathBuf> {
+    let config_dir = paths::ensure_data_dir()?;
+    let config_path = config_dir.join("claude_mcp.json");
+    let config = serde_json::json!({
+        "mcpServers": {
+            "restflow": {
+                "command": "restflow",
+                "args": ["mcp", "start", "restflow"],
+                "env": {}
+            }
+        }
+    });
+
+    std::fs::write(&config_path, serde_json::to_string_pretty(&config)?)?;
+    Ok(config_path)
 }
 
 async fn resolve_session_id(core: &Arc<AppCore>, args: &ClaudeArgs) -> Result<Option<String>> {
@@ -162,6 +213,13 @@ pub async fn run(core: Arc<AppCore>, args: ClaudeArgs, format: OutputFormat) -> 
     // Get OAuth token from RestFlow auth profile
     let oauth_token = get_api_key_from_profile(args.auth_profile.as_deref()).await?;
 
+    if !is_claude_configured() {
+        eprintln!("Claude CLI not configured. Running setup-token...");
+        setup_claude_token(&oauth_token).await?;
+    }
+
+    let mcp_config_path = generate_mcp_config()?;
+
     // Build environment with OAuth token
     // Use CLAUDE_CODE_OAUTH_TOKEN for setup tokens (sk-ant-oat01-...)
     let mut env: HashMap<String, String> = std::env::vars().collect();
@@ -176,7 +234,9 @@ pub async fn run(core: Arc<AppCore>, args: ClaudeArgs, format: OutputFormat) -> 
         .arg("json")
         .arg("--dangerously-skip-permissions")
         .arg("--model")
-        .arg(&args.model);
+        .arg(&args.model)
+        .arg("--mcp-config")
+        .arg(&mcp_config_path);
 
     // Session handling
     if let Some(ref id) = session_id {
