@@ -7,10 +7,11 @@ use restflow_ai::{
     AgentConfig, AgentExecutor, AgentState, AgentStatus, AnthropicClient, LlmClient, OpenAIClient,
     Role, ToolRegistry,
 };
-use restflow_core::memory::{ChatSessionMirror, MessageMirror};
+use restflow_ai::agent::{AgentContext, MemoryContext, SkillSummary, load_workspace_context};
+use restflow_core::memory::{ChatSessionMirror, MessageMirror, SearchEngine};
 use restflow_core::models::{
-    AgentExecuteResponse, AgentNode, ApiKeyConfig, ExecutionDetails, ExecutionStep, Provider,
-    ToolCallInfo,
+    AgentExecuteResponse, AgentNode, ApiKeyConfig, ExecutionDetails, ExecutionStep,
+    MemorySearchQuery, Provider, ToolCallInfo,
 };
 use restflow_core::storage::agent::StoredAgent;
 use serde::{Deserialize, Serialize};
@@ -89,12 +90,14 @@ fn status_to_string(status: &AgentStatus) -> String {
 
 /// Execute agent using restflow-ai AgentExecutor
 async fn run_agent_with_executor(
+    agent_id: &str,
     agent_node: &AgentNode,
     input: &str,
     secret_storage: Option<&restflow_core::storage::SecretStorage>,
     skill_storage: restflow_core::storage::skill::SkillStorage,
     memory_storage: restflow_core::storage::memory::MemoryStorage,
     chat_storage: restflow_core::storage::chat_session::ChatSessionStorage,
+    workdir: Option<&std::path::Path>,
 ) -> Result<AgentExecuteResponse, String> {
     // Get API key
     let api_key = match &agent_node.api_key_config {
@@ -128,6 +131,57 @@ async fn run_agent_with_executor(
             )
         }
     };
+
+    let mut agent_context = AgentContext::new();
+
+    match skill_storage.list() {
+        Ok(skills) => {
+            let summaries: Vec<SkillSummary> = skills
+                .into_iter()
+                .map(|skill| SkillSummary {
+                    id: skill.id,
+                    name: skill.name,
+                    description: skill.description,
+                })
+                .collect();
+            if !summaries.is_empty() {
+                agent_context = agent_context.with_skills(summaries);
+            }
+        }
+        Err(e) => {
+            warn!(error = %e, "Failed to list skills for agent context");
+        }
+    }
+
+    let memory_search_engine = SearchEngine::new(memory_storage.clone());
+    let memory_query = MemorySearchQuery::new(agent_id.to_string())
+        .with_query(input.to_string())
+        .paginate(5, 0);
+    match memory_search_engine.search_ranked(&memory_query) {
+        Ok(results) => {
+            let memories: Vec<MemoryContext> = results
+                .chunks
+                .into_iter()
+                .map(|scored| MemoryContext {
+                    content: scored.chunk.content,
+                    score: scored.score,
+                })
+                .collect();
+            if !memories.is_empty() {
+                agent_context = agent_context.with_memories(memories);
+            }
+        }
+        Err(e) => {
+            warn!(error = %e, "Failed to search memories for agent context");
+        }
+    }
+
+    if let Some(dir) = workdir {
+        if let Some(content) = load_workspace_context(dir) {
+            agent_context = agent_context.with_workspace_context(content);
+        }
+        agent_context = agent_context.with_workdir(dir.display().to_string());
+    }
 
     // Create tool registry with all tools (including skill tool with storage access)
     let full_registry = restflow_core::services::tool_registry::create_tool_registry(
@@ -168,6 +222,10 @@ async fn run_agent_with_executor(
         && let Some(temp) = agent_node.temperature
     {
         config = config.with_temperature(temp as f32);
+    }
+
+    if !agent_context.is_empty() {
+        config = config.with_agent_context(agent_context);
     }
 
     // Execute agent
@@ -286,13 +344,17 @@ pub async fn execute_agent(
         }
     };
 
+    let workdir = std::env::current_dir().ok();
+
     match run_agent_with_executor(
+        &agent.id,
         &agent.agent,
         &request.input,
         Some(&state.storage.secrets),
         state.storage.skills.clone(),
         state.storage.memory.clone(),
         state.storage.chat_sessions.clone(),
+        workdir.as_deref(),
     )
     .await
     {
@@ -357,13 +419,17 @@ pub async fn execute_agent_inline(
         }
     };
 
+    let workdir = std::env::current_dir().ok();
+
     match run_agent_with_executor(
+        "inline",
         &agent,
         &input,
         Some(&state.storage.secrets),
         state.storage.skills.clone(),
         state.storage.memory.clone(),
         state.storage.chat_sessions.clone(),
+        workdir.as_deref(),
     )
     .await
     {
