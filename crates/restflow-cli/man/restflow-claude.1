@@ -4,7 +4,7 @@
 .SH NAME
 claude \- Execute via Claude Code CLI (uses OAuth)
 .SH SYNOPSIS
-\fBclaude\fR [\fB\-p\fR|\fB\-\-prompt\fR] [\fB\-m\fR|\fB\-\-model\fR] [\fB\-\-session\-id\fR] [\fB\-\-resume\fR] [\fB\-w\fR|\fB\-\-cwd\fR] [\fB\-\-timeout\fR] [\fB\-\-auth\-profile\fR] [\fB\-h\fR|\fB\-\-help\fR] 
+\fBclaude\fR [\fB\-p\fR|\fB\-\-prompt\fR] [\fB\-m\fR|\fB\-\-model\fR] [\fB\-s\fR|\fB\-\-session\fR] [\fB\-\-new\-session\fR] [\fB\-w\fR|\fB\-\-cwd\fR] [\fB\-\-timeout\fR] [\fB\-\-auth\-profile\fR] [\fB\-h\fR|\fB\-\-help\fR] 
 .SH DESCRIPTION
 Execute via Claude Code CLI (uses OAuth)
 .SH OPTIONS
@@ -15,11 +15,11 @@ Prompt to send to Claude
 \fB\-m\fR, \fB\-\-model\fR \fI<MODEL>\fR [default: sonnet]
 Model to use (opus, sonnet, haiku)
 .TP
-\fB\-\-session\-id\fR \fI<SESSION_ID>\fR
-Session ID for conversation continuity
+\fB\-s\fR, \fB\-\-session\fR \fI<SESSION>\fR
+Session ID for conversation persistence
 .TP
-\fB\-\-resume\fR
-Resume existing session
+\fB\-\-new\-session\fR
+Create a new session and use it
 .TP
 \fB\-w\fR, \fB\-\-cwd\fR \fI<CWD>\fR
 Working directory

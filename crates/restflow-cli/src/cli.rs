@@ -106,6 +106,12 @@ pub enum Commands {
 
     /// Execute via Claude Code CLI (uses OAuth)
     Claude(ClaudeArgs),
+
+    /// Manage chat sessions
+    Session {
+        #[command(subcommand)]
+        command: SessionCommands,
+    },
 }
 
 #[derive(Args)]
@@ -118,13 +124,13 @@ pub struct ClaudeArgs {
     #[arg(short, long, default_value = "sonnet")]
     pub model: String,
 
-    /// Session ID for conversation continuity
-    #[arg(long)]
-    pub session_id: Option<String>,
+    /// Session ID for conversation persistence
+    #[arg(short = 's', long)]
+    pub session: Option<String>,
 
-    /// Resume existing session
+    /// Create a new session and use it
     #[arg(long)]
-    pub resume: bool,
+    pub new_session: bool,
 
     /// Working directory
     #[arg(short = 'w', long)]
@@ -396,4 +402,43 @@ pub enum ConfigCommands {
 
     /// Set config value
     Set { key: String, value: String },
+}
+
+#[derive(Subcommand)]
+pub enum SessionCommands {
+    /// List all sessions
+    List,
+
+    /// Show a session's conversation
+    Show {
+        /// Session ID
+        id: String,
+    },
+
+    /// Create a new session
+    Create {
+        /// Agent ID to associate with
+        #[arg(long, default_value = "claude-cli")]
+        agent: String,
+
+        /// Model name
+        #[arg(long, default_value = "claude-code")]
+        model: String,
+    },
+
+    /// Delete a session
+    Delete {
+        /// Session ID
+        id: String,
+    },
+
+    /// Search across sessions
+    Search {
+        /// Search query
+        query: String,
+
+        /// Agent ID to filter by
+        #[arg(long)]
+        agent: Option<String>,
+    },
 }

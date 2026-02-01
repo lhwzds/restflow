@@ -61,15 +61,16 @@ async fn main() -> Result<()> {
         Some(Commands::Secret { command }) => {
             commands::secret::run(core, command, cli.format).await
         }
-        Some(Commands::Auth { command }) => {
-            commands::auth::run(command, cli.format).await
-        }
+        Some(Commands::Auth { command }) => commands::auth::run(command, cli.format).await,
         Some(Commands::Config { command }) => {
             commands::config::run(core, command, cli.format).await
         }
+        Some(Commands::Session { command }) => {
+            commands::session::run(core, command, cli.format).await
+        }
         Some(Commands::Mcp) => commands::mcp::run(core).await,
         Some(Commands::Info) => commands::info::run(),
-        Some(Commands::Claude(args)) => commands::claude::run(args, cli.format).await,
+        Some(Commands::Claude(args)) => commands::claude::run(core, args, cli.format).await,
         None => commands::chat::run(core, Default::default()).await,
         Some(Commands::Completions { .. }) => Ok(()),
     }
