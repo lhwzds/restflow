@@ -413,7 +413,7 @@ mod tests {
     /// Create a test agent node
     fn create_test_agent_node(prompt: &str) -> AgentNode {
         AgentNode {
-            model: AIModel::ClaudeSonnet4_5,
+            model: Some(AIModel::ClaudeSonnet4_5),
             prompt: Some(prompt.to_string()),
             temperature: Some(0.7),
             api_key_config: Some(ApiKeyConfig::Direct("test_key".to_string())),
