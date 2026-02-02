@@ -6,12 +6,17 @@ use anyhow::Result;
 use restflow_core::{paths, AppCore};
 use std::sync::Arc;
 
+/// Resolve the database path for CLI usage.
+pub fn resolve_db_path(db_path: Option<String>) -> Result<String> {
+    match db_path {
+        Some(path) => Ok(path),
+        None => paths::ensure_database_path_string(),
+    }
+}
+
 /// Build the embedded RestFlow core
 pub async fn prepare_core(db_path: Option<String>) -> Result<Arc<AppCore>> {
-    let db_path = match db_path {
-        Some(path) => path,
-        None => paths::ensure_database_path_string()?,
-    };
+    let db_path = resolve_db_path(db_path)?;
     Ok(Arc::new(AppCore::new(&db_path).await?))
 }
 
