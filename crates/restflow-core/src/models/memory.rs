@@ -24,6 +24,7 @@
 //! ```
 
 use serde::{Deserialize, Serialize};
+use restflow_storage::now_ms;
 use ts_rs::TS;
 
 /// Source of a memory chunk - where the memory originated from.
@@ -116,14 +117,10 @@ impl MemoryChunk {
     /// Generates a unique ID and content hash automatically.
     pub fn new(agent_id: String, content: String) -> Self {
         use sha2::{Digest, Sha256};
-        use std::time::{SystemTime, UNIX_EPOCH};
 
         let id = format!("chunk-{}", uuid::Uuid::new_v4());
         let content_hash = hex::encode(Sha256::digest(content.as_bytes()));
-        let created_at = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_millis() as i64)
-            .unwrap_or(0);
+        let created_at = now_ms();
 
         Self {
             id,
@@ -139,42 +136,49 @@ impl MemoryChunk {
     }
 
     /// Create a chunk with a specific ID (for deserialization/testing)
+    #[must_use]
     pub fn with_id(mut self, id: String) -> Self {
         self.id = id;
         self
     }
 
     /// Set the session ID
+    #[must_use]
     pub fn with_session(mut self, session_id: String) -> Self {
         self.session_id = Some(session_id);
         self
     }
 
     /// Set the memory source
+    #[must_use]
     pub fn with_source(mut self, source: MemorySource) -> Self {
         self.source = source;
         self
     }
 
     /// Set the tags
+    #[must_use]
     pub fn with_tags(mut self, tags: Vec<String>) -> Self {
         self.tags = tags;
         self
     }
 
     /// Add a single tag
+    #[must_use]
     pub fn add_tag(mut self, tag: String) -> Self {
         self.tags.push(tag);
         self
     }
 
     /// Set the token count
+    #[must_use]
     pub fn with_token_count(mut self, count: u32) -> Self {
         self.token_count = Some(count);
         self
     }
 
     /// Set the created_at timestamp
+    #[must_use]
     pub fn with_created_at(mut self, timestamp: i64) -> Self {
         self.created_at = timestamp;
         self
@@ -236,13 +240,8 @@ pub struct MemorySession {
 impl MemorySession {
     /// Create a new memory session.
     pub fn new(agent_id: String, name: String) -> Self {
-        use std::time::{SystemTime, UNIX_EPOCH};
-
         let id = format!("session-{}", uuid::Uuid::new_v4());
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_millis() as i64)
-            .unwrap_or(0);
+        let now = now_ms();
 
         Self {
             id,
@@ -258,24 +257,28 @@ impl MemorySession {
     }
 
     /// Create a session with a specific ID (for deserialization/testing)
+    #[must_use]
     pub fn with_id(mut self, id: String) -> Self {
         self.id = id;
         self
     }
 
     /// Set the description
+    #[must_use]
     pub fn with_description(mut self, description: String) -> Self {
         self.description = Some(description);
         self
     }
 
     /// Set the tags
+    #[must_use]
     pub fn with_tags(mut self, tags: Vec<String>) -> Self {
         self.tags = tags;
         self
     }
 
     /// Update chunk count and total tokens
+    #[must_use]
     pub fn update_stats(mut self, chunk_count: u32, total_tokens: u32) -> Self {
         self.chunk_count = chunk_count;
         self.total_tokens = total_tokens;
@@ -283,13 +286,9 @@ impl MemorySession {
     }
 
     /// Update the updated_at timestamp to now
+    #[must_use]
     pub fn touch(mut self) -> Self {
-        use std::time::{SystemTime, UNIX_EPOCH};
-
-        self.updated_at = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_millis() as i64)
-            .unwrap_or(self.updated_at);
+        self.updated_at = now_ms();
         self
     }
 }
@@ -374,36 +373,42 @@ impl MemorySearchQuery {
     }
 
     /// Set the text query
+    #[must_use]
     pub fn with_query(mut self, query: String) -> Self {
         self.query = Some(query);
         self
     }
 
     /// Set the search mode
+    #[must_use]
     pub fn with_mode(mut self, mode: SearchMode) -> Self {
         self.search_mode = mode;
         self
     }
 
     /// Filter by session
+    #[must_use]
     pub fn in_session(mut self, session_id: String) -> Self {
         self.session_id = Some(session_id);
         self
     }
 
     /// Filter by tags
+    #[must_use]
     pub fn with_tags(mut self, tags: Vec<String>) -> Self {
         self.tags = tags;
         self
     }
 
     /// Filter by source type
+    #[must_use]
     pub fn from_source(mut self, source_type: SourceTypeFilter) -> Self {
         self.source_type = Some(source_type);
         self
     }
 
     /// Set time range
+    #[must_use]
     pub fn in_range(mut self, from: Option<i64>, to: Option<i64>) -> Self {
         self.from_time = from;
         self.to_time = to;
@@ -411,6 +416,7 @@ impl MemorySearchQuery {
     }
 
     /// Set pagination
+    #[must_use]
     pub fn paginate(mut self, limit: u32, offset: u32) -> Self {
         self.limit = limit;
         self.offset = offset;
@@ -451,18 +457,21 @@ impl UnifiedSearchQuery {
     }
 
     /// Enable or disable session search.
+    #[must_use]
     pub fn with_sessions(mut self, include_sessions: bool) -> Self {
         self.include_sessions = include_sessions;
         self
     }
 
     /// Restrict search to specific session IDs.
+    #[must_use]
     pub fn with_session_ids(mut self, session_ids: Vec<String>) -> Self {
         self.session_ids = session_ids;
         self
     }
 
     /// Override agent ID used when searching sessions.
+    #[must_use]
     pub fn with_session_agent_id(mut self, agent_id: Option<String>) -> Self {
         self.session_agent_id = agent_id;
         self
