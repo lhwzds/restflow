@@ -270,6 +270,9 @@ fn main() {
             commands::list_chat_sessions_by_skill,
             commands::get_chat_session_count,
             commands::clear_old_chat_sessions,
+            commands::execute_chat_session,
+            commands::send_chat_message_stream,
+            commands::cancel_chat_stream,
             // Auth Profiles
             commands::auth_initialize,
             commands::auth_discover,

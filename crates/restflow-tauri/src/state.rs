@@ -5,6 +5,7 @@ use crate::agent_task::runner::{
 };
 use crate::agent_task::{HeartbeatEmitter, TauriHeartbeatEmitter};
 use crate::channel::{SystemStatus, TaskTrigger};
+use crate::chat::StreamManager;
 use crate::commands::agent_task::ActiveTaskInfo;
 use anyhow::Result;
 use async_trait::async_trait;
@@ -41,6 +42,8 @@ pub struct AppState {
     pub channel_router: Arc<ChannelRouter>,
     /// Process registry for background process tool
     pub process_registry: Arc<ProcessRegistry>,
+    /// Active chat stream manager
+    pub stream_manager: StreamManager,
 }
 
 impl AppState {
@@ -56,6 +59,7 @@ impl AppState {
             security_checker,
             channel_router,
             process_registry,
+            stream_manager: StreamManager::new(),
         })
     }
 
