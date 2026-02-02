@@ -66,6 +66,26 @@ impl MemoryStorage {
         format!("{agent_id}:{content_hash}")
     }
 
+    fn migrate_legacy_hash_index(
+        &self,
+        agent_id: &str,
+        content_hash: &str,
+        chunk_id: &str,
+    ) -> Result<()> {
+        let write_txn = self.db.begin_write()?;
+        {
+            let mut hash_index = write_txn.open_table(HASH_INDEX_TABLE)?;
+            if let Some(existing) = hash_index.get(content_hash)? {
+                if existing.value() == chunk_id {
+                    let hash_key = Self::hash_index_key(agent_id, content_hash);
+                    hash_index.insert(hash_key.as_str(), chunk_id)?;
+                    hash_index.remove(content_hash)?;
+                }
+            }
+        }
+        write_txn.commit()?;
+        Ok(())
+    }
 
     // ============== Memory Chunk Operations ==============
 
@@ -134,10 +154,44 @@ impl MemoryStorage {
     ) -> Result<PutResult> {
         let write_txn = self.db.begin_write()?;
         let result = {
-            let hash_index = write_txn.open_table(HASH_INDEX_TABLE)?;
             let hash_key = Self::hash_index_key(agent_id, content_hash);
+            let hash_index = write_txn.open_table(HASH_INDEX_TABLE)?;
             if let Some(existing) = hash_index.get(hash_key.as_str())? {
                 PutResult::Existing(existing.value().to_string())
+            } else if let Some(existing) = hash_index.get(content_hash)? {
+                let existing_chunk_id = existing.value().to_string();
+                let agent_index = write_txn.open_table(AGENT_INDEX_TABLE)?;
+                let agent_key = format!("{}:{}", agent_id, existing_chunk_id);
+                if agent_index.get(agent_key.as_str())?.is_some() {
+                    let mut hash_index = write_txn.open_table(HASH_INDEX_TABLE)?;
+                    hash_index.insert(hash_key.as_str(), existing_chunk_id.as_str())?;
+                    hash_index.remove(content_hash)?;
+                    PutResult::Existing(existing_chunk_id)
+                } else {
+                    let mut chunk_table = write_txn.open_table(MEMORY_CHUNK_TABLE)?;
+                    chunk_table.insert(chunk_id, data)?;
+
+                    let mut agent_index = write_txn.open_table(AGENT_INDEX_TABLE)?;
+                    let agent_key = format!("{}:{}", agent_id, chunk_id);
+                    agent_index.insert(agent_key.as_str(), chunk_id)?;
+
+                    if let Some(sid) = session_id {
+                        let mut session_index = write_txn.open_table(SESSION_INDEX_TABLE)?;
+                        let session_key = format!("{}:{}", sid, chunk_id);
+                        session_index.insert(session_key.as_str(), chunk_id)?;
+                    }
+
+                    let mut hash_index = write_txn.open_table(HASH_INDEX_TABLE)?;
+                    hash_index.insert(hash_key.as_str(), chunk_id)?;
+
+                    let mut tag_index = write_txn.open_table(TAG_INDEX_TABLE)?;
+                    for tag in tags {
+                        let tag_key = format!("{}:{}", tag, chunk_id);
+                        tag_index.insert(tag_key.as_str(), chunk_id)?;
+                    }
+
+                    PutResult::Created(chunk_id.to_string())
+                }
             } else {
                 let mut chunk_table = write_txn.open_table(MEMORY_CHUNK_TABLE)?;
                 chunk_table.insert(chunk_id, data)?;
@@ -260,10 +314,25 @@ impl MemoryStorage {
         let hash_key = Self::hash_index_key(agent_id, content_hash);
 
         if let Some(value) = hash_index.get(hash_key.as_str())? {
-            Ok(Some(value.value().to_string()))
-        } else {
-            Ok(None)
+            return Ok(Some(value.value().to_string()));
         }
+
+        if let Some(value) = hash_index.get(content_hash)? {
+            let chunk_id = value.value().to_string();
+            let agent_index = read_txn.open_table(AGENT_INDEX_TABLE)?;
+            let agent_key = format!("{}:{}", agent_id, chunk_id);
+            let has_agent = agent_index.get(agent_key.as_str())?.is_some();
+            drop(agent_index);
+            drop(hash_index);
+            drop(read_txn);
+
+            if has_agent {
+                self.migrate_legacy_hash_index(agent_id, content_hash, &chunk_id)?;
+                return Ok(Some(chunk_id));
+            }
+        }
+
+        Ok(None)
     }
 
     /// Delete a chunk and all its index entries.
@@ -299,6 +368,11 @@ impl MemoryStorage {
             let mut hash_index = write_txn.open_table(HASH_INDEX_TABLE)?;
             let hash_key = Self::hash_index_key(agent_id, content_hash);
             hash_index.remove(hash_key.as_str())?;
+            if let Some(existing) = hash_index.get(content_hash)? {
+                if existing.value() == chunk_id {
+                    hash_index.remove(content_hash)?;
+                }
+            }
 
             // Remove from tag indexes
             let mut tag_index = write_txn.open_table(TAG_INDEX_TABLE)?;
@@ -456,6 +530,11 @@ impl MemoryStorage {
 
                 let hash_key = Self::hash_index_key(agent_id, content_hash.as_str());
                 hash_index.remove(hash_key.as_str())?;
+                if let Some(existing) = hash_index.get(content_hash.as_str())? {
+                    if existing.value() == chunk_id.as_str() {
+                        hash_index.remove(content_hash.as_str())?;
+                    }
+                }
 
                 for tag in tags {
                     let tag_key = format!("{}:{}", tag, chunk_id);
@@ -736,6 +815,33 @@ mod tests {
         // Check for non-existing hash
         let not_found = storage.find_by_hash("agent-001", "other-hash").unwrap();
         assert!(not_found.is_none());
+    }
+
+    #[test]
+    fn test_find_by_hash_migrates_legacy_key() {
+        let storage = create_test_storage();
+
+        storage
+            .put_chunk_raw("chunk-001", "agent-001", None, "legacy-hash", &[], b"data")
+            .unwrap();
+
+        let write_txn = storage.db.begin_write().unwrap();
+        {
+            let mut hash_index = write_txn.open_table(HASH_INDEX_TABLE).unwrap();
+            let hash_key = MemoryStorage::hash_index_key("agent-001", "legacy-hash");
+            hash_index.remove(hash_key.as_str()).unwrap();
+            hash_index.insert("legacy-hash", "chunk-001").unwrap();
+        }
+        write_txn.commit().unwrap();
+
+        let existing = storage.find_by_hash("agent-001", "legacy-hash").unwrap();
+        assert_eq!(existing, Some("chunk-001".to_string()));
+
+        let read_txn = storage.db.begin_read().unwrap();
+        let hash_index = read_txn.open_table(HASH_INDEX_TABLE).unwrap();
+        let hash_key = MemoryStorage::hash_index_key("agent-001", "legacy-hash");
+        assert!(hash_index.get(hash_key.as_str()).unwrap().is_some());
+        assert!(hash_index.get("legacy-hash").unwrap().is_none());
     }
 
     #[test]
