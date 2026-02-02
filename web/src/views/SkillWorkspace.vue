@@ -215,8 +215,13 @@ const isExecuting = computed(() => isSending.value)
 const itemCount = computed(() => {
   const query = searchQuery.value.toLowerCase()
   if (activeTab.value === 'terminals') {
+<<<<<<< HEAD
     if (!query) return terminalSessions.value.length
     return terminalSessions.value.filter((s) => s.name.toLowerCase().includes(query)).length
+=======
+    if (!query) return sessions.value.length
+    return sessions.value.filter((s) => s.name.toLowerCase().includes(query)).length
+>>>>>>> 7276087 (refactor(ui): rename task list to sessions)
   }
 
   if (!query) return items.value.length
