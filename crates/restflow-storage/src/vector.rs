@@ -105,7 +105,7 @@ impl VectorStorage {
         };
 
         {
-            let mut index = self.index.write();
+            let index = self.index.write();
             index.insert((vector, vector_id));
         }
 
@@ -204,12 +204,9 @@ impl VectorStorage {
 
         let index = self.index.read();
         let reverse = self.reverse_map.read();
-        let results = index.search_with_filter(
-            query,
-            top_k,
-            ef_search,
-            |id| allowed_vector_ids.contains(&id),
-        );
+        // Search for more results than needed, then filter
+        let search_k = top_k * 10; // Over-fetch to account for filtering
+        let results = index.search(query, search_k, ef_search);
 
         Ok(results
             .into_iter()
@@ -221,6 +218,7 @@ impl VectorStorage {
                     None
                 }
             })
+            .take(top_k)
             .collect())
     }
 
