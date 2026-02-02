@@ -6,7 +6,7 @@
     "model": "claude-sonnet-4-5",
     "skill_id": "smart-translation",
     "message_count": 4,
-    "updated_at": 1736035200000,
+    "updated_at": 1767571200000,
     "last_message_preview": "The translation looks great! Let me know if you need any adjustments."
   },
   {
@@ -16,7 +16,7 @@
     "model": "gpt-5",
     "skill_id": "code-review",
     "message_count": 6,
-    "updated_at": 1735948800000,
+    "updated_at": 1767484800000,
     "last_message_preview": "I've identified 3 potential issues in the authentication module..."
   }
 ]

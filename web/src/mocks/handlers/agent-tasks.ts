@@ -14,7 +14,7 @@ interface AgentTask {
 }
 
 // Base date: Jan 1, 2026
-const BASE_DATE = 1735689600000
+const BASE_DATE = 1767225600000
 
 // Demo agent tasks
 let agentTasks: AgentTask[] = [
