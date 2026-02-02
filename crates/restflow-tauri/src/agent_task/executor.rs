@@ -16,11 +16,13 @@ use restflow_ai::{
 use restflow_core::{
     AIModel,
     Provider,
+    auth::AuthProfileManager,
     models::{AgentNode, ApiKeyConfig},
     process::ProcessRegistry,
     storage::Storage,
 };
 use tokio::time::sleep;
+use tracing::info;
 
 use super::failover::{FailoverConfig, FailoverManager, execute_with_failover};
 use super::retry::{RetryConfig, RetryState};
@@ -37,14 +39,20 @@ use super::runner::{AgentExecutor, ExecutionResult};
 pub struct RealAgentExecutor {
     storage: Arc<Storage>,
     process_registry: Arc<ProcessRegistry>,
+    auth_manager: Arc<AuthProfileManager>,
 }
 
 impl RealAgentExecutor {
     /// Create a new RealAgentExecutor with access to storage.
-    pub fn new(storage: Arc<Storage>, process_registry: Arc<ProcessRegistry>) -> Self {
+    pub fn new(
+        storage: Arc<Storage>,
+        process_registry: Arc<ProcessRegistry>,
+        auth_manager: Arc<AuthProfileManager>,
+    ) -> Self {
         Self {
             storage,
             process_registry,
+            auth_manager,
         }
     }
 
@@ -53,7 +61,7 @@ impl RealAgentExecutor {
     /// Priority:
     /// 1. Agent-level api_key_config (if set)
     /// 2. Well-known secret names (e.g., OPENAI_API_KEY, ANTHROPIC_API_KEY)
-    fn resolve_api_key(
+    async fn resolve_api_key(
         &self,
         provider: Provider,
         agent_api_key_config: Option<&ApiKeyConfig>,
@@ -75,6 +83,16 @@ impl RealAgentExecutor {
             }
         }
 
+        if let Some(profile) = self.auth_manager.get_credential_for_model(provider).await {
+            info!(
+                profile_name = %profile.name,
+                auth_provider = %profile.provider,
+                model_provider = ?provider,
+                "Using auth profile for model provider"
+            );
+            return Ok(profile.get_api_key().to_string());
+        }
+
         // Fall back to well-known secret names for each provider
         let secret_name = match provider {
             Provider::OpenAI => "OPENAI_API_KEY",
@@ -94,7 +112,7 @@ impl RealAgentExecutor {
     }
 
     /// Resolve API key, avoiding mismatched agent-level keys for fallback providers.
-    fn resolve_api_key_for_model(
+    async fn resolve_api_key_for_model(
         &self,
         provider: Provider,
         agent_api_key_config: Option<&ApiKeyConfig>,
@@ -105,7 +123,7 @@ impl RealAgentExecutor {
         } else {
             None
         };
-        self.resolve_api_key(provider, config)
+        self.resolve_api_key(provider, config).await
     }
 
     /// Create an LLM client for the given model.
@@ -147,11 +165,13 @@ impl RealAgentExecutor {
         input: Option<&str>,
         primary_provider: Provider,
     ) -> Result<ExecutionResult> {
-        let api_key = self.resolve_api_key_for_model(
-            model.provider(),
-            agent_node.api_key_config.as_ref(),
-            primary_provider,
-        )?;
+        let api_key = self
+            .resolve_api_key_for_model(
+                model.provider(),
+                agent_node.api_key_config.as_ref(),
+                primary_provider,
+            )
+            .await?;
 
         let llm = self.create_llm_client(model, &api_key)?;
         let tools = self.build_tool_registry(agent_node.tools.as_deref());
@@ -257,10 +277,15 @@ mod tests {
         (Arc::new(storage), temp_dir)
     }
 
+    fn create_test_executor(storage: Arc<Storage>) -> RealAgentExecutor {
+        let auth_manager = Arc::new(AuthProfileManager::new());
+        RealAgentExecutor::new(storage, Arc::new(ProcessRegistry::new()), auth_manager)
+    }
+
     #[test]
     fn test_executor_creation() {
         let (storage, _temp_dir) = create_test_storage();
-        let executor = RealAgentExecutor::new(storage, Arc::new(ProcessRegistry::new()));
+        let executor = create_test_executor(storage);
         // Executor should be created successfully
         assert!(Arc::strong_count(&executor.storage) >= 1);
     }
@@ -268,7 +293,7 @@ mod tests {
     #[tokio::test]
     async fn test_executor_agent_not_found() {
         let (storage, _temp_dir) = create_test_storage();
-        let executor = RealAgentExecutor::new(storage, Arc::new(ProcessRegistry::new()));
+        let executor = create_test_executor(storage);
 
         let result = executor.execute("nonexistent-agent", None).await;
         assert!(result.is_err());
@@ -289,7 +314,7 @@ mod tests {
         let agents = storage.agents.list_agents().unwrap();
         let agent_id = &agents[0].id;
 
-        let executor = RealAgentExecutor::new(storage, Arc::new(ProcessRegistry::new()));
+        let executor = create_test_executor(storage);
         let result = executor.execute(agent_id, Some("test input")).await;
 
         // Should fail due to missing API key (no ANTHROPIC_API_KEY secret configured)
@@ -305,7 +330,7 @@ mod tests {
     #[test]
     fn test_build_tool_registry() {
         let (storage, _temp_dir) = create_test_storage();
-        let executor = RealAgentExecutor::new(storage, Arc::new(ProcessRegistry::new()));
+        let executor = create_test_executor(storage);
 
         // Build with no tools
         let registry = executor.build_tool_registry(None);
