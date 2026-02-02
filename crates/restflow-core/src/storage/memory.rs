@@ -131,11 +131,11 @@ impl MemoryStorage {
         Ok(result)
     }
 
-    /// Check if a chunk with the given content already exists
-    pub fn exists_by_content(&self, content: &str) -> Result<Option<String>> {
+    /// Check if a chunk with the given content already exists for an agent
+    pub fn exists_by_content(&self, agent_id: &str, content: &str) -> Result<Option<String>> {
         use sha2::{Digest, Sha256};
         let hash = hex::encode(Sha256::digest(content.as_bytes()));
-        self.inner.find_by_hash(&hash)
+        self.inner.find_by_hash(agent_id, &hash)
     }
 
     /// Delete a memory chunk
@@ -867,11 +867,11 @@ mod tests {
         let chunk = MemoryChunk::new("agent-001".to_string(), "Unique content".to_string());
         storage.store_chunk(&chunk).unwrap();
 
-        let exists = storage.exists_by_content("Unique content").unwrap();
+        let exists = storage.exists_by_content("agent-001", "Unique content").unwrap();
         assert!(exists.is_some());
         assert_eq!(exists.unwrap(), chunk.id);
 
-        let not_exists = storage.exists_by_content("Different content").unwrap();
+        let not_exists = storage.exists_by_content("agent-001", "Different content").unwrap();
         assert!(not_exists.is_none());
     }
 
