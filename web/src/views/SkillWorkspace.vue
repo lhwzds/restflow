@@ -5,10 +5,9 @@ import { Settings, Moon, Sun, Search, List, LayoutGrid } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import RestFlowLogo from '@/components/shared/RestFlowLogo.vue'
-import TaskHistory from '@/components/workspace/TaskHistory.vue'
+import SessionList from '@/components/workspace/SessionList.vue'
 import FileBrowser from '@/components/workspace/FileBrowser.vue'
 import TerminalBrowser from '@/components/workspace/TerminalBrowser.vue'
-import TaskBrowser from '@/components/workspace/TaskBrowser.vue'
 import ChatBox from '@/components/workspace/ChatBox.vue'
 import ExecutionPanel from '@/components/workspace/ExecutionPanel.vue'
 import SettingsDialog from '@/components/workspace/SettingsDialog.vue'
@@ -16,7 +15,7 @@ import EditorPanel from '@/components/editor/EditorPanel.vue'
 import TabBar from '@/components/editor/TabBar.vue'
 import SplitContainer from '@/components/editor/SplitContainer.vue'
 import type {
-  Task,
+  SessionItem,
   ExecutionStep,
   AgentFile,
   ModelOption,
@@ -38,7 +37,6 @@ import { createAgent, deleteAgent, listAgents } from '@/api/agents'
 import { useToast } from '@/composables/useToast'
 import { useTerminalAutoSave } from '@/composables/editor/useTerminalAutoSave'
 import { useTerminalSessions } from '@/composables/editor/useTerminalSessions'
-import { useAgentTaskStore } from '@/stores/agentTaskStore'
 import { useChatSessionStore } from '@/stores/chatSessionStore'
 import { useModelsStore } from '@/stores/modelsStore'
 import { isTauri } from '@/api/tauri-client'
@@ -79,15 +77,15 @@ const toggleTheme = () => {
 
 const toast = useToast()
 
-// Workspace tab type (extended to include terminals and tasks)
-type WorkspaceTab = BrowserTab | 'terminals' | 'tasks'
+// Workspace tab type (extended to include terminals)
+type WorkspaceTab = BrowserTab | 'terminals'
 const activeTab = ref<WorkspaceTab>('skills')
 
 // File browser state (only used for skills/agents)
 // Separate ref for browser tab that useFileBrowser can watch
 const browserTab = ref<BrowserTab>('skills')
 watch(activeTab, (newTab) => {
-  if (newTab !== 'terminals' && newTab !== 'tasks') {
+  if (newTab !== 'terminals') {
     browserTab.value = newTab
   }
 })
@@ -151,9 +149,6 @@ const {
 // Terminal sessions
 const { sessions, createSession } = useTerminalSessions()
 
-// Task store
-const taskStore = useAgentTaskStore()
-
 // Chat session state
 const chatSessionStore = useChatSessionStore()
 const modelsStore = useModelsStore()
@@ -175,19 +170,19 @@ const selectedModel = ref('')
 const availableAgents = ref<AgentFile[]>([])
 const availableModels = ref<ModelOption[]>([])
 
-const currentTaskId = computed(() => chatSessionStore.currentSessionId)
+const currentSessionId = computed(() => chatSessionStore.currentSessionId)
 
-const tasks = computed<Task[]>(() =>
+const sessions = computed<SessionItem[]>(() =>
   chatSessions.value.map((session: ChatSessionSummary) => ({
     id: session.id,
     name: session.name,
     status:
-      session.id === currentTaskId.value && isSending.value
+      session.id === currentSessionId.value && isSending.value
         ? 'running'
         : session.message_count > 0
           ? 'completed'
           : 'pending',
-    createdAt: Number(session.updated_at),
+    updatedAt: Number(session.updated_at),
   }))
 )
 
@@ -222,15 +217,10 @@ const itemCount = computed(() => {
   if (activeTab.value === 'terminals') {
     if (!query) return sessions.value.length
     return sessions.value.filter((s) => s.name.toLowerCase().includes(query)).length
-  } else if (activeTab.value === 'tasks') {
-    if (!query) return taskStore.tasks.length
-    return taskStore.tasks.filter(
-      (t) => t.name.toLowerCase().includes(query) || t.description?.toLowerCase().includes(query)
-    ).length
-  } else {
-    if (!query) return items.value.length
-    return items.value.filter((i) => i.name.toLowerCase().includes(query)).length
   }
+
+  if (!query) return items.value.length
+  return items.value.filter((i) => i.name.toLowerCase().includes(query)).length
 })
 
 // Create a new terminal session and open it
@@ -484,15 +474,15 @@ const ensureChatSession = async (): Promise<boolean> => {
   return true
 }
 
-// Handle new task from TaskHistory
-const onNewTask = async () => {
+// Handle new session from SessionList
+const onNewSession = async () => {
   await selectChatSession(null)
   inputMessage.value = ''
   isChatExpanded.value = false
 }
 
-const onSelectTask = async (taskId: string) => {
-  await selectChatSession(taskId)
+const onSelectSession = async (sessionId: string) => {
+  await selectChatSession(sessionId)
 }
 
 // Handle chat send
@@ -551,7 +541,7 @@ const onCloseChat = () => {
         <!-- Navigation tabs use text color for active state, not background -->
         <nav class="flex gap-1">
           <Button
-            v-for="tab in ['skills', 'agents', 'terminals', 'tasks'] as const"
+            v-for="tab in ['skills', 'agents', 'terminals'] as const"
             :key="tab"
             variant="ghost"
             size="sm"
@@ -617,11 +607,11 @@ const onCloseChat = () => {
 
     <!-- Main Content -->
     <div class="flex-1 flex overflow-hidden">
-      <TaskHistory
-        :tasks="tasks"
-        :current-task-id="currentTaskId"
-        @select="onSelectTask"
-        @new-task="onNewTask"
+      <SessionList
+        :sessions="sessions"
+        :current-session-id="currentSessionId"
+        @select="onSelectSession"
+        @new-session="onNewSession"
         class="w-56 border-r shrink-0"
       />
 
@@ -665,14 +655,6 @@ const onCloseChat = () => {
                 :search-query="searchQuery"
                 :view-mode="viewMode"
                 @open="onOpenTerminal"
-                class="flex-1"
-              />
-
-              <!-- Task Browser -->
-              <TaskBrowser
-                v-else-if="activeTab === 'tasks'"
-                :search-query="searchQuery"
-                :view-mode="viewMode"
                 class="flex-1"
               />
 

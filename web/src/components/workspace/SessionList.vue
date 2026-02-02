@@ -2,16 +2,16 @@
 import { Plus, MessageSquare, Check, Loader2 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
-import type { Task } from '@/types/workspace'
+import type { SessionItem } from '@/types/workspace'
 
 defineProps<{
-  tasks: Task[]
-  currentTaskId: string | null
+  sessions: SessionItem[]
+  currentSessionId: string | null
 }>()
 
 const emit = defineEmits<{
   select: [id: string]
-  newTask: []
+  newSession: []
 }>()
 
 const formatTime = (timestamp: number) => {
@@ -30,50 +30,57 @@ const formatTime = (timestamp: number) => {
   <div class="h-full flex flex-col bg-muted/30">
     <!-- Header -->
     <div class="px-3 py-3">
-      <Button variant="outline" size="sm" class="w-full gap-2" @click="emit('newTask')">
+      <Button variant="outline" size="sm" class="w-full gap-2" @click="emit('newSession')">
         <Plus :size="16" />
-        <span>New Task</span>
+        <span>New Session</span>
       </Button>
     </div>
 
-    <!-- Task List -->
+    <!-- Session List -->
     <div class="flex-1 overflow-auto py-2">
       <button
-        v-for="task in tasks"
-        :key="task.id"
+        v-for="session in sessions"
+        :key="session.id"
         :class="
           cn(
             'w-full px-3 py-2 text-left transition-colors hover:bg-muted/50',
-            currentTaskId === task.id && 'bg-muted',
+            currentSessionId === session.id && 'bg-muted',
           )
         "
-        @click="emit('select', task.id)"
+        @click="emit('select', session.id)"
       >
         <div class="flex items-start gap-2">
           <!-- Status Icon -->
           <div class="mt-0.5">
             <Loader2
-              v-if="task.status === 'running'"
+              v-if="session.status === 'running'"
               :size="14"
               class="animate-spin text-primary"
             />
-            <Check v-else-if="task.status === 'completed'" :size="14" class="text-green-500" />
+            <Check
+              v-else-if="session.status === 'completed'"
+              :size="14"
+              class="text-green-500"
+            />
             <MessageSquare v-else :size="14" class="text-muted-foreground" />
           </div>
 
           <!-- Content -->
           <div class="flex-1 min-w-0">
-            <div class="text-sm truncate">{{ task.name }}</div>
+            <div class="text-sm truncate">{{ session.name }}</div>
             <div class="text-xs text-muted-foreground">
-              {{ formatTime(task.createdAt) }}
+              {{ formatTime(session.updatedAt) }}
             </div>
           </div>
         </div>
       </button>
 
       <!-- Empty State -->
-      <div v-if="tasks.length === 0" class="px-3 py-8 text-center text-sm text-muted-foreground">
-        No tasks yet
+      <div
+        v-if="sessions.length === 0"
+        class="px-3 py-8 text-center text-sm text-muted-foreground"
+      >
+        No sessions yet
       </div>
     </div>
   </div>
