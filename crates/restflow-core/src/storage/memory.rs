@@ -414,6 +414,31 @@ mod tests {
     }
 
     #[test]
+    fn test_concurrent_chunk_deduplication() {
+        let storage = Arc::new(create_test_storage());
+        let mut handles = Vec::new();
+
+        for _ in 0..10 {
+            let storage = Arc::clone(&storage);
+            handles.push(std::thread::spawn(move || {
+                let chunk =
+                    MemoryChunk::new("agent-001".to_string(), "Duplicate content".to_string());
+                storage.store_chunk(&chunk).unwrap()
+            }));
+        }
+
+        let mut ids = Vec::new();
+        for handle in handles {
+            ids.push(handle.join().unwrap());
+        }
+
+        assert!(ids.iter().all(|id| id == &ids[0]));
+
+        let chunks = storage.list_chunks("agent-001").unwrap();
+        assert_eq!(chunks.len(), 1);
+    }
+
+    #[test]
     fn test_list_chunks() {
         let storage = create_test_storage();
 

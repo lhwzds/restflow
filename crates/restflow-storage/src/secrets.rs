@@ -470,6 +470,33 @@ mod tests {
     }
 
     #[test]
+    fn test_concurrent_set_secret() {
+        let (storage, _temp_dir) = setup();
+        let storage = Arc::new(storage);
+
+        let mut handles = Vec::new();
+        for i in 0..10 {
+            let storage = Arc::clone(&storage);
+            handles.push(std::thread::spawn(move || {
+                storage
+                    .set_secret("TEST_KEY", &format!("value-{}", i), None)
+                    .unwrap();
+            }));
+        }
+
+        for handle in handles {
+            handle.join().unwrap();
+        }
+
+        let value = storage.get_secret("TEST_KEY").unwrap();
+        assert!(value.is_some());
+
+        let secrets = storage.list_secrets().unwrap();
+        assert_eq!(secrets.len(), 1);
+        assert!(secrets.iter().any(|secret| secret.key == "TEST_KEY"));
+    }
+
+    #[test]
     fn test_list_secrets_with_metadata() {
         let (storage, _temp_dir) = setup();
 
