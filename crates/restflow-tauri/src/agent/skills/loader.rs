@@ -5,6 +5,7 @@ use anyhow::Result;
 use restflow_core::storage::Storage;
 use std::collections::HashMap;
 use std::sync::Arc;
+use tracing::warn;
 
 pub struct SkillLoader {
     storage: Arc<Storage>,
@@ -19,12 +20,15 @@ impl SkillLoader {
     pub fn load_skills(&self, skill_ids: &[String]) -> Result<Vec<ProcessedSkill>> {
         let mut skills = Vec::new();
         for id in skill_ids {
-            if let Some(skill) = self.storage.skills.get(id)? {
-                skills.push(ProcessedSkill {
+            match self.storage.skills.get(id)? {
+                Some(skill) => skills.push(ProcessedSkill {
                     name: skill.name.clone(),
                     content: skill.content.clone(),
                     variables: Vec::new(),
-                });
+                }),
+                None => {
+                    warn!(skill_id = %id, "Skill not found while loading agent skills");
+                }
             }
         }
         Ok(skills)

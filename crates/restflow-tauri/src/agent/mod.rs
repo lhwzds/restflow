@@ -8,7 +8,8 @@ mod unified;
 pub use react::{AgentAction, AgentState, ConversationHistory, ReActConfig, ResponseParser};
 pub use skills::{ProcessedSkill, SkillLoader};
 pub use tools::{
-    BashConfig, BashTool, FileConfig, FileTool, HttpTool, SpawnTool, SubagentSpawner, Tool,
-    ToolDefinition, ToolRegistry, ToolRegistryBuilder, ToolResult,
+    BashConfig, BashTool, EmailTool, FileConfig, FileTool, HttpTool, PythonTool, SpawnTool,
+    SubagentSpawner, TelegramTool, Tool, ToolDefinition, ToolRegistry, ToolRegistryBuilder,
+    ToolResult, default_registry,
 };
 pub use unified::{ExecutionResult, UnifiedAgent, UnifiedAgentConfig};

@@ -1,7 +1,7 @@
 //! Real agent executor implementation for the task runner.
 //!
 //! This module provides `RealAgentExecutor`, which implements the
-//! `AgentExecutor` trait by bridging to the `restflow_ai::AgentExecutor`.
+//! `AgentExecutor` trait by running the unified agent stack.
 //! It loads agent configuration from storage, builds the appropriate LLM
 //! client, and executes the agent with the configured tools.
 
@@ -9,10 +9,7 @@ use anyhow::{Result, anyhow};
 use async_trait::async_trait;
 use std::sync::Arc;
 
-use restflow_ai::{
-    AgentConfig, AgentExecutor as AiAgentExecutor, AnthropicClient, LlmClient, OpenAIClient,
-    ToolRegistry,
-};
+use restflow_ai::{AnthropicClient, LlmClient, OpenAIClient};
 use restflow_core::{
     AIModel, Provider,
     auth::AuthProfileManager,
@@ -21,12 +18,12 @@ use restflow_core::{
     storage::Storage,
 };
 use tokio::time::sleep;
-use tracing::{info, warn};
+use tracing::info;
 
 use super::failover::{FailoverConfig, FailoverManager, execute_with_failover};
 use super::retry::{RetryConfig, RetryState};
 use super::runner::{AgentExecutor, ExecutionResult};
-use super::skills::SkillLoader;
+use crate::agent::{UnifiedAgent, UnifiedAgentConfig, ToolRegistry, default_registry};
 
 /// Real agent executor that bridges to restflow_ai::AgentExecutor.
 ///
@@ -38,6 +35,7 @@ use super::skills::SkillLoader;
 /// - Executes the agent via the ReAct loop
 pub struct RealAgentExecutor {
     storage: Arc<Storage>,
+    #[allow(dead_code)]
     process_registry: Arc<ProcessRegistry>,
     auth_manager: Arc<AuthProfileManager>,
 }
@@ -154,8 +152,7 @@ impl RealAgentExecutor {
     /// If the agent has specific tools configured, only those tools are registered.
     /// Otherwise, a default set of tools is used.
     fn build_tool_registry(&self, _tool_names: Option<&[String]>) -> Arc<ToolRegistry> {
-        let registry = ToolRegistry::new().with_process_tool(self.process_registry.clone());
-        Arc::new(registry)
+        Arc::new(default_registry())
     }
 
     async fn execute_with_model(
@@ -176,55 +173,28 @@ impl RealAgentExecutor {
         let llm = self.create_llm_client(model, &api_key)?;
         let tools = self.build_tool_registry(agent_node.tools.as_deref());
 
-        let goal = input.unwrap_or("Execute the agent task");
-        let mut config = AgentConfig::new(goal);
-
-        let base_prompt = agent_node
-            .prompt
-            .as_deref()
-            .unwrap_or("You are a helpful AI assistant that can use tools to accomplish tasks.");
-
-        let mut system_prompt = base_prompt.to_string();
-        if let Some(skill_ids) = agent_node.skills.as_deref()
-            && !skill_ids.is_empty()
-        {
-            let loader = SkillLoader::new(self.storage.clone());
-            match loader.build_system_prompt(
-                base_prompt,
-                skill_ids,
-                agent_node.skill_variables.as_ref(),
-            ) {
-                Ok(prompt) => {
-                    system_prompt = prompt;
-                }
-                Err(err) => {
-                    warn!(error = %err, "Failed to build system prompt with skills");
-                }
-            }
-        }
-
-        config = config.with_system_prompt(system_prompt);
-
+        let mut config = UnifiedAgentConfig::default();
         if model.supports_temperature()
             && let Some(temp) = agent_node.temperature
         {
-            config = config.with_temperature(temp as f32);
+            config.temperature = temp as f32;
         }
 
-        let executor = AiAgentExecutor::new(llm, tools);
-        let result = executor.run(config).await?;
+        let mut agent = UnifiedAgent::new(
+            llm,
+            tools,
+            self.storage.clone(),
+            agent_node.clone(),
+            config,
+        );
+
+        let goal = input.unwrap_or("Execute the agent task");
+        let result = agent.execute(goal).await?;
 
         if result.success {
-            let output = result
-                .answer
-                .unwrap_or_else(|| "Task completed".to_string());
-            let messages = result.state.messages.clone();
-            Ok(ExecutionResult::success(output, messages))
+            Ok(ExecutionResult::success(result.output, result.messages))
         } else {
-            Err(anyhow!(
-                "Agent execution failed: {}",
-                result.error.unwrap_or_else(|| "Unknown error".to_string())
-            ))
+            Err(anyhow!("Agent execution failed: {}", result.output))
         }
     }
 }
@@ -356,12 +326,13 @@ mod tests {
 
         // Build with no tools
         let registry = executor.build_tool_registry(None);
-        assert!(!registry.list().is_empty());
+        assert!(!registry.is_empty());
+        assert!(registry.has_tool("bash"));
 
         // Build with tool names (currently ignored in this phase)
-        let tool_names = vec!["http".to_string(), "email".to_string()];
+        let tool_names = vec!["http".to_string(), "run_python".to_string()];
         let registry = executor.build_tool_registry(Some(&tool_names));
-        assert!(!registry.list().is_empty());
-        assert!(registry.has("process"));
+        assert!(!registry.is_empty());
+        assert!(registry.has_tool("http"));
     }
 }

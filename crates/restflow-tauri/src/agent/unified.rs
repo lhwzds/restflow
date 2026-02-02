@@ -71,6 +71,19 @@ impl UnifiedAgent {
         }
     }
 
+    /// Add a message to the conversation history.
+    pub fn add_history_message(&mut self, message: Message) {
+        self.history.add(message);
+    }
+
+    /// Seed the agent with an initial history of messages.
+    pub fn with_history(mut self, messages: Vec<Message>) -> Self {
+        for message in messages {
+            self.history.add(message);
+        }
+        self
+    }
+
     /// Execute the agent with given input
     pub async fn execute(&mut self, input: &str) -> Result<ExecutionResult> {
         info!("UnifiedAgent executing: {}...", &input[..input.len().min(50)]);
@@ -230,18 +243,23 @@ fn load_workspace_context() -> String {
         return String::new();
     };
 
-    let context_files = ["CLAUDE.md", "AGENTS.md", ".claude/CLAUDE.md"];
+    let context_files = [
+        "CLAUDE.md",
+        "AGENTS.md",
+        ".claude/CLAUDE.md",
+        ".claude/instructions.md",
+    ];
     let mut context = String::new();
 
     for filename in context_files {
         let path = workdir.join(filename);
-        if let Ok(content) = std::fs::read_to_string(&path) {
-            if !content.trim().is_empty() {
-                context.push_str(&format!(
-                    "\n\n## Workspace Context ({})\n\n{}",
-                    filename, content
-                ));
-            }
+        if let Ok(content) = std::fs::read_to_string(&path)
+            && !content.trim().is_empty()
+        {
+            context.push_str(&format!(
+                "\n\n## Workspace Context ({})\n\n{}",
+                filename, content
+            ));
         }
     }
 

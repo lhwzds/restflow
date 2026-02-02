@@ -8,14 +8,20 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 mod bash;
+mod email;
 mod file;
 mod http;
+mod python;
 mod spawn;
+mod telegram;
 
 pub use bash::{BashConfig, BashTool};
+pub use email::EmailTool;
 pub use file::{FileConfig, FileTool};
 pub use http::HttpTool;
+pub use python::PythonTool;
 pub use spawn::{SpawnTool, SubagentSpawner};
+pub use telegram::TelegramTool;
 
 /// Tool execution result.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -153,6 +159,27 @@ impl ToolRegistryBuilder {
         }
     }
 
+    /// Add Python tool.
+    pub fn with_python(self) -> Self {
+        Self {
+            registry: self.registry.register(PythonTool::new()),
+        }
+    }
+
+    /// Add email tool.
+    pub fn with_email(self) -> Self {
+        Self {
+            registry: self.registry.register(EmailTool::new()),
+        }
+    }
+
+    /// Add Telegram tool.
+    pub fn with_telegram(self) -> Self {
+        Self {
+            registry: self.registry.register(TelegramTool::new()),
+        }
+    }
+
     /// Add spawn tool for subagent creation.
     pub fn with_spawn(self, spawner: Arc<dyn SubagentSpawner>) -> Self {
         Self {
@@ -164,6 +191,18 @@ impl ToolRegistryBuilder {
     pub fn build(self) -> ToolRegistry {
         self.registry
     }
+}
+
+/// Build the default tool registry with standard tools enabled.
+pub fn default_registry() -> ToolRegistry {
+    ToolRegistryBuilder::new()
+        .with_bash(BashConfig::default())
+        .with_file(FileConfig::default())
+        .with_http()
+        .with_python()
+        .with_email()
+        .with_telegram()
+        .build()
 }
 
 impl Default for ToolRegistryBuilder {

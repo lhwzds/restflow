@@ -3,19 +3,21 @@
 //! These commands enable the frontend to create, manage, and interact with
 //! chat sessions in the SkillWorkspace.
 
+use crate::agent::{UnifiedAgent, UnifiedAgentConfig, default_registry};
 use crate::chat::ChatStreamState;
 use crate::state::AppState;
-use restflow_ai::{AgentConfig, AgentExecutor, AnthropicClient, LlmClient, OpenAIClient, ToolRegistry};
+use restflow_ai::llm::Message;
+use restflow_ai::{AnthropicClient, LlmClient, OpenAIClient};
 use restflow_core::models::{
-    ApiKeyConfig, ChatMessage, ChatRole, ChatSession, ChatSessionSummary, MessageExecution,
+    AgentNode, ApiKeyConfig, ChatMessage, ChatRole, ChatSession, ChatSessionSummary,
+    MessageExecution,
 };
-use restflow_core::services::tool_registry::create_tool_registry;
 use restflow_core::{AIModel, Provider};
 use serde::Deserialize;
 use std::sync::Arc;
 use std::time::Instant;
 use tauri::{AppHandle, State};
-use tracing::warn;
+// Removed unused warn import
 use uuid::Uuid;
 
 /// Create a new chat session.
@@ -333,37 +335,26 @@ pub async fn clear_old_chat_sessions(
 // Agent Execution Commands
 // ============================================================================
 
-/// Build conversation history from session messages for context injection.
-///
-/// Returns a formatted string of recent messages (excluding the last user message
-/// which will be passed as the agent input).
-fn build_conversation_context(session: &ChatSession, max_messages: usize) -> String {
-    let messages = &session.messages;
-    if messages.len() <= 1 {
-        return String::new();
+/// Convert a stored chat message into an LLM message.
+fn chat_message_to_llm_message(message: &ChatMessage) -> Message {
+    match message.role {
+        ChatRole::User => Message::user(message.content.clone()),
+        ChatRole::Assistant => Message::assistant(message.content.clone()),
+        ChatRole::System => Message::system(message.content.clone()),
+    }
+}
+
+/// Add recent session history to the unified agent.
+fn add_session_history(agent: &mut UnifiedAgent, session: &ChatSession, max_messages: usize) {
+    if session.messages.is_empty() {
+        return;
     }
 
-    // Take up to max_messages, excluding the last one (current user input)
-    let context_messages = if messages.len() > max_messages + 1 {
-        &messages[messages.len() - max_messages - 1..messages.len() - 1]
-    } else {
-        &messages[..messages.len() - 1]
-    };
-
-    if context_messages.is_empty() {
-        return String::new();
+    let history = &session.messages[..session.messages.len().saturating_sub(1)];
+    let start = history.len().saturating_sub(max_messages);
+    for message in &history[start..] {
+        agent.add_history_message(chat_message_to_llm_message(message));
     }
-
-    let mut context = String::from("## Conversation History\n\n");
-    for msg in context_messages {
-        let role = match msg.role {
-            ChatRole::User => "User",
-            ChatRole::Assistant => "Assistant",
-            ChatRole::System => "System",
-        };
-        context.push_str(&format!("**{}**: {}\n\n", role, msg.content));
-    }
-    context
 }
 
 /// Resolve API key for a model provider.
@@ -436,51 +427,15 @@ fn create_llm_client(model: AIModel, api_key: &str) -> Arc<dyn LlmClient> {
     }
 }
 
-/// Build tool registry filtered by agent's configured tools.
-fn build_filtered_tool_registry(
-    state: &AppState,
-    agent_tools: Option<&[String]>,
-) -> Result<Arc<ToolRegistry>, String> {
-    let db = state.core.storage.get_db();
-    let skill_storage =
-        restflow_core::storage::skill::SkillStorage::new(db.clone()).map_err(|e| e.to_string())?;
-    let memory_storage =
-        restflow_core::storage::memory::MemoryStorage::new(db.clone()).map_err(|e| e.to_string())?;
-    let chat_storage = restflow_core::storage::chat_session::ChatSessionStorage::new(db.clone())
-        .map_err(|e| e.to_string())?;
-    let shared_space_storage = restflow_core::storage::SharedSpaceStorage::new(
-        restflow_storage::SharedSpaceStorage::new(db).map_err(|e| e.to_string())?,
-    );
-
-    let full_registry = create_tool_registry(
-        skill_storage,
-        memory_storage,
-        chat_storage,
-        shared_space_storage,
-        None,
-    );
-
-    // Filter to only selected tools (secure by default)
-    let tools = if let Some(tool_names) = agent_tools {
-        if tool_names.is_empty() {
-            Arc::new(ToolRegistry::new())
-        } else {
-            let mut filtered_registry = ToolRegistry::new();
-            for name in tool_names {
-                if let Some(tool) = full_registry.get(name) {
-                    filtered_registry.register_arc(tool);
-                } else {
-                    warn!(tool_name = %name, "Configured tool not found in registry, skipping");
-                }
-            }
-            Arc::new(filtered_registry)
-        }
-    } else {
-        // No tools configured = no tools available (secure by default)
-        Arc::new(ToolRegistry::new())
-    };
-
-    Ok(tools)
+/// Build the unified agent configuration for a given model.
+fn build_agent_config(agent_node: &AgentNode, model: AIModel) -> UnifiedAgentConfig {
+    let mut config = UnifiedAgentConfig::default();
+    if model.supports_temperature()
+        && let Some(temp) = agent_node.temperature
+    {
+        config.temperature = temp as f32;
+    }
+    config
 }
 
 /// Execute agent for a chat session and return the response.
@@ -490,8 +445,8 @@ fn build_filtered_tool_registry(
 /// 2. Building conversation context from session history
 /// 3. Resolving API keys
 /// 4. Creating LLM client and tool registry
-/// 5. Running the agent
-/// 6. Returning the response text and token count
+/// 5. Running the UnifiedAgent
+/// 6. Returning the response text and iteration count
 async fn execute_agent_for_session(
     state: &AppState,
     session: &ChatSession,
@@ -518,53 +473,37 @@ async fn execute_agent_for_session(
     let llm = create_llm_client(model, &api_key);
 
     // Build tool registry
-    let tools = build_filtered_tool_registry(state, agent_node.tools.as_deref())?;
-
-    // Build conversation context
-    let conversation_context = build_conversation_context(session, 20);
-
-    // Build system prompt with conversation history
-    let system_prompt = if let Some(ref agent_prompt) = agent_node.prompt {
-        if conversation_context.is_empty() {
-            agent_prompt.clone()
-        } else {
-            format!("{}\n\n{}", agent_prompt, conversation_context)
-        }
-    } else if conversation_context.is_empty() {
-        "You are a helpful AI assistant.".to_string()
-    } else {
-        format!(
-            "You are a helpful AI assistant.\n\n{}",
-            conversation_context
-        )
-    };
+    let tools = Arc::new(default_registry());
 
     // Build agent config
-    let mut config = AgentConfig::new(user_input).with_system_prompt(&system_prompt);
+    let config = build_agent_config(agent_node, model);
 
-    if model.supports_temperature()
-        && let Some(temp) = agent_node.temperature
-    {
-        config = config.with_temperature(temp as f32);
-    }
+    // Create UnifiedAgent with session history
+    let mut agent = UnifiedAgent::new(
+        llm,
+        tools,
+        state.core.storage.clone(),
+        agent_node.clone(),
+        config,
+    );
+
+    // Add conversation history (excluding the last message which is the current input)
+    add_session_history(&mut agent, session, 20);
 
     // Execute agent
-    let executor = AgentExecutor::new(llm, tools);
-    let result = executor
-        .run(config)
+    let result = agent
+        .execute(user_input)
         .await
         .map_err(|e| format!("Agent execution failed: {}", e))?;
 
     // Extract response
-    let response = result.answer.unwrap_or_else(|| {
-        if let Some(ref err) = result.error {
-            format!("Error: {}", err)
-        } else {
-            "No response generated".to_string()
-        }
-    });
+    let response = if result.success {
+        result.output
+    } else {
+        format!("Error: {}", result.output)
+    };
 
-    Ok((response, result.total_tokens))
+    Ok((response, result.iterations as u32))
 }
 
 /// Execute the agent for a chat session and save the response.
@@ -785,40 +724,32 @@ pub async fn send_chat_message_stream(
         // Create LLM client
         let llm = create_llm_client(model, &api_key);
 
-        // Build simple tool registry (no tools for now in streaming mode)
-        let tools = Arc::new(ToolRegistry::new());
-
-        // Build conversation context
-        let conversation_context = build_conversation_context(&session, 20);
-
-        // Build system prompt
-        let system_prompt = if let Some(ref agent_prompt) = agent_node.prompt {
-            if conversation_context.is_empty() {
-                agent_prompt.clone()
-            } else {
-                format!("{}\n\n{}", agent_prompt, conversation_context)
-            }
-        } else if conversation_context.is_empty() {
-            "You are a helpful AI assistant.".to_string()
-        } else {
-            format!(
-                "You are a helpful AI assistant.\n\n{}",
-                conversation_context
-            )
-        };
+        // Build tool registry
+        let tools = Arc::new(default_registry());
 
         // Build agent config
-        let mut config = AgentConfig::new(&user_input).with_system_prompt(&system_prompt);
+        let config = build_agent_config(agent_node, model);
 
-        if model.supports_temperature()
-            && let Some(temp) = agent_node.temperature
-        {
-            config = config.with_temperature(temp as f32);
+        // Create UnifiedAgent with session history
+        let mut agent = UnifiedAgent::new(
+            llm,
+            tools,
+            storage.clone(),
+            agent_node.clone(),
+            config,
+        );
+
+        // Add conversation history (excluding the last message which is the current input)
+        if !session.messages.is_empty() {
+            let history = &session.messages[..session.messages.len().saturating_sub(1)];
+            let start = history.len().saturating_sub(20);
+            for message in &history[start..] {
+                agent.add_history_message(chat_message_to_llm_message(message));
+            }
         }
 
         // Execute agent
-        let executor = AgentExecutor::new(llm, tools);
-        let result = match executor.run(config).await {
+        let result = match agent.execute(&user_input).await {
             Ok(r) => r,
             Err(e) => {
                 stream_state.emit_failed(&format!("Agent execution failed: {}", e));
@@ -830,19 +761,17 @@ pub async fn send_chat_message_stream(
         let duration_ms = started_at.elapsed().as_millis() as u64;
 
         // Extract response
-        let response = result.answer.unwrap_or_else(|| {
-            if let Some(ref err) = result.error {
-                format!("Error: {}", err)
-            } else {
-                "No response generated".to_string()
-            }
-        });
+        let response = if result.success {
+            result.output
+        } else {
+            format!("Error: {}", result.output)
+        };
 
         // Emit completed event
         stream_state.emit_completed();
 
         // Save assistant response
-        let execution = MessageExecution::new().complete(duration_ms, result.total_tokens);
+        let execution = MessageExecution::new().complete(duration_ms, result.iterations as u32);
 
         if let Ok(Some(mut updated_session)) = storage.chat_sessions.get(&session_id_clone) {
             let mut assistant_message = ChatMessage::assistant(&response);
