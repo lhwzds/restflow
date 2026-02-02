@@ -373,6 +373,7 @@ fn matches_source_type(source: &MemorySource, filter: &SourceTypeFilter) -> bool
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::thread;
     use tempfile::tempdir;
 
     fn create_test_storage() -> MemoryStorage {
@@ -380,6 +381,13 @@ mod tests {
         let db_path = temp_dir.path().join("test.db");
         let db = Arc::new(Database::create(db_path).unwrap());
         MemoryStorage::new(db).unwrap()
+    }
+
+    fn create_test_storage_with_dir() -> (MemoryStorage, tempfile::TempDir) {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test.db");
+        let db = Arc::new(Database::create(db_path).unwrap());
+        (MemoryStorage::new(db).unwrap(), temp_dir)
     }
 
     #[test]
@@ -413,6 +421,31 @@ mod tests {
         assert_eq!(id1, id2);
 
         // Only one chunk should exist
+        let chunks = storage.list_chunks("agent-001").unwrap();
+        assert_eq!(chunks.len(), 1);
+    }
+
+    #[test]
+    fn test_concurrent_deduplication() {
+        let (storage, _temp_dir) = create_test_storage_with_dir();
+
+        let mut handles = Vec::new();
+        for _ in 0..10 {
+            let storage = storage.clone();
+            handles.push(thread::spawn(move || {
+                let chunk =
+                    MemoryChunk::new("agent-001".to_string(), "Duplicate content".to_string());
+                storage.store_chunk(&chunk).unwrap()
+            }));
+        }
+
+        let mut ids = Vec::new();
+        for handle in handles {
+            ids.push(handle.join().unwrap());
+        }
+
+        assert!(ids.iter().all(|id| id == &ids[0]));
+
         let chunks = storage.list_chunks("agent-001").unwrap();
         assert_eq!(chunks.len(), 1);
     }
