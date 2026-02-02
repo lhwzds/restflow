@@ -1,11 +1,12 @@
 //! Tool registry service for creating tool registries with storage access.
 
 use crate::memory::UnifiedSearchEngine;
-use crate::models::{MemorySearchQuery, SearchMode, UnifiedSearchQuery};
-use crate::storage::{ChatSessionStorage, MemoryStorage};
+use crate::models::{MemorySearchQuery, SearchMode, SharedEntry, UnifiedSearchQuery, Visibility};
+use crate::storage::{ChatSessionStorage, MemoryStorage, SharedSpaceStorage};
 use crate::storage::skill::SkillStorage;
-use restflow_ai::{SkillContent, SkillInfo, SkillProvider, SkillTool, Tool, ToolOutput, ToolRegistry};
+use chrono::Utc;
 use restflow_ai::error::AiError;
+use restflow_ai::{SkillContent, SkillInfo, SkillProvider, SkillTool, Tool, ToolOutput, ToolRegistry};
 use serde_json::json;
 use std::sync::Arc;
 
@@ -66,6 +67,8 @@ pub fn create_tool_registry(
     skill_storage: SkillStorage,
     memory_storage: MemoryStorage,
     chat_storage: ChatSessionStorage,
+    shared_space_storage: SharedSpaceStorage,
+    accessor_id: Option<String>,
 ) -> ToolRegistry {
     let mut registry = restflow_ai::tools::default_registry();
 
@@ -76,6 +79,9 @@ pub fn create_tool_registry(
     // Add unified memory search tool
     let search_engine = UnifiedSearchEngine::new(memory_storage, chat_storage);
     registry.register(MemorySearchTool::new(search_engine));
+
+    // Add shared space tool
+    registry.register(SharedSpaceTool::new(shared_space_storage, accessor_id));
 
     registry
 }
@@ -176,26 +182,290 @@ impl Tool for MemorySearchTool {
     }
 }
 
+#[derive(Clone)]
+struct SharedSpaceTool {
+    storage: SharedSpaceStorage,
+    accessor_id: Option<String>,
+}
+
+impl SharedSpaceTool {
+    fn new(storage: SharedSpaceStorage, accessor_id: Option<String>) -> Self {
+        Self {
+            storage,
+            accessor_id,
+        }
+    }
+
+    fn parse_visibility(value: &str) -> Visibility {
+        match value {
+            "private" => Visibility::Private,
+            "shared" => Visibility::Shared,
+            _ => Visibility::Public,
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl Tool for SharedSpaceTool {
+    fn name(&self) -> &str {
+        "shared_space"
+    }
+
+    fn description(&self) -> &str {
+        "Read and write entries in the shared space storage. Use namespace:name keys."
+    }
+
+    fn parameters_schema(&self) -> serde_json::Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["get", "set", "delete", "list"],
+                    "description": "The action to perform"
+                },
+                "key": {
+                    "type": "string",
+                    "description": "The key (namespace:name). Required for get/set/delete."
+                },
+                "value": {
+                    "type": "string",
+                    "description": "The value to store. Required for set."
+                },
+                "visibility": {
+                    "type": "string",
+                    "enum": ["public", "shared", "private"],
+                    "description": "Access level for the entry"
+                },
+                "content_type": {
+                    "type": "string",
+                    "description": "Optional content type hint"
+                },
+                "type_hint": {
+                    "type": "string",
+                    "description": "Optional type hint for categorization"
+                },
+                "tags": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Optional tags for filtering"
+                },
+                "namespace": {
+                    "type": "string",
+                    "description": "For list: filter by namespace prefix"
+                }
+            },
+            "required": ["action"]
+        })
+    }
+
+    async fn execute(&self, input: serde_json::Value) -> restflow_ai::error::Result<ToolOutput> {
+        let action = input
+            .get("action")
+            .and_then(|value| value.as_str())
+            .ok_or_else(|| AiError::Tool("Missing action parameter".to_string()))?;
+        let accessor_id = self.accessor_id.as_deref();
+
+        match action {
+            "get" => {
+                let key = input
+                    .get("key")
+                    .and_then(|value| value.as_str())
+                    .ok_or_else(|| AiError::Tool("Missing key parameter".to_string()))?;
+                let entry = self
+                    .storage
+                    .get(key, accessor_id)
+                    .map_err(|e| AiError::Tool(e.to_string()))?;
+                let payload = match entry {
+                    Some(entry) => json!({
+                        "found": true,
+                        "key": entry.key,
+                        "value": entry.value,
+                        "content_type": entry.content_type,
+                        "visibility": entry.visibility,
+                        "tags": entry.tags,
+                        "updated_at": entry.updated_at
+                    }),
+                    None => json!({
+                        "found": false,
+                        "key": key
+                    }),
+                };
+                Ok(ToolOutput::success(payload))
+            }
+            "set" => {
+                let key = input
+                    .get("key")
+                    .and_then(|value| value.as_str())
+                    .ok_or_else(|| AiError::Tool("Missing key parameter".to_string()))?;
+                let value = input
+                    .get("value")
+                    .and_then(|value| value.as_str())
+                    .ok_or_else(|| AiError::Tool("Missing value parameter".to_string()))?;
+
+                let existing = self
+                    .storage
+                    .get_unchecked(key)
+                    .map_err(|e| AiError::Tool(e.to_string()))?;
+
+                if let Some(ref entry) = existing
+                    && !entry.can_write(accessor_id)
+                {
+                    return Ok(ToolOutput::error(
+                        "Access denied: cannot write to this entry",
+                    ));
+                }
+
+                let visibility = input
+                    .get("visibility")
+                    .and_then(|value| value.as_str())
+                    .map(Self::parse_visibility)
+                    .or(existing.as_ref().map(|e| e.visibility))
+                    .unwrap_or_default();
+
+                let entry = SharedEntry {
+                    key: key.to_string(),
+                    value: value.to_string(),
+                    visibility,
+                    owner: existing
+                        .as_ref()
+                        .and_then(|e| e.owner.clone())
+                        .or_else(|| self.accessor_id.clone()),
+                    content_type: input
+                        .get("content_type")
+                        .and_then(|value| value.as_str())
+                        .map(|value| value.to_string())
+                        .or_else(|| existing.as_ref().and_then(|e| e.content_type.clone())),
+                    type_hint: input
+                        .get("type_hint")
+                        .and_then(|value| value.as_str())
+                        .map(|value| value.to_string())
+                        .or_else(|| existing.as_ref().and_then(|e| e.type_hint.clone())),
+                    tags: input
+                        .get("tags")
+                        .and_then(|value| value.as_array())
+                        .map(|items| {
+                            items
+                                .iter()
+                                .filter_map(|item| item.as_str().map(|s| s.to_string()))
+                                .collect::<Vec<String>>()
+                        })
+                        .or_else(|| existing.as_ref().map(|e| e.tags.clone()))
+                        .unwrap_or_default(),
+                    created_at: existing
+                        .as_ref()
+                        .map(|e| e.created_at)
+                        .unwrap_or_else(|| Utc::now().timestamp_millis()),
+                    updated_at: Utc::now().timestamp_millis(),
+                    last_modified_by: self.accessor_id.clone(),
+                };
+
+                self.storage
+                    .set(&entry)
+                    .map_err(|e| AiError::Tool(e.to_string()))?;
+
+                Ok(ToolOutput::success(json!({
+                    "success": true,
+                    "key": key,
+                    "created": existing.is_none()
+                })))
+            }
+            "delete" => {
+                let key = input
+                    .get("key")
+                    .and_then(|value| value.as_str())
+                    .ok_or_else(|| AiError::Tool("Missing key parameter".to_string()))?;
+                let deleted = self
+                    .storage
+                    .delete(key, accessor_id)
+                    .map_err(|e| AiError::Tool(e.to_string()))?;
+                Ok(ToolOutput::success(json!({
+                    "deleted": deleted,
+                    "key": key
+                })))
+            }
+            "list" => {
+                let namespace = input
+                    .get("namespace")
+                    .and_then(|value| value.as_str());
+                let prefix = namespace.map(|ns| format!("{}:", ns));
+                let entries = self
+                    .storage
+                    .list(prefix.as_deref(), accessor_id)
+                    .map_err(|e| AiError::Tool(e.to_string()))?;
+                let items: Vec<_> = entries
+                    .iter()
+                    .map(|entry| {
+                        let preview = if entry.value.len() > 100 {
+                            format!("{}...", &entry.value[..100])
+                        } else {
+                            entry.value.clone()
+                        };
+                        json!({
+                            "key": entry.key,
+                            "content_type": entry.content_type,
+                            "visibility": entry.visibility,
+                            "tags": entry.tags,
+                            "updated_at": entry.updated_at,
+                            "preview": preview
+                        })
+                    })
+                    .collect();
+                Ok(ToolOutput::success(json!({
+                    "count": items.len(),
+                    "entries": items
+                })))
+            }
+            _ => Ok(ToolOutput::error(format!("Unknown action: {}", action))),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use redb::Database;
     use tempfile::tempdir;
 
-    fn setup_storage() -> (SkillStorage, MemoryStorage, ChatSessionStorage, tempfile::TempDir) {
+    fn setup_storage(
+    ) -> (
+        SkillStorage,
+        MemoryStorage,
+        ChatSessionStorage,
+        SharedSpaceStorage,
+        tempfile::TempDir,
+    ) {
         let temp_dir = tempdir().unwrap();
         let db_path = temp_dir.path().join("test.db");
         let db = Arc::new(Database::create(db_path).unwrap());
         let skill_storage = SkillStorage::new(db.clone()).unwrap();
         let memory_storage = MemoryStorage::new(db.clone()).unwrap();
-        let chat_storage = ChatSessionStorage::new(db).unwrap();
-        (skill_storage, memory_storage, chat_storage, temp_dir)
+        let chat_storage = ChatSessionStorage::new(db.clone()).unwrap();
+        let shared_space_storage = SharedSpaceStorage::new(
+            restflow_storage::SharedSpaceStorage::new(db).unwrap(),
+        );
+        (
+            skill_storage,
+            memory_storage,
+            chat_storage,
+            shared_space_storage,
+            temp_dir,
+        )
     }
 
     #[test]
     fn test_create_tool_registry() {
-        let (skill_storage, memory_storage, chat_storage, _temp_dir) = setup_storage();
-        let registry = create_tool_registry(skill_storage, memory_storage, chat_storage);
+        let (skill_storage, memory_storage, chat_storage, shared_space_storage, _temp_dir) =
+            setup_storage();
+        let registry = create_tool_registry(
+            skill_storage,
+            memory_storage,
+            chat_storage,
+            shared_space_storage,
+            None,
+        );
 
         // Should have default tools + skill tool
         assert!(registry.has("http_request"));
@@ -203,11 +473,13 @@ mod tests {
         assert!(registry.has("send_email"));
         assert!(registry.has("skill"));
         assert!(registry.has("memory_search"));
+        assert!(registry.has("shared_space"));
     }
 
     #[test]
     fn test_skill_provider_list_empty() {
-        let (storage, _memory_storage, _chat_storage, _temp_dir) = setup_storage();
+        let (storage, _memory_storage, _chat_storage, _shared_space_storage, _temp_dir) =
+            setup_storage();
         let provider = SkillStorageProvider::new(storage);
 
         let skills = provider.list_skills();
@@ -216,7 +488,8 @@ mod tests {
 
     #[test]
     fn test_skill_provider_with_data() {
-        let (storage, _memory_storage, _chat_storage, _temp_dir) = setup_storage();
+        let (storage, _memory_storage, _chat_storage, _shared_space_storage, _temp_dir) =
+            setup_storage();
 
         // Add a skill
         let skill = crate::models::Skill::new(

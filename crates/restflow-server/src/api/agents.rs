@@ -102,6 +102,7 @@ async fn run_agent_with_executor(
     skill_storage: restflow_core::storage::skill::SkillStorage,
     memory_storage: restflow_core::storage::memory::MemoryStorage,
     chat_storage: restflow_core::storage::chat_session::ChatSessionStorage,
+    shared_space_storage: restflow_core::storage::SharedSpaceStorage,
     workdir: Option<&std::path::Path>,
 ) -> Result<AgentExecuteResponse, String> {
     // Get model (required for execution)
@@ -181,6 +182,8 @@ async fn run_agent_with_executor(
         skill_storage,
         memory_storage,
         chat_storage,
+        shared_space_storage,
+        Some(agent_id.to_string()),
     );
 
     // Filter to only selected tools (secure by default)
@@ -418,6 +421,7 @@ pub async fn execute_agent(
         state.storage.skills.clone(),
         state.storage.memory.clone(),
         state.storage.chat_sessions.clone(),
+        state.storage.shared_space.clone(),
         workdir.as_deref(),
     )
     .await
@@ -493,6 +497,7 @@ pub async fn execute_agent_inline(
         state.storage.skills.clone(),
         state.storage.memory.clone(),
         state.storage.chat_sessions.clone(),
+        state.storage.shared_space.clone(),
         workdir.as_deref(),
     )
     .await

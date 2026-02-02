@@ -398,6 +398,8 @@ impl TuiApp {
             self.core.storage.skills.clone(),
             self.core.storage.memory.clone(),
             self.core.storage.chat_sessions.clone(),
+            self.core.storage.shared_space.clone(),
+            None,
         );
         let tools = if let Some(selected_tools) = agent.agent.tools.as_ref() {
             let mut filtered = restflow_ai::ToolRegistry::new();

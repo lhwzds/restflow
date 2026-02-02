@@ -8,6 +8,7 @@ pub mod agent_task;
 pub mod chat_session;
 pub mod execution_history;
 pub mod memory;
+pub mod shared_space;
 pub mod skill;
 pub mod terminal_session;
 pub mod trigger;
@@ -24,6 +25,7 @@ pub use agent_task::AgentTaskStorage;
 pub use chat_session::ChatSessionStorage;
 pub use execution_history::ExecutionHistoryStorage;
 pub use memory::MemoryStorage;
+pub use shared_space::SharedSpaceStorage;
 pub use skill::SkillStorage;
 pub use terminal_session::TerminalSessionStorage;
 pub use trigger::TriggerStorage;
@@ -40,6 +42,7 @@ pub struct Storage {
     pub agent_tasks: AgentTaskStorage,
     pub secrets: SecretStorage,
     pub skills: SkillStorage,
+    pub shared_space: SharedSpaceStorage,
     pub terminal_sessions: TerminalSessionStorage,
     pub execution_history: ExecutionHistoryStorage,
     pub memory: MemoryStorage,
@@ -57,6 +60,8 @@ impl Storage {
         let agent_tasks = AgentTaskStorage::new(db.clone())?;
         let secrets = SecretStorage::new(db.clone())?;
         let skills = SkillStorage::new(db.clone())?;
+        let shared_space_raw = restflow_storage::SharedSpaceStorage::new(db.clone())?;
+        let shared_space = SharedSpaceStorage::new(shared_space_raw);
         let terminal_sessions = TerminalSessionStorage::new(db.clone())?;
         let execution_history = ExecutionHistoryStorage::new(db.clone())?;
         let memory = MemoryStorage::new(db.clone())?;
@@ -70,6 +75,7 @@ impl Storage {
             agent_tasks,
             secrets,
             skills,
+            shared_space,
             terminal_sessions,
             execution_history,
             memory,
