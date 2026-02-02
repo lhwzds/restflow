@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { User, Clock } from 'lucide-vue-next'
 import type { StoredAgent } from '@/types/generated/StoredAgent'
+import type { AIModel } from '@/types/generated/AIModel'
 import { getModelDisplayName, getProvider, getProviderTagType } from '@/utils/AIModels'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -30,9 +31,11 @@ function formatTime(timestamp?: number | null): string {
 }
 
 const lastUpdated = computed(() => formatTime(props.agent.updated_at))
-const modelName = computed(() => getModelDisplayName(props.agent.agent.model))
+const fallbackModel: AIModel = 'claude-sonnet-4-5'
+const resolvedModel = computed(() => props.agent.agent.model ?? fallbackModel)
+const modelName = computed(() => getModelDisplayName(resolvedModel.value))
 const modelBadgeVariant = computed(() => {
-  const provider = getProvider(props.agent.agent.model)
+  const provider = getProvider(resolvedModel.value)
   const type = getProviderTagType(provider)
   // Map Element Plus tag types to Badge variants
   const variantMap: Record<

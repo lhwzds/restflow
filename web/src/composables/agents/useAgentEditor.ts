@@ -18,6 +18,9 @@ export interface AgentFormData {
   tools: string[]
 }
 
+const fallbackModel: AIModel = 'claude-sonnet-4-5'
+const resolveModel = (value?: AIModel) => value ?? fallbackModel
+
 export function useAgentEditor(agentId: string) {
   const router = useRouter()
   const toast = useToast()
@@ -43,7 +46,7 @@ export function useAgentEditor(agentId: string) {
     if (!agent.value) return false
     return (
       formData.value.name !== agent.value.name ||
-      formData.value.model !== agent.value.agent.model ||
+      formData.value.model !== resolveModel(agent.value.agent.model) ||
       formData.value.prompt !== agent.value.agent.prompt ||
       formData.value.temperature !== agent.value.agent.temperature ||
       JSON.stringify(formData.value.api_key_config) !==
@@ -60,11 +63,12 @@ export function useAgentEditor(agentId: string) {
       const data = await getAgent(agentId)
       agent.value = data
       // Initialize form data
+      const resolvedModel = resolveModel(data.agent.model)
       formData.value = {
         name: data.name,
-        model: data.agent.model,
+        model: resolvedModel,
         prompt: data.agent.prompt,
-        temperature: data.agent.temperature ?? getDefaultTemperature(data.agent.model),
+        temperature: data.agent.temperature ?? getDefaultTemperature(resolvedModel),
         api_key_config: data.agent.api_key_config,
         tools: data.agent.tools || [],
       }
@@ -101,12 +105,12 @@ export function useAgentEditor(agentId: string) {
 
       // Update local agent data
       agent.value = updatedAgent
+      const resolvedModel = resolveModel(updatedAgent.agent.model)
       formData.value = {
         name: updatedAgent.name,
-        model: updatedAgent.agent.model,
+        model: resolvedModel,
         prompt: updatedAgent.agent.prompt,
-        temperature:
-          updatedAgent.agent.temperature ?? getDefaultTemperature(updatedAgent.agent.model),
+        temperature: updatedAgent.agent.temperature ?? getDefaultTemperature(resolvedModel),
         api_key_config: updatedAgent.agent.api_key_config,
         tools: updatedAgent.agent.tools || [],
       }
@@ -151,11 +155,12 @@ export function useAgentEditor(agentId: string) {
   // Reset form to original values
   function resetForm() {
     if (!agent.value) return
+    const resolvedModel = resolveModel(agent.value.agent.model)
     formData.value = {
       name: agent.value.name,
-      model: agent.value.agent.model,
+      model: resolvedModel,
       prompt: agent.value.agent.prompt,
-      temperature: agent.value.agent.temperature ?? getDefaultTemperature(agent.value.agent.model),
+      temperature: agent.value.agent.temperature ?? getDefaultTemperature(resolvedModel),
       api_key_config: agent.value.agent.api_key_config,
       tools: agent.value.agent.tools || [],
     }

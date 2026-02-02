@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { Send, Trash2, User, CircleCheck, Eye, EyeOff, Loader2 } from 'lucide-vue-next'
 import type { StoredAgent } from '@/types/generated/StoredAgent'
+import type { AIModel } from '@/types/generated/AIModel'
 import { useAgentOperations } from '@/composables/agents/useAgentOperations'
 import MarkdownRenderer from '@/components/shared/MarkdownRenderer.vue'
 import ExecutionStepDisplay from '@/components/agents/ExecutionStepDisplay.vue'
@@ -39,6 +40,8 @@ const messages = ref<Message[]>([])
 const input = ref('')
 const isLoading = ref(false)
 const messagesContainer = ref<HTMLElement>()
+const fallbackModel: AIModel = 'claude-sonnet-4-5'
+const resolvedModel = computed(() => props.agent.agent.model ?? fallbackModel)
 
 function addMessage(
   role: 'user' | 'assistant',
@@ -127,7 +130,7 @@ onMounted(() => {
     <div class="chat-header">
       <div class="header-info">
         <h3>{{ agent.name }}</h3>
-        <span class="model-tag">{{ getModelDisplayName(agent.agent.model) }}</span>
+        <span class="model-tag">{{ getModelDisplayName(resolvedModel) }}</span>
       </div>
       <Button v-if="messages.length > 1" variant="ghost" @click="handleClear">
         <Trash2 class="mr-2 h-4 w-4" />
