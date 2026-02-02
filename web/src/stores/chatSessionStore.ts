@@ -315,6 +315,30 @@ export const useChatSessionStore = defineStore('chatSession', {
     },
 
     /**
+     * Update a chat session's agent
+     */
+    async updateSessionAgent(sessionId: string, agentId: string): Promise<ChatSession | null> {
+      this.error = null
+      try {
+        const session = await chatSessionApi.updateChatSession(sessionId, { agentId })
+        this.sessions.set(sessionId, session)
+        // Update summary
+        const summaryIndex = this.summaries.findIndex((s) => s.id === sessionId)
+        const summary = this.summaries[summaryIndex]
+        if (summary) {
+          summary.agent_id = session.agent_id
+          summary.updated_at = session.updated_at
+        }
+        this.version++
+        return session
+      } catch (err) {
+        this.error = err instanceof Error ? err.message : 'Failed to update session agent'
+        console.error('Failed to update chat session agent:', err)
+        return null
+      }
+    },
+
+    /**
      * Send a message in the current session (without agent execution)
      */
     async sendMessage(content: string): Promise<ChatSession | null> {
@@ -455,6 +479,7 @@ export const useChatSessionStore = defineStore('chatSession', {
       if (summary) {
         summary.message_count = session.messages.length
         summary.updated_at = session.updated_at
+        summary.agent_id = session.agent_id
         const lastMessage = session.messages[session.messages.length - 1]
         if (lastMessage) {
           summary.last_message_preview = lastMessage.content.slice(0, 100)

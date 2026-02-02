@@ -1,17 +1,27 @@
 <script setup lang="ts">
-import { Plus, MessageSquare, Check, Loader2 } from 'lucide-vue-next'
+import { Plus, MessageSquare, Check, Loader2, Bot } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { cn } from '@/lib/utils'
-import type { SessionItem } from '@/types/workspace'
+import type { AgentFile, SessionItem } from '@/types/workspace'
 
 defineProps<{
   sessions: SessionItem[]
   currentSessionId: string | null
+  availableAgents: AgentFile[]
+  agentFilter: string | null
 }>()
 
 const emit = defineEmits<{
   select: [id: string]
   newSession: []
+  updateAgentFilter: [value: string | null]
 }>()
 
 const formatTime = (timestamp: number) => {
@@ -29,11 +39,27 @@ const formatTime = (timestamp: number) => {
 <template>
   <div class="h-full flex flex-col bg-muted/30">
     <!-- Header -->
-    <div class="px-3 py-3">
+    <div class="px-3 py-3 space-y-2">
       <Button variant="outline" size="sm" class="w-full gap-2" @click="emit('newSession')">
         <Plus :size="16" />
         <span>New Session</span>
       </Button>
+
+      <Select
+        :model-value="agentFilter || ''"
+        @update:model-value="emit('updateAgentFilter', $event || null)"
+      >
+        <SelectTrigger class="w-full h-8 text-xs">
+          <Bot :size="14" class="mr-1 text-muted-foreground shrink-0" />
+          <SelectValue placeholder="All agents" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="">All agents</SelectItem>
+          <SelectItem v-for="agent in availableAgents" :key="agent.id" :value="agent.id">
+            {{ agent.name }}
+          </SelectItem>
+        </SelectContent>
+      </Select>
     </div>
 
     <!-- Session List -->
@@ -68,6 +94,9 @@ const formatTime = (timestamp: number) => {
           <!-- Content -->
           <div class="flex-1 min-w-0">
             <div class="text-sm truncate">{{ session.name }}</div>
+            <div class="text-xs text-muted-foreground truncate">
+              {{ session.agentName || 'Unknown agent' }}
+            </div>
             <div class="text-xs text-muted-foreground">
               {{ formatTime(session.updatedAt) }}
             </div>
