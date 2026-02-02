@@ -19,7 +19,8 @@ use std::sync::Arc;
 
 // Re-export types that are self-contained in restflow-storage
 pub use restflow_storage::{
-    ConfigStorage, Secret, SecretStorage, SecretStorageConfig, SystemConfig,
+    migrate_master_key_from_db_path, ConfigStorage, Secret, SecretStorage, SecretStorageConfig,
+    SystemConfig,
 };
 
 pub use agent::AgentStorage;
