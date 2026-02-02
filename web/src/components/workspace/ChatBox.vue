@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, watch, nextTick } from 'vue'
-import { Send, X, Loader2, Bot, Cpu } from 'lucide-vue-next'
+import { Send, X, Loader2, Cpu } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import {
@@ -11,6 +11,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
+import SessionAgentSelector from '@/components/workspace/SessionAgentSelector.vue'
 import type { AgentFile, ModelOption } from '@/types/workspace'
 
 const props = defineProps<{
@@ -97,20 +98,12 @@ watch(inputMessage, async (newVal) => {
       <!-- Bottom Row: Agent | Model | Send -->
       <div class="flex items-center gap-2 mt-2">
         <!-- Agent Selector -->
-        <Select
-          :model-value="selectedAgent || ''"
-          @update:model-value="emit('update:selectedAgent', $event || null)"
-        >
-          <SelectTrigger class="w-[180px] h-8 text-xs">
-            <Bot :size="14" class="mr-1 text-muted-foreground shrink-0" />
-            <SelectValue placeholder="Agent" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem v-for="agent in availableAgents" :key="agent.id" :value="agent.id">
-              {{ agent.name }}
-            </SelectItem>
-          </SelectContent>
-        </Select>
+        <SessionAgentSelector
+          :selected-agent="selectedAgent"
+          :available-agents="availableAgents"
+          :disabled="isExecuting"
+          @update:selected-agent="emit('update:selectedAgent', $event)"
+        />
 
         <!-- Model Selector -->
         <Select

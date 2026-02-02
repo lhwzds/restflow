@@ -17,6 +17,17 @@ pub struct CreateChatSessionRequest {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateChatSessionRequest {
+    #[serde(default)]
+    pub agent_id: Option<String>,
+    #[serde(default)]
+    pub model: Option<String>,
+    #[serde(default)]
+    pub name: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct AddChatMessageRequest {
     pub role: ChatRole,
     pub content: String,
@@ -79,6 +90,63 @@ pub async fn get_chat_session(
             "Failed to get chat session: {}",
             e
         ))),
+    }
+}
+
+// PATCH /api/chat-sessions/{id}
+pub async fn update_chat_session(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(request): Json<UpdateChatSessionRequest>,
+) -> Json<ApiResponse<ChatSession>> {
+    let mut session = match state.storage.chat_sessions.get(&id) {
+        Ok(Some(session)) => session,
+        Ok(None) => {
+            return Json(ApiResponse::error(format!(
+                "Chat session '{}' not found",
+                id
+            )))
+        }
+        Err(e) => {
+            return Json(ApiResponse::error(format!(
+                "Failed to get chat session: {}",
+                e
+            )))
+        }
+    };
+
+    let mut updated = false;
+
+    if let Some(agent_id) = request.agent_id {
+        session.agent_id = agent_id;
+        updated = true;
+    }
+
+    if let Some(model) = request.model {
+        session.model = model;
+        updated = true;
+    }
+
+    let has_name_update = request.name.is_some();
+    if let Some(name) = request.name {
+        session.rename(name);
+        updated = true;
+    }
+
+    if updated {
+        if !has_name_update {
+            session.updated_at = chrono::Utc::now().timestamp_millis();
+        }
+
+        match state.storage.chat_sessions.update(&session) {
+            Ok(_) => Json(ApiResponse::ok(session)),
+            Err(e) => Json(ApiResponse::error(format!(
+                "Failed to update chat session: {}",
+                e
+            ))),
+        }
+    } else {
+        Json(ApiResponse::ok(session))
     }
 }
 

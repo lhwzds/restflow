@@ -16,6 +16,8 @@ export interface SessionItem {
   name: string
   status: SessionStatus
   updatedAt: number
+  agentId?: string
+  agentName?: string
 }
 
 export type StepType = 'skill_read' | 'script_run' | 'api_call' | 'thinking'

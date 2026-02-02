@@ -23,6 +23,12 @@ export interface CreateChatSessionRequest {
   skillId?: string
 }
 
+export interface UpdateChatSessionRequest {
+  agentId?: string
+  model?: string
+  name?: string
+}
+
 /**
  * Create a new chat session.
  *
@@ -83,6 +89,24 @@ export async function getChatSession(id: string): Promise<ChatSession> {
     return tauriInvoke<ChatSession>('get_chat_session', { id })
   }
   const response = await apiClient.get<ChatSession>(`/api/chat-sessions/${id}`)
+  return response.data
+}
+
+/**
+ * Update a chat session.
+ *
+ * @param id - Session ID
+ * @param updates - Fields to update
+ * @returns The updated chat session
+ */
+export async function updateChatSession(
+  id: string,
+  updates: UpdateChatSessionRequest
+): Promise<ChatSession> {
+  if (isTauri()) {
+    return tauriInvoke<ChatSession>('update_chat_session', { sessionId: id, updates })
+  }
+  const response = await apiClient.patch<ChatSession>(`/api/chat-sessions/${id}`, updates)
   return response.data
 }
 
