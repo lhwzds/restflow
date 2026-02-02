@@ -369,6 +369,7 @@ fn matches_source_type(source: &MemorySource, filter: &SourceTypeFilter) -> bool
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Barrier;
     use tempfile::tempdir;
 
     fn create_test_storage() -> MemoryStorage {
@@ -409,6 +410,35 @@ mod tests {
         assert_eq!(id1, id2);
 
         // Only one chunk should exist
+        let chunks = storage.list_chunks("agent-001").unwrap();
+        assert_eq!(chunks.len(), 1);
+    }
+
+    #[test]
+    fn test_concurrent_deduplication() {
+        let storage = Arc::new(create_test_storage());
+        let barrier = Arc::new(Barrier::new(10));
+        let content = "Duplicate content".to_string();
+
+        let handles: Vec<_> = (0..10)
+            .map(|_| {
+                let storage = Arc::clone(&storage);
+                let barrier = Arc::clone(&barrier);
+                let content = content.clone();
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    let chunk = MemoryChunk::new("agent-001".to_string(), content);
+                    storage.store_chunk(&chunk).unwrap()
+                })
+            })
+            .collect();
+
+        let ids: Vec<_> = handles
+            .into_iter()
+            .map(|handle| handle.join().unwrap())
+            .collect();
+
+        assert!(ids.iter().all(|id| id == &ids[0]));
         let chunks = storage.list_chunks("agent-001").unwrap();
         assert_eq!(chunks.len(), 1);
     }

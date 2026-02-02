@@ -336,6 +336,7 @@ fn store_master_key_in_db(db: &Arc<Database>, key: &[u8; 32]) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Arc, Barrier};
     use tempfile::tempdir;
 
     fn setup() -> (SecretStorage, tempfile::TempDir) {
@@ -360,6 +361,31 @@ mod tests {
 
         let value = storage.get_secret("OPENAI_API_KEY").unwrap();
         assert_eq!(value, Some("sk-test123".to_string()));
+    }
+
+    #[test]
+    fn test_concurrent_set_secret() {
+        let (storage, _temp_dir) = setup();
+        let storage = Arc::new(storage);
+        let barrier = Arc::new(Barrier::new(10));
+
+        let mut handles = Vec::new();
+        for i in 0..10 {
+            let storage = Arc::clone(&storage);
+            let barrier = Arc::clone(&barrier);
+            handles.push(std::thread::spawn(move || {
+                barrier.wait();
+                let value = format!("value-{}", i);
+                storage.set_secret("key", &value, None).unwrap();
+            }));
+        }
+
+        for handle in handles {
+            handle.join().unwrap();
+        }
+
+        let secret = storage.get_secret("key").unwrap();
+        assert!(secret.is_some());
     }
 
     #[test]
