@@ -201,7 +201,7 @@ impl VectorStorage {
 
         let index = self.index.read();
         let reverse = self.reverse_map.read();
-        let results = index.search_with_filter(query, top_k, ef_search, |id| {
+        let results = index.search_filter(query, top_k, ef_search, |id| {
             allowed_vector_ids.contains(&id)
         });
 
