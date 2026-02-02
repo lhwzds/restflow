@@ -36,15 +36,18 @@ pub trait SimpleStorage: Send + Sync {
         }
     }
 
-    /// List all entries as (id, data) pairs.
-    fn list_raw(&self) -> Result<Vec<(String, Vec<u8>)>> {
+    /// List all entries as (id, data) pairs, optionally filtered by prefix.
+    fn list_raw(&self, prefix: Option<&str>) -> Result<Vec<(String, Vec<u8>)>> {
         let read_txn = self.db().begin_read()?;
         let table = read_txn.open_table(Self::TABLE)?;
 
         let mut items = Vec::new();
         for item in table.iter()? {
             let (key, value) = item?;
-            items.push((key.value().to_string(), value.value().to_vec()));
+            let key_str = key.value();
+            if prefix.is_none() || key_str.starts_with(prefix.unwrap()) {
+                items.push((key_str.to_string(), value.value().to_vec()));
+            }
         }
 
         Ok(items)
@@ -106,8 +109,11 @@ macro_rules! define_simple_storage {
                 <Self as $crate::SimpleStorage>::get_raw(self, id)
             }
 
-            pub fn list_raw(&self) -> anyhow::Result<Vec<(String, Vec<u8>)>> {
-                <Self as $crate::SimpleStorage>::list_raw(self)
+            pub fn list_raw(
+                &self,
+                prefix: Option<&str>,
+            ) -> anyhow::Result<Vec<(String, Vec<u8>)>> {
+                <Self as $crate::SimpleStorage>::list_raw(self, prefix)
             }
 
             pub fn delete(&self, id: &str) -> anyhow::Result<bool> {

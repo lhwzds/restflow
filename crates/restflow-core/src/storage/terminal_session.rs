@@ -42,7 +42,7 @@ impl TerminalSessionStorage {
 
     /// List all terminal sessions
     pub fn list(&self) -> Result<Vec<TerminalSession>> {
-        let raw_sessions = self.inner.list_raw()?;
+        let raw_sessions = self.inner.list_raw(None)?;
         let mut sessions = Vec::new();
         for (_, bytes) in raw_sessions {
             let json = std::str::from_utf8(&bytes)?;

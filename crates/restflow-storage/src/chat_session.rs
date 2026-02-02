@@ -64,7 +64,7 @@ mod tests {
         storage.put_raw("session-001", b"data1").unwrap();
         storage.put_raw("session-002", b"data2").unwrap();
 
-        let sessions = storage.list_raw().unwrap();
+        let sessions = storage.list_raw(None).unwrap();
         assert_eq!(sessions.len(), 2);
     }
 
@@ -75,7 +75,7 @@ mod tests {
         let db = Arc::new(Database::create(db_path).unwrap());
         let storage = ChatSessionStorage::new(db).unwrap();
 
-        let sessions = storage.list_raw().unwrap();
+        let sessions = storage.list_raw(None).unwrap();
         assert!(sessions.is_empty());
     }
 

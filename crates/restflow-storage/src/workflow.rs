@@ -4,7 +4,7 @@ use crate::define_simple_storage;
 
 define_simple_storage! {
     /// Low-level workflow storage with byte-level API
-    pub struct WorkflowStorage { table: "workflows" }
+    pub struct WorkflowStorage { table: "workflow" }
 }
 
 #[cfg(test)]
@@ -39,7 +39,7 @@ mod tests {
         storage.put_raw("workflow-001", b"data1").unwrap();
         storage.put_raw("workflow-002", b"data2").unwrap();
 
-        let workflows = storage.list_raw().unwrap();
+        let workflows = storage.list_raw(None).unwrap();
         assert_eq!(workflows.len(), 2);
     }
 

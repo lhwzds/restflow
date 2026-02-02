@@ -39,7 +39,7 @@ mod tests {
         storage.put_raw("trigger-001", b"data1").unwrap();
         storage.put_raw("trigger-002", b"data2").unwrap();
 
-        let triggers = storage.list_raw().unwrap();
+        let triggers = storage.list_raw(None).unwrap();
         assert_eq!(triggers.len(), 2);
     }
 

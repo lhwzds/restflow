@@ -1,10 +1,18 @@
 //! Shared space storage - byte-level API for shared space persistence.
 
-use crate::define_simple_storage;
+use crate::{define_simple_storage, SimpleStorage};
 
 define_simple_storage! {
     /// Low-level shared space storage with byte-level API
-    pub struct SharedSpaceStorage { table: "shared_spaces" }
+    pub struct SharedSpaceStorage { table: "shared_space" }
+}
+
+impl SharedSpaceStorage {
+    /// List all keys with optional prefix filter.
+    pub fn list_keys(&self, prefix: Option<&str>) -> anyhow::Result<Vec<String>> {
+        let entries = <Self as SimpleStorage>::list_raw(self, prefix)?;
+        Ok(entries.into_iter().map(|(key, _)| key).collect())
+    }
 }
 
 #[cfg(test)]
@@ -39,7 +47,7 @@ mod tests {
         storage.put_raw("space-001", b"data1").unwrap();
         storage.put_raw("space-002", b"data2").unwrap();
 
-        let spaces = storage.list_raw().unwrap();
+        let spaces = storage.list_raw(None).unwrap();
         assert_eq!(spaces.len(), 2);
     }
 

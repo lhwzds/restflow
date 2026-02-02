@@ -50,7 +50,7 @@ impl ChatSessionStorage {
     ///
     /// Returns sessions sorted by updated_at descending (most recent first).
     pub fn list(&self) -> Result<Vec<ChatSession>> {
-        let raw_sessions = self.inner.list_raw()?;
+        let raw_sessions = self.inner.list_raw(None)?;
         let mut sessions = Vec::new();
         for (_, bytes) in raw_sessions {
             let json = std::str::from_utf8(&bytes)?;

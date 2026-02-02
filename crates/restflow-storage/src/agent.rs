@@ -39,7 +39,7 @@ mod tests {
         storage.put_raw("agent-001", b"data1").unwrap();
         storage.put_raw("agent-002", b"data2").unwrap();
 
-        let agents = storage.list_raw().unwrap();
+        let agents = storage.list_raw(None).unwrap();
         assert_eq!(agents.len(), 2);
     }
 

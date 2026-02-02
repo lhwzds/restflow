@@ -61,7 +61,7 @@ impl AgentStorage {
     }
 
     pub fn list_agents(&self) -> Result<Vec<StoredAgent>> {
-        let agents = self.inner.list_raw()?;
+        let agents = self.inner.list_raw(None)?;
         let mut result = Vec::new();
         for (_, bytes) in agents {
             let agent: StoredAgent = serde_json::from_slice(&bytes)?;

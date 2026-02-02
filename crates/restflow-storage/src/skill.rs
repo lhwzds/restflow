@@ -39,7 +39,7 @@ mod tests {
         storage.put_raw("skill-001", b"data1").unwrap();
         storage.put_raw("skill-002", b"data2").unwrap();
 
-        let skills = storage.list_raw().unwrap();
+        let skills = storage.list_raw(None).unwrap();
         assert_eq!(skills.len(), 2);
     }
 

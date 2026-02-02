@@ -45,7 +45,7 @@ impl SkillStorage {
 
     /// List all skills
     pub fn list(&self) -> Result<Vec<Skill>> {
-        let raw_skills = self.inner.list_raw()?;
+        let raw_skills = self.inner.list_raw(None)?;
         let mut skills = Vec::new();
         for (_, bytes) in raw_skills {
             let json = std::str::from_utf8(&bytes)?;

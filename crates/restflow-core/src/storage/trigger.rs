@@ -34,7 +34,7 @@ impl TriggerStorage {
         &self,
         workflow_id: &str,
     ) -> Result<Option<ActiveTrigger>> {
-        let triggers = self.inner.list_raw()?;
+        let triggers = self.inner.list_raw(None)?;
         for (_, bytes) in triggers {
             let trigger: ActiveTrigger = serde_json::from_slice(&bytes)?;
             if trigger.workflow_id == workflow_id {
@@ -71,7 +71,7 @@ impl TriggerStorage {
 
     /// List all active triggers
     pub fn list_active_triggers(&self) -> Result<Vec<ActiveTrigger>> {
-        let triggers = self.inner.list_raw()?;
+        let triggers = self.inner.list_raw(None)?;
         let mut result = Vec::new();
         for (_, bytes) in triggers {
             let trigger: ActiveTrigger = serde_json::from_slice(&bytes)?;
