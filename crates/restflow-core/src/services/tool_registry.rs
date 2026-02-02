@@ -77,8 +77,11 @@ pub fn create_tool_registry(
     registry.register(SkillTool::new(skill_provider));
 
     // Add unified memory search tool
-    let search_engine = UnifiedSearchEngine::new(memory_storage, chat_storage);
+    let search_engine = UnifiedSearchEngine::new(memory_storage.clone(), chat_storage);
     registry.register(MemorySearchTool::new(search_engine));
+
+    // Add semantic memory search tool (vector-based)
+    registry.register(SemanticMemorySearchTool::new(memory_storage));
 
     // Add shared space tool
     registry.register(SharedSpaceTool::new(shared_space_storage, accessor_id));
@@ -149,9 +152,7 @@ impl Tool for MemorySearchTool {
         let agent_id = input
             .get("agent_id")
             .and_then(|value| value.as_str())
-            .ok_or_else(|| {
-                AiError::Tool("Missing agent_id parameter".to_string())
-            })?;
+            .ok_or_else(|| AiError::Tool("Missing agent_id parameter".to_string()))?;
         let include_sessions = input
             .get("include_sessions")
             .and_then(|value| value.as_bool())
@@ -179,6 +180,103 @@ impl Tool for MemorySearchTool {
             .map_err(|e| AiError::Tool(e.to_string()))?;
 
         Ok(ToolOutput::success(serde_json::to_value(results)?))
+    }
+}
+
+#[derive(Clone)]
+struct SemanticMemorySearchTool {
+    storage: MemoryStorage,
+}
+
+impl SemanticMemorySearchTool {
+    fn new(storage: MemoryStorage) -> Self {
+        Self { storage }
+    }
+}
+
+#[async_trait::async_trait]
+impl Tool for SemanticMemorySearchTool {
+    fn name(&self) -> &str {
+        "memory_semantic_search"
+    }
+
+    fn description(&self) -> &str {
+        "Search long-term memory using vector embeddings"
+    }
+
+    fn parameters_schema(&self) -> serde_json::Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "agent_id": {
+                    "type": "string",
+                    "description": "Agent ID to search within"
+                },
+                "query_embedding": {
+                    "type": "array",
+                    "items": { "type": "number" },
+                    "description": "Vector embedding for the query text"
+                },
+                "top_k": {
+                    "type": "integer",
+                    "description": "Number of results to return",
+                    "default": 5,
+                    "minimum": 1
+                },
+                "min_similarity": {
+                    "type": "number",
+                    "description": "Optional minimum similarity filter"
+                }
+            },
+            "required": ["agent_id", "query_embedding"]
+        })
+    }
+
+    async fn execute(&self, input: serde_json::Value) -> restflow_ai::error::Result<ToolOutput> {
+        let agent_id = input
+            .get("agent_id")
+            .and_then(|value| value.as_str())
+            .ok_or_else(|| AiError::Tool("Missing agent_id parameter".to_string()))?;
+        let embedding_values = input
+            .get("query_embedding")
+            .and_then(|value| value.as_array())
+            .ok_or_else(|| AiError::Tool("Missing query_embedding parameter".to_string()))?;
+
+        if embedding_values.is_empty() {
+            return Err(AiError::Tool("query_embedding cannot be empty".to_string()));
+        }
+
+        let mut query_embedding = Vec::with_capacity(embedding_values.len());
+        for value in embedding_values {
+            let number = value
+                .as_f64()
+                .ok_or_else(|| AiError::Tool("query_embedding must contain numbers".to_string()))?;
+            query_embedding.push(number as f32);
+        }
+
+        let top_k = input
+            .get("top_k")
+            .and_then(|value| value.as_u64())
+            .unwrap_or(5)
+            .max(1) as usize;
+        let min_similarity = input
+            .get("min_similarity")
+            .and_then(|value| value.as_f64())
+            .map(|value| value as f32);
+
+        let mut matches = self
+            .storage
+            .semantic_search(agent_id, &query_embedding, top_k)
+            .map_err(|e| AiError::Tool(e.to_string()))?;
+
+        if let Some(min_similarity) = min_similarity {
+            matches.retain(|item| item.similarity >= min_similarity);
+        }
+
+        Ok(ToolOutput::success(json!({
+            "matches": matches,
+            "count": matches.len()
+        })))
     }
 }
 
@@ -473,6 +571,7 @@ mod tests {
         assert!(registry.has("send_email"));
         assert!(registry.has("skill"));
         assert!(registry.has("memory_search"));
+        assert!(registry.has("memory_semantic_search"));
         assert!(registry.has("shared_space"));
     }
 
