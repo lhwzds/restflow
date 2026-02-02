@@ -46,6 +46,8 @@ impl std::fmt::Display for ChannelType {
 #[ts(export)]
 #[serde(rename_all = "snake_case")]
 pub enum MessageLevel {
+    /// Plain message without emoji prefix (for AI chat responses)
+    Plain,
     #[default]
     Info,
     Success,
@@ -57,6 +59,7 @@ impl MessageLevel {
     /// Get emoji representation for the message level
     pub fn emoji(&self) -> &'static str {
         match self {
+            Self::Plain => "",
             Self::Info => "ℹ️",
             Self::Success => "✅",
             Self::Warning => "⚠️",
@@ -198,10 +201,22 @@ impl OutboundMessage {
         Self::new(conversation_id, content).with_level(MessageLevel::Warning)
     }
 
+    /// Create a plain message without emoji prefix (for AI chat responses)
+    pub fn plain(conversation_id: impl Into<String>, content: impl Into<String>) -> Self {
+        Self::new(conversation_id, content).with_level(MessageLevel::Plain)
+    }
+
     /// Format the message with emoji prefix based on level
     pub fn formatted_content(&self) -> String {
         let emoji = self.level.emoji();
-        if let Some(title) = &self.title {
+        if self.level == MessageLevel::Plain {
+            // Plain messages: no emoji prefix
+            if let Some(title) = &self.title {
+                format!("*{}*\n\n{}", title, self.content)
+            } else {
+                self.content.clone()
+            }
+        } else if let Some(title) = &self.title {
             format!("{} *{}*\n\n{}", emoji, title, self.content)
         } else {
             format!("{} {}", emoji, self.content)
@@ -279,10 +294,22 @@ mod tests {
 
     #[test]
     fn test_message_level_emoji() {
+        assert_eq!(MessageLevel::Plain.emoji(), "");
         assert_eq!(MessageLevel::Info.emoji(), "ℹ️");
         assert_eq!(MessageLevel::Success.emoji(), "✅");
         assert_eq!(MessageLevel::Warning.emoji(), "⚠️");
         assert_eq!(MessageLevel::Error.emoji(), "❌");
+    }
+
+    #[test]
+    fn test_plain_message_formatting() {
+        // Plain message without title
+        let msg = OutboundMessage::plain("123", "Hello world");
+        assert_eq!(msg.formatted_content(), "Hello world");
+
+        // Plain message with title
+        let msg_with_title = OutboundMessage::plain("123", "Hello world").with_title("Greeting");
+        assert_eq!(msg_with_title.formatted_content(), "*Greeting*\n\nHello world");
     }
 
     #[test]
