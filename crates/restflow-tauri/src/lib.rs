@@ -18,7 +18,11 @@ pub use agent_task::{
     HeartbeatPulse, NoopHeartbeatEmitter, RealAgentExecutor, RunnerConfig, RunnerHandle,
     RunnerStatus, TauriHeartbeatEmitter, TelegramNotifier,
 };
-pub use channel::{start_message_handler, MessageHandlerConfig, SystemStatus, TaskTrigger};
+pub use channel::{
+    start_message_handler, start_message_handler_with_chat, ChatDispatcher, ChatDispatcherConfig,
+    ChatSessionManager, MessageDebouncer, MessageHandlerConfig, MessageRouter, RouteDecision,
+    SystemStatus, TaskTrigger,
+};
 pub use chat::{
     ChatStreamEvent, ChatStreamKind, ChatStreamState, StepStatus, StreamCancelHandle,
     StreamManager, CHAT_STREAM_EVENT,

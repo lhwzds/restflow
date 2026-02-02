@@ -5,8 +5,9 @@ use restflow_core::channel::ChannelRouter;
 use restflow_core::models::{AgentTask, AgentTaskStatus};
 use restflow_core::process::ProcessRegistry;
 use restflow_tauri_lib::{
-    AgentTaskRunner, MessageHandlerConfig, RealAgentExecutor, RunnerConfig, RunnerHandle,
-    SystemStatus, TaskTrigger, TelegramNotifier, start_message_handler,
+    AgentTaskRunner, ChatDispatcher, ChatDispatcherConfig, ChatSessionManager, MessageDebouncer,
+    MessageHandlerConfig, RealAgentExecutor, RunnerConfig, RunnerHandle, SystemStatus,
+    TaskTrigger, TelegramNotifier, start_message_handler_with_chat,
 };
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -72,10 +73,34 @@ impl CliTaskRunner {
                 self.handle.clone(),
                 self.runner.clone(),
             ));
-            start_message_handler(router.clone(), trigger, MessageHandlerConfig::default());
+
+            // Create ChatDispatcher for AI conversations
+            let session_manager = Arc::new(ChatSessionManager::new(
+                storage.clone(),
+                20, // max history messages
+            ));
+            let chat_executor = Arc::new(RealAgentExecutor::new(
+                storage.clone(),
+                Arc::new(ProcessRegistry::new()),
+            ));
+            let debouncer = Arc::new(MessageDebouncer::default_timeout());
+            let chat_dispatcher = Arc::new(ChatDispatcher::new(
+                session_manager,
+                chat_executor,
+                debouncer,
+                router.clone(),
+                ChatDispatcherConfig::default(),
+            ));
+
+            start_message_handler_with_chat(
+                router.clone(),
+                trigger,
+                chat_dispatcher,
+                MessageHandlerConfig::default(),
+            );
             let mut router_guard = self.router.write().await;
             *router_guard = Some(router);
-            info!("Telegram channel enabled for CLI daemon");
+            info!("Telegram channel enabled for CLI daemon with AI chat support");
         }
 
         info!("Task runner started");
