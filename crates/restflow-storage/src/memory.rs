@@ -17,6 +17,8 @@ use anyhow::Result;
 use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
 use std::sync::Arc;
 
+use crate::range_utils::prefix_range;
+
 const MEMORY_CHUNK_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("memory_chunks");
 const MEMORY_SESSION_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("memory_sessions");
 
@@ -181,17 +183,14 @@ impl MemoryStorage {
         let chunk_table = read_txn.open_table(MEMORY_CHUNK_TABLE)?;
 
         let prefix = format!("{}:", agent_id);
+        let (start, end) = prefix_range(&prefix);
         let mut chunks = Vec::new();
 
-        for item in agent_index.iter()? {
-            let (key, value) = item?;
-            let key_str = key.value();
-
-            if key_str.starts_with(&prefix) {
-                let chunk_id = value.value();
-                if let Some(chunk_data) = chunk_table.get(chunk_id)? {
-                    chunks.push((chunk_id.to_string(), chunk_data.value().to_vec()));
-                }
+        for item in agent_index.range(start.as_str()..end.as_str())? {
+            let (_, value) = item?;
+            let chunk_id = value.value();
+            if let Some(chunk_data) = chunk_table.get(chunk_id)? {
+                chunks.push((chunk_id.to_string(), chunk_data.value().to_vec()));
             }
         }
 
@@ -205,17 +204,14 @@ impl MemoryStorage {
         let chunk_table = read_txn.open_table(MEMORY_CHUNK_TABLE)?;
 
         let prefix = format!("{}:", session_id);
+        let (start, end) = prefix_range(&prefix);
         let mut chunks = Vec::new();
 
-        for item in session_index.iter()? {
-            let (key, value) = item?;
-            let key_str = key.value();
-
-            if key_str.starts_with(&prefix) {
-                let chunk_id = value.value();
-                if let Some(chunk_data) = chunk_table.get(chunk_id)? {
-                    chunks.push((chunk_id.to_string(), chunk_data.value().to_vec()));
-                }
+        for item in session_index.range(start.as_str()..end.as_str())? {
+            let (_, value) = item?;
+            let chunk_id = value.value();
+            if let Some(chunk_data) = chunk_table.get(chunk_id)? {
+                chunks.push((chunk_id.to_string(), chunk_data.value().to_vec()));
             }
         }
 
@@ -229,17 +225,14 @@ impl MemoryStorage {
         let chunk_table = read_txn.open_table(MEMORY_CHUNK_TABLE)?;
 
         let prefix = format!("{}:", tag);
+        let (start, end) = prefix_range(&prefix);
         let mut chunks = Vec::new();
 
-        for item in tag_index.iter()? {
-            let (key, value) = item?;
-            let key_str = key.value();
-
-            if key_str.starts_with(&prefix) {
-                let chunk_id = value.value();
-                if let Some(chunk_data) = chunk_table.get(chunk_id)? {
-                    chunks.push((chunk_id.to_string(), chunk_data.value().to_vec()));
-                }
+        for item in tag_index.range(start.as_str()..end.as_str())? {
+            let (_, value) = item?;
+            let chunk_id = value.value();
+            if let Some(chunk_data) = chunk_table.get(chunk_id)? {
+                chunks.push((chunk_id.to_string(), chunk_data.value().to_vec()));
             }
         }
 
@@ -311,16 +304,50 @@ impl MemoryStorage {
         let agent_index = read_txn.open_table(AGENT_INDEX_TABLE)?;
 
         let prefix = format!("{}:", agent_id);
+        let (start, end) = prefix_range(&prefix);
         let mut count = 0u32;
 
-        for item in agent_index.iter()? {
-            let (key, _) = item?;
-            if key.value().starts_with(&prefix) {
-                count += 1;
-            }
+        for _ in agent_index.range(start.as_str()..end.as_str())? {
+            count += 1;
         }
 
         Ok(count)
+    }
+
+    /// List chunks with database-level pagination
+    pub fn list_chunks_by_agent_paginated(
+        &self,
+        agent_id: &str,
+        limit: usize,
+        cursor: Option<&str>,
+    ) -> Result<(Vec<(String, Vec<u8>)>, Option<String>)> {
+        let read_txn = self.db.begin_read()?;
+        let agent_index = read_txn.open_table(AGENT_INDEX_TABLE)?;
+        let chunk_table = read_txn.open_table(MEMORY_CHUNK_TABLE)?;
+
+        let prefix = format!("{}:", agent_id);
+        let (_, end) = prefix_range(&prefix);
+        let start = match cursor {
+            Some(last_id) => format!("{}:{}\x00", agent_id, last_id),
+            None => prefix.clone(),
+        };
+
+        let mut chunks = Vec::new();
+        let mut last_id = None;
+        for item in agent_index.range(start.as_str()..end.as_str())? {
+            if chunks.len() >= limit {
+                break;
+            }
+            let (_, value) = item?;
+            let chunk_id = value.value();
+            if let Some(chunk_data) = chunk_table.get(chunk_id)? {
+                last_id = Some(chunk_id.to_string());
+                chunks.push((chunk_id.to_string(), chunk_data.value().to_vec()));
+            }
+        }
+
+        let next_cursor = if chunks.len() >= limit { last_id } else { None };
+        Ok((chunks, next_cursor))
     }
 
     // ============== Memory Session Operations ==============
@@ -360,17 +387,14 @@ impl MemoryStorage {
         let session_table = read_txn.open_table(MEMORY_SESSION_TABLE)?;
 
         let prefix = format!("{}:", agent_id);
+        let (start, end) = prefix_range(&prefix);
         let mut sessions = Vec::new();
 
-        for item in agent_session_index.iter()? {
-            let (key, value) = item?;
-            let key_str = key.value();
-
-            if key_str.starts_with(&prefix) {
-                let session_id = value.value();
-                if let Some(session_data) = session_table.get(session_id)? {
-                    sessions.push((session_id.to_string(), session_data.value().to_vec()));
-                }
+        for item in agent_session_index.range(start.as_str()..end.as_str())? {
+            let (_, value) = item?;
+            let session_id = value.value();
+            if let Some(session_data) = session_table.get(session_id)? {
+                sessions.push((session_id.to_string(), session_data.value().to_vec()));
             }
         }
 
@@ -401,13 +425,11 @@ impl MemoryStorage {
         let agent_session_index = read_txn.open_table(AGENT_SESSION_INDEX_TABLE)?;
 
         let prefix = format!("{}:", agent_id);
+        let (start, end) = prefix_range(&prefix);
         let mut count = 0u32;
 
-        for item in agent_session_index.iter()? {
-            let (key, _) = item?;
-            if key.value().starts_with(&prefix) {
-                count += 1;
-            }
+        for _ in agent_session_index.range(start.as_str()..end.as_str())? {
+            count += 1;
         }
 
         Ok(count)
@@ -584,6 +606,44 @@ mod tests {
 
         let chunks_agent3 = storage.list_chunks_by_agent_raw("agent-003").unwrap();
         assert_eq!(chunks_agent3.len(), 0);
+    }
+
+    #[test]
+    fn test_list_chunks_by_agent_paginated() {
+        let storage = create_test_storage();
+
+        for idx in 0..25 {
+            let chunk_id = format!("chunk-{:03}", idx);
+            let hash = format!("hash-{:03}", idx);
+            storage
+                .put_chunk_raw(
+                    chunk_id.as_str(),
+                    "agent-001",
+                    None,
+                    hash.as_str(),
+                    &[],
+                    b"data",
+                )
+                .unwrap();
+        }
+
+        let (page1, cursor1) = storage
+            .list_chunks_by_agent_paginated("agent-001", 10, None)
+            .unwrap();
+        assert_eq!(page1.len(), 10);
+        assert!(cursor1.is_some());
+
+        let (page2, cursor2) = storage
+            .list_chunks_by_agent_paginated("agent-001", 10, cursor1.as_deref())
+            .unwrap();
+        assert_eq!(page2.len(), 10);
+        assert!(cursor2.is_some());
+
+        let (page3, cursor3) = storage
+            .list_chunks_by_agent_paginated("agent-001", 10, cursor2.as_deref())
+            .unwrap();
+        assert_eq!(page3.len(), 5);
+        assert!(cursor3.is_none());
     }
 
     #[test]
