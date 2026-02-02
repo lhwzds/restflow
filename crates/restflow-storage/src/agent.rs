@@ -1,77 +1,18 @@
 //! Agent storage - byte-level API for agent persistence.
 
-use anyhow::Result;
-use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
-use std::sync::Arc;
+use crate::define_simple_storage;
 
-const AGENT_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("agents");
-
-/// Low-level agent storage with byte-level API
-pub struct AgentStorage {
-    db: Arc<Database>,
-}
-
-impl AgentStorage {
-    pub fn new(db: Arc<Database>) -> Result<Self> {
-        let write_txn = db.begin_write()?;
-        write_txn.open_table(AGENT_TABLE)?;
-        write_txn.commit()?;
-
-        Ok(Self { db })
-    }
-
-    /// Store raw agent data
-    pub fn put_raw(&self, id: &str, data: &[u8]) -> Result<()> {
-        let write_txn = self.db.begin_write()?;
-        {
-            let mut table = write_txn.open_table(AGENT_TABLE)?;
-            table.insert(id, data)?;
-        }
-        write_txn.commit()?;
-        Ok(())
-    }
-
-    /// Get raw agent data by ID
-    pub fn get_raw(&self, id: &str) -> Result<Option<Vec<u8>>> {
-        let read_txn = self.db.begin_read()?;
-        let table = read_txn.open_table(AGENT_TABLE)?;
-
-        if let Some(value) = table.get(id)? {
-            Ok(Some(value.value().to_vec()))
-        } else {
-            Ok(None)
-        }
-    }
-
-    /// List all raw agent data
-    pub fn list_raw(&self) -> Result<Vec<(String, Vec<u8>)>> {
-        let read_txn = self.db.begin_read()?;
-        let table = read_txn.open_table(AGENT_TABLE)?;
-
-        let mut agents = Vec::new();
-        for item in table.iter()? {
-            let (key, value) = item?;
-            agents.push((key.value().to_string(), value.value().to_vec()));
-        }
-
-        Ok(agents)
-    }
-
-    /// Delete agent by ID
-    pub fn delete(&self, id: &str) -> Result<bool> {
-        let write_txn = self.db.begin_write()?;
-        let existed = {
-            let mut table = write_txn.open_table(AGENT_TABLE)?;
-            table.remove(id)?.is_some()
-        };
-        write_txn.commit()?;
-        Ok(existed)
-    }
+define_simple_storage! {
+    /// Low-level agent storage with byte-level API
+    pub struct AgentStorage { table: "agents" }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::SimpleStorage;
+    use redb::Database;
+    use std::sync::Arc;
     use tempfile::tempdir;
 
     #[test]

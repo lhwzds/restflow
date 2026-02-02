@@ -4,6 +4,7 @@ use crate::models::{ActiveTrigger, TriggerConfig};
 use anyhow::Result;
 use redb::Database;
 use std::sync::Arc;
+use restflow_storage::SimpleStorage;
 
 /// Typed trigger storage wrapper around restflow-storage::TriggerStorage.
 pub struct TriggerStorage {

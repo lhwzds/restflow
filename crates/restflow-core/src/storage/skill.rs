@@ -4,6 +4,7 @@ use crate::models::Skill;
 use anyhow::Result;
 use redb::Database;
 use std::sync::Arc;
+use restflow_storage::SimpleStorage;
 
 /// Typed skill storage wrapper around restflow-storage::SkillStorage.
 #[derive(Debug, Clone)]
