@@ -4,7 +4,7 @@ use crate::define_simple_storage;
 
 define_simple_storage! {
     /// Low-level workflow storage with byte-level API
-    pub struct WorkflowStorage { table: "workflows" }
+    pub struct WorkflowStorage { table: "workflow" }
 }
 
 #[cfg(test)]
