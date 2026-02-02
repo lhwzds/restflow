@@ -39,6 +39,12 @@ pub struct MemoryStorage {
     db: Arc<Database>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PutChunkResult {
+    Created(String),
+    Existing(String),
+}
+
 impl MemoryStorage {
     /// Create a new MemoryStorage instance
     pub fn new(db: Arc<Database>) -> Result<Self> {
@@ -57,6 +63,57 @@ impl MemoryStorage {
     }
 
     // ============== Memory Chunk Operations ==============
+
+    /// Store a chunk if it does not already exist by content hash.
+    pub fn put_chunk_if_not_exists(
+        &self,
+        chunk_id: &str,
+        agent_id: &str,
+        session_id: Option<&str>,
+        content_hash: &str,
+        tags: &[String],
+        data: &[u8],
+    ) -> Result<PutChunkResult> {
+        let write_txn = self.db.begin_write()?;
+        let result = {
+            let existing = {
+                let hash_index = write_txn.open_table(HASH_INDEX_TABLE)?;
+                hash_index
+                    .get(content_hash)?
+                    .map(|value| value.value().to_string())
+            };
+
+            if let Some(existing_id) = existing {
+                PutChunkResult::Existing(existing_id)
+            } else {
+                let mut chunk_table = write_txn.open_table(MEMORY_CHUNK_TABLE)?;
+                chunk_table.insert(chunk_id, data)?;
+
+                let mut agent_index = write_txn.open_table(AGENT_INDEX_TABLE)?;
+                let agent_key = format!("{}:{}", agent_id, chunk_id);
+                agent_index.insert(agent_key.as_str(), chunk_id)?;
+
+                if let Some(sid) = session_id {
+                    let mut session_index = write_txn.open_table(SESSION_INDEX_TABLE)?;
+                    let session_key = format!("{}:{}", sid, chunk_id);
+                    session_index.insert(session_key.as_str(), chunk_id)?;
+                }
+
+                let mut hash_index = write_txn.open_table(HASH_INDEX_TABLE)?;
+                hash_index.insert(content_hash, chunk_id)?;
+
+                let mut tag_index = write_txn.open_table(TAG_INDEX_TABLE)?;
+                for tag in tags {
+                    let tag_key = format!("{}:{}", tag, chunk_id);
+                    tag_index.insert(tag_key.as_str(), chunk_id)?;
+                }
+
+                PutChunkResult::Created(chunk_id.to_string())
+            }
+        };
+        write_txn.commit()?;
+        Ok(result)
+    }
 
     /// Store a raw memory chunk with all necessary indexes.
     ///
@@ -361,6 +418,46 @@ impl MemoryStorage {
     }
 
     // ============== Bulk Operations ==============
+
+    /// Delete all chunks for an agent with full index cleanup.
+    pub fn delete_all_chunks_for_agent_with_metadata(
+        &self,
+        agent_id: &str,
+        chunk_metadata: &[(String, Option<String>, String, Vec<String>)],
+    ) -> Result<u32> {
+        let write_txn = self.db.begin_write()?;
+        let count = {
+            let mut chunk_table = write_txn.open_table(MEMORY_CHUNK_TABLE)?;
+            let mut agent_index = write_txn.open_table(AGENT_INDEX_TABLE)?;
+            let mut session_index = write_txn.open_table(SESSION_INDEX_TABLE)?;
+            let mut hash_index = write_txn.open_table(HASH_INDEX_TABLE)?;
+            let mut tag_index = write_txn.open_table(TAG_INDEX_TABLE)?;
+
+            let mut deleted = 0u32;
+            for (chunk_id, session_id, content_hash, tags) in chunk_metadata {
+                chunk_table.remove(chunk_id.as_str())?;
+                let agent_key = format!("{}:{}", agent_id, chunk_id);
+                agent_index.remove(agent_key.as_str())?;
+
+                if let Some(sid) = session_id {
+                    let session_key = format!("{}:{}", sid, chunk_id);
+                    session_index.remove(session_key.as_str())?;
+                }
+
+                hash_index.remove(content_hash.as_str())?;
+                for tag in tags {
+                    let tag_key = format!("{}:{}", tag, chunk_id);
+                    tag_index.remove(tag_key.as_str())?;
+                }
+
+                deleted += 1;
+            }
+
+            deleted
+        };
+        write_txn.commit()?;
+        Ok(count)
+    }
 
     /// Delete all chunks for an agent
     pub fn delete_all_chunks_for_agent(&self, agent_id: &str) -> Result<u32> {
