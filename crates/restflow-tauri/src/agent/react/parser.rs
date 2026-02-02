@@ -9,14 +9,14 @@ pub struct ResponseParser;
 impl ResponseParser {
     /// Parse LLM response to determine next action
     pub fn parse(response: &str, tool_calls: Option<&[ToolCall]>) -> Result<AgentAction> {
-        if let Some(calls) = tool_calls {
-            if let Some(call) = calls.first() {
-                return Ok(AgentAction::ToolCall {
-                    id: call.id.clone(),
-                    name: call.name.clone(),
-                    arguments: call.arguments.clone(),
-                });
-            }
+        if let Some(calls) = tool_calls
+            && let Some(call) = calls.first()
+        {
+            return Ok(AgentAction::ToolCall {
+                id: call.id.clone(),
+                name: call.name.clone(),
+                arguments: call.arguments.clone(),
+            });
         }
 
         if let Some(content) = extract_tagged_final(response) {
