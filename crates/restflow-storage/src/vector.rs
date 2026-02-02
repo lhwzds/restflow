@@ -54,6 +54,13 @@ pub struct VectorStorage {
     next_id: RwLock<usize>,
 }
 
+impl Clone for VectorStorage {
+    fn clone(&self) -> Self {
+        Self::new(self.db.clone(), self.config.clone())
+            .expect("VectorStorage clone failed")
+    }
+}
+
 impl VectorStorage {
     /// Create new vector storage, loading existing vectors from DB.
     pub fn new(db: Arc<Database>, config: VectorConfig) -> Result<Self> {
