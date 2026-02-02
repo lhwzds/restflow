@@ -75,10 +75,12 @@ impl MemoryStorage {
         let write_txn = self.db.begin_write()?;
         {
             let mut hash_index = write_txn.open_table(HASH_INDEX_TABLE)?;
-            let should_migrate = hash_index
-                .get(content_hash)?
-                .map(|existing| existing.value() == chunk_id)
-                .unwrap_or(false);
+            let should_migrate = {
+                let existing = hash_index.get(content_hash)?;
+                existing
+                    .map(|existing| existing.value() == chunk_id)
+                    .unwrap_or(false)
+            };
             if should_migrate {
                 let hash_key = Self::hash_index_key(agent_id, content_hash);
                 hash_index.insert(hash_key.as_str(), chunk_id)?;
@@ -157,11 +159,17 @@ impl MemoryStorage {
         let write_txn = self.db.begin_write()?;
         let result = {
             let hash_key = Self::hash_index_key(agent_id, content_hash);
-            let hash_index = write_txn.open_table(HASH_INDEX_TABLE)?;
-            if let Some(existing) = hash_index.get(hash_key.as_str())? {
-                PutResult::Existing(existing.value().to_string())
-            } else if let Some(existing) = hash_index.get(content_hash)? {
-                let existing_chunk_id = existing.value().to_string();
+            let legacy_chunk_id = {
+                let hash_index = write_txn.open_table(HASH_INDEX_TABLE)?;
+                if let Some(existing) = hash_index.get(hash_key.as_str())? {
+                    return Ok(PutResult::Existing(existing.value().to_string()));
+                }
+                hash_index
+                    .get(content_hash)?
+                    .map(|existing| existing.value().to_string())
+            };
+
+            if let Some(existing_chunk_id) = legacy_chunk_id {
                 let agent_index = write_txn.open_table(AGENT_INDEX_TABLE)?;
                 let agent_key = format!("{}:{}", agent_id, existing_chunk_id);
                 if agent_index.get(agent_key.as_str())?.is_some() {
@@ -370,10 +378,12 @@ impl MemoryStorage {
             let mut hash_index = write_txn.open_table(HASH_INDEX_TABLE)?;
             let hash_key = Self::hash_index_key(agent_id, content_hash);
             hash_index.remove(hash_key.as_str())?;
-            let should_remove_legacy = hash_index
-                .get(content_hash)?
-                .map(|existing| existing.value() == chunk_id)
-                .unwrap_or(false);
+            let should_remove_legacy = {
+                let existing = hash_index.get(content_hash)?;
+                existing
+                    .map(|existing| existing.value() == chunk_id)
+                    .unwrap_or(false)
+            };
             if should_remove_legacy {
                 hash_index.remove(content_hash)?;
             }
@@ -534,10 +544,12 @@ impl MemoryStorage {
 
                 let hash_key = Self::hash_index_key(agent_id, content_hash.as_str());
                 hash_index.remove(hash_key.as_str())?;
-                let should_remove_legacy = hash_index
-                    .get(content_hash.as_str())?
-                    .map(|existing| existing.value() == chunk_id.as_str())
-                    .unwrap_or(false);
+                let should_remove_legacy = {
+                    let existing = hash_index.get(content_hash.as_str())?;
+                    existing
+                        .map(|existing| existing.value() == chunk_id.as_str())
+                        .unwrap_or(false)
+                };
                 if should_remove_legacy {
                     hash_index.remove(content_hash.as_str())?;
                 }
