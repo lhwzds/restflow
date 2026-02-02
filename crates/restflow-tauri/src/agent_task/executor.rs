@@ -37,6 +37,7 @@ use super::runner::{AgentExecutor, ExecutionResult};
 /// - Executes the agent via the ReAct loop
 pub struct RealAgentExecutor {
     storage: Arc<Storage>,
+    #[allow(dead_code)]
     process_registry: Arc<ProcessRegistry>,
     auth_manager: Arc<AuthProfileManager>,
 }
