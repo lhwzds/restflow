@@ -8,6 +8,7 @@ mod email;
 mod file;
 mod file_memory;
 mod http;
+mod memory_search;
 mod process;
 mod python;
 mod registry;
@@ -23,6 +24,7 @@ pub use file_memory::{
     ReadMemoryTool, SaveMemoryTool,
 };
 pub use http::HttpTool;
+pub use memory_search::{MemorySearchMatch, MemorySearchTool, SemanticMemory};
 pub use process::{ProcessLog, ProcessManager, ProcessPollResult, ProcessSessionInfo, ProcessTool};
 pub use python::PythonTool;
 pub use registry::ToolRegistry;

@@ -11,6 +11,7 @@
 //! - Python SDK via PyO3
 
 pub mod agent;
+pub mod embedding;
 pub mod error;
 pub mod eval;
 pub mod graph;
@@ -26,13 +27,14 @@ pub mod python;
 
 // Re-export commonly used types
 pub use agent::{AgentConfig, AgentExecutor, AgentResult, AgentState, AgentStatus, TraceEvent};
+pub use embedding::{EmbeddingCache, EmbeddingConfig, EmbeddingProvider, OpenAIEmbedding, VoyageEmbedding};
 pub use error::{AiError, Result};
 pub use graph::{Graph, GraphNode};
 pub use llm::{AnthropicClient, LlmClient, Message, OpenAIClient, Role};
 pub use memory::{DEFAULT_MAX_MESSAGES, WorkingMemory};
 pub use security::{SecurityDecision, SecurityGate};
 pub use tools::{
-    EmailTool, HttpTool, PythonTool, SkillContent, SkillInfo, SkillProvider, SkillTool, Tool,
-    ToolOutput, ToolRegistry, ToolSchema,
+    EmailTool, HttpTool, MemorySearchMatch, MemorySearchTool, PythonTool, SemanticMemory,
+    SkillContent, SkillInfo, SkillProvider, SkillTool, Tool, ToolOutput, ToolRegistry, ToolSchema,
 };
 pub use workflow_def::WorkflowDef;
