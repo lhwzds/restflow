@@ -315,6 +315,7 @@ impl MemoryStorage {
     }
 
     /// List chunks with database-level pagination
+    #[allow(clippy::type_complexity)]
     pub fn list_chunks_by_agent_paginated(
         &self,
         agent_id: &str,
