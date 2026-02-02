@@ -3,7 +3,7 @@
 
 # RestFlow
 
-**🤖 AI agents that rest you from manual workflows**
+**AI agents work. You rest.**
 
 An intelligent AI agent that can create, manage, and execute automated workflows
 
