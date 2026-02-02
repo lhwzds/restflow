@@ -118,6 +118,7 @@ fn status_to_string(status: &AgentStatus) -> String {
 }
 
 /// Execute agent using restflow-ai AgentExecutor
+#[allow(clippy::too_many_arguments)]
 async fn run_agent_with_executor(
     agent_node: &AgentNode,
     input: &str,

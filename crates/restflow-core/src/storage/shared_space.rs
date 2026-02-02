@@ -1,6 +1,6 @@
 //! Typed shared space storage wrapper.
 
-use crate::models::{SharedEntry, Visibility};
+use crate::models::SharedEntry;
 use anyhow::{anyhow, Result};
 use restflow_storage::SharedSpaceStorage as RawStorage;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -50,10 +50,10 @@ impl SharedSpaceStorage {
 
     /// Delete an entry (with access control)
     pub fn delete(&self, key: &str, accessor_id: Option<&str>) -> Result<bool> {
-        if let Some(entry) = self.get_unchecked(key)? {
-            if !entry.can_write(accessor_id) {
-                return Err(anyhow!("Access denied: cannot delete this entry"));
-            }
+        if let Some(entry) = self.get_unchecked(key)?
+            && !entry.can_write(accessor_id)
+        {
+            return Err(anyhow!("Access denied: cannot delete this entry"));
         }
         self.inner.delete(key)
     }
@@ -67,10 +67,10 @@ impl SharedSpaceStorage {
         let raw_entries = self.inner.list_raw(namespace)?;
         let mut entries = Vec::new();
         for (_, data) in raw_entries {
-            if let Ok(entry) = serde_json::from_slice::<SharedEntry>(&data) {
-                if entry.can_read(accessor_id) {
-                    entries.push(entry);
-                }
+            if let Ok(entry) = serde_json::from_slice::<SharedEntry>(&data)
+                && entry.can_read(accessor_id)
+            {
+                entries.push(entry);
             }
         }
         entries.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));

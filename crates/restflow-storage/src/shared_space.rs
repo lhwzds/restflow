@@ -1,7 +1,7 @@
 //! Shared space storage - global key-value store for AI agents.
 
 use anyhow::Result;
-use redb::{Database, ReadableTable, TableDefinition};
+use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
 use std::sync::Arc;
 
 const SHARED_SPACE_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("shared_space");

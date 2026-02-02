@@ -196,10 +196,10 @@ impl SharedSpaceTool {
         }
     }
 
-    fn parse_visibility(value: Option<&str>) -> Visibility {
+    fn parse_visibility(value: &str) -> Visibility {
         match value {
-            Some("private") => Visibility::Private,
-            Some("shared") => Visibility::Shared,
+            "private" => Visibility::Private,
+            "shared" => Visibility::Shared,
             _ => Visibility::Public,
         }
     }
@@ -310,12 +310,12 @@ impl Tool for SharedSpaceTool {
                     .get_unchecked(key)
                     .map_err(|e| AiError::Tool(e.to_string()))?;
 
-                if let Some(ref entry) = existing {
-                    if !entry.can_write(accessor_id) {
-                        return Ok(ToolOutput::error(
-                            "Access denied: cannot write to this entry",
-                        ));
-                    }
+                if let Some(ref entry) = existing
+                    && !entry.can_write(accessor_id)
+                {
+                    return Ok(ToolOutput::error(
+                        "Access denied: cannot write to this entry",
+                    ));
                 }
 
                 let visibility = input
