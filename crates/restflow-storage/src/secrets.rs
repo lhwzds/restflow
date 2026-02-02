@@ -85,43 +85,17 @@ impl SecretStorage {
 
     /// Set or update a secret
     pub fn set_secret(&self, key: &str, value: &str, description: Option<String>) -> Result<()> {
-        let write_txn = self.db.begin_write()?;
-        {
-            let mut table = write_txn.open_table(SECRETS_TABLE)?;
-
-            let existing = table
-                .get(key)?
-                .map(|data| self.decode_secret_bytes(data.value()))
-                .transpose()?;
-
-            let secret = if let Some(mut existing_secret) = existing {
-                existing_secret.update(value.to_string(), description);
-                existing_secret
-            } else {
-                Secret::new(key.to_string(), value.to_string(), description)
-            };
-
-            let encrypted = self.encode_secret(&secret)?;
-            table.insert(key, encrypted.as_slice())?;
-        }
-        write_txn.commit()?;
-        Ok(())
+        self.write_secret_with_constraint(key, value, description, WriteConstraint::None)
     }
 
     /// Create a new secret (fails if already exists)
     pub fn create_secret(&self, key: &str, value: &str, description: Option<String>) -> Result<()> {
-        if self.get_secret_model(key)?.is_some() {
-            return Err(anyhow::anyhow!("Secret {} already exists", key));
-        }
-        self.set_secret(key, value, description)
+        self.write_secret_with_constraint(key, value, description, WriteConstraint::MustBeNew)
     }
 
     /// Update an existing secret (fails if not exists)
     pub fn update_secret(&self, key: &str, value: &str, description: Option<String>) -> Result<()> {
-        if self.get_secret_model(key)?.is_none() {
-            return Err(anyhow::anyhow!("Secret {} not found", key));
-        }
-        self.set_secret(key, value, description)
+        self.write_secret_with_constraint(key, value, description, WriteConstraint::MustExist)
     }
 
     /// Get secret model (internal)
@@ -197,6 +171,45 @@ impl SecretStorage {
                 Err(_) => Err(anyhow::anyhow!("Failed to decrypt secret payload: {}", err)),
             },
         }
+    }
+
+    fn write_secret_with_constraint(
+        &self,
+        key: &str,
+        value: &str,
+        description: Option<String>,
+        constraint: WriteConstraint,
+    ) -> Result<()> {
+        let write_txn = self.db.begin_write()?;
+        {
+            let mut table = write_txn.open_table(SECRETS_TABLE)?;
+            let existing = table
+                .get(key)?
+                .map(|data| self.decode_secret_bytes(data.value()))
+                .transpose()?;
+
+            match constraint {
+                WriteConstraint::MustExist if existing.is_none() => {
+                    return Err(anyhow::anyhow!("Secret {} not found", key));
+                }
+                WriteConstraint::MustBeNew if existing.is_some() => {
+                    return Err(anyhow::anyhow!("Secret {} already exists", key));
+                }
+                WriteConstraint::None => {}
+            }
+
+            let secret = if let Some(mut existing_secret) = existing {
+                existing_secret.update(value.to_string(), description);
+                existing_secret
+            } else {
+                Secret::new(key.to_string(), value.to_string(), description)
+            };
+
+            let encrypted = self.encode_secret(&secret)?;
+            table.insert(key, encrypted.as_slice())?;
+        }
+        write_txn.commit()?;
+        Ok(())
     }
 
     fn migrate_legacy_secrets(&self) -> Result<usize> {
@@ -479,4 +492,11 @@ mod tests {
         let secrets = storage.list_secrets().unwrap();
         assert_eq!(secrets.len(), 1);
     }
+}
+
+
+enum WriteConstraint {
+    None,
+    MustExist,
+    MustBeNew,
 }

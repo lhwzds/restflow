@@ -62,6 +62,11 @@ impl MemoryStorage {
         Ok(Self { db })
     }
 
+    fn hash_index_key(agent_id: &str, content_hash: &str) -> String {
+        format!("{agent_id}:{content_hash}")
+    }
+
+
     // ============== Memory Chunk Operations ==============
 
     /// Store a raw memory chunk with all necessary indexes.
@@ -102,7 +107,8 @@ impl MemoryStorage {
 
             // Index by content hash for deduplication checking
             let mut hash_index = write_txn.open_table(HASH_INDEX_TABLE)?;
-            hash_index.insert(content_hash, chunk_id)?;
+            let hash_key = Self::hash_index_key(agent_id, content_hash);
+            hash_index.insert(hash_key.as_str(), chunk_id)?;
 
             // Index by tags
             let mut tag_index = write_txn.open_table(TAG_INDEX_TABLE)?;
@@ -129,7 +135,8 @@ impl MemoryStorage {
         let write_txn = self.db.begin_write()?;
         let result = {
             let hash_index = write_txn.open_table(HASH_INDEX_TABLE)?;
-            if let Some(existing) = hash_index.get(content_hash)? {
+            let hash_key = Self::hash_index_key(agent_id, content_hash);
+            if let Some(existing) = hash_index.get(hash_key.as_str())? {
                 PutResult::Existing(existing.value().to_string())
             } else {
                 let mut chunk_table = write_txn.open_table(MEMORY_CHUNK_TABLE)?;
@@ -146,7 +153,7 @@ impl MemoryStorage {
                 }
 
                 let mut hash_index = write_txn.open_table(HASH_INDEX_TABLE)?;
-                hash_index.insert(content_hash, chunk_id)?;
+                hash_index.insert(hash_key.as_str(), chunk_id)?;
 
                 let mut tag_index = write_txn.open_table(TAG_INDEX_TABLE)?;
                 for tag in tags {
@@ -247,11 +254,12 @@ impl MemoryStorage {
 
     /// Check if a chunk with the given content hash already exists.
     /// Returns the existing chunk ID if found.
-    pub fn find_by_hash(&self, content_hash: &str) -> Result<Option<String>> {
+    pub fn find_by_hash(&self, agent_id: &str, content_hash: &str) -> Result<Option<String>> {
         let read_txn = self.db.begin_read()?;
         let hash_index = read_txn.open_table(HASH_INDEX_TABLE)?;
+        let hash_key = Self::hash_index_key(agent_id, content_hash);
 
-        if let Some(value) = hash_index.get(content_hash)? {
+        if let Some(value) = hash_index.get(hash_key.as_str())? {
             Ok(Some(value.value().to_string()))
         } else {
             Ok(None)
@@ -289,7 +297,8 @@ impl MemoryStorage {
 
             // Remove from hash index
             let mut hash_index = write_txn.open_table(HASH_INDEX_TABLE)?;
-            hash_index.remove(content_hash)?;
+            let hash_key = Self::hash_index_key(agent_id, content_hash);
+            hash_index.remove(hash_key.as_str())?;
 
             // Remove from tag indexes
             let mut tag_index = write_txn.open_table(TAG_INDEX_TABLE)?;
@@ -445,7 +454,8 @@ impl MemoryStorage {
                     session_index.remove(session_key.as_str())?;
                 }
 
-                hash_index.remove(content_hash.as_str())?;
+                let hash_key = Self::hash_index_key(agent_id, content_hash.as_str());
+                hash_index.remove(hash_key.as_str())?;
 
                 for tag in tags {
                     let tag_key = format!("{}:{}", tag, chunk_id);
@@ -719,12 +729,12 @@ mod tests {
             .unwrap();
 
         // Check for existing hash
-        let existing = storage.find_by_hash("unique-hash").unwrap();
+        let existing = storage.find_by_hash("agent-001", "unique-hash").unwrap();
         assert!(existing.is_some());
         assert_eq!(existing.unwrap(), "chunk-001");
 
         // Check for non-existing hash
-        let not_found = storage.find_by_hash("other-hash").unwrap();
+        let not_found = storage.find_by_hash("agent-001", "other-hash").unwrap();
         assert!(not_found.is_none());
     }
 
@@ -767,7 +777,7 @@ mod tests {
         assert!(session_chunks.is_empty());
 
         // Hash index should be empty
-        let hash_result = storage.find_by_hash("hash123").unwrap();
+        let hash_result = storage.find_by_hash("agent-001", "hash123").unwrap();
         assert!(hash_result.is_none());
 
         // Tag index should be empty
@@ -923,7 +933,7 @@ mod tests {
         let tag2_chunks = storage.list_chunks_by_tag_raw("tag2").unwrap();
         assert!(tag2_chunks.is_empty());
 
-        let hash1 = storage.find_by_hash("hash1").unwrap();
+        let hash1 = storage.find_by_hash("agent-001", "hash1").unwrap();
         assert!(hash1.is_none());
     }
 
