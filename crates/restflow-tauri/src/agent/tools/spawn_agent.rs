@@ -1,56 +1,56 @@
 //! spawn_agent tool - Spawn a sub-agent to work on a task in parallel.
 
-use crate::main_agent::MainAgent;
-use crate::subagent::SpawnRequest;
-use anyhow::{Result, anyhow};
+use super::{SubagentDeps, Tool, ToolResult};
+use crate::subagent::{SpawnRequest, spawn_subagent};
+use async_trait::async_trait;
+use restflow_ai::error::{AiError, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::sync::Arc;
+use tokio::time::{Duration, timeout};
 use ts_rs::TS;
 
-/// Parameters for spawn_agent tool
+/// Parameters for spawn_agent tool.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct SpawnAgentParams {
-    /// Agent type to spawn (researcher, coder, reviewer, writer, analyst)
+    /// Agent type to spawn (researcher, coder, reviewer, writer, analyst).
     pub agent: String,
 
-    /// Task description for the agent
+    /// Task description for the agent.
     pub task: String,
 
     /// If true, wait for completion. If false (default), run in background.
     #[serde(default)]
     pub wait: bool,
 
-    /// Timeout in seconds (default: 300)
+    /// Timeout in seconds (default: 300).
     pub timeout_secs: Option<u64>,
 }
 
-/// spawn_agent tool for the main agent
+/// spawn_agent tool for the unified agent.
 pub struct SpawnAgentTool {
-    main_agent: Arc<MainAgent>,
+    deps: Arc<SubagentDeps>,
 }
 
 impl SpawnAgentTool {
-    /// Create a new spawn_agent tool
-    pub fn new(main_agent: Arc<MainAgent>) -> Self {
-        Self { main_agent }
+    /// Create a new spawn_agent tool.
+    pub fn new(deps: Arc<SubagentDeps>) -> Self {
+        Self { deps }
     }
+}
 
-    /// Get tool name
-    pub fn name(&self) -> &str {
+#[async_trait]
+impl Tool for SpawnAgentTool {
+    fn name(&self) -> &str {
         "spawn_agent"
     }
 
-    /// Get tool description
-    pub fn description(&self) -> &str {
-        "Spawn a specialized agent to work on a task in parallel. \
-         The agent runs in the background and you'll be notified when it completes. \
-         Use this for tasks that can be delegated to specialists."
+    fn description(&self) -> &str {
+        "Spawn a specialized agent to work on a task in parallel. The agent runs in the background and you will be notified when it completes. Use this for tasks that can be delegated to specialists."
     }
 
-    /// Get JSON schema for parameters
-    pub fn parameters_schema(&self) -> Value {
+    fn parameters_schema(&self) -> Value {
         json!({
             "type": "object",
             "properties": {
@@ -78,10 +78,9 @@ impl SpawnAgentTool {
         })
     }
 
-    /// Execute the tool
-    pub async fn execute(&self, input: Value) -> Result<Value> {
-        let params: SpawnAgentParams =
-            serde_json::from_value(input).map_err(|e| anyhow!("Invalid parameters: {}", e))?;
+    async fn execute(&self, input: Value) -> Result<ToolResult> {
+        let params: SpawnAgentParams = serde_json::from_value(input)
+            .map_err(|e| AiError::Tool(format!("Invalid parameters: {}", e)))?;
 
         let request = SpawnRequest {
             agent_id: params.agent.clone(),
@@ -90,43 +89,68 @@ impl SpawnAgentTool {
             priority: None,
         };
 
-        let handle = self.main_agent.spawn_subagent(request)?;
+        let handle = spawn_subagent(
+            self.deps.tracker.clone(),
+            self.deps.definitions.clone(),
+            self.deps.llm_client.clone(),
+            self.deps.config.clone(),
+            request,
+        )
+        .map_err(|e| AiError::Tool(e.to_string()))?;
 
         if params.wait {
-            // Synchronous mode: wait for completion
-            let result = self
-                .main_agent
-                .wait_subagent(&handle.id)
-                .await
-                .ok_or_else(|| anyhow!("Failed to get result"))?;
+            let wait_timeout = params
+                .timeout_secs
+                .unwrap_or(self.deps.config.subagent_timeout_secs);
 
-            if result.success {
-                Ok(json!({
+            let result = match timeout(
+                Duration::from_secs(wait_timeout),
+                self.deps.tracker.wait(&handle.id),
+            )
+            .await
+            {
+                Ok(Some(result)) => result,
+                Ok(None) => {
+                    return Ok(ToolResult::error("Sub-agent not found"));
+                }
+                Err(_) => {
+                    let output = json!({
+                        "agent": handle.agent_name,
+                        "status": "timeout",
+                        "message": "Timeout waiting for sub-agent"
+                    });
+                    return Ok(ToolResult::success(output));
+                }
+            };
+
+            let output = if result.success {
+                json!({
                     "agent": handle.agent_name,
                     "status": "completed",
                     "output": result.output,
                     "duration_ms": result.duration_ms
-                }))
+                })
             } else {
-                Ok(json!({
+                json!({
                     "agent": handle.agent_name,
                     "status": "failed",
                     "error": result.error.unwrap_or_else(|| "Unknown error".to_string()),
                     "duration_ms": result.duration_ms
-                }))
-            }
+                })
+            };
+
+            Ok(ToolResult::success(output))
         } else {
-            // Asynchronous mode: return immediately
-            Ok(json!({
+            let output = json!({
                 "task_id": handle.id,
                 "agent": handle.agent_name,
                 "status": "spawned",
                 "message": format!(
-                    "Agent '{}' is now working on the task in background. \
-                     You will be notified when it completes.",
+                    "Agent '{}' is now working on the task in background. You will be notified when it completes.",
                     handle.agent_name
                 )
-            }))
+            });
+            Ok(ToolResult::success(output))
         }
     }
 }

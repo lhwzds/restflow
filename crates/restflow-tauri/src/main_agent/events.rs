@@ -3,7 +3,7 @@
 //! This module provides real-time event streaming from the main agent
 //! to the frontend, including sub-agent status updates.
 
-use super::tracker::SubagentResult;
+use crate::subagent::SubagentResult;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
