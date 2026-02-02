@@ -11,6 +11,7 @@ pub mod security;
 pub mod skill;
 pub mod skill_folder;
 pub mod skill_marketplace;
+pub mod shared_space;
 pub mod terminal_session;
 pub mod trigger;
 pub mod webhook;
@@ -49,6 +50,7 @@ pub use skill_marketplace::{
     InstallStatus, InstalledSkill, OsType, SkillAuthor, SkillDependency, SkillManifest,
     SkillPermission, SkillPermissions, SkillSource, SkillVersion, VersionRequirement,
 };
+pub use shared_space::{SharedEntry, Visibility};
 pub use terminal_session::{TerminalSession, TerminalStatus};
 pub use trigger::{ActiveTrigger, AuthConfig, TriggerConfig};
 pub use security::{

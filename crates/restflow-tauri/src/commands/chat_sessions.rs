@@ -446,10 +446,19 @@ fn build_filtered_tool_registry(
         restflow_core::storage::skill::SkillStorage::new(db.clone()).map_err(|e| e.to_string())?;
     let memory_storage =
         restflow_core::storage::memory::MemoryStorage::new(db.clone()).map_err(|e| e.to_string())?;
-    let chat_storage = restflow_core::storage::chat_session::ChatSessionStorage::new(db)
+    let chat_storage = restflow_core::storage::chat_session::ChatSessionStorage::new(db.clone())
         .map_err(|e| e.to_string())?;
+    let shared_space_storage = restflow_core::storage::SharedSpaceStorage::new(
+        restflow_storage::SharedSpaceStorage::new(db).map_err(|e| e.to_string())?,
+    );
 
-    let full_registry = create_tool_registry(skill_storage, memory_storage, chat_storage);
+    let full_registry = create_tool_registry(
+        skill_storage,
+        memory_storage,
+        chat_storage,
+        shared_space_storage,
+        None,
+    );
 
     // Filter to only selected tools (secure by default)
     let tools = if let Some(tool_names) = agent_tools {

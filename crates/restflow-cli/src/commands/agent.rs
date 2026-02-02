@@ -181,6 +181,7 @@ async fn exec_agent(
         core.storage.skills.clone(),
         core.storage.memory.clone(),
         core.storage.chat_sessions.clone(),
+        core.storage.shared_space.clone(),
     )
     .await?;
     let duration_ms = started.elapsed().as_millis() as i64;
@@ -341,6 +342,7 @@ async fn run_agent_with_executor(
     skill_storage: restflow_core::storage::skill::SkillStorage,
     memory_storage: restflow_core::storage::memory::MemoryStorage,
     chat_storage: restflow_core::storage::chat_session::ChatSessionStorage,
+    shared_space_storage: restflow_core::storage::SharedSpaceStorage,
 ) -> Result<AgentExecuteResponse> {
     // Get model (required for execution)
     let model = agent_node.require_model().map_err(|e| anyhow::anyhow!(e))?;
@@ -357,7 +359,13 @@ async fn run_agent_with_executor(
         ),
     };
 
-    let full_registry = create_tool_registry(skill_storage, memory_storage, chat_storage);
+    let full_registry = create_tool_registry(
+        skill_storage,
+        memory_storage,
+        chat_storage,
+        shared_space_storage,
+        None,
+    );
 
     let tools = if let Some(ref tool_names) = agent_node.tools {
         if tool_names.is_empty() {
@@ -428,6 +436,7 @@ pub async fn execute_agent_for_task(
         core.storage.skills.clone(),
         core.storage.memory.clone(),
         core.storage.chat_sessions.clone(),
+        core.storage.shared_space.clone(),
     )
     .await
 }

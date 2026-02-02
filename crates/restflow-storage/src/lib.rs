@@ -27,6 +27,7 @@ pub mod config;
 pub mod execution_history;
 pub mod memory;
 pub mod secrets;
+pub mod shared_space;
 pub mod skill;
 pub mod terminal_session;
 pub mod trigger;
@@ -48,6 +49,7 @@ pub use execution_history::{
 };
 pub use memory::MemoryStorage;
 pub use secrets::{Secret, SecretStorage};
+pub use shared_space::SharedSpaceStorage;
 pub use skill::SkillStorage;
 pub use terminal_session::TerminalSessionStorage;
 pub use trigger::TriggerStorage;

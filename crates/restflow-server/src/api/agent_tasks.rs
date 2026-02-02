@@ -125,6 +125,8 @@ async fn run_agent_with_executor(
     skill_storage: restflow_core::storage::skill::SkillStorage,
     memory_storage: restflow_core::storage::memory::MemoryStorage,
     chat_storage: restflow_core::storage::ChatSessionStorage,
+    shared_space_storage: restflow_core::storage::SharedSpaceStorage,
+    accessor_id: Option<String>,
 ) -> Result<AgentExecuteResponse, String> {
     // Get API key
     let api_key = match &agent_node.api_key_config {
@@ -168,6 +170,8 @@ async fn run_agent_with_executor(
         skill_storage,
         memory_storage,
         chat_storage,
+        shared_space_storage,
+        accessor_id,
     );
 
     // Filter to only selected tools (secure by default)
@@ -484,6 +488,8 @@ pub async fn run_agent_task(
         state.storage.skills.clone(),
         state.storage.memory.clone(),
         state.storage.chat_sessions.clone(),
+        state.storage.shared_space.clone(),
+        Some(task.agent_id.clone()),
     )
     .await;
 
