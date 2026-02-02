@@ -4,9 +4,11 @@
 
 use super::discoverer::CompositeDiscoverer;
 use super::refresh::{AnthropicRefresher, OAuthRefresher};
+use super::resolver::CredentialResolver;
+use super::writer::CredentialWriter;
 use super::types::{
     AuthProfile, AuthProvider, Credential, CredentialSource, DiscoverySummary, ProfileHealth,
-    ProfileSelection,
+    ProfileSelection, SecureCredential,
 };
 use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
@@ -15,7 +17,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
+use uuid::Uuid;
 
+use crate::storage::SecretStorage;
 use crate::Provider;
 
 /// Configuration for the auth profile manager
@@ -63,30 +67,40 @@ impl Default for AuthManagerConfig {
 /// - Profile selection based on priority and health
 /// - Health tracking with exponential backoff
 /// - Manual profile management
+/// - Secure credential storage via SecretStorage
 pub struct AuthProfileManager {
     config: AuthManagerConfig,
     profiles: Arc<RwLock<HashMap<String, AuthProfile>>>,
     discoverer: CompositeDiscoverer,
     refreshers: HashMap<AuthProvider, Arc<dyn OAuthRefresher>>,
+    /// Resolver for reading secrets
+    resolver: CredentialResolver,
+    /// Writer for storing secrets
+    writer: CredentialWriter,
 }
 
 impl AuthProfileManager {
-    /// Create a new auth profile manager with default config
-    pub fn new() -> Self {
-        Self::with_config(AuthManagerConfig::default())
+    /// Create a new auth profile manager with secret storage
+    pub fn new(secrets: Arc<SecretStorage>) -> Self {
+        Self::with_config(AuthManagerConfig::default(), secrets)
     }
 
-    /// Create a new auth profile manager with custom config
-    pub fn with_config(config: AuthManagerConfig) -> Self {
+    /// Create a new auth profile manager with custom config and secret storage
+    pub fn with_config(config: AuthManagerConfig, secrets: Arc<SecretStorage>) -> Self {
         let mut refreshers: HashMap<AuthProvider, Arc<dyn OAuthRefresher>> = HashMap::new();
-        // ClaudeCode OAuth tokens (from `claude login`) can be refreshed using Anthropic's OAuth endpoint
+        // ClaudeCode OAuth tokens can be refreshed using Anthropic's OAuth endpoint
         refreshers.insert(AuthProvider::ClaudeCode, Arc::new(AnthropicRefresher::default()));
+
+        let resolver = CredentialResolver::new(secrets.clone());
+        let writer = CredentialWriter::new(secrets.clone());
 
         Self {
             config,
             profiles: Arc::new(RwLock::new(HashMap::new())),
             discoverer: CompositeDiscoverer::with_defaults(),
             refreshers,
+            resolver,
+            writer,
         }
     }
 
@@ -114,16 +128,32 @@ impl AuthProfileManager {
 
         let mut profiles = self.profiles.write().await;
 
-        for profile in discovered_profiles {
-            // Don't overwrite existing profiles with same source credentials
+        for discovered in discovered_profiles {
+            // Check for duplicates by source, provider, and email
             let exists = profiles.values().any(|p| {
-                p.source == profile.source
-                    && p.provider == profile.provider
-                    && p.credential.get_email() == profile.credential.get_email()
+                p.source == discovered.source
+                    && p.provider == discovered.provider
+                    && p.credential.get_email() == discovered.credential.get_email()
             });
 
             if !exists {
-                profiles.insert(profile.id.clone(), profile);
+                // Generate ID and store credential securely
+                let profile_id = Uuid::new_v4().to_string();
+                match self.writer.store_credential(&profile_id, &discovered.credential) {
+                    Ok(secure_credential) => {
+                        let profile = AuthProfile::new_with_id(
+                            profile_id.clone(),
+                            discovered.name,
+                            secure_credential,
+                            discovered.source,
+                            discovered.provider,
+                        );
+                        profiles.insert(profile_id, profile);
+                    }
+                    Err(e) => {
+                        warn!(error = %e, "Failed to store discovered credential securely");
+                    }
+                }
             }
         }
 
@@ -239,7 +269,8 @@ impl AuthProfileManager {
             None => return Ok(0),
         };
 
-        let candidates: Vec<(String, Credential)> = {
+        // Collect candidates that need refresh
+        let candidates: Vec<(String, SecureCredential)> = {
             let profiles = self.profiles.read().await;
             profiles
                 .values()
@@ -258,21 +289,64 @@ impl AuthProfileManager {
 
         let mut refreshed = 0;
 
-        for (profile_id, credential) in candidates {
-            let email = credential.get_email().map(|value| value.to_string());
-            let updated = refresher.refresh(&credential).await;
-            match updated {
+        for (profile_id, secure_credential) in candidates {
+            // Resolve current tokens
+            let access_token = match self.resolver.resolve_auth_value(&secure_credential) {
+                Ok(token) => token,
+                Err(e) => {
+                    warn!(%e, profile_id, "Failed to resolve access token for refresh");
+                    continue;
+                }
+            };
+            
+            let refresh_token = match self.resolver.resolve_refresh_token(&secure_credential) {
+                Ok(Some(token)) => token,
+                Ok(None) => {
+                    warn!(profile_id, "No refresh token available");
+                    continue;
+                }
+                Err(e) => {
+                    warn!(%e, profile_id, "Failed to resolve refresh token");
+                    continue;
+                }
+            };
+
+            // Create temporary Credential for refresher
+            let temp_credential = Credential::OAuth {
+                access_token,
+                refresh_token: Some(refresh_token),
+                expires_at: None,
+                email: secure_credential.get_email().map(|s| s.to_string()),
+            };
+
+            match refresher.refresh(&temp_credential).await {
                 Ok(updated) => {
+                    // Update secrets
+                    if let Err(e) = self.writer.update_secret(
+                        secure_credential.primary_secret_ref(),
+                        &updated.access_token,
+                    ) {
+                        warn!(%e, profile_id, "Failed to update access token secret");
+                        continue;
+                    }
+
+                    // Update refresh token if provided
+                    if let Some(new_refresh) = &updated.refresh_token
+                        && let Some(refresh_ref) = secure_credential.refresh_token_ref()
+                        && let Err(e) = self.writer.update_secret(refresh_ref, new_refresh)
+                    {
+                        warn!(%e, profile_id, "Failed to update refresh token secret");
+                    }
+
+                    // Update profile metadata
                     let mut profiles = self.profiles.write().await;
                     if let Some(profile) = profiles.get_mut(&profile_id) {
-                        profile.credential = Credential::OAuth {
-                            access_token: updated.access_token,
-                            refresh_token: updated
-                                .refresh_token
-                                .or_else(|| credential.refresh_token().map(|value| value.to_string())),
-                            expires_at: updated.expires_at,
-                            email,
-                        };
+                        profile.credential.update_oauth_metadata(
+                            updated.refresh_token.and_then(|_| {
+                                secure_credential.refresh_token_ref().map(|s| s.to_string())
+                            }),
+                            updated.expires_at,
+                        );
                         refreshed += 1;
                     }
                 }
@@ -289,7 +363,7 @@ impl AuthProfileManager {
     pub async fn get_api_key(&self, provider: AuthProvider) -> Option<String> {
         self.select_profile(provider)
             .await
-            .map(|s| s.profile.get_api_key().to_string())
+            .and_then(|s| s.profile.get_api_key(&self.resolver).ok())
     }
 
     /// Mark a profile as successfully used
@@ -333,14 +407,74 @@ impl AuthProfileManager {
         Ok(())
     }
 
-    /// Add a manual profile
+    /// Add a profile from a plaintext credential (stores securely)
+    pub async fn add_profile_from_credential(
+        &self,
+        name: impl Into<String>,
+        credential: Credential,
+        source: CredentialSource,
+        provider: AuthProvider,
+    ) -> Result<String> {
+        let profile_id = Uuid::new_v4().to_string();
+        
+        // Check for duplicates
+        {
+            let profiles = self.profiles.read().await;
+            let exists = profiles.values().any(|p| {
+                p.provider == provider
+                    && self.resolver.resolve_auth_value(&p.credential).ok()
+                        == Some(credential.get_auth_value().to_string())
+            });
+
+            if exists {
+                return Err(anyhow!(
+                    "A profile with this credential already exists for {}",
+                    provider
+                ));
+            }
+        }
+
+        // Store credential securely
+        let secure_credential = self.writer.store_credential(&profile_id, &credential)?;
+        
+        let profile = AuthProfile::new_with_id(
+            profile_id.clone(),
+            name,
+            secure_credential,
+            source,
+            provider,
+        );
+
+        let mut profiles = self.profiles.write().await;
+        profiles.insert(profile_id.clone(), profile);
+
+        info!(profile_id = %profile_id, "Manual profile added");
+
+        // Save manual profiles if path is configured
+        if let Some(path) = &self.config.profiles_path {
+            let manual_profiles: Vec<_> = profiles
+                .values()
+                .filter(|p| p.source == CredentialSource::Manual)
+                .cloned()
+                .collect();
+            
+            if let Err(e) = Self::save_profiles_to_file(&manual_profiles, path).await {
+                warn!(error = %e, "Failed to save manual profiles");
+            }
+        }
+
+        Ok(profile_id)
+    }
+
+    /// Add a profile (for internal use with already-secure credentials)
     pub async fn add_profile(&self, profile: AuthProfile) -> Result<String> {
         let mut profiles = self.profiles.write().await;
 
-        // Check for duplicates
+        // Check for duplicates by resolving values
+        let new_value = self.resolver.resolve_auth_value(&profile.credential).ok();
         let exists = profiles.values().any(|p| {
             p.provider == profile.provider
-                && p.credential.get_auth_value() == profile.credential.get_auth_value()
+                && self.resolver.resolve_auth_value(&p.credential).ok() == new_value
         });
 
         if exists {
@@ -353,7 +487,7 @@ impl AuthProfileManager {
         let id = profile.id.clone();
         profiles.insert(id.clone(), profile);
 
-        info!(profile_id = %id, "Manual profile added");
+        info!(profile_id = %id, "Profile added");
 
         // Save manual profiles if path is configured
         if let Some(path) = &self.config.profiles_path {
@@ -377,6 +511,11 @@ impl AuthProfileManager {
         let profile = profiles
             .remove(profile_id)
             .ok_or_else(|| anyhow!("Profile not found: {}", profile_id))?;
+
+        // Delete associated secrets
+        if let Err(e) = self.writer.delete_credential(&profile.credential) {
+            warn!(error = %e, profile_id, "Failed to delete credential secrets");
+        }
 
         info!(profile_id, name = %profile.name, "Profile removed");
 
@@ -485,8 +624,21 @@ impl AuthProfileManager {
     /// Clear all profiles
     pub async fn clear(&self) {
         let mut profiles = self.profiles.write().await;
+        
+        // Delete all secrets
+        for profile in profiles.values() {
+            if let Err(e) = self.writer.delete_credential(&profile.credential) {
+                warn!(error = %e, profile_id = %profile.id, "Failed to delete credential secrets on clear");
+            }
+        }
+        
         profiles.clear();
         info!("All profiles cleared");
+    }
+
+    /// Get the credential resolver for external use
+    pub fn resolver(&self) -> &CredentialResolver {
+        &self.resolver
     }
 
     /// Load manual profiles from a file
@@ -526,12 +678,6 @@ impl AuthProfileManager {
     }
 }
 
-impl Default for AuthProfileManager {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 /// Update request for a profile
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ProfileUpdate {
@@ -556,17 +702,29 @@ pub struct ManagerSummary {
 mod tests {
     use super::*;
     use crate::auth::Credential;
+    use redb::Database;
+    use tempfile::TempDir;
 
-    fn create_test_profile(name: &str, provider: AuthProvider) -> AuthProfile {
-        AuthProfile::new(
-            name,
-            Credential::ApiKey {
-                key: format!("test-key-{}", name),
-                email: None,
-            },
-            CredentialSource::Manual,
-            provider,
-        )
+    fn create_test_secrets() -> (Arc<SecretStorage>, TempDir) {
+        let dir = TempDir::new().unwrap();
+        let db = Arc::new(Database::create(dir.path().join("test.db")).unwrap());
+        let secrets = Arc::new(SecretStorage::new(db).unwrap());
+        (secrets, dir)
+    }
+
+    fn create_test_profile(
+        secrets: &Arc<SecretStorage>,
+        name: &str,
+        provider: AuthProvider,
+    ) -> AuthProfile {
+        let writer = CredentialWriter::new(secrets.clone());
+        let profile_id = Uuid::new_v4().to_string();
+        let credential = Credential::ApiKey {
+            key: format!("test-key-{}", name),
+            email: None,
+        };
+        let secure = writer.store_credential(&profile_id, &credential).unwrap();
+        AuthProfile::new_with_id(profile_id, name, secure, CredentialSource::Manual, provider)
     }
 
     #[test]
@@ -605,17 +763,26 @@ mod tests {
 
     #[tokio::test]
     async fn test_manager_new() {
-        let manager = AuthProfileManager::new();
+        let (secrets, _dir) = create_test_secrets();
+        let manager = AuthProfileManager::new(secrets);
         let profiles = manager.list_profiles().await;
         assert!(profiles.is_empty());
     }
 
     #[tokio::test]
-    async fn test_manager_add_profile() {
-        let manager = AuthProfileManager::new();
-        let profile = create_test_profile("Test", AuthProvider::Anthropic);
+    async fn test_manager_add_profile_from_credential() {
+        let (secrets, _dir) = create_test_secrets();
+        let manager = AuthProfileManager::new(secrets);
+        
+        let credential = Credential::ApiKey {
+            key: "test-key".to_string(),
+            email: None,
+        };
 
-        let id = manager.add_profile(profile).await.unwrap();
+        let id = manager
+            .add_profile_from_credential("Test", credential, CredentialSource::Manual, AuthProvider::Anthropic)
+            .await
+            .unwrap();
         assert!(!id.is_empty());
 
         let profiles = manager.list_profiles().await;
@@ -624,38 +791,35 @@ mod tests {
 
     #[tokio::test]
     async fn test_manager_add_duplicate_profile() {
-        let manager = AuthProfileManager::new();
+        let (secrets, _dir) = create_test_secrets();
+        let manager = AuthProfileManager::new(secrets);
         
-        let profile1 = AuthProfile::new(
-            "Test 1",
-            Credential::ApiKey {
-                key: "same-key".to_string(),
-                email: None,
-            },
-            CredentialSource::Manual,
-            AuthProvider::Anthropic,
-        );
+        let credential1 = Credential::ApiKey {
+            key: "same-key".to_string(),
+            email: None,
+        };
         
-        let profile2 = AuthProfile::new(
-            "Test 2",
-            Credential::ApiKey {
-                key: "same-key".to_string(),
-                email: None,
-            },
-            CredentialSource::Manual,
-            AuthProvider::Anthropic,
-        );
+        let credential2 = Credential::ApiKey {
+            key: "same-key".to_string(),
+            email: None,
+        };
 
-        manager.add_profile(profile1).await.unwrap();
-        let result = manager.add_profile(profile2).await;
+        manager
+            .add_profile_from_credential("Test 1", credential1, CredentialSource::Manual, AuthProvider::Anthropic)
+            .await
+            .unwrap();
+        let result = manager
+            .add_profile_from_credential("Test 2", credential2, CredentialSource::Manual, AuthProvider::Anthropic)
+            .await;
         
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn test_manager_remove_profile() {
-        let manager = AuthProfileManager::new();
-        let profile = create_test_profile("Test", AuthProvider::Anthropic);
+        let (secrets, _dir) = create_test_secrets();
+        let manager = AuthProfileManager::new(secrets.clone());
+        let profile = create_test_profile(&secrets, "Test", AuthProvider::Anthropic);
         let id = manager.add_profile(profile).await.unwrap();
 
         let removed = manager.remove_profile(&id).await.unwrap();
@@ -667,8 +831,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_manager_get_profile() {
-        let manager = AuthProfileManager::new();
-        let profile = create_test_profile("Test", AuthProvider::Anthropic);
+        let (secrets, _dir) = create_test_secrets();
+        let manager = AuthProfileManager::new(secrets.clone());
+        let profile = create_test_profile(&secrets, "Test", AuthProvider::Anthropic);
         let id = manager.add_profile(profile).await.unwrap();
 
         let retrieved = manager.get_profile(&id).await;
@@ -681,10 +846,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_manager_select_profile() {
-        let manager = AuthProfileManager::new();
+        let (secrets, _dir) = create_test_secrets();
+        let manager = AuthProfileManager::new(secrets.clone());
 
-        let profile1 = create_test_profile("Low Priority", AuthProvider::Anthropic);
-        let mut profile2 = create_test_profile("High Priority", AuthProvider::Anthropic);
+        let profile1 = create_test_profile(&secrets, "Low Priority", AuthProvider::Anthropic);
+        let mut profile2 = create_test_profile(&secrets, "High Priority", AuthProvider::Anthropic);
         profile2.priority = -1; // Higher priority (lower number)
 
         manager.add_profile(profile1).await.unwrap();
@@ -700,15 +866,17 @@ mod tests {
 
     #[tokio::test]
     async fn test_manager_select_no_profiles() {
-        let manager = AuthProfileManager::new();
+        let (secrets, _dir) = create_test_secrets();
+        let manager = AuthProfileManager::new(secrets);
         let selection = manager.select_profile(AuthProvider::Anthropic).await;
         assert!(selection.is_none());
     }
 
     #[tokio::test]
     async fn test_manager_mark_success() {
-        let manager = AuthProfileManager::new();
-        let profile = create_test_profile("Test", AuthProvider::Anthropic);
+        let (secrets, _dir) = create_test_secrets();
+        let manager = AuthProfileManager::new(secrets.clone());
+        let profile = create_test_profile(&secrets, "Test", AuthProvider::Anthropic);
         let id = manager.add_profile(profile).await.unwrap();
 
         manager.mark_success(&id).await.unwrap();
@@ -720,8 +888,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_manager_mark_failure() {
-        let manager = AuthProfileManager::new();
-        let profile = create_test_profile("Test", AuthProvider::Anthropic);
+        let (secrets, _dir) = create_test_secrets();
+        let manager = AuthProfileManager::new(secrets.clone());
+        let profile = create_test_profile(&secrets, "Test", AuthProvider::Anthropic);
         let id = manager.add_profile(profile).await.unwrap();
 
         manager.mark_failure(&id).await.unwrap();
@@ -734,12 +903,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_manager_max_failures() {
+        let (secrets, _dir) = create_test_secrets();
         let config = AuthManagerConfig {
             max_failures: 3,
             ..Default::default()
         };
-        let manager = AuthProfileManager::with_config(config);
-        let profile = create_test_profile("Test", AuthProvider::Anthropic);
+        let manager = AuthProfileManager::with_config(config, secrets.clone());
+        let profile = create_test_profile(&secrets, "Test", AuthProvider::Anthropic);
         let id = manager.add_profile(profile).await.unwrap();
 
         // Fail 3 times
@@ -754,8 +924,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_manager_enable_disable_profile() {
-        let manager = AuthProfileManager::new();
-        let profile = create_test_profile("Test", AuthProvider::Anthropic);
+        let (secrets, _dir) = create_test_secrets();
+        let manager = AuthProfileManager::new(secrets.clone());
+        let profile = create_test_profile(&secrets, "Test", AuthProvider::Anthropic);
         let id = manager.add_profile(profile).await.unwrap();
 
         manager.disable_profile(&id, "Test reason").await.unwrap();
@@ -771,8 +942,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_manager_update_profile() {
-        let manager = AuthProfileManager::new();
-        let profile = create_test_profile("Test", AuthProvider::Anthropic);
+        let (secrets, _dir) = create_test_secrets();
+        let manager = AuthProfileManager::new(secrets.clone());
+        let profile = create_test_profile(&secrets, "Test", AuthProvider::Anthropic);
         let id = manager.add_profile(profile).await.unwrap();
 
         let update = ProfileUpdate {
@@ -788,18 +960,19 @@ mod tests {
 
     #[tokio::test]
     async fn test_manager_get_profiles_for_provider() {
-        let manager = AuthProfileManager::new();
+        let (secrets, _dir) = create_test_secrets();
+        let manager = AuthProfileManager::new(secrets.clone());
 
         manager
-            .add_profile(create_test_profile("Anthropic 1", AuthProvider::Anthropic))
+            .add_profile(create_test_profile(&secrets, "Anthropic 1", AuthProvider::Anthropic))
             .await
             .unwrap();
         manager
-            .add_profile(create_test_profile("Anthropic 2", AuthProvider::Anthropic))
+            .add_profile(create_test_profile(&secrets, "Anthropic 2", AuthProvider::Anthropic))
             .await
             .unwrap();
         manager
-            .add_profile(create_test_profile("OpenAI 1", AuthProvider::OpenAI))
+            .add_profile(create_test_profile(&secrets, "OpenAI 1", AuthProvider::OpenAI))
             .await
             .unwrap();
 
@@ -816,10 +989,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_manager_get_available_profiles() {
-        let manager = AuthProfileManager::new();
+        let (secrets, _dir) = create_test_secrets();
+        let manager = AuthProfileManager::new(secrets.clone());
 
-        let profile1 = create_test_profile("Available", AuthProvider::Anthropic);
-        let mut profile2 = create_test_profile("Disabled", AuthProvider::Anthropic);
+        let profile1 = create_test_profile(&secrets, "Available", AuthProvider::Anthropic);
+        let mut profile2 = create_test_profile(&secrets, "Disabled", AuthProvider::Anthropic);
         profile2.enabled = false;
 
         let id1 = manager.add_profile(profile1).await.unwrap();
@@ -832,8 +1006,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_manager_get_api_key() {
-        let manager = AuthProfileManager::new();
-        let profile = create_test_profile("Test", AuthProvider::Anthropic);
+        let (secrets, _dir) = create_test_secrets();
+        let manager = AuthProfileManager::new(secrets.clone());
+        let profile = create_test_profile(&secrets, "Test", AuthProvider::Anthropic);
         manager.add_profile(profile).await.unwrap();
 
         let key = manager.get_api_key(AuthProvider::Anthropic).await;
@@ -846,18 +1021,19 @@ mod tests {
 
     #[tokio::test]
     async fn test_manager_get_summary() {
-        let manager = AuthProfileManager::new();
+        let (secrets, _dir) = create_test_secrets();
+        let manager = AuthProfileManager::new(secrets.clone());
 
         manager
-            .add_profile(create_test_profile("P1", AuthProvider::Anthropic))
+            .add_profile(create_test_profile(&secrets, "P1", AuthProvider::Anthropic))
             .await
             .unwrap();
         manager
-            .add_profile(create_test_profile("P2", AuthProvider::Anthropic))
+            .add_profile(create_test_profile(&secrets, "P2", AuthProvider::Anthropic))
             .await
             .unwrap();
         manager
-            .add_profile(create_test_profile("P3", AuthProvider::OpenAI))
+            .add_profile(create_test_profile(&secrets, "P3", AuthProvider::OpenAI))
             .await
             .unwrap();
 
@@ -871,14 +1047,15 @@ mod tests {
 
     #[tokio::test]
     async fn test_manager_clear() {
-        let manager = AuthProfileManager::new();
+        let (secrets, _dir) = create_test_secrets();
+        let manager = AuthProfileManager::new(secrets.clone());
 
         manager
-            .add_profile(create_test_profile("P1", AuthProvider::Anthropic))
+            .add_profile(create_test_profile(&secrets, "P1", AuthProvider::Anthropic))
             .await
             .unwrap();
         manager
-            .add_profile(create_test_profile("P2", AuthProvider::OpenAI))
+            .add_profile(create_test_profile(&secrets, "P2", AuthProvider::OpenAI))
             .await
             .unwrap();
 
@@ -890,8 +1067,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_profile_update_partial() {
-        let manager = AuthProfileManager::new();
-        let profile = create_test_profile("Test", AuthProvider::Anthropic);
+        let (secrets, _dir) = create_test_secrets();
+        let manager = AuthProfileManager::new(secrets.clone());
+        let profile = create_test_profile(&secrets, "Test", AuthProvider::Anthropic);
         let id = manager.add_profile(profile).await.unwrap();
 
         // Only update name

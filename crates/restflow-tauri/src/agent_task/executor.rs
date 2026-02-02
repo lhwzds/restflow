@@ -90,7 +90,7 @@ impl RealAgentExecutor {
                 model_provider = ?provider,
                 "Using auth profile for model provider"
             );
-            return Ok(profile.get_api_key().to_string());
+            return profile.get_api_key(self.auth_manager.resolver());
         }
 
         // Fall back to well-known secret names for each provider

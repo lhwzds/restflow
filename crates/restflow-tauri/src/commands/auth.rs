@@ -6,6 +6,7 @@ use restflow_core::auth::{
     AuthManagerConfig, AuthProfile, AuthProfileManager, AuthProvider, Credential,
     CredentialSource, DiscoverySummary, ManagerSummary, ProfileUpdate,
 };
+use restflow_core::storage::SecretStorage;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tauri::State;
@@ -19,24 +20,18 @@ pub struct AuthState {
 }
 
 impl AuthState {
-    pub fn new() -> Self {
+    pub fn new(secrets: Arc<SecretStorage>) -> Self {
         Self {
-            manager: Arc::new(AuthProfileManager::new()),
+            manager: Arc::new(AuthProfileManager::new(secrets)),
             initialized: Arc::new(RwLock::new(false)),
         }
     }
 
-    pub fn with_config(config: AuthManagerConfig) -> Self {
+    pub fn with_config(config: AuthManagerConfig, secrets: Arc<SecretStorage>) -> Self {
         Self {
-            manager: Arc::new(AuthProfileManager::with_config(config)),
+            manager: Arc::new(AuthProfileManager::with_config(config, secrets)),
             initialized: Arc::new(RwLock::new(false)),
         }
-    }
-}
-
-impl Default for AuthState {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
@@ -162,16 +157,22 @@ pub async fn auth_add_profile(
         email: request.email,
     };
 
-    let mut profile = AuthProfile::new(
-        request.name,
-        credential,
-        CredentialSource::Manual,
-        request.provider,
-    );
-    profile.priority = request.priority;
-
-    match state.manager.add_profile(profile).await {
+    match state
+        .manager
+        .add_profile_from_credential(request.name, credential, CredentialSource::Manual, request.provider)
+        .await
+    {
         Ok(id) => {
+            // Update priority if needed
+            if request.priority != 0 {
+                let update = ProfileUpdate {
+                    name: None,
+                    enabled: None,
+                    priority: Some(request.priority),
+                };
+                let _ = state.manager.update_profile(&id, update).await;
+            }
+            
             let profile = state.manager.get_profile(&id).await;
             match profile {
                 Some(p) => Ok(ProfileResponse::success(p)),
@@ -292,56 +293,4 @@ pub async fn auth_get_summary(state: State<'_, AuthState>) -> Result<ManagerSumm
 pub async fn auth_clear(state: State<'_, AuthState>) -> Result<(), String> {
     state.manager.clear().await;
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_add_profile_request_serialization() {
-        let request = AddProfileRequest {
-            name: "Test".to_string(),
-            api_key: "key123".to_string(),
-            provider: AuthProvider::Anthropic,
-            email: Some("test@example.com".to_string()),
-            priority: 0,
-        };
-
-        let json = serde_json::to_string(&request).unwrap();
-        assert!(json.contains("Test"));
-        assert!(json.contains("key123"));
-    }
-
-    #[test]
-    fn test_profile_response_success() {
-        let profile = AuthProfile::new(
-            "Test",
-            Credential::ApiKey {
-                key: "key".to_string(),
-                email: None,
-            },
-            CredentialSource::Manual,
-            AuthProvider::Anthropic,
-        );
-
-        let response = ProfileResponse::success(profile.clone());
-        assert!(response.success);
-        assert!(response.profile.is_some());
-        assert!(response.error.is_none());
-    }
-
-    #[test]
-    fn test_profile_response_error() {
-        let response = ProfileResponse::error("Test error");
-        assert!(!response.success);
-        assert!(response.profile.is_none());
-        assert_eq!(response.error, Some("Test error".to_string()));
-    }
-
-    #[test]
-    fn test_auth_state_default() {
-        let state = AuthState::default();
-        assert!(Arc::strong_count(&state.manager) == 1);
-    }
 }

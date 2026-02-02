@@ -2,7 +2,7 @@
 //!
 //! Provides traits and implementations for discovering credentials from various sources.
 
-use super::types::{AuthProfile, AuthProvider, Credential, CredentialSource, DiscoverySummary};
+use super::types::{AuthProvider, Credential, CredentialSource, DiscoverySummary};
 use anyhow::Result;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -13,11 +13,20 @@ use std::path::PathBuf;
 use tracing::warn;
 use tracing::{debug, info};
 
+/// Discovered profile details (plaintext credentials before storage).
+#[derive(Debug, Clone)]
+pub struct DiscoveredProfile {
+    pub name: String,
+    pub credential: Credential,
+    pub source: CredentialSource,
+    pub provider: AuthProvider,
+}
+
 /// Result of a credential discovery attempt
 #[derive(Debug, Clone)]
 pub struct DiscoveryResult {
     /// Discovered profiles
-    pub profiles: Vec<AuthProfile>,
+    pub profiles: Vec<DiscoveredProfile>,
     /// Errors encountered during discovery
     pub errors: Vec<String>,
     /// Source that was checked
@@ -26,7 +35,7 @@ pub struct DiscoveryResult {
 
 impl DiscoveryResult {
     /// Create a successful result with profiles
-    pub fn success(profiles: Vec<AuthProfile>, source: CredentialSource) -> Self {
+    pub fn success(profiles: Vec<DiscoveredProfile>, source: CredentialSource) -> Self {
         Self {
             profiles,
             errors: Vec::new(),
@@ -199,12 +208,12 @@ impl CredentialDiscoverer for CodexCliDiscoverer {
             email: parsed.tokens.account_id,
         };
 
-        let profile = AuthProfile::new(
-            "Codex CLI",
+        let profile = DiscoveredProfile {
+            name: "Codex CLI".to_string(),
             credential,
-            self.source(),
-            AuthProvider::OpenAICodex,
-        );
+            source: self.source(),
+            provider: AuthProvider::OpenAICodex,
+        };
 
         DiscoveryResult::success(vec![profile], self.source())
     }
@@ -292,13 +301,14 @@ impl CredentialDiscoverer for ClaudeCodeDiscoverer {
                 .map(|e| format!("Claude Code ({})", e))
                 .unwrap_or_else(|| "Claude Code".to_string());
 
-            let profile =
-                AuthProfile::new(name, credential, self.source(), AuthProvider::ClaudeCode);
+            let profile = DiscoveredProfile {
+                name,
+                credential,
+                source: self.source(),
+                provider: AuthProvider::ClaudeCode,
+            };
 
-            info!(
-                profile_id = %profile.id,
-                "Discovered Claude Code credential"
-            );
+            info!("Discovered Claude Code credential");
 
             profiles.push(profile);
         }
@@ -367,15 +377,14 @@ impl CredentialDiscoverer for EnvVarDiscoverer {
                     email: None,
                 };
 
-                let profile = AuthProfile::new(
-                    format!("${}", env_var),
+                let profile = DiscoveredProfile {
+                    name: format!("${}", env_var),
                     credential,
-                    self.source(),
-                    *provider,
-                );
+                    source: self.source(),
+                    provider: *provider,
+                };
 
                 info!(
-                    profile_id = %profile.id,
                     env_var = env_var,
                     provider = ?provider,
                     "Discovered credential from environment"
@@ -477,15 +486,14 @@ impl CredentialDiscoverer for KeychainDiscoverer {
                             email: None,
                         };
 
-                        let profile = AuthProfile::new(
-                            format!("Keychain: {}/{}", service, account),
+                        let profile = DiscoveredProfile {
+                            name: format!("Keychain: {}/{}", service, account),
                             credential,
-                            self.source(),
-                            *provider,
-                        );
+                            source: self.source(),
+                            provider: *provider,
+                        };
 
                         info!(
-                            profile_id = %profile.id,
                             service = service,
                             account = account,
                             "Discovered credential from keychain"
@@ -563,7 +571,7 @@ impl CompositeDiscoverer {
     }
 
     /// Run all discoverers and collect results
-    pub async fn discover_all(&self) -> (Vec<AuthProfile>, DiscoverySummary) {
+    pub async fn discover_all(&self) -> (Vec<DiscoveredProfile>, DiscoverySummary) {
         let mut all_profiles = Vec::new();
         let mut summary = DiscoverySummary::default();
         let mut by_source: HashMap<String, usize> = HashMap::new();
@@ -588,7 +596,7 @@ impl CompositeDiscoverer {
                 *by_source.entry(source_key).or_insert(0) += 1;
                 *by_provider.entry(provider_key).or_insert(0) += 1;
 
-                if profile.is_available() {
+                if !profile.credential.is_expired() {
                     summary.available += 1;
                 }
 
@@ -626,15 +634,15 @@ mod tests {
 
     #[test]
     fn test_discovery_result_success() {
-        let profiles = vec![AuthProfile::new(
-            "Test",
-            Credential::ApiKey {
+        let profiles = vec![DiscoveredProfile {
+            name: "Test".to_string(),
+            credential: Credential::ApiKey {
                 key: "test".to_string(),
                 email: None,
             },
-            CredentialSource::Manual,
-            AuthProvider::Anthropic,
-        )];
+            source: CredentialSource::Manual,
+            provider: AuthProvider::Anthropic,
+        }];
 
         let result = DiscoveryResult::success(profiles.clone(), CredentialSource::Manual);
 
@@ -738,7 +746,7 @@ mod tests {
 
         assert!(profile.is_some());
         let profile = profile.unwrap();
-        assert_eq!(profile.get_api_key(), "test-key-123");
+        assert_eq!(profile.credential.get_auth_value(), "test-key-123");
         assert_eq!(profile.source, CredentialSource::Environment);
 
         // Clean up
