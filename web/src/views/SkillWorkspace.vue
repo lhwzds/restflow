@@ -147,7 +147,7 @@ const {
 } = useEditorTabs()
 
 // Terminal sessions
-const { sessions, createSession } = useTerminalSessions()
+const { sessions: terminalSessions, createSession: createTerminalSession } = useTerminalSessions()
 
 // Chat session state
 const chatSessionStore = useChatSessionStore()
@@ -215,8 +215,8 @@ const isExecuting = computed(() => isSending.value)
 const itemCount = computed(() => {
   const query = searchQuery.value.toLowerCase()
   if (activeTab.value === 'terminals') {
-    if (!query) return sessions.value.length
-    return sessions.value.filter((s) => s.name.toLowerCase().includes(query)).length
+    if (!query) return terminalSessions.value.length
+    return terminalSessions.value.filter((s) => s.name.toLowerCase().includes(query)).length
   }
 
   if (!query) return items.value.length
@@ -226,7 +226,7 @@ const itemCount = computed(() => {
 // Create a new terminal session and open it
 async function onCreateTerminal() {
   try {
-    const session = await createSession()
+    const session = await createTerminalSession()
     openTerminal(session)
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to create terminal'
