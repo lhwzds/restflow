@@ -41,9 +41,13 @@ import { useTerminalSessions } from '@/composables/editor/useTerminalSessions'
 import { useAgentTaskStore } from '@/stores/agentTaskStore'
 import { useChatSessionStore } from '@/stores/chatSessionStore'
 import { useModelsStore } from '@/stores/modelsStore'
+import { isTauri } from '@/api/tauri-client'
 
 // Enable terminal auto-save (saves history periodically)
 useTerminalAutoSave()
+
+// Check if running in Tauri (for showing traffic light backgrounds)
+const isTauriApp = isTauri()
 
 // Fullscreen detection for hiding traffic light backgrounds
 const isFullscreen = ref(false)
@@ -534,13 +538,14 @@ const onCloseChat = () => {
         - top: 14px (vertical position)
         - size: 12x12px (matches traffic light button size)
       -->
-      <template v-if="!isFullscreen">
+      <!-- Traffic light backgrounds only shown in Tauri desktop app, not in web mode -->
+      <template v-if="isTauriApp && !isFullscreen">
         <div class="absolute left-[13px] top-[14px] w-[12px] h-[12px] rounded-full bg-orange-400 dark:bg-orange-500" />
         <div class="absolute left-[33px] top-[14px] w-[12px] h-[12px] rounded-full bg-orange-400 dark:bg-orange-500" />
         <div class="absolute left-[53px] top-[14px] w-[12px] h-[12px] rounded-full bg-orange-400 dark:bg-orange-500" />
       </template>
-      <!-- Left: Traffic light spacer (70px) + Logo + Navigation -->
-      <div class="flex items-center gap-3 pl-[70px] relative z-10">
+      <!-- Left: Traffic light spacer (70px in Tauri, none in web) + Logo + Navigation -->
+      <div :class="['flex items-center gap-3 relative z-10', isTauriApp ? 'pl-[70px]' : 'pl-3']">
         <RestFlowLogo :icon-size="28" :text-size="18" />
 
         <!-- Navigation tabs use text color for active state, not background -->
