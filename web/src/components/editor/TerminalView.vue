@@ -17,6 +17,8 @@ import { isTauri } from '@/api/tauri-client'
 import type { TerminalSession } from '@/types/generated/TerminalSession'
 import '@xterm/xterm/css/xterm.css'
 
+const isDemoMode = import.meta.env.VITE_DEMO_MODE === 'true'
+
 const props = defineProps<{
   tabId: string
   session: TerminalSession
@@ -56,6 +58,69 @@ const terminalTheme = {
   brightMagenta: '#c084fc',
   brightCyan: '#22d3ee',
   brightWhite: '#ffffff',
+}
+
+/**
+ * Initialize demo terminal with simulated output
+ */
+function initDemoTerminal() {
+  if (!terminalRef.value) return
+
+  term = new Terminal({
+    cursorBlink: true,
+    fontSize: 14,
+    fontFamily: '"SF Mono", Menlo, Monaco, "Cascadia Code", "Segoe UI Mono", "Roboto Mono", "Oxygen Mono", "Ubuntu Monospace", "Source Code Pro", "Fira Mono", "Droid Sans Mono", "Courier New", monospace',
+    theme: terminalTheme,
+    disableStdin: true,
+    letterSpacing: 0,
+    lineHeight: 1.0,
+    allowProposedApi: true,
+  })
+
+  fitAddon = new FitAddon()
+  const unicode11Addon = new Unicode11Addon()
+  term.loadAddon(fitAddon)
+  term.loadAddon(unicode11Addon)
+  term.unicode.activeVersion = '11'
+  term.open(terminalRef.value)
+
+  try {
+    const webglAddon = new WebglAddon()
+    term.loadAddon(webglAddon)
+  } catch (e) {
+    console.warn('WebGL addon failed to load, using canvas renderer:', e)
+  }
+
+  fitAddon.fit()
+
+  // Write simulated terminal output
+  const demoOutput = [
+    '\x1b[32m➜\x1b[0m \x1b[36m~/restflow\x1b[0m \x1b[33mgit:(\x1b[0m\x1b[31mmain\x1b[0m\x1b[33m)\x1b[0m ',
+    'cargo run --bin restflow-server\r\n',
+    '\x1b[32m   Compiling\x1b[0m restflow-core v0.1.0\r\n',
+    '\x1b[32m   Compiling\x1b[0m restflow-server v0.1.0\r\n',
+    '\x1b[32m    Finished\x1b[0m dev [unoptimized + debuginfo] target(s) in 2.34s\r\n',
+    '\x1b[32m     Running\x1b[0m `target/debug/restflow-server`\r\n',
+    '\r\n',
+    '\x1b[34m[INFO]\x1b[0m RestFlow server starting...\r\n',
+    '\x1b[34m[INFO]\x1b[0m Database initialized at ./restflow.db\r\n',
+    '\x1b[34m[INFO]\x1b[0m API server listening on http://127.0.0.1:3000\r\n',
+    '\x1b[32m[READY]\x1b[0m RestFlow is ready to accept connections\r\n',
+    '\r\n',
+    '\x1b[33m[DEMO]\x1b[0m This is a simulated terminal preview.\r\n',
+    '\x1b[33m[DEMO]\x1b[0m Full terminal access requires the desktop app.\r\n',
+  ]
+
+  demoOutput.forEach((line) => term?.write(line))
+
+  isConnected.value = true
+
+  resizeObserver = new ResizeObserver(() => {
+    if (fitAddon) {
+      fitAddon.fit()
+    }
+  })
+  resizeObserver.observe(terminalRef.value)
 }
 
 /**
@@ -199,9 +264,15 @@ async function initInteractiveTerminal() {
 onMounted(async () => {
   if (!terminalRef.value) return
 
-  // Check if running in Tauri
-  if (!isTauri()) {
+  // Check if running in Tauri (skip check in demo mode - we'll show a preview)
+  if (!isTauri() && !isDemoMode) {
     error.value = 'Terminal requires Tauri desktop app'
+    return
+  }
+
+  // In demo mode, show a simulated terminal
+  if (isDemoMode) {
+    initDemoTerminal()
     return
   }
 
@@ -264,6 +335,14 @@ watch(
       class="absolute top-2 right-2 px-2 py-1 bg-yellow-500/20 text-yellow-400 text-xs rounded"
     >
       History Only
+    </div>
+
+    <!-- Demo mode indicator -->
+    <div
+      v-if="isDemoMode && !error"
+      class="absolute top-2 right-2 px-2 py-1 bg-blue-500/20 text-blue-400 text-xs rounded"
+    >
+      Demo Preview
     </div>
 
     <!-- Error overlay -->
