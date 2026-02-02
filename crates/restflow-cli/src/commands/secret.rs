@@ -5,7 +5,7 @@ use std::sync::Arc;
 use crate::cli::SecretCommands;
 use crate::commands::utils::format_timestamp;
 use crate::output::{OutputFormat, json::print_json};
-use restflow_core::AppCore;
+use restflow_core::{storage::migrate_master_key_from_db_path, AppCore};
 use serde_json::json;
 
 pub async fn run(core: Arc<AppCore>, command: SecretCommands, format: OutputFormat) -> Result<()> {
@@ -16,6 +16,17 @@ pub async fn run(core: Arc<AppCore>, command: SecretCommands, format: OutputForm
         SecretCommands::Has { key } => has_secret(&core, &key, format).await,
         SecretCommands::MigrateMasterKey => migrate_master_key(&core, format).await,
     }
+}
+
+pub async fn migrate_master_key_with_path(db_path: &str, format: OutputFormat) -> Result<()> {
+    let path = migrate_master_key_from_db_path(db_path)?;
+
+    if format.is_json() {
+        return print_json(&json!({ "migrated": true, "path": path }));
+    }
+
+    println!("Master key migrated to {}", path.to_string_lossy());
+    Ok(())
 }
 
 async fn list_secrets(core: &Arc<AppCore>, format: OutputFormat) -> Result<()> {

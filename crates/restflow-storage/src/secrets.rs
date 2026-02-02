@@ -127,21 +127,7 @@ impl SecretStorage {
 
     /// Migrate the master key from the database to the JSON file.
     pub fn migrate_master_key_from_db(&self) -> Result<PathBuf> {
-        let path = master_key_json_path()?;
-        if path.exists() {
-            anyhow::bail!(
-                "Master key JSON already exists at {}",
-                path.to_string_lossy()
-            );
-        }
-
-        let key = read_master_key_from_db(&self.db)?
-            .ok_or_else(|| anyhow::anyhow!("No master key found in database to migrate"))?;
-
-        write_master_key_json(&key)?;
-        remove_master_key_from_db(&self.db)?;
-
-        Ok(path)
+        migrate_master_key_from_db_inner(&self.db)
     }
 
     /// Set or update a secret
@@ -330,6 +316,38 @@ impl SecretStorage {
 
         Ok(legacy_entries.len())
     }
+}
+
+/// Migrate the master key from the database file without initializing SecretStorage.
+pub fn migrate_master_key_from_db_path(db_path: impl AsRef<Path>) -> Result<PathBuf> {
+    let db = Arc::new(Database::create(db_path.as_ref())?);
+    ensure_master_key_table(&db)?;
+    migrate_master_key_from_db_inner(&db)
+}
+
+fn migrate_master_key_from_db_inner(db: &Arc<Database>) -> Result<PathBuf> {
+    let path = master_key_json_path()?;
+    if path.exists() {
+        anyhow::bail!(
+            "Master key JSON already exists at {}",
+            path.to_string_lossy()
+        );
+    }
+
+    let key = read_master_key_from_db(db)?
+        .ok_or_else(|| anyhow::anyhow!("No master key found in database to migrate"))?;
+
+    write_master_key_json(&key)?;
+    remove_master_key_from_db(db)?;
+
+    Ok(path)
+}
+
+fn ensure_master_key_table(db: &Arc<Database>) -> Result<()> {
+    let write_txn = db.begin_write()?;
+    write_txn.open_table(MASTER_KEY_TABLE)?;
+    write_txn.commit()?;
+    Ok(())
 }
 
 fn decode_legacy_secret(payload: &[u8]) -> Result<Secret> {
@@ -921,22 +939,23 @@ mod tests {
         unsafe { std::env::set_var(STATE_DIR_ENV, &state_dir) };
 
         let db_path = temp_dir.path().join("test.db");
-        let db = Arc::new(Database::create(db_path).unwrap());
-
-        let write_txn = db.begin_write().unwrap();
-        write_txn.open_table(MASTER_KEY_TABLE).unwrap();
-        write_txn.commit().unwrap();
-
         let db_key = [9u8; 32];
-        let write_txn = db.begin_write().unwrap();
         {
-            let mut table = write_txn.open_table(MASTER_KEY_TABLE).unwrap();
-            table.insert(MASTER_KEY_RECORD, db_key.as_slice()).unwrap();
-        }
-        write_txn.commit().unwrap();
+            let db = Arc::new(Database::create(&db_path).unwrap());
 
-        let storage = SecretStorage::new_insecure(db).unwrap();
-        let path = storage.migrate_master_key_from_db().unwrap();
+            let write_txn = db.begin_write().unwrap();
+            write_txn.open_table(MASTER_KEY_TABLE).unwrap();
+            write_txn.commit().unwrap();
+
+            let write_txn = db.begin_write().unwrap();
+            {
+                let mut table = write_txn.open_table(MASTER_KEY_TABLE).unwrap();
+                table.insert(MASTER_KEY_RECORD, db_key.as_slice()).unwrap();
+            }
+            write_txn.commit().unwrap();
+        }
+
+        let path = migrate_master_key_from_db_path(&db_path).unwrap();
         assert!(path.exists());
 
         let loaded = load_master_key_from_json(&SecretStorageConfig {
@@ -946,7 +965,8 @@ mod tests {
         .unwrap();
         assert_eq!(loaded, db_key);
 
-        let remaining = read_master_key_from_db(&storage.db).unwrap();
+        let db = Arc::new(Database::create(&db_path).unwrap());
+        let remaining = read_master_key_from_db(&db).unwrap();
         assert!(remaining.is_none());
 
         // SAFETY: This is a single-threaded test, no other threads access this env var
