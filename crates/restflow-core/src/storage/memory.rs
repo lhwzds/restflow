@@ -921,6 +921,83 @@ mod tests {
         assert_eq!(results.chunks.len(), 1);
         assert!(results.chunks[0].content.contains("New"));
     }
+
+    /// Test concurrent chunk storage with deduplication at the typed layer.
+    /// All threads storing the same content should get the same chunk ID.
+    #[test]
+    fn test_concurrent_typed_chunk_dedup() {
+        use std::collections::HashSet;
+        use std::thread;
+
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test.db");
+        let db = Arc::new(Database::create(db_path).unwrap());
+        let storage = Arc::new(MemoryStorage::new(db).unwrap());
+
+        let duplicate_content = "duplicate content for typed test";
+        let num_threads = 10;
+
+        let handles: Vec<_> = (0..num_threads)
+            .map(|_| {
+                let s = Arc::clone(&storage);
+                let content = duplicate_content.to_string();
+                thread::spawn(move || {
+                    let chunk = MemoryChunk::new("agent-001".to_string(), content);
+                    s.store_chunk(&chunk).unwrap()
+                })
+            })
+            .collect();
+
+        let ids: Vec<_> = handles.into_iter().map(|h| h.join().unwrap()).collect();
+
+        // All threads should return the same chunk ID
+        let unique_ids: HashSet<_> = ids.iter().cloned().collect();
+        assert_eq!(
+            unique_ids.len(),
+            1,
+            "All threads should get the same chunk ID due to deduplication"
+        );
+
+        // Only one chunk should exist in storage
+        let chunks = storage.list_chunks("agent-001").unwrap();
+        assert_eq!(chunks.len(), 1);
+        assert_eq!(chunks[0].content, duplicate_content);
+    }
+
+    /// Test concurrent delete_chunks_for_agent is safe.
+    #[test]
+    fn test_concurrent_delete_chunks_for_agent() {
+        use std::thread;
+
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test.db");
+        let db = Arc::new(Database::create(db_path).unwrap());
+        let storage = Arc::new(MemoryStorage::new(db).unwrap());
+
+        // Create chunks
+        for i in 0..20 {
+            let chunk = MemoryChunk::new("agent-001".to_string(), format!("Content {}", i))
+                .with_tags(vec!["tag".to_string()]);
+            storage.store_chunk(&chunk).unwrap();
+        }
+
+        // Concurrent deletion attempts
+        let handles: Vec<_> = (0..5)
+            .map(|_| {
+                let s = Arc::clone(&storage);
+                thread::spawn(move || s.delete_chunks_for_agent("agent-001"))
+            })
+            .collect();
+
+        for h in handles {
+            // All should succeed (idempotent)
+            let _ = h.join().unwrap();
+        }
+
+        // No chunks should remain
+        let chunks = storage.list_chunks("agent-001").unwrap();
+        assert!(chunks.is_empty());
+    }
 }
 
 // Implement the SemanticMemory trait from restflow-ai
