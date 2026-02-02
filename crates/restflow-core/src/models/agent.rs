@@ -4,6 +4,7 @@
 
 use crate::models::AIModel;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use ts_rs::TS;
 
 /// API key or password configuration (direct value or secret reference)
@@ -41,6 +42,14 @@ pub struct AgentNode {
     #[ts(optional)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tools: Option<Vec<String>>,
+    /// Associated skill IDs to load
+    #[ts(optional)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skills: Option<Vec<String>>,
+    /// Skill variables for substitution
+    #[ts(optional)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skill_variables: Option<HashMap<String, String>>,
 }
 
 impl AgentNode {
