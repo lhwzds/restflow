@@ -4980,6 +4980,7 @@ dependencies = [
  "jsonwebtoken",
  "mimalloc",
  "mime_guess",
+ "redb",
  "restflow-ai",
  "restflow-core",
  "rust-embed",
