@@ -145,6 +145,7 @@ pub mod notifier;
 pub mod persist;
 pub mod retry;
 pub mod runner;
+mod skills;
 
 pub use cli_executor::{CliAgentExecutor, create_cli_executor_with_events};
 pub use events::{
