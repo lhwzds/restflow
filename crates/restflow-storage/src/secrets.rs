@@ -85,11 +85,15 @@ impl SecretStorage {
 
     /// Set or update a secret
     pub fn set_secret(&self, key: &str, value: &str, description: Option<String>) -> Result<()> {
-        let existing = self.get_secret_model(key)?;
-
         let write_txn = self.db.begin_write()?;
         {
             let mut table = write_txn.open_table(SECRETS_TABLE)?;
+            let existing = if let Some(data) = table.get(key)? {
+                let secret = self.decode_secret_bytes(data.value())?;
+                Some(secret)
+            } else {
+                None
+            };
 
             let secret = if let Some(mut existing_secret) = existing {
                 existing_secret.update(value.to_string(), description);

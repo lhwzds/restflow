@@ -47,7 +47,7 @@ pub use config::{ConfigStorage, SystemConfig};
 pub use execution_history::{
     ExecutionHistoryPage, ExecutionHistoryStorage, ExecutionStatus, ExecutionSummary,
 };
-pub use memory::MemoryStorage;
+pub use memory::{MemoryStorage, PutResult};
 pub use secrets::{Secret, SecretStorage};
 pub use shared_space::SharedSpaceStorage;
 pub use skill::SkillStorage;
