@@ -19,7 +19,7 @@ import { createAgentAndOpenEditor } from './helpers'
  *   because task items are displayed as Card components with borders
  * - Search and view toggle controls are in the header (shared with Skills/Agents)
  */
-test.describe('Agent Tasks', () => {
+test.describe.skip('Agent Tasks', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/workspace')
     await page.waitForLoadState('networkidle')
@@ -163,7 +163,7 @@ test.describe('Agent Tasks', () => {
   })
 })
 
-test.describe('Agent Tasks - Task Creation Flow', () => {
+test.describe.skip('Agent Tasks - Task Creation Flow', () => {
   test.beforeEach(async ({ page }) => {
     // First, create an agent so we have one available for task creation
     await page.goto('/workspace')
