@@ -8,7 +8,7 @@
 An intelligent AI agent that can create, manage, and execute automated workflows
 
 [![Demo](https://img.shields.io/badge/demo-restflow.ai-brightgreen)](https://restflow.ai)
-[![Docs](https://img.shields.io/badge/docs-docs.restflow.ai-blue)](https://docs.restflow.ai/)
+[![Docs](https://img.shields.io/badge/docs-restflow.ai%2Fdocs-blue)](https://restflow.ai/docs/)
 [![Status](https://img.shields.io/badge/status-prototype-orange)](https://github.com/lhwzds/restflow)
 [![Rust](https://img.shields.io/badge/rust-1.85%2B-dea584)](https://www.rust-lang.org/)
 [![Vue 3](https://img.shields.io/badge/vue-3.x-4fc08d)](https://vuejs.org/)
@@ -101,4 +101,4 @@ restflow completions bash > restflow.bash
 
 ## Documentation
 
-**[docs.restflow.ai](https://docs.restflow.ai/)** - Full documentation
+**[restflow.ai/docs](https://restflow.ai/docs/)** - Full documentation
