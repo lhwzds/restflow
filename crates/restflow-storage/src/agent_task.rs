@@ -7,11 +7,16 @@ use anyhow::Result;
 use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
 use std::sync::Arc;
 
+use crate::range_utils::prefix_range;
+
 const AGENT_TASK_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("agent_tasks");
 const TASK_EVENT_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("task_events");
 /// Index table: task_id -> event_id (for listing events by task)
 const TASK_EVENT_INDEX_TABLE: TableDefinition<&str, &str> =
     TableDefinition::new("task_event_index");
+/// Index table: status:task_id -> task_id (for listing tasks by status)
+const TASK_STATUS_INDEX_TABLE: TableDefinition<&str, &str> =
+    TableDefinition::new("agent_task_status_index");
 
 /// Low-level agent task storage with byte-level API
 #[derive(Clone)]
@@ -27,6 +32,7 @@ impl AgentTaskStorage {
         write_txn.open_table(AGENT_TASK_TABLE)?;
         write_txn.open_table(TASK_EVENT_TABLE)?;
         write_txn.open_table(TASK_EVENT_INDEX_TABLE)?;
+        write_txn.open_table(TASK_STATUS_INDEX_TABLE)?;
         write_txn.commit()?;
 
         Ok(Self { db })
@@ -40,6 +46,47 @@ impl AgentTaskStorage {
         {
             let mut table = write_txn.open_table(AGENT_TASK_TABLE)?;
             table.insert(id, data)?;
+        }
+        write_txn.commit()?;
+        Ok(())
+    }
+
+    /// Store raw agent task data with status index
+    pub fn put_task_raw_with_status(&self, id: &str, status: &str, data: &[u8]) -> Result<()> {
+        let write_txn = self.db.begin_write()?;
+        {
+            let mut table = write_txn.open_table(AGENT_TASK_TABLE)?;
+            table.insert(id, data)?;
+
+            let mut status_index = write_txn.open_table(TASK_STATUS_INDEX_TABLE)?;
+            let status_key = format!("{}:{}", status, id);
+            status_index.insert(status_key.as_str(), id)?;
+        }
+        write_txn.commit()?;
+        Ok(())
+    }
+
+    /// Update raw agent task data while keeping the status index consistent
+    pub fn update_task_raw_with_status(
+        &self,
+        id: &str,
+        old_status: &str,
+        new_status: &str,
+        data: &[u8],
+    ) -> Result<()> {
+        let write_txn = self.db.begin_write()?;
+        {
+            let mut table = write_txn.open_table(AGENT_TASK_TABLE)?;
+            table.insert(id, data)?;
+
+            let mut status_index = write_txn.open_table(TASK_STATUS_INDEX_TABLE)?;
+            if old_status != new_status {
+                let old_key = format!("{}:{}", old_status, id);
+                status_index.remove(old_key.as_str())?;
+            }
+
+            let new_key = format!("{}:{}", new_status, id);
+            status_index.insert(new_key.as_str(), id)?;
         }
         write_txn.commit()?;
         Ok(())
@@ -71,12 +118,50 @@ impl AgentTaskStorage {
         Ok(tasks)
     }
 
+    /// List tasks by status using the status index
+    pub fn list_tasks_by_status_indexed(&self, status: &str) -> Result<Vec<(String, Vec<u8>)>> {
+        let read_txn = self.db.begin_read()?;
+        let status_index = read_txn.open_table(TASK_STATUS_INDEX_TABLE)?;
+        let task_table = read_txn.open_table(AGENT_TASK_TABLE)?;
+
+        let prefix = format!("{}:", status);
+        let (start, end) = prefix_range(&prefix);
+        let mut tasks = Vec::new();
+
+        for item in status_index.range(start.as_str()..end.as_str())? {
+            let (_, value) = item?;
+            let task_id = value.value();
+            if let Some(data) = task_table.get(task_id)? {
+                tasks.push((task_id.to_string(), data.value().to_vec()));
+            }
+        }
+
+        Ok(tasks)
+    }
+
     /// Delete agent task by ID
     pub fn delete_task(&self, id: &str) -> Result<bool> {
         let write_txn = self.db.begin_write()?;
         let existed = {
             let mut table = write_txn.open_table(AGENT_TASK_TABLE)?;
             table.remove(id)?.is_some()
+        };
+        write_txn.commit()?;
+        Ok(existed)
+    }
+
+    /// Delete agent task by ID with status index cleanup
+    pub fn delete_task_with_status(&self, id: &str, status: &str) -> Result<bool> {
+        let write_txn = self.db.begin_write()?;
+        let existed = {
+            let mut table = write_txn.open_table(AGENT_TASK_TABLE)?;
+            let existed = table.remove(id)?.is_some();
+
+            let mut status_index = write_txn.open_table(TASK_STATUS_INDEX_TABLE)?;
+            let status_key = format!("{}:{}", status, id);
+            status_index.remove(status_key.as_str())?;
+
+            existed
         };
         write_txn.commit()?;
         Ok(existed)
@@ -119,17 +204,14 @@ impl AgentTaskStorage {
         let event_table = read_txn.open_table(TASK_EVENT_TABLE)?;
 
         let prefix = format!("{}:", task_id);
+        let (start, end) = prefix_range(&prefix);
         let mut events = Vec::new();
 
-        for item in index_table.iter()? {
-            let (key, value) = item?;
-            let key_str = key.value();
-
-            if key_str.starts_with(&prefix) {
-                let event_id = value.value();
-                if let Some(event_data) = event_table.get(event_id)? {
-                    events.push((event_id.to_string(), event_data.value().to_vec()));
-                }
+        for item in index_table.range(start.as_str()..end.as_str())? {
+            let (_, value) = item?;
+            let event_id = value.value();
+            if let Some(event_data) = event_table.get(event_id)? {
+                events.push((event_id.to_string(), event_data.value().to_vec()));
             }
         }
 
@@ -226,6 +308,45 @@ mod tests {
     }
 
     #[test]
+    fn test_list_tasks_by_status_indexed() {
+        let storage = create_test_storage();
+
+        storage
+            .put_task_raw_with_status("task-001", "active", b"data1")
+            .unwrap();
+        storage
+            .put_task_raw_with_status("task-002", "paused", b"data2")
+            .unwrap();
+        storage
+            .put_task_raw_with_status("task-003", "active", b"data3")
+            .unwrap();
+
+        let active_tasks = storage.list_tasks_by_status_indexed("active").unwrap();
+        let paused_tasks = storage.list_tasks_by_status_indexed("paused").unwrap();
+
+        assert_eq!(active_tasks.len(), 2);
+        assert_eq!(paused_tasks.len(), 1);
+    }
+
+    #[test]
+    fn test_update_task_raw_with_status() {
+        let storage = create_test_storage();
+
+        storage
+            .put_task_raw_with_status("task-001", "active", b"data1")
+            .unwrap();
+        storage
+            .update_task_raw_with_status("task-001", "active", "paused", b"data2")
+            .unwrap();
+
+        let active_tasks = storage.list_tasks_by_status_indexed("active").unwrap();
+        let paused_tasks = storage.list_tasks_by_status_indexed("paused").unwrap();
+
+        assert!(active_tasks.is_empty());
+        assert_eq!(paused_tasks.len(), 1);
+    }
+
+    #[test]
     fn test_delete_task() {
         let storage = create_test_storage();
 
@@ -240,6 +361,26 @@ mod tests {
         // Deleting again should return false
         let deleted_again = storage.delete_task("task-001").unwrap();
         assert!(!deleted_again);
+    }
+
+    #[test]
+    fn test_delete_task_with_status() {
+        let storage = create_test_storage();
+
+        storage
+            .put_task_raw_with_status("task-001", "active", b"data")
+            .unwrap();
+
+        let deleted = storage
+            .delete_task_with_status("task-001", "active")
+            .unwrap();
+        assert!(deleted);
+
+        let retrieved = storage.get_task_raw("task-001").unwrap();
+        assert!(retrieved.is_none());
+
+        let active_tasks = storage.list_tasks_by_status_indexed("active").unwrap();
+        assert!(active_tasks.is_empty());
     }
 
     #[test]

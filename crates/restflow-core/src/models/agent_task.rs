@@ -72,6 +72,18 @@ pub enum AgentTaskStatus {
     Failed,
 }
 
+impl AgentTaskStatus {
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            AgentTaskStatus::Active => "active",
+            AgentTaskStatus::Paused => "paused",
+            AgentTaskStatus::Running => "running",
+            AgentTaskStatus::Completed => "completed",
+            AgentTaskStatus::Failed => "failed",
+        }
+    }
+}
+
 /// Schedule configuration for agent tasks
 #[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
 #[ts(export)]

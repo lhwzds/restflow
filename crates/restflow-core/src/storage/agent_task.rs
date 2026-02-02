@@ -35,7 +35,8 @@ impl AgentTaskStorage {
         let task = AgentTask::new(Uuid::new_v4().to_string(), name, agent_id, schedule);
 
         let json_bytes = serde_json::to_vec(&task)?;
-        self.inner.put_task_raw(&task.id, &json_bytes)?;
+        self.inner
+            .put_task_raw_with_status(&task.id, task.status.as_str(), &json_bytes)?;
 
         // Create a "created" event
         let event =
@@ -68,8 +69,22 @@ impl AgentTaskStorage {
 
     /// List tasks filtered by status
     pub fn list_tasks_by_status(&self, status: AgentTaskStatus) -> Result<Vec<AgentTask>> {
-        let tasks = self.list_tasks()?;
-        Ok(tasks.into_iter().filter(|t| t.status == status).collect())
+        let tasks = self.inner.list_tasks_by_status_indexed(status.as_str())?;
+
+        if tasks.is_empty() {
+            let tasks = self.list_tasks()?;
+            return Ok(tasks
+                .into_iter()
+                .filter(|task| task.status == status)
+                .collect());
+        }
+
+        let mut result = Vec::new();
+        for (_, bytes) in tasks {
+            let task: AgentTask = serde_json::from_slice(&bytes)?;
+            result.push(task);
+        }
+        Ok(result)
     }
 
     /// List tasks that are ready to run
@@ -84,16 +99,30 @@ impl AgentTaskStorage {
     /// Update an existing agent task
     pub fn update_task(&self, task: &AgentTask) -> Result<()> {
         let json_bytes = serde_json::to_vec(task)?;
-        self.inner.put_task_raw(&task.id, &json_bytes)?;
+        let previous_status = self
+            .get_task(&task.id)?
+            .map(|existing| existing.status)
+            .unwrap_or_else(|| task.status.clone());
+        self.inner.update_task_raw_with_status(
+            &task.id,
+            previous_status.as_str(),
+            task.status.as_str(),
+            &json_bytes,
+        )?;
         Ok(())
     }
 
     /// Delete an agent task and all its events
     pub fn delete_task(&self, id: &str) -> Result<bool> {
+        let task = match self.get_task(id)? {
+            Some(task) => task,
+            None => return Ok(false),
+        };
+
         // First delete all events for this task
         self.inner.delete_events_for_task(id)?;
-        // Then delete the task itself
-        self.inner.delete_task(id)
+        // Then delete the task itself with status index cleanup
+        self.inner.delete_task_with_status(id, task.status.as_str())
     }
 
     /// Pause an agent task
