@@ -93,15 +93,9 @@ impl CliTaskRunner {
                 storage.clone(),
                 20, // max history messages
             ));
-            let chat_executor = Arc::new(RealAgentExecutor::new(
-                storage.clone(),
-                Arc::new(ProcessRegistry::new()),
-                auth_manager.clone(),
-            ));
             let debouncer = Arc::new(MessageDebouncer::default_timeout());
             let chat_dispatcher = Arc::new(ChatDispatcher::new(
                 session_manager,
-                chat_executor,
                 debouncer,
                 router.clone(),
                 ChatDispatcherConfig::default(),
