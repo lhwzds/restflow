@@ -12,7 +12,7 @@
 //!
 //! # Tables
 //!
-//! - `workflows` - Workflow definitions
+//! - `workflow` - Workflow definitions
 //! - `skills` - Skill templates
 //! - `secrets` - Encrypted secrets
 //! - `agents` - Agent configurations
