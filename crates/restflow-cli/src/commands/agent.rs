@@ -11,6 +11,8 @@ use restflow_ai::{
     Role, ToolRegistry,
 };
 use restflow_core::auth::{AuthManagerConfig, AuthProfileManager, AuthProvider};
+use restflow_core::storage::SecretStorage;
+use redb::Database;
 use restflow_core::memory::{ChatSessionMirror, MessageMirror};
 use restflow_core::models::{
     AgentExecuteResponse, AgentNode, ApiKeyConfig, ExecutionDetails, ExecutionStep, Provider,
@@ -302,10 +304,16 @@ async fn resolve_api_key(
 
 async fn resolve_api_key_from_profiles(provider: Provider) -> Result<Option<String>> {
     let mut config = AuthManagerConfig::default();
-    let profiles_path = paths::ensure_data_dir()?.join("auth_profiles.json");
+    let data_dir = paths::ensure_data_dir()?;
+    let profiles_path = data_dir.join("auth_profiles.json");
     config.profiles_path = Some(profiles_path);
 
-    let manager = AuthProfileManager::with_config(config);
+    // Create SecretStorage
+    let db_path = data_dir.join("restflow.db");
+    let db = Arc::new(Database::create(&db_path)?);
+    let secrets = Arc::new(SecretStorage::new(db)?);
+
+    let manager = AuthProfileManager::with_config(config, secrets);
     manager.initialize().await?;
 
     let selection = match provider {
@@ -320,7 +328,10 @@ async fn resolve_api_key_from_profiles(provider: Provider) -> Result<Option<Stri
         Provider::DeepSeek => None,
     };
 
-    Ok(selection.map(|profile| profile.profile.get_api_key().to_string()))
+    match selection {
+        Some(sel) => Ok(Some(sel.profile.get_api_key(manager.resolver())?)),
+        None => Ok(None),
+    }
 }
 
 async fn run_agent_with_executor(

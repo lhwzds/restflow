@@ -97,11 +97,11 @@ fn main() {
             rt.block_on(async {
                 let storage = state.core.storage.clone();
                 let secrets = std::sync::Arc::new(state.core.storage.secrets.clone());
-                let auth_manager = match create_auth_manager() {
+                let auth_manager = match create_auth_manager(secrets.clone()) {
                     Ok(manager) => std::sync::Arc::new(manager),
                     Err(e) => {
                         warn!(error = %e, "Failed to configure auth profile manager");
-                        std::sync::Arc::new(AuthProfileManager::new())
+                        std::sync::Arc::new(AuthProfileManager::new(secrets.clone()))
                     }
                 };
 
@@ -135,10 +135,11 @@ fn main() {
                 }
             }
 
+            // Initialize Auth Profile Manager state with secrets
+            let auth_secrets = std::sync::Arc::new(state.core.storage.secrets.clone());
+            app.manage(AuthState::new(auth_secrets));
+            
             app.manage(state);
-
-            // Initialize Auth Profile Manager state
-            app.manage(AuthState::new());
 
             info!("RestFlow initialized successfully");
             info!("Press Cmd+Option+I (macOS) or Ctrl+Shift+I (Windows/Linux) to toggle DevTools");
@@ -292,11 +293,11 @@ fn main() {
 }
 
 /// Get the database path for the application
-fn create_auth_manager() -> Result<AuthProfileManager> {
+fn create_auth_manager(secrets: std::sync::Arc<restflow_core::storage::SecretStorage>) -> Result<AuthProfileManager> {
     let mut config = AuthManagerConfig::default();
     let profiles_path = paths::ensure_data_dir()?.join("auth_profiles.json");
     config.profiles_path = Some(profiles_path);
-    Ok(AuthProfileManager::with_config(config))
+    Ok(AuthProfileManager::with_config(config, secrets))
 }
 
 fn get_db_path(app: &tauri::App) -> String {

@@ -1,9 +1,13 @@
 use anyhow::{Result, anyhow, bail};
 use comfy_table::{Cell, Table};
+use redb::Database;
 use restflow_core::auth::{
-    AuthManagerConfig, AuthProfile, AuthProfileManager, AuthProvider, Credential, CredentialSource,
+    AuthManagerConfig, AuthProfileManager, AuthProvider, Credential, CredentialSource,
+    SecureCredential,
 };
 use restflow_core::paths;
+use restflow_core::storage::SecretStorage;
+use std::sync::Arc;
 
 use crate::cli::AuthCommands;
 use crate::output::{OutputFormat, json::print_json};
@@ -28,9 +32,16 @@ pub async fn run(command: AuthCommands, format: OutputFormat) -> Result<()> {
 
 fn create_manager() -> Result<AuthProfileManager> {
     let mut config = AuthManagerConfig::default();
-    let profiles_path = paths::ensure_data_dir()?.join("auth_profiles.json");
+    let data_dir = paths::ensure_data_dir()?;
+    let profiles_path = data_dir.join("auth_profiles.json");
     config.profiles_path = Some(profiles_path);
-    Ok(AuthProfileManager::with_config(config))
+    
+    // Create SecretStorage using the same database path
+    let db_path = data_dir.join("restflow.db");
+    let db = Arc::new(Database::create(&db_path)?);
+    let secrets = Arc::new(SecretStorage::new(db)?);
+    
+    Ok(AuthProfileManager::with_config(config, secrets))
 }
 
 async fn status(manager: &AuthProfileManager, format: OutputFormat) -> Result<()> {
@@ -148,7 +159,7 @@ async fn show_profile(manager: &AuthProfileManager, id: &str, format: OutputForm
         println!("Cooldown:     {}", cooldown_until);
     }
 
-    println!("Credential:   {}", format_credential(&profile.credential));
+    println!("Credential:   {}", format_secure_credential(&profile.credential));
 
     if let Some(email) = profile.credential.get_email() {
         println!("Email:        {}", email);
@@ -170,8 +181,9 @@ async fn add_profile(
         key: key.to_string(),
         email: None,
     };
-    let profile = AuthProfile::new(display_name, credential, CredentialSource::Manual, provider);
-    let id = manager.add_profile(profile).await?;
+    let id = manager
+        .add_profile_from_credential(display_name, credential, CredentialSource::Manual, provider)
+        .await?;
 
     if format.is_json() {
         return print_json(&serde_json::json!({ "id": id }));
@@ -227,16 +239,16 @@ fn format_available(value: bool) -> String {
     }
 }
 
-fn format_credential(credential: &Credential) -> String {
+fn format_secure_credential(credential: &SecureCredential) -> String {
     match credential {
-        Credential::ApiKey { .. } => format!("API key ({})", credential.masked()),
-        Credential::Token { expires_at, .. } => match expires_at {
-            Some(expiry) => format!("Token ({}, expires {})", credential.masked(), expiry),
-            None => format!("Token ({})", credential.masked()),
+        SecureCredential::ApiKey { secret_ref, .. } => format!("API key (ref: {})", secret_ref),
+        SecureCredential::Token { secret_ref, expires_at, .. } => match expires_at {
+            Some(expiry) => format!("Token (ref: {}, expires {})", secret_ref, expiry),
+            None => format!("Token (ref: {})", secret_ref),
         },
-        Credential::OAuth { expires_at, .. } => match expires_at {
-            Some(expiry) => format!("OAuth ({}, expires {})", credential.masked(), expiry),
-            None => format!("OAuth ({})", credential.masked()),
+        SecureCredential::OAuth { access_token_ref, expires_at, .. } => match expires_at {
+            Some(expiry) => format!("OAuth (ref: {}, expires {})", access_token_ref, expiry),
+            None => format!("OAuth (ref: {})", access_token_ref),
         },
     }
 }

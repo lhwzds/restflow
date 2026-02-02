@@ -2,6 +2,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use restflow_core::AppCore;
 use restflow_core::auth::{AuthManagerConfig, AuthProfileManager};
+use restflow_core::storage::SecretStorage;
 use restflow_core::channel::ChannelRouter;
 use restflow_core::models::{AgentTask, AgentTaskStatus};
 use restflow_core::paths;
@@ -24,11 +25,11 @@ pub struct CliTaskRunner {
     router: Arc<RwLock<Option<Arc<ChannelRouter>>>>,
 }
 
-fn create_auth_manager() -> Result<AuthProfileManager> {
+fn create_auth_manager(secrets: Arc<SecretStorage>) -> Result<AuthProfileManager> {
     let mut config = AuthManagerConfig::default();
     let profiles_path = paths::ensure_data_dir()?.join("auth_profiles.json");
     config.profiles_path = Some(profiles_path);
-    Ok(AuthProfileManager::with_config(config))
+    Ok(AuthProfileManager::with_config(config, secrets))
 }
 
 impl CliTaskRunner {
@@ -50,7 +51,7 @@ impl CliTaskRunner {
         let secrets = Arc::new(self.core.storage.secrets.clone());
         let process_registry = Arc::new(ProcessRegistry::new());
 
-        let auth_manager = Arc::new(create_auth_manager()?);
+        let auth_manager = Arc::new(create_auth_manager(secrets.clone())?);
         auth_manager.initialize().await?;
         auth_manager.discover().await?;
 

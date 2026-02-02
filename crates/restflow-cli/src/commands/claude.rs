@@ -1,6 +1,8 @@
 use anyhow::{Result, bail};
 use restflow_core::AppCore;
 use restflow_core::auth::{AuthManagerConfig, AuthProfileManager, AuthProvider};
+use restflow_core::storage::SecretStorage;
+use redb::Database;
 use restflow_core::models::chat_session::{ChatMessage, ChatSession};
 use restflow_core::paths;
 use serde::{Deserialize, Serialize};
@@ -56,10 +58,16 @@ impl ClaudeOutput {
 /// Get API key from RestFlow auth profile
 async fn get_api_key_from_profile(profile_id: Option<&str>) -> Result<String> {
     let mut config = AuthManagerConfig::default();
-    let profiles_path = paths::ensure_data_dir()?.join("auth_profiles.json");
+    let data_dir = paths::ensure_data_dir()?;
+    let profiles_path = data_dir.join("auth_profiles.json");
     config.profiles_path = Some(profiles_path);
 
-    let manager = AuthProfileManager::with_config(config);
+    // Create SecretStorage
+    let db_path = data_dir.join("restflow.db");
+    let db = Arc::new(Database::create(&db_path)?);
+    let secrets = Arc::new(SecretStorage::new(db)?);
+
+    let manager = AuthProfileManager::with_config(config, secrets);
     manager.initialize().await?;
 
     let profiles = manager.list_profiles().await;
@@ -71,7 +79,7 @@ async fn get_api_key_from_profile(profile_id: Option<&str>) -> Result<String> {
             .find(|p| p.id == id || p.id.starts_with(id))
             .ok_or_else(|| anyhow::anyhow!("Auth profile not found: {}", id))?;
 
-        return Ok(profile.get_api_key().to_string());
+        return profile.get_api_key(manager.resolver());
     }
 
     // Otherwise, find first available ClaudeCode profile
@@ -84,7 +92,7 @@ async fn get_api_key_from_profile(profile_id: Option<&str>) -> Result<String> {
             )
         })?;
 
-    Ok(claude_code_profile.get_api_key().to_string())
+    claude_code_profile.get_api_key(manager.resolver())
 }
 
 fn claude_credentials_path() -> Option<PathBuf> {

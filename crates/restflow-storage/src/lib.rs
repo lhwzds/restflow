@@ -17,7 +17,6 @@
 //! - `secrets` - Encrypted secrets
 //! - `agents` - Agent configurations
 //! - `active_triggers` - Active trigger state
-//! - `pending/processing/completed` - Task queue tables
 //! - `execution_history:data/index` - Execution history
 //! - `system_config` - System configuration
 
@@ -29,7 +28,6 @@ pub mod execution_history;
 pub mod memory;
 pub mod secrets;
 pub mod skill;
-pub mod task_queue;
 pub mod terminal_session;
 pub mod trigger;
 pub mod workflow;
@@ -50,7 +48,6 @@ pub use execution_history::{
 pub use memory::MemoryStorage;
 pub use secrets::{Secret, SecretStorage};
 pub use skill::SkillStorage;
-pub use task_queue::TaskQueue;
 pub use terminal_session::TerminalSessionStorage;
 pub use trigger::TriggerStorage;
 pub use workflow::WorkflowStorage;
@@ -59,7 +56,6 @@ pub use workflow::WorkflowStorage;
 pub struct Storage {
     db: Arc<Database>,
     pub workflows: WorkflowStorage,
-    pub queue: TaskQueue,
     pub config: ConfigStorage,
     pub triggers: TriggerStorage,
     pub agents: AgentStorage,
@@ -81,7 +77,6 @@ impl Storage {
         let db = Arc::new(Database::create(path)?);
 
         let workflows = WorkflowStorage::new(db.clone())?;
-        let queue = TaskQueue::new(db.clone())?;
         let config = ConfigStorage::new(db.clone())?;
         let triggers = TriggerStorage::new(db.clone())?;
         let agents = AgentStorage::new(db.clone())?;
@@ -96,7 +91,6 @@ impl Storage {
         Ok(Self {
             db,
             workflows,
-            queue,
             config,
             triggers,
             agents,

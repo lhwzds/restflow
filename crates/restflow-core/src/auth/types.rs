@@ -8,6 +8,12 @@ use ts_rs::TS;
 use uuid::Uuid;
 
 use crate::Provider;
+use super::resolver::CredentialResolver;
+
+/// Secret key naming convention for auth profiles.
+pub fn secret_key(profile_id: &str, field: &str) -> String {
+    format!("auth:{}:{}", profile_id, field)
+}
 
 /// Credential type representing different authentication methods
 ///
@@ -148,6 +154,137 @@ impl Credential {
     }
 }
 
+/// Secure credential storing secret references instead of plaintext values.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../web/src/types/generated/")]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum SecureCredential {
+    /// API key stored in SecretStorage.
+    ApiKey {
+        /// Reference to secret in SecretStorage
+        secret_ref: String,
+        /// Associated email/account (optional)
+        #[serde(skip_serializing_if = "Option::is_none")]
+        email: Option<String>,
+    },
+    /// Session token stored in SecretStorage.
+    Token {
+        /// Reference to secret in SecretStorage
+        secret_ref: String,
+        /// Token expiration time
+        #[serde(skip_serializing_if = "Option::is_none")]
+        expires_at: Option<DateTime<Utc>>,
+        /// Associated email/account
+        #[serde(skip_serializing_if = "Option::is_none")]
+        email: Option<String>,
+    },
+    /// OAuth with references to access/refresh tokens.
+    OAuth {
+        /// Reference to access token secret
+        access_token_ref: String,
+        /// Reference to refresh token secret (optional)
+        #[serde(skip_serializing_if = "Option::is_none")]
+        refresh_token_ref: Option<String>,
+        /// Access token expiration time
+        #[serde(skip_serializing_if = "Option::is_none")]
+        expires_at: Option<DateTime<Utc>>,
+        /// Associated email/account
+        #[serde(skip_serializing_if = "Option::is_none")]
+        email: Option<String>,
+    },
+}
+
+impl SecureCredential {
+    /// Get all secret references for this credential.
+    pub fn secret_refs(&self) -> Vec<&str> {
+        match self {
+            SecureCredential::ApiKey { secret_ref, .. } => vec![secret_ref],
+            SecureCredential::Token { secret_ref, .. } => vec![secret_ref],
+            SecureCredential::OAuth {
+                access_token_ref,
+                refresh_token_ref,
+                ..
+            } => {
+                let mut refs = vec![access_token_ref.as_str()];
+                if let Some(refresh_ref) = refresh_token_ref {
+                    refs.push(refresh_ref.as_str());
+                }
+                refs
+            }
+        }
+    }
+
+    /// Get the primary secret reference (for API key retrieval).
+    pub fn primary_secret_ref(&self) -> &str {
+        match self {
+            SecureCredential::ApiKey { secret_ref, .. } => secret_ref,
+            SecureCredential::Token { secret_ref, .. } => secret_ref,
+            SecureCredential::OAuth { access_token_ref, .. } => access_token_ref,
+        }
+    }
+
+    /// Get the refresh token reference if available.
+    pub fn refresh_token_ref(&self) -> Option<&str> {
+        match self {
+            SecureCredential::OAuth {
+                refresh_token_ref: Some(refresh_ref),
+                ..
+            } => Some(refresh_ref.as_str()),
+            _ => None,
+        }
+    }
+
+    /// Get the associated email if available.
+    pub fn get_email(&self) -> Option<&str> {
+        match self {
+            SecureCredential::ApiKey { email, .. } => email.as_deref(),
+            SecureCredential::Token { email, .. } => email.as_deref(),
+            SecureCredential::OAuth { email, .. } => email.as_deref(),
+        }
+    }
+
+    /// Check if the credential has expired.
+    pub fn is_expired(&self) -> bool {
+        match self {
+            SecureCredential::ApiKey { .. } => false,
+            SecureCredential::Token { expires_at, .. }
+            | SecureCredential::OAuth { expires_at, .. } => {
+                expires_at.map(|exp| exp < Utc::now()).unwrap_or(false)
+            }
+        }
+    }
+
+    /// Check if the credential can be refreshed.
+    pub fn can_refresh(&self) -> bool {
+        matches!(
+            self,
+            SecureCredential::OAuth {
+                refresh_token_ref: Some(_),
+                ..
+            }
+        )
+    }
+
+    /// Update the OAuth access token reference metadata.
+    pub fn update_oauth_metadata(
+        &mut self,
+        refresh_token_ref: Option<String>,
+        expires_at: Option<DateTime<Utc>>,
+    ) {
+        if let SecureCredential::OAuth {
+            refresh_token_ref: current_refresh,
+            expires_at: current_expiry,
+            ..
+        } = self
+        {
+            if refresh_token_ref.is_some() {
+                *current_refresh = refresh_token_ref;
+            }
+            *current_expiry = expires_at;
+        }
+    }
+}
+
 /// Source of the credential discovery
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
 #[ts(export, export_to = "../../web/src/types/generated/")]
@@ -258,8 +395,8 @@ pub struct AuthProfile {
     pub id: String,
     /// Display name for the profile
     pub name: String,
-    /// The credential data
-    pub credential: Credential,
+    /// The credential data (secure references)
+    pub credential: SecureCredential,
     /// Where the credential was discovered from
     pub source: CredentialSource,
     /// Which provider this credential is for
@@ -294,15 +431,26 @@ fn default_true() -> bool {
 }
 
 impl AuthProfile {
-    /// Create a new auth profile
+    /// Create a new auth profile with a generated id.
     pub fn new(
         name: impl Into<String>,
-        credential: Credential,
+        credential: SecureCredential,
+        source: CredentialSource,
+        provider: AuthProvider,
+    ) -> Self {
+        Self::new_with_id(Uuid::new_v4().to_string(), name, credential, source, provider)
+    }
+
+    /// Create a new auth profile with a specific id.
+    pub fn new_with_id(
+        id: String,
+        name: impl Into<String>,
+        credential: SecureCredential,
         source: CredentialSource,
         provider: AuthProvider,
     ) -> Self {
         Self {
-            id: Uuid::new_v4().to_string(),
+            id,
             name: name.into(),
             credential,
             source,
@@ -363,13 +511,13 @@ impl AuthProfile {
         tracing::warn!(profile_id = %self.id, name = %self.name, reason, "Profile disabled");
     }
 
-    /// Get the API key/token for use
-    pub fn get_api_key(&self) -> &str {
-        self.credential.get_auth_value()
+    /// Resolve the API key/token for use.
+    pub fn get_api_key(&self, resolver: &CredentialResolver) -> anyhow::Result<String> {
+        resolver.resolve_auth_value(&self.credential)
     }
 
     pub fn is_oauth(&self) -> bool {
-        self.get_api_key().starts_with("sk-ant-oat")
+        matches!(self.credential, SecureCredential::OAuth { .. })
     }
 }
 
@@ -403,6 +551,18 @@ pub struct ProfileSelection {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::storage::SecretStorage;
+    use redb::Database;
+    use tempfile::TempDir;
+    use std::sync::Arc;
+
+    fn create_test_resolver() -> (Arc<SecretStorage>, CredentialResolver, TempDir) {
+        let dir = TempDir::new().unwrap();
+        let db = Arc::new(Database::create(dir.path().join("test.db")).unwrap());
+        let secrets = Arc::new(SecretStorage::new(db).unwrap());
+        let resolver = CredentialResolver::new(secrets.clone());
+        (secrets, resolver, dir)
+    }
 
     #[test]
     fn test_compatible_with_provider() {
@@ -501,12 +661,14 @@ mod tests {
 
     #[test]
     fn test_auth_profile_new() {
+        let (_, resolver, _dir) = create_test_resolver();
+        let credential = SecureCredential::ApiKey {
+            secret_ref: "auth:test:api_key".to_string(),
+            email: None,
+        };
         let profile = AuthProfile::new(
             "Test Profile",
-            Credential::ApiKey {
-                key: "test-key".to_string(),
-                email: None,
-            },
+            credential,
             CredentialSource::Manual,
             AuthProvider::Anthropic,
         );
@@ -516,16 +678,19 @@ mod tests {
         assert!(profile.enabled);
         assert_eq!(profile.health, ProfileHealth::Unknown);
         assert!(profile.is_available());
+
+        let _ = resolver;
     }
 
     #[test]
     fn test_auth_profile_not_available_disabled() {
+        let credential = SecureCredential::ApiKey {
+            secret_ref: "auth:test:api_key".to_string(),
+            email: None,
+        };
         let mut profile = AuthProfile::new(
             "Test",
-            Credential::ApiKey {
-                key: "key".to_string(),
-                email: None,
-            },
+            credential,
             CredentialSource::Manual,
             AuthProvider::Anthropic,
         );
@@ -536,12 +701,13 @@ mod tests {
 
     #[test]
     fn test_auth_profile_not_available_cooldown() {
+        let credential = SecureCredential::ApiKey {
+            secret_ref: "auth:test:api_key".to_string(),
+            email: None,
+        };
         let mut profile = AuthProfile::new(
             "Test",
-            Credential::ApiKey {
-                key: "key".to_string(),
-                email: None,
-            },
+            credential,
             CredentialSource::Manual,
             AuthProvider::Anthropic,
         );
@@ -552,12 +718,13 @@ mod tests {
 
     #[test]
     fn test_auth_profile_mark_success() {
+        let credential = SecureCredential::ApiKey {
+            secret_ref: "auth:test:api_key".to_string(),
+            email: None,
+        };
         let mut profile = AuthProfile::new(
             "Test",
-            Credential::ApiKey {
-                key: "key".to_string(),
-                email: None,
-            },
+            credential,
             CredentialSource::Manual,
             AuthProvider::Anthropic,
         );
@@ -574,12 +741,13 @@ mod tests {
 
     #[test]
     fn test_auth_profile_mark_failure_exponential_backoff() {
+        let credential = SecureCredential::ApiKey {
+            secret_ref: "auth:test:api_key".to_string(),
+            email: None,
+        };
         let mut profile = AuthProfile::new(
             "Test",
-            Credential::ApiKey {
-                key: "key".to_string(),
-                email: None,
-            },
+            credential,
             CredentialSource::Manual,
             AuthProvider::Anthropic,
         );
@@ -602,12 +770,13 @@ mod tests {
 
     #[test]
     fn test_auth_profile_disable() {
+        let credential = SecureCredential::ApiKey {
+            secret_ref: "auth:test:api_key".to_string(),
+            email: None,
+        };
         let mut profile = AuthProfile::new(
             "Test",
-            Credential::ApiKey {
-                key: "key".to_string(),
-                email: None,
-            },
+            credential,
             CredentialSource::Manual,
             AuthProvider::Anthropic,
         );
