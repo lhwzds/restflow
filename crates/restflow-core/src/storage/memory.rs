@@ -18,6 +18,7 @@ use crate::models::memory::{
 use anyhow::Result;
 use redb::Database;
 use regex::Regex;
+use restflow_storage::memory::PutResult;
 use std::sync::Arc;
 
 /// Typed memory storage wrapper around restflow-storage::MemoryStorage.
@@ -52,8 +53,8 @@ impl MemoryStorage {
         )?;
 
         Ok(match result {
-            restflow_storage::PutResult::Created(id) => id,
-            restflow_storage::PutResult::Existing(id) => id,
+            PutResult::Created(id) => id,
+            PutResult::Existing(id) => id,
         })
     }
 
