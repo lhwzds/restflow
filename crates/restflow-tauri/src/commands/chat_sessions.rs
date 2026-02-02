@@ -11,6 +11,7 @@ use restflow_core::models::{
 };
 use restflow_core::services::tool_registry::create_tool_registry;
 use restflow_core::{AIModel, Provider};
+use serde::Deserialize;
 use std::sync::Arc;
 use std::time::Instant;
 use tauri::{AppHandle, State};
@@ -93,6 +94,63 @@ pub async fn get_chat_session(
         .get(&id)
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Chat session '{}' not found", id))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatSessionUpdate {
+    pub agent_id: Option<String>,
+    pub model: Option<String>,
+    pub name: Option<String>,
+}
+
+/// Update a chat session.
+#[tauri::command]
+pub async fn update_chat_session(
+    state: State<'_, AppState>,
+    session_id: String,
+    updates: ChatSessionUpdate,
+) -> Result<ChatSession, String> {
+    let mut session = state
+        .core
+        .storage
+        .chat_sessions
+        .get(&session_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Chat session '{}' not found", session_id))?;
+
+    let mut updated = false;
+
+    if let Some(agent_id) = updates.agent_id {
+        session.agent_id = agent_id;
+        updated = true;
+    }
+
+    if let Some(model) = updates.model {
+        session.model = model;
+        updated = true;
+    }
+
+    let has_name_update = updates.name.is_some();
+    if let Some(name) = updates.name {
+        session.rename(name);
+        updated = true;
+    }
+
+    if updated {
+        if !has_name_update {
+            session.updated_at = chrono::Utc::now().timestamp_millis();
+        }
+
+        state
+            .core
+            .storage
+            .chat_sessions
+            .update(&session)
+            .map_err(|e| e.to_string())?;
+    }
+
+    Ok(session)
 }
 
 /// Rename a chat session.

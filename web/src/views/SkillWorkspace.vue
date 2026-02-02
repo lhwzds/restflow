@@ -171,9 +171,12 @@ const availableAgents = ref<AgentFile[]>([])
 const availableModels = ref<ModelOption[]>([])
 
 const currentSessionId = computed(() => chatSessionStore.currentSessionId)
+const agentFilter = computed(() => chatSessionStore.agentFilter)
 
-const sessions = computed<SessionItem[]>(() =>
-  chatSessions.value.map((session: ChatSessionSummary) => ({
+const sessions = computed<SessionItem[]>(() => {
+  const agentLookup = new Map(availableAgents.value.map((agent) => [agent.id, agent.name]))
+
+  return chatSessions.value.map((session: ChatSessionSummary) => ({
     id: session.id,
     name: session.name,
     status:
@@ -183,8 +186,10 @@ const sessions = computed<SessionItem[]>(() =>
           ? 'completed'
           : 'pending',
     updatedAt: Number(session.updated_at),
+    agentId: session.agent_id,
+    agentName: agentLookup.get(session.agent_id) ?? session.agent_id,
   }))
-)
+})
 
 const messages = computed<ChatMessage[]>(() => chatMessages.value)
 
@@ -215,13 +220,8 @@ const isExecuting = computed(() => isSending.value)
 const itemCount = computed(() => {
   const query = searchQuery.value.toLowerCase()
   if (activeTab.value === 'terminals') {
-<<<<<<< HEAD
     if (!query) return terminalSessions.value.length
     return terminalSessions.value.filter((s) => s.name.toLowerCase().includes(query)).length
-=======
-    if (!query) return sessions.value.length
-    return sessions.value.filter((s) => s.name.toLowerCase().includes(query)).length
->>>>>>> 7276087 (refactor(ui): rename task list to sessions)
   }
 
   if (!query) return items.value.length
@@ -490,6 +490,27 @@ const onSelectSession = async (sessionId: string) => {
   await selectChatSession(sessionId)
 }
 
+const onUpdateSelectedAgent = async (agentId: string | null) => {
+  selectedAgent.value = agentId
+
+  if (!agentId) return
+
+  const session = currentSession.value
+  if (!session || session.agent_id === agentId) return
+
+  const updated = await chatSessionStore.updateSessionAgent(session.id, agentId)
+  if (!updated) {
+    toast.error('Failed to update session agent')
+    return
+  }
+
+  selectedAgent.value = updated.agent_id
+}
+
+const onUpdateAgentFilter = (agentId: string | null) => {
+  chatSessionStore.setAgentFilter(agentId)
+}
+
 // Handle chat send
 const onSendMessage = async (message: string) => {
   const canSend = await ensureChatSession()
@@ -615,8 +636,11 @@ const onCloseChat = () => {
       <SessionList
         :sessions="sessions"
         :current-session-id="currentSessionId"
+        :available-agents="availableAgents"
+        :agent-filter="agentFilter"
         @select="onSelectSession"
         @new-session="onNewSession"
+        @update-agent-filter="onUpdateAgentFilter"
         class="w-56 border-r shrink-0"
       />
 
@@ -718,7 +742,7 @@ const onCloseChat = () => {
                 :available-models="availableModels"
                 @send="onSendMessage"
                 @close="onCloseChat"
-                @update:selected-agent="selectedAgent = $event"
+                @update:selected-agent="onUpdateSelectedAgent"
                 @update:selected-model="selectedModel = $event"
               />
             </div>

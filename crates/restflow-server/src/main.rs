@@ -110,7 +110,9 @@ async fn main() {
         .route("/api/chat-sessions", get(list_chat_sessions).post(create_chat_session))
         .route(
             "/api/chat-sessions/{id}",
-            get(get_chat_session).delete(delete_chat_session),
+            get(get_chat_session)
+                .patch(update_chat_session)
+                .delete(delete_chat_session),
         )
         .route(
             "/api/chat-sessions/{id}/messages",
