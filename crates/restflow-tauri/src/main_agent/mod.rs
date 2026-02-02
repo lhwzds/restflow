@@ -36,14 +36,15 @@
 //! // Results are aggregated and returned to the user
 //! ```
 
-pub mod definition;
 pub mod events;
 pub mod session;
 pub mod spawn;
 pub mod tools;
-pub mod tracker;
 
-pub use definition::{builtin_agents, AgentDefinition, AgentDefinitionRegistry};
+pub use crate::subagent::{
+    builtin_agents, AgentDefinition, AgentDefinitionRegistry, SpawnHandle, SpawnPriority,
+    SpawnRequest, SubagentCompletion, SubagentResult, SubagentState, SubagentStatus, SubagentTracker,
+};
 pub use events::{
     MainAgentEvent, MainAgentEventEmitter, MainAgentEventKind, NoopMainAgentEmitter,
     TauriMainAgentEmitter, MAIN_AGENT_EVENT,
@@ -52,9 +53,7 @@ pub use session::{
     AgentSession, ChatRole, MessageSource, SessionMessage, SessionMessageExecution,
     SessionMetadata,
 };
-pub use spawn::{SpawnHandle, SpawnPriority, SpawnRequest};
 pub use tools::{ListAgentsTool, SpawnAgentTool, UseSkillTool, WaitAgentsTool};
-pub use tracker::{SubagentCompletion, SubagentResult, SubagentState, SubagentStatus, SubagentTracker};
 
 use anyhow::Result;
 use restflow_ai::llm::{CompletionRequest, Message, Role};

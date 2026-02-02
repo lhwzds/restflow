@@ -1,29 +1,81 @@
-//! Sub-agent spawning with Tokio for parallel execution.
-//!
-//! This module handles spawning sub-agents that run in parallel,
-//! with timeout support and completion notifications.
+//! Sub-agent spawning support for tool-based execution.
 
-use super::events::{MainAgentEvent, MainAgentEventEmitter, MainAgentEventKind};
-use super::MainAgentConfig;
-use crate::subagent::{AgentDefinition, AgentDefinitionRegistry, SpawnHandle, SpawnRequest, SubagentResult, SubagentTracker};
+use super::definition::{AgentDefinition, AgentDefinitionRegistry};
+use super::tracker::{SubagentResult, SubagentTracker};
 use anyhow::{anyhow, Result};
 use restflow_ai::llm::CompletionRequest;
 use restflow_ai::{LlmClient, Message};
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::oneshot;
 use tokio::time::{timeout, Duration};
+use ts_rs::TS;
 
-/// Spawn a sub-agent with the given request
+/// Configuration for sub-agent execution.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct SubagentConfig {
+    /// Maximum number of parallel sub-agents.
+    pub max_parallel_agents: usize,
+    /// Default timeout for sub-agents in seconds.
+    pub subagent_timeout_secs: u64,
+}
+
+impl Default for SubagentConfig {
+    fn default() -> Self {
+        Self {
+            max_parallel_agents: 5,
+            subagent_timeout_secs: 300,
+        }
+    }
+}
+
+/// Request to spawn a sub-agent.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct SpawnRequest {
+    /// Agent type ID (e.g., "researcher", "coder").
+    pub agent_id: String,
+
+    /// Task description for the agent.
+    pub task: String,
+
+    /// Optional timeout in seconds.
+    pub timeout_secs: Option<u64>,
+
+    /// Optional priority level.
+    pub priority: Option<SpawnPriority>,
+}
+
+/// Priority level for sub-agent spawning.
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Default)]
+#[ts(export)]
+pub enum SpawnPriority {
+    Low,
+    #[default]
+    Normal,
+    High,
+}
+
+/// Handle returned after spawning a sub-agent.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct SpawnHandle {
+    /// Unique task ID.
+    pub id: String,
+
+    /// Agent name.
+    pub agent_name: String,
+}
+
+/// Spawn a sub-agent with the given request.
 pub fn spawn_subagent(
     tracker: Arc<SubagentTracker>,
     definitions: Arc<AgentDefinitionRegistry>,
     llm_client: Arc<dyn LlmClient>,
-    event_emitter: Arc<dyn MainAgentEventEmitter>,
-    config: MainAgentConfig,
-    session_id: String,
+    config: SubagentConfig,
     request: SpawnRequest,
 ) -> Result<SpawnHandle> {
-    // Check parallel limit
     let running_count = tracker.running_count();
     if running_count >= config.max_parallel_agents {
         return Err(anyhow!(
@@ -32,66 +84,34 @@ pub fn spawn_subagent(
         ));
     }
 
-    if session_id.trim().is_empty() {
-        return Err(anyhow!(
-            "Main agent session id is required for sub-agent events"
-        ));
-    }
-
-    // Get agent definition
     let agent_def = definitions
         .get(&request.agent_id)
         .ok_or_else(|| anyhow!("Unknown agent type: {}", request.agent_id))?
         .clone();
 
-    // Generate unique task ID
     let task_id = uuid::Uuid::new_v4().to_string();
     let timeout_secs = request.timeout_secs.unwrap_or(config.subagent_timeout_secs);
 
-    // Clone values for use after spawn
     let agent_name_for_register = agent_def.name.clone();
     let agent_name_for_return = agent_def.name.clone();
     let task_for_register = request.task.clone();
 
-    // Clone values for the async task
     let task = request.task.clone();
-    let agent_name = agent_def.name.clone();
-    let _agent_id = request.agent_id.clone();
-    let sid = task_id.clone();
+    let _agent_name = agent_def.name.clone();
     let tracker_clone = tracker.clone();
-    let emitter_clone = event_emitter.clone();
-    let session_id_clone = session_id.clone();
+    let task_id_for_spawn = task_id.clone();
 
-    // Spawn the Tokio task
     let (completion_tx, completion_rx) = oneshot::channel();
     let (start_tx, start_rx) = oneshot::channel();
 
     let handle = tokio::spawn(async move {
+        let task_id = task_id_for_spawn;
         let _ = start_rx.await;
         let start = std::time::Instant::now();
 
-        // Emit started event
-        emitter_clone.emit(MainAgentEvent {
-            session_id: session_id_clone.clone(),
-            timestamp: chrono::Utc::now().timestamp_millis(),
-            kind: MainAgentEventKind::SubagentSpawned {
-                task_id: sid.clone(),
-                agent_name: agent_name.clone(),
-                task: task.clone(),
-            },
-        });
-
-        // Execute with timeout
         let result = timeout(
             Duration::from_secs(timeout_secs),
-            execute_subagent(
-                llm_client,
-                agent_def,
-                task.clone(),
-                emitter_clone.clone(),
-                session_id_clone.clone(),
-                sid.clone(),
-            ),
+            execute_subagent(llm_client, agent_def, task.clone()),
         )
         .await;
 
@@ -102,7 +122,7 @@ pub fn spawn_subagent(
                 SubagentResult {
                     success: true,
                     output,
-                    summary: None, // TODO: Generate summary
+                    summary: None,
                     duration_ms,
                     tokens_used: None,
                     error: None,
@@ -134,29 +154,15 @@ pub fn spawn_subagent(
         };
 
         if timed_out {
-            tracker_clone.mark_timed_out_with_result(&sid, subagent_result.clone());
+            tracker_clone.mark_timed_out_with_result(&task_id, subagent_result.clone());
         } else {
-            tracker_clone.mark_completed(&sid, subagent_result.clone());
+            tracker_clone.mark_completed(&task_id, subagent_result.clone());
         }
-
-        // Emit completed event
-        emitter_clone.emit(MainAgentEvent {
-            session_id: session_id_clone.clone(),
-            timestamp: chrono::Utc::now().timestamp_millis(),
-            kind: MainAgentEventKind::SubagentCompleted {
-                task_id: sid.clone(),
-                agent_name: agent_name.clone(),
-                success: subagent_result.success,
-                summary: subagent_result.summary.clone(),
-                duration_ms: subagent_result.duration_ms,
-            },
-        });
 
         let _ = completion_tx.send(subagent_result.clone());
         subagent_result
     });
 
-    // Register with tracker
     tracker.register(
         task_id.clone(),
         agent_name_for_register,
@@ -173,16 +179,11 @@ pub fn spawn_subagent(
     })
 }
 
-/// Execute a sub-agent's task
 async fn execute_subagent(
     llm_client: Arc<dyn LlmClient>,
     agent_def: AgentDefinition,
     task: String,
-    event_emitter: Arc<dyn MainAgentEventEmitter>,
-    session_id: String,
-    task_id: String,
 ) -> Result<String> {
-    // Build system prompt for sub-agent
     let system_prompt = format!(
         "{}\n\n## Your Task\n{}\n\n## Important\
          You are a sub-agent focused on this specific task. \
@@ -190,35 +191,11 @@ async fn execute_subagent(
         agent_def.system_prompt, task
     );
 
-    // Emit progress event
-    event_emitter.emit(MainAgentEvent {
-        session_id: session_id.clone(),
-        timestamp: chrono::Utc::now().timestamp_millis(),
-        kind: MainAgentEventKind::SubagentProgress {
-            task_id: task_id.clone(),
-            agent_name: agent_def.name.clone(),
-            step: "Starting execution".to_string(),
-        },
-    });
-
-    // TODO: Implement full ReAct loop with the sub-agent
-    // For now, we'll make a simple LLM call
     let messages = vec![Message::system(system_prompt), Message::user(task)];
 
     let request = CompletionRequest::new(messages).with_max_tokens(4096);
 
     let response = llm_client.complete(request).await?;
-
-    // Emit completion progress
-    event_emitter.emit(MainAgentEvent {
-        session_id,
-        timestamp: chrono::Utc::now().timestamp_millis(),
-        kind: MainAgentEventKind::SubagentProgress {
-            task_id,
-            agent_name: agent_def.name,
-            step: "Completed".to_string(),
-        },
-    });
 
     Ok(response.content.unwrap_or_default())
 }

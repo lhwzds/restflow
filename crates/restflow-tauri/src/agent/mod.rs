@@ -12,9 +12,10 @@ use restflow_core::storage::Storage;
 pub use restflow_ai::agent::{ExecutionResult, UnifiedAgent, UnifiedAgentConfig};
 pub use skills::{ProcessedSkill, SkillLoader};
 pub use tools::{
-    BashConfig, BashTool, EmailTool, FileConfig, FileTool, HttpTool, PythonTool, SpawnTool,
-    SubagentSpawner, TelegramTool, Tool, ToolRegistry, ToolRegistryBuilder, ToolResult,
-    default_registry, registry_from_allowlist,
+    BashConfig, BashTool, EmailTool, FileConfig, FileTool, HttpTool, ListAgentsTool, PythonTool,
+    SpawnAgentTool, SpawnTool, SubagentDeps, SubagentSpawner, TelegramTool, Tool, ToolRegistry,
+    ToolRegistryBuilder, ToolResult, UseSkillTool, WaitAgentsTool, default_registry,
+    registry_from_allowlist,
 };
 
 pub fn build_agent_system_prompt(

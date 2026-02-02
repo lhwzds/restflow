@@ -408,7 +408,7 @@ impl ChatDispatcher {
         };
 
         let llm = self.create_llm_client(model, &api_key);
-        let tools = Arc::new(registry_from_allowlist(agent_node.tools.as_deref()));
+        let tools = Arc::new(registry_from_allowlist(agent_node.tools.as_deref(), None));
         let system_prompt = build_agent_system_prompt(self.storage.clone(), agent_node)
             .map_err(|e| ChatError::ExecutionFailed(e.to_string()))?;
 

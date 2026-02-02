@@ -152,7 +152,7 @@ impl RealAgentExecutor {
     /// If the agent has specific tools configured, only those tools are registered.
     /// Otherwise, an empty registry is used (secure default).
     fn build_tool_registry(&self, tool_names: Option<&[String]>) -> Arc<ToolRegistry> {
-        Arc::new(registry_from_allowlist(tool_names))
+        Arc::new(registry_from_allowlist(tool_names, None))
     }
 
     async fn execute_with_model(
