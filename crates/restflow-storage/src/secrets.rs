@@ -3,7 +3,7 @@
 use crate::encryption::SecretEncryptor;
 use crate::keychain;
 use anyhow::{Context, Result};
-use base64::{engine::general_purpose::STANDARD, Engine as _};
+use base64::{Engine as _, engine::general_purpose::STANDARD};
 use rand::RngCore;
 use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
 use serde::{Deserialize, Serialize};
@@ -270,10 +270,7 @@ impl SecretStorage {
             Ok(plaintext) => Ok(serde_json::from_slice(&plaintext)?),
             Err(err) => match decode_legacy_secret(payload) {
                 Ok(secret) => Ok(secret),
-                Err(_) => Err(anyhow::anyhow!(
-                    "Failed to decrypt secret payload: {}",
-                    err
-                )),
+                Err(_) => Err(anyhow::anyhow!("Failed to decrypt secret payload: {}", err)),
             },
         }
     }
@@ -410,9 +407,7 @@ fn read_master_key_from_db(db: &Arc<Database>) -> Result<Option<[u8; 32]>> {
     if let Some(data) = table.get(MASTER_KEY_RECORD)? {
         let payload = data.value();
         if payload.len() != 32 {
-            return Err(anyhow::anyhow!(
-                "Stored master key must be 32 bytes"
-            ));
+            return Err(anyhow::anyhow!("Stored master key must be 32 bytes"));
         }
         let key: [u8; 32] = payload
             .try_into()
@@ -589,7 +584,9 @@ mod tests {
         let write_txn = db.begin_write().unwrap();
         {
             let mut table = write_txn.open_table(SECRETS_TABLE).unwrap();
-            table.insert(secret.key.as_str(), encoded.as_bytes()).unwrap();
+            table
+                .insert(secret.key.as_str(), encoded.as_bytes())
+                .unwrap();
         }
         write_txn.commit().unwrap();
 
