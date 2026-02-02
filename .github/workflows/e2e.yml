@@ -16,6 +16,8 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Build and start RestFlow
+        env:
+          RESTFLOW_MASTER_KEY: ci-test-master-key
         run: docker compose up -d --build
 
       - name: Wait for RestFlow to be ready
