@@ -1,0 +1,56 @@
+[
+  {
+    "model": "claude-sonnet-4-5",
+    "provider": "anthropic",
+    "supports_temperature": true,
+    "name": "Claude Sonnet 4.5"
+  },
+  {
+    "model": "claude-opus-4-1",
+    "provider": "anthropic",
+    "supports_temperature": true,
+    "name": "Claude Opus 4.1"
+  },
+  {
+    "model": "claude-haiku-4-5",
+    "provider": "anthropic",
+    "supports_temperature": true,
+    "name": "Claude Haiku 4.5"
+  },
+  {
+    "model": "gpt-5",
+    "provider": "openai",
+    "supports_temperature": true,
+    "name": "GPT-5"
+  },
+  {
+    "model": "gpt-5-mini",
+    "provider": "openai",
+    "supports_temperature": true,
+    "name": "GPT-5 Mini"
+  },
+  {
+    "model": "o3",
+    "provider": "openai",
+    "supports_temperature": false,
+    "name": "o3"
+  },
+  {
+    "model": "o3-mini",
+    "provider": "openai",
+    "supports_temperature": false,
+    "name": "o3-mini"
+  },
+  {
+    "model": "deepseek-chat",
+    "provider": "deepseek",
+    "supports_temperature": true,
+    "name": "DeepSeek Chat"
+  },
+  {
+    "model": "deepseek-reasoner",
+    "provider": "deepseek",
+    "supports_temperature": true,
+    "name": "DeepSeek Reasoner"
+  }
+]
