@@ -1,5 +1,5 @@
 use anyhow::Result;
-use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
+use redb::{Database, ReadableDatabase, ReadableTable, ReadableTableMetadata, TableDefinition};
 use std::sync::Arc;
 
 /// Trait for simple key-value storage modules.
