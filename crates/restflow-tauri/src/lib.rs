@@ -3,6 +3,7 @@
 //! This crate provides the Tauri desktop application wrapper for RestFlow,
 //! exposing the workflow engine functionality through Tauri commands.
 
+pub mod agent;
 pub mod agent_task;
 pub mod channel;
 pub mod chat;
@@ -13,19 +14,23 @@ pub mod mcp;
 pub mod state;
 pub mod webhook;
 
+pub use agent::{
+    BashConfig, BashTool, FileConfig, FileTool, HttpTool, SpawnTool, SubagentSpawner, Tool,
+    ToolDefinition, ToolRegistry, ToolRegistryBuilder, ToolResult,
+};
 pub use agent_task::{
     AgentExecutor, AgentTaskRunner, HEARTBEAT_EVENT, HeartbeatEmitter, HeartbeatEvent,
     HeartbeatPulse, NoopHeartbeatEmitter, RealAgentExecutor, RunnerConfig, RunnerHandle,
     RunnerStatus, TauriHeartbeatEmitter, TelegramNotifier,
 };
 pub use channel::{
-    start_message_handler, start_message_handler_with_chat, ChatDispatcher, ChatDispatcherConfig,
-    ChatSessionManager, MessageDebouncer, MessageHandlerConfig, MessageRouter, RouteDecision,
-    SystemStatus, TaskTrigger,
+    ChatDispatcher, ChatDispatcherConfig, ChatSessionManager, MessageDebouncer,
+    MessageHandlerConfig, MessageRouter, RouteDecision, SystemStatus, TaskTrigger,
+    start_message_handler, start_message_handler_with_chat,
 };
 pub use chat::{
-    ChatStreamEvent, ChatStreamKind, ChatStreamState, StepStatus, StreamCancelHandle,
-    StreamManager, CHAT_STREAM_EVENT,
+    CHAT_STREAM_EVENT, ChatStreamEvent, ChatStreamKind, ChatStreamState, StepStatus,
+    StreamCancelHandle, StreamManager,
 };
 pub use error::TauriError;
 pub use main_agent::{
