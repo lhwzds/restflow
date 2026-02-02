@@ -25,6 +25,7 @@ pub mod agent_task;
 pub mod chat_session;
 pub mod config;
 pub mod execution_history;
+pub mod keychain;
 pub mod memory;
 pub mod secrets;
 pub mod shared_space;

@@ -5257,6 +5257,7 @@ dependencies = [
  "parking_lot",
  "rand 0.8.5",
  "redb",
+ "security-framework 2.11.1",
  "serde",
  "serde_json",
  "tempfile",
