@@ -107,7 +107,7 @@ impl VectorStorage {
         };
 
         {
-            let mut index = self.index.write();
+            let index = self.index.write();
             index.insert((vector, vector_id));
         }
 
@@ -190,7 +190,7 @@ impl VectorStorage {
         let allowed_set: HashSet<&String> = allowed_ids.iter().collect();
         let id_map = self.id_map.read();
 
-        let allowed_vector_ids: Vec<usize> = allowed_ids
+        let mut allowed_vector_ids: Vec<usize> = allowed_ids
             .iter()
             .filter_map(|chunk_id| id_map.get(chunk_id).copied())
             .collect();
@@ -199,11 +199,12 @@ impl VectorStorage {
             return Ok(Vec::new());
         }
 
+        allowed_vector_ids.sort_unstable();
+
         let index = self.index.read();
         let reverse = self.reverse_map.read();
-        let results = index.search_filter(query, top_k, ef_search, |id| {
-            allowed_vector_ids.contains(&id)
-        });
+        let filter: Option<&dyn FilterT> = Some(&allowed_vector_ids);
+        let results = index.search_filter(query, top_k, ef_search, filter);
 
         Ok(results
             .into_iter()
