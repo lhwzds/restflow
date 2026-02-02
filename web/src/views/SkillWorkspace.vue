@@ -586,12 +586,12 @@ const onCloseChat = () => {
       <div class="flex-1" />
 
       <!-- Right: Controls -->
-      <div class="flex items-center gap-2">
-        <!-- Browser controls only shown in browse mode to reduce clutter in editor -->
+      <div class="flex items-center gap-2 pr-3">
+        <!-- Browser controls only shown in browse mode to reduce clutter in editor, hidden on mobile -->
         <template v-if="!hasOpenTabs || showBrowser">
-          <span class="text-xs text-muted-foreground"> {{ itemCount }} items </span>
+          <span class="hidden sm:inline text-xs text-muted-foreground"> {{ itemCount }} items </span>
 
-          <div class="flex gap-0.5 border rounded-md p-0.5">
+          <div class="hidden sm:flex gap-0.5 border rounded-md p-0.5">
             <Button
               size="icon"
               :variant="viewMode === 'list' ? 'secondary' : 'ghost'"
@@ -610,7 +610,7 @@ const onCloseChat = () => {
             </Button>
           </div>
 
-          <div class="relative w-48">
+          <div class="hidden sm:block relative w-48">
             <Search
               :size="14"
               class="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground"
@@ -618,7 +618,7 @@ const onCloseChat = () => {
             <Input v-model="searchQuery" placeholder="Search..." class="h-7 pl-7 text-sm" />
           </div>
 
-          <div class="w-px h-5 bg-border mx-1" />
+          <div class="hidden sm:block w-px h-5 bg-border mx-1" />
         </template>
 
         <Button variant="ghost" size="icon" class="h-8 w-8" @click="toggleTheme">
@@ -641,7 +641,7 @@ const onCloseChat = () => {
         @select="onSelectSession"
         @new-session="onNewSession"
         @update-agent-filter="onUpdateAgentFilter"
-        class="w-56 border-r shrink-0"
+        class="hidden md:block w-56 border-r shrink-0"
       />
 
       <!-- Center Content Area -->
@@ -732,7 +732,7 @@ const onCloseChat = () => {
               </div>
             </div>
 
-            <div class="shrink-0 px-8 pb-4">
+            <div class="shrink-0 px-4 sm:px-8 pb-4">
               <ChatBox
                 :is-expanded="isChatExpanded"
                 :is-executing="isExecuting"
@@ -757,7 +757,7 @@ const onCloseChat = () => {
         v-if="(isChatExpanded || isExecuting) && !hasOpenTabs"
         :steps="executionSteps"
         :is-executing="isExecuting"
-        class="w-64 border-l shrink-0"
+        class="hidden md:block w-64 border-l shrink-0"
       />
     </div>
 
