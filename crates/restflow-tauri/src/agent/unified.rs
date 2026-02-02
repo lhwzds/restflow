@@ -88,8 +88,10 @@ impl UnifiedAgent {
     pub async fn execute(&mut self, input: &str) -> Result<ExecutionResult> {
         info!("UnifiedAgent executing: {}...", &input[..input.len().min(50)]);
 
+        // Prepend system prompt at the beginning to ensure correct order:
+        // [system, history..., user] instead of [history..., system, user]
         let system_prompt = self.build_system_prompt()?;
-        self.history.add(Message::system(system_prompt));
+        self.history.prepend(Message::system(system_prompt));
         self.history.add(Message::user(input.to_string()));
 
         let mut iterations = 0;
