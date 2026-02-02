@@ -61,8 +61,8 @@ pub trait Tool: Send + Sync {
     async fn execute(&self, args: Value) -> Result<ToolResult>;
 
     /// Tool name (convenience method).
-    fn name(&self) -> &str {
-        self.definition().name.as_str()
+    fn name(&self) -> String {
+        self.definition().name
     }
 }
 

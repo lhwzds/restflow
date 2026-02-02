@@ -278,7 +278,7 @@ mod tests {
     }
 
     fn create_test_executor(storage: Arc<Storage>) -> RealAgentExecutor {
-        let auth_manager = Arc::new(AuthProfileManager::new());
+        let auth_manager = Arc::new(AuthProfileManager::new(storage.secrets.clone()));
         RealAgentExecutor::new(storage, Arc::new(ProcessRegistry::new()), auth_manager)
     }
 

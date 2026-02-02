@@ -521,24 +521,22 @@ async fn execute_agent_for_session(
         } else {
             format!("{}\n\n{}", agent_prompt, conversation_context)
         }
+    } else if conversation_context.is_empty() {
+        "You are a helpful AI assistant.".to_string()
     } else {
-        if conversation_context.is_empty() {
-            "You are a helpful AI assistant.".to_string()
-        } else {
-            format!(
-                "You are a helpful AI assistant.\n\n{}",
-                conversation_context
-            )
-        }
+        format!(
+            "You are a helpful AI assistant.\n\n{}",
+            conversation_context
+        )
     };
 
     // Build agent config
     let mut config = AgentConfig::new(user_input).with_system_prompt(&system_prompt);
 
-    if model.supports_temperature() {
-        if let Some(temp) = agent_node.temperature {
-            config = config.with_temperature(temp as f32);
-        }
+    if model.supports_temperature()
+        && let Some(temp) = agent_node.temperature
+    {
+        config = config.with_temperature(temp as f32);
     }
 
     // Execute agent
@@ -726,7 +724,7 @@ pub async fn send_chat_message_stream(
         let model = match agent_node.require_model() {
             Ok(m) => m,
             Err(e) => {
-                stream_state.emit_failed(&e);
+                stream_state.emit_failed(e);
                 stream_manager.remove(&message_id_clone);
                 return;
             }
@@ -791,24 +789,22 @@ pub async fn send_chat_message_stream(
             } else {
                 format!("{}\n\n{}", agent_prompt, conversation_context)
             }
+        } else if conversation_context.is_empty() {
+            "You are a helpful AI assistant.".to_string()
         } else {
-            if conversation_context.is_empty() {
-                "You are a helpful AI assistant.".to_string()
-            } else {
-                format!(
-                    "You are a helpful AI assistant.\n\n{}",
-                    conversation_context
-                )
-            }
+            format!(
+                "You are a helpful AI assistant.\n\n{}",
+                conversation_context
+            )
         };
 
         // Build agent config
         let mut config = AgentConfig::new(&user_input).with_system_prompt(&system_prompt);
 
-        if model.supports_temperature() {
-            if let Some(temp) = agent_node.temperature {
-                config = config.with_temperature(temp as f32);
-            }
+        if model.supports_temperature()
+            && let Some(temp) = agent_node.temperature
+        {
+            config = config.with_temperature(temp as f32);
         }
 
         // Execute agent
