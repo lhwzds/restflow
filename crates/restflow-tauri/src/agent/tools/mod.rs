@@ -2,6 +2,7 @@
 
 use anyhow::Result;
 use async_trait::async_trait;
+use restflow_ai::tools::ToolSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -97,6 +98,18 @@ impl ToolRegistry {
             .get(name)
             .ok_or_else(|| anyhow::anyhow!("Unknown tool: {}", name))?;
         tool.execute(args).await
+    }
+
+    /// Get tool schemas for LLM tool calling.
+    pub fn schemas(&self) -> Vec<ToolSchema> {
+        self.definitions()
+            .into_iter()
+            .map(|def| ToolSchema {
+                name: def.name,
+                description: def.description,
+                parameters: def.parameters,
+            })
+            .collect()
     }
 
     /// Check if a tool exists.
