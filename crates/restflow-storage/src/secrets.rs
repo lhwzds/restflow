@@ -333,6 +333,7 @@ fn store_master_key_in_db(db: &Arc<Database>, key: &[u8; 32]) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::thread;
     use tempfile::tempdir;
 
     fn setup() -> (SecretStorage, tempfile::TempDir) {
@@ -451,6 +452,36 @@ mod tests {
         let storage = SecretStorage::new(db).unwrap();
         let value = storage.get_secret("LEGACY_KEY").unwrap();
         assert_eq!(value, Some("legacy-value".to_string()));
+
+        let secrets = storage.list_secrets().unwrap();
+        assert_eq!(secrets.len(), 1);
+    }
+
+    #[test]
+    fn test_concurrent_set_secret() {
+        let (storage, _temp_dir) = setup();
+
+        let handles: Vec<_> = (0..10)
+            .map(|i| {
+                let storage = storage.clone();
+                thread::spawn(move || {
+                    storage
+                        .set_secret(
+                            "TEST_KEY",
+                            format!("value-{}", i).as_str(),
+                            None,
+                        )
+                        .unwrap();
+                })
+            })
+            .collect();
+
+        for handle in handles {
+            handle.join().unwrap();
+        }
+
+        let value = storage.get_secret("TEST_KEY").unwrap();
+        assert!(value.is_some());
 
         let secrets = storage.list_secrets().unwrap();
         assert_eq!(secrets.len(), 1);

@@ -521,6 +521,7 @@ impl MemoryStorage {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::thread;
     use tempfile::tempdir;
 
     fn create_test_storage() -> MemoryStorage {
@@ -911,5 +912,51 @@ mod tests {
 
         let retrieved = storage.get_session_raw("session-001").unwrap();
         assert_eq!(retrieved.unwrap(), b"updated");
+    }
+
+    #[test]
+    fn test_concurrent_chunk_deduplication() {
+        let storage = create_test_storage();
+        let content_hash = "dup-hash";
+        let tags = vec!["tag".to_string()];
+
+        let handles: Vec<_> = (0..10)
+            .map(|i| {
+                let storage = storage.clone();
+                let tags = tags.clone();
+                thread::spawn(move || {
+                    let chunk_id = format!("chunk-{}", i);
+                    storage
+                        .put_chunk_if_not_exists(
+                            &chunk_id,
+                            "agent-001",
+                            None,
+                            content_hash,
+                            &tags,
+                            b"data",
+                        )
+                        .unwrap()
+                })
+            })
+            .collect();
+
+        let mut results = Vec::new();
+        for handle in handles {
+            results.push(handle.join().unwrap());
+        }
+
+        let first_id = match &results[0] {
+            PutChunkResult::Created(id) | PutChunkResult::Existing(id) => id.clone(),
+        };
+
+        for result in results {
+            let id = match result {
+                PutChunkResult::Created(id) | PutChunkResult::Existing(id) => id,
+            };
+            assert_eq!(id, first_id);
+        }
+
+        let chunks = storage.list_chunks_by_agent_raw("agent-001").unwrap();
+        assert_eq!(chunks.len(), 1);
     }
 }
