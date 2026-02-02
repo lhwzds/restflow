@@ -4,7 +4,7 @@ use crate::encryption::SecretEncryptor;
 use anyhow::{Context, Result};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use rand::RngCore;
-use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
+use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition, TableError};
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::fs::{self, OpenOptions};
@@ -523,7 +523,11 @@ fn decode_master_key(value: &str) -> Result<[u8; 32]> {
 
 fn read_master_key_from_db(db: &Arc<Database>) -> Result<Option<[u8; 32]>> {
     let read_txn = db.begin_read()?;
-    let table = read_txn.open_table(MASTER_KEY_TABLE)?;
+    let table = match read_txn.open_table(MASTER_KEY_TABLE) {
+        Ok(table) => table,
+        Err(TableError::TableDoesNotExist(_)) => return Ok(None),
+        Err(err) => return Err(err.into()),
+    };
 
     if let Some(data) = table.get(MASTER_KEY_RECORD)? {
         let payload = data.value();
@@ -552,9 +556,16 @@ fn remove_master_key_from_db(db: &Arc<Database>) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Mutex, OnceLock};
     use tempfile::tempdir;
 
+    fn env_lock() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(())).lock().unwrap()
+    }
+
     fn setup() -> (SecretStorage, tempfile::TempDir) {
+        let _env_lock = env_lock();
         let temp_dir = tempdir().unwrap();
         let state_dir = temp_dir.path().join("state");
         std::fs::create_dir_all(&state_dir).unwrap();
@@ -574,6 +585,7 @@ mod tests {
 
     #[test]
     fn test_env_key_takes_precedence() {
+        let _env_lock = env_lock();
         let temp_dir = tempdir().unwrap();
         let state_dir = temp_dir.path().join("state");
         std::fs::create_dir_all(&state_dir).unwrap();
@@ -613,6 +625,7 @@ mod tests {
 
     #[test]
     fn test_json_key_takes_precedence() {
+        let _env_lock = env_lock();
         let temp_dir = tempdir().unwrap();
         let state_dir = temp_dir.path().join("state");
         std::fs::create_dir_all(&state_dir).unwrap();
@@ -639,6 +652,7 @@ mod tests {
 
     #[test]
     fn test_rejects_db_key_without_migration() {
+        let _env_lock = env_lock();
         let temp_dir = tempdir().unwrap();
         let state_dir = temp_dir.path().join("state");
         std::fs::create_dir_all(&state_dir).unwrap();
@@ -758,6 +772,7 @@ mod tests {
 
     #[test]
     fn test_migrate_legacy_secret() {
+        let _env_lock = env_lock();
         let temp_dir = tempdir().unwrap();
         let state_dir = temp_dir.path().join("state");
         std::fs::create_dir_all(&state_dir).unwrap();
@@ -840,6 +855,7 @@ mod tests {
     fn test_concurrent_set_secret() {
         use std::thread;
 
+        let _env_lock = env_lock();
         let temp_dir = tempdir().unwrap();
         let state_dir = temp_dir.path().join("state");
         std::fs::create_dir_all(&state_dir).unwrap();
@@ -886,6 +902,7 @@ mod tests {
         use std::sync::atomic::{AtomicUsize, Ordering};
         use std::thread;
 
+        let _env_lock = env_lock();
         let temp_dir = tempdir().unwrap();
         let state_dir = temp_dir.path().join("state");
         std::fs::create_dir_all(&state_dir).unwrap();
@@ -931,6 +948,7 @@ mod tests {
 
     #[test]
     fn test_migrate_master_key_from_db() {
+        let _env_lock = env_lock();
         let temp_dir = tempdir().unwrap();
         let state_dir = temp_dir.path().join("state");
         std::fs::create_dir_all(&state_dir).unwrap();
