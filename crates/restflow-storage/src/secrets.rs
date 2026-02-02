@@ -153,19 +153,51 @@ impl SecretStorage {
     }
 
     /// Create a new secret (fails if already exists)
+    ///
+    /// This operation is atomic - the existence check and insert happen
+    /// within the same write transaction to prevent race conditions.
     pub fn create_secret(&self, key: &str, value: &str, description: Option<String>) -> Result<()> {
-        if self.get_secret_model(key)?.is_some() {
-            return Err(anyhow::anyhow!("Secret {} already exists", key));
+        let write_txn = self.db.begin_write()?;
+        {
+            let mut table = write_txn.open_table(SECRETS_TABLE)?;
+
+            // Check existence within write transaction to prevent TOCTOU race
+            if table.get(key)?.is_some() {
+                return Err(anyhow::anyhow!("Secret {} already exists", key));
+            }
+
+            let secret = Secret::new(key.to_string(), value.to_string(), description);
+            let encrypted = self.encode_secret(&secret)?;
+            table.insert(key, encrypted.as_slice())?;
         }
-        self.set_secret(key, value, description)
+        write_txn.commit()?;
+        Ok(())
     }
 
     /// Update an existing secret (fails if not exists)
+    ///
+    /// This operation is atomic - the existence check and update happen
+    /// within the same write transaction to prevent race conditions.
     pub fn update_secret(&self, key: &str, value: &str, description: Option<String>) -> Result<()> {
-        if self.get_secret_model(key)?.is_none() {
-            return Err(anyhow::anyhow!("Secret {} not found", key));
+        let write_txn = self.db.begin_write()?;
+        {
+            let mut table = write_txn.open_table(SECRETS_TABLE)?;
+
+            // Check existence and get current data within write transaction
+            let existing = table
+                .get(key)?
+                .map(|data| self.decode_secret_bytes(data.value()))
+                .transpose()?;
+
+            let mut existing_secret = existing
+                .ok_or_else(|| anyhow::anyhow!("Secret {} not found", key))?;
+
+            existing_secret.update(value.to_string(), description);
+            let encrypted = self.encode_secret(&existing_secret)?;
+            table.insert(key, encrypted.as_slice())?;
         }
-        self.set_secret(key, value, description)
+        write_txn.commit()?;
+        Ok(())
     }
 
     /// Get secret model (internal)
@@ -428,7 +460,8 @@ mod tests {
         store_master_key_in_db(&db, &db_key).unwrap();
 
         let env_value = "aa".repeat(32);
-        std::env::set_var(MASTER_KEY_ENV, &env_value);
+        // SAFETY: This is a single-threaded test, no other threads access this env var
+        unsafe { std::env::set_var(MASTER_KEY_ENV, &env_value) };
 
         let config = SecretStorageConfig {
             key_source: MasterKeySource::Database { warn: false },
@@ -438,7 +471,8 @@ mod tests {
         let key = load_master_key(&db, &config).unwrap();
         assert_eq!(key, [0xaa; 32]);
 
-        std::env::remove_var(MASTER_KEY_ENV);
+        // SAFETY: This is a single-threaded test, no other threads access this env var
+        unsafe { std::env::remove_var(MASTER_KEY_ENV) };
     }
 
     #[test]
@@ -447,7 +481,8 @@ mod tests {
         let db_path = temp_dir.path().join("test.db");
         let db = Arc::new(Database::create(db_path).unwrap());
 
-        std::env::remove_var(MASTER_KEY_ENV);
+        // SAFETY: This is a single-threaded test, no other threads access this env var
+        unsafe { std::env::remove_var(MASTER_KEY_ENV) };
 
         let err = load_master_key(&db, &SecretStorageConfig::default()).unwrap_err();
         assert!(err.to_string().contains("No master key configured"));
@@ -562,6 +597,121 @@ mod tests {
         let value = storage.get_secret("LEGACY_KEY").unwrap();
         assert_eq!(value, Some("legacy-value".to_string()));
 
+        let secrets = storage.list_secrets().unwrap();
+        assert_eq!(secrets.len(), 1);
+    }
+
+    #[test]
+    fn test_create_secret_atomic() {
+        let (storage, _temp_dir) = setup();
+
+        // First create should succeed
+        storage
+            .create_secret("UNIQUE_KEY", "value1", None)
+            .unwrap();
+
+        // Second create should fail
+        let result = storage.create_secret("UNIQUE_KEY", "value2", None);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("already exists"));
+
+        // Value should remain the first one
+        let value = storage.get_secret("UNIQUE_KEY").unwrap();
+        assert_eq!(value, Some("value1".to_string()));
+    }
+
+    #[test]
+    fn test_update_secret_atomic() {
+        let (storage, _temp_dir) = setup();
+
+        // Update non-existent should fail
+        let result = storage.update_secret("NON_EXISTENT", "value", None);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("not found"));
+
+        // Create then update should work
+        storage.create_secret("UPDATE_KEY", "initial", None).unwrap();
+        storage
+            .update_secret("UPDATE_KEY", "updated", Some("desc".to_string()))
+            .unwrap();
+
+        let value = storage.get_secret("UPDATE_KEY").unwrap();
+        assert_eq!(value, Some("updated".to_string()));
+    }
+
+    /// Test concurrent set_secret operations don't corrupt data.
+    /// All threads write to the same key - the final value should be one of the written values.
+    #[test]
+    fn test_concurrent_set_secret() {
+        use std::thread;
+
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test.db");
+        let db = Arc::new(Database::create(db_path).unwrap());
+        let storage = Arc::new(SecretStorage::new_insecure(db).unwrap());
+
+        let num_threads = 10;
+        let handles: Vec<_> = (0..num_threads)
+            .map(|i| {
+                let s = Arc::clone(&storage);
+                thread::spawn(move || {
+                    s.set_secret("concurrent_key", &format!("value-{}", i), None)
+                        .unwrap();
+                })
+            })
+            .collect();
+
+        for h in handles {
+            h.join().unwrap();
+        }
+
+        // Should have exactly one secret, not corrupted
+        let secret = storage.get_secret("concurrent_key").unwrap();
+        assert!(secret.is_some());
+        let value = secret.unwrap();
+        assert!(value.starts_with("value-"));
+
+        // Only one secret should exist
+        let secrets = storage.list_secrets().unwrap();
+        assert_eq!(secrets.len(), 1);
+    }
+
+    /// Test concurrent create_secret - only one should succeed.
+    #[test]
+    fn test_concurrent_create_secret() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::thread;
+
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test.db");
+        let db = Arc::new(Database::create(db_path).unwrap());
+        let storage = Arc::new(SecretStorage::new_insecure(db).unwrap());
+
+        let success_count = Arc::new(AtomicUsize::new(0));
+        let num_threads = 10;
+
+        let handles: Vec<_> = (0..num_threads)
+            .map(|i| {
+                let s = Arc::clone(&storage);
+                let count = Arc::clone(&success_count);
+                thread::spawn(move || {
+                    if s.create_secret("race_key", &format!("value-{}", i), None)
+                        .is_ok()
+                    {
+                        count.fetch_add(1, Ordering::SeqCst);
+                    }
+                })
+            })
+            .collect();
+
+        for h in handles {
+            h.join().unwrap();
+        }
+
+        // Exactly one create should have succeeded
+        assert_eq!(success_count.load(Ordering::SeqCst), 1);
+
+        // Only one secret should exist
         let secrets = storage.list_secrets().unwrap();
         assert_eq!(secrets.len(), 1);
     }

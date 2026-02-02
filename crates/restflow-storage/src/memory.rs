@@ -80,7 +80,8 @@ impl MemoryStorage {
     ) -> Result<PutChunkResult> {
         let write_txn = self.db.begin_write()?;
         let result = {
-            let hash_index = write_txn.open_table(HASH_INDEX_TABLE)?;
+            // Open hash_index once as mutable for both read and write
+            let mut hash_index = write_txn.open_table(HASH_INDEX_TABLE)?;
             if let Some(existing) = hash_index.get(content_hash)? {
                 PutChunkResult::Existing(existing.value().to_string())
             } else {
@@ -97,7 +98,7 @@ impl MemoryStorage {
                     session_index.insert(session_key.as_str(), chunk_id)?;
                 }
 
-                let mut hash_index = write_txn.open_table(HASH_INDEX_TABLE)?;
+                // Use the already-opened hash_index for insert
                 hash_index.insert(content_hash, chunk_id)?;
 
                 let mut tag_index = write_txn.open_table(TAG_INDEX_TABLE)?;
@@ -972,5 +973,171 @@ mod tests {
 
         let retrieved = storage.get_session_raw("session-001").unwrap();
         assert_eq!(retrieved.unwrap(), b"updated");
+    }
+
+    #[test]
+    fn test_put_chunk_if_not_exists_basic() {
+        let storage = create_test_storage();
+
+        // First insert should create
+        let result = storage
+            .put_chunk_if_not_exists(
+                "chunk-001",
+                "agent-001",
+                None,
+                "unique-hash",
+                &[],
+                b"data",
+            )
+            .unwrap();
+        assert_eq!(result, PutChunkResult::Created("chunk-001".to_string()));
+
+        // Second insert with same hash should return existing
+        let result = storage
+            .put_chunk_if_not_exists(
+                "chunk-002",
+                "agent-001",
+                None,
+                "unique-hash",
+                &[],
+                b"data",
+            )
+            .unwrap();
+        assert_eq!(result, PutChunkResult::Existing("chunk-001".to_string()));
+
+        // Only one chunk should exist
+        let chunks = storage.list_chunks_by_agent_raw("agent-001").unwrap();
+        assert_eq!(chunks.len(), 1);
+    }
+
+    /// Test concurrent chunk deduplication - all threads should get the same chunk ID.
+    #[test]
+    fn test_concurrent_chunk_dedup() {
+        use std::collections::HashSet;
+        use std::thread;
+
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test.db");
+        let db = Arc::new(Database::create(db_path).unwrap());
+        let storage = Arc::new(MemoryStorage::new(db).unwrap());
+
+        let content_hash = "duplicate-hash";
+        let num_threads = 10;
+
+        let handles: Vec<_> = (0..num_threads)
+            .map(|i| {
+                let s = Arc::clone(&storage);
+                let hash = content_hash.to_string();
+                thread::spawn(move || {
+                    let chunk_id = format!("chunk-{}", i);
+                    s.put_chunk_if_not_exists(
+                        &chunk_id,
+                        "agent-001",
+                        None,
+                        &hash,
+                        &[],
+                        b"duplicate content",
+                    )
+                    .unwrap()
+                })
+            })
+            .collect();
+
+        let results: Vec<_> = handles.into_iter().map(|h| h.join().unwrap()).collect();
+
+        // All results should reference the same chunk ID
+        let chunk_ids: HashSet<_> = results
+            .iter()
+            .map(|r| match r {
+                PutChunkResult::Created(id) | PutChunkResult::Existing(id) => id.clone(),
+            })
+            .collect();
+        assert_eq!(chunk_ids.len(), 1, "All threads should get the same chunk ID");
+
+        // Exactly one should be Created, the rest Existing
+        let created_count = results
+            .iter()
+            .filter(|r| matches!(r, PutChunkResult::Created(_)))
+            .count();
+        assert_eq!(created_count, 1, "Exactly one thread should create the chunk");
+
+        // Only one chunk should exist in storage
+        let chunks = storage.list_chunks_by_agent_raw("agent-001").unwrap();
+        assert_eq!(chunks.len(), 1);
+
+        // Hash index should point to the single chunk
+        let hash_result = storage.find_by_hash(content_hash).unwrap();
+        assert!(hash_result.is_some());
+    }
+
+    /// Test concurrent bulk delete with metadata is atomic.
+    #[test]
+    fn test_concurrent_bulk_delete() {
+        use std::thread;
+
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test.db");
+        let db = Arc::new(Database::create(db_path).unwrap());
+        let storage = Arc::new(MemoryStorage::new(db).unwrap());
+
+        // Create chunks for multiple agents
+        for i in 0..10 {
+            storage
+                .put_chunk_raw(
+                    &format!("chunk-a1-{}", i),
+                    "agent-001",
+                    None,
+                    &format!("hash-a1-{}", i),
+                    &["tag".to_string()],
+                    b"data",
+                )
+                .unwrap();
+            storage
+                .put_chunk_raw(
+                    &format!("chunk-a2-{}", i),
+                    "agent-002",
+                    None,
+                    &format!("hash-a2-{}", i),
+                    &["tag".to_string()],
+                    b"data",
+                )
+                .unwrap();
+        }
+
+        // Prepare metadata for agent-001 deletion
+        let metadata: Vec<_> = (0..10)
+            .map(|i| {
+                (
+                    format!("chunk-a1-{}", i),
+                    None,
+                    format!("hash-a1-{}", i),
+                    vec!["tag".to_string()],
+                )
+            })
+            .collect();
+
+        // Concurrent deletion from multiple threads
+        let handles: Vec<_> = (0..3)
+            .map(|_| {
+                let s = Arc::clone(&storage);
+                let m = metadata.clone();
+                thread::spawn(move || {
+                    s.delete_all_chunks_for_agent_with_metadata("agent-001", &m)
+                })
+            })
+            .collect();
+
+        for h in handles {
+            // All should succeed (idempotent delete)
+            let _ = h.join().unwrap();
+        }
+
+        // agent-001 should have no chunks
+        let chunks_a1 = storage.list_chunks_by_agent_raw("agent-001").unwrap();
+        assert!(chunks_a1.is_empty());
+
+        // agent-002 should still have all chunks
+        let chunks_a2 = storage.list_chunks_by_agent_raw("agent-002").unwrap();
+        assert_eq!(chunks_a2.len(), 10);
     }
 }
