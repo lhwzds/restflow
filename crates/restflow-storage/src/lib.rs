@@ -37,6 +37,8 @@ pub mod vector;
 pub mod workflow;
 
 mod encryption;
+mod simple_storage;
+pub mod time_utils;
 
 use anyhow::Result;
 use redb::Database;
@@ -52,6 +54,7 @@ pub use execution_history::{
 pub use memory::{MemoryStorage, PutChunkResult};
 pub use secrets::{Secret, SecretStorage};
 pub use shared_space::SharedSpaceStorage;
+pub use simple_storage::SimpleStorage;
 pub use skill::SkillStorage;
 pub use terminal_session::TerminalSessionStorage;
 pub use trigger::TriggerStorage;

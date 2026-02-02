@@ -1,78 +1,18 @@
-//! Trigger storage - byte-level API for active trigger persistence.
+//! Trigger storage - byte-level API for trigger persistence.
 
-use anyhow::Result;
-use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
-use std::sync::Arc;
+use crate::define_simple_storage;
 
-pub const ACTIVE_TRIGGERS_TABLE: TableDefinition<&str, &[u8]> =
-    TableDefinition::new("active_triggers");
-
-/// Low-level trigger storage with byte-level API
-pub struct TriggerStorage {
-    db: Arc<Database>,
-}
-
-impl TriggerStorage {
-    pub fn new(db: Arc<Database>) -> Result<Self> {
-        let write_txn = db.begin_write()?;
-        write_txn.open_table(ACTIVE_TRIGGERS_TABLE)?;
-        write_txn.commit()?;
-
-        Ok(Self { db })
-    }
-
-    /// Store raw trigger data
-    pub fn put_raw(&self, id: &str, data: &[u8]) -> Result<()> {
-        let write_txn = self.db.begin_write()?;
-        {
-            let mut table = write_txn.open_table(ACTIVE_TRIGGERS_TABLE)?;
-            table.insert(id, data)?;
-        }
-        write_txn.commit()?;
-        Ok(())
-    }
-
-    /// Get raw trigger data by ID
-    pub fn get_raw(&self, id: &str) -> Result<Option<Vec<u8>>> {
-        let read_txn = self.db.begin_read()?;
-        let table = read_txn.open_table(ACTIVE_TRIGGERS_TABLE)?;
-
-        if let Some(value) = table.get(id)? {
-            Ok(Some(value.value().to_vec()))
-        } else {
-            Ok(None)
-        }
-    }
-
-    /// List all raw trigger data
-    pub fn list_raw(&self) -> Result<Vec<(String, Vec<u8>)>> {
-        let read_txn = self.db.begin_read()?;
-        let table = read_txn.open_table(ACTIVE_TRIGGERS_TABLE)?;
-
-        let mut triggers = Vec::new();
-        for item in table.iter()? {
-            let (key, value) = item?;
-            triggers.push((key.value().to_string(), value.value().to_vec()));
-        }
-
-        Ok(triggers)
-    }
-
-    /// Delete trigger by ID
-    pub fn delete(&self, id: &str) -> Result<bool> {
-        let write_txn = self.db.begin_write()?;
-        let existed = {
-            let mut table = write_txn.open_table(ACTIVE_TRIGGERS_TABLE)?;
-            table.remove(id)?.is_some()
-        };
-        write_txn.commit()?;
-        Ok(existed)
-    }
+define_simple_storage! {
+    /// Low-level trigger storage with byte-level API
+    pub struct TriggerStorage { table: "active_triggers" }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::SimpleStorage;
+    use redb::Database;
+    use std::sync::Arc;
     use tempfile::tempdir;
 
     #[test]

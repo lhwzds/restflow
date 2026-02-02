@@ -2,19 +2,18 @@
 import type { ToolCallInfo } from "./ToolCallInfo";
 
 /**
- * A step in the execution process
+ * Individual execution step
  */
-export type ExecutionStep = {
+export type ExecutionStep = { 
 /**
  * Step type: "system" | "user" | "assistant" | "tool_call" | "tool_result"
  */
-step_type: string,
+step_type: string, 
 /**
  * Content of the step (message text or tool result)
  */
-content: string,
+content: string, 
 /**
  * Tool calls made in this step (for assistant messages)
  */
-tool_calls: Array<ToolCallInfo> | null,
-};
+tool_calls: Array<ToolCallInfo> | null, };

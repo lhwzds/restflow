@@ -369,6 +369,7 @@ fn matches_source_type(source: &MemorySource, filter: &SourceTypeFilter) -> bool
 #[cfg(test)]
 mod tests {
     use super::*;
+    use restflow_storage::time_utils;
     use tempfile::tempdir;
 
     fn create_test_storage() -> MemoryStorage {
@@ -788,10 +789,7 @@ mod tests {
     fn test_search_time_range() {
         let storage = create_test_storage();
 
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_millis() as i64;
+        let now = time_utils::now_ms();
 
         let chunk1 = MemoryChunk::new("agent-001".to_string(), "Old content".to_string())
             .with_created_at(now - 10000);
