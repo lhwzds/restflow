@@ -31,6 +31,7 @@ pub mod skill;
 pub mod terminal_session;
 pub mod trigger;
 pub mod workflow;
+pub mod vector;
 
 mod encryption;
 
@@ -51,6 +52,7 @@ pub use skill::SkillStorage;
 pub use terminal_session::TerminalSessionStorage;
 pub use trigger::TriggerStorage;
 pub use workflow::WorkflowStorage;
+pub use vector::{VectorConfig, VectorStorage};
 
 /// Central storage manager that initializes all storage subsystems
 pub struct Storage {
