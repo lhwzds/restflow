@@ -154,9 +154,12 @@ impl UnifiedAgent {
             &skill_ids,
             skill_vars.as_ref(),
         )?;
+
+        let workspace_context = load_workspace_context();
+
         Ok(format!(
-            "{}\n\n{}\n\n## Instructions\nYou are in a ReAct loop. For each step:\n1. Think about what to do\n2. Use a tool if needed\n3. Observe the result\n4. Provide final answer when done",
-            prompt, tool_section
+            "{}\n\n{}{}\n\n## Instructions\nYou are in a ReAct loop. For each step:\n1. Think about what to do\n2. Use a tool if needed\n3. Observe the result\n4. Provide final answer when done",
+            prompt, tool_section, workspace_context
         ))
     }
 
@@ -219,4 +222,28 @@ fn tool_definition_to_schema(def: ToolDefinition) -> ToolSchema {
         description: def.description,
         parameters: def.parameters,
     }
+}
+
+/// Load workspace context files (CLAUDE.md, AGENTS.md) from current directory.
+fn load_workspace_context() -> String {
+    let Ok(workdir) = std::env::current_dir() else {
+        return String::new();
+    };
+
+    let context_files = ["CLAUDE.md", "AGENTS.md", ".claude/CLAUDE.md"];
+    let mut context = String::new();
+
+    for filename in context_files {
+        let path = workdir.join(filename);
+        if let Ok(content) = std::fs::read_to_string(&path) {
+            if !content.trim().is_empty() {
+                context.push_str(&format!(
+                    "\n\n## Workspace Context ({})\n\n{}",
+                    filename, content
+                ));
+            }
+        }
+    }
+
+    context
 }
