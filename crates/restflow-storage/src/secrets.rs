@@ -51,6 +51,27 @@ impl Secret {
     }
 }
 
+#[derive(Debug, Clone)]
+pub enum MasterKeySource {
+    Environment,
+    Keychain,
+}
+
+#[derive(Debug, Clone)]
+pub struct SecretStorageConfig {
+    pub key_source: MasterKeySource,
+    pub allow_insecure_fallback: bool,
+}
+
+impl Default for SecretStorageConfig {
+    fn default() -> Self {
+        Self {
+            key_source: MasterKeySource::Environment,
+            allow_insecure_fallback: false,
+        }
+    }
+}
+
 /// Secret storage with AES-256-GCM encryption
 #[derive(Clone)]
 pub struct SecretStorage {
@@ -69,18 +90,33 @@ impl std::fmt::Debug for SecretStorage {
 
 impl SecretStorage {
     pub fn new(db: Arc<Database>) -> Result<Self> {
+        Self::with_config(db, SecretStorageConfig::default())
+    }
+
+    pub fn with_config(db: Arc<Database>, config: SecretStorageConfig) -> Result<Self> {
         let write_txn = db.begin_write()?;
         write_txn.open_table(SECRETS_TABLE)?;
         write_txn.open_table(MASTER_KEY_TABLE)?;
         write_txn.commit()?;
 
-        let master_key = load_master_key(&db)?;
+        let master_key = load_master_key(&db, &config)?;
         let encryptor = Arc::new(SecretEncryptor::new(&master_key)?);
         let storage = Self { db, encryptor };
 
         storage.migrate_legacy_secrets()?;
 
         Ok(storage)
+    }
+
+    #[cfg(test)]
+    pub fn new_insecure(db: Arc<Database>) -> Result<Self> {
+        Self::with_config(
+            db,
+            SecretStorageConfig {
+                allow_insecure_fallback: true,
+                ..Default::default()
+            },
+        )
     }
 
     /// Set or update a secret
@@ -246,19 +282,42 @@ fn decode_legacy_secret(payload: &[u8]) -> Result<Secret> {
     Ok(serde_json::from_str(&json)?)
 }
 
-fn load_master_key(db: &Arc<Database>) -> Result<[u8; 32]> {
+fn load_master_key(db: &Arc<Database>, config: &SecretStorageConfig) -> Result<[u8; 32]> {
     if let Some(key) = load_master_key_from_env()? {
+        tracing::info!("Using master key from environment variable");
         return Ok(key);
     }
 
-    if let Some(key) = read_master_key_from_db(db)? {
+    if matches!(config.key_source, MasterKeySource::Keychain) {
+        match crate::keychain::get_or_create_master_key("restflow", "master-key") {
+            Ok(key) => {
+                tracing::info!("Using master key from OS keychain");
+                return Ok(key);
+            }
+            Err(err) => {
+                tracing::warn!("Failed to access keychain: {}", err);
+            }
+        }
+    }
+
+    if config.allow_insecure_fallback {
+        tracing::warn!(
+            "SECURITY WARNING: Master key stored in database. Set RESTFLOW_MASTER_KEY to override."
+        );
+
+        if let Some(key) = read_master_key_from_db(db)? {
+            return Ok(key);
+        }
+
+        let mut key = [0u8; 32];
+        rand::rngs::OsRng.fill_bytes(&mut key);
+        store_master_key_in_db(db, &key)?;
         return Ok(key);
     }
 
-    let mut key = [0u8; 32];
-    rand::rngs::OsRng.fill_bytes(&mut key);
-    store_master_key_in_db(db, &key)?;
-    Ok(key)
+    Err(anyhow::anyhow!(
+        "No master key configured. Set RESTFLOW_MASTER_KEY or enable keychain storage."
+    ))
 }
 
 fn load_master_key_from_env() -> Result<Option<[u8; 32]>> {
@@ -338,7 +397,7 @@ mod tests {
         let temp_dir = tempdir().unwrap();
         let db_path = temp_dir.path().join("test.db");
         let db = Arc::new(Database::create(db_path).unwrap());
-        let storage = SecretStorage::new(db).unwrap();
+        let storage = SecretStorage::new_insecure(db).unwrap();
         (storage, temp_dir)
     }
 
@@ -447,7 +506,7 @@ mod tests {
         }
         write_txn.commit().unwrap();
 
-        let storage = SecretStorage::new(db).unwrap();
+        let storage = SecretStorage::new_insecure(db).unwrap();
         let value = storage.get_secret("LEGACY_KEY").unwrap();
         assert_eq!(value, Some("legacy-value".to_string()));
 

@@ -11,7 +11,7 @@ use std::sync::Arc;
 use restflow_ai::tools::send_telegram_notification;
 use restflow_core::{
     models::{AgentTask, NotificationConfig},
-    storage::SecretStorage,
+    storage::{SecretStorage, SecretStorageConfig},
 };
 
 use super::runner::NotificationSender;
@@ -155,7 +155,17 @@ mod tests {
         let temp_dir = tempdir().unwrap();
         let db_path = temp_dir.path().join("test.db");
         let db = Arc::new(redb::Database::create(db_path).unwrap());
-        (Arc::new(SecretStorage::new(db).unwrap()), temp_dir)
+        let secrets = Arc::new(
+            SecretStorage::with_config(
+                db,
+                SecretStorageConfig {
+                    allow_insecure_fallback: true,
+                    ..Default::default()
+                },
+            )
+            .unwrap(),
+        );
+        (secrets, temp_dir)
     }
 
     fn create_test_task() -> AgentTask {

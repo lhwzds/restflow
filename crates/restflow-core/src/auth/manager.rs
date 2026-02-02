@@ -702,13 +702,23 @@ pub struct ManagerSummary {
 mod tests {
     use super::*;
     use crate::auth::Credential;
+    use crate::storage::SecretStorageConfig;
     use redb::Database;
     use tempfile::TempDir;
 
     fn create_test_secrets() -> (Arc<SecretStorage>, TempDir) {
         let dir = TempDir::new().unwrap();
         let db = Arc::new(Database::create(dir.path().join("test.db")).unwrap());
-        let secrets = Arc::new(SecretStorage::new(db).unwrap());
+        let secrets = Arc::new(
+            SecretStorage::with_config(
+                db,
+                SecretStorageConfig {
+                    allow_insecure_fallback: true,
+                    ..Default::default()
+                },
+            )
+            .unwrap(),
+        );
         (secrets, dir)
     }
 

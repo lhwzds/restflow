@@ -551,15 +551,24 @@ pub struct ProfileSelection {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::storage::SecretStorage;
+    use crate::storage::{SecretStorage, SecretStorageConfig};
     use redb::Database;
-    use tempfile::TempDir;
     use std::sync::Arc;
+    use tempfile::TempDir;
 
     fn create_test_resolver() -> (Arc<SecretStorage>, CredentialResolver, TempDir) {
         let dir = TempDir::new().unwrap();
         let db = Arc::new(Database::create(dir.path().join("test.db")).unwrap());
-        let secrets = Arc::new(SecretStorage::new(db).unwrap());
+        let secrets = Arc::new(
+            SecretStorage::with_config(
+                db,
+                SecretStorageConfig {
+                    allow_insecure_fallback: true,
+                    ..Default::default()
+                },
+            )
+            .unwrap(),
+        );
         let resolver = CredentialResolver::new(secrets.clone());
         (secrets, resolver, dir)
     }

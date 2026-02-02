@@ -26,6 +26,7 @@ pub mod chat_session;
 pub mod config;
 pub mod execution_history;
 pub mod memory;
+pub mod keychain;
 pub mod secrets;
 pub mod shared_space;
 pub mod skill;
@@ -48,7 +49,7 @@ pub use execution_history::{
     ExecutionHistoryPage, ExecutionHistoryStorage, ExecutionStatus, ExecutionSummary,
 };
 pub use memory::MemoryStorage;
-pub use secrets::{Secret, SecretStorage};
+pub use secrets::{MasterKeySource, Secret, SecretStorage, SecretStorageConfig};
 pub use shared_space::SharedSpaceStorage;
 pub use skill::SkillStorage;
 pub use terminal_session::TerminalSessionStorage;
