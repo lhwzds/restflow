@@ -53,6 +53,8 @@ const model = ref<AIModel>('claude-sonnet-4-5')
 const prompt = ref('')
 const temperature = ref(0.7)
 const tools = ref<string[]>([])
+const fallbackModel: AIModel = 'claude-sonnet-4-5'
+const resolveModel = (value?: AIModel): AIModel => value ?? fallbackModel
 
 // Tool management
 const {
@@ -77,9 +79,10 @@ watch(
   (agent) => {
     if (agent) {
       name.value = agent.name
-      model.value = agent.agent.model
+      model.value = resolveModel(agent.agent.model)
       prompt.value = agent.agent.prompt || ''
-      temperature.value = agent.agent.temperature ?? getDefaultTemperature(agent.agent.model) ?? 0.7
+      const resolvedModel = resolveModel(agent.agent.model)
+      temperature.value = agent.agent.temperature ?? getDefaultTemperature(resolvedModel) ?? 0.7
       tools.value = [...(agent.agent.tools || [])]
     } else {
       name.value = ''
@@ -114,7 +117,7 @@ const hasChanges = computed(() => {
   if (!props.agent) return name.value.trim() !== ''
   return (
     name.value !== props.agent.name ||
-    model.value !== props.agent.agent.model ||
+    model.value !== resolveModel(props.agent.agent.model) ||
     prompt.value !== (props.agent.agent.prompt || '') ||
     temperature.value !== (props.agent.agent.temperature ?? 0.7) ||
     JSON.stringify(tools.value) !== JSON.stringify(props.agent.agent.tools || [])
