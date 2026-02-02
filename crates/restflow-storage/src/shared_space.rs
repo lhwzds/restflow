@@ -1,7 +1,7 @@
 //! Shared space storage - global key-value store for AI agents.
 
 use anyhow::Result;
-use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
+use redb::{Database, ReadableDatabase, ReadableTable, ReadOnlyTable, TableDefinition};
 use std::sync::Arc;
 
 const SHARED_SPACE_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("shared_space");
@@ -33,8 +33,8 @@ impl SharedSpaceStorage {
 
     /// Get raw bytes
     pub fn get_raw(&self, key: &str) -> Result<Option<Vec<u8>>> {
-        let read_txn = self.db.begin_read()?;
-        let table = read_txn.open_table(SHARED_SPACE_TABLE)?;
+        let read_txn = ReadableDatabase::begin_read(self.db.as_ref())?;
+        let table: ReadOnlyTable<&str, &[u8]> = read_txn.open_table(SHARED_SPACE_TABLE)?;
         Ok(table.get(key)?.map(|v| v.value().to_vec()))
     }
 
@@ -51,8 +51,8 @@ impl SharedSpaceStorage {
 
     /// List all keys with optional prefix filter
     pub fn list_keys(&self, prefix: Option<&str>) -> Result<Vec<String>> {
-        let read_txn = self.db.begin_read()?;
-        let table = read_txn.open_table(SHARED_SPACE_TABLE)?;
+        let read_txn = ReadableDatabase::begin_read(self.db.as_ref())?;
+        let table: ReadOnlyTable<&str, &[u8]> = read_txn.open_table(SHARED_SPACE_TABLE)?;
         let mut keys = Vec::new();
 
         for entry in table.iter()? {
@@ -68,8 +68,8 @@ impl SharedSpaceStorage {
 
     /// List all entries (key + raw data)
     pub fn list_raw(&self, prefix: Option<&str>) -> Result<Vec<(String, Vec<u8>)>> {
-        let read_txn = self.db.begin_read()?;
-        let table = read_txn.open_table(SHARED_SPACE_TABLE)?;
+        let read_txn = ReadableDatabase::begin_read(self.db.as_ref())?;
+        let table: ReadOnlyTable<&str, &[u8]> = read_txn.open_table(SHARED_SPACE_TABLE)?;
         let mut entries = Vec::new();
 
         for entry in table.iter()? {
