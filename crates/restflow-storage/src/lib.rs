@@ -52,7 +52,7 @@ pub use execution_history::{
     ExecutionHistoryPage, ExecutionHistoryStorage, ExecutionStatus, ExecutionSummary,
 };
 pub use memory::{MemoryStorage, PutChunkResult};
-pub use secrets::{Secret, SecretStorage};
+pub use secrets::{Secret, SecretStorage, SecretStorageConfig};
 pub use shared_space::SharedSpaceStorage;
 pub use simple_storage::SimpleStorage;
 pub use skill::SkillStorage;
