@@ -73,8 +73,6 @@ pub struct AuthProfileManager {
     profiles: Arc<RwLock<HashMap<String, AuthProfile>>>,
     discoverer: CompositeDiscoverer,
     refreshers: HashMap<AuthProvider, Arc<dyn OAuthRefresher>>,
-    /// Secret storage for credential values
-    secrets: Arc<SecretStorage>,
     /// Resolver for reading secrets
     resolver: CredentialResolver,
     /// Writer for storing secrets
@@ -101,7 +99,6 @@ impl AuthProfileManager {
             profiles: Arc::new(RwLock::new(HashMap::new())),
             discoverer: CompositeDiscoverer::with_defaults(),
             refreshers,
-            secrets,
             resolver,
             writer,
         }
@@ -334,21 +331,20 @@ impl AuthProfileManager {
                     }
 
                     // Update refresh token if provided
-                    if let Some(new_refresh) = &updated.refresh_token {
-                        if let Some(refresh_ref) = secure_credential.refresh_token_ref() {
-                            if let Err(e) = self.writer.update_secret(refresh_ref, new_refresh) {
-                                warn!(%e, profile_id, "Failed to update refresh token secret");
-                            }
-                        }
+                    if let Some(new_refresh) = &updated.refresh_token
+                        && let Some(refresh_ref) = secure_credential.refresh_token_ref()
+                        && let Err(e) = self.writer.update_secret(refresh_ref, new_refresh)
+                    {
+                        warn!(%e, profile_id, "Failed to update refresh token secret");
                     }
 
                     // Update profile metadata
                     let mut profiles = self.profiles.write().await;
                     if let Some(profile) = profiles.get_mut(&profile_id) {
                         profile.credential.update_oauth_metadata(
-                            updated.refresh_token.map(|_| {
+                            updated.refresh_token.and_then(|_| {
                                 secure_credential.refresh_token_ref().map(|s| s.to_string())
-                            }).flatten(),
+                            }),
                             updated.expires_at,
                         );
                         refreshed += 1;
