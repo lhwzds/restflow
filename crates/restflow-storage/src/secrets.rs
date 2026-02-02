@@ -1,13 +1,15 @@
 //! Secrets storage - encrypted storage for API keys and credentials.
 
 use crate::encryption::SecretEncryptor;
-use crate::keychain;
 use anyhow::{Context, Result};
-use base64::{engine::general_purpose::STANDARD, Engine as _};
+use base64::{Engine as _, engine::general_purpose::STANDARD};
 use rand::RngCore;
 use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
 use serde::{Deserialize, Serialize};
 use std::env;
+use std::fs::{self, OpenOptions};
+use std::io::Write;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tracing::{info, warn};
 use ts_rs::TS;
@@ -16,31 +18,28 @@ const SECRETS_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("secret
 const MASTER_KEY_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("secret_master_key");
 const MASTER_KEY_ENV: &str = "RESTFLOW_MASTER_KEY";
 const MASTER_KEY_RECORD: &str = "default";
-
-
-#[derive(Debug, Clone)]
-pub enum MasterKeySource {
-    /// Key from environment variable (recommended for production)
-    Environment,
-    /// Key from OS keychain (recommended for development)
-    Keychain,
-    /// Key from database (insecure - only for testing)
-    Database { warn: bool },
-}
+const STATE_DIR_ENV: &str = "RESTFLOW_STATE_DIR";
+const MASTER_KEY_JSON_FILE: &str = "secret-master-key.json";
 
 #[derive(Debug, Clone)]
 pub struct SecretStorageConfig {
-    pub key_source: MasterKeySource,
-    pub allow_insecure_fallback: bool,
+    pub allow_insecure_file_permissions: bool,
 }
 
 impl Default for SecretStorageConfig {
     fn default() -> Self {
         Self {
-            key_source: MasterKeySource::Environment,
-            allow_insecure_fallback: false,
+            allow_insecure_file_permissions: false,
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct MasterKeyFile {
+    pub version: u32,
+    #[serde(rename = "createdAt")]
+    pub created_at: String,
+    pub key: String,
 }
 
 /// A stored secret with metadata
@@ -115,16 +114,34 @@ impl SecretStorage {
         Ok(storage)
     }
 
-    /// Create with insecure database fallback (for testing only)
+    /// Create for testing with relaxed file permission checks.
     #[cfg(test)]
     pub fn new_insecure(db: Arc<Database>) -> Result<Self> {
         Self::with_config(
             db,
             SecretStorageConfig {
-                key_source: MasterKeySource::Database { warn: false },
-                allow_insecure_fallback: true,
+                allow_insecure_file_permissions: true,
             },
         )
+    }
+
+    /// Migrate the master key from the database to the JSON file.
+    pub fn migrate_master_key_from_db(&self) -> Result<PathBuf> {
+        let path = master_key_json_path()?;
+        if path.exists() {
+            anyhow::bail!(
+                "Master key JSON already exists at {}",
+                path.to_string_lossy()
+            );
+        }
+
+        let key = read_master_key_from_db(&self.db)?
+            .ok_or_else(|| anyhow::anyhow!("No master key found in database to migrate"))?;
+
+        write_master_key_json(&key)?;
+        remove_master_key_from_db(&self.db)?;
+
+        Ok(path)
     }
 
     /// Set or update a secret
@@ -189,8 +206,8 @@ impl SecretStorage {
                 .map(|data| self.decode_secret_bytes(data.value()))
                 .transpose()?;
 
-            let mut existing_secret = existing
-                .ok_or_else(|| anyhow::anyhow!("Secret {} not found", key))?;
+            let mut existing_secret =
+                existing.ok_or_else(|| anyhow::anyhow!("Secret {} not found", key))?;
 
             existing_secret.update(value.to_string(), description);
             let encrypted = self.encode_secret(&existing_secret)?;
@@ -270,10 +287,7 @@ impl SecretStorage {
             Ok(plaintext) => Ok(serde_json::from_slice(&plaintext)?),
             Err(err) => match decode_legacy_secret(payload) {
                 Ok(secret) => Ok(secret),
-                Err(_) => Err(anyhow::anyhow!(
-                    "Failed to decrypt secret payload: {}",
-                    err
-                )),
+                Err(_) => Err(anyhow::anyhow!("Failed to decrypt secret payload: {}", err)),
             },
         }
     }
@@ -331,38 +345,21 @@ fn load_master_key(db: &Arc<Database>, config: &SecretStorageConfig) -> Result<[
         return Ok(key);
     }
 
-    if matches!(config.key_source, MasterKeySource::Keychain) {
-        match keychain::get_or_create_master_key("restflow", "master-key") {
-            Ok(key) => {
-                info!("Using master key from OS keychain");
-                return Ok(key);
-            }
-            Err(err) => {
-                warn!("Failed to access keychain: {}", err);
-            }
-        }
-    }
-
-    if config.allow_insecure_fallback {
-        if matches!(config.key_source, MasterKeySource::Database { warn: true }) {
-            warn!(
-                "⚠️ SECURITY WARNING: Master key stored in database.                 This is INSECURE for production use.                 Set RESTFLOW_MASTER_KEY environment variable."
-            );
-        }
-
-        if let Some(key) = read_master_key_from_db(db)? {
-            return Ok(key);
-        }
-
-        let mut key = [0u8; 32];
-        rand::rngs::OsRng.fill_bytes(&mut key);
-        store_master_key_in_db(db, &key)?;
+    if let Some(key) = load_master_key_from_json(config)? {
+        info!("Using master key from JSON file");
         return Ok(key);
     }
 
-    anyhow::bail!(
-        "No master key configured. Set RESTFLOW_MASTER_KEY environment variable         or enable keychain storage."
-    )
+    if read_master_key_from_db(db)?.is_some() {
+        anyhow::bail!(
+            "Master key is stored in the database. Run `restflow secret migrate-master-key` before upgrading."
+        );
+    }
+
+    let mut key = [0u8; 32];
+    rand::rngs::OsRng.fill_bytes(&mut key);
+    write_master_key_json(&key)?;
+    Ok(key)
 }
 
 fn load_master_key_from_env() -> Result<Option<[u8; 32]>> {
@@ -375,6 +372,109 @@ fn load_master_key_from_env() -> Result<Option<[u8; 32]>> {
             err
         )),
     }
+}
+
+fn load_master_key_from_json(config: &SecretStorageConfig) -> Result<Option<[u8; 32]>> {
+    let path = master_key_json_path()?;
+    if !path.exists() {
+        return Ok(None);
+    }
+
+    check_master_key_permissions(&path, config.allow_insecure_file_permissions)?;
+    let raw = fs::read_to_string(&path)?;
+    let payload: MasterKeyFile = serde_json::from_str(&raw)?;
+    if payload.version != 1 {
+        anyhow::bail!("Unsupported master key JSON version: {}", payload.version);
+    }
+
+    let key = decode_master_key(&payload.key)?;
+    Ok(Some(key))
+}
+
+fn write_master_key_json(key: &[u8; 32]) -> Result<PathBuf> {
+    let dir = ensure_state_dir()?;
+    let path = dir.join(MASTER_KEY_JSON_FILE);
+
+    let payload = MasterKeyFile {
+        version: 1,
+        created_at: chrono::Utc::now().to_rfc3339(),
+        key: encode_master_key_hex(key),
+    };
+
+    let json = serde_json::to_string_pretty(&payload)?;
+
+    let mut options = OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+
+    let mut file = options.open(&path)?;
+    file.write_all(json.as_bytes())?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600))?;
+    }
+
+    Ok(path)
+}
+
+fn master_key_json_path() -> Result<PathBuf> {
+    Ok(resolve_state_dir()?.join(MASTER_KEY_JSON_FILE))
+}
+
+fn resolve_state_dir() -> Result<PathBuf> {
+    if let Ok(value) = env::var(STATE_DIR_ENV) {
+        if !value.trim().is_empty() {
+            return Ok(PathBuf::from(value));
+        }
+    }
+
+    let home = dirs::home_dir()
+        .ok_or_else(|| anyhow::anyhow!("Failed to determine home directory for state storage"))?;
+
+    Ok(home.join(".restflow"))
+}
+
+fn ensure_state_dir() -> Result<PathBuf> {
+    let dir = resolve_state_dir()?;
+    fs::create_dir_all(&dir)?;
+    Ok(dir)
+}
+
+fn check_master_key_permissions(path: &Path, allow_insecure: bool) -> Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let metadata = fs::metadata(path)?;
+        let mode = metadata.permissions().mode() & 0o777;
+        if mode & 0o077 != 0 {
+            if allow_insecure {
+                warn!(
+                    "Master key file permissions are too open (0o{:o}) at {}",
+                    mode,
+                    path.to_string_lossy()
+                );
+            } else {
+                anyhow::bail!(
+                    "Master key file permissions are too open (0o{:o}) at {}",
+                    mode,
+                    path.to_string_lossy()
+                );
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn encode_master_key_hex(key: &[u8; 32]) -> String {
+    key.iter().map(|byte| format!("{:02x}", byte)).collect()
 }
 
 fn decode_master_key(value: &str) -> Result<[u8; 32]> {
@@ -410,9 +510,7 @@ fn read_master_key_from_db(db: &Arc<Database>) -> Result<Option<[u8; 32]>> {
     if let Some(data) = table.get(MASTER_KEY_RECORD)? {
         let payload = data.value();
         if payload.len() != 32 {
-            return Err(anyhow::anyhow!(
-                "Stored master key must be 32 bytes"
-            ));
+            return Err(anyhow::anyhow!("Stored master key must be 32 bytes"));
         }
         let key: [u8; 32] = payload
             .try_into()
@@ -423,11 +521,11 @@ fn read_master_key_from_db(db: &Arc<Database>) -> Result<Option<[u8; 32]>> {
     }
 }
 
-fn store_master_key_in_db(db: &Arc<Database>, key: &[u8; 32]) -> Result<()> {
+fn remove_master_key_from_db(db: &Arc<Database>) -> Result<()> {
     let write_txn = db.begin_write()?;
     {
         let mut table = write_txn.open_table(MASTER_KEY_TABLE)?;
-        table.insert(MASTER_KEY_RECORD, key.as_slice())?;
+        table.remove(MASTER_KEY_RECORD)?;
     }
     write_txn.commit()?;
     Ok(())
@@ -440,15 +538,27 @@ mod tests {
 
     fn setup() -> (SecretStorage, tempfile::TempDir) {
         let temp_dir = tempdir().unwrap();
+        let state_dir = temp_dir.path().join("state");
+        std::fs::create_dir_all(&state_dir).unwrap();
+
+        // SAFETY: Tests are single-threaded in this module.
+        unsafe { std::env::set_var(STATE_DIR_ENV, &state_dir) };
+
         let db_path = temp_dir.path().join("test.db");
         let db = Arc::new(Database::create(db_path).unwrap());
         let storage = SecretStorage::new_insecure(db).unwrap();
+
+        // SAFETY: This is a single-threaded test, no other threads access this env var
+        unsafe { std::env::remove_var(STATE_DIR_ENV) };
+
         (storage, temp_dir)
     }
 
     #[test]
     fn test_env_key_takes_precedence() {
         let temp_dir = tempdir().unwrap();
+        let state_dir = temp_dir.path().join("state");
+        std::fs::create_dir_all(&state_dir).unwrap();
         let db_path = temp_dir.path().join("test.db");
         let db = Arc::new(Database::create(db_path).unwrap());
 
@@ -457,15 +567,21 @@ mod tests {
         write_txn.commit().unwrap();
 
         let db_key = [1u8; 32];
-        store_master_key_in_db(&db, &db_key).unwrap();
+        let write_txn = db.begin_write().unwrap();
+        {
+            let mut table = write_txn.open_table(MASTER_KEY_TABLE).unwrap();
+            table.insert(MASTER_KEY_RECORD, db_key.as_slice()).unwrap();
+        }
+        write_txn.commit().unwrap();
 
         let env_value = "aa".repeat(32);
         // SAFETY: This is a single-threaded test, no other threads access this env var
         unsafe { std::env::set_var(MASTER_KEY_ENV, &env_value) };
+        // SAFETY: This is a single-threaded test, no other threads access this env var
+        unsafe { std::env::set_var(STATE_DIR_ENV, &state_dir) };
 
         let config = SecretStorageConfig {
-            key_source: MasterKeySource::Database { warn: false },
-            allow_insecure_fallback: true,
+            allow_insecure_file_permissions: true,
         };
 
         let key = load_master_key(&db, &config).unwrap();
@@ -473,19 +589,69 @@ mod tests {
 
         // SAFETY: This is a single-threaded test, no other threads access this env var
         unsafe { std::env::remove_var(MASTER_KEY_ENV) };
+        // SAFETY: This is a single-threaded test, no other threads access this env var
+        unsafe { std::env::remove_var(STATE_DIR_ENV) };
     }
 
     #[test]
-    fn test_rejects_without_key_config() {
+    fn test_json_key_takes_precedence() {
         let temp_dir = tempdir().unwrap();
+        let state_dir = temp_dir.path().join("state");
+        std::fs::create_dir_all(&state_dir).unwrap();
+
+        // SAFETY: This is a single-threaded test, no other threads access this env var
+        unsafe { std::env::set_var(STATE_DIR_ENV, &state_dir) };
+
         let db_path = temp_dir.path().join("test.db");
         let db = Arc::new(Database::create(db_path).unwrap());
 
-        // SAFETY: This is a single-threaded test, no other threads access this env var
-        unsafe { std::env::remove_var(MASTER_KEY_ENV) };
+        let json_key = [0x11u8; 32];
+        write_master_key_json(&json_key).unwrap();
 
-        let err = load_master_key(&db, &SecretStorageConfig::default()).unwrap_err();
-        assert!(err.to_string().contains("No master key configured"));
+        let config = SecretStorageConfig {
+            allow_insecure_file_permissions: true,
+        };
+
+        let key = load_master_key(&db, &config).unwrap();
+        assert_eq!(key, json_key);
+
+        // SAFETY: This is a single-threaded test, no other threads access this env var
+        unsafe { std::env::remove_var(STATE_DIR_ENV) };
+    }
+
+    #[test]
+    fn test_rejects_db_key_without_migration() {
+        let temp_dir = tempdir().unwrap();
+        let state_dir = temp_dir.path().join("state");
+        std::fs::create_dir_all(&state_dir).unwrap();
+
+        // SAFETY: This is a single-threaded test, no other threads access this env var
+        unsafe { std::env::set_var(STATE_DIR_ENV, &state_dir) };
+
+        let db_path = temp_dir.path().join("test.db");
+        let db = Arc::new(Database::create(db_path).unwrap());
+
+        let write_txn = db.begin_write().unwrap();
+        write_txn.open_table(MASTER_KEY_TABLE).unwrap();
+        write_txn.commit().unwrap();
+
+        let db_key = [1u8; 32];
+        let write_txn = db.begin_write().unwrap();
+        {
+            let mut table = write_txn.open_table(MASTER_KEY_TABLE).unwrap();
+            table.insert(MASTER_KEY_RECORD, db_key.as_slice()).unwrap();
+        }
+        write_txn.commit().unwrap();
+
+        let config = SecretStorageConfig {
+            allow_insecure_file_permissions: true,
+        };
+
+        let err = load_master_key(&db, &config).unwrap_err();
+        assert!(err.to_string().contains("migrate-master-key"));
+
+        // SAFETY: This is a single-threaded test, no other threads access this env var
+        unsafe { std::env::remove_var(STATE_DIR_ENV) };
     }
 
     #[test]
@@ -575,6 +741,12 @@ mod tests {
     #[test]
     fn test_migrate_legacy_secret() {
         let temp_dir = tempdir().unwrap();
+        let state_dir = temp_dir.path().join("state");
+        std::fs::create_dir_all(&state_dir).unwrap();
+
+        // SAFETY: This is a single-threaded test, no other threads access this env var
+        unsafe { std::env::set_var(STATE_DIR_ENV, &state_dir) };
+
         let db_path = temp_dir.path().join("test.db");
         let db = Arc::new(Database::create(db_path).unwrap());
 
@@ -589,7 +761,9 @@ mod tests {
         let write_txn = db.begin_write().unwrap();
         {
             let mut table = write_txn.open_table(SECRETS_TABLE).unwrap();
-            table.insert(secret.key.as_str(), encoded.as_bytes()).unwrap();
+            table
+                .insert(secret.key.as_str(), encoded.as_bytes())
+                .unwrap();
         }
         write_txn.commit().unwrap();
 
@@ -599,6 +773,9 @@ mod tests {
 
         let secrets = storage.list_secrets().unwrap();
         assert_eq!(secrets.len(), 1);
+
+        // SAFETY: This is a single-threaded test, no other threads access this env var
+        unsafe { std::env::remove_var(STATE_DIR_ENV) };
     }
 
     #[test]
@@ -606,9 +783,7 @@ mod tests {
         let (storage, _temp_dir) = setup();
 
         // First create should succeed
-        storage
-            .create_secret("UNIQUE_KEY", "value1", None)
-            .unwrap();
+        storage.create_secret("UNIQUE_KEY", "value1", None).unwrap();
 
         // Second create should fail
         let result = storage.create_secret("UNIQUE_KEY", "value2", None);
@@ -630,7 +805,9 @@ mod tests {
         assert!(result.unwrap_err().to_string().contains("not found"));
 
         // Create then update should work
-        storage.create_secret("UPDATE_KEY", "initial", None).unwrap();
+        storage
+            .create_secret("UPDATE_KEY", "initial", None)
+            .unwrap();
         storage
             .update_secret("UPDATE_KEY", "updated", Some("desc".to_string()))
             .unwrap();
@@ -646,6 +823,12 @@ mod tests {
         use std::thread;
 
         let temp_dir = tempdir().unwrap();
+        let state_dir = temp_dir.path().join("state");
+        std::fs::create_dir_all(&state_dir).unwrap();
+
+        // SAFETY: This is a single-threaded test, no other threads access this env var
+        unsafe { std::env::set_var(STATE_DIR_ENV, &state_dir) };
+
         let db_path = temp_dir.path().join("test.db");
         let db = Arc::new(Database::create(db_path).unwrap());
         let storage = Arc::new(SecretStorage::new_insecure(db).unwrap());
@@ -674,6 +857,9 @@ mod tests {
         // Only one secret should exist
         let secrets = storage.list_secrets().unwrap();
         assert_eq!(secrets.len(), 1);
+
+        // SAFETY: This is a single-threaded test, no other threads access this env var
+        unsafe { std::env::remove_var(STATE_DIR_ENV) };
     }
 
     /// Test concurrent create_secret - only one should succeed.
@@ -683,6 +869,12 @@ mod tests {
         use std::thread;
 
         let temp_dir = tempdir().unwrap();
+        let state_dir = temp_dir.path().join("state");
+        std::fs::create_dir_all(&state_dir).unwrap();
+
+        // SAFETY: This is a single-threaded test, no other threads access this env var
+        unsafe { std::env::set_var(STATE_DIR_ENV, &state_dir) };
+
         let db_path = temp_dir.path().join("test.db");
         let db = Arc::new(Database::create(db_path).unwrap());
         let storage = Arc::new(SecretStorage::new_insecure(db).unwrap());
@@ -714,5 +906,50 @@ mod tests {
         // Only one secret should exist
         let secrets = storage.list_secrets().unwrap();
         assert_eq!(secrets.len(), 1);
+
+        // SAFETY: This is a single-threaded test, no other threads access this env var
+        unsafe { std::env::remove_var(STATE_DIR_ENV) };
+    }
+
+    #[test]
+    fn test_migrate_master_key_from_db() {
+        let temp_dir = tempdir().unwrap();
+        let state_dir = temp_dir.path().join("state");
+        std::fs::create_dir_all(&state_dir).unwrap();
+
+        // SAFETY: This is a single-threaded test, no other threads access this env var
+        unsafe { std::env::set_var(STATE_DIR_ENV, &state_dir) };
+
+        let db_path = temp_dir.path().join("test.db");
+        let db = Arc::new(Database::create(db_path).unwrap());
+
+        let write_txn = db.begin_write().unwrap();
+        write_txn.open_table(MASTER_KEY_TABLE).unwrap();
+        write_txn.commit().unwrap();
+
+        let db_key = [9u8; 32];
+        let write_txn = db.begin_write().unwrap();
+        {
+            let mut table = write_txn.open_table(MASTER_KEY_TABLE).unwrap();
+            table.insert(MASTER_KEY_RECORD, db_key.as_slice()).unwrap();
+        }
+        write_txn.commit().unwrap();
+
+        let storage = SecretStorage::new_insecure(db).unwrap();
+        let path = storage.migrate_master_key_from_db().unwrap();
+        assert!(path.exists());
+
+        let loaded = load_master_key_from_json(&SecretStorageConfig {
+            allow_insecure_file_permissions: true,
+        })
+        .unwrap()
+        .unwrap();
+        assert_eq!(loaded, db_key);
+
+        let remaining = read_master_key_from_db(&storage.db).unwrap();
+        assert!(remaining.is_none());
+
+        // SAFETY: This is a single-threaded test, no other threads access this env var
+        unsafe { std::env::remove_var(STATE_DIR_ENV) };
     }
 }
