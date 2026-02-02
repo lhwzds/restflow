@@ -360,10 +360,29 @@ fn load_master_key(db: &Arc<Database>, config: &SecretStorageConfig) -> Result<[
         return Ok(key);
     }
 
-    if read_master_key_from_db(db)?.is_some() {
-        anyhow::bail!(
-            "Master key is stored in the database. Run `restflow secret migrate-master-key` before upgrading."
-        );
+    if let Some(db_key) = read_master_key_from_db(db)? {
+        info!("Migrating master key from database to JSON file");
+        match write_master_key_json(&db_key) {
+            Ok(_) => {
+                remove_master_key_from_db(db)?;
+                return Ok(db_key);
+            }
+            Err(err) => {
+                if let Some(io_err) = err.downcast_ref::<std::io::Error>()
+                    && io_err.kind() == std::io::ErrorKind::AlreadyExists
+                    && let Some(existing) = load_master_key_from_json(config)?
+                {
+                    if existing != db_key {
+                        anyhow::bail!(
+                            "Master key mismatch between database and JSON file. Run `restflow secret migrate-master-key` to resolve."
+                        );
+                    }
+                    remove_master_key_from_db(db)?;
+                    return Ok(existing);
+                }
+                return Err(err);
+            }
+        }
     }
 
     let mut key = [0u8; 32];
@@ -559,6 +578,7 @@ fn remove_master_key_from_db(db: &Arc<Database>) -> Result<()> {
 mod tests {
     use super::*;
     use std::sync::{Mutex, OnceLock};
+    use std::thread;
     use tempfile::tempdir;
 
     fn env_lock() -> std::sync::MutexGuard<'static, ()> {
