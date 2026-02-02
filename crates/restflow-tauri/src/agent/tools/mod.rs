@@ -6,16 +6,23 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
+use tracing::warn;
 
 mod bash;
+mod email;
 mod file;
 mod http;
+mod python;
 mod spawn;
+mod telegram;
 
 pub use bash::{BashConfig, BashTool};
+pub use email::EmailTool;
 pub use file::{FileConfig, FileTool};
 pub use http::HttpTool;
+pub use python::PythonTool;
 pub use spawn::{SpawnTool, SubagentSpawner};
+pub use telegram::TelegramTool;
 
 /// Tool execution result.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -153,6 +160,27 @@ impl ToolRegistryBuilder {
         }
     }
 
+    /// Add Python tool.
+    pub fn with_python(self) -> Self {
+        Self {
+            registry: self.registry.register(PythonTool::new()),
+        }
+    }
+
+    /// Add email tool.
+    pub fn with_email(self) -> Self {
+        Self {
+            registry: self.registry.register(EmailTool::new()),
+        }
+    }
+
+    /// Add Telegram tool.
+    pub fn with_telegram(self) -> Self {
+        Self {
+            registry: self.registry.register(TelegramTool::new()),
+        }
+    }
+
     /// Add spawn tool for subagent creation.
     pub fn with_spawn(self, spawner: Arc<dyn SubagentSpawner>) -> Self {
         Self {
@@ -164,6 +192,83 @@ impl ToolRegistryBuilder {
     pub fn build(self) -> ToolRegistry {
         self.registry
     }
+}
+
+
+/// Build a tool registry filtered by an allowlist.
+///
+/// When `tool_names` is `None` or empty, returns an empty registry (secure default).
+///
+/// Supported aliases:
+/// - `python` -> `run_python`
+/// - `email` -> `send_email`
+/// - `telegram` -> `telegram_send`
+/// - `http_request` -> `http`
+/// - `read`/`write` -> `file` (write enables file writes)
+pub fn registry_from_allowlist(tool_names: Option<&[String]>) -> ToolRegistry {
+    let Some(tool_names) = tool_names else {
+        return ToolRegistry::new();
+    };
+
+    if tool_names.is_empty() {
+        return ToolRegistry::new();
+    }
+
+    let mut builder = ToolRegistryBuilder::new();
+    let mut allow_file = false;
+    let mut allow_file_write = false;
+
+    for raw_name in tool_names {
+        match raw_name.as_str() {
+            "bash" => {
+                builder = builder.with_bash(BashConfig::default());
+            }
+            "file" | "read" => {
+                allow_file = true;
+            }
+            "write" => {
+                allow_file = true;
+                allow_file_write = true;
+            }
+            "http" | "http_request" => {
+                builder = builder.with_http();
+            }
+            "run_python" | "python" => {
+                builder = builder.with_python();
+            }
+            "send_email" | "email" => {
+                builder = builder.with_email();
+            }
+            "telegram_send" | "telegram" => {
+                builder = builder.with_telegram();
+            }
+            unknown => {
+                warn!(tool_name = %unknown, "Configured tool not found in registry, skipping");
+            }
+        }
+    }
+
+    if allow_file {
+        let mut config = FileConfig::default();
+        if allow_file_write {
+            config.allow_write = true;
+        }
+        builder = builder.with_file(config);
+    }
+
+    builder.build()
+}
+
+/// Build the default tool registry with standard tools enabled.
+pub fn default_registry() -> ToolRegistry {
+    ToolRegistryBuilder::new()
+        .with_bash(BashConfig::default())
+        .with_file(FileConfig::default())
+        .with_http()
+        .with_python()
+        .with_email()
+        .with_telegram()
+        .build()
 }
 
 impl Default for ToolRegistryBuilder {

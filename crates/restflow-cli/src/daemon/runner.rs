@@ -9,8 +9,8 @@ use restflow_core::paths;
 use restflow_core::process::ProcessRegistry;
 use restflow_tauri_lib::{
     AgentTaskRunner, ChatDispatcher, ChatDispatcherConfig, ChatSessionManager, MessageDebouncer,
-    MessageHandlerConfig, RealAgentExecutor, RunnerConfig, RunnerHandle, SystemStatus,
-    TaskTrigger, TelegramNotifier, start_message_handler_with_chat,
+    MessageHandlerConfig, RealAgentExecutor, RunnerConfig, RunnerHandle, SystemStatus, TaskTrigger,
+    TelegramNotifier, start_message_handler_with_chat,
 };
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -93,15 +93,11 @@ impl CliTaskRunner {
                 storage.clone(),
                 20, // max history messages
             ));
-            let chat_executor = Arc::new(RealAgentExecutor::new(
-                storage.clone(),
-                Arc::new(ProcessRegistry::new()),
-                auth_manager.clone(),
-            ));
             let debouncer = Arc::new(MessageDebouncer::default_timeout());
             let chat_dispatcher = Arc::new(ChatDispatcher::new(
                 session_manager,
-                chat_executor,
+                storage.clone(),
+                auth_manager.clone(),
                 debouncer,
                 router.clone(),
                 ChatDispatcherConfig::default(),

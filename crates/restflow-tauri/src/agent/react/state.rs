@@ -30,7 +30,16 @@ impl ConversationHistory {
 
     pub fn add(&mut self, message: Message) {
         self.messages.push(message);
+        self.trim_if_needed();
+    }
 
+    /// Prepend a message at the beginning (used for system prompt).
+    pub fn prepend(&mut self, message: Message) {
+        self.messages.insert(0, message);
+        self.trim_if_needed();
+    }
+
+    fn trim_if_needed(&mut self) {
         if self.messages.len() > self.max_messages {
             let system = self.messages.first().cloned();
             let keep_from = self.messages.len() - self.max_messages + 1;
