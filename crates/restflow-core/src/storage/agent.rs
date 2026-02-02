@@ -4,9 +4,11 @@ use crate::models::AgentNode;
 use anyhow::Result;
 use redb::Database;
 use serde::{Deserialize, Serialize};
+use restflow_storage::time_utils;
 use std::sync::Arc;
 use ts_rs::TS;
 use uuid::Uuid;
+use restflow_storage::SimpleStorage;
 
 /// Stored agent with metadata
 #[derive(Serialize, Deserialize, Debug, Clone, TS)]
@@ -34,9 +36,7 @@ impl AgentStorage {
     }
 
     pub fn create_agent(&self, name: String, agent: AgentNode) -> Result<StoredAgent> {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)?
-            .as_millis() as i64;
+        let now = time_utils::now_ms();
 
         let stored_agent = StoredAgent {
             id: Uuid::new_v4().to_string(),
@@ -89,9 +89,7 @@ impl AgentStorage {
             existing_agent.agent = new_agent;
         }
 
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)?
-            .as_millis() as i64;
+        let now = time_utils::now_ms();
         existing_agent.updated_at = Some(now);
 
         let json_bytes = serde_json::to_vec(&existing_agent)?;

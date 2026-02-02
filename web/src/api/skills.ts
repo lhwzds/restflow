@@ -51,6 +51,8 @@ export async function createSkill(request: CreateSkillRequest): Promise<Skill> {
       description: request.description || '',
       tags: request.tags || [],
       content: request.content,
+      folder_path: null,
+      gating: null,
       created_at: Date.now(),
       updated_at: Date.now(),
     }

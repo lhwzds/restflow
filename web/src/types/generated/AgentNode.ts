@@ -7,9 +7,9 @@ import type { ApiKeyConfig } from "./ApiKeyConfig";
  */
 export type AgentNode = { 
 /**
- * AI model to use for this agent
+ * AI model to use for this agent (None = auto-select based on auth profile)
  */
-model: AIModel, 
+model?: AIModel, 
 /**
  * System prompt for the agent
  */
@@ -25,4 +25,12 @@ api_key_config?: ApiKeyConfig,
 /**
  * List of tool names the agent is allowed to use
  */
-tools?: Array<string>, };
+tools?: Array<string>, 
+/**
+ * List of skill IDs to load into the system prompt
+ */
+skills?: Array<string>, 
+/**
+ * Variables available for skill prompt substitution
+ */
+skill_variables?: { [key in string]?: string }, };

@@ -4,7 +4,8 @@ use portable_pty::{CommandBuilder, PtySize, native_pty_system};
 use std::io::{Read, Write};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
+use restflow_storage::time_utils;
 use uuid::Uuid;
 
 use restflow_ai::tools::{ProcessLog, ProcessManager, ProcessPollResult, ProcessSessionInfo};
@@ -557,10 +558,7 @@ impl ProcessManager for ProcessRegistry {
 }
 
 fn current_timestamp_ms() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as i64
+    time_utils::now_ms()
 }
 
 fn find_utf8_boundary(bytes: &[u8]) -> usize {

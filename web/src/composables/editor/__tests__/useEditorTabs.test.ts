@@ -10,6 +10,8 @@ const mockSkill: Skill = {
   content: '# Test',
   tags: [],
   description: null,
+  folder_path: null,
+  gating: null,
   created_at: 1000,
   updated_at: 2000,
 }

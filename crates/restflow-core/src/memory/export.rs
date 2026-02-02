@@ -518,7 +518,7 @@ mod tests {
     use super::*;
     use redb::Database;
     use std::sync::Arc;
-    use std::time::{SystemTime, UNIX_EPOCH};
+    use restflow_storage::time_utils;
     use tempfile::tempdir;
 
     fn create_test_exporter() -> MemoryExporter {
@@ -530,10 +530,7 @@ mod tests {
     }
 
     fn now_ms() -> i64 {
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_millis() as i64
+        time_utils::now_ms()
     }
 
     #[test]

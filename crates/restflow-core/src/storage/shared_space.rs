@@ -3,7 +3,8 @@
 use crate::models::SharedEntry;
 use anyhow::{anyhow, Result};
 use restflow_storage::SharedSpaceStorage as RawStorage;
-use std::time::{SystemTime, UNIX_EPOCH};
+use restflow_storage::time_utils;
+use restflow_storage::SimpleStorage;
 
 #[derive(Clone)]
 pub struct SharedSpaceStorage {
@@ -13,13 +14,6 @@ pub struct SharedSpaceStorage {
 impl SharedSpaceStorage {
     pub fn new(inner: RawStorage) -> Self {
         Self { inner }
-    }
-
-    fn now_ms() -> i64 {
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_millis() as i64
     }
 
     /// Create or update an entry
@@ -94,7 +88,7 @@ impl SharedSpaceStorage {
         value: &str,
         modifier_id: Option<&str>,
     ) -> Result<()> {
-        let now = Self::now_ms();
+        let now = time_utils::now_ms();
         let existing = self.get_unchecked(key)?;
         let entry = SharedEntry {
             key: key.to_string(),

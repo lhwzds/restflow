@@ -39,7 +39,7 @@ use crate::storage::MemoryStorage;
 use anyhow::Result;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use std::time::{SystemTime, UNIX_EPOCH};
+use restflow_storage::time_utils;
 use ts_rs::TS;
 
 /// A search result with relevance score.
@@ -310,10 +310,7 @@ impl SearchEngine {
     ///
     /// Uses exponential decay: score = 100 / (1 + age_hours * decay)
     fn calculate_recency_score(&self, created_at: i64) -> f64 {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as i64;
+        let now = time_utils::now_ms();
 
         let age_ms = (now - created_at).max(0) as f64;
         let age_hours = age_ms / (1000.0 * 60.0 * 60.0);
@@ -430,10 +427,7 @@ mod tests {
     }
 
     fn now_ms() -> i64 {
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_millis() as i64
+        time_utils::now_ms()
     }
 
     #[test]

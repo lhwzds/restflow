@@ -7,6 +7,7 @@ use crate::models::{ChatSession, ChatSessionSummary};
 use anyhow::Result;
 use redb::Database;
 use std::sync::Arc;
+use restflow_storage::SimpleStorage;
 
 /// Typed chat session storage wrapper around restflow-storage::ChatSessionStorage.
 ///

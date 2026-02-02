@@ -38,6 +38,8 @@ export const skillHandlers = [
       description: body.description ?? null,
       tags: body.tags ?? null,
       content: body.content,
+      folder_path: null,
+      gating: null,
       created_at: Date.now(),
       updated_at: Date.now(),
     }

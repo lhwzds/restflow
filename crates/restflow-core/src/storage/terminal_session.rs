@@ -4,6 +4,7 @@ use crate::models::TerminalSession;
 use anyhow::Result;
 use redb::Database;
 use std::sync::Arc;
+use restflow_storage::SimpleStorage;
 
 /// Typed terminal session storage wrapper around restflow-storage::TerminalSessionStorage.
 #[derive(Debug, Clone)]

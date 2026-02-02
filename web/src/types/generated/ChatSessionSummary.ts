@@ -23,7 +23,7 @@ model: string,
 /**
  * Optional skill ID for context-aware sessions
  */
-skill_id: string | null,
+skill_id: string | null, 
 /**
  * Number of messages
  */

@@ -59,6 +59,7 @@ pub async fn delete_agent(core: &Arc<AppCore>, id: &str) -> Result<()> {
 mod tests {
     use super::*;
     use crate::models::{AIModel, ApiKeyConfig};
+    use restflow_storage::time_utils;
     use tempfile::tempdir;
 
     async fn create_test_core() -> Arc<AppCore> {
@@ -225,20 +226,14 @@ mod tests {
     async fn test_create_agent_sets_timestamps() {
         let core = create_test_core().await;
 
-        let before = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_millis() as i64;
+        let before = time_utils::now_ms();
 
         let agent_node = create_test_agent_node("Test prompt");
         let created = create_agent(&core, "Test Agent".to_string(), agent_node)
             .await
             .unwrap();
 
-        let after = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_millis() as i64;
+        let after = time_utils::now_ms();
 
         // Verify timestamps are set and within reasonable bounds
         assert!(created.created_at.is_some());
