@@ -60,4 +60,16 @@ tags: Array<string>,
 /**
  * Token count estimate for this chunk (for context window management)
  */
-token_count: number | null, };
+token_count: number | null, 
+/**
+ * Vector embedding for semantic search
+ */
+embedding?: Array<number>, 
+/**
+ * Model used to generate the embedding (e.g., "text-embedding-3-small")
+ */
+embedding_model?: string, 
+/**
+ * Embedding dimension (for validation)
+ */
+embedding_dim?: number, };
