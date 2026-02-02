@@ -1,0 +1,22 @@
+[
+  {
+    "id": "demo-session-1",
+    "name": "Translation Help",
+    "agent_id": "demo-translator",
+    "model": "claude-sonnet-4-5",
+    "skill_id": "smart-translation",
+    "message_count": 4,
+    "updated_at": 1704412800000,
+    "last_message_preview": "The translation looks great! Let me know if you need any adjustments."
+  },
+  {
+    "id": "demo-session-2",
+    "name": "Code Review Session",
+    "agent_id": "demo-code-reviewer",
+    "model": "gpt-5",
+    "skill_id": "code-review",
+    "message_count": 6,
+    "updated_at": 1704326400000,
+    "last_message_preview": "I've identified 3 potential issues in the authentication module..."
+  }
+]
