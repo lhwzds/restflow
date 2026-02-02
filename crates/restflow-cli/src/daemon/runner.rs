@@ -1,8 +1,10 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use restflow_core::AppCore;
+use restflow_core::auth::{AuthManagerConfig, AuthProfileManager};
 use restflow_core::channel::ChannelRouter;
 use restflow_core::models::{AgentTask, AgentTaskStatus};
+use restflow_core::paths;
 use restflow_core::process::ProcessRegistry;
 use restflow_tauri_lib::{
     AgentTaskRunner, ChatDispatcher, ChatDispatcherConfig, ChatSessionManager, MessageDebouncer,
@@ -20,6 +22,13 @@ pub struct CliTaskRunner {
     handle: Arc<RwLock<Option<Arc<RunnerHandle>>>>,
     runner: Arc<RwLock<Option<Arc<AgentTaskRunner>>>>,
     router: Arc<RwLock<Option<Arc<ChannelRouter>>>>,
+}
+
+fn create_auth_manager() -> Result<AuthProfileManager> {
+    let mut config = AuthManagerConfig::default();
+    let profiles_path = paths::ensure_data_dir()?.join("auth_profiles.json");
+    config.profiles_path = Some(profiles_path);
+    Ok(AuthProfileManager::with_config(config))
 }
 
 impl CliTaskRunner {
@@ -41,7 +50,11 @@ impl CliTaskRunner {
         let secrets = Arc::new(self.core.storage.secrets.clone());
         let process_registry = Arc::new(ProcessRegistry::new());
 
-        let executor = RealAgentExecutor::new(storage.clone(), process_registry);
+        let auth_manager = Arc::new(create_auth_manager()?);
+        auth_manager.initialize().await?;
+        auth_manager.discover().await?;
+
+        let executor = RealAgentExecutor::new(storage.clone(), process_registry, auth_manager.clone());
         let notifier = TelegramNotifier::new(secrets);
 
         let runner = Arc::new(AgentTaskRunner::new(
@@ -82,6 +95,7 @@ impl CliTaskRunner {
             let chat_executor = Arc::new(RealAgentExecutor::new(
                 storage.clone(),
                 Arc::new(ProcessRegistry::new()),
+                auth_manager.clone(),
             ));
             let debouncer = Arc::new(MessageDebouncer::default_timeout());
             let chat_dispatcher = Arc::new(ChatDispatcher::new(
