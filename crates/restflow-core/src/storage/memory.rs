@@ -77,6 +77,47 @@ impl MemoryStorage {
 
     /// Store a memory chunk and its embedding (if available).
     pub fn store_chunk_with_embedding(&self, chunk: &MemoryChunk) -> Result<String> {
+        if let Some(existing_id) = self.inner.find_by_hash(&chunk.content_hash)? {
+            if let (Some(vectors), Some(embedding)) = (&self.vectors, &chunk.embedding) {
+                vectors.add(&existing_id, embedding)?;
+            }
+
+            if chunk.embedding.is_some() {
+                if let Some(mut existing_chunk) = self.get_chunk(&existing_id)? {
+                    let mut updated = false;
+
+                    if existing_chunk.embedding.is_none() {
+                        existing_chunk.embedding = chunk.embedding.clone();
+                        updated = true;
+                    }
+
+                    if existing_chunk.embedding_model.is_none() {
+                        existing_chunk.embedding_model = chunk.embedding_model.clone();
+                        updated = true;
+                    }
+
+                    if existing_chunk.embedding_dim.is_none() {
+                        existing_chunk.embedding_dim = chunk.embedding_dim;
+                        updated = true;
+                    }
+
+                    if updated {
+                        let json_bytes = serde_json::to_vec(&existing_chunk)?;
+                        self.inner.put_chunk_raw(
+                            &existing_chunk.id,
+                            &existing_chunk.agent_id,
+                            existing_chunk.session_id.as_deref(),
+                            &existing_chunk.content_hash,
+                            &existing_chunk.tags,
+                            &json_bytes,
+                        )?;
+                    }
+                }
+            }
+
+            return Ok(existing_id);
+        }
+
         let id = self.store_chunk(chunk)?;
         if let (Some(vectors), Some(embedding)) = (&self.vectors, &chunk.embedding) {
             vectors.add(&id, embedding)?;
@@ -282,13 +323,27 @@ impl MemoryStorage {
         agent_id: &str,
         query_embedding: &[f32],
         top_k: usize,
+        tags: &[String],
+        session_id: Option<&str>,
+        min_score: Option<f32>,
     ) -> Result<Vec<SemanticMatch>> {
         let vectors = self
             .vectors
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("Vector search not enabled"))?;
 
-        let agent_chunks = self.list_chunks(agent_id)?;
+        let mut agent_chunks = self.list_chunks(agent_id)?;
+        if !tags.is_empty() || session_id.is_some() {
+            let mut filter_query = MemorySearchQuery::new(agent_id.to_string());
+            if let Some(session_id) = session_id {
+                filter_query = filter_query.in_session(session_id.to_string());
+            }
+            if !tags.is_empty() {
+                filter_query = filter_query.with_tags(tags.to_vec());
+            }
+            agent_chunks = self.apply_filters(agent_chunks, &filter_query)?;
+        }
+
         let chunk_ids: Vec<_> = agent_chunks.iter().map(|c| c.id.clone()).collect();
         let results = vectors.search_filtered(query_embedding, top_k, 100, &chunk_ids)?;
 
@@ -303,6 +358,10 @@ impl MemoryStorage {
             }
         }
 
+        if let Some(min_score) = min_score {
+            matches.retain(|item| item.similarity >= min_score);
+        }
+
         Ok(matches)
     }
 
@@ -314,14 +373,24 @@ impl MemoryStorage {
         query_text: &str,
         top_k: usize,
         semantic_weight: f32,
+        tags: &[String],
+        session_id: Option<&str>,
+        min_score: Option<f32>,
     ) -> Result<Vec<SemanticMatch>> {
         use std::collections::HashMap;
 
-        let semantic = self.semantic_search(agent_id, query_embedding, top_k * 2)?;
+        let semantic =
+            self.semantic_search(agent_id, query_embedding, top_k * 2, tags, session_id, None)?;
 
-        let text_query = MemorySearchQuery::new(agent_id.to_string())
+        let mut text_query = MemorySearchQuery::new(agent_id.to_string())
             .with_query(query_text.to_string())
             .paginate((top_k * 2) as u32, 0);
+        if let Some(session_id) = session_id {
+            text_query = text_query.in_session(session_id.to_string());
+        }
+        if !tags.is_empty() {
+            text_query = text_query.with_tags(tags.to_vec());
+        }
         let text_results = self.search(&text_query)?;
 
         let mut scores: HashMap<String, f32> = HashMap::new();
@@ -349,6 +418,10 @@ impl MemoryStorage {
                     similarity: score,
                 });
             }
+        }
+
+        if let Some(min_score) = min_score {
+            matches.retain(|item| item.similarity >= min_score);
         }
 
         Ok(matches)

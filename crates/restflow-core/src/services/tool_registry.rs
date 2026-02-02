@@ -264,14 +264,17 @@ impl Tool for SemanticMemorySearchTool {
             .and_then(|value| value.as_f64())
             .map(|value| value as f32);
 
-        let mut matches = self
+        let matches = self
             .storage
-            .semantic_search(agent_id, &query_embedding, top_k)
+            .semantic_search(
+                agent_id,
+                &query_embedding,
+                top_k,
+                &[],
+                None,
+                min_similarity,
+            )
             .map_err(|e| AiError::Tool(e.to_string()))?;
-
-        if let Some(min_similarity) = min_similarity {
-            matches.retain(|item| item.similarity >= min_similarity);
-        }
 
         Ok(ToolOutput::success(json!({
             "matches": matches,
