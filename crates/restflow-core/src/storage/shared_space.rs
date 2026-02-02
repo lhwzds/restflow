@@ -64,9 +64,16 @@ impl SharedSpaceStorage {
         namespace: Option<&str>,
         accessor_id: Option<&str>,
     ) -> Result<Vec<SharedEntry>> {
-        let raw_entries = self.inner.list_raw(namespace)?;
+        let raw_entries = self.inner.list_raw()?;
+        let filtered_entries: Vec<_> = match namespace {
+            Some(prefix) => raw_entries
+                .into_iter()
+                .filter(|(key, _)| key.starts_with(prefix))
+                .collect(),
+            None => raw_entries,
+        };
         let mut entries = Vec::new();
-        for (_, data) in raw_entries {
+        for (_, data) in filtered_entries {
             if let Ok(entry) = serde_json::from_slice::<SharedEntry>(&data)
                 && entry.can_read(accessor_id)
             {
