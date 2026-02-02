@@ -123,6 +123,8 @@ mod tests {
             temperature: Some(0.7),
             api_key_config: Some(ApiKeyConfig::Direct("test_key".to_string())),
             tools: Some(vec!["add".to_string()]),
+            skills: None,
+            skill_variables: None,
         }
     }
 

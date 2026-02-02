@@ -335,8 +335,8 @@ impl RestFlowMcpServer {
     }
 
     async fn handle_memory_store(&self, params: MemoryStoreParams) -> Result<String, String> {
-        let mut chunk = MemoryChunk::new(params.agent_id, params.content)
-            .with_source(MemorySource::ManualNote);
+        let mut chunk =
+            MemoryChunk::new(params.agent_id, params.content).with_source(MemorySource::ManualNote);
 
         if !params.tags.is_empty() {
             chunk = chunk.with_tags(params.tags);
@@ -412,7 +412,10 @@ impl RestFlowMcpServer {
             .map_err(|e| format!("Failed to serialize sessions: {}", e))
     }
 
-    async fn handle_chat_session_get(&self, params: ChatSessionGetParams) -> Result<String, String> {
+    async fn handle_chat_session_get(
+        &self,
+        params: ChatSessionGetParams,
+    ) -> Result<String, String> {
         let session = self
             .core
             .storage
@@ -674,6 +677,8 @@ mod tests {
             temperature: Some(0.7),
             api_key_config: Some(ApiKeyConfig::Direct("test_key".to_string())),
             tools: Some(vec!["add".to_string()]),
+            skills: None,
+            skill_variables: None,
         }
     }
 
