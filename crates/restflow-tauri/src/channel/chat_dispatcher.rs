@@ -7,12 +7,16 @@ use anyhow::{Result, anyhow};
 use std::sync::Arc;
 use tracing::{debug, error, info, warn};
 
+use restflow_ai::llm::Message;
+use restflow_ai::{AnthropicClient, LlmClient, OpenAIClient};
+use restflow_core::auth::AuthProfileManager;
 use restflow_core::channel::{ChannelRouter, InboundMessage, OutboundMessage};
-use restflow_core::models::{ChatMessage, ChatSession};
+use restflow_core::models::{ApiKeyConfig, ChatMessage, ChatRole, ChatSession};
 use restflow_core::storage::Storage;
+use restflow_core::{AIModel, Provider};
 
 use super::debounce::MessageDebouncer;
-use crate::agent_task::runner::AgentExecutor;
+use crate::agent::{registry_from_allowlist, UnifiedAgent, UnifiedAgentConfig};
 
 /// Configuration for the ChatDispatcher.
 #[derive(Debug, Clone)]
@@ -230,7 +234,8 @@ impl ChatSessionManager {
 /// 4. Sends the response back to the user
 pub struct ChatDispatcher {
     sessions: Arc<ChatSessionManager>,
-    executor: Arc<dyn AgentExecutor>,
+    storage: Arc<Storage>,
+    auth_manager: Arc<AuthProfileManager>,
     debouncer: Arc<MessageDebouncer>,
     channel_router: Arc<ChannelRouter>,
     config: ChatDispatcherConfig,
@@ -240,17 +245,89 @@ impl ChatDispatcher {
     /// Create a new ChatDispatcher.
     pub fn new(
         sessions: Arc<ChatSessionManager>,
-        executor: Arc<dyn AgentExecutor>,
+        storage: Arc<Storage>,
+        auth_manager: Arc<AuthProfileManager>,
         debouncer: Arc<MessageDebouncer>,
         channel_router: Arc<ChannelRouter>,
         config: ChatDispatcherConfig,
     ) -> Self {
         Self {
             sessions,
-            executor,
+            storage,
+            auth_manager,
             debouncer,
             channel_router,
             config,
+        }
+    }
+
+    /// Resolve API key for a model provider.
+    async fn resolve_api_key(
+        &self,
+        provider: Provider,
+        agent_api_key_config: Option<&ApiKeyConfig>,
+    ) -> Result<String> {
+        // First, check agent-level API key config
+        if let Some(config) = agent_api_key_config {
+            match config {
+                ApiKeyConfig::Direct(key) => {
+                    if !key.is_empty() {
+                        return Ok(key.clone());
+                    }
+                }
+                ApiKeyConfig::Secret(secret_name) => {
+                    if let Some(secret_value) = self.storage.secrets.get_secret(secret_name)? {
+                        return Ok(secret_value);
+                    }
+                    return Err(anyhow!("Secret '{}' not found", secret_name));
+                }
+            }
+        }
+
+        // Check auth profiles
+        if let Some(profile) = self.auth_manager.get_credential_for_model(provider).await {
+            return profile
+                .get_api_key(self.auth_manager.resolver())
+                .map_err(|e| anyhow!("{}", e));
+        }
+
+        // Fall back to well-known secret names
+        let secret_name = match provider {
+            Provider::OpenAI => "OPENAI_API_KEY",
+            Provider::Anthropic => "ANTHROPIC_API_KEY",
+            Provider::DeepSeek => "DEEPSEEK_API_KEY",
+        };
+
+        if let Some(secret_value) = self.storage.secrets.get_secret(secret_name)? {
+            return Ok(secret_value);
+        }
+
+        Err(anyhow!(
+            "No API key configured for provider {:?}",
+            provider
+        ))
+    }
+
+    /// Create an LLM client for the given model.
+    fn create_llm_client(&self, model: AIModel, api_key: &str) -> Arc<dyn LlmClient> {
+        let model_str = model.as_str();
+        match model.provider() {
+            Provider::OpenAI => Arc::new(OpenAIClient::new(api_key).with_model(model_str)),
+            Provider::Anthropic => Arc::new(AnthropicClient::new(api_key).with_model(model_str)),
+            Provider::DeepSeek => Arc::new(
+                OpenAIClient::new(api_key)
+                    .with_model(model_str)
+                    .with_base_url("https://api.deepseek.com/v1"),
+            ),
+        }
+    }
+
+    /// Convert a stored chat message into an LLM message.
+    fn chat_message_to_llm_message(message: &ChatMessage) -> Message {
+        match message.role {
+            ChatRole::User => Message::user(message.content.clone()),
+            ChatRole::Assistant => Message::assistant(message.content.clone()),
+            ChatRole::System => Message::system(message.content.clone()),
         }
     }
 
@@ -294,25 +371,78 @@ impl ChatDispatcher {
             warn!("Failed to send typing indicator: {}", e);
         }
 
-        // 4. Execute agent
-        // Note: In a full implementation, we'd pass conversation history to the executor
+        // 4. Load agent and create UnifiedAgent
+        let stored_agent = match self.storage.agents.get_agent(session.agent_id.clone()) {
+            Ok(Some(a)) => a,
+            Ok(None) => {
+                error!("Agent '{}' not found", session.agent_id);
+                self.send_error_response(message, ChatError::NoDefaultAgent).await?;
+                return Ok(());
+            }
+            Err(e) => {
+                error!("Failed to load agent: {}", e);
+                self.send_error_response(message, ChatError::ExecutionFailed(e.to_string())).await?;
+                return Ok(());
+            }
+        };
+
+        let agent_node = &stored_agent.agent;
+        let model = match agent_node.require_model() {
+            Ok(m) => m,
+            Err(e) => {
+                error!("Failed to get model: {}", e);
+                self.send_error_response(message, ChatError::ExecutionFailed(e.to_string())).await?;
+                return Ok(());
+            }
+        };
+
+        let api_key = match self.resolve_api_key(model.provider(), agent_node.api_key_config.as_ref()).await {
+            Ok(key) => key,
+            Err(e) => {
+                error!("Failed to resolve API key: {}", e);
+                self.send_error_response(message, ChatError::NoApiKey {
+                    provider: format!("{:?}", model.provider()),
+                }).await?;
+                return Ok(());
+            }
+        };
+
+        let llm = self.create_llm_client(model, &api_key);
+        let tools = Arc::new(registry_from_allowlist(agent_node.tools.as_deref()));
+
+        let mut config = UnifiedAgentConfig::default();
+        if model.supports_temperature()
+            && let Some(temp) = agent_node.temperature
+        {
+            config.temperature = temp as f32;
+        }
+
+        let mut agent = UnifiedAgent::new(
+            llm,
+            tools,
+            self.storage.clone(),
+            agent_node.clone(),
+            config,
+        );
+
+        // Add conversation history
+        let history = self.sessions.get_history(&session.id).unwrap_or_default();
+        let start = history.len().saturating_sub(self.config.max_session_history);
+        for msg in &history[start..] {
+            agent.add_history_message(Self::chat_message_to_llm_message(msg));
+        }
+
+        // 5. Execute with timeout
         let result = match tokio::time::timeout(
             tokio::time::Duration::from_secs(self.config.response_timeout_secs),
-            self.executor.execute(&session.agent_id, Some(&input)),
+            agent.execute(&input),
         )
         .await
         {
             Ok(Ok(result)) => result,
             Ok(Err(e)) => {
                 error!("Agent execution failed: {}", e);
-                let chat_error = if e.to_string().contains("API key") {
-                    ChatError::NoApiKey {
-                        provider: "unknown".to_string(),
-                    }
-                } else {
-                    ChatError::ExecutionFailed(e.to_string())
-                };
-                self.send_error_response(message, chat_error).await?;
+                self.send_error_response(message, ChatError::ExecutionFailed(e.to_string())).await?;
                 return Ok(());
             }
             Err(_) => {
@@ -322,12 +452,12 @@ impl ChatDispatcher {
             }
         };
 
-        // 5. Save exchange to session
+        // 6. Save exchange to session
         if let Err(e) = self.sessions.append_exchange(&session.id, &input, &result.output) {
             warn!("Failed to save exchange to session: {}", e);
         }
 
-        // 6. Send response (plain message without emoji prefix for AI chat)
+        // 7. Send response (plain message without emoji prefix for AI chat)
         let response = OutboundMessage::plain(&message.conversation_id, &result.output);
         self.channel_router.send_to(message.channel_type, response).await?;
 
@@ -366,41 +496,9 @@ impl ChatDispatcher {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agent_task::runner::ExecutionResult;
-    use async_trait::async_trait;
     use restflow_core::channel::ChannelType;
-    use std::sync::atomic::{AtomicU32, Ordering};
     use tempfile::tempdir;
     use tokio::time::Duration;
-
-    /// Mock executor for testing.
-    #[allow(dead_code)]
-    struct MockExecutor {
-        call_count: AtomicU32,
-        response: String,
-    }
-
-    #[allow(dead_code)]
-    impl MockExecutor {
-        fn new(response: impl Into<String>) -> Self {
-            Self {
-                call_count: AtomicU32::new(0),
-                response: response.into(),
-            }
-        }
-
-        fn call_count(&self) -> u32 {
-            self.call_count.load(Ordering::SeqCst)
-        }
-    }
-
-    #[async_trait]
-    impl AgentExecutor for MockExecutor {
-        async fn execute(&self, _agent_id: &str, _input: Option<&str>) -> Result<ExecutionResult> {
-            self.call_count.fetch_add(1, Ordering::SeqCst);
-            Ok(ExecutionResult::success(self.response.clone(), Vec::new()))
-        }
-    }
 
     fn create_test_storage() -> (Arc<Storage>, tempfile::TempDir) {
         let temp_dir = tempdir().unwrap();
