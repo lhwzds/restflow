@@ -108,6 +108,21 @@ pub struct MemoryChunk {
     /// Token count estimate for this chunk (for context window management)
     #[serde(default)]
     pub token_count: Option<u32>,
+
+    /// Vector embedding for semantic search
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub embedding: Option<Vec<f32>>,
+
+    /// Model used to generate embedding (e.g., "text-embedding-3-small")
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub embedding_model: Option<String>,
+
+    /// Embedding dimension (for validation)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub embedding_dim: Option<usize>,
 }
 
 impl MemoryChunk {
@@ -135,6 +150,9 @@ impl MemoryChunk {
             created_at,
             tags: Vec::new(),
             token_count: None,
+            embedding: None,
+            embedding_model: None,
+            embedding_dim: None,
         }
     }
 
@@ -172,6 +190,19 @@ impl MemoryChunk {
     pub fn with_token_count(mut self, count: u32) -> Self {
         self.token_count = Some(count);
         self
+    }
+
+    /// Set embedding data for semantic search
+    pub fn with_embedding(mut self, embedding: Vec<f32>, model: String) -> Self {
+        self.embedding_dim = Some(embedding.len());
+        self.embedding = Some(embedding);
+        self.embedding_model = Some(model);
+        self
+    }
+
+    /// Check if the chunk has embedding data
+    pub fn has_embedding(&self) -> bool {
+        self.embedding.is_some()
     }
 
     /// Set the created_at timestamp
@@ -467,6 +498,86 @@ impl UnifiedSearchQuery {
         self.session_agent_id = agent_id;
         self
     }
+}
+
+fn default_top_k() -> usize {
+    10
+}
+
+fn default_semantic_weight() -> f32 {
+    0.7
+}
+
+/// Query for semantic vector search.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct SemanticSearchQuery {
+    /// Agent ID to search within (required)
+    pub agent_id: String,
+
+    /// Natural language query text
+    pub query_text: String,
+
+    /// Maximum number of results to return
+    #[serde(default = "default_top_k")]
+    pub top_k: usize,
+
+    /// Optional minimum similarity score threshold
+    #[serde(default)]
+    pub min_score: Option<f32>,
+
+    /// Filter by tags (chunks must have ALL specified tags)
+    #[serde(default)]
+    pub tags: Vec<String>,
+
+    /// Filter by session ID
+    #[serde(default)]
+    pub session_id: Option<String>,
+}
+
+/// A semantic match result with similarity metadata.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct SemanticMatch {
+    pub chunk: MemoryChunk,
+
+    /// Cosine distance (0 = identical, 2 = opposite)
+    pub distance: f32,
+
+    /// Similarity score (1 = identical, 0 = orthogonal, -1 = opposite)
+    pub similarity: f32,
+}
+
+/// Semantic search response payload.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct SemanticSearchResult {
+    pub matches: Vec<SemanticMatch>,
+    pub query_embedding_model: String,
+    pub search_time_ms: u64,
+}
+
+/// Hybrid semantic + text search query.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct HybridSearchQuery {
+    /// Agent ID to search within (required)
+    pub agent_id: String,
+
+    /// Natural language query text
+    pub query_text: String,
+
+    /// Maximum number of results to return
+    #[serde(default = "default_top_k")]
+    pub top_k: usize,
+
+    /// Weight for semantic search (0.0-1.0), rest goes to text search
+    #[serde(default = "default_semantic_weight")]
+    pub semantic_weight: f32,
+
+    /// Filter by tags (chunks must have ALL specified tags)
+    #[serde(default)]
+    pub tags: Vec<String>,
 }
 
 /// Search mode for memory queries.
