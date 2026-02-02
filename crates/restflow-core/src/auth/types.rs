@@ -7,6 +7,8 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 use uuid::Uuid;
 
+use crate::Provider;
+
 /// Credential type representing different authentication methods
 ///
 /// Note: Debug is manually implemented to prevent logging sensitive values.
@@ -221,6 +223,17 @@ impl std::fmt::Display for AuthProvider {
     }
 }
 
+impl AuthProvider {
+    /// Return compatible auth providers for a model provider, ordered by preference.
+    pub fn compatible_with(provider: Provider) -> Vec<AuthProvider> {
+        match provider {
+            Provider::Anthropic => vec![AuthProvider::ClaudeCode, AuthProvider::Anthropic],
+            Provider::OpenAI => vec![AuthProvider::OpenAICodex, AuthProvider::OpenAI],
+            Provider::DeepSeek => vec![AuthProvider::Other],
+        }
+    }
+}
+
 /// Health status of an auth profile
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[ts(export, export_to = "../../web/src/types/generated/")]
@@ -390,6 +403,18 @@ pub struct ProfileSelection {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_compatible_with_provider() {
+        assert_eq!(
+            AuthProvider::compatible_with(Provider::OpenAI),
+            vec![AuthProvider::OpenAICodex, AuthProvider::OpenAI]
+        );
+        assert_eq!(
+            AuthProvider::compatible_with(Provider::Anthropic),
+            vec![AuthProvider::ClaudeCode, AuthProvider::Anthropic]
+        );
+    }
 
     #[test]
     fn test_credential_api_key() {

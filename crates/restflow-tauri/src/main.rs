@@ -14,7 +14,10 @@
     windows_subsystem = "windows"
 )]
 
+use anyhow::Result;
 use clap::Parser;
+use restflow_core::auth::{AuthManagerConfig, AuthProfileManager};
+use restflow_core::paths;
 use restflow_tauri_lib::AppState;
 use restflow_tauri_lib::RestFlowMcpServer;
 use restflow_tauri_lib::commands;
@@ -22,7 +25,7 @@ use restflow_tauri_lib::commands::AuthState;
 use restflow_tauri_lib::commands::pty::save_all_terminal_history_sync;
 use restflow_tauri_lib::{RealAgentExecutor, TelegramNotifier};
 use tauri::Manager;
-use tracing::info;
+use tracing::{info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 /// RestFlow Desktop Application
@@ -94,7 +97,23 @@ fn main() {
             rt.block_on(async {
                 let storage = state.core.storage.clone();
                 let secrets = std::sync::Arc::new(state.core.storage.secrets.clone());
-                let executor = RealAgentExecutor::new(storage, state.process_registry.clone());
+                let auth_manager = match create_auth_manager() {
+                    Ok(manager) => std::sync::Arc::new(manager),
+                    Err(e) => {
+                        warn!(error = %e, "Failed to configure auth profile manager");
+                        std::sync::Arc::new(AuthProfileManager::new())
+                    }
+                };
+
+                if let Err(e) = auth_manager.initialize().await {
+                    warn!(error = %e, "Failed to initialize auth profile manager");
+                }
+
+                let executor = RealAgentExecutor::new(
+                    storage,
+                    state.process_registry.clone(),
+                    auth_manager,
+                );
                 let notifier = TelegramNotifier::new(secrets);
 
                 if let Err(e) = state.start_runner(executor, notifier, None).await {
@@ -273,6 +292,13 @@ fn main() {
 }
 
 /// Get the database path for the application
+fn create_auth_manager() -> Result<AuthProfileManager> {
+    let mut config = AuthManagerConfig::default();
+    let profiles_path = paths::ensure_data_dir()?.join("auth_profiles.json");
+    config.profiles_path = Some(profiles_path);
+    Ok(AuthProfileManager::with_config(config))
+}
+
 fn get_db_path(app: &tauri::App) -> String {
     // Try to get app data directory
     if let Ok(app_data_dir) = app.path().app_data_dir() {

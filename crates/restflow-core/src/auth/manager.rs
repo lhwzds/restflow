@@ -16,6 +16,8 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
 
+use crate::Provider;
+
 /// Configuration for the auth profile manager
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuthManagerConfig {
@@ -168,6 +170,22 @@ impl AuthProfileManager {
             .filter(|p| p.is_available() && p.provider == provider)
             .cloned()
             .collect()
+    }
+
+    /// Get the best available profile for a specific provider.
+    pub async fn get_available_profile(&self, provider: AuthProvider) -> Option<AuthProfile> {
+        self.select_profile(provider).await.map(|selection| selection.profile)
+    }
+
+    /// Get the best available profile compatible with a model provider.
+    pub async fn get_credential_for_model(&self, provider: Provider) -> Option<AuthProfile> {
+        let compatible = AuthProvider::compatible_with(provider);
+        for auth_provider in compatible {
+            if let Some(profile) = self.get_available_profile(auth_provider).await {
+                return Some(profile);
+            }
+        }
+        None
     }
 
     /// Get a specific profile by ID
