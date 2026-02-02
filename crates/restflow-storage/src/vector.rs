@@ -7,9 +7,11 @@
 use anyhow::Result;
 use hnsw_rs::prelude::*;
 use parking_lot::RwLock;
-use redb::{Database, ReadableTable, TableDefinition};
+use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+
+type VectorIndex = Hnsw<'static, f32, DistCosine>;
 
 const VECTOR_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("memory_vectors");
 #[allow(dead_code)]
@@ -44,7 +46,7 @@ pub struct VectorStorage {
     db: Arc<Database>,
     config: VectorConfig,
     /// HNSW index (in-memory, rebuilt on load)
-    index: RwLock<Hnsw<f32, DistCosine>>,
+    index: RwLock<VectorIndex>,
     /// chunk_id -> internal vector ID
     id_map: RwLock<HashMap<String, usize>>,
     /// internal vector ID -> chunk_id
@@ -61,7 +63,7 @@ impl VectorStorage {
         write_txn.open_table(VECTOR_META_TABLE)?;
         write_txn.commit()?;
 
-        let hnsw = Hnsw::new(
+        let hnsw: VectorIndex = Hnsw::new(
             config.max_connections,
             config.max_elements,
             16,
@@ -106,7 +108,7 @@ impl VectorStorage {
 
         {
             let mut index = self.index.write();
-            index.insert((&vector.to_vec(), vector_id));
+            index.insert((vector, vector_id));
         }
 
         {
@@ -243,7 +245,7 @@ impl VectorStorage {
         let mut vectors: Vec<(String, Vec<f32>)> = Vec::new();
 
         for item in table.iter()? {
-            let (key, value) = item?;
+            let (key, value): (redb::AccessGuard<'_, &str>, redb::AccessGuard<'_, &[u8]>) = item?;
             let chunk_id = key.value().to_string();
             let vector: Vec<f32> = bincode::deserialize(value.value())?;
             vectors.push((chunk_id, vector));
@@ -268,7 +270,7 @@ impl VectorStorage {
         for (chunk_id, vector) in vectors {
             let vector_id = *next_id;
             *next_id += 1;
-            index.insert((&vector, vector_id));
+            index.insert((vector.as_slice(), vector_id));
             id_map.insert(chunk_id.clone(), vector_id);
             reverse.insert(vector_id, chunk_id);
         }
