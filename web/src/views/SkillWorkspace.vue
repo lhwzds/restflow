@@ -26,7 +26,7 @@ import type { FileItem } from '@/types/workspace'
 import type { Skill } from '@/types/generated/Skill'
 import type { StoredAgent } from '@/types/generated/StoredAgent'
 import type { ChatMessage } from '@/types/generated/ChatMessage'
-import type { ExecutionStep as ApiExecutionStep } from '@/types/generated/ExecutionStep'
+import type { ExecutionStepInfo } from '@/types/generated/ExecutionStepInfo'
 import type { ChatSessionSummary } from '@/types/generated/ChatSessionSummary'
 import { useFileBrowser, type BrowserTab } from '@/composables/workspace/useFileBrowser'
 import { useEditorTabs, type EditorTab } from '@/composables/editor/useEditorTabs'
@@ -288,21 +288,9 @@ const mapStepType = (value: string): StepType => {
   }
 }
 
-const formatStepName = (step: ApiExecutionStep): string => {
-  if (step.step_type === 'tool_call') {
-    const toolName = step.tool_calls?.[0]?.name
-    return toolName ? `Tool call: ${toolName}` : 'Tool call'
-  }
-
-  if (step.step_type === 'tool_result') {
-    return 'Tool result'
-  }
-
-  if (step.content) {
-    const firstLine = step.content.split('\n')[0]?.trim()
-    if (firstLine) {
-      return firstLine.length > 80 ? `${firstLine.slice(0, 80)}...` : firstLine
-    }
+const formatStepName = (step: ExecutionStepInfo): string => {
+  if (step.name) {
+    return step.name
   }
 
   return step.step_type

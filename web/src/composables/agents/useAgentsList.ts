@@ -14,7 +14,7 @@ const filteredAgents = computed(() => {
   return agents.value.filter(
     (agent) =>
       agent.name.toLowerCase().includes(query) ||
-      agent.agent.model.toLowerCase().includes(query) ||
+      (agent.agent.model ?? '').toLowerCase().includes(query) ||
       (agent.agent.prompt || '').toLowerCase().includes(query),
   )
 })

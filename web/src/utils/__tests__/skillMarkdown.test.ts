@@ -11,6 +11,8 @@ describe('skillMarkdown utilities', () => {
         description: 'A helpful skill',
         tags: ['git', 'automation'],
         content: '# Git Commit\n\nGenerate commit messages.',
+        folder_path: null,
+        gating: null,
         created_at: 1000,
         updated_at: 2000,
       }
@@ -31,6 +33,8 @@ describe('skillMarkdown utilities', () => {
         description: null,
         tags: ['test'],
         content: '# Content',
+        folder_path: null,
+        gating: null,
         created_at: 1000,
         updated_at: 2000,
       }
@@ -48,6 +52,8 @@ describe('skillMarkdown utilities', () => {
         description: 'Test description',
         tags: null,
         content: '# Content',
+        folder_path: null,
+        gating: null,
         created_at: 1000,
         updated_at: 2000,
       }
@@ -65,6 +71,8 @@ describe('skillMarkdown utilities', () => {
         description: null,
         tags: [],
         content: '# Content',
+        folder_path: null,
+        gating: null,
         created_at: 1000,
         updated_at: 2000,
       }
@@ -189,6 +197,8 @@ tags: [one, , two, , ]
         description: 'A helpful skill',
         tags: ['git', 'automation'],
         content: '# Git Commit\n\nGenerate commit messages.',
+        folder_path: null,
+        gating: null,
         created_at: 1000,
         updated_at: 2000,
       }
