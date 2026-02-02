@@ -19,6 +19,7 @@ use anyhow::Result;
 use redb::Database;
 use regex::Regex;
 use std::sync::Arc;
+use restflow_storage::memory::PutResult;
 
 /// Typed memory storage wrapper around restflow-storage::MemoryStorage.
 #[derive(Clone)]
@@ -50,8 +51,8 @@ impl MemoryStorage {
             &chunk.tags,
             &json_bytes,
         )? {
-            restflow_storage::PutResult::Existing(existing_id) => Ok(existing_id),
-            restflow_storage::PutResult::Created(chunk_id) => Ok(chunk_id),
+            PutResult::Existing(existing_id) => Ok(existing_id),
+            PutResult::Created(chunk_id) => Ok(chunk_id),
         }
     }
 
