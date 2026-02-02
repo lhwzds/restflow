@@ -11,12 +11,15 @@ const filteredAgents = computed(() => {
   if (!searchQuery.value) return agents.value
 
   const query = searchQuery.value.toLowerCase()
-  return agents.value.filter(
-    (agent) =>
+  return agents.value.filter((agent) => {
+    const modelQuery = String(agent.agent.model ?? '').toLowerCase()
+    const promptQuery = String(agent.agent.prompt ?? '').toLowerCase()
+    return (
       agent.name.toLowerCase().includes(query) ||
-      (agent.agent.model ?? '').toLowerCase().includes(query) ||
-      (agent.agent.prompt || '').toLowerCase().includes(query),
-  )
+      modelQuery.includes(query) ||
+      promptQuery.includes(query)
+    )
+  })
 })
 
 async function loadAgents() {

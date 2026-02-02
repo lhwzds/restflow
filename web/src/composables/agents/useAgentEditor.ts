@@ -19,7 +19,7 @@ export interface AgentFormData {
 }
 
 const fallbackModel: AIModel = 'claude-sonnet-4-5'
-const resolveModel = (value?: AIModel) => value ?? fallbackModel
+const resolveModel = (value?: AIModel): AIModel => value ?? fallbackModel
 
 export function useAgentEditor(agentId: string) {
   const router = useRouter()

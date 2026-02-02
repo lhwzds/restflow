@@ -41,7 +41,8 @@ const input = ref('')
 const isLoading = ref(false)
 const messagesContainer = ref<HTMLElement>()
 const fallbackModel: AIModel = 'claude-sonnet-4-5'
-const resolvedModel = computed(() => props.agent.agent.model ?? fallbackModel)
+const resolvedModel = computed<AIModel>(() => props.agent.agent.model ?? fallbackModel)
+const modelName = computed(() => getModelDisplayName(resolvedModel.value))
 
 function addMessage(
   role: 'user' | 'assistant',
@@ -130,7 +131,7 @@ onMounted(() => {
     <div class="chat-header">
       <div class="header-info">
         <h3>{{ agent.name }}</h3>
-        <span class="model-tag">{{ getModelDisplayName(resolvedModel) }}</span>
+        <span class="model-tag">{{ modelName }}</span>
       </div>
       <Button v-if="messages.length > 1" variant="ghost" @click="handleClear">
         <Trash2 class="mr-2 h-4 w-4" />

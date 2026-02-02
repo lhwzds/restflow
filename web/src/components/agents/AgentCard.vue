@@ -32,7 +32,7 @@ function formatTime(timestamp?: number | null): string {
 
 const lastUpdated = computed(() => formatTime(props.agent.updated_at))
 const fallbackModel: AIModel = 'claude-sonnet-4-5'
-const resolvedModel = computed(() => props.agent.agent.model ?? fallbackModel)
+const resolvedModel = computed<AIModel>(() => props.agent.agent.model ?? fallbackModel)
 const modelName = computed(() => getModelDisplayName(resolvedModel.value))
 const modelBadgeVariant = computed(() => {
   const provider = getProvider(resolvedModel.value)
