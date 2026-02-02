@@ -30,11 +30,10 @@ test.describe('Header Navigation', () => {
     const nav = page.locator('header nav')
     await expect(nav).toBeVisible()
 
-    // All four tabs should be visible
+    // All three tabs should be visible
     await expect(page.getByRole('button', { name: 'Skills' })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Agents' })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Terminals' })).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Tasks' })).toBeVisible()
   })
 
   test('active tab has primary text color (not background)', async ({ page }) => {
@@ -85,7 +84,6 @@ test.describe('Header Navigation', () => {
     await expect(page.getByRole('button', { name: 'Skills' })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Agents' })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Terminals' })).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Tasks' })).toBeVisible()
   })
 
   test('clicking nav tab in editor mode returns to browse mode', async ({ page }) => {
