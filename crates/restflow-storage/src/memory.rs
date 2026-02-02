@@ -75,12 +75,14 @@ impl MemoryStorage {
         let write_txn = self.db.begin_write()?;
         {
             let mut hash_index = write_txn.open_table(HASH_INDEX_TABLE)?;
-            if let Some(existing) = hash_index.get(content_hash)? {
-                if existing.value() == chunk_id {
-                    let hash_key = Self::hash_index_key(agent_id, content_hash);
-                    hash_index.insert(hash_key.as_str(), chunk_id)?;
-                    hash_index.remove(content_hash)?;
-                }
+            let should_migrate = hash_index
+                .get(content_hash)?
+                .map(|existing| existing.value() == chunk_id)
+                .unwrap_or(false);
+            if should_migrate {
+                let hash_key = Self::hash_index_key(agent_id, content_hash);
+                hash_index.insert(hash_key.as_str(), chunk_id)?;
+                hash_index.remove(content_hash)?;
             }
         }
         write_txn.commit()?;
@@ -368,10 +370,12 @@ impl MemoryStorage {
             let mut hash_index = write_txn.open_table(HASH_INDEX_TABLE)?;
             let hash_key = Self::hash_index_key(agent_id, content_hash);
             hash_index.remove(hash_key.as_str())?;
-            if let Some(existing) = hash_index.get(content_hash)? {
-                if existing.value() == chunk_id {
-                    hash_index.remove(content_hash)?;
-                }
+            let should_remove_legacy = hash_index
+                .get(content_hash)?
+                .map(|existing| existing.value() == chunk_id)
+                .unwrap_or(false);
+            if should_remove_legacy {
+                hash_index.remove(content_hash)?;
             }
 
             // Remove from tag indexes
@@ -530,10 +534,12 @@ impl MemoryStorage {
 
                 let hash_key = Self::hash_index_key(agent_id, content_hash.as_str());
                 hash_index.remove(hash_key.as_str())?;
-                if let Some(existing) = hash_index.get(content_hash.as_str())? {
-                    if existing.value() == chunk_id.as_str() {
-                        hash_index.remove(content_hash.as_str())?;
-                    }
+                let should_remove_legacy = hash_index
+                    .get(content_hash.as_str())?
+                    .map(|existing| existing.value() == chunk_id.as_str())
+                    .unwrap_or(false);
+                if should_remove_legacy {
+                    hash_index.remove(content_hash.as_str())?;
                 }
 
                 for tag in tags {
