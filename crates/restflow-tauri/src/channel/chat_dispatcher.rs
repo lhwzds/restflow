@@ -327,8 +327,8 @@ impl ChatDispatcher {
             warn!("Failed to save exchange to session: {}", e);
         }
 
-        // 6. Send response
-        let response = OutboundMessage::new(&message.conversation_id, &result.output);
+        // 6. Send response (plain message without emoji prefix for AI chat)
+        let response = OutboundMessage::plain(&message.conversation_id, &result.output);
         self.channel_router.send_to(message.channel_type, response).await?;
 
         info!(
