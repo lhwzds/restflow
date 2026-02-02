@@ -18,6 +18,7 @@ use crate::models::memory::{
 use anyhow::Result;
 use redb::Database;
 use regex::Regex;
+use restflow_storage::memory::PutResult;
 use std::sync::Arc;
 
 /// Typed memory storage wrapper around restflow-storage::MemoryStorage.
@@ -41,22 +42,18 @@ impl MemoryStorage {
     /// If a chunk with the same content hash already exists, returns the
     /// existing chunk ID without creating a duplicate.
     pub fn store_chunk(&self, chunk: &MemoryChunk) -> Result<String> {
-        // Check for duplicate by content hash
-        if let Some(existing_id) = self.inner.find_by_hash(&chunk.content_hash)? {
-            return Ok(existing_id);
-        }
-
         let json_bytes = serde_json::to_vec(chunk)?;
-        self.inner.put_chunk_raw(
+        match self.inner.put_chunk_if_not_exists(
             &chunk.id,
             &chunk.agent_id,
             chunk.session_id.as_deref(),
             &chunk.content_hash,
             &chunk.tags,
             &json_bytes,
-        )?;
-
-        Ok(chunk.id.clone())
+        )? {
+            PutResult::Existing(existing_id) => Ok(existing_id),
+            PutResult::Created(created_id) => Ok(created_id),
+        }
     }
 
     /// Get a memory chunk by ID
@@ -132,21 +129,23 @@ impl MemoryStorage {
 
     /// Delete all chunks for an agent
     pub fn delete_chunks_for_agent(&self, agent_id: &str) -> Result<u32> {
-        // Get all chunks first for proper index cleanup
         let chunks = self.list_chunks(agent_id)?;
-        let count = chunks.len() as u32;
+        let metadata: Vec<(String, Option<String>, String, Vec<String>)> = chunks
+            .iter()
+            .map(|chunk| {
+                (
+                    chunk.id.clone(),
+                    chunk.session_id.clone(),
+                    chunk.content_hash.clone(),
+                    chunk.tags.clone(),
+                )
+            })
+            .collect();
 
-        for chunk in chunks {
-            self.inner.delete_chunk(
-                &chunk.id,
-                &chunk.agent_id,
-                chunk.session_id.as_deref(),
-                &chunk.content_hash,
-                &chunk.tags,
-            )?;
-        }
-
-        Ok(count)
+        let deleted = self
+            .inner
+            .delete_all_chunks_for_agent_with_metadata(agent_id, &metadata)?;
+        Ok(deleted)
     }
 
     // ============== Session Operations ==============
