@@ -47,7 +47,7 @@ impl Tool for SpawnAgentTool {
     }
 
     fn description(&self) -> &str {
-        "Spawn a specialized agent to work on a task in parallel. The agent runs in the background and you will be notified when it completes. Use this for tasks that can be delegated to specialists."
+        "Spawn a specialized agent to work on a task in parallel. The agent runs in the background; call wait_agents to check completion. Use this for tasks that can be delegated to specialists."
     }
 
     fn parameters_schema(&self) -> Value {
@@ -146,7 +146,7 @@ impl Tool for SpawnAgentTool {
                 "agent": handle.agent_name,
                 "status": "spawned",
                 "message": format!(
-                    "Agent '{}' is now working on the task in background. You will be notified when it completes.",
+                    "Agent '{}' is now working on the task in background. Use wait_agents to check completion.",
                     handle.agent_name
                 )
             });
