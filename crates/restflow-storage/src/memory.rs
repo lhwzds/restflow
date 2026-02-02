@@ -45,6 +45,8 @@ pub enum PutChunkResult {
     Existing(String),
 }
 
+pub type PutResult = PutChunkResult;
+
 impl MemoryStorage {
     /// Create a new MemoryStorage instance
     pub fn new(db: Arc<Database>) -> Result<Self> {
