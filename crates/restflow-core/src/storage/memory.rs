@@ -13,17 +13,19 @@
 
 use crate::models::memory::{
     MemoryChunk, MemorySearchQuery, MemorySearchResult, MemorySession, MemorySource, MemoryStats,
-    SearchMode, SourceTypeFilter,
+    SearchMode, SemanticMatch, SourceTypeFilter,
 };
 use anyhow::Result;
 use redb::Database;
 use regex::Regex;
+use restflow_storage::{VectorConfig, VectorStorage};
 use std::sync::Arc;
 
 /// Typed memory storage wrapper around restflow-storage::MemoryStorage.
 #[derive(Clone)]
 pub struct MemoryStorage {
     inner: restflow_storage::MemoryStorage,
+    vectors: Option<VectorStorage>,
 }
 
 impl MemoryStorage {
@@ -31,7 +33,21 @@ impl MemoryStorage {
     pub fn new(db: Arc<Database>) -> Result<Self> {
         Ok(Self {
             inner: restflow_storage::MemoryStorage::new(db)?,
+            vectors: None,
         })
+    }
+
+    /// Create a new MemoryStorage with vector search enabled
+    pub fn with_vectors(db: Arc<Database>, config: VectorConfig) -> Result<Self> {
+        Ok(Self {
+            inner: restflow_storage::MemoryStorage::new(db.clone())?,
+            vectors: Some(VectorStorage::new(db, config)?),
+        })
+    }
+
+    /// Check if vector search is enabled
+    pub fn has_vector_search(&self) -> bool {
+        self.vectors.is_some()
     }
 
     // ============== Chunk Operations ==============
@@ -57,6 +73,15 @@ impl MemoryStorage {
         )?;
 
         Ok(chunk.id.clone())
+    }
+
+    /// Store a memory chunk and its embedding (if available).
+    pub fn store_chunk_with_embedding(&self, chunk: &MemoryChunk) -> Result<String> {
+        let id = self.store_chunk(chunk)?;
+        if let (Some(vectors), Some(embedding)) = (&self.vectors, &chunk.embedding) {
+            vectors.add(&id, embedding)?;
+        }
+        Ok(id)
     }
 
     /// Get a memory chunk by ID
@@ -118,6 +143,9 @@ impl MemoryStorage {
     pub fn delete_chunk(&self, chunk_id: &str) -> Result<bool> {
         // First get the chunk to know its metadata for index cleanup
         if let Some(chunk) = self.get_chunk(chunk_id)? {
+            if let Some(vectors) = &self.vectors {
+                vectors.delete(chunk_id)?;
+            }
             self.inner.delete_chunk(
                 chunk_id,
                 &chunk.agent_id,
@@ -137,13 +165,7 @@ impl MemoryStorage {
         let count = chunks.len() as u32;
 
         for chunk in chunks {
-            self.inner.delete_chunk(
-                &chunk.id,
-                &chunk.agent_id,
-                chunk.session_id.as_deref(),
-                &chunk.content_hash,
-                &chunk.tags,
-            )?;
+            self.delete_chunk(&chunk.id)?;
         }
 
         Ok(count)
@@ -252,6 +274,89 @@ impl MemoryStorage {
             total_count,
             has_more,
         })
+    }
+
+    /// Semantic search using vector embeddings.
+    pub fn semantic_search(
+        &self,
+        agent_id: &str,
+        query_embedding: &[f32],
+        top_k: usize,
+    ) -> Result<Vec<SemanticMatch>> {
+        let vectors = self
+            .vectors
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Vector search not enabled"))?;
+
+        let agent_chunks = self.list_chunks(agent_id)?;
+        let chunk_ids: Vec<_> = agent_chunks.iter().map(|c| c.id.clone()).collect();
+        let results = vectors.search_filtered(query_embedding, top_k, 100, &chunk_ids)?;
+
+        let mut matches = Vec::new();
+        for (chunk_id, distance) in results {
+            if let Some(chunk) = self.get_chunk(&chunk_id)? {
+                matches.push(SemanticMatch {
+                    chunk,
+                    distance,
+                    similarity: 1.0 - (distance / 2.0),
+                });
+            }
+        }
+
+        Ok(matches)
+    }
+
+    /// Hybrid search combining semantic + text results.
+    pub fn hybrid_search(
+        &self,
+        agent_id: &str,
+        query_embedding: &[f32],
+        query_text: &str,
+        top_k: usize,
+        semantic_weight: f32,
+    ) -> Result<Vec<SemanticMatch>> {
+        use std::collections::HashMap;
+
+        let semantic = self.semantic_search(agent_id, query_embedding, top_k * 2)?;
+
+        let text_query = MemorySearchQuery::new(agent_id.to_string())
+            .with_query(query_text.to_string())
+            .paginate((top_k * 2) as u32, 0);
+        let text_results = self.search(&text_query)?;
+
+        let mut scores: HashMap<String, f32> = HashMap::new();
+        let k = 60.0;
+
+        for (i, m) in semantic.iter().enumerate() {
+            let rrf = semantic_weight / (k + i as f32 + 1.0);
+            *scores.entry(m.chunk.id.clone()).or_insert(0.0) += rrf;
+        }
+
+        for (i, chunk) in text_results.chunks.iter().enumerate() {
+            let rrf = (1.0 - semantic_weight) / (k + i as f32 + 1.0);
+            *scores.entry(chunk.id.clone()).or_insert(0.0) += rrf;
+        }
+
+        let mut ranked: Vec<_> = scores.into_iter().collect();
+        ranked.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+        let mut matches = Vec::new();
+        for (chunk_id, score) in ranked.into_iter().take(top_k) {
+            if let Some(chunk) = self.get_chunk(&chunk_id)? {
+                matches.push(SemanticMatch {
+                    chunk,
+                    distance: 0.0,
+                    similarity: score,
+                });
+            }
+        }
+
+        Ok(matches)
+    }
+
+    /// Delete a memory chunk and its vector embedding if present.
+    pub fn delete_chunk_with_embedding(&self, chunk_id: &str) -> Result<bool> {
+        self.delete_chunk(chunk_id)
     }
 
     /// Apply non-text filters to chunks

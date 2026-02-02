@@ -11,6 +11,7 @@
 //! - Python SDK via PyO3
 
 pub mod agent;
+pub mod embedding;
 pub mod error;
 pub mod eval;
 pub mod graph;

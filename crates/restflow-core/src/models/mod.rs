@@ -29,8 +29,9 @@ pub use input::{
     ScheduleInput, Templated, WebhookTriggerInput,
 };
 pub use memory::{
-    MemoryChunk, MemorySearchQuery, MemorySearchResult, MemorySession, MemorySource, MemoryStats,
-    SearchMode, SourceTypeFilter, UnifiedSearchQuery,
+    HybridSearchQuery, MemoryChunk, MemorySearchQuery, MemorySearchResult, MemorySession,
+    MemorySource, MemoryStats, SearchMode, SemanticMatch, SemanticSearchQuery,
+    SemanticSearchResult, SourceTypeFilter, UnifiedSearchQuery,
 };
 pub use output::{
     AgentOutput, EmailOutput, HttpOutput, ManualTriggerOutput, NodeOutput, PrintOutput,
