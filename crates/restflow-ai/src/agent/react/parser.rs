@@ -1,8 +1,8 @@
 //! Response parsing for tool calls and final answers.
 
 use super::AgentAction;
-use anyhow::Result;
-use restflow_ai::llm::ToolCall;
+use crate::error::Result;
+use crate::llm::ToolCall;
 
 pub struct ResponseParser;
 

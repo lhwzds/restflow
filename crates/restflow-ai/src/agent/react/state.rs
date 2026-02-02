@@ -1,6 +1,6 @@
 //! Agent state machine for ReAct loop.
 
-use restflow_ai::llm::Message;
+use crate::llm::Message;
 
 /// Current state of the agent execution
 #[derive(Debug, Clone)]
