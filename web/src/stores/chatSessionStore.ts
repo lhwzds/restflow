@@ -10,6 +10,7 @@ import type { ChatSession } from '@/types/generated/ChatSession'
 import type { ChatSessionSummary } from '@/types/generated/ChatSessionSummary'
 import type { ChatMessage } from '@/types/generated/ChatMessage'
 import * as chatSessionApi from '@/api/chat-session'
+import { executeChatSession } from '@/api/chat-session'
 
 export type SortField = 'name' | 'updated_at' | 'message_count'
 export type SortOrder = 'asc' | 'desc'
@@ -314,7 +315,7 @@ export const useChatSessionStore = defineStore('chatSession', {
     },
 
     /**
-     * Send a message in the current session
+     * Send a message in the current session (without agent execution)
      */
     async sendMessage(content: string): Promise<ChatSession | null> {
       if (!this.currentSessionId) {
@@ -340,6 +341,66 @@ export const useChatSessionStore = defineStore('chatSession', {
       } catch (err) {
         this.error = err instanceof Error ? err.message : 'Failed to send message'
         console.error('Failed to send chat message:', err)
+        return null
+      } finally {
+        this.isSending = false
+      }
+    },
+
+    /**
+     * Send a message and execute the agent to get a response.
+     *
+     * This method:
+     * 1. Saves the user message to the session
+     * 2. Triggers agent execution
+     * 3. Returns the updated session with the assistant response
+     */
+    async sendMessageAndExecute(content: string): Promise<ChatSession | null> {
+      if (!this.currentSessionId) {
+        this.error = 'No active session'
+        return null
+      }
+
+      this.isSending = true
+      this.error = null
+
+      try {
+        // First, save the user message
+        const sessionAfterUserMsg = await chatSessionApi.sendChatMessage(
+          this.currentSessionId,
+          content
+        )
+        this.sessions.set(sessionAfterUserMsg.id, sessionAfterUserMsg)
+
+        // Update summary with user message
+        const summaryIndex = this.summaries.findIndex((s) => s.id === sessionAfterUserMsg.id)
+        const summary = this.summaries[summaryIndex]
+        if (summary) {
+          summary.message_count = sessionAfterUserMsg.messages.length
+          summary.updated_at = sessionAfterUserMsg.updated_at
+          summary.last_message_preview = content.slice(0, 100)
+        }
+        this.version++
+
+        // Then trigger agent execution
+        const sessionAfterExecution = await executeChatSession(this.currentSessionId)
+        this.sessions.set(sessionAfterExecution.id, sessionAfterExecution)
+
+        // Update summary with assistant response
+        if (summary) {
+          summary.message_count = sessionAfterExecution.messages.length
+          summary.updated_at = sessionAfterExecution.updated_at
+          const lastMessage = sessionAfterExecution.messages[sessionAfterExecution.messages.length - 1]
+          if (lastMessage) {
+            summary.last_message_preview = lastMessage.content.slice(0, 100)
+          }
+        }
+        this.version++
+
+        return sessionAfterExecution
+      } catch (err) {
+        this.error = err instanceof Error ? err.message : 'Failed to execute agent'
+        console.error('Failed to send message and execute agent:', err)
         return null
       } finally {
         this.isSending = false

@@ -116,7 +116,8 @@ export function useChatSession(options: UseChatSessionOptions = {}) {
     const content = inputMessage.value.trim()
     inputMessage.value = ''
 
-    await store.sendMessage(content)
+    // Use sendMessageAndExecute to trigger agent response
+    await store.sendMessageAndExecute(content)
   }
 
   function clearInput(): void {
