@@ -12,7 +12,10 @@ use restflow_core::models::{ChatMessage, ChatSession};
 use restflow_core::storage::Storage;
 
 use super::debounce::MessageDebouncer;
-use crate::agent_task::runner::AgentExecutor;
+use crate::agent::{
+    BashConfig, FileConfig, ToolRegistryBuilder, UnifiedAgent, UnifiedAgentConfig,
+    create_llm_client_for_agent,
+};
 
 /// Configuration for the ChatDispatcher.
 #[derive(Debug, Clone)]
@@ -106,6 +109,11 @@ impl ChatSessionManager {
     pub fn with_default_agent(mut self, agent_id: String) -> Self {
         self.default_agent_id = Some(agent_id);
         self
+    }
+
+    /// Get a clone of the storage handle.
+    pub fn storage(&self) -> Arc<Storage> {
+        self.storage.clone()
     }
 
     /// Get or create a session for a conversation.
@@ -230,7 +238,6 @@ impl ChatSessionManager {
 /// 4. Sends the response back to the user
 pub struct ChatDispatcher {
     sessions: Arc<ChatSessionManager>,
-    executor: Arc<dyn AgentExecutor>,
     debouncer: Arc<MessageDebouncer>,
     channel_router: Arc<ChannelRouter>,
     config: ChatDispatcherConfig,
@@ -240,14 +247,12 @@ impl ChatDispatcher {
     /// Create a new ChatDispatcher.
     pub fn new(
         sessions: Arc<ChatSessionManager>,
-        executor: Arc<dyn AgentExecutor>,
         debouncer: Arc<MessageDebouncer>,
         channel_router: Arc<ChannelRouter>,
         config: ChatDispatcherConfig,
     ) -> Self {
         Self {
             sessions,
-            executor,
             debouncer,
             channel_router,
             config,
@@ -295,10 +300,54 @@ impl ChatDispatcher {
         }
 
         // 4. Execute agent
-        // Note: In a full implementation, we'd pass conversation history to the executor
+        let storage = self.sessions.storage();
+        let stored_agent = match storage.agents.get_agent(session.agent_id.clone()) {
+            Ok(Some(agent)) => agent,
+            Ok(None) => {
+                self.send_error_response(message, ChatError::NoDefaultAgent)
+                    .await?;
+                return Ok(());
+            }
+            Err(e) => {
+                error!("Failed to load agent: {}", e);
+                self.send_error_response(message, ChatError::ExecutionFailed(e.to_string()))
+                    .await?;
+                return Ok(());
+            }
+        };
+
+        let tool_registry = ToolRegistryBuilder::new()
+            .with_bash(BashConfig::default())
+            .with_file(FileConfig::default())
+            .with_http()
+            .build();
+
+        let llm_client = match create_llm_client_for_agent(&stored_agent.agent, &storage).await {
+            Ok(client) => client,
+            Err(e) => {
+                let chat_error = if e.to_string().contains("API key") {
+                    ChatError::NoApiKey {
+                        provider: "unknown".to_string(),
+                    }
+                } else {
+                    ChatError::ExecutionFailed(e.to_string())
+                };
+                self.send_error_response(message, chat_error).await?;
+                return Ok(());
+            }
+        };
+
+        let mut unified = UnifiedAgent::new(
+            llm_client,
+            Arc::new(tool_registry),
+            storage.clone(),
+            stored_agent.agent,
+            UnifiedAgentConfig::default(),
+        );
+
         let result = match tokio::time::timeout(
             tokio::time::Duration::from_secs(self.config.response_timeout_secs),
-            self.executor.execute(&session.agent_id, Some(&input)),
+            unified.execute(&input),
         )
         .await
         {
@@ -366,41 +415,9 @@ impl ChatDispatcher {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agent_task::runner::ExecutionResult;
-    use async_trait::async_trait;
     use restflow_core::channel::ChannelType;
-    use std::sync::atomic::{AtomicU32, Ordering};
     use tempfile::tempdir;
     use tokio::time::Duration;
-
-    /// Mock executor for testing.
-    #[allow(dead_code)]
-    struct MockExecutor {
-        call_count: AtomicU32,
-        response: String,
-    }
-
-    #[allow(dead_code)]
-    impl MockExecutor {
-        fn new(response: impl Into<String>) -> Self {
-            Self {
-                call_count: AtomicU32::new(0),
-                response: response.into(),
-            }
-        }
-
-        fn call_count(&self) -> u32 {
-            self.call_count.load(Ordering::SeqCst)
-        }
-    }
-
-    #[async_trait]
-    impl AgentExecutor for MockExecutor {
-        async fn execute(&self, _agent_id: &str, _input: Option<&str>) -> Result<ExecutionResult> {
-            self.call_count.fetch_add(1, Ordering::SeqCst);
-            Ok(ExecutionResult::success(self.response.clone(), Vec::new()))
-        }
-    }
 
     fn create_test_storage() -> (Arc<Storage>, tempfile::TempDir) {
         let temp_dir = tempdir().unwrap();

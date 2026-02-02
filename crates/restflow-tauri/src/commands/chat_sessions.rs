@@ -3,19 +3,17 @@
 //! These commands enable the frontend to create, manage, and interact with
 //! chat sessions in the SkillWorkspace.
 
+use crate::agent::{
+    BashConfig, FileConfig, ToolRegistryBuilder, UnifiedAgent, UnifiedAgentConfig,
+    create_llm_client_for_agent,
+};
 use crate::chat::ChatStreamState;
 use crate::state::AppState;
-use restflow_ai::{AgentConfig, AgentExecutor, AnthropicClient, LlmClient, OpenAIClient, ToolRegistry};
-use restflow_core::models::{
-    ApiKeyConfig, ChatMessage, ChatRole, ChatSession, ChatSessionSummary, MessageExecution,
-};
-use restflow_core::services::tool_registry::create_tool_registry;
-use restflow_core::{AIModel, Provider};
+use restflow_core::models::{ChatMessage, ChatRole, ChatSession, ChatSessionSummary, MessageExecution};
 use serde::Deserialize;
 use std::sync::Arc;
 use std::time::Instant;
 use tauri::{AppHandle, State};
-use tracing::warn;
 use uuid::Uuid;
 
 /// Create a new chat session.
@@ -366,123 +364,6 @@ fn build_conversation_context(session: &ChatSession, max_messages: usize) -> Str
     context
 }
 
-/// Resolve API key for a model provider.
-///
-/// Priority:
-/// 1. Agent-level api_key_config (direct or secret reference)
-/// 2. Well-known secret names (OPENAI_API_KEY, ANTHROPIC_API_KEY, etc.)
-async fn resolve_api_key(
-    state: &AppState,
-    provider: Provider,
-    agent_api_key_config: Option<&ApiKeyConfig>,
-) -> Result<String, String> {
-    // First, check agent-level API key config
-    if let Some(config) = agent_api_key_config {
-        match config {
-            ApiKeyConfig::Direct(key) => {
-                if !key.is_empty() {
-                    return Ok(key.clone());
-                }
-            }
-            ApiKeyConfig::Secret(secret_name) => {
-                if let Some(secret_value) = state
-                    .core
-                    .storage
-                    .secrets
-                    .get_secret(secret_name)
-                    .map_err(|e| e.to_string())?
-                {
-                    return Ok(secret_value);
-                }
-                return Err(format!("Secret '{}' not found", secret_name));
-            }
-        }
-    }
-
-    // Fall back to well-known secret names for each provider
-    let secret_name = match provider {
-        Provider::OpenAI => "OPENAI_API_KEY",
-        Provider::Anthropic => "ANTHROPIC_API_KEY",
-        Provider::DeepSeek => "DEEPSEEK_API_KEY",
-    };
-
-    if let Some(secret_value) = state
-        .core
-        .storage
-        .secrets
-        .get_secret(secret_name)
-        .map_err(|e| e.to_string())?
-    {
-        return Ok(secret_value);
-    }
-
-    Err(format!(
-        "No API key configured for provider {:?}. Please add secret '{}' in Settings.",
-        provider, secret_name
-    ))
-}
-
-/// Create an LLM client for the given model.
-fn create_llm_client(model: AIModel, api_key: &str) -> Arc<dyn LlmClient> {
-    let model_str = model.as_str();
-    match model.provider() {
-        Provider::OpenAI => Arc::new(OpenAIClient::new(api_key).with_model(model_str)),
-        Provider::Anthropic => Arc::new(AnthropicClient::new(api_key).with_model(model_str)),
-        Provider::DeepSeek => Arc::new(
-            OpenAIClient::new(api_key)
-                .with_model(model_str)
-                .with_base_url("https://api.deepseek.com/v1"),
-        ),
-    }
-}
-
-/// Build tool registry filtered by agent's configured tools.
-fn build_filtered_tool_registry(
-    state: &AppState,
-    agent_tools: Option<&[String]>,
-) -> Result<Arc<ToolRegistry>, String> {
-    let db = state.core.storage.get_db();
-    let skill_storage =
-        restflow_core::storage::skill::SkillStorage::new(db.clone()).map_err(|e| e.to_string())?;
-    let memory_storage =
-        restflow_core::storage::memory::MemoryStorage::new(db.clone()).map_err(|e| e.to_string())?;
-    let chat_storage = restflow_core::storage::chat_session::ChatSessionStorage::new(db.clone())
-        .map_err(|e| e.to_string())?;
-    let shared_space_storage = restflow_core::storage::SharedSpaceStorage::new(
-        restflow_storage::SharedSpaceStorage::new(db).map_err(|e| e.to_string())?,
-    );
-
-    let full_registry = create_tool_registry(
-        skill_storage,
-        memory_storage,
-        chat_storage,
-        shared_space_storage,
-        None,
-    );
-
-    // Filter to only selected tools (secure by default)
-    let tools = if let Some(tool_names) = agent_tools {
-        if tool_names.is_empty() {
-            Arc::new(ToolRegistry::new())
-        } else {
-            let mut filtered_registry = ToolRegistry::new();
-            for name in tool_names {
-                if let Some(tool) = full_registry.get(name) {
-                    filtered_registry.register_arc(tool);
-                } else {
-                    warn!(tool_name = %name, "Configured tool not found in registry, skipping");
-                }
-            }
-            Arc::new(filtered_registry)
-        }
-    } else {
-        // No tools configured = no tools available (secure by default)
-        Arc::new(ToolRegistry::new())
-    };
-
-    Ok(tools)
-}
-
 /// Execute agent for a chat session and return the response.
 ///
 /// This internal function handles:
@@ -506,65 +387,49 @@ async fn execute_agent_for_session(
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Agent '{}' not found", session.agent_id))?;
 
-    let agent_node = &stored_agent.agent;
-
-    // Get model
-    let model = agent_node.require_model().map_err(|e| e.to_string())?;
-
-    // Resolve API key
-    let api_key = resolve_api_key(state, model.provider(), agent_node.api_key_config.as_ref()).await?;
-
-    // Create LLM client
-    let llm = create_llm_client(model, &api_key);
-
-    // Build tool registry
-    let tools = build_filtered_tool_registry(state, agent_node.tools.as_deref())?;
-
-    // Build conversation context
+    // Build conversation context to inject into prompt
     let conversation_context = build_conversation_context(session, 20);
 
-    // Build system prompt with conversation history
-    let system_prompt = if let Some(ref agent_prompt) = agent_node.prompt {
-        if conversation_context.is_empty() {
-            agent_prompt.clone()
-        } else {
-            format!("{}\n\n{}", agent_prompt, conversation_context)
-        }
-    } else if conversation_context.is_empty() {
-        "You are a helpful AI assistant.".to_string()
+    // Modify agent's prompt to include conversation context
+    let mut agent_node = stored_agent.agent.clone();
+    let base_prompt = agent_node
+        .prompt
+        .clone()
+        .unwrap_or_else(|| "You are a helpful AI assistant.".to_string());
+
+    agent_node.prompt = Some(if conversation_context.is_empty() {
+        base_prompt
     } else {
-        format!(
-            "You are a helpful AI assistant.\n\n{}",
-            conversation_context
-        )
-    };
+        format!("{}\n\n{}", base_prompt, conversation_context)
+    });
 
-    // Build agent config
-    let mut config = AgentConfig::new(user_input).with_system_prompt(&system_prompt);
+    // Create LLM client
+    let llm = create_llm_client_for_agent(&agent_node, &state.core.storage)
+        .await
+        .map_err(|e| e.to_string())?;
 
-    if model.supports_temperature()
-        && let Some(temp) = agent_node.temperature
-    {
-        config = config.with_temperature(temp as f32);
-    }
+    // Build tool registry
+    let tool_registry = ToolRegistryBuilder::new()
+        .with_bash(BashConfig::default())
+        .with_file(FileConfig::default())
+        .with_http()
+        .build();
 
-    // Execute agent
-    let executor = AgentExecutor::new(llm, tools);
-    let result = executor
-        .run(config)
+    // Execute with UnifiedAgent
+    let mut unified = UnifiedAgent::new(
+        llm,
+        Arc::new(tool_registry),
+        state.core.storage.clone(),
+        agent_node,
+        UnifiedAgentConfig::default(),
+    );
+
+    let result = unified
+        .execute(user_input)
         .await
         .map_err(|e| format!("Agent execution failed: {}", e))?;
 
-    // Extract response
-    let response = result.answer.unwrap_or_else(|| {
-        if let Some(ref err) = result.error {
-            format!("Error: {}", err)
-        } else {
-            "No response generated".to_string()
-        }
-    });
-
-    Ok((response, result.total_tokens))
+    Ok((result.output, result.total_tokens))
 }
 
 /// Execute the agent for a chat session and save the response.
@@ -727,98 +592,47 @@ pub async fn send_chat_message_stream(
             }
         };
 
-        let agent_node = &stored_agent.agent;
+        // Build conversation context and modify agent's prompt
+        let conversation_context = build_conversation_context(&session, 20);
+        let mut agent_node = stored_agent.agent.clone();
+        let base_prompt = agent_node
+            .prompt
+            .clone()
+            .unwrap_or_else(|| "You are a helpful AI assistant.".to_string());
 
-        // Get model
-        let model = match agent_node.require_model() {
-            Ok(m) => m,
+        agent_node.prompt = Some(if conversation_context.is_empty() {
+            base_prompt
+        } else {
+            format!("{}\n\n{}", base_prompt, conversation_context)
+        });
+
+        // Create LLM client
+        let llm = match create_llm_client_for_agent(&agent_node, &storage).await {
+            Ok(client) => client,
             Err(e) => {
-                stream_state.emit_failed(e);
+                stream_state.emit_failed(&format!("Failed to create LLM client: {}", e));
                 stream_manager.remove(&message_id_clone);
                 return;
             }
         };
 
-        // Resolve API key - simplified for background task
-        let api_key = match &agent_node.api_key_config {
-            Some(ApiKeyConfig::Direct(key)) if !key.is_empty() => key.clone(),
-            Some(ApiKeyConfig::Secret(secret_name)) => {
-                match storage.secrets.get_secret(secret_name) {
-                    Ok(Some(key)) => key,
-                    Ok(None) => {
-                        stream_state.emit_failed(&format!("Secret '{}' not found", secret_name));
-                        stream_manager.remove(&message_id_clone);
-                        return;
-                    }
-                    Err(e) => {
-                        stream_state.emit_failed(&format!("Failed to get secret: {}", e));
-                        stream_manager.remove(&message_id_clone);
-                        return;
-                    }
-                }
-            }
-            _ => {
-                let secret_name = match model.provider() {
-                    Provider::OpenAI => "OPENAI_API_KEY",
-                    Provider::Anthropic => "ANTHROPIC_API_KEY",
-                    Provider::DeepSeek => "DEEPSEEK_API_KEY",
-                };
-                match storage.secrets.get_secret(secret_name) {
-                    Ok(Some(key)) => key,
-                    Ok(None) => {
-                        stream_state.emit_failed(&format!(
-                            "No API key configured. Please add '{}' in Settings.",
-                            secret_name
-                        ));
-                        stream_manager.remove(&message_id_clone);
-                        return;
-                    }
-                    Err(e) => {
-                        stream_state.emit_failed(&format!("Failed to get secret: {}", e));
-                        stream_manager.remove(&message_id_clone);
-                        return;
-                    }
-                }
-            }
-        };
+        // Build tool registry
+        let tool_registry = ToolRegistryBuilder::new()
+            .with_bash(BashConfig::default())
+            .with_file(FileConfig::default())
+            .with_http()
+            .build();
 
-        // Create LLM client
-        let llm = create_llm_client(model, &api_key);
+        // Execute with UnifiedAgent
+        let mut unified = UnifiedAgent::new(
+            llm,
+            Arc::new(tool_registry),
+            storage.clone(),
+            agent_node,
+            UnifiedAgentConfig::default(),
+        );
 
-        // Build simple tool registry (no tools for now in streaming mode)
-        let tools = Arc::new(ToolRegistry::new());
-
-        // Build conversation context
-        let conversation_context = build_conversation_context(&session, 20);
-
-        // Build system prompt
-        let system_prompt = if let Some(ref agent_prompt) = agent_node.prompt {
-            if conversation_context.is_empty() {
-                agent_prompt.clone()
-            } else {
-                format!("{}\n\n{}", agent_prompt, conversation_context)
-            }
-        } else if conversation_context.is_empty() {
-            "You are a helpful AI assistant.".to_string()
-        } else {
-            format!(
-                "You are a helpful AI assistant.\n\n{}",
-                conversation_context
-            )
-        };
-
-        // Build agent config
-        let mut config = AgentConfig::new(&user_input).with_system_prompt(&system_prompt);
-
-        if model.supports_temperature()
-            && let Some(temp) = agent_node.temperature
-        {
-            config = config.with_temperature(temp as f32);
-        }
-
-        // Execute agent
-        let executor = AgentExecutor::new(llm, tools);
-        let result = match executor.run(config).await {
+        let result = match unified.execute(&user_input).await {
             Ok(r) => r,
             Err(e) => {
                 stream_state.emit_failed(&format!("Agent execution failed: {}", e));
@@ -829,15 +643,6 @@ pub async fn send_chat_message_stream(
 
         let duration_ms = started_at.elapsed().as_millis() as u64;
 
-        // Extract response
-        let response = result.answer.unwrap_or_else(|| {
-            if let Some(ref err) = result.error {
-                format!("Error: {}", err)
-            } else {
-                "No response generated".to_string()
-            }
-        });
-
         // Emit completed event
         stream_state.emit_completed();
 
@@ -845,7 +650,7 @@ pub async fn send_chat_message_stream(
         let execution = MessageExecution::new().complete(duration_ms, result.total_tokens);
 
         if let Ok(Some(mut updated_session)) = storage.chat_sessions.get(&session_id_clone) {
-            let mut assistant_message = ChatMessage::assistant(&response);
+            let mut assistant_message = ChatMessage::assistant(&result.output);
             assistant_message = assistant_message.with_execution(execution);
             updated_session.add_message(assistant_message);
             let _ = storage.chat_sessions.update(&updated_session);

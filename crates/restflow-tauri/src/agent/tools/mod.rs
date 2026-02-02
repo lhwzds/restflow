@@ -99,6 +99,16 @@ impl ToolRegistry {
         tool.execute(args).await
     }
 
+    /// List tool names.
+    pub fn list(&self) -> Vec<String> {
+        self.tools.keys().cloned().collect()
+    }
+
+    /// Get a tool by name.
+    pub fn get(&self, name: &str) -> Option<Arc<dyn Tool>> {
+        self.tools.get(name).cloned()
+    }
+
     /// Check if a tool exists.
     pub fn has_tool(&self, name: &str) -> bool {
         self.tools.contains_key(name)

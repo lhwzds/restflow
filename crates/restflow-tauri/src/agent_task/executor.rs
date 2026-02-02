@@ -9,10 +9,7 @@ use anyhow::{Result, anyhow};
 use async_trait::async_trait;
 use std::sync::Arc;
 
-use restflow_ai::{
-    AgentConfig, AgentExecutor as AiAgentExecutor, AnthropicClient, LlmClient, OpenAIClient,
-    ToolRegistry,
-};
+use restflow_ai::{AnthropicClient, LlmClient, OpenAIClient};
 use restflow_core::{
     AIModel, Provider,
     auth::AuthProfileManager,
@@ -20,13 +17,15 @@ use restflow_core::{
     process::ProcessRegistry,
     storage::Storage,
 };
+use crate::agent::{
+    BashConfig, FileConfig, ToolRegistryBuilder, UnifiedAgent, UnifiedAgentConfig,
+};
 use tokio::time::sleep;
-use tracing::{info, warn};
+use tracing::info;
 
 use super::failover::{FailoverConfig, FailoverManager, execute_with_failover};
 use super::retry::{RetryConfig, RetryState};
 use super::runner::{AgentExecutor, ExecutionResult};
-use super::skills::SkillLoader;
 
 /// Real agent executor that bridges to restflow_ai::AgentExecutor.
 ///
@@ -150,11 +149,12 @@ impl RealAgentExecutor {
     }
 
     /// Build the tool registry for an agent.
-    ///
-    /// If the agent has specific tools configured, only those tools are registered.
-    /// Otherwise, a default set of tools is used.
-    fn build_tool_registry(&self, _tool_names: Option<&[String]>) -> Arc<ToolRegistry> {
-        let registry = ToolRegistry::new().with_process_tool(self.process_registry.clone());
+    fn build_tool_registry(&self) -> Arc<crate::agent::ToolRegistry> {
+        let registry = ToolRegistryBuilder::new()
+            .with_bash(BashConfig::default())
+            .with_file(FileConfig::default())
+            .with_http()
+            .build();
         Arc::new(registry)
     }
 
@@ -174,58 +174,20 @@ impl RealAgentExecutor {
             .await?;
 
         let llm = self.create_llm_client(model, &api_key)?;
-        let tools = self.build_tool_registry(agent_node.tools.as_deref());
+        let tools = self.build_tool_registry();
 
-        let goal = input.unwrap_or("Execute the agent task");
-        let mut config = AgentConfig::new(goal);
+        let mut agent = UnifiedAgent::new(
+            llm,
+            tools,
+            self.storage.clone(),
+            agent_node.clone(),
+            UnifiedAgentConfig::default(),
+        );
 
-        let base_prompt = agent_node
-            .prompt
-            .as_deref()
-            .unwrap_or("You are a helpful AI assistant that can use tools to accomplish tasks.");
+        let input_text = input.unwrap_or("Execute the agent task");
+        let result = agent.execute(input_text).await?;
 
-        let mut system_prompt = base_prompt.to_string();
-        if let Some(skill_ids) = agent_node.skills.as_deref()
-            && !skill_ids.is_empty()
-        {
-            let loader = SkillLoader::new(self.storage.clone());
-            match loader.build_system_prompt(
-                base_prompt,
-                skill_ids,
-                agent_node.skill_variables.as_ref(),
-            ) {
-                Ok(prompt) => {
-                    system_prompt = prompt;
-                }
-                Err(err) => {
-                    warn!(error = %err, "Failed to build system prompt with skills");
-                }
-            }
-        }
-
-        config = config.with_system_prompt(system_prompt);
-
-        if model.supports_temperature()
-            && let Some(temp) = agent_node.temperature
-        {
-            config = config.with_temperature(temp as f32);
-        }
-
-        let executor = AiAgentExecutor::new(llm, tools);
-        let result = executor.run(config).await?;
-
-        if result.success {
-            let output = result
-                .answer
-                .unwrap_or_else(|| "Task completed".to_string());
-            let messages = result.state.messages.clone();
-            Ok(ExecutionResult::success(output, messages))
-        } else {
-            Err(anyhow!(
-                "Agent execution failed: {}",
-                result.error.unwrap_or_else(|| "Unknown error".to_string())
-            ))
-        }
+        Ok(ExecutionResult::success(result.output, result.messages))
     }
 }
 
@@ -354,14 +316,10 @@ mod tests {
         let (storage, _temp_dir) = create_test_storage();
         let executor = create_test_executor(storage);
 
-        // Build with no tools
-        let registry = executor.build_tool_registry(None);
-        assert!(!registry.list().is_empty());
-
-        // Build with tool names (currently ignored in this phase)
-        let tool_names = vec!["http".to_string(), "email".to_string()];
-        let registry = executor.build_tool_registry(Some(&tool_names));
-        assert!(!registry.list().is_empty());
-        assert!(registry.has("process"));
+        let registry = executor.build_tool_registry();
+        assert!(!registry.is_empty());
+        assert!(registry.has_tool("bash"));
+        assert!(registry.has_tool("file"));
+        assert!(registry.has_tool("http"));
     }
 }

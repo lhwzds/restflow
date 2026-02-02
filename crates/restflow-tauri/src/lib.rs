@@ -16,7 +16,8 @@ pub mod webhook;
 
 pub use agent::{
     BashConfig, BashTool, FileConfig, FileTool, HttpTool, SpawnTool, SubagentSpawner, Tool,
-    ToolDefinition, ToolRegistry, ToolRegistryBuilder, ToolResult,
+    ToolDefinition, ToolRegistry, ToolRegistryBuilder, ToolResult, UnifiedAgent, UnifiedAgentConfig,
+    UnifiedAgentResult, create_llm_client_for_agent,
 };
 pub use agent_task::{
     AgentExecutor, AgentTaskRunner, HEARTBEAT_EVENT, HeartbeatEmitter, HeartbeatEvent,
