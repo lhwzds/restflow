@@ -376,8 +376,19 @@ fn load_master_key(db: &Arc<Database>, config: &SecretStorageConfig) -> Result<[
 
     let mut key = [0u8; 32];
     rand::rngs::OsRng.fill_bytes(&mut key);
-    write_master_key_json(&key)?;
-    Ok(key)
+    match write_master_key_json(&key) {
+        Ok(_) => Ok(key),
+        Err(err) => {
+            if let Some(io_err) = err.downcast_ref::<std::io::Error>() {
+                if io_err.kind() == std::io::ErrorKind::AlreadyExists {
+                    if let Some(existing) = load_master_key_from_json(config)? {
+                        return Ok(existing);
+                    }
+                }
+            }
+            Err(err)
+        }
+    }
 }
 
 fn load_master_key_from_env() -> Result<Option<[u8; 32]>> {
@@ -422,7 +433,7 @@ fn write_master_key_json(key: &[u8; 32]) -> Result<PathBuf> {
     let json = serde_json::to_string_pretty(&payload)?;
 
     let mut options = OpenOptions::new();
-    options.write(true).create(true).truncate(true);
+    options.write(true).create_new(true);
 
     #[cfg(unix)]
     {
@@ -645,6 +656,34 @@ mod tests {
 
         let key = load_master_key(&db, &config).unwrap();
         assert_eq!(key, json_key);
+
+        // SAFETY: This is a single-threaded test, no other threads access this env var
+        unsafe { std::env::remove_var(STATE_DIR_ENV) };
+    }
+
+    #[test]
+    fn test_write_master_key_json_is_atomic() {
+        let _env_lock = env_lock();
+        let temp_dir = tempdir().unwrap();
+        let state_dir = temp_dir.path().join("state");
+        std::fs::create_dir_all(&state_dir).unwrap();
+
+        // SAFETY: This is a single-threaded test, no other threads access this env var
+        unsafe { std::env::set_var(STATE_DIR_ENV, &state_dir) };
+
+        let first_key = [0x22u8; 32];
+        write_master_key_json(&first_key).unwrap();
+
+        let second_key = [0x33u8; 32];
+        let err = write_master_key_json(&second_key).unwrap_err();
+        let io_err = err.downcast_ref::<std::io::Error>().unwrap();
+        assert_eq!(io_err.kind(), std::io::ErrorKind::AlreadyExists);
+
+        let config = SecretStorageConfig {
+            allow_insecure_file_permissions: true,
+        };
+        let existing = load_master_key_from_json(&config).unwrap().unwrap();
+        assert_eq!(existing, first_key);
 
         // SAFETY: This is a single-threaded test, no other threads access this env var
         unsafe { std::env::remove_var(STATE_DIR_ENV) };
