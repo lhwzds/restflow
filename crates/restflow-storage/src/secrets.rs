@@ -234,11 +234,15 @@ impl SecretStorage {
                 .transpose()?;
 
             match constraint {
-                WriteConstraint::MustExist if existing.is_none() => {
-                    return Err(anyhow::anyhow!("Secret {} not found", key));
+                WriteConstraint::MustExist => {
+                    if existing.is_none() {
+                        return Err(anyhow::anyhow!("Secret {} not found", key));
+                    }
                 }
-                WriteConstraint::MustBeNew if existing.is_some() => {
-                    return Err(anyhow::anyhow!("Secret {} already exists", key));
+                WriteConstraint::MustBeNew => {
+                    if existing.is_some() {
+                        return Err(anyhow::anyhow!("Secret {} already exists", key));
+                    }
                 }
                 WriteConstraint::None => {}
             }
