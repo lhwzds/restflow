@@ -1,8 +1,9 @@
 //! Bash execution tool with security constraints.
 
-use super::{Tool, ToolDefinition, ToolResult};
-use anyhow::Result;
+use crate::agent::tools::ToolResult;
 use async_trait::async_trait;
+use restflow_ai::error::{AiError, Result};
+use restflow_ai::tools::Tool;
 use serde_json::{Value, json};
 use std::process::Stdio;
 use tokio::process::Command;
@@ -64,28 +65,32 @@ impl BashTool {
 
 #[async_trait]
 impl Tool for BashTool {
-    fn definition(&self) -> ToolDefinition {
-        ToolDefinition {
-            name: "bash".to_string(),
-            description: "Execute a bash command and return the output.".to_string(),
-            parameters: json!({
-                "type": "object",
-                "properties": {
-                    "command": {
-                        "type": "string",
-                        "description": "The bash command to execute"
-                    }
-                },
-                "required": ["command"]
-            }),
-        }
+    fn name(&self) -> &str {
+        "bash"
+    }
+
+    fn description(&self) -> &str {
+        "Execute a bash command and return the output."
+    }
+
+    fn parameters_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "command": {
+                    "type": "string",
+                    "description": "The bash command to execute"
+                }
+            },
+            "required": ["command"]
+        })
     }
 
     async fn execute(&self, args: Value) -> Result<ToolResult> {
         let command = args
             .get("command")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow::anyhow!("Missing 'command' argument"))?;
+            .ok_or_else(|| AiError::Tool("Missing 'command' argument".to_string()))?;
 
         if self.is_command_blocked(command) {
             return Ok(ToolResult::error("Command blocked for security reasons"));
@@ -106,18 +111,21 @@ impl Tool for BashTool {
             cmd.output(),
         )
         .await
-        .map_err(|_| anyhow::anyhow!("Command timed out after {}s", self.config.timeout_secs))?
-        .map_err(|e| anyhow::anyhow!("Failed to execute command: {}", e))?;
+        .map_err(|_| AiError::Tool(format!(
+            "Command timed out after {}s",
+            self.config.timeout_secs
+        )))?
+        .map_err(|e| AiError::Tool(format!("Failed to execute command: {}", e)))?;
 
         let stdout = String::from_utf8_lossy(&output.stdout);
         let stderr = String::from_utf8_lossy(&output.stderr);
 
         if output.status.success() {
-            Ok(ToolResult::success(stdout.to_string()))
+            Ok(ToolResult::success(json!(stdout.to_string())))
         } else {
             Ok(ToolResult {
                 success: false,
-                output: stdout.to_string(),
+                result: json!(stdout.to_string()),
                 error: Some(stderr.to_string()),
             })
         }
