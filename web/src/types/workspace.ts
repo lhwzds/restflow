@@ -9,6 +9,15 @@ export interface Task {
   createdAt: number
 }
 
+export type SessionStatus = TaskStatus
+
+export interface SessionItem {
+  id: string
+  name: string
+  status: SessionStatus
+  updatedAt: number
+}
+
 export type StepType = 'skill_read' | 'script_run' | 'api_call' | 'thinking'
 export type StepStatus = 'pending' | 'running' | 'completed' | 'failed'
 
