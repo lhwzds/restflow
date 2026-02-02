@@ -3,4 +3,4 @@
 /**
  * Source of the credential discovery
  */
-export type CredentialSource = "claude_code" | "keychain" | "environment" | "manual";
+export type CredentialSource = "claude_code" | "codex_cli" | "keychain" | "environment" | "manual";
