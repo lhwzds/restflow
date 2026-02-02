@@ -185,20 +185,20 @@ impl RealAgentExecutor {
             .unwrap_or("You are a helpful AI assistant that can use tools to accomplish tasks.");
 
         let mut system_prompt = base_prompt.to_string();
-        if let Some(skill_ids) = agent_node.skills.as_deref() {
-            if !skill_ids.is_empty() {
-                let loader = SkillLoader::new(self.storage.clone());
-                match loader.build_system_prompt(
-                    base_prompt,
-                    skill_ids,
-                    agent_node.skill_variables.as_ref(),
-                ) {
-                    Ok(prompt) => {
-                        system_prompt = prompt;
-                    }
-                    Err(err) => {
-                        warn!(error = %err, "Failed to build system prompt with skills");
-                    }
+        if let Some(skill_ids) = agent_node.skills.as_deref()
+            && !skill_ids.is_empty()
+        {
+            let loader = SkillLoader::new(self.storage.clone());
+            match loader.build_system_prompt(
+                base_prompt,
+                skill_ids,
+                agent_node.skill_variables.as_ref(),
+            ) {
+                Ok(prompt) => {
+                    system_prompt = prompt;
+                }
+                Err(err) => {
+                    warn!(error = %err, "Failed to build system prompt with skills");
                 }
             }
         }
