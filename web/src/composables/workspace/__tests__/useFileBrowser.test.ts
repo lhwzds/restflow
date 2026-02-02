@@ -19,6 +19,8 @@ describe('useFileBrowser', () => {
     description: 'A test skill',
     tags: ['test'],
     content: '# Test Content',
+    folder_path: null,
+    gating: null,
     created_at: 1000,
     updated_at: 2000,
   }
