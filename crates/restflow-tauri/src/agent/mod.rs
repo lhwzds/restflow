@@ -10,6 +10,6 @@ pub use skills::{ProcessedSkill, SkillLoader};
 pub use tools::{
     BashConfig, BashTool, EmailTool, FileConfig, FileTool, HttpTool, PythonTool, SpawnTool,
     SubagentSpawner, TelegramTool, Tool, ToolDefinition, ToolRegistry, ToolRegistryBuilder,
-    ToolResult, default_registry,
+    ToolResult, default_registry, registry_from_allowlist,
 };
 pub use unified::{ExecutionResult, UnifiedAgent, UnifiedAgentConfig};

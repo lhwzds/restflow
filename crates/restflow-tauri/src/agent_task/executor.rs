@@ -23,7 +23,7 @@ use tracing::info;
 use super::failover::{FailoverConfig, FailoverManager, execute_with_failover};
 use super::retry::{RetryConfig, RetryState};
 use super::runner::{AgentExecutor, ExecutionResult};
-use crate::agent::{UnifiedAgent, UnifiedAgentConfig, ToolRegistry, default_registry};
+use crate::agent::{registry_from_allowlist, ToolRegistry, UnifiedAgent, UnifiedAgentConfig};
 
 /// Real agent executor that bridges to restflow_ai::AgentExecutor.
 ///
@@ -150,9 +150,9 @@ impl RealAgentExecutor {
     /// Build the tool registry for an agent.
     ///
     /// If the agent has specific tools configured, only those tools are registered.
-    /// Otherwise, a default set of tools is used.
-    fn build_tool_registry(&self, _tool_names: Option<&[String]>) -> Arc<ToolRegistry> {
-        Arc::new(default_registry())
+    /// Otherwise, an empty registry is used (secure default).
+    fn build_tool_registry(&self, tool_names: Option<&[String]>) -> Arc<ToolRegistry> {
+        Arc::new(registry_from_allowlist(tool_names))
     }
 
     async fn execute_with_model(
@@ -326,10 +326,9 @@ mod tests {
 
         // Build with no tools
         let registry = executor.build_tool_registry(None);
-        assert!(!registry.is_empty());
-        assert!(registry.has_tool("bash"));
+        assert!(registry.is_empty());
 
-        // Build with tool names (currently ignored in this phase)
+        // Build with tool names
         let tool_names = vec!["http".to_string(), "run_python".to_string()];
         let registry = executor.build_tool_registry(Some(&tool_names));
         assert!(!registry.is_empty());

@@ -3,7 +3,7 @@
 //! These commands enable the frontend to create, manage, and interact with
 //! chat sessions in the SkillWorkspace.
 
-use crate::agent::{UnifiedAgent, UnifiedAgentConfig, default_registry};
+use crate::agent::{registry_from_allowlist, UnifiedAgent, UnifiedAgentConfig};
 use crate::chat::ChatStreamState;
 use crate::state::AppState;
 use restflow_ai::llm::Message;
@@ -473,7 +473,7 @@ async fn execute_agent_for_session(
     let llm = create_llm_client(model, &api_key);
 
     // Build tool registry
-    let tools = Arc::new(default_registry());
+    let tools = Arc::new(registry_from_allowlist(agent_node.tools.as_deref()));
 
     // Build agent config
     let config = build_agent_config(agent_node, model);
@@ -725,7 +725,7 @@ pub async fn send_chat_message_stream(
         let llm = create_llm_client(model, &api_key);
 
         // Build tool registry
-        let tools = Arc::new(default_registry());
+        let tools = Arc::new(registry_from_allowlist(agent_node.tools.as_deref()));
 
         // Build agent config
         let config = build_agent_config(agent_node, model);

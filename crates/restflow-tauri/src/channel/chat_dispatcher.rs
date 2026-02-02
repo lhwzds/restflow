@@ -16,7 +16,7 @@ use restflow_core::storage::Storage;
 use restflow_core::{AIModel, Provider};
 
 use super::debounce::MessageDebouncer;
-use crate::agent::{UnifiedAgent, UnifiedAgentConfig, default_registry};
+use crate::agent::{registry_from_allowlist, UnifiedAgent, UnifiedAgentConfig};
 
 /// Configuration for the ChatDispatcher.
 #[derive(Debug, Clone)]
@@ -408,7 +408,7 @@ impl ChatDispatcher {
         };
 
         let llm = self.create_llm_client(model, &api_key);
-        let tools = Arc::new(default_registry());
+        let tools = Arc::new(registry_from_allowlist(agent_node.tools.as_deref()));
 
         let mut config = UnifiedAgentConfig::default();
         if model.supports_temperature()
