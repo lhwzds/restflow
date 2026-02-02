@@ -4,6 +4,7 @@
 //! execution events using the redb embedded database.
 
 use anyhow::Result;
+use crate::range_utils::prefix_range;
 use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
 use std::sync::Arc;
 
@@ -12,6 +13,9 @@ const TASK_EVENT_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("tas
 /// Index table: task_id -> event_id (for listing events by task)
 const TASK_EVENT_INDEX_TABLE: TableDefinition<&str, &str> =
     TableDefinition::new("task_event_index");
+/// Index table: status:task_id -> task_id (for listing tasks by status)
+const TASK_STATUS_INDEX_TABLE: TableDefinition<&str, &str> =
+    TableDefinition::new("agent_task_status_index");
 
 /// Low-level agent task storage with byte-level API
 #[derive(Clone)]
@@ -27,6 +31,7 @@ impl AgentTaskStorage {
         write_txn.open_table(AGENT_TASK_TABLE)?;
         write_txn.open_table(TASK_EVENT_TABLE)?;
         write_txn.open_table(TASK_EVENT_INDEX_TABLE)?;
+        write_txn.open_table(TASK_STATUS_INDEX_TABLE)?;
         write_txn.commit()?;
 
         Ok(Self { db })
@@ -80,6 +85,42 @@ impl AgentTaskStorage {
         };
         write_txn.commit()?;
         Ok(existed)
+    }
+
+    /// Update task status with index maintenance.
+    pub fn update_status(&self, task_id: &str, old_status: &str, new_status: &str) -> Result<()> {
+        let write_txn = self.db.begin_write()?;
+        {
+            let mut status_index = write_txn.open_table(TASK_STATUS_INDEX_TABLE)?;
+            let old_key = format!("{}:{}", old_status, task_id);
+            status_index.remove(old_key.as_str())?;
+
+            let new_key = format!("{}:{}", new_status, task_id);
+            status_index.insert(new_key.as_str(), task_id)?;
+        }
+        write_txn.commit()?;
+        Ok(())
+    }
+
+    /// List tasks by status using the status index.
+    pub fn list_by_status_indexed(&self, status: &str) -> Result<Vec<(String, Vec<u8>)>> {
+        let read_txn = self.db.begin_read()?;
+        let status_index = read_txn.open_table(TASK_STATUS_INDEX_TABLE)?;
+        let task_table = read_txn.open_table(AGENT_TASK_TABLE)?;
+
+        let prefix = format!("{}:", status);
+        let (start, end) = prefix_range(&prefix);
+        let mut tasks = Vec::new();
+
+        for item in status_index.range(start.as_str()..end.as_str())? {
+            let (_, value) = item?;
+            let task_id = value.value();
+            if let Some(data) = task_table.get(task_id)? {
+                tasks.push((task_id.to_string(), data.value().to_vec()));
+            }
+        }
+
+        Ok(tasks)
     }
 
     // ============== Task Event Operations ==============

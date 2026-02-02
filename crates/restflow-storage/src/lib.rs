@@ -26,6 +26,7 @@ pub mod chat_session;
 pub mod config;
 pub mod execution_history;
 pub mod memory;
+pub mod range_utils;
 pub mod secrets;
 pub mod shared_space;
 pub mod skill;
