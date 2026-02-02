@@ -13,6 +13,9 @@ interface AgentTask {
   error: string | null
 }
 
+// Base date: Jan 1, 2026
+const BASE_DATE = 1735689600000
+
 // Demo agent tasks
 let agentTasks: AgentTask[] = [
   {
@@ -21,10 +24,10 @@ let agentTasks: AgentTask[] = [
     description: 'Generate daily summary report from collected data',
     status: 'completed',
     agent_id: 'demo-agent-1',
-    created_at: Date.now() - 86400000,
-    updated_at: Date.now() - 82800000,
-    started_at: Date.now() - 86400000,
-    completed_at: Date.now() - 82800000,
+    created_at: BASE_DATE,
+    updated_at: BASE_DATE + 3600000,
+    started_at: BASE_DATE,
+    completed_at: BASE_DATE + 3600000,
     error: null,
   },
   {
@@ -33,9 +36,9 @@ let agentTasks: AgentTask[] = [
     description: 'Monitor API endpoints and report status',
     status: 'running',
     agent_id: 'demo-agent-2',
-    created_at: Date.now() - 3600000,
-    updated_at: Date.now() - 60000,
-    started_at: Date.now() - 3600000,
+    created_at: BASE_DATE + 86400000,
+    updated_at: BASE_DATE + 90000000,
+    started_at: BASE_DATE + 86400000,
     completed_at: null,
     error: null,
   },
@@ -45,8 +48,8 @@ let agentTasks: AgentTask[] = [
     description: 'Backup critical data to cloud storage',
     status: 'pending',
     agent_id: 'demo-agent-1',
-    created_at: Date.now() - 1800000,
-    updated_at: Date.now() - 1800000,
+    created_at: BASE_DATE + 172800000,
+    updated_at: BASE_DATE + 172800000,
     started_at: null,
     completed_at: null,
     error: null,

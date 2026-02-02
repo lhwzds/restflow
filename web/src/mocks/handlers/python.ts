@@ -34,19 +34,22 @@ print("File written successfully")`,
   },
 ]
 
+// Base date: Jan 1, 2026
+const BASE_DATE = 1735689600000
+
 // Demo scripts
 const scripts = [
   {
     id: 'script-1',
     name: 'daily_report.py',
     path: '/scripts/daily_report.py',
-    created_at: Date.now() - 86400000,
+    created_at: BASE_DATE,
   },
   {
     id: 'script-2',
     name: 'data_cleanup.py',
     path: '/scripts/data_cleanup.py',
-    created_at: Date.now() - 172800000,
+    created_at: BASE_DATE + 86400000,
   },
 ]
 
