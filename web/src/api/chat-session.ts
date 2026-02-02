@@ -226,3 +226,20 @@ export async function cleanupOldChatSessions(olderThanDays: number): Promise<num
   )
   return response.data.deleted
 }
+
+/**
+ * Execute the agent for a chat session.
+ *
+ * This triggers agent execution for the session using the latest user message
+ * as input, and saves the assistant response to the session.
+ *
+ * @param sessionId - Chat session ID
+ * @returns The updated chat session with the assistant response
+ */
+export async function executeChatSession(sessionId: string): Promise<ChatSession> {
+  if (isTauri()) {
+    return tauriInvoke<ChatSession>('execute_chat_session', { sessionId })
+  }
+  // HTTP API fallback - not implemented yet
+  throw new Error('Agent execution not supported in web mode')
+}
