@@ -26,7 +26,6 @@ import type { FileItem } from '@/types/workspace'
 import type { Skill } from '@/types/generated/Skill'
 import type { StoredAgent } from '@/types/generated/StoredAgent'
 import type { ChatMessage } from '@/types/generated/ChatMessage'
-import type { ExecutionStepInfo } from '@/types/generated/ExecutionStepInfo'
 import type { ChatSessionSummary } from '@/types/generated/ChatSessionSummary'
 import { useFileBrowser, type BrowserTab } from '@/composables/workspace/useFileBrowser'
 import { useEditorTabs, type EditorTab } from '@/composables/editor/useEditorTabs'
@@ -288,7 +287,9 @@ const mapStepType = (value: string): StepType => {
   }
 }
 
-const formatStepName = (step: ExecutionStepInfo): string => {
+type StepSummary = { name?: string | null; step_type: string; duration_ms?: bigint | null }
+
+const formatStepName = (step: StepSummary): string => {
   if (step.name) {
     return step.name
   }

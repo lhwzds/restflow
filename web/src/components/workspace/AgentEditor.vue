@@ -54,7 +54,7 @@ const prompt = ref('')
 const temperature = ref(0.7)
 const tools = ref<string[]>([])
 const fallbackModel: AIModel = 'claude-sonnet-4-5'
-const resolveModel = (value?: AIModel) => value ?? fallbackModel
+const resolveModel = (value?: AIModel): AIModel => value ?? fallbackModel
 
 // Tool management
 const {
