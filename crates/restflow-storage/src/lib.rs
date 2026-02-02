@@ -27,13 +27,14 @@ pub mod config;
 pub mod execution_history;
 pub mod keychain;
 pub mod memory;
+pub mod range_utils;
 pub mod secrets;
 pub mod shared_space;
 pub mod skill;
 pub mod terminal_session;
 pub mod trigger;
-pub mod workflow;
 pub mod vector;
+pub mod workflow;
 
 mod encryption;
 
@@ -54,8 +55,8 @@ pub use shared_space::SharedSpaceStorage;
 pub use skill::SkillStorage;
 pub use terminal_session::TerminalSessionStorage;
 pub use trigger::TriggerStorage;
-pub use workflow::WorkflowStorage;
 pub use vector::{VectorConfig, VectorStorage};
+pub use workflow::WorkflowStorage;
 
 /// Central storage manager that initializes all storage subsystems
 pub struct Storage {
