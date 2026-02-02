@@ -14,19 +14,19 @@ use restflow_ai::{
     ToolRegistry,
 };
 use restflow_core::{
-    AIModel,
-    Provider,
+    AIModel, Provider,
     auth::AuthProfileManager,
     models::{AgentNode, ApiKeyConfig},
     process::ProcessRegistry,
     storage::Storage,
 };
 use tokio::time::sleep;
-use tracing::info;
+use tracing::{info, warn};
 
 use super::failover::{FailoverConfig, FailoverManager, execute_with_failover};
 use super::retry::{RetryConfig, RetryState};
 use super::runner::{AgentExecutor, ExecutionResult};
+use super::skills::SkillLoader;
 
 /// Real agent executor that bridges to restflow_ai::AgentExecutor.
 ///
@@ -179,9 +179,31 @@ impl RealAgentExecutor {
         let goal = input.unwrap_or("Execute the agent task");
         let mut config = AgentConfig::new(goal);
 
-        if let Some(prompt) = &agent_node.prompt {
-            config = config.with_system_prompt(prompt);
+        let base_prompt = agent_node
+            .prompt
+            .as_deref()
+            .unwrap_or("You are a helpful AI assistant that can use tools to accomplish tasks.");
+
+        let mut system_prompt = base_prompt.to_string();
+        if let Some(skill_ids) = agent_node.skills.as_deref() {
+            if !skill_ids.is_empty() {
+                let loader = SkillLoader::new(self.storage.clone());
+                match loader.build_system_prompt(
+                    base_prompt,
+                    skill_ids,
+                    agent_node.skill_variables.as_ref(),
+                ) {
+                    Ok(prompt) => {
+                        system_prompt = prompt;
+                    }
+                    Err(err) => {
+                        warn!(error = %err, "Failed to build system prompt with skills");
+                    }
+                }
+            }
         }
+
+        config = config.with_system_prompt(system_prompt);
 
         if model.supports_temperature()
             && let Some(temp) = agent_node.temperature

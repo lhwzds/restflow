@@ -4,6 +4,7 @@
 
 use crate::models::AIModel;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use ts_rs::TS;
 
 /// API key or password configuration (direct value or secret reference)
@@ -41,6 +42,14 @@ pub struct AgentNode {
     #[ts(optional)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tools: Option<Vec<String>>,
+    /// List of skill IDs to load into the system prompt
+    #[ts(optional)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skills: Option<Vec<String>>,
+    /// Variables available for skill prompt substitution
+    #[ts(optional)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skill_variables: Option<HashMap<String, String>>,
 }
 
 impl AgentNode {
@@ -81,9 +90,22 @@ impl AgentNode {
         self
     }
 
+    /// Set the skill IDs to load
+    pub fn with_skills(mut self, skills: Vec<String>) -> Self {
+        self.skills = Some(skills);
+        self
+    }
+
+    /// Set skill variables for prompt substitution
+    pub fn with_skill_variables(mut self, variables: HashMap<String, String>) -> Self {
+        self.skill_variables = Some(variables);
+        self
+    }
+
     /// Get the model, returning an error if not specified
     pub fn require_model(&self) -> Result<AIModel, &'static str> {
-        self.model.ok_or("Model not specified. Please set a model for this agent.")
+        self.model
+            .ok_or("Model not specified. Please set a model for this agent.")
     }
 
     /// Get the model or use a fallback default

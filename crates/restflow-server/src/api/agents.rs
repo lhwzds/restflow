@@ -3,20 +3,20 @@ use axum::{
     Json,
     extract::{Path, State},
 };
+use redb::Database;
+use restflow_ai::agent::{AgentContext, MemoryContext, SkillSummary, load_workspace_context};
 use restflow_ai::{
     AgentConfig, AgentExecutor, AgentState, AgentStatus, AnthropicClient, LlmClient, OpenAIClient,
     Role, ToolRegistry,
 };
-use restflow_ai::agent::{AgentContext, MemoryContext, SkillSummary, load_workspace_context};
 use restflow_core::auth::{AuthManagerConfig, AuthProfileManager, AuthProvider};
-use restflow_core::storage::SecretStorage;
-use redb::Database;
 use restflow_core::memory::{ChatSessionMirror, MessageMirror, SearchEngine};
 use restflow_core::models::{
     AgentExecuteResponse, AgentNode, ApiKeyConfig, ExecutionDetails, ExecutionStep,
     MemorySearchQuery, Provider, ToolCallInfo,
 };
 use restflow_core::paths;
+use restflow_core::storage::SecretStorage;
 use restflow_core::storage::agent::StoredAgent;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -109,8 +109,7 @@ async fn run_agent_with_executor(
     let model = agent_node.require_model().map_err(|e| e.to_string())?;
 
     // Get API key
-    let api_key = resolve_api_key(agent_node, secret_storage, model.provider())
-        .await?;
+    let api_key = resolve_api_key(agent_node, secret_storage, model.provider()).await?;
 
     // Create LLM client based on model provider
     let llm: Arc<dyn LlmClient> = match model.provider() {
@@ -286,8 +285,8 @@ async fn resolve_api_key(
 
 async fn resolve_api_key_from_profiles(provider: Provider) -> Result<Option<String>, String> {
     let mut config = AuthManagerConfig::default();
-    let data_dir = paths::ensure_data_dir()
-        .map_err(|e| format!("Failed to resolve data dir: {}", e))?;
+    let data_dir =
+        paths::ensure_data_dir().map_err(|e| format!("Failed to resolve data dir: {}", e))?;
     let profiles_path = data_dir.join("auth_profiles.json");
     config.profiles_path = Some(profiles_path);
 
@@ -319,7 +318,11 @@ async fn resolve_api_key_from_profiles(provider: Provider) -> Result<Option<Stri
     };
 
     match selection {
-        Some(sel) => Ok(Some(sel.profile.get_api_key(manager.resolver()).map_err(|e| e.to_string())?)),
+        Some(sel) => Ok(Some(
+            sel.profile
+                .get_api_key(manager.resolver())
+                .map_err(|e| e.to_string())?,
+        )),
         None => Ok(None),
     }
 }
@@ -533,6 +536,8 @@ mod tests {
             temperature: None,
             api_key_config: None,
             tools: None,
+            skills: None,
+            skill_variables: None,
         }
     }
 
