@@ -1,6 +1,7 @@
 //! Secrets storage - encrypted storage for API keys and credentials.
 
 use crate::encryption::SecretEncryptor;
+use crate::keychain;
 use anyhow::{Context, Result};
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use rand::RngCore;
@@ -8,12 +9,39 @@ use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::sync::Arc;
+use tracing::{info, warn};
 use ts_rs::TS;
 
 const SECRETS_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("secrets");
 const MASTER_KEY_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("secret_master_key");
 const MASTER_KEY_ENV: &str = "RESTFLOW_MASTER_KEY";
 const MASTER_KEY_RECORD: &str = "default";
+
+
+#[derive(Debug, Clone)]
+pub enum MasterKeySource {
+    /// Key from environment variable (recommended for production)
+    Environment,
+    /// Key from OS keychain (recommended for development)
+    Keychain,
+    /// Key from database (insecure - only for testing)
+    Database { warn: bool },
+}
+
+#[derive(Debug, Clone)]
+pub struct SecretStorageConfig {
+    pub key_source: MasterKeySource,
+    pub allow_insecure_fallback: bool,
+}
+
+impl Default for SecretStorageConfig {
+    fn default() -> Self {
+        Self {
+            key_source: MasterKeySource::Environment,
+            allow_insecure_fallback: false,
+        }
+    }
+}
 
 /// A stored secret with metadata
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -69,18 +97,34 @@ impl std::fmt::Debug for SecretStorage {
 
 impl SecretStorage {
     pub fn new(db: Arc<Database>) -> Result<Self> {
+        Self::with_config(db, SecretStorageConfig::default())
+    }
+
+    pub fn with_config(db: Arc<Database>, config: SecretStorageConfig) -> Result<Self> {
         let write_txn = db.begin_write()?;
         write_txn.open_table(SECRETS_TABLE)?;
         write_txn.open_table(MASTER_KEY_TABLE)?;
         write_txn.commit()?;
 
-        let master_key = load_master_key(&db)?;
+        let master_key = load_master_key(&db, &config)?;
         let encryptor = Arc::new(SecretEncryptor::new(&master_key)?);
         let storage = Self { db, encryptor };
 
         storage.migrate_legacy_secrets()?;
 
         Ok(storage)
+    }
+
+    /// Create with insecure database fallback (for testing only)
+    #[cfg(test)]
+    pub fn new_insecure(db: Arc<Database>) -> Result<Self> {
+        Self::with_config(
+            db,
+            SecretStorageConfig {
+                key_source: MasterKeySource::Database { warn: false },
+                allow_insecure_fallback: true,
+            },
+        )
     }
 
     /// Set or update a secret
@@ -246,19 +290,44 @@ fn decode_legacy_secret(payload: &[u8]) -> Result<Secret> {
     Ok(serde_json::from_str(&json)?)
 }
 
-fn load_master_key(db: &Arc<Database>) -> Result<[u8; 32]> {
+fn load_master_key(db: &Arc<Database>, config: &SecretStorageConfig) -> Result<[u8; 32]> {
     if let Some(key) = load_master_key_from_env()? {
+        info!("Using master key from environment variable");
         return Ok(key);
     }
 
-    if let Some(key) = read_master_key_from_db(db)? {
+    if matches!(config.key_source, MasterKeySource::Keychain) {
+        match keychain::get_or_create_master_key("restflow", "master-key") {
+            Ok(key) => {
+                info!("Using master key from OS keychain");
+                return Ok(key);
+            }
+            Err(err) => {
+                warn!("Failed to access keychain: {}", err);
+            }
+        }
+    }
+
+    if config.allow_insecure_fallback {
+        if matches!(config.key_source, MasterKeySource::Database { warn: true }) {
+            warn!(
+                "⚠️ SECURITY WARNING: Master key stored in database.                 This is INSECURE for production use.                 Set RESTFLOW_MASTER_KEY environment variable."
+            );
+        }
+
+        if let Some(key) = read_master_key_from_db(db)? {
+            return Ok(key);
+        }
+
+        let mut key = [0u8; 32];
+        rand::rngs::OsRng.fill_bytes(&mut key);
+        store_master_key_in_db(db, &key)?;
         return Ok(key);
     }
 
-    let mut key = [0u8; 32];
-    rand::rngs::OsRng.fill_bytes(&mut key);
-    store_master_key_in_db(db, &key)?;
-    Ok(key)
+    anyhow::bail!(
+        "No master key configured. Set RESTFLOW_MASTER_KEY environment variable         or enable keychain storage."
+    )
 }
 
 fn load_master_key_from_env() -> Result<Option<[u8; 32]>> {
@@ -338,8 +407,47 @@ mod tests {
         let temp_dir = tempdir().unwrap();
         let db_path = temp_dir.path().join("test.db");
         let db = Arc::new(Database::create(db_path).unwrap());
-        let storage = SecretStorage::new(db).unwrap();
+        let storage = SecretStorage::new_insecure(db).unwrap();
         (storage, temp_dir)
+    }
+
+    #[test]
+    fn test_env_key_takes_precedence() {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test.db");
+        let db = Arc::new(Database::create(db_path).unwrap());
+
+        let write_txn = db.begin_write().unwrap();
+        write_txn.open_table(MASTER_KEY_TABLE).unwrap();
+        write_txn.commit().unwrap();
+
+        let db_key = [1u8; 32];
+        store_master_key_in_db(&db, &db_key).unwrap();
+
+        let env_value = "aa".repeat(32);
+        std::env::set_var(MASTER_KEY_ENV, &env_value);
+
+        let config = SecretStorageConfig {
+            key_source: MasterKeySource::Database { warn: false },
+            allow_insecure_fallback: true,
+        };
+
+        let key = load_master_key(&db, &config).unwrap();
+        assert_eq!(key, [0xaa; 32]);
+
+        std::env::remove_var(MASTER_KEY_ENV);
+    }
+
+    #[test]
+    fn test_rejects_without_key_config() {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test.db");
+        let db = Arc::new(Database::create(db_path).unwrap());
+
+        std::env::remove_var(MASTER_KEY_ENV);
+
+        let err = load_master_key(&db, &SecretStorageConfig::default()).unwrap_err();
+        assert!(err.to_string().contains("No master key configured"));
     }
 
     #[test]
@@ -447,7 +555,7 @@ mod tests {
         }
         write_txn.commit().unwrap();
 
-        let storage = SecretStorage::new(db).unwrap();
+        let storage = SecretStorage::new_insecure(db).unwrap();
         let value = storage.get_secret("LEGACY_KEY").unwrap();
         assert_eq!(value, Some("legacy-value".to_string()));
 
