@@ -21,8 +21,9 @@ test.describe('Terminal Browser', () => {
     await expect(page.locator('header input[placeholder="Search..."]')).toBeVisible()
 
     // Verify view toggle buttons exist in header
-    const viewToggle = page.locator('header .flex.gap-0\\.5.border.rounded-md')
-    await expect(viewToggle).toBeVisible()
+    const viewToggleButtons = page.locator('header button[class*="h-6"][class*="w-6"]')
+    await expect(viewToggleButtons).toHaveCount(2)
+    await expect(viewToggleButtons.first()).toBeVisible()
 
     // Verify item count is displayed
     await expect(page.locator('header', { hasText: /\d+ items/ })).toBeVisible()
