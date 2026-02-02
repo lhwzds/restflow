@@ -5,8 +5,8 @@
     "description": "Translate text between languages while preserving tone and style",
     "tags": ["translation", "language", "utility"],
     "content": "# Smart Translation Assistant\n\nYou are a professional translation assistant.\n\n## Instructions\n\n1. Translate the user's input text to the target language\n2. Maintain the original tone and style\n3. Provide context notes when necessary\n\n## Variables\n\n- `target_language`: The language to translate to",
-    "created_at": 1735689600000,
-    "updated_at": 1735689600000
+    "created_at": 1767225600000,
+    "updated_at": 1767225600000
   },
   {
     "id": "code-review",
@@ -14,8 +14,8 @@
     "description": "Analyze code and provide improvement suggestions",
     "tags": ["code", "review", "development"],
     "content": "# Code Review Assistant\n\nYou are a senior code review expert.\n\n## Instructions\n\nAnalyze the following code and provide:\n1. Potential bugs or issues\n2. Code quality improvement suggestions\n3. Best practice recommendations\n\n## Format\n\nProvide feedback in a structured format with severity levels.",
-    "created_at": 1735776000000,
-    "updated_at": 1735776000000
+    "created_at": 1767312000000,
+    "updated_at": 1767312000000
   },
   {
     "id": "git-commit",
@@ -23,8 +23,8 @@
     "description": "Generate conventional commit messages from diffs",
     "tags": ["git", "commit", "development"],
     "content": "# Git Commit Message Generator\n\nGenerate a conventional commit message from the provided git diff.\n\n## Format\n\n```\n<type>(<scope>): <description>\n\n[optional body]\n```\n\n## Types\n\n- feat: New feature\n- fix: Bug fix\n- docs: Documentation\n- style: Formatting\n- refactor: Code refactoring\n- test: Tests\n- chore: Maintenance",
-    "created_at": 1735862400000,
-    "updated_at": 1735862400000
+    "created_at": 1767398400000,
+    "updated_at": 1767398400000
   },
   {
     "id": "api-doc",
@@ -32,7 +32,7 @@
     "description": "Generate API documentation from code",
     "tags": ["api", "documentation", "development"],
     "content": "# API Documentation Generator\n\nGenerate comprehensive API documentation from the provided code.\n\n## Include\n\n- Endpoint description\n- Request/response schemas\n- Example requests\n- Error codes",
-    "created_at": 1735948800000,
-    "updated_at": 1735948800000
+    "created_at": 1767484800000,
+    "updated_at": 1767484800000
   }
 ]
