@@ -32,6 +32,8 @@ pub struct UpdateAgentRequest {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ExecuteAgentRequest {
     pub input: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
 }
 
 /// Convert AgentState messages to ExecutionSteps for frontend

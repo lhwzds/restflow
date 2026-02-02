@@ -2,6 +2,7 @@ pub mod agent;
 pub mod agent_execution;
 pub mod agent_task;
 pub mod ai_model;
+pub mod chat_session;
 pub mod execution;
 pub mod input;
 pub mod output;
@@ -15,6 +16,9 @@ pub use agent_task::{
 };
 pub use agent_execution::{AgentExecuteResponse, ExecutionDetails, ExecutionStep, ToolCallInfo};
 pub use ai_model::{AIModel, ModelMetadataDTO, Provider};
+pub use chat_session::{
+    ChatMessage, ChatRole, ChatSession, ChatSessionMetadata, MessageExecution,
+};
 pub use execution::{ExecutionHistoryPage, ExecutionStatus, ExecutionSummary};
 pub use input::{
     AgentInput, EmailInput, HttpInput, ManualTriggerInput, NodeInput, PrintInput, PythonInput,
