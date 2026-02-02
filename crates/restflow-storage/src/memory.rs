@@ -15,6 +15,8 @@
 
 use anyhow::Result;
 use crate::range_utils::prefix_range;
+
+type ChunkPage = (Vec<(String, Vec<u8>)>, Option<String>);
 use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
 use std::sync::Arc;
 
@@ -379,7 +381,7 @@ impl MemoryStorage {
         agent_id: &str,
         limit: usize,
         cursor: Option<&str>,
-    ) -> Result<(Vec<(String, Vec<u8>)>, Option<String>)> {
+    ) -> Result<ChunkPage> {
         let read_txn = self.db.begin_read()?;
         let agent_index = read_txn.open_table(AGENT_INDEX_TABLE)?;
         let chunk_table = read_txn.open_table(MEMORY_CHUNK_TABLE)?;

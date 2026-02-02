@@ -235,13 +235,13 @@ fn load_workspace_context() -> String {
 
     for filename in context_files {
         let path = workdir.join(filename);
-        if let Ok(content) = std::fs::read_to_string(&path) {
-            if !content.trim().is_empty() {
-                context.push_str(&format!(
-                    "\n\n## Workspace Context ({})\n\n{}",
-                    filename, content
-                ));
-            }
+        if let Ok(content) = std::fs::read_to_string(&path)
+            && !content.trim().is_empty()
+        {
+            context.push_str(&format!(
+                "\n\n## Workspace Context ({})\n\n{}",
+                filename, content
+            ));
         }
     }
 
