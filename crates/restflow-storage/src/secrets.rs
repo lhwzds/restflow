@@ -5,7 +5,7 @@ use anyhow::{Context, Result};
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use rand::RngCore;
 use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
-use restflow_core::paths;
+use crate::paths;
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::fs::{self, OpenOptions};

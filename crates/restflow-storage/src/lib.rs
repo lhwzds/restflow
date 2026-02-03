@@ -23,6 +23,7 @@
 pub mod agent;
 pub mod agent_task;
 pub mod auth_profiles;
+mod paths;
 pub mod chat_session;
 pub mod config;
 pub mod execution_history;
