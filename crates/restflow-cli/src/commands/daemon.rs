@@ -1,10 +1,13 @@
 use crate::cli::DaemonCommands;
-use crate::daemon::{cleanup_stale_pid, pid_file, read_pid, CliTaskRunner};
+use crate::daemon::CliTaskRunner;
 use anyhow::Result;
 use restflow_core::AppCore;
-#[cfg(unix)]
-use std::process::{Command, Stdio};
+use restflow_core::daemon::{
+    DaemonStatus, IpcServer, check_daemon_status, start_daemon, stop_daemon,
+};
+use restflow_core::paths;
 use std::sync::Arc;
+use tracing::error;
 
 pub async fn run(core: Arc<AppCore>, command: DaemonCommands) -> Result<()> {
     match command {
@@ -15,67 +18,35 @@ pub async fn run(core: Arc<AppCore>, command: DaemonCommands) -> Result<()> {
 }
 
 async fn start(core: Arc<AppCore>, foreground: bool) -> Result<()> {
-    cleanup_stale_pid()?;
-    if let Some(pid) = read_pid() && is_process_running(pid) {
-        println!("Daemon already running (PID: {})", pid);
-        return Ok(());
-    }
-
     if foreground {
         run_daemon(core).await
     } else {
-        println!("Starting daemon in background...");
-
-        #[cfg(unix)]
-        {
-            use std::os::unix::process::CommandExt;
-
-            let exe = std::env::current_exe()?;
-            let mut command = Command::new(exe);
-            // SAFETY: setsid() creates a new session and is safe to call from pre_exec
-            unsafe {
-                command
-                    .arg("daemon")
-                    .arg("start")
-                    .arg("--foreground")
-                    .stdin(Stdio::null())
-                    .stdout(Stdio::null())
-                    .stderr(Stdio::null())
-                    .pre_exec(|| {
-                        nix::unistd::setsid().map(|_| ()).map_err(|err| {
-                            std::io::Error::other(err)
-                        })
-                    });
+        match check_daemon_status()? {
+            DaemonStatus::Running { pid } => {
+                println!("Daemon already running (PID: {})", pid);
+                Ok(())
             }
-
-            let child = command.spawn()?;
-            println!("Daemon started (PID: {})", child.id());
-            Ok(())
-        }
-
-        #[cfg(not(unix))]
-        {
-            let _ = core;
-            println!("Background mode not supported on this platform");
-            println!("Use --foreground instead");
-            Ok(())
+            _ => {
+                let pid = start_daemon()?;
+                println!("Daemon started (PID: {})", pid);
+                Ok(())
+            }
         }
     }
 }
 
 async fn run_daemon(core: Arc<AppCore>) -> Result<()> {
-    let pid_path = pid_file();
+    let pid_path = paths::daemon_pid_path()?;
     std::fs::write(&pid_path, std::process::id().to_string())?;
 
-    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
+    let (shutdown_tx, _) = tokio::sync::broadcast::channel(1);
 
     #[cfg(unix)]
     {
+        let shutdown_tx = shutdown_tx.clone();
         tokio::spawn(async move {
-            let mut sigterm = tokio::signal::unix::signal(
-                tokio::signal::unix::SignalKind::terminate(),
-            )
-            .unwrap();
+            let mut sigterm =
+                tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).unwrap();
 
             tokio::select! {
                 _ = sigterm.recv() => {
@@ -90,80 +61,58 @@ async fn run_daemon(core: Arc<AppCore>) -> Result<()> {
 
     #[cfg(not(unix))]
     {
+        let shutdown_tx = shutdown_tx.clone();
         tokio::spawn(async move {
             let _ = tokio::signal::ctrl_c().await;
             let _ = shutdown_tx.send(());
         });
     }
 
+    let socket_path = paths::socket_path()?;
+    let ipc_server = IpcServer::new(core.clone(), socket_path);
+    let ipc_shutdown = shutdown_tx.subscribe();
+    let ipc_handle = tokio::spawn(async move {
+        if let Err(err) = ipc_server.run(ipc_shutdown).await {
+            error!(error = %err, "IPC server stopped unexpectedly");
+        }
+    });
+
     let mut runner = CliTaskRunner::new(core);
     runner.start().await?;
 
     println!("Daemon running. Press Ctrl+C to stop.");
 
-    let _ = shutdown_rx.await;
+    let mut shutdown_rx = shutdown_tx.subscribe();
+    let _ = shutdown_rx.recv().await;
 
     runner.stop().await?;
     let _ = std::fs::remove_file(&pid_path);
+    let _ = ipc_handle.await;
 
     println!("Daemon stopped");
     Ok(())
 }
 
 async fn stop() -> Result<()> {
-    cleanup_stale_pid()?;
-    if let Some(pid) = read_pid() {
-        if is_process_running(pid) {
-            #[cfg(unix)]
-            {
-                use nix::sys::signal::{kill, Signal};
-                use nix::unistd::Pid;
-
-                kill(Pid::from_raw(pid), Signal::SIGTERM)?;
-                println!("Sent stop signal to daemon (PID: {})", pid);
-            }
-
-            #[cfg(not(unix))]
-            {
-                println!("Stop not supported on this platform");
-            }
-        } else {
-            println!("Daemon not running");
-        }
+    if stop_daemon()? {
+        println!("Sent stop signal to daemon");
     } else {
         println!("Daemon not running");
     }
-
     Ok(())
 }
 
 async fn status() -> Result<()> {
-    cleanup_stale_pid()?;
-    if let Some(pid) = read_pid() {
-        if is_process_running(pid) {
+    match check_daemon_status()? {
+        DaemonStatus::Running { pid } => {
             println!("Daemon running (PID: {})", pid);
-        } else {
-            println!("Daemon not running (stale PID file)");
-            let _ = std::fs::remove_file(pid_file());
         }
-    } else {
-        println!("Daemon not running");
+        DaemonStatus::NotRunning => {
+            println!("Daemon not running");
+        }
+        DaemonStatus::Stale { pid } => {
+            println!("Daemon not running (stale PID: {})", pid);
+        }
     }
     Ok(())
-}
-
-fn is_process_running(pid: i32) -> bool {
-    #[cfg(unix)]
-    {
-        use nix::sys::signal::kill;
-        use nix::unistd::Pid;
-
-        kill(Pid::from_raw(pid), None).is_ok()
-    }
-
-    #[cfg(not(unix))]
-    {
-        let _ = pid;
-        false
-    }
 }
