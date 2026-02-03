@@ -327,20 +327,6 @@ fn load_master_key(_db: &Arc<Database>, _config: &SecretStorageConfig) -> Result
         return Ok(key);
     }
 
-    if let Some(key) = read_master_key_from_db(_db)? {
-        match write_master_key_to_json(&key)? {
-            MasterKeyWriteResult::Written => {
-                delete_master_key_from_db(_db)?;
-                return Ok(key);
-            }
-            MasterKeyWriteResult::AlreadyExists => {
-                if let Some(key) = read_master_key_from_json()? {
-                    return Ok(key);
-                }
-            }
-        }
-    }
-
     let mut key = [0u8; 32];
     rand::rngs::OsRng.fill_bytes(&mut key);
     match write_master_key_to_json(&key)? {
