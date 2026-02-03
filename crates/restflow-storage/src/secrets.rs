@@ -11,7 +11,7 @@ use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use tracing::{info, warn};
+use tracing::info;
 use ts_rs::TS;
 
 const SECRETS_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("secrets");
@@ -568,7 +568,6 @@ fn remove_master_key_from_db(db: &Arc<Database>) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::env as std_env;
     use std::sync::{Mutex, OnceLock};
     use std::thread;
     use tempfile::tempdir;
@@ -597,44 +596,20 @@ mod tests {
         (storage, temp_dir)
     }
 
-    fn state_dir_lock() -> &'static Mutex<()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(()))
-    }
-
-    fn with_state_dir(dir: &Path, f: impl FnOnce()) {
-        let _guard = state_dir_lock().lock().unwrap();
-        std_env::set_var(STATE_DIR_ENV, dir);
-        f();
-        std_env::remove_var(STATE_DIR_ENV);
-    }
-
-    fn setup_db_for_master_key(temp_dir: &tempfile::TempDir) -> Arc<Database> {
-        let db_path = temp_dir.path().join("test-master-key.db");
-        Arc::new(Database::create(db_path).unwrap())
-    }
-
-    fn insert_db_master_key(db: &Arc<Database>, key: &[u8; 32]) {
-        let write_txn = db.begin_write().unwrap();
-        {
-            let mut table = write_txn.open_table(MASTER_KEY_TABLE).unwrap();
-            table.insert(MASTER_KEY_RECORD, key.as_slice()).unwrap();
-        }
-        write_txn.commit().unwrap();
-    }
-
     #[test]
     fn test_env_key_takes_precedence() {
         let _env_lock = env_lock();
         let temp_dir = tempdir().unwrap();
         let state_dir = temp_dir.path().join("state");
+
         std::fs::create_dir_all(&state_dir).unwrap();
         let db_path = temp_dir.path().join("test.db");
         let db = Arc::new(Database::create(db_path).unwrap());
 
-        let write_txn = db.begin_write().unwrap();
-        write_txn.open_table(MASTER_KEY_TABLE).unwrap();
-        write_txn.commit().unwrap();
+        let env_key = [0xaa; 32];
+        let env_value = STANDARD.encode(env_key);
+        let json_key = [9u8; 32];
+
 
         let db_key = [1u8; 32];
         let write_txn = db.begin_write().unwrap();
@@ -719,7 +694,7 @@ mod tests {
     }
 
     #[test]
-    fn test_rejects_db_key_without_migration() {
+    fn test_auto_migrates_db_key_to_json() {
         let _env_lock = env_lock();
         let temp_dir = tempdir().unwrap();
         let state_dir = temp_dir.path().join("state");
@@ -747,8 +722,14 @@ mod tests {
             allow_insecure_file_permissions: true,
         };
 
-        let err = load_master_key(&db, &config).unwrap_err();
-        assert!(err.to_string().contains("migrate-master-key"));
+        let key = load_master_key(&db, &config).unwrap();
+        assert_eq!(key, db_key);
+
+        let json_key = load_master_key_from_json(&config).unwrap().unwrap();
+        assert_eq!(json_key, db_key);
+
+        let remaining = read_master_key_from_db(&db).unwrap();
+        assert!(remaining.is_none());
 
         // SAFETY: This is a single-threaded test, no other threads access this env var
         unsafe { std::env::remove_var(STATE_DIR_ENV) };
@@ -769,6 +750,7 @@ mod tests {
         let value = storage.get_secret("OPENAI_API_KEY").unwrap();
         assert_eq!(value, Some("sk-test123".to_string()));
     }
+
 
     #[test]
     fn test_list_secrets_with_metadata() {
@@ -1059,65 +1041,6 @@ mod tests {
         unsafe { std::env::remove_var(STATE_DIR_ENV) };
     }
 
-    #[test]
-    fn test_master_key_env_override() {
-        let temp_dir = tempdir().unwrap();
-        let state_dir = temp_dir.path().join("state");
-        let db = setup_db_for_master_key(&temp_dir);
-        let config = SecretStorageConfig::default();
-
-        let env_key = [7u8; 32];
-        let env_value = STANDARD.encode(env_key);
-        let json_key = [9u8; 32];
-
-        with_state_dir(&state_dir, || {
-            write_master_key_json(&json_key).unwrap();
-            std_env::set_var(MASTER_KEY_ENV, env_value);
-            let key = load_master_key(&db, &config).unwrap();
-            std_env::remove_var(MASTER_KEY_ENV);
-            assert_eq!(key, env_key);
-        });
-    }
-
-    #[test]
-    fn test_master_key_json_precedence_over_db() {
-        let temp_dir = tempdir().unwrap();
-        let state_dir = temp_dir.path().join("state");
-        let db = setup_db_for_master_key(&temp_dir);
-        let config = SecretStorageConfig::default();
-
-        let json_key = [3u8; 32];
-        let db_key = [5u8; 32];
-        insert_db_master_key(&db, &db_key);
-
-        with_state_dir(&state_dir, || {
-            write_master_key_json(&json_key).unwrap();
-            let key = load_master_key(&db, &config).unwrap();
-            assert_eq!(key, json_key);
-            let stored = read_master_key_from_db(&db).unwrap().unwrap();
-            assert_eq!(stored, db_key);
-        });
-    }
-
-    #[test]
-    fn test_master_key_migration_from_db() {
-        let temp_dir = tempdir().unwrap();
-        let state_dir = temp_dir.path().join("state");
-        let db = setup_db_for_master_key(&temp_dir);
-        let config = SecretStorageConfig::default();
-
-        let db_key = [11u8; 32];
-        insert_db_master_key(&db, &db_key);
-
-        with_state_dir(&state_dir, || {
-            let key = load_master_key(&db, &config).unwrap();
-            assert_eq!(key, db_key);
-            let stored = read_master_key_from_db(&db).unwrap();
-            assert!(stored.is_none());
-            let json_key = load_master_key_from_json(&config).unwrap().unwrap();
-            assert_eq!(json_key, db_key);
-        });
-    }
 }
 
 

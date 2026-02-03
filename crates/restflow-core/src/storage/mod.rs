@@ -96,4 +96,9 @@ impl Storage {
     pub fn get_db(&self) -> Arc<Database> {
         self.db.clone()
     }
+
+    /// Migrate a legacy database master key into the JSON state file.
+    pub fn migrate_master_key_from_db(&self) -> Result<MasterKeyMigrationResult> {
+        restflow_storage::secrets::migrate_master_key_from_db(&self.db)
+    }
 }

@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use crate::cli::SecretCommands;
 use crate::commands::utils::format_timestamp;
-use crate::output::{OutputFormat, json::print_json};
+use crate::output::{json::print_json, OutputFormat};
 use restflow_core::{storage::migrate_master_key_from_db_path, AppCore};
 use serde_json::json;
 
