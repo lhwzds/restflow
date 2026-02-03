@@ -473,7 +473,11 @@ async fn execute_agent_for_session(
     let llm = create_llm_client(model, &api_key);
 
     // Build tool registry
-    let tools = Arc::new(registry_from_allowlist(agent_node.tools.as_deref(), None));
+    let subagent_deps = state.subagent_deps(llm.clone());
+    let tools = Arc::new(registry_from_allowlist(
+        agent_node.tools.as_deref(),
+        Some(&subagent_deps),
+    ));
 
     let system_prompt = build_agent_system_prompt(state.core.storage.clone(), agent_node)
         .map_err(|e| e.to_string())?;
@@ -727,7 +731,11 @@ pub async fn send_chat_message_stream(
         let llm = create_llm_client(model, &api_key);
 
         // Build tool registry
-        let tools = Arc::new(registry_from_allowlist(agent_node.tools.as_deref(), None));
+        let subagent_deps = state.subagent_deps(llm.clone());
+        let tools = Arc::new(registry_from_allowlist(
+            agent_node.tools.as_deref(),
+            Some(&subagent_deps),
+        ));
 
         let system_prompt = match build_agent_system_prompt(storage.clone(), agent_node) {
             Ok(prompt) => prompt,
