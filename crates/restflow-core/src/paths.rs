@@ -9,6 +9,7 @@ const LOGS_DIR: &str = "logs";
 
 /// Environment variable to override the RestFlow directory.
 const RESTFLOW_DIR_ENV: &str = "RESTFLOW_DIR";
+const RESTFLOW_STATE_DIR_ENV: &str = "RESTFLOW_STATE_DIR";
 
 /// Resolve the RestFlow configuration directory.
 /// Priority: RESTFLOW_DIR env var > ~/.restflow/
@@ -21,6 +22,16 @@ pub fn resolve_restflow_dir() -> Result<PathBuf> {
     dirs::home_dir()
         .map(|h| h.join(RESTFLOW_DIR))
         .ok_or_else(|| anyhow::anyhow!("Failed to determine home directory"))
+}
+
+/// Return the legacy state directory override when set.
+pub fn legacy_state_dir() -> Option<PathBuf> {
+    if let Ok(dir) = std::env::var(RESTFLOW_STATE_DIR_ENV) {
+        if !dir.trim().is_empty() {
+            return Some(PathBuf::from(dir));
+        }
+    }
+    None
 }
 
 /// Ensure the RestFlow directory exists and return its path.
