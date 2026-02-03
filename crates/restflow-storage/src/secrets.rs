@@ -8,6 +8,9 @@ use rand::RngCore;
 use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
 use serde::{Deserialize, Serialize};
 use std::env;
+use std::fs::{self, OpenOptions};
+use std::io::Write;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tracing::{info, warn};
 use ts_rs::TS;
@@ -15,7 +18,10 @@ use ts_rs::TS;
 const SECRETS_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("secrets");
 const MASTER_KEY_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("secret_master_key");
 const MASTER_KEY_ENV: &str = "RESTFLOW_MASTER_KEY";
+const MASTER_KEY_STATE_DIR_ENV: &str = "RESTFLOW_STATE_DIR";
 const MASTER_KEY_RECORD: &str = "default";
+const MASTER_KEY_FILE_NAME: &str = "secret-master-key.json";
+const MASTER_KEY_FILE_VERSION: u32 = 1;
 
 
 #[derive(Debug, Clone)]
@@ -103,7 +109,6 @@ impl SecretStorage {
     pub fn with_config(db: Arc<Database>, config: SecretStorageConfig) -> Result<Self> {
         let write_txn = db.begin_write()?;
         write_txn.open_table(SECRETS_TABLE)?;
-        write_txn.open_table(MASTER_KEY_TABLE)?;
         write_txn.commit()?;
 
         let master_key = load_master_key(&db, &config)?;
@@ -313,44 +318,24 @@ fn decode_legacy_secret(payload: &[u8]) -> Result<Secret> {
     Ok(serde_json::from_str(&json)?)
 }
 
-fn load_master_key(db: &Arc<Database>, config: &SecretStorageConfig) -> Result<[u8; 32]> {
+fn load_master_key(db: &Arc<Database>, _config: &SecretStorageConfig) -> Result<[u8; 32]> {
     if let Some(key) = load_master_key_from_env()? {
         info!("Using master key from environment variable");
         return Ok(key);
     }
 
-    if matches!(config.key_source, MasterKeySource::Keychain) {
-        match keychain::get_or_create_master_key("restflow", "master-key") {
-            Ok(key) => {
-                info!("Using master key from OS keychain");
-                return Ok(key);
-            }
-            Err(err) => {
-                warn!("Failed to access keychain: {}", err);
-            }
-        }
-    }
-
-    if config.allow_insecure_fallback {
-        if matches!(config.key_source, MasterKeySource::Database { warn: true }) {
-            warn!(
-                "⚠️ SECURITY WARNING: Master key stored in database.                 This is INSECURE for production use.                 Set RESTFLOW_MASTER_KEY environment variable."
-            );
-        }
-
-        if let Some(key) = read_master_key_from_db(db)? {
-            return Ok(key);
-        }
-
-        let mut key = [0u8; 32];
-        rand::rngs::OsRng.fill_bytes(&mut key);
-        store_master_key_in_db(db, &key)?;
+    if let Some(key) = read_master_key_from_json()? {
         return Ok(key);
     }
 
-    anyhow::bail!(
-        "No master key configured. Set RESTFLOW_MASTER_KEY environment variable         or enable keychain storage."
-    )
+    if let Some(key) = migrate_master_key_from_db(db)? {
+        return Ok(key);
+    }
+
+    let mut key = [0u8; 32];
+    rand::rngs::OsRng.fill_bytes(&mut key);
+    write_master_key_to_json(&key)?;
+    Ok(key)
 }
 
 fn load_master_key_from_env() -> Result<Option<[u8; 32]>> {
@@ -393,7 +378,11 @@ fn decode_master_key(value: &str) -> Result<[u8; 32]> {
 
 fn read_master_key_from_db(db: &Arc<Database>) -> Result<Option<[u8; 32]>> {
     let read_txn = db.begin_read()?;
-    let table = read_txn.open_table(MASTER_KEY_TABLE)?;
+    let table = match read_txn.open_table(MASTER_KEY_TABLE) {
+        Ok(table) => table,
+        Err(redb::Error::TableDoesNotExist(_)) => return Ok(None),
+        Err(err) => return Err(err.into()),
+    };
 
     if let Some(data) = table.get(MASTER_KEY_RECORD)? {
         let payload = data.value();
@@ -409,19 +398,131 @@ fn read_master_key_from_db(db: &Arc<Database>) -> Result<Option<[u8; 32]>> {
     }
 }
 
-fn store_master_key_in_db(db: &Arc<Database>, key: &[u8; 32]) -> Result<()> {
+fn delete_master_key_from_db(db: &Arc<Database>) -> Result<()> {
     let write_txn = db.begin_write()?;
-    {
-        let mut table = write_txn.open_table(MASTER_KEY_TABLE)?;
-        table.insert(MASTER_KEY_RECORD, key.as_slice())?;
-    }
+    let mut table = match write_txn.open_table(MASTER_KEY_TABLE) {
+        Ok(table) => table,
+        Err(redb::Error::TableDoesNotExist(_)) => return Ok(()),
+        Err(err) => return Err(err.into()),
+    };
+    table.remove(MASTER_KEY_RECORD)?;
     write_txn.commit()?;
     Ok(())
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct MasterKeyFile {
+    version: u32,
+    #[serde(rename = "createdAt")]
+    created_at: String,
+    key: String,
+}
+
+fn state_dir() -> Result<PathBuf> {
+    if let Ok(path) = env::var(MASTER_KEY_STATE_DIR_ENV) {
+        return Ok(PathBuf::from(path));
+    }
+
+    let base = dirs::data_dir()
+        .or_else(dirs::home_dir)
+        .ok_or_else(|| anyhow::anyhow!("Failed to determine state directory"))?;
+    Ok(base.join("restflow"))
+}
+
+fn master_key_path() -> Result<PathBuf> {
+    Ok(state_dir()?.join(MASTER_KEY_FILE_NAME))
+}
+
+fn read_master_key_from_json() -> Result<Option<[u8; 32]>> {
+    let path = master_key_path()?;
+    if !path.exists() {
+        return Ok(None);
+    }
+
+    ensure_master_key_permissions(&path)?;
+
+    let bytes = fs::read(&path)?;
+    let file: MasterKeyFile = serde_json::from_slice(&bytes)?;
+    if file.version != MASTER_KEY_FILE_VERSION {
+        return Err(anyhow::anyhow!(
+            "Unsupported master key file version: {}",
+            file.version
+        ));
+    }
+
+    let key = decode_master_key(&file.key)?;
+    Ok(Some(key))
+}
+
+fn write_master_key_to_json(key: &[u8; 32]) -> Result<()> {
+    let dir = state_dir()?;
+    fs::create_dir_all(&dir)?;
+    let path = dir.join(MASTER_KEY_FILE_NAME);
+    let payload = MasterKeyFile {
+        version: MASTER_KEY_FILE_VERSION,
+        created_at: chrono::Utc::now().to_rfc3339(),
+        key: STANDARD.encode(key),
+    };
+    let data = serde_json::to_vec_pretty(&payload)?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        let mut file = OpenOptions::new()
+            .create(true)
+            .truncate(true)
+            .write(true)
+            .mode(0o600)
+            .open(&path)?;
+        file.write_all(&data)?;
+    }
+
+    #[cfg(not(unix))]
+    {
+        let mut file = OpenOptions::new()
+            .create(true)
+            .truncate(true)
+            .write(true)
+            .open(&path)?;
+        file.write_all(&data)?;
+    }
+
+    Ok(())
+}
+
+fn ensure_master_key_permissions(path: &Path) -> Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let metadata = fs::metadata(path)?;
+        let mode = metadata.permissions().mode() & 0o777;
+        if mode & 0o077 != 0 {
+            return Err(anyhow::anyhow!(
+                "Master key file permissions are too open: {:#o}",
+                mode
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+fn migrate_master_key_from_db(db: &Arc<Database>) -> Result<Option<[u8; 32]>> {
+    let key = match read_master_key_from_db(db)? {
+        Some(key) => key,
+        None => return Ok(None),
+    };
+
+    write_master_key_to_json(&key)?;
+    delete_master_key_from_db(db)?;
+    Ok(Some(key))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::env as std_env;
+    use std::sync::{Mutex, OnceLock};
     use std::thread;
     use tempfile::tempdir;
 
@@ -431,6 +532,32 @@ mod tests {
         let db = Arc::new(Database::create(db_path).unwrap());
         let storage = SecretStorage::new_insecure(db).unwrap();
         (storage, temp_dir)
+    }
+
+    fn state_dir_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    fn with_state_dir(dir: &Path, f: impl FnOnce()) {
+        let _guard = state_dir_lock().lock().unwrap();
+        std_env::set_var(MASTER_KEY_STATE_DIR_ENV, dir);
+        f();
+        std_env::remove_var(MASTER_KEY_STATE_DIR_ENV);
+    }
+
+    fn setup_db_for_master_key(temp_dir: &tempfile::TempDir) -> Arc<Database> {
+        let db_path = temp_dir.path().join("test-master-key.db");
+        Arc::new(Database::create(db_path).unwrap())
+    }
+
+    fn insert_db_master_key(db: &Arc<Database>, key: &[u8; 32]) {
+        let write_txn = db.begin_write().unwrap();
+        {
+            let mut table = write_txn.open_table(MASTER_KEY_TABLE).unwrap();
+            table.insert(MASTER_KEY_RECORD, key.as_slice()).unwrap();
+        }
+        write_txn.commit().unwrap();
     }
 
     #[test]
@@ -727,6 +854,66 @@ mod tests {
         // Only one secret should exist
         let secrets = storage.list_secrets().unwrap();
         assert_eq!(secrets.len(), 1);
+    }
+
+    #[test]
+    fn test_master_key_env_override() {
+        let temp_dir = tempdir().unwrap();
+        let state_dir = temp_dir.path().join("state");
+        let db = setup_db_for_master_key(&temp_dir);
+        let config = SecretStorageConfig::default();
+
+        let env_key = [7u8; 32];
+        let env_value = STANDARD.encode(env_key);
+        let json_key = [9u8; 32];
+
+        with_state_dir(&state_dir, || {
+            write_master_key_to_json(&json_key).unwrap();
+            std_env::set_var(MASTER_KEY_ENV, env_value);
+            let key = load_master_key(&db, &config).unwrap();
+            std_env::remove_var(MASTER_KEY_ENV);
+            assert_eq!(key, env_key);
+        });
+    }
+
+    #[test]
+    fn test_master_key_json_precedence_over_db() {
+        let temp_dir = tempdir().unwrap();
+        let state_dir = temp_dir.path().join("state");
+        let db = setup_db_for_master_key(&temp_dir);
+        let config = SecretStorageConfig::default();
+
+        let json_key = [3u8; 32];
+        let db_key = [5u8; 32];
+        insert_db_master_key(&db, &db_key);
+
+        with_state_dir(&state_dir, || {
+            write_master_key_to_json(&json_key).unwrap();
+            let key = load_master_key(&db, &config).unwrap();
+            assert_eq!(key, json_key);
+            let stored = read_master_key_from_db(&db).unwrap().unwrap();
+            assert_eq!(stored, db_key);
+        });
+    }
+
+    #[test]
+    fn test_master_key_migration_from_db() {
+        let temp_dir = tempdir().unwrap();
+        let state_dir = temp_dir.path().join("state");
+        let db = setup_db_for_master_key(&temp_dir);
+        let config = SecretStorageConfig::default();
+
+        let db_key = [11u8; 32];
+        insert_db_master_key(&db, &db_key);
+
+        with_state_dir(&state_dir, || {
+            let key = load_master_key(&db, &config).unwrap();
+            assert_eq!(key, db_key);
+            let stored = read_master_key_from_db(&db).unwrap();
+            assert!(stored.is_none());
+            let json_key = read_master_key_from_json().unwrap().unwrap();
+            assert_eq!(json_key, db_key);
+        });
     }
 }
 

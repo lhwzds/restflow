@@ -18,6 +18,7 @@ redb = "3.1"
 aes-gcm = "0.10"
 base64 = "0.22"
 rand = "0.8"
+dirs = "6.0.0"
 ts-rs = "11.0"
 tracing = { workspace = true }
 hnsw_rs = "0.3"
