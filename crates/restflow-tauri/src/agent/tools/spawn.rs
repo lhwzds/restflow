@@ -1,14 +1,15 @@
 //! Spawn tool for creating subagents.
 
-use super::{Tool, ToolDefinition, ToolResult};
-use anyhow::Result;
+use crate::agent::tools::ToolResult;
 use async_trait::async_trait;
+use restflow_ai::error::{AiError, Result};
+use restflow_ai::tools::Tool;
 use serde_json::{Value, json};
 use std::sync::Arc;
 
-#[async_trait]
+/// Trait for spawning subagents.
 pub trait SubagentSpawner: Send + Sync {
-    async fn spawn(&self, agent_id: &str, task: &str, timeout_secs: Option<u64>) -> Result<String>;
+    fn spawn(&self, task: String) -> Result<String>;
 }
 
 pub struct SpawnTool {
@@ -23,43 +24,34 @@ impl SpawnTool {
 
 #[async_trait]
 impl Tool for SpawnTool {
-    fn definition(&self) -> ToolDefinition {
-        ToolDefinition {
-            name: "spawn".to_string(),
-            description: "Spawn a subagent with a task.".to_string(),
-            parameters: json!({
-                "type": "object",
-                "properties": {
-                    "agent_id": {
-                        "type": "string",
-                        "description": "Agent ID to spawn"
-                    },
-                    "task": {
-                        "type": "string",
-                        "description": "Task for the subagent"
-                    },
-                    "timeout_secs": {
-                        "type": "number",
-                        "description": "Optional timeout in seconds"
-                    }
-                },
-                "required": ["agent_id", "task"]
-            }),
-        }
+    fn name(&self) -> &str {
+        "spawn"
+    }
+
+    fn description(&self) -> &str {
+        "Spawn a subagent to handle a task and return its task id."
+    }
+
+    fn parameters_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "task": {
+                    "type": "string",
+                    "description": "Task description for the subagent"
+                }
+            },
+            "required": ["task"]
+        })
     }
 
     async fn execute(&self, args: Value) -> Result<ToolResult> {
-        let agent_id = args
-            .get("agent_id")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow::anyhow!("Missing 'agent_id' argument"))?;
         let task = args
             .get("task")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow::anyhow!("Missing 'task' argument"))?;
-        let timeout_secs = args.get("timeout_secs").and_then(|v| v.as_u64());
+            .ok_or_else(|| AiError::Tool("Missing 'task' argument".to_string()))?;
 
-        let task_id = self.spawner.spawn(agent_id, task, timeout_secs).await?;
-        Ok(ToolResult::success(task_id))
+        let task_id = self.spawner.spawn(task.to_string())?;
+        Ok(ToolResult::success(json!(task_id)))
     }
 }

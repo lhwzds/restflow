@@ -1,15 +1,33 @@
 //! Unified agent components.
 
-mod react;
 mod skills;
 pub mod tools;
-mod unified;
 
-pub use react::{AgentAction, AgentState, ConversationHistory, ReActConfig, ResponseParser};
+use std::collections::HashMap;
+use std::sync::Arc;
+
+use restflow_core::models::AgentNode;
+use restflow_core::storage::Storage;
+
+pub use restflow_ai::agent::{ExecutionResult, UnifiedAgent, UnifiedAgentConfig};
 pub use skills::{ProcessedSkill, SkillLoader};
 pub use tools::{
     BashConfig, BashTool, EmailTool, FileConfig, FileTool, HttpTool, PythonTool, SpawnTool,
-    SubagentSpawner, TelegramTool, Tool, ToolDefinition, ToolRegistry, ToolRegistryBuilder,
-    ToolResult, default_registry, registry_from_allowlist,
+    SubagentSpawner, TelegramTool, Tool, ToolRegistry, ToolRegistryBuilder, ToolResult,
+    default_registry, registry_from_allowlist,
 };
-pub use unified::{ExecutionResult, UnifiedAgent, UnifiedAgentConfig};
+
+pub fn build_agent_system_prompt(
+    storage: Arc<Storage>,
+    agent_node: &AgentNode,
+) -> Result<String, anyhow::Error> {
+    let base = agent_node
+        .prompt
+        .clone()
+        .unwrap_or_else(|| "You are a helpful AI assistant.".to_string());
+    let skill_ids = agent_node.skills.clone().unwrap_or_default();
+    let skill_vars: Option<HashMap<String, String>> = agent_node.skill_variables.clone();
+
+    let loader = SkillLoader::new(storage);
+    loader.build_system_prompt(&base, &skill_ids, skill_vars.as_ref())
+}

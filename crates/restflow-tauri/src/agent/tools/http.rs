@@ -1,22 +1,13 @@
-//! HTTP request tool for web interactions.
+//! HTTP request tool.
 
-use super::{Tool, ToolDefinition, ToolResult};
-use anyhow::Result;
+use crate::agent::tools::ToolResult;
 use async_trait::async_trait;
+use restflow_ai::error::{AiError, Result};
+use restflow_ai::tools::Tool;
 use serde_json::{Value, json};
 
 pub struct HttpTool {
     client: reqwest::Client,
-    timeout_secs: u64,
-}
-
-impl HttpTool {
-    pub fn new() -> Self {
-        Self {
-            client: reqwest::Client::new(),
-            timeout_secs: 30,
-        }
-    }
 }
 
 impl Default for HttpTool {
@@ -25,49 +16,65 @@ impl Default for HttpTool {
     }
 }
 
+impl HttpTool {
+    pub fn new() -> Self {
+        Self {
+            client: reqwest::Client::new(),
+        }
+    }
+}
+
 #[async_trait]
 impl Tool for HttpTool {
-    fn definition(&self) -> ToolDefinition {
-        ToolDefinition {
-            name: "http".to_string(),
-            description: "Make HTTP requests. Supports GET, POST, PUT, DELETE methods.".to_string(),
-            parameters: json!({
-                "type": "object",
-                "properties": {
-                    "method": {
-                        "type": "string",
-                        "enum": ["GET", "POST", "PUT", "DELETE"],
-                        "description": "HTTP method"
-                    },
-                    "url": {
-                        "type": "string",
-                        "description": "The URL to request"
-                    },
-                    "headers": {
-                        "type": "object",
-                        "description": "Optional headers as key-value pairs"
-                    },
-                    "body": {
-                        "type": "string",
-                        "description": "Optional request body (for POST/PUT)"
-                    }
+    fn name(&self) -> &str {
+        "http"
+    }
+
+    fn description(&self) -> &str {
+        "Make HTTP requests (GET, POST, PUT, DELETE)."
+    }
+
+    fn parameters_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "method": {
+                    "type": "string",
+                    "enum": ["GET", "POST", "PUT", "DELETE"],
+                    "description": "HTTP method"
                 },
-                "required": ["method", "url"]
-            }),
-        }
+                "url": {
+                    "type": "string",
+                    "description": "URL to request"
+                },
+                "headers": {
+                    "type": "object",
+                    "description": "Optional headers"
+                },
+                "body": {
+                    "type": "string",
+                    "description": "Optional body for POST/PUT"
+                }
+            },
+            "required": ["method", "url"]
+        })
     }
 
     async fn execute(&self, args: Value) -> Result<ToolResult> {
         let method = args
             .get("method")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow::anyhow!("Missing 'method' argument"))?;
+            .ok_or_else(|| AiError::Tool("Missing 'method' argument".to_string()))?;
+
         let url = args
             .get("url")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow::anyhow!("Missing 'url' argument"))?;
+            .ok_or_else(|| AiError::Tool("Missing 'url' argument".to_string()))?;
 
-        let mut request = match method.to_uppercase().as_str() {
+        let headers = args.get("headers").and_then(|v| v.as_object());
+        let body = args.get("body").and_then(|v| v.as_str());
+
+        let mut request = match method {
             "GET" => self.client.get(url),
             "POST" => self.client.post(url),
             "PUT" => self.client.put(url),
@@ -75,36 +82,36 @@ impl Tool for HttpTool {
             _ => return Ok(ToolResult::error(format!("Unknown method: {}", method))),
         };
 
-        if let Some(headers) = args.get("headers").and_then(|v| v.as_object()) {
+        if let Some(headers) = headers {
             for (key, value) in headers {
-                if let Some(v) = value.as_str() {
-                    request = request.header(key.as_str(), v);
+                if let Some(value) = value.as_str() {
+                    request = request.header(key, value);
                 }
             }
         }
 
-        if let Some(body) = args.get("body").and_then(|v| v.as_str()) {
+        if let Some(body) = body {
             request = request.body(body.to_string());
         }
 
-        let response = tokio::time::timeout(
-            tokio::time::Duration::from_secs(self.timeout_secs),
-            request.send(),
-        )
-        .await
-        .map_err(|_| anyhow::anyhow!("Request timed out"))?
-        .map_err(|e| anyhow::anyhow!("Request failed: {}", e))?;
+        let response = request
+            .send()
+            .await
+            .map_err(|e| AiError::Tool(format!("HTTP request failed: {}", e)))?;
 
         let status = response.status();
-        let body = response.text().await.unwrap_or_default();
+        let text = response
+            .text()
+            .await
+            .map_err(|e| AiError::Tool(format!("Failed to read response body: {}", e)))?;
 
         if status.is_success() {
-            Ok(ToolResult::success(body))
+            Ok(ToolResult::success(json!(text)))
         } else {
             Ok(ToolResult {
                 success: false,
-                output: body,
-                error: Some(format!("HTTP {}", status)),
+                result: json!(text),
+                error: Some(format!("HTTP error: {}", status)),
             })
         }
     }

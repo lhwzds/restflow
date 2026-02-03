@@ -3,7 +3,7 @@
 //! These commands enable the frontend to create, manage, and interact with
 //! chat sessions in the SkillWorkspace.
 
-use crate::agent::{registry_from_allowlist, UnifiedAgent, UnifiedAgentConfig};
+use crate::agent::{build_agent_system_prompt, registry_from_allowlist, UnifiedAgent, UnifiedAgentConfig};
 use crate::chat::ChatStreamState;
 use crate::state::AppState;
 use restflow_ai::llm::Message;
@@ -475,6 +475,9 @@ async fn execute_agent_for_session(
     // Build tool registry
     let tools = Arc::new(registry_from_allowlist(agent_node.tools.as_deref()));
 
+    let system_prompt = build_agent_system_prompt(state.core.storage.clone(), agent_node)
+        .map_err(|e| e.to_string())?;
+
     // Build agent config
     let config = build_agent_config(agent_node, model);
 
@@ -482,8 +485,7 @@ async fn execute_agent_for_session(
     let mut agent = UnifiedAgent::new(
         llm,
         tools,
-        state.core.storage.clone(),
-        agent_node.clone(),
+        system_prompt,
         config,
     );
 
@@ -727,6 +729,15 @@ pub async fn send_chat_message_stream(
         // Build tool registry
         let tools = Arc::new(registry_from_allowlist(agent_node.tools.as_deref()));
 
+        let system_prompt = match build_agent_system_prompt(storage.clone(), agent_node) {
+            Ok(prompt) => prompt,
+            Err(e) => {
+                stream_state.emit_failed(&format!("Failed to build system prompt: {}", e));
+                stream_manager.remove(&message_id_clone);
+                return;
+            }
+        };
+
         // Build agent config
         let config = build_agent_config(agent_node, model);
 
@@ -734,8 +745,7 @@ pub async fn send_chat_message_stream(
         let mut agent = UnifiedAgent::new(
             llm,
             tools,
-            storage.clone(),
-            agent_node.clone(),
+            system_prompt,
             config,
         );
 

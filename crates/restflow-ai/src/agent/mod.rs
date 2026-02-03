@@ -9,10 +9,13 @@
 
 mod context;
 mod executor;
+pub mod react;
 mod state;
 mod trace;
+mod unified;
 
-pub use context::{AgentContext, MemoryContext, SkillSummary, load_workspace_context};
+pub use context::{load_workspace_context, AgentContext, MemoryContext, SkillSummary};
 pub use executor::{AgentConfig, AgentExecutor, AgentResult};
 pub use state::{AgentState, AgentStatus};
 pub use trace::TraceEvent;
+pub use unified::{ExecutionResult, UnifiedAgent, UnifiedAgentConfig};
