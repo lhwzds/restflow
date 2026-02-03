@@ -22,7 +22,7 @@ mod tests {
         let temp_dir = tempdir().unwrap();
         let db_path = temp_dir.path().join("test.db");
         let core = Arc::new(AppCore::new(db_path.to_str().unwrap()).await.unwrap());
-        AppState::new(core)
+        AppState::new_sync(core)
     }
 
     #[tokio::test]

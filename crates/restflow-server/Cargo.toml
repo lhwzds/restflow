@@ -11,6 +11,7 @@ path = "src/main.rs"
 restflow-core = { workspace = true }
 restflow-storage = { workspace = true }
 restflow-ai = { workspace = true }
+anyhow = { workspace = true }
 redb = "3.1"
 axum = { version = "0.8.7", features = ["macros"] }
 mime_guess = "2.0.5"
