@@ -37,7 +37,7 @@ jobs:
           key: ${{ runner.os }}-cargo-audit
 
       - name: Install cargo-audit
-        run: cargo install cargo-audit --locked || true
+        run: cargo install cargo-audit --locked --force || true
 
       - name: Check for security vulnerabilities
         run: cargo audit
