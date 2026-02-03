@@ -185,7 +185,6 @@ impl AgentTaskRunner {
     ) -> Self {
         let queue_config = TaskQueueConfig {
             max_concurrent: config.max_concurrent_tasks,
-            task_timeout: Duration::from_secs(config.task_timeout_secs),
             ..Default::default()
         };
         let task_queue = Arc::new(TaskQueue::new(queue_config, None));
@@ -217,7 +216,6 @@ impl AgentTaskRunner {
     ) -> Self {
         let queue_config = TaskQueueConfig {
             max_concurrent: config.max_concurrent_tasks,
-            task_timeout: Duration::from_secs(config.task_timeout_secs),
             ..Default::default()
         };
         let task_queue = Arc::new(TaskQueue::new(queue_config, None));
@@ -253,7 +251,6 @@ impl AgentTaskRunner {
     ) -> Self {
         let queue_config = TaskQueueConfig {
             max_concurrent: config.max_concurrent_tasks,
-            task_timeout: Duration::from_secs(config.task_timeout_secs),
             ..Default::default()
         };
         let task_queue = Arc::new(TaskQueue::new(queue_config, None));
@@ -313,7 +310,6 @@ impl AgentTaskRunner {
             WorkerPoolConfig {
                 worker_count: self.config.max_concurrent_tasks,
                 idle_sleep: Duration::from_millis(10),
-                task_timeout: Duration::from_secs(self.config.task_timeout_secs),
             },
         );
         worker_pool.start();
@@ -347,6 +343,7 @@ impl AgentTaskRunner {
                         }
                         None => {
                             info!("Command channel closed, stopping runner");
+                            worker_pool.stop().await;
                             break;
                         }
                     }

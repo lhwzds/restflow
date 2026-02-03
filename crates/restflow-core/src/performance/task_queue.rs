@@ -56,8 +56,6 @@ pub struct TaskQueueConfig {
     pub max_concurrent: usize,
     /// Maximum queued tasks.
     pub max_queue_size: usize,
-    /// Task timeout.
-    pub task_timeout: Duration,
     /// Whether to persist tasks.
     pub persist_tasks: bool,
 }
@@ -67,7 +65,6 @@ impl Default for TaskQueueConfig {
         Self {
             max_concurrent: 50,
             max_queue_size: 10_000,
-            task_timeout: Duration::from_secs(300),
             persist_tasks: true,
         }
     }
