@@ -56,6 +56,7 @@ async fn main() -> Result<()> {
         Some(Commands::Secret { command }) => {
             commands::secret::run(core, command, cli.format).await
         }
+        Some(Commands::Key { command }) => commands::key::run(core, command, cli.format).await,
         Some(Commands::Auth { command }) => commands::auth::run(command, cli.format).await,
         Some(Commands::Security { command }) => commands::security::run(command, cli.format).await,
         Some(Commands::Config { command }) => {
