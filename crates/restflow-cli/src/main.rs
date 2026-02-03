@@ -16,8 +16,7 @@ use std::io;
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
-    let config = config::CliConfig::load();
-    config.apply_api_key_env();
+    let _config = config::CliConfig::load();
 
     // Configure logging: always write to file
     let log_dir = paths::ensure_data_dir()?.join("logs");
@@ -41,11 +40,7 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
-    let db_path = setup::resolve_db_path(
-        cli.db_path
-            .clone()
-            .or_else(|| config.default.db_path.clone()),
-    )?;
+    let db_path = setup::resolve_db_path(cli.db_path.clone())?;
 
     let core = setup::prepare_core(Some(db_path)).await?;
 
