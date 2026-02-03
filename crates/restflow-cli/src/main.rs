@@ -19,7 +19,7 @@ async fn main() -> Result<()> {
     let _config = config::CliConfig::load();
 
     // Configure logging: always write to file
-    let log_dir = paths::ensure_data_dir()?.join("logs");
+    let log_dir = paths::ensure_restflow_dir()?.join("logs");
     std::fs::create_dir_all(&log_dir).ok();
 
     let file_appender = tracing_appender::rolling::daily(log_dir, "restflow.log");

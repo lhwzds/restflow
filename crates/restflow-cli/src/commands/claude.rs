@@ -59,7 +59,7 @@ impl ClaudeOutput {
 /// Get API key from RestFlow auth profile
 async fn get_api_key_from_profile(profile_id: Option<&str>) -> Result<String> {
     let config = AuthManagerConfig::default();
-    let data_dir = paths::ensure_data_dir()?;
+    let data_dir = paths::ensure_restflow_dir()?;
 
     // Create SecretStorage
     let db_path = data_dir.join("restflow.db");
@@ -162,7 +162,7 @@ async fn ensure_npx_available() -> Result<()> {
 }
 
 async fn generate_mcp_config(args: &ClaudeArgs) -> Result<PathBuf> {
-    let config_dir = paths::ensure_data_dir()?;
+    let config_dir = paths::ensure_restflow_dir()?;
     let config_path = config_dir.join("claude_mcp.json");
 
     let mut servers = serde_json::Map::new();

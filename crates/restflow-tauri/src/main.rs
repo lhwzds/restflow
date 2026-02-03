@@ -118,7 +118,7 @@ fn main() {
                     }
                 };
 
-                if let Ok(data_dir) = paths::ensure_data_dir() {
+                if let Ok(data_dir) = paths::ensure_restflow_dir() {
                     let old_json = data_dir.join("auth_profiles.json");
                     if let Err(e) = auth_manager.migrate_from_json(&old_json).await {
                         warn!(error = %e, "Failed to migrate auth profiles from JSON");
@@ -364,11 +364,11 @@ fn maybe_migrate_old_database(new_path: &str) {
         return;
     }
 
-    if let Some(parent) = new_path.parent() {
-        if let Err(e) = std::fs::create_dir_all(parent) {
-            tracing::warn!(error = %e, "Failed to create database directory for migration");
-            return;
-        }
+    if let Some(parent) = new_path.parent()
+        && let Err(e) = std::fs::create_dir_all(parent)
+    {
+        tracing::warn!(error = %e, "Failed to create database directory for migration");
+        return;
     }
 
     tracing::info!(

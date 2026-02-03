@@ -60,7 +60,7 @@ impl CliTaskRunner {
         let process_registry = Arc::new(ProcessRegistry::new());
 
         let auth_manager = Arc::new(create_auth_manager(secrets.clone(), storage.get_db())?);
-        if let Ok(data_dir) = paths::ensure_data_dir() {
+        if let Ok(data_dir) = paths::ensure_restflow_dir() {
             let old_json = data_dir.join("auth_profiles.json");
             if let Err(e) = auth_manager.migrate_from_json(&old_json).await {
                 tracing::warn!(error = %e, "Failed to migrate auth profiles from JSON");

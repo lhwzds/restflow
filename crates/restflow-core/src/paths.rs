@@ -13,10 +13,10 @@ const RESTFLOW_DIR_ENV: &str = "RESTFLOW_DIR";
 /// Resolve the RestFlow configuration directory.
 /// Priority: RESTFLOW_DIR env var > ~/.restflow/
 pub fn resolve_restflow_dir() -> Result<PathBuf> {
-    if let Ok(dir) = std::env::var(RESTFLOW_DIR_ENV) {
-        if !dir.trim().is_empty() {
-            return Ok(PathBuf::from(dir));
-        }
+    if let Ok(dir) = std::env::var(RESTFLOW_DIR_ENV)
+        && !dir.trim().is_empty()
+    {
+        return Ok(PathBuf::from(dir));
     }
     dirs::home_dir()
         .map(|h| h.join(RESTFLOW_DIR))

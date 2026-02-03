@@ -83,6 +83,7 @@ impl Default for SwarmConfig {
 }
 
 /// Message types in shared context
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub enum SwarmMessage {
     /// Task announcement
@@ -102,6 +103,7 @@ pub enum SwarmMessage {
 }
 
 /// Agent role in swarm
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct SwarmAgent {
     pub id: String,

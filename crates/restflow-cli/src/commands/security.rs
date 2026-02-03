@@ -200,11 +200,11 @@ fn save_approvals(approvals: &[PendingApproval]) -> Result<()> {
 }
 
 fn policy_path() -> Result<std::path::PathBuf> {
-    Ok(paths::ensure_data_dir()?.join(POLICY_FILE))
+    Ok(paths::ensure_restflow_dir()?.join(POLICY_FILE))
 }
 
 fn approvals_path() -> Result<std::path::PathBuf> {
-    Ok(paths::ensure_data_dir()?.join(APPROVALS_FILE))
+    Ok(paths::ensure_restflow_dir()?.join(APPROVALS_FILE))
 }
 
 fn resolve_approval_index(approvals: &[PendingApproval], id: &str) -> Result<usize> {
