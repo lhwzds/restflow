@@ -1,31 +1,27 @@
-//! File read/write tool with path restrictions.
+//! File system tool for reading and writing files.
 
-use super::{Tool, ToolDefinition, ToolResult};
-use anyhow::Result;
+use crate::agent::tools::ToolResult;
 use async_trait::async_trait;
+use restflow_ai::error::{AiError, Result};
+use restflow_ai::tools::Tool;
 use serde_json::{Value, json};
+use std::fs;
 use std::path::{Path, PathBuf};
-use tokio::fs;
 
-/// Configuration for file tool security.
+/// Configuration for file tool.
 #[derive(Debug, Clone)]
 pub struct FileConfig {
-    /// Allowed base directories (files outside these are blocked).
+    /// Allowed paths (security).
     pub allowed_paths: Vec<PathBuf>,
-
-    /// Maximum file size to read (bytes).
-    pub max_read_size: usize,
-
-    /// Whether to allow writes.
+    /// Whether write operations are allowed.
     pub allow_write: bool,
 }
 
 impl Default for FileConfig {
     fn default() -> Self {
         Self {
-            allowed_paths: vec![],
-            max_read_size: 1024 * 1024,
-            allow_write: false,
+            allowed_paths: vec![std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))],
+            allow_write: true,
         }
     }
 }
@@ -40,102 +36,89 @@ impl FileTool {
     }
 
     fn is_path_allowed(&self, path: &Path) -> bool {
-        if self.config.allowed_paths.is_empty() {
-            return true;
-        }
-
-        let canonical = match path.canonicalize() {
-            Ok(p) => p,
-            Err(_) => return false,
-        };
-
         self.config
             .allowed_paths
             .iter()
-            .any(|allowed| canonical.starts_with(allowed))
+            .any(|allowed| path.starts_with(allowed))
     }
 }
 
 #[async_trait]
 impl Tool for FileTool {
-    fn definition(&self) -> ToolDefinition {
-        ToolDefinition {
-            name: "file".to_string(),
-            description: "Read or write files. Supports 'read' and 'write' operations.".to_string(),
-            parameters: json!({
-                "type": "object",
-                "properties": {
-                    "operation": {
-                        "type": "string",
-                        "enum": ["read", "write"],
-                        "description": "The operation to perform"
-                    },
-                    "path": {
-                        "type": "string",
-                        "description": "The file path"
-                    },
-                    "content": {
-                        "type": "string",
-                        "description": "Content to write (required for write operation)"
-                    }
+    fn name(&self) -> &str {
+        "file"
+    }
+
+    fn description(&self) -> &str {
+        "Read or write files. Supports read and write actions with security checks."
+    }
+
+    fn parameters_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["read", "write"],
+                    "description": "The file operation to perform"
                 },
-                "required": ["operation", "path"]
-            }),
-        }
+                "path": {
+                    "type": "string",
+                    "description": "Path to the file"
+                },
+                "content": {
+                    "type": "string",
+                    "description": "Content to write (for write action)"
+                }
+            },
+            "required": ["action", "path"]
+        })
     }
 
     async fn execute(&self, args: Value) -> Result<ToolResult> {
-        let operation = args
-            .get("operation")
+        let action = args
+            .get("action")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow::anyhow!("Missing 'operation' argument"))?;
-        let path_str = args
+            .ok_or_else(|| AiError::Tool("Missing 'action' argument".to_string()))?;
+
+        let path = args
             .get("path")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow::anyhow!("Missing 'path' argument"))?;
-        let path = Path::new(path_str);
+            .ok_or_else(|| AiError::Tool("Missing 'path' argument".to_string()))?;
+
+        let path = Path::new(path);
 
         if !self.is_path_allowed(path) {
             return Ok(ToolResult::error("Path not allowed"));
         }
 
-        match operation {
+        match action {
             "read" => {
-                let metadata = fs::metadata(path)
-                    .await
-                    .map_err(|e| anyhow::anyhow!("Cannot access file: {}", e))?;
-                if metadata.len() as usize > self.config.max_read_size {
-                    return Ok(ToolResult::error(format!(
-                        "File too large ({} bytes, max {})",
-                        metadata.len(),
-                        self.config.max_read_size
-                    )));
-                }
                 let content = fs::read_to_string(path)
-                    .await
-                    .map_err(|e| anyhow::anyhow!("Failed to read file: {}", e))?;
-                Ok(ToolResult::success(content))
+                    .map_err(|e| AiError::Tool(format!("Failed to read file: {}", e)))?;
+                Ok(ToolResult::success(json!(content)))
             }
             "write" => {
                 if !self.config.allow_write {
                     return Ok(ToolResult::error("Write operations not allowed"));
                 }
+
                 let content = args
                     .get("content")
                     .and_then(|v| v.as_str())
-                    .ok_or_else(|| anyhow::anyhow!("Missing 'content' for write operation"))?;
+                    .ok_or_else(|| AiError::Tool("Missing 'content' argument".to_string()))?;
+
                 fs::write(path, content)
-                    .await
-                    .map_err(|e| anyhow::anyhow!("Failed to write file: {}", e))?;
-                Ok(ToolResult::success(format!(
-                    "Written {} bytes to {}",
-                    content.len(),
-                    path_str
-                )))
+                    .map_err(|e| AiError::Tool(format!("Failed to write file: {}", e)))?;
+
+                Ok(ToolResult::success(json!(format!(
+                    "Wrote {} bytes",
+                    content.len()
+                ))))
             }
             _ => Ok(ToolResult::error(format!(
-                "Unknown operation: {}",
-                operation
+                "Unknown action: {}",
+                action
             ))),
         }
     }
