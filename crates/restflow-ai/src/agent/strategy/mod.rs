@@ -3,7 +3,79 @@
 //! This module provides a unified interface for different agent execution strategies.
 //! Each strategy implements the `AgentStrategy` trait, allowing seamless swapping.
 //!
-//! ## Available Strategies
+//! # Architecture Decision: ReAct Loop vs Event-Driven
+//!
+//! RestFlow uses a **ReAct loop** architecture. This section documents why and
+//! compares it with event-driven systems like OpenAI Codex CLI.
+//!
+//! ## ReAct Loop (RestFlow's Current Approach)
+//!
+//! ```text
+//! loop {
+//!     response = llm.complete(prompt).await;  // Wait for full response
+//!     if has_tool_call(response) {
+//!         result = execute_tool(call).await;  // Sequential execution
+//!         prompt.push(result);
+//!     } else {
+//!         return response;  // Done
+//!     }
+//! }
+//! ```
+//!
+//! **Pros:**
+//! - Simple (~200 LOC core)
+//! - Easy to debug (sequential flow)
+//! - Easy to implement new strategies
+//! - Great for research and iteration
+//!
+//! **Cons:**
+//! - No real-time streaming to UI
+//! - Sequential tool execution
+//! - Coarse-grained cancellation
+//!
+//! ## Event-Driven (Codex CLI's Approach)
+//!
+//! ```text
+//! stream = llm.stream(prompt).await;
+//! loop {
+//!     match stream.next().await {
+//!         TextDelta(text) => ui.append(text),        // Real-time
+//!         ToolCall(call) => futures.push(exec(call)); // Parallel
+//!         Completed => break,
+//!     }
+//! }
+//! results = futures.collect().await;
+//! ```
+//!
+//! **Pros:**
+//! - Real-time streaming output
+//! - Parallel tool execution
+//! - Fine-grained cancellation
+//! - Better production UX
+//!
+//! **Cons:**
+//! - Complex (~2000 LOC core)
+//! - Harder to debug (async events)
+//! - More boilerplate for new strategies
+//!
+//! ## Comparison Table
+//!
+//! | Aspect | ReAct Loop | Event-Driven |
+//! |--------|-----------|--------------|
+//! | User experience | Wait for response | Real-time streaming |
+//! | Tool execution | Sequential | Parallel possible |
+//! | Cancellation | Wait for step | Immediate |
+//! | Code complexity | Low | High |
+//! | Debugging | Easy | Complex |
+//! | Best for | Research | Production |
+//!
+//! ## Evolution Path
+//!
+//! 1. **Short term**: Keep ReAct simple, implement Pre-Act/ToT/etc
+//! 2. **Mid term**: Add optional streaming output layer
+//! 3. **Long term**: Consider event-driven if parallel tools critical
+//!
+//! # Available Strategies
 //!
 //! | Strategy | Status | Description |
 //! |----------|--------|-------------|
@@ -14,7 +86,7 @@
 //! | Swarm | 🚧 Planned | Multi-agent collaboration |
 //! | TreeOfThought | 🚧 Planned | Multi-path exploration |
 //!
-//! ## Usage
+//! # Usage
 //!
 //! ```rust,ignore
 //! use restflow_ai::agent::strategy::{StrategyType, AgentStrategyFactory};
@@ -154,7 +226,11 @@ impl AgentStrategyFactory {
     }
 }
 
-/// Adapter to wrap existing AgentExecutor as an AgentStrategy
+/// Adapter to wrap existing AgentExecutor as an AgentStrategy.
+///
+/// Uses a simple ReAct loop (see module docs for architecture comparison).
+/// This approach is intentionally simple to allow rapid experimentation
+/// with different strategies without the complexity of event-driven systems.
 struct ReactStrategyAdapter {
     llm: Arc<dyn LlmClient>,
     tools: Arc<ToolRegistry>,
