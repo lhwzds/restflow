@@ -1,0 +1,63 @@
+//! Agent metadata storage - byte-level API for agent metadata persistence.
+
+use crate::define_simple_storage;
+
+define_simple_storage! {
+    /// Low-level agent metadata storage with byte-level API
+    pub struct AgentMetaStorage { table: "agents_meta" }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::SimpleStorage;
+    use redb::Database;
+    use std::sync::Arc;
+    use tempfile::tempdir;
+
+    #[test]
+    fn test_put_and_get_raw() {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test.db");
+        let db = Arc::new(Database::create(db_path).unwrap());
+        let storage = AgentMetaStorage::new(db).unwrap();
+
+        let data = b"test agent meta data";
+        storage.put_raw("agent-meta-001", data).unwrap();
+
+        let retrieved = storage.get_raw("agent-meta-001").unwrap();
+        assert!(retrieved.is_some());
+        assert_eq!(retrieved.unwrap(), data);
+    }
+
+    #[test]
+    fn test_list_raw() {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test.db");
+        let db = Arc::new(Database::create(db_path).unwrap());
+        let storage = AgentMetaStorage::new(db).unwrap();
+
+        storage.put_raw("agent-meta-001", b"data1").unwrap();
+        storage.put_raw("agent-meta-002", b"data2").unwrap();
+
+        let items = storage.list_raw().unwrap();
+        assert_eq!(items.len(), 2);
+    }
+
+    #[test]
+    fn test_exists_and_delete() {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test.db");
+        let db = Arc::new(Database::create(db_path).unwrap());
+        let storage = AgentMetaStorage::new(db).unwrap();
+
+        assert!(!storage.exists("agent-meta-001").unwrap());
+
+        storage.put_raw("agent-meta-001", b"data").unwrap();
+        assert!(storage.exists("agent-meta-001").unwrap());
+
+        let deleted = storage.delete("agent-meta-001").unwrap();
+        assert!(deleted);
+        assert!(!storage.exists("agent-meta-001").unwrap());
+    }
+}

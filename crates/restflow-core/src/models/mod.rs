@@ -1,5 +1,6 @@
 pub mod agent;
 pub mod agent_execution;
+pub mod agent_meta;
 pub mod agent_task;
 pub mod ai_model;
 pub mod chat_session;
@@ -18,6 +19,7 @@ pub mod webhook;
 
 pub use agent::{AgentNode, ApiKeyConfig};
 pub use agent_execution::{AgentExecuteResponse, ExecutionDetails, ExecutionStep, ToolCallInfo};
+pub use agent_meta::{AgentMeta, AgentType};
 pub use agent_task::{
     AgentTask, AgentTaskStatus, CliExecutionConfig, ExecutionMode, MemoryConfig,
     NotificationConfig, TaskEvent, TaskEventType, TaskSchedule,
@@ -43,7 +45,7 @@ pub use chat_session::{
     ChatSessionSummary, ExecutionStepInfo, MessageExecution,
 };
 pub use restflow_storage::Secret;
-pub use skill::Skill;
+pub use skill::{Skill, StorageMode};
 pub use skill_folder::{SkillGating, SkillReference, SkillScript};
 pub use skill_marketplace::{
     BinaryRequirement, EnvVarRequirement, GatingCheckResult, GatingRequirements,

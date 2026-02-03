@@ -16,11 +16,13 @@
 //! - `skills` - Skill templates
 //! - `secrets` - Encrypted secrets
 //! - `agents` - Agent configurations
+//! - `agents_meta` - Agent metadata entries
 //! - `active_triggers` - Active trigger state
 //! - `execution_history:data/index` - Execution history
 //! - `system_config` - System configuration
 
 pub mod agent;
+pub mod agent_meta;
 pub mod agent_task;
 pub mod auth_profiles;
 mod paths;
@@ -47,6 +49,7 @@ use redb::Database;
 use std::sync::Arc;
 
 pub use agent::AgentStorage;
+pub use agent_meta::AgentMetaStorage;
 pub use agent_task::AgentTaskStorage;
 pub use auth_profiles::AuthProfileStorage;
 pub use chat_session::ChatSessionStorage;
@@ -71,6 +74,7 @@ pub struct Storage {
     pub config: ConfigStorage,
     pub triggers: TriggerStorage,
     pub agents: AgentStorage,
+    pub agents_meta: AgentMetaStorage,
     pub agent_tasks: AgentTaskStorage,
     pub secrets: SecretStorage,
     pub skills: SkillStorage,
@@ -92,6 +96,7 @@ impl Storage {
         let config = ConfigStorage::new(db.clone())?;
         let triggers = TriggerStorage::new(db.clone())?;
         let agents = AgentStorage::new(db.clone())?;
+        let agents_meta = AgentMetaStorage::new(db.clone())?;
         let agent_tasks = AgentTaskStorage::new(db.clone())?;
         let secrets = SecretStorage::new(db.clone())?;
         let skills = SkillStorage::new(db.clone())?;
@@ -106,6 +111,7 @@ impl Storage {
             config,
             triggers,
             agents,
+            agents_meta,
             agent_tasks,
             secrets,
             skills,
