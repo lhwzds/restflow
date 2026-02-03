@@ -8,9 +8,10 @@ use restflow_core::models::{AgentTask, AgentTaskStatus};
 use restflow_core::paths;
 use restflow_core::process::ProcessRegistry;
 use restflow_tauri_lib::{
-    AgentTaskRunner, ChatDispatcher, ChatDispatcherConfig, ChatSessionManager, MessageDebouncer,
-    MessageHandlerConfig, RealAgentExecutor, RunnerConfig, RunnerHandle, SystemStatus, TaskTrigger,
-    TelegramNotifier, start_message_handler_with_chat,
+    AgentDefinitionRegistry, AgentTaskRunner, ChatDispatcher, ChatDispatcherConfig,
+    ChatSessionManager, MessageDebouncer, MessageHandlerConfig, RealAgentExecutor, RunnerConfig,
+    RunnerHandle, SubagentConfig, SubagentTracker, SystemStatus, TaskTrigger, TelegramNotifier,
+    start_message_handler_with_chat,
 };
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -55,7 +56,20 @@ impl CliTaskRunner {
         auth_manager.initialize().await?;
         auth_manager.discover().await?;
 
-        let executor = RealAgentExecutor::new(storage.clone(), process_registry, auth_manager.clone());
+        // Create subagent system components
+        let (completion_tx, completion_rx) = tokio::sync::mpsc::channel(100);
+        let subagent_tracker = Arc::new(SubagentTracker::new(completion_tx, completion_rx));
+        let subagent_definitions = Arc::new(AgentDefinitionRegistry::with_builtins());
+        let subagent_config = SubagentConfig::default();
+
+        let executor = RealAgentExecutor::new(
+            storage.clone(),
+            process_registry,
+            auth_manager.clone(),
+            subagent_tracker.clone(),
+            subagent_definitions.clone(),
+            subagent_config.clone(),
+        );
         let notifier = TelegramNotifier::new(secrets);
 
         let runner = Arc::new(AgentTaskRunner::new(
@@ -101,6 +115,9 @@ impl CliTaskRunner {
                 debouncer,
                 router.clone(),
                 ChatDispatcherConfig::default(),
+                subagent_tracker.clone(),
+                subagent_definitions.clone(),
+                subagent_config.clone(),
             ));
 
             start_message_handler_with_chat(

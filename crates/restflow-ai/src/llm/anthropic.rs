@@ -6,6 +6,9 @@ use reqwest::Client;
 use reqwest::header::{AUTHORIZATION, CONTENT_TYPE, HeaderMap, HeaderName, HeaderValue};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::process::Stdio;
+use tokio::process::Command;
+use tracing::{debug, info};
 
 use crate::error::{AiError, Result};
 use crate::http_client::build_http_client;
@@ -82,6 +85,62 @@ impl AnthropicClient {
         headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
 
         headers
+    }
+
+    /// Check if using OAuth authentication
+    fn is_oauth(&self) -> bool {
+        self.auth_type == AnthropicAuthType::OAuth
+    }
+
+    /// Complete using Claude CLI (for OAuth tokens that can't use API directly)
+    async fn complete_via_cli(&self, request: CompletionRequest) -> Result<CompletionResponse> {
+        info!("Using Claude CLI for OAuth token (API doesn't support OAuth)");
+
+        // Build prompt from messages
+        let prompt = Self::build_prompt(&request.messages);
+
+        // Call claude CLI with --print for non-interactive mode
+        // Pass OAuth token via CLAUDE_CODE_OAUTH_TOKEN environment variable
+        let output = Command::new("claude")
+            .env("CLAUDE_CODE_OAUTH_TOKEN", &self.api_key)
+            .arg("--print")
+            .arg(&prompt)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .await
+            .map_err(|e| {
+                AiError::Llm(format!(
+                    "Failed to run claude CLI: {}. Install with: npm install -g @anthropic-ai/claude-code",
+                    e
+                ))
+            })?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(AiError::Llm(format!("Claude CLI error: {}", stderr)));
+        }
+
+        let content = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        debug!("Claude CLI response: {} chars", content.len());
+
+        Ok(CompletionResponse {
+            content: Some(content),
+            tool_calls: vec![],
+            finish_reason: FinishReason::Stop,
+            usage: None,
+        })
+    }
+
+    /// Build prompt string from messages
+    fn build_prompt(messages: &[crate::llm::Message]) -> String {
+        messages
+            .iter()
+            .filter(|m| m.role != Role::System) // System handled separately by CLI
+            .map(|m| m.content.as_str())
+            .collect::<Vec<_>>()
+            .join("\n\n")
     }
 }
 
@@ -276,6 +335,11 @@ impl LlmClient for AnthropicClient {
     }
 
     async fn complete(&self, request: CompletionRequest) -> Result<CompletionResponse> {
+        // OAuth tokens can't use Anthropic API directly - route to Claude CLI
+        if self.is_oauth() {
+            return self.complete_via_cli(request).await;
+        }
+
         // Extract system message
         let system = request
             .messages
@@ -432,6 +496,14 @@ impl LlmClient for AnthropicClient {
         let auth_type = self.auth_type;
 
         Box::pin(async_stream::stream! {
+            // OAuth tokens can't use Anthropic API - CLI doesn't support streaming
+            if auth_type == AnthropicAuthType::OAuth {
+                yield Err(AiError::Llm(
+                    "Streaming not supported with OAuth tokens. Use non-streaming mode.".to_string()
+                ));
+                return;
+            }
+
             // Extract system message
             let system = request
                 .messages

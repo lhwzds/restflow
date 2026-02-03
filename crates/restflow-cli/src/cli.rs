@@ -38,9 +38,6 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Commands {
-    /// Start interactive TUI chat
-    Chat(ChatArgs),
-
     /// Generate shell completions
     Completions {
         #[arg(value_enum)]
@@ -190,21 +187,6 @@ pub struct CodexArgs {
     /// Timeout in seconds
     #[arg(long, default_value = "300")]
     pub timeout: u64,
-}
-
-#[derive(Args, Default)]
-pub struct ChatArgs {
-    /// Agent ID to use
-    #[arg(short, long)]
-    pub agent: Option<String>,
-
-    /// Session ID to continue
-    #[arg(short, long)]
-    pub session: Option<String>,
-
-    /// Initial message to send
-    #[arg(short, long)]
-    pub message: Option<String>,
 }
 
 #[derive(Args)]
