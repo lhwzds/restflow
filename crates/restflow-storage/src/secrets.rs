@@ -561,6 +561,7 @@ fn remove_master_key_from_db(db: &Arc<Database>) -> Result<()> {
         Err(err) => return Err(err.into()),
     };
     table.remove(MASTER_KEY_RECORD)?;
+    drop(table);
     write_txn.commit()?;
     Ok(())
 }
