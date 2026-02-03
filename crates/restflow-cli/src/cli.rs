@@ -411,6 +411,9 @@ pub enum SecretCommands {
 
     /// Check if secret exists
     Has { key: String },
+
+    /// Migrate legacy database master key to JSON state file
+    MigrateMasterKey,
 }
 
 #[derive(Subcommand)]

@@ -1,7 +1,6 @@
 //! Secrets storage - encrypted storage for API keys and credentials.
 
 use crate::encryption::SecretEncryptor;
-use crate::keychain;
 use anyhow::{Context, Result};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use rand::RngCore;
@@ -12,7 +11,7 @@ use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use tracing::{info, warn};
+use tracing::info;
 use ts_rs::TS;
 
 const SECRETS_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("secrets");
@@ -318,17 +317,13 @@ fn decode_legacy_secret(payload: &[u8]) -> Result<Secret> {
     Ok(serde_json::from_str(&json)?)
 }
 
-fn load_master_key(db: &Arc<Database>, _config: &SecretStorageConfig) -> Result<[u8; 32]> {
+fn load_master_key(_db: &Arc<Database>, _config: &SecretStorageConfig) -> Result<[u8; 32]> {
     if let Some(key) = load_master_key_from_env()? {
         info!("Using master key from environment variable");
         return Ok(key);
     }
 
     if let Some(key) = read_master_key_from_json()? {
-        return Ok(key);
-    }
-
-    if let Some(key) = migrate_master_key_from_db(db)? {
         return Ok(key);
     }
 
@@ -416,6 +411,19 @@ struct MasterKeyFile {
     #[serde(rename = "createdAt")]
     created_at: String,
     key: String,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum MasterKeyMigrationStatus {
+    Migrated,
+    JsonAlreadyExists,
+    NoDatabaseKey,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MasterKeyMigrationResult {
+    pub status: MasterKeyMigrationStatus,
+    pub path: PathBuf,
 }
 
 fn state_dir() -> Result<PathBuf> {
@@ -507,15 +515,32 @@ fn ensure_master_key_permissions(path: &Path) -> Result<()> {
     Ok(())
 }
 
-fn migrate_master_key_from_db(db: &Arc<Database>) -> Result<Option<[u8; 32]>> {
+pub fn migrate_master_key_from_db(db: &Arc<Database>) -> Result<MasterKeyMigrationResult> {
+    let path = master_key_path()?;
+    if path.exists() {
+        return Ok(MasterKeyMigrationResult {
+            status: MasterKeyMigrationStatus::JsonAlreadyExists,
+            path,
+        });
+    }
+
     let key = match read_master_key_from_db(db)? {
         Some(key) => key,
-        None => return Ok(None),
+        None => {
+            return Ok(MasterKeyMigrationResult {
+                status: MasterKeyMigrationStatus::NoDatabaseKey,
+                path,
+            })
+        }
     };
 
     write_master_key_to_json(&key)?;
     delete_master_key_from_db(db)?;
-    Ok(Some(key))
+
+    Ok(MasterKeyMigrationResult {
+        status: MasterKeyMigrationStatus::Migrated,
+        path,
+    })
 }
 
 #[cfg(test)]
@@ -563,43 +588,36 @@ mod tests {
     #[test]
     fn test_env_key_takes_precedence() {
         let temp_dir = tempdir().unwrap();
-        let db_path = temp_dir.path().join("test.db");
-        let db = Arc::new(Database::create(db_path).unwrap());
+        let state_dir = temp_dir.path().join("state");
+        let db = setup_db_for_master_key(&temp_dir);
+        let config = SecretStorageConfig::default();
 
-        let write_txn = db.begin_write().unwrap();
-        write_txn.open_table(MASTER_KEY_TABLE).unwrap();
-        write_txn.commit().unwrap();
+        let env_key = [0xaa; 32];
+        let env_value = STANDARD.encode(env_key);
+        let json_key = [9u8; 32];
 
-        let db_key = [1u8; 32];
-        store_master_key_in_db(&db, &db_key).unwrap();
-
-        let env_value = "aa".repeat(32);
-        // SAFETY: This is a single-threaded test, no other threads access this env var
-        unsafe { std::env::set_var(MASTER_KEY_ENV, &env_value) };
-
-        let config = SecretStorageConfig {
-            key_source: MasterKeySource::Database { warn: false },
-            allow_insecure_fallback: true,
-        };
-
-        let key = load_master_key(&db, &config).unwrap();
-        assert_eq!(key, [0xaa; 32]);
-
-        // SAFETY: This is a single-threaded test, no other threads access this env var
-        unsafe { std::env::remove_var(MASTER_KEY_ENV) };
+        with_state_dir(&state_dir, || {
+            write_master_key_to_json(&json_key).unwrap();
+            std_env::set_var(MASTER_KEY_ENV, env_value);
+            let key = load_master_key(&db, &config).unwrap();
+            std_env::remove_var(MASTER_KEY_ENV);
+            assert_eq!(key, env_key);
+        });
     }
 
     #[test]
-    fn test_rejects_without_key_config() {
+    fn test_generates_key_when_missing() {
         let temp_dir = tempdir().unwrap();
-        let db_path = temp_dir.path().join("test.db");
-        let db = Arc::new(Database::create(db_path).unwrap());
+        let state_dir = temp_dir.path().join("state");
+        let db = setup_db_for_master_key(&temp_dir);
+        let config = SecretStorageConfig::default();
 
-        // SAFETY: This is a single-threaded test, no other threads access this env var
-        unsafe { std::env::remove_var(MASTER_KEY_ENV) };
-
-        let err = load_master_key(&db, &SecretStorageConfig::default()).unwrap_err();
-        assert!(err.to_string().contains("No master key configured"));
+        with_state_dir(&state_dir, || {
+            std_env::remove_var(MASTER_KEY_ENV);
+            let key = load_master_key(&db, &config).unwrap();
+            let persisted = read_master_key_from_json().unwrap().unwrap();
+            assert_eq!(key, persisted);
+        });
     }
 
     #[test]
@@ -618,29 +636,7 @@ mod tests {
         assert_eq!(value, Some("sk-test123".to_string()));
     }
 
-    #[test]
-    fn test_concurrent_set_secret() {
-        let (storage, _temp_dir) = setup();
-        let storage = Arc::new(storage);
-
-        let handles: Vec<_> = (0..10)
-            .map(|i| {
-                let storage = Arc::clone(&storage);
-                thread::spawn(move || {
-                    storage
-                        .set_secret("CONCURRENT_KEY", &format!("value-{}", i), None)
-                        .unwrap();
-                })
-            })
-            .collect();
-
-        for handle in handles {
-            handle.join().unwrap();
-        }
-
-        let value = storage.get_secret("CONCURRENT_KEY").unwrap();
-        assert!(value.is_some());
-    }
+    // Duplicate concurrent set secret test removed.
 
     #[test]
     fn test_list_secrets_with_metadata() {
@@ -901,14 +897,14 @@ mod tests {
         let temp_dir = tempdir().unwrap();
         let state_dir = temp_dir.path().join("state");
         let db = setup_db_for_master_key(&temp_dir);
-        let config = SecretStorageConfig::default();
 
         let db_key = [11u8; 32];
         insert_db_master_key(&db, &db_key);
 
         with_state_dir(&state_dir, || {
-            let key = load_master_key(&db, &config).unwrap();
-            assert_eq!(key, db_key);
+            let result = migrate_master_key_from_db(&db).unwrap();
+            assert_eq!(result.status, MasterKeyMigrationStatus::Migrated);
+            assert_eq!(result.path, master_key_path().unwrap());
             let stored = read_master_key_from_db(&db).unwrap();
             assert!(stored.is_none());
             let json_key = read_master_key_from_json().unwrap().unwrap();

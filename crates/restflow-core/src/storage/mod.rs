@@ -19,7 +19,8 @@ use std::sync::Arc;
 
 // Re-export types that are self-contained in restflow-storage
 pub use restflow_storage::{
-    ConfigStorage, MasterKeySource, Secret, SecretStorage, SecretStorageConfig, SystemConfig,
+    ConfigStorage, MasterKeyMigrationResult, MasterKeyMigrationStatus, MasterKeySource, Secret,
+    SecretStorage, SecretStorageConfig, SystemConfig,
 };
 
 pub use agent::AgentStorage;
@@ -54,12 +55,7 @@ pub struct Storage {
 impl Storage {
     /// Create a new storage instance at the given path.
     pub fn new(path: &str) -> Result<Self> {
-        // Default: use database-stored key (compatible with existing databases)
-        // Environment variable always takes precedence if set
-        let secret_config = SecretStorageConfig {
-            key_source: MasterKeySource::Database { warn: false },
-            allow_insecure_fallback: true,
-        };
+        let secret_config = SecretStorageConfig::default();
         Self::with_secret_config(path, secret_config)
     }
 
@@ -99,5 +95,10 @@ impl Storage {
     /// Get a reference to the underlying database
     pub fn get_db(&self) -> Arc<Database> {
         self.db.clone()
+    }
+
+    /// Migrate a legacy database master key into the JSON state file.
+    pub fn migrate_master_key_from_db(&self) -> Result<MasterKeyMigrationResult> {
+        restflow_storage::secrets::migrate_master_key_from_db(&self.db)
     }
 }

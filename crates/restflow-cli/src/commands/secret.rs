@@ -5,6 +5,7 @@ use std::sync::Arc;
 use crate::cli::SecretCommands;
 use crate::commands::utils::format_timestamp;
 use crate::output::{json::print_json, OutputFormat};
+use restflow_core::storage::MasterKeyMigrationStatus;
 use restflow_core::AppCore;
 use serde_json::json;
 
@@ -14,6 +15,7 @@ pub async fn run(core: Arc<AppCore>, command: SecretCommands, format: OutputForm
         SecretCommands::Set { key, value } => set_secret(&core, &key, &value, format).await,
         SecretCommands::Delete { key } => delete_secret(&core, &key, format).await,
         SecretCommands::Has { key } => has_secret(&core, &key, format).await,
+        SecretCommands::MigrateMasterKey => migrate_master_key(&core, format).await,
     }
 }
 
@@ -76,5 +78,30 @@ async fn has_secret(core: &Arc<AppCore>, key: &str, format: OutputFormat) -> Res
     } else {
         println!("Secret not found: {key}");
     }
+    Ok(())
+}
+
+async fn migrate_master_key(core: &Arc<AppCore>, format: OutputFormat) -> Result<()> {
+    let result = core.storage.migrate_master_key_from_db()?;
+
+    if format.is_json() {
+        return print_json(&result);
+    }
+
+    match result.status {
+        MasterKeyMigrationStatus::Migrated => {
+            println!("Master key migrated to {}", result.path.display());
+        }
+        MasterKeyMigrationStatus::JsonAlreadyExists => {
+            println!(
+                "Master key JSON already exists at {}",
+                result.path.display()
+            );
+        }
+        MasterKeyMigrationStatus::NoDatabaseKey => {
+            println!("No master key found in database.");
+        }
+    }
+
     Ok(())
 }
