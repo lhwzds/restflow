@@ -1,6 +1,18 @@
 //! Core traits for agent strategies
 //!
 //! This module defines the unified interface that all agent strategies must implement.
+//!
+//! # Design Notes
+//!
+//! The trait uses `async fn execute() -> Result<StrategyResult>` instead of
+//! streaming/event-driven APIs because:
+//!
+//! - Simpler to implement new strategies
+//! - Easier to test (check input/output)
+//! - Strategies can compose/chain easily
+//! - Streaming can be added as optional layer later
+//!
+//! See `mod.rs` for full architecture comparison with event-driven systems.
 
 use std::collections::HashMap;
 use std::time::Duration;
