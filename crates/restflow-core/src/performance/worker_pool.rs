@@ -29,7 +29,7 @@ impl Default for WorkerPoolConfig {
 
 #[async_trait]
 pub trait TaskExecutor: Send + Sync + 'static {
-    async fn execute(&self, task: &AgentTask) -> anyhow::Result<()>;
+    async fn execute(&self, task: &AgentTask) -> anyhow::Result<bool>;
 }
 
 /// Worker pool.
@@ -117,29 +117,20 @@ impl WorkerPool {
 
         queue.mark_running(&task_id, worker_id, wait_time);
 
-        let result = tokio::time::timeout(
-            config.task_timeout,
-            executor.execute(&queued_task.task),
-        )
-        .await;
+        let result = executor.execute(&queued_task.task).await;
 
         match result {
-            Ok(Ok(())) => {
+            Ok(true) => {
                 queue.mark_completed(&task_id, true);
                 info!(worker_id, task_id = %task_id, wait_ms = ?wait_time.as_millis(), "Task completed successfully");
             }
-            Ok(Err(e)) => {
+            Ok(false) => {
+                queue.mark_completed(&task_id, false);
+                warn!(worker_id, task_id = %task_id, "Task completed with failure");
+            }
+            Err(e) => {
                 queue.mark_completed(&task_id, false);
                 error!(worker_id, task_id = %task_id, error = %e, "Task failed");
-            }
-            Err(_) => {
-                queue.mark_completed(&task_id, false);
-                warn!(
-                    worker_id,
-                    task_id = %task_id,
-                    timeout_secs = config.task_timeout.as_secs(),
-                    "Task timed out"
-                );
             }
         }
     }

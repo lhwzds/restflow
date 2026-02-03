@@ -562,7 +562,11 @@ impl AgentTaskRunner {
 
     /// Execute a single task
     /// Note: Task must already be in running_tasks before calling this
-    async fn execute_task(&self, task_id: &str, mut cancel_rx: oneshot::Receiver<()>) {
+    async fn execute_task(
+        &self,
+        task_id: &str,
+        mut cancel_rx: oneshot::Receiver<()>,
+    ) -> Result<bool> {
         let start_time = chrono::Utc::now().timestamp_millis();
 
         // Start execution in storage
@@ -571,7 +575,7 @@ impl AgentTaskRunner {
             Err(e) => {
                 error!("Failed to start task execution for {}: {}", task_id, e);
                 self.cleanup_task_tracking(task_id).await;
-                return;
+                return Err(anyhow!("Failed to start task execution for {}: {}", task_id, e));
             }
         };
 
@@ -659,15 +663,17 @@ impl AgentTaskRunner {
                     error!("Failed to mark task {} as paused: {}", task_id, e);
                 }
                 self.cleanup_task_tracking(task_id).await;
-                return;
+                return Ok(false);
             }
             result = exec_future => result,
         };
 
         let duration_ms = chrono::Utc::now().timestamp_millis() - start_time;
+        let mut success = false;
 
         match result {
             Ok(Ok(exec_result)) => {
+                success = true;
                 // Success
                 info!(
                     "Task '{}' completed successfully (duration={}ms)",
@@ -752,6 +758,7 @@ impl AgentTaskRunner {
         }
 
         self.cleanup_task_tracking(task_id).await;
+        Ok(success)
     }
 
     /// Remove a task from runner tracking maps.
@@ -888,10 +895,9 @@ struct RunnerTaskExecutor {
 
 #[async_trait::async_trait]
 impl TaskExecutor for RunnerTaskExecutor {
-    async fn execute(&self, task: &AgentTask) -> Result<()> {
+    async fn execute(&self, task: &AgentTask) -> Result<bool> {
         let cancel_rx = self.runner.take_cancel_receiver(&task.id).await;
-        self.runner.execute_task(&task.id, cancel_rx).await;
-        Ok(())
+        self.runner.execute_task(&task.id, cancel_rx).await
     }
 }
 
