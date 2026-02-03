@@ -1,17 +1,18 @@
 //! list_agents tool - List available agent types and running agents.
 
-use crate::main_agent::MainAgent;
-use anyhow::{Result, anyhow};
+use super::{SubagentDeps, Tool, ToolResult};
+use async_trait::async_trait;
+use restflow_ai::error::{AiError, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::sync::Arc;
 use ts_rs::TS;
 
-/// Parameters for list_agents tool
+/// Parameters for list_agents tool.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct ListAgentsParams {
-    /// Include currently running agents in the response
+    /// Include currently running agents in the response.
     #[serde(default = "default_include_running")]
     pub include_running: bool,
 }
@@ -20,29 +21,29 @@ fn default_include_running() -> bool {
     true
 }
 
-/// list_agents tool for the main agent
+/// list_agents tool for the unified agent.
 pub struct ListAgentsTool {
-    main_agent: Arc<MainAgent>,
+    deps: Arc<SubagentDeps>,
 }
 
 impl ListAgentsTool {
-    /// Create a new list_agents tool
-    pub fn new(main_agent: Arc<MainAgent>) -> Self {
-        Self { main_agent }
+    /// Create a new list_agents tool.
+    pub fn new(deps: Arc<SubagentDeps>) -> Self {
+        Self { deps }
     }
+}
 
-    /// Get tool name
-    pub fn name(&self) -> &str {
+#[async_trait]
+impl Tool for ListAgentsTool {
+    fn name(&self) -> &str {
         "list_agents"
     }
 
-    /// Get tool description
-    pub fn description(&self) -> &str {
+    fn description(&self) -> &str {
         "List available agent types and currently running agents."
     }
 
-    /// Get JSON schema for parameters
-    pub fn parameters_schema(&self) -> Value {
+    fn parameters_schema(&self) -> Value {
         json!({
             "type": "object",
             "properties": {
@@ -55,13 +56,11 @@ impl ListAgentsTool {
         })
     }
 
-    /// Execute the tool
-    pub async fn execute(&self, input: Value) -> Result<Value> {
-        let params: ListAgentsParams =
-            serde_json::from_value(input).map_err(|e| anyhow!("Invalid parameters: {}", e))?;
+    async fn execute(&self, input: Value) -> Result<ToolResult> {
+        let params: ListAgentsParams = serde_json::from_value(input)
+            .map_err(|e| AiError::Tool(format!("Invalid parameters: {}", e)))?;
 
-        // Get available agent definitions
-        let definitions = self.main_agent.agent_definitions();
+        let definitions = &self.deps.definitions;
         let available: Vec<Value> = definitions
             .callable()
             .iter()
@@ -80,7 +79,7 @@ impl ListAgentsTool {
         });
 
         if params.include_running {
-            let tracker = self.main_agent.running_subagents();
+            let tracker = &self.deps.tracker;
             let running: Vec<Value> = tracker
                 .running()
                 .iter()
@@ -99,7 +98,7 @@ impl ListAgentsTool {
             response["running_count"] = json!(tracker.running_count());
         }
 
-        Ok(response)
+        Ok(ToolResult::success(response))
     }
 }
 

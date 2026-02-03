@@ -16,7 +16,11 @@ use restflow_core::storage::Storage;
 use restflow_core::{AIModel, Provider};
 
 use super::debounce::MessageDebouncer;
-use crate::agent::{build_agent_system_prompt, registry_from_allowlist, UnifiedAgent, UnifiedAgentConfig};
+use crate::agent::{
+    SubagentDeps, ToolRegistry, UnifiedAgent, UnifiedAgentConfig,
+    build_agent_system_prompt, registry_from_allowlist,
+};
+use crate::subagent::{AgentDefinitionRegistry, SubagentConfig, SubagentTracker};
 
 /// Configuration for the ChatDispatcher.
 #[derive(Debug, Clone)]
@@ -239,10 +243,14 @@ pub struct ChatDispatcher {
     debouncer: Arc<MessageDebouncer>,
     channel_router: Arc<ChannelRouter>,
     config: ChatDispatcherConfig,
+    subagent_tracker: Arc<SubagentTracker>,
+    subagent_definitions: Arc<AgentDefinitionRegistry>,
+    subagent_config: SubagentConfig,
 }
 
 impl ChatDispatcher {
     /// Create a new ChatDispatcher.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         sessions: Arc<ChatSessionManager>,
         storage: Arc<Storage>,
@@ -250,6 +258,9 @@ impl ChatDispatcher {
         debouncer: Arc<MessageDebouncer>,
         channel_router: Arc<ChannelRouter>,
         config: ChatDispatcherConfig,
+        subagent_tracker: Arc<SubagentTracker>,
+        subagent_definitions: Arc<AgentDefinitionRegistry>,
+        subagent_config: SubagentConfig,
     ) -> Self {
         Self {
             sessions,
@@ -258,6 +269,9 @@ impl ChatDispatcher {
             debouncer,
             channel_router,
             config,
+            subagent_tracker,
+            subagent_definitions,
+            subagent_config,
         }
     }
 
@@ -319,6 +333,16 @@ impl ChatDispatcher {
                     .with_model(model_str)
                     .with_base_url("https://api.deepseek.com/v1"),
             ),
+        }
+    }
+
+    fn build_subagent_deps(&self, llm_client: Arc<dyn LlmClient>) -> SubagentDeps {
+        SubagentDeps {
+            tracker: self.subagent_tracker.clone(),
+            definitions: self.subagent_definitions.clone(),
+            llm_client,
+            tool_registry: Arc::new(ToolRegistry::new()),
+            config: self.subagent_config.clone(),
         }
     }
 
@@ -408,7 +432,11 @@ impl ChatDispatcher {
         };
 
         let llm = self.create_llm_client(model, &api_key);
-        let tools = Arc::new(registry_from_allowlist(agent_node.tools.as_deref()));
+        let subagent_deps = self.build_subagent_deps(llm.clone());
+        let tools = Arc::new(registry_from_allowlist(
+            agent_node.tools.as_deref(),
+            Some(&subagent_deps),
+        ));
         let system_prompt = build_agent_system_prompt(self.storage.clone(), agent_node)
             .map_err(|e| ChatError::ExecutionFailed(e.to_string()))?;
 

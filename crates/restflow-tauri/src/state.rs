@@ -1,5 +1,6 @@
 //! Application state management for Tauri
 
+use crate::agent::{SubagentDeps, ToolRegistry};
 use crate::agent_task::runner::{
     AgentExecutor, AgentTaskRunner, NotificationSender, RunnerConfig, RunnerHandle,
 };
@@ -7,8 +8,10 @@ use crate::agent_task::{HeartbeatEmitter, TauriHeartbeatEmitter};
 use crate::channel::{SystemStatus, TaskTrigger};
 use crate::chat::StreamManager;
 use crate::commands::agent_task::ActiveTaskInfo;
+use crate::subagent::{AgentDefinitionRegistry, SubagentConfig, SubagentTracker};
 use anyhow::Result;
 use async_trait::async_trait;
+use restflow_ai::LlmClient;
 use restflow_core::AppCore;
 use restflow_core::channel::ChannelRouter;
 use restflow_core::models::AgentTask;
@@ -16,7 +19,7 @@ use restflow_core::process::ProcessRegistry;
 use restflow_core::security::SecurityChecker;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::RwLock;
+use tokio::sync::{RwLock, mpsc};
 use tracing::{error, info};
 
 /// Information about a running task stored in state
@@ -44,6 +47,12 @@ pub struct AppState {
     pub process_registry: Arc<ProcessRegistry>,
     /// Active chat stream manager
     pub stream_manager: StreamManager,
+    /// Sub-agent tracker for spawned agent tasks
+    pub subagent_tracker: Arc<SubagentTracker>,
+    /// Registry of available sub-agent definitions
+    pub subagent_definitions: Arc<AgentDefinitionRegistry>,
+    /// Configuration for sub-agent execution
+    pub subagent_config: SubagentConfig,
 }
 
 impl AppState {
@@ -52,6 +61,10 @@ impl AppState {
         let security_checker = Arc::new(SecurityChecker::with_defaults());
         let channel_router = Arc::new(ChannelRouter::new());
         let process_registry = Arc::new(ProcessRegistry::new());
+        let (completion_tx, completion_rx) = mpsc::channel(100);
+        let subagent_tracker = Arc::new(SubagentTracker::new(completion_tx, completion_rx));
+        let subagent_definitions = Arc::new(AgentDefinitionRegistry::with_builtins());
+        let subagent_config = SubagentConfig::default();
         Ok(Self {
             core,
             runner_handle: RwLock::new(None),
@@ -60,6 +73,9 @@ impl AppState {
             channel_router,
             process_registry,
             stream_manager: StreamManager::new(),
+            subagent_tracker,
+            subagent_definitions,
+            subagent_config,
         })
     }
 
@@ -76,6 +92,17 @@ impl AppState {
     /// Get a reference to the channel router
     pub fn channel_router(&self) -> Arc<ChannelRouter> {
         self.channel_router.clone()
+    }
+
+    /// Build sub-agent dependencies for tool registry construction.
+    pub fn subagent_deps(&self, llm_client: Arc<dyn LlmClient>) -> SubagentDeps {
+        SubagentDeps {
+            tracker: self.subagent_tracker.clone(),
+            definitions: self.subagent_definitions.clone(),
+            llm_client,
+            tool_registry: Arc::new(ToolRegistry::new()),
+            config: self.subagent_config.clone(),
+        }
     }
 
     /// Start the agent task runner with the provided executor and notifier.

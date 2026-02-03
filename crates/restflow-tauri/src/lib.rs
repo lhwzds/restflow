@@ -9,16 +9,17 @@ pub mod channel;
 pub mod chat;
 pub mod commands;
 pub mod error;
-pub mod main_agent;
 pub mod mcp;
+pub mod subagent;
 pub mod state;
 pub mod webhook;
 
 pub use agent::{
     BashConfig, BashTool, EmailTool, ExecutionResult, FileConfig, FileTool, HttpTool,
-    PythonTool, SpawnTool, SubagentSpawner, TelegramTool, Tool, ToolRegistry,
-    ToolRegistryBuilder, ToolResult, UnifiedAgent, UnifiedAgentConfig,
-    build_agent_system_prompt, default_registry, registry_from_allowlist,
+    ListAgentsTool, PythonTool, SpawnAgentTool, SpawnTool, SubagentDeps, SubagentSpawner,
+    TelegramTool, Tool, ToolRegistry, ToolRegistryBuilder, ToolResult, UnifiedAgent,
+    UnifiedAgentConfig, UseSkillTool, WaitAgentsTool, build_agent_system_prompt,
+    default_registry, registry_from_allowlist,
 };
 pub use agent_task::{
     AgentExecutor, AgentTaskRunner, HEARTBEAT_EVENT, HeartbeatEmitter, HeartbeatEvent,
@@ -35,11 +36,10 @@ pub use chat::{
     StreamCancelHandle, StreamManager,
 };
 pub use error::TauriError;
-pub use main_agent::{
-    AgentDefinition, AgentDefinitionRegistry, AgentSession, MAIN_AGENT_EVENT, MainAgent,
-    MainAgentConfig, MainAgentEvent, MainAgentEventEmitter, MainAgentEventKind,
-    NoopMainAgentEmitter, SessionMessage, SpawnHandle, SpawnRequest, SubagentResult, SubagentState,
-    SubagentStatus, SubagentTracker, TauriMainAgentEmitter,
+pub use subagent::{
+    AgentDefinition, AgentDefinitionRegistry, SpawnHandle, SpawnPriority, SpawnRequest,
+    SubagentCompletion, SubagentConfig, SubagentResult, SubagentState, SubagentStatus,
+    SubagentTracker, builtin_agents, spawn_subagent,
 };
 pub use mcp::RestFlowMcpServer;
 pub use state::{AppState, AppTaskTrigger};
