@@ -13,14 +13,13 @@ concurrency:
 permissions:
   contents: read
 
-jobs:
-  # Security audit (runs once on Linux)
-  security-audit:
-    permissions:
-      contents: read
-      actions: write
-    runs-on: ubuntu-22.04
+env:
+  CARGO_TERM_COLOR: always
 
+jobs:
+  # Security audit
+  security-audit:
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
 
@@ -42,25 +41,105 @@ jobs:
       - name: Check for security vulnerabilities
         run: cargo audit
 
-  # Multi-platform tests
-  backend-tests:
-    permissions:
-      contents: read
-      actions: write
+  # Clippy for each crate (parallel)
+  clippy:
+    runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
       matrix:
-        platform:
-          # Linux x86_64
+        crate:
+          - restflow-storage
+          - restflow-core
+          - restflow-ai
+          - restflow-tauri
+          - restflow-server
+          - restflow-cli
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev libglib2.0-dev
+
+      - name: Setup Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+          components: clippy
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-clippy-${{ matrix.crate }}-${{ hashFiles('Cargo.lock') }}
+
+      - name: Create frontend dist directory
+        run: mkdir -p web/dist
+
+      - name: Run Clippy on ${{ matrix.crate }}
+        run: cargo clippy --package ${{ matrix.crate }} --all-targets -- -D warnings
+
+  # Tests for each crate (parallel)
+  test:
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        crate:
+          - restflow-storage
+          - restflow-core
+          - restflow-ai
+          - restflow-tauri
+          - restflow-server
+          - restflow-cli
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev libglib2.0-dev
+
+      - name: Setup Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-test-${{ matrix.crate }}-${{ hashFiles('Cargo.lock') }}
+
+      - name: Create frontend dist directory
+        run: mkdir -p web/dist
+
+      - name: Run tests for ${{ matrix.crate }}
+        run: cargo test --package ${{ matrix.crate }} --verbose
+
+  # Build release binaries (multi-platform)
+  build:
+    needs: [clippy, test]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
           - { os: ubuntu-22.04, target: x86_64-unknown-linux-gnu }
-          # macOS Intel 
-          - { os: macos-15-intel, target: x86_64-apple-darwin }
-          # macOS ARM (M1/M2/M3)
           - { os: macos-15, target: aarch64-apple-darwin }
-          # Windows x86_64
           - { os: windows-latest, target: x86_64-pc-windows-msvc }
 
-    runs-on: ${{ matrix.platform.os }}
+    runs-on: ${{ matrix.os }}
 
     steps:
       - uses: actions/checkout@v4
@@ -75,35 +154,22 @@ jobs:
         uses: actions-rs/toolchain@v1
         with:
           toolchain: stable
-          target: ${{ matrix.platform.target }}
+          target: ${{ matrix.target }}
           override: true
-          components: clippy
 
-      # Cache cargo registry only (skip target directory to avoid PDB cache corruption on Windows)
-      - name: Cache Cargo registry
+      - name: Cache Cargo
         uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-          key: ${{ runner.os }}-${{ matrix.platform.target }}-cargo-registry-v3-${{ hashFiles('Cargo.lock') }}
+          key: ${{ runner.os }}-${{ matrix.target }}-cargo-${{ hashFiles('Cargo.lock') }}
 
-      # Cache target directory (non-Windows only, Windows has PDB issues with cached artifacts)
-      - name: Cache target directory
-        if: runner.os != 'Windows'
-        uses: actions/cache@v4
-        with:
-          path: target
-          key: ${{ runner.os }}-${{ matrix.platform.target }}-cargo-target-v3-${{ hashFiles('Cargo.lock') }}
-
-      - name: Create frontend dist directory for tests
+      - name: Create frontend dist directory
         shell: bash
         run: mkdir -p web/dist
 
-      # Windows-specific: Avoid PDB linker errors (LNK1318)
-      # Root cause: mspdbsrv.exe has 2GB memory limit and PDB format has 64KB symbol limit
-      # See: https://github.com/rust-lang/cargo/issues/3161
-      - name: Configure Windows build environment
+      - name: Configure Windows build
         if: runner.os == 'Windows'
         shell: bash
         run: |
@@ -111,20 +177,14 @@ jobs:
           echo "CARGO_BUILD_JOBS=1" >> $GITHUB_ENV
           echo "RUSTFLAGS=-C debuginfo=0 -C link-arg=/DEBUG:NONE" >> $GITHUB_ENV
 
-      - name: Run Clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Build restflow-server
+        run: cargo build --release --package restflow-server --target ${{ matrix.target }}
 
-      - name: Run tests
-        run: cargo test --workspace --verbose
-
-      - name: Build release
-        run: cargo build --release --package restflow-server --target ${{ matrix.platform.target }}
+      - name: Build restflow-cli
+        run: cargo build --release --package restflow-cli --target ${{ matrix.target }}
 
   # Frontend tests
   frontend-tests:
-    permissions:
-      contents: read
-      actions: write
     runs-on: ubuntu-22.04
 
     steps:
