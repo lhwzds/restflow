@@ -5,6 +5,7 @@ pub mod codex;
 pub mod config;
 pub mod daemon;
 pub mod info;
+pub mod key;
 pub mod mcp;
 pub mod memory;
 pub mod migrate;
