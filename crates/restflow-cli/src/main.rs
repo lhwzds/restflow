@@ -61,6 +61,7 @@ async fn main() -> Result<()> {
         Some(Commands::Config { command }) => {
             commands::config::run(core, command, cli.format).await
         }
+        Some(Commands::Migrate(args)) => commands::migrate::run(args).await,
         Some(Commands::Session { command }) => {
             commands::session::run(core, command, cli.format).await
         }
