@@ -3,22 +3,18 @@ use axum::{
     Json,
     extract::{Path, State},
 };
-use redb::Database;
 use restflow_ai::agent::{AgentContext, MemoryContext, SkillSummary, load_workspace_context};
 use restflow_ai::{
     AgentConfig, AgentExecutor, AgentState, AgentStatus, AnthropicClient, ClaudeCodeClient, LlmClient, OpenAIClient,
     Role, ToolRegistry,
 };
-use restflow_core::auth::{AuthManagerConfig, AuthProfileManager, AuthProvider};
+use restflow_core::auth::{AuthProfileManager, AuthProvider};
 use restflow_core::memory::{ChatSessionMirror, MessageMirror, SearchEngine};
 use restflow_core::models::{
     AgentExecuteResponse, AgentNode, ApiKeyConfig, ExecutionDetails, ExecutionStep,
     MemorySearchQuery, Provider, ToolCallInfo,
 };
-use restflow_core::paths;
-use restflow_core::storage::SecretStorage;
 use restflow_core::storage::agent::StoredAgent;
-use restflow_core::AuthProfileStorage;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
@@ -100,6 +96,7 @@ async fn run_agent_with_executor(
     agent_node: &AgentNode,
     input: &str,
     secret_storage: Option<&restflow_core::storage::SecretStorage>,
+    auth_manager: &AuthProfileManager,
     skill_storage: restflow_core::storage::skill::SkillStorage,
     memory_storage: restflow_core::storage::memory::MemoryStorage,
     chat_storage: restflow_core::storage::chat_session::ChatSessionStorage,
@@ -110,7 +107,7 @@ async fn run_agent_with_executor(
     let model = agent_node.require_model().map_err(|e| e.to_string())?;
 
     // Get API key
-    let api_key = resolve_api_key(agent_node, secret_storage, model.provider()).await?;
+    let api_key = resolve_api_key(agent_node, secret_storage, auth_manager, model.provider()).await?;
 
     // Create LLM client based on model provider
     let llm: Arc<dyn LlmClient> = match model.provider() {
@@ -262,6 +259,7 @@ async fn run_agent_with_executor(
 async fn resolve_api_key(
     agent_node: &AgentNode,
     secret_storage: Option<&restflow_core::storage::SecretStorage>,
+    auth_manager: &AuthProfileManager,
     provider: Provider,
 ) -> Result<String, String> {
     if let Some(config) = &agent_node.api_key_config {
@@ -283,56 +281,33 @@ async fn resolve_api_key(
         }
     }
 
-    if let Some(key) = resolve_api_key_from_profiles(provider).await? {
+    if let Some(key) = resolve_api_key_from_profiles(auth_manager, provider).await? {
         return Ok(key);
     }
 
     Err("No API key configured".to_string())
 }
 
-async fn resolve_api_key_from_profiles(provider: Provider) -> Result<Option<String>, String> {
-    let config = AuthManagerConfig::default();
-    let data_dir =
-        paths::ensure_restflow_dir().map_err(|e| format!("Failed to resolve data dir: {}", e))?;
-
-    // Create SecretStorage
-    let db_path = data_dir.join("restflow.db");
-    let db = Arc::new(
-        Database::create(&db_path).map_err(|e| format!("Failed to open database: {}", e))?,
-    );
-    let secrets = Arc::new(
-        SecretStorage::new(db.clone())
-            .map_err(|e| format!("Failed to create secret storage: {}", e))?,
-    );
-    let storage = AuthProfileStorage::new(db)
-        .map_err(|e| format!("Failed to create auth profile storage: {}", e))?;
-
-    let manager = AuthProfileManager::with_storage(config, secrets, Some(storage));
-    let old_json = data_dir.join("auth_profiles.json");
-    if let Err(e) = manager.migrate_from_json(&old_json).await {
-        warn!(error = %e, "Failed to migrate auth profiles from JSON");
-    }
-    manager
-        .initialize()
-        .await
-        .map_err(|e| format!("Failed to initialize auth profiles: {}", e))?;
-
+async fn resolve_api_key_from_profiles(
+    auth_manager: &AuthProfileManager,
+    provider: Provider,
+) -> Result<Option<String>, String> {
     let selection = match provider {
         Provider::Anthropic => {
-            if let Some(selection) = manager.select_profile(AuthProvider::Anthropic).await {
+            if let Some(selection) = auth_manager.select_profile(AuthProvider::Anthropic).await {
                 Some(selection)
             } else {
-                manager.select_profile(AuthProvider::ClaudeCode).await
+                auth_manager.select_profile(AuthProvider::ClaudeCode).await
             }
         }
-        Provider::OpenAI => manager.select_profile(AuthProvider::OpenAI).await,
+        Provider::OpenAI => auth_manager.select_profile(AuthProvider::OpenAI).await,
         Provider::DeepSeek => None,
     };
 
     match selection {
         Some(sel) => Ok(Some(
             sel.profile
-                .get_api_key(manager.resolver())
+                .get_api_key(auth_manager.resolver())
                 .map_err(|e| e.to_string())?,
         )),
         None => Ok(None),
@@ -433,6 +408,7 @@ pub async fn execute_agent(
         &agent.agent,
         &request.input,
         Some(&state.storage.secrets),
+        &state.auth_manager,
         state.storage.skills.clone(),
         state.storage.memory.clone(),
         state.storage.chat_sessions.clone(),
@@ -509,6 +485,7 @@ pub async fn execute_agent_inline(
         &agent,
         &input,
         Some(&state.storage.secrets),
+        &state.auth_manager,
         state.storage.skills.clone(),
         state.storage.memory.clone(),
         state.storage.chat_sessions.clone(),
@@ -537,7 +514,7 @@ mod tests {
         let temp_dir = tempdir().unwrap();
         let db_path = temp_dir.path().join("test.db");
         let core = Arc::new(AppCore::new(db_path.to_str().unwrap()).await.unwrap());
-        let app = AppState::new(core);
+        let app = AppState::new_sync(core);
         (app, temp_dir)
     }
 

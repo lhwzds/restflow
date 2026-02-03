@@ -68,8 +68,10 @@ async fn main() {
         ])
         .allow_headers([header::CONTENT_TYPE, header::AUTHORIZATION]);
 
-    // Create AppState with security checker
-    let shared_state = AppState::new(core.clone());
+    // Create AppState with security checker and auth manager
+    let shared_state = AppState::new(core.clone())
+        .await
+        .expect("Failed to initialize AppState");
     let api_key_manager = ApiKeyManager::from_env();
 
     let app = Router::new()

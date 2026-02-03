@@ -246,7 +246,7 @@ mod tests {
         let temp_dir = tempdir().unwrap();
         let db_path = temp_dir.path().join("test.db");
         let core = Arc::new(AppCore::new(db_path.to_str().unwrap()).await.unwrap());
-        let app = AppState::new(core);
+        let app = AppState::new_sync(core);
         (app, temp_dir)
     }
 
