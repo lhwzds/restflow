@@ -85,6 +85,7 @@ fn main() {
             let rt = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
 
             let db_path = get_db_path(app);
+            maybe_migrate_old_database(&db_path);
             info!(db_path = %db_path, "Initializing database");
 
             let state = rt.block_on(async {
@@ -300,46 +301,54 @@ fn main() {
 }
 
 /// Get the database path for the application
-fn create_auth_manager(secrets: std::sync::Arc<restflow_core::storage::SecretStorage>) -> Result<AuthProfileManager> {
+fn create_auth_manager(
+    secrets: std::sync::Arc<restflow_core::storage::SecretStorage>,
+) -> Result<AuthProfileManager> {
     let mut config = AuthManagerConfig::default();
     let profiles_path = paths::ensure_data_dir()?.join("auth_profiles.json");
     config.profiles_path = Some(profiles_path);
     Ok(AuthProfileManager::with_config(config, secrets))
 }
 
-fn get_db_path(app: &tauri::App) -> String {
-    // Try to get app data directory
-    if let Ok(app_data_dir) = app.path().app_data_dir() {
-        // Create the directory if it doesn't exist
-        if let Err(e) = std::fs::create_dir_all(&app_data_dir) {
-            tracing::warn!(error = %e, "Failed to create app data directory, using current directory");
-            return "restflow.db".to_string();
-        }
-
-        let db_path = app_data_dir.join("restflow.db");
-        return db_path.to_string_lossy().to_string();
-    }
-
-    // Fallback to current directory
-    "restflow.db".to_string()
+fn get_db_path(_app: &tauri::App) -> String {
+    paths::ensure_database_path_string().unwrap_or_else(|e| {
+        tracing::warn!(error = %e, "Failed to get database path, using current directory");
+        "restflow.db".to_string()
+    })
 }
 
-/// Get the default database path for MCP mode (without Tauri app context)
-#[allow(dead_code)]
-fn get_default_db_path() -> String {
-    // Try to use the same path as Tauri would use
-    if let Some(data_dir) = dirs::data_dir() {
-        let app_data_dir = data_dir.join("com.restflow.app");
-        if let Err(e) = std::fs::create_dir_all(&app_data_dir) {
-            tracing::warn!(error = %e, "Failed to create app data directory, using current directory");
-            return "restflow.db".to_string();
-        }
-        let db_path = app_data_dir.join("restflow.db");
-        return db_path.to_string_lossy().to_string();
+fn maybe_migrate_old_database(new_path: &str) {
+    let new_path = std::path::Path::new(new_path);
+    if new_path.exists() {
+        return;
     }
 
-    // Fallback to current directory
-    "restflow.db".to_string()
+    let Some(data_dir) = dirs::data_dir() else {
+        return;
+    };
+
+    let old_path = data_dir
+        .join("com.restflow.app")
+        .join("restflow.db");
+    if !old_path.exists() {
+        return;
+    }
+
+    if let Some(parent) = new_path.parent() {
+        if let Err(e) = std::fs::create_dir_all(parent) {
+            tracing::warn!(error = %e, "Failed to create database directory for migration");
+            return;
+        }
+    }
+
+    tracing::info!(
+        old = %old_path.display(),
+        new = %new_path.display(),
+        "Migrating database from old location"
+    );
+    if let Err(e) = std::fs::copy(&old_path, new_path) {
+        tracing::warn!(error = %e, "Failed to migrate database");
+    }
 }
 
 /// Get the default database path for MCP mode
