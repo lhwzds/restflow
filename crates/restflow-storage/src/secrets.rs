@@ -5,7 +5,6 @@ use anyhow::{Context, Result};
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use rand::RngCore;
 use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
-use restflow_core::paths;
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::fs::{self, OpenOptions};
@@ -19,6 +18,46 @@ const SECRETS_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("secret
 const MASTER_KEY_ENV: &str = "RESTFLOW_MASTER_KEY";
 const MASTER_KEY_FILE: &str = "master.key";
 const LEGACY_MASTER_KEY_JSON_FILE: &str = "secret-master-key.json";
+
+mod paths {
+    use anyhow::Result;
+    use std::path::PathBuf;
+
+    const RESTFLOW_DIR: &str = ".restflow";
+    const RESTFLOW_DIR_ENV: &str = "RESTFLOW_DIR";
+    const RESTFLOW_STATE_DIR_ENV: &str = "RESTFLOW_STATE_DIR";
+    const MASTER_KEY_FILE: &str = "master.key";
+
+    pub fn resolve_restflow_dir() -> Result<PathBuf> {
+        if let Ok(dir) = std::env::var(RESTFLOW_DIR_ENV) {
+            if !dir.trim().is_empty() {
+                return Ok(PathBuf::from(dir));
+            }
+        }
+        dirs::home_dir()
+            .map(|h| h.join(RESTFLOW_DIR))
+            .ok_or_else(|| anyhow::anyhow!("Failed to determine home directory"))
+    }
+
+    pub fn legacy_state_dir() -> Option<PathBuf> {
+        if let Ok(dir) = std::env::var(RESTFLOW_STATE_DIR_ENV) {
+            if !dir.trim().is_empty() {
+                return Some(PathBuf::from(dir));
+            }
+        }
+        None
+    }
+
+    pub fn ensure_restflow_dir() -> Result<PathBuf> {
+        let dir = resolve_restflow_dir()?;
+        std::fs::create_dir_all(&dir)?;
+        Ok(dir)
+    }
+
+    pub fn master_key_path() -> Result<PathBuf> {
+        Ok(resolve_restflow_dir()?.join(MASTER_KEY_FILE))
+    }
+}
 
 #[derive(Debug, Clone, Default)]
 pub struct SecretStorageConfig {
