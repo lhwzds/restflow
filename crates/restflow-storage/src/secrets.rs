@@ -21,17 +21,9 @@ const MASTER_KEY_RECORD: &str = "default";
 const STATE_DIR_ENV: &str = "RESTFLOW_STATE_DIR";
 const MASTER_KEY_JSON_FILE: &str = "secret-master-key.json";
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct SecretStorageConfig {
     pub allow_insecure_file_permissions: bool,
-}
-
-impl Default for SecretStorageConfig {
-    fn default() -> Self {
-        Self {
-            allow_insecure_file_permissions: false,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -379,12 +371,11 @@ fn load_master_key(db: &Arc<Database>, config: &SecretStorageConfig) -> Result<[
     match write_master_key_json(&key) {
         Ok(_) => Ok(key),
         Err(err) => {
-            if let Some(io_err) = err.downcast_ref::<std::io::Error>() {
-                if io_err.kind() == std::io::ErrorKind::AlreadyExists {
-                    if let Some(existing) = load_master_key_from_json(config)? {
-                        return Ok(existing);
-                    }
-                }
+            if let Some(io_err) = err.downcast_ref::<std::io::Error>()
+                && io_err.kind() == std::io::ErrorKind::AlreadyExists
+                && let Some(existing) = load_master_key_from_json(config)?
+            {
+                return Ok(existing);
             }
             Err(err)
         }
@@ -458,10 +449,10 @@ fn master_key_json_path() -> Result<PathBuf> {
 }
 
 fn resolve_state_dir() -> Result<PathBuf> {
-    if let Ok(value) = env::var(STATE_DIR_ENV) {
-        if !value.trim().is_empty() {
-            return Ok(PathBuf::from(value));
-        }
+    if let Ok(value) = env::var(STATE_DIR_ENV)
+        && !value.trim().is_empty()
+    {
+        return Ok(PathBuf::from(value));
     }
 
     let home = dirs::home_dir()
