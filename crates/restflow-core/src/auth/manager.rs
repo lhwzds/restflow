@@ -118,17 +118,15 @@ impl AuthProfileManager {
 
     /// Initialize the manager (run discovery if auto_discover is enabled)
     pub async fn initialize(&self) -> Result<DiscoverySummary> {
-        if self.config.auto_discover {
-            let summary = self.discover().await?;
-
-            if let Err(e) = self.load_profiles_from_storage().await {
-                warn!(error = %e, "Failed to load manual profiles from storage");
-            }
-
-            Ok(summary)
-        } else {
-            Ok(DiscoverySummary::default())
+        if let Err(e) = self.load_profiles_from_storage().await {
+            warn!(error = %e, "Failed to load manual profiles from storage");
         }
+
+        if self.config.auto_discover {
+            return self.discover().await;
+        }
+
+        Ok(DiscoverySummary::default())
     }
 
     /// Run credential discovery
