@@ -3,10 +3,11 @@
 //! Provides IPC endpoints for frontend credential management.
 
 use restflow_core::auth::{
-    AuthManagerConfig, AuthProfile, AuthProfileManager, AuthProvider, Credential,
-    CredentialSource, DiscoverySummary, ManagerSummary, ProfileUpdate,
+    AuthManagerConfig, AuthProfile, AuthProfileManager, AuthProvider, Credential, CredentialSource,
+    DiscoverySummary, ManagerSummary, ProfileUpdate,
 };
 use restflow_core::storage::SecretStorage;
+use restflow_storage::AuthProfileStorage;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tauri::State;
@@ -30,6 +31,21 @@ impl AuthState {
     pub fn with_config(config: AuthManagerConfig, secrets: Arc<SecretStorage>) -> Self {
         Self {
             manager: Arc::new(AuthProfileManager::with_config(config, secrets)),
+            initialized: Arc::new(RwLock::new(false)),
+        }
+    }
+
+    pub fn with_storage(
+        config: AuthManagerConfig,
+        secrets: Arc<SecretStorage>,
+        storage: AuthProfileStorage,
+    ) -> Self {
+        Self {
+            manager: Arc::new(AuthProfileManager::with_storage(
+                config,
+                secrets,
+                Some(storage),
+            )),
             initialized: Arc::new(RwLock::new(false)),
         }
     }
@@ -159,7 +175,12 @@ pub async fn auth_add_profile(
 
     match state
         .manager
-        .add_profile_from_credential(request.name, credential, CredentialSource::Manual, request.provider)
+        .add_profile_from_credential(
+            request.name,
+            credential,
+            CredentialSource::Manual,
+            request.provider,
+        )
         .await
     {
         Ok(id) => {
@@ -172,7 +193,7 @@ pub async fn auth_add_profile(
                 };
                 let _ = state.manager.update_profile(&id, update).await;
             }
-            
+
             let profile = state.manager.get_profile(&id).await;
             match profile {
                 Some(p) => Ok(ProfileResponse::success(p)),
@@ -253,7 +274,9 @@ pub async fn auth_mark_success(
 
     match state.manager.get_profile(&profile_id).await {
         Some(profile) => Ok(ProfileResponse::success(profile)),
-        None => Ok(ProfileResponse::error("Profile not found after mark_success")),
+        None => Ok(ProfileResponse::error(
+            "Profile not found after mark_success",
+        )),
     }
 }
 
@@ -269,7 +292,9 @@ pub async fn auth_mark_failure(
 
     match state.manager.get_profile(&profile_id).await {
         Some(profile) => Ok(ProfileResponse::success(profile)),
-        None => Ok(ProfileResponse::error("Profile not found after mark_failure")),
+        None => Ok(ProfileResponse::error(
+            "Profile not found after mark_failure",
+        )),
     }
 }
 

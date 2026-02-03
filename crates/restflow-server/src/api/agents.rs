@@ -18,6 +18,7 @@ use restflow_core::models::{
 use restflow_core::paths;
 use restflow_core::storage::SecretStorage;
 use restflow_core::storage::agent::StoredAgent;
+use restflow_storage::AuthProfileStorage;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
@@ -284,11 +285,9 @@ async fn resolve_api_key(
 }
 
 async fn resolve_api_key_from_profiles(provider: Provider) -> Result<Option<String>, String> {
-    let mut config = AuthManagerConfig::default();
+    let config = AuthManagerConfig::default();
     let data_dir =
         paths::ensure_data_dir().map_err(|e| format!("Failed to resolve data dir: {}", e))?;
-    let profiles_path = data_dir.join("auth_profiles.json");
-    config.profiles_path = Some(profiles_path);
 
     // Create SecretStorage
     let db_path = data_dir.join("restflow.db");
@@ -296,10 +295,17 @@ async fn resolve_api_key_from_profiles(provider: Provider) -> Result<Option<Stri
         Database::create(&db_path).map_err(|e| format!("Failed to open database: {}", e))?,
     );
     let secrets = Arc::new(
-        SecretStorage::new(db).map_err(|e| format!("Failed to create secret storage: {}", e))?,
+        SecretStorage::new(db.clone())
+            .map_err(|e| format!("Failed to create secret storage: {}", e))?,
     );
+    let storage = AuthProfileStorage::new(db)
+        .map_err(|e| format!("Failed to create auth profile storage: {}", e))?;
 
-    let manager = AuthProfileManager::with_config(config, secrets);
+    let manager = AuthProfileManager::with_storage(config, secrets, Some(storage));
+    let old_json = data_dir.join("auth_profiles.json");
+    if let Err(e) = manager.migrate_from_json(&old_json).await {
+        warn!(error = %e, "Failed to migrate auth profiles from JSON");
+    }
     manager
         .initialize()
         .await
