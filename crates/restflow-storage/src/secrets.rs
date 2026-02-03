@@ -351,6 +351,7 @@ fn load_master_key(db: &Arc<Database>, config: &SecretStorageConfig) -> Result<[
     }
 
 
+
     if let Some(db_key) = read_master_key_from_db(db)? {
         info!("Migrating master key from database to JSON file");
         match write_master_key_json(&db_key) {
