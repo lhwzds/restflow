@@ -4795,6 +4795,7 @@ dependencies = [
  "redb",
  "restflow-ai",
  "restflow-core",
+ "restflow-storage",
  "restflow-tauri",
  "rpassword",
  "serde",
