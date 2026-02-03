@@ -101,6 +101,9 @@ pub enum Commands {
         command: ConfigCommands,
     },
 
+    /// Migrate configuration from old locations
+    Migrate(MigrateArgs),
+
     /// MCP server management
     Mcp {
         #[command(subcommand)]
@@ -187,6 +190,17 @@ pub struct CodexArgs {
     /// Timeout in seconds
     #[arg(long, default_value = "300")]
     pub timeout: u64,
+}
+
+#[derive(Args)]
+pub struct MigrateArgs {
+    /// Dry run - show what would be migrated without making changes
+    #[arg(long)]
+    pub dry_run: bool,
+
+    /// Force migration even if target exists
+    #[arg(long)]
+    pub force: bool,
 }
 
 #[derive(Args)]
