@@ -8,23 +8,22 @@ name = "restflow-server"
 path = "src/main.rs"
 
 [dependencies]
-restflow-core = { workspace = true }
-restflow-storage = { workspace = true }
-restflow-ai = { workspace = true }
 anyhow = { workspace = true }
-redb = "3.1"
-axum = { version = "0.8.7", features = ["macros"] }
-mime_guess = "2.0.5"
-mimalloc = { version = "0.1", default-features = false }
+axum = { version = "0.8.7", features = ["macros", "ws"] }
 chrono = { workspace = true }
 futures = "0.3.31"
+hex = "0.4.3"
+jsonwebtoken = "10"
+mime_guess = "2.0.5"
+mimalloc = { version = "0.1", default-features = false }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 rust-embed = { version = "8.9.0", features = ["include-exclude", "interpolate-folder-path"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.142"
-jsonwebtoken = "10"
-hex = "0.4.3"
 sha2 = "0.10.9"
 tokio = { version = "1.47.1", features = ["full"] }
+tokio-tungstenite = { version = "0.23" }
+toml = "0.8"
 tower = "0.5.2"
 tower-http = { version = "0.6.7", features = ["cors", "fs"] }
 tracing = "0.1"

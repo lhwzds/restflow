@@ -1,22 +1,23 @@
+mod config;
+mod daemon_client;
+mod middleware;
+mod proxy;
 mod static_assets;
+mod ws_proxy;
 
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
-mod api;
-mod auth;
-
-use api::{
-    agent_tasks::*, agents::*, chat_sessions::*, config::*, memory::memory_routes, models::*,
-    python::*, secrets::*, security::*, skills::*, state::AppState, tools::*,
-};
-use auth::{auth_middleware, ApiKeyManager};
+use crate::config::ServerConfig;
+use crate::daemon_client::DaemonClient;
+use crate::middleware::{ApiKeyManager, RateLimiter, auth_middleware, rate_limit_middleware};
+use crate::proxy::proxy_router;
+use crate::ws_proxy::ws_proxy_handler;
 use axum::{
     Router,
     http::{Method, header},
-    routing::{get, post, put},
+    routing::get,
 };
-use restflow_core::{AppCore, paths};
 use std::sync::Arc;
 use tower_http::cors::CorsLayer;
 
@@ -32,8 +33,7 @@ async fn health() -> axum::Json<Health> {
 }
 
 #[tokio::main]
-async fn main() {
-    // Initialize tracing logger
+async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
@@ -44,18 +44,13 @@ async fn main() {
         .with_line_number(true)
         .init();
 
-    tracing::info!("Starting RestFlow backend server");
+    tracing::info!("Starting RestFlow gateway server");
 
-    // Use AppCore for unified initialization
-    let db_path =
-        paths::ensure_database_path_string().expect("Failed to determine RestFlow database path");
-    let core = Arc::new(
-        AppCore::new(&db_path)
-            .await
-            .expect("Failed to initialize app core"),
-    );
+    let config = ServerConfig::load()?;
+    let daemon = Arc::new(DaemonClient::new(&config.daemon_url));
+    let rate_limiter = RateLimiter::new(config.rate_limit_per_minute);
+    let api_key_manager = ApiKeyManager::from_env();
 
-    // Configure CORS
     let cors = CorsLayer::new()
         .allow_origin(tower_http::cors::Any)
         .allow_methods([
@@ -68,105 +63,28 @@ async fn main() {
         ])
         .allow_headers([header::CONTENT_TYPE, header::AUTHORIZATION]);
 
-    // Create AppState with security checker and auth manager
-    let shared_state = AppState::new(core.clone())
-        .await
-        .expect("Failed to initialize AppState");
-    let api_key_manager = ApiKeyManager::from_env();
-
     let app = Router::new()
         .route("/health", get(health))
-        // System configuration
-        .route("/api/config", get(get_config).put(update_config))
-        // AI models metadata
-        .route("/api/models", get(list_models))
-        // AI tools
-        .route("/api/tools", get(list_tools))
-        // Python integration
-        .route("/api/python/execute", post(execute_script))
-        .route("/api/python/scripts", get(list_scripts))
-        .route("/api/python/templates", get(list_templates))
-        .route("/api/python/templates/{template_id}", get(get_template))
-        // Agent management
-        .route("/api/agents", get(list_agents).post(create_agent))
-        .route(
-            "/api/agents/{id}",
-            get(get_agent).put(update_agent).delete(delete_agent),
-        )
-        .route("/api/agents/{id}/execute", post(execute_agent))
-        .route("/api/agents/execute-inline", post(execute_agent_inline))
-        // Agent tasks
-        .route("/api/agent-tasks", get(list_agent_tasks).post(create_agent_task))
-        .route(
-            "/api/agent-tasks/{id}",
-            get(get_agent_task)
-                .put(update_agent_task)
-                .delete(delete_agent_task),
-        )
-        .route("/api/agent-tasks/{id}/pause", post(pause_agent_task))
-        .route("/api/agent-tasks/{id}/resume", post(resume_agent_task))
-        .route("/api/agent-tasks/{id}/run", post(run_agent_task))
-        .route("/api/agent-tasks/{id}/events", get(get_agent_task_events))
-        .route("/api/agent-tasks/{id}/stream", get(stream_agent_task_events))
-        // Chat sessions
-        .route("/api/chat-sessions", get(list_chat_sessions).post(create_chat_session))
-        .route(
-            "/api/chat-sessions/{id}",
-            get(get_chat_session)
-                .patch(update_chat_session)
-                .delete(delete_chat_session),
-        )
-        .route(
-            "/api/chat-sessions/{id}/messages",
-            post(add_chat_message),
-        )
-        .route(
-            "/api/chat-sessions/{id}/summary",
-            get(get_chat_session_summary),
-        )
-        // Security
-        .route("/api/security/approvals", get(list_pending_approvals))
-        .route(
-            "/api/security/approvals/{id}/approve",
-            post(approve_security_approval),
-        )
-        .route(
-            "/api/security/approvals/{id}/reject",
-            post(reject_security_approval),
-        )
-        .route(
-            "/api/security/allowlist",
-            get(get_security_allowlist).put(update_security_allowlist),
-        )
-        // Secret management
-        .route("/api/secrets", get(list_secrets).post(create_secret))
-        .route(
-            "/api/secrets/{key}",
-            put(update_secret).delete(delete_secret),
-        )
-        // Skills management
-        .route("/api/skills", get(list_skills).post(create_skill))
-        .route("/api/skills/import", post(import_skill))
-        .route(
-            "/api/skills/{id}",
-            get(get_skill).put(update_skill).delete(delete_skill),
-        )
-        .route("/api/skills/{id}/export", get(export_skill))
-        // Memory routes (search, chunks, stats, export, import)
-        .nest("/api/memory", memory_routes())
+        .nest("/api", proxy_router(daemon.clone()))
+        .route("/execute", get(ws_proxy_handler))
         .fallback(static_assets::static_handler)
         .layer(cors)
+        .layer(axum::middleware::from_fn(rate_limit_middleware))
         .layer(axum::middleware::from_fn(auth_middleware))
+        .layer(axum::Extension(rate_limiter))
         .layer(axum::Extension(api_key_manager))
-        .with_state(shared_state);
+        .layer(axum::Extension(daemon));
 
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000")
+    let addr = format!("{}:{}", config.host, config.port);
+    let listener = tokio::net::TcpListener::bind(&addr)
         .await
-        .expect("Failed to bind to port 3000");
+        .map_err(|err| anyhow::anyhow!("Failed to bind to {}: {}", addr, err))?;
 
-    tracing::info!("RestFlow running on http://localhost:3000");
+    tracing::info!("RestFlow gateway listening on http://{}", addr);
 
     axum::serve(listener, app)
         .await
-        .expect("Failed to start server");
+        .map_err(|err| anyhow::anyhow!("Failed to start server: {}", err))?;
+
+    Ok(())
 }
