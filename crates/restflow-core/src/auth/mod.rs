@@ -8,7 +8,6 @@
 
 pub mod discoverer;
 pub mod manager;
-pub mod migration;
 pub mod refresh;
 pub mod resolver;
 pub mod types;
@@ -16,7 +15,6 @@ pub mod writer;
 
 pub use discoverer::*;
 pub use manager::*;
-pub use migration::*;
 pub use refresh::*;
 pub use resolver::*;
 pub use types::*;
