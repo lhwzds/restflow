@@ -42,6 +42,7 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
+
     let db_path = setup::resolve_db_path(
         cli.db_path
             .clone()

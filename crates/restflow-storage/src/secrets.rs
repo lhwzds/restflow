@@ -350,6 +350,7 @@ fn load_master_key(db: &Arc<Database>, config: &SecretStorageConfig) -> Result<[
         return Ok(key);
     }
 
+
     if let Some(db_key) = read_master_key_from_db(db)? {
         info!("Migrating master key from database to JSON file");
         match write_master_key_json(&db_key) {
@@ -377,6 +378,7 @@ fn load_master_key(db: &Arc<Database>, config: &SecretStorageConfig) -> Result<[
 
     let mut key = [0u8; 32];
     rand::rngs::OsRng.fill_bytes(&mut key);
+
     match write_master_key_json(&key) {
         Ok(_) => Ok(key),
         Err(err) => {
@@ -566,6 +568,7 @@ fn remove_master_key_from_db(db: &Arc<Database>) -> Result<()> {
     Ok(())
 }
 
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -734,6 +737,28 @@ mod tests {
 
         // SAFETY: This is a single-threaded test, no other threads access this env var
         unsafe { std::env::remove_var(STATE_DIR_ENV) };
+    }
+
+    #[test]
+    fn test_master_key_json_non_overwrite() {
+        let temp_dir = tempdir().unwrap();
+        let state_dir = temp_dir.path().join("state");
+        let db = setup_db_for_master_key(&temp_dir);
+        let config = SecretStorageConfig::default();
+
+        let key_a = [1u8; 32];
+        let key_b = [2u8; 32];
+
+        with_state_dir(&state_dir, || {
+            let result = write_master_key_to_json(&key_a).unwrap();
+            assert_eq!(result, MasterKeyWriteResult::Written);
+
+            let result = write_master_key_to_json(&key_b).unwrap();
+            assert_eq!(result, MasterKeyWriteResult::AlreadyExists);
+
+            let key = load_master_key(&db, &config).unwrap();
+            assert_eq!(key, key_a);
+        });
     }
 
     #[test]
