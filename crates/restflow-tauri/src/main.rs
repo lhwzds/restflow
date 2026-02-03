@@ -342,23 +342,6 @@ fn get_default_db_path() -> String {
     "restflow.db".to_string()
 }
 
-/// Get the default database path for MCP mode
-/// Uses a separate database file to avoid conflicts with the GUI
-fn get_mcp_db_path() -> String {
-    // Try to use the same directory as the GUI database, but with a different filename
-    if let Some(data_dir) = dirs::data_dir() {
-        let app_dir = data_dir.join("com.restflow.app");
-        if std::fs::create_dir_all(&app_dir).is_ok() {
-            return app_dir
-                .join("restflow-mcp.db")
-                .to_string_lossy()
-                .to_string();
-        }
-    }
-    // Fallback to current directory
-    "restflow-mcp.db".to_string()
-}
-
 /// Run RestFlow as an MCP server
 fn run_mcp_server(db_path: Option<String>) {
     tracing::info!("Starting RestFlow MCP Server");
@@ -366,7 +349,12 @@ fn run_mcp_server(db_path: Option<String>) {
     let rt = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
 
     rt.block_on(async {
-        let db_path = db_path.unwrap_or_else(get_mcp_db_path);
+        let db_path = db_path.unwrap_or_else(|| {
+            paths::ensure_database_path_string().unwrap_or_else(|e| {
+                tracing::warn!(error = %e, "Failed to get database path");
+                "restflow.db".to_string()
+            })
+        });
         tracing::info!(db_path = %db_path, "Initializing database for MCP server");
 
         let state = AppState::new(&db_path)
