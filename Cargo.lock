@@ -4827,6 +4827,7 @@ dependencies = [
  "hex",
  "keyring",
  "lettre",
+ "nix 0.29.0",
  "once_cell",
  "petgraph",
  "portable-pty",
