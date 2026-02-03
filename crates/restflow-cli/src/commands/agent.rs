@@ -6,13 +6,12 @@ use std::time::Instant;
 use crate::cli::AgentCommands;
 use crate::commands::utils::{format_timestamp, parse_model, read_stdin_to_string};
 use crate::output::{OutputFormat, json::print_json};
+use redb::Database;
 use restflow_ai::{
     AgentConfig, AgentExecutor, AgentState, AgentStatus, AnthropicClient, LlmClient, OpenAIClient,
     Role, ToolRegistry,
 };
 use restflow_core::auth::{AuthManagerConfig, AuthProfileManager, AuthProvider};
-use restflow_core::storage::SecretStorage;
-use redb::Database;
 use restflow_core::memory::{ChatSessionMirror, MessageMirror};
 use restflow_core::models::{
     AgentExecuteResponse, AgentNode, ApiKeyConfig, ExecutionDetails, ExecutionStep, Provider,
@@ -20,7 +19,9 @@ use restflow_core::models::{
 };
 use restflow_core::paths;
 use restflow_core::services::tool_registry::create_tool_registry;
+use restflow_core::storage::SecretStorage;
 use restflow_core::{AppCore, services::agent as agent_service};
+use restflow_storage::AuthProfileStorage;
 use serde_json::json;
 use tracing::warn;
 
@@ -304,17 +305,20 @@ async fn resolve_api_key(
 }
 
 async fn resolve_api_key_from_profiles(provider: Provider) -> Result<Option<String>> {
-    let mut config = AuthManagerConfig::default();
+    let config = AuthManagerConfig::default();
     let data_dir = paths::ensure_data_dir()?;
-    let profiles_path = data_dir.join("auth_profiles.json");
-    config.profiles_path = Some(profiles_path);
 
     // Create SecretStorage
     let db_path = data_dir.join("restflow.db");
     let db = Arc::new(Database::create(&db_path)?);
-    let secrets = Arc::new(SecretStorage::new(db)?);
+    let secrets = Arc::new(SecretStorage::new(db.clone())?);
+    let storage = AuthProfileStorage::new(db)?;
 
-    let manager = AuthProfileManager::with_config(config, secrets);
+    let manager = AuthProfileManager::with_storage(config, secrets, Some(storage));
+    let old_json = data_dir.join("auth_profiles.json");
+    if let Err(e) = manager.migrate_from_json(&old_json).await {
+        warn!(error = %e, "Failed to migrate auth profiles from JSON");
+    }
     manager.initialize().await?;
 
     let selection = match provider {

@@ -18,6 +18,7 @@ use anyhow::Result;
 use clap::Parser;
 use restflow_core::auth::{AuthManagerConfig, AuthProfileManager};
 use restflow_core::paths;
+use restflow_storage::AuthProfileStorage;
 use restflow_tauri_lib::AppState;
 use restflow_tauri_lib::RestFlowMcpServer;
 use restflow_tauri_lib::commands;
@@ -98,13 +99,20 @@ fn main() {
             rt.block_on(async {
                 let storage = state.core.storage.clone();
                 let secrets = std::sync::Arc::new(state.core.storage.secrets.clone());
-                let auth_manager = match create_auth_manager(secrets.clone()) {
+                let auth_manager = match create_auth_manager(secrets.clone(), storage.get_db()) {
                     Ok(manager) => std::sync::Arc::new(manager),
                     Err(e) => {
                         warn!(error = %e, "Failed to configure auth profile manager");
                         std::sync::Arc::new(AuthProfileManager::new(secrets.clone()))
                     }
                 };
+
+                if let Ok(data_dir) = paths::ensure_data_dir() {
+                    let old_json = data_dir.join("auth_profiles.json");
+                    if let Err(e) = auth_manager.migrate_from_json(&old_json).await {
+                        warn!(error = %e, "Failed to migrate auth profiles from JSON");
+                    }
+                }
 
                 if let Err(e) = auth_manager.initialize().await {
                     warn!(error = %e, "Failed to initialize auth profile manager");
@@ -141,8 +149,17 @@ fn main() {
 
             // Initialize Auth Profile Manager state with secrets
             let auth_secrets = std::sync::Arc::new(state.core.storage.secrets.clone());
-            app.manage(AuthState::new(auth_secrets));
-            
+            let auth_state = match AuthProfileStorage::new(state.core.storage.get_db()) {
+                Ok(storage) => {
+                    AuthState::with_storage(AuthManagerConfig::default(), auth_secrets, storage)
+                }
+                Err(e) => {
+                    warn!(error = %e, "Failed to initialize auth profile storage");
+                    AuthState::new(auth_secrets)
+                }
+            };
+            app.manage(auth_state);
+
             app.manage(state);
 
             info!("RestFlow initialized successfully");
@@ -303,11 +320,15 @@ fn main() {
 /// Get the database path for the application
 fn create_auth_manager(
     secrets: std::sync::Arc<restflow_core::storage::SecretStorage>,
+    db: std::sync::Arc<redb::Database>,
 ) -> Result<AuthProfileManager> {
-    let mut config = AuthManagerConfig::default();
-    let profiles_path = paths::ensure_data_dir()?.join("auth_profiles.json");
-    config.profiles_path = Some(profiles_path);
-    Ok(AuthProfileManager::with_config(config, secrets))
+    let config = AuthManagerConfig::default();
+    let storage = AuthProfileStorage::new(db)?;
+    Ok(AuthProfileManager::with_storage(
+        config,
+        secrets,
+        Some(storage),
+    ))
 }
 
 fn get_db_path(_app: &tauri::App) -> String {
@@ -327,9 +348,7 @@ fn maybe_migrate_old_database(new_path: &str) {
         return;
     };
 
-    let old_path = data_dir
-        .join("com.restflow.app")
-        .join("restflow.db");
+    let old_path = data_dir.join("com.restflow.app").join("restflow.db");
     if !old_path.exists() {
         return;
     }

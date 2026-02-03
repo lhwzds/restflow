@@ -5,22 +5,23 @@
 use super::discoverer::CompositeDiscoverer;
 use super::refresh::{AnthropicRefresher, OAuthRefresher};
 use super::resolver::CredentialResolver;
-use super::writer::CredentialWriter;
 use super::types::{
     AuthProfile, AuthProvider, Credential, CredentialSource, DiscoverySummary, ProfileHealth,
     ProfileSelection, SecureCredential,
 };
-use anyhow::{anyhow, Context, Result};
+use super::writer::CredentialWriter;
+use anyhow::{Context, Result, anyhow};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
-use crate::storage::SecretStorage;
 use crate::Provider;
+use crate::storage::SecretStorage;
+use restflow_storage::{AuthProfileStorage, SimpleStorage};
 
 /// Configuration for the auth profile manager
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -34,9 +35,6 @@ pub struct AuthManagerConfig {
     /// Whether to auto-discover credentials on initialization
     #[serde(default = "default_true")]
     pub auto_discover: bool,
-    /// Path to store manual profiles
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub profiles_path: Option<PathBuf>,
 }
 
 fn default_cooldown() -> u64 {
@@ -55,7 +53,6 @@ impl Default for AuthManagerConfig {
             cooldown_seconds: default_cooldown(),
             max_failures: default_max_failures(),
             auto_discover: true,
-            profiles_path: None,
         }
     }
 }
@@ -77,6 +74,8 @@ pub struct AuthProfileManager {
     resolver: CredentialResolver,
     /// Writer for storing secrets
     writer: CredentialWriter,
+    /// Optional database storage for manual profiles
+    storage: Option<AuthProfileStorage>,
 }
 
 impl AuthProfileManager {
@@ -87,9 +86,21 @@ impl AuthProfileManager {
 
     /// Create a new auth profile manager with custom config and secret storage
     pub fn with_config(config: AuthManagerConfig, secrets: Arc<SecretStorage>) -> Self {
+        Self::with_storage(config, secrets, None)
+    }
+
+    /// Create a new auth profile manager with custom config, secret storage, and profile storage
+    pub fn with_storage(
+        config: AuthManagerConfig,
+        secrets: Arc<SecretStorage>,
+        storage: Option<AuthProfileStorage>,
+    ) -> Self {
         let mut refreshers: HashMap<AuthProvider, Arc<dyn OAuthRefresher>> = HashMap::new();
         // ClaudeCode OAuth tokens can be refreshed using Anthropic's OAuth endpoint
-        refreshers.insert(AuthProvider::ClaudeCode, Arc::new(AnthropicRefresher::default()));
+        refreshers.insert(
+            AuthProvider::ClaudeCode,
+            Arc::new(AnthropicRefresher::default()),
+        );
 
         let resolver = CredentialResolver::new(secrets.clone());
         let writer = CredentialWriter::new(secrets.clone());
@@ -101,25 +112,21 @@ impl AuthProfileManager {
             refreshers,
             resolver,
             writer,
+            storage,
         }
     }
 
     /// Initialize the manager (run discovery if auto_discover is enabled)
     pub async fn initialize(&self) -> Result<DiscoverySummary> {
-        if self.config.auto_discover {
-            let summary = self.discover().await?;
-            
-            // Load any saved manual profiles
-            if let Some(path) = &self.config.profiles_path
-                && let Err(e) = self.load_manual_profiles(path).await
-            {
-                warn!(error = %e, "Failed to load manual profiles");
-            }
-            
-            Ok(summary)
-        } else {
-            Ok(DiscoverySummary::default())
+        if let Err(e) = self.load_profiles_from_storage().await {
+            warn!(error = %e, "Failed to load manual profiles from storage");
         }
+
+        if self.config.auto_discover {
+            return self.discover().await;
+        }
+
+        Ok(DiscoverySummary::default())
     }
 
     /// Run credential discovery
@@ -139,7 +146,10 @@ impl AuthProfileManager {
             if !exists {
                 // Generate ID and store credential securely
                 let profile_id = Uuid::new_v4().to_string();
-                match self.writer.store_credential(&profile_id, &discovered.credential) {
+                match self
+                    .writer
+                    .store_credential(&profile_id, &discovered.credential)
+                {
                     Ok(secure_credential) => {
                         let profile = AuthProfile::new_with_id(
                             profile_id.clone(),
@@ -204,7 +214,9 @@ impl AuthProfileManager {
 
     /// Get the best available profile for a specific provider.
     pub async fn get_available_profile(&self, provider: AuthProvider) -> Option<AuthProfile> {
-        self.select_profile(provider).await.map(|selection| selection.profile)
+        self.select_profile(provider)
+            .await
+            .map(|selection| selection.profile)
     }
 
     /// Get the best available profile compatible with a model provider.
@@ -231,7 +243,7 @@ impl AuthProfileManager {
         }
 
         let profiles = self.profiles.read().await;
-        
+
         let mut available: Vec<_> = profiles
             .values()
             .filter(|p| p.is_available() && p.provider == provider)
@@ -298,7 +310,7 @@ impl AuthProfileManager {
                     continue;
                 }
             };
-            
+
             let refresh_token = match self.resolver.resolve_refresh_token(&secure_credential) {
                 Ok(Some(token)) => token,
                 Ok(None) => {
@@ -416,7 +428,7 @@ impl AuthProfileManager {
         provider: AuthProvider,
     ) -> Result<String> {
         let profile_id = Uuid::new_v4().to_string();
-        
+
         // Check for duplicates
         {
             let profiles = self.profiles.read().await;
@@ -436,7 +448,7 @@ impl AuthProfileManager {
 
         // Store credential securely
         let secure_credential = self.writer.store_credential(&profile_id, &credential)?;
-        
+
         let profile = AuthProfile::new_with_id(
             profile_id.clone(),
             name,
@@ -446,20 +458,13 @@ impl AuthProfileManager {
         );
 
         let mut profiles = self.profiles.write().await;
-        profiles.insert(profile_id.clone(), profile);
+        profiles.insert(profile_id.clone(), profile.clone());
 
         info!(profile_id = %profile_id, "Manual profile added");
 
-        // Save manual profiles if path is configured
-        if let Some(path) = &self.config.profiles_path {
-            let manual_profiles: Vec<_> = profiles
-                .values()
-                .filter(|p| p.source == CredentialSource::Manual)
-                .cloned()
-                .collect();
-            
-            if let Err(e) = Self::save_profiles_to_file(&manual_profiles, path).await {
-                warn!(error = %e, "Failed to save manual profiles");
+        if source == CredentialSource::Manual {
+            if let Err(e) = self.save_profile_to_storage(&profile) {
+                warn!(error = %e, "Failed to save manual profile to storage");
             }
         }
 
@@ -489,16 +494,11 @@ impl AuthProfileManager {
 
         info!(profile_id = %id, "Profile added");
 
-        // Save manual profiles if path is configured
-        if let Some(path) = &self.config.profiles_path {
-            let manual_profiles: Vec<_> = profiles
-                .values()
-                .filter(|p| p.source == CredentialSource::Manual)
-                .cloned()
-                .collect();
-            
-            if let Err(e) = Self::save_profiles_to_file(&manual_profiles, path).await {
-                warn!(error = %e, "Failed to save manual profiles");
+        if let Some(stored) = profiles.get(&id) {
+            if stored.source == CredentialSource::Manual {
+                if let Err(e) = self.save_profile_to_storage(stored) {
+                    warn!(error = %e, "Failed to save manual profile to storage");
+                }
             }
         }
 
@@ -519,16 +519,9 @@ impl AuthProfileManager {
 
         info!(profile_id, name = %profile.name, "Profile removed");
 
-        // Save manual profiles if path is configured
-        if let Some(path) = &self.config.profiles_path {
-            let manual_profiles: Vec<_> = profiles
-                .values()
-                .filter(|p| p.source == CredentialSource::Manual)
-                .cloned()
-                .collect();
-            
-            if let Err(e) = Self::save_profiles_to_file(&manual_profiles, path).await {
-                warn!(error = %e, "Failed to save manual profiles after removal");
+        if profile.source == CredentialSource::Manual {
+            if let Err(e) = self.delete_profile_from_storage(profile_id) {
+                warn!(error = %e, "Failed to delete manual profile from storage");
             }
         }
 
@@ -536,7 +529,11 @@ impl AuthProfileManager {
     }
 
     /// Update a profile
-    pub async fn update_profile(&self, profile_id: &str, update: ProfileUpdate) -> Result<AuthProfile> {
+    pub async fn update_profile(
+        &self,
+        profile_id: &str,
+        update: ProfileUpdate,
+    ) -> Result<AuthProfile> {
         let mut profiles = self.profiles.write().await;
         let profile = profiles
             .get_mut(profile_id)
@@ -555,6 +552,12 @@ impl AuthProfileManager {
         let updated = profile.clone();
 
         info!(profile_id, name = %updated.name, "Profile updated");
+
+        if updated.source == CredentialSource::Manual {
+            if let Err(e) = self.save_profile_to_storage(&updated) {
+                warn!(error = %e, "Failed to persist manual profile update");
+            }
+        }
 
         Ok(updated)
     }
@@ -624,14 +627,24 @@ impl AuthProfileManager {
     /// Clear all profiles
     pub async fn clear(&self) {
         let mut profiles = self.profiles.write().await;
-        
+
         // Delete all secrets
         for profile in profiles.values() {
             if let Err(e) = self.writer.delete_credential(&profile.credential) {
                 warn!(error = %e, profile_id = %profile.id, "Failed to delete credential secrets on clear");
             }
         }
-        
+
+        if let Some(storage) = &self.storage {
+            for profile in profiles.values() {
+                if profile.source == CredentialSource::Manual {
+                    if let Err(e) = storage.delete(profile.id.as_str()) {
+                        warn!(error = %e, profile_id = %profile.id, "Failed to delete manual profile from storage");
+                    }
+                }
+            }
+        }
+
         profiles.clear();
         info!("All profiles cleared");
     }
@@ -641,40 +654,63 @@ impl AuthProfileManager {
         &self.resolver
     }
 
-    /// Load manual profiles from a file
-    async fn load_manual_profiles(&self, path: &PathBuf) -> Result<()> {
-        if !path.exists() {
+    fn save_profile_to_storage(&self, profile: &AuthProfile) -> Result<()> {
+        let Some(storage) = &self.storage else {
             return Ok(());
-        }
+        };
+        let data = serde_json::to_vec(profile)?;
+        storage.put_raw(profile.id.as_str(), &data)?;
+        Ok(())
+    }
 
-        let content = tokio::fs::read_to_string(path)
-            .await
-            .context("Failed to read profiles file")?;
+    fn delete_profile_from_storage(&self, profile_id: &str) -> Result<()> {
+        let Some(storage) = &self.storage else {
+            return Ok(());
+        };
+        storage.delete(profile_id)?;
+        Ok(())
+    }
 
-        let loaded_profiles: Vec<AuthProfile> =
-            serde_json::from_str(&content).context("Failed to parse profiles file")?;
-
+    async fn load_profiles_from_storage(&self) -> Result<()> {
+        let Some(storage) = &self.storage else {
+            return Ok(());
+        };
+        let entries = storage.list_raw()?;
         let mut profiles = self.profiles.write().await;
-        for profile in loaded_profiles {
+        for (_, bytes) in entries {
+            let profile: AuthProfile = serde_json::from_slice(&bytes)?;
             if profile.source == CredentialSource::Manual {
                 profiles.insert(profile.id.clone(), profile);
             }
         }
-
         Ok(())
     }
 
-    /// Save profiles to a file
-    async fn save_profiles_to_file(profiles: &[AuthProfile], path: &PathBuf) -> Result<()> {
-        // Ensure parent directory exists
-        if let Some(parent) = path.parent() {
-            tokio::fs::create_dir_all(parent).await?;
+    /// Migrate profiles from legacy JSON file into the database.
+    pub async fn migrate_from_json(&self, json_path: &Path) -> Result<usize> {
+        if !json_path.exists() {
+            return Ok(0);
         }
 
-        let content = serde_json::to_string_pretty(profiles)?;
-        tokio::fs::write(path, content).await?;
+        let content = tokio::fs::read_to_string(json_path)
+            .await
+            .context("Failed to read profiles file")?;
+        let profiles: Vec<AuthProfile> =
+            serde_json::from_str(&content).context("Failed to parse profiles file")?;
 
-        Ok(())
+        let Some(storage) = &self.storage else {
+            return Err(anyhow!("No storage configured"));
+        };
+
+        let mut count = 0;
+        for profile in profiles {
+            let data = serde_json::to_vec(&profile)?;
+            storage.put_raw(profile.id.as_str(), &data)?;
+            count += 1;
+        }
+
+        info!(count, "Migrated auth profiles from JSON to database");
+        Ok(count)
     }
 }
 
@@ -773,14 +809,19 @@ mod tests {
     async fn test_manager_add_profile_from_credential() {
         let (secrets, _dir) = create_test_secrets();
         let manager = AuthProfileManager::new(secrets);
-        
+
         let credential = Credential::ApiKey {
             key: "test-key".to_string(),
             email: None,
         };
 
         let id = manager
-            .add_profile_from_credential("Test", credential, CredentialSource::Manual, AuthProvider::Anthropic)
+            .add_profile_from_credential(
+                "Test",
+                credential,
+                CredentialSource::Manual,
+                AuthProvider::Anthropic,
+            )
             .await
             .unwrap();
         assert!(!id.is_empty());
@@ -793,25 +834,35 @@ mod tests {
     async fn test_manager_add_duplicate_profile() {
         let (secrets, _dir) = create_test_secrets();
         let manager = AuthProfileManager::new(secrets);
-        
+
         let credential1 = Credential::ApiKey {
             key: "same-key".to_string(),
             email: None,
         };
-        
+
         let credential2 = Credential::ApiKey {
             key: "same-key".to_string(),
             email: None,
         };
 
         manager
-            .add_profile_from_credential("Test 1", credential1, CredentialSource::Manual, AuthProvider::Anthropic)
+            .add_profile_from_credential(
+                "Test 1",
+                credential1,
+                CredentialSource::Manual,
+                AuthProvider::Anthropic,
+            )
             .await
             .unwrap();
         let result = manager
-            .add_profile_from_credential("Test 2", credential2, CredentialSource::Manual, AuthProvider::Anthropic)
+            .add_profile_from_credential(
+                "Test 2",
+                credential2,
+                CredentialSource::Manual,
+                AuthProvider::Anthropic,
+            )
             .await;
-        
+
         assert!(result.is_err());
     }
 
@@ -858,7 +909,7 @@ mod tests {
 
         let selection = manager.select_profile(AuthProvider::Anthropic).await;
         assert!(selection.is_some());
-        
+
         let selection = selection.unwrap();
         assert_eq!(selection.profile.name, "High Priority");
         assert_eq!(selection.alternatives, 1);
@@ -964,15 +1015,27 @@ mod tests {
         let manager = AuthProfileManager::new(secrets.clone());
 
         manager
-            .add_profile(create_test_profile(&secrets, "Anthropic 1", AuthProvider::Anthropic))
+            .add_profile(create_test_profile(
+                &secrets,
+                "Anthropic 1",
+                AuthProvider::Anthropic,
+            ))
             .await
             .unwrap();
         manager
-            .add_profile(create_test_profile(&secrets, "Anthropic 2", AuthProvider::Anthropic))
+            .add_profile(create_test_profile(
+                &secrets,
+                "Anthropic 2",
+                AuthProvider::Anthropic,
+            ))
             .await
             .unwrap();
         manager
-            .add_profile(create_test_profile(&secrets, "OpenAI 1", AuthProvider::OpenAI))
+            .add_profile(create_test_profile(
+                &secrets,
+                "OpenAI 1",
+                AuthProvider::OpenAI,
+            ))
             .await
             .unwrap();
 

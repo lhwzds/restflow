@@ -5,14 +5,21 @@ use restflow_core::auth::{
     SecureCredential,
 };
 use restflow_core::paths;
-use restflow_core::AppCore;
+use restflow_core::storage::Storage;
+use restflow_storage::AuthProfileStorage;
 use std::sync::Arc;
 
 use crate::cli::AuthCommands;
 use crate::output::{OutputFormat, json::print_json};
 
-pub async fn run(core: Arc<AppCore>, command: AuthCommands, format: OutputFormat) -> Result<()> {
-    let manager = create_manager(core)?;
+pub async fn run(command: AuthCommands, format: OutputFormat) -> Result<()> {
+    let manager = create_manager()?;
+    if let Ok(data_dir) = paths::ensure_restflow_dir() {
+        let old_json = data_dir.join("auth_profiles.json");
+        if let Err(e) = manager.migrate_from_json(&old_json).await {
+            tracing::warn!(error = %e, "Failed to migrate auth profiles from JSON");
+        }
+    }
     manager.initialize().await?;
 
     match command {
@@ -29,16 +36,21 @@ pub async fn run(core: Arc<AppCore>, command: AuthCommands, format: OutputFormat
     }
 }
 
-fn create_manager(core: Arc<AppCore>) -> Result<AuthProfileManager> {
-    let mut config = AuthManagerConfig::default();
-    let data_dir = paths::ensure_data_dir()?;
-    let profiles_path = data_dir.join("auth_profiles.json");
-    config.profiles_path = Some(profiles_path);
+fn create_manager() -> Result<AuthProfileManager> {
+    let config = AuthManagerConfig::default();
+    let db_path = paths::ensure_database_path_string()?;
 
-    // Use secrets from core to avoid double database open
-    let secrets = Arc::new(core.storage.secrets.clone());
+    // Create Storage to get shared database access
+    let storage = Storage::new(&db_path)?;
+    let db = storage.get_db();
+    let secrets = Arc::new(storage.secrets.clone());
+    let profile_storage = AuthProfileStorage::new(db)?;
 
-    Ok(AuthProfileManager::with_config(config, secrets))
+    Ok(AuthProfileManager::with_storage(
+        config,
+        secrets,
+        Some(profile_storage),
+    ))
 }
 
 async fn status(manager: &AuthProfileManager, format: OutputFormat) -> Result<()> {
@@ -156,7 +168,10 @@ async fn show_profile(manager: &AuthProfileManager, id: &str, format: OutputForm
         println!("Cooldown:     {}", cooldown_until);
     }
 
-    println!("Credential:   {}", format_secure_credential(&profile.credential));
+    println!(
+        "Credential:   {}",
+        format_secure_credential(&profile.credential)
+    );
 
     if let Some(email) = profile.credential.get_email() {
         println!("Email:        {}", email);
@@ -239,11 +254,19 @@ fn format_available(value: bool) -> String {
 fn format_secure_credential(credential: &SecureCredential) -> String {
     match credential {
         SecureCredential::ApiKey { secret_ref, .. } => format!("API key (ref: {})", secret_ref),
-        SecureCredential::Token { secret_ref, expires_at, .. } => match expires_at {
+        SecureCredential::Token {
+            secret_ref,
+            expires_at,
+            ..
+        } => match expires_at {
             Some(expiry) => format!("Token (ref: {}, expires {})", secret_ref, expiry),
             None => format!("Token (ref: {})", secret_ref),
         },
-        SecureCredential::OAuth { access_token_ref, expires_at, .. } => match expires_at {
+        SecureCredential::OAuth {
+            access_token_ref,
+            expires_at,
+            ..
+        } => match expires_at {
             Some(expiry) => format!("OAuth (ref: {}, expires {})", access_token_ref, expiry),
             None => format!("OAuth (ref: {})", access_token_ref),
         },
