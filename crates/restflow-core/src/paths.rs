@@ -73,6 +73,21 @@ pub fn logs_dir() -> Result<PathBuf> {
     Ok(dir)
 }
 
+/// IPC socket path: ~/.restflow/restflow.sock
+pub fn socket_path() -> Result<PathBuf> {
+    Ok(ensure_restflow_dir()?.join("restflow.sock"))
+}
+
+/// Daemon PID file path: ~/.restflow/daemon.pid
+pub fn daemon_pid_path() -> Result<PathBuf> {
+    Ok(ensure_restflow_dir()?.join("daemon.pid"))
+}
+
+/// Daemon log file path: ~/.restflow/logs/daemon.log
+pub fn daemon_log_path() -> Result<PathBuf> {
+    Ok(logs_dir()?.join("daemon.log"))
+}
+
 /// Ensure the RestFlow data directory exists and return its path.
 #[deprecated(note = "Use ensure_restflow_dir instead")]
 pub fn ensure_data_dir() -> Result<PathBuf> {
