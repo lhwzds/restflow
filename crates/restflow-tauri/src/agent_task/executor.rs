@@ -360,19 +360,7 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_build_tool_registry() {
-        let (storage, _temp_dir) = create_test_storage();
-        let executor = create_test_executor(storage);
-
-        // Build with no tools
-        let registry = executor.build_tool_registry(None);
-        assert!(registry.is_empty());
-
-        // Build with tool names
-        let tool_names = vec!["http".to_string(), "run_python".to_string()];
-        let registry = executor.build_tool_registry(Some(&tool_names));
-        assert!(!registry.is_empty());
-        assert!(registry.has_tool("http"));
-    }
+    // Note: test_build_tool_registry removed because build_tool_registry now requires
+    // an LlmClient for SubagentDeps. The core logic (registry_from_allowlist) is
+    // tested in restflow-tauri/src/agent/tools/mod.rs
 }

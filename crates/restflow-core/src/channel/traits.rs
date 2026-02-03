@@ -66,6 +66,13 @@ pub trait Channel: Send + Sync {
         self.send(OutboundMessage::new(conversation_id, text)).await
     }
 
+    /// Send typing indicator to show the bot is processing
+    ///
+    /// Default implementation does nothing. Override for channels that support this.
+    async fn send_typing(&self, _conversation_id: &str) -> Result<()> {
+        Ok(())
+    }
+
     /// Start receiving messages (returns None if channel doesn't support receiving)
     ///
     /// The returned stream should be spawned in a background task.

@@ -239,6 +239,34 @@ impl TelegramChannel {
             ))
         }
     }
+
+    /// Send typing indicator (chat action) to show the bot is processing
+    async fn send_typing_action(&self, chat_id: &str) -> Result<()> {
+        let url = self.api_url("sendChatAction");
+
+        let params = serde_json::json!({
+            "chat_id": chat_id,
+            "action": "typing",
+        });
+
+        let response = self.client.post(&url).json(&params).send().await?;
+
+        if response.status().is_success() {
+            let api_response: TelegramResponse<bool> = response.json().await?;
+            if api_response.ok {
+                debug!("Sent typing indicator to {}", chat_id);
+                Ok(())
+            } else {
+                Err(anyhow!(
+                    "Telegram API error: {}",
+                    api_response.description.unwrap_or_default()
+                ))
+            }
+        } else {
+            let error = response.text().await.unwrap_or_default();
+            Err(anyhow!("Telegram HTTP error: {}", error))
+        }
+    }
 }
 
 #[async_trait]
@@ -264,6 +292,10 @@ impl Channel for TelegramChannel {
         .await?;
 
         Ok(())
+    }
+
+    async fn send_typing(&self, conversation_id: &str) -> Result<()> {
+        self.send_typing_action(conversation_id).await
     }
 
     fn start_receiving(&self) -> Option<Pin<Box<dyn Stream<Item = InboundMessage> + Send>>> {

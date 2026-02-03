@@ -1,19 +1,18 @@
 use anyhow::{Result, anyhow, bail};
 use comfy_table::{Cell, Table};
-use redb::Database;
 use restflow_core::auth::{
     AuthManagerConfig, AuthProfileManager, AuthProvider, Credential, CredentialSource,
     SecureCredential,
 };
 use restflow_core::paths;
-use restflow_core::storage::SecretStorage;
+use restflow_core::AppCore;
 use std::sync::Arc;
 
 use crate::cli::AuthCommands;
 use crate::output::{OutputFormat, json::print_json};
 
-pub async fn run(command: AuthCommands, format: OutputFormat) -> Result<()> {
-    let manager = create_manager()?;
+pub async fn run(core: Arc<AppCore>, command: AuthCommands, format: OutputFormat) -> Result<()> {
+    let manager = create_manager(core)?;
     manager.initialize().await?;
 
     match command {
@@ -30,17 +29,15 @@ pub async fn run(command: AuthCommands, format: OutputFormat) -> Result<()> {
     }
 }
 
-fn create_manager() -> Result<AuthProfileManager> {
+fn create_manager(core: Arc<AppCore>) -> Result<AuthProfileManager> {
     let mut config = AuthManagerConfig::default();
     let data_dir = paths::ensure_data_dir()?;
     let profiles_path = data_dir.join("auth_profiles.json");
     config.profiles_path = Some(profiles_path);
-    
-    // Create SecretStorage using the same database path
-    let db_path = data_dir.join("restflow.db");
-    let db = Arc::new(Database::create(&db_path)?);
-    let secrets = Arc::new(SecretStorage::new(db)?);
-    
+
+    // Use secrets from core to avoid double database open
+    let secrets = Arc::new(core.storage.secrets.clone());
+
     Ok(AuthProfileManager::with_config(config, secrets))
 }
 

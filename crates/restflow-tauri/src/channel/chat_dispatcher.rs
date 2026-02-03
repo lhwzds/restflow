@@ -501,13 +501,9 @@ impl ChatDispatcher {
 
     /// Send typing indicator to the conversation.
     async fn send_typing_indicator(&self, message: &InboundMessage) -> Result<()> {
-        // Note: This would need channel-specific implementation
-        // For now, we log it
-        debug!(
-            "Would send typing indicator to {} on {:?}",
-            message.conversation_id, message.channel_type
-        );
-        Ok(())
+        self.channel_router
+            .send_typing_to(message.channel_type, &message.conversation_id)
+            .await
     }
 
     /// Send an error response to the user.
