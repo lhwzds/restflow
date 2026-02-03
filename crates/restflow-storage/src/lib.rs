@@ -14,6 +14,7 @@
 //!
 //! - `workflow` - Workflow definitions
 //! - `skills` - Skill templates
+//! - `skills_meta` - Skill metadata entries
 //! - `secrets` - Encrypted secrets
 //! - `agents` - Agent configurations
 //! - `agents_meta` - Agent metadata entries
@@ -35,6 +36,7 @@ pub mod range_utils;
 pub mod secrets;
 pub mod shared_space;
 pub mod skill;
+pub mod skill_meta;
 pub mod terminal_session;
 pub mod trigger;
 pub mod vector;
@@ -62,6 +64,7 @@ pub use secrets::{Secret, SecretStorage, SecretStorageConfig};
 pub use shared_space::SharedSpaceStorage;
 pub use simple_storage::SimpleStorage;
 pub use skill::SkillStorage;
+pub use skill_meta::SkillMetaStorage;
 pub use terminal_session::TerminalSessionStorage;
 pub use trigger::TriggerStorage;
 pub use vector::{VectorConfig, VectorStorage};
@@ -78,6 +81,7 @@ pub struct Storage {
     pub agent_tasks: AgentTaskStorage,
     pub secrets: SecretStorage,
     pub skills: SkillStorage,
+    pub skills_meta: SkillMetaStorage,
     pub terminal_sessions: TerminalSessionStorage,
     pub execution_history: ExecutionHistoryStorage,
     pub memory: MemoryStorage,
@@ -100,6 +104,7 @@ impl Storage {
         let agent_tasks = AgentTaskStorage::new(db.clone())?;
         let secrets = SecretStorage::new(db.clone())?;
         let skills = SkillStorage::new(db.clone())?;
+        let skills_meta = SkillMetaStorage::new(db.clone())?;
         let terminal_sessions = TerminalSessionStorage::new(db.clone())?;
         let execution_history = ExecutionHistoryStorage::new(db.clone())?;
         let memory = MemoryStorage::new(db.clone())?;
@@ -115,6 +120,7 @@ impl Storage {
             agent_tasks,
             secrets,
             skills,
+            skills_meta,
             terminal_sessions,
             execution_history,
             memory,
