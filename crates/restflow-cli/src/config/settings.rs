@@ -120,6 +120,7 @@ impl CliConfig {
             api_keys: Option<OldApiKeys>,
         }
 
+        #[allow(dead_code)]
         #[derive(Deserialize)]
         struct OldDefaultConfig {
             agent: Option<String>,
@@ -127,6 +128,7 @@ impl CliConfig {
             db_path: Option<String>,
         }
 
+        #[allow(dead_code)]
         #[derive(Deserialize)]
         struct OldApiKeys {
             anthropic: Option<String>,

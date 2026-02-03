@@ -83,6 +83,7 @@ impl Default for HierarchicalConfig {
 }
 
 /// Subtask definition
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct Subtask {
     pub id: String,

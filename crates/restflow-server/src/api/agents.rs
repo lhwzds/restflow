@@ -287,7 +287,7 @@ async fn resolve_api_key(
 async fn resolve_api_key_from_profiles(provider: Provider) -> Result<Option<String>, String> {
     let config = AuthManagerConfig::default();
     let data_dir =
-        paths::ensure_data_dir().map_err(|e| format!("Failed to resolve data dir: {}", e))?;
+        paths::ensure_restflow_dir().map_err(|e| format!("Failed to resolve data dir: {}", e))?;
 
     // Create SecretStorage
     let db_path = data_dir.join("restflow.db");

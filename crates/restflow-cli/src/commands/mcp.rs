@@ -176,7 +176,7 @@ fn save_servers(servers: &[McpServerEntry]) -> Result<()> {
 }
 
 fn servers_path() -> Result<std::path::PathBuf> {
-    Ok(paths::ensure_data_dir()?.join(MCP_SERVERS_FILE))
+    Ok(paths::ensure_restflow_dir()?.join(MCP_SERVERS_FILE))
 }
 
 fn spawn_command(command: &str) -> Result<std::process::Child> {

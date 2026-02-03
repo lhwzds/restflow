@@ -76,10 +76,10 @@ clap = { version = "4", features = ["derive"] }
 # Directory utilities for MCP mode
 dirs = "6"
 tauri-plugin-decorum = "1.1.1"
+redb = "3.1"
 
 [dev-dependencies]
 tempfile = "3"
-redb = "3.1"
 tower = { version = "0.5", features = ["util"] }
 
 [features]

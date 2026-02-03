@@ -95,6 +95,7 @@ pub enum SearchStrategy {
 }
 
 /// A node in the thought tree
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct ThoughtNode {
     pub id: String,

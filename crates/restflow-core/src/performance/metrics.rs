@@ -99,6 +99,7 @@ pub struct MetricsSnapshot {
     pub queue_failed: u64,
 }
 
+#[allow(dead_code)]
 pub fn print_metrics(metrics: &MetricsSnapshot) {
     println!("=== RestFlow Performance Metrics ===");
     println!();

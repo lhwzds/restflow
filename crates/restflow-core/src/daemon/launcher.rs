@@ -45,7 +45,7 @@ pub fn start_daemon() -> Result<u32> {
             cmd.pre_exec(|| {
                 nix::unistd::setsid()
                     .map(|_| ())
-                    .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err))
+                    .map_err(std::io::Error::other)
             });
         }
 

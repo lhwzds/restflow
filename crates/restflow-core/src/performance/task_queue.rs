@@ -111,14 +111,14 @@ impl TaskQueue {
             priority,
         };
 
-        if self.config.persist_tasks {
-            if let Some(storage) = &self.storage {
-                let storage = storage.clone();
-                let task = task.clone();
-                tokio::spawn(async move {
-                    let _ = storage.save_task(&task).await;
-                });
-            }
+        if self.config.persist_tasks
+            && let Some(storage) = &self.storage
+        {
+            let storage = storage.clone();
+            let task = task.clone();
+            tokio::spawn(async move {
+                let _ = storage.save_task(&task).await;
+            });
         }
 
         match priority {
