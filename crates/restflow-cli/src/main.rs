@@ -46,6 +46,7 @@ async fn main() -> Result<()> {
 
     match cli.command {
         Some(Commands::Run(args)) => commands::run::run(core, args, cli.format).await,
+        Some(Commands::Start(args)) => commands::start::run(args).await,
         Some(Commands::Agent { command }) => commands::agent::run(core, command, cli.format).await,
         Some(Commands::Task { command }) => commands::task::run(core, command, cli.format).await,
         Some(Commands::Daemon { command }) => commands::daemon::run(core, command).await,

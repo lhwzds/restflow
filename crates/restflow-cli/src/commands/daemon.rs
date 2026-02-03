@@ -3,7 +3,8 @@ use crate::daemon::CliTaskRunner;
 use anyhow::Result;
 use restflow_core::AppCore;
 use restflow_core::daemon::{
-    DaemonStatus, IpcServer, check_daemon_status, start_daemon, stop_daemon,
+    DaemonConfig, DaemonStatus, IpcServer, check_daemon_status, start_daemon_with_config,
+    stop_daemon,
 };
 use restflow_core::paths;
 use std::sync::Arc;
@@ -11,15 +12,24 @@ use tracing::error;
 
 pub async fn run(core: Arc<AppCore>, command: DaemonCommands) -> Result<()> {
     match command {
-        DaemonCommands::Start { foreground } => start(core, foreground).await,
+        DaemonCommands::Start {
+            foreground,
+            http,
+            port,
+        } => start(core, foreground, http, port).await,
         DaemonCommands::Stop => stop().await,
         DaemonCommands::Status => status().await,
     }
 }
 
-async fn start(core: Arc<AppCore>, foreground: bool) -> Result<()> {
+async fn start(core: Arc<AppCore>, foreground: bool, http: bool, port: Option<u16>) -> Result<()> {
+    let config = DaemonConfig {
+        http,
+        http_port: port,
+    };
+
     if foreground {
-        run_daemon(core).await
+        run_daemon(core, config).await
     } else {
         match check_daemon_status()? {
             DaemonStatus::Running { pid } => {
@@ -27,7 +37,7 @@ async fn start(core: Arc<AppCore>, foreground: bool) -> Result<()> {
                 Ok(())
             }
             _ => {
-                let pid = start_daemon()?;
+                let pid = start_daemon_with_config(config)?;
                 println!("Daemon started (PID: {})", pid);
                 Ok(())
             }
@@ -35,7 +45,7 @@ async fn start(core: Arc<AppCore>, foreground: bool) -> Result<()> {
     }
 }
 
-async fn run_daemon(core: Arc<AppCore>) -> Result<()> {
+async fn run_daemon(core: Arc<AppCore>, _config: DaemonConfig) -> Result<()> {
     let pid_path = paths::daemon_pid_path()?;
     std::fs::write(&pid_path, std::process::id().to_string())?;
 
