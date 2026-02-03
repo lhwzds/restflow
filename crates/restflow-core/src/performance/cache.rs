@@ -38,8 +38,8 @@ pub struct Cache<K, V> {
 
 impl<K, V> Cache<K, V>
 where
-    K: Eq + Hash + Clone,
-    V: Clone,
+    K: Eq + Hash + Clone + Send + Sync + 'static,
+    V: Clone + Send + Sync + 'static,
 {
     pub fn new(config: CacheConfig) -> Arc<Self> {
         let cache = Arc::new(Self {

@@ -119,13 +119,13 @@ impl WriteBuffer {
         let start = Instant::now();
         let db = self.db.clone();
 
-        tokio::task::spawn_blocking(move || {
+        tokio::task::spawn_blocking(move || -> Result<()> {
             let txn = db.begin_write()?;
             for op in ops {
                 op.apply(&txn)?;
             }
             txn.commit()?;
-            Result::Ok(())
+            Ok(())
         })
         .await??;
 
