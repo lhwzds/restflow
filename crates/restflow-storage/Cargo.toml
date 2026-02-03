@@ -20,6 +20,7 @@ base64 = "0.22"
 rand = "0.8"
 ts-rs = "11.0"
 tracing = { workspace = true }
+restflow-core = { workspace = true }
 hnsw_rs = "0.3"
 parking_lot = "0.12"
 bincode = "1.3"
