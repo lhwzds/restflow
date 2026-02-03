@@ -7,7 +7,7 @@ use tracing::{debug, info};
 
 use crate::error::{AiError, Result};
 use crate::llm::client::{
-    CompletionRequest, CompletionResponse, FinishReason, LlmClient, Role, StreamChunk, StreamResult,
+    CompletionRequest, CompletionResponse, FinishReason, LlmClient, Role, StreamResult,
 };
 
 /// Claude Code CLI client (OAuth via CLAUDE_CODE_OAUTH_TOKEN)
