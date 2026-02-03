@@ -5,7 +5,8 @@ use restflow_core::registry::{
     SkillSearchQuery, SkillSearchResult, SkillSortOrder,
     MarketplaceProvider, GitHubProvider, GatingChecker,
 };
-use restflow_core::models::{SkillManifest, SkillVersion, GatingCheckResult};
+use restflow_core::models::{GatingCheckResult, SkillManifest, SkillVersion};
+use restflow_core::skill::StorageMode;
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
@@ -360,6 +361,12 @@ pub async fn marketplace_install_skill(
         scripts: Vec::new(),
         references: Vec::new(),
         gating,
+        version: Some(manifest.version.to_string()),
+        author: manifest.author.as_ref().map(|author| author.name.clone()),
+        license: manifest.license.clone(),
+        content_hash: None,
+        storage_mode: StorageMode::DatabaseOnly,
+        is_synced: false,
         created_at: chrono::Utc::now().timestamp_millis(),
         updated_at: chrono::Utc::now().timestamp_millis(),
     };

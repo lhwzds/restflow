@@ -35,6 +35,24 @@ pub struct Skill {
     /// Optional gating requirements for the skill
     #[serde(skip_serializing_if = "Option::is_none")]
     pub gating: Option<SkillGating>,
+    /// Optional version for the skill definition
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    /// Optional author for the skill definition
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub author: Option<String>,
+    /// Optional license for the skill definition
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub license: Option<String>,
+    /// Optional content hash for change detection
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content_hash: Option<String>,
+    /// Storage mode for the skill
+    #[serde(default)]
+    pub storage_mode: StorageMode,
+    /// Whether the skill is synced between storage modes
+    #[serde(default)]
+    pub is_synced: bool,
     /// Timestamp when the skill was created (milliseconds since epoch)
     #[ts(type = "number")]
     pub created_at: i64,
@@ -64,6 +82,12 @@ impl Skill {
             scripts: Vec::new(),
             references: Vec::new(),
             gating: None,
+            version: None,
+            author: None,
+            license: None,
+            content_hash: None,
+            storage_mode: StorageMode::DatabaseOnly,
+            is_synced: false,
             created_at: now,
             updated_at: now,
         }
@@ -109,6 +133,21 @@ pub struct SkillFrontmatter {
     pub references: Option<Vec<SkillReference>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub gating: Option<SkillGating>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub author: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub license: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq, Eq, Default)]
+#[ts(export)]
+pub enum StorageMode {
+    #[default]
+    DatabaseOnly,
+    FileSystemOnly,
+    Hybrid,
 }
 
 impl Skill {
@@ -134,6 +173,9 @@ impl Skill {
                 Some(self.references.clone())
             },
             gating: self.gating.clone(),
+            version: self.version.clone(),
+            author: self.author.clone(),
+            license: self.license.clone(),
         };
 
         let yaml = serde_yaml::to_string(&frontmatter).unwrap_or_default();
@@ -173,6 +215,9 @@ impl Skill {
         skill.scripts = frontmatter.scripts.unwrap_or_default();
         skill.references = frontmatter.references.unwrap_or_default();
         skill.gating = frontmatter.gating;
+        skill.version = frontmatter.version;
+        skill.author = frontmatter.author;
+        skill.license = frontmatter.license;
 
         Ok(skill)
     }
