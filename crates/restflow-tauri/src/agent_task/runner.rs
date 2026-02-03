@@ -10,6 +10,7 @@
 use anyhow::{Result, anyhow};
 use restflow_ai::llm::Message;
 use restflow_core::models::{AgentTask, AgentTaskStatus, ExecutionMode, NotificationConfig};
+use restflow_core::performance::{TaskPriority, TaskQueue, TaskQueueConfig, WorkerPool, WorkerPoolConfig, TaskExecutor};
 use restflow_core::storage::{AgentTaskStorage, MemoryStorage};
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -164,6 +165,8 @@ pub struct AgentTaskRunner {
     config: RunnerConfig,
     running_tasks: Arc<RwLock<HashSet<String>>>,
     cancel_senders: Arc<RwLock<HashMap<String, oneshot::Sender<()>>>>,
+    pending_cancel_receivers: Arc<RwLock<HashMap<String, oneshot::Receiver<()>>>>,
+    task_queue: Arc<TaskQueue>,
     heartbeat_emitter: Arc<dyn HeartbeatEmitter>,
     event_emitter: Arc<dyn TaskEventEmitter>,
     sequence: AtomicU64,
@@ -180,6 +183,12 @@ impl AgentTaskRunner {
         notifier: Arc<dyn NotificationSender>,
         config: RunnerConfig,
     ) -> Self {
+        let queue_config = TaskQueueConfig {
+            max_concurrent: config.max_concurrent_tasks,
+            ..Default::default()
+        };
+        let task_queue = Arc::new(TaskQueue::new(queue_config, None));
+
         Self {
             storage,
             executor,
@@ -187,6 +196,8 @@ impl AgentTaskRunner {
             config,
             running_tasks: Arc::new(RwLock::new(HashSet::new())),
             cancel_senders: Arc::new(RwLock::new(HashMap::new())),
+            pending_cancel_receivers: Arc::new(RwLock::new(HashMap::new())),
+            task_queue,
             heartbeat_emitter: Arc::new(NoopHeartbeatEmitter),
             event_emitter: Arc::new(NoopEventEmitter),
             sequence: AtomicU64::new(0),
@@ -203,6 +214,12 @@ impl AgentTaskRunner {
         config: RunnerConfig,
         heartbeat_emitter: Arc<dyn HeartbeatEmitter>,
     ) -> Self {
+        let queue_config = TaskQueueConfig {
+            max_concurrent: config.max_concurrent_tasks,
+            ..Default::default()
+        };
+        let task_queue = Arc::new(TaskQueue::new(queue_config, None));
+
         Self {
             storage,
             executor,
@@ -210,6 +227,8 @@ impl AgentTaskRunner {
             config,
             running_tasks: Arc::new(RwLock::new(HashSet::new())),
             cancel_senders: Arc::new(RwLock::new(HashMap::new())),
+            pending_cancel_receivers: Arc::new(RwLock::new(HashMap::new())),
+            task_queue,
             heartbeat_emitter,
             event_emitter: Arc::new(NoopEventEmitter),
             sequence: AtomicU64::new(0),
@@ -230,6 +249,12 @@ impl AgentTaskRunner {
         heartbeat_emitter: Arc<dyn HeartbeatEmitter>,
         memory_storage: MemoryStorage,
     ) -> Self {
+        let queue_config = TaskQueueConfig {
+            max_concurrent: config.max_concurrent_tasks,
+            ..Default::default()
+        };
+        let task_queue = Arc::new(TaskQueue::new(queue_config, None));
+
         Self {
             storage,
             executor,
@@ -237,6 +262,8 @@ impl AgentTaskRunner {
             config,
             running_tasks: Arc::new(RwLock::new(HashSet::new())),
             cancel_senders: Arc::new(RwLock::new(HashMap::new())),
+            pending_cancel_receivers: Arc::new(RwLock::new(HashMap::new())),
+            task_queue,
             heartbeat_emitter,
             event_emitter: Arc::new(NoopEventEmitter),
             sequence: AtomicU64::new(0),
@@ -276,6 +303,17 @@ impl AgentTaskRunner {
         self.emit_status(RunnerStatus::Running, Some("Runner started".to_string()))
             .await;
 
+        let executor = Arc::new(RunnerTaskExecutor { runner: self.clone() });
+        let mut worker_pool = WorkerPool::new(
+            self.task_queue.clone(),
+            executor,
+            WorkerPoolConfig {
+                worker_count: self.config.max_concurrent_tasks,
+                idle_sleep: Duration::from_millis(10),
+            },
+        );
+        worker_pool.start();
+
         loop {
             tokio::select! {
                 _ = poll_interval.tick() => {
@@ -288,6 +326,7 @@ impl AgentTaskRunner {
                         Some(RunnerCommand::Stop) => {
                             info!("AgentTaskRunner stopping...");
                             self.emit_status(RunnerStatus::Stopping, Some("Runner stopping".to_string())).await;
+                            worker_pool.stop().await;
                             break;
                         }
                         Some(RunnerCommand::CheckNow) => {
@@ -304,6 +343,7 @@ impl AgentTaskRunner {
                         }
                         None => {
                             info!("Command channel closed, stopping runner");
+                            worker_pool.stop().await;
                             break;
                         }
                     }
@@ -398,21 +438,23 @@ impl AgentTaskRunner {
                 continue;
             }
 
-            // Add to running set BEFORE spawning to prevent race conditions
-            // where the next poll cycle picks up the same task
-            self.running_tasks.write().await.insert(task.id.clone());
+            // Add to running set BEFORE enqueuing to prevent duplicates.
+            let task_id = task.id.clone();
+            self.running_tasks.write().await.insert(task_id.clone());
             let (cancel_tx, cancel_rx) = oneshot::channel();
             self.cancel_senders
                 .write()
                 .await
                 .insert(task.id.clone(), cancel_tx);
+            self.pending_cancel_receivers
+                .write()
+                .await
+                .insert(task.id.clone(), cancel_rx);
 
-            let runner = Arc::new(self.clone_for_task());
-            let task_id = task.id.clone();
-
-            tokio::spawn(async move {
-                runner.execute_task(&task_id, cancel_rx).await;
-            });
+            if let Err(err) = self.task_queue.submit(task, TaskPriority::Normal).await {
+                warn!("Failed to enqueue task {}: {:?}", task_id, err);
+                self.cleanup_task_tracking(task_id.as_str()).await;
+            }
         }
     }
 
@@ -456,20 +498,37 @@ impl AgentTaskRunner {
             }
         }
 
-        // Add to running set BEFORE spawning to prevent race conditions
-        self.running_tasks.write().await.insert(task_id.to_string());
+        // Add to running set BEFORE enqueuing to prevent duplicates.
+        let task_id = task_id.to_string();
+        self.running_tasks.write().await.insert(task_id.clone());
         let (cancel_tx, cancel_rx) = oneshot::channel();
         self.cancel_senders
             .write()
             .await
-            .insert(task_id.to_string(), cancel_tx);
+            .insert(task_id.clone(), cancel_tx);
+        self.pending_cancel_receivers
+            .write()
+            .await
+            .insert(task_id.clone(), cancel_rx);
 
-        let runner = Arc::new(self.clone_for_task());
-        let task_id = task_id.to_string();
+        let task = match self.storage.get_task(&task_id) {
+            Ok(Some(task)) => task,
+            Ok(None) => {
+                warn!("Task {} not found", task_id);
+                self.cleanup_task_tracking(&task_id).await;
+                return;
+            }
+            Err(e) => {
+                error!("Failed to load task {}: {}", task_id, e);
+                self.cleanup_task_tracking(&task_id).await;
+                return;
+            }
+        };
 
-        tokio::spawn(async move {
-            runner.execute_task(&task_id, cancel_rx).await;
-        });
+        if let Err(err) = self.task_queue.submit(task, TaskPriority::High).await {
+            warn!("Failed to enqueue task {}: {:?}", task_id, err);
+            self.cleanup_task_tracking(&task_id).await;
+        }
     }
 
     /// Cancel a running task
@@ -500,7 +559,11 @@ impl AgentTaskRunner {
 
     /// Execute a single task
     /// Note: Task must already be in running_tasks before calling this
-    async fn execute_task(&self, task_id: &str, mut cancel_rx: oneshot::Receiver<()>) {
+    async fn execute_task(
+        &self,
+        task_id: &str,
+        mut cancel_rx: oneshot::Receiver<()>,
+    ) -> Result<bool> {
         let start_time = chrono::Utc::now().timestamp_millis();
 
         // Start execution in storage
@@ -509,7 +572,7 @@ impl AgentTaskRunner {
             Err(e) => {
                 error!("Failed to start task execution for {}: {}", task_id, e);
                 self.cleanup_task_tracking(task_id).await;
-                return;
+                return Err(anyhow!("Failed to start task execution for {}: {}", task_id, e));
             }
         };
 
@@ -597,15 +660,17 @@ impl AgentTaskRunner {
                     error!("Failed to mark task {} as paused: {}", task_id, e);
                 }
                 self.cleanup_task_tracking(task_id).await;
-                return;
+                return Ok(false);
             }
             result = exec_future => result,
         };
 
         let duration_ms = chrono::Utc::now().timestamp_millis() - start_time;
+        let mut success = false;
 
         match result {
             Ok(Ok(exec_result)) => {
+                success = true;
                 // Success
                 info!(
                     "Task '{}' completed successfully (duration={}ms)",
@@ -690,12 +755,23 @@ impl AgentTaskRunner {
         }
 
         self.cleanup_task_tracking(task_id).await;
+        Ok(success)
     }
 
     /// Remove a task from runner tracking maps.
     async fn cleanup_task_tracking(&self, task_id: &str) {
         self.running_tasks.write().await.remove(task_id);
         self.cancel_senders.write().await.remove(task_id);
+        self.pending_cancel_receivers.write().await.remove(task_id);
+    }
+
+    async fn take_cancel_receiver(&self, task_id: &str) -> oneshot::Receiver<()> {
+        if let Some(receiver) = self.pending_cancel_receivers.write().await.remove(task_id) {
+            return receiver;
+        }
+
+        let (_tx, rx) = oneshot::channel();
+        rx
     }
 
     /// Persist conversation messages to long-term memory.
@@ -782,23 +858,6 @@ impl AgentTaskRunner {
         }
     }
 
-    /// Create a clone for use in spawned tasks
-    fn clone_for_task(&self) -> Self {
-        Self {
-            storage: self.storage.clone(),
-            executor: self.executor.clone(),
-            notifier: self.notifier.clone(),
-            config: self.config.clone(),
-            running_tasks: self.running_tasks.clone(),
-            cancel_senders: self.cancel_senders.clone(),
-            heartbeat_emitter: self.heartbeat_emitter.clone(),
-            event_emitter: self.event_emitter.clone(),
-            sequence: AtomicU64::new(self.sequence.load(Ordering::SeqCst)),
-            start_time: self.start_time,
-            memory_persister: self.memory_persister.clone(),
-        }
-    }
-
     /// Get the number of currently running tasks
     pub async fn running_task_count(&self) -> usize {
         self.running_tasks.read().await.len()
@@ -824,6 +883,18 @@ impl NotificationSender for NoopNotificationSender {
     ) -> Result<()> {
         // No-op: notifications are handled elsewhere or disabled
         Ok(())
+    }
+}
+
+struct RunnerTaskExecutor {
+    runner: Arc<AgentTaskRunner>,
+}
+
+#[async_trait::async_trait]
+impl TaskExecutor for RunnerTaskExecutor {
+    async fn execute(&self, task: &AgentTask) -> Result<bool> {
+        let cancel_rx = self.runner.take_cancel_receiver(&task.id).await;
+        self.runner.execute_task(&task.id, cancel_rx).await
     }
 }
 
