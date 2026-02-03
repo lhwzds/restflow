@@ -1,10 +1,11 @@
 use anyhow::{Result, bail};
+use redb::Database;
 use restflow_core::AppCore;
 use restflow_core::auth::{AuthManagerConfig, AuthProfileManager, AuthProvider};
-use restflow_core::storage::SecretStorage;
-use redb::Database;
 use restflow_core::models::chat_session::{ChatMessage, ChatSession};
 use restflow_core::paths;
+use restflow_core::storage::SecretStorage;
+use restflow_storage::AuthProfileStorage;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -57,17 +58,20 @@ impl ClaudeOutput {
 
 /// Get API key from RestFlow auth profile
 async fn get_api_key_from_profile(profile_id: Option<&str>) -> Result<String> {
-    let mut config = AuthManagerConfig::default();
+    let config = AuthManagerConfig::default();
     let data_dir = paths::ensure_data_dir()?;
-    let profiles_path = data_dir.join("auth_profiles.json");
-    config.profiles_path = Some(profiles_path);
 
     // Create SecretStorage
     let db_path = data_dir.join("restflow.db");
     let db = Arc::new(Database::create(&db_path)?);
-    let secrets = Arc::new(SecretStorage::new(db)?);
+    let secrets = Arc::new(SecretStorage::new(db.clone())?);
+    let storage = AuthProfileStorage::new(db)?;
 
-    let manager = AuthProfileManager::with_config(config, secrets);
+    let manager = AuthProfileManager::with_storage(config, secrets, Some(storage));
+    let old_json = data_dir.join("auth_profiles.json");
+    if let Err(e) = manager.migrate_from_json(&old_json).await {
+        tracing::warn!(error = %e, "Failed to migrate auth profiles from JSON");
+    }
     manager.initialize().await?;
 
     let profiles = manager.list_profiles().await;
@@ -271,7 +275,9 @@ pub async fn run(core: Arc<AppCore>, args: ClaudeArgs, format: OutputFormat) -> 
     }
 
     let session_id = resolve_session_id(&core, &args).await?;
-    if args.new_session && let Some(ref id) = session_id {
+    if args.new_session
+        && let Some(ref id) = session_id
+    {
         eprintln!("Created session: {}", id);
     }
 
