@@ -258,6 +258,7 @@ fn load_master_key(config: &SecretStorageConfig) -> Result<[u8; 32]> {
         return Ok(key);
     }
 
+    // SECURITY: Buffer initialized to zero, immediately filled with cryptographically secure random bytes.
     let mut key = [0u8; 32];
     rand::rngs::OsRng.fill_bytes(&mut key);
     match write_master_key(&key) {
