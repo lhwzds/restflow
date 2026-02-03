@@ -29,7 +29,7 @@ where
     );
 
     Router::<S>::new()
-        .nest_service("/", service)
+        .fallback_service(service)
         .layer(axum::middleware::from_fn(optional_api_key_auth))
 }
 
