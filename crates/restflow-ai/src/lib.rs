@@ -30,7 +30,7 @@ pub use agent::{AgentConfig, AgentExecutor, AgentResult, AgentState, AgentStatus
 pub use embedding::{EmbeddingCache, EmbeddingConfig, EmbeddingProvider, OpenAIEmbedding, VoyageEmbedding};
 pub use error::{AiError, Result};
 pub use graph::{Graph, GraphNode};
-pub use llm::{AnthropicClient, LlmClient, Message, OpenAIClient, Role};
+pub use llm::{AnthropicClient, ClaudeCodeClient, LlmClient, Message, OpenAIClient, Role};
 pub use memory::{DEFAULT_MAX_MESSAGES, WorkingMemory};
 pub use security::{SecurityDecision, SecurityGate};
 pub use tools::{

@@ -7,7 +7,7 @@ use crate::agent::{build_agent_system_prompt, registry_from_allowlist, SubagentD
 use crate::chat::ChatStreamState;
 use crate::state::AppState;
 use restflow_ai::llm::Message;
-use restflow_ai::{AnthropicClient, LlmClient, OpenAIClient};
+use restflow_ai::{AnthropicClient, ClaudeCodeClient, LlmClient, OpenAIClient};
 use restflow_core::models::{
     AgentNode, ApiKeyConfig, ChatMessage, ChatRole, ChatSession, ChatSessionSummary,
     MessageExecution,
@@ -418,7 +418,13 @@ fn create_llm_client(model: AIModel, api_key: &str) -> Arc<dyn LlmClient> {
     let model_str = model.as_str();
     match model.provider() {
         Provider::OpenAI => Arc::new(OpenAIClient::new(api_key).with_model(model_str)),
-        Provider::Anthropic => Arc::new(AnthropicClient::new(api_key).with_model(model_str)),
+        Provider::Anthropic => {
+            if api_key.starts_with("sk-ant-oat") {
+                Arc::new(ClaudeCodeClient::new(api_key).with_model(model_str))
+            } else {
+                Arc::new(AnthropicClient::new(api_key).with_model(model_str))
+            }
+        }
         Provider::DeepSeek => Arc::new(
             OpenAIClient::new(api_key)
                 .with_model(model_str)

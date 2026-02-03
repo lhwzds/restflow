@@ -8,7 +8,7 @@ use crate::commands::utils::{format_timestamp, parse_model, read_stdin_to_string
 use crate::output::{OutputFormat, json::print_json};
 use redb::Database;
 use restflow_ai::{
-    AgentConfig, AgentExecutor, AgentState, AgentStatus, AnthropicClient, LlmClient, OpenAIClient,
+    AgentConfig, AgentExecutor, AgentState, AgentStatus, AnthropicClient, ClaudeCodeClient, LlmClient, OpenAIClient,
     Role, ToolRegistry,
 };
 use restflow_core::auth::{AuthManagerConfig, AuthProfileManager, AuthProvider};
@@ -355,7 +355,13 @@ async fn run_agent_with_executor(
 
     let llm: Arc<dyn LlmClient> = match model.provider() {
         Provider::OpenAI => Arc::new(OpenAIClient::new(&api_key).with_model(model.as_str())),
-        Provider::Anthropic => Arc::new(AnthropicClient::new(&api_key).with_model(model.as_str())),
+        Provider::Anthropic => {
+            if api_key.starts_with("sk-ant-oat") {
+                Arc::new(ClaudeCodeClient::new(&api_key).with_model(model.as_str()))
+            } else {
+                Arc::new(AnthropicClient::new(&api_key).with_model(model.as_str()))
+            }
+        }
         Provider::DeepSeek => Arc::new(
             OpenAIClient::new(&api_key)
                 .with_model(model.as_str())

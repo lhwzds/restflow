@@ -7,7 +7,7 @@ use axum::{
 };
 use futures::{Stream, stream};
 use restflow_ai::{
-    AgentConfig, AgentExecutor, AgentState, AgentStatus, AnthropicClient, LlmClient, OpenAIClient,
+    AgentConfig, AgentExecutor, AgentState, AgentStatus, AnthropicClient, ClaudeCodeClient, LlmClient, OpenAIClient,
     Role, ToolRegistry,
 };
 use restflow_core::models::{
@@ -154,7 +154,11 @@ async fn run_agent_with_executor(
             Arc::new(OpenAIClient::new(&api_key).with_model(model.as_str()))
         }
         Provider::Anthropic => {
-            Arc::new(AnthropicClient::new(&api_key).with_model(model.as_str()))
+            if api_key.starts_with("sk-ant-oat") {
+                Arc::new(ClaudeCodeClient::new(&api_key).with_model(model.as_str()))
+            } else {
+                Arc::new(AnthropicClient::new(&api_key).with_model(model.as_str()))
+            }
         }
         Provider::DeepSeek => {
             // DeepSeek uses OpenAI-compatible API
