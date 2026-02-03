@@ -5,7 +5,6 @@ mod config;
 mod daemon;
 mod output;
 mod setup;
-mod tui;
 
 use anyhow::Result;
 use clap::{CommandFactory, Parser};
@@ -20,7 +19,7 @@ async fn main() -> Result<()> {
     let config = config::CliConfig::load();
     config.apply_api_key_env();
 
-    // Configure logging: always write to file (needed for TUI mode)
+    // Configure logging: always write to file
     let log_dir = paths::ensure_data_dir()?.join("logs");
     std::fs::create_dir_all(&log_dir).ok();
 
@@ -51,7 +50,6 @@ async fn main() -> Result<()> {
     let core = setup::prepare_core(Some(db_path)).await?;
 
     match cli.command {
-        Some(Commands::Chat(args)) => commands::chat::run(core, args).await,
         Some(Commands::Run(args)) => commands::run::run(core, args, cli.format).await,
         Some(Commands::Agent { command }) => commands::agent::run(core, command, cli.format).await,
         Some(Commands::Task { command }) => commands::task::run(core, command, cli.format).await,
@@ -75,7 +73,11 @@ async fn main() -> Result<()> {
         Some(Commands::Info) => commands::info::run(),
         Some(Commands::Claude(args)) => commands::claude::run(core, args, cli.format).await,
         Some(Commands::Codex(args)) => commands::codex::run(core, args, cli.format).await,
-        None => commands::chat::run(core, Default::default()).await,
         Some(Commands::Completions { .. }) => Ok(()),
+        None => {
+            // Show help when no command is provided
+            Cli::command().print_help()?;
+            Ok(())
+        }
     }
 }
