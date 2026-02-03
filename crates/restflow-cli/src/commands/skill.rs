@@ -5,28 +5,32 @@ use std::sync::Arc;
 
 use crate::cli::SkillCommands;
 use crate::commands::utils::{format_timestamp, preview_text, slugify};
+use crate::executor::CommandExecutor;
 use crate::output::{json::print_json, OutputFormat};
 use restflow_core::models::Skill;
 use restflow_core::registry::{MarketplaceProvider, SkillRegistry, SkillSearchQuery};
 use restflow_core::services::skills as skill_service;
-use restflow_core::AppCore;
 use serde_json::json;
 
-pub async fn run(core: Arc<AppCore>, command: SkillCommands, format: OutputFormat) -> Result<()> {
+pub async fn run(
+    executor: Arc<dyn CommandExecutor>,
+    command: SkillCommands,
+    format: OutputFormat,
+) -> Result<()> {
     match command {
-        SkillCommands::List => list_skills(&core, format).await,
-        SkillCommands::Show { id } => show_skill(&core, &id, format).await,
-        SkillCommands::Create { name } => create_skill(&core, &name, format).await,
-        SkillCommands::Delete { id } => delete_skill(&core, &id, format).await,
-        SkillCommands::Import { path } => import_skill(&core, &path, format).await,
-        SkillCommands::Export { id, output } => export_skill(&core, &id, output, format).await,
+        SkillCommands::List => list_skills(executor, format).await,
+        SkillCommands::Show { id } => show_skill(executor, &id, format).await,
+        SkillCommands::Create { name } => create_skill(executor, &name, format).await,
+        SkillCommands::Delete { id } => delete_skill(executor, &id, format).await,
+        SkillCommands::Import { path } => import_skill(executor, &path, format).await,
+        SkillCommands::Export { id, output } => export_skill(executor, &id, output, format).await,
         SkillCommands::Search { query } => search_skills(&query, format).await,
-        SkillCommands::Install { name } => install_skill(&core, &name, format).await,
+        SkillCommands::Install { name } => install_skill(executor, &name, format).await,
     }
 }
 
-async fn list_skills(core: &Arc<AppCore>, format: OutputFormat) -> Result<()> {
-    let skills = skill_service::list_skills(core).await?;
+async fn list_skills(executor: Arc<dyn CommandExecutor>, format: OutputFormat) -> Result<()> {
+    let skills = executor.list_skills().await?;
 
     if format.is_json() {
         return print_json(&skills);
@@ -52,8 +56,13 @@ async fn list_skills(core: &Arc<AppCore>, format: OutputFormat) -> Result<()> {
     crate::output::table::print_table(table)
 }
 
-async fn show_skill(core: &Arc<AppCore>, id: &str, format: OutputFormat) -> Result<()> {
-    let skill = skill_service::get_skill(core, id)
+async fn show_skill(
+    executor: Arc<dyn CommandExecutor>,
+    id: &str,
+    format: OutputFormat,
+) -> Result<()> {
+    let skill = executor
+        .get_skill(id)
         .await?
         .ok_or_else(|| anyhow::anyhow!("Skill not found: {}", id))?;
 
@@ -63,20 +72,30 @@ async fn show_skill(core: &Arc<AppCore>, id: &str, format: OutputFormat) -> Resu
 
     println!("ID:          {}", skill.id);
     println!("Name:        {}", skill.name);
-    println!("Description: {}", skill.description.clone().unwrap_or_else(|| "-".to_string()));
-    println!("Tags:        {}", skill.tags.clone().unwrap_or_default().join(", "));
+    println!(
+        "Description: {}",
+        skill.description.clone().unwrap_or_else(|| "-".to_string())
+    );
+    println!(
+        "Tags:        {}",
+        skill.tags.clone().unwrap_or_default().join(", ")
+    );
     println!("Updated:     {}", format_timestamp(Some(skill.updated_at)));
     println!("\nContent:\n{}", skill.content);
 
     Ok(())
 }
 
-async fn create_skill(core: &Arc<AppCore>, name: &str, format: OutputFormat) -> Result<()> {
+async fn create_skill(
+    executor: Arc<dyn CommandExecutor>,
+    name: &str,
+    format: OutputFormat,
+) -> Result<()> {
     let id = slugify(name);
     let content = format!("# {}\n", name);
     let skill = Skill::new(id.clone(), name.to_string(), None, None, content);
 
-    skill_service::create_skill(core, skill.clone()).await?;
+    executor.create_skill(skill.clone()).await?;
 
     if format.is_json() {
         return print_json(&skill);
@@ -86,8 +105,12 @@ async fn create_skill(core: &Arc<AppCore>, name: &str, format: OutputFormat) -> 
     Ok(())
 }
 
-async fn delete_skill(core: &Arc<AppCore>, id: &str, format: OutputFormat) -> Result<()> {
-    skill_service::delete_skill(core, id).await?;
+async fn delete_skill(
+    executor: Arc<dyn CommandExecutor>,
+    id: &str,
+    format: OutputFormat,
+) -> Result<()> {
+    executor.delete_skill(id).await?;
 
     if format.is_json() {
         return print_json(&json!({ "deleted": true, "id": id }));
@@ -97,7 +120,11 @@ async fn delete_skill(core: &Arc<AppCore>, id: &str, format: OutputFormat) -> Re
     Ok(())
 }
 
-async fn import_skill(core: &Arc<AppCore>, path: &str, format: OutputFormat) -> Result<()> {
+async fn import_skill(
+    executor: Arc<dyn CommandExecutor>,
+    path: &str,
+    format: OutputFormat,
+) -> Result<()> {
     let content = std::fs::read_to_string(path)?;
     let filename = Path::new(path)
         .file_stem()
@@ -106,7 +133,7 @@ async fn import_skill(core: &Arc<AppCore>, path: &str, format: OutputFormat) -> 
     let id = slugify(filename);
 
     let skill = skill_service::import_skill_from_markdown(&id, &content)?;
-    skill_service::create_skill(core, skill.clone()).await?;
+    executor.create_skill(skill.clone()).await?;
 
     if format.is_json() {
         return print_json(&skill);
@@ -117,12 +144,13 @@ async fn import_skill(core: &Arc<AppCore>, path: &str, format: OutputFormat) -> 
 }
 
 async fn export_skill(
-    core: &Arc<AppCore>,
+    executor: Arc<dyn CommandExecutor>,
     id: &str,
     output: Option<String>,
     format: OutputFormat,
 ) -> Result<()> {
-    let skill = skill_service::get_skill(core, id)
+    let skill = executor
+        .get_skill(id)
         .await?
         .ok_or_else(|| anyhow::anyhow!("Skill not found: {}", id))?;
 
@@ -174,7 +202,11 @@ async fn search_skills(query: &str, format: OutputFormat) -> Result<()> {
     crate::output::table::print_table(table)
 }
 
-async fn install_skill(core: &Arc<AppCore>, name: &str, format: OutputFormat) -> Result<()> {
+async fn install_skill(
+    executor: Arc<dyn CommandExecutor>,
+    name: &str,
+    format: OutputFormat,
+) -> Result<()> {
     let mut registry = SkillRegistry::with_defaults();
     registry.add_provider(Arc::new(MarketplaceProvider::new()));
 
@@ -194,7 +226,7 @@ async fn install_skill(core: &Arc<AppCore>, name: &str, format: OutputFormat) ->
         installed.content.clone(),
     );
 
-    let existing = skill_service::get_skill(core, &installed.manifest.id).await?;
+    let existing = executor.get_skill(&installed.manifest.id).await?;
     if let Some(mut existing_skill) = existing {
         existing_skill.update(
             Some(skill.name),
@@ -202,15 +234,20 @@ async fn install_skill(core: &Arc<AppCore>, name: &str, format: OutputFormat) ->
             Some(skill.tags),
             Some(skill.content),
         );
-        skill_service::update_skill(core, &installed.manifest.id, &existing_skill).await?;
+        executor
+            .update_skill(&installed.manifest.id, existing_skill)
+            .await?;
     } else {
-        skill_service::create_skill(core, skill.clone()).await?;
+        executor.create_skill(skill.clone()).await?;
     }
 
     if format.is_json() {
         return print_json(&installed);
     }
 
-    println!("Skill installed: {} ({})", installed.manifest.name, installed.manifest.id);
+    println!(
+        "Skill installed: {} ({})",
+        installed.manifest.name, installed.manifest.id
+    );
     Ok(())
 }
