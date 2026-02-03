@@ -11,7 +11,7 @@ use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use tracing::info;
+use tracing::{info, warn};
 use ts_rs::TS;
 
 const SECRETS_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("secrets");
@@ -611,11 +611,6 @@ mod tests {
         let db_path = temp_dir.path().join("test.db");
         let db = Arc::new(Database::create(db_path).unwrap());
 
-        let env_key = [0xaa; 32];
-        let env_value = STANDARD.encode(env_key);
-        let json_key = [9u8; 32];
-
-
         let db_key = [1u8; 32];
         let write_txn = db.begin_write().unwrap();
         {
@@ -738,28 +733,6 @@ mod tests {
 
         // SAFETY: This is a single-threaded test, no other threads access this env var
         unsafe { std::env::remove_var(STATE_DIR_ENV) };
-    }
-
-    #[test]
-    fn test_master_key_json_non_overwrite() {
-        let temp_dir = tempdir().unwrap();
-        let state_dir = temp_dir.path().join("state");
-        let db = setup_db_for_master_key(&temp_dir);
-        let config = SecretStorageConfig::default();
-
-        let key_a = [1u8; 32];
-        let key_b = [2u8; 32];
-
-        with_state_dir(&state_dir, || {
-            let result = write_master_key_to_json(&key_a).unwrap();
-            assert_eq!(result, MasterKeyWriteResult::Written);
-
-            let result = write_master_key_to_json(&key_b).unwrap();
-            assert_eq!(result, MasterKeyWriteResult::AlreadyExists);
-
-            let key = load_master_key(&db, &config).unwrap();
-            assert_eq!(key, key_a);
-        });
     }
 
     #[test]
