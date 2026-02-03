@@ -531,7 +531,6 @@ impl ServerHandler for RestFlowMcpServer {
             meta: None,
             tools,
             next_cursor: None,
-            meta: Default::default(),
         })
     }
 

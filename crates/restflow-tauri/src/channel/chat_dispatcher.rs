@@ -250,6 +250,7 @@ pub struct ChatDispatcher {
 
 impl ChatDispatcher {
     /// Create a new ChatDispatcher.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         sessions: Arc<ChatSessionManager>,
         storage: Arc<Storage>,
