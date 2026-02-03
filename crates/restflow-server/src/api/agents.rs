@@ -18,7 +18,7 @@ use restflow_core::models::{
 use restflow_core::paths;
 use restflow_core::storage::SecretStorage;
 use restflow_core::storage::agent::StoredAgent;
-use restflow_core::AuthProfileStorage;
+use restflow_storage::AuthProfileStorage;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;

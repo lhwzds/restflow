@@ -5,7 +5,8 @@ use restflow_core::registry::{
     SkillSearchQuery, SkillSearchResult, SkillSortOrder,
     MarketplaceProvider, GitHubProvider, GatingChecker,
 };
-use restflow_core::models::{GatingCheckResult, Skill, SkillManifest, SkillVersion, StorageMode};
+use restflow_core::models::{GatingCheckResult, SkillManifest, SkillVersion};
+use restflow_core::skill::StorageMode;
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
