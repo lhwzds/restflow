@@ -999,23 +999,3 @@ mod tests {
         assert!(chunks.is_empty());
     }
 }
-
-// Implement the SemanticMemory trait from restflow-ai
-impl restflow_ai::SemanticMemory for MemoryStorage {
-    fn semantic_search(
-        &self,
-        agent_id: &str,
-        query_embedding: &[f32],
-        top_k: usize,
-    ) -> anyhow::Result<Vec<restflow_ai::MemorySearchMatch>> {
-        let matches = self.semantic_search(agent_id, query_embedding, top_k)?;
-        Ok(matches
-            .into_iter()
-            .map(|m| restflow_ai::MemorySearchMatch {
-                content: m.chunk.content,
-                tags: m.chunk.tags,
-                similarity: m.similarity,
-            })
-            .collect())
-    }
-}

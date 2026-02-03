@@ -9,10 +9,10 @@ use restflow_core::models::{
 };
 use rmcp::{
     ErrorData as McpError, ServerHandler, ServiceExt,
-    handler::server::tool::cached_schema_for_type,
+    handler::server::tool::schema_for_type,
     model::{
-        CallToolRequestParam, CallToolResult, Content, Implementation, ListToolsResult,
-        PaginatedRequestParam, ServerCapabilities, ServerInfo, Tool,
+        CallToolRequestParams, CallToolResult, Content, Implementation, ListToolsResult,
+        PaginatedRequestParams, ServerCapabilities, ServerInfo, Tool,
     },
     schemars::{self, JsonSchema},
     service::{RequestContext, RoleServer},
@@ -456,78 +456,79 @@ impl ServerHandler for RestFlowMcpServer {
 
     async fn list_tools(
         &self,
-        _request: Option<PaginatedRequestParam>,
+        _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, McpError> {
         let tools = vec![
             Tool::new(
                 "list_skills",
                 "List all available skills in RestFlow. Returns a summary of each skill including ID, name, description, and tags.",
-                cached_schema_for_type::<EmptyParams>(),
+                schema_for_type::<EmptyParams>(),
             ),
             Tool::new(
                 "get_skill",
                 "Get the full content of a skill by its ID. Returns the complete skill including its markdown content.",
-                cached_schema_for_type::<GetSkillParams>(),
+                schema_for_type::<GetSkillParams>(),
             ),
             Tool::new(
                 "create_skill",
                 "Create a new skill in RestFlow. Provide a name, optional description, optional tags, and the markdown content.",
-                cached_schema_for_type::<CreateSkillParams>(),
+                schema_for_type::<CreateSkillParams>(),
             ),
             Tool::new(
                 "update_skill",
                 "Update an existing skill in RestFlow. Provide the skill ID and the fields to update.",
-                cached_schema_for_type::<UpdateSkillParams>(),
+                schema_for_type::<UpdateSkillParams>(),
             ),
             Tool::new(
                 "delete_skill",
                 "Delete a skill from RestFlow by its ID.",
-                cached_schema_for_type::<DeleteSkillParams>(),
+                schema_for_type::<DeleteSkillParams>(),
             ),
             Tool::new(
                 "list_agents",
                 "List all available agents in RestFlow. Returns a summary of each agent including ID, name, and model.",
-                cached_schema_for_type::<EmptyParams>(),
+                schema_for_type::<EmptyParams>(),
             ),
             Tool::new(
                 "get_agent",
                 "Get the full configuration of an agent by its ID. Returns the complete agent including model, prompt, temperature, and tools.",
-                cached_schema_for_type::<GetAgentParams>(),
+                schema_for_type::<GetAgentParams>(),
             ),
             Tool::new(
                 "memory_search",
                 "Search memory chunks for an agent using keyword matching.",
-                cached_schema_for_type::<MemorySearchParams>(),
+                schema_for_type::<MemorySearchParams>(),
             ),
             Tool::new(
                 "memory_store",
                 "Store a new memory chunk for an agent.",
-                cached_schema_for_type::<MemoryStoreParams>(),
+                schema_for_type::<MemoryStoreParams>(),
             ),
             Tool::new(
                 "memory_stats",
                 "Get memory statistics for an agent.",
-                cached_schema_for_type::<MemoryStatsParams>(),
+                schema_for_type::<MemoryStatsParams>(),
             ),
             Tool::new(
                 "skill_execute",
                 "Fetch a skill's content for execution context.",
-                cached_schema_for_type::<SkillExecuteParams>(),
+                schema_for_type::<SkillExecuteParams>(),
             ),
             Tool::new(
                 "chat_session_list",
                 "List chat sessions (optionally filtered by agent).",
-                cached_schema_for_type::<ChatSessionListParams>(),
+                schema_for_type::<ChatSessionListParams>(),
             ),
             Tool::new(
                 "chat_session_get",
                 "Get a chat session by ID, including its message history.",
-                cached_schema_for_type::<ChatSessionGetParams>(),
+                schema_for_type::<ChatSessionGetParams>(),
             ),
         ];
 
         Ok(ListToolsResult {
+            meta: None,
             tools,
             next_cursor: None,
         })
@@ -535,7 +536,7 @@ impl ServerHandler for RestFlowMcpServer {
 
     async fn call_tool(
         &self,
-        request: CallToolRequestParam,
+        request: CallToolRequestParams,
         _context: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, McpError> {
         let result = match request.name.as_ref() {
