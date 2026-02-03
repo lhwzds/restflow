@@ -56,6 +56,12 @@ fn skills_equal(left: &Skill, right: &Skill) -> bool {
         && normalize_scripts(&left.scripts) == normalize_scripts(&right.scripts)
         && normalize_references(&left.references) == normalize_references(&right.references)
         && normalize_gating(left.gating.as_ref()) == normalize_gating(right.gating.as_ref())
+        && left.version == right.version
+        && left.author == right.author
+        && left.license == right.license
+        && left.content_hash == right.content_hash
+        && left.storage_mode == right.storage_mode
+        && left.is_synced == right.is_synced
 }
 
 fn normalize_scripts(scripts: &[SkillScript]) -> Vec<(String, String, Option<String>)> {

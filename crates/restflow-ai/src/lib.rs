@@ -10,6 +10,8 @@
 //! - Memory system (working memory with sliding window)
 //! - Python SDK via PyO3
 
+#![allow(dead_code)]
+
 pub mod agent;
 pub mod embedding;
 pub mod error;

@@ -1,9 +1,11 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
+use sha2::{Digest, Sha256};
 use walkdir::WalkDir;
 
 use crate::models::{Skill, SkillScript};
+use crate::skill::StorageMode;
 
 #[derive(Debug, Clone)]
 pub struct SkillFolderLoader {
@@ -61,6 +63,9 @@ impl SkillFolderLoader {
 
         let mut skill = Skill::from_markdown(&skill_id, &content)?;
         skill.folder_path = Some(folder_path.to_string_lossy().to_string());
+        skill.storage_mode = StorageMode::FileSystemOnly;
+        skill.is_synced = true;
+        skill.content_hash = Some(Self::hash_content(&content));
 
         if skill.scripts.is_empty() {
             skill.scripts = self.discover_scripts(folder_path)?;
@@ -121,6 +126,10 @@ impl SkillFolderLoader {
             _ => return None,
         };
         Some(lang.to_string())
+    }
+
+    fn hash_content(content: &str) -> String {
+        hex::encode(Sha256::digest(content.as_bytes()))
     }
 
     fn fill_script_langs(&self, folder_path: &Path, scripts: &mut [SkillScript]) {
