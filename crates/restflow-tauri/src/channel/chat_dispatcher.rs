@@ -8,7 +8,7 @@ use std::sync::Arc;
 use tracing::{debug, error, info, warn};
 
 use restflow_ai::llm::Message;
-use restflow_ai::{AnthropicClient, LlmClient, OpenAIClient};
+use restflow_ai::{AnthropicClient, ClaudeCodeClient, LlmClient, OpenAIClient};
 use restflow_core::auth::AuthProfileManager;
 use restflow_core::channel::{ChannelRouter, InboundMessage, OutboundMessage};
 use restflow_core::models::{ApiKeyConfig, ChatMessage, ChatRole, ChatSession};
@@ -327,7 +327,13 @@ impl ChatDispatcher {
         let model_str = model.as_str();
         match model.provider() {
             Provider::OpenAI => Arc::new(OpenAIClient::new(api_key).with_model(model_str)),
-            Provider::Anthropic => Arc::new(AnthropicClient::new(api_key).with_model(model_str)),
+            Provider::Anthropic => {
+                if api_key.starts_with("sk-ant-oat") {
+                    Arc::new(ClaudeCodeClient::new(api_key).with_model(model_str))
+                } else {
+                    Arc::new(AnthropicClient::new(api_key).with_model(model_str))
+                }
+            }
             Provider::DeepSeek => Arc::new(
                 OpenAIClient::new(api_key)
                     .with_model(model_str)

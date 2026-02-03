@@ -9,7 +9,7 @@ use anyhow::{Result, anyhow};
 use async_trait::async_trait;
 use std::sync::Arc;
 
-use restflow_ai::{AnthropicClient, LlmClient, OpenAIClient};
+use restflow_ai::{AnthropicClient, ClaudeCodeClient, LlmClient, OpenAIClient};
 use restflow_core::{
     AIModel, Provider,
     auth::AuthProfileManager,
@@ -147,8 +147,13 @@ impl RealAgentExecutor {
                 Ok(Arc::new(client))
             }
             Provider::Anthropic => {
-                let client = AnthropicClient::new(api_key).with_model(model_str);
-                Ok(Arc::new(client))
+                if api_key.starts_with("sk-ant-oat") {
+                    let client = ClaudeCodeClient::new(api_key).with_model(model_str);
+                    Ok(Arc::new(client))
+                } else {
+                    let client = AnthropicClient::new(api_key).with_model(model_str);
+                    Ok(Arc::new(client))
+                }
             }
             Provider::DeepSeek => {
                 // DeepSeek uses OpenAI-compatible API

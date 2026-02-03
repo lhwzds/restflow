@@ -6,7 +6,7 @@ use axum::{
 use redb::Database;
 use restflow_ai::agent::{AgentContext, MemoryContext, SkillSummary, load_workspace_context};
 use restflow_ai::{
-    AgentConfig, AgentExecutor, AgentState, AgentStatus, AnthropicClient, LlmClient, OpenAIClient,
+    AgentConfig, AgentExecutor, AgentState, AgentStatus, AnthropicClient, ClaudeCodeClient, LlmClient, OpenAIClient,
     Role, ToolRegistry,
 };
 use restflow_core::auth::{AuthManagerConfig, AuthProfileManager, AuthProvider};
@@ -18,7 +18,7 @@ use restflow_core::models::{
 use restflow_core::paths;
 use restflow_core::storage::SecretStorage;
 use restflow_core::storage::agent::StoredAgent;
-use restflow_core::AuthProfileStorage;
+use restflow_storage::AuthProfileStorage;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
@@ -115,7 +115,13 @@ async fn run_agent_with_executor(
     // Create LLM client based on model provider
     let llm: Arc<dyn LlmClient> = match model.provider() {
         Provider::OpenAI => Arc::new(OpenAIClient::new(&api_key).with_model(model.as_str())),
-        Provider::Anthropic => Arc::new(AnthropicClient::new(&api_key).with_model(model.as_str())),
+        Provider::Anthropic => {
+            if api_key.starts_with("sk-ant-oat") {
+                Arc::new(ClaudeCodeClient::new(&api_key).with_model(model.as_str()))
+            } else {
+                Arc::new(AnthropicClient::new(&api_key).with_model(model.as_str()))
+            }
+        }
         Provider::DeepSeek => {
             // DeepSeek uses OpenAI-compatible API
             Arc::new(
