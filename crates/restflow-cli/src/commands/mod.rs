@@ -7,6 +7,7 @@ pub mod daemon;
 pub mod info;
 pub mod mcp;
 pub mod memory;
+pub mod migrate;
 pub mod run;
 pub mod secret;
 pub mod security;
