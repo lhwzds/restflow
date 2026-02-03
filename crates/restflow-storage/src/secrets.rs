@@ -557,10 +557,7 @@ fn remove_master_key_from_db(db: &Arc<Database>) -> Result<()> {
     let write_txn = db.begin_write()?;
     let mut table = match write_txn.open_table(MASTER_KEY_TABLE) {
         Ok(table) => table,
-        Err(TableError::TableDoesNotExist(_)) => {
-            write_txn.commit()?;
-            return Ok(());
-        }
+        Err(TableError::TableDoesNotExist(_)) => return Ok(()),
         Err(err) => return Err(err.into()),
     };
     table.remove(MASTER_KEY_RECORD)?;
