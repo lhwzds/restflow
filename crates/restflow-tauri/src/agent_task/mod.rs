@@ -36,6 +36,9 @@
 //!     storage.clone(),
 //!     process_registry.clone(),
 //!     auth_manager.clone(),
+//!     subagent_tracker.clone(),
+//!     subagent_definitions.clone(),
+//!     subagent_config.clone(),
 //! ));
 //! let notifier = Arc::new(TelegramNotifier::new(storage.secrets.clone()));
 //! let heartbeat_emitter = Arc::new(TauriHeartbeatEmitter::new(app_handle.clone()));

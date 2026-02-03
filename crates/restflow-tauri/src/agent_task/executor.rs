@@ -23,7 +23,11 @@ use tracing::info;
 use super::failover::{FailoverConfig, FailoverManager, execute_with_failover};
 use super::retry::{RetryConfig, RetryState};
 use super::runner::{AgentExecutor, ExecutionResult};
-use crate::agent::{build_agent_system_prompt, registry_from_allowlist, ToolRegistry, UnifiedAgent, UnifiedAgentConfig};
+use crate::agent::{
+    SubagentDeps, ToolRegistry, UnifiedAgent, UnifiedAgentConfig,
+    build_agent_system_prompt, registry_from_allowlist,
+};
+use crate::subagent::{AgentDefinitionRegistry, SubagentConfig, SubagentTracker};
 
 /// Real agent executor that bridges to restflow_ai::AgentExecutor.
 ///
@@ -38,6 +42,9 @@ pub struct RealAgentExecutor {
     #[allow(dead_code)]
     process_registry: Arc<ProcessRegistry>,
     auth_manager: Arc<AuthProfileManager>,
+    subagent_tracker: Arc<SubagentTracker>,
+    subagent_definitions: Arc<AgentDefinitionRegistry>,
+    subagent_config: SubagentConfig,
 }
 
 impl RealAgentExecutor {
@@ -46,11 +53,17 @@ impl RealAgentExecutor {
         storage: Arc<Storage>,
         process_registry: Arc<ProcessRegistry>,
         auth_manager: Arc<AuthProfileManager>,
+        subagent_tracker: Arc<SubagentTracker>,
+        subagent_definitions: Arc<AgentDefinitionRegistry>,
+        subagent_config: SubagentConfig,
     ) -> Self {
         Self {
             storage,
             process_registry,
             auth_manager,
+            subagent_tracker,
+            subagent_definitions,
+            subagent_config,
         }
     }
 
@@ -147,12 +160,27 @@ impl RealAgentExecutor {
         }
     }
 
+    fn build_subagent_deps(&self, llm_client: Arc<dyn LlmClient>) -> SubagentDeps {
+        SubagentDeps {
+            tracker: self.subagent_tracker.clone(),
+            definitions: self.subagent_definitions.clone(),
+            llm_client,
+            tool_registry: Arc::new(ToolRegistry::new()),
+            config: self.subagent_config.clone(),
+        }
+    }
+
     /// Build the tool registry for an agent.
     ///
     /// If the agent has specific tools configured, only those tools are registered.
     /// Otherwise, an empty registry is used (secure default).
-    fn build_tool_registry(&self, tool_names: Option<&[String]>) -> Arc<ToolRegistry> {
-        Arc::new(registry_from_allowlist(tool_names, None))
+    fn build_tool_registry(
+        &self,
+        tool_names: Option<&[String]>,
+        llm_client: Arc<dyn LlmClient>,
+    ) -> Arc<ToolRegistry> {
+        let subagent_deps = self.build_subagent_deps(llm_client);
+        Arc::new(registry_from_allowlist(tool_names, Some(&subagent_deps)))
     }
 
     async fn execute_with_model(
@@ -171,7 +199,7 @@ impl RealAgentExecutor {
             .await?;
 
         let llm = self.create_llm_client(model, &api_key)?;
-        let tools = self.build_tool_registry(agent_node.tools.as_deref());
+        let tools = self.build_tool_registry(agent_node.tools.as_deref(), llm.clone());
         let system_prompt = build_agent_system_prompt(self.storage.clone(), agent_node)?;
 
         let mut config = UnifiedAgentConfig::default();
@@ -259,8 +287,10 @@ impl AgentExecutor for RealAgentExecutor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::subagent::{AgentDefinitionRegistry, SubagentConfig, SubagentTracker};
     use restflow_core::models::AgentNode;
     use tempfile::tempdir;
+    use tokio::sync::mpsc;
 
     fn create_test_storage() -> (Arc<Storage>, tempfile::TempDir) {
         let temp_dir = tempdir().unwrap();
@@ -271,7 +301,18 @@ mod tests {
 
     fn create_test_executor(storage: Arc<Storage>) -> RealAgentExecutor {
         let auth_manager = Arc::new(AuthProfileManager::new(Arc::new(storage.secrets.clone())));
-        RealAgentExecutor::new(storage, Arc::new(ProcessRegistry::new()), auth_manager)
+        let (completion_tx, completion_rx) = mpsc::channel(10);
+        let subagent_tracker = Arc::new(SubagentTracker::new(completion_tx, completion_rx));
+        let subagent_definitions = Arc::new(AgentDefinitionRegistry::with_builtins());
+        let subagent_config = SubagentConfig::default();
+        RealAgentExecutor::new(
+            storage,
+            Arc::new(ProcessRegistry::new()),
+            auth_manager,
+            subagent_tracker,
+            subagent_definitions,
+            subagent_config,
+        )
     }
 
     #[test]

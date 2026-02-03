@@ -113,6 +113,9 @@ fn main() {
                     storage,
                     state.process_registry.clone(),
                     auth_manager,
+                    state.subagent_tracker.clone(),
+                    state.subagent_definitions.clone(),
+                    state.subagent_config.clone(),
                 );
                 let notifier = TelegramNotifier::new(secrets);
 
