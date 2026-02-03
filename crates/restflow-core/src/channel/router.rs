@@ -105,6 +105,24 @@ impl ChannelRouter {
         channel.send(message).await
     }
 
+    /// Send typing indicator to a specific channel
+    pub async fn send_typing_to(
+        &self,
+        channel_type: ChannelType,
+        conversation_id: &str,
+    ) -> Result<()> {
+        let channel = self
+            .channels
+            .get(&channel_type)
+            .ok_or_else(|| anyhow!("Channel {:?} not registered", channel_type))?;
+
+        if !channel.is_configured() {
+            return Err(anyhow!("Channel {:?} not configured", channel_type));
+        }
+
+        channel.send_typing(conversation_id).await
+    }
+
     /// Reply to a conversation (auto-selects the channel based on context)
     ///
     /// This method looks up the conversation context to determine which channel
