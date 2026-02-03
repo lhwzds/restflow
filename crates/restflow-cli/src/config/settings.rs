@@ -9,8 +9,6 @@ pub struct CliConfig {
     #[serde(default)]
     pub default: DefaultConfig,
     #[serde(default)]
-    pub tui: TuiConfig,
-    #[serde(default)]
     pub sandbox: SandboxConfig,
 }
 
@@ -19,7 +17,6 @@ impl Default for CliConfig {
         Self {
             version: 1,
             default: DefaultConfig::default(),
-            tui: TuiConfig::default(),
             sandbox: SandboxConfig::default(),
         }
     }
@@ -29,32 +26,6 @@ impl Default for CliConfig {
 pub struct DefaultConfig {
     pub agent: Option<String>,
     pub model: Option<String>,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct TuiConfig {
-    #[serde(default = "default_theme")]
-    pub theme: String,
-    #[serde(default = "default_true")]
-    pub show_tokens: bool,
-    #[serde(default = "default_true")]
-    pub show_tools: bool,
-    #[serde(default = "default_true")]
-    pub syntax_highlight: bool,
-    #[serde(default = "default_history_size")]
-    pub history_size: usize,
-}
-
-impl Default for TuiConfig {
-    fn default() -> Self {
-        Self {
-            theme: default_theme(),
-            show_tokens: default_true(),
-            show_tools: default_true(),
-            syntax_highlight: default_true(),
-            history_size: default_history_size(),
-        }
-    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
@@ -146,7 +117,6 @@ impl CliConfig {
         #[derive(Deserialize)]
         struct OldConfig {
             default: Option<OldDefaultConfig>,
-            tui: Option<TuiConfig>,
             api_keys: Option<OldApiKeys>,
         }
 
@@ -178,22 +148,9 @@ impl CliConfig {
                 agent: old.default.as_ref().and_then(|d| d.agent.clone()),
                 model: old.default.as_ref().and_then(|d| d.model.clone()),
             },
-            tui: old.tui.unwrap_or_default(),
             sandbox: SandboxConfig::default(),
         })
     }
-}
-
-fn default_theme() -> String {
-    "dark".to_string()
-}
-
-fn default_true() -> bool {
-    true
-}
-
-fn default_history_size() -> usize {
-    1000
 }
 
 fn default_timeout() -> u64 {
