@@ -18,7 +18,10 @@ use redb::Database;
 use std::sync::Arc;
 
 // Re-export types that are self-contained in restflow-storage
-pub use restflow_storage::{ConfigStorage, Secret, SecretStorage, SystemConfig};
+pub use restflow_storage::{
+    migrate_master_key_from_db_path, ConfigStorage, Secret, SecretStorage, SecretStorageConfig,
+    SystemConfig,
+};
 
 pub use agent::AgentStorage;
 pub use agent_task::AgentTaskStorage;
@@ -52,13 +55,19 @@ pub struct Storage {
 impl Storage {
     /// Create a new storage instance at the given path.
     pub fn new(path: &str) -> Result<Self> {
+        let secret_config = SecretStorageConfig::default();
+        Self::with_secret_config(path, secret_config)
+    }
+
+    /// Create a new storage instance with custom secret storage configuration.
+    pub fn with_secret_config(path: &str, secret_config: SecretStorageConfig) -> Result<Self> {
         let db = Arc::new(Database::create(path)?);
 
         let config = ConfigStorage::new(db.clone())?;
         let triggers = TriggerStorage::new(db.clone())?;
         let agents = AgentStorage::new(db.clone())?;
         let agent_tasks = AgentTaskStorage::new(db.clone())?;
-        let secrets = SecretStorage::new(db.clone())?;
+        let secrets = SecretStorage::with_config(db.clone(), secret_config)?;
         let skills = SkillStorage::new(db.clone())?;
         let shared_space_raw = restflow_storage::SharedSpaceStorage::new(db.clone())?;
         let shared_space = SharedSpaceStorage::new(shared_space_raw);
