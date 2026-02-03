@@ -94,7 +94,6 @@ impl SecretStorage {
     pub fn with_config(db: Arc<Database>, config: SecretStorageConfig) -> Result<Self> {
         let write_txn = db.begin_write()?;
         write_txn.open_table(SECRETS_TABLE)?;
-        write_txn.open_table(MASTER_KEY_TABLE)?;
         write_txn.commit()?;
 
         let master_key = load_master_key(&db, &config)?;
@@ -391,7 +390,6 @@ fn load_master_key(db: &Arc<Database>, config: &SecretStorageConfig) -> Result<[
         }
     }
 }
-
 fn load_master_key_from_env() -> Result<Option<[u8; 32]>> {
     match env::var(MASTER_KEY_ENV) {
         Ok(value) => decode_master_key(&value).map(Some),
@@ -557,10 +555,15 @@ fn read_master_key_from_db(db: &Arc<Database>) -> Result<Option<[u8; 32]>> {
 
 fn remove_master_key_from_db(db: &Arc<Database>) -> Result<()> {
     let write_txn = db.begin_write()?;
-    {
-        let mut table = write_txn.open_table(MASTER_KEY_TABLE)?;
-        table.remove(MASTER_KEY_RECORD)?;
-    }
+    let mut table = match write_txn.open_table(MASTER_KEY_TABLE) {
+        Ok(table) => table,
+        Err(TableError::TableDoesNotExist(_)) => {
+            write_txn.commit()?;
+            return Ok(());
+        }
+        Err(err) => return Err(err.into()),
+    };
+    table.remove(MASTER_KEY_RECORD)?;
     write_txn.commit()?;
     Ok(())
 }
@@ -568,6 +571,7 @@ fn remove_master_key_from_db(db: &Arc<Database>) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::env as std_env;
     use std::sync::{Mutex, OnceLock};
     use std::thread;
     use tempfile::tempdir;
@@ -594,6 +598,32 @@ mod tests {
         unsafe { std::env::remove_var(STATE_DIR_ENV) };
 
         (storage, temp_dir)
+    }
+
+    fn state_dir_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    fn with_state_dir(dir: &Path, f: impl FnOnce()) {
+        let _guard = state_dir_lock().lock().unwrap();
+        std_env::set_var(STATE_DIR_ENV, dir);
+        f();
+        std_env::remove_var(STATE_DIR_ENV);
+    }
+
+    fn setup_db_for_master_key(temp_dir: &tempfile::TempDir) -> Arc<Database> {
+        let db_path = temp_dir.path().join("test-master-key.db");
+        Arc::new(Database::create(db_path).unwrap())
+    }
+
+    fn insert_db_master_key(db: &Arc<Database>, key: &[u8; 32]) {
+        let write_txn = db.begin_write().unwrap();
+        {
+            let mut table = write_txn.open_table(MASTER_KEY_TABLE).unwrap();
+            table.insert(MASTER_KEY_RECORD, key.as_slice()).unwrap();
+        }
+        write_txn.commit().unwrap();
     }
 
     #[test]
@@ -1030,6 +1060,66 @@ mod tests {
 
         // SAFETY: This is a single-threaded test, no other threads access this env var
         unsafe { std::env::remove_var(STATE_DIR_ENV) };
+    }
+
+    #[test]
+    fn test_master_key_env_override() {
+        let temp_dir = tempdir().unwrap();
+        let state_dir = temp_dir.path().join("state");
+        let db = setup_db_for_master_key(&temp_dir);
+        let config = SecretStorageConfig::default();
+
+        let env_key = [7u8; 32];
+        let env_value = STANDARD.encode(env_key);
+        let json_key = [9u8; 32];
+
+        with_state_dir(&state_dir, || {
+            write_master_key_json(&json_key).unwrap();
+            std_env::set_var(MASTER_KEY_ENV, env_value);
+            let key = load_master_key(&db, &config).unwrap();
+            std_env::remove_var(MASTER_KEY_ENV);
+            assert_eq!(key, env_key);
+        });
+    }
+
+    #[test]
+    fn test_master_key_json_precedence_over_db() {
+        let temp_dir = tempdir().unwrap();
+        let state_dir = temp_dir.path().join("state");
+        let db = setup_db_for_master_key(&temp_dir);
+        let config = SecretStorageConfig::default();
+
+        let json_key = [3u8; 32];
+        let db_key = [5u8; 32];
+        insert_db_master_key(&db, &db_key);
+
+        with_state_dir(&state_dir, || {
+            write_master_key_json(&json_key).unwrap();
+            let key = load_master_key(&db, &config).unwrap();
+            assert_eq!(key, json_key);
+            let stored = read_master_key_from_db(&db).unwrap().unwrap();
+            assert_eq!(stored, db_key);
+        });
+    }
+
+    #[test]
+    fn test_master_key_migration_from_db() {
+        let temp_dir = tempdir().unwrap();
+        let state_dir = temp_dir.path().join("state");
+        let db = setup_db_for_master_key(&temp_dir);
+        let config = SecretStorageConfig::default();
+
+        let db_key = [11u8; 32];
+        insert_db_master_key(&db, &db_key);
+
+        with_state_dir(&state_dir, || {
+            let key = load_master_key(&db, &config).unwrap();
+            assert_eq!(key, db_key);
+            let stored = read_master_key_from_db(&db).unwrap();
+            assert!(stored.is_none());
+            let json_key = load_master_key_from_json(&config).unwrap().unwrap();
+            assert_eq!(json_key, db_key);
+        });
     }
 }
 
