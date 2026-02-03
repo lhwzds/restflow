@@ -10,7 +10,7 @@ mod tui;
 use anyhow::Result;
 use clap::{CommandFactory, Parser};
 use clap_complete::generate;
-use cli::{Cli, Commands};
+use cli::{Cli, Commands, SecretCommands};
 use restflow_core::paths;
 use std::io;
 
@@ -46,6 +46,15 @@ async fn main() -> Result<()> {
         .db_path
         .clone()
         .or_else(|| config.default.db_path.clone());
+
+    if let Some(Commands::Secret {
+        command: SecretCommands::MigrateMasterKey,
+    }) = &cli.command
+    {
+        let db_path = db_path.unwrap_or_else(|| paths::ensure_database_path_string()?);
+        return commands::secret::migrate_master_key_direct(&db_path, cli.format).await;
+    }
+
     let core = setup::prepare_core(db_path).await?;
 
     match cli.command {

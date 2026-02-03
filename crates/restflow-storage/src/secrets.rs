@@ -327,10 +327,27 @@ fn load_master_key(_db: &Arc<Database>, _config: &SecretStorageConfig) -> Result
         return Ok(key);
     }
 
+    if let Some(key) = read_master_key_from_db(_db)? {
+        match write_master_key_to_json(&key)? {
+            MasterKeyWriteResult::Written => {
+                delete_master_key_from_db(_db)?;
+                return Ok(key);
+            }
+            MasterKeyWriteResult::AlreadyExists => {
+                if let Some(key) = read_master_key_from_json()? {
+                    return Ok(key);
+                }
+            }
+        }
+    }
+
     let mut key = [0u8; 32];
     rand::rngs::OsRng.fill_bytes(&mut key);
-    write_master_key_to_json(&key)?;
-    Ok(key)
+    match write_master_key_to_json(&key)? {
+        MasterKeyWriteResult::Written => Ok(key),
+        MasterKeyWriteResult::AlreadyExists => read_master_key_from_json()?
+            .ok_or_else(|| anyhow::anyhow!("Master key file exists but could not be read")),
+    }
 }
 
 fn load_master_key_from_env() -> Result<Option<[u8; 32]>> {
@@ -414,6 +431,12 @@ struct MasterKeyFile {
     key: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MasterKeyWriteResult {
+    Written,
+    AlreadyExists,
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum MasterKeyMigrationStatus {
     Migrated,
@@ -463,7 +486,7 @@ fn read_master_key_from_json() -> Result<Option<[u8; 32]>> {
     Ok(Some(key))
 }
 
-fn write_master_key_to_json(key: &[u8; 32]) -> Result<()> {
+fn write_master_key_to_json(key: &[u8; 32]) -> Result<MasterKeyWriteResult> {
     let dir = state_dir()?;
     fs::create_dir_all(&dir)?;
     let path = dir.join(MASTER_KEY_FILE_NAME);
@@ -477,26 +500,38 @@ fn write_master_key_to_json(key: &[u8; 32]) -> Result<()> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
-        let mut file = OpenOptions::new()
-            .create(true)
-            .truncate(true)
+        let mut file = match OpenOptions::new()
+            .create_new(true)
             .write(true)
             .mode(0o600)
-            .open(&path)?;
+            .open(&path)
+        {
+            Ok(file) => file,
+            Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {
+                return Ok(MasterKeyWriteResult::AlreadyExists)
+            }
+            Err(err) => return Err(err.into()),
+        };
         file.write_all(&data)?;
     }
 
     #[cfg(not(unix))]
     {
-        let mut file = OpenOptions::new()
-            .create(true)
-            .truncate(true)
+        let mut file = match OpenOptions::new()
+            .create_new(true)
             .write(true)
-            .open(&path)?;
+            .open(&path)
+        {
+            Ok(file) => file,
+            Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {
+                return Ok(MasterKeyWriteResult::AlreadyExists)
+            }
+            Err(err) => return Err(err.into()),
+        };
         file.write_all(&data)?;
     }
 
-    Ok(())
+    Ok(MasterKeyWriteResult::Written)
 }
 
 fn ensure_master_key_permissions(path: &Path) -> Result<()> {
@@ -535,8 +570,17 @@ pub fn migrate_master_key_from_db(db: &Arc<Database>) -> Result<MasterKeyMigrati
         }
     };
 
-    write_master_key_to_json(&key)?;
-    delete_master_key_from_db(db)?;
+    match write_master_key_to_json(&key)? {
+        MasterKeyWriteResult::Written => {
+            delete_master_key_from_db(db)?;
+        }
+        MasterKeyWriteResult::AlreadyExists => {
+            return Ok(MasterKeyMigrationResult {
+                status: MasterKeyMigrationStatus::JsonAlreadyExists,
+                path,
+            })
+        }
+    }
 
     Ok(MasterKeyMigrationResult {
         status: MasterKeyMigrationStatus::Migrated,
@@ -618,6 +662,28 @@ mod tests {
             let key = load_master_key(&db, &config).unwrap();
             let persisted = read_master_key_from_json().unwrap().unwrap();
             assert_eq!(key, persisted);
+        });
+    }
+
+    #[test]
+    fn test_master_key_json_non_overwrite() {
+        let temp_dir = tempdir().unwrap();
+        let state_dir = temp_dir.path().join("state");
+        let db = setup_db_for_master_key(&temp_dir);
+        let config = SecretStorageConfig::default();
+
+        let key_a = [1u8; 32];
+        let key_b = [2u8; 32];
+
+        with_state_dir(&state_dir, || {
+            let result = write_master_key_to_json(&key_a).unwrap();
+            assert_eq!(result, MasterKeyWriteResult::Written);
+
+            let result = write_master_key_to_json(&key_b).unwrap();
+            assert_eq!(result, MasterKeyWriteResult::AlreadyExists);
+
+            let key = load_master_key(&db, &config).unwrap();
+            assert_eq!(key, key_a);
         });
     }
 
