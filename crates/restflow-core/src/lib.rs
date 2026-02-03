@@ -1,5 +1,6 @@
 pub mod auth;
 pub mod channel;
+pub mod daemon;
 pub mod engine;
 pub mod loader;
 pub mod memory;

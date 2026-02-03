@@ -17,6 +17,7 @@
 use anyhow::Result;
 use clap::Parser;
 use restflow_core::auth::{AuthManagerConfig, AuthProfileManager};
+use restflow_core::daemon::ensure_daemon_running;
 use restflow_core::paths;
 use restflow_storage::AuthProfileStorage;
 use restflow_tauri_lib::AppState;
@@ -67,6 +68,16 @@ fn main() {
     }
 
     info!("Starting RestFlow Desktop Application");
+
+    if let Ok(rt) = tokio::runtime::Runtime::new() {
+        rt.block_on(async {
+            if let Err(err) = ensure_daemon_running().await {
+                warn!(error = %err, "Failed to start daemon, continuing with direct access");
+            }
+        });
+    } else {
+        warn!("Failed to create runtime for daemon startup");
+    }
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
