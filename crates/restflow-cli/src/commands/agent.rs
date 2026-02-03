@@ -12,6 +12,7 @@ use restflow_ai::{
 };
 use restflow_core::auth::{AuthManagerConfig, AuthProfileManager, AuthProvider};
 use restflow_core::storage::SecretStorage;
+use redb::Database;
 use restflow_core::memory::{ChatSessionMirror, MessageMirror};
 use restflow_core::models::{
     AgentExecuteResponse, AgentNode, ApiKeyConfig, ExecutionDetails, ExecutionStep, Provider,
@@ -295,37 +296,23 @@ async fn resolve_api_key(
         }
     }
 
-    if let Some(storage) = secret_storage {
-        // Try auth profiles first
-        if let Some(key) = resolve_api_key_from_profiles(provider, storage).await? {
-            return Ok(key);
-        }
-
-        // Fallback to standard secret names
-        let secret_name = match provider {
-            Provider::Anthropic => "ANTHROPIC_API_KEY",
-            Provider::OpenAI => "OPENAI_API_KEY",
-            Provider::DeepSeek => "DEEPSEEK_API_KEY",
-        };
-        if let Some(key) = storage.get_secret(secret_name)? {
-            return Ok(key);
-        }
+    if let Some(key) = resolve_api_key_from_profiles(provider).await? {
+        return Ok(key);
     }
 
     bail!("No API key configured");
 }
 
-async fn resolve_api_key_from_profiles(
-    provider: Provider,
-    secret_storage: &SecretStorage,
-) -> Result<Option<String>> {
+async fn resolve_api_key_from_profiles(provider: Provider) -> Result<Option<String>> {
     let mut config = AuthManagerConfig::default();
     let data_dir = paths::ensure_data_dir()?;
     let profiles_path = data_dir.join("auth_profiles.json");
     config.profiles_path = Some(profiles_path);
 
-    // Use the provided secret storage instead of creating a new one
-    let secrets = Arc::new(secret_storage.clone());
+    // Create SecretStorage
+    let db_path = data_dir.join("restflow.db");
+    let db = Arc::new(Database::create(&db_path)?);
+    let secrets = Arc::new(SecretStorage::new(db)?);
 
     let manager = AuthProfileManager::with_config(config, secrets);
     manager.initialize().await?;
