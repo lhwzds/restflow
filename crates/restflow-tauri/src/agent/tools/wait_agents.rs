@@ -13,10 +13,12 @@ use ts_rs::TS;
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct WaitAgentsParams {
-    /// Task IDs to wait for.
+    /// Task IDs to wait for. If empty, waits for all running sub-agents.
+    #[serde(default)]
     pub task_ids: Vec<String>,
 
     /// Timeout in seconds (default: 300).
+    #[serde(default)]
     pub timeout_secs: Option<u64>,
 }
 
@@ -49,15 +51,14 @@ impl Tool for WaitAgentsTool {
                 "task_ids": {
                     "type": "array",
                     "items": { "type": "string" },
-                    "description": "List of sub-agent task IDs to wait for"
+                    "description": "List of sub-agent task IDs to wait for. If empty, waits for all running sub-agents."
                 },
                 "timeout_secs": {
                     "type": "integer",
                     "default": 300,
                     "description": "Timeout in seconds (default: 300)"
                 }
-            },
-            "required": ["task_ids"]
+            }
         })
     }
 
@@ -69,8 +70,23 @@ impl Tool for WaitAgentsTool {
             .timeout_secs
             .unwrap_or(self.deps.config.subagent_timeout_secs);
 
+        let task_ids = if params.task_ids.is_empty() {
+            self.deps
+                .tracker
+                .running()
+                .into_iter()
+                .map(|state| state.id)
+                .collect::<Vec<_>>()
+        } else {
+            params.task_ids
+        };
+
+        if task_ids.is_empty() {
+            return Ok(ToolResult::success(json!({ "results": [] })));
+        }
+
         let mut results = Vec::new();
-        for task_id in params.task_ids {
+        for task_id in task_ids {
             let result = match timeout(
                 Duration::from_secs(wait_timeout),
                 self.deps.tracker.wait(&task_id),
@@ -120,6 +136,14 @@ impl Tool for WaitAgentsTool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_params_default() {
+        let json = r#"{}"#;
+        let params: WaitAgentsParams = serde_json::from_str(json).unwrap();
+        assert!(params.task_ids.is_empty());
+        assert_eq!(params.timeout_secs, None);
+    }
 
     #[test]
     fn test_params_deserialization() {
