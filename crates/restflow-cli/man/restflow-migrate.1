@@ -1,0 +1,19 @@
+.ie \n(.g .ds Aq \(aq
+.el .ds Aq '
+.TH migrate 1  "migrate " 
+.SH NAME
+migrate \- Migrate configuration from old locations
+.SH SYNOPSIS
+\fBmigrate\fR [\fB\-\-dry\-run\fR] [\fB\-\-force\fR] [\fB\-h\fR|\fB\-\-help\fR] 
+.SH DESCRIPTION
+Migrate configuration from old locations
+.SH OPTIONS
+.TP
+\fB\-\-dry\-run\fR
+Dry run \- show what would be migrated without making changes
+.TP
+\fB\-\-force\fR
+Force migration even if target exists
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Print help

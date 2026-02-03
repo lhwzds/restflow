@@ -1,13 +1,13 @@
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use comfy_table::{Cell, Table};
 use std::sync::Arc;
-use tokio::time::{sleep, Duration};
+use tokio::time::{Duration, sleep};
 
 use crate::cli::TaskCommands;
 use crate::commands::utils::{format_timestamp, preview_text};
-use crate::output::{json::print_json, OutputFormat};
-use restflow_core::models::{AgentTaskStatus, TaskEvent, TaskEventType, TaskSchedule};
+use crate::output::{OutputFormat, json::print_json};
 use restflow_core::AppCore;
+use restflow_core::models::{AgentTaskStatus, TaskEvent, TaskEventType, TaskSchedule};
 use serde_json::json;
 
 pub async fn run(core: Arc<AppCore>, command: TaskCommands, format: OutputFormat) -> Result<()> {
@@ -28,7 +28,11 @@ pub async fn run(core: Arc<AppCore>, command: TaskCommands, format: OutputFormat
     }
 }
 
-async fn list_tasks(core: &Arc<AppCore>, status: Option<String>, format: OutputFormat) -> Result<()> {
+async fn list_tasks(
+    core: &Arc<AppCore>,
+    status: Option<String>,
+    format: OutputFormat,
+) -> Result<()> {
     let tasks = if let Some(value) = status {
         let status = parse_task_status(&value)?;
         core.storage.agent_tasks.list_tasks_by_status(status)?
@@ -41,7 +45,9 @@ async fn list_tasks(core: &Arc<AppCore>, status: Option<String>, format: OutputF
     }
 
     let mut table = Table::new();
-    table.set_header(vec!["ID", "Name", "Agent", "Status", "Last Run", "Next Run"]);
+    table.set_header(vec![
+        "ID", "Name", "Agent", "Status", "Last Run", "Next Run",
+    ]);
 
     for task in tasks {
         table.add_row(vec![
@@ -102,10 +108,10 @@ async fn create_task(
         None => TaskSchedule::default(),
     };
 
-    let mut task = core
-        .storage
-        .agent_tasks
-        .create_task(name.to_string(), agent_id.to_string(), schedule)?;
+    let mut task =
+        core.storage
+            .agent_tasks
+            .create_task(name.to_string(), agent_id.to_string(), schedule)?;
 
     if let Some(text) = input {
         task.input = Some(text);
@@ -241,7 +247,10 @@ async fn run_task(core: &Arc<AppCore>, id: &str, format: OutputFormat) -> Result
         bail!("Task input is required to run");
     }
 
-    if crate::daemon::is_daemon_running() {
+    if matches!(
+        restflow_core::daemon::check_daemon_status()?,
+        restflow_core::daemon::DaemonStatus::Running { .. }
+    ) {
         bail!("Daemon is running. Stop it before running tasks inline.");
     }
 
@@ -291,7 +300,10 @@ fn format_schedule(schedule: &TaskSchedule) -> String {
                 .unwrap_or_else(|| "now".to_string());
             format!("every {} ms (start: {})", interval_ms, start_label)
         }
-        TaskSchedule::Cron { expression, timezone } => {
+        TaskSchedule::Cron {
+            expression,
+            timezone,
+        } => {
             let tz = timezone.clone().unwrap_or_else(|| "local".to_string());
             format!("cron '{}' ({})", expression, tz)
         }
