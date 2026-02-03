@@ -15,7 +15,10 @@ use serde::Deserialize;
 use serde_json::json;
 use std::{env, sync::Arc};
 
-pub fn mcp_router(core: Arc<AppCore>) -> Router {
+pub fn mcp_router<S>(core: Arc<AppCore>) -> Router<S>
+where
+    S: Clone + Send + Sync + 'static,
+{
     let service = StreamableHttpService::new(
         {
             let core = core.clone();
@@ -25,7 +28,7 @@ pub fn mcp_router(core: Arc<AppCore>) -> Router {
         StreamableHttpServerConfig::default(),
     );
 
-    Router::new()
+    Router::<S>::new()
         .nest_service("/", service)
         .layer(axum::middleware::from_fn(optional_api_key_auth))
 }
