@@ -141,18 +141,13 @@ pub struct SkillFrontmatter {
     pub license: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq, Eq, Default)]
 #[ts(export)]
 pub enum StorageMode {
+    #[default]
     DatabaseOnly,
     FileSystemOnly,
     Hybrid,
-}
-
-impl Default for StorageMode {
-    fn default() -> Self {
-        StorageMode::DatabaseOnly
-    }
 }
 
 impl Skill {
