@@ -2,11 +2,12 @@ use anyhow::Result;
 use async_trait::async_trait;
 use restflow_core::AppCore;
 use restflow_core::auth::{AuthManagerConfig, AuthProfileManager};
-use restflow_core::storage::SecretStorage;
 use restflow_core::channel::ChannelRouter;
 use restflow_core::models::{AgentTask, AgentTaskStatus};
 use restflow_core::paths;
 use restflow_core::process::ProcessRegistry;
+use restflow_core::storage::SecretStorage;
+use restflow_storage::AuthProfileStorage;
 use restflow_tauri_lib::{
     AgentDefinitionRegistry, AgentTaskRunner, ChatDispatcher, ChatDispatcherConfig,
     ChatSessionManager, MessageDebouncer, MessageHandlerConfig, RealAgentExecutor, RunnerConfig,
@@ -26,11 +27,17 @@ pub struct CliTaskRunner {
     router: Arc<RwLock<Option<Arc<ChannelRouter>>>>,
 }
 
-fn create_auth_manager(secrets: Arc<SecretStorage>) -> Result<AuthProfileManager> {
-    let mut config = AuthManagerConfig::default();
-    let profiles_path = paths::ensure_data_dir()?.join("auth_profiles.json");
-    config.profiles_path = Some(profiles_path);
-    Ok(AuthProfileManager::with_config(config, secrets))
+fn create_auth_manager(
+    secrets: Arc<SecretStorage>,
+    db: Arc<redb::Database>,
+) -> Result<AuthProfileManager> {
+    let config = AuthManagerConfig::default();
+    let storage = AuthProfileStorage::new(db)?;
+    Ok(AuthProfileManager::with_storage(
+        config,
+        secrets,
+        Some(storage),
+    ))
 }
 
 impl CliTaskRunner {
@@ -52,7 +59,13 @@ impl CliTaskRunner {
         let secrets = Arc::new(self.core.storage.secrets.clone());
         let process_registry = Arc::new(ProcessRegistry::new());
 
-        let auth_manager = Arc::new(create_auth_manager(secrets.clone())?);
+        let auth_manager = Arc::new(create_auth_manager(secrets.clone(), storage.get_db())?);
+        if let Ok(data_dir) = paths::ensure_data_dir() {
+            let old_json = data_dir.join("auth_profiles.json");
+            if let Err(e) = auth_manager.migrate_from_json(&old_json).await {
+                tracing::warn!(error = %e, "Failed to migrate auth profiles from JSON");
+            }
+        }
         auth_manager.initialize().await?;
         auth_manager.discover().await?;
 
