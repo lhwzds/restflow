@@ -139,10 +139,6 @@ impl TaskQueue {
             .or_else(|| self.high.pop())
             .or_else(|| self.normal.pop())
             .or_else(|| self.low.pop())
-            .map(|task| {
-                self.stats.pending_count.fetch_sub(1, Ordering::Relaxed);
-                task
-            })
     }
 
     /// Acquire a concurrency permit.
@@ -160,6 +156,7 @@ impl TaskQueue {
                 worker_id,
             },
         );
+        self.stats.pending_count.fetch_sub(1, Ordering::Relaxed);
         self.stats.running_count.fetch_add(1, Ordering::Relaxed);
         self.stats
             .total_wait_time_ms
