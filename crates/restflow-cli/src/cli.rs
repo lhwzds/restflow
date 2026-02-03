@@ -83,6 +83,12 @@ pub enum Commands {
         command: SecretCommands,
     },
 
+    /// API key management (simplified interface)
+    Key {
+        #[command(subcommand)]
+        command: KeyCommands,
+    },
+
     /// Authentication management
     Auth {
         #[command(subcommand)]
@@ -407,6 +413,56 @@ pub enum SecretCommands {
 
     /// Check if secret exists
     Has { key: String },
+}
+
+#[derive(Subcommand)]
+pub enum KeyCommands {
+    /// Add a new API key
+    Add {
+        /// Provider (anthropic, claude-code, openai, deepseek)
+        provider: String,
+
+        /// The API key value
+        key: String,
+
+        /// Optional display name
+        #[arg(short, long)]
+        name: Option<String>,
+    },
+
+    /// List all keys
+    List {
+        /// Filter by provider
+        #[arg(short, long)]
+        provider: Option<String>,
+    },
+
+    /// Show key details
+    Show {
+        /// Key ID (first 8 chars of profile ID)
+        id: String,
+    },
+
+    /// Set key as default (highest priority)
+    Use {
+        /// Key ID
+        id: String,
+    },
+
+    /// Remove a key
+    Remove {
+        /// Key ID
+        id: String,
+    },
+
+    /// Test if a key works
+    Test {
+        /// Key ID
+        id: String,
+    },
+
+    /// Auto-discover keys from environment and files
+    Discover,
 }
 
 #[derive(Subcommand)]
