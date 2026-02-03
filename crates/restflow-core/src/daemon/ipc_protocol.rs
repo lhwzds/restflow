@@ -1,4 +1,5 @@
-use crate::models::{AgentNode, Skill, TaskSchedule};
+use crate::auth::{AuthProvider, Credential};
+use crate::models::{AgentNode, AgentTaskStatus, Skill, TaskSchedule};
 use crate::storage::SystemConfig;
 use serde::{Deserialize, Serialize};
 
@@ -58,6 +59,67 @@ pub enum IpcRequest {
     },
     StopTask {
         id: String,
+    },
+    PauseTask {
+        id: String,
+    },
+    ResumeTask {
+        id: String,
+    },
+    ListTasksByStatus {
+        status: AgentTaskStatus,
+    },
+
+    SearchMemory {
+        query: String,
+        agent_id: Option<String>,
+        limit: Option<u32>,
+    },
+    ListMemory {
+        agent_id: Option<String>,
+        tag: Option<String>,
+    },
+    ClearMemory {
+        agent_id: Option<String>,
+    },
+    GetMemoryStats {
+        agent_id: Option<String>,
+    },
+
+    ListSessions,
+    GetSession {
+        id: String,
+    },
+    CreateSession {
+        agent_id: Option<String>,
+        model: Option<String>,
+    },
+    DeleteSession {
+        id: String,
+    },
+    SearchSessions {
+        query: String,
+        agent_id: Option<String>,
+    },
+
+    ListAuthProfiles,
+    GetAuthProfile {
+        id: String,
+    },
+    AddAuthProfile {
+        name: String,
+        credential: Credential,
+        provider: AuthProvider,
+    },
+    RemoveAuthProfile {
+        id: String,
+    },
+    DiscoverAuth,
+
+    ExecuteAgent {
+        id: String,
+        input: String,
+        session_id: Option<String>,
     },
 
     ListSecrets,
