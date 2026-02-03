@@ -14,6 +14,7 @@ restflow-ai = { workspace = true }
 anyhow = { workspace = true }
 redb = "3.1"
 axum = { version = "0.8.7", features = ["macros"] }
+rmcp = { version = "0.14", features = ["server", "transport-streamable-http-server"] }
 mime_guess = "2.0.5"
 mimalloc = { version = "0.1", default-features = false }
 chrono = { workspace = true }

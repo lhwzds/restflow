@@ -7,8 +7,8 @@ mod api;
 mod auth;
 
 use api::{
-    agent_tasks::*, agents::*, chat_sessions::*, config::*, memory::memory_routes, models::*,
-    python::*, secrets::*, security::*, skills::*, state::AppState, tools::*,
+    agent_tasks::*, agents::*, chat_sessions::*, config::*, memory::memory_routes, mcp::mcp_router,
+    models::*, python::*, secrets::*, security::*, skills::*, state::AppState, tools::*,
 };
 use auth::{auth_middleware, ApiKeyManager};
 use axum::{
@@ -154,6 +154,8 @@ async fn main() {
         .route("/api/skills/{id}/export", get(export_skill))
         // Memory routes (search, chunks, stats, export, import)
         .nest("/api/memory", memory_routes())
+        // MCP routes
+        .nest("/mcp", mcp_router(core.clone()))
         .fallback(static_assets::static_handler)
         .layer(cors)
         .layer(axum::middleware::from_fn(auth_middleware))
