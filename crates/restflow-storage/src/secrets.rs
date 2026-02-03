@@ -18,19 +18,10 @@ use ts_rs::TS;
 const SECRETS_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("secrets");
 const MASTER_KEY_ENV: &str = "RESTFLOW_MASTER_KEY";
 const MASTER_KEY_FILE: &str = "master.key";
-const LEGACY_MASTER_KEY_JSON_FILE: &str = "secret-master-key.json";
 
 #[derive(Debug, Clone, Default)]
 pub struct SecretStorageConfig {
     pub allow_insecure_file_permissions: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct MasterKeyFile {
-    pub version: u32,
-    #[serde(rename = "createdAt")]
-    pub created_at: String,
-    pub key: String,
 }
 
 /// A stored secret with metadata
@@ -300,25 +291,6 @@ fn load_master_key_from_file(config: &SecretStorageConfig) -> Result<Option<[u8;
     if path.exists() {
         return load_key_from_path(&path, config);
     }
-
-    let mut legacy_dirs = Vec::new();
-    if let Some(dir) = paths::legacy_state_dir() {
-        legacy_dirs.push(dir);
-    }
-    legacy_dirs.push(paths::ensure_restflow_dir()?);
-
-    for dir in legacy_dirs {
-        let legacy_path = dir.join(LEGACY_MASTER_KEY_JSON_FILE);
-        if legacy_path.exists() {
-            let key = load_key_from_path(&legacy_path, config)?;
-            if let Some(key) = key {
-                write_master_key(&key)?;
-                info!("Migrated master key to new location");
-                return Ok(Some(key));
-            }
-        }
-    }
-
     Ok(None)
 }
 
@@ -326,14 +298,6 @@ fn load_key_from_path(path: &Path, config: &SecretStorageConfig) -> Result<Optio
     check_master_key_permissions(path, config.allow_insecure_file_permissions)?;
     let raw = fs::read_to_string(path)?;
     let trimmed = raw.trim();
-    if trimmed.starts_with('{') {
-        let payload: MasterKeyFile = serde_json::from_str(trimmed)?;
-        if payload.version != 1 {
-            anyhow::bail!("Unsupported master key JSON version: {}", payload.version);
-        }
-        return decode_master_key(&payload.key).map(Some);
-    }
-
     decode_master_key(trimmed).map(Some)
 }
 
@@ -427,7 +391,6 @@ mod tests {
     use tempfile::tempdir;
 
     const RESTFLOW_DIR_ENV: &str = "RESTFLOW_DIR";
-    const LEGACY_STATE_DIR_ENV: &str = "RESTFLOW_STATE_DIR";
 
     fn env_lock() -> std::sync::MutexGuard<'static, ()> {
         static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
@@ -451,24 +414,6 @@ mod tests {
         unsafe { std::env::remove_var(RESTFLOW_DIR_ENV) };
 
         (storage, temp_dir)
-    }
-
-    fn write_legacy_master_key_json(key: &[u8; 32]) -> PathBuf {
-        let path = paths::ensure_restflow_dir()
-            .unwrap()
-            .join(LEGACY_MASTER_KEY_JSON_FILE);
-        write_legacy_master_key_json_at(&path, key);
-        path
-    }
-
-    fn write_legacy_master_key_json_at(path: &Path, key: &[u8; 32]) {
-        let payload = MasterKeyFile {
-            version: 1,
-            created_at: chrono::Utc::now().to_rfc3339(),
-            key: encode_master_key_hex(key),
-        };
-        let json = serde_json::to_string_pretty(&payload).unwrap();
-        fs::write(path, json).unwrap();
     }
 
     #[test]
@@ -550,71 +495,6 @@ mod tests {
         let existing = load_master_key_from_file(&config).unwrap().unwrap();
         assert_eq!(existing, first_key);
 
-        // SAFETY: This is a single-threaded test, no other threads access this env var
-        unsafe { std::env::remove_var(RESTFLOW_DIR_ENV) };
-    }
-
-    #[test]
-    fn test_legacy_json_key_is_migrated() {
-        let _env_lock = env_lock();
-        let temp_dir = tempdir().unwrap();
-        let state_dir = temp_dir.path().join("state");
-        std::fs::create_dir_all(&state_dir).unwrap();
-
-        // SAFETY: This is a single-threaded test, no other threads access this env var
-        unsafe { std::env::set_var(RESTFLOW_DIR_ENV, &state_dir) };
-
-        let legacy_key = [0x44u8; 32];
-        let legacy_path = write_legacy_master_key_json(&legacy_key);
-        assert!(legacy_path.exists());
-
-        let config = SecretStorageConfig {
-            allow_insecure_file_permissions: true,
-        };
-        let key = load_master_key(&config).unwrap();
-        assert_eq!(key, legacy_key);
-
-        let new_path = paths::master_key_path().unwrap();
-        assert!(new_path.exists());
-        let raw = fs::read_to_string(new_path).unwrap();
-        assert_eq!(raw.trim(), encode_master_key_hex(&legacy_key));
-
-        // SAFETY: This is a single-threaded test, no other threads access this env var
-        unsafe { std::env::remove_var(RESTFLOW_DIR_ENV) };
-    }
-
-    #[test]
-    fn test_legacy_state_dir_key_is_migrated() {
-        let _env_lock = env_lock();
-        let temp_dir = tempdir().unwrap();
-        let legacy_dir = temp_dir.path().join("legacy-state");
-        let state_dir = temp_dir.path().join("state");
-        std::fs::create_dir_all(&legacy_dir).unwrap();
-        std::fs::create_dir_all(&state_dir).unwrap();
-
-        // SAFETY: This is a single-threaded test, no other threads access this env var
-        unsafe { std::env::set_var(LEGACY_STATE_DIR_ENV, &legacy_dir) };
-        // SAFETY: This is a single-threaded test, no other threads access this env var
-        unsafe { std::env::set_var(RESTFLOW_DIR_ENV, &state_dir) };
-
-        let legacy_key = [0x55u8; 32];
-        let legacy_path = legacy_dir.join(LEGACY_MASTER_KEY_JSON_FILE);
-        write_legacy_master_key_json_at(&legacy_path, &legacy_key);
-        assert!(legacy_path.exists());
-
-        let config = SecretStorageConfig {
-            allow_insecure_file_permissions: true,
-        };
-        let key = load_master_key(&config).unwrap();
-        assert_eq!(key, legacy_key);
-
-        let new_path = paths::master_key_path().unwrap();
-        assert!(new_path.exists());
-        let raw = fs::read_to_string(new_path).unwrap();
-        assert_eq!(raw.trim(), encode_master_key_hex(&legacy_key));
-
-        // SAFETY: This is a single-threaded test, no other threads access this env var
-        unsafe { std::env::remove_var(LEGACY_STATE_DIR_ENV) };
         // SAFETY: This is a single-threaded test, no other threads access this env var
         unsafe { std::env::remove_var(RESTFLOW_DIR_ENV) };
     }
