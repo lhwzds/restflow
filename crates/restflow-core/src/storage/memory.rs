@@ -135,7 +135,7 @@ impl MemoryStorage {
     pub fn exists_by_content(&self, agent_id: &str, content: &str) -> Result<Option<String>> {
         use sha2::{Digest, Sha256};
         let hash = hex::encode(Sha256::digest(content.as_bytes()));
-        self.inner.find_by_hash(agent_id, &hash)
+        self.inner.find_by_hash(&hash)
     }
 
     /// Delete a memory chunk
