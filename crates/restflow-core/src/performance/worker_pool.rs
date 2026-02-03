@@ -13,8 +13,6 @@ pub struct WorkerPoolConfig {
     pub worker_count: usize,
     /// Idle sleep interval.
     pub idle_sleep: Duration,
-    /// Task timeout.
-    pub task_timeout: Duration,
 }
 
 impl Default for WorkerPoolConfig {
@@ -22,7 +20,6 @@ impl Default for WorkerPoolConfig {
         Self {
             worker_count: num_cpus::get() * 2,
             idle_sleep: Duration::from_millis(10),
-            task_timeout: Duration::from_secs(300),
         }
     }
 }
@@ -102,8 +99,6 @@ impl WorkerPool {
         executor: &Arc<dyn TaskExecutor>,
         config: &WorkerPoolConfig,
     ) {
-        let _permit = queue.acquire_permit().await;
-
         let queued_task = match queue.pop() {
             Some(task) => task,
             None => {
@@ -111,6 +106,8 @@ impl WorkerPool {
                 return;
             }
         };
+
+        let _permit = queue.acquire_permit().await;
 
         let task_id = queued_task.task.id.clone();
         let wait_time = queued_task.submitted_at.elapsed();
