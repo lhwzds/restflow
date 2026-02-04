@@ -12,9 +12,9 @@ use std::sync::Arc;
 pub fn router() -> Router {
     Router::new()
         .route("/", get(list_tasks).post(create_task))
-        .route("/:id", get(get_task).delete(delete_task))
-        .route("/:id/pause", put(pause_task))
-        .route("/:id/resume", put(resume_task))
+        .route("/{id}", get(get_task).delete(delete_task))
+        .route("/{id}/pause", put(pause_task))
+        .route("/{id}/resume", put(resume_task))
 }
 
 #[derive(Debug, Deserialize)]
