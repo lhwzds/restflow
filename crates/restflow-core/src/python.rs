@@ -271,6 +271,7 @@ impl PythonManager {
         }
 
         // Sync dependencies (requires pyproject.toml to exist)
+        // SECURITY: python_dir is internal configuration, not user-controlled.
         if self.python_dir.join("pyproject.toml").exists() {
             let sync_output = Command::new(&self.uv_binary)
                 .current_dir(&self.python_dir)
@@ -302,6 +303,7 @@ impl PythonManager {
             return Err(anyhow!("Invalid script name"));
         }
 
+        // SECURITY: script_name validated above - no path traversal possible.
         let script_path = self.scripts_dir.join(format!("{}.py", script_name));
         if !script_path.exists() {
             return Err(anyhow!("Script not found: {}", script_name));
@@ -347,6 +349,7 @@ impl PythonManager {
             return Err(anyhow!("Invalid script name"));
         }
 
+        // SECURITY: name validated above - no path traversal possible.
         let script_path = self.scripts_dir.join(format!("{}.py", name));
         fs::write(&script_path, content).await?;
         Ok(script_path)
@@ -456,6 +459,7 @@ impl PythonManager {
             return Ok(templates);
         }
 
+        // SECURITY: templates_dir is internal configuration, not user-controlled.
         let mut entries = fs::read_dir(&self.templates_dir).await?;
         while let Some(entry) = entries.next_entry().await? {
             let path = entry.path();
@@ -577,6 +581,7 @@ impl PythonManager {
         }
 
         // Build template file path
+        // SECURITY: template_id validated above - no path traversal possible.
         let template_path = self.templates_dir.join(format!("{}.py", template_id));
         if !template_path.exists() {
             return Err(anyhow!("Template not found: {}", template_id));

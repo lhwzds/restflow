@@ -37,7 +37,7 @@
 use crate::models::memory::{MemoryChunk, MemorySearchQuery, SearchMode};
 use crate::storage::MemoryStorage;
 use anyhow::Result;
-use regex::Regex;
+use regex::RegexBuilder;
 use serde::{Deserialize, Serialize};
 use restflow_storage::time_utils;
 use ts_rs::TS;
@@ -284,10 +284,13 @@ impl SearchEngine {
             }
             SearchMode::Regex => {
                 // Count regex matches
-                if let Ok(regex) = Regex::new(search_text) {
-                    regex.find_iter(content).count() as u32
-                } else {
-                    0
+                let regex = RegexBuilder::new(search_text)
+                    .size_limit(10_000)
+                    .dfa_size_limit(10_000)
+                    .build();
+                match regex {
+                    Ok(re) => re.find_iter(content).count() as u32,
+                    Err(_) => 0,
                 }
             }
         };

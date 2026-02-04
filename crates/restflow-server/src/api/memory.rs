@@ -258,9 +258,17 @@ pub async fn import_memory(
     State(state): State<AppState>,
     Json(payload): Json<ImportMemoryRequest>,
 ) -> Result<Json<ApiResponse<ImportMemoryResponse>>, (StatusCode, String)> {
+    const MAX_CHUNK_SIZE: usize = 1024 * 1024;
+
     let mut chunk_ids = Vec::with_capacity(payload.chunks.len());
 
     for incoming in payload.chunks {
+        if incoming.content.len() > MAX_CHUNK_SIZE {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                "Content exceeds maximum size".to_string(),
+            ));
+        }
         let mut chunk = MemoryChunk::new(payload.agent_id.clone(), incoming.content)
             .with_source(incoming.source.unwrap_or(MemorySource::ManualNote))
             .with_tags(incoming.tags);
