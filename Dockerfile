@@ -44,6 +44,7 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 COPY --from=backend-builder /app/target/release/restflow /usr/local/bin/restflow
+COPY --from=frontend-builder /app/web/dist /app/web/dist
 
 EXPOSE 3000
 
