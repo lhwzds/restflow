@@ -52,13 +52,21 @@ pub enum AIModel {
     #[serde(rename = "o3-mini")]
     O3Mini,
 
-    // Anthropic Claude series (latest models only)
+    // Anthropic Claude series (latest models only, for direct API)
     #[serde(rename = "claude-opus-4-1")]
     ClaudeOpus4_1,
     #[serde(rename = "claude-sonnet-4-5")]
     ClaudeSonnet4_5,
     #[serde(rename = "claude-haiku-4-5")]
     ClaudeHaiku4_5,
+
+    // Claude Code CLI aliases (for use with claude CLI tool)
+    #[serde(rename = "claude-code-opus")]
+    ClaudeCodeOpus,
+    #[serde(rename = "claude-code-sonnet")]
+    ClaudeCodeSonnet,
+    #[serde(rename = "claude-code-haiku")]
+    ClaudeCodeHaiku,
 
     // DeepSeek series
     #[serde(rename = "deepseek-chat")]
@@ -127,6 +135,23 @@ impl AIModel {
                 name: "Claude Haiku 4.5",
             },
 
+            // Claude Code CLI aliases
+            Self::ClaudeCodeOpus => ModelMetadata {
+                provider: Provider::Anthropic,
+                supports_temperature: true,
+                name: "Claude Code Opus",
+            },
+            Self::ClaudeCodeSonnet => ModelMetadata {
+                provider: Provider::Anthropic,
+                supports_temperature: true,
+                name: "Claude Code Sonnet",
+            },
+            Self::ClaudeCodeHaiku => ModelMetadata {
+                provider: Provider::Anthropic,
+                supports_temperature: true,
+                name: "Claude Code Haiku",
+            },
+
             // DeepSeek series
             Self::DeepseekChat => ModelMetadata {
                 provider: Provider::DeepSeek,
@@ -165,10 +190,15 @@ impl AIModel {
             Self::O3 => "o3",
             Self::O3Mini => "o3-mini",
 
-            // Claude series
+            // Claude series (direct API)
             Self::ClaudeOpus4_1 => "claude-opus-4-1",
             Self::ClaudeSonnet4_5 => "claude-sonnet-4-5",
             Self::ClaudeHaiku4_5 => "claude-haiku-4-5",
+
+            // Claude Code CLI (aliases for claude CLI tool)
+            Self::ClaudeCodeOpus => "opus",
+            Self::ClaudeCodeSonnet => "sonnet",
+            Self::ClaudeCodeHaiku => "haiku",
 
             // DeepSeek series
             Self::DeepseekChat => "deepseek-chat",
@@ -192,10 +222,14 @@ impl AIModel {
             Self::O4Mini,
             Self::O3,
             Self::O3Mini,
-            // Anthropic
+            // Anthropic (direct API)
             Self::ClaudeOpus4_1,
             Self::ClaudeSonnet4_5,
             Self::ClaudeHaiku4_5,
+            // Anthropic (Claude Code CLI)
+            Self::ClaudeCodeOpus,
+            Self::ClaudeCodeSonnet,
+            Self::ClaudeCodeHaiku,
             // DeepSeek
             Self::DeepseekChat,
             Self::DeepseekReasoner,
@@ -267,7 +301,7 @@ mod tests {
     #[test]
     fn test_all_models() {
         let models = AIModel::all();
-        assert_eq!(models.len(), 12);
+        assert_eq!(models.len(), 15);
         assert!(models.contains(&AIModel::Gpt5));
         assert!(models.contains(&AIModel::O3));
         assert!(models.contains(&AIModel::ClaudeOpus4_1));
