@@ -17,7 +17,8 @@ import './style.scss'
 
 async function enableMocking() {
   const isPlaywright =
-    typeof navigator !== 'undefined' && navigator.userAgent.includes('Playwright')
+    typeof navigator !== 'undefined' &&
+    (navigator.userAgent.includes('Playwright') || navigator.webdriver)
 
   // Enable MSW in demo mode or during Playwright E2E runs
   if (import.meta.env.VITE_DEMO_MODE === 'true' || isPlaywright) {
