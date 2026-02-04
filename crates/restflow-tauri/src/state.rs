@@ -11,7 +11,7 @@ use crate::commands::agent_task::ActiveTaskInfo;
 use crate::daemon_manager::DaemonManager;
 use crate::executor::TauriExecutor;
 use crate::subagent::{AgentDefinitionRegistry, SubagentConfig, SubagentTracker};
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use async_trait::async_trait;
 use restflow_ai::LlmClient;
 use restflow_core::AppCore;
@@ -19,8 +19,10 @@ use restflow_core::channel::ChannelRouter;
 use restflow_core::models::AgentTask;
 use restflow_core::process::ProcessRegistry;
 use restflow_core::security::SecurityChecker;
+use restflow_core::TerminalSession;
+use regex::Regex;
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock as StdRwLock};
 use tokio::sync::{RwLock, mpsc, Mutex};
 use tracing::{error, info};
 
@@ -47,6 +49,8 @@ pub struct AppState {
     pub channel_router: Arc<ChannelRouter>,
     /// Process registry for background process tool
     pub process_registry: Arc<ProcessRegistry>,
+    /// In-memory terminal session store
+    pub terminal_sessions: Arc<StdRwLock<HashMap<String, TerminalSession>>>,
     /// Active chat stream manager
     pub stream_manager: StreamManager,
     /// Daemon manager for IPC connections
@@ -80,6 +84,7 @@ impl AppState {
             security_checker,
             channel_router,
             process_registry,
+            terminal_sessions: Arc::new(StdRwLock::new(HashMap::new())),
             stream_manager: StreamManager::new(),
             daemon,
             executor,
@@ -107,6 +112,94 @@ impl AppState {
     /// Get the IPC executor
     pub fn executor(&self) -> Arc<TauriExecutor> {
         self.executor.clone()
+    }
+
+    /// List terminal sessions in created order.
+    pub fn list_terminal_sessions(&self) -> Vec<TerminalSession> {
+        let sessions = self
+            .terminal_sessions
+            .read()
+            .expect("Terminal session store lock poisoned");
+        let mut list: Vec<TerminalSession> = sessions.values().cloned().collect();
+        list.sort_by(|a, b| a.created_at.cmp(&b.created_at));
+        list
+    }
+
+    /// Get a terminal session by ID.
+    pub fn get_terminal_session(&self, id: &str) -> Option<TerminalSession> {
+        let sessions = self
+            .terminal_sessions
+            .read()
+            .expect("Terminal session store lock poisoned");
+        sessions.get(id).cloned()
+    }
+
+    /// Create a new terminal session (fails if already exists).
+    pub fn create_terminal_session(&self, session: TerminalSession) -> Result<()> {
+        let mut sessions = self
+            .terminal_sessions
+            .write()
+            .expect("Terminal session store lock poisoned");
+        if sessions.contains_key(&session.id) {
+            return Err(anyhow!("Terminal session {} already exists", session.id));
+        }
+        sessions.insert(session.id.clone(), session);
+        Ok(())
+    }
+
+    /// Update an existing terminal session.
+    pub fn update_terminal_session(&self, session: TerminalSession) -> Result<()> {
+        let mut sessions = self
+            .terminal_sessions
+            .write()
+            .expect("Terminal session store lock poisoned");
+        if !sessions.contains_key(&session.id) {
+            return Err(anyhow!("Terminal session {} not found", session.id));
+        }
+        sessions.insert(session.id.clone(), session);
+        Ok(())
+    }
+
+    /// Delete a terminal session by ID.
+    pub fn delete_terminal_session(&self, id: &str) -> Result<()> {
+        let mut sessions = self
+            .terminal_sessions
+            .write()
+            .expect("Terminal session store lock poisoned");
+        sessions.remove(id);
+        Ok(())
+    }
+
+    /// Mark all running terminal sessions as stopped.
+    pub fn mark_all_terminal_sessions_stopped(&self) -> usize {
+        let mut sessions = self
+            .terminal_sessions
+            .write()
+            .expect("Terminal session store lock poisoned");
+        let mut count = 0;
+        for session in sessions.values_mut() {
+            if session.is_running() {
+                session.set_stopped(session.history.clone());
+                count += 1;
+            }
+        }
+        count
+    }
+
+    /// Get the next available terminal session name.
+    pub fn next_terminal_name(&self) -> Result<String> {
+        let sessions = self
+            .terminal_sessions
+            .read()
+            .expect("Terminal session store lock poisoned");
+        let pattern = Regex::new(r"^Terminal (\d+)$")?;
+        let max_num = sessions
+            .values()
+            .filter_map(|s| pattern.captures(&s.name))
+            .filter_map(|caps| caps.get(1).and_then(|m| m.as_str().parse::<u32>().ok()))
+            .max()
+            .unwrap_or(0);
+        Ok(format!("Terminal {}", max_num + 1))
     }
 
     /// Build sub-agent dependencies for tool registry construction.
@@ -316,25 +409,38 @@ impl AppTaskTrigger {
 #[async_trait]
 impl TaskTrigger for AppTaskTrigger {
     async fn list_tasks(&self) -> Result<Vec<AgentTask>> {
-        self.state.core.storage.agent_tasks.list_tasks()
+        self.state
+            .executor()
+            .list_tasks()
+            .await
+            .map_err(|e| anyhow!(e.to_string()))
     }
 
     async fn find_and_run_task(&self, name_or_id: &str) -> Result<AgentTask> {
         // Try to find by ID first
-        if let Ok(Some(task)) = self.state.core.storage.agent_tasks.get_task(name_or_id) {
-            // Trigger the task to run
+        if let Some(task) = self
+            .state
+            .executor()
+            .get_task(name_or_id.to_string())
+            .await
+            .map_err(|e| anyhow!(e.to_string()))?
+        {
             self.state.run_task_now(task.id.clone()).await?;
             return Ok(task);
         }
 
         // Try to find by name
-        let tasks = self.state.core.storage.agent_tasks.list_tasks()?;
+        let tasks = self
+            .state
+            .executor()
+            .list_tasks()
+            .await
+            .map_err(|e| anyhow!(e.to_string()))?;
         let task = tasks
             .into_iter()
             .find(|t| t.name.to_lowercase() == name_or_id.to_lowercase())
-            .ok_or_else(|| anyhow::anyhow!("Task not found: {}", name_or_id))?;
+            .ok_or_else(|| anyhow!("Task not found: {}", name_or_id))?;
 
-        // Trigger the task to run
         self.state.run_task_now(task.id.clone()).await?;
         Ok(task)
     }
@@ -353,10 +459,19 @@ impl TaskTrigger for AppTaskTrigger {
         };
 
         // If the task isn't running (or cancel couldn't be requested), pause it directly.
-        if let Ok(Some(task)) = self.state.core.storage.agent_tasks.get_task(task_id)
+        if let Some(task) = self
+            .state
+            .executor()
+            .get_task(task_id.to_string())
+            .await
+            .map_err(|e| anyhow!(e.to_string()))?
             && (task.status != restflow_core::models::AgentTaskStatus::Running || !cancel_requested)
         {
-            self.state.core.storage.agent_tasks.pause_task(task_id)?;
+            self.state
+                .executor()
+                .pause_task(task_id.to_string())
+                .await
+                .map_err(|e| anyhow!(e.to_string()))?;
         }
 
         // Mark the task as completed/stopped in our tracking
@@ -370,7 +485,12 @@ impl TaskTrigger for AppTaskTrigger {
         let active_count = self.state.running_task_count().await;
 
         // Count pending (active but not running) tasks
-        let tasks = self.state.core.storage.agent_tasks.list_tasks()?;
+        let tasks = self
+            .state
+            .executor()
+            .list_tasks()
+            .await
+            .map_err(|e| anyhow!(e.to_string()))?;
         let pending_count = tasks
             .iter()
             .filter(|t| t.status == restflow_core::models::AgentTaskStatus::Active)

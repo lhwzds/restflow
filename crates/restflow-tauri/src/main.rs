@@ -148,14 +148,9 @@ fn main() {
 
             // Mark all running terminal sessions as stopped on startup
             // (PTY processes don't survive app restart)
-            match state.core.storage.terminal_sessions.mark_all_stopped() {
-                Ok(count) if count > 0 => {
-                    info!(count, "Marked stale terminal sessions as stopped");
-                }
-                Ok(_) => {}
-                Err(e) => {
-                    tracing::warn!(error = %e, "Failed to clean up stale terminal sessions");
-                }
+            let count = state.mark_all_terminal_sessions_stopped();
+            if count > 0 {
+                info!(count, "Marked stale terminal sessions as stopped");
             }
 
             // Initialize Auth Profile Manager state with secrets

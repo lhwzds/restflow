@@ -95,12 +95,10 @@ pub async fn execute_agent(
     request: ExecuteAgentRequest,
 ) -> Result<AgentExecuteResponse, String> {
     let _agent = state
-        .core
-        .storage
-        .agents
+        .executor()
         .get_agent(id)
-        .map_err(|e| e.to_string())?
-        .ok_or_else(|| "Agent not found".to_string())?;
+        .await
+        .map_err(|e| e.to_string())?;
 
     // TODO: Implement full agent execution using restflow-ai AgentExecutor
     // For now, return a placeholder response

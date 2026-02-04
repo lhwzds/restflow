@@ -3,7 +3,6 @@
 use crate::state::AppState;
 use restflow_core::AIModel;
 use restflow_core::models::ModelMetadataDTO;
-use restflow_core::services::tool_registry::create_tool_registry;
 use restflow_storage::SystemConfig;
 use serde::Serialize;
 use tauri::State;
@@ -54,38 +53,21 @@ pub struct ToolInfo {
 /// Get available tools for agents
 #[tauri::command]
 pub async fn get_available_tools(state: State<'_, AppState>) -> Result<Vec<ToolInfo>, String> {
-    // Create a tool registry to get available tools
-    let db = state.core.storage.get_db();
-    let skill_storage =
-        restflow_core::storage::skill::SkillStorage::new(db.clone()).map_err(|e| e.to_string())?;
-    let memory_storage =
-        restflow_core::storage::memory::MemoryStorage::new(db.clone()).map_err(|e| e.to_string())?;
-    let chat_storage =
-        restflow_core::storage::chat_session::ChatSessionStorage::new(db.clone())
-            .map_err(|e| e.to_string())?;
-    let shared_space_storage = restflow_core::storage::SharedSpaceStorage::new(
-        restflow_storage::SharedSpaceStorage::new(db).map_err(|e| e.to_string())?,
-    );
+    let tools = state
+        .executor()
+        .get_available_tools()
+        .await
+        .map_err(|e| e.to_string())?;
 
-    let registry = create_tool_registry(
-        skill_storage,
-        memory_storage,
-        chat_storage,
-        shared_space_storage,
-        None,
-    );
-
-    // Get tool names and descriptions
-    let tools: Vec<ToolInfo> = registry
-        .list()
-        .iter()
+    let tool_infos = tools
+        .into_iter()
         .map(|name| ToolInfo {
-            name: name.to_string(),
+            name: name.clone(),
             description: format!("Tool: {}", name),
         })
         .collect();
 
-    Ok(tools)
+    Ok(tool_infos)
 }
 
 /// Check Python runtime status

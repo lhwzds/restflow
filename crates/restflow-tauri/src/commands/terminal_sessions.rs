@@ -10,12 +10,7 @@ use uuid::Uuid;
 pub async fn list_terminal_sessions(
     state: State<'_, AppState>,
 ) -> Result<Vec<TerminalSession>, String> {
-    state
-        .core
-        .storage
-        .terminal_sessions
-        .list()
-        .map_err(|e| e.to_string())
+    Ok(state.list_terminal_sessions())
 }
 
 /// Get a terminal session by ID
@@ -25,11 +20,7 @@ pub async fn get_terminal_session(
     id: String,
 ) -> Result<TerminalSession, String> {
     state
-        .core
-        .storage
-        .terminal_sessions
-        .get(&id)
-        .map_err(|e| e.to_string())?
+        .get_terminal_session(&id)
         .ok_or_else(|| format!("Terminal session '{}' not found", id))
 }
 
@@ -38,22 +29,14 @@ pub async fn get_terminal_session(
 pub async fn create_terminal_session(
     state: State<'_, AppState>,
 ) -> Result<TerminalSession, String> {
-    let name = state
-        .core
-        .storage
-        .terminal_sessions
-        .get_next_name()
-        .map_err(|e| e.to_string())?;
+    let name = state.next_terminal_name().map_err(|e| e.to_string())?;
 
     // Use UUID for guaranteed uniqueness (fixes bug where rapid clicks create duplicate IDs)
     let id = format!("terminal-{}", Uuid::new_v4());
     let session = TerminalSession::new(id, name);
 
     state
-        .core
-        .storage
-        .terminal_sessions
-        .create(&session)
+        .create_terminal_session(session.clone())
         .map_err(|e| e.to_string())?;
 
     Ok(session)
@@ -67,20 +50,13 @@ pub async fn rename_terminal_session(
     name: String,
 ) -> Result<TerminalSession, String> {
     let mut session = state
-        .core
-        .storage
-        .terminal_sessions
-        .get(&id)
-        .map_err(|e| e.to_string())?
+        .get_terminal_session(&id)
         .ok_or_else(|| format!("Terminal session '{}' not found", id))?;
 
     session.rename(name);
 
     state
-        .core
-        .storage
-        .terminal_sessions
-        .update(&id, &session)
+        .update_terminal_session(session.clone())
         .map_err(|e| e.to_string())?;
 
     Ok(session)
@@ -96,11 +72,7 @@ pub async fn update_terminal_session(
     startup_command: Option<String>,
 ) -> Result<TerminalSession, String> {
     let mut session = state
-        .core
-        .storage
-        .terminal_sessions
-        .get(&id)
-        .map_err(|e| e.to_string())?
+        .get_terminal_session(&id)
         .ok_or_else(|| format!("Terminal session '{}' not found", id))?;
 
     // Update name if provided
@@ -113,10 +85,7 @@ pub async fn update_terminal_session(
     session.set_config(working_directory, startup_command);
 
     state
-        .core
-        .storage
-        .terminal_sessions
-        .update(&id, &session)
+        .update_terminal_session(session.clone())
         .map_err(|e| e.to_string())?;
 
     Ok(session)
@@ -126,10 +95,7 @@ pub async fn update_terminal_session(
 #[tauri::command]
 pub async fn delete_terminal_session(state: State<'_, AppState>, id: String) -> Result<(), String> {
     state
-        .core
-        .storage
-        .terminal_sessions
-        .delete(&id)
+        .delete_terminal_session(&id)
         .map_err(|e| e.to_string())
 }
 
