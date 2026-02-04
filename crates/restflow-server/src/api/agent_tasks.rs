@@ -7,8 +7,8 @@ use axum::{
 };
 use futures::{Stream, stream};
 use restflow_ai::{
-    AgentConfig, AgentExecutor, AgentState, AgentStatus, AnthropicClient, ClaudeCodeClient, LlmClient, OpenAIClient,
-    Role, ToolRegistry,
+    AgentConfig, AgentExecutor, AgentState, AgentStatus, AnthropicClient, ClaudeCodeClient,
+    LlmClient, OpenAIClient, Role, ToolRegistry,
 };
 use restflow_core::models::{
     AgentExecuteResponse, AgentNode, ExecutionDetails, ExecutionMode, ExecutionStep, Provider,
@@ -66,6 +66,14 @@ pub struct TaskEventQuery {
 pub struct AgentTaskRunResponse {
     pub task: restflow_core::models::AgentTask,
     pub result: AgentExecuteResponse,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CompactionResponse {
+    pub success: bool,
+    pub summary: String,
+    pub compacted_count: usize,
+    pub tokens_saved: usize,
 }
 
 /// Convert AgentState messages to ExecutionSteps for frontend
@@ -150,9 +158,7 @@ async fn run_agent_with_executor(
 
     // Create LLM client based on model provider
     let llm: Arc<dyn LlmClient> = match model.provider() {
-        Provider::OpenAI => {
-            Arc::new(OpenAIClient::new(&api_key).with_model(model.as_str()))
-        }
+        Provider::OpenAI => Arc::new(OpenAIClient::new(&api_key).with_model(model.as_str())),
         Provider::Anthropic => {
             if api_key.starts_with("sk-ant-oat") {
                 Arc::new(ClaudeCodeClient::new(&api_key).with_model(model.as_str()))
@@ -263,7 +269,10 @@ pub async fn get_agent_task(
     match state.storage.agent_tasks.get_task(&id) {
         Ok(Some(task)) => Json(ApiResponse::ok(task)),
         Ok(None) => Json(ApiResponse::error(format!("Agent task '{}' not found", id))),
-        Err(e) => Json(ApiResponse::error(format!("Failed to get agent task: {}", e))),
+        Err(e) => Json(ApiResponse::error(format!(
+            "Failed to get agent task: {}",
+            e
+        ))),
     }
 }
 
@@ -272,11 +281,11 @@ pub async fn create_agent_task(
     State(state): State<AppState>,
     Json(request): Json<CreateAgentTaskRequest>,
 ) -> Json<ApiResponse<restflow_core::models::AgentTask>> {
-    match state.storage.agent_tasks.create_task(
-        request.name,
-        request.agent_id,
-        request.schedule,
-    ) {
+    match state
+        .storage
+        .agent_tasks
+        .create_task(request.name, request.agent_id, request.schedule)
+    {
         Ok(mut task) => {
             let mut needs_update = false;
 
@@ -305,9 +314,7 @@ pub async fn create_agent_task(
                 needs_update = true;
             }
 
-            if needs_update
-                && let Err(e) = state.storage.agent_tasks.update_task(&task)
-            {
+            if needs_update && let Err(e) = state.storage.agent_tasks.update_task(&task) {
                 return Json(ApiResponse::error(format!(
                     "Failed to update agent task: {}",
                     e
@@ -334,17 +341,12 @@ pub async fn update_agent_task(
 ) -> Json<ApiResponse<restflow_core::models::AgentTask>> {
     let mut task = match state.storage.agent_tasks.get_task(&id) {
         Ok(Some(task)) => task,
-        Ok(None) => {
-            return Json(ApiResponse::error(format!(
-                "Agent task '{}' not found",
-                id
-            )))
-        }
+        Ok(None) => return Json(ApiResponse::error(format!("Agent task '{}' not found", id))),
         Err(e) => {
             return Json(ApiResponse::error(format!(
                 "Failed to get agent task: {}",
                 e
-            )))
+            )));
         }
     };
 
@@ -405,10 +407,7 @@ pub async fn delete_agent_task(
             if deleted {
                 Json(ApiResponse::message("Agent task deleted successfully"))
             } else {
-                Json(ApiResponse::error(format!(
-                    "Agent task '{}' not found",
-                    id
-                )))
+                Json(ApiResponse::error(format!("Agent task '{}' not found", id)))
             }
         }
         Err(e) => Json(ApiResponse::error(format!(
@@ -456,7 +455,12 @@ pub async fn run_agent_task(
         .agent_tasks
         .get_task(&id)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-        .ok_or_else(|| (StatusCode::NOT_FOUND, format!("Agent task '{}' not found", id)))?;
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                format!("Agent task '{}' not found", id),
+            )
+        })?;
 
     if task.execution_mode != ExecutionMode::Api {
         return Err((
@@ -526,6 +530,31 @@ pub async fn run_agent_task(
     }
 }
 
+// POST /api/agent-tasks/{id}/compact
+pub async fn compact_agent_task(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Json<ApiResponse<CompactionResponse>> {
+    let task_exists = match state.storage.agent_tasks.get_task(&id) {
+        Ok(Some(_)) => true,
+        Ok(None) => false,
+        Err(e) => {
+            return Json(ApiResponse::error(format!(
+                "Failed to get agent task: {}",
+                e
+            )));
+        }
+    };
+
+    if !task_exists {
+        return Json(ApiResponse::error(format!("Agent task '{}' not found", id)));
+    }
+
+    Json(ApiResponse::error(
+        "Manual compaction is not available for task executions yet".to_string(),
+    ))
+}
+
 // GET /api/agent-tasks/{id}/events
 pub async fn get_agent_task_events(
     State(state): State<AppState>,
@@ -554,7 +583,10 @@ pub async fn get_agent_task_events(
 pub async fn stream_agent_task_events(
     State(state): State<AppState>,
     Path(id): Path<String>,
-) -> Result<Sse<impl Stream<Item = Result<axum::response::sse::Event, Infallible>>>, (StatusCode, String)> {
+) -> Result<
+    Sse<impl Stream<Item = Result<axum::response::sse::Event, Infallible>>>,
+    (StatusCode, String),
+> {
     let task_exists = state
         .storage
         .agent_tasks
@@ -563,7 +595,10 @@ pub async fn stream_agent_task_events(
         .is_some();
 
     if !task_exists {
-        return Err((StatusCode::NOT_FOUND, format!("Agent task '{}' not found", id)));
+        return Err((
+            StatusCode::NOT_FOUND,
+            format!("Agent task '{}' not found", id),
+        ));
     }
 
     let events = state

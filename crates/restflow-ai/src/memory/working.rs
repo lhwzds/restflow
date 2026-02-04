@@ -20,7 +20,10 @@
 
 use std::collections::VecDeque;
 
-use crate::llm::Message;
+use crate::error::Result;
+use crate::llm::{LlmClient, Message};
+
+use super::compaction::{CompactionConfig, CompactionResult, ContextCompactor};
 
 /// Default maximum number of messages in working memory
 pub const DEFAULT_MAX_MESSAGES: usize = 100;
@@ -47,6 +50,10 @@ pub struct WorkingMemory {
     max_messages: usize,
     /// Approximate token count (estimated as chars / 4)
     token_count: usize,
+    /// Optional compaction configuration
+    compaction_config: Option<CompactionConfig>,
+    /// Last compaction result
+    last_compaction: Option<CompactionResult>,
 }
 
 impl Default for WorkingMemory {
@@ -76,6 +83,8 @@ impl WorkingMemory {
             messages: VecDeque::with_capacity(max_messages),
             max_messages,
             token_count: 0,
+            compaction_config: None,
+            last_compaction: None,
         }
     }
 
@@ -113,6 +122,53 @@ impl WorkingMemory {
         self.messages.push_back(msg);
     }
 
+    /// Enable context compaction with the provided configuration.
+    pub fn enable_compaction(&mut self, config: CompactionConfig) {
+        self.compaction_config = Some(config);
+    }
+
+    /// Get the last compaction result, if any.
+    pub fn last_compaction(&self) -> Option<&CompactionResult> {
+        self.last_compaction.as_ref()
+    }
+
+    /// Check and perform auto-compaction if needed.
+    pub async fn auto_compact_if_needed(
+        &mut self,
+        llm: &dyn LlmClient,
+        context_window: usize,
+    ) -> Result<Option<CompactionResult>> {
+        let Some(config) = &self.compaction_config else {
+            return Ok(None);
+        };
+
+        if !config.auto_compact {
+            return Ok(None);
+        }
+
+        let compactor = ContextCompactor::new(config.clone());
+        let messages = self.get_messages();
+        if !compactor.needs_compaction(&messages, context_window) {
+            return Ok(None);
+        }
+
+        let result = compactor.compact(messages, llm).await?;
+        self.replace_history(&result.new_history);
+        self.last_compaction = Some(result.clone());
+        Ok(Some(result))
+    }
+
+    /// Manually trigger compaction using the current configuration.
+    pub async fn compact(&mut self, llm: &dyn LlmClient) -> Result<CompactionResult> {
+        let config = self.compaction_config.clone().unwrap_or_default();
+        let compactor = ContextCompactor::new(config);
+        let messages = self.get_messages();
+        let result = compactor.compact(messages, llm).await?;
+        self.replace_history(&result.new_history);
+        self.last_compaction = Some(result.clone());
+        Ok(result)
+    }
+
     /// Get all messages as a vector
     ///
     /// Returns messages in order from oldest to newest.
@@ -132,6 +188,7 @@ impl WorkingMemory {
     pub fn clear(&mut self) {
         self.messages.clear();
         self.token_count = 0;
+        self.last_compaction = None;
     }
 
     /// Get the number of messages currently stored
@@ -173,6 +230,18 @@ impl WorkingMemory {
     pub fn last_n(&self, n: usize) -> Vec<Message> {
         let start = self.messages.len().saturating_sub(n);
         self.messages.iter().skip(start).cloned().collect()
+    }
+
+    fn replace_history(&mut self, messages: &[Message]) {
+        self.messages.clear();
+        for msg in messages {
+            self.messages.push_back(msg.clone());
+        }
+        self.recalculate_tokens();
+    }
+
+    fn recalculate_tokens(&mut self) {
+        self.token_count = self.messages.iter().map(Self::estimate_tokens).sum();
     }
 
     /// Remove oldest non-system message

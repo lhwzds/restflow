@@ -10,7 +10,7 @@ use crate::agent::context::AgentContext;
 use crate::agent::state::{AgentState, AgentStatus};
 use crate::error::{AiError, Result};
 use crate::llm::{CompletionRequest, FinishReason, LlmClient, Message};
-use crate::memory::{DEFAULT_MAX_MESSAGES, WorkingMemory};
+use crate::memory::{CompactionConfig, DEFAULT_MAX_MESSAGES, WorkingMemory};
 use crate::tools::ToolRegistry;
 
 /// Configuration for agent execution
@@ -29,6 +29,10 @@ pub struct AgentConfig {
     /// Maximum messages to retain in working memory (default: 100)
     /// When this limit is reached, oldest non-system messages are evicted.
     pub max_memory_messages: usize,
+    /// Context window size for compaction decisions (default: 128000 tokens).
+    pub context_window: usize,
+    /// Optional compaction configuration for working memory.
+    pub compaction_config: Option<CompactionConfig>,
     /// Optional agent context injected into the system prompt.
     pub agent_context: Option<AgentContext>,
 }
@@ -45,6 +49,8 @@ impl AgentConfig {
             tool_timeout: Duration::from_secs(30),
             max_tool_result_length: 4000,
             max_memory_messages: DEFAULT_MAX_MESSAGES,
+            context_window: 128_000,
+            compaction_config: None,
             agent_context: None,
         }
     }
@@ -52,6 +58,18 @@ impl AgentConfig {
     /// Set maximum messages in working memory
     pub fn with_max_memory_messages(mut self, max: usize) -> Self {
         self.max_memory_messages = max;
+        self
+    }
+
+    /// Set context window size for compaction decisions.
+    pub fn with_context_window(mut self, context_window: usize) -> Self {
+        self.context_window = context_window;
+        self
+    }
+
+    /// Enable working memory compaction.
+    pub fn with_compaction_config(mut self, config: CompactionConfig) -> Self {
+        self.compaction_config = Some(config);
         self
     }
 
@@ -130,6 +148,9 @@ impl AgentExecutor {
 
         // Initialize working memory for context window management
         let mut memory = WorkingMemory::new(config.max_memory_messages);
+        if let Some(compaction_config) = config.compaction_config.clone() {
+            memory.enable_compaction(compaction_config);
+        }
 
         // Initialize messages
         let system_prompt = self.build_system_prompt(&config);
@@ -144,6 +165,13 @@ impl AgentExecutor {
 
         // Core loop (Swarm-inspired simplicity)
         while state.iteration < state.max_iterations && !state.is_terminal() {
+            if let Some(_result) = memory
+                .auto_compact_if_needed(self.llm.as_ref(), config.context_window)
+                .await?
+            {
+                // Compaction affects working memory only; full state history remains intact.
+            }
+
             // 1. LLM call - use working memory for context (handles overflow)
             let mut request =
                 CompletionRequest::new(memory.get_messages()).with_tools(self.tools.schemas());
@@ -294,7 +322,7 @@ impl AgentExecutor {
 mod tests {
     use super::*;
     use crate::llm::{
-        CompletionResponse, FinishReason, Role, StreamChunk, StreamResult, ToolCall, TokenUsage,
+        CompletionResponse, FinishReason, Role, StreamChunk, StreamResult, TokenUsage, ToolCall,
     };
     use async_trait::async_trait;
     use futures::stream;
