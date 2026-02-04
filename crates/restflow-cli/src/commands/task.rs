@@ -352,6 +352,7 @@ fn print_task_event(event: &TaskEvent) {
         TaskEventType::Resumed => "resumed",
         TaskEventType::NotificationSent => "notification_sent",
         TaskEventType::NotificationFailed => "notification_failed",
+        TaskEventType::Compaction => "compaction",
     };
 
     print!("[{}] {}", timestamp, event_type);
