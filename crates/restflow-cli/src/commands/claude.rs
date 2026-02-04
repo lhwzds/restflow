@@ -61,26 +61,22 @@ async fn get_api_key_from_profile(core: &Arc<AppCore>, profile_id: Option<&str>)
     let socket_path = paths::socket_path()?;
     if is_daemon_available(&socket_path).await {
         let mut client = IpcClient::connect(&socket_path).await?;
-        let profiles = client.list_auth_profiles().await?;
 
         if let Some(id) = profile_id {
+            let profiles = client.list_auth_profiles().await?;
             let profile = profiles
                 .iter()
                 .find(|p| p.id == id || p.id.starts_with(id))
                 .ok_or_else(|| anyhow::anyhow!("Auth profile not found: {}", id))?;
-            return client.get_api_key(profile.provider).await;
+            return client.get_api_key_for_profile(profile.id.clone()).await;
         }
 
-        let claude_code_profile = profiles
-            .iter()
-            .find(|p| p.provider == AuthProvider::ClaudeCode && p.is_available())
-            .ok_or_else(|| {
-                anyhow::anyhow!(
-                    "No available ClaudeCode auth profile found. Run 'restflow auth add --provider claude-code --key <your-oauth-token>' to add one."
-                )
-            })?;
-
-        return client.get_api_key(claude_code_profile.provider).await;
+        return match client.get_api_key(AuthProvider::ClaudeCode).await {
+            Ok(key) => Ok(key),
+            Err(_) => bail!(
+                "No available ClaudeCode auth profile found. Run 'restflow auth add --provider claude-code --key <your-oauth-token>' to add one."
+            ),
+        };
     }
 
     let config = AuthManagerConfig::default();

@@ -182,6 +182,9 @@ pub enum IpcRequest {
     GetApiKey {
         provider: AuthProvider,
     },
+    GetApiKeyForProfile {
+        id: String,
+    },
     TestAuthProfile {
         id: String,
     },
@@ -570,6 +573,21 @@ mod tests {
 
         if let IpcRequest::GetApiKey { provider } = parsed {
             assert!(matches!(provider, AuthProvider::Anthropic));
+        } else {
+            panic!("Wrong variant");
+        }
+    }
+
+    #[test]
+    fn test_get_api_key_for_profile_serialization() {
+        let request = IpcRequest::GetApiKeyForProfile {
+            id: "profile-1".to_string(),
+        };
+        let json = serde_json::to_string(&request).unwrap();
+        let parsed: IpcRequest = serde_json::from_str(&json).unwrap();
+
+        if let IpcRequest::GetApiKeyForProfile { id } = parsed {
+            assert_eq!(id, "profile-1");
         } else {
             panic!("Wrong variant");
         }
