@@ -395,13 +395,16 @@ impl ChatDispatcher {
         );
 
         // 3. Send typing indicator if enabled
-        if self.config.send_typing_indicator
-            && let Err(e) = self.send_typing_indicator(message).await
-        {
-            warn!("Failed to send typing indicator: {}", e);
+        if self.config.send_typing_indicator {
+            debug!("Sending typing indicator to {}", message.conversation_id);
+            if let Err(e) = self.send_typing_indicator(message).await {
+                warn!("Failed to send typing indicator: {}", e);
+            }
+            debug!("Typing indicator sent");
         }
 
         // 4. Load agent and create UnifiedAgent
+        debug!("Loading agent: {}", session.agent_id);
         let stored_agent = match self.storage.agents.get_agent(session.agent_id.clone()) {
             Ok(Some(a)) => a,
             Ok(None) => {
@@ -417,6 +420,7 @@ impl ChatDispatcher {
         };
 
         let agent_node = &stored_agent.agent;
+        debug!("Getting model for agent");
         let model = match agent_node.require_model() {
             Ok(m) => m,
             Err(e) => {
@@ -425,7 +429,9 @@ impl ChatDispatcher {
                 return Ok(());
             }
         };
+        debug!("Model: {} (provider: {:?})", model.as_str(), model.provider());
 
+        debug!("Resolving API key");
         let api_key = match self.resolve_api_key(model.provider(), agent_node.api_key_config.as_ref()).await {
             Ok(key) => key,
             Err(e) => {
@@ -436,7 +442,9 @@ impl ChatDispatcher {
                 return Ok(());
             }
         };
+        debug!("API key resolved (starts with: {}...)", &api_key[..api_key.len().min(10)]);
 
+        debug!("Creating LLM client");
         let llm = self.create_llm_client(model, &api_key);
         let subagent_deps = self.build_subagent_deps(llm.clone());
         let tools = Arc::new(registry_from_allowlist(
