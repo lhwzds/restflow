@@ -19,8 +19,8 @@ fn parse_model(s: &str) -> Option<AIModel> {
 pub fn router() -> Router {
     Router::new()
         .route("/", get(list_agents).post(create_agent))
-        .route("/:id", get(get_agent).put(update_agent).delete(delete_agent))
-        .route("/:id/execute", post(execute_agent))
+        .route("/{id}", get(get_agent).put(update_agent).delete(delete_agent))
+        .route("/{id}/execute", post(execute_agent))
 }
 
 #[derive(Debug, Serialize)]
