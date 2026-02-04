@@ -2,6 +2,7 @@ pub mod agents;
 pub mod auth;
 pub mod config;
 pub mod memory;
+pub mod models;
 pub mod secrets;
 pub mod sessions;
 pub mod skills;
@@ -17,6 +18,7 @@ pub fn router() -> Router {
         .nest("/tasks", tasks::router())
         .nest("/memory", memory::router())
         .nest("/sessions", sessions::router())
+        .nest("/models", models::router())
         .nest("/secrets", secrets::router())
         .nest("/auth", auth::router())
         .nest("/config", config::router())

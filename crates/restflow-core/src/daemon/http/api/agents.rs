@@ -1,124 +1,140 @@
+use crate::AppCore;
 use crate::daemon::http::ApiError;
 use crate::models::{AIModel, AgentNode};
 use crate::services::agent as agent_service;
-use crate::AppCore;
+use crate::storage::agent::StoredAgent;
 use axum::{
+    Json, Router,
     extract::{Extension, Path},
     http::StatusCode,
     routing::{get, post},
-    Json, Router,
 };
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::sync::Arc;
 
 fn parse_model(s: &str) -> Option<AIModel> {
-    // Try to deserialize the model string
     serde_json::from_value(serde_json::Value::String(s.to_string())).ok()
 }
 
 pub fn router() -> Router {
     Router::new()
         .route("/", get(list_agents).post(create_agent))
-        .route("/{id}", get(get_agent).put(update_agent).delete(delete_agent))
+        .route(
+            "/{id}",
+            get(get_agent).put(update_agent).delete(delete_agent),
+        )
         .route("/{id}/execute", post(execute_agent))
-}
-
-#[derive(Debug, Serialize)]
-struct AgentResponse {
-    id: String,
-    name: String,
-    model: Option<String>,
-    prompt: Option<String>,
-    tools: Option<Vec<String>>,
-    created_at: Option<i64>,
-    updated_at: Option<i64>,
-}
-
-impl From<crate::storage::agent::StoredAgent> for AgentResponse {
-    fn from(stored: crate::storage::agent::StoredAgent) -> Self {
-        Self {
-            id: stored.id,
-            name: stored.name,
-            model: stored.agent.model.map(|m| m.as_str().to_string()),
-            prompt: stored.agent.prompt,
-            tools: stored.agent.tools,
-            created_at: stored.created_at,
-            updated_at: stored.updated_at,
-        }
-    }
 }
 
 async fn list_agents(
     Extension(core): Extension<Arc<AppCore>>,
-) -> Result<Json<Vec<AgentResponse>>, ApiError> {
+) -> Result<Json<Vec<StoredAgent>>, ApiError> {
     let agents = agent_service::list_agents(&core).await?;
-    let response: Vec<AgentResponse> = agents.into_iter().map(AgentResponse::from).collect();
-    Ok(Json(response))
+    Ok(Json(agents))
 }
 
 async fn get_agent(
     Extension(core): Extension<Arc<AppCore>>,
     Path(id): Path<String>,
-) -> Result<Json<AgentResponse>, ApiError> {
+) -> Result<Json<StoredAgent>, ApiError> {
     let agent = agent_service::get_agent(&core, &id).await?;
-    Ok(Json(AgentResponse::from(agent)))
+    Ok(Json(agent))
 }
 
 #[derive(Debug, Deserialize)]
 struct CreateAgentRequest {
     name: String,
+    agent: Option<AgentNode>,
     model: Option<String>,
     prompt: Option<String>,
     tools: Option<Vec<String>>,
+    temperature: Option<f64>,
+}
+
+fn build_agent_node(
+    agent: Option<AgentNode>,
+    model: Option<String>,
+    prompt: Option<String>,
+    tools: Option<Vec<String>>,
+    temperature: Option<f64>,
+) -> AgentNode {
+    if let Some(agent) = agent {
+        return agent;
+    }
+
+    let mut agent_node = AgentNode::new();
+    if let Some(model_str) = model {
+        agent_node.model = parse_model(&model_str);
+    }
+    if let Some(prompt) = prompt {
+        agent_node = agent_node.with_prompt(prompt);
+    }
+    if let Some(tools) = tools {
+        agent_node.tools = Some(tools);
+    }
+    if let Some(temperature) = temperature {
+        agent_node.temperature = Some(temperature);
+    }
+
+    agent_node
 }
 
 async fn create_agent(
     Extension(core): Extension<Arc<AppCore>>,
     Json(req): Json<CreateAgentRequest>,
-) -> Result<Json<AgentResponse>, ApiError> {
-    let mut agent_node = AgentNode::new();
-    
-    if let Some(model_str) = req.model {
-        agent_node.model = parse_model(&model_str);
-    }
-    if let Some(prompt) = req.prompt {
-        agent_node = agent_node.with_prompt(prompt);
-    }
-    if let Some(tools) = req.tools {
-        agent_node.tools = Some(tools);
-    }
-
+) -> Result<Json<StoredAgent>, ApiError> {
+    let agent_node = build_agent_node(req.agent, req.model, req.prompt, req.tools, req.temperature);
     let created = agent_service::create_agent(&core, req.name, agent_node).await?;
-    Ok(Json(AgentResponse::from(created)))
+    Ok(Json(created))
 }
 
 #[derive(Debug, Deserialize)]
 struct UpdateAgentRequest {
     name: Option<String>,
+    agent: Option<AgentNode>,
     model: Option<String>,
     prompt: Option<String>,
     tools: Option<Vec<String>>,
+    temperature: Option<f64>,
 }
 
 async fn update_agent(
     Extension(core): Extension<Arc<AppCore>>,
     Path(id): Path<String>,
     Json(req): Json<UpdateAgentRequest>,
-) -> Result<Json<AgentResponse>, ApiError> {
-    let mut existing = agent_service::get_agent(&core, &id).await?;
+) -> Result<Json<StoredAgent>, ApiError> {
+    let agent = if req.agent.is_some()
+        || req.model.is_some()
+        || req.prompt.is_some()
+        || req.tools.is_some()
+        || req.temperature.is_some()
+    {
+        let mut existing = agent_service::get_agent(&core, &id).await?;
+        let mut agent_node = existing.agent;
 
-    if let Some(model_str) = req.model {
-        existing.agent.model = parse_model(&model_str);
-    }
-    if let Some(prompt) = req.prompt {
-        existing.agent.prompt = Some(prompt);
-    }
-    if let Some(tools) = req.tools {
-        existing.agent.tools = Some(tools);
-    }
+        if let Some(agent) = req.agent {
+            agent_node = agent;
+        }
+        if let Some(model_str) = req.model {
+            agent_node.model = parse_model(&model_str);
+        }
+        if let Some(prompt) = req.prompt {
+            agent_node.prompt = Some(prompt);
+        }
+        if let Some(tools) = req.tools {
+            agent_node.tools = Some(tools);
+        }
+        if let Some(temperature) = req.temperature {
+            agent_node.temperature = Some(temperature);
+        }
 
-    let updated = agent_service::update_agent(&core, &id, req.name, Some(existing.agent)).await?;
-    Ok(Json(AgentResponse::from(updated)))
+        Some(agent_node)
+    } else {
+        None
+    };
+
+    let updated = agent_service::update_agent(&core, &id, req.name, agent).await?;
+    Ok(Json(updated))
 }
 
 async fn delete_agent(
@@ -129,11 +145,12 @@ async fn delete_agent(
     Ok(Json(serde_json::json!({ "deleted": true, "id": id })))
 }
 
-async fn execute_agent(
-    Path(id): Path<String>,
-) -> Result<Json<serde_json::Value>, ApiError> {
+async fn execute_agent(Path(id): Path<String>) -> Result<Json<serde_json::Value>, ApiError> {
     Err(ApiError::new(
         StatusCode::NOT_IMPLEMENTED,
-        format!("Agent execution is not supported for daemon HTTP API (agent {}).", id),
+        format!(
+            "Agent execution is not supported for daemon HTTP API (agent {}).",
+            id
+        ),
     ))
 }

@@ -1,11 +1,11 @@
+use crate::AppCore;
 use crate::daemon::http::ApiError;
 use crate::models::Skill;
 use crate::services::skills as skills_service;
-use crate::AppCore;
 use axum::{
+    Json, Router,
     extract::{Extension, Path},
     routing::get,
-    Json, Router,
 };
 use serde::Deserialize;
 use std::sync::Arc;
@@ -13,7 +13,10 @@ use std::sync::Arc;
 pub fn router() -> Router {
     Router::new()
         .route("/", get(list_skills).post(create_skill))
-        .route("/{id}", get(get_skill).put(update_skill).delete(delete_skill))
+        .route(
+            "/{id}",
+            get(get_skill).put(update_skill).delete(delete_skill),
+        )
 }
 
 async fn list_skills(
@@ -35,7 +38,7 @@ async fn get_skill(
 
 #[derive(Debug, Deserialize)]
 struct CreateSkillRequest {
-    id: String,
+    id: Option<String>,
     name: String,
     description: Option<String>,
     tags: Option<Vec<String>>,
@@ -46,7 +49,8 @@ async fn create_skill(
     Extension(core): Extension<Arc<AppCore>>,
     Json(req): Json<CreateSkillRequest>,
 ) -> Result<Json<Skill>, ApiError> {
-    let skill = Skill::new(req.id, req.name, req.description, req.tags, req.content);
+    let id = req.id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+    let skill = Skill::new(id, req.name, req.description, req.tags, req.content);
     skills_service::create_skill(&core, skill.clone()).await?;
     Ok(Json(skill))
 }
