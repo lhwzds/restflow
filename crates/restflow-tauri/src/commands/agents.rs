@@ -11,10 +11,9 @@ use tauri::State;
 #[tauri::command]
 pub async fn list_agents(state: State<'_, AppState>) -> Result<Vec<StoredAgent>, String> {
     state
-        .core
-        .storage
-        .agents
+        .executor()
         .list_agents()
+        .await
         .map_err(|e| e.to_string())
 }
 
@@ -22,12 +21,10 @@ pub async fn list_agents(state: State<'_, AppState>) -> Result<Vec<StoredAgent>,
 #[tauri::command]
 pub async fn get_agent(state: State<'_, AppState>, id: String) -> Result<StoredAgent, String> {
     state
-        .core
-        .storage
-        .agents
+        .executor()
         .get_agent(id)
-        .map_err(|e| e.to_string())?
-        .ok_or_else(|| "Agent not found".to_string())
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// Create agent request
@@ -44,10 +41,9 @@ pub async fn create_agent(
     request: CreateAgentRequest,
 ) -> Result<StoredAgent, String> {
     state
-        .core
-        .storage
-        .agents
+        .executor()
         .create_agent(request.name, request.agent)
+        .await
         .map_err(|e| e.to_string())
 }
 
@@ -66,10 +62,9 @@ pub async fn update_agent(
     request: UpdateAgentRequest,
 ) -> Result<StoredAgent, String> {
     state
-        .core
-        .storage
-        .agents
+        .executor()
         .update_agent(id, request.name, request.agent)
+        .await
         .map_err(|e| e.to_string())
 }
 
@@ -77,10 +72,9 @@ pub async fn update_agent(
 #[tauri::command]
 pub async fn delete_agent(state: State<'_, AppState>, id: String) -> Result<(), String> {
     state
-        .core
-        .storage
-        .agents
+        .executor()
         .delete_agent(id)
+        .await
         .map_err(|e| e.to_string())
 }
 

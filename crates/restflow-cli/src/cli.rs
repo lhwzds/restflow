@@ -47,6 +47,9 @@ pub enum Commands {
     /// Run an agent directly
     Run(RunArgs),
 
+    /// Start RestFlow (daemon + optional UI)
+    Start(StartArgs),
+
     /// Agent management
     Agent {
         #[command(subcommand)]
@@ -227,6 +230,21 @@ pub struct RunArgs {
     pub stream: bool,
 }
 
+#[derive(Args)]
+pub struct StartArgs {
+    /// Do not open the browser UI
+    #[arg(long)]
+    pub no_browser: bool,
+
+    /// HTTP port for the API/UI
+    #[arg(short, long)]
+    pub port: Option<u16>,
+
+    /// Enable the HTTP API
+    #[arg(long, default_value_t = true)]
+    pub http: bool,
+}
+
 #[derive(Subcommand)]
 pub enum AgentCommands {
     /// List all agents
@@ -323,6 +341,14 @@ pub enum DaemonCommands {
         /// Run in foreground
         #[arg(long)]
         foreground: bool,
+
+        /// Enable the HTTP API
+        #[arg(long)]
+        http: bool,
+
+        /// HTTP port for the API
+        #[arg(short, long)]
+        port: Option<u16>,
     },
 
     /// Stop daemon

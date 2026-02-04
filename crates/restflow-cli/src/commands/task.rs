@@ -5,39 +5,43 @@ use tokio::time::{Duration, sleep};
 
 use crate::cli::TaskCommands;
 use crate::commands::utils::{format_timestamp, preview_text};
+use crate::executor::{CommandExecutor, CreateTaskInput};
 use crate::output::{OutputFormat, json::print_json};
-use restflow_core::AppCore;
 use restflow_core::models::{AgentTaskStatus, TaskEvent, TaskEventType, TaskSchedule};
 use serde_json::json;
 
-pub async fn run(core: Arc<AppCore>, command: TaskCommands, format: OutputFormat) -> Result<()> {
+pub async fn run(
+    executor: Arc<dyn CommandExecutor>,
+    command: TaskCommands,
+    format: OutputFormat,
+) -> Result<()> {
     match command {
-        TaskCommands::List { status } => list_tasks(&core, status, format).await,
-        TaskCommands::Show { id } => show_task(&core, &id, format).await,
+        TaskCommands::List { status } => list_tasks(executor, status, format).await,
+        TaskCommands::Show { id } => show_task(executor, &id, format).await,
         TaskCommands::Create {
             agent,
             name,
             input,
             cron,
-        } => create_task(&core, &agent, &name, input, cron, format).await,
-        TaskCommands::Pause { id } => pause_task(&core, &id, format).await,
-        TaskCommands::Resume { id } => resume_task(&core, &id, format).await,
-        TaskCommands::Cancel { id } => cancel_task(&core, &id, format).await,
-        TaskCommands::Watch { id } => watch_task(&core, &id, format).await,
-        TaskCommands::Run { id } => run_task(&core, &id, format).await,
+        } => create_task(executor, &agent, &name, input, cron, format).await,
+        TaskCommands::Pause { id } => pause_task(executor, &id, format).await,
+        TaskCommands::Resume { id } => resume_task(executor, &id, format).await,
+        TaskCommands::Cancel { id } => cancel_task(executor, &id, format).await,
+        TaskCommands::Watch { id } => watch_task(executor, &id, format).await,
+        TaskCommands::Run { id } => run_task(executor, &id, format).await,
     }
 }
 
 async fn list_tasks(
-    core: &Arc<AppCore>,
+    executor: Arc<dyn CommandExecutor>,
     status: Option<String>,
     format: OutputFormat,
 ) -> Result<()> {
     let tasks = if let Some(value) = status {
         let status = parse_task_status(&value)?;
-        core.storage.agent_tasks.list_tasks_by_status(status)?
+        executor.list_tasks_by_status(status).await?
     } else {
-        core.storage.agent_tasks.list_tasks()?
+        executor.list_tasks().await?
     };
 
     if format.is_json() {
@@ -63,11 +67,14 @@ async fn list_tasks(
     crate::output::table::print_table(table)
 }
 
-async fn show_task(core: &Arc<AppCore>, id: &str, format: OutputFormat) -> Result<()> {
-    let task = core
-        .storage
-        .agent_tasks
-        .get_task(id)?
+async fn show_task(
+    executor: Arc<dyn CommandExecutor>,
+    id: &str,
+    format: OutputFormat,
+) -> Result<()> {
+    let task = executor
+        .get_task(id)
+        .await?
         .ok_or_else(|| anyhow::anyhow!("Task not found: {}", id))?;
 
     if format.is_json() {
@@ -93,7 +100,7 @@ async fn show_task(core: &Arc<AppCore>, id: &str, format: OutputFormat) -> Resul
 }
 
 async fn create_task(
-    core: &Arc<AppCore>,
+    executor: Arc<dyn CommandExecutor>,
     agent_id: &str,
     name: &str,
     input: Option<String>,
@@ -108,15 +115,14 @@ async fn create_task(
         None => TaskSchedule::default(),
     };
 
-    let mut task =
-        core.storage
-            .agent_tasks
-            .create_task(name.to_string(), agent_id.to_string(), schedule)?;
-
-    if let Some(text) = input {
-        task.input = Some(text);
-        core.storage.agent_tasks.update_task(&task)?;
-    }
+    let task = executor
+        .create_task(CreateTaskInput {
+            name: name.to_string(),
+            agent_id: agent_id.to_string(),
+            schedule,
+            input,
+        })
+        .await?;
 
     if format.is_json() {
         return print_json(&task);
@@ -126,8 +132,12 @@ async fn create_task(
     Ok(())
 }
 
-async fn pause_task(core: &Arc<AppCore>, id: &str, format: OutputFormat) -> Result<()> {
-    let task = core.storage.agent_tasks.pause_task(id)?;
+async fn pause_task(
+    executor: Arc<dyn CommandExecutor>,
+    id: &str,
+    format: OutputFormat,
+) -> Result<()> {
+    let task = executor.pause_task(id).await?;
 
     if format.is_json() {
         return print_json(&task);
@@ -137,8 +147,12 @@ async fn pause_task(core: &Arc<AppCore>, id: &str, format: OutputFormat) -> Resu
     Ok(())
 }
 
-async fn resume_task(core: &Arc<AppCore>, id: &str, format: OutputFormat) -> Result<()> {
-    let task = core.storage.agent_tasks.resume_task(id)?;
+async fn resume_task(
+    executor: Arc<dyn CommandExecutor>,
+    id: &str,
+    format: OutputFormat,
+) -> Result<()> {
+    let task = executor.resume_task(id).await?;
 
     if format.is_json() {
         return print_json(&task);
@@ -148,8 +162,12 @@ async fn resume_task(core: &Arc<AppCore>, id: &str, format: OutputFormat) -> Res
     Ok(())
 }
 
-async fn cancel_task(core: &Arc<AppCore>, id: &str, format: OutputFormat) -> Result<()> {
-    let deleted = core.storage.agent_tasks.delete_task(id)?;
+async fn cancel_task(
+    executor: Arc<dyn CommandExecutor>,
+    id: &str,
+    format: OutputFormat,
+) -> Result<()> {
+    let deleted = executor.delete_task(id).await?;
 
     if format.is_json() {
         return print_json(&json!({ "deleted": deleted, "id": id }));
@@ -163,11 +181,14 @@ async fn cancel_task(core: &Arc<AppCore>, id: &str, format: OutputFormat) -> Res
     Ok(())
 }
 
-async fn watch_task(core: &Arc<AppCore>, id: &str, _format: OutputFormat) -> Result<()> {
-    let task = core
-        .storage
-        .agent_tasks
-        .get_task(id)?
+async fn watch_task(
+    executor: Arc<dyn CommandExecutor>,
+    id: &str,
+    _format: OutputFormat,
+) -> Result<()> {
+    let task = executor
+        .get_task(id)
+        .await?
         .ok_or_else(|| anyhow::anyhow!("Task not found: {}", id))?;
 
     println!("Watching task: {} ({})", task.name, task.id);
@@ -175,7 +196,7 @@ async fn watch_task(core: &Arc<AppCore>, id: &str, _format: OutputFormat) -> Res
     println!("Status: {}", task_status_label(&task.status));
     println!("Press Ctrl+C to stop watching.\n");
 
-    let mut events = core.storage.agent_tasks.list_events_for_task(id)?;
+    let mut events = executor.get_task_history(id).await?;
 
     if events.is_empty() {
         println!("No events yet.");
@@ -194,31 +215,28 @@ async fn watch_task(core: &Arc<AppCore>, id: &str, _format: OutputFormat) -> Res
                 return Ok(());
             }
             _ = sleep(Duration::from_secs(1)) => {
-                events = core.storage.agent_tasks.list_events_for_task(id)?;
+                events = executor.get_task_history(id).await?;
 
                 let mut new_events = Vec::new();
                 if let Some(ref last_id) = last_seen_id {
-                    if let Some(pos) = events.iter().position(|event| event.id == *last_id) {
-                        if pos > 0 {
-                            new_events.extend(events[..pos].iter().rev());
+                    for event in &events {
+                        if &event.id == last_id {
+                            break;
                         }
-                    } else {
-                        new_events.extend(events.iter().rev());
+                        new_events.push(event.clone());
                     }
                 } else {
-                    new_events.extend(events.iter().rev());
+                    new_events = events.clone();
                 }
 
-                for event in new_events {
+                for event in new_events.iter().rev() {
                     print_task_event(event);
-                    if matches!(event.event_type, TaskEventType::Completed | TaskEventType::Failed) {
-                        return Ok(());
-                    }
                 }
 
                 last_seen_id = events.first().map(|event| event.id.clone());
 
-                if let Some(task) = core.storage.agent_tasks.get_task(id)?
+                // Check if task completed or failed
+                if let Some(task) = executor.get_task(id).await?
                     && matches!(task.status, AgentTaskStatus::Completed | AgentTaskStatus::Failed)
                 {
                     return Ok(());
@@ -228,15 +246,18 @@ async fn watch_task(core: &Arc<AppCore>, id: &str, _format: OutputFormat) -> Res
     }
 }
 
-async fn run_task(core: &Arc<AppCore>, id: &str, format: OutputFormat) -> Result<()> {
+async fn run_task(
+    executor: Arc<dyn CommandExecutor>,
+    id: &str,
+    format: OutputFormat,
+) -> Result<()> {
     if format.is_json() {
         bail!("JSON output is not supported for task run yet");
     }
 
-    let task = core
-        .storage
-        .agent_tasks
-        .get_task(id)?
+    let task = executor
+        .get_task(id)
+        .await?
         .ok_or_else(|| anyhow::anyhow!("Task not found: {}", id))?;
 
     if task
@@ -246,6 +267,11 @@ async fn run_task(core: &Arc<AppCore>, id: &str, format: OutputFormat) -> Result
     {
         bail!("Task input is required to run");
     }
+
+    // Run task requires direct core access for inline execution
+    let core = executor.core().ok_or_else(|| {
+        anyhow::anyhow!("Cannot run tasks inline when daemon is running. Stop the daemon first.")
+    })?;
 
     if matches!(
         restflow_core::daemon::check_daemon_status()?,
@@ -258,7 +284,7 @@ async fn run_task(core: &Arc<AppCore>, id: &str, format: OutputFormat) -> Result
     runner.start().await?;
     runner.run_task_now(id).await?;
 
-    let watch_result = watch_task(core, id, format).await;
+    let watch_result = watch_task(executor, id, format).await;
     runner.stop().await?;
     watch_result
 }
@@ -298,35 +324,39 @@ fn format_schedule(schedule: &TaskSchedule) -> String {
             let start_label = start_at
                 .map(|ts| format_timestamp(Some(ts)))
                 .unwrap_or_else(|| "now".to_string());
-            format!("every {} ms (start: {})", interval_ms, start_label)
+            format!(
+                "every {} ms, starting at {}",
+                interval_ms, start_label
+            )
         }
         TaskSchedule::Cron {
             expression,
             timezone,
         } => {
-            let tz = timezone.clone().unwrap_or_else(|| "local".to_string());
-            format!("cron '{}' ({})", expression, tz)
+            let tz_label = timezone
+                .as_deref()
+                .unwrap_or("UTC");
+            format!("cron: {} ({})", expression, tz_label)
         }
     }
 }
 
 fn print_task_event(event: &TaskEvent) {
-    let icon = match event.event_type {
-        TaskEventType::Created => "📝",
-        TaskEventType::Started => "🚀",
-        TaskEventType::Completed => "✅",
-        TaskEventType::Failed => "❌",
-        TaskEventType::Paused => "⏸️",
-        TaskEventType::Resumed => "▶️",
-        TaskEventType::NotificationSent => "📣",
-        TaskEventType::NotificationFailed => "⚠️",
+    let timestamp = format_timestamp(Some(event.timestamp));
+    let event_type = match event.event_type {
+        TaskEventType::Created => "created",
+        TaskEventType::Started => "started",
+        TaskEventType::Completed => "completed",
+        TaskEventType::Failed => "failed",
+        TaskEventType::Paused => "paused",
+        TaskEventType::Resumed => "resumed",
+        TaskEventType::NotificationSent => "notification_sent",
+        TaskEventType::NotificationFailed => "notification_failed",
     };
 
-    let time = format_timestamp(Some(event.timestamp));
-    let message = event.message.as_deref().unwrap_or("");
-    println!("{} [{}] {:?} {}", icon, time, event.event_type, message);
-
-    if let Some(ref output) = event.output {
-        println!("{}", preview_text(output, 400));
+    print!("[{}] {}", timestamp, event_type);
+    if let Some(ref message) = event.message {
+        print!(": {}", preview_text(message, 80));
     }
+    println!();
 }

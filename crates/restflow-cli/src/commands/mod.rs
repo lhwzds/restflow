@@ -10,6 +10,7 @@ pub mod mcp;
 pub mod memory;
 pub mod migrate;
 pub mod run;
+pub mod start;
 pub mod secret;
 pub mod security;
 pub mod session;
