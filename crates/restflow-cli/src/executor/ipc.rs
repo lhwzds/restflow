@@ -299,7 +299,9 @@ impl CommandExecutor for IpcExecutor {
 
     async fn create_session(&self, agent_id: String, model: String) -> Result<ChatSession> {
         let mut client = self.client.lock().await;
-        client.create_session(Some(agent_id), Some(model)).await
+        client
+            .create_session(Some(agent_id), Some(model), None, None)
+            .await
     }
 
     async fn delete_session(&self, id: &str) -> Result<bool> {
