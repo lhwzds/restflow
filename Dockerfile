@@ -36,7 +36,11 @@ FROM debian:bookworm-slim
 WORKDIR /app
 
 RUN apt-get update && \
-    apt-get install -y ca-certificates && \
+    apt-get install -y ca-certificates \
+    libgtk-3-0 \
+    libjavascriptcoregtk-4.1-0 \
+    libwebkit2gtk-4.1-0 \
+    libsoup-3.0-0 && \
     rm -rf /var/lib/apt/lists/*
 
 COPY --from=backend-builder /app/target/release/restflow /usr/local/bin/restflow
