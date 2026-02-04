@@ -9,7 +9,8 @@ mod setup;
 use anyhow::Result;
 use clap::{CommandFactory, Parser};
 use clap_complete::generate;
-use cli::{Cli, Commands};
+use cli::{Cli, Commands, DaemonCommands};
+use restflow_core::daemon::{check_daemon_status, start_daemon, stop_daemon, DaemonStatus};
 use restflow_core::paths;
 use std::io;
 
@@ -40,6 +41,49 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
+    // Handle daemon commands that don't need AppCore (to avoid database lock conflicts)
+    if let Some(Commands::Daemon { command }) = &cli.command {
+        match command {
+            DaemonCommands::Start { foreground: false } => {
+                match check_daemon_status()? {
+                    DaemonStatus::Running { pid } => {
+                        println!("Daemon already running (PID: {})", pid);
+                    }
+                    _ => {
+                        let pid = start_daemon()?;
+                        println!("Daemon started (PID: {})", pid);
+                    }
+                }
+                return Ok(());
+            }
+            DaemonCommands::Stop => {
+                if stop_daemon()? {
+                    println!("Sent stop signal to daemon");
+                } else {
+                    println!("Daemon not running");
+                }
+                return Ok(());
+            }
+            DaemonCommands::Status => {
+                match check_daemon_status()? {
+                    DaemonStatus::Running { pid } => {
+                        println!("Daemon running (PID: {})", pid);
+                    }
+                    DaemonStatus::NotRunning => {
+                        println!("Daemon not running");
+                    }
+                    DaemonStatus::Stale { pid } => {
+                        println!("Daemon not running (stale PID: {})", pid);
+                    }
+                }
+                return Ok(());
+            }
+            DaemonCommands::Start { foreground: true } => {
+                // Continue to open database for foreground mode
+            }
+        }
+    }
+
     let db_path = setup::resolve_db_path(cli.db_path.clone())?;
 
     let core = setup::prepare_core(Some(db_path)).await?;
@@ -57,7 +101,7 @@ async fn main() -> Result<()> {
             commands::secret::run(core, command, cli.format).await
         }
         Some(Commands::Key { command }) => commands::key::run(core, command, cli.format).await,
-        Some(Commands::Auth { command }) => commands::auth::run(command, cli.format).await,
+        Some(Commands::Auth { command }) => commands::auth::run(core, command, cli.format).await,
         Some(Commands::Security { command }) => commands::security::run(command, cli.format).await,
         Some(Commands::Config { command }) => {
             commands::config::run(core, command, cli.format).await

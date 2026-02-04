@@ -1,4 +1,4 @@
-.PHONY: dev prod build down logs clean help run web local tauri tauri-build
+.PHONY: dev prod build down logs clean help run web local tauri tauri-build install cli
 
 # Development mode with hot reload
 dev:
@@ -67,3 +67,20 @@ help:
 	@echo "  Tauri Desktop:"
 	@echo "    make tauri       - Run Tauri desktop app in dev mode"
 	@echo "    make tauri-build - Build Tauri desktop app for production"
+	@echo ""
+	@echo "  CLI:"
+	@echo "    make cli     - Build CLI in release mode"
+	@echo "    make install - Install CLI (restflow & rf) to ~/.local/bin"
+
+# Build CLI
+cli:
+	cargo build --release --package restflow-cli
+
+# Install CLI with rf alias
+install: cli
+	@mkdir -p $(HOME)/.local/bin
+	@cp target/release/restflow $(HOME)/.local/bin/restflow
+	@codesign --force --sign - $(HOME)/.local/bin/restflow 2>/dev/null || true
+	@ln -sf $(HOME)/.local/bin/restflow $(HOME)/.local/bin/rf
+	@echo "Installed: ~/.local/bin/restflow"
+	@echo "Installed: ~/.local/bin/rf -> restflow"
