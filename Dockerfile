@@ -22,22 +22,33 @@ RUN npm run build
 FROM rust:bookworm AS backend-builder
 WORKDIR /app
 
+RUN apt-get update && \
+    apt-get install -y pkg-config libgtk-3-dev libjavascriptcoregtk-4.1-dev libwebkit2gtk-4.1-dev libsoup-3.0-dev && \
+    rm -rf /var/lib/apt/lists/*
+
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
 COPY --from=frontend-builder /app/web/dist ./web/dist
 
-RUN cargo build --release --package restflow-server
+RUN cargo build --release --package restflow-cli
 
 FROM debian:bookworm-slim
 WORKDIR /app
 
 RUN apt-get update && \
-    apt-get install -y ca-certificates && \
+    apt-get install -y ca-certificates \
+    libgtk-3-0 \
+    libjavascriptcoregtk-4.1-0 \
+    libwebkit2gtk-4.1-0 \
+    libsoup-3.0-0 && \
     rm -rf /var/lib/apt/lists/*
 
-COPY --from=backend-builder /app/target/release/restflow-server /usr/local/bin/restflow
+COPY --from=backend-builder /app/target/release/restflow /usr/local/bin/restflow
+COPY --from=frontend-builder /app/web/dist /app/web/dist
 
 EXPOSE 3000
 
+ENV RESTFLOW_HTTP_HOST=0.0.0.0
+
 # Run the application
-CMD ["restflow"]
+CMD ["restflow", "daemon", "start", "--foreground", "--http"]
