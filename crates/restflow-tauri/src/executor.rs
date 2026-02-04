@@ -5,7 +5,7 @@ use restflow_core::daemon::{IpcRequest, IpcResponse};
 use restflow_core::memory::ExportResult;
 use restflow_core::models::{
     AgentExecuteResponse, AgentNode, AgentTask, ChatMessage, ChatRole, ChatSession,
-    ChatSessionSummary, MemoryChunk, MemorySearchResult, MemoryStats, Skill, TaskEvent,
+    ChatSessionSummary, ChatSessionUpdate, MemoryChunk, MemorySearchResult, MemoryStats, Skill, TaskEvent,
     TaskSchedule,
 };
 use restflow_core::storage::SystemConfig;
@@ -228,6 +228,29 @@ impl TauriExecutor {
         self.request(IpcRequest::ListSessions).await
     }
 
+    pub async fn list_full_sessions(&self) -> Result<Vec<ChatSession>> {
+        self.request(IpcRequest::ListFullSessions).await
+    }
+
+    pub async fn list_sessions_by_agent(&self, agent_id: String) -> Result<Vec<ChatSession>> {
+        self.request(IpcRequest::ListSessionsByAgent { agent_id })
+            .await
+    }
+
+    pub async fn list_sessions_by_skill(&self, skill_id: String) -> Result<Vec<ChatSession>> {
+        self.request(IpcRequest::ListSessionsBySkill { skill_id })
+            .await
+    }
+
+    pub async fn count_sessions(&self) -> Result<usize> {
+        self.request(IpcRequest::CountSessions).await
+    }
+
+    pub async fn delete_sessions_older_than(&self, older_than_ms: i64) -> Result<usize> {
+        self.request(IpcRequest::DeleteSessionsOlderThan { older_than_ms })
+            .await
+    }
+
     pub async fn get_session(&self, id: String) -> Result<ChatSession> {
         self.request(IpcRequest::GetSession { id }).await
     }
@@ -236,8 +259,29 @@ impl TauriExecutor {
         &self,
         agent_id: Option<String>,
         model: Option<String>,
+        name: Option<String>,
+        skill_id: Option<String>,
     ) -> Result<ChatSession> {
-        self.request(IpcRequest::CreateSession { agent_id, model })
+        self.request(IpcRequest::CreateSession {
+            agent_id,
+            model,
+            name,
+            skill_id,
+        })
+        .await
+    }
+
+    pub async fn update_session(
+        &self,
+        id: String,
+        updates: ChatSessionUpdate,
+    ) -> Result<ChatSession> {
+        self.request(IpcRequest::UpdateSession { id, updates })
+            .await
+    }
+
+    pub async fn rename_session(&self, id: String, name: String) -> Result<ChatSession> {
+        self.request(IpcRequest::RenameSession { id, name })
             .await
     }
 
@@ -266,6 +310,15 @@ impl TauriExecutor {
             content,
         })
         .await
+    }
+
+    pub async fn append_message(
+        &self,
+        session_id: String,
+        message: ChatMessage,
+    ) -> Result<ChatSession> {
+        self.request(IpcRequest::AppendMessage { session_id, message })
+            .await
     }
 
     pub async fn get_session_messages(

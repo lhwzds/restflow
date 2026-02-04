@@ -44,7 +44,7 @@ pub use webhook::{WebhookConfig, WebhookRateLimiter, WebhookRequest, WebhookResp
 // Secret is now defined in restflow-storage
 pub use chat_session::{
     ChatExecutionStatus, ChatMessage, ChatRole, ChatSession, ChatSessionMetadata,
-    ChatSessionSummary, ExecutionStepInfo, MessageExecution,
+    ChatSessionSummary, ChatSessionUpdate, ExecutionStepInfo, MessageExecution,
 };
 pub use restflow_storage::Secret;
 pub use skill::Skill;

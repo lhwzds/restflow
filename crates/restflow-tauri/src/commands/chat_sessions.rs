@@ -10,7 +10,7 @@ use restflow_ai::llm::Message;
 use restflow_ai::{AnthropicClient, ClaudeCodeClient, LlmClient, OpenAIClient};
 use restflow_core::models::{
     AgentNode, ApiKeyConfig, ChatMessage, ChatRole, ChatSession, ChatSessionSummary,
-    MessageExecution,
+    ChatSessionUpdate, MessageExecution,
 };
 use restflow_core::{AIModel, Provider};
 use serde::Deserialize;
@@ -35,21 +35,10 @@ pub async fn create_chat_session(
     name: Option<String>,
     skill_id: Option<String>,
 ) -> Result<ChatSession, String> {
-    let mut session = ChatSession::new(agent_id, model);
-
-    if let Some(n) = name {
-        session = session.with_name(n);
-    }
-
-    if let Some(sid) = skill_id {
-        session = session.with_skill(sid);
-    }
-
-    state
-        .core
-        .storage
-        .chat_sessions
-        .create(&session)
+    let session = state
+        .executor()
+        .create_session(Some(agent_id), Some(model), name, skill_id)
+        .await
         .map_err(|e| e.to_string())?;
 
     Ok(session)
@@ -61,10 +50,9 @@ pub async fn create_chat_session(
 #[tauri::command]
 pub async fn list_chat_sessions(state: State<'_, AppState>) -> Result<Vec<ChatSession>, String> {
     state
-        .core
-        .storage
-        .chat_sessions
-        .list()
+        .executor()
+        .list_full_sessions()
+        .await
         .map_err(|e| e.to_string())
 }
 
@@ -76,10 +64,9 @@ pub async fn list_chat_session_summaries(
     state: State<'_, AppState>,
 ) -> Result<Vec<ChatSessionSummary>, String> {
     state
-        .core
-        .storage
-        .chat_sessions
-        .list_summaries()
+        .executor()
+        .list_sessions()
+        .await
         .map_err(|e| e.to_string())
 }
 
@@ -90,17 +77,15 @@ pub async fn get_chat_session(
     id: String,
 ) -> Result<ChatSession, String> {
     state
-        .core
-        .storage
-        .chat_sessions
-        .get(&id)
-        .map_err(|e| e.to_string())?
-        .ok_or_else(|| format!("Chat session '{}' not found", id))
+        .executor()
+        .get_session(id)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ChatSessionUpdate {
+pub struct ChatSessionUpdateInput {
     pub agent_id: Option<String>,
     pub model: Option<String>,
     pub name: Option<String>,
@@ -111,48 +96,19 @@ pub struct ChatSessionUpdate {
 pub async fn update_chat_session(
     state: State<'_, AppState>,
     session_id: String,
-    updates: ChatSessionUpdate,
+    updates: ChatSessionUpdateInput,
 ) -> Result<ChatSession, String> {
-    let mut session = state
-        .core
-        .storage
-        .chat_sessions
-        .get(&session_id)
-        .map_err(|e| e.to_string())?
-        .ok_or_else(|| format!("Chat session '{}' not found", session_id))?;
+    let updates = ChatSessionUpdate {
+        agent_id: updates.agent_id,
+        model: updates.model,
+        name: updates.name,
+    };
 
-    let mut updated = false;
-
-    if let Some(agent_id) = updates.agent_id {
-        session.agent_id = agent_id;
-        updated = true;
-    }
-
-    if let Some(model) = updates.model {
-        session.model = model;
-        updated = true;
-    }
-
-    let has_name_update = updates.name.is_some();
-    if let Some(name) = updates.name {
-        session.rename(name);
-        updated = true;
-    }
-
-    if updated {
-        if !has_name_update {
-            session.updated_at = chrono::Utc::now().timestamp_millis();
-        }
-
-        state
-            .core
-            .storage
-            .chat_sessions
-            .update(&session)
-            .map_err(|e| e.to_string())?;
-    }
-
-    Ok(session)
+    state
+        .executor()
+        .update_session(session_id, updates)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// Rename a chat session.
@@ -162,34 +118,20 @@ pub async fn rename_chat_session(
     id: String,
     name: String,
 ) -> Result<ChatSession, String> {
-    let mut session = state
-        .core
-        .storage
-        .chat_sessions
-        .get(&id)
-        .map_err(|e| e.to_string())?
-        .ok_or_else(|| format!("Chat session '{}' not found", id))?;
-
-    session.rename(name);
-
     state
-        .core
-        .storage
-        .chat_sessions
-        .update(&session)
-        .map_err(|e| e.to_string())?;
-
-    Ok(session)
+        .executor()
+        .rename_session(id, name)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// Delete a chat session.
 #[tauri::command]
 pub async fn delete_chat_session(state: State<'_, AppState>, id: String) -> Result<bool, String> {
     state
-        .core
-        .storage
-        .chat_sessions
-        .delete(&id)
+        .executor()
+        .delete_session(id)
+        .await
         .map_err(|e| e.to_string())
 }
 
@@ -203,29 +145,11 @@ pub async fn add_chat_message(
     session_id: String,
     message: ChatMessage,
 ) -> Result<ChatSession, String> {
-    let mut session = state
-        .core
-        .storage
-        .chat_sessions
-        .get(&session_id)
-        .map_err(|e| e.to_string())?
-        .ok_or_else(|| format!("Chat session '{}' not found", session_id))?;
-
-    session.add_message(message);
-
-    // Auto-name from first user message if still default
-    if session.name == "New Chat" && session.messages.len() == 1 {
-        session.auto_name_from_first_message();
-    }
-
     state
-        .core
-        .storage
-        .chat_sessions
-        .update(&session)
-        .map_err(|e| e.to_string())?;
-
-    Ok(session)
+        .executor()
+        .append_message(session_id, message)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// Send a chat message and get a response.
@@ -243,36 +167,12 @@ pub async fn send_chat_message(
     session_id: String,
     content: String,
 ) -> Result<ChatSession, String> {
-    // Get the session
-    let mut session = state
-        .core
-        .storage
-        .chat_sessions
-        .get(&session_id)
-        .map_err(|e| e.to_string())?
-        .ok_or_else(|| format!("Chat session '{}' not found", session_id))?;
-
     // Add user message
-    let user_message = ChatMessage::user(&content);
-    session.add_message(user_message);
-
-    // Auto-name from first user message if still default
-    if session.name == "New Chat" && session.messages.len() == 1 {
-        session.auto_name_from_first_message();
-    }
-
-    // TODO: Trigger agent execution and get response
-    // For now, just save with the user message
-    // The actual agent execution will be handled by the streaming flow
-
     state
-        .core
-        .storage
-        .chat_sessions
-        .update(&session)
-        .map_err(|e| e.to_string())?;
-
-    Ok(session)
+        .executor()
+        .add_message(session_id, ChatRole::User, content)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// List chat sessions for a specific agent.
@@ -282,10 +182,9 @@ pub async fn list_chat_sessions_by_agent(
     agent_id: String,
 ) -> Result<Vec<ChatSession>, String> {
     state
-        .core
-        .storage
-        .chat_sessions
-        .list_by_agent(&agent_id)
+        .executor()
+        .list_sessions_by_agent(agent_id)
+        .await
         .map_err(|e| e.to_string())
 }
 
@@ -296,10 +195,9 @@ pub async fn list_chat_sessions_by_skill(
     skill_id: String,
 ) -> Result<Vec<ChatSession>, String> {
     state
-        .core
-        .storage
-        .chat_sessions
-        .list_by_skill(&skill_id)
+        .executor()
+        .list_sessions_by_skill(skill_id)
+        .await
         .map_err(|e| e.to_string())
 }
 
@@ -307,10 +205,9 @@ pub async fn list_chat_sessions_by_skill(
 #[tauri::command]
 pub async fn get_chat_session_count(state: State<'_, AppState>) -> Result<usize, String> {
     state
-        .core
-        .storage
-        .chat_sessions
-        .count()
+        .executor()
+        .count_sessions()
+        .await
         .map_err(|e| e.to_string())
 }
 
@@ -324,10 +221,9 @@ pub async fn clear_old_chat_sessions(
     older_than_ms: i64,
 ) -> Result<usize, String> {
     state
-        .core
-        .storage
-        .chat_sessions
-        .delete_older_than(older_than_ms)
+        .executor()
+        .delete_sessions_older_than(older_than_ms)
+        .await
         .map_err(|e| e.to_string())
 }
 
@@ -531,14 +427,12 @@ pub async fn execute_chat_session(
     state: State<'_, AppState>,
     session_id: String,
 ) -> Result<ChatSession, String> {
-    // Load session
+    // Load session via IPC
     let session = state
-        .core
-        .storage
-        .chat_sessions
-        .get(&session_id)
-        .map_err(|e| e.to_string())?
-        .ok_or_else(|| format!("Chat session '{}' not found", session_id))?;
+        .executor()
+        .get_session(session_id.clone())
+        .await
+        .map_err(|e| e.to_string())?;
 
     // Get last user message as input
     let user_input = session
@@ -557,24 +451,14 @@ pub async fn execute_chat_session(
     // Create execution details
     let execution = MessageExecution::new().complete(duration_ms, tokens);
 
-    // Mirror the response with execution details
-    let mut updated_session = state
-        .core
-        .storage
-        .chat_sessions
-        .get(&session_id)
-        .map_err(|e| e.to_string())?
-        .ok_or_else(|| format!("Chat session '{}' not found", session_id))?;
-
+    // Add assistant response via IPC
     let mut assistant_message = ChatMessage::assistant(&response);
     assistant_message = assistant_message.with_execution(execution);
-    updated_session.add_message(assistant_message);
 
-    state
-        .core
-        .storage
-        .chat_sessions
-        .update(&updated_session)
+    let updated_session = state
+        .executor()
+        .append_message(session_id, assistant_message)
+        .await
         .map_err(|e| e.to_string())?;
 
     Ok(updated_session)
@@ -596,28 +480,11 @@ pub async fn send_chat_message_stream(
     session_id: String,
     message: String,
 ) -> Result<String, String> {
-    // Add user message to session first
-    let mut session = state
-        .core
-        .storage
-        .chat_sessions
-        .get(&session_id)
-        .map_err(|e| e.to_string())?
-        .ok_or_else(|| format!("Chat session '{}' not found", session_id))?;
-
-    let user_message = ChatMessage::user(&message);
-    session.add_message(user_message);
-
-    // Auto-name from first user message if still default
-    if session.name == "New Chat" && session.messages.len() == 1 {
-        session.auto_name_from_first_message();
-    }
-
-    state
-        .core
-        .storage
-        .chat_sessions
-        .update(&session)
+    // Add user message to session via IPC (auto-names if first message)
+    let session = state
+        .executor()
+        .add_message(session_id.clone(), ChatRole::User, message.clone())
+        .await
         .map_err(|e| e.to_string())?;
 
     // Generate message ID for the response
@@ -636,6 +503,7 @@ pub async fn send_chat_message_stream(
 
     // Clone what we need for the background task
     let storage = state.core.storage.clone();
+    let executor = state.executor();
     let session_id_clone = session_id.clone();
     let message_id_clone = message_id.clone();
     let user_input = message.clone();
@@ -651,14 +519,9 @@ pub async fn send_chat_message_stream(
 
         let started_at = Instant::now();
 
-        // Reload session to get latest state
-        let session = match storage.chat_sessions.get(&session_id_clone) {
-            Ok(Some(s)) => s,
-            Ok(None) => {
-                stream_state.emit_failed("Session not found");
-                stream_manager.remove(&message_id_clone);
-                return;
-            }
+        // Reload session to get latest state via IPC
+        let session = match executor.get_session(session_id_clone.clone()).await {
+            Ok(s) => s,
             Err(e) => {
                 stream_state.emit_failed(&format!("Failed to load session: {}", e));
                 stream_manager.remove(&message_id_clone);
@@ -803,15 +666,11 @@ pub async fn send_chat_message_stream(
         // Emit completed event
         stream_state.emit_completed();
 
-        // Save assistant response
+        // Save assistant response via IPC
         let execution = MessageExecution::new().complete(duration_ms, result.iterations as u32);
-
-        if let Ok(Some(mut updated_session)) = storage.chat_sessions.get(&session_id_clone) {
-            let mut assistant_message = ChatMessage::assistant(&response);
-            assistant_message = assistant_message.with_execution(execution);
-            updated_session.add_message(assistant_message);
-            let _ = storage.chat_sessions.update(&updated_session);
-        }
+        let mut assistant_message = ChatMessage::assistant(&response);
+        assistant_message = assistant_message.with_execution(execution);
+        let _ = executor.append_message(session_id_clone, assistant_message).await;
 
         // Remove from stream manager
         stream_manager.remove(&message_id_clone);

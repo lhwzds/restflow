@@ -281,6 +281,15 @@ pub struct ChatSession {
     pub metadata: ChatSessionMetadata,
 }
 
+/// Partial update payload for a chat session.
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Default, PartialEq)]
+#[ts(export)]
+pub struct ChatSessionUpdate {
+    pub agent_id: Option<String>,
+    pub model: Option<String>,
+    pub name: Option<String>,
+}
+
 impl ChatSession {
     /// Create a new chat session with the given agent and model.
     pub fn new(agent_id: String, model: String) -> Self {
