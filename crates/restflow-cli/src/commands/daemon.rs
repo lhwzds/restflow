@@ -104,7 +104,9 @@ async fn run_daemon(core: Arc<AppCore>, config: DaemonConfig) -> Result<()> {
     };
 
     let mut runner = CliTaskRunner::new(core);
-    runner.start().await?;
+    if let Err(err) = runner.start().await {
+        error!(error = %err, "Task runner failed to start; continuing without runner");
+    }
 
     println!("Daemon running. Press Ctrl+C to stop.");
 
