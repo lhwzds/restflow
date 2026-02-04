@@ -4,4 +4,7 @@
 //! MCP-compatible AI assistants to interact with RestFlow's skills, agents,
 //! and workflows.
 
-pub use restflow_core::mcp::RestFlowMcpServer;
+pub mod server;
+pub mod tools;
+
+pub use server::RestFlowMcpServer;

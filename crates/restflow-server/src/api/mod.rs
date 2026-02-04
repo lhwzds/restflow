@@ -3,6 +3,7 @@ pub mod agents;
 pub mod chat_sessions;
 pub mod config;
 pub mod memory;
+pub mod mcp;
 pub mod models;
 pub mod python;
 pub mod response;

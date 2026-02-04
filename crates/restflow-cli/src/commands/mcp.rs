@@ -9,7 +9,7 @@ use crate::cli::McpCommands;
 use crate::output::{OutputFormat, json::print_json};
 use restflow_core::AppCore;
 use restflow_core::paths;
-use restflow_tauri_lib::RestFlowMcpServer;
+use restflow_core::mcp::RestFlowMcpServer;
 
 const MCP_SERVERS_FILE: &str = "mcp_servers.json";
 
