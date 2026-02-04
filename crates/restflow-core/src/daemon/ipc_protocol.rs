@@ -1,5 +1,5 @@
 use crate::auth::{AuthProvider, Credential, CredentialSource, ProfileUpdate};
-use crate::models::{AgentNode, AgentTask, ChatRole, Skill, TaskSchedule};
+use crate::models::{AgentNode, AgentTask, ChatMessage, ChatRole, ChatSessionUpdate, Skill, TaskSchedule};
 use crate::storage::SystemConfig;
 use serde::{Deserialize, Serialize};
 
@@ -113,12 +113,33 @@ pub enum IpcRequest {
     },
 
     ListSessions,
+    ListFullSessions,
+    ListSessionsByAgent {
+        agent_id: String,
+    },
+    ListSessionsBySkill {
+        skill_id: String,
+    },
+    CountSessions,
+    DeleteSessionsOlderThan {
+        older_than_ms: i64,
+    },
     GetSession {
         id: String,
     },
     CreateSession {
         agent_id: Option<String>,
         model: Option<String>,
+        name: Option<String>,
+        skill_id: Option<String>,
+    },
+    UpdateSession {
+        id: String,
+        updates: ChatSessionUpdate,
+    },
+    RenameSession {
+        id: String,
+        name: String,
     },
     DeleteSession {
         id: String,
@@ -130,6 +151,10 @@ pub enum IpcRequest {
         session_id: String,
         role: ChatRole,
         content: String,
+    },
+    AppendMessage {
+        session_id: String,
+        message: ChatMessage,
     },
     GetSessionMessages {
         session_id: String,
@@ -327,13 +352,23 @@ mod tests {
         let request = IpcRequest::CreateSession {
             agent_id: Some("agent-1".to_string()),
             model: Some("claude-sonnet-4".to_string()),
+            name: Some("My Chat".to_string()),
+            skill_id: Some("skill-1".to_string()),
         };
         let json = serde_json::to_string(&request).unwrap();
         let parsed: IpcRequest = serde_json::from_str(&json).unwrap();
 
-        if let IpcRequest::CreateSession { agent_id, model } = parsed {
+        if let IpcRequest::CreateSession {
+            agent_id,
+            model,
+            name,
+            skill_id,
+        } = parsed
+        {
             assert_eq!(agent_id, Some("agent-1".to_string()));
             assert_eq!(model, Some("claude-sonnet-4".to_string()));
+            assert_eq!(name, Some("My Chat".to_string()));
+            assert_eq!(skill_id, Some("skill-1".to_string()));
         } else {
             panic!("Wrong variant");
         }
@@ -358,6 +393,25 @@ mod tests {
             assert_eq!(session_id, "session-1");
             assert!(matches!(role, crate::models::ChatRole::User));
             assert_eq!(content, "Hello");
+        } else {
+            panic!("Wrong variant");
+        }
+    }
+
+    #[test]
+    fn test_append_message_serialization() {
+        let message = crate::models::ChatMessage::user("Hello");
+        let request = IpcRequest::AppendMessage {
+            session_id: "session-2".to_string(),
+            message,
+        };
+        let json = serde_json::to_string(&request).unwrap();
+        let parsed: IpcRequest = serde_json::from_str(&json).unwrap();
+
+        if let IpcRequest::AppendMessage { session_id, message } = parsed {
+            assert_eq!(session_id, "session-2");
+            assert!(matches!(message.role, crate::models::ChatRole::User));
+            assert_eq!(message.content, "Hello");
         } else {
             panic!("Wrong variant");
         }
