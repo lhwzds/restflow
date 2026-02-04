@@ -3,8 +3,8 @@ use crate::daemon::CliTaskRunner;
 use anyhow::Result;
 use restflow_core::AppCore;
 use restflow_core::daemon::{
-    DaemonConfig, DaemonStatus, IpcServer, check_daemon_status, start_daemon_with_config,
-    stop_daemon,
+    DaemonConfig, DaemonStatus, HttpConfig, HttpServer, IpcServer, check_daemon_status,
+    start_daemon_with_config, stop_daemon,
 };
 use restflow_core::paths;
 use std::sync::Arc;
@@ -45,7 +45,7 @@ async fn start(core: Arc<AppCore>, foreground: bool, http: bool, port: Option<u1
     }
 }
 
-async fn run_daemon(core: Arc<AppCore>, _config: DaemonConfig) -> Result<()> {
+async fn run_daemon(core: Arc<AppCore>, config: DaemonConfig) -> Result<()> {
     let pid_path = paths::daemon_pid_path()?;
     std::fs::write(&pid_path, std::process::id().to_string())?;
 
@@ -87,6 +87,22 @@ async fn run_daemon(core: Arc<AppCore>, _config: DaemonConfig) -> Result<()> {
         }
     });
 
+    let http_handle = if config.http {
+        let http_config = HttpConfig {
+            port: config.http_port.unwrap_or(3000),
+            ..HttpConfig::default()
+        };
+        let http_server = HttpServer::new(http_config, core.clone());
+        let http_shutdown = shutdown_tx.subscribe();
+        Some(tokio::spawn(async move {
+            if let Err(err) = http_server.run(http_shutdown).await {
+                error!(error = %err, "HTTP server stopped unexpectedly");
+            }
+        }))
+    } else {
+        None
+    };
+
     let mut runner = CliTaskRunner::new(core);
     runner.start().await?;
 
@@ -98,6 +114,9 @@ async fn run_daemon(core: Arc<AppCore>, _config: DaemonConfig) -> Result<()> {
     runner.stop().await?;
     let _ = std::fs::remove_file(&pid_path);
     let _ = ipc_handle.await;
+    if let Some(handle) = http_handle {
+        let _ = handle.await;
+    }
 
     println!("Daemon stopped");
     Ok(())
