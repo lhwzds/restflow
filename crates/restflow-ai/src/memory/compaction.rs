@@ -142,12 +142,13 @@ impl ContextCompactor {
         let summary = generate_summary(llm, &conversation, &self.config).await?;
 
         let new_history = build_compacted_history(categorized.system, recent_user, &summary);
+        let new_history_len = new_history.len();
         let new_tokens = estimate_total_tokens(&new_history);
 
         Ok(CompactionResult {
             new_history,
             summary,
-            compacted_count: original_count.saturating_sub(new_history.len()),
+            compacted_count: original_count.saturating_sub(new_history_len),
             tokens_saved: original_tokens.saturating_sub(new_tokens),
         })
     }
