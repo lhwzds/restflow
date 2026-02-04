@@ -1,19 +1,19 @@
 use anyhow::{Result, anyhow, bail};
 use comfy_table::{Cell, Table};
+use restflow_core::AppCore;
 use restflow_core::auth::{
     AuthManagerConfig, AuthProfileManager, AuthProvider, Credential, CredentialSource,
     SecureCredential,
 };
 use restflow_core::paths;
-use restflow_core::storage::Storage;
 use restflow_storage::AuthProfileStorage;
 use std::sync::Arc;
 
 use crate::cli::AuthCommands;
 use crate::output::{OutputFormat, json::print_json};
 
-pub async fn run(command: AuthCommands, format: OutputFormat) -> Result<()> {
-    let manager = create_manager()?;
+pub async fn run(core: Arc<AppCore>, command: AuthCommands, format: OutputFormat) -> Result<()> {
+    let manager = create_manager(core)?;
     if let Ok(data_dir) = paths::ensure_restflow_dir() {
         let old_json = data_dir.join("auth_profiles.json");
         if let Err(e) = manager.migrate_from_json(&old_json).await {
@@ -36,15 +36,10 @@ pub async fn run(command: AuthCommands, format: OutputFormat) -> Result<()> {
     }
 }
 
-fn create_manager() -> Result<AuthProfileManager> {
+fn create_manager(core: Arc<AppCore>) -> Result<AuthProfileManager> {
     let config = AuthManagerConfig::default();
-    let db_path = paths::ensure_database_path_string()?;
-
-    // Create Storage to get shared database access
-    let storage = Storage::new(&db_path)?;
-    let db = storage.get_db();
-    let secrets = Arc::new(storage.secrets.clone());
-    let profile_storage = AuthProfileStorage::new(db)?;
+    let secrets = Arc::new(core.storage.secrets.clone());
+    let profile_storage = AuthProfileStorage::new(core.storage.get_db())?;
 
     Ok(AuthProfileManager::with_storage(
         config,

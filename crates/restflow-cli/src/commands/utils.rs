@@ -25,16 +25,24 @@ pub fn read_stdin_to_string() -> Result<String> {
 pub fn parse_model(input: &str) -> Result<AIModel> {
     let normalized = input.trim().to_lowercase();
     let model = match normalized.as_str() {
+        // OpenAI GPT-5 series
         "gpt-5" => AIModel::Gpt5,
         "gpt-5-mini" => AIModel::Gpt5Mini,
         "gpt-5-nano" => AIModel::Gpt5Nano,
         "gpt-5-pro" => AIModel::Gpt5Pro,
+        // OpenAI O-series
         "o4-mini" => AIModel::O4Mini,
         "o3" => AIModel::O3,
         "o3-mini" => AIModel::O3Mini,
+        // Anthropic Claude (direct API)
         "claude-opus-4-1" => AIModel::ClaudeOpus4_1,
         "claude-sonnet-4-5" => AIModel::ClaudeSonnet4_5,
         "claude-haiku-4-5" => AIModel::ClaudeHaiku4_5,
+        // Claude Code CLI (accepts both full name and short alias)
+        "claude-code-opus" | "opus" => AIModel::ClaudeCodeOpus,
+        "claude-code-sonnet" | "sonnet" => AIModel::ClaudeCodeSonnet,
+        "claude-code-haiku" | "haiku" => AIModel::ClaudeCodeHaiku,
+        // DeepSeek
         "deepseek-chat" => AIModel::DeepseekChat,
         "deepseek-reasoner" => AIModel::DeepseekReasoner,
         _ => {
