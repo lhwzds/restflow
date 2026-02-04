@@ -6,8 +6,8 @@ use std::sync::Arc;
 
 use crate::cli::SessionCommands;
 use crate::commands::utils::{format_timestamp, preview_text};
+use crate::executor::CommandExecutor;
 use crate::output::{OutputFormat, json::print_json};
-use restflow_core::AppCore;
 use restflow_core::models::chat_session::{ChatRole, ChatSession};
 
 #[derive(Debug, Serialize)]
@@ -21,22 +21,26 @@ struct SessionSearchResult {
     preview: Option<String>,
 }
 
-pub async fn run(core: Arc<AppCore>, command: SessionCommands, format: OutputFormat) -> Result<()> {
+pub async fn run(
+    executor: Arc<dyn CommandExecutor>,
+    command: SessionCommands,
+    format: OutputFormat,
+) -> Result<()> {
     match command {
-        SessionCommands::List => list_sessions(&core, format).await,
-        SessionCommands::Show { id } => show_session(&core, &id, format).await,
+        SessionCommands::List => list_sessions(executor, format).await,
+        SessionCommands::Show { id } => show_session(executor, &id, format).await,
         SessionCommands::Create { agent, model } => {
-            create_session(&core, &agent, &model, format).await
+            create_session(executor, &agent, &model, format).await
         }
-        SessionCommands::Delete { id } => delete_session(&core, &id, format).await,
+        SessionCommands::Delete { id } => delete_session(executor, &id, format).await,
         SessionCommands::Search { query, agent } => {
-            search_sessions(&core, &query, agent.as_deref(), format).await
+            search_sessions(executor, &query, agent.as_deref(), format).await
         }
     }
 }
 
-async fn list_sessions(core: &Arc<AppCore>, format: OutputFormat) -> Result<()> {
-    let sessions = core.storage.chat_sessions.list_summaries()?;
+async fn list_sessions(executor: Arc<dyn CommandExecutor>, format: OutputFormat) -> Result<()> {
+    let sessions = executor.list_sessions().await?;
 
     if format.is_json() {
         return print_json(&sessions);
@@ -59,8 +63,13 @@ async fn list_sessions(core: &Arc<AppCore>, format: OutputFormat) -> Result<()> 
     crate::output::table::print_table(table)
 }
 
-async fn show_session(core: &Arc<AppCore>, id: &str, format: OutputFormat) -> Result<()> {
-    let session = resolve_session(core, id)?;
+async fn show_session(
+    executor: Arc<dyn CommandExecutor>,
+    id: &str,
+    format: OutputFormat,
+) -> Result<()> {
+    let resolved_id = resolve_session_id(&executor, id).await?;
+    let session = executor.get_session(&resolved_id).await?;
 
     if format.is_json() {
         return print_json(&session);
@@ -89,13 +98,14 @@ async fn show_session(core: &Arc<AppCore>, id: &str, format: OutputFormat) -> Re
 }
 
 async fn create_session(
-    core: &Arc<AppCore>,
+    executor: Arc<dyn CommandExecutor>,
     agent: &str,
     model: &str,
     format: OutputFormat,
 ) -> Result<()> {
-    let session = ChatSession::new(agent.to_string(), model.to_string());
-    core.storage.chat_sessions.create(&session)?;
+    let session = executor
+        .create_session(agent.to_string(), model.to_string())
+        .await?;
 
     if format.is_json() {
         return print_json(&session);
@@ -105,8 +115,12 @@ async fn create_session(
     Ok(())
 }
 
-async fn delete_session(core: &Arc<AppCore>, id: &str, format: OutputFormat) -> Result<()> {
-    let resolved = match resolve_session_id_optional(core, id)? {
+async fn delete_session(
+    executor: Arc<dyn CommandExecutor>,
+    id: &str,
+    format: OutputFormat,
+) -> Result<()> {
+    let resolved = match resolve_session_id_optional(&executor, id).await? {
         Some(id) => id,
         None => {
             if format.is_json() {
@@ -117,7 +131,7 @@ async fn delete_session(core: &Arc<AppCore>, id: &str, format: OutputFormat) -> 
         }
     };
 
-    let deleted = core.storage.chat_sessions.delete(&resolved)?;
+    let deleted = executor.delete_session(&resolved).await?;
 
     if format.is_json() {
         return print_json(&json!({
@@ -136,7 +150,7 @@ async fn delete_session(core: &Arc<AppCore>, id: &str, format: OutputFormat) -> 
 }
 
 async fn search_sessions(
-    core: &Arc<AppCore>,
+    executor: Arc<dyn CommandExecutor>,
     query: &str,
     agent: Option<&str>,
     format: OutputFormat,
@@ -146,26 +160,38 @@ async fn search_sessions(
         bail!("Search query cannot be empty");
     }
 
-    let sessions = if let Some(agent_id) = agent {
-        core.storage.chat_sessions.list_by_agent(agent_id)?
+    // Get session summaries from executor
+    let summaries = executor.search_sessions(query.to_string()).await?;
+
+    // Filter by agent if specified
+    let summaries: Vec<_> = if let Some(agent_id) = agent {
+        summaries
+            .into_iter()
+            .filter(|s| s.agent_id == agent_id)
+            .collect()
     } else {
-        core.storage.chat_sessions.list()?
+        summaries
     };
 
+    // For detailed results with match counts, we need to fetch full sessions
     let mut results = Vec::new();
-
-    for session in sessions {
-        let (match_count, preview) = count_matches(&session, &normalized);
-        if match_count > 0 {
-            results.push(SessionSearchResult {
-                id: session.id,
-                name: session.name,
-                agent_id: session.agent_id,
-                model: session.model,
-                updated_at: session.updated_at,
-                match_count,
-                preview,
-            });
+    for summary in summaries {
+        match executor.get_session(&summary.id).await {
+            Ok(session) => {
+                let (match_count, preview) = count_matches(&session, &normalized);
+                if match_count > 0 {
+                    results.push(SessionSearchResult {
+                        id: session.id,
+                        name: session.name,
+                        agent_id: session.agent_id,
+                        model: session.model,
+                        updated_at: session.updated_at,
+                        match_count,
+                        preview,
+                    });
+                }
+            }
+            Err(_) => continue,
         }
     }
 
@@ -217,24 +243,21 @@ fn count_matches(session: &ChatSession, query: &str) -> (usize, Option<String>) 
     (count, preview)
 }
 
-fn resolve_session(core: &Arc<AppCore>, id: &str) -> Result<ChatSession> {
-    let resolved = resolve_session_id(core, id)?;
-    core.storage
-        .chat_sessions
-        .get(&resolved)?
-        .ok_or_else(|| anyhow::anyhow!("Session not found: {}", id))
-}
-
-fn resolve_session_id_optional(core: &Arc<AppCore>, id: &str) -> Result<Option<String>> {
-    if let Some(session) = core.storage.chat_sessions.get(id)? {
-        return Ok(Some(session.id));
+async fn resolve_session_id_optional(
+    executor: &Arc<dyn CommandExecutor>,
+    id: &str,
+) -> Result<Option<String>> {
+    // Try exact match first
+    if executor.get_session(id).await.is_ok() {
+        return Ok(Some(id.to_string()));
     }
 
-    let sessions = core.storage.chat_sessions.list()?;
-    let mut matches = sessions
+    // Try prefix match
+    let sessions = executor.list_sessions().await?;
+    let mut matches: Vec<_> = sessions
         .iter()
         .filter(|session| session.id.starts_with(id))
-        .collect::<Vec<_>>();
+        .collect();
 
     match matches.len() {
         0 => Ok(None),
@@ -243,8 +266,9 @@ fn resolve_session_id_optional(core: &Arc<AppCore>, id: &str) -> Result<Option<S
     }
 }
 
-fn resolve_session_id(core: &Arc<AppCore>, id: &str) -> Result<String> {
-    resolve_session_id_optional(core, id)?
+async fn resolve_session_id(executor: &Arc<dyn CommandExecutor>, id: &str) -> Result<String> {
+    resolve_session_id_optional(executor, id)
+        .await?
         .ok_or_else(|| anyhow::anyhow!("Session not found: {}", id))
 }
 

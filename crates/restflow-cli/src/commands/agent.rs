@@ -5,47 +5,35 @@ use std::time::Instant;
 
 use crate::cli::AgentCommands;
 use crate::commands::utils::{format_timestamp, parse_model, read_stdin_to_string};
+use crate::executor::CommandExecutor;
 use crate::output::{OutputFormat, json::print_json};
-use redb::Database;
-use restflow_ai::{
-    AgentConfig, AgentExecutor, AgentState, AgentStatus, AnthropicClient, ClaudeCodeClient, LlmClient, OpenAIClient,
-    Role, ToolRegistry,
-};
-use restflow_core::auth::{AuthManagerConfig, AuthProfileManager, AuthProvider};
-use restflow_core::memory::{ChatSessionMirror, MessageMirror};
-use restflow_core::models::{
-    AgentExecuteResponse, AgentNode, ApiKeyConfig, ExecutionDetails, ExecutionStep, Provider,
-    ToolCallInfo,
-};
-use restflow_core::paths;
-use restflow_core::services::tool_registry::create_tool_registry;
-use restflow_core::storage::SecretStorage;
-use restflow_core::{AppCore, services::agent as agent_service};
-use restflow_storage::AuthProfileStorage;
-use serde_json::json;
-use tracing::warn;
+use restflow_core::models::AgentNode;
 
-pub async fn run(core: Arc<AppCore>, command: AgentCommands, format: OutputFormat) -> Result<()> {
+pub async fn run(
+    executor: Arc<dyn CommandExecutor>,
+    command: AgentCommands,
+    format: OutputFormat,
+) -> Result<()> {
     match command {
-        AgentCommands::List => list_agents(&core, format).await,
-        AgentCommands::Show { id } => show_agent(&core, &id, format).await,
+        AgentCommands::List => list_agents(executor, format).await,
+        AgentCommands::Show { id } => show_agent(executor, &id, format).await,
         AgentCommands::Create {
             name,
             model,
             prompt,
-        } => create_agent(&core, &name, model, prompt, format).await,
+        } => create_agent(executor, &name, model, prompt, format).await,
         AgentCommands::Update { id, name, model } => {
-            update_agent(&core, &id, name, model, format).await
+            update_agent(executor, &id, name, model, format).await
         }
-        AgentCommands::Delete { id } => delete_agent(&core, &id, format).await,
+        AgentCommands::Delete { id } => delete_agent(executor, &id, format).await,
         AgentCommands::Exec { id, input, session } => {
-            exec_agent(&core, &id, input, session, format).await
+            exec_agent(executor, &id, input, session, format).await
         }
     }
 }
 
-async fn list_agents(core: &Arc<AppCore>, format: OutputFormat) -> Result<()> {
-    let agents = agent_service::list_agents(core).await?;
+async fn list_agents(executor: Arc<dyn CommandExecutor>, format: OutputFormat) -> Result<()> {
+    let agents = executor.list_agents().await?;
 
     if format.is_json() {
         return print_json(&agents);
@@ -72,8 +60,12 @@ async fn list_agents(core: &Arc<AppCore>, format: OutputFormat) -> Result<()> {
     crate::output::table::print_table(table)
 }
 
-async fn show_agent(core: &Arc<AppCore>, id: &str, format: OutputFormat) -> Result<()> {
-    let agent = agent_service::get_agent(core, id).await?;
+async fn show_agent(
+    executor: Arc<dyn CommandExecutor>,
+    id: &str,
+    format: OutputFormat,
+) -> Result<()> {
+    let agent = executor.get_agent(id).await?;
 
     if format.is_json() {
         return print_json(&agent);
@@ -99,7 +91,7 @@ async fn show_agent(core: &Arc<AppCore>, id: &str, format: OutputFormat) -> Resu
 }
 
 async fn create_agent(
-    core: &Arc<AppCore>,
+    executor: Arc<dyn CommandExecutor>,
     name: &str,
     model: Option<String>,
     prompt: Option<String>,
@@ -113,7 +105,7 @@ async fn create_agent(
         agent_node = agent_node.with_prompt(prompt);
     }
 
-    let created = agent_service::create_agent(core, name.to_string(), agent_node).await?;
+    let created = executor.create_agent(name.to_string(), agent_node).await?;
 
     if format.is_json() {
         return print_json(&created);
@@ -124,19 +116,21 @@ async fn create_agent(
 }
 
 async fn update_agent(
-    core: &Arc<AppCore>,
+    executor: Arc<dyn CommandExecutor>,
     id: &str,
     name: Option<String>,
     model: Option<String>,
     format: OutputFormat,
 ) -> Result<()> {
-    let mut existing = agent_service::get_agent(core, id).await?;
+    let mut existing = executor.get_agent(id).await?;
 
     if let Some(model) = model {
         existing.agent.model = Some(parse_model(&model)?);
     }
 
-    let updated = agent_service::update_agent(core, id, name, Some(existing.agent)).await?;
+    let updated = executor
+        .update_agent(id, name, Some(existing.agent))
+        .await?;
 
     if format.is_json() {
         return print_json(&updated);
@@ -146,11 +140,15 @@ async fn update_agent(
     Ok(())
 }
 
-async fn delete_agent(core: &Arc<AppCore>, id: &str, format: OutputFormat) -> Result<()> {
-    agent_service::delete_agent(core, id).await?;
+async fn delete_agent(
+    executor: Arc<dyn CommandExecutor>,
+    id: &str,
+    format: OutputFormat,
+) -> Result<()> {
+    executor.delete_agent(id).await?;
 
     if format.is_json() {
-        return print_json(&json!({ "deleted": true, "id": id }));
+        return print_json(&serde_json::json!({ "deleted": true, "id": id }));
     }
 
     println!("Agent deleted: {id}");
@@ -158,13 +156,12 @@ async fn delete_agent(core: &Arc<AppCore>, id: &str, format: OutputFormat) -> Re
 }
 
 async fn exec_agent(
-    core: &Arc<AppCore>,
+    executor: Arc<dyn CommandExecutor>,
     id: &str,
     input: Option<String>,
     session: Option<String>,
     format: OutputFormat,
 ) -> Result<()> {
-    let agent = agent_service::get_agent(core, id).await?;
     let input = match input {
         Some(value) => value,
         None => read_stdin_to_string()?,
@@ -175,37 +172,8 @@ async fn exec_agent(
     }
 
     let started = Instant::now();
-    let response = run_agent_with_executor(
-        &agent.agent,
-        &input,
-        Some(&core.storage.secrets),
-        core.storage.skills.clone(),
-        core.storage.memory.clone(),
-        core.storage.chat_sessions.clone(),
-        core.storage.shared_space.clone(),
-    )
-    .await?;
+    let response = executor.execute_agent(id, input, session).await?;
     let duration_ms = started.elapsed().as_millis() as i64;
-
-    if let Some(ref session_id) = session {
-        let mirror = ChatSessionMirror::new(Arc::new(core.storage.chat_sessions.clone()));
-
-        if let Err(e) = mirror.mirror_user(session_id, &input).await {
-            warn!(error = %e, "Failed to mirror user message");
-        }
-
-        let tokens = response
-            .execution_details
-            .as_ref()
-            .map(|details| details.total_tokens);
-
-        if let Err(e) = mirror
-            .mirror_assistant(session_id, &response.response, tokens)
-            .await
-        {
-            warn!(error = %e, "Failed to mirror assistant message");
-        }
-    }
 
     if format.is_json() {
         return print_json(&response);
@@ -225,228 +193,4 @@ fn format_tools(tools: &Option<Vec<String>>) -> String {
         Some(tool_list) if !tool_list.is_empty() => tool_list.join(", "),
         _ => "-".to_string(),
     }
-}
-
-fn convert_to_execution_steps(state: &AgentState) -> Vec<ExecutionStep> {
-    state
-        .messages
-        .iter()
-        .map(|msg| {
-            let step_type = match msg.role {
-                Role::System => "system",
-                Role::User => "user",
-                Role::Assistant => {
-                    if msg.tool_calls.is_some() {
-                        "tool_call"
-                    } else {
-                        "assistant"
-                    }
-                }
-                Role::Tool => "tool_result",
-            };
-
-            let tool_calls = msg.tool_calls.as_ref().map(|calls| {
-                calls
-                    .iter()
-                    .map(|tc| ToolCallInfo {
-                        id: tc.id.clone(),
-                        name: tc.name.clone(),
-                        arguments: tc.arguments.clone(),
-                    })
-                    .collect()
-            });
-
-            ExecutionStep {
-                step_type: step_type.to_string(),
-                content: msg.content.clone(),
-                tool_calls,
-            }
-        })
-        .collect()
-}
-
-fn status_to_string(status: &AgentStatus) -> String {
-    match status {
-        AgentStatus::Running => "running".to_string(),
-        AgentStatus::Completed => "completed".to_string(),
-        AgentStatus::Failed { error } => format!("failed: {}", error),
-        AgentStatus::MaxIterations => "max_iterations".to_string(),
-    }
-}
-
-async fn resolve_api_key(
-    agent_node: &AgentNode,
-    secret_storage: Option<&restflow_core::storage::SecretStorage>,
-    provider: Provider,
-) -> Result<String> {
-    if let Some(config) = &agent_node.api_key_config {
-        match config {
-            ApiKeyConfig::Direct(key) => {
-                if !key.is_empty() {
-                    return Ok(key.clone());
-                }
-            }
-            ApiKeyConfig::Secret(secret_name) => {
-                if let Some(storage) = secret_storage {
-                    return storage
-                        .get_secret(secret_name)?
-                        .ok_or_else(|| anyhow::anyhow!("Secret '{}' not found", secret_name));
-                }
-                bail!("Secret storage not available");
-            }
-        }
-    }
-
-    if let Some(key) = resolve_api_key_from_profiles(provider).await? {
-        return Ok(key);
-    }
-
-    bail!("No API key configured");
-}
-
-async fn resolve_api_key_from_profiles(provider: Provider) -> Result<Option<String>> {
-    let config = AuthManagerConfig::default();
-    let data_dir = paths::ensure_restflow_dir()?;
-
-    // Create SecretStorage
-    let db_path = data_dir.join("restflow.db");
-    let db = Arc::new(Database::create(&db_path)?);
-    let secrets = Arc::new(SecretStorage::new(db.clone())?);
-    let storage = AuthProfileStorage::new(db)?;
-
-    let manager = AuthProfileManager::with_storage(config, secrets, Some(storage));
-    let old_json = data_dir.join("auth_profiles.json");
-    if let Err(e) = manager.migrate_from_json(&old_json).await {
-        warn!(error = %e, "Failed to migrate auth profiles from JSON");
-    }
-    manager.initialize().await?;
-
-    let selection = match provider {
-        Provider::Anthropic => {
-            if let Some(selection) = manager.select_profile(AuthProvider::Anthropic).await {
-                Some(selection)
-            } else {
-                manager.select_profile(AuthProvider::ClaudeCode).await
-            }
-        }
-        Provider::OpenAI => manager.select_profile(AuthProvider::OpenAI).await,
-        Provider::DeepSeek => None,
-    };
-
-    match selection {
-        Some(sel) => Ok(Some(sel.profile.get_api_key(manager.resolver())?)),
-        None => Ok(None),
-    }
-}
-
-async fn run_agent_with_executor(
-    agent_node: &AgentNode,
-    input: &str,
-    secret_storage: Option<&restflow_core::storage::SecretStorage>,
-    skill_storage: restflow_core::storage::skill::SkillStorage,
-    memory_storage: restflow_core::storage::memory::MemoryStorage,
-    chat_storage: restflow_core::storage::chat_session::ChatSessionStorage,
-    shared_space_storage: restflow_core::storage::SharedSpaceStorage,
-) -> Result<AgentExecuteResponse> {
-    // Get model (required for execution)
-    let model = agent_node.require_model().map_err(|e| anyhow::anyhow!(e))?;
-
-    let api_key = resolve_api_key(agent_node, secret_storage, model.provider()).await?;
-
-    let llm: Arc<dyn LlmClient> = match model.provider() {
-        Provider::OpenAI => Arc::new(OpenAIClient::new(&api_key).with_model(model.as_str())),
-        Provider::Anthropic => {
-            if api_key.starts_with("sk-ant-oat") {
-                Arc::new(ClaudeCodeClient::new(&api_key).with_model(model.as_str()))
-            } else {
-                Arc::new(AnthropicClient::new(&api_key).with_model(model.as_str()))
-            }
-        }
-        Provider::DeepSeek => Arc::new(
-            OpenAIClient::new(&api_key)
-                .with_model(model.as_str())
-                .with_base_url("https://api.deepseek.com/v1"),
-        ),
-    };
-
-    let full_registry = create_tool_registry(
-        skill_storage,
-        memory_storage,
-        chat_storage,
-        shared_space_storage,
-        None,
-    );
-
-    let tools = if let Some(ref tool_names) = agent_node.tools {
-        if tool_names.is_empty() {
-            Arc::new(ToolRegistry::new())
-        } else {
-            let mut filtered_registry = ToolRegistry::new();
-            for name in tool_names {
-                if let Some(tool) = full_registry.get(name) {
-                    filtered_registry.register_arc(tool);
-                } else {
-                    warn!(tool_name = %name, "Configured tool not found in registry, skipping");
-                }
-            }
-            Arc::new(filtered_registry)
-        }
-    } else {
-        Arc::new(ToolRegistry::new())
-    };
-
-    let mut config = AgentConfig::new(input);
-
-    if let Some(ref prompt) = agent_node.prompt {
-        config = config.with_system_prompt(prompt);
-    }
-
-    if model.supports_temperature()
-        && let Some(temp) = agent_node.temperature
-    {
-        config = config.with_temperature(temp as f32);
-    }
-
-    let executor = AgentExecutor::new(llm, tools);
-    let result = executor.run(config).await?;
-
-    let response = result.answer.unwrap_or_else(|| {
-        if let Some(ref err) = result.error {
-            format!("Error: {}", err)
-        } else {
-            "No response generated".to_string()
-        }
-    });
-
-    let execution_details = ExecutionDetails {
-        iterations: result.iterations,
-        total_tokens: result.total_tokens,
-        steps: convert_to_execution_steps(&result.state),
-        status: status_to_string(&result.state.status),
-    };
-
-    Ok(AgentExecuteResponse {
-        response,
-        execution_details: Some(execution_details),
-    })
-}
-
-#[allow(dead_code)]
-pub async fn execute_agent_for_task(
-    core: &Arc<AppCore>,
-    agent_id: &str,
-    input: &str,
-) -> Result<AgentExecuteResponse> {
-    let agent = agent_service::get_agent(core, agent_id).await?;
-
-    run_agent_with_executor(
-        &agent.agent,
-        input,
-        Some(&core.storage.secrets),
-        core.storage.skills.clone(),
-        core.storage.memory.clone(),
-        core.storage.chat_sessions.clone(),
-        core.storage.shared_space.clone(),
-    )
-    .await
 }
