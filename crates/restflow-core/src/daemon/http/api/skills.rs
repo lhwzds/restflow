@@ -13,7 +13,7 @@ use std::sync::Arc;
 pub fn router() -> Router {
     Router::new()
         .route("/", get(list_skills).post(create_skill))
-        .route("/:id", get(get_skill).put(update_skill).delete(delete_skill))
+        .route("/{id}", get(get_skill).put(update_skill).delete(delete_skill))
 }
 
 async fn list_skills(
