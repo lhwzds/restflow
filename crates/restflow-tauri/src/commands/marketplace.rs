@@ -6,7 +6,7 @@ use restflow_core::registry::{
     MarketplaceProvider, GitHubProvider, GatingChecker,
 };
 use restflow_core::models::{GatingCheckResult, SkillManifest, SkillVersion};
-use restflow_core::skill::StorageMode;
+use restflow_core::models::storage_mode::StorageMode;
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
