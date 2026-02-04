@@ -2,6 +2,7 @@ use crate::daemon::ipc_client;
 use crate::daemon::process::{DaemonConfig, ProcessManager};
 use crate::paths;
 use anyhow::Result;
+#[cfg(not(unix))]
 use std::process::Command;
 use std::time::Duration;
 use tracing::{debug, info, warn};
