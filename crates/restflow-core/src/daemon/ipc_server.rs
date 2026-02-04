@@ -347,6 +347,18 @@ impl IpcServer {
                     Err(err) => IpcResponse::error(500, err.to_string()),
                 }
             }
+            IpcRequest::UpdateSession {
+                session_id,
+                session,
+            } => {
+                if session.id != session_id {
+                    return IpcResponse::error(400, "Session id mismatch");
+                }
+                match core.storage.chat_sessions.update(&session) {
+                    Ok(()) => IpcResponse::success(session),
+                    Err(err) => IpcResponse::error(500, err.to_string()),
+                }
+            }
             IpcRequest::DeleteSession { id } => match core.storage.chat_sessions.delete(&id) {
                 Ok(deleted) => IpcResponse::success(serde_json::json!({ "deleted": deleted })),
                 Err(err) => IpcResponse::error(500, err.to_string()),
@@ -482,6 +494,22 @@ impl IpcServer {
                     Err(err) => return IpcResponse::error(500, err.to_string()),
                 };
                 match manager.get_available_profile(provider).await {
+                    Some(profile) => match profile.get_api_key(manager.resolver()) {
+                        Ok(key) => IpcResponse::success(serde_json::json!({
+                            "profile_id": profile.id,
+                            "api_key": key,
+                        })),
+                        Err(err) => IpcResponse::error(500, err.to_string()),
+                    },
+                    None => IpcResponse::not_found("Auth profile"),
+                }
+            }
+            IpcRequest::GetApiKeyForProfile { id } => {
+                let manager = match build_auth_manager(core).await {
+                    Ok(manager) => manager,
+                    Err(err) => return IpcResponse::error(500, err.to_string()),
+                };
+                match manager.get_profile(&id).await {
                     Some(profile) => match profile.get_api_key(manager.resolver()) {
                         Ok(key) => IpcResponse::success(serde_json::json!({
                             "profile_id": profile.id,

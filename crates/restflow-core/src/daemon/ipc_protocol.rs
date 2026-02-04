@@ -1,5 +1,5 @@
 use crate::auth::{AuthProvider, Credential, CredentialSource, ProfileUpdate};
-use crate::models::{AgentNode, AgentTask, ChatRole, Skill, TaskSchedule};
+use crate::models::{AgentNode, AgentTask, ChatRole, ChatSession, Skill, TaskSchedule};
 use crate::storage::SystemConfig;
 use serde::{Deserialize, Serialize};
 
@@ -120,6 +120,10 @@ pub enum IpcRequest {
         agent_id: Option<String>,
         model: Option<String>,
     },
+    UpdateSession {
+        session_id: String,
+        session: ChatSession,
+    },
     DeleteSession {
         id: String,
     },
@@ -156,6 +160,9 @@ pub enum IpcRequest {
     DiscoverAuth,
     GetApiKey {
         provider: AuthProvider,
+    },
+    GetApiKeyForProfile {
+        id: String,
     },
     TestAuthProfile {
         id: String,

@@ -148,6 +148,15 @@ impl IpcClient {
             .await
     }
 
+    pub async fn update_session(
+        &mut self,
+        session_id: String,
+        session: ChatSession,
+    ) -> Result<ChatSession> {
+        self.request_typed(IpcRequest::UpdateSession { session_id, session })
+            .await
+    }
+
     pub async fn delete_session(&mut self, id: String) -> Result<bool> {
         #[derive(serde::Deserialize)]
         struct DeleteResponse {
@@ -236,6 +245,17 @@ impl IpcClient {
         }
         let resp: ApiKeyResponse = self
             .request_typed(IpcRequest::GetApiKey { provider })
+            .await?;
+        Ok(resp.api_key)
+    }
+
+    pub async fn get_api_key_for_profile(&mut self, id: String) -> Result<String> {
+        #[derive(serde::Deserialize)]
+        struct ApiKeyResponse {
+            api_key: String,
+        }
+        let resp: ApiKeyResponse = self
+            .request_typed(IpcRequest::GetApiKeyForProfile { id })
             .await?;
         Ok(resp.api_key)
     }
