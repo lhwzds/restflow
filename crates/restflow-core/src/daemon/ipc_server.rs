@@ -180,6 +180,16 @@ impl IpcServer {
                     Err(err) => IpcResponse::error(500, err.to_string()),
                 }
             }
+            IpcRequest::UpdateTask { task } => {
+                match core.storage.agent_tasks.update_task(&task) {
+                    Ok(()) => IpcResponse::success(task),
+                    Err(err) => IpcResponse::error(500, err.to_string()),
+                }
+            }
+            IpcRequest::DeleteTask { id } => match core.storage.agent_tasks.delete_task(&id) {
+                Ok(deleted) => IpcResponse::success(serde_json::json!({ "deleted": deleted })),
+                Err(err) => IpcResponse::error(500, err.to_string()),
+            },
             IpcRequest::RunTask { id: _ } => {
                 IpcResponse::error(-3, "Task execution not available via IPC")
             }
