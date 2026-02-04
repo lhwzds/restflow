@@ -7,17 +7,16 @@ use tauri::State;
 /// List all skills
 #[tauri::command]
 pub async fn list_skills(state: State<'_, AppState>) -> Result<Vec<Skill>, String> {
-    state.core.storage.skills.list().map_err(|e| e.to_string())
+    state.executor().list_skills().await.map_err(|e| e.to_string())
 }
 
 /// Get a skill by ID
 #[tauri::command]
 pub async fn get_skill(state: State<'_, AppState>, id: String) -> Result<Skill, String> {
     state
-        .core
-        .storage
-        .skills
-        .get(&id)
+        .executor()
+        .get_skill(id.clone())
+        .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Skill '{}' not found", id))
 }
@@ -26,10 +25,9 @@ pub async fn get_skill(state: State<'_, AppState>, id: String) -> Result<Skill, 
 #[tauri::command]
 pub async fn create_skill(state: State<'_, AppState>, skill: Skill) -> Result<Skill, String> {
     state
-        .core
-        .storage
-        .skills
-        .create(&skill)
+        .executor()
+        .create_skill(skill.clone())
+        .await
         .map_err(|e| e.to_string())?;
 
     Ok(skill)
@@ -47,10 +45,9 @@ pub async fn update_skill(
     updated_skill.id = id.clone();
 
     state
-        .core
-        .storage
-        .skills
-        .update(&id, &updated_skill)
+        .executor()
+        .update_skill(id, updated_skill.clone())
+        .await
         .map_err(|e| e.to_string())?;
 
     Ok(updated_skill)
@@ -60,10 +57,9 @@ pub async fn update_skill(
 #[tauri::command]
 pub async fn delete_skill(state: State<'_, AppState>, id: String) -> Result<(), String> {
     state
-        .core
-        .storage
-        .skills
-        .delete(&id)
+        .executor()
+        .delete_skill(id)
+        .await
         .map_err(|e| e.to_string())
 }
 
@@ -71,10 +67,9 @@ pub async fn delete_skill(state: State<'_, AppState>, id: String) -> Result<(), 
 #[tauri::command]
 pub async fn export_skill(state: State<'_, AppState>, id: String) -> Result<String, String> {
     let skill = state
-        .core
-        .storage
-        .skills
-        .get(&id)
+        .executor()
+        .get_skill(id.clone())
+        .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Skill '{}' not found", id))?;
 
@@ -87,10 +82,9 @@ pub async fn import_skill(state: State<'_, AppState>, json: String) -> Result<Sk
     let skill: Skill = serde_json::from_str(&json).map_err(|e| e.to_string())?;
 
     state
-        .core
-        .storage
-        .skills
-        .create(&skill)
+        .executor()
+        .create_skill(skill.clone())
+        .await
         .map_err(|e| e.to_string())?;
 
     Ok(skill)

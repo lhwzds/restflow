@@ -4,27 +4,35 @@ use std::sync::Arc;
 
 use crate::cli::MemoryCommands;
 use crate::commands::utils::{format_timestamp, preview_text};
+use crate::executor::CommandExecutor;
 use crate::output::{json::print_json, OutputFormat};
-use restflow_core::memory::MemoryExporter;
-use restflow_core::models::memory::{MemoryChunk, MemorySearchQuery};
-use restflow_core::services::agent as agent_service;
-use restflow_core::AppCore;
+use restflow_core::models::memory::MemoryChunk;
 use serde_json::json;
 
-pub async fn run(core: Arc<AppCore>, command: MemoryCommands, format: OutputFormat) -> Result<()> {
+pub async fn run(
+    executor: Arc<dyn CommandExecutor>,
+    command: MemoryCommands,
+    format: OutputFormat,
+) -> Result<()> {
     match command {
-        MemoryCommands::Search { query } => search_memory(&core, &query, format).await,
-        MemoryCommands::List { agent, tag } => list_memory(&core, agent, tag, format).await,
-        MemoryCommands::Export { agent, output } => export_memory(&core, agent, output, format).await,
-        MemoryCommands::Stats => memory_stats(&core, format).await,
-        MemoryCommands::Clear { agent } => clear_memory(&core, agent, format).await,
+        MemoryCommands::Search { query } => search_memory(executor, &query, format).await,
+        MemoryCommands::List { agent, tag } => list_memory(executor, agent, tag, format).await,
+        MemoryCommands::Export { agent, output } => {
+            export_memory(executor, agent, output, format).await
+        }
+        MemoryCommands::Stats => memory_stats(executor, format).await,
+        MemoryCommands::Clear { agent } => clear_memory(executor, agent, format).await,
     }
 }
 
-async fn search_memory(core: &Arc<AppCore>, query: &str, format: OutputFormat) -> Result<()> {
-    let agent_id = resolve_agent_id(core, None).await?;
-    let search = MemorySearchQuery::new(agent_id).with_query(query.to_string());
-    let results = core.storage.memory.search(&search)?;
+async fn search_memory(
+    executor: Arc<dyn CommandExecutor>,
+    query: &str,
+    format: OutputFormat,
+) -> Result<()> {
+    let results = executor
+        .search_memory(query.to_string(), None, None)
+        .await?;
 
     if format.is_json() {
         return print_json(&results);
@@ -38,26 +46,12 @@ async fn search_memory(core: &Arc<AppCore>, query: &str, format: OutputFormat) -
 }
 
 async fn list_memory(
-    core: &Arc<AppCore>,
+    executor: Arc<dyn CommandExecutor>,
     agent: Option<String>,
     tag: Option<String>,
     format: OutputFormat,
 ) -> Result<()> {
-    let chunks = match (agent, tag) {
-        (Some(agent_id), Some(tag)) => core
-            .storage
-            .memory
-            .list_chunks(&agent_id)?
-            .into_iter()
-            .filter(|chunk| chunk.tags.iter().any(|value| value == &tag))
-            .collect(),
-        (Some(agent_id), None) => core.storage.memory.list_chunks(&agent_id)?,
-        (None, Some(tag)) => core.storage.memory.list_chunks_by_tag(&tag)?,
-        (None, None) => {
-            let agent_id = resolve_agent_id(core, None).await?;
-            core.storage.memory.list_chunks(&agent_id)?
-        }
-    };
+    let chunks = executor.list_memory(agent, tag).await?;
 
     if format.is_json() {
         return print_json(&chunks);
@@ -67,21 +61,19 @@ async fn list_memory(
 }
 
 async fn export_memory(
-    core: &Arc<AppCore>,
+    executor: Arc<dyn CommandExecutor>,
     agent: Option<String>,
     output: Option<String>,
     format: OutputFormat,
 ) -> Result<()> {
-    let agent_id = resolve_agent_id(core, agent).await?;
-    let exporter = MemoryExporter::new(core.storage.memory.clone());
-    let result = exporter.export_agent(&agent_id)?;
+    let result = executor.export_memory(agent.clone()).await?;
 
     let output_path = output.unwrap_or_else(|| result.suggested_filename.clone());
     std::fs::write(&output_path, &result.markdown)?;
 
     if format.is_json() {
         return print_json(&json!({
-            "agent_id": agent_id,
+            "agent_id": result.agent_id,
             "output": output_path,
             "chunk_count": result.chunk_count,
             "session_count": result.session_count
@@ -92,15 +84,15 @@ async fn export_memory(
     Ok(())
 }
 
-async fn memory_stats(core: &Arc<AppCore>, format: OutputFormat) -> Result<()> {
-    let agents = agent_service::list_agents(core).await?;
+async fn memory_stats(executor: Arc<dyn CommandExecutor>, format: OutputFormat) -> Result<()> {
+    let agents = executor.list_agents().await?;
     if agents.is_empty() {
         bail!("No agents available");
     }
 
     let mut stats = Vec::new();
     for agent in agents {
-        let stat = core.storage.memory.get_stats(&agent.id)?;
+        let stat = executor.get_memory_stats(Some(agent.id)).await?;
         stats.push(stat);
     }
 
@@ -121,11 +113,16 @@ async fn memory_stats(core: &Arc<AppCore>, format: OutputFormat) -> Result<()> {
     Ok(())
 }
 
-async fn clear_memory(core: &Arc<AppCore>, agent: Option<String>, format: OutputFormat) -> Result<()> {
+async fn clear_memory(
+    executor: Arc<dyn CommandExecutor>,
+    agent: Option<String>,
+    format: OutputFormat,
+) -> Result<()> {
     let agent_ids = if let Some(agent_id) = agent {
         vec![agent_id]
     } else {
-        agent_service::list_agents(core)
+        executor
+            .list_agents()
             .await?
             .into_iter()
             .map(|agent| agent.id)
@@ -138,7 +135,7 @@ async fn clear_memory(core: &Arc<AppCore>, agent: Option<String>, format: Output
 
     let mut results = Vec::new();
     for agent_id in agent_ids {
-        let deleted = core.storage.memory.delete_chunks_for_agent(&agent_id)?;
+        let deleted = executor.clear_memory(Some(agent_id.clone())).await?;
         results.push((agent_id, deleted));
     }
 
@@ -155,19 +152,6 @@ async fn clear_memory(core: &Arc<AppCore>, agent: Option<String>, format: Output
     }
 
     Ok(())
-}
-
-async fn resolve_agent_id(core: &Arc<AppCore>, agent: Option<String>) -> Result<String> {
-    if let Some(id) = agent {
-        return Ok(id);
-    }
-
-    let agents = agent_service::list_agents(core).await?;
-    if agents.is_empty() {
-        bail!("No agents available");
-    }
-
-    Ok(agents[0].id.clone())
 }
 
 fn render_chunks_table(chunks: &[MemoryChunk]) -> Result<()> {
