@@ -9,6 +9,12 @@ pub struct DaemonManager {
     client: Option<IpcClient>,
 }
 
+impl Default for DaemonManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DaemonManager {
     pub fn new() -> Self {
         Self {

@@ -1,0 +1,22 @@
+.ie \n(.g .ds Aq \(aq
+.el .ds Aq '
+.TH start 1  "start " 
+.SH NAME
+start \- Start RestFlow (daemon + optional UI)
+.SH SYNOPSIS
+\fBstart\fR [\fB\-\-no\-browser\fR] [\fB\-p\fR|\fB\-\-port\fR] [\fB\-\-http\fR] [\fB\-h\fR|\fB\-\-help\fR] 
+.SH DESCRIPTION
+Start RestFlow (daemon + optional UI)
+.SH OPTIONS
+.TP
+\fB\-\-no\-browser\fR
+Do not open the browser UI
+.TP
+\fB\-p\fR, \fB\-\-port\fR \fI<PORT>\fR
+HTTP port for the API/UI
+.TP
+\fB\-\-http\fR
+Enable the HTTP API
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Print help

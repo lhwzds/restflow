@@ -29,10 +29,8 @@ pub async fn run(args: StartArgs) -> Result<()> {
 
 fn print_startup_banner(http_enabled: bool, port: Option<u16>) {
     println!("RestFlow is running!");
-    if http_enabled {
-        if let Some(port) = port {
-            println!("API: http://localhost:{}", port);
-        }
+    if http_enabled && let Some(port) = port {
+        println!("API: http://localhost:{}", port);
     }
     println!("Logs: ~/.restflow/logs/");
     println!();

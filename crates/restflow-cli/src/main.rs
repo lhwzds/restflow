@@ -45,7 +45,7 @@ async fn main() -> Result<()> {
     // Handle daemon commands that don't need AppCore (to avoid database lock conflicts)
     if let Some(Commands::Daemon { command }) = &cli.command {
         match command {
-            DaemonCommands::Start { foreground: false } => {
+            DaemonCommands::Start { foreground: false, .. } => {
                 match check_daemon_status()? {
                     DaemonStatus::Running { pid } => {
                         println!("Daemon already running (PID: {})", pid);
@@ -79,13 +79,13 @@ async fn main() -> Result<()> {
                 }
                 return Ok(());
             }
-            DaemonCommands::Start { foreground: true } => {
+            DaemonCommands::Start { foreground: true, .. } => {
                 // Continue to open database for foreground mode
             }
         }
     }
 
-    // Commands that need direct core access (daemon, mcp, key, claude, codex, run, start)
+    // Commands that need direct core access (daemon, mcp, key, claude, codex, run, start, auth)
     // These bypass the executor pattern for now
     let needs_direct_core = matches!(
         &cli.command,
@@ -96,6 +96,7 @@ async fn main() -> Result<()> {
             | Some(Commands::Codex(_))
             | Some(Commands::Run(_))
             | Some(Commands::Start(_))
+            | Some(Commands::Auth { .. })
     );
 
     let db_path = setup::resolve_db_path(cli.db_path.clone())?;
@@ -112,6 +113,9 @@ async fn main() -> Result<()> {
             Some(Commands::Mcp { command }) => commands::mcp::run(core, command, cli.format).await,
             Some(Commands::Claude(args)) => commands::claude::run(core, args, cli.format).await,
             Some(Commands::Codex(args)) => commands::codex::run(core, args, cli.format).await,
+            Some(Commands::Auth { command }) => {
+                commands::auth::run(core, command, cli.format).await
+            }
             _ => unreachable!(),
         }
     } else {
@@ -140,7 +144,6 @@ async fn main() -> Result<()> {
             Some(Commands::Session { command }) => {
                 commands::session::run(exec, command, cli.format).await
             }
-            Some(Commands::Auth { command }) => commands::auth::run(command, cli.format).await,
             Some(Commands::Security { command }) => {
                 commands::security::run(command, cli.format).await
             }
