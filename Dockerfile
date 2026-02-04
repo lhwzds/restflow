@@ -47,5 +47,7 @@ COPY --from=backend-builder /app/target/release/restflow /usr/local/bin/restflow
 
 EXPOSE 3000
 
+ENV RESTFLOW_HTTP_HOST=0.0.0.0
+
 # Run the application
-CMD ["restflow", "start", "--http", "--no-browser"]
+CMD ["restflow", "daemon", "start", "--foreground", "--http"]
