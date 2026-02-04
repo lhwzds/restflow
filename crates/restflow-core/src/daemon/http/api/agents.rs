@@ -1,15 +1,20 @@
 use crate::daemon::http::ApiError;
-use crate::models::AgentNode;
+use crate::models::{AIModel, AgentNode};
 use crate::services::agent as agent_service;
 use crate::AppCore;
 use axum::{
     extract::{Extension, Path},
     http::StatusCode,
-    routing::{delete, get, post, put},
+    routing::{get, post},
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+
+fn parse_model(s: &str) -> Option<AIModel> {
+    // Try to deserialize the model string
+    serde_json::from_value(serde_json::Value::String(s.to_string())).ok()
+}
 
 pub fn router() -> Router {
     Router::new()
@@ -74,7 +79,7 @@ async fn create_agent(
     let mut agent_node = AgentNode::new();
     
     if let Some(model_str) = req.model {
-        agent_node.model = crate::models::Model::from_string(&model_str);
+        agent_node.model = parse_model(&model_str);
     }
     if let Some(prompt) = req.prompt {
         agent_node = agent_node.with_prompt(prompt);
@@ -103,7 +108,7 @@ async fn update_agent(
     let mut existing = agent_service::get_agent(&core, &id).await?;
 
     if let Some(model_str) = req.model {
-        existing.agent.model = crate::models::Model::from_string(&model_str);
+        existing.agent.model = parse_model(&model_str);
     }
     if let Some(prompt) = req.prompt {
         existing.agent.prompt = Some(prompt);

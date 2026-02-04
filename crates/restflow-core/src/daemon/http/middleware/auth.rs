@@ -1,13 +1,14 @@
 use crate::daemon::http::ApiError;
 use axum::{
+    body::Body,
     http::{header, Request},
     middleware::Next,
     response::{IntoResponse, Response},
 };
 
-pub async fn require_api_key<B>(
-    req: Request<B>,
-    next: Next<B>,
+pub async fn require_api_key(
+    req: Request<Body>,
+    next: Next,
     api_key: Option<String>,
 ) -> Response {
     let Some(expected) = api_key else {

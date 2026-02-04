@@ -4,7 +4,7 @@ use crate::services::skills as skills_service;
 use crate::AppCore;
 use axum::{
     extract::{Extension, Path},
-    routing::{delete, get, post, put},
+    routing::get,
     Json, Router,
 };
 use serde::Deserialize;

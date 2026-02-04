@@ -3,7 +3,7 @@ use crate::services::secrets as secrets_service;
 use crate::AppCore;
 use axum::{
     extract::{Extension, Path},
-    routing::{delete, get, put},
+    routing::{get, put},
     Json, Router,
 };
 use std::sync::Arc;

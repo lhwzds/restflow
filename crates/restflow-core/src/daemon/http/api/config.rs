@@ -2,7 +2,7 @@ use crate::daemon::http::ApiError;
 use crate::services::config as config_service;
 use crate::storage::SystemConfig;
 use crate::AppCore;
-use axum::{extract::Extension, routing::{get, put}, Json, Router};
+use axum::{extract::Extension, routing::get, Json, Router};
 use std::sync::Arc;
 
 pub fn router() -> Router {

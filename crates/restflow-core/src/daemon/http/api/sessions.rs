@@ -3,7 +3,7 @@ use crate::models::chat_session::{ChatSession, ChatSessionSummary};
 use crate::AppCore;
 use axum::{
     extract::{Extension, Path, Query},
-    routing::{delete, get, post},
+    routing::get,
     Json, Router,
 };
 use serde::Deserialize;

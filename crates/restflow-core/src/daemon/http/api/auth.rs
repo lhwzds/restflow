@@ -4,7 +4,7 @@ use crate::auth::manager::ProfileUpdate;
 use crate::AppCore;
 use axum::{
     extract::{Extension, Path},
-    routing::{delete, get, post, put},
+    routing::{get, post},
     Json, Router,
 };
 use restflow_storage::AuthProfileStorage;

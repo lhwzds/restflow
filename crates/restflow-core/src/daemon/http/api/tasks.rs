@@ -3,7 +3,7 @@ use crate::models::{AgentTask, AgentTaskStatus, TaskSchedule};
 use crate::AppCore;
 use axum::{
     extract::{Extension, Path, Query},
-    routing::{delete, get, post, put},
+    routing::{get, put},
     Json, Router,
 };
 use serde::Deserialize;

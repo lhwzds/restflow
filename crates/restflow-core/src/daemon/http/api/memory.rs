@@ -4,7 +4,7 @@ use crate::services::agent as agent_service;
 use crate::AppCore;
 use axum::{
     extract::{Extension, Query},
-    routing::{delete, get},
+    routing::get,
     Json, Router,
 };
 use serde::Deserialize;
@@ -59,7 +59,7 @@ async fn search_memory(
     let agent_id = resolve_agent_id(&core, query.agent_id).await?;
     let mut search = MemorySearchQuery::new(agent_id).with_query(query.q);
     if let Some(limit) = query.limit {
-        search = search.with_limit(limit);
+        search.limit = limit as u32;
     }
     let results = core.storage.memory.search(&search)?;
     Ok(Json(results))
