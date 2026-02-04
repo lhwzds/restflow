@@ -91,7 +91,7 @@ pub async fn ensure_daemon_running_with_config(config: DaemonConfig) -> Result<(
         DaemonStatus::NotRunning | DaemonStatus::Stale { .. } => {
             info!("Starting daemon automatically");
             start_daemon_with_config(config)?;
-            for _ in 0..300 {
+            for _ in 0..600 {
                 tokio::time::sleep(Duration::from_millis(100)).await;
                 if ipc_client::is_daemon_available(&socket_path).await {
                     info!("Daemon started successfully");
