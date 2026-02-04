@@ -95,13 +95,13 @@ Key changes:
 - Refactor Tauri commands to use IPC
 - Stream handling in `crates/restflow-tauri/src/chat/stream.rs`
 
-## Phase 5: Server as API Gateway (P2)
+## Phase 5: Daemon HTTP API (P2)
 
-Goal: `restflow-server` becomes a stateless API gateway that proxies to daemon.
+Goal: daemon HTTP API replaces the standalone server crate.
 
 Deployment modes:
-- Mode A: Server proxy to daemon (auth, rate-limit, logging)
-- Mode B: Direct access to daemon HTTP API
+- Mode A: Direct access to daemon HTTP API
+- Mode B: Optional external gateway (not part of this repo)
 
 ## Phase 6: Unified Startup & Lifecycle (P2)
 

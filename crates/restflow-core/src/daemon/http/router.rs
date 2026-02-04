@@ -1,6 +1,7 @@
 use crate::AppCore;
 use axum::{routing::get, Extension, Router};
-use std::sync::Arc;
+use std::{path::Path, sync::Arc};
+use tower_http::services::{ServeDir, ServeFile};
 
 use super::{api, middleware, ws, HttpConfig};
 
@@ -20,6 +21,13 @@ pub fn build_router(core: Arc<AppCore>, config: &HttpConfig) -> Router {
             let api_key = api_key.clone();
             async move { middleware::auth::require_api_key(req, next, api_key).await }
         }));
+    }
+
+    let dist_dir = Path::new("web/dist");
+    if dist_dir.exists() {
+        let index = dist_dir.join("index.html");
+        let static_service = ServeDir::new(dist_dir).not_found_service(ServeFile::new(index));
+        app = app.fallback_service(static_service);
     }
 
     app

@@ -2,15 +2,14 @@
 members = [
     "crates/restflow-storage",
     "crates/restflow-core",
-    "crates/restflow-server",
     "crates/restflow-cli",
     "crates/restflow-ai",
     "crates/restflow-tauri",
 ]
 resolver = "2"
 
-# Default to running server (will change to tauri later)
-default-members = ["crates/restflow-server", "crates/restflow-core"]
+# Default to running core (tauri later)
+default-members = ["crates/restflow-core"]
 
 [workspace.package]
 version = "0.1.0"

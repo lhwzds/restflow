@@ -11,7 +11,7 @@ use std::sync::Arc;
 pub fn router() -> Router {
     Router::new()
         .route("/", get(list_secrets))
-        .route("/:key", put(set_secret).delete(delete_secret))
+        .route("/{key}", put(set_secret).delete(delete_secret))
 }
 
 async fn list_secrets(

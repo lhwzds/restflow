@@ -28,7 +28,7 @@ clean: down
 
 # Run backend locally (no docker)
 run:
-	cargo run --bin restflow-server
+	cargo run --bin restflow -- start --http --no-browser
 
 # Run frontend locally (no docker)
 web:
@@ -37,7 +37,7 @@ web:
 # Run both locally in background
 local:
 	@echo "Starting backend..."
-	@cargo run --bin restflow-server &
+	@cargo run --bin restflow -- start --http --no-browser &
 	@echo "Starting frontend..."
 	@cd web && npm run dev
 

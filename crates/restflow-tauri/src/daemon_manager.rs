@@ -68,7 +68,7 @@ impl DaemonManager {
 
     async fn wait_for_ready(&self) -> Result<()> {
         let socket_path = paths::socket_path()?;
-        for _ in 0..50 {
+        for _ in 0..400 {
             if is_daemon_available(&socket_path).await {
                 return Ok(());
             }

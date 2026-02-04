@@ -52,7 +52,6 @@ jobs:
           - restflow-core
           - restflow-ai
           - restflow-tauri
-          - restflow-server
           - restflow-cli
 
     steps:
@@ -96,7 +95,6 @@ jobs:
           - restflow-core
           - restflow-ai
           - restflow-tauri
-          - restflow-server
           - restflow-cli
 
     steps:
@@ -176,9 +174,6 @@ jobs:
           echo "CARGO_INCREMENTAL=0" >> $GITHUB_ENV
           echo "CARGO_BUILD_JOBS=1" >> $GITHUB_ENV
           echo "RUSTFLAGS=-C debuginfo=0 -C link-arg=/DEBUG:NONE" >> $GITHUB_ENV
-
-      - name: Build restflow-server
-        run: cargo build --release --package restflow-server --target ${{ matrix.target }}
 
       - name: Build restflow-cli
         run: cargo build --release --package restflow-cli --target ${{ matrix.target }}

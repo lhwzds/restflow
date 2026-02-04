@@ -16,8 +16,11 @@ import router from './router'
 import './style.scss'
 
 async function enableMocking() {
-  // Enable MSW only in demo mode
-  if (import.meta.env.VITE_DEMO_MODE === 'true') {
+  const isPlaywright =
+    typeof navigator !== 'undefined' && navigator.userAgent.includes('Playwright')
+
+  // Enable MSW in demo mode or during Playwright E2E runs
+  if (import.meta.env.VITE_DEMO_MODE === 'true' || isPlaywright) {
     const { worker } = await import('./mocks/browser')
 
     return worker.start({

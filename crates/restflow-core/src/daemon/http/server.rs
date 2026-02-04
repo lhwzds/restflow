@@ -24,8 +24,13 @@ pub struct HttpConfig {
 
 impl Default for HttpConfig {
     fn default() -> Self {
+        let host = std::env::var("RESTFLOW_HTTP_HOST")
+            .ok()
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| "127.0.0.1".to_string());
+
         Self {
-            host: "127.0.0.1".to_string(),
+            host,
             port: 3000,
             cors_origins: vec![
                 "http://localhost:5173".to_string(),

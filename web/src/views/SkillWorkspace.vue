@@ -51,6 +51,8 @@ const isFullscreen = ref(false)
 let unlistenFullscreen: (() => void) | null = null
 
 onMounted(async () => {
+  if (!isTauriApp) return
+
   const appWindow = getCurrentWindow()
   // Check initial state
   isFullscreen.value = await appWindow.isFullscreen()

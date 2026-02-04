@@ -1,7 +1,7 @@
 //! Agent service layer
 //!
 //! Agent execution is handled by restflow-ai's AgentExecutor.
-//! Use restflow-server's /api/agents endpoints for agent execution.
+//! Use the daemon HTTP /api/agents endpoints for agent execution.
 
 use crate::{AppCore, models::AgentNode, storage::agent::StoredAgent};
 use anyhow::{Context, Result};
@@ -53,7 +53,7 @@ pub async fn delete_agent(core: &Arc<AppCore>, id: &str) -> Result<()> {
 }
 
 // TODO: Implement agent execution using restflow-ai AgentExecutor
-// For now, agent execution should use restflow-server's /api/agents/execute endpoint
+// For now, agent execution should use the daemon /api/agents/execute endpoint
 
 #[cfg(test)]
 mod tests {
