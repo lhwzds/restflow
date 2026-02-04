@@ -14,10 +14,10 @@ pub fn router() -> Router {
     Router::new()
         .route("/profiles", get(list_profiles).post(create_profile))
         .route(
-            "/profiles/:id",
+            "/profiles/{id}",
             get(get_profile).put(update_profile).delete(delete_profile),
         )
-        .route("/profiles/:id/test", post(test_profile))
+        .route("/profiles/{id}/test", post(test_profile))
         .route("/discover", post(discover_auth))
 }
 
