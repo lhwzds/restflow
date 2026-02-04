@@ -17,8 +17,6 @@ pub struct CompactionConfig {
     pub max_summary_tokens: usize,
     /// Whether to auto-compact when threshold is reached.
     pub auto_compact: bool,
-    /// Optional model override for summarization.
-    pub summary_model: Option<String>,
 }
 
 impl Default for CompactionConfig {
@@ -28,7 +26,6 @@ impl Default for CompactionConfig {
             keep_recent_user_tokens: 20_000,
             max_summary_tokens: 2_000,
             auto_compact: true,
-            summary_model: None,
         }
     }
 }
@@ -75,12 +72,29 @@ impl CategorizedMessages {
                     output.push_str("\n\n");
                 }
                 Role::Assistant => {
-                    output.push_str("Assistant: ");
-                    output.push_str(&msg.content);
-                    output.push_str("\n\n");
+                    if let Some(tool_calls) = msg.tool_calls.as_ref() {
+                        for call in tool_calls {
+                            output.push_str("Assistant (tool call): ");
+                            output.push_str(&call.name);
+                            output.push(' ');
+                            output.push_str(&call.arguments.to_string());
+                            output.push_str("\n\n");
+                        }
+                    }
+                    if !msg.content.is_empty() {
+                        output.push_str("Assistant: ");
+                        output.push_str(&msg.content);
+                        output.push_str("\n\n");
+                    }
                 }
                 Role::Tool => {
-                    output.push_str("Tool: ");
+                    output.push_str("Tool result");
+                    if let Some(tool_call_id) = msg.tool_call_id.as_ref() {
+                        output.push_str(" (id: ");
+                        output.push_str(tool_call_id);
+                        output.push(')');
+                    }
+                    output.push_str(": ");
                     output.push_str(&msg.content);
                     output.push_str("\n\n");
                 }
@@ -203,7 +217,6 @@ pub fn build_compacted_history(
 ) -> Vec<Message> {
     let mut history = Vec::new();
     history.extend(system_messages);
-    history.extend(recent_user_messages);
 
     let summary_message = Message {
         role: Role::System,
@@ -216,6 +229,7 @@ pub fn build_compacted_history(
         name: None,
     };
     history.push(summary_message);
+    history.extend(recent_user_messages);
     history
 }
 
