@@ -5,8 +5,12 @@
 
 use anyhow::Result;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio_stream::StreamExt;
 use tracing::{debug, error, info, warn};
+
+/// Timeout for handling a single message (seconds)
+const MESSAGE_HANDLER_TIMEOUT_SECS: u64 = 120;
 
 use restflow_core::channel::{ChannelRouter, InboundMessage};
 
@@ -98,22 +102,56 @@ fn start_message_handler_internal<T: TaskTrigger + 'static>(
                 info!("Listening for messages on {:?}", channel_type);
 
                 let mut stream = stream;
-                while let Some(message) = stream.next().await {
-                    if let Err(e) = handle_message_routed(
+                loop {
+                    let message = match stream.next().await {
+                        Some(msg) => msg,
+                        None => {
+                            warn!("Message stream ended for {:?}", channel_type);
+                            break;
+                        }
+                    };
+
+                    debug!(
+                        "Handler received message {} from {}",
+                        message.id, message.conversation_id
+                    );
+
+                    // Wrap message handling with timeout to prevent hanging
+                    let handler_future = handle_message_routed(
                         &router,
                         &msg_router,
                         trigger.as_ref(),
                         chat_dispatcher.as_ref().map(|d| d.as_ref()),
                         &message,
                         &config,
-                    )
-                    .await
-                    {
-                        error!("Error handling message: {}", e);
-                    }
-                }
+                    );
 
-                warn!("Message stream ended for {:?}", channel_type);
+                    let result = tokio::time::timeout(
+                        Duration::from_secs(MESSAGE_HANDLER_TIMEOUT_SECS),
+                        handler_future,
+                    )
+                    .await;
+
+                    match result {
+                        Ok(Ok(())) => {
+                            debug!("Message {} handled successfully", message.id);
+                        }
+                        Ok(Err(e)) => {
+                            error!(
+                                "Error handling message {} from {}: {}",
+                                message.id, message.conversation_id, e
+                            );
+                        }
+                        Err(_) => {
+                            error!(
+                                "TIMEOUT handling message {} from {} ({}s exceeded)",
+                                message.id, message.conversation_id, MESSAGE_HANDLER_TIMEOUT_SECS
+                            );
+                        }
+                    }
+
+                    // Continue processing next message regardless of error
+                }
             });
         }
     }

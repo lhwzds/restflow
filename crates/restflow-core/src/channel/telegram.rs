@@ -18,6 +18,8 @@ use super::traits::{Channel, StreamReceiver};
 use super::types::{ChannelType, InboundMessage, OutboundMessage};
 
 const TELEGRAM_API_BASE: &str = "https://api.telegram.org/bot";
+/// Default timeout for Telegram API calls (seconds)
+const API_TIMEOUT_SECS: u64 = 30;
 
 /// Telegram channel configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -127,7 +129,13 @@ impl TelegramChannel {
             params["reply_to_message_id"] = serde_json::Value::Number(id.into());
         }
 
-        let response = self.client.post(&url).json(&params).send().await?;
+        let response = self
+            .client
+            .post(&url)
+            .json(&params)
+            .timeout(std::time::Duration::from_secs(API_TIMEOUT_SECS))
+            .send()
+            .await?;
 
         if response.status().is_success() {
             let api_response: TelegramResponse<TelegramMessageResponse> = response.json().await?;
@@ -226,7 +234,12 @@ impl TelegramChannel {
     /// Test the connection by calling getMe
     pub async fn test_connection(&self) -> Result<TelegramUser> {
         let url = self.api_url("getMe");
-        let response = self.client.get(&url).send().await?;
+        let response = self
+            .client
+            .get(&url)
+            .timeout(std::time::Duration::from_secs(API_TIMEOUT_SECS))
+            .send()
+            .await?;
 
         let body: TelegramResponse<TelegramUser> = response.json().await?;
 
@@ -249,7 +262,13 @@ impl TelegramChannel {
             "action": "typing",
         });
 
-        let response = self.client.post(&url).json(&params).send().await?;
+        let response = self
+            .client
+            .post(&url)
+            .json(&params)
+            .timeout(std::time::Duration::from_secs(API_TIMEOUT_SECS))
+            .send()
+            .await?;
 
         if response.status().is_success() {
             let api_response: TelegramResponse<bool> = response.json().await?;
