@@ -26,7 +26,7 @@ COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
 COPY --from=frontend-builder /app/web/dist ./web/dist
 
-RUN cargo build --release --package restflow-server
+RUN cargo build --release --package restflow-cli
 
 FROM debian:bookworm-slim
 WORKDIR /app
@@ -35,9 +35,9 @@ RUN apt-get update && \
     apt-get install -y ca-certificates && \
     rm -rf /var/lib/apt/lists/*
 
-COPY --from=backend-builder /app/target/release/restflow-server /usr/local/bin/restflow
+COPY --from=backend-builder /app/target/release/restflow /usr/local/bin/restflow
 
 EXPOSE 3000
 
 # Run the application
-CMD ["restflow"]
+CMD ["restflow", "start", "--http", "--no-browser"]

@@ -31,5 +31,4 @@ LICENSE
 # Build artifacts (we'll rebuild in Docker)
 web/dist
 crates/restflow-core/target
-crates/restflow-server/target
 crates/restflow-desktop/target
