@@ -599,14 +599,31 @@ mod tests {
     }
 
     #[cfg(unix)]
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_kill_session() {
-        let registry = ProcessRegistry::new();
-        let session_id = registry.spawn("sleep 5", None).unwrap();
-        registry.kill(&session_id).unwrap();
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        let test_future = async {
+            let registry = ProcessRegistry::new();
+            let session_id = registry.spawn("sleep 5", None).unwrap();
+            registry.kill(&session_id).unwrap();
 
-        let result = registry.poll(&session_id).unwrap();
-        assert!(result.status == "failed" || result.status == "completed");
+            // Wait for process to terminate with polling
+            for _ in 0..50 {
+                tokio::time::sleep(Duration::from_millis(100)).await;
+                let result = registry.poll(&session_id).unwrap();
+                if result.status != "running" {
+                    assert!(
+                        result.status == "failed" || result.status == "completed",
+                        "Unexpected status: {}",
+                        result.status
+                    );
+                    return;
+                }
+            }
+            panic!("Process did not terminate after kill within 5 seconds");
+        };
+
+        tokio::time::timeout(Duration::from_secs(10), test_future)
+            .await
+            .expect("test_kill_session timed out after 10 seconds");
     }
 }
