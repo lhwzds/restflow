@@ -157,6 +157,9 @@ pub enum IpcRequest {
     GetApiKey {
         provider: AuthProvider,
     },
+    GetAuthProfileKey {
+        id: String,
+    },
     TestAuthProfile {
         id: String,
     },

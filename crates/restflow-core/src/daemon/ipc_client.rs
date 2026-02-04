@@ -240,6 +240,17 @@ impl IpcClient {
         Ok(resp.api_key)
     }
 
+    pub async fn get_auth_profile_key(&mut self, id: String) -> Result<String> {
+        #[derive(serde::Deserialize)]
+        struct ApiKeyResponse {
+            api_key: String,
+        }
+        let resp: ApiKeyResponse = self
+            .request_typed(IpcRequest::GetAuthProfileKey { id })
+            .await?;
+        Ok(resp.api_key)
+    }
+
     pub async fn test_auth_profile(&mut self, id: String) -> Result<bool> {
         #[derive(serde::Deserialize)]
         struct TestResponse {

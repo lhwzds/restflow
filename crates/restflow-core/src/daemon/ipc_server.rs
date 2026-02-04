@@ -492,6 +492,22 @@ impl IpcServer {
                     None => IpcResponse::not_found("Auth profile"),
                 }
             }
+            IpcRequest::GetAuthProfileKey { id } => {
+                let manager = match build_auth_manager(core).await {
+                    Ok(manager) => manager,
+                    Err(err) => return IpcResponse::error(500, err.to_string()),
+                };
+                match manager.get_profile(&id).await {
+                    Some(profile) => match profile.get_api_key(manager.resolver()) {
+                        Ok(key) => IpcResponse::success(serde_json::json!({
+                            "profile_id": profile.id,
+                            "api_key": key,
+                        })),
+                        Err(err) => IpcResponse::error(500, err.to_string()),
+                    },
+                    None => IpcResponse::not_found("Auth profile"),
+                }
+            }
             IpcRequest::TestAuthProfile { id } => {
                 let manager = match build_auth_manager(core).await {
                     Ok(manager) => manager,
