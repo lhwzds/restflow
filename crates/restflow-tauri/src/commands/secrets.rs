@@ -8,10 +8,9 @@ use tauri::State;
 #[tauri::command]
 pub async fn list_secrets(state: State<'_, AppState>) -> Result<Vec<SecretInfo>, String> {
     let secrets = state
-        .core
-        .storage
-        .secrets
+        .executor()
         .list_secrets()
+        .await
         .map_err(|e| e.to_string())?;
 
     // Return secrets without actual values for security (already cleared by storage)
@@ -49,12 +48,21 @@ pub async fn create_secret(
     state: State<'_, AppState>,
     request: CreateSecretRequest,
 ) -> Result<SecretInfo, String> {
-    // Use create_secret which fails if already exists
+    // Check if secret already exists
+    let existing = state
+        .executor()
+        .get_secret(request.key.clone())
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if existing.is_some() {
+        return Err(format!("Secret '{}' already exists", request.key));
+    }
+
     state
-        .core
-        .storage
-        .secrets
-        .create_secret(&request.key, &request.value, request.description.clone())
+        .executor()
+        .set_secret(request.key.clone(), request.value, request.description.clone())
+        .await
         .map_err(|e| e.to_string())?;
 
     let now = chrono::Utc::now().timestamp_millis();
@@ -80,20 +88,28 @@ pub async fn update_secret(
     key: String,
     request: UpdateSecretRequest,
 ) -> Result<SecretInfo, String> {
-    // Use update_secret which fails if not exists
-    state
-        .core
-        .storage
-        .secrets
-        .update_secret(&key, &request.value, request.description.clone())
+    // Check if secret exists
+    let existing = state
+        .executor()
+        .get_secret(key.clone())
+        .await
         .map_err(|e| e.to_string())?;
 
-    // Get the updated secret info from list (since get_secret only returns value)
+    if existing.is_none() {
+        return Err(format!("Secret '{}' not found", key));
+    }
+
+    state
+        .executor()
+        .set_secret(key.clone(), request.value, request.description.clone())
+        .await
+        .map_err(|e| e.to_string())?;
+
+    // Get the updated secret info from list
     let secrets = state
-        .core
-        .storage
-        .secrets
+        .executor()
         .list_secrets()
+        .await
         .map_err(|e| e.to_string())?;
 
     let secret = secrets
@@ -113,20 +129,20 @@ pub async fn update_secret(
 #[tauri::command]
 pub async fn delete_secret(state: State<'_, AppState>, key: String) -> Result<(), String> {
     state
-        .core
-        .storage
-        .secrets
-        .delete_secret(&key)
+        .executor()
+        .delete_secret(key)
+        .await
         .map_err(|e| e.to_string())
 }
 
 /// Check if a secret exists
 #[tauri::command]
 pub async fn has_secret(state: State<'_, AppState>, key: String) -> Result<bool, String> {
-    state
-        .core
-        .storage
-        .secrets
-        .has_secret(&key)
-        .map_err(|e| e.to_string())
+    let secret = state
+        .executor()
+        .get_secret(key)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(secret.is_some())
 }

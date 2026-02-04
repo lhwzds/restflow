@@ -1,5 +1,5 @@
 use crate::auth::{AuthProvider, Credential, CredentialSource, ProfileUpdate};
-use crate::models::{AgentNode, ChatRole, Skill, TaskSchedule};
+use crate::models::{AgentNode, AgentTask, ChatRole, Skill, TaskSchedule};
 use crate::storage::SystemConfig;
 use serde::{Deserialize, Serialize};
 
@@ -53,6 +53,12 @@ pub enum IpcRequest {
         name: String,
         agent_id: String,
         schedule: TaskSchedule,
+    },
+    UpdateTask {
+        task: AgentTask,
+    },
+    DeleteTask {
+        id: String,
     },
     RunTask {
         id: String,

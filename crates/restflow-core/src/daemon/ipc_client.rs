@@ -251,6 +251,50 @@ impl IpcClient {
         Ok(resp.ok)
     }
 
+    pub async fn list_tasks(&mut self) -> Result<Vec<AgentTask>> {
+        self.request_typed(IpcRequest::ListTasks).await
+    }
+
+    pub async fn get_task(&mut self, id: String) -> Result<Option<AgentTask>> {
+        match self.request(IpcRequest::GetTask { id }).await? {
+            IpcResponse::Success(value) => Ok(Some(serde_json::from_value(value)?)),
+            IpcResponse::Error { code: 404, .. } => Ok(None),
+            IpcResponse::Error { code, message } => {
+                bail!("IPC error {}: {}", code, message)
+            }
+            IpcResponse::Pong => bail!("Unexpected Pong response"),
+        }
+    }
+
+    pub async fn create_task(
+        &mut self,
+        name: String,
+        agent_id: String,
+        schedule: crate::models::TaskSchedule,
+    ) -> Result<AgentTask> {
+        self.request_typed(IpcRequest::CreateTask {
+            name,
+            agent_id,
+            schedule,
+        })
+        .await
+    }
+
+    pub async fn update_task(&mut self, task: AgentTask) -> Result<AgentTask> {
+        self.request_typed(IpcRequest::UpdateTask { task }).await
+    }
+
+    pub async fn delete_task(&mut self, id: String) -> Result<bool> {
+        #[derive(serde::Deserialize)]
+        struct DeleteResponse {
+            deleted: bool,
+        }
+        let resp: DeleteResponse = self
+            .request_typed(IpcRequest::DeleteTask { id })
+            .await?;
+        Ok(resp.deleted)
+    }
+
     pub async fn pause_task(&mut self, id: String) -> Result<AgentTask> {
         self.request_typed(IpcRequest::PauseTask { id }).await
     }
