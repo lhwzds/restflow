@@ -2,7 +2,7 @@ use super::ipc_protocol::{IpcRequest, IpcResponse, MAX_MESSAGE_SIZE};
 use crate::auth::{AuthProfile, AuthProvider, Credential, CredentialSource, ProfileUpdate};
 use crate::memory::ExportResult;
 use crate::models::{
-    AgentTask, ChatMessage, ChatRole, ChatSession, ChatSessionSummary, MemoryChunk,
+    AgentTask, ChatMessage, ChatRole, ChatSession, ChatSessionSummary, ChatSessionUpdate, MemoryChunk,
     MemorySearchResult, MemoryStats, TaskEvent,
 };
 use anyhow::{Context, Result, bail};
@@ -135,6 +135,29 @@ impl IpcClient {
         self.request_typed(IpcRequest::ListSessions).await
     }
 
+    pub async fn list_full_sessions(&mut self) -> Result<Vec<ChatSession>> {
+        self.request_typed(IpcRequest::ListFullSessions).await
+    }
+
+    pub async fn list_sessions_by_agent(&mut self, agent_id: String) -> Result<Vec<ChatSession>> {
+        self.request_typed(IpcRequest::ListSessionsByAgent { agent_id })
+            .await
+    }
+
+    pub async fn list_sessions_by_skill(&mut self, skill_id: String) -> Result<Vec<ChatSession>> {
+        self.request_typed(IpcRequest::ListSessionsBySkill { skill_id })
+            .await
+    }
+
+    pub async fn count_sessions(&mut self) -> Result<usize> {
+        self.request_typed(IpcRequest::CountSessions).await
+    }
+
+    pub async fn delete_sessions_older_than(&mut self, older_than_ms: i64) -> Result<usize> {
+        self.request_typed(IpcRequest::DeleteSessionsOlderThan { older_than_ms })
+            .await
+    }
+
     pub async fn get_session(&mut self, id: String) -> Result<ChatSession> {
         self.request_typed(IpcRequest::GetSession { id }).await
     }
@@ -143,9 +166,29 @@ impl IpcClient {
         &mut self,
         agent_id: Option<String>,
         model: Option<String>,
+        name: Option<String>,
+        skill_id: Option<String>,
     ) -> Result<ChatSession> {
-        self.request_typed(IpcRequest::CreateSession { agent_id, model })
+        self.request_typed(IpcRequest::CreateSession {
+            agent_id,
+            model,
+            name,
+            skill_id,
+        })
+        .await
+    }
+
+    pub async fn update_session(
+        &mut self,
+        id: String,
+        updates: ChatSessionUpdate,
+    ) -> Result<ChatSession> {
+        self.request_typed(IpcRequest::UpdateSession { id, updates })
             .await
+    }
+
+    pub async fn rename_session(&mut self, id: String, name: String) -> Result<ChatSession> {
+        self.request_typed(IpcRequest::RenameSession { id, name }).await
     }
 
     pub async fn delete_session(&mut self, id: String) -> Result<bool> {
@@ -176,6 +219,15 @@ impl IpcClient {
             content,
         })
         .await
+    }
+
+    pub async fn append_message(
+        &mut self,
+        session_id: String,
+        message: ChatMessage,
+    ) -> Result<ChatSession> {
+        self.request_typed(IpcRequest::AppendMessage { session_id, message })
+            .await
     }
 
     pub async fn get_session_messages(

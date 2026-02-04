@@ -1,8 +1,9 @@
 use super::ipc_protocol::{IpcRequest, IpcResponse, MAX_MESSAGE_SIZE};
+use chrono::Utc;
 use crate::auth::{AuthManagerConfig, AuthProfileManager};
 use crate::memory::MemoryExporter;
 use crate::models::{
-    AgentTaskStatus, ChatMessage, ChatRole, ChatSessionSummary, MemoryChunk, MemorySearchQuery,
+    AgentTaskStatus, ChatExecutionStatus, ChatMessage, ChatRole, ChatSessionSummary, MemoryChunk, MemorySearchQuery, MessageExecution,
 };
 use crate::services::{
     agent as agent_service, config as config_service, secrets as secrets_service,
@@ -330,19 +331,106 @@ impl IpcServer {
                 Ok(summaries) => IpcResponse::success(summaries),
                 Err(err) => IpcResponse::error(500, err.to_string()),
             },
+            IpcRequest::ListFullSessions => match core.storage.chat_sessions.list() {
+                Ok(sessions) => IpcResponse::success(sessions),
+                Err(err) => IpcResponse::error(500, err.to_string()),
+            },
+            IpcRequest::ListSessionsByAgent { agent_id } => {
+                match core.storage.chat_sessions.list_by_agent(&agent_id) {
+                    Ok(sessions) => IpcResponse::success(sessions),
+                    Err(err) => IpcResponse::error(500, err.to_string()),
+                }
+            }
+            IpcRequest::ListSessionsBySkill { skill_id } => {
+                match core.storage.chat_sessions.list_by_skill(&skill_id) {
+                    Ok(sessions) => IpcResponse::success(sessions),
+                    Err(err) => IpcResponse::error(500, err.to_string()),
+                }
+            }
+            IpcRequest::CountSessions => match core.storage.chat_sessions.count() {
+                Ok(count) => IpcResponse::success(count),
+                Err(err) => IpcResponse::error(500, err.to_string()),
+            },
+            IpcRequest::DeleteSessionsOlderThan { older_than_ms } => {
+                match core.storage.chat_sessions.delete_older_than(older_than_ms) {
+                    Ok(deleted) => IpcResponse::success(deleted),
+                    Err(err) => IpcResponse::error(500, err.to_string()),
+                }
+            }
             IpcRequest::GetSession { id } => match core.storage.chat_sessions.get(&id) {
                 Ok(Some(session)) => IpcResponse::success(session),
                 Ok(None) => IpcResponse::not_found("Session"),
                 Err(err) => IpcResponse::error(500, err.to_string()),
             },
-            IpcRequest::CreateSession { agent_id, model } => {
+            IpcRequest::CreateSession {
+                agent_id,
+                model,
+                name,
+                skill_id,
+            } => {
                 let agent_id = match resolve_agent_id(core, agent_id) {
                     Ok(agent_id) => agent_id,
                     Err(err) => return IpcResponse::error(400, err.to_string()),
                 };
                 let model = model.unwrap_or_else(|| "default".to_string());
-                let session = crate::models::ChatSession::new(agent_id, model);
+                let mut session = crate::models::ChatSession::new(agent_id, model);
+                if let Some(name) = name {
+                    session = session.with_name(name);
+                }
+                if let Some(skill_id) = skill_id {
+                    session = session.with_skill(skill_id);
+                }
                 match core.storage.chat_sessions.create(&session) {
+                    Ok(()) => IpcResponse::success(session),
+                    Err(err) => IpcResponse::error(500, err.to_string()),
+                }
+            }
+            IpcRequest::UpdateSession { id, updates } => {
+                let mut session = match core.storage.chat_sessions.get(&id) {
+                    Ok(Some(session)) => session,
+                    Ok(None) => return IpcResponse::not_found("Session"),
+                    Err(err) => return IpcResponse::error(500, err.to_string()),
+                };
+
+                let mut updated = false;
+                let mut name_updated = false;
+
+                if let Some(agent_id) = updates.agent_id {
+                    session.agent_id = agent_id;
+                    updated = true;
+                }
+
+                if let Some(model) = updates.model {
+                    session.model = model;
+                    updated = true;
+                }
+
+                if let Some(name) = updates.name {
+                    session.rename(name);
+                    updated = true;
+                    name_updated = true;
+                }
+
+                if updated {
+                    if !name_updated {
+                        session.updated_at = Utc::now().timestamp_millis();
+                    }
+
+                    if let Err(err) = core.storage.chat_sessions.update(&session) {
+                        return IpcResponse::error(500, err.to_string());
+                    }
+                }
+
+                IpcResponse::success(session)
+            }
+            IpcRequest::RenameSession { id, name } => {
+                let mut session = match core.storage.chat_sessions.get(&id) {
+                    Ok(Some(session)) => session,
+                    Ok(None) => return IpcResponse::not_found("Session"),
+                    Err(err) => return IpcResponse::error(500, err.to_string()),
+                };
+                session.rename(name);
+                match core.storage.chat_sessions.update(&session) {
                     Ok(()) => IpcResponse::success(session),
                     Err(err) => IpcResponse::error(500, err.to_string()),
                 }
@@ -378,12 +466,47 @@ impl IpcServer {
                     Ok(None) => return IpcResponse::not_found("Session"),
                     Err(err) => return IpcResponse::error(500, err.to_string()),
                 };
-                let message = match role {
+                let mut message = match role {
                     ChatRole::User => ChatMessage::user(content),
                     ChatRole::Assistant => ChatMessage::assistant(content),
                     ChatRole::System => ChatMessage::system(content),
                 };
+                if message.role == ChatRole::Assistant && message.execution.is_none() {
+                    message.execution = Some(MessageExecution {
+                        steps: Vec::new(),
+                        duration_ms: 0,
+                        tokens_used: 0,
+                        status: ChatExecutionStatus::Completed,
+                    });
+                }
                 session.add_message(message);
+                if session.name == "New Chat" && session.messages.len() == 1 {
+                    session.auto_name_from_first_message();
+                }
+                match core.storage.chat_sessions.update(&session) {
+                    Ok(()) => IpcResponse::success(session),
+                    Err(err) => IpcResponse::error(500, err.to_string()),
+                }
+            }
+            IpcRequest::AppendMessage { session_id, message } => {
+                let mut session = match core.storage.chat_sessions.get(&session_id) {
+                    Ok(Some(session)) => session,
+                    Ok(None) => return IpcResponse::not_found("Session"),
+                    Err(err) => return IpcResponse::error(500, err.to_string()),
+                };
+                let mut message = message;
+                if message.role == ChatRole::Assistant && message.execution.is_none() {
+                    message.execution = Some(MessageExecution {
+                        steps: Vec::new(),
+                        duration_ms: 0,
+                        tokens_used: 0,
+                        status: ChatExecutionStatus::Completed,
+                    });
+                }
+                session.add_message(message);
+                if session.name == "New Chat" && session.messages.len() == 1 {
+                    session.auto_name_from_first_message();
+                }
                 match core.storage.chat_sessions.update(&session) {
                     Ok(()) => IpcResponse::success(session),
                     Err(err) => IpcResponse::error(500, err.to_string()),
