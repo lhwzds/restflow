@@ -13,7 +13,7 @@ pub fn router() -> Router {
     Router::new()
         .route("/", get(list_sessions).post(create_session))
         .route("/search", get(search_sessions))
-        .route("/:id", get(get_session).delete(delete_session))
+        .route("/{id}", get(get_session).delete(delete_session))
 }
 
 async fn list_sessions(
