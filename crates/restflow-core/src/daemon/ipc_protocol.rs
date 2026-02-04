@@ -1,5 +1,5 @@
 use crate::auth::{AuthProvider, Credential, CredentialSource, ProfileUpdate};
-use crate::models::{AgentNode, AgentTask, ChatRole, Skill, TaskSchedule};
+use crate::models::{AgentNode, AgentTask, ChatRole, ChatSession, Skill, TaskSchedule};
 use crate::storage::SystemConfig;
 use serde::{Deserialize, Serialize};
 
@@ -120,6 +120,9 @@ pub enum IpcRequest {
         agent_id: Option<String>,
         model: Option<String>,
     },
+    UpdateSession {
+        session: ChatSession,
+    },
     DeleteSession {
         id: String,
     },
@@ -156,6 +159,9 @@ pub enum IpcRequest {
     DiscoverAuth,
     GetApiKey {
         provider: AuthProvider,
+    },
+    GetApiKeyForProfile {
+        id: String,
     },
     TestAuthProfile {
         id: String,
@@ -208,16 +214,28 @@ pub enum IpcResponse {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
 pub enum StreamFrame {
-    Start { stream_id: String },
-    Data { content: String },
+    Start {
+        stream_id: String,
+    },
+    Data {
+        content: String,
+    },
     ToolCall {
         id: String,
         name: String,
         arguments: serde_json::Value,
     },
-    ToolResult { id: String, result: String },
-    Done { total_tokens: Option<u32> },
-    Error { code: i32, message: String },
+    ToolResult {
+        id: String,
+        result: String,
+    },
+    Done {
+        total_tokens: Option<u32>,
+    },
+    Error {
+        code: i32,
+        message: String,
+    },
 }
 
 impl IpcResponse {
@@ -516,6 +534,21 @@ mod tests {
 
         if let IpcRequest::GetApiKey { provider } = parsed {
             assert!(matches!(provider, AuthProvider::Anthropic));
+        } else {
+            panic!("Wrong variant");
+        }
+    }
+
+    #[test]
+    fn test_get_api_key_for_profile_serialization() {
+        let request = IpcRequest::GetApiKeyForProfile {
+            id: "profile-1".to_string(),
+        };
+        let json = serde_json::to_string(&request).unwrap();
+        let parsed: IpcRequest = serde_json::from_str(&json).unwrap();
+
+        if let IpcRequest::GetApiKeyForProfile { id } = parsed {
+            assert_eq!(id, "profile-1");
         } else {
             panic!("Wrong variant");
         }

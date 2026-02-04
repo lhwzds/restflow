@@ -1,4 +1,5 @@
 use super::ipc_protocol::{IpcRequest, IpcResponse, MAX_MESSAGE_SIZE};
+use crate::AppCore;
 use crate::auth::{AuthManagerConfig, AuthProfileManager};
 use crate::memory::MemoryExporter;
 use crate::models::{
@@ -8,7 +9,6 @@ use crate::services::{
     agent as agent_service, config as config_service, secrets as secrets_service,
     skills as skills_service,
 };
-use crate::AppCore;
 use anyhow::Result;
 use restflow_storage::AuthProfileStorage;
 use std::path::PathBuf;
@@ -180,12 +180,10 @@ impl IpcServer {
                     Err(err) => IpcResponse::error(500, err.to_string()),
                 }
             }
-            IpcRequest::UpdateTask { task } => {
-                match core.storage.agent_tasks.update_task(&task) {
-                    Ok(()) => IpcResponse::success(task),
-                    Err(err) => IpcResponse::error(500, err.to_string()),
-                }
-            }
+            IpcRequest::UpdateTask { task } => match core.storage.agent_tasks.update_task(&task) {
+                Ok(()) => IpcResponse::success(task),
+                Err(err) => IpcResponse::error(500, err.to_string()),
+            },
             IpcRequest::DeleteTask { id } => match core.storage.agent_tasks.delete_task(&id) {
                 Ok(deleted) => IpcResponse::success(serde_json::json!({ "deleted": deleted })),
                 Err(err) => IpcResponse::error(500, err.to_string()),
@@ -252,21 +250,17 @@ impl IpcServer {
             }
             IpcRequest::ListMemory { agent_id, tag } => {
                 let result = match (agent_id, tag) {
-                    (Some(agent_id), Some(tag)) => core
-                        .storage
-                        .memory
-                        .list_chunks(&agent_id)
-                        .map(|chunks| {
+                    (Some(agent_id), Some(tag)) => {
+                        core.storage.memory.list_chunks(&agent_id).map(|chunks| {
                             chunks
                                 .into_iter()
                                 .filter(|chunk| chunk.tags.iter().any(|t| t == &tag))
                                 .collect::<Vec<_>>()
-                        }),
+                        })
+                    }
                     (Some(agent_id), None) => core.storage.memory.list_chunks(&agent_id),
                     (None, Some(tag)) => core.storage.memory.list_chunks_by_tag(&tag),
-                    (None, None) => {
-                        return IpcResponse::error(400, "agent_id or tag is required")
-                    }
+                    (None, None) => return IpcResponse::error(400, "agent_id or tag is required"),
                 };
                 match result {
                     Ok(chunks) => IpcResponse::success(chunks),
@@ -347,6 +341,12 @@ impl IpcServer {
                     Err(err) => IpcResponse::error(500, err.to_string()),
                 }
             }
+            IpcRequest::UpdateSession { session } => {
+                match core.storage.chat_sessions.update(&session) {
+                    Ok(()) => IpcResponse::success(session),
+                    Err(err) => IpcResponse::error(500, err.to_string()),
+                }
+            }
             IpcRequest::DeleteSession { id } => match core.storage.chat_sessions.delete(&id) {
                 Ok(deleted) => IpcResponse::success(serde_json::json!({ "deleted": deleted })),
                 Err(err) => IpcResponse::error(500, err.to_string()),
@@ -358,9 +358,10 @@ impl IpcServer {
                         .into_iter()
                         .filter(|session| {
                             session.name.to_lowercase().contains(&query)
-                                || session.messages.iter().any(|message| {
-                                    message.content.to_lowercase().contains(&query)
-                                })
+                                || session
+                                    .messages
+                                    .iter()
+                                    .any(|message| message.content.to_lowercase().contains(&query))
                         })
                         .map(|session| ChatSessionSummary::from(&session))
                         .collect();
@@ -492,6 +493,22 @@ impl IpcServer {
                     None => IpcResponse::not_found("Auth profile"),
                 }
             }
+            IpcRequest::GetApiKeyForProfile { id } => {
+                let manager = match build_auth_manager(core).await {
+                    Ok(manager) => manager,
+                    Err(err) => return IpcResponse::error(500, err.to_string()),
+                };
+                match manager.get_profile(&id).await {
+                    Some(profile) => match profile.get_api_key(manager.resolver()) {
+                        Ok(key) => IpcResponse::success(serde_json::json!({
+                            "profile_id": profile.id,
+                            "api_key": key,
+                        })),
+                        Err(err) => IpcResponse::error(500, err.to_string()),
+                    },
+                    None => IpcResponse::not_found("Auth profile"),
+                }
+            }
             IpcRequest::TestAuthProfile { id } => {
                 let manager = match build_auth_manager(core).await {
                     Ok(manager) => manager,
@@ -523,10 +540,12 @@ impl IpcServer {
                     Err(err) => IpcResponse::error(500, err.to_string()),
                 }
             }
-            IpcRequest::GetTaskHistory { id } => match core.storage.agent_tasks.list_events_for_task(&id) {
-                Ok(events) => IpcResponse::success(events),
-                Err(err) => IpcResponse::error(500, err.to_string()),
-            },
+            IpcRequest::GetTaskHistory { id } => {
+                match core.storage.agent_tasks.list_events_for_task(&id) {
+                    Ok(events) => IpcResponse::success(events),
+                    Err(err) => IpcResponse::error(500, err.to_string()),
+                }
+            }
             IpcRequest::SubscribeTaskEvents { task_id: _ } => {
                 IpcResponse::error(-3, "Task event streaming not available via IPC")
             }

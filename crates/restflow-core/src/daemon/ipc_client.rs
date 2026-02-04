@@ -104,9 +104,7 @@ impl IpcClient {
         struct DeleteResponse {
             deleted: bool,
         }
-        let resp: DeleteResponse = self
-            .request_typed(IpcRequest::DeleteMemory { id })
-            .await?;
+        let resp: DeleteResponse = self.request_typed(IpcRequest::DeleteMemory { id }).await?;
         Ok(resp.deleted)
     }
 
@@ -148,14 +146,17 @@ impl IpcClient {
             .await
     }
 
+    pub async fn update_session(&mut self, session: ChatSession) -> Result<ChatSession> {
+        self.request_typed(IpcRequest::UpdateSession { session })
+            .await
+    }
+
     pub async fn delete_session(&mut self, id: String) -> Result<bool> {
         #[derive(serde::Deserialize)]
         struct DeleteResponse {
             deleted: bool,
         }
-        let resp: DeleteResponse = self
-            .request_typed(IpcRequest::DeleteSession { id })
-            .await?;
+        let resp: DeleteResponse = self.request_typed(IpcRequest::DeleteSession { id }).await?;
         Ok(resp.deleted)
     }
 
@@ -240,6 +241,17 @@ impl IpcClient {
         Ok(resp.api_key)
     }
 
+    pub async fn get_api_key_for_profile(&mut self, id: String) -> Result<String> {
+        #[derive(serde::Deserialize)]
+        struct ApiKeyResponse {
+            api_key: String,
+        }
+        let resp: ApiKeyResponse = self
+            .request_typed(IpcRequest::GetApiKeyForProfile { id })
+            .await?;
+        Ok(resp.api_key)
+    }
+
     pub async fn test_auth_profile(&mut self, id: String) -> Result<bool> {
         #[derive(serde::Deserialize)]
         struct TestResponse {
@@ -289,9 +301,7 @@ impl IpcClient {
         struct DeleteResponse {
             deleted: bool,
         }
-        let resp: DeleteResponse = self
-            .request_typed(IpcRequest::DeleteTask { id })
-            .await?;
+        let resp: DeleteResponse = self.request_typed(IpcRequest::DeleteTask { id }).await?;
         Ok(resp.deleted)
     }
 
