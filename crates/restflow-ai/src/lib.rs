@@ -28,12 +28,19 @@ pub mod workflow_def;
 pub mod python;
 
 // Re-export commonly used types
-pub use agent::{AgentConfig, AgentExecutor, AgentResult, AgentState, AgentStatus, ExecutionResult, TraceEvent, UnifiedAgent, UnifiedAgentConfig};
-pub use embedding::{EmbeddingCache, EmbeddingConfig, EmbeddingProvider, OpenAIEmbedding, VoyageEmbedding};
+pub use agent::{
+    AgentConfig, AgentExecutor, AgentResult, AgentState, AgentStatus, ExecutionResult, TraceEvent,
+    UnifiedAgent, UnifiedAgentConfig,
+};
+pub use embedding::{
+    EmbeddingCache, EmbeddingConfig, EmbeddingProvider, OpenAIEmbedding, VoyageEmbedding,
+};
 pub use error::{AiError, Result};
 pub use graph::{Graph, GraphNode};
 pub use llm::{AnthropicClient, ClaudeCodeClient, LlmClient, Message, OpenAIClient, Role};
-pub use memory::{DEFAULT_MAX_MESSAGES, WorkingMemory};
+pub use memory::{
+    CompactionConfig, CompactionResult, ContextCompactor, DEFAULT_MAX_MESSAGES, WorkingMemory,
+};
 pub use security::{SecurityDecision, SecurityGate};
 pub use tools::{
     EmailTool, HttpTool, MemorySearchMatch, MemorySearchTool, PythonTool, SemanticMemory,
