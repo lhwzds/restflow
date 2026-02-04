@@ -242,6 +242,8 @@ pub enum TaskEventType {
     NotificationSent,
     /// Notification failed to send
     NotificationFailed,
+    /// Context compaction occurred during execution
+    Compaction,
 }
 
 /// An agent task represents a scheduled execution of an agent
