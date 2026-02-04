@@ -22,6 +22,10 @@ RUN npm run build
 FROM rust:bookworm AS backend-builder
 WORKDIR /app
 
+RUN apt-get update && \
+    apt-get install -y pkg-config libgtk-3-dev && \
+    rm -rf /var/lib/apt/lists/*
+
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
 COPY --from=frontend-builder /app/web/dist ./web/dist
