@@ -4,21 +4,25 @@ use std::sync::Arc;
 
 use crate::cli::SecretCommands;
 use crate::commands::utils::format_timestamp;
+use crate::executor::CommandExecutor;
 use crate::output::{OutputFormat, json::print_json};
-use restflow_core::AppCore;
 use serde_json::json;
 
-pub async fn run(core: Arc<AppCore>, command: SecretCommands, format: OutputFormat) -> Result<()> {
+pub async fn run(
+    executor: Arc<dyn CommandExecutor>,
+    command: SecretCommands,
+    format: OutputFormat,
+) -> Result<()> {
     match command {
-        SecretCommands::List => list_secrets(&core, format).await,
-        SecretCommands::Set { key, value } => set_secret(&core, &key, &value, format).await,
-        SecretCommands::Delete { key } => delete_secret(&core, &key, format).await,
-        SecretCommands::Has { key } => has_secret(&core, &key, format).await,
+        SecretCommands::List => list_secrets(executor, format).await,
+        SecretCommands::Set { key, value } => set_secret(executor, &key, &value, format).await,
+        SecretCommands::Delete { key } => delete_secret(executor, &key, format).await,
+        SecretCommands::Has { key } => has_secret(executor, &key, format).await,
     }
 }
 
-async fn list_secrets(core: &Arc<AppCore>, format: OutputFormat) -> Result<()> {
-    let secrets = core.storage.secrets.list_secrets()?;
+async fn list_secrets(executor: Arc<dyn CommandExecutor>, format: OutputFormat) -> Result<()> {
+    let secrets = executor.list_secrets().await?;
 
     if format.is_json() {
         return print_json(&secrets);
@@ -38,12 +42,12 @@ async fn list_secrets(core: &Arc<AppCore>, format: OutputFormat) -> Result<()> {
 }
 
 async fn set_secret(
-    core: &Arc<AppCore>,
+    executor: Arc<dyn CommandExecutor>,
     key: &str,
     value: &str,
     format: OutputFormat,
 ) -> Result<()> {
-    core.storage.secrets.set_secret(key, value, None)?;
+    executor.set_secret(key, value, None).await?;
 
     if format.is_json() {
         return print_json(&json!({ "set": true, "key": key }));
@@ -53,8 +57,12 @@ async fn set_secret(
     Ok(())
 }
 
-async fn delete_secret(core: &Arc<AppCore>, key: &str, format: OutputFormat) -> Result<()> {
-    core.storage.secrets.delete_secret(key)?;
+async fn delete_secret(
+    executor: Arc<dyn CommandExecutor>,
+    key: &str,
+    format: OutputFormat,
+) -> Result<()> {
+    executor.delete_secret(key).await?;
 
     if format.is_json() {
         return print_json(&json!({ "deleted": true, "key": key }));
@@ -64,8 +72,12 @@ async fn delete_secret(core: &Arc<AppCore>, key: &str, format: OutputFormat) -> 
     Ok(())
 }
 
-async fn has_secret(core: &Arc<AppCore>, key: &str, format: OutputFormat) -> Result<()> {
-    let exists = core.storage.secrets.get_secret(key)?.is_some();
+async fn has_secret(
+    executor: Arc<dyn CommandExecutor>,
+    key: &str,
+    format: OutputFormat,
+) -> Result<()> {
+    let exists = executor.has_secret(key).await?;
 
     if format.is_json() {
         return print_json(&json!({ "key": key, "exists": exists }));

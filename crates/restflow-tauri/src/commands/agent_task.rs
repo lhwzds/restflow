@@ -75,10 +75,9 @@ pub struct UpdateAgentTaskRequest {
 #[tauri::command]
 pub async fn list_agent_tasks(state: State<'_, AppState>) -> Result<Vec<AgentTask>, String> {
     state
-        .core
-        .storage
-        .agent_tasks
+        .executor()
         .list_tasks()
+        .await
         .map_err(|e| e.to_string())
 }
 
@@ -88,11 +87,17 @@ pub async fn list_agent_tasks_by_status(
     state: State<'_, AppState>,
     status: AgentTaskStatus,
 ) -> Result<Vec<AgentTask>, String> {
+    let status_str = match status {
+        AgentTaskStatus::Active => "active",
+        AgentTaskStatus::Paused => "paused",
+        AgentTaskStatus::Running => "running",
+        AgentTaskStatus::Completed => "completed",
+        AgentTaskStatus::Failed => "failed",
+    };
     state
-        .core
-        .storage
-        .agent_tasks
-        .list_tasks_by_status(status)
+        .executor()
+        .list_tasks_by_status(status_str.to_string())
+        .await
         .map_err(|e| e.to_string())
 }
 
@@ -100,10 +105,9 @@ pub async fn list_agent_tasks_by_status(
 #[tauri::command]
 pub async fn get_agent_task(state: State<'_, AppState>, id: String) -> Result<AgentTask, String> {
     state
-        .core
-        .storage
-        .agent_tasks
-        .get_task(&id)
+        .executor()
+        .get_task(id.clone())
+        .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Agent task '{}' not found", id))
 }
@@ -116,10 +120,9 @@ pub async fn create_agent_task(
 ) -> Result<AgentTask, String> {
     // Create the task with basic info
     let mut task = state
-        .core
-        .storage
-        .agent_tasks
+        .executor()
         .create_task(request.name, request.agent_id, request.schedule)
+        .await
         .map_err(|e| e.to_string())?;
 
     // Apply optional fields if provided
@@ -147,11 +150,10 @@ pub async fn create_agent_task(
 
     // Update if we modified any optional fields
     if needs_update {
-        state
-            .core
-            .storage
-            .agent_tasks
-            .update_task(&task)
+        task = state
+            .executor()
+            .update_task(task)
+            .await
             .map_err(|e| e.to_string())?;
     }
 
@@ -167,10 +169,9 @@ pub async fn update_agent_task(
 ) -> Result<AgentTask, String> {
     // Get existing task
     let mut task = state
-        .core
-        .storage
-        .agent_tasks
-        .get_task(&id)
+        .executor()
+        .get_task(id.clone())
+        .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Agent task '{}' not found", id))?;
 
@@ -204,12 +205,11 @@ pub async fn update_agent_task(
     // Update timestamp
     task.updated_at = chrono::Utc::now().timestamp_millis();
 
-    // Save changes
-    state
-        .core
-        .storage
-        .agent_tasks
-        .update_task(&task)
+    // Save changes via executor
+    let task = state
+        .executor()
+        .update_task(task)
+        .await
         .map_err(|e| e.to_string())?;
 
     Ok(task)
@@ -219,10 +219,9 @@ pub async fn update_agent_task(
 #[tauri::command]
 pub async fn delete_agent_task(state: State<'_, AppState>, id: String) -> Result<bool, String> {
     state
-        .core
-        .storage
-        .agent_tasks
-        .delete_task(&id)
+        .executor()
+        .delete_task(id)
+        .await
         .map_err(|e| e.to_string())
 }
 
@@ -230,10 +229,9 @@ pub async fn delete_agent_task(state: State<'_, AppState>, id: String) -> Result
 #[tauri::command]
 pub async fn pause_agent_task(state: State<'_, AppState>, id: String) -> Result<AgentTask, String> {
     state
-        .core
-        .storage
-        .agent_tasks
-        .pause_task(&id)
+        .executor()
+        .pause_task(id)
+        .await
         .map_err(|e| e.to_string())
 }
 
@@ -244,10 +242,9 @@ pub async fn resume_agent_task(
     id: String,
 ) -> Result<AgentTask, String> {
     state
-        .core
-        .storage
-        .agent_tasks
-        .resume_task(&id)
+        .executor()
+        .resume_task(id)
+        .await
         .map_err(|e| e.to_string())
 }
 
@@ -272,21 +269,18 @@ pub async fn get_agent_task_events(
     task_id: String,
     limit: Option<usize>,
 ) -> Result<Vec<TaskEvent>, String> {
-    let events = if let Some(limit) = limit {
-        state
-            .core
-            .storage
-            .agent_tasks
-            .list_recent_events_for_task(&task_id, limit)
-    } else {
-        state
-            .core
-            .storage
-            .agent_tasks
-            .list_events_for_task(&task_id)
-    };
+    let mut events = state
+        .executor()
+        .get_task_history(task_id)
+        .await
+        .map_err(|e| e.to_string())?;
 
-    events.map_err(|e| e.to_string())
+    // Apply limit if specified (IPC doesn't support limit natively)
+    if let Some(limit) = limit {
+        events.truncate(limit);
+    }
+
+    Ok(events)
 }
 
 /// Get runnable tasks (tasks that should run now based on schedule)

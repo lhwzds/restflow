@@ -4,22 +4,25 @@ use serde_json::json;
 use std::sync::Arc;
 
 use crate::cli::ConfigCommands;
+use crate::executor::CommandExecutor;
 use crate::output::{OutputFormat, json::print_json};
-use restflow_core::AppCore;
-use restflow_core::services::config as config_service;
 use restflow_core::storage::SystemConfig;
 
-pub async fn run(core: Arc<AppCore>, command: ConfigCommands, format: OutputFormat) -> Result<()> {
+pub async fn run(
+    executor: Arc<dyn CommandExecutor>,
+    command: ConfigCommands,
+    format: OutputFormat,
+) -> Result<()> {
     match command {
-        ConfigCommands::Show => show_config(&core, format).await,
-        ConfigCommands::Get { key } => get_config_value(&core, &key, format).await,
-        ConfigCommands::Set { key, value } => set_config_value(&core, &key, &value, format).await,
-        ConfigCommands::Reset => reset_config(&core, format).await,
+        ConfigCommands::Show => show_config(executor, format).await,
+        ConfigCommands::Get { key } => get_config_value(executor, &key, format).await,
+        ConfigCommands::Set { key, value } => set_config_value(executor, &key, &value, format).await,
+        ConfigCommands::Reset => reset_config(executor, format).await,
     }
 }
 
-async fn show_config(core: &Arc<AppCore>, format: OutputFormat) -> Result<()> {
-    let config = config_service::get_config(core).await?;
+async fn show_config(executor: Arc<dyn CommandExecutor>, format: OutputFormat) -> Result<()> {
+    let config = executor.get_config().await?;
 
     if format.is_json() {
         return print_json(&config);
@@ -48,8 +51,12 @@ async fn show_config(core: &Arc<AppCore>, format: OutputFormat) -> Result<()> {
     crate::output::table::print_table(table)
 }
 
-async fn get_config_value(core: &Arc<AppCore>, key: &str, format: OutputFormat) -> Result<()> {
-    let config = config_service::get_config(core).await?;
+async fn get_config_value(
+    executor: Arc<dyn CommandExecutor>,
+    key: &str,
+    format: OutputFormat,
+) -> Result<()> {
+    let config = executor.get_config().await?;
 
     let value = match key {
         "worker_count" => json!(config.worker_count),
@@ -68,12 +75,12 @@ async fn get_config_value(core: &Arc<AppCore>, key: &str, format: OutputFormat) 
 }
 
 async fn set_config_value(
-    core: &Arc<AppCore>,
+    executor: Arc<dyn CommandExecutor>,
     key: &str,
     value: &str,
     format: OutputFormat,
 ) -> Result<()> {
-    let mut config = config_service::get_config(core).await?;
+    let mut config = executor.get_config().await?;
 
     match key {
         "worker_count" => {
@@ -91,7 +98,7 @@ async fn set_config_value(
         _ => bail!("Unsupported config key: {key}"),
     }
 
-    config_service::update_config(core, config).await?;
+    executor.set_config(config).await?;
 
     if format.is_json() {
         return print_json(&json!({ "updated": true, "key": key }));
@@ -101,9 +108,9 @@ async fn set_config_value(
     Ok(())
 }
 
-async fn reset_config(core: &Arc<AppCore>, format: OutputFormat) -> Result<()> {
+async fn reset_config(executor: Arc<dyn CommandExecutor>, format: OutputFormat) -> Result<()> {
     let config = SystemConfig::default();
-    config_service::update_config(core, config).await?;
+    executor.set_config(config).await?;
 
     if format.is_json() {
         return print_json(&json!({ "reset": true }));

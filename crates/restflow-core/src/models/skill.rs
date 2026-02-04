@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::models::skill_folder::{SkillGating, SkillReference, SkillScript};
+use crate::models::StorageMode;
 
 /// A skill represents a reusable AI prompt template
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -139,15 +140,6 @@ pub struct SkillFrontmatter {
     pub author: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub license: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq, Eq, Default)]
-#[ts(export)]
-pub enum StorageMode {
-    #[default]
-    DatabaseOnly,
-    FileSystemOnly,
-    Hybrid,
 }
 
 impl Skill {

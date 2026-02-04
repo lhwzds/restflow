@@ -1,7 +1,9 @@
 use crate::daemon::ipc_client;
+use crate::daemon::process::{DaemonConfig, ProcessManager};
 use crate::paths;
 use anyhow::Result;
-use std::process::{Command, Stdio};
+#[cfg(not(unix))]
+use std::process::Command;
 use std::time::Duration;
 use tracing::{debug, info, warn};
 
@@ -30,41 +32,14 @@ pub fn check_daemon_status() -> Result<DaemonStatus> {
 }
 
 pub fn start_daemon() -> Result<u32> {
-    let exe = std::env::current_exe()?;
+    start_daemon_with_config(DaemonConfig::default())
+}
 
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt;
-        let mut cmd = Command::new(&exe);
-        cmd.args(["daemon", "start", "--foreground"])
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null());
-
-        unsafe {
-            cmd.pre_exec(|| {
-                nix::unistd::setsid()
-                    .map(|_| ())
-                    .map_err(std::io::Error::other)
-            });
-        }
-
-        let child = cmd.spawn()?;
-        let pid = child.id();
-        info!(pid, "Daemon started in background");
-        Ok(pid)
-    }
-
-    #[cfg(not(unix))]
-    {
-        let child = Command::new(&exe)
-            .args(["daemon", "start", "--foreground"])
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()?;
-        Ok(child.id())
-    }
+pub fn start_daemon_with_config(config: DaemonConfig) -> Result<u32> {
+    let manager = ProcessManager::new()?;
+    let pid = manager.start(config)?;
+    info!(pid, "Daemon started in background");
+    Ok(pid)
 }
 
 pub fn stop_daemon() -> Result<bool> {
@@ -92,6 +67,10 @@ pub fn stop_daemon() -> Result<bool> {
 }
 
 pub async fn ensure_daemon_running() -> Result<()> {
+    ensure_daemon_running_with_config(DaemonConfig::default()).await
+}
+
+pub async fn ensure_daemon_running_with_config(config: DaemonConfig) -> Result<()> {
     let socket_path = paths::socket_path()?;
     if ipc_client::is_daemon_available(&socket_path).await {
         debug!("Daemon already running");
@@ -111,7 +90,7 @@ pub async fn ensure_daemon_running() -> Result<()> {
         }
         DaemonStatus::NotRunning | DaemonStatus::Stale { .. } => {
             info!("Starting daemon automatically");
-            start_daemon()?;
+            start_daemon_with_config(config)?;
             for _ in 0..30 {
                 tokio::time::sleep(Duration::from_millis(100)).await;
                 if ipc_client::is_daemon_available(&socket_path).await {

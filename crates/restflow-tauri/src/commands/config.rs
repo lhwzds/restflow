@@ -12,12 +12,10 @@ use tauri::State;
 #[tauri::command]
 pub async fn get_config(state: State<'_, AppState>) -> Result<SystemConfig, String> {
     state
-        .core
-        .storage
-        .config
+        .executor()
         .get_config()
-        .map_err(|e| e.to_string())?
-        .ok_or_else(|| "Config not found".to_string())
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// Update system configuration
@@ -27,20 +25,17 @@ pub async fn update_config(
     config: SystemConfig,
 ) -> Result<SystemConfig, String> {
     state
-        .core
-        .storage
-        .config
-        .update_config(config)
+        .executor()
+        .set_config(config)
+        .await
         .map_err(|e| e.to_string())?;
 
     // Return the updated config
     state
-        .core
-        .storage
-        .config
+        .executor()
         .get_config()
-        .map_err(|e| e.to_string())?
-        .ok_or_else(|| "Config not found".to_string())
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// Get available AI models with metadata

@@ -7,7 +7,7 @@ mod api;
 mod auth;
 
 use api::{
-    agent_tasks::*, agents::*, chat_sessions::*, config::*, mcp::mcp_router, memory::memory_routes,
+    agent_tasks::*, agents::*, chat_sessions::*, config::*, memory::memory_routes, mcp::mcp_router,
     models::*, python::*, secrets::*, security::*, skills::*, state::AppState, tools::*,
 };
 use auth::{ApiKeyManager, auth_middleware};

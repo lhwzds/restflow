@@ -4,8 +4,7 @@ use anyhow::{Context, Result};
 use sha2::{Digest, Sha256};
 use walkdir::WalkDir;
 
-use crate::models::{Skill, SkillScript};
-use crate::skill::StorageMode;
+use crate::models::{Skill, SkillScript, StorageMode};
 
 #[derive(Debug, Clone)]
 pub struct SkillFolderLoader {

@@ -8,7 +8,9 @@ pub mod agent_task;
 pub mod channel;
 pub mod chat;
 pub mod commands;
+pub mod daemon_manager;
 pub mod error;
+pub mod executor;
 pub mod mcp;
 pub mod subagent;
 pub mod state;
@@ -35,14 +37,16 @@ pub use chat::{
     CHAT_STREAM_EVENT, ChatStreamEvent, ChatStreamKind, ChatStreamState, StepStatus,
     StreamCancelHandle, StreamManager,
 };
+pub use daemon_manager::DaemonManager;
 pub use error::TauriError;
+pub use executor::TauriExecutor;
+pub use mcp::RestFlowMcpServer;
+pub use state::{AppState, AppTaskTrigger};
 pub use subagent::{
     AgentDefinition, AgentDefinitionRegistry, SpawnHandle, SpawnPriority, SpawnRequest,
     SubagentCompletion, SubagentConfig, SubagentResult, SubagentState, SubagentStatus,
     SubagentTracker, builtin_agents, spawn_subagent,
 };
-pub use mcp::RestFlowMcpServer;
-pub use state::{AppState, AppTaskTrigger};
 pub use webhook::{
     WebhookServerBuilder, WebhookServerConfig, WebhookServerError, WebhookServerHandle,
     WebhookState,
