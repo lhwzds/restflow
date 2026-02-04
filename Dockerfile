@@ -23,7 +23,7 @@ FROM rust:bookworm AS backend-builder
 WORKDIR /app
 
 RUN apt-get update && \
-    apt-get install -y pkg-config libgtk-3-dev libjavascriptcoregtk-4.1-dev libsoup-3.0-dev && \
+    apt-get install -y pkg-config libgtk-3-dev libjavascriptcoregtk-4.1-dev libwebkit2gtk-4.1-dev libsoup-3.0-dev && \
     rm -rf /var/lib/apt/lists/*
 
 COPY Cargo.toml Cargo.lock ./
