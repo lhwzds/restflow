@@ -2,7 +2,11 @@
 //!
 //! Collects context from multiple sources and formats it for prompt injection.
 
-use std::path::Path;
+use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
+use tokio::fs;
+use tracing::{debug, warn};
 
 /// Skill summary for prompt injection.
 #[derive(Debug, Clone)]
@@ -63,12 +67,10 @@ impl AgentContext {
 
         if !self.skills.is_empty() {
             let mut skill_section = String::from("## Available Skills\n\n");
-            skill_section.push_str("Use the skill tool to read skill content before executing.\n\n");
+            skill_section
+                .push_str("Use the skill tool to read skill content before executing.\n\n");
             for skill in &self.skills {
-                let desc = skill
-                    .description
-                    .as_deref()
-                    .unwrap_or("No description");
+                let desc = skill.description.as_deref().unwrap_or("No description");
                 skill_section.push_str(&format!("- **{}** ({}): {}\n", skill.name, skill.id, desc));
             }
             sections.push(skill_section.trim_end().to_string());
@@ -115,19 +117,238 @@ impl AgentContext {
     }
 }
 
-/// Load workspace context file (CLAUDE.md, AGENTS.md, etc.).
-pub fn load_workspace_context(workdir: &Path) -> Option<String> {
-    let candidates = ["CLAUDE.md", "AGENTS.md", ".claude/instructions.md"];
+/// Configuration for workspace context discovery.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ContextDiscoveryConfig {
+    /// List of paths to search (files or directories).
+    pub paths: Vec<PathBuf>,
+    /// Whether to recursively scan directories.
+    pub scan_directories: bool,
+    /// Case-insensitive deduplication.
+    pub case_insensitive_dedup: bool,
+    /// Maximum total size of loaded context (bytes).
+    pub max_total_size: usize,
+    /// Maximum size per file (bytes).
+    pub max_file_size: usize,
+}
 
-    for filename in candidates {
-        let path = workdir.join(filename);
-        if path.exists()
-            && let Ok(content) = std::fs::read_to_string(&path)
-        {
-            tracing::debug!(path = %path.display(), "Loaded workspace context");
-            return Some(content);
+impl Default for ContextDiscoveryConfig {
+    fn default() -> Self {
+        Self {
+            paths: vec![
+                // Claude/Anthropic
+                "CLAUDE.md".into(),
+                "CLAUDE.local.md".into(),
+                ".claude/".into(),
+                // RestFlow specific
+                "AGENTS.md".into(),
+                "AGENTS.local.md".into(),
+                ".restflow/instructions.md".into(),
+                // Cursor
+                ".cursorrules".into(),
+                ".cursor/rules/".into(),
+                // GitHub Copilot
+                ".github/copilot-instructions.md".into(),
+                // OpenCode compatibility
+                "opencode.md".into(),
+                "OpenCode.md".into(),
+                // Generic
+                "AI_INSTRUCTIONS.md".into(),
+                ".ai/instructions.md".into(),
+            ],
+            scan_directories: true,
+            case_insensitive_dedup: true,
+            max_total_size: 100_000,
+            max_file_size: 50_000,
+        }
+    }
+}
+
+/// Result of context discovery.
+#[derive(Debug, Clone)]
+pub struct DiscoveredContext {
+    /// Combined context content.
+    pub content: String,
+    /// List of loaded files.
+    pub loaded_files: Vec<PathBuf>,
+    /// Total bytes loaded.
+    pub total_bytes: usize,
+}
+
+/// Loads workspace context from configured paths.
+pub struct ContextLoader {
+    config: ContextDiscoveryConfig,
+    workdir: PathBuf,
+}
+
+impl ContextLoader {
+    pub fn new(config: ContextDiscoveryConfig, workdir: PathBuf) -> Self {
+        Self { config, workdir }
+    }
+
+    /// Discover and load all context files.
+    pub async fn load(&self) -> DiscoveredContext {
+        let mut seen_paths: HashSet<String> = HashSet::new();
+        let mut contents: Vec<(PathBuf, String)> = Vec::new();
+        let mut total_bytes = 0usize;
+
+        for path_pattern in &self.config.paths {
+            let full_path = if path_pattern.is_absolute() {
+                path_pattern.clone()
+            } else {
+                self.workdir.join(path_pattern)
+            };
+
+            match fs::metadata(&full_path).await {
+                Ok(meta) if meta.is_dir() && self.config.scan_directories => {
+                    if let Ok(dir_contents) = self.scan_directory(&full_path).await {
+                        for (file_path, content) in dir_contents {
+                            if self.is_duplicate(&mut seen_paths, &file_path) {
+                                continue;
+                            }
+                            if total_bytes + content.len() <= self.config.max_total_size {
+                                total_bytes += content.len();
+                                contents.push((file_path, content));
+                            }
+                        }
+                    }
+                }
+                Ok(meta) if meta.is_file() => {
+                    if self.is_duplicate(&mut seen_paths, &full_path) {
+                        continue;
+                    }
+                    if let Ok(content) = self.load_file(&full_path).await {
+                        if total_bytes + content.len() <= self.config.max_total_size {
+                            total_bytes += content.len();
+                            contents.push((full_path, content));
+                        }
+                    }
+                }
+                _ => {
+                    debug!(path = %full_path.display(), "Context path not found, skipping");
+                }
+            }
+        }
+
+        let loaded_files: Vec<PathBuf> = contents.iter().map(|(p, _)| p.clone()).collect();
+        let content = self.format_content(&contents);
+
+        DiscoveredContext {
+            content,
+            loaded_files,
+            total_bytes,
         }
     }
 
-    None
+    async fn scan_directory(&self, dir: &Path) -> Result<Vec<(PathBuf, String)>, std::io::Error> {
+        let mut results = Vec::new();
+        let mut entries = fs::read_dir(dir).await?;
+
+        while let Some(entry) = entries.next_entry().await? {
+            let path = entry.path();
+            let meta = entry.metadata().await?;
+
+            if meta.is_dir() && self.config.scan_directories {
+                let nested = self.scan_directory(&path).await?;
+                results.extend(nested);
+                continue;
+            }
+
+            if meta.is_file() && self.should_load_path(&path) {
+                if let Ok(content) = self.load_file(&path).await {
+                    results.push((path, content));
+                }
+            }
+        }
+
+        Ok(results)
+    }
+
+    async fn load_file(&self, path: &Path) -> Result<String, std::io::Error> {
+        let meta = fs::metadata(path).await?;
+        if meta.len() as usize > self.config.max_file_size {
+            warn!(
+                path = %path.display(),
+                size = meta.len(),
+                max = self.config.max_file_size,
+                "Context file too large, skipping"
+            );
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "File too large",
+            ));
+        }
+        fs::read_to_string(path).await
+    }
+
+    fn should_load_path(&self, path: &Path) -> bool {
+        let Some(ext) = path.extension().and_then(|ext| ext.to_str()) else {
+            return false;
+        };
+        matches!(ext.to_lowercase().as_str(), "md" | "markdown" | "txt")
+    }
+
+    fn format_content(&self, contents: &[(PathBuf, String)]) -> String {
+        if contents.is_empty() {
+            return String::new();
+        }
+
+        let mut result = String::from("# Project-Specific Instructions\n\n");
+        result.push_str("Follow the instructions below for this project:\n\n");
+
+        for (path, content) in contents {
+            let relative = path.strip_prefix(&self.workdir).unwrap_or(path);
+            result.push_str(&format!("## From: {}\n\n", relative.display()));
+            result.push_str(content.trim());
+            result.push_str("\n\n---\n\n");
+        }
+
+        result
+    }
+
+    fn normalize_path(&self, path: &Path) -> String {
+        path.to_string_lossy().to_string()
+    }
+
+    fn is_duplicate(&self, seen: &mut HashSet<String>, path: &Path) -> bool {
+        let normalized = self.normalize_path(path);
+        let key = if self.config.case_insensitive_dedup {
+            normalized.to_lowercase()
+        } else {
+            normalized
+        };
+
+        if seen.contains(&key) {
+            true
+        } else {
+            seen.insert(key);
+            false
+        }
+    }
+}
+
+/// Cached workspace context.
+pub struct WorkspaceContextCache {
+    cache: tokio::sync::OnceCell<std::sync::Arc<DiscoveredContext>>,
+    loader: ContextLoader,
+}
+
+impl WorkspaceContextCache {
+    pub fn new(config: ContextDiscoveryConfig, workdir: PathBuf) -> Self {
+        Self {
+            cache: tokio::sync::OnceCell::new(),
+            loader: ContextLoader::new(config, workdir),
+        }
+    }
+
+    pub async fn get(&self) -> std::sync::Arc<DiscoveredContext> {
+        self.cache
+            .get_or_init(|| async { std::sync::Arc::new(self.loader.load().await) })
+            .await
+            .clone()
+    }
+
+    pub fn invalidate(&mut self) {
+        self.cache = tokio::sync::OnceCell::new();
+    }
 }
