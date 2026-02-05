@@ -58,10 +58,8 @@ impl FileContentCache {
         }
 
         let mut cache = self.cache.write().await;
-        if cache.len() >= self.max_entries {
-            if let Some(key) = cache.keys().next().cloned() {
-                cache.remove(&key);
-            }
+        if cache.len() >= self.max_entries && let Some(key) = cache.keys().next().cloned() {
+            cache.remove(&key);
         }
 
         let entry = CachedFile {
