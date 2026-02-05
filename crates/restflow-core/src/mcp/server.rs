@@ -1382,7 +1382,7 @@ mod tests {
         let socket_path = temp_dir.path().join("mcp.sock");
         let ipc_server = IpcServer::new(core.clone(), socket_path.clone());
         let (shutdown_tx, _) = tokio::sync::broadcast::channel(1);
-        let mut shutdown_rx = shutdown_tx.subscribe();
+        let shutdown_rx = shutdown_tx.subscribe();
         let server_handle = tokio::spawn(async move {
             let _ = ipc_server.run(shutdown_rx).await;
         });
