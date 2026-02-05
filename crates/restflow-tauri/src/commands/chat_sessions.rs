@@ -3,7 +3,9 @@
 //! These commands enable the frontend to create, manage, and interact with
 //! chat sessions in the SkillWorkspace.
 
-use crate::agent::{build_agent_system_prompt, registry_from_allowlist, SubagentDeps, ToolRegistry, UnifiedAgent, UnifiedAgentConfig};
+use crate::agent::{
+    registry_from_allowlist, SubagentDeps, ToolRegistry, UnifiedAgent, UnifiedAgentConfig,
+};
 use crate::chat::ChatStreamState;
 use crate::state::AppState;
 use restflow_ai::llm::Message;
@@ -17,7 +19,6 @@ use serde::Deserialize;
 use std::sync::Arc;
 use std::time::Instant;
 use tauri::{AppHandle, State};
-// Removed unused warn import
 use uuid::Uuid;
 
 /// Create a new chat session.
@@ -273,10 +274,9 @@ async fn resolve_api_key(
             }
             ApiKeyConfig::Secret(secret_name) => {
                 if let Some(secret_value) = state
-                    .core
-                    .storage
-                    .secrets
-                    .get_secret(secret_name)
+                    .executor()
+                    .get_secret(secret_name.to_string())
+                    .await
                     .map_err(|e| e.to_string())?
                 {
                     return Ok(secret_value);
@@ -294,10 +294,9 @@ async fn resolve_api_key(
     };
 
     if let Some(secret_value) = state
-        .core
-        .storage
-        .secrets
-        .get_secret(secret_name)
+        .executor()
+        .get_secret(secret_name.to_string())
+        .await
         .map_err(|e| e.to_string())?
     {
         return Ok(secret_value);
@@ -356,12 +355,10 @@ async fn execute_agent_for_session(
 ) -> Result<(String, u32), String> {
     // Load agent
     let stored_agent = state
-        .core
-        .storage
-        .agents
+        .executor()
         .get_agent(session.agent_id.clone())
-        .map_err(|e| e.to_string())?
-        .ok_or_else(|| format!("Agent '{}' not found", session.agent_id))?;
+        .await
+        .map_err(|e| e.to_string())?;
 
     let agent_node = &stored_agent.agent;
 
@@ -381,7 +378,10 @@ async fn execute_agent_for_session(
         Some(&subagent_deps),
     ));
 
-    let system_prompt = build_agent_system_prompt(state.core.storage.clone(), agent_node)
+    let system_prompt = state
+        .executor()
+        .build_agent_system_prompt(agent_node.clone())
+        .await
         .map_err(|e| e.to_string())?;
 
     // Build agent config
@@ -502,7 +502,6 @@ pub async fn send_chat_message_stream(
     state.stream_manager.register(&message_id, cancel_handle);
 
     // Clone what we need for the background task
-    let storage = state.core.storage.clone();
     let executor = state.executor();
     let session_id_clone = session_id.clone();
     let message_id_clone = message_id.clone();
@@ -530,13 +529,8 @@ pub async fn send_chat_message_stream(
         };
 
         // Load agent
-        let stored_agent = match storage.agents.get_agent(session.agent_id.clone()) {
-            Ok(Some(a)) => a,
-            Ok(None) => {
-                stream_state.emit_failed(&format!("Agent '{}' not found", session.agent_id));
-                stream_manager.remove(&message_id_clone);
-                return;
-            }
+        let stored_agent = match executor.get_agent(session.agent_id.clone()).await {
+            Ok(a) => a,
             Err(e) => {
                 stream_state.emit_failed(&format!("Failed to load agent: {}", e));
                 stream_manager.remove(&message_id_clone);
@@ -560,7 +554,7 @@ pub async fn send_chat_message_stream(
         let api_key = match &agent_node.api_key_config {
             Some(ApiKeyConfig::Direct(key)) if !key.is_empty() => key.clone(),
             Some(ApiKeyConfig::Secret(secret_name)) => {
-                match storage.secrets.get_secret(secret_name) {
+                match executor.get_secret(secret_name.to_string()).await {
                     Ok(Some(key)) => key,
                     Ok(None) => {
                         stream_state.emit_failed(&format!("Secret '{}' not found", secret_name));
@@ -580,7 +574,7 @@ pub async fn send_chat_message_stream(
                     Provider::Anthropic => "ANTHROPIC_API_KEY",
                     Provider::DeepSeek => "DEEPSEEK_API_KEY",
                 };
-                match storage.secrets.get_secret(secret_name) {
+                match executor.get_secret(secret_name.to_string()).await {
                     Ok(Some(key)) => key,
                     Ok(None) => {
                         stream_state.emit_failed(&format!(
@@ -615,7 +609,7 @@ pub async fn send_chat_message_stream(
             Some(&subagent_deps),
         ));
 
-        let system_prompt = match build_agent_system_prompt(storage.clone(), agent_node) {
+        let system_prompt = match executor.build_agent_system_prompt(agent_node.clone()).await {
             Ok(prompt) => prompt,
             Err(e) => {
                 stream_state.emit_failed(&format!("Failed to build system prompt: {}", e));

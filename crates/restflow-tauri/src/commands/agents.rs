@@ -94,8 +94,8 @@ pub async fn execute_agent(
     id: String,
     request: ExecuteAgentRequest,
 ) -> Result<AgentExecuteResponse, String> {
-    let _agent = state
-        .core
+    let core = state.core.as_ref().ok_or("AppCore not available")?;
+    let _agent = core
         .storage
         .agents
         .get_agent(id)

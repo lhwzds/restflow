@@ -75,15 +75,14 @@ pub async fn spawn_pty(
     }
 
     let terminal_session = app_state
-        .core
-        .storage
-        .terminal_sessions
-        .get(&session_id)
+        .executor()
+        .get_terminal_session(session_id.clone())
+        .await
         .map_err(|e| e.to_string())?;
 
     let cwd = terminal_session
-        .as_ref()
-        .and_then(|s| s.working_directory.clone())
+        .working_directory
+        .clone()
         .map(|p| expand_tilde(&p))
         .unwrap_or_else(|| std::env::var("HOME").unwrap_or_else(|_| "/".to_string()));
 
@@ -103,9 +102,7 @@ pub async fn spawn_pty(
 
     let options = ProcessShellOptions {
         spawn,
-        startup_command: terminal_session
-            .as_ref()
-            .and_then(|session| session.startup_command.clone()),
+        startup_command: terminal_session.startup_command.clone(),
     };
 
     app_state
@@ -166,14 +163,13 @@ pub async fn close_pty(
     if history.is_some() {
         tracing::info!("Closed PTY session: {}", session_id);
 
-        if let Ok(Some(mut session)) = app_state.core.storage.terminal_sessions.get(&session_id) {
+        if let Ok(mut session) = app_state
+            .executor()
+            .get_terminal_session(session_id.clone())
+            .await
+        {
             session.set_stopped(history);
-            if let Err(e) = app_state
-                .core
-                .storage
-                .terminal_sessions
-                .update(&session_id, &session)
-            {
+            if let Err(e) = app_state.executor().save_terminal_session(session).await {
                 tracing::warn!("Failed to update terminal session status: {}", e);
             }
         }
@@ -215,20 +211,17 @@ pub async fn save_terminal_history(
 
     if let Some(history) = history {
         let mut session = app_state
-            .core
-            .storage
-            .terminal_sessions
-            .get(&session_id)
-            .map_err(|e| e.to_string())?
-            .ok_or_else(|| format!("Terminal session not found: {}", session_id))?;
+            .executor()
+            .get_terminal_session(session_id.clone())
+            .await
+            .map_err(|e| e.to_string())?;
 
         session.update_history(history);
 
         app_state
-            .core
-            .storage
-            .terminal_sessions
-            .update(&session_id, &session)
+            .executor()
+            .save_terminal_session(session)
+            .await
             .map_err(|e| e.to_string())?;
 
         tracing::debug!("Saved history for terminal: {}", session_id);
@@ -247,18 +240,16 @@ pub async fn save_all_terminal_history(
         .list_session_ids_by_source(ProcessSessionSource::User);
 
     for session_id in session_ids {
-        if let Some(history) = app_state.process_registry.remove_session(&session_id)
-            && let Ok(Some(mut session)) =
-                app_state.core.storage.terminal_sessions.get(&session_id)
-        {
+        if let (Some(history), Ok(mut session)) = (
+            app_state.process_registry.remove_session(&session_id),
+            app_state
+                .executor()
+                .get_terminal_session(session_id.clone())
+                .await,
+        ) {
             session.set_stopped(Some(history));
 
-            if let Err(e) = app_state
-                .core
-                .storage
-                .terminal_sessions
-                .update(&session_id, &session)
-            {
+            if let Err(e) = app_state.executor().save_terminal_session(session).await {
                 tracing::error!("Failed to save terminal {}: {}", session_id, e);
             } else {
                 tracing::info!("Saved and stopped terminal: {}", session_id);
@@ -276,21 +267,18 @@ pub async fn restart_terminal(
     session_id: String,
 ) -> Result<restflow_core::TerminalSession, String> {
     let mut session = app_state
-        .core
-        .storage
-        .terminal_sessions
-        .get(&session_id)
-        .map_err(|e| e.to_string())?
-        .ok_or_else(|| format!("Terminal session not found: {}", session_id))?;
+        .executor()
+        .get_terminal_session(session_id.clone())
+        .await
+        .map_err(|e| e.to_string())?;
 
     session.set_running();
     session.history = None;
 
     app_state
-        .core
-        .storage
-        .terminal_sessions
-        .update(&session_id, &session)
+        .executor()
+        .save_terminal_session(session.clone())
+        .await
         .map_err(|e| e.to_string())?;
 
     tracing::info!("Restarted terminal: {}", session_id);
@@ -299,27 +287,32 @@ pub async fn restart_terminal(
 
 /// Synchronous version of save_all_terminal_history for use in window close handler
 pub fn save_all_terminal_history_sync(app_state: &AppState) {
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("Failed to create terminal history runtime");
     let session_ids = app_state
         .process_registry
         .list_session_ids_by_source(ProcessSessionSource::User);
 
     for session_id in session_ids {
-        if let Some(history) = app_state.process_registry.remove_session(&session_id)
-            && let Ok(Some(mut session)) =
-                app_state.core.storage.terminal_sessions.get(&session_id)
-        {
-            session.set_stopped(Some(history));
-
-            if let Err(e) = app_state
-                .core
-                .storage
-                .terminal_sessions
-                .update(&session_id, &session)
-            {
-                tracing::error!("Failed to save terminal {}: {}", session_id, e);
-            } else {
-                tracing::info!("Saved and stopped terminal: {}", session_id);
-            }
+        if let Some(history) = app_state.process_registry.remove_session(&session_id) {
+            let session_id_clone = session_id.clone();
+            rt.block_on(async {
+                let session_id = session_id_clone;
+                if let Ok(mut session) = app_state
+                    .executor()
+                    .get_terminal_session(session_id.clone())
+                    .await
+                {
+                    session.set_stopped(Some(history));
+                    if let Err(e) = app_state.executor().save_terminal_session(session).await {
+                        tracing::error!("Failed to save terminal {}: {}", session_id, e);
+                    } else {
+                        tracing::info!("Saved and stopped terminal: {}", session_id);
+                    }
+                }
+            });
         }
     }
 }
