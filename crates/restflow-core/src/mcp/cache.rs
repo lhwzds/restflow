@@ -43,10 +43,9 @@ impl McpToolCache {
             let timestamps = self.discovered_at.read().await;
             if let (Some(cached), Some(discovered)) =
                 (tools.get(server_name), timestamps.get(server_name))
+                && discovered.elapsed() < self.ttl
             {
-                if discovered.elapsed() < self.ttl {
-                    return cached.clone();
-                }
+                return cached.clone();
             }
         }
 
