@@ -1,0 +1,45 @@
+{
+  "name": "restflow-cli",
+  "version": "0.1.0",
+  "description": "RestFlow CLI - AI assistant that can execute workflows",
+  "keywords": [
+    "ai",
+    "workflow",
+    "cli",
+    "automation",
+    "agent",
+    "mcp"
+  ],
+  "author": "Huaiwu Li",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/lhwzds/restflow.git"
+  },
+  "homepage": "https://github.com/lhwzds/restflow",
+  "bugs": {
+    "url": "https://github.com/lhwzds/restflow/issues"
+  },
+  "bin": {
+    "restflow": "bin/restflow"
+  },
+  "scripts": {
+    "postinstall": "node scripts/install.js"
+  },
+  "engines": {
+    "node": ">=16"
+  },
+  "os": [
+    "darwin",
+    "linux",
+    "win32"
+  ],
+  "cpu": [
+    "x64",
+    "arm64"
+  ],
+  "files": [
+    "bin",
+    "scripts"
+  ]
+}
