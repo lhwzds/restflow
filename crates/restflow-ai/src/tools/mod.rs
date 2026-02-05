@@ -4,6 +4,7 @@
 //! Tools implement the `Tool` trait for integration with the agent executor.
 
 mod bash;
+mod diagnostics;
 mod email;
 mod file;
 mod file_memory;
@@ -17,6 +18,7 @@ mod telegram;
 mod traits;
 
 pub use bash::{BashInput, BashOutput, BashTool};
+pub use diagnostics::DiagnosticsTool;
 pub use email::EmailTool;
 pub use file::{FileAction, FileTool};
 pub use file_memory::{
@@ -35,11 +37,16 @@ pub use traits::{SkillContent, SkillInfo, SkillProvider, Tool, ToolOutput, ToolS
 /// Create a registry with default tools
 pub fn default_registry() -> ToolRegistry {
     let mut registry = ToolRegistry::new();
+    let lsp_manager = std::sync::Arc::new(tokio::sync::Mutex::new(
+        crate::lsp::LspManager::new(),
+    ));
+
     registry.register(BashTool::new());
-    registry.register(FileTool::new());
+    registry.register(FileTool::new().with_lsp_manager(lsp_manager.clone()));
     registry.register(HttpTool::new());
     registry.register(PythonTool::new());
     registry.register(EmailTool::new());
     registry.register(TelegramTool::new());
+    registry.register(DiagnosticsTool::new(lsp_manager));
     registry
 }

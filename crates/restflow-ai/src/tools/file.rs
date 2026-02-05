@@ -20,15 +20,19 @@
 //! ```
 
 use async_trait::async_trait;
+use lsp_types::DiagnosticSeverity;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use tokio::fs;
 use tokio::io::AsyncWriteExt;
+use tokio::sync::Mutex;
 
 use super::traits::{Tool, ToolOutput};
 use crate::error::Result;
+use crate::lsp::LspManager;
 
 /// Maximum file size to read (1MB)
 const DEFAULT_MAX_READ_BYTES: usize = 1_000_000;
@@ -49,6 +53,8 @@ pub struct FileTool {
     base_dir: Option<PathBuf>,
     /// Maximum file size to read in bytes
     max_read_bytes: usize,
+    /// Optional LSP manager for diagnostics
+    lsp_manager: Option<Arc<Mutex<LspManager>>>,
 }
 
 impl Default for FileTool {
@@ -63,6 +69,7 @@ impl FileTool {
         Self {
             base_dir: None,
             max_read_bytes: DEFAULT_MAX_READ_BYTES,
+            lsp_manager: None,
         }
     }
 
@@ -76,6 +83,12 @@ impl FileTool {
     /// Set maximum read size in bytes
     pub fn with_max_read(mut self, bytes: usize) -> Self {
         self.max_read_bytes = bytes;
+        self
+    }
+
+    /// Attach an LSP manager for diagnostics.
+    pub fn with_lsp_manager(mut self, manager: Arc<Mutex<LspManager>>) -> Self {
+        self.lsp_manager = Some(manager);
         self
     }
 
@@ -232,11 +245,62 @@ impl FileTool {
         };
 
         match result {
-            Ok(()) => ToolOutput::success(serde_json::json!({
-                "path": path.display().to_string(),
-                "bytes_written": content.len(),
-                "action": if append { "appended" } else { "written" },
-            })),
+            Ok(()) => {
+                let mut output = serde_json::json!({
+                    "path": path.display().to_string(),
+                    "bytes_written": content.len(),
+                    "action": if append { "appended" } else { "written" },
+                });
+
+                if let Some(manager) = &self.lsp_manager {
+                    let diagnostics = {
+                        let mut manager = manager.lock().await;
+                        manager.notify_change(&path, content).await
+                    };
+
+                    match diagnostics {
+                        Ok(list) if !list.is_empty() => {
+                            let formatted: Vec<Value> = list
+                                .iter()
+                                .map(|diag| {
+                                    let severity = match diag.severity {
+                                        Some(DiagnosticSeverity::ERROR) => "error",
+                                        Some(DiagnosticSeverity::WARNING) => "warning",
+                                        Some(DiagnosticSeverity::INFORMATION) => "information",
+                                        Some(DiagnosticSeverity::HINT) => "hint",
+                                        None => "unknown",
+                                    };
+
+                                    serde_json::json!({
+                                        "severity": severity,
+                                        "message": diag.message,
+                                        "line": diag.range.start.line + 1,
+                                        "character": diag.range.start.character + 1
+                                    })
+                                })
+                                .collect();
+
+                            if let Some(map) = output.as_object_mut() {
+                                map.insert(
+                                    "diagnostics".to_string(),
+                                    serde_json::Value::Array(formatted),
+                                );
+                            }
+                        }
+                        Ok(_) => {}
+                        Err(err) => {
+                            if let Some(map) = output.as_object_mut() {
+                                map.insert(
+                                    "diagnostics_error".to_string(),
+                                    serde_json::Value::String(err.to_string()),
+                                );
+                            }
+                        }
+                    }
+                }
+
+                ToolOutput::success(output)
+            }
             Err(e) => ToolOutput::error(format!("Cannot write file: {}", e)),
         }
     }
