@@ -50,6 +50,7 @@ const mockTask: AgentTask = {
   failure_count: 0,
   last_error: null,
   webhook: null,
+  summary_message_id: null,
 }
 
 const mockTask2: AgentTask = {
