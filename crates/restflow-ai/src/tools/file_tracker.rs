@@ -48,8 +48,12 @@ impl FileTracker {
 
     /// Check if file was modified externally since last read.
     pub async fn check_external_modification(&self, path: &Path) -> io::Result<bool> {
-        let records = self.records.read().unwrap();
-        let Some(record) = records.get(path) else {
+        let record = {
+            let records = self.records.read().unwrap();
+            records.get(path).cloned()
+        };
+
+        let Some(record) = record else {
             return Ok(false);
         };
 
