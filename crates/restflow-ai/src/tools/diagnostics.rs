@@ -85,6 +85,7 @@ impl Tool for DiagnosticsTool {
                     Some(DiagnosticSeverity::WARNING) => "warning",
                     Some(DiagnosticSeverity::INFORMATION) => "information",
                     Some(DiagnosticSeverity::HINT) => "hint",
+                    Some(_) => "unknown",
                     None => "unknown",
                 };
 

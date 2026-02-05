@@ -11,7 +11,7 @@ pub enum JsonRpcMessage {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct JsonRpcRequest {
-    jsonrpc: &'static str,
+    jsonrpc: String,
     pub id: Option<u64>,
     pub method: String,
     #[serde(skip_serializing_if = "serde_json::Value::is_null")]
@@ -21,7 +21,7 @@ pub struct JsonRpcRequest {
 impl JsonRpcRequest {
     pub fn new<P: Serialize>(id: u64, method: &str, params: P) -> Self {
         Self {
-            jsonrpc: "2.0",
+            jsonrpc: "2.0".to_string(),
             id: Some(id),
             method: method.to_string(),
             params: serde_json::to_value(params).unwrap_or(serde_json::Value::Null),
@@ -30,7 +30,7 @@ impl JsonRpcRequest {
 
     pub fn notification<P: Serialize>(method: &str, params: P) -> Self {
         Self {
-            jsonrpc: "2.0",
+            jsonrpc: "2.0".to_string(),
             id: None,
             method: method.to_string(),
             params: serde_json::to_value(params).unwrap_or(serde_json::Value::Null),
