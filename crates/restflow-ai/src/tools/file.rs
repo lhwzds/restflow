@@ -46,7 +46,7 @@ const MAX_LIST_ENTRIES: usize = 1000;
 const MAX_SEARCH_MATCHES: usize = 100;
 
 /// File operations tool
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct FileTool {
     /// Base directory for file operations (security boundary)
     base_dir: Option<PathBuf>,
