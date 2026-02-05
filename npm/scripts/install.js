@@ -3,6 +3,7 @@
 const https = require("https");
 const fs = require("fs");
 const path = require("path");
+const crypto = require("crypto");
 const { execSync } = require("child_process");
 
 const VERSION = require("../package.json").version;
@@ -44,6 +45,10 @@ function getDownloadUrl(target) {
   return `https://github.com/${REPO}/releases/download/cli-v${VERSION}/restflow-${target}.${ext}`;
 }
 
+function getChecksumUrl() {
+  return `https://github.com/${REPO}/releases/download/cli-v${VERSION}/checksums.txt`;
+}
+
 function download(url) {
   return new Promise((resolve, reject) => {
     https
@@ -54,7 +59,7 @@ function download(url) {
         }
 
         if (response.statusCode !== 200) {
-          reject(new Error(`Failed to download: ${response.statusCode}`));
+          reject(new Error(`Failed to download ${url}: ${response.statusCode}`));
           return;
         }
 
@@ -65,6 +70,38 @@ function download(url) {
       })
       .on("error", reject);
   });
+}
+
+function computeSha256(buffer) {
+  return crypto.createHash("sha256").update(buffer).digest("hex");
+}
+
+function parseChecksums(text) {
+  const map = new Map();
+  for (const line of text.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const parts = trimmed.split(/\s+/);
+    if (parts.length < 2) continue;
+    const hash = parts[0];
+    const filename = parts[1].replace(/^\*?/, "");
+    map.set(filename, hash);
+  }
+  return map;
+}
+
+async function verifyChecksum(buffer, filename) {
+  const checksumUrl = getChecksumUrl();
+  const checksumText = (await download(checksumUrl)).toString("utf8");
+  const checksums = parseChecksums(checksumText);
+  const expected = checksums.get(filename);
+  if (!expected) {
+    throw new Error(`Checksum not found for ${filename}`);
+  }
+  const actual = computeSha256(buffer);
+  if (actual !== expected) {
+    throw new Error(`Checksum mismatch for ${filename}`);
+  }
 }
 
 async function extractTarGz(buffer, destDir) {
@@ -100,11 +137,13 @@ async function main() {
     const target = getPlatformTarget();
     const url = getDownloadUrl(target);
     const binDir = path.join(__dirname, "..", "bin");
+    const filename = path.basename(url);
 
     console.log(`Downloading restflow for ${target}...`);
     console.log(`URL: ${url}`);
 
     const buffer = await download(url);
+    await verifyChecksum(buffer, filename);
 
     if (!fs.existsSync(binDir)) {
       fs.mkdirSync(binDir, { recursive: true });
@@ -130,4 +169,11 @@ async function main() {
   }
 }
 
-main();
+if (require.main === module) {
+  main();
+}
+
+module.exports = {
+  computeSha256,
+  parseChecksums,
+};
