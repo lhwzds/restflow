@@ -80,7 +80,7 @@ impl McpToolCache {
         let servers: Vec<String> = servers.into_iter().collect();
         let _ = self
             .initialized
-            .get_or_init(async {
+            .get_or_init(move || async move {
                 if servers.is_empty() {
                     return;
                 }
