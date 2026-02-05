@@ -38,8 +38,8 @@ const chatSessions: ChatSession[] = demoChatSessions.map((s) => ({
   created_at: BigInt(s.updated_at - 3600000),
   updated_at: BigInt(s.updated_at),
   summary_message_id: null,
-  prompt_tokens: 0,
-  completion_tokens: 0,
+  prompt_tokens: BigInt(0),
+  completion_tokens: BigInt(0),
   cost: 0,
   metadata: {
     total_tokens: s.message_count * 150,
@@ -120,8 +120,8 @@ export const chatSessionHandlers = [
       created_at: BigInt(now),
       updated_at: BigInt(now),
       summary_message_id: null,
-      prompt_tokens: 0,
-      completion_tokens: 0,
+      prompt_tokens: BigInt(0),
+      completion_tokens: BigInt(0),
       cost: 0,
       metadata: {
         total_tokens: 0,
