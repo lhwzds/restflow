@@ -36,6 +36,11 @@ test.describe('Header Navigation', () => {
     await expect(page.getByRole('button', { name: 'Terminals' })).toBeVisible()
   })
 
+  test('workspace route renders header', async ({ page }) => {
+    await expect(page.locator('header')).toBeVisible()
+    await expect(page.locator('header').getByText('RestFlow')).toBeVisible()
+  })
+
   test('active tab has primary text color (not background)', async ({ page }) => {
     // Skills tab should be active by default
     const skillsTab = page.getByRole('button', { name: 'Skills' })
