@@ -85,18 +85,27 @@ async fn main() -> Result<()> {
         }
     }
 
-    // Commands that need direct core access (daemon, mcp, key, claude, codex, run, start, auth)
+    if matches!(
+        &cli.command,
+        Some(Commands::Key { .. }) | Some(Commands::Claude(_)) | Some(Commands::Auth { .. })
+    ) {
+        return match cli.command {
+            Some(Commands::Key { command }) => commands::key::run(command, cli.format).await,
+            Some(Commands::Claude(args)) => commands::claude::run(args, cli.format).await,
+            Some(Commands::Auth { command }) => commands::auth::run(command, cli.format).await,
+            _ => unreachable!(),
+        };
+    }
+
+    // Commands that need direct core access (daemon, mcp, codex, run, start)
     // These bypass the executor pattern for now
     let needs_direct_core = matches!(
         &cli.command,
         Some(Commands::Daemon { .. })
             | Some(Commands::Mcp { .. })
-            | Some(Commands::Key { .. })
-            | Some(Commands::Claude(_))
             | Some(Commands::Codex(_))
             | Some(Commands::Run(_))
             | Some(Commands::Start(_))
-            | Some(Commands::Auth { .. })
     );
 
     let db_path = setup::resolve_db_path(cli.db_path.clone())?;
@@ -109,13 +118,8 @@ async fn main() -> Result<()> {
             Some(Commands::Run(args)) => commands::run::run(core, args, cli.format).await,
             Some(Commands::Start(args)) => commands::start::run(args).await,
             Some(Commands::Daemon { command }) => commands::daemon::run(core, command).await,
-            Some(Commands::Key { command }) => commands::key::run(core, command, cli.format).await,
             Some(Commands::Mcp { command }) => commands::mcp::run(core, command, cli.format).await,
-            Some(Commands::Claude(args)) => commands::claude::run(core, args, cli.format).await,
             Some(Commands::Codex(args)) => commands::codex::run(core, args, cli.format).await,
-            Some(Commands::Auth { command }) => {
-                commands::auth::run(core, command, cli.format).await
-            }
             _ => unreachable!(),
         }
     } else {

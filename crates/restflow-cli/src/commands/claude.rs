@@ -1,5 +1,4 @@
 use anyhow::{Result, bail};
-use restflow_core::AppCore;
 use restflow_core::auth::AuthProvider;
 use restflow_core::daemon::{IpcClient, is_daemon_available};
 use restflow_core::models::ChatRole;
@@ -7,7 +6,6 @@ use restflow_core::paths;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
@@ -255,7 +253,7 @@ async fn save_conversation(
     Ok(())
 }
 
-pub async fn run(_core: Arc<AppCore>, args: ClaudeArgs, format: OutputFormat) -> Result<()> {
+pub async fn run(args: ClaudeArgs, format: OutputFormat) -> Result<()> {
     // Get prompt from args or stdin
     let prompt = match args.prompt.as_ref() {
         Some(p) => p.clone(),
