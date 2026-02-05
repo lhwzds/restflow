@@ -72,12 +72,16 @@ impl LspManager {
             watcher: Arc::new(Mutex::new(None)),
         };
 
-        let cloned = manager.clone();
-        tokio::spawn(async move {
-            if let Err(err) = cloned.ensure_watcher().await {
-                warn!(error = %err, "Failed to start LSP watcher");
-            }
-        });
+        if let Ok(handle) = tokio::runtime::Handle::try_current() {
+            let cloned = manager.clone();
+            handle.spawn(async move {
+                if let Err(err) = cloned.ensure_watcher().await {
+                    warn!(error = %err, "Failed to start LSP watcher");
+                }
+            });
+        } else {
+            warn!("Skipping LSP watcher startup: no Tokio runtime available");
+        }
 
         manager
     }
