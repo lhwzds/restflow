@@ -12,6 +12,12 @@ const mockSkill: Skill = {
   description: null,
   folder_path: null,
   gating: null,
+  version: null,
+  author: null,
+  license: null,
+  content_hash: null,
+  storage_mode: 'DatabaseOnly',
+  is_synced: false,
   created_at: 1000,
   updated_at: 2000,
 }
