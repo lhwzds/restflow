@@ -97,12 +97,15 @@ async fn main() -> Result<()> {
         };
     }
 
-    // Commands that need direct core access (daemon, mcp, codex, run, start)
+    if let Some(Commands::Mcp { command }) = &cli.command {
+        return commands::mcp::run(command.clone(), cli.format).await;
+    }
+
+    // Commands that need direct core access (daemon, codex, run, start)
     // These bypass the executor pattern for now
     let needs_direct_core = matches!(
         &cli.command,
         Some(Commands::Daemon { .. })
-            | Some(Commands::Mcp { .. })
             | Some(Commands::Codex(_))
             | Some(Commands::Run(_))
             | Some(Commands::Start(_))
@@ -118,7 +121,6 @@ async fn main() -> Result<()> {
             Some(Commands::Run(args)) => commands::run::run(core, args, cli.format).await,
             Some(Commands::Start(args)) => commands::start::run(args).await,
             Some(Commands::Daemon { command }) => commands::daemon::run(core, command).await,
-            Some(Commands::Mcp { command }) => commands::mcp::run(core, command, cli.format).await,
             Some(Commands::Codex(args)) => commands::codex::run(core, args, cli.format).await,
             _ => unreachable!(),
         }

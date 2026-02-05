@@ -6,6 +6,7 @@ mod ipc_protocol;
 mod ipc_server;
 mod launcher;
 mod logging;
+mod mcp;
 mod process;
 mod supervisor;
 
@@ -20,5 +21,6 @@ pub use launcher::{
     start_daemon, start_daemon_with_config, stop_daemon,
 };
 pub use logging::{LogPaths, open_daemon_log_append, resolve_log_paths};
+pub use mcp::run_mcp_http_server;
 pub use process::{DaemonConfig, ProcessManager};
 pub use supervisor::{Supervisor, SupervisorConfig};

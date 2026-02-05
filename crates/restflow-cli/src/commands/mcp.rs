@@ -3,24 +3,23 @@ use comfy_table::{Cell, Table};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::process::Command;
-use std::sync::Arc;
 
 use crate::cli::McpCommands;
 use crate::output::{OutputFormat, json::print_json};
-use restflow_core::AppCore;
+use restflow_core::daemon::{IpcClient, ensure_daemon_running};
 use restflow_core::paths;
 use restflow_core::mcp::RestFlowMcpServer;
 
 const MCP_SERVERS_FILE: &str = "mcp_servers.json";
 
-pub async fn run(core: Arc<AppCore>, command: McpCommands, format: OutputFormat) -> Result<()> {
+pub async fn run(command: McpCommands, format: OutputFormat) -> Result<()> {
     match command {
         McpCommands::List => list_servers(format).await,
         McpCommands::Add { name, command } => add_server(name, command, format).await,
         McpCommands::Remove { name } => remove_server(&name, format).await,
-        McpCommands::Start { name } => start_server(core, &name, format).await,
+        McpCommands::Start { name } => start_server(&name, format).await,
         McpCommands::Stop { name } => stop_server(&name, format).await,
-        McpCommands::Serve => serve_builtin(core).await,
+        McpCommands::Serve => serve_builtin().await,
     }
 }
 
@@ -97,15 +96,18 @@ async fn remove_server(name: &str, format: OutputFormat) -> Result<()> {
     Ok(())
 }
 
-async fn serve_builtin(core: Arc<AppCore>) -> Result<()> {
-    let server = RestFlowMcpServer::new(core);
+async fn serve_builtin() -> Result<()> {
+    ensure_daemon_running().await?;
+    let socket_path = paths::socket_path()?;
+    let client = IpcClient::connect(&socket_path).await?;
+    let server = RestFlowMcpServer::with_ipc(client);
     server.run().await?;
     Ok(())
 }
 
-async fn start_server(core: Arc<AppCore>, name: &str, format: OutputFormat) -> Result<()> {
+async fn start_server(name: &str, format: OutputFormat) -> Result<()> {
     if name == "restflow" {
-        return serve_builtin(core).await;
+        return serve_builtin().await;
     }
 
     let mut servers = load_servers()?;
