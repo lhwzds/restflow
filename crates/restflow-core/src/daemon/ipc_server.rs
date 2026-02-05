@@ -14,10 +14,13 @@ use anyhow::Result;
 use restflow_storage::AuthProfileStorage;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::broadcast;
 use tracing::{debug, error, info};
+
+#[cfg(unix)]
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+#[cfg(unix)]
+use tokio::net::{UnixListener, UnixStream};
 
 pub struct IpcServer {
     core: Arc<AppCore>,
@@ -29,6 +32,7 @@ impl IpcServer {
         Self { core, socket_path }
     }
 
+    #[cfg(unix)]
     pub async fn run(&self, mut shutdown: broadcast::Receiver<()>) -> Result<()> {
         if self.socket_path.exists() {
             std::fs::remove_file(&self.socket_path)?;
@@ -69,6 +73,12 @@ impl IpcServer {
         Ok(())
     }
 
+    #[cfg(not(unix))]
+    pub async fn run(&self, _shutdown: broadcast::Receiver<()>) -> Result<()> {
+        anyhow::bail!("IPC is not supported on this platform")
+    }
+
+    #[cfg(unix)]
     async fn handle_client(mut stream: UnixStream, core: Arc<AppCore>) -> Result<()> {
         loop {
             let mut len_buf = [0u8; 4];
@@ -94,6 +104,7 @@ impl IpcServer {
         Ok(())
     }
 
+    #[cfg(unix)]
     async fn send(stream: &mut UnixStream, response: &IpcResponse) -> Result<()> {
         let json = serde_json::to_vec(response)?;
         stream.write_all(&(json.len() as u32).to_le_bytes()).await?;

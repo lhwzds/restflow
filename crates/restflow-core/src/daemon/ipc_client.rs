@@ -8,13 +8,18 @@ use crate::models::{
 use anyhow::{Context, Result, bail};
 use serde::de::DeserializeOwned;
 use std::path::Path;
+
+#[cfg(unix)]
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+#[cfg(unix)]
 use tokio::net::UnixStream;
 
+#[cfg(unix)]
 pub struct IpcClient {
     stream: UnixStream,
 }
 
+#[cfg(unix)]
 impl IpcClient {
     pub async fn connect(socket_path: &Path) -> Result<Self> {
         let stream = UnixStream::connect(socket_path)
@@ -376,6 +381,241 @@ impl IpcClient {
     }
 }
 
+#[cfg(not(unix))]
+pub struct IpcClient;
+
+#[cfg(not(unix))]
+impl IpcClient {
+    pub async fn connect(_socket_path: &Path) -> Result<Self> {
+        bail!("IPC is not supported on this platform")
+    }
+
+    pub async fn request(&mut self, _req: IpcRequest) -> Result<IpcResponse> {
+        bail!("IPC is not supported on this platform")
+    }
+
+    pub async fn ping(&mut self) -> bool {
+        false
+    }
+
+    async fn request_typed<T: DeserializeOwned>(&mut self, _req: IpcRequest) -> Result<T> {
+        bail!("IPC is not supported on this platform")
+    }
+
+    pub async fn search_memory(
+        &mut self,
+        _query: String,
+        _agent_id: Option<String>,
+        _limit: Option<u32>,
+    ) -> Result<MemorySearchResult> {
+        self.request_typed(IpcRequest::Ping).await
+    }
+
+    pub async fn list_memory(
+        &mut self,
+        _agent_id: Option<String>,
+        _tag: Option<String>,
+    ) -> Result<Vec<MemoryChunk>> {
+        self.request_typed(IpcRequest::Ping).await
+    }
+
+    pub async fn add_memory(
+        &mut self,
+        _content: String,
+        _agent_id: Option<String>,
+        _tags: Vec<String>,
+    ) -> Result<String> {
+        self.request_typed(IpcRequest::Ping).await
+    }
+
+    pub async fn delete_memory(&mut self, _id: String) -> Result<bool> {
+        self.request_typed(IpcRequest::Ping).await
+    }
+
+    pub async fn clear_memory(&mut self, _agent_id: Option<String>) -> Result<u32> {
+        self.request_typed(IpcRequest::Ping).await
+    }
+
+    pub async fn get_memory_stats(&mut self, _agent_id: Option<String>) -> Result<MemoryStats> {
+        self.request_typed(IpcRequest::Ping).await
+    }
+
+    pub async fn export_memory(&mut self, _agent_id: Option<String>) -> Result<ExportResult> {
+        self.request_typed(IpcRequest::Ping).await
+    }
+
+    pub async fn list_sessions(&mut self) -> Result<Vec<ChatSessionSummary>> {
+        self.request_typed(IpcRequest::Ping).await
+    }
+
+    pub async fn list_full_sessions(&mut self) -> Result<Vec<ChatSession>> {
+        self.request_typed(IpcRequest::Ping).await
+    }
+
+    pub async fn list_sessions_by_agent(&mut self, _agent_id: String) -> Result<Vec<ChatSession>> {
+        self.request_typed(IpcRequest::Ping).await
+    }
+
+    pub async fn list_sessions_by_skill(&mut self, _skill_id: String) -> Result<Vec<ChatSession>> {
+        self.request_typed(IpcRequest::Ping).await
+    }
+
+    pub async fn count_sessions(&mut self) -> Result<usize> {
+        self.request_typed(IpcRequest::Ping).await
+    }
+
+    pub async fn delete_sessions_older_than(&mut self, _older_than_ms: i64) -> Result<usize> {
+        self.request_typed(IpcRequest::Ping).await
+    }
+
+    pub async fn get_session(&mut self, _id: String) -> Result<ChatSession> {
+        self.request_typed(IpcRequest::Ping).await
+    }
+
+    pub async fn create_session(
+        &mut self,
+        _agent_id: Option<String>,
+        _model: Option<String>,
+        _name: Option<String>,
+        _skill_id: Option<String>,
+    ) -> Result<ChatSession> {
+        self.request_typed(IpcRequest::Ping).await
+    }
+
+    pub async fn update_session(
+        &mut self,
+        _id: String,
+        _updates: ChatSessionUpdate,
+    ) -> Result<ChatSession> {
+        self.request_typed(IpcRequest::Ping).await
+    }
+
+    pub async fn rename_session(&mut self, _id: String, _name: String) -> Result<ChatSession> {
+        self.request_typed(IpcRequest::Ping).await
+    }
+
+    pub async fn delete_session(&mut self, _id: String) -> Result<bool> {
+        self.request_typed(IpcRequest::Ping).await
+    }
+
+    pub async fn search_sessions(&mut self, _query: String) -> Result<Vec<ChatSessionSummary>> {
+        self.request_typed(IpcRequest::Ping).await
+    }
+
+    pub async fn add_message(
+        &mut self,
+        _session_id: String,
+        _role: ChatRole,
+        _content: String,
+    ) -> Result<ChatSession> {
+        self.request_typed(IpcRequest::Ping).await
+    }
+
+    pub async fn append_message(
+        &mut self,
+        _session_id: String,
+        _message: ChatMessage,
+    ) -> Result<ChatSession> {
+        self.request_typed(IpcRequest::Ping).await
+    }
+
+    pub async fn get_session_messages(
+        &mut self,
+        _session_id: String,
+        _limit: Option<usize>,
+    ) -> Result<Vec<ChatMessage>> {
+        self.request_typed(IpcRequest::Ping).await
+    }
+
+    pub async fn list_auth_profiles(&mut self) -> Result<Vec<AuthProfile>> {
+        self.request_typed(IpcRequest::Ping).await
+    }
+
+    pub async fn get_auth_profile(&mut self, _id: String) -> Result<AuthProfile> {
+        self.request_typed(IpcRequest::Ping).await
+    }
+
+    pub async fn add_auth_profile(
+        &mut self,
+        _name: String,
+        _credential: Credential,
+        _source: CredentialSource,
+        _provider: AuthProvider,
+    ) -> Result<AuthProfile> {
+        self.request_typed(IpcRequest::Ping).await
+    }
+
+    pub async fn remove_auth_profile(&mut self, _id: String) -> Result<AuthProfile> {
+        self.request_typed(IpcRequest::Ping).await
+    }
+
+    pub async fn update_auth_profile(
+        &mut self,
+        _id: String,
+        _updates: ProfileUpdate,
+    ) -> Result<AuthProfile> {
+        self.request_typed(IpcRequest::Ping).await
+    }
+
+    pub async fn discover_auth(&mut self) -> Result<crate::auth::DiscoverySummary> {
+        self.request_typed(IpcRequest::Ping).await
+    }
+
+    pub async fn get_api_key(&mut self, _provider: AuthProvider) -> Result<String> {
+        self.request_typed(IpcRequest::Ping).await
+    }
+
+    pub async fn get_api_key_for_profile(&mut self, _id: String) -> Result<String> {
+        self.request_typed(IpcRequest::Ping).await
+    }
+
+    pub async fn test_auth_profile(&mut self, _id: String) -> Result<bool> {
+        self.request_typed(IpcRequest::Ping).await
+    }
+
+    pub async fn list_tasks(&mut self) -> Result<Vec<AgentTask>> {
+        self.request_typed(IpcRequest::Ping).await
+    }
+
+    pub async fn get_task(&mut self, _id: String) -> Result<Option<AgentTask>> {
+        self.request_typed(IpcRequest::Ping).await
+    }
+
+    pub async fn create_task(
+        &mut self,
+        _name: String,
+        _agent_id: String,
+        _schedule: crate::models::TaskSchedule,
+    ) -> Result<AgentTask> {
+        self.request_typed(IpcRequest::Ping).await
+    }
+
+    pub async fn update_task(&mut self, _task: AgentTask) -> Result<AgentTask> {
+        self.request_typed(IpcRequest::Ping).await
+    }
+
+    pub async fn delete_task(&mut self, _id: String) -> Result<bool> {
+        self.request_typed(IpcRequest::Ping).await
+    }
+
+    pub async fn pause_task(&mut self, _id: String) -> Result<AgentTask> {
+        self.request_typed(IpcRequest::Ping).await
+    }
+
+    pub async fn resume_task(&mut self, _id: String) -> Result<AgentTask> {
+        self.request_typed(IpcRequest::Ping).await
+    }
+
+    pub async fn list_tasks_by_status(&mut self, _status: String) -> Result<Vec<AgentTask>> {
+        self.request_typed(IpcRequest::Ping).await
+    }
+
+    pub async fn get_task_history(&mut self, _id: String) -> Result<Vec<TaskEvent>> {
+        self.request_typed(IpcRequest::Ping).await
+    }
+}
+
+#[cfg(unix)]
 pub async fn is_daemon_available(socket_path: &Path) -> bool {
     if !socket_path.exists() {
         return false;
@@ -384,4 +624,9 @@ pub async fn is_daemon_available(socket_path: &Path) -> bool {
         Ok(mut client) => client.ping().await,
         Err(_) => false,
     }
+}
+
+#[cfg(not(unix))]
+pub async fn is_daemon_available(_socket_path: &Path) -> bool {
+    false
 }
