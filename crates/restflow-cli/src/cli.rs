@@ -349,6 +349,14 @@ pub enum DaemonCommands {
         /// HTTP port for the API
         #[arg(short, long)]
         port: Option<u16>,
+
+        /// Enable the MCP HTTP server
+        #[arg(long)]
+        mcp: bool,
+
+        /// MCP HTTP server port
+        #[arg(long)]
+        mcp_port: Option<u16>,
     },
 
     /// Stop daemon
@@ -571,7 +579,7 @@ pub enum AllowlistAction {
     Remove { index: usize },
 }
 
-#[derive(Subcommand)]
+#[derive(Subcommand, Clone)]
 pub enum McpCommands {
     /// List MCP servers
     List,

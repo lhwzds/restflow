@@ -16,16 +16,27 @@ pub async fn run(core: Arc<AppCore>, command: DaemonCommands) -> Result<()> {
             foreground,
             http,
             port,
-        } => start(core, foreground, http, port).await,
+            mcp,
+            mcp_port,
+        } => start(core, foreground, http, port, mcp, mcp_port).await,
         DaemonCommands::Stop => stop().await,
         DaemonCommands::Status => status().await,
     }
 }
 
-async fn start(core: Arc<AppCore>, foreground: bool, http: bool, port: Option<u16>) -> Result<()> {
+async fn start(
+    core: Arc<AppCore>,
+    foreground: bool,
+    http: bool,
+    port: Option<u16>,
+    mcp: bool,
+    mcp_port: Option<u16>,
+) -> Result<()> {
     let config = DaemonConfig {
         http,
         http_port: port,
+        mcp,
+        mcp_port,
     };
 
     if foreground {
@@ -103,6 +114,25 @@ async fn run_daemon(core: Arc<AppCore>, config: DaemonConfig) -> Result<()> {
         None
     };
 
+    let mcp_handle = if config.mcp {
+        let addr = std::net::SocketAddr::from(([127, 0, 0, 1], config.mcp_port.unwrap_or(8787)));
+        let mcp_shutdown = shutdown_tx.subscribe();
+        let mcp_core = core.clone();
+        Some(tokio::spawn(async move {
+            if let Err(err) = restflow_core::daemon::run_mcp_http_server(
+                mcp_core,
+                addr,
+                mcp_shutdown,
+            )
+            .await
+            {
+                error!(error = %err, "MCP server stopped unexpectedly");
+            }
+        }))
+    } else {
+        None
+    };
+
     let mut runner = CliTaskRunner::new(core);
     if let Err(err) = runner.start().await {
         error!(error = %err, "Task runner failed to start; continuing without runner");
@@ -117,6 +147,9 @@ async fn run_daemon(core: Arc<AppCore>, config: DaemonConfig) -> Result<()> {
     let _ = std::fs::remove_file(&pid_path);
     let _ = ipc_handle.await;
     if let Some(handle) = http_handle {
+        let _ = handle.await;
+    }
+    if let Some(handle) = mcp_handle {
         let _ = handle.await;
     }
 

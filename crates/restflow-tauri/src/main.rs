@@ -15,7 +15,7 @@
 )]
 
 use clap::Parser;
-use restflow_core::daemon::ensure_daemon_running;
+use restflow_core::daemon::{IpcClient, ensure_daemon_running};
 use restflow_core::paths;
 use restflow_tauri_lib::AppState;
 use restflow_tauri_lib::RestFlowMcpServer;
@@ -273,23 +273,19 @@ fn run_mcp_server(db_path: Option<String>) {
     let rt = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
 
     rt.block_on(async {
-        let db_path = db_path.unwrap_or_else(|| {
-            paths::ensure_database_path_string().unwrap_or_else(|e| {
-                tracing::warn!(error = %e, "Failed to get database path");
-                "restflow.db".to_string()
-            })
-        });
-        tracing::info!(db_path = %db_path, "Initializing database for MCP server");
+        if let Some(db_path) = db_path {
+            tracing::warn!(db_path = %db_path, "Ignoring db_path in MCP mode (daemon owns the database)");
+        }
 
-        let state = AppState::new(&db_path)
+        ensure_daemon_running()
             .await
-            .expect("Failed to initialize AppState");
+            .expect("Failed to start daemon for MCP mode");
 
-        let core = state
-            .core
-            .clone()
-            .expect("AppCore should be available in MCP mode");
-        let mcp_server = RestFlowMcpServer::new(core);
+        let socket_path = paths::socket_path().expect("Failed to resolve daemon socket path");
+        let client = IpcClient::connect(&socket_path)
+            .await
+            .expect("Failed to connect to daemon for MCP mode");
+        let mcp_server = RestFlowMcpServer::with_ipc(client);
 
         if let Err(e) = mcp_server.run().await {
             tracing::error!(error = %e, "MCP server error");

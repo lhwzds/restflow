@@ -3,8 +3,9 @@ use crate::auth::{AuthProfile, AuthProvider, Credential, CredentialSource, Profi
 use crate::memory::ExportResult;
 use crate::models::{
     AgentNode, AgentTask, ChatMessage, ChatRole, ChatSession, ChatSessionSummary, ChatSessionUpdate,
-    MemoryChunk, MemorySearchResult, MemorySession, MemoryStats, TaskEvent, TerminalSession,
+    MemoryChunk, MemorySearchResult, MemorySession, MemoryStats, Skill, TaskEvent, TerminalSession,
 };
+use crate::storage::agent::StoredAgent;
 use anyhow::{Context, Result, bail};
 use serde::de::DeserializeOwned;
 use std::path::Path;
@@ -61,6 +62,15 @@ impl IpcClient {
         }
     }
 
+    async fn request_optional<T: DeserializeOwned>(&mut self, req: IpcRequest) -> Result<Option<T>> {
+        match self.request(req).await? {
+            IpcResponse::Success(value) => Ok(Some(serde_json::from_value(value)?)),
+            IpcResponse::Error { code: 404, .. } => Ok(None),
+            IpcResponse::Error { code, message } => bail!("IPC error {}: {}", code, message),
+            IpcResponse::Pong => bail!("Unexpected Pong response"),
+        }
+    }
+
     pub async fn search_memory(
         &mut self,
         query: String,
@@ -73,6 +83,37 @@ impl IpcClient {
             limit,
         })
         .await
+    }
+
+    pub async fn list_skills(&mut self) -> Result<Vec<Skill>> {
+        self.request_typed(IpcRequest::ListSkills).await
+    }
+
+    pub async fn get_skill(&mut self, id: String) -> Result<Option<Skill>> {
+        self.request_optional(IpcRequest::GetSkill { id }).await
+    }
+
+    pub async fn create_skill(&mut self, skill: Skill) -> Result<()> {
+        let _: serde_json::Value = self.request_typed(IpcRequest::CreateSkill { skill }).await?;
+        Ok(())
+    }
+
+    pub async fn update_skill(&mut self, id: String, skill: Skill) -> Result<()> {
+        let _: serde_json::Value = self.request_typed(IpcRequest::UpdateSkill { id, skill }).await?;
+        Ok(())
+    }
+
+    pub async fn delete_skill(&mut self, id: String) -> Result<()> {
+        let _: serde_json::Value = self.request_typed(IpcRequest::DeleteSkill { id }).await?;
+        Ok(())
+    }
+
+    pub async fn list_agents(&mut self) -> Result<Vec<StoredAgent>> {
+        self.request_typed(IpcRequest::ListAgents).await
+    }
+
+    pub async fn get_agent(&mut self, id: String) -> Result<StoredAgent> {
+        self.request_typed(IpcRequest::GetAgent { id }).await
     }
 
     pub async fn search_memory_ranked(
@@ -614,6 +655,34 @@ impl IpcClient {
         _agent_id: Option<String>,
         _limit: Option<u32>,
     ) -> Result<MemorySearchResult> {
+        self.request_typed(IpcRequest::Ping).await
+    }
+
+    pub async fn list_skills(&mut self) -> Result<Vec<Skill>> {
+        self.request_typed(IpcRequest::Ping).await
+    }
+
+    pub async fn get_skill(&mut self, _id: String) -> Result<Option<Skill>> {
+        self.request_typed(IpcRequest::Ping).await
+    }
+
+    pub async fn create_skill(&mut self, _skill: Skill) -> Result<()> {
+        self.request_typed(IpcRequest::Ping).await
+    }
+
+    pub async fn update_skill(&mut self, _id: String, _skill: Skill) -> Result<()> {
+        self.request_typed(IpcRequest::Ping).await
+    }
+
+    pub async fn delete_skill(&mut self, _id: String) -> Result<()> {
+        self.request_typed(IpcRequest::Ping).await
+    }
+
+    pub async fn list_agents(&mut self) -> Result<Vec<StoredAgent>> {
+        self.request_typed(IpcRequest::Ping).await
+    }
+
+    pub async fn get_agent(&mut self, _id: String) -> Result<StoredAgent> {
         self.request_typed(IpcRequest::Ping).await
     }
 
