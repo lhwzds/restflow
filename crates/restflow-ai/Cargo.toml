@@ -27,6 +27,7 @@ reqwest = { version = "0.13", features = ["json", "stream"] }
 regex = "1.11"
 sha2 = "0.10.9"
 hex = "0.4"
+lsp-types = "0.95"
 
 # PyO3 for Python bindings (optional)
 pyo3 = { version = "0.28.0", features = ["extension-module"], optional = true }
