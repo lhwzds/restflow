@@ -24,10 +24,12 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use tokio::fs;
 use tokio::io::AsyncWriteExt;
 
 use super::traits::{Tool, ToolOutput};
+use crate::cache::{AgentCacheManager, CachedSearchResult, SearchMatch};
 use crate::error::Result;
 
 /// Maximum file size to read (1MB)
@@ -49,6 +51,8 @@ pub struct FileTool {
     base_dir: Option<PathBuf>,
     /// Maximum file size to read in bytes
     max_read_bytes: usize,
+    /// Optional cache manager for file/search operations
+    cache_manager: Option<Arc<AgentCacheManager>>,
 }
 
 impl Default for FileTool {
@@ -63,6 +67,7 @@ impl FileTool {
         Self {
             base_dir: None,
             max_read_bytes: DEFAULT_MAX_READ_BYTES,
+            cache_manager: None,
         }
     }
 
@@ -76,6 +81,12 @@ impl FileTool {
     /// Set maximum read size in bytes
     pub fn with_max_read(mut self, bytes: usize) -> Self {
         self.max_read_bytes = bytes;
+        self
+    }
+
+    /// Attach a cache manager for file and search operations
+    pub fn with_cache_manager(mut self, cache_manager: Arc<AgentCacheManager>) -> Self {
+        self.cache_manager = Some(cache_manager);
         self
     }
 
@@ -170,11 +181,30 @@ impl FileTool {
             ));
         }
 
+        if let Some(cache) = &self.cache_manager {
+            if let Some(content) = cache.files.get_with_metadata(&path, &metadata).await {
+                return Self::format_file_output(&path, &content, offset, limit);
+            }
+        }
+
         let content = match fs::read_to_string(&path).await {
             Ok(c) => c,
             Err(e) => return ToolOutput::error(format!("Cannot read file: {}", e)),
         };
 
+        if let Some(cache) = &self.cache_manager {
+            cache.files.put(&path, content.clone(), &metadata).await;
+        }
+
+        Self::format_file_output(&path, &content, offset, limit)
+    }
+
+    fn format_file_output(
+        path: &Path,
+        content: &str,
+        offset: usize,
+        limit: Option<usize>,
+    ) -> ToolOutput {
         let lines: Vec<&str> = content.lines().collect();
         let total_lines = lines.len();
 
@@ -193,6 +223,33 @@ impl FileTool {
             "total_lines": total_lines,
             "showing": format!("{}-{}", start + 1, end),
             "content": selected.join("\n"),
+        }))
+    }
+
+    fn format_search_output(
+        search_path: &str,
+        pattern: &str,
+        result: CachedSearchResult,
+    ) -> ToolOutput {
+        let matches: Vec<Value> = result
+            .matches
+            .iter()
+            .map(|entry| {
+                serde_json::json!({
+                    "file": entry.file.clone(),
+                    "line": entry.line,
+                    "content": entry.content.clone(),
+                })
+            })
+            .collect();
+
+        ToolOutput::success(serde_json::json!({
+            "pattern": pattern,
+            "search_path": search_path,
+            "match_count": matches.len(),
+            "truncated": result.truncated,
+            "total_files_searched": result.total_files_searched,
+            "matches": matches,
         }))
     }
 
@@ -232,11 +289,23 @@ impl FileTool {
         };
 
         match result {
-            Ok(()) => ToolOutput::success(serde_json::json!({
-                "path": path.display().to_string(),
-                "bytes_written": content.len(),
-                "action": if append { "appended" } else { "written" },
-            })),
+            Ok(()) => {
+                if let Some(cache) = &self.cache_manager {
+                    cache.files.invalidate(&path).await;
+                    let directory = path
+                        .parent()
+                        .unwrap_or(&path)
+                        .to_string_lossy()
+                        .to_string();
+                    cache.search.invalidate_directory(&directory).await;
+                }
+
+                ToolOutput::success(serde_json::json!({
+                    "path": path.display().to_string(),
+                    "bytes_written": content.len(),
+                    "action": if append { "appended" } else { "written" },
+                }))
+            }
             Err(e) => ToolOutput::error(format!("Cannot write file: {}", e)),
         }
     }
@@ -408,21 +477,46 @@ impl FileTool {
             Err(e) => return ToolOutput::error(e),
         };
 
+        let search_path = path.display().to_string();
+        if let Some(cache) = &self.cache_manager {
+            if let Some(cached) = cache.search.get(pattern, &search_path, file_pattern).await {
+                return Self::format_search_output(&search_path, pattern, cached);
+            }
+        }
+
         let regex = match Regex::new(pattern) {
             Ok(r) => r,
             Err(e) => return ToolOutput::error(format!("Invalid regex pattern: {}", e)),
         };
 
-        let mut matches: Vec<Value> = Vec::new();
-        self.search_recursive(&path, &regex, file_pattern, &mut matches, &path).await;
+        let mut matches: Vec<SearchMatch> = Vec::new();
+        let mut truncated = false;
+        let mut total_files_searched = 0;
+        self.search_recursive(
+            &path,
+            &regex,
+            file_pattern,
+            &mut matches,
+            &mut truncated,
+            &mut total_files_searched,
+            &path,
+        )
+        .await;
 
-        ToolOutput::success(serde_json::json!({
-            "pattern": pattern,
-            "search_path": path.display().to_string(),
-            "match_count": matches.len(),
-            "truncated": matches.len() >= MAX_SEARCH_MATCHES,
-            "matches": matches,
-        }))
+        let result = CachedSearchResult {
+            matches,
+            total_files_searched,
+            truncated,
+        };
+
+        if let Some(cache) = &self.cache_manager {
+            cache
+                .search
+                .put(pattern, &search_path, file_pattern, result.clone())
+                .await;
+        }
+
+        Self::format_search_output(&search_path, pattern, result)
     }
 
     /// Recursively search for text in files
@@ -431,23 +525,30 @@ impl FileTool {
         dir: &'a Path,
         regex: &'a Regex,
         file_pattern: Option<&'a str>,
-        matches: &'a mut Vec<Value>,
+        matches: &'a mut Vec<SearchMatch>,
+        truncated: &'a mut bool,
+        total_files_searched: &'a mut usize,
         base: &'a Path,
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'a>> {
         Box::pin(async move {
             if matches.len() >= MAX_SEARCH_MATCHES {
+                *truncated = true;
                 return;
             }
 
             if dir.is_file() {
                 // Search in single file
-                let name = dir.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+                let name = dir
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_default();
                 if let Some(p) = file_pattern
                     && !glob_match(p, &name)
                 {
                     return;
                 }
-                self.search_in_file(dir, regex, matches, base).await;
+                self.search_in_file(dir, regex, matches, truncated, total_files_searched, base)
+                    .await;
                 return;
             }
 
@@ -458,6 +559,7 @@ impl FileTool {
 
             while let Ok(Some(entry)) = read_dir.next_entry().await {
                 if matches.len() >= MAX_SEARCH_MATCHES {
+                    *truncated = true;
                     break;
                 }
 
@@ -473,7 +575,16 @@ impl FileTool {
                     if name.starts_with('.') {
                         continue;
                     }
-                    self.search_recursive(&entry_path, regex, file_pattern, matches, base).await;
+                    self.search_recursive(
+                        &entry_path,
+                        regex,
+                        file_pattern,
+                        matches,
+                        truncated,
+                        total_files_searched,
+                        base,
+                    )
+                    .await;
                 } else if file_type.is_file() {
                     let name = entry.file_name().to_string_lossy().to_string();
 
@@ -489,7 +600,15 @@ impl FileTool {
                         continue;
                     }
 
-                    self.search_in_file(&entry_path, regex, matches, base).await;
+                    self.search_in_file(
+                        &entry_path,
+                        regex,
+                        matches,
+                        truncated,
+                        total_files_searched,
+                        base,
+                    )
+                    .await;
                 }
             }
         })
@@ -500,13 +619,17 @@ impl FileTool {
         &self,
         file: &Path,
         regex: &Regex,
-        matches: &mut Vec<Value>,
+        matches: &mut Vec<SearchMatch>,
+        truncated: &mut bool,
+        total_files_searched: &mut usize,
         base: &Path,
     ) {
         let content = match fs::read_to_string(file).await {
             Ok(c) => c,
             Err(_) => return, // Skip files that can't be read as text
         };
+
+        *total_files_searched += 1;
 
         let relative_path = file
             .strip_prefix(base)
@@ -516,15 +639,16 @@ impl FileTool {
 
         for (line_num, line) in content.lines().enumerate() {
             if matches.len() >= MAX_SEARCH_MATCHES {
+                *truncated = true;
                 break;
             }
 
             if regex.is_match(line) {
-                matches.push(serde_json::json!({
-                    "file": relative_path,
-                    "line": line_num + 1,
-                    "content": line.chars().take(200).collect::<String>(),
-                }));
+                matches.push(SearchMatch {
+                    file: relative_path.clone(),
+                    line: line_num + 1,
+                    content: line.chars().take(200).collect::<String>(),
+                });
             }
         }
     }

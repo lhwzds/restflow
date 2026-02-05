@@ -20,8 +20,11 @@ pub use models::*;
 
 use once_cell::sync::OnceCell;
 use std::sync::Arc;
+use std::time::Duration;
 use storage::Storage;
 use tracing::info;
+
+use crate::mcp::McpToolCache;
 
 /// Core application state shared between server and Tauri modes
 ///
@@ -31,6 +34,7 @@ use tracing::info;
 pub struct AppCore {
     pub storage: Arc<Storage>,
     pub python_manager: OnceCell<Arc<python::PythonManager>>,
+    pub mcp_tool_cache: Arc<McpToolCache>,
 }
 
 /// Default agent prompt embedded at compile time
@@ -46,9 +50,12 @@ impl AppCore {
 
         info!("Initializing RestFlow (Agent-centric mode)");
 
+        let mcp_tool_cache = Arc::new(McpToolCache::new(Duration::from_secs(3600)));
+
         Ok(Self {
             storage,
             python_manager: OnceCell::new(),
+            mcp_tool_cache,
         })
     }
 
