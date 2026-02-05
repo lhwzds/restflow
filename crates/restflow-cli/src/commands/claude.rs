@@ -299,6 +299,8 @@ pub async fn run(args: ClaudeArgs, format: OutputFormat) -> Result<()> {
         .arg("--mcp-config")
         .arg(&mcp_config_path);
 
+    add_default_home_dir(&mut cmd);
+
     // Session handling
     if let Some(ref id) = session_id {
         cmd.arg("--session-id").arg(id);
@@ -371,4 +373,55 @@ pub async fn run(args: ClaudeArgs, format: OutputFormat) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn add_default_home_dir(cmd: &mut Command) {
+    // Default to the user's home directory for parity with local permissions.
+    if let Some(home) = dirs::home_dir() {
+        cmd.arg("--add-dir").arg(home);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::add_default_home_dir;
+    use std::env;
+    use std::process::Command;
+
+    #[test]
+    fn add_default_home_dir_appends_add_dir() {
+        let temp = tempfile::tempdir().expect("temp dir");
+        let home = temp.path().to_path_buf();
+
+        let old_home = env::var_os("HOME");
+        let old_userprofile = env::var_os("USERPROFILE");
+
+        env::set_var("HOME", &home);
+        env::set_var("USERPROFILE", &home);
+
+        let mut cmd = Command::new("claude");
+        add_default_home_dir(&mut cmd);
+
+        let args: Vec<String> = cmd
+            .get_args()
+            .map(|arg| arg.to_string_lossy().to_string())
+            .collect();
+
+        assert_eq!(
+            args,
+            vec![
+                "--add-dir".to_string(),
+                home.to_string_lossy().to_string()
+            ]
+        );
+
+        match old_home {
+            Some(value) => env::set_var("HOME", value),
+            None => env::remove_var("HOME"),
+        }
+        match old_userprofile {
+            Some(value) => env::set_var("USERPROFILE", value),
+            None => env::remove_var("USERPROFILE"),
+        }
+    }
 }
