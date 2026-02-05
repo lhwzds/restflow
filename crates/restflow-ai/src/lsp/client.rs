@@ -7,7 +7,7 @@ use lsp_types::{
     ClientCapabilities, Diagnostic, DocumentDiagnosticParams, DocumentDiagnosticReport,
     DidChangeTextDocumentParams, DidOpenTextDocumentParams, InitializeParams, InitializedParams,
     TextDocumentContentChangeEvent, TextDocumentIdentifier, TextDocumentItem, Url,
-    VersionedTextDocumentIdentifier,
+    VersionedTextDocumentIdentifier, WorkspaceFolder,
 };
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -68,9 +68,16 @@ impl LspClient {
             .ok()
             .and_then(|path| Url::from_file_path(path).ok());
 
+        let workspace_folders = root_uri.as_ref().map(|uri| {
+            vec![WorkspaceFolder {
+                uri: uri.clone(),
+                name: "workspace".to_string(),
+            }]
+        });
+
         let params = InitializeParams {
-            process_id: Some(std::process::id() as i32),
-            root_uri,
+            process_id: Some(std::process::id()),
+            workspace_folders,
             capabilities: ClientCapabilities::default(),
             ..Default::default()
         };
@@ -134,7 +141,9 @@ impl LspClient {
             self.send_request("textDocument/diagnostic", params).await?;
 
         let diagnostics = match report {
-            DocumentDiagnosticReport::Full(full) => full.items,
+            DocumentDiagnosticReport::Full(full) => {
+                full.full_document_diagnostic_report.items
+            }
             DocumentDiagnosticReport::Unchanged(_) => Vec::new(),
         };
 

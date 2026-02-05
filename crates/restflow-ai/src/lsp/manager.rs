@@ -22,7 +22,7 @@ pub struct LspServerConfig {
 }
 
 /// Manages LSP clients for multiple languages.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct LspManager {
     clients: HashMap<String, Arc<Mutex<LspClient>>>,
     configs: HashMap<String, LspServerConfig>,
@@ -182,14 +182,30 @@ impl LspManager {
     }
 
     fn next_version(&mut self, path: &Path, is_open: bool) -> i32 {
+        use std::collections::hash_map::Entry;
+
         let entry = self.file_versions.entry(path.to_path_buf());
         if is_open {
-            entry.or_insert(1);
-            return *entry.get().unwrap_or(&1);
+            return match entry {
+                Entry::Occupied(entry) => *entry.get(),
+                Entry::Vacant(entry) => {
+                    entry.insert(1);
+                    1
+                }
+            };
         }
 
-        let version = entry.and_modify(|v| *v += 1).or_insert(1);
-        *version
+        match entry {
+            Entry::Occupied(mut entry) => {
+                let value = entry.get_mut();
+                *value += 1;
+                *value
+            }
+            Entry::Vacant(entry) => {
+                entry.insert(1);
+                1
+            }
+        }
     }
 }
 
