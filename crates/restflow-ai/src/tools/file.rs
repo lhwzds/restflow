@@ -181,10 +181,10 @@ impl FileTool {
             ));
         }
 
-        if let Some(cache) = &self.cache_manager {
-            if let Some(content) = cache.files.get_with_metadata(&path, &metadata).await {
-                return Self::format_file_output(&path, &content, offset, limit);
-            }
+        if let Some(cache) = &self.cache_manager
+            && let Some(content) = cache.files.get_with_metadata(&path, &metadata).await
+        {
+            return Self::format_file_output(&path, &content, offset, limit);
         }
 
         let content = match fs::read_to_string(&path).await {
@@ -478,10 +478,10 @@ impl FileTool {
         };
 
         let search_path = path.display().to_string();
-        if let Some(cache) = &self.cache_manager {
-            if let Some(cached) = cache.search.get(pattern, &search_path, file_pattern).await {
-                return Self::format_search_output(&search_path, pattern, cached);
-            }
+        if let Some(cache) = &self.cache_manager
+            && let Some(cached) = cache.search.get(pattern, &search_path, file_pattern).await
+        {
+            return Self::format_search_output(&search_path, pattern, cached);
         }
 
         let regex = match Regex::new(pattern) {
@@ -520,6 +520,7 @@ impl FileTool {
     }
 
     /// Recursively search for text in files
+    #[allow(clippy::too_many_arguments)]
     fn search_recursive<'a>(
         &'a self,
         dir: &'a Path,
