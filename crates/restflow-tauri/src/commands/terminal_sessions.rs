@@ -3,7 +3,6 @@
 use crate::state::AppState;
 use restflow_core::TerminalSession;
 use tauri::State;
-use uuid::Uuid;
 
 /// List all terminal sessions
 #[tauri::command]
@@ -11,10 +10,9 @@ pub async fn list_terminal_sessions(
     state: State<'_, AppState>,
 ) -> Result<Vec<TerminalSession>, String> {
     state
-        .core
-        .storage
-        .terminal_sessions
-        .list()
+        .executor()
+        .list_terminal_sessions()
+        .await
         .map_err(|e| e.to_string())
 }
 
@@ -25,12 +23,10 @@ pub async fn get_terminal_session(
     id: String,
 ) -> Result<TerminalSession, String> {
     state
-        .core
-        .storage
-        .terminal_sessions
-        .get(&id)
-        .map_err(|e| e.to_string())?
-        .ok_or_else(|| format!("Terminal session '{}' not found", id))
+        .executor()
+        .get_terminal_session(id.clone())
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// Create a new terminal session
@@ -38,25 +34,11 @@ pub async fn get_terminal_session(
 pub async fn create_terminal_session(
     state: State<'_, AppState>,
 ) -> Result<TerminalSession, String> {
-    let name = state
-        .core
-        .storage
-        .terminal_sessions
-        .get_next_name()
-        .map_err(|e| e.to_string())?;
-
-    // Use UUID for guaranteed uniqueness (fixes bug where rapid clicks create duplicate IDs)
-    let id = format!("terminal-{}", Uuid::new_v4());
-    let session = TerminalSession::new(id, name);
-
     state
-        .core
-        .storage
-        .terminal_sessions
-        .create(&session)
-        .map_err(|e| e.to_string())?;
-
-    Ok(session)
+        .executor()
+        .create_terminal_session()
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// Rename a terminal session
@@ -66,24 +48,11 @@ pub async fn rename_terminal_session(
     id: String,
     name: String,
 ) -> Result<TerminalSession, String> {
-    let mut session = state
-        .core
-        .storage
-        .terminal_sessions
-        .get(&id)
-        .map_err(|e| e.to_string())?
-        .ok_or_else(|| format!("Terminal session '{}' not found", id))?;
-
-    session.rename(name);
-
     state
-        .core
-        .storage
-        .terminal_sessions
-        .update(&id, &session)
-        .map_err(|e| e.to_string())?;
-
-    Ok(session)
+        .executor()
+        .rename_terminal_session(id.clone(), name)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// Update a terminal session's configuration
@@ -95,41 +64,20 @@ pub async fn update_terminal_session(
     working_directory: Option<String>,
     startup_command: Option<String>,
 ) -> Result<TerminalSession, String> {
-    let mut session = state
-        .core
-        .storage
-        .terminal_sessions
-        .get(&id)
-        .map_err(|e| e.to_string())?
-        .ok_or_else(|| format!("Terminal session '{}' not found", id))?;
-
-    // Update name if provided
-    if let Some(new_name) = name {
-        session.rename(new_name);
-    }
-
-    // Update startup config
-    // Note: We use the provided values directly, allowing explicit None to clear
-    session.set_config(working_directory, startup_command);
-
     state
-        .core
-        .storage
-        .terminal_sessions
-        .update(&id, &session)
-        .map_err(|e| e.to_string())?;
-
-    Ok(session)
+        .executor()
+        .update_terminal_session(id.clone(), name, working_directory, startup_command)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// Delete a terminal session by ID
 #[tauri::command]
 pub async fn delete_terminal_session(state: State<'_, AppState>, id: String) -> Result<(), String> {
     state
-        .core
-        .storage
-        .terminal_sessions
-        .delete(&id)
+        .executor()
+        .delete_terminal_session(id)
+        .await
         .map_err(|e| e.to_string())
 }
 
@@ -137,6 +85,7 @@ pub async fn delete_terminal_session(state: State<'_, AppState>, id: String) -> 
 mod tests {
     use super::*;
     use std::collections::HashSet;
+    use uuid::Uuid;
 
     /// Test that UUID generation produces unique IDs even when called rapidly
     ///

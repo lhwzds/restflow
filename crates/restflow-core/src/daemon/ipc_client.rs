@@ -2,8 +2,8 @@ use super::ipc_protocol::{IpcRequest, IpcResponse, MAX_MESSAGE_SIZE};
 use crate::auth::{AuthProfile, AuthProvider, Credential, CredentialSource, ProfileUpdate};
 use crate::memory::ExportResult;
 use crate::models::{
-    AgentTask, ChatMessage, ChatRole, ChatSession, ChatSessionSummary, ChatSessionUpdate, MemoryChunk,
-    MemorySearchResult, MemoryStats, TaskEvent,
+    AgentNode, AgentTask, ChatMessage, ChatRole, ChatSession, ChatSessionSummary, ChatSessionUpdate,
+    MemoryChunk, MemorySearchResult, MemorySession, MemoryStats, TaskEvent, TerminalSession,
 };
 use anyhow::{Context, Result, bail};
 use serde::de::DeserializeOwned;
@@ -75,6 +75,31 @@ impl IpcClient {
         .await
     }
 
+    pub async fn search_memory_ranked(
+        &mut self,
+        query: crate::models::memory::MemorySearchQuery,
+        min_score: Option<f64>,
+        scoring_preset: Option<String>,
+    ) -> Result<crate::memory::RankedSearchResult> {
+        self.request_typed(IpcRequest::SearchMemoryRanked {
+            query,
+            min_score,
+            scoring_preset,
+        })
+        .await
+    }
+
+    pub async fn get_memory_chunk(&mut self, id: String) -> Result<Option<MemoryChunk>> {
+        match self.request(IpcRequest::GetMemoryChunk { id }).await? {
+            IpcResponse::Success(value) => Ok(Some(serde_json::from_value(value)?)),
+            IpcResponse::Error { code: 404, .. } => Ok(None),
+            IpcResponse::Error { code, message } => {
+                bail!("IPC error {}: {}", code, message)
+            }
+            IpcResponse::Pong => bail!("Unexpected Pong response"),
+        }
+    }
+
     pub async fn list_memory(
         &mut self,
         agent_id: Option<String>,
@@ -102,6 +127,16 @@ impl IpcClient {
             })
             .await?;
         Ok(resp.id)
+    }
+
+    pub async fn create_memory_chunk(&mut self, chunk: MemoryChunk) -> Result<MemoryChunk> {
+        self.request_typed(IpcRequest::CreateMemoryChunk { chunk })
+            .await
+    }
+
+    pub async fn list_memory_by_session(&mut self, session_id: String) -> Result<Vec<MemoryChunk>> {
+        self.request_typed(IpcRequest::ListMemoryBySession { session_id })
+            .await
     }
 
     pub async fn delete_memory(&mut self, id: String) -> Result<bool> {
@@ -134,6 +169,73 @@ impl IpcClient {
     pub async fn export_memory(&mut self, agent_id: Option<String>) -> Result<ExportResult> {
         self.request_typed(IpcRequest::ExportMemory { agent_id })
             .await
+    }
+
+    pub async fn export_memory_session(&mut self, session_id: String) -> Result<ExportResult> {
+        self.request_typed(IpcRequest::ExportMemorySession { session_id })
+            .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub async fn export_memory_advanced(
+        &mut self,
+        agent_id: String,
+        session_id: Option<String>,
+        preset: Option<String>,
+        include_metadata: Option<bool>,
+        include_timestamps: Option<bool>,
+        include_source: Option<bool>,
+        include_tags: Option<bool>,
+    ) -> Result<ExportResult> {
+        self.request_typed(IpcRequest::ExportMemoryAdvanced {
+            agent_id,
+            session_id,
+            preset,
+            include_metadata,
+            include_timestamps,
+            include_source,
+            include_tags,
+        })
+        .await
+    }
+
+    pub async fn get_memory_session(&mut self, session_id: String) -> Result<Option<MemorySession>> {
+        match self.request(IpcRequest::GetMemorySession { session_id }).await? {
+            IpcResponse::Success(value) => Ok(Some(serde_json::from_value(value)?)),
+            IpcResponse::Error { code: 404, .. } => Ok(None),
+            IpcResponse::Error { code, message } => {
+                bail!("IPC error {}: {}", code, message)
+            }
+            IpcResponse::Pong => bail!("Unexpected Pong response"),
+        }
+    }
+
+    pub async fn list_memory_sessions(&mut self, agent_id: String) -> Result<Vec<MemorySession>> {
+        self.request_typed(IpcRequest::ListMemorySessions { agent_id })
+            .await
+    }
+
+    pub async fn create_memory_session(&mut self, session: MemorySession) -> Result<MemorySession> {
+        self.request_typed(IpcRequest::CreateMemorySession { session })
+            .await
+    }
+
+    pub async fn delete_memory_session(
+        &mut self,
+        session_id: String,
+        delete_chunks: bool,
+    ) -> Result<bool> {
+        #[derive(serde::Deserialize)]
+        struct DeleteResponse {
+            deleted: bool,
+        }
+        let resp: DeleteResponse = self
+            .request_typed(IpcRequest::DeleteMemorySession {
+                session_id,
+                delete_chunks,
+            })
+            .await?;
+        Ok(resp.deleted)
     }
 
     pub async fn list_sessions(&mut self) -> Result<Vec<ChatSessionSummary>> {
@@ -244,6 +346,63 @@ impl IpcClient {
             .await
     }
 
+    pub async fn list_terminal_sessions(&mut self) -> Result<Vec<TerminalSession>> {
+        self.request_typed(IpcRequest::ListTerminalSessions).await
+    }
+
+    pub async fn get_terminal_session(&mut self, id: String) -> Result<TerminalSession> {
+        self.request_typed(IpcRequest::GetTerminalSession { id }).await
+    }
+
+    pub async fn create_terminal_session(&mut self) -> Result<TerminalSession> {
+        self.request_typed(IpcRequest::CreateTerminalSession).await
+    }
+
+    pub async fn rename_terminal_session(
+        &mut self,
+        id: String,
+        name: String,
+    ) -> Result<TerminalSession> {
+        self.request_typed(IpcRequest::RenameTerminalSession { id, name })
+            .await
+    }
+
+    pub async fn update_terminal_session(
+        &mut self,
+        id: String,
+        name: Option<String>,
+        working_directory: Option<String>,
+        startup_command: Option<String>,
+    ) -> Result<TerminalSession> {
+        self.request_typed(IpcRequest::UpdateTerminalSession {
+            id,
+            name,
+            working_directory,
+            startup_command,
+        })
+        .await
+    }
+
+    pub async fn save_terminal_session(
+        &mut self,
+        session: TerminalSession,
+    ) -> Result<TerminalSession> {
+        self.request_typed(IpcRequest::SaveTerminalSession { session })
+            .await
+    }
+
+    pub async fn delete_terminal_session(&mut self, id: String) -> Result<()> {
+        let _: serde_json::Value = self
+            .request_typed(IpcRequest::DeleteTerminalSession { id })
+            .await?;
+        Ok(())
+    }
+
+    pub async fn mark_all_terminal_sessions_stopped(&mut self) -> Result<usize> {
+        self.request_typed(IpcRequest::MarkAllTerminalSessionsStopped)
+            .await
+    }
+
     pub async fn list_auth_profiles(&mut self) -> Result<Vec<AuthProfile>> {
         self.request_typed(IpcRequest::ListAuthProfiles).await
     }
@@ -286,6 +445,18 @@ impl IpcClient {
         self.request_typed(IpcRequest::DiscoverAuth).await
     }
 
+    pub async fn enable_auth_profile(&mut self, id: String) -> Result<()> {
+        let _: serde_json::Value = self.request_typed(IpcRequest::EnableAuthProfile { id }).await?;
+        Ok(())
+    }
+
+    pub async fn disable_auth_profile(&mut self, id: String, reason: String) -> Result<()> {
+        let _: serde_json::Value = self
+            .request_typed(IpcRequest::DisableAuthProfile { id, reason })
+            .await?;
+        Ok(())
+    }
+
     pub async fn get_api_key(&mut self, provider: AuthProvider) -> Result<String> {
         #[derive(serde::Deserialize)]
         struct ApiKeyResponse {
@@ -317,6 +488,21 @@ impl IpcClient {
             .request_typed(IpcRequest::TestAuthProfile { id })
             .await?;
         Ok(resp.ok)
+    }
+
+    pub async fn mark_auth_success(&mut self, id: String) -> Result<()> {
+        let _: serde_json::Value = self.request_typed(IpcRequest::MarkAuthSuccess { id }).await?;
+        Ok(())
+    }
+
+    pub async fn mark_auth_failure(&mut self, id: String) -> Result<()> {
+        let _: serde_json::Value = self.request_typed(IpcRequest::MarkAuthFailure { id }).await?;
+        Ok(())
+    }
+
+    pub async fn clear_auth_profiles(&mut self) -> Result<()> {
+        let _: serde_json::Value = self.request_typed(IpcRequest::ClearAuthProfiles).await?;
+        Ok(())
     }
 
     pub async fn list_tasks(&mut self) -> Result<Vec<AgentTask>> {
@@ -379,6 +565,26 @@ impl IpcClient {
     pub async fn get_task_history(&mut self, id: String) -> Result<Vec<TaskEvent>> {
         self.request_typed(IpcRequest::GetTaskHistory { id }).await
     }
+
+    pub async fn build_agent_system_prompt(&mut self, agent_node: AgentNode) -> Result<String> {
+        #[derive(serde::Deserialize)]
+        struct PromptResponse {
+            prompt: String,
+        }
+        let resp: PromptResponse = self
+            .request_typed(IpcRequest::BuildAgentSystemPrompt { agent_node })
+            .await?;
+        Ok(resp.prompt)
+    }
+
+    pub async fn init_python(&mut self) -> Result<bool> {
+        #[derive(serde::Deserialize)]
+        struct InitResponse {
+            ready: bool,
+        }
+        let resp: InitResponse = self.request_typed(IpcRequest::InitPython).await?;
+        Ok(resp.ready)
+    }
 }
 
 #[cfg(not(unix))]
@@ -411,6 +617,19 @@ impl IpcClient {
         self.request_typed(IpcRequest::Ping).await
     }
 
+    pub async fn search_memory_ranked(
+        &mut self,
+        _query: crate::models::memory::MemorySearchQuery,
+        _min_score: Option<f64>,
+        _scoring_preset: Option<String>,
+    ) -> Result<crate::memory::RankedSearchResult> {
+        self.request_typed(IpcRequest::Ping).await
+    }
+
+    pub async fn get_memory_chunk(&mut self, _id: String) -> Result<Option<MemoryChunk>> {
+        self.request_typed(IpcRequest::Ping).await
+    }
+
     pub async fn list_memory(
         &mut self,
         _agent_id: Option<String>,
@@ -428,6 +647,14 @@ impl IpcClient {
         self.request_typed(IpcRequest::Ping).await
     }
 
+    pub async fn create_memory_chunk(&mut self, _chunk: MemoryChunk) -> Result<MemoryChunk> {
+        self.request_typed(IpcRequest::Ping).await
+    }
+
+    pub async fn list_memory_by_session(&mut self, _session_id: String) -> Result<Vec<MemoryChunk>> {
+        self.request_typed(IpcRequest::Ping).await
+    }
+
     pub async fn delete_memory(&mut self, _id: String) -> Result<bool> {
         self.request_typed(IpcRequest::Ping).await
     }
@@ -441,6 +668,43 @@ impl IpcClient {
     }
 
     pub async fn export_memory(&mut self, _agent_id: Option<String>) -> Result<ExportResult> {
+        self.request_typed(IpcRequest::Ping).await
+    }
+
+    pub async fn export_memory_session(&mut self, _session_id: String) -> Result<ExportResult> {
+        self.request_typed(IpcRequest::Ping).await
+    }
+
+    pub async fn export_memory_advanced(
+        &mut self,
+        _agent_id: String,
+        _session_id: Option<String>,
+        _preset: Option<String>,
+        _include_metadata: Option<bool>,
+        _include_timestamps: Option<bool>,
+        _include_source: Option<bool>,
+        _include_tags: Option<bool>,
+    ) -> Result<ExportResult> {
+        self.request_typed(IpcRequest::Ping).await
+    }
+
+    pub async fn get_memory_session(&mut self, _session_id: String) -> Result<Option<MemorySession>> {
+        self.request_typed(IpcRequest::Ping).await
+    }
+
+    pub async fn list_memory_sessions(&mut self, _agent_id: String) -> Result<Vec<MemorySession>> {
+        self.request_typed(IpcRequest::Ping).await
+    }
+
+    pub async fn create_memory_session(&mut self, _session: MemorySession) -> Result<MemorySession> {
+        self.request_typed(IpcRequest::Ping).await
+    }
+
+    pub async fn delete_memory_session(
+        &mut self,
+        _session_id: String,
+        _delete_chunks: bool,
+    ) -> Result<bool> {
         self.request_typed(IpcRequest::Ping).await
     }
 
@@ -527,6 +791,48 @@ impl IpcClient {
         self.request_typed(IpcRequest::Ping).await
     }
 
+    pub async fn list_terminal_sessions(&mut self) -> Result<Vec<TerminalSession>> {
+        self.request_typed(IpcRequest::Ping).await
+    }
+
+    pub async fn get_terminal_session(&mut self, _id: String) -> Result<TerminalSession> {
+        self.request_typed(IpcRequest::Ping).await
+    }
+
+    pub async fn create_terminal_session(&mut self) -> Result<TerminalSession> {
+        self.request_typed(IpcRequest::Ping).await
+    }
+
+    pub async fn rename_terminal_session(
+        &mut self,
+        _id: String,
+        _name: String,
+    ) -> Result<TerminalSession> {
+        self.request_typed(IpcRequest::Ping).await
+    }
+
+    pub async fn update_terminal_session(
+        &mut self,
+        _id: String,
+        _name: Option<String>,
+        _working_directory: Option<String>,
+        _startup_command: Option<String>,
+    ) -> Result<TerminalSession> {
+        self.request_typed(IpcRequest::Ping).await
+    }
+
+    pub async fn save_terminal_session(&mut self, _session: TerminalSession) -> Result<TerminalSession> {
+        self.request_typed(IpcRequest::Ping).await
+    }
+
+    pub async fn delete_terminal_session(&mut self, _id: String) -> Result<()> {
+        self.request_typed(IpcRequest::Ping).await
+    }
+
+    pub async fn mark_all_terminal_sessions_stopped(&mut self) -> Result<usize> {
+        self.request_typed(IpcRequest::Ping).await
+    }
+
     pub async fn list_auth_profiles(&mut self) -> Result<Vec<AuthProfile>> {
         self.request_typed(IpcRequest::Ping).await
     }
@@ -561,6 +867,14 @@ impl IpcClient {
         self.request_typed(IpcRequest::Ping).await
     }
 
+    pub async fn enable_auth_profile(&mut self, _id: String) -> Result<()> {
+        self.request_typed(IpcRequest::Ping).await
+    }
+
+    pub async fn disable_auth_profile(&mut self, _id: String, _reason: String) -> Result<()> {
+        self.request_typed(IpcRequest::Ping).await
+    }
+
     pub async fn get_api_key(&mut self, _provider: AuthProvider) -> Result<String> {
         self.request_typed(IpcRequest::Ping).await
     }
@@ -570,6 +884,18 @@ impl IpcClient {
     }
 
     pub async fn test_auth_profile(&mut self, _id: String) -> Result<bool> {
+        self.request_typed(IpcRequest::Ping).await
+    }
+
+    pub async fn mark_auth_success(&mut self, _id: String) -> Result<()> {
+        self.request_typed(IpcRequest::Ping).await
+    }
+
+    pub async fn mark_auth_failure(&mut self, _id: String) -> Result<()> {
+        self.request_typed(IpcRequest::Ping).await
+    }
+
+    pub async fn clear_auth_profiles(&mut self) -> Result<()> {
         self.request_typed(IpcRequest::Ping).await
     }
 
@@ -611,6 +937,14 @@ impl IpcClient {
     }
 
     pub async fn get_task_history(&mut self, _id: String) -> Result<Vec<TaskEvent>> {
+        self.request_typed(IpcRequest::Ping).await
+    }
+
+    pub async fn build_agent_system_prompt(&mut self, _agent_node: AgentNode) -> Result<String> {
+        self.request_typed(IpcRequest::Ping).await
+    }
+
+    pub async fn init_python(&mut self) -> Result<bool> {
         self.request_typed(IpcRequest::Ping).await
     }
 }

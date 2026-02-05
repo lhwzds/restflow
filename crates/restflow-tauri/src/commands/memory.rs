@@ -33,10 +33,8 @@
 //! ```
 
 use crate::state::AppState;
-use restflow_core::memory::{
-    ExportResult, MemoryExporter, MemoryExporterBuilder, RankedSearchResult, SearchEngine,
-    SearchEngineBuilder,
-};
+use restflow_core::memory::ExportResult;
+use restflow_core::memory::RankedSearchResult;
 use restflow_core::models::memory::{
     MemoryChunk, MemorySearchQuery, MemorySession, MemorySource, MemoryStats,
 };
@@ -136,9 +134,11 @@ pub async fn search_memory(
     state: State<'_, AppState>,
     query: MemorySearchQuery,
 ) -> Result<RankedSearchResult, String> {
-    let storage = state.core.storage.memory.clone();
-    let engine = SearchEngine::new(storage);
-    engine.search_ranked(&query).map_err(|e| e.to_string())
+    state
+        .executor()
+        .search_memory_ranked(query, None, None)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// Search memories with custom scoring configuration.
@@ -147,26 +147,14 @@ pub async fn search_memory_advanced(
     state: State<'_, AppState>,
     request: SearchMemoryRequest,
 ) -> Result<RankedSearchResult, String> {
-    let storage = state.core.storage.memory.clone();
-
-    let mut builder = SearchEngineBuilder::new(storage);
-
-    // Apply preset if specified
-    builder = match request.scoring_preset.as_deref() {
-        Some("frequency_focused") => builder.frequency_focused(),
-        Some("recency_focused") => builder.recency_focused(),
-        Some("balanced") => builder.balanced(),
-        _ => builder, // Use default config
-    };
-
-    // Apply min_score if specified
-    if let Some(min_score) = request.min_score {
-        builder = builder.min_score(min_score);
-    }
-
-    let engine = builder.build();
-    engine
-        .search_ranked(&request.query)
+    state
+        .executor()
+        .search_memory_ranked(
+            request.query,
+            request.min_score,
+            request.scoring_preset,
+        )
+        .await
         .map_err(|e| e.to_string())
 }
 
@@ -181,10 +169,9 @@ pub async fn get_memory_chunk(
     chunk_id: String,
 ) -> Result<Option<MemoryChunk>, String> {
     state
-        .core
-        .storage
-        .memory
-        .get_chunk(&chunk_id)
+        .executor()
+        .get_memory_chunk(chunk_id)
+        .await
         .map_err(|e| e.to_string())
 }
 
@@ -197,10 +184,9 @@ pub async fn list_memory_chunks(
     offset: Option<u32>,
 ) -> Result<MemoryListResponse<MemoryChunk>, String> {
     let chunks = state
-        .core
-        .storage
-        .memory
-        .list_chunks(&agent_id)
+        .executor()
+        .list_memory(Some(agent_id), None)
+        .await
         .map_err(|e| e.to_string())?;
 
     let total = chunks.len() as u32;
@@ -220,10 +206,9 @@ pub async fn list_memory_chunks_by_tag(
     limit: Option<u32>,
 ) -> Result<MemoryListResponse<MemoryChunk>, String> {
     let chunks = state
-        .core
-        .storage
-        .memory
-        .list_chunks_by_tag(&tag)
+        .executor()
+        .list_memory(None, Some(tag))
+        .await
         .map_err(|e| e.to_string())?;
 
     let total = chunks.len() as u32;
@@ -248,26 +233,11 @@ pub async fn create_memory_chunk(
         chunk = chunk.with_session(session_id);
     }
 
-    let chunk_id = state
-        .core
-        .storage
-        .memory
-        .store_chunk(&chunk)
-        .map_err(|e| e.to_string())?;
-
-    // Return the chunk with the (possibly deduplicated) ID
-    if chunk_id != chunk.id {
-        // Chunk was deduplicated, fetch the existing one
-        state
-            .core
-            .storage
-            .memory
-            .get_chunk(&chunk_id)
-            .map_err(|e| e.to_string())?
-            .ok_or_else(|| "Failed to retrieve stored chunk".to_string())
-    } else {
-        Ok(chunk)
-    }
+    state
+        .executor()
+        .create_memory_chunk(chunk)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// Delete a memory chunk by ID.
@@ -277,10 +247,9 @@ pub async fn delete_memory_chunk(
     chunk_id: String,
 ) -> Result<bool, String> {
     state
-        .core
-        .storage
-        .memory
-        .delete_chunk(&chunk_id)
+        .executor()
+        .delete_memory(chunk_id)
+        .await
         .map_err(|e| e.to_string())
 }
 
@@ -291,10 +260,9 @@ pub async fn delete_memory_chunks_for_agent(
     agent_id: String,
 ) -> Result<u32, String> {
     state
-        .core
-        .storage
-        .memory
-        .delete_chunks_for_agent(&agent_id)
+        .executor()
+        .clear_memory(Some(agent_id))
+        .await
         .map_err(|e| e.to_string())
 }
 
@@ -309,10 +277,9 @@ pub async fn get_memory_session(
     session_id: String,
 ) -> Result<Option<MemorySession>, String> {
     state
-        .core
-        .storage
-        .memory
-        .get_session(&session_id)
+        .executor()
+        .get_memory_session(session_id)
+        .await
         .map_err(|e| e.to_string())
 }
 
@@ -323,10 +290,9 @@ pub async fn list_memory_sessions(
     agent_id: String,
 ) -> Result<Vec<MemorySession>, String> {
     state
-        .core
-        .storage
-        .memory
-        .list_sessions(&agent_id)
+        .executor()
+        .list_memory_sessions(agent_id)
+        .await
         .map_err(|e| e.to_string())
 }
 
@@ -337,10 +303,9 @@ pub async fn list_memory_chunks_for_session(
     session_id: String,
 ) -> Result<Vec<MemoryChunk>, String> {
     state
-        .core
-        .storage
-        .memory
-        .list_chunks_for_session(&session_id)
+        .executor()
+        .list_memory_by_session(session_id)
+        .await
         .map_err(|e| e.to_string())
 }
 
@@ -357,13 +322,10 @@ pub async fn create_memory_session(
     }
 
     state
-        .core
-        .storage
-        .memory
-        .create_session(&session)
-        .map_err(|e| e.to_string())?;
-
-    Ok(session)
+        .executor()
+        .create_memory_session(session)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// Delete a memory session and optionally its chunks.
@@ -376,10 +338,9 @@ pub async fn delete_memory_session(
     delete_chunks: Option<bool>,
 ) -> Result<bool, String> {
     state
-        .core
-        .storage
-        .memory
-        .delete_session(&session_id, delete_chunks.unwrap_or(true))
+        .executor()
+        .delete_memory_session(session_id, delete_chunks.unwrap_or(true))
+        .await
         .map_err(|e| e.to_string())
 }
 
@@ -394,10 +355,9 @@ pub async fn get_memory_stats(
     agent_id: String,
 ) -> Result<MemoryStats, String> {
     state
-        .core
-        .storage
-        .memory
-        .get_stats(&agent_id)
+        .executor()
+        .get_memory_stats(Some(agent_id))
+        .await
         .map_err(|e| e.to_string())
 }
 
@@ -411,9 +371,11 @@ pub async fn export_memory_markdown(
     state: State<'_, AppState>,
     agent_id: String,
 ) -> Result<ExportResult, String> {
-    let storage = state.core.storage.memory.clone();
-    let exporter = MemoryExporter::new(storage);
-    exporter.export_agent(&agent_id).map_err(|e| e.to_string())
+    state
+        .executor()
+        .export_memory(Some(agent_id))
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// Export a specific session to Markdown format.
@@ -422,10 +384,10 @@ pub async fn export_memory_session_markdown(
     state: State<'_, AppState>,
     session_id: String,
 ) -> Result<ExportResult, String> {
-    let storage = state.core.storage.memory.clone();
-    let exporter = MemoryExporter::new(storage);
-    exporter
-        .export_session(&session_id)
+    state
+        .executor()
+        .export_memory_session(session_id)
+        .await
         .map_err(|e| e.to_string())
 }
 
@@ -435,42 +397,19 @@ pub async fn export_memory_advanced(
     state: State<'_, AppState>,
     request: ExportMemoryRequest,
 ) -> Result<ExportResult, String> {
-    let storage = state.core.storage.memory.clone();
-
-    // Start with builder and apply preset
-    let mut builder = MemoryExporterBuilder::new(storage);
-
-    builder = match request.preset.as_deref() {
-        Some("minimal") => builder.minimal(),
-        Some("compact") => builder.compact(),
-        _ => builder, // Use default
-    };
-
-    // Apply overrides
-    if let Some(v) = request.include_metadata {
-        builder = builder.include_metadata(v);
-    }
-    if let Some(v) = request.include_timestamps {
-        builder = builder.include_timestamps(v);
-    }
-    if let Some(v) = request.include_source {
-        builder = builder.include_source(v);
-    }
-    if let Some(v) = request.include_tags {
-        builder = builder.include_tags(v);
-    }
-
-    let exporter = builder.build();
-
-    if let Some(session_id) = request.session_id {
-        exporter
-            .export_session(&session_id)
-            .map_err(|e| e.to_string())
-    } else {
-        exporter
-            .export_agent(&request.agent_id)
-            .map_err(|e| e.to_string())
-    }
+    state
+        .executor()
+        .export_memory_advanced(
+            request.agent_id,
+            request.session_id,
+            request.preset,
+            request.include_metadata,
+            request.include_timestamps,
+            request.include_source,
+            request.include_tags,
+        )
+        .await
+        .map_err(|e| e.to_string())
 }
 
 // ============================================================================
