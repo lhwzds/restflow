@@ -1,10 +1,10 @@
 //! UnifiedAgent - The single agent implementation for all triggers.
 
 use super::react::{AgentAction, AgentState, ConversationHistory, ReActConfig, ResponseParser};
+use crate::LlmClient;
 use crate::error::{AiError, Result};
 use crate::llm::{CompletionRequest, Message, ToolCall};
 use crate::tools::{ToolOutput, ToolRegistry, ToolSchema};
-use crate::LlmClient;
 use std::sync::Arc;
 use tracing::{debug, info, warn};
 
@@ -79,7 +79,10 @@ impl UnifiedAgent {
 
     /// Execute the agent with given input
     pub async fn execute(&mut self, input: &str) -> Result<ExecutionResult> {
-        info!("UnifiedAgent executing: {}...", &input[..input.len().min(50)]);
+        info!(
+            "UnifiedAgent executing: {}...",
+            &input[..input.len().min(50)]
+        );
 
         // Prepend system prompt at the beginning to ensure correct order:
         // [system, history..., user] instead of [history..., system, user]
@@ -144,9 +147,8 @@ impl UnifiedAgent {
                     });
                 }
                 AgentAction::Continue => {
-                    self.history.add(Message::assistant(
-                        response.content.unwrap_or_default(),
-                    ));
+                    self.history
+                        .add(Message::assistant(response.content.unwrap_or_default()));
                     self.state = AgentState::Thinking;
                 }
             }
@@ -155,7 +157,10 @@ impl UnifiedAgent {
 
     fn build_system_prompt(&self) -> String {
         let tool_section = self.build_tool_section();
-        let workspace_context = load_workspace_context();
+        let workspace_context = std::env::current_dir()
+            .ok()
+            .and_then(|workdir| crate::agent::load_workspace_context(&workdir))
+            .unwrap_or_default();
 
         format!(
             "{}\n\n{}{}\n\n## Instructions\nYou are in a ReAct loop. For each step:\n1. Think about what to do\n2. Use a tool if needed\n3. Observe the result\n4. Provide final answer when done",
@@ -213,33 +218,4 @@ fn format_tool_result(result: &ToolOutput) -> Result<String> {
                 .unwrap_or_else(|| "Unknown tool error".to_string()),
         ))
     }
-}
-
-/// Load workspace context files (CLAUDE.md, AGENTS.md) from current directory.
-fn load_workspace_context() -> String {
-    let Ok(workdir) = std::env::current_dir() else {
-        return String::new();
-    };
-
-    let context_files = [
-        "CLAUDE.md",
-        "AGENTS.md",
-        ".claude/CLAUDE.md",
-        ".claude/instructions.md",
-    ];
-    let mut context = String::new();
-
-    for filename in context_files {
-        let path = workdir.join(filename);
-        if let Ok(content) = std::fs::read_to_string(&path)
-            && !content.trim().is_empty()
-        {
-            context.push_str(&format!(
-                "\n\n## Workspace Context ({})\n\n{}",
-                filename, content
-            ));
-        }
-    }
-
-    context
 }
