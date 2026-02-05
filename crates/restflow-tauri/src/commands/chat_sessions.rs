@@ -247,14 +247,14 @@ fn session_messages_for_context(session: &ChatSession) -> Vec<ChatMessage> {
         return Vec::new();
     }
 
-    if let Some(summary_id) = session.summary_message_id.as_ref() {
-        if let Some(idx) = session.messages.iter().position(|m| &m.id == summary_id) {
-            let mut messages = session.messages[idx..].to_vec();
-            if let Some(summary) = messages.first_mut() {
-                summary.role = ChatRole::User;
-            }
-            return messages;
+    if let Some(summary_id) = session.summary_message_id.as_ref()
+        && let Some(idx) = session.messages.iter().position(|m| &m.id == summary_id)
+    {
+        let mut messages = session.messages[idx..].to_vec();
+        if let Some(summary) = messages.first_mut() {
+            summary.role = ChatRole::User;
         }
+        return messages;
     }
 
     session.messages.clone()
