@@ -5,37 +5,17 @@ import type { SkillScript } from "./SkillScript";
 import type { StorageMode } from "./StorageMode";
 
 /**
- * A skill represents a reusable AI prompt template
+ * Skill metadata stored in the database (content lives on disk).
  */
-export type Skill = { 
-/**
- * Unique identifier for the skill
- */
-id: string, 
-/**
- * Display name of the skill
- */
-name: string, 
-/**
- * Optional description of what the skill does
- */
-description: string | null, 
-/**
- * Optional tags for categorization
- */
-tags: Array<string> | null, 
-/**
- * The markdown content of the skill (instructions for the AI)
- */
-content: string, 
+export type SkillMeta = { id: string, name: string, description: string | null, tags: Array<string> | null, 
 /**
  * Optional folder path for skills stored on disk
  */
 folder_path: string | null, 
 /**
- * Optional suggested tools for the skill
+ * Optional content hash for change detection
  */
-suggested_tools?: Array<string>, 
+content_hash: string | null, 
 /**
  * Optional scripts defined by the skill
  */
@@ -44,6 +24,10 @@ scripts?: Array<SkillScript>,
  * Optional references defined by the skill
  */
 references?: Array<SkillReference>, 
+/**
+ * Optional suggested tools for the skill
+ */
+suggested_tools?: Array<string>, 
 /**
  * Optional gating requirements for the skill
  */
@@ -56,14 +40,6 @@ version: string | null,
  * Optional author for the skill definition
  */
 author: string | null, 
-/**
- * Optional license for the skill definition
- */
-license: string | null, 
-/**
- * Optional content hash for change detection
- */
-content_hash: string | null, 
 /**
  * Storage mode for the skill
  */
