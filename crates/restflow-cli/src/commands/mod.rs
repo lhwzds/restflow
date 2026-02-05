@@ -11,6 +11,7 @@ pub mod memory;
 pub mod migrate;
 pub mod run;
 pub mod start;
+pub mod stop;
 pub mod secret;
 pub mod security;
 pub mod session;

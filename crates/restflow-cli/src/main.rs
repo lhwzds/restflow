@@ -42,6 +42,11 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
+    if let Some(Commands::Stop) = cli.command {
+        commands::stop::run().await?;
+        return Ok(());
+    }
+
     // Handle daemon commands that don't need AppCore (to avoid database lock conflicts)
     if let Some(Commands::Daemon { command }) = &cli.command {
         match command {
@@ -156,6 +161,7 @@ async fn main() -> Result<()> {
             Some(Commands::Migrate(args)) => commands::migrate::run(args).await,
             Some(Commands::Info) => commands::info::run(),
             Some(Commands::Completions { .. }) => Ok(()),
+            Some(Commands::Stop) => Ok(()),
             None => {
                 Cli::command().print_help()?;
                 Ok(())

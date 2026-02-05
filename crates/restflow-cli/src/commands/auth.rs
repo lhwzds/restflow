@@ -21,7 +21,7 @@ async fn run_with_socket_path(
     format: OutputFormat,
 ) -> Result<()> {
     if !is_daemon_available(socket_path).await {
-        bail!("RestFlow daemon is not running. Start it with 'restflow daemon start'.");
+        bail!("RestFlow daemon is not running. Start it with 'restflow start'.");
     }
 
     run_ipc(socket_path, command, format).await

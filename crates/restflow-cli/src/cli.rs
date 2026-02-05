@@ -47,8 +47,11 @@ pub enum Commands {
     /// Run an agent directly
     Run(RunArgs),
 
-    /// Start RestFlow (daemon + optional UI)
+    /// Start RestFlow daemon
     Start(StartArgs),
+
+    /// Stop RestFlow daemon
+    Stop,
 
     /// Agent management
     Agent {
@@ -230,19 +233,25 @@ pub struct RunArgs {
     pub stream: bool,
 }
 
-#[derive(Args)]
-pub struct StartArgs {
-    /// Do not open the browser UI
-    #[arg(long)]
-    pub no_browser: bool,
+#[derive(Args, Default, Clone, Copy)]
+pub struct StartArgs {}
 
-    /// HTTP port for the API/UI
-    #[arg(short, long)]
-    pub port: Option<u16>,
+#[cfg(test)]
+mod tests {
+    use super::Cli;
+    use clap::Parser;
 
-    /// Enable the HTTP API
-    #[arg(long, default_value_t = true)]
-    pub http: bool,
+    #[test]
+    fn parses_start_command() {
+        let cli = Cli::try_parse_from(["restflow", "start"]).expect("parse start");
+        assert!(matches!(cli.command, Some(super::Commands::Start(_))));
+    }
+
+    #[test]
+    fn parses_stop_command() {
+        let cli = Cli::try_parse_from(["restflow", "stop"]).expect("parse stop");
+        assert!(matches!(cli.command, Some(super::Commands::Stop)));
+    }
 }
 
 #[derive(Subcommand)]
