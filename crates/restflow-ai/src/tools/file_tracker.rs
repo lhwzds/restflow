@@ -48,13 +48,12 @@ impl FileTracker {
 
     /// Check if file was modified externally since last read.
     pub async fn check_external_modification(&self, path: &Path) -> io::Result<bool> {
-        let record = {
+        let (last_read, last_write) = {
             let records = self.records.read().unwrap();
-            records.get(path).cloned()
-        };
-
-        let Some(record) = record else {
-            return Ok(false);
+            let Some(record) = records.get(path) else {
+                return Ok(false);
+            };
+            (record.last_read, record.last_write)
         };
 
         let metadata = match fs::metadata(path).await {
@@ -64,11 +63,11 @@ impl FileTracker {
         };
 
         let modified = metadata.modified()?;
-        if modified <= record.last_read {
+        if modified <= last_read {
             return Ok(false);
         }
 
-        if let Some(last_write) = record.last_write {
+        if let Some(last_write) = last_write {
             Ok(modified > last_write)
         } else {
             Ok(true)
