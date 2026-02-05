@@ -289,9 +289,8 @@ pub async fn get_runnable_agent_tasks(
     state: State<'_, AppState>,
 ) -> Result<Vec<AgentTask>, String> {
     let current_time = chrono::Utc::now().timestamp_millis();
-    state
-        .core
-        .storage
+    let core = state.core.as_ref().ok_or("AppCore not available")?;
+    core.storage
         .agent_tasks
         .list_runnable_tasks(current_time)
         .map_err(|e| e.to_string())
@@ -371,8 +370,8 @@ pub async fn run_agent_task_streaming(
     id: String,
 ) -> Result<StreamingTaskResponse, String> {
     // Check if task exists
-    let task = state
-        .core
+    let core = state.core.as_ref().ok_or("AppCore not available")?;
+    let task = core
         .storage
         .agent_tasks
         .get_task(&id)

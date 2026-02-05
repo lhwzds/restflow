@@ -372,7 +372,11 @@ pub async fn marketplace_install_skill(
     };
 
     // Save to storage
-    state.core.storage.skills.create(&skill).map_err(|e| e.to_string())?;
+    state
+        .executor()
+        .create_skill(skill)
+        .await
+        .map_err(|e| e.to_string())?;
 
     Ok(())
 }
@@ -383,7 +387,11 @@ pub async fn marketplace_uninstall_skill(
     state: State<'_, AppState>,
     id: String,
 ) -> Result<(), String> {
-    state.core.storage.skills.delete(&id).map_err(|e| e.to_string())
+    state
+        .executor()
+        .delete_skill(id)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// Get installed skills with marketplace info
@@ -391,7 +399,11 @@ pub async fn marketplace_uninstall_skill(
 pub async fn marketplace_list_installed(
     state: State<'_, AppState>,
 ) -> Result<Vec<restflow_core::Skill>, String> {
-    state.core.storage.skills.list().map_err(|e| e.to_string())
+    state
+        .executor()
+        .list_skills()
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[cfg(test)]

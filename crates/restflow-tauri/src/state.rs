@@ -36,7 +36,7 @@ pub struct RunningTaskState {
 
 /// Application state shared across Tauri commands
 pub struct AppState {
-    pub core: Arc<AppCore>,
+    pub core: Option<Arc<AppCore>>,
     /// Handle to control the background agent task runner
     runner_handle: RwLock<Option<RunnerHandle>>,
     /// Currently running tasks (task_id -> RunningTaskState)
@@ -74,7 +74,34 @@ impl AppState {
         let daemon = Arc::new(Mutex::new(DaemonManager::new()));
         let executor = Arc::new(TauriExecutor::new(daemon.clone()));
         Ok(Self {
-            core,
+            core: Some(core),
+            runner_handle: RwLock::new(None),
+            running_tasks: RwLock::new(HashMap::new()),
+            security_checker,
+            channel_router,
+            process_registry,
+            stream_manager: StreamManager::new(),
+            daemon,
+            executor,
+            subagent_tracker,
+            subagent_definitions,
+            subagent_config,
+        })
+    }
+
+    pub async fn with_ipc() -> anyhow::Result<Self> {
+        let security_checker = Arc::new(SecurityChecker::with_defaults());
+        let channel_router = Arc::new(ChannelRouter::new());
+        let process_registry = Arc::new(ProcessRegistry::new());
+        let (completion_tx, completion_rx) = mpsc::channel(100);
+        let subagent_tracker = Arc::new(SubagentTracker::new(completion_tx, completion_rx));
+        let subagent_definitions = Arc::new(AgentDefinitionRegistry::with_builtins());
+        let subagent_config = SubagentConfig::default();
+        let daemon = Arc::new(Mutex::new(DaemonManager::new()));
+        let executor = Arc::new(TauriExecutor::new(daemon.clone()));
+
+        Ok(Self {
+            core: None,
             runner_handle: RwLock::new(None),
             running_tasks: RwLock::new(HashMap::new()),
             security_checker,
@@ -139,8 +166,11 @@ impl AppState {
         // Stop existing runner if any
         self.stop_runner().await?;
 
-        // Clone the agent_tasks storage from core
-        let storage = Arc::new(self.core.storage.agent_tasks.clone());
+        let core = self
+            .core
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("App core is not available in IPC mode"))?;
+        let storage = Arc::new(core.storage.agent_tasks.clone());
         let runner = Arc::new(AgentTaskRunner::new(
             storage,
             Arc::new(executor),
@@ -174,8 +204,11 @@ impl AppState {
         // Stop existing runner if any
         self.stop_runner().await?;
 
-        // Clone the agent_tasks storage from core
-        let storage = Arc::new(self.core.storage.agent_tasks.clone());
+        let core = self
+            .core
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("App core is not available in IPC mode"))?;
+        let storage = Arc::new(core.storage.agent_tasks.clone());
         let heartbeat_emitter: Arc<dyn HeartbeatEmitter> =
             Arc::new(TauriHeartbeatEmitter::new(app_handle));
 
@@ -316,19 +349,24 @@ impl AppTaskTrigger {
 #[async_trait]
 impl TaskTrigger for AppTaskTrigger {
     async fn list_tasks(&self) -> Result<Vec<AgentTask>> {
-        self.state.core.storage.agent_tasks.list_tasks()
+        self.state.executor().list_tasks().await
     }
 
     async fn find_and_run_task(&self, name_or_id: &str) -> Result<AgentTask> {
         // Try to find by ID first
-        if let Ok(Some(task)) = self.state.core.storage.agent_tasks.get_task(name_or_id) {
+        if let Ok(Some(task)) = self
+            .state
+            .executor()
+            .get_task(name_or_id.to_string())
+            .await
+        {
             // Trigger the task to run
             self.state.run_task_now(task.id.clone()).await?;
             return Ok(task);
         }
 
         // Try to find by name
-        let tasks = self.state.core.storage.agent_tasks.list_tasks()?;
+        let tasks = self.state.executor().list_tasks().await?;
         let task = tasks
             .into_iter()
             .find(|t| t.name.to_lowercase() == name_or_id.to_lowercase())
@@ -353,10 +391,14 @@ impl TaskTrigger for AppTaskTrigger {
         };
 
         // If the task isn't running (or cancel couldn't be requested), pause it directly.
-        if let Ok(Some(task)) = self.state.core.storage.agent_tasks.get_task(task_id)
+        if let Ok(Some(task)) = self
+            .state
+            .executor()
+            .get_task(task_id.to_string())
+            .await
             && (task.status != restflow_core::models::AgentTaskStatus::Running || !cancel_requested)
         {
-            self.state.core.storage.agent_tasks.pause_task(task_id)?;
+            let _ = self.state.executor().pause_task(task_id.to_string()).await?;
         }
 
         // Mark the task as completed/stopped in our tracking
@@ -370,7 +412,7 @@ impl TaskTrigger for AppTaskTrigger {
         let active_count = self.state.running_task_count().await;
 
         // Count pending (active but not running) tasks
-        let tasks = self.state.core.storage.agent_tasks.list_tasks()?;
+        let tasks = self.state.executor().list_tasks().await?;
         let pending_count = tasks
             .iter()
             .filter(|t| t.status == restflow_core::models::AgentTaskStatus::Active)

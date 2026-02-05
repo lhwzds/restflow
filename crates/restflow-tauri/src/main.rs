@@ -14,18 +14,13 @@
     windows_subsystem = "windows"
 )]
 
-use anyhow::Result;
 use clap::Parser;
-use restflow_core::auth::{AuthManagerConfig, AuthProfileManager};
 use restflow_core::daemon::ensure_daemon_running;
 use restflow_core::paths;
-use restflow_storage::AuthProfileStorage;
 use restflow_tauri_lib::AppState;
 use restflow_tauri_lib::RestFlowMcpServer;
 use restflow_tauri_lib::commands;
-use restflow_tauri_lib::commands::AuthState;
 use restflow_tauri_lib::commands::pty::save_all_terminal_history_sync;
-use restflow_tauri_lib::{RealAgentExecutor, TelegramNotifier};
 use tauri::Manager;
 use tracing::{info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -93,83 +88,26 @@ fn main() {
                     let _ = window.set_traffic_lights_inset(12.0, 16.0);
                 }
             }
-            // Initialize application state
+            // Initialize application state (IPC mode, no direct DB access)
             let rt = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
-
-            let db_path = get_db_path(app);
-            maybe_migrate_old_database(&db_path);
-            info!(db_path = %db_path, "Initializing database");
-
             let state = rt.block_on(async {
-                AppState::new(&db_path)
+                AppState::with_ipc()
                     .await
                     .expect("Failed to initialize AppState")
             });
 
-            // Start the agent task runner with real executor and Telegram notifier
+            // Mark all running terminal sessions as stopped on startup
             rt.block_on(async {
-                let storage = state.core.storage.clone();
-                let secrets = std::sync::Arc::new(state.core.storage.secrets.clone());
-                let auth_manager = match create_auth_manager(secrets.clone(), storage.get_db()) {
-                    Ok(manager) => std::sync::Arc::new(manager),
+                match state.executor().mark_all_terminal_sessions_stopped().await {
+                    Ok(count) if count > 0 => {
+                        info!(count, "Marked stale terminal sessions as stopped");
+                    }
+                    Ok(_) => {}
                     Err(e) => {
-                        warn!(error = %e, "Failed to configure auth profile manager");
-                        std::sync::Arc::new(AuthProfileManager::new(secrets.clone()))
+                        tracing::warn!(error = %e, "Failed to clean up stale terminal sessions");
                     }
-                };
-
-                if let Ok(data_dir) = paths::ensure_restflow_dir() {
-                    let old_json = data_dir.join("auth_profiles.json");
-                    if let Err(e) = auth_manager.migrate_from_json(&old_json).await {
-                        warn!(error = %e, "Failed to migrate auth profiles from JSON");
-                    }
-                }
-
-                if let Err(e) = auth_manager.initialize().await {
-                    warn!(error = %e, "Failed to initialize auth profile manager");
-                }
-
-                let executor = RealAgentExecutor::new(
-                    storage,
-                    state.process_registry.clone(),
-                    auth_manager,
-                    state.subagent_tracker.clone(),
-                    state.subagent_definitions.clone(),
-                    state.subagent_config.clone(),
-                );
-                let notifier = TelegramNotifier::new(secrets);
-
-                if let Err(e) = state.start_runner(executor, notifier, None).await {
-                    tracing::warn!(error = %e, "Failed to start agent task runner");
-                } else {
-                    info!("Agent task runner started");
                 }
             });
-
-            // Mark all running terminal sessions as stopped on startup
-            // (PTY processes don't survive app restart)
-            match state.core.storage.terminal_sessions.mark_all_stopped() {
-                Ok(count) if count > 0 => {
-                    info!(count, "Marked stale terminal sessions as stopped");
-                }
-                Ok(_) => {}
-                Err(e) => {
-                    tracing::warn!(error = %e, "Failed to clean up stale terminal sessions");
-                }
-            }
-
-            // Initialize Auth Profile Manager state with secrets
-            let auth_secrets = std::sync::Arc::new(state.core.storage.secrets.clone());
-            let auth_state = match AuthProfileStorage::new(state.core.storage.get_db()) {
-                Ok(storage) => {
-                    AuthState::with_storage(AuthManagerConfig::default(), auth_secrets, storage)
-                }
-                Err(e) => {
-                    warn!(error = %e, "Failed to initialize auth profile storage");
-                    AuthState::new(auth_secrets)
-                }
-            };
-            app.manage(auth_state);
 
             app.manage(state);
 
@@ -328,59 +266,6 @@ fn main() {
         .expect("error while running tauri application");
 }
 
-/// Get the database path for the application
-fn create_auth_manager(
-    secrets: std::sync::Arc<restflow_core::storage::SecretStorage>,
-    db: std::sync::Arc<redb::Database>,
-) -> Result<AuthProfileManager> {
-    let config = AuthManagerConfig::default();
-    let storage = AuthProfileStorage::new(db)?;
-    Ok(AuthProfileManager::with_storage(
-        config,
-        secrets,
-        Some(storage),
-    ))
-}
-
-fn get_db_path(_app: &tauri::App) -> String {
-    paths::ensure_database_path_string().unwrap_or_else(|e| {
-        tracing::warn!(error = %e, "Failed to get database path, using current directory");
-        "restflow.db".to_string()
-    })
-}
-
-fn maybe_migrate_old_database(new_path: &str) {
-    let new_path = std::path::Path::new(new_path);
-    if new_path.exists() {
-        return;
-    }
-
-    let Some(data_dir) = dirs::data_dir() else {
-        return;
-    };
-
-    let old_path = data_dir.join("com.restflow.app").join("restflow.db");
-    if !old_path.exists() {
-        return;
-    }
-
-    if let Some(parent) = new_path.parent()
-        && let Err(e) = std::fs::create_dir_all(parent)
-    {
-        tracing::warn!(error = %e, "Failed to create database directory for migration");
-        return;
-    }
-
-    tracing::info!(
-        old = %old_path.display(),
-        new = %new_path.display(),
-        "Migrating database from old location"
-    );
-    if let Err(e) = std::fs::copy(&old_path, new_path) {
-        tracing::warn!(error = %e, "Failed to migrate database");
-    }
-}
-
 /// Run RestFlow as an MCP server
 fn run_mcp_server(db_path: Option<String>) {
     tracing::info!("Starting RestFlow MCP Server");
@@ -400,7 +285,11 @@ fn run_mcp_server(db_path: Option<String>) {
             .await
             .expect("Failed to initialize AppState");
 
-        let mcp_server = RestFlowMcpServer::new(state.core);
+        let core = state
+            .core
+            .clone()
+            .expect("AppCore should be available in MCP mode");
+        let mcp_server = RestFlowMcpServer::new(core);
 
         if let Err(e) = mcp_server.run().await {
             tracing::error!(error = %e, "MCP server error");
