@@ -135,8 +135,8 @@ pub async fn delete_terminal_session(state: State<'_, AppState>, id: String) -> 
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::collections::HashSet;
+    use uuid::Uuid;
 
     /// Test that UUID generation produces unique IDs even when called rapidly
     ///
