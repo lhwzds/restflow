@@ -1,10 +1,10 @@
 use anyhow::{Result, bail};
-use redb::Database;
 use restflow_core::AppCore;
 use restflow_core::auth::{AuthManagerConfig, AuthProfileManager, AuthProvider};
+use restflow_core::daemon::{IpcClient, is_daemon_available};
 use restflow_core::models::chat_session::{ChatMessage, ChatSession};
+use restflow_core::models::ChatRole;
 use restflow_core::paths;
-use restflow_core::storage::SecretStorage;
 use restflow_storage::AuthProfileStorage;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -57,14 +57,32 @@ impl ClaudeOutput {
 }
 
 /// Get API key from RestFlow auth profile
-async fn get_api_key_from_profile(profile_id: Option<&str>) -> Result<String> {
+async fn get_api_key_from_profile(core: &Arc<AppCore>, profile_id: Option<&str>) -> Result<String> {
+    let socket_path = paths::socket_path()?;
+    if is_daemon_available(&socket_path).await {
+        let mut client = IpcClient::connect(&socket_path).await?;
+
+        if let Some(id) = profile_id {
+            let profiles = client.list_auth_profiles().await?;
+            let profile = profiles
+                .iter()
+                .find(|p| p.id == id || p.id.starts_with(id))
+                .ok_or_else(|| anyhow::anyhow!("Auth profile not found: {}", id))?;
+            return client.get_api_key_for_profile(profile.id.clone()).await;
+        }
+
+        return match client.get_api_key(AuthProvider::ClaudeCode).await {
+            Ok(key) => Ok(key),
+            Err(_) => bail!(
+                "No available ClaudeCode auth profile found. Run 'restflow auth add --provider claude-code --key <your-oauth-token>' to add one."
+            ),
+        };
+    }
+
     let config = AuthManagerConfig::default();
     let data_dir = paths::ensure_restflow_dir()?;
-
-    // Create SecretStorage
-    let db_path = data_dir.join("restflow.db");
-    let db = Arc::new(Database::create(&db_path)?);
-    let secrets = Arc::new(SecretStorage::new(db.clone())?);
+    let db = core.storage.get_db();
+    let secrets = Arc::new(core.storage.secrets.clone());
     let storage = AuthProfileStorage::new(db)?;
 
     let manager = AuthProfileManager::with_storage(config, secrets, Some(storage));
@@ -212,7 +230,23 @@ async fn resolve_session_id(core: &Arc<AppCore>, args: &ClaudeArgs) -> Result<Op
         bail!("Use either --session or --new-session, not both");
     }
 
+    let socket_path = paths::socket_path()?;
+    let use_ipc = is_daemon_available(&socket_path).await;
+
     if args.new_session {
+        if use_ipc {
+            let mut client = IpcClient::connect(&socket_path).await?;
+            let session = client
+                .create_session(
+                    Some("claude-cli".to_string()),
+                    Some(args.model.clone()),
+                    Some(format!("Claude CLI - {}", args.model)),
+                    None,
+                )
+                .await?;
+            return Ok(Some(session.id));
+        }
+
         let mut session = ChatSession::new("claude-cli".to_string(), args.model.clone());
         session.rename(format!("Claude CLI - {}", args.model));
         core.storage.chat_sessions.create(&session)?;
@@ -220,6 +254,25 @@ async fn resolve_session_id(core: &Arc<AppCore>, args: &ClaudeArgs) -> Result<Op
     }
 
     if let Some(ref id) = args.session {
+        if use_ipc {
+            let mut client = IpcClient::connect(&socket_path).await?;
+            if let Ok(session) = client.get_session(id.clone()).await {
+                return Ok(Some(session.id));
+            }
+
+            let sessions = client.list_full_sessions().await?;
+            let mut matches = sessions
+                .iter()
+                .filter(|session| session.id.starts_with(id))
+                .collect::<Vec<_>>();
+
+            return match matches.len() {
+                0 => bail!("Session not found: {}", id),
+                1 => Ok(Some(matches.remove(0).id.clone())),
+                _ => bail!("Session id is ambiguous: {}", id),
+            };
+        }
+
         if let Some(session) = core.storage.chat_sessions.get(id)? {
             return Ok(Some(session.id));
         }
@@ -240,12 +293,32 @@ async fn resolve_session_id(core: &Arc<AppCore>, args: &ClaudeArgs) -> Result<Op
     Ok(None)
 }
 
-fn save_conversation(
+async fn save_conversation(
     core: &Arc<AppCore>,
     session_id: &str,
     user_input: &str,
     assistant_output: &str,
 ) -> Result<()> {
+    let socket_path = paths::socket_path()?;
+    if is_daemon_available(&socket_path).await {
+        let mut client = IpcClient::connect(&socket_path).await?;
+        client
+            .add_message(
+                session_id.to_string(),
+                ChatRole::User,
+                user_input.to_string(),
+            )
+            .await?;
+        client
+            .add_message(
+                session_id.to_string(),
+                ChatRole::Assistant,
+                assistant_output.to_string(),
+            )
+            .await?;
+        return Ok(());
+    }
+
     let mut session = core
         .storage
         .chat_sessions
@@ -282,7 +355,7 @@ pub async fn run(core: Arc<AppCore>, args: ClaudeArgs, format: OutputFormat) -> 
     }
 
     // Get OAuth token from RestFlow auth profile
-    let oauth_token = get_api_key_from_profile(args.auth_profile.as_deref()).await?;
+    let oauth_token = get_api_key_from_profile(&core, args.auth_profile.as_deref()).await?;
 
     if !is_claude_configured() {
         eprintln!("Claude CLI not configured. Running setup-token...");
@@ -357,7 +430,7 @@ pub async fn run(core: Arc<AppCore>, args: ClaudeArgs, format: OutputFormat) -> 
 
     if let Some(ref id) = session_id
         && let Some(text) = result.get_text()
-        && let Err(err) = save_conversation(&core, id, &prompt, text)
+        && let Err(err) = save_conversation(&core, id, &prompt, text).await
     {
         tracing::warn!(session_id = %id, error = %err, "Failed to save CLI conversation");
     }
