@@ -13,6 +13,14 @@ const demoResponses = [
   "I've analyzed your input. RestFlow is designed to let AI agents work autonomously so you can rest. You can monitor their progress from the dashboard.",
 ]
 
+const createMessageId = (): string => {
+  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+    return crypto.randomUUID()
+  }
+
+  return `msg-${Date.now()}-${Math.random().toString(16).slice(2)}`
+}
+
 // Convert JSON data to proper types (bigint for updated_at)
 const chatSessionSummaries: ChatSessionSummary[] = demoChatSessions.map((s) => ({
   ...s,
@@ -29,6 +37,10 @@ const chatSessions: ChatSession[] = demoChatSessions.map((s) => ({
   messages: [],
   created_at: BigInt(s.updated_at - 3600000),
   updated_at: BigInt(s.updated_at),
+  summary_message_id: null,
+  prompt_tokens: 0,
+  completion_tokens: 0,
+  cost: 0,
   metadata: {
     total_tokens: s.message_count * 150,
     message_count: s.message_count,
@@ -107,6 +119,10 @@ export const chatSessionHandlers = [
       messages: [],
       created_at: BigInt(now),
       updated_at: BigInt(now),
+      summary_message_id: null,
+      prompt_tokens: 0,
+      completion_tokens: 0,
+      cost: 0,
       metadata: {
         total_tokens: 0,
         message_count: 0,
@@ -190,6 +206,7 @@ export const chatSessionHandlers = [
     const message = (await request.json()) as ChatMessage
     session.messages.push({
       ...message,
+      id: message.id || createMessageId(),
       timestamp: BigInt(Date.now()),
     })
     session.updated_at = BigInt(Date.now())
@@ -226,6 +243,7 @@ export const chatSessionHandlers = [
 
     // Add user message
     const userMessage: ChatMessage = {
+      id: createMessageId(),
       role: 'user',
       content: body.content,
       timestamp: BigInt(now),
@@ -238,6 +256,7 @@ export const chatSessionHandlers = [
       demoResponses[Math.floor(Math.random() * demoResponses.length)] ??
       "I'm here to help! This is a demo response."
     const assistantMessage: ChatMessage = {
+      id: createMessageId(),
       role: 'assistant',
       content: randomResponse,
       timestamp: BigInt(now + 1000),

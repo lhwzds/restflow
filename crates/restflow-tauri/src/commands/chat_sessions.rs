@@ -241,15 +241,35 @@ fn chat_message_to_llm_message(message: &ChatMessage) -> Message {
     }
 }
 
+/// Resolve session messages for context, respecting summary pointers.
+fn session_messages_for_context(session: &ChatSession) -> Vec<ChatMessage> {
+    if session.messages.is_empty() {
+        return Vec::new();
+    }
+
+    if let Some(summary_id) = session.summary_message_id.as_ref() {
+        if let Some(idx) = session.messages.iter().position(|m| &m.id == summary_id) {
+            let mut messages = session.messages[idx..].to_vec();
+            if let Some(summary) = messages.first_mut() {
+                summary.role = ChatRole::User;
+            }
+            return messages;
+        }
+    }
+
+    session.messages.clone()
+}
+
 /// Add recent session history to the unified agent.
 fn add_session_history(agent: &mut UnifiedAgent, session: &ChatSession, max_messages: usize) {
-    if session.messages.is_empty() {
+    let mut messages = session_messages_for_context(session);
+    if messages.is_empty() {
         return;
     }
 
-    let history = &session.messages[..session.messages.len().saturating_sub(1)];
-    let start = history.len().saturating_sub(max_messages);
-    for message in &history[start..] {
+    messages.pop();
+    let start = messages.len().saturating_sub(max_messages);
+    for message in &messages[start..] {
         agent.add_history_message(chat_message_to_llm_message(message));
     }
 }
@@ -630,13 +650,7 @@ pub async fn send_chat_message_stream(
         );
 
         // Add conversation history (excluding the last message which is the current input)
-        if !session.messages.is_empty() {
-            let history = &session.messages[..session.messages.len().saturating_sub(1)];
-            let start = history.len().saturating_sub(20);
-            for message in &history[start..] {
-                agent.add_history_message(chat_message_to_llm_message(message));
-            }
-        }
+        add_session_history(&mut agent, &session, 20);
 
         // Execute agent
         let result = match agent.execute(&user_input).await {

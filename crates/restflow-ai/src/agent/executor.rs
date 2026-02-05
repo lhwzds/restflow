@@ -131,12 +131,23 @@ pub struct AgentResult {
 pub struct AgentExecutor {
     llm: Arc<dyn LlmClient>,
     tools: Arc<ToolRegistry>,
+    summarizer: Option<Arc<dyn LlmClient>>,
 }
 
 impl AgentExecutor {
     /// Create a new agent executor
     pub fn new(llm: Arc<dyn LlmClient>, tools: Arc<ToolRegistry>) -> Self {
-        Self { llm, tools }
+        Self {
+            llm,
+            tools,
+            summarizer: None,
+        }
+    }
+
+    /// Configure a dedicated summarizer LLM.
+    pub fn with_summarizer(mut self, summarizer: Arc<dyn LlmClient>) -> Self {
+        self.summarizer = Some(summarizer);
+        self
     }
 
     /// Execute agent - simplified Swarm-style loop
@@ -165,8 +176,9 @@ impl AgentExecutor {
 
         // Core loop (Swarm-inspired simplicity)
         while state.iteration < state.max_iterations && !state.is_terminal() {
+            let summarizer = self.summarizer.as_deref().unwrap_or(self.llm.as_ref());
             if let Some(_result) = memory
-                .auto_compact_if_needed(self.llm.as_ref(), config.context_window)
+                .auto_compact_if_needed(summarizer, config.context_window)
                 .await?
             {
                 // Compaction affects working memory only; full state history remains intact.
