@@ -386,7 +386,7 @@ fn add_default_home_dir(cmd: &mut Command) {
 mod tests {
     use super::add_default_home_dir;
     use std::env;
-    use std::process::Command;
+    use tokio::process::Command;
 
     #[test]
     fn add_default_home_dir_appends_add_dir() {
@@ -396,13 +396,17 @@ mod tests {
         let old_home = env::var_os("HOME");
         let old_userprofile = env::var_os("USERPROFILE");
 
-        env::set_var("HOME", &home);
-        env::set_var("USERPROFILE", &home);
+        // SAFETY: This test runs serially and restores env vars before returning.
+        unsafe {
+            env::set_var("HOME", &home);
+            env::set_var("USERPROFILE", &home);
+        }
 
         let mut cmd = Command::new("claude");
         add_default_home_dir(&mut cmd);
 
         let args: Vec<String> = cmd
+            .as_std()
             .get_args()
             .map(|arg| arg.to_string_lossy().to_string())
             .collect();
@@ -415,13 +419,16 @@ mod tests {
             ]
         );
 
-        match old_home {
-            Some(value) => env::set_var("HOME", value),
-            None => env::remove_var("HOME"),
-        }
-        match old_userprofile {
-            Some(value) => env::set_var("USERPROFILE", value),
-            None => env::remove_var("USERPROFILE"),
+        // SAFETY: Restoring original env vars; test runs serially.
+        unsafe {
+            match old_home {
+                Some(value) => env::set_var("HOME", value),
+                None => env::remove_var("HOME"),
+            }
+            match old_userprofile {
+                Some(value) => env::set_var("USERPROFILE", value),
+                None => env::remove_var("USERPROFILE"),
+            }
         }
     }
 }
