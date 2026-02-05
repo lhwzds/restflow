@@ -3,4 +3,4 @@
 /**
  * Type of task event
  */
-export type TaskEventType = "created" | "started" | "completed" | "failed" | "paused" | "resumed" | "notification_sent" | "notification_failed";
+export type TaskEventType = "created" | "started" | "completed" | "failed" | "paused" | "resumed" | "notification_sent" | "notification_failed" | "compaction";
