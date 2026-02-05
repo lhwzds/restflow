@@ -187,10 +187,8 @@ impl LspClient {
     async fn read_response(&self, expected_id: u64) -> Result<JsonRpcResponse> {
         loop {
             let message = self.read_message().await?;
-            if let JsonRpcMessage::Response(response) = message {
-                if response.id == expected_id {
-                    return Ok(response);
-                }
+            if let JsonRpcMessage::Response(response) = message && response.id == expected_id {
+                return Ok(response);
             }
         }
     }
