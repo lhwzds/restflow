@@ -56,12 +56,35 @@ RestFlow is an **AI assistant that can execute workflows**. Unlike traditional w
 - **💻 Desktop App** - Native Tauri application with integrated terminal
 - **🔌 MCP Support** - Model Context Protocol for AI tool integration
 
-## Quick Start
+## Installation
 
-### Desktop App (Recommended)
+### CLI (Recommended)
+
+**Homebrew (macOS/Linux)**
+```bash
+brew install lhwzds/tap/restflow
+```
+
+**npm (Cross-platform)**
+```bash
+npm install -g restflow-cli
+```
+
+**Direct Download**
+
+Download pre-built binaries from [GitHub Releases](https://github.com/lhwzds/restflow/releases/latest):
+- macOS: `restflow-aarch64-apple-darwin.tar.gz` (Apple Silicon) / `restflow-x86_64-apple-darwin.tar.gz` (Intel)
+- Linux: `restflow-aarch64-unknown-linux-gnu.tar.gz` (ARM64) / `restflow-x86_64-unknown-linux-gnu.tar.gz` (x64)
+- Windows: `restflow-x86_64-pc-windows-msvc.zip`
+
+**Build from Source**
+```bash
+cargo install --git https://github.com/lhwzds/restflow --package restflow-cli
+```
+
+### Desktop App
 
 ```bash
-# Clone and build
 git clone https://github.com/lhwzds/restflow.git
 cd restflow
 cargo tauri dev
@@ -75,12 +98,23 @@ docker compose up -d --build
 
 Access at http://localhost:3000
 
-### CLI (TUI)
-
-Launch the interactive terminal UI:
+## Quick Start
 
 ```bash
-cargo run -p restflow-cli -- chat
+# Start RestFlow daemon
+restflow start
+
+# Configure API key
+restflow secret set ANTHROPIC_API_KEY sk-ant-xxx
+# or: restflow secret set OPENAI_API_KEY sk-xxx
+
+# Configure Telegram bot for AI chat
+restflow secret set TELEGRAM_BOT_TOKEN <your-bot-token>
+# Now chat with your AI agent via Telegram!
+
+# Or use Claude Code CLI (requires Claude Code installed)
+restflow auth add --provider claude-code --key <your-oauth-token>
+restflow claude -p "Hello, world!"
 ```
 
 Theme selection:
