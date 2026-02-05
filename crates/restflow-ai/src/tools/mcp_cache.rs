@@ -31,10 +31,11 @@ pub async fn get_mcp_tools(configs: &HashMap<String, McpServerConfig>) -> Arc<Ve
         .clone();
 
     let generation = MCP_GENERATION.load(Ordering::SeqCst);
-    if let Ok(cache_read) = cache.read() {
-        if cache_read.initialized && cache_read.generation == generation {
-            return cache_read.tools.clone();
-        }
+    if let Ok(cache_read) = cache.read()
+        && cache_read.initialized
+        && cache_read.generation == generation
+    {
+        return cache_read.tools.clone();
     }
 
     let tools = Arc::new(discover_mcp_tools(configs).await);
