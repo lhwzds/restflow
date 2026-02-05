@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
+use std::str::FromStr;
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::Arc;
 
@@ -10,8 +11,7 @@ use anyhow::Context;
 use dashmap::DashMap;
 use lsp_types::{
     ClientCapabilities, Diagnostic, DidChangeTextDocumentParams, DidOpenTextDocumentParams,
-    InitializeParams, InitializedParams, TextDocumentContentChangeEvent, TextDocumentItem,
-    Url,
+    InitializeParams, InitializedParams, TextDocumentContentChangeEvent, TextDocumentItem, Uri,
 };
 use serde_json::Value;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
@@ -19,6 +19,7 @@ use tokio::process::{Child, ChildStdin, Command};
 use tokio::sync::{mpsc, oneshot, Mutex, Notify, RwLock};
 use tokio::time::Duration;
 use tracing::{debug, warn};
+use url::Url;
 
 use super::protocol::{JsonRpcNotification, JsonRpcRequest};
 
@@ -27,7 +28,7 @@ pub struct LspClientConfig {
     pub command: String,
     pub args: Vec<String>,
     pub language_id: String,
-    pub root_uri: Option<Url>,
+    pub root_uri: Option<Uri>,
 }
 
 pub struct LspClient {
@@ -37,7 +38,7 @@ pub struct LspClient {
     diagnostics_notify: Arc<Notify>,
     open_versions: Arc<DashMap<PathBuf, i32>>,
     language_id: String,
-    root_uri: Option<Url>,
+    root_uri: Option<Uri>,
     next_id: AtomicI64,
     _child: Arc<Mutex<Child>>,
 }
@@ -140,8 +141,10 @@ impl LspClient {
             return Ok(());
         }
 
-        let uri = Url::from_file_path(path)
+        let url = Url::from_file_path(path)
             .map_err(|_| anyhow::anyhow!("Invalid file path"))?;
+        let uri = Uri::from_str(url.as_str())
+            .map_err(|err| anyhow::anyhow!("Invalid file uri: {err}"))?;
         let params = DidOpenTextDocumentParams {
             text_document: TextDocumentItem {
                 uri,
@@ -159,8 +162,10 @@ impl LspClient {
     }
 
     pub async fn did_change(&self, path: &Path, content: &str) -> anyhow::Result<()> {
-        let uri = Url::from_file_path(path)
+        let url = Url::from_file_path(path)
             .map_err(|_| anyhow::anyhow!("Invalid file path"))?;
+        let uri = Uri::from_str(url.as_str())
+            .map_err(|err| anyhow::anyhow!("Invalid file uri: {err}"))?;
 
         let version = self
             .open_versions
@@ -273,12 +278,14 @@ async fn handle_incoming(
         if let Some(params) = message.get("params") {
             match serde_json::from_value::<lsp_types::PublishDiagnosticsParams>(params.clone()) {
                 Ok(payload) => {
-                    if let Ok(path) = payload.uri.to_file_path() {
-                        diagnostics
-                            .write()
-                            .await
-                            .insert(path, payload.diagnostics);
-                        diagnostics_notify.notify_waiters();
+                    if let Ok(url) = Url::parse(payload.uri.as_str()) {
+                        if let Ok(path) = url.to_file_path() {
+                            diagnostics
+                                .write()
+                                .await
+                                .insert(path, payload.diagnostics);
+                            diagnostics_notify.notify_waiters();
+                        }
                     }
                 }
                 Err(err) => {
