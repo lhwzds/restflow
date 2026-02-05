@@ -123,12 +123,10 @@ impl LspClient {
 
         let params = InitializeParams {
             process_id: None,
-            root_uri: None,
             capabilities: ClientCapabilities::default(),
             initialization_options: None,
             trace: None,
             workspace_folders,
-            root_path: None,
             client_info: None,
             locale: None,
             ..InitializeParams::default()
