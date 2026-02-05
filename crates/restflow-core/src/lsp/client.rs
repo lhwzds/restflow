@@ -12,6 +12,7 @@ use dashmap::DashMap;
 use lsp_types::{
     ClientCapabilities, Diagnostic, DidChangeTextDocumentParams, DidOpenTextDocumentParams,
     InitializeParams, InitializedParams, TextDocumentContentChangeEvent, TextDocumentItem, Uri,
+    WorkspaceFolder,
 };
 use serde_json::Value;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
@@ -113,13 +114,20 @@ impl LspClient {
     }
 
     pub async fn initialize(&self) -> anyhow::Result<()> {
+        let workspace_folders = self.root_uri.clone().map(|uri| {
+            vec![WorkspaceFolder {
+                uri,
+                name: "workspace".to_string(),
+            }]
+        });
+
         let params = InitializeParams {
             process_id: None,
-            root_uri: self.root_uri.clone(),
+            root_uri: None,
             capabilities: ClientCapabilities::default(),
             initialization_options: None,
             trace: None,
-            workspace_folders: None,
+            workspace_folders,
             root_path: None,
             client_info: None,
             locale: None,
@@ -274,23 +282,23 @@ async fn handle_incoming(
     }
 
     let method = message.get("method").and_then(|v| v.as_str());
-    if method == Some("textDocument/publishDiagnostics") {
-        if let Some(params) = message.get("params") {
-            match serde_json::from_value::<lsp_types::PublishDiagnosticsParams>(params.clone()) {
-                Ok(payload) => {
-                    if let Ok(url) = Url::parse(payload.uri.as_str()) {
-                        if let Ok(path) = url.to_file_path() {
-                            diagnostics
-                                .write()
-                                .await
-                                .insert(path, payload.diagnostics);
-                            diagnostics_notify.notify_waiters();
-                        }
-                    }
+    if method == Some("textDocument/publishDiagnostics")
+        && let Some(params) = message.get("params")
+    {
+        match serde_json::from_value::<lsp_types::PublishDiagnosticsParams>(params.clone()) {
+            Ok(payload) => {
+                if let Ok(url) = Url::parse(payload.uri.as_str())
+                    && let Ok(path) = url.to_file_path()
+                {
+                    diagnostics
+                        .write()
+                        .await
+                        .insert(path, payload.diagnostics);
+                    diagnostics_notify.notify_waiters();
                 }
-                Err(err) => {
-                    debug!(error = %err, "Failed to parse diagnostics");
-                }
+            }
+            Err(err) => {
+                debug!(error = %err, "Failed to parse diagnostics");
             }
         }
     }

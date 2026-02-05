@@ -171,7 +171,7 @@ impl LspManager {
             return Ok(Vec::new());
         };
 
-        Ok(client.wait_for_diagnostics(path, timeout).await?)
+        client.wait_for_diagnostics(path, timeout).await
     }
 
     async fn get_diagnostics(&self, path: &Path) -> anyhow::Result<Vec<Diagnostic>> {
