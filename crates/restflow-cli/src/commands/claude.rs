@@ -386,7 +386,7 @@ fn add_default_home_dir(cmd: &mut Command) {
 mod tests {
     use super::add_default_home_dir;
     use std::env;
-    use std::process::Command;
+    use tokio::process::Command;
 
     #[test]
     fn add_default_home_dir_appends_add_dir() {
@@ -403,6 +403,7 @@ mod tests {
         add_default_home_dir(&mut cmd);
 
         let args: Vec<String> = cmd
+            .as_std()
             .get_args()
             .map(|arg| arg.to_string_lossy().to_string())
             .collect();
