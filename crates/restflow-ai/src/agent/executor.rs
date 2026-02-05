@@ -6,12 +6,13 @@ use std::time::Duration;
 
 use serde_json::Value;
 
-use crate::agent::context::AgentContext;
+use crate::agent::context::{AgentContext, ContextDiscoveryConfig, WorkspaceContextCache};
 use crate::agent::state::{AgentState, AgentStatus};
 use crate::error::{AiError, Result};
 use crate::llm::{CompletionRequest, FinishReason, LlmClient, Message};
 use crate::memory::{CompactionConfig, DEFAULT_MAX_MESSAGES, WorkingMemory};
 use crate::tools::ToolRegistry;
+use tracing::debug;
 
 /// Configuration for agent execution
 #[derive(Debug, Clone)]
@@ -131,12 +132,21 @@ pub struct AgentResult {
 pub struct AgentExecutor {
     llm: Arc<dyn LlmClient>,
     tools: Arc<ToolRegistry>,
+    context_cache: Option<WorkspaceContextCache>,
 }
 
 impl AgentExecutor {
     /// Create a new agent executor
     pub fn new(llm: Arc<dyn LlmClient>, tools: Arc<ToolRegistry>) -> Self {
-        Self { llm, tools }
+        let context_cache = std::env::current_dir()
+            .ok()
+            .map(|workdir| WorkspaceContextCache::new(ContextDiscoveryConfig::default(), workdir));
+
+        Self {
+            llm,
+            tools,
+            context_cache,
+        }
     }
 
     /// Execute agent - simplified Swarm-style loop
@@ -153,7 +163,7 @@ impl AgentExecutor {
         }
 
         // Initialize messages
-        let system_prompt = self.build_system_prompt(&config);
+        let system_prompt = self.build_system_prompt(&config).await;
         let system_msg = Message::system(&system_prompt);
         let user_msg = Message::user(&config.goal);
 
@@ -286,7 +296,7 @@ impl AgentExecutor {
         })
     }
 
-    fn build_system_prompt(&self, config: &AgentConfig) -> String {
+    async fn build_system_prompt(&self, config: &AgentConfig) -> String {
         let mut sections = Vec::new();
 
         let base = config
@@ -305,6 +315,18 @@ impl AgentExecutor {
 
         if !tools_desc.is_empty() {
             sections.push(format!("## Available Tools\n\n{}", tools_desc.join("\n")));
+        }
+
+        if let Some(cache) = &self.context_cache {
+            let context = cache.get().await;
+            if !context.content.is_empty() {
+                debug!(
+                    files = ?context.loaded_files,
+                    bytes = context.total_bytes,
+                    "Loaded workspace context"
+                );
+                sections.push(context.content.clone());
+            }
         }
 
         if let Some(ref context) = config.agent_context {
