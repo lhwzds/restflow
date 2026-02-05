@@ -7,7 +7,9 @@ mod bash;
 mod email;
 mod file;
 mod file_memory;
+mod file_tracker;
 mod http;
+mod mcp_cache;
 mod memory_search;
 mod process;
 mod python;
@@ -24,6 +26,7 @@ pub use file_memory::{
     ReadMemoryTool, SaveMemoryTool,
 };
 pub use http::HttpTool;
+pub use mcp_cache::{McpServerConfig, get_mcp_tools, invalidate_mcp_cache};
 pub use memory_search::{MemorySearchMatch, MemorySearchTool, SemanticMemory};
 pub use process::{ProcessLog, ProcessManager, ProcessPollResult, ProcessSessionInfo, ProcessTool};
 pub use python::PythonTool;
