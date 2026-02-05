@@ -40,6 +40,12 @@ export const skillHandlers = [
       content: body.content,
       folder_path: null,
       gating: null,
+      version: null,
+      author: null,
+      license: null,
+      content_hash: null,
+      storage_mode: 'DatabaseOnly',
+      is_synced: false,
       created_at: Date.now(),
       updated_at: Date.now(),
     }
