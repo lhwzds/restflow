@@ -1,12 +1,13 @@
 //! LSP manager for multiple language servers.
 
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Context;
 use dashmap::DashMap;
-use lsp_types::Diagnostic;
+use lsp_types::{Diagnostic, Uri};
 use tokio::sync::Mutex;
 use tracing::warn;
 use url::Url;
@@ -96,7 +97,9 @@ impl LspManager {
         }
 
         let (command, args) = language.command();
-        let root_uri = Url::from_directory_path(&self.root).ok();
+        let root_uri = Url::from_directory_path(&self.root)
+            .ok()
+            .and_then(|url| Uri::from_str(url.as_str()).ok());
         let config = LspClientConfig {
             command: command.to_string(),
             args: args.into_iter().map(|v| v.to_string()).collect(),
