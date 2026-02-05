@@ -42,6 +42,27 @@ const MAX_LIST_ENTRIES: usize = 1000;
 /// Maximum search matches to return
 const MAX_SEARCH_MATCHES: usize = 100;
 
+/// Maximum files allowed in a batch read
+const MAX_BATCH_READ_FILES: usize = 20;
+
+/// Maximum paths allowed in a batch exists check
+const MAX_BATCH_EXISTS_PATHS: usize = 50;
+
+/// Maximum locations allowed in a batch search
+const MAX_BATCH_SEARCH_LOCATIONS: usize = 10;
+
+/// Default max lines per file in batch read
+const DEFAULT_BATCH_LINE_LIMIT: usize = 500;
+
+/// Default max file size per file in batch read
+const DEFAULT_BATCH_MAX_FILE_SIZE: usize = 500_000;
+
+/// Default max matches for batch search
+const DEFAULT_BATCH_MAX_MATCHES: usize = 100;
+
+/// Default context lines for batch search
+const DEFAULT_BATCH_CONTEXT_LINES: usize = 2;
+
 /// File operations tool
 #[derive(Debug, Clone)]
 pub struct FileTool {
@@ -596,6 +617,579 @@ impl FileTool {
     }
 }
 
+/// Batch read parameters
+#[derive(Debug, Clone, Deserialize)]
+pub struct BatchReadParams {
+    /// List of file paths to read
+    pub paths: Vec<String>,
+    /// Maximum lines per file
+    #[serde(default = "default_batch_line_limit")]
+    pub line_limit: usize,
+    /// Skip files larger than this size (bytes)
+    #[serde(default = "default_batch_max_size")]
+    pub max_file_size: usize,
+    /// Continue on errors and return partial results
+    #[serde(default = "default_continue_on_error")]
+    pub continue_on_error: bool,
+}
+
+/// Batch exists parameters
+#[derive(Debug, Clone, Deserialize)]
+pub struct BatchExistsParams {
+    /// List of paths to check
+    pub paths: Vec<String>,
+}
+
+/// Batch search parameters
+#[derive(Debug, Clone, Deserialize)]
+pub struct BatchSearchParams {
+    /// Search pattern (regex)
+    pub pattern: String,
+    /// List of directories or globs to search
+    pub locations: Vec<String>,
+    /// Maximum total matches to return
+    #[serde(default = "default_batch_max_matches")]
+    pub max_matches: usize,
+    /// Context lines to include before/after matches
+    #[serde(default = "default_context_lines")]
+    pub context_lines: usize,
+}
+
+fn default_batch_line_limit() -> usize {
+    DEFAULT_BATCH_LINE_LIMIT
+}
+
+fn default_batch_max_size() -> usize {
+    DEFAULT_BATCH_MAX_FILE_SIZE
+}
+
+fn default_batch_max_matches() -> usize {
+    DEFAULT_BATCH_MAX_MATCHES
+}
+
+fn default_context_lines() -> usize {
+    DEFAULT_BATCH_CONTEXT_LINES
+}
+
+fn default_continue_on_error() -> bool {
+    true
+}
+
+/// Result for a single file in batch read
+#[derive(Debug, Clone, Serialize)]
+pub struct BatchReadResult {
+    pub path: String,
+    pub success: bool,
+    pub content: Option<String>,
+    pub error: Option<String>,
+    pub line_count: Option<usize>,
+    pub truncated: bool,
+}
+
+/// Result for a single path in batch exists
+#[derive(Debug, Clone, Serialize)]
+pub struct BatchExistsResult {
+    pub path: String,
+    pub exists: bool,
+    pub is_file: bool,
+    pub is_dir: bool,
+    pub size: Option<u64>,
+    pub error: Option<String>,
+}
+
+/// Aggregated search result per location
+#[derive(Debug, Clone, Serialize)]
+pub struct BatchSearchResult {
+    pub location: String,
+    pub matches: Vec<SearchMatch>,
+    pub match_count: usize,
+    pub error: Option<String>,
+}
+
+/// Single search match with context
+#[derive(Debug, Clone, Serialize)]
+pub struct SearchMatch {
+    pub file: String,
+    pub line_number: usize,
+    pub content: String,
+    pub context_before: Vec<String>,
+    pub context_after: Vec<String>,
+}
+
+impl FileTool {
+    /// Execute batch read operation
+    async fn batch_read(&self, params: BatchReadParams) -> ToolOutput {
+        if params.paths.len() > MAX_BATCH_READ_FILES {
+            return ToolOutput::error(format!(
+                "Batch size {} exceeds maximum of {}",
+                params.paths.len(),
+                MAX_BATCH_READ_FILES
+            ));
+        }
+
+        let mut results = Vec::with_capacity(params.paths.len());
+        for path in &params.paths {
+            results.push(self.read_single_for_batch(path, &params).await);
+        }
+
+        let successful = results.iter().filter(|r| r.success).count();
+        let failed = results.len() - successful;
+
+        let mut summary = format!(
+            "Read {} files ({} successful, {} failed)",
+            results.len(),
+            successful,
+            failed
+        );
+
+        if failed > 0 && params.continue_on_error {
+            summary.push_str(". Returned partial results.");
+        }
+
+        ToolOutput {
+            success: failed == 0 || params.continue_on_error,
+            result: serde_json::json!({
+                "summary": summary,
+                "total": results.len(),
+                "successful": successful,
+                "failed": failed,
+                "results": results,
+            }),
+            error: if failed > 0 && !params.continue_on_error {
+                Some(format!("{} files failed to read", failed))
+            } else {
+                None
+            },
+        }
+    }
+
+    async fn read_single_for_batch(
+        &self,
+        path: &str,
+        params: &BatchReadParams,
+    ) -> BatchReadResult {
+        let resolved = match self.resolve_path(path) {
+            Ok(p) => p,
+            Err(e) => {
+                return BatchReadResult {
+                    path: path.to_string(),
+                    success: false,
+                    content: None,
+                    error: Some(e),
+                    line_count: None,
+                    truncated: false,
+                };
+            }
+        };
+
+        if !resolved.exists() {
+            return BatchReadResult {
+                path: resolved.display().to_string(),
+                success: false,
+                content: None,
+                error: Some("File not found".to_string()),
+                line_count: None,
+                truncated: false,
+            };
+        }
+
+        if !resolved.is_file() {
+            return BatchReadResult {
+                path: resolved.display().to_string(),
+                success: false,
+                content: None,
+                error: Some("Not a file".to_string()),
+                line_count: None,
+                truncated: false,
+            };
+        }
+
+        let metadata = match fs::metadata(&resolved).await {
+            Ok(m) => m,
+            Err(e) => {
+                return BatchReadResult {
+                    path: resolved.display().to_string(),
+                    success: false,
+                    content: None,
+                    error: Some(format!("Cannot read metadata: {}", e)),
+                    line_count: None,
+                    truncated: false,
+                };
+            }
+        };
+
+        if metadata.len() as usize > params.max_file_size {
+            return BatchReadResult {
+                path: resolved.display().to_string(),
+                success: false,
+                content: None,
+                error: Some(format!(
+                    "File too large: {} bytes (max: {})",
+                    metadata.len(),
+                    params.max_file_size
+                )),
+                line_count: None,
+                truncated: false,
+            };
+        }
+
+        match fs::read_to_string(&resolved).await {
+            Ok(content) => {
+                let lines: Vec<&str> = content.lines().collect();
+                let line_count = lines.len();
+                let truncated = line_count > params.line_limit;
+                let content = if truncated {
+                    lines[..params.line_limit].join("
+")
+                } else {
+                    content
+                };
+
+                BatchReadResult {
+                    path: resolved.display().to_string(),
+                    success: true,
+                    content: Some(content),
+                    error: None,
+                    line_count: Some(line_count),
+                    truncated,
+                }
+            }
+            Err(e) => BatchReadResult {
+                path: resolved.display().to_string(),
+                success: false,
+                content: None,
+                error: Some(format!("Cannot read file: {}", e)),
+                line_count: None,
+                truncated: false,
+            },
+        }
+    }
+
+    async fn check_exists_for_batch(&self, path: &str) -> BatchExistsResult {
+        let resolved = match self.resolve_path(path) {
+            Ok(p) => p,
+            Err(e) => {
+                return BatchExistsResult {
+                    path: path.to_string(),
+                    exists: false,
+                    is_file: false,
+                    is_dir: false,
+                    size: None,
+                    error: Some(e),
+                };
+            }
+        };
+
+        match fs::metadata(&resolved).await {
+            Ok(meta) => BatchExistsResult {
+                path: resolved.display().to_string(),
+                exists: true,
+                is_file: meta.is_file(),
+                is_dir: meta.is_dir(),
+                size: if meta.is_file() { Some(meta.len()) } else { None },
+                error: None,
+            },
+            Err(_) => BatchExistsResult {
+                path: resolved.display().to_string(),
+                exists: false,
+                is_file: false,
+                is_dir: false,
+                size: None,
+                error: None,
+            },
+        }
+    }
+
+    /// Execute batch exists operation
+    async fn batch_exists(&self, params: BatchExistsParams) -> ToolOutput {
+        if params.paths.len() > MAX_BATCH_EXISTS_PATHS {
+            return ToolOutput::error(format!(
+                "Batch size {} exceeds maximum of {}",
+                params.paths.len(),
+                MAX_BATCH_EXISTS_PATHS
+            ));
+        }
+
+        let mut results = Vec::with_capacity(params.paths.len());
+        for path in &params.paths {
+            results.push(self.check_exists_for_batch(path).await);
+        }
+
+        let existing = results.iter().filter(|r| r.exists).count();
+
+        ToolOutput::success(serde_json::json!({
+            "total": results.len(),
+            "existing": existing,
+            "results": results,
+        }))
+    }
+
+    /// Execute batch search operation
+    async fn batch_search(&self, params: BatchSearchParams) -> ToolOutput {
+        if params.locations.len() > MAX_BATCH_SEARCH_LOCATIONS {
+            return ToolOutput::error(format!(
+                "Location count {} exceeds maximum of {}",
+                params.locations.len(),
+                MAX_BATCH_SEARCH_LOCATIONS
+            ));
+        }
+
+        let regex = match Regex::new(&params.pattern) {
+            Ok(r) => r,
+            Err(e) => return ToolOutput::error(format!("Invalid regex: {}", e)),
+        };
+
+        let mut results: Vec<BatchSearchResult> = Vec::new();
+        let mut total_matches = 0usize;
+
+        for location in &params.locations {
+            if total_matches >= params.max_matches {
+                break;
+            }
+
+            let remaining = params.max_matches - total_matches;
+            let result = self
+                .search_location(location, &regex, remaining, params.context_lines)
+                .await;
+            total_matches += result.match_count;
+            results.push(result);
+        }
+
+        ToolOutput::success(serde_json::json!({
+            "pattern": params.pattern,
+            "total_matches": total_matches,
+            "locations_searched": params.locations.len(),
+            "truncated": total_matches >= params.max_matches,
+            "results": results,
+        }))
+    }
+
+    async fn search_location(
+        &self,
+        location: &str,
+        regex: &Regex,
+        max_matches: usize,
+        context_lines: usize,
+    ) -> BatchSearchResult {
+        let mut matches: Vec<SearchMatch> = Vec::new();
+
+        let error = if has_glob(location) {
+            match self
+                .search_glob_location(location, regex, max_matches, context_lines, &mut matches)
+                .await
+            {
+                Ok(()) => None,
+                Err(e) => Some(e),
+            }
+        } else {
+            match self.resolve_path(location) {
+                Ok(path) => {
+                    self.search_path_with_context(
+                        &path,
+                        regex,
+                        max_matches,
+                        context_lines,
+                        &mut matches,
+                    )
+                    .await;
+                    None
+                }
+                Err(e) => Some(e),
+            }
+        };
+
+        BatchSearchResult {
+            location: location.to_string(),
+            matches: matches.clone(),
+            match_count: matches.len(),
+            error,
+        }
+    }
+
+    async fn search_glob_location(
+        &self,
+        location: &str,
+        regex: &Regex,
+        max_matches: usize,
+        context_lines: usize,
+        matches: &mut Vec<SearchMatch>,
+    ) -> std::result::Result<(), String> {
+        let (base, pattern) = split_glob_base(location);
+        let base = if base.is_empty() { "." } else { base };
+        let base_path = self.resolve_path(base)?;
+        let pattern = if pattern.is_empty() { "*" } else { pattern };
+
+        self.search_path_with_context_filtered(
+            &base_path,
+            regex,
+            max_matches,
+            context_lines,
+            matches,
+            Some(pattern),
+            &base_path,
+        )
+        .await;
+
+        Ok(())
+    }
+
+    fn search_path_with_context<'a>(
+        &'a self,
+        path: &'a Path,
+        regex: &'a Regex,
+        max_matches: usize,
+        context_lines: usize,
+        matches: &'a mut Vec<SearchMatch>,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'a>> {
+        self.search_path_with_context_filtered(
+            path,
+            regex,
+            max_matches,
+            context_lines,
+            matches,
+            None,
+            path,
+        )
+    }
+
+    fn search_path_with_context_filtered<'a>(
+        &'a self,
+        path: &'a Path,
+        regex: &'a Regex,
+        max_matches: usize,
+        context_lines: usize,
+        matches: &'a mut Vec<SearchMatch>,
+        path_glob: Option<&'a str>,
+        base: &'a Path,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'a>> {
+        Box::pin(async move {
+            if matches.len() >= max_matches {
+                return;
+            }
+
+            if path.is_file() {
+                if let Some(glob) = path_glob {
+                    let rel = normalize_path_for_glob(path, base);
+                    if !glob_match(glob, &rel) {
+                        return;
+                    }
+                }
+
+                self.search_in_file_with_context(path, regex, max_matches, context_lines, matches, base)
+                    .await;
+                return;
+            }
+
+            let mut read_dir = match fs::read_dir(path).await {
+                Ok(rd) => rd,
+                Err(_) => return,
+            };
+
+            while let Ok(Some(entry)) = read_dir.next_entry().await {
+                if matches.len() >= max_matches {
+                    break;
+                }
+
+                let entry_path = entry.path();
+                let file_type = match entry.file_type().await {
+                    Ok(ft) => ft,
+                    Err(_) => continue,
+                };
+
+                if file_type.is_dir() {
+                    let name = entry.file_name().to_string_lossy().to_string();
+                    if name.starts_with('.') {
+                        continue;
+                    }
+                    self.search_path_with_context_filtered(
+                        &entry_path,
+                        regex,
+                        max_matches,
+                        context_lines,
+                        matches,
+                        path_glob,
+                        base,
+                    )
+                    .await;
+                } else if file_type.is_file() {
+                    let name = entry.file_name().to_string_lossy().to_string();
+                    if is_likely_binary(&name) {
+                        continue;
+                    }
+
+                    if let Some(glob) = path_glob {
+                        let rel = normalize_path_for_glob(&entry_path, base);
+                        if !glob_match(glob, &rel) {
+                            continue;
+                        }
+                    }
+
+                    self.search_in_file_with_context(
+                        &entry_path,
+                        regex,
+                        max_matches,
+                        context_lines,
+                        matches,
+                        base,
+                    )
+                    .await;
+                }
+            }
+        })
+    }
+
+    async fn search_in_file_with_context(
+        &self,
+        file: &Path,
+        regex: &Regex,
+        max_matches: usize,
+        context_lines: usize,
+        matches: &mut Vec<SearchMatch>,
+        base: &Path,
+    ) {
+        let content = match fs::read_to_string(file).await {
+            Ok(c) => c,
+            Err(_) => return,
+        };
+
+        let relative_path = file
+            .strip_prefix(base)
+            .unwrap_or(file)
+            .to_string_lossy()
+            .to_string();
+
+        let lines: Vec<&str> = content.lines().collect();
+
+        for (line_index, line) in lines.iter().enumerate() {
+            if matches.len() >= max_matches {
+                break;
+            }
+
+            if regex.is_match(line) {
+                let start = line_index.saturating_sub(context_lines);
+                let end = (line_index + 1 + context_lines).min(lines.len());
+                let context_before = lines[start..line_index]
+                    .iter()
+                    .map(|line| line.to_string())
+                    .collect();
+                let context_after = lines[(line_index + 1)..end]
+                    .iter()
+                    .map(|line| line.to_string())
+                    .collect();
+
+                matches.push(SearchMatch {
+                    file: relative_path.clone(),
+                    line_number: line_index + 1,
+                    content: line.to_string(),
+                    context_before,
+                    context_after,
+                });
+            }
+        }
+    }
+
+}
+
 /// Input parameters for file operations
 #[derive(Debug, Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case")]
@@ -632,6 +1226,26 @@ pub enum FileAction {
     Exists {
         path: String,
     },
+    BatchRead {
+        paths: Vec<String>,
+        #[serde(default = "default_batch_line_limit")]
+        line_limit: usize,
+        #[serde(default = "default_batch_max_size")]
+        max_file_size: usize,
+        #[serde(default = "default_continue_on_error")]
+        continue_on_error: bool,
+    },
+    BatchExists {
+        paths: Vec<String>,
+    },
+    BatchSearch {
+        pattern: String,
+        locations: Vec<String>,
+        #[serde(default = "default_batch_max_matches")]
+        max_matches: usize,
+        #[serde(default = "default_context_lines")]
+        context_lines: usize,
+    },
 }
 
 /// Output for file read operation (for reference/documentation)
@@ -660,9 +1274,11 @@ impl Tool for FileTool {
     }
 
     fn description(&self) -> &str {
-        "File operations: read, write, list, search, delete. \
+        "File operations: read, write, list, search, delete, exists, batch_read, batch_exists, batch_search. \
          Use 'read' to view file contents with line numbers, 'write' to create/modify files, \
-         'list' to see directory contents, 'search' to find text in files using regex."
+         'list' to see directory contents, 'search' to find text in files using regex. \
+         Use 'batch_read' to read multiple files at once, 'batch_exists' to check multiple paths, \
+         'batch_search' to search across multiple directories with context."
     }
 
     fn parameters_schema(&self) -> Value {
@@ -671,12 +1287,22 @@ impl Tool for FileTool {
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["read", "write", "list", "search", "delete", "exists"],
+                    "enum": ["read", "write", "list", "search", "delete", "exists", "batch_read", "batch_exists", "batch_search"],
                     "description": "The file operation to perform"
                 },
                 "path": {
                     "type": "string",
-                    "description": "File or directory path"
+                    "description": "File or directory path (for single-file operations)"
+                },
+                "paths": {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "description": "List of file paths (for batch_read, batch_exists)"
+                },
+                "locations": {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "description": "List of directories or globs to search (for batch_search)"
                 },
                 "content": {
                     "type": "string",
@@ -684,7 +1310,7 @@ impl Tool for FileTool {
                 },
                 "pattern": {
                     "type": "string",
-                    "description": "Search pattern (regex for search, glob for list)"
+                    "description": "Search pattern (regex for search/batch_search, glob for list)"
                 },
                 "file_pattern": {
                     "type": "string",
@@ -705,9 +1331,29 @@ impl Tool for FileTool {
                 "limit": {
                     "type": "integer",
                     "description": "Maximum lines to read"
+                },
+                "line_limit": {
+                    "type": "integer",
+                    "description": "Max lines per file in batch_read (default: 500)"
+                },
+                "max_file_size": {
+                    "type": "integer",
+                    "description": "Skip files larger than this in batch_read (default: 500KB)"
+                },
+                "max_matches": {
+                    "type": "integer",
+                    "description": "Max total matches in batch_search (default: 100)"
+                },
+                "context_lines": {
+                    "type": "integer",
+                    "description": "Context lines before/after matches in batch_search (default: 2)"
+                },
+                "continue_on_error": {
+                    "type": "boolean",
+                    "description": "Continue batch on individual errors (default: true)"
                 }
             },
-            "required": ["action", "path"]
+            "required": ["action"]
         })
     }
 
@@ -732,6 +1378,37 @@ impl Tool for FileTool {
             }
             FileAction::Exists { path } => {
                 self.check_exists(&path).await
+            }
+            FileAction::BatchRead {
+                paths,
+                line_limit,
+                max_file_size,
+                continue_on_error,
+            } => {
+                self.batch_read(BatchReadParams {
+                    paths,
+                    line_limit,
+                    max_file_size,
+                    continue_on_error,
+                })
+                .await
+            }
+            FileAction::BatchExists { paths } => {
+                self.batch_exists(BatchExistsParams { paths }).await
+            }
+            FileAction::BatchSearch {
+                pattern,
+                locations,
+                max_matches,
+                context_lines,
+            } => {
+                self.batch_search(BatchSearchParams {
+                    pattern,
+                    locations,
+                    max_matches,
+                    context_lines,
+                })
+                .await
             }
         };
 
@@ -768,6 +1445,36 @@ fn glob_match_helper(pattern: &[char], text: &[char]) -> bool {
         }
         _ => false,
     }
+}
+
+/// Determine if a string contains glob characters
+fn has_glob(value: &str) -> bool {
+    value.contains('*') || value.contains('?')
+}
+
+/// Split a glob pattern into its base directory and the glob pattern
+fn split_glob_base(value: &str) -> (&str, &str) {
+    let mut split_index = value.len();
+    for (idx, ch) in value.char_indices() {
+        if ch == '*' || ch == '?' {
+            split_index = idx;
+            break;
+        }
+    }
+
+    if split_index == value.len() {
+        return (value, "");
+    }
+
+    let base = &value[..split_index];
+    let base = base.trim_end_matches('/');
+    let pattern = value.trim_start_matches(base).trim_start_matches('/');
+    (base, pattern)
+}
+
+fn normalize_path_for_glob(path: &Path, base: &Path) -> String {
+    let relative = path.strip_prefix(base).unwrap_or(path);
+    relative.to_string_lossy().replace(std::path::MAIN_SEPARATOR, "/")
 }
 
 /// Normalize a path without canonicalizing (for non-existent paths)
@@ -1211,5 +1918,168 @@ mod tests {
         
         assert!(output.success);
         assert!(deep_path.exists());
+    }
+
+    #[tokio::test]
+    async fn test_batch_read_multiple_files() {
+        let temp_dir = TempDir::new().unwrap();
+        let tool = FileTool::new();
+
+        // Create test files
+        fs::write(temp_dir.path().join("file1.txt"), "content 1").await.unwrap();
+        fs::write(temp_dir.path().join("file2.txt"), "content 2").await.unwrap();
+        fs::write(temp_dir.path().join("file3.txt"), "content 3").await.unwrap();
+
+        let output = tool
+            .execute(serde_json::json!({
+                "action": "batch_read",
+                "paths": [
+                    temp_dir.path().join("file1.txt").display().to_string(),
+                    temp_dir.path().join("file2.txt").display().to_string(),
+                    temp_dir.path().join("file3.txt").display().to_string()
+                ]
+            }))
+            .await
+            .unwrap();
+
+        assert!(output.success);
+        assert_eq!(output.result["total"].as_u64().unwrap(), 3);
+        assert_eq!(output.result["successful"].as_u64().unwrap(), 3);
+        assert_eq!(output.result["failed"].as_u64().unwrap(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_batch_read_partial_failure() {
+        let temp_dir = TempDir::new().unwrap();
+        let tool = FileTool::new();
+
+        // Create one file, leave others missing
+        fs::write(temp_dir.path().join("exists.txt"), "content").await.unwrap();
+
+        let output = tool
+            .execute(serde_json::json!({
+                "action": "batch_read",
+                "paths": [
+                    temp_dir.path().join("exists.txt").display().to_string(),
+                    temp_dir.path().join("missing.txt").display().to_string()
+                ],
+                "continue_on_error": true
+            }))
+            .await
+            .unwrap();
+
+        assert!(output.success); // continue_on_error = true
+        assert_eq!(output.result["total"].as_u64().unwrap(), 2);
+        assert_eq!(output.result["successful"].as_u64().unwrap(), 1);
+        assert_eq!(output.result["failed"].as_u64().unwrap(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_batch_read_exceeds_limit() {
+        let tool = FileTool::new();
+
+        // Try to read more files than allowed
+        let paths: Vec<String> = (0..25).map(|i| format!("/tmp/file{}.txt", i)).collect();
+
+        let output = tool
+            .execute(serde_json::json!({
+                "action": "batch_read",
+                "paths": paths
+            }))
+            .await
+            .unwrap();
+
+        assert!(!output.success);
+        assert!(output.error.as_ref().unwrap().contains("exceeds maximum"));
+    }
+
+    #[tokio::test]
+    async fn test_batch_exists_mixed() {
+        let temp_dir = TempDir::new().unwrap();
+        let tool = FileTool::new();
+
+        // Create some paths
+        fs::write(temp_dir.path().join("file.txt"), "content").await.unwrap();
+        fs::create_dir(temp_dir.path().join("subdir")).await.unwrap();
+
+        let output = tool
+            .execute(serde_json::json!({
+                "action": "batch_exists",
+                "paths": [
+                    temp_dir.path().join("file.txt").display().to_string(),
+                    temp_dir.path().join("subdir").display().to_string(),
+                    temp_dir.path().join("missing.txt").display().to_string()
+                ]
+            }))
+            .await
+            .unwrap();
+
+        assert!(output.success);
+        assert_eq!(output.result["total"].as_u64().unwrap(), 3);
+        assert_eq!(output.result["existing"].as_u64().unwrap(), 2);
+
+        let results = output.result["results"].as_array().unwrap();
+        assert!(results[0]["exists"].as_bool().unwrap());
+        assert!(results[0]["is_file"].as_bool().unwrap());
+        assert!(results[1]["exists"].as_bool().unwrap());
+        assert!(results[1]["is_dir"].as_bool().unwrap());
+        assert!(!results[2]["exists"].as_bool().unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_batch_search_single_location() {
+        let temp_dir = TempDir::new().unwrap();
+        let tool = FileTool::new();
+
+        // Create files with searchable content
+        fs::write(temp_dir.path().join("file1.txt"), "hello world\ntest line").await.unwrap();
+        fs::write(temp_dir.path().join("file2.txt"), "no match here").await.unwrap();
+        fs::write(temp_dir.path().join("file3.txt"), "another hello").await.unwrap();
+
+        let output = tool
+            .execute(serde_json::json!({
+                "action": "batch_search",
+                "pattern": "hello",
+                "locations": [temp_dir.path().display().to_string()]
+            }))
+            .await
+            .unwrap();
+
+        assert!(output.success);
+        assert_eq!(output.result["total_matches"].as_u64().unwrap(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_batch_search_with_context() {
+        let temp_dir = TempDir::new().unwrap();
+        let tool = FileTool::new();
+
+        fs::write(
+            temp_dir.path().join("test.txt"),
+            "line 1\nline 2\nTARGET\nline 4\nline 5",
+        )
+        .await
+        .unwrap();
+
+        let output = tool
+            .execute(serde_json::json!({
+                "action": "batch_search",
+                "pattern": "TARGET",
+                "locations": [temp_dir.path().display().to_string()],
+                "context_lines": 2
+            }))
+            .await
+            .unwrap();
+
+        assert!(output.success);
+        let results = output.result["results"].as_array().unwrap();
+        let matches = results[0]["matches"].as_array().unwrap();
+        assert_eq!(matches.len(), 1);
+
+        let m = &matches[0];
+        assert_eq!(m["line_number"].as_u64().unwrap(), 3);
+        assert_eq!(m["content"].as_str().unwrap(), "TARGET");
+        assert_eq!(m["context_before"].as_array().unwrap().len(), 2);
+        assert_eq!(m["context_after"].as_array().unwrap().len(), 2);
     }
 }
