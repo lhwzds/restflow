@@ -42,6 +42,9 @@ redb = "3.1.0"
 regex = "1.11.1"
 rmcp = { version = "0.14", features = ["server", "transport-streamable-http-server"] }
 schemars = "0.8"
+lsp-types = "0.97"
+notify = "6.1"
+url = "2.5"
 reqwest = { version = "0.13.1", features = ["form", "json"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.142"

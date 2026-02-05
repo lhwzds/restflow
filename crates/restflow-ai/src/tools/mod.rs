@@ -4,6 +4,7 @@
 //! Tools implement the `Tool` trait for integration with the agent executor.
 
 mod bash;
+mod diagnostics;
 mod email;
 mod file;
 mod file_memory;
@@ -18,7 +19,10 @@ mod skill;
 mod telegram;
 mod traits;
 
+use std::sync::Arc;
+
 pub use bash::{BashInput, BashOutput, BashTool};
+pub use diagnostics::{DiagnosticsProvider, DiagnosticsTool};
 pub use email::EmailTool;
 pub use file::{FileAction, FileTool};
 pub use file_memory::{
@@ -44,5 +48,20 @@ pub fn default_registry() -> ToolRegistry {
     registry.register(PythonTool::new());
     registry.register(EmailTool::new());
     registry.register(TelegramTool::new());
+    registry
+}
+
+/// Create a registry with default tools and diagnostics support.
+pub fn default_registry_with_diagnostics(
+    provider: Arc<dyn DiagnosticsProvider>,
+) -> ToolRegistry {
+    let mut registry = ToolRegistry::new();
+    registry.register(BashTool::new());
+    registry.register(FileTool::new().with_diagnostics_provider(provider.clone()));
+    registry.register(HttpTool::new());
+    registry.register(PythonTool::new());
+    registry.register(EmailTool::new());
+    registry.register(TelegramTool::new());
+    registry.register(DiagnosticsTool::new(provider));
     registry
 }
