@@ -242,21 +242,26 @@ impl ContextLoader {
 
     async fn scan_directory(&self, dir: &Path) -> Result<Vec<(PathBuf, String)>, std::io::Error> {
         let mut results = Vec::new();
-        let mut entries = fs::read_dir(dir).await?;
+        let mut pending = vec![dir.to_path_buf()];
 
-        while let Some(entry) = entries.next_entry().await? {
-            let path = entry.path();
-            let meta = entry.metadata().await?;
+        while let Some(next_dir) = pending.pop() {
+            let mut entries = fs::read_dir(&next_dir).await?;
 
-            if meta.is_dir() && self.config.scan_directories {
-                let nested = self.scan_directory(&path).await?;
-                results.extend(nested);
-                continue;
-            }
+            while let Some(entry) = entries.next_entry().await? {
+                let path = entry.path();
+                let meta = entry.metadata().await?;
 
-            if meta.is_file() && self.should_load_path(&path) {
-                if let Ok(content) = self.load_file(&path).await {
-                    results.push((path, content));
+                if meta.is_dir() {
+                    if self.config.scan_directories {
+                        pending.push(path);
+                    }
+                    continue;
+                }
+
+                if meta.is_file() && self.should_load_path(&path) {
+                    if let Ok(content) = self.load_file(&path).await {
+                        results.push((path, content));
+                    }
                 }
             }
         }
