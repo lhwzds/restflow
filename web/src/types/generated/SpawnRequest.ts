@@ -2,22 +2,22 @@
 import type { SpawnPriority } from "./SpawnPriority";
 
 /**
- * Request to spawn a sub-agent
+ * Request to spawn a sub-agent.
  */
 export type SpawnRequest = { 
 /**
- * Agent type ID (e.g., "researcher", "coder")
+ * Agent type ID (e.g., "researcher", "coder").
  */
 agent_id: string, 
 /**
- * Task description for the agent
+ * Task description for the agent.
  */
 task: string, 
 /**
- * Optional timeout in seconds
+ * Optional timeout in seconds.
  */
 timeout_secs: bigint | null, 
 /**
- * Optional priority level
+ * Optional priority level.
  */
 priority: SpawnPriority | null, };
