@@ -3,6 +3,7 @@ pub mod channel;
 pub mod daemon;
 pub mod engine;
 pub mod loader;
+pub mod lsp;
 pub mod memory;
 pub mod mcp;
 pub mod models;

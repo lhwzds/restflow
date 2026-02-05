@@ -28,6 +28,7 @@ use std::sync::Arc;
 use tokio::fs;
 use tokio::io::AsyncWriteExt;
 
+use super::diagnostics::DiagnosticsProvider;
 use super::file_tracker::FileTracker;
 use super::traits::{Tool, ToolOutput};
 use crate::error::Result;
@@ -53,6 +54,8 @@ pub struct FileTool {
     max_read_bytes: usize,
     /// Track file reads/writes for external modification detection
     tracker: Arc<FileTracker>,
+    /// Optional diagnostics provider
+    diagnostics: Option<Arc<dyn DiagnosticsProvider>>,
 }
 
 impl Default for FileTool {
@@ -68,6 +71,7 @@ impl FileTool {
             base_dir: None,
             max_read_bytes: DEFAULT_MAX_READ_BYTES,
             tracker: Arc::new(FileTracker::new()),
+            diagnostics: None,
         }
     }
 
@@ -81,6 +85,15 @@ impl FileTool {
     /// Set maximum read size in bytes
     pub fn with_max_read(mut self, bytes: usize) -> Self {
         self.max_read_bytes = bytes;
+        self
+    }
+
+    /// Attach a diagnostics provider.
+    pub fn with_diagnostics_provider(
+        mut self,
+        provider: Arc<dyn DiagnosticsProvider>,
+    ) -> Self {
+        self.diagnostics = Some(provider);
         self
     }
 
@@ -244,6 +257,16 @@ impl FileTool {
         match result {
             Ok(()) => {
                 self.tracker.record_write(&path);
+
+                if let Some(provider) = self.diagnostics.clone() {
+                    let path = path.clone();
+                    let content = content.to_string();
+                    tokio::spawn(async move {
+                        let _ = provider.ensure_open(&path).await;
+                        let _ = provider.did_change(&path, &content).await;
+                    });
+                }
+
                 ToolOutput::success(serde_json::json!({
                     "path": path.display().to_string(),
                     "bytes_written": content.len(),
