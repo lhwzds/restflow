@@ -9,7 +9,7 @@ import {
   NODE_TYPE_ICONS,
   NODE_TYPE_COLORS,
 } from '@/constants/node/types'
-import { SUCCESS_MESSAGES, ERROR_MESSAGES } from '@/constants/ui/messages'
+import { SUCCESS_MESSAGES, ERROR_MESSAGES, DEFAULT_VALUES } from '@/constants/ui/messages'
 import { WORKFLOW_STATE as WORKFLOW_STATUS } from '@/constants/workflow/states'
 import {
   POLLING_TIMING as POLLING_INTERVAL,
@@ -106,6 +106,10 @@ describe('Constants - Node Types', () => {
 })
 
 describe('Constants - UI Messages', () => {
+  it('should have default workflow name', () => {
+    expect(DEFAULT_VALUES.WORKFLOW_NAME).toBe('Untitled Workflow')
+  })
+
   it('should have success messages', () => {
     expect(SUCCESS_MESSAGES).toBeDefined()
     expect(typeof SUCCESS_MESSAGES.WORKFLOW_SAVED).toBe('string')

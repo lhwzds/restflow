@@ -55,7 +55,7 @@ impl ClaudeOutput {
 async fn get_ipc_client() -> Result<IpcClient> {
     let socket_path = paths::socket_path()?;
     if !is_daemon_available(&socket_path).await {
-        bail!("RestFlow daemon is not running. Start it with 'restflow daemon start'.");
+        bail!("RestFlow daemon is not running. Start it with 'restflow start'.");
     }
 
     IpcClient::connect(&socket_path).await
