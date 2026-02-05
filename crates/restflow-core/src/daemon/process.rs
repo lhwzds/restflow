@@ -8,6 +8,8 @@ use std::process::{Command, Stdio};
 pub struct DaemonConfig {
     pub http: bool,
     pub http_port: Option<u16>,
+    pub mcp: bool,
+    pub mcp_port: Option<u16>,
 }
 
 pub struct ProcessManager {
@@ -35,6 +37,12 @@ impl ProcessManager {
             cmd.arg("--http");
             if let Some(port) = config.http_port {
                 cmd.args(["--port", &port.to_string()]);
+            }
+        }
+        if config.mcp {
+            cmd.arg("--mcp");
+            if let Some(port) = config.mcp_port {
+                cmd.args(["--mcp-port", &port.to_string()]);
             }
         }
 

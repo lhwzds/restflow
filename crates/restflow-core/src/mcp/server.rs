@@ -4,7 +4,12 @@
 //! to AI assistants like Claude Code.
 
 use crate::AppCore;
-use crate::models::{ChatSessionSummary, MemoryChunk, MemorySearchQuery, MemorySource, SearchMode};
+use crate::daemon::IpcClient;
+use crate::models::{
+    ChatSession, ChatSessionSummary, MemoryChunk, MemorySearchQuery, MemorySearchResult,
+    MemorySource, MemoryStats, SearchMode, Skill,
+};
+use crate::storage::agent::StoredAgent;
 use rmcp::{
     ErrorData as McpError, ServerHandler, ServiceExt,
     handler::server::tool::schema_for_type,
@@ -19,19 +24,252 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
 use tokio::io::{stdin, stdout};
+use tokio::sync::Mutex;
 
 /// RestFlow MCP Server
 ///
 /// Exposes skills, agents, and workflow functionality via MCP protocol.
 #[derive(Clone)]
 pub struct RestFlowMcpServer {
+    backend: Arc<dyn McpBackend>,
+}
+
+#[async_trait::async_trait]
+pub trait McpBackend: Send + Sync {
+    async fn list_skills(&self) -> Result<Vec<Skill>, String>;
+    async fn get_skill(&self, id: &str) -> Result<Option<Skill>, String>;
+    async fn create_skill(&self, skill: Skill) -> Result<(), String>;
+    async fn update_skill(&self, skill: Skill) -> Result<(), String>;
+    async fn delete_skill(&self, id: &str) -> Result<(), String>;
+
+    async fn list_agents(&self) -> Result<Vec<StoredAgent>, String>;
+    async fn get_agent(&self, id: &str) -> Result<StoredAgent, String>;
+
+    async fn search_memory(&self, query: MemorySearchQuery) -> Result<MemorySearchResult, String>;
+    async fn store_memory(&self, chunk: MemoryChunk) -> Result<String, String>;
+    async fn get_memory_stats(&self, agent_id: &str) -> Result<MemoryStats, String>;
+
+    async fn list_sessions(&self) -> Result<Vec<ChatSessionSummary>, String>;
+    async fn list_sessions_by_agent(&self, agent_id: &str) -> Result<Vec<ChatSessionSummary>, String>;
+    async fn get_session(&self, id: &str) -> Result<ChatSession, String>;
+}
+
+struct CoreBackend {
     core: Arc<AppCore>,
+}
+
+#[async_trait::async_trait]
+impl McpBackend for CoreBackend {
+    async fn list_skills(&self) -> Result<Vec<Skill>, String> {
+        crate::services::skills::list_skills(&self.core)
+            .await
+            .map_err(|e| e.to_string())
+    }
+
+    async fn get_skill(&self, id: &str) -> Result<Option<Skill>, String> {
+        crate::services::skills::get_skill(&self.core, id)
+            .await
+            .map_err(|e| e.to_string())
+    }
+
+    async fn create_skill(&self, skill: Skill) -> Result<(), String> {
+        crate::services::skills::create_skill(&self.core, skill)
+            .await
+            .map_err(|e| e.to_string())
+    }
+
+    async fn update_skill(&self, skill: Skill) -> Result<(), String> {
+        crate::services::skills::update_skill(&self.core, &skill.id, &skill)
+            .await
+            .map_err(|e| e.to_string())
+    }
+
+    async fn delete_skill(&self, id: &str) -> Result<(), String> {
+        crate::services::skills::delete_skill(&self.core, id)
+            .await
+            .map_err(|e| e.to_string())
+    }
+
+    async fn list_agents(&self) -> Result<Vec<StoredAgent>, String> {
+        crate::services::agent::list_agents(&self.core)
+            .await
+            .map_err(|e| e.to_string())
+    }
+
+    async fn get_agent(&self, id: &str) -> Result<StoredAgent, String> {
+        crate::services::agent::get_agent(&self.core, id)
+            .await
+            .map_err(|e| e.to_string())
+    }
+
+    async fn search_memory(&self, query: MemorySearchQuery) -> Result<MemorySearchResult, String> {
+        self.core
+            .storage
+            .memory
+            .search(&query)
+            .map_err(|e| e.to_string())
+    }
+
+    async fn store_memory(&self, chunk: MemoryChunk) -> Result<String, String> {
+        self.core
+            .storage
+            .memory
+            .store_chunk(&chunk)
+            .map_err(|e| e.to_string())
+    }
+
+    async fn get_memory_stats(&self, agent_id: &str) -> Result<MemoryStats, String> {
+        self.core
+            .storage
+            .memory
+            .get_stats(agent_id)
+            .map_err(|e| e.to_string())
+    }
+
+    async fn list_sessions(&self) -> Result<Vec<ChatSessionSummary>, String> {
+        self.core
+            .storage
+            .chat_sessions
+            .list_summaries()
+            .map_err(|e| e.to_string())
+    }
+
+    async fn list_sessions_by_agent(&self, agent_id: &str) -> Result<Vec<ChatSessionSummary>, String> {
+        let sessions = self
+            .core
+            .storage
+            .chat_sessions
+            .list_by_agent(agent_id)
+            .map_err(|e| e.to_string())?;
+        Ok(sessions.iter().map(ChatSessionSummary::from).collect())
+    }
+
+    async fn get_session(&self, id: &str) -> Result<ChatSession, String> {
+        self.core
+            .storage
+            .chat_sessions
+            .get(id)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| format!("Session not found: {}", id))
+    }
+}
+
+struct IpcBackend {
+    client: Arc<Mutex<IpcClient>>,
+}
+
+#[async_trait::async_trait]
+impl McpBackend for IpcBackend {
+    async fn list_skills(&self) -> Result<Vec<Skill>, String> {
+        let mut client = self.client.lock().await;
+        client.list_skills().await.map_err(|e| e.to_string())
+    }
+
+    async fn get_skill(&self, id: &str) -> Result<Option<Skill>, String> {
+        let mut client = self.client.lock().await;
+        client
+            .get_skill(id.to_string())
+            .await
+            .map_err(|e| e.to_string())
+    }
+
+    async fn create_skill(&self, skill: Skill) -> Result<(), String> {
+        let mut client = self.client.lock().await;
+        client.create_skill(skill).await.map_err(|e| e.to_string())
+    }
+
+    async fn update_skill(&self, skill: Skill) -> Result<(), String> {
+        let mut client = self.client.lock().await;
+        client
+            .update_skill(skill.id.clone(), skill)
+            .await
+            .map_err(|e| e.to_string())
+    }
+
+    async fn delete_skill(&self, id: &str) -> Result<(), String> {
+        let mut client = self.client.lock().await;
+        client
+            .delete_skill(id.to_string())
+            .await
+            .map_err(|e| e.to_string())
+    }
+
+    async fn list_agents(&self) -> Result<Vec<StoredAgent>, String> {
+        let mut client = self.client.lock().await;
+        client.list_agents().await.map_err(|e| e.to_string())
+    }
+
+    async fn get_agent(&self, id: &str) -> Result<StoredAgent, String> {
+        let mut client = self.client.lock().await;
+        client.get_agent(id.to_string()).await.map_err(|e| e.to_string())
+    }
+
+    async fn search_memory(&self, query: MemorySearchQuery) -> Result<MemorySearchResult, String> {
+        let mut client = self.client.lock().await;
+        let text = query.query.unwrap_or_default();
+        client
+            .search_memory(text, Some(query.agent_id), Some(query.limit))
+            .await
+            .map_err(|e| e.to_string())
+    }
+
+    async fn store_memory(&self, chunk: MemoryChunk) -> Result<String, String> {
+        let mut client = self.client.lock().await;
+        client
+            .create_memory_chunk(chunk)
+            .await
+            .map(|stored| stored.id)
+            .map_err(|e| e.to_string())
+    }
+
+    async fn get_memory_stats(&self, agent_id: &str) -> Result<MemoryStats, String> {
+        let mut client = self.client.lock().await;
+        client
+            .get_memory_stats(Some(agent_id.to_string()))
+            .await
+            .map_err(|e| e.to_string())
+    }
+
+    async fn list_sessions(&self) -> Result<Vec<ChatSessionSummary>, String> {
+        let mut client = self.client.lock().await;
+        client.list_sessions().await.map_err(|e| e.to_string())
+    }
+
+    async fn list_sessions_by_agent(&self, agent_id: &str) -> Result<Vec<ChatSessionSummary>, String> {
+        let mut client = self.client.lock().await;
+        let sessions = client
+            .list_sessions_by_agent(agent_id.to_string())
+            .await
+            .map_err(|e| e.to_string())?;
+        Ok(sessions.iter().map(ChatSessionSummary::from).collect())
+    }
+
+    async fn get_session(&self, id: &str) -> Result<ChatSession, String> {
+        let mut client = self.client.lock().await;
+        client.get_session(id.to_string()).await.map_err(|e| e.to_string())
+    }
 }
 
 impl RestFlowMcpServer {
     /// Create a new MCP server with the given AppCore
     pub fn new(core: Arc<AppCore>) -> Self {
-        Self { core }
+        Self {
+            backend: Arc::new(CoreBackend { core }),
+        }
+    }
+
+    /// Create a new MCP server using daemon IPC
+    pub fn with_ipc(client: IpcClient) -> Self {
+        Self {
+            backend: Arc::new(IpcBackend {
+                client: Arc::new(Mutex::new(client)),
+            }),
+        }
+    }
+
+    /// Create a new MCP server with a custom backend
+    pub fn with_backend(backend: Arc<dyn McpBackend>) -> Self {
+        Self { backend }
     }
 
     /// Run the MCP server using stdio transport
@@ -210,7 +448,9 @@ fn default_session_limit() -> u32 {
 
 impl RestFlowMcpServer {
     async fn handle_list_skills(&self) -> Result<String, String> {
-        let skills = crate::services::skills::list_skills(&self.core)
+        let skills = self
+            .backend
+            .list_skills()
             .await
             .map_err(|e| format!("Failed to list skills: {}", e))?;
 
@@ -229,7 +469,9 @@ impl RestFlowMcpServer {
     }
 
     async fn handle_get_skill(&self, params: GetSkillParams) -> Result<String, String> {
-        let skill = crate::services::skills::get_skill(&self.core, &params.id)
+        let skill = self
+            .backend
+            .get_skill(&params.id)
             .await
             .map_err(|e| format!("Failed to get skill: {}", e))?
             .ok_or_else(|| format!("Skill not found: {}", params.id))?;
@@ -248,7 +490,8 @@ impl RestFlowMcpServer {
             params.content,
         );
 
-        crate::services::skills::create_skill(&self.core, skill)
+        self.backend
+            .create_skill(skill)
             .await
             .map_err(|e| format!("Failed to create skill: {}", e))?;
 
@@ -256,7 +499,9 @@ impl RestFlowMcpServer {
     }
 
     async fn handle_update_skill(&self, params: UpdateSkillParams) -> Result<String, String> {
-        let mut skill = crate::services::skills::get_skill(&self.core, &params.id)
+        let mut skill = self
+            .backend
+            .get_skill(&params.id)
             .await
             .map_err(|e| format!("Failed to get skill: {}", e))?
             .ok_or_else(|| format!("Skill not found: {}", params.id))?;
@@ -269,7 +514,8 @@ impl RestFlowMcpServer {
             params.content,
         );
 
-        crate::services::skills::update_skill(&self.core, &params.id, &skill)
+        self.backend
+            .update_skill(skill)
             .await
             .map_err(|e| format!("Failed to update skill: {}", e))?;
 
@@ -277,7 +523,8 @@ impl RestFlowMcpServer {
     }
 
     async fn handle_delete_skill(&self, params: DeleteSkillParams) -> Result<String, String> {
-        crate::services::skills::delete_skill(&self.core, &params.id)
+        self.backend
+            .delete_skill(&params.id)
             .await
             .map_err(|e| format!("Failed to delete skill: {}", e))?;
 
@@ -285,7 +532,9 @@ impl RestFlowMcpServer {
     }
 
     async fn handle_list_agents(&self) -> Result<String, String> {
-        let agents = crate::services::agent::list_agents(&self.core)
+        let agents = self
+            .backend
+            .list_agents()
             .await
             .map_err(|e| format!("Failed to list agents: {}", e))?;
 
@@ -307,7 +556,9 @@ impl RestFlowMcpServer {
     }
 
     async fn handle_get_agent(&self, params: GetAgentParams) -> Result<String, String> {
-        let agent = crate::services::agent::get_agent(&self.core, &params.id)
+        let agent = self
+            .backend
+            .get_agent(&params.id)
             .await
             .map_err(|e| format!("Failed to get agent: {}", e))?;
 
@@ -322,10 +573,9 @@ impl RestFlowMcpServer {
             .paginate(params.limit, 0);
 
         let results = self
-            .core
-            .storage
-            .memory
-            .search(&query)
+            .backend
+            .search_memory(query)
+            .await
             .map_err(|e| format!("Failed to search memory: {}", e))?;
 
         serde_json::to_string_pretty(&results)
@@ -341,10 +591,9 @@ impl RestFlowMcpServer {
         }
 
         let id = self
-            .core
-            .storage
-            .memory
-            .store_chunk(&chunk)
+            .backend
+            .store_memory(chunk)
+            .await
             .map_err(|e| format!("Failed to store memory: {}", e))?;
 
         Ok(format!("Stored memory chunk: {}", id))
@@ -352,10 +601,9 @@ impl RestFlowMcpServer {
 
     async fn handle_memory_stats(&self, params: MemoryStatsParams) -> Result<String, String> {
         let stats = self
-            .core
-            .storage
-            .memory
-            .get_stats(&params.agent_id)
+            .backend
+            .get_memory_stats(&params.agent_id)
+            .await
             .map_err(|e| format!("Failed to load memory stats: {}", e))?;
 
         serde_json::to_string_pretty(&stats)
@@ -363,7 +611,9 @@ impl RestFlowMcpServer {
     }
 
     async fn handle_skill_execute(&self, params: SkillExecuteParams) -> Result<String, String> {
-        let skill = crate::services::skills::get_skill(&self.core, &params.skill_id)
+        let skill = self
+            .backend
+            .get_skill(&params.skill_id)
             .await
             .map_err(|e| format!("Failed to get skill: {}", e))?
             .ok_or_else(|| format!("Skill not found: {}", params.skill_id))?;
@@ -386,20 +636,17 @@ impl RestFlowMcpServer {
     ) -> Result<String, String> {
         let limit = params.limit as usize;
         let summaries: Vec<ChatSessionSummary> = if let Some(agent_id) = params.agent_id {
-            self.core
-                .storage
-                .chat_sessions
-                .list_by_agent(&agent_id)
+            self.backend
+                .list_sessions_by_agent(&agent_id)
+                .await
                 .map_err(|e| format!("Failed to list sessions: {}", e))?
-                .iter()
-                .map(ChatSessionSummary::from)
+                .into_iter()
                 .take(limit)
                 .collect()
         } else {
-            self.core
-                .storage
-                .chat_sessions
-                .list_summaries()
+            self.backend
+                .list_sessions()
+                .await
                 .map_err(|e| format!("Failed to list sessions: {}", e))?
                 .into_iter()
                 .take(limit)
@@ -415,12 +662,10 @@ impl RestFlowMcpServer {
         params: ChatSessionGetParams,
     ) -> Result<String, String> {
         let session = self
-            .core
-            .storage
-            .chat_sessions
-            .get(&params.session_id)
-            .map_err(|e| format!("Failed to get session: {}", e))?
-            .ok_or_else(|| format!("Session not found: {}", params.session_id))?;
+            .backend
+            .get_session(&params.session_id)
+            .await
+            .map_err(|e| format!("Failed to get session: {}", e))?;
 
         serde_json::to_string_pretty(&session)
             .map_err(|e| format!("Failed to serialize session: {}", e))
@@ -641,20 +886,22 @@ impl ServerHandler for RestFlowMcpServer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::daemon::{IpcClient, IpcServer};
     use crate::models::{AIModel, AgentNode, ApiKeyConfig, Skill};
     use crate::storage::agent::StoredAgent;
     use tempfile::TempDir;
+    use tokio::time::{Duration, sleep};
 
     // =========================================================================
     // Test Utilities
     // =========================================================================
 
     /// Create a test server with a temporary database
-    async fn create_test_server() -> (RestFlowMcpServer, TempDir) {
+    async fn create_test_server() -> (RestFlowMcpServer, Arc<AppCore>, TempDir) {
         let temp_dir = tempfile::tempdir().unwrap();
         let db_path = temp_dir.path().join("test.db");
         let core = Arc::new(AppCore::new(db_path.to_str().unwrap()).await.unwrap());
-        (RestFlowMcpServer::new(core), temp_dir)
+        (RestFlowMcpServer::new(core.clone()), core, temp_dir)
     }
 
     /// Create a test skill with given id and name
@@ -718,7 +965,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_list_skills_empty() {
-        let (server, _temp_dir) = create_test_server().await;
+        let (server, _core, _temp_dir) = create_test_server().await;
 
         let result = server.handle_list_skills().await;
 
@@ -730,16 +977,16 @@ mod tests {
 
     #[tokio::test]
     async fn test_list_skills_multiple() {
-        let (server, _temp_dir) = create_test_server().await;
+        let (server, core, _temp_dir) = create_test_server().await;
 
         // Create skills using the service layer
         let skill1 = create_test_skill("skill-1", "Skill One");
         let skill2 = create_test_skill("skill-2", "Skill Two");
 
-        crate::services::skills::create_skill(&server.core, skill1)
+        crate::services::skills::create_skill(&core, skill1)
             .await
             .unwrap();
-        crate::services::skills::create_skill(&server.core, skill2)
+        crate::services::skills::create_skill(&core, skill2)
             .await
             .unwrap();
 
@@ -753,10 +1000,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_skill_success() {
-        let (server, _temp_dir) = create_test_server().await;
+        let (server, core, _temp_dir) = create_test_server().await;
 
         let skill = create_test_skill("test-skill", "Test Skill");
-        crate::services::skills::create_skill(&server.core, skill.clone())
+        crate::services::skills::create_skill(&core, skill.clone())
             .await
             .unwrap();
 
@@ -775,7 +1022,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_skill_not_found() {
-        let (server, _temp_dir) = create_test_server().await;
+        let (server, _core, _temp_dir) = create_test_server().await;
 
         let params = GetSkillParams {
             id: "nonexistent".to_string(),
@@ -789,7 +1036,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_create_skill_success() {
-        let (server, _temp_dir) = create_test_server().await;
+        let (server, _core, _temp_dir) = create_test_server().await;
 
         let params = CreateSkillParams {
             name: "New Skill".to_string(),
@@ -812,10 +1059,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_update_skill_success() {
-        let (server, _temp_dir) = create_test_server().await;
+        let (server, core, _temp_dir) = create_test_server().await;
 
         let skill = create_test_skill("test-skill", "Original Name");
-        crate::services::skills::create_skill(&server.core, skill)
+        crate::services::skills::create_skill(&core, skill)
             .await
             .unwrap();
 
@@ -843,7 +1090,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_update_skill_not_found() {
-        let (server, _temp_dir) = create_test_server().await;
+        let (server, _core, _temp_dir) = create_test_server().await;
 
         let params = UpdateSkillParams {
             id: "nonexistent".to_string(),
@@ -860,10 +1107,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_update_skill_partial() {
-        let (server, _temp_dir) = create_test_server().await;
+        let (server, core, _temp_dir) = create_test_server().await;
 
         let skill = create_test_skill("test-skill", "Original Name");
-        crate::services::skills::create_skill(&server.core, skill)
+        crate::services::skills::create_skill(&core, skill)
             .await
             .unwrap();
 
@@ -893,10 +1140,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_delete_skill_success() {
-        let (server, _temp_dir) = create_test_server().await;
+        let (server, core, _temp_dir) = create_test_server().await;
 
         let skill = create_test_skill("test-skill", "Test Skill");
-        crate::services::skills::create_skill(&server.core, skill)
+        crate::services::skills::create_skill(&core, skill)
             .await
             .unwrap();
 
@@ -922,7 +1169,7 @@ mod tests {
     #[tokio::test]
     async fn test_list_agents_default() {
         // AppCore creates a default agent on initialization
-        let (server, _temp_dir) = create_test_server().await;
+        let (server, _core, _temp_dir) = create_test_server().await;
 
         let result = server.handle_list_agents().await;
 
@@ -937,15 +1184,15 @@ mod tests {
     #[tokio::test]
     async fn test_list_agents_multiple() {
         // AppCore creates a default agent, so we start with 1
-        let (server, _temp_dir) = create_test_server().await;
+        let (server, core, _temp_dir) = create_test_server().await;
 
         let agent1 = create_test_agent_node("Prompt 1");
         let agent2 = create_test_agent_node("Prompt 2");
 
-        crate::services::agent::create_agent(&server.core, "Agent 1".to_string(), agent1)
+        crate::services::agent::create_agent(&core, "Agent 1".to_string(), agent1)
             .await
             .unwrap();
-        crate::services::agent::create_agent(&server.core, "Agent 2".to_string(), agent2)
+        crate::services::agent::create_agent(&core, "Agent 2".to_string(), agent2)
             .await
             .unwrap();
 
@@ -960,11 +1207,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_agent_success() {
-        let (server, _temp_dir) = create_test_server().await;
+        let (server, core, _temp_dir) = create_test_server().await;
 
         let agent_node = create_test_agent_node("Test prompt");
         let stored = crate::services::agent::create_agent(
-            &server.core,
+            &core,
             "Test Agent".to_string(),
             agent_node,
         )
@@ -986,7 +1233,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_agent_not_found() {
-        let (server, _temp_dir) = create_test_server().await;
+        let (server, _core, _temp_dir) = create_test_server().await;
 
         let params = GetAgentParams {
             id: "nonexistent".to_string(),
@@ -1002,7 +1249,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_info() {
-        let (server, _temp_dir) = create_test_server().await;
+        let (server, _core, _temp_dir) = create_test_server().await;
 
         let info = server.get_info();
 
@@ -1037,7 +1284,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_handle_unknown_tool() {
-        let (server, _temp_dir) = create_test_server().await;
+        let (server, _core, _temp_dir) = create_test_server().await;
 
         // Test unknown tool handling by simulating what call_tool does internally
         let result = match "unknown_tool" {
@@ -1052,7 +1299,7 @@ mod tests {
     #[tokio::test]
     async fn test_handle_invalid_skill_params() {
         // Create test server to ensure setup works (also keeps pattern consistent)
-        let (_server, _temp_dir) = create_test_server().await;
+        let (_server, _core, _temp_dir) = create_test_server().await;
 
         // Test with invalid params - missing required id field
         let args = serde_json::json!({"wrong_field": "value"});
@@ -1068,7 +1315,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_skill_crud_workflow() {
-        let (server, _temp_dir) = create_test_server().await;
+        let (server, _core, _temp_dir) = create_test_server().await;
 
         // 1. Create
         let create_params = CreateSkillParams {
@@ -1123,5 +1370,183 @@ mod tests {
         let final_list = server.handle_list_skills().await.unwrap();
         let final_skills: Vec<SkillSummary> = serde_json::from_str(&final_list).unwrap();
         assert!(final_skills.is_empty());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn test_ipc_backend_list_skills() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let db_path = temp_dir.path().join("mcp-ipc.db");
+        let core = Arc::new(AppCore::new(db_path.to_str().unwrap()).await.unwrap());
+
+        let socket_path = temp_dir.path().join("mcp.sock");
+        let ipc_server = IpcServer::new(core.clone(), socket_path.clone());
+        let (shutdown_tx, _) = tokio::sync::broadcast::channel(1);
+        let mut shutdown_rx = shutdown_tx.subscribe();
+        let server_handle = tokio::spawn(async move {
+            let _ = ipc_server.run(shutdown_rx).await;
+        });
+
+        let mut client = None;
+        for _ in 0..20 {
+            if let Ok(connected) = IpcClient::connect(&socket_path).await {
+                client = Some(connected);
+                break;
+            }
+            sleep(Duration::from_millis(50)).await;
+        }
+
+        let client = client.expect("Failed to connect to IPC server");
+        let mcp_server = RestFlowMcpServer::with_ipc(client);
+
+        let skill = create_test_skill("ipc-skill", "IPC Skill");
+        crate::services::skills::create_skill(&core, skill)
+            .await
+            .unwrap();
+
+        let json = mcp_server.handle_list_skills().await.unwrap();
+        let skills: Vec<SkillSummary> = serde_json::from_str(&json).unwrap();
+        assert_eq!(skills.len(), 1);
+        assert_eq!(skills[0].name, "IPC Skill");
+
+        let _ = shutdown_tx.send(());
+        let _ = server_handle.await;
+    }
+
+    struct MockBackend {
+        skills: Vec<Skill>,
+        session: ChatSession,
+    }
+
+    impl MockBackend {
+        fn new() -> Self {
+            let skill = Skill::new(
+                "mock-skill".to_string(),
+                "Mock Skill".to_string(),
+                Some("Mock description".to_string()),
+                None,
+                "# Mock".to_string(),
+            );
+            let session = ChatSession::new("mock-agent".to_string(), "mock-model".to_string())
+                .with_name("Mock Session");
+            Self {
+                skills: vec![skill],
+                session,
+            }
+        }
+
+        fn agent_summary(&self) -> StoredAgent {
+            StoredAgent {
+                id: "mock-agent".to_string(),
+                name: "Mock Agent".to_string(),
+                agent: AgentNode {
+                    model: Some(AIModel::ClaudeSonnet4_5),
+                    prompt: Some("Mock prompt".to_string()),
+                    temperature: Some(0.5),
+                    api_key_config: Some(ApiKeyConfig::Direct("mock_key".to_string())),
+                    tools: None,
+                    skills: None,
+                    skill_variables: None,
+                },
+                created_at: None,
+                updated_at: None,
+            }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl McpBackend for MockBackend {
+        async fn list_skills(&self) -> Result<Vec<Skill>, String> {
+            Ok(self.skills.clone())
+        }
+
+        async fn get_skill(&self, id: &str) -> Result<Option<Skill>, String> {
+            Ok(self.skills.iter().find(|s| s.id == id).cloned())
+        }
+
+        async fn create_skill(&self, _skill: Skill) -> Result<(), String> {
+            Ok(())
+        }
+
+        async fn update_skill(&self, _skill: Skill) -> Result<(), String> {
+            Ok(())
+        }
+
+        async fn delete_skill(&self, _id: &str) -> Result<(), String> {
+            Ok(())
+        }
+
+        async fn list_agents(&self) -> Result<Vec<StoredAgent>, String> {
+            Ok(vec![self.agent_summary()])
+        }
+
+        async fn get_agent(&self, _id: &str) -> Result<StoredAgent, String> {
+            Ok(self.agent_summary())
+        }
+
+        async fn search_memory(&self, _query: MemorySearchQuery) -> Result<MemorySearchResult, String> {
+            Ok(MemorySearchResult {
+                chunks: Vec::new(),
+                total_count: 0,
+                has_more: false,
+            })
+        }
+
+        async fn store_memory(&self, _chunk: MemoryChunk) -> Result<String, String> {
+            Ok("mock-chunk".to_string())
+        }
+
+        async fn get_memory_stats(&self, agent_id: &str) -> Result<MemoryStats, String> {
+            Ok(MemoryStats {
+                agent_id: agent_id.to_string(),
+                ..MemoryStats::default()
+            })
+        }
+
+        async fn list_sessions(&self) -> Result<Vec<ChatSessionSummary>, String> {
+            Ok(vec![ChatSessionSummary::from(&self.session)])
+        }
+
+        async fn list_sessions_by_agent(
+            &self,
+            agent_id: &str,
+        ) -> Result<Vec<ChatSessionSummary>, String> {
+            let summary = ChatSessionSummary::from(&self.session);
+            if summary.agent_id == agent_id {
+                Ok(vec![summary])
+            } else {
+                Ok(Vec::new())
+            }
+        }
+
+        async fn get_session(&self, id: &str) -> Result<ChatSession, String> {
+            if self.session.id == id {
+                Ok(self.session.clone())
+            } else {
+                Err(format!("Session not found: {}", id))
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_mock_backend_list_skills() {
+        let server = RestFlowMcpServer::with_backend(Arc::new(MockBackend::new()));
+        let json = server.handle_list_skills().await.unwrap();
+        let skills: Vec<SkillSummary> = serde_json::from_str(&json).unwrap();
+        assert_eq!(skills.len(), 1);
+        assert_eq!(skills[0].name, "Mock Skill");
+    }
+
+    #[tokio::test]
+    async fn test_mock_backend_session_filter() {
+        let server = RestFlowMcpServer::with_backend(Arc::new(MockBackend::new()));
+        let params = ChatSessionListParams {
+            agent_id: Some("mock-agent".to_string()),
+            limit: 10,
+        };
+        let json = server.handle_chat_session_list(params).await.unwrap();
+        let sessions: Vec<ChatSessionSummary> = serde_json::from_str(&json).unwrap();
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].agent_id, "mock-agent");
     }
 }
