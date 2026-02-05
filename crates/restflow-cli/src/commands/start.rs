@@ -11,6 +11,8 @@ pub async fn run(args: StartArgs) -> Result<()> {
     let config = DaemonConfig {
         http: args.http,
         http_port,
+        mcp: false,
+        mcp_port: None,
     };
 
     ensure_daemon_running_with_config(config).await?;
