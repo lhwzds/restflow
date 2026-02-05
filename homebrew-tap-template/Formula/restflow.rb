@@ -2,7 +2,7 @@ class Restflow < Formula
   desc "AI assistant that can execute workflows"
   homepage "https://github.com/lhwzds/restflow"
   version "0.1.0"
-  license "MIT"
+  license "Apache-2.0"
 
   on_macos do
     if Hardware::CPU.arm?
