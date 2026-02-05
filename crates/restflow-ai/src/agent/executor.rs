@@ -13,6 +13,21 @@ use crate::llm::{CompletionRequest, FinishReason, LlmClient, Message};
 use crate::memory::{CompactionConfig, DEFAULT_MAX_MESSAGES, WorkingMemory};
 use crate::tools::ToolRegistry;
 
+/// Agent type for system prompt composition.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AgentType {
+    Coder,
+    Task,
+    Summarizer,
+    Title,
+}
+
+impl Default for AgentType {
+    fn default() -> Self {
+        Self::Coder
+    }
+}
+
 /// Configuration for agent execution
 #[derive(Debug, Clone)]
 pub struct AgentConfig {
@@ -35,6 +50,8 @@ pub struct AgentConfig {
     pub compaction_config: Option<CompactionConfig>,
     /// Optional agent context injected into the system prompt.
     pub agent_context: Option<AgentContext>,
+    /// Agent type for context injection rules.
+    pub agent_type: AgentType,
 }
 
 impl AgentConfig {
@@ -52,6 +69,7 @@ impl AgentConfig {
             context_window: 128_000,
             compaction_config: None,
             agent_context: None,
+            agent_type: AgentType::default(),
         }
     }
 
@@ -112,6 +130,12 @@ impl AgentConfig {
     /// Set agent context for prompt injection
     pub fn with_agent_context(mut self, context: AgentContext) -> Self {
         self.agent_context = Some(context);
+        self
+    }
+
+    /// Set agent type for context injection rules.
+    pub fn with_agent_type(mut self, agent_type: AgentType) -> Self {
+        self.agent_type = agent_type;
         self
     }
 }
@@ -307,10 +331,12 @@ impl AgentExecutor {
             sections.push(format!("## Available Tools\n\n{}", tools_desc.join("\n")));
         }
 
-        if let Some(ref context) = config.agent_context {
-            let context_str = context.format_for_prompt();
-            if !context_str.is_empty() {
-                sections.push(context_str);
+        if matches!(config.agent_type, AgentType::Coder | AgentType::Task) {
+            if let Some(ref context) = config.agent_context {
+                let context_str = context.format_for_prompt();
+                if !context_str.is_empty() {
+                    sections.push(context_str);
+                }
             }
         }
 

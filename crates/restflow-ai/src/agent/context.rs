@@ -2,6 +2,9 @@
 //!
 //! Collects context from multiple sources and formats it for prompt injection.
 
+use once_cell::sync::OnceCell;
+use std::collections::HashSet;
+use std::fs;
 use std::path::Path;
 
 /// Skill summary for prompt injection.
@@ -63,12 +66,10 @@ impl AgentContext {
 
         if !self.skills.is_empty() {
             let mut skill_section = String::from("## Available Skills\n\n");
-            skill_section.push_str("Use the skill tool to read skill content before executing.\n\n");
+            skill_section
+                .push_str("Use the skill tool to read skill content before executing.\n\n");
             for skill in &self.skills {
-                let desc = skill
-                    .description
-                    .as_deref()
-                    .unwrap_or("No description");
+                let desc = skill.description.as_deref().unwrap_or("No description");
                 skill_section.push_str(&format!("- **{}** ({}): {}\n", skill.name, skill.id, desc));
             }
             sections.push(skill_section.trim_end().to_string());
@@ -115,19 +116,101 @@ impl AgentContext {
     }
 }
 
-/// Load workspace context file (CLAUDE.md, AGENTS.md, etc.).
-pub fn load_workspace_context(workdir: &Path) -> Option<String> {
-    let candidates = ["CLAUDE.md", "AGENTS.md", ".claude/instructions.md"];
+/// Default workspace context paths to scan (order matters).
+const DEFAULT_CONTEXT_PATHS: &[&str] = &[
+    "CLAUDE.md",
+    "CLAUDE.local.md",
+    ".claude/",
+    "AGENTS.md",
+    "AGENTS.local.md",
+    ".restflow/instructions.md",
+    ".cursorrules",
+    ".cursor/rules/",
+    ".github/copilot-instructions.md",
+    "AI_INSTRUCTIONS.md",
+];
 
-    for filename in candidates {
-        let path = workdir.join(filename);
-        if path.exists()
-            && let Ok(content) = std::fs::read_to_string(&path)
-        {
-            tracing::debug!(path = %path.display(), "Loaded workspace context");
-            return Some(content);
+static CONTEXT_CONTENT: OnceCell<String> = OnceCell::new();
+
+/// Load workspace context files once per process.
+pub fn get_project_context(workdir: &Path) -> &str {
+    CONTEXT_CONTENT.get_or_init(|| load_context(workdir, DEFAULT_CONTEXT_PATHS))
+}
+
+/// Load workspace context file content if present.
+pub fn load_workspace_context(workdir: &Path) -> Option<String> {
+    let context = get_project_context(workdir);
+    if context.trim().is_empty() {
+        None
+    } else {
+        Some(context.to_string())
+    }
+}
+
+fn load_context(workdir: &Path, paths: &[&str]) -> String {
+    let mut seen: HashSet<String> = HashSet::new();
+    let mut sections: Vec<String> = Vec::new();
+
+    for path_pattern in paths {
+        let full_path = workdir.join(path_pattern);
+        let lower = full_path.to_string_lossy().to_lowercase();
+        if seen.contains(&lower) {
+            continue;
+        }
+        seen.insert(lower);
+
+        if path_pattern.ends_with('/') {
+            if let Ok(entries) = fs::read_dir(&full_path) {
+                let mut files: Vec<_> = entries.flatten().map(|entry| entry.path()).collect();
+                files.sort();
+                for path in files {
+                    if !path.is_file() || !is_text_file(&path) {
+                        continue;
+                    }
+                    let lower = path.to_string_lossy().to_lowercase();
+                    if seen.contains(&lower) {
+                        continue;
+                    }
+                    seen.insert(lower);
+
+                    if let Ok(content) = fs::read_to_string(&path) {
+                        let relative = path.strip_prefix(workdir).unwrap_or(&path);
+                        sections.push(format!(
+                            "# From: {}\n\n{}",
+                            relative.display(),
+                            content.trim()
+                        ));
+                    }
+                }
+            }
+        } else if full_path.is_file() {
+            if let Ok(content) = fs::read_to_string(&full_path) {
+                let relative = full_path.strip_prefix(workdir).unwrap_or(&full_path);
+                sections.push(format!(
+                    "# From: {}\n\n{}",
+                    relative.display(),
+                    content.trim()
+                ));
+            }
         }
     }
 
-    None
+    if sections.is_empty() {
+        return String::new();
+    }
+
+    format!(
+        "# Project-Specific Instructions\n\nFollow the instructions below:\n\n{}",
+        sections.join("\n\n---\n\n")
+    )
+}
+
+fn is_text_file(path: &Path) -> bool {
+    match path.extension().and_then(|ext| ext.to_str()) {
+        Some("md") | Some("txt") | Some("markdown") => true,
+        _ => path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name == ".cursorrules"),
+    }
 }
