@@ -1,5 +1,8 @@
 use crate::auth::{AuthProvider, Credential, CredentialSource, ProfileUpdate};
-use crate::models::{AgentNode, AgentTask, ChatMessage, ChatRole, ChatSessionUpdate, Skill, TaskSchedule};
+use crate::models::{
+    AgentNode, AgentTask, ChatMessage, ChatRole, ChatSessionUpdate, MemoryChunk, MemorySession,
+    Skill, TaskSchedule, TerminalSession,
+};
 use crate::storage::SystemConfig;
 use serde::{Deserialize, Serialize};
 
@@ -90,14 +93,28 @@ pub enum IpcRequest {
         agent_id: Option<String>,
         limit: Option<u32>,
     },
+    SearchMemoryRanked {
+        query: crate::models::memory::MemorySearchQuery,
+        min_score: Option<f64>,
+        scoring_preset: Option<String>,
+    },
+    GetMemoryChunk {
+        id: String,
+    },
     ListMemory {
         agent_id: Option<String>,
         tag: Option<String>,
+    },
+    ListMemoryBySession {
+        session_id: String,
     },
     AddMemory {
         content: String,
         agent_id: Option<String>,
         tags: Vec<String>,
+    },
+    CreateMemoryChunk {
+        chunk: MemoryChunk,
     },
     DeleteMemory {
         id: String,
@@ -110,6 +127,31 @@ pub enum IpcRequest {
     },
     ExportMemory {
         agent_id: Option<String>,
+    },
+    ExportMemorySession {
+        session_id: String,
+    },
+    ExportMemoryAdvanced {
+        agent_id: String,
+        session_id: Option<String>,
+        preset: Option<String>,
+        include_metadata: Option<bool>,
+        include_timestamps: Option<bool>,
+        include_source: Option<bool>,
+        include_tags: Option<bool>,
+    },
+    GetMemorySession {
+        session_id: String,
+    },
+    ListMemorySessions {
+        agent_id: String,
+    },
+    CreateMemorySession {
+        session: MemorySession,
+    },
+    DeleteMemorySession {
+        session_id: String,
+        delete_chunks: bool,
     },
 
     ListSessions,
@@ -161,6 +203,29 @@ pub enum IpcRequest {
         limit: Option<usize>,
     },
 
+    ListTerminalSessions,
+    GetTerminalSession {
+        id: String,
+    },
+    CreateTerminalSession,
+    RenameTerminalSession {
+        id: String,
+        name: String,
+    },
+    UpdateTerminalSession {
+        id: String,
+        name: Option<String>,
+        working_directory: Option<String>,
+        startup_command: Option<String>,
+    },
+    SaveTerminalSession {
+        session: TerminalSession,
+    },
+    DeleteTerminalSession {
+        id: String,
+    },
+    MarkAllTerminalSessionsStopped,
+
     ListAuthProfiles,
     GetAuthProfile {
         id: String,
@@ -179,6 +244,13 @@ pub enum IpcRequest {
         updates: ProfileUpdate,
     },
     DiscoverAuth,
+    EnableAuthProfile {
+        id: String,
+    },
+    DisableAuthProfile {
+        id: String,
+        reason: String,
+    },
     GetApiKey {
         provider: AuthProvider,
     },
@@ -188,6 +260,13 @@ pub enum IpcRequest {
     TestAuthProfile {
         id: String,
     },
+    MarkAuthSuccess {
+        id: String,
+    },
+    MarkAuthFailure {
+        id: String,
+    },
+    ClearAuthProfiles,
 
     PauseTask {
         id: String,
@@ -220,9 +299,14 @@ pub enum IpcRequest {
     },
 
     GetSystemInfo,
+    InitPython,
     GetAvailableModels,
     GetAvailableTools,
     ListMcpServers,
+
+    BuildAgentSystemPrompt {
+        agent_node: AgentNode,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -430,6 +514,81 @@ mod tests {
 
         if let IpcRequest::PauseTask { id } = parsed {
             assert_eq!(id, "task-1");
+        } else {
+            panic!("Wrong variant");
+        }
+    }
+
+    #[test]
+    fn test_update_terminal_session_serialization() {
+        let request = IpcRequest::UpdateTerminalSession {
+            id: "terminal-1".to_string(),
+            name: Some("Terminal A".to_string()),
+            working_directory: Some("/tmp".to_string()),
+            startup_command: Some("ls".to_string()),
+        };
+        let json = serde_json::to_string(&request).unwrap();
+        let parsed: IpcRequest = serde_json::from_str(&json).unwrap();
+
+        if let IpcRequest::UpdateTerminalSession {
+            id,
+            name,
+            working_directory,
+            startup_command,
+        } = parsed
+        {
+            assert_eq!(id, "terminal-1");
+            assert_eq!(name, Some("Terminal A".to_string()));
+            assert_eq!(working_directory, Some("/tmp".to_string()));
+            assert_eq!(startup_command, Some("ls".to_string()));
+        } else {
+            panic!("Wrong variant");
+        }
+    }
+
+    #[test]
+    fn test_save_terminal_session_serialization() {
+        let session = crate::models::TerminalSession::new(
+            "terminal-9".to_string(),
+            "Terminal 9".to_string(),
+        );
+        let request = IpcRequest::SaveTerminalSession { session };
+        let json = serde_json::to_string(&request).unwrap();
+        let parsed: IpcRequest = serde_json::from_str(&json).unwrap();
+
+        if let IpcRequest::SaveTerminalSession { session } = parsed {
+            assert_eq!(session.id, "terminal-9");
+        } else {
+            panic!("Wrong variant");
+        }
+    }
+
+    #[test]
+    fn test_build_agent_system_prompt_serialization() {
+        let request = IpcRequest::BuildAgentSystemPrompt {
+            agent_node: crate::models::AgentNode::new(),
+        };
+        let json = serde_json::to_string(&request).unwrap();
+        let parsed: IpcRequest = serde_json::from_str(&json).unwrap();
+
+        if let IpcRequest::BuildAgentSystemPrompt { agent_node: _ } = parsed {
+        } else {
+            panic!("Wrong variant");
+        }
+    }
+
+    #[test]
+    fn test_create_memory_session_serialization() {
+        let session = crate::models::memory::MemorySession::new(
+            "agent-1".to_string(),
+            "Session A".to_string(),
+        );
+        let request = IpcRequest::CreateMemorySession { session };
+        let json = serde_json::to_string(&request).unwrap();
+        let parsed: IpcRequest = serde_json::from_str(&json).unwrap();
+
+        if let IpcRequest::CreateMemorySession { session } = parsed {
+            assert_eq!(session.name, "Session A");
         } else {
             panic!("Wrong variant");
         }

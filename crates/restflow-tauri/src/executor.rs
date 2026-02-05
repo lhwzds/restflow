@@ -2,11 +2,11 @@ use crate::daemon_manager::DaemonManager;
 use anyhow::Result;
 use restflow_core::auth::{AuthProfile, AuthProvider, Credential, CredentialSource, ProfileUpdate};
 use restflow_core::daemon::{IpcRequest, IpcResponse};
-use restflow_core::memory::ExportResult;
+use restflow_core::memory::{ExportResult, RankedSearchResult};
 use restflow_core::models::{
     AgentExecuteResponse, AgentNode, AgentTask, ChatMessage, ChatRole, ChatSession,
-    ChatSessionSummary, ChatSessionUpdate, MemoryChunk, MemorySearchResult, MemoryStats, Skill, TaskEvent,
-    TaskSchedule,
+    ChatSessionSummary, ChatSessionUpdate, MemoryChunk, MemorySearchResult, MemorySession,
+    MemoryStats, Skill, TaskEvent, TaskSchedule, TerminalSession,
 };
 use restflow_core::storage::SystemConfig;
 use serde::de::DeserializeOwned;
@@ -169,6 +169,24 @@ impl TauriExecutor {
         .await
     }
 
+    pub async fn search_memory_ranked(
+        &self,
+        query: restflow_core::models::memory::MemorySearchQuery,
+        min_score: Option<f64>,
+        scoring_preset: Option<String>,
+    ) -> Result<RankedSearchResult> {
+        self.request(IpcRequest::SearchMemoryRanked {
+            query,
+            min_score,
+            scoring_preset,
+        })
+        .await
+    }
+
+    pub async fn get_memory_chunk(&self, id: String) -> Result<Option<MemoryChunk>> {
+        self.request_optional(IpcRequest::GetMemoryChunk { id }).await
+    }
+
     pub async fn list_memory(
         &self,
         agent_id: Option<String>,
@@ -198,6 +216,15 @@ impl TauriExecutor {
         Ok(response.id)
     }
 
+    pub async fn create_memory_chunk(&self, chunk: MemoryChunk) -> Result<MemoryChunk> {
+        self.request(IpcRequest::CreateMemoryChunk { chunk }).await
+    }
+
+    pub async fn list_memory_by_session(&self, session_id: String) -> Result<Vec<MemoryChunk>> {
+        self.request(IpcRequest::ListMemoryBySession { session_id })
+            .await
+    }
+
     pub async fn delete_memory(&self, id: String) -> Result<bool> {
         #[derive(serde::Deserialize)]
         struct DeleteResponse {
@@ -222,6 +249,69 @@ impl TauriExecutor {
 
     pub async fn export_memory(&self, agent_id: Option<String>) -> Result<ExportResult> {
         self.request(IpcRequest::ExportMemory { agent_id }).await
+    }
+
+    pub async fn export_memory_session(&self, session_id: String) -> Result<ExportResult> {
+        self.request(IpcRequest::ExportMemorySession { session_id })
+            .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub async fn export_memory_advanced(
+        &self,
+        agent_id: String,
+        session_id: Option<String>,
+        preset: Option<String>,
+        include_metadata: Option<bool>,
+        include_timestamps: Option<bool>,
+        include_source: Option<bool>,
+        include_tags: Option<bool>,
+    ) -> Result<ExportResult> {
+        self.request(IpcRequest::ExportMemoryAdvanced {
+            agent_id,
+            session_id,
+            preset,
+            include_metadata,
+            include_timestamps,
+            include_source,
+            include_tags,
+        })
+        .await
+    }
+
+    pub async fn get_memory_session(&self, session_id: String) -> Result<Option<MemorySession>> {
+        self.request_optional(IpcRequest::GetMemorySession { session_id })
+            .await
+    }
+
+    pub async fn list_memory_sessions(&self, agent_id: String) -> Result<Vec<MemorySession>> {
+        self.request(IpcRequest::ListMemorySessions { agent_id }).await
+    }
+
+    pub async fn create_memory_session(
+        &self,
+        session: MemorySession,
+    ) -> Result<MemorySession> {
+        self.request(IpcRequest::CreateMemorySession { session })
+            .await
+    }
+
+    pub async fn delete_memory_session(
+        &self,
+        session_id: String,
+        delete_chunks: bool,
+    ) -> Result<bool> {
+        #[derive(serde::Deserialize)]
+        struct DeleteResponse {
+            deleted: bool,
+        }
+        let response: DeleteResponse = self
+            .request(IpcRequest::DeleteMemorySession {
+                session_id,
+                delete_chunks,
+            })
+            .await?;
+        Ok(response.deleted)
     }
 
     pub async fn list_sessions(&self) -> Result<Vec<ChatSessionSummary>> {
@@ -330,6 +420,59 @@ impl TauriExecutor {
             .await
     }
 
+    pub async fn list_terminal_sessions(&self) -> Result<Vec<TerminalSession>> {
+        self.request(IpcRequest::ListTerminalSessions).await
+    }
+
+    pub async fn get_terminal_session(&self, id: String) -> Result<TerminalSession> {
+        self.request(IpcRequest::GetTerminalSession { id }).await
+    }
+
+    pub async fn create_terminal_session(&self) -> Result<TerminalSession> {
+        self.request(IpcRequest::CreateTerminalSession).await
+    }
+
+    pub async fn rename_terminal_session(
+        &self,
+        id: String,
+        name: String,
+    ) -> Result<TerminalSession> {
+        self.request(IpcRequest::RenameTerminalSession { id, name })
+            .await
+    }
+
+    pub async fn update_terminal_session(
+        &self,
+        id: String,
+        name: Option<String>,
+        working_directory: Option<String>,
+        startup_command: Option<String>,
+    ) -> Result<TerminalSession> {
+        self.request(IpcRequest::UpdateTerminalSession {
+            id,
+            name,
+            working_directory,
+            startup_command,
+        })
+        .await
+    }
+
+    pub async fn save_terminal_session(
+        &self,
+        session: TerminalSession,
+    ) -> Result<TerminalSession> {
+        self.request(IpcRequest::SaveTerminalSession { session }).await
+    }
+
+    pub async fn delete_terminal_session(&self, id: String) -> Result<()> {
+        let _: Value = self.request(IpcRequest::DeleteTerminalSession { id }).await?;
+        Ok(())
+    }
+
+    pub async fn mark_all_terminal_sessions_stopped(&self) -> Result<usize> {
+        self.request(IpcRequest::MarkAllTerminalSessionsStopped).await
+    }
+
     pub async fn list_auth_profiles(&self) -> Result<Vec<AuthProfile>> {
         self.request(IpcRequest::ListAuthProfiles).await
     }
@@ -371,6 +514,18 @@ impl TauriExecutor {
         self.request(IpcRequest::DiscoverAuth).await
     }
 
+    pub async fn enable_auth_profile(&self, id: String) -> Result<()> {
+        let _: Value = self.request(IpcRequest::EnableAuthProfile { id }).await?;
+        Ok(())
+    }
+
+    pub async fn disable_auth_profile(&self, id: String, reason: String) -> Result<()> {
+        let _: Value = self
+            .request(IpcRequest::DisableAuthProfile { id, reason })
+            .await?;
+        Ok(())
+    }
+
     pub async fn get_api_key(&self, provider: AuthProvider) -> Result<String> {
         #[derive(serde::Deserialize)]
         struct ApiKeyResponse {
@@ -387,6 +542,21 @@ impl TauriExecutor {
         }
         let response: TestResponse = self.request(IpcRequest::TestAuthProfile { id }).await?;
         Ok(response.ok)
+    }
+
+    pub async fn mark_auth_success(&self, id: String) -> Result<()> {
+        let _: Value = self.request(IpcRequest::MarkAuthSuccess { id }).await?;
+        Ok(())
+    }
+
+    pub async fn mark_auth_failure(&self, id: String) -> Result<()> {
+        let _: Value = self.request(IpcRequest::MarkAuthFailure { id }).await?;
+        Ok(())
+    }
+
+    pub async fn clear_auth_profiles(&self) -> Result<()> {
+        let _: Value = self.request(IpcRequest::ClearAuthProfiles).await?;
+        Ok(())
     }
 
     pub async fn list_secrets(&self) -> Result<Vec<restflow_core::models::Secret>> {
@@ -444,6 +614,15 @@ impl TauriExecutor {
         self.request(IpcRequest::GetAvailableTools).await
     }
 
+    pub async fn init_python(&self) -> Result<bool> {
+        #[derive(serde::Deserialize)]
+        struct InitResponse {
+            ready: bool,
+        }
+        let response: InitResponse = self.request(IpcRequest::InitPython).await?;
+        Ok(response.ready)
+    }
+
     pub async fn execute_agent(
         &self,
         id: String,
@@ -456,6 +635,17 @@ impl TauriExecutor {
             session_id,
         })
         .await
+    }
+
+    pub async fn build_agent_system_prompt(&self, agent_node: AgentNode) -> Result<String> {
+        #[derive(serde::Deserialize)]
+        struct PromptResponse {
+            prompt: String,
+        }
+        let response: PromptResponse = self
+            .request(IpcRequest::BuildAgentSystemPrompt { agent_node })
+            .await?;
+        Ok(response.prompt)
     }
 }
 

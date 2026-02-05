@@ -1,21 +1,24 @@
 use super::ipc_protocol::{IpcRequest, IpcResponse, MAX_MESSAGE_SIZE};
 use chrono::Utc;
 use crate::auth::{AuthManagerConfig, AuthProfileManager};
-use crate::memory::MemoryExporter;
+use crate::memory::{MemoryExporter, MemoryExporterBuilder, SearchEngineBuilder};
 use crate::models::{
-    AgentTaskStatus, ChatExecutionStatus, ChatMessage, ChatRole, ChatSessionSummary, MemoryChunk, MemorySearchQuery, MessageExecution,
+    AgentNode, AgentTaskStatus, ChatExecutionStatus, ChatMessage, ChatRole, ChatSessionSummary,
+    MemoryChunk, MemorySearchQuery, MessageExecution, TerminalSession,
 };
 use crate::services::{
     agent as agent_service, config as config_service, secrets as secrets_service,
     skills as skills_service,
 };
+use crate::services::tool_registry::create_tool_registry;
 use crate::AppCore;
 use anyhow::Result;
 use restflow_storage::AuthProfileStorage;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::broadcast;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
+use uuid::Uuid;
 
 #[cfg(unix)]
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -262,6 +265,33 @@ impl IpcServer {
                     Err(err) => IpcResponse::error(500, err.to_string()),
                 }
             }
+            IpcRequest::SearchMemoryRanked {
+                query,
+                min_score,
+                scoring_preset,
+            } => {
+                let storage = core.storage.memory.clone();
+                let mut builder = SearchEngineBuilder::new(storage);
+                builder = match scoring_preset.as_deref() {
+                    Some("frequency_focused") => builder.frequency_focused(),
+                    Some("recency_focused") => builder.recency_focused(),
+                    Some("balanced") => builder.balanced(),
+                    _ => builder,
+                };
+                if let Some(min_score) = min_score {
+                    builder = builder.min_score(min_score);
+                }
+                let engine = builder.build();
+                match engine.search_ranked(&query) {
+                    Ok(result) => IpcResponse::success(result),
+                    Err(err) => IpcResponse::error(500, err.to_string()),
+                }
+            }
+            IpcRequest::GetMemoryChunk { id } => match core.storage.memory.get_chunk(&id) {
+                Ok(Some(chunk)) => IpcResponse::success(chunk),
+                Ok(None) => IpcResponse::not_found("Memory chunk"),
+                Err(err) => IpcResponse::error(500, err.to_string()),
+            },
             IpcRequest::ListMemory { agent_id, tag } => {
                 let result = match (agent_id, tag) {
                     (Some(agent_id), Some(tag)) => core
@@ -285,6 +315,12 @@ impl IpcServer {
                     Err(err) => IpcResponse::error(500, err.to_string()),
                 }
             }
+            IpcRequest::ListMemoryBySession { session_id } => {
+                match core.storage.memory.list_chunks_for_session(&session_id) {
+                    Ok(chunks) => IpcResponse::success(chunks),
+                    Err(err) => IpcResponse::error(500, err.to_string()),
+                }
+            }
             IpcRequest::AddMemory {
                 content,
                 agent_id,
@@ -300,6 +336,22 @@ impl IpcServer {
                 }
                 match core.storage.memory.store_chunk(&chunk) {
                     Ok(id) => IpcResponse::success(serde_json::json!({ "id": id })),
+                    Err(err) => IpcResponse::error(500, err.to_string()),
+                }
+            }
+            IpcRequest::CreateMemoryChunk { chunk } => {
+                match core.storage.memory.store_chunk(&chunk) {
+                    Ok(id) => {
+                        if id != chunk.id {
+                            match core.storage.memory.get_chunk(&id) {
+                                Ok(Some(existing)) => IpcResponse::success(existing),
+                                Ok(None) => IpcResponse::error(500, "Stored chunk not found"),
+                                Err(err) => IpcResponse::error(500, err.to_string()),
+                            }
+                        } else {
+                            IpcResponse::success(chunk)
+                        }
+                    }
                     Err(err) => IpcResponse::error(500, err.to_string()),
                 }
             }
@@ -338,6 +390,81 @@ impl IpcServer {
                     Err(err) => IpcResponse::error(500, err.to_string()),
                 }
             }
+            IpcRequest::ExportMemorySession { session_id } => {
+                let exporter = MemoryExporter::new(core.storage.memory.clone());
+                match exporter.export_session(&session_id) {
+                    Ok(result) => IpcResponse::success(result),
+                    Err(err) => IpcResponse::error(500, err.to_string()),
+                }
+            }
+            IpcRequest::ExportMemoryAdvanced {
+                agent_id,
+                session_id,
+                preset,
+                include_metadata,
+                include_timestamps,
+                include_source,
+                include_tags,
+            } => {
+                let storage = core.storage.memory.clone();
+                let mut builder = MemoryExporterBuilder::new(storage);
+
+                builder = match preset.as_deref() {
+                    Some("minimal") => builder.minimal(),
+                    Some("compact") => builder.compact(),
+                    _ => builder,
+                };
+
+                if let Some(v) = include_metadata {
+                    builder = builder.include_metadata(v);
+                }
+                if let Some(v) = include_timestamps {
+                    builder = builder.include_timestamps(v);
+                }
+                if let Some(v) = include_source {
+                    builder = builder.include_source(v);
+                }
+                if let Some(v) = include_tags {
+                    builder = builder.include_tags(v);
+                }
+
+                let exporter = builder.build();
+                let result = if let Some(session_id) = session_id {
+                    exporter.export_session(&session_id)
+                } else {
+                    exporter.export_agent(&agent_id)
+                };
+                match result {
+                    Ok(result) => IpcResponse::success(result),
+                    Err(err) => IpcResponse::error(500, err.to_string()),
+                }
+            }
+            IpcRequest::GetMemorySession { session_id } => {
+                match core.storage.memory.get_session(&session_id) {
+                    Ok(Some(session)) => IpcResponse::success(session),
+                    Ok(None) => IpcResponse::not_found("Memory session"),
+                    Err(err) => IpcResponse::error(500, err.to_string()),
+                }
+            }
+            IpcRequest::ListMemorySessions { agent_id } => {
+                match core.storage.memory.list_sessions(&agent_id) {
+                    Ok(sessions) => IpcResponse::success(sessions),
+                    Err(err) => IpcResponse::error(500, err.to_string()),
+                }
+            }
+            IpcRequest::CreateMemorySession { session } => {
+                match core.storage.memory.create_session(&session) {
+                    Ok(_) => IpcResponse::success(session),
+                    Err(err) => IpcResponse::error(500, err.to_string()),
+                }
+            }
+            IpcRequest::DeleteMemorySession {
+                session_id,
+                delete_chunks,
+            } => match core.storage.memory.delete_session(&session_id, delete_chunks) {
+                Ok(deleted) => IpcResponse::success(serde_json::json!({ "deleted": deleted })),
+                Err(err) => IpcResponse::error(500, err.to_string()),
+            },
             IpcRequest::ListSessions => match core.storage.chat_sessions.list_summaries() {
                 Ok(summaries) => IpcResponse::success(summaries),
                 Err(err) => IpcResponse::error(500, err.to_string()),
@@ -542,6 +669,79 @@ impl IpcServer {
                     .collect::<Vec<_>>();
                 IpcResponse::success(messages)
             }
+            IpcRequest::ListTerminalSessions => match core.storage.terminal_sessions.list() {
+                Ok(sessions) => IpcResponse::success(sessions),
+                Err(err) => IpcResponse::error(500, err.to_string()),
+            },
+            IpcRequest::GetTerminalSession { id } => {
+                match core.storage.terminal_sessions.get(&id) {
+                    Ok(Some(session)) => IpcResponse::success(session),
+                    Ok(None) => IpcResponse::not_found("Terminal session"),
+                    Err(err) => IpcResponse::error(500, err.to_string()),
+                }
+            }
+            IpcRequest::CreateTerminalSession => {
+                let name = match core.storage.terminal_sessions.get_next_name() {
+                    Ok(name) => name,
+                    Err(err) => return IpcResponse::error(500, err.to_string()),
+                };
+                let id = format!("terminal-{}", Uuid::new_v4());
+                let session = TerminalSession::new(id, name);
+                match core.storage.terminal_sessions.create(&session) {
+                    Ok(()) => IpcResponse::success(session),
+                    Err(err) => IpcResponse::error(500, err.to_string()),
+                }
+            }
+            IpcRequest::RenameTerminalSession { id, name } => {
+                let mut session = match core.storage.terminal_sessions.get(&id) {
+                    Ok(Some(session)) => session,
+                    Ok(None) => return IpcResponse::not_found("Terminal session"),
+                    Err(err) => return IpcResponse::error(500, err.to_string()),
+                };
+                session.rename(name);
+                match core.storage.terminal_sessions.update(&id, &session) {
+                    Ok(()) => IpcResponse::success(session),
+                    Err(err) => IpcResponse::error(500, err.to_string()),
+                }
+            }
+            IpcRequest::UpdateTerminalSession {
+                id,
+                name,
+                working_directory,
+                startup_command,
+            } => {
+                let mut session = match core.storage.terminal_sessions.get(&id) {
+                    Ok(Some(session)) => session,
+                    Ok(None) => return IpcResponse::not_found("Terminal session"),
+                    Err(err) => return IpcResponse::error(500, err.to_string()),
+                };
+                if let Some(name) = name {
+                    session.rename(name);
+                }
+                session.set_config(working_directory, startup_command);
+                match core.storage.terminal_sessions.update(&id, &session) {
+                    Ok(()) => IpcResponse::success(session),
+                    Err(err) => IpcResponse::error(500, err.to_string()),
+                }
+            }
+            IpcRequest::SaveTerminalSession { session } => {
+                match core.storage.terminal_sessions.update(&session.id, &session) {
+                    Ok(()) => IpcResponse::success(session),
+                    Err(err) => IpcResponse::error(500, err.to_string()),
+                }
+            }
+            IpcRequest::DeleteTerminalSession { id } => {
+                match core.storage.terminal_sessions.delete(&id) {
+                    Ok(()) => IpcResponse::success(serde_json::json!({ "ok": true })),
+                    Err(err) => IpcResponse::error(500, err.to_string()),
+                }
+            }
+            IpcRequest::MarkAllTerminalSessionsStopped => {
+                match core.storage.terminal_sessions.mark_all_stopped() {
+                    Ok(count) => IpcResponse::success(count),
+                    Err(err) => IpcResponse::error(500, err.to_string()),
+                }
+            }
             IpcRequest::ListAuthProfiles => {
                 let manager = match build_auth_manager(core).await {
                     Ok(manager) => manager,
@@ -610,6 +810,26 @@ impl IpcServer {
                     Err(err) => IpcResponse::error(500, err.to_string()),
                 }
             }
+            IpcRequest::EnableAuthProfile { id } => {
+                let manager = match build_auth_manager(core).await {
+                    Ok(manager) => manager,
+                    Err(err) => return IpcResponse::error(500, err.to_string()),
+                };
+                match manager.enable_profile(&id).await {
+                    Ok(()) => IpcResponse::success(serde_json::json!({ "ok": true })),
+                    Err(err) => IpcResponse::error(500, err.to_string()),
+                }
+            }
+            IpcRequest::DisableAuthProfile { id, reason } => {
+                let manager = match build_auth_manager(core).await {
+                    Ok(manager) => manager,
+                    Err(err) => return IpcResponse::error(500, err.to_string()),
+                };
+                match manager.disable_profile(&id, &reason).await {
+                    Ok(()) => IpcResponse::success(serde_json::json!({ "ok": true })),
+                    Err(err) => IpcResponse::error(500, err.to_string()),
+                }
+            }
             IpcRequest::GetApiKey { provider } => {
                 let manager = match build_auth_manager(core).await {
                     Ok(manager) => manager,
@@ -655,6 +875,34 @@ impl IpcServer {
                     None => IpcResponse::not_found("Auth profile"),
                 }
             }
+            IpcRequest::MarkAuthSuccess { id } => {
+                let manager = match build_auth_manager(core).await {
+                    Ok(manager) => manager,
+                    Err(err) => return IpcResponse::error(500, err.to_string()),
+                };
+                match manager.mark_success(&id).await {
+                    Ok(()) => IpcResponse::success(serde_json::json!({ "ok": true })),
+                    Err(err) => IpcResponse::error(500, err.to_string()),
+                }
+            }
+            IpcRequest::MarkAuthFailure { id } => {
+                let manager = match build_auth_manager(core).await {
+                    Ok(manager) => manager,
+                    Err(err) => return IpcResponse::error(500, err.to_string()),
+                };
+                match manager.mark_failure(&id).await {
+                    Ok(()) => IpcResponse::success(serde_json::json!({ "ok": true })),
+                    Err(err) => IpcResponse::error(500, err.to_string()),
+                }
+            }
+            IpcRequest::ClearAuthProfiles => {
+                let manager = match build_auth_manager(core).await {
+                    Ok(manager) => manager,
+                    Err(err) => return IpcResponse::error(500, err.to_string()),
+                };
+                manager.clear().await;
+                IpcResponse::success(serde_json::json!({ "ok": true }))
+            }
             IpcRequest::PauseTask { id } => match core.storage.agent_tasks.pause_task(&id) {
                 Ok(task) => IpcResponse::success(task),
                 Err(err) => IpcResponse::error(500, err.to_string()),
@@ -693,9 +941,29 @@ impl IpcServer {
                 "pid": std::process::id(),
                 "python_ready": core.is_python_ready(),
             })),
+            IpcRequest::InitPython => match core.get_python_manager().await {
+                Ok(_) => IpcResponse::success(serde_json::json!({ "ready": true })),
+                Err(err) => IpcResponse::error(500, err.to_string()),
+            },
             IpcRequest::GetAvailableModels => IpcResponse::success(Vec::<String>::new()),
-            IpcRequest::GetAvailableTools => IpcResponse::success(Vec::<String>::new()),
+            IpcRequest::GetAvailableTools => {
+                let registry = create_tool_registry(
+                    core.storage.skills.clone(),
+                    core.storage.memory.clone(),
+                    core.storage.chat_sessions.clone(),
+                    core.storage.shared_space.clone(),
+                    None,
+                );
+                let tools: Vec<String> = registry.list().iter().map(|name| name.to_string()).collect();
+                IpcResponse::success(tools)
+            }
             IpcRequest::ListMcpServers => IpcResponse::success(Vec::<String>::new()),
+            IpcRequest::BuildAgentSystemPrompt { agent_node } => {
+                match build_agent_system_prompt(core, agent_node) {
+                    Ok(prompt) => IpcResponse::success(serde_json::json!({ "prompt": prompt })),
+                    Err(err) => IpcResponse::error(500, err.to_string()),
+                }
+            }
             IpcRequest::Shutdown => {
                 IpcResponse::success(serde_json::json!({ "shutting_down": true }))
             }
@@ -736,5 +1004,84 @@ fn parse_task_status(status: &str) -> Result<AgentTaskStatus> {
         "completed" => Ok(AgentTaskStatus::Completed),
         "failed" => Ok(AgentTaskStatus::Failed),
         _ => Err(anyhow::anyhow!("Unknown task status: {}", status)),
+    }
+}
+
+fn build_agent_system_prompt(core: &Arc<AppCore>, agent_node: AgentNode) -> Result<String> {
+    let base = agent_node
+        .prompt
+        .clone()
+        .unwrap_or_else(|| "You are a helpful AI assistant.".to_string());
+    let skill_ids = agent_node.skills.unwrap_or_default();
+    let skill_vars = agent_node.skill_variables.unwrap_or_default();
+
+    if skill_ids.is_empty() {
+        return Ok(base);
+    }
+
+    let mut skills = Vec::new();
+    for id in skill_ids {
+        match core.storage.skills.get(&id)? {
+            Some(skill) => {
+                let mut content = skill.content.clone();
+                if !skill_vars.is_empty() {
+                    for (name, value) in &skill_vars {
+                        let pattern = format!("{{{{{}}}}}", name);
+                        content = content.replace(&pattern, value);
+                    }
+                }
+                skills.push((skill.name.clone(), content));
+            }
+            None => {
+                warn!(skill_id = %id, "Skill not found while building system prompt");
+            }
+        }
+    }
+
+    if skills.is_empty() {
+        return Ok(base);
+    }
+
+    let mut prompt = base;
+    prompt.push_str("\n\n---\n\n# Available Skills\n\n");
+    for (name, content) in skills {
+        prompt.push_str(&format!("## Skill: {}\n\n{}\n\n", name, content));
+    }
+    Ok(prompt)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::{AgentNode, Skill};
+    use tempfile::tempdir;
+
+    #[tokio::test]
+    async fn build_agent_system_prompt_injects_skills() {
+        let temp = tempdir().expect("tempdir");
+        let db_path = temp.path().join("ipc-server-test.db");
+        let core = Arc::new(AppCore::new(db_path.to_str().unwrap()).await.unwrap());
+
+        let skill = Skill::new(
+            "skill-1".to_string(),
+            "Test Skill".to_string(),
+            None,
+            None,
+            "Hello {{name}}".to_string(),
+        );
+        core.storage.skills.create(&skill).unwrap();
+
+        let mut variables = std::collections::HashMap::new();
+        variables.insert("name".to_string(), "World".to_string());
+
+        let agent_node = AgentNode::new()
+            .with_prompt("Base prompt")
+            .with_skills(vec![skill.id.clone()])
+            .with_skill_variables(variables);
+
+        let prompt = build_agent_system_prompt(&core, agent_node).unwrap();
+        assert!(prompt.contains("Base prompt"));
+        assert!(prompt.contains("## Skill: Test Skill"));
+        assert!(prompt.contains("Hello World"));
     }
 }
