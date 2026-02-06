@@ -361,12 +361,12 @@ impl AgentExecutor {
                 sections.push(context.content.clone());
             }
         }
-        if matches!(config.agent_type, AgentType::Coder | AgentType::Task) {
-            if let Some(ref context) = config.agent_context {
-                let context_str = context.format_for_prompt();
-                if !context_str.is_empty() {
-                    sections.push(context_str);
-                }
+        if matches!(config.agent_type, AgentType::Coder | AgentType::Task)
+            && let Some(ref context) = config.agent_context
+        {
+            let context_str = context.format_for_prompt();
+            if !context_str.is_empty() {
+                sections.push(context_str);
             }
         }
 

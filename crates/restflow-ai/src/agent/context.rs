@@ -217,11 +217,11 @@ impl ContextLoader {
                     if self.is_duplicate(&mut seen_paths, &full_path) {
                         continue;
                     }
-                    if let Ok(content) = self.load_file(&full_path).await {
-                        if total_bytes + content.len() <= self.config.max_total_size {
-                            total_bytes += content.len();
-                            contents.push((full_path, content));
-                        }
+                    if let Ok(content) = self.load_file(&full_path).await
+                        && total_bytes + content.len() <= self.config.max_total_size
+                    {
+                        total_bytes += content.len();
+                        contents.push((full_path, content));
                     }
                 }
                 _ => {
@@ -258,10 +258,11 @@ impl ContextLoader {
                     continue;
                 }
 
-                if meta.is_file() && self.should_load_path(&path) {
-                    if let Ok(content) = self.load_file(&path).await {
-                        results.push((path, content));
-                    }
+                if meta.is_file()
+                    && self.should_load_path(&path)
+                    && let Ok(content) = self.load_file(&path).await
+                {
+                    results.push((path, content));
                 }
             }
         }
