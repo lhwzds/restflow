@@ -20,6 +20,7 @@
 //! ```
 
 use async_trait::async_trait;
+use futures::stream::{self, StreamExt};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -44,6 +45,12 @@ const MAX_LIST_ENTRIES: usize = 1000;
 /// Maximum search matches to return
 const MAX_SEARCH_MATCHES: usize = 100;
 
+/// Maximum files per batch read
+const MAX_BATCH_READ_FILES: usize = 20;
+
+/// Maximum concurrent reads in batch
+const MAX_BATCH_CONCURRENT: usize = 10;
+
 /// File operations tool
 #[derive(Debug, Clone)]
 pub struct FileTool {
@@ -64,10 +71,14 @@ impl Default for FileTool {
 impl FileTool {
     /// Create a new FileTool with default settings
     pub fn new() -> Self {
+        Self::with_tracker(Arc::new(FileTracker::new()))
+    }
+
+    pub fn with_tracker(tracker: Arc<FileTracker>) -> Self {
         Self {
             base_dir: None,
             max_read_bytes: DEFAULT_MAX_READ_BYTES,
-            tracker: Arc::new(FileTracker::new()),
+            tracker,
         }
     }
 
@@ -195,6 +206,105 @@ impl FileTool {
             "total_lines": total_lines,
             "showing": format!("{}-{}", start + 1, end),
             "content": selected.join("\n"),
+        }))
+    }
+
+    async fn batch_read(&self, paths: &[String], line_limit: usize) -> ToolOutput {
+        if paths.len() > MAX_BATCH_READ_FILES {
+            return ToolOutput::error(format!("Max {} files per batch", MAX_BATCH_READ_FILES));
+        }
+
+        let tool = self.clone();
+        let results: Vec<Value> = stream::iter(paths.iter().cloned())
+            .map(move |path| {
+                let tool = tool.clone();
+                async move {
+                    let resolved = match tool.resolve_path(&path) {
+                        Ok(p) => p,
+                        Err(e) => {
+                            return serde_json::json!({
+                                "path": path,
+                                "success": false,
+                                "error": e,
+                            });
+                        }
+                    };
+
+                    if !resolved.exists() {
+                        return serde_json::json!({
+                            "path": resolved.display().to_string(),
+                            "success": false,
+                            "error": "File not found",
+                        });
+                    }
+
+                    if !resolved.is_file() {
+                        return serde_json::json!({
+                            "path": resolved.display().to_string(),
+                            "success": false,
+                            "error": "Not a file",
+                        });
+                    }
+
+                    let metadata = match fs::metadata(&resolved).await {
+                        Ok(m) => m,
+                        Err(e) => {
+                            return serde_json::json!({
+                                "path": resolved.display().to_string(),
+                                "success": false,
+                                "error": format!("Cannot read metadata: {}", e),
+                            });
+                        }
+                    };
+
+                    if metadata.len() as usize > tool.max_read_bytes {
+                        return serde_json::json!({
+                            "path": resolved.display().to_string(),
+                            "success": false,
+                            "error": format!(
+                                "File too large ({} bytes). Maximum: {} bytes.",
+                                metadata.len(),
+                                tool.max_read_bytes
+                            ),
+                        });
+                    }
+
+                    let content = match fs::read_to_string(&resolved).await {
+                        Ok(c) => c,
+                        Err(e) => {
+                            return serde_json::json!({
+                                "path": resolved.display().to_string(),
+                                "success": false,
+                                "error": format!("Cannot read file: {}", e),
+                            });
+                        }
+                    };
+
+                    tool.tracker.record_read(&resolved);
+
+                    let lines: Vec<&str> = content.lines().collect();
+                    let truncated = lines.len() > line_limit;
+                    let display = if truncated {
+                        lines[..line_limit].join("\n")
+                    } else {
+                        content.clone()
+                    };
+
+                    serde_json::json!({
+                        "path": resolved.display().to_string(),
+                        "success": true,
+                        "content": display,
+                        "truncated": truncated,
+                        "total_lines": lines.len(),
+                    })
+                }
+            })
+            .buffer_unordered(MAX_BATCH_CONCURRENT)
+            .collect()
+            .await;
+
+        ToolOutput::success(serde_json::json!({
+            "results": results,
         }))
     }
 
@@ -623,6 +733,11 @@ pub enum FileAction {
         #[serde(default)]
         limit: Option<usize>,
     },
+    BatchRead {
+        paths: Vec<String>,
+        #[serde(default)]
+        line_limit: Option<usize>,
+    },
     Write {
         path: String,
         content: String,
@@ -687,12 +802,17 @@ impl Tool for FileTool {
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["read", "write", "list", "search", "delete", "exists"],
+                    "enum": ["read", "batch_read", "write", "list", "search", "delete", "exists"],
                     "description": "The file operation to perform"
                 },
                 "path": {
                     "type": "string",
                     "description": "File or directory path"
+                },
+                "paths": {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "description": "List of file paths (for batch_read action)"
                 },
                 "content": {
                     "type": "string",
@@ -721,9 +841,13 @@ impl Tool for FileTool {
                 "limit": {
                     "type": "integer",
                     "description": "Maximum lines to read"
+                },
+                "line_limit": {
+                    "type": "integer",
+                    "description": "Maximum lines per file for batch_read"
                 }
             },
-            "required": ["action", "path"]
+            "required": ["action"]
         })
     }
 
@@ -736,6 +860,10 @@ impl Tool for FileTool {
                 offset,
                 limit,
             } => self.read_file(&path, offset, limit).await,
+            FileAction::BatchRead { paths, line_limit } => {
+                self.batch_read(&paths, line_limit.unwrap_or(DEFAULT_LINE_LIMIT))
+                    .await
+            }
             FileAction::Write {
                 path,
                 content,
@@ -1058,6 +1186,38 @@ mod tests {
         let content = output.result["content"].as_str().unwrap();
         assert!(content.contains("first"));
         assert!(content.contains("second"));
+    }
+
+    #[tokio::test]
+    async fn test_batch_read() {
+        let temp_dir = TempDir::new().unwrap();
+        let tool = FileTool::new();
+
+        let file_a = temp_dir.path().join("a.txt");
+        let file_b = temp_dir.path().join("b.txt");
+        fs::write(&file_a, "one\ntwo\nthree").await.unwrap();
+        fs::write(&file_b, "alpha\nbeta").await.unwrap();
+
+        let output = tool
+            .execute(serde_json::json!({
+                "action": "batch_read",
+                "paths": [
+                    file_a.display().to_string(),
+                    file_b.display().to_string()
+                ],
+                "line_limit": 2
+            }))
+            .await
+            .unwrap();
+
+        assert!(output.success);
+        let results = output.result["results"].as_array().unwrap();
+        assert_eq!(results.len(), 2);
+        assert!(
+            results
+                .iter()
+                .all(|entry| entry["success"].as_bool().unwrap())
+        );
     }
 
     #[tokio::test]
