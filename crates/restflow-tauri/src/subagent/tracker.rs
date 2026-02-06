@@ -67,6 +67,9 @@ pub struct SubagentResult {
     /// Tokens used
     pub tokens_used: Option<u32>,
 
+    /// Cost in USD
+    pub cost_usd: Option<f64>,
+
     /// Error message (if failed)
     pub error: Option<String>,
 }
@@ -162,6 +165,7 @@ impl SubagentTracker {
                         summary: None,
                         duration_ms: 0,
                         tokens_used: None,
+                        cost_usd: None,
                         error: Some(format!("Task panicked: {}", e)),
                     };
                     tracker.mark_completed(&id_for_task, result);
@@ -312,6 +316,7 @@ impl SubagentTracker {
                 summary: None,
                 duration_ms: 0,
                 tokens_used: None,
+                cost_usd: None,
                 error: Some("Sub-agent timed out".to_string()),
             },
         );
@@ -393,6 +398,7 @@ mod tests {
                 summary: None,
                 duration_ms: 100,
                 tokens_used: Some(50),
+                cost_usd: None,
                 error: None,
             };
             let _ = completion_tx.send(result.clone());
@@ -433,6 +439,7 @@ mod tests {
                 summary: None,
                 duration_ms: 60000,
                 tokens_used: None,
+                cost_usd: None,
                 error: None,
             }
         });

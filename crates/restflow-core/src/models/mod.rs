@@ -8,6 +8,7 @@ pub mod execution;
 pub mod input;
 pub mod memory;
 pub mod output;
+pub mod pricing;
 pub mod security;
 pub mod shared_space;
 pub mod skill;
@@ -27,6 +28,7 @@ pub use agent_task::{
     NotificationConfig, TaskEvent, TaskEventType, TaskSchedule,
 };
 pub use ai_model::{AIModel, ModelMetadataDTO, Provider};
+pub use pricing::{calculate_cost, ModelPricing};
 pub use execution::{ExecutionHistoryPage, ExecutionStatus, ExecutionSummary};
 pub use input::{
     AgentInput, EmailInput, HttpInput, ManualTriggerInput, NodeInput, PrintInput, PythonInput,

@@ -123,6 +123,7 @@ pub struct TokenUsage {
     pub prompt_tokens: u32,
     pub completion_tokens: u32,
     pub total_tokens: u32,
+    pub cost_usd: Option<f64>,
 }
 
 /// A chunk of streamed response

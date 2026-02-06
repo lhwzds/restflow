@@ -613,6 +613,9 @@ impl IpcServer {
                         steps: Vec::new(),
                         duration_ms: 0,
                         tokens_used: 0,
+                        cost_usd: None,
+                        input_tokens: None,
+                        output_tokens: None,
                         status: ChatExecutionStatus::Completed,
                     });
                 }
@@ -640,6 +643,9 @@ impl IpcServer {
                         steps: Vec::new(),
                         duration_ms: 0,
                         tokens_used: 0,
+                        cost_usd: None,
+                        input_tokens: None,
+                        output_tokens: None,
                         status: ChatExecutionStatus::Completed,
                     });
                 }
