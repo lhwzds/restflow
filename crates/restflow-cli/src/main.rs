@@ -15,6 +15,13 @@ use restflow_core::daemon::{DaemonStatus, check_daemon_status, start_daemon, sto
 use restflow_core::paths;
 use std::io;
 
+fn command_needs_direct_core(command: &Option<Commands>) -> bool {
+    matches!(
+        command,
+        Some(Commands::Daemon { .. }) | Some(Commands::Codex(_)) | Some(Commands::Run(_))
+    )
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
@@ -49,6 +56,11 @@ async fn main() -> Result<()> {
 
     if let Some(Commands::Status) = cli.command {
         commands::status::run(cli.format).await?;
+        return Ok(());
+    }
+
+    if let Some(Commands::Start(args)) = &cli.command {
+        commands::start::run(*args).await?;
         return Ok(());
     }
 
@@ -115,15 +127,9 @@ async fn main() -> Result<()> {
         return commands::mcp::run(command.clone(), cli.format).await;
     }
 
-    // Commands that need direct core access (daemon, codex, run, start)
+    // Commands that need direct core access (daemon, codex, run)
     // These bypass the executor pattern for now
-    let needs_direct_core = matches!(
-        &cli.command,
-        Some(Commands::Daemon { .. })
-            | Some(Commands::Codex(_))
-            | Some(Commands::Run(_))
-            | Some(Commands::Start(_))
-    );
+    let needs_direct_core = command_needs_direct_core(&cli.command);
 
     let db_path = setup::resolve_db_path(cli.db_path.clone())?;
 
@@ -133,7 +139,6 @@ async fn main() -> Result<()> {
 
         match cli.command {
             Some(Commands::Run(args)) => commands::run::run(core, args, cli.format).await,
-            Some(Commands::Start(args)) => commands::start::run(args).await,
             Some(Commands::Daemon { command }) => commands::daemon::run(core, command).await,
             Some(Commands::Codex(args)) => commands::codex::run(core, args, cli.format).await,
             _ => unreachable!(),
@@ -178,5 +183,40 @@ async fn main() -> Result<()> {
             }
             _ => unreachable!(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::command_needs_direct_core;
+    use crate::cli::{CodexArgs, Commands, RunArgs, StartArgs};
+
+    #[test]
+    fn start_does_not_need_direct_core() {
+        let command = Some(Commands::Start(StartArgs::default()));
+        assert!(!command_needs_direct_core(&command));
+    }
+
+    #[test]
+    fn run_needs_direct_core() {
+        let command = Some(Commands::Run(RunArgs {
+            agent_id: "agent-1".to_string(),
+            input: None,
+            background: false,
+            stream: false,
+        }));
+        assert!(command_needs_direct_core(&command));
+    }
+
+    #[test]
+    fn codex_needs_direct_core() {
+        let command = Some(Commands::Codex(CodexArgs {
+            prompt: None,
+            model: "gpt-5".to_string(),
+            session: None,
+            cwd: None,
+            timeout: 300,
+        }));
+        assert!(command_needs_direct_core(&command));
     }
 }
