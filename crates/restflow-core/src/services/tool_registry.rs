@@ -2,11 +2,12 @@
 
 use crate::lsp::LspManager;
 use crate::memory::UnifiedSearchEngine;
-use crate::models::{MemorySearchQuery, SearchMode, SharedEntry, UnifiedSearchQuery, Visibility};
+use crate::models::{AgentTaskStatus, MemorySearchQuery, SearchMode, SharedEntry, TaskSchedule, UnifiedSearchQuery, Visibility};
 use crate::storage::skill::SkillStorage;
-use crate::storage::{ChatSessionStorage, MemoryStorage, SharedSpaceStorage};
+use crate::storage::{AgentTaskStorage, ChatSessionStorage, ConfigStorage, MemoryStorage, SecretStorage, SharedSpaceStorage};
 use chrono::Utc;
 use restflow_ai::error::AiError;
+use restflow_ai::tools::{ConfigTool, SecretsTool, TaskCreateRequest, TaskStore, TaskTool};
 use restflow_ai::{
     SkillContent, SkillInfo, SkillProvider, SkillTool, Tool, ToolOutput, ToolRegistry,
 };
@@ -60,6 +61,110 @@ impl SkillProvider for SkillStorageProvider {
     }
 }
 
+#[derive(Clone)]
+struct TaskStoreAdapter {
+    storage: AgentTaskStorage,
+}
+
+impl TaskStoreAdapter {
+    fn new(storage: AgentTaskStorage) -> Self {
+        Self { storage }
+    }
+
+    fn parse_status(status: &str) -> Result<AgentTaskStatus, AiError> {
+        match status.trim().to_lowercase().as_str() {
+            "active" => Ok(AgentTaskStatus::Active),
+            "paused" => Ok(AgentTaskStatus::Paused),
+            "running" => Ok(AgentTaskStatus::Running),
+            "completed" => Ok(AgentTaskStatus::Completed),
+            "failed" => Ok(AgentTaskStatus::Failed),
+            _ => Err(AiError::Tool(format!("Unknown status: {}", status))),
+        }
+    }
+}
+
+impl TaskStore for TaskStoreAdapter {
+    fn create_task(&self, request: TaskCreateRequest) -> restflow_ai::error::Result<serde_json::Value> {
+        let schedule = match request.schedule {
+            Some(value) => serde_json::from_value::<TaskSchedule>(value)
+                .map_err(|e| AiError::Tool(e.to_string()))?,
+            None => TaskSchedule::default(),
+        };
+
+        let mut task = self
+            .storage
+            .create_task(request.name, request.agent_id, schedule)
+            .map_err(|e| AiError::Tool(e.to_string()))?;
+
+        if let Some(input) = request.input {
+            task.input = Some(input);
+            self.storage
+                .update_task(&task)
+                .map_err(|e| AiError::Tool(e.to_string()))?;
+        }
+
+        serde_json::to_value(task).map_err(AiError::from)
+    }
+
+    fn list_tasks(&self, status: Option<String>) -> restflow_ai::error::Result<serde_json::Value> {
+        let tasks = if let Some(status) = status {
+            let status = Self::parse_status(&status)?;
+            self.storage
+                .list_tasks_by_status(status)
+                .map_err(|e| AiError::Tool(e.to_string()))?
+        } else {
+            self.storage
+                .list_tasks()
+                .map_err(|e| AiError::Tool(e.to_string()))?
+        };
+
+        serde_json::to_value(tasks).map_err(AiError::from)
+    }
+
+    fn pause_task(&self, id: &str) -> restflow_ai::error::Result<serde_json::Value> {
+        let task = self
+            .storage
+            .pause_task(id)
+            .map_err(|e| AiError::Tool(e.to_string()))?;
+        serde_json::to_value(task).map_err(AiError::from)
+    }
+
+    fn resume_task(&self, id: &str) -> restflow_ai::error::Result<serde_json::Value> {
+        let task = self
+            .storage
+            .resume_task(id)
+            .map_err(|e| AiError::Tool(e.to_string()))?;
+        serde_json::to_value(task).map_err(AiError::from)
+    }
+
+    fn cancel_task(&self, id: &str) -> restflow_ai::error::Result<serde_json::Value> {
+        let deleted = self
+            .storage
+            .delete_task(id)
+            .map_err(|e| AiError::Tool(e.to_string()))?;
+        Ok(json!({ "id": id, "deleted": deleted }))
+    }
+
+    fn run_task(&self, id: &str) -> restflow_ai::error::Result<serde_json::Value> {
+        let mut task = self
+            .storage
+            .get_task(id)
+            .map_err(|e| AiError::Tool(e.to_string()))?
+            .ok_or_else(|| AiError::Tool(format!("Task {} not found", id)))?;
+
+        let now = chrono::Utc::now().timestamp_millis();
+        task.status = AgentTaskStatus::Active;
+        task.next_run_at = Some(now);
+        task.updated_at = now;
+
+        self.storage
+            .update_task(&task)
+            .map_err(|e| AiError::Tool(e.to_string()))?;
+
+        serde_json::to_value(task).map_err(AiError::from)
+    }
+}
+
 /// Create a tool registry with all available tools including storage-backed tools.
 ///
 /// This function creates a registry with:
@@ -71,6 +176,9 @@ pub fn create_tool_registry(
     memory_storage: MemoryStorage,
     chat_storage: ChatSessionStorage,
     shared_space_storage: SharedSpaceStorage,
+    secret_storage: SecretStorage,
+    config_storage: ConfigStorage,
+    agent_task_storage: AgentTaskStorage,
     accessor_id: Option<String>,
 ) -> ToolRegistry {
     let root = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
@@ -87,6 +195,12 @@ pub fn create_tool_registry(
 
     // Add shared space tool
     registry.register(SharedSpaceTool::new(shared_space_storage, accessor_id));
+
+    // Add system management tools (read-only by default)
+    registry.register(SecretsTool::new(Arc::new(secret_storage)));
+    registry.register(ConfigTool::new(Arc::new(config_storage)));
+    let task_store = Arc::new(TaskStoreAdapter::new(agent_task_storage));
+    registry.register(TaskTool::new(task_store));
 
     registry
 }
@@ -435,34 +549,71 @@ mod tests {
         MemoryStorage,
         ChatSessionStorage,
         SharedSpaceStorage,
+        SecretStorage,
+        ConfigStorage,
+        AgentTaskStorage,
         tempfile::TempDir,
     ) {
         let temp_dir = tempdir().unwrap();
         let db_path = temp_dir.path().join("test.db");
         let db = Arc::new(Database::create(db_path).unwrap());
+
+        let state_dir = temp_dir.path().join("state");
+        std::fs::create_dir_all(&state_dir).unwrap();
+        unsafe {
+            std::env::set_var("RESTFLOW_DIR", &state_dir);
+        }
+
         let skill_storage = SkillStorage::new(db.clone()).unwrap();
         let memory_storage = MemoryStorage::new(db.clone()).unwrap();
         let chat_storage = ChatSessionStorage::new(db.clone()).unwrap();
         let shared_space_storage =
-            SharedSpaceStorage::new(restflow_storage::SharedSpaceStorage::new(db).unwrap());
+            SharedSpaceStorage::new(restflow_storage::SharedSpaceStorage::new(db.clone()).unwrap());
+        let secret_storage = SecretStorage::with_config(
+            db.clone(),
+            restflow_storage::SecretStorageConfig {
+                allow_insecure_file_permissions: true,
+            },
+        )
+        .unwrap();
+        let config_storage = ConfigStorage::new(db.clone()).unwrap();
+        let agent_task_storage = AgentTaskStorage::new(db).unwrap();
+
+        unsafe {
+            std::env::remove_var("RESTFLOW_DIR");
+        }
         (
             skill_storage,
             memory_storage,
             chat_storage,
             shared_space_storage,
+            secret_storage,
+            config_storage,
+            agent_task_storage,
             temp_dir,
         )
     }
 
     #[test]
     fn test_create_tool_registry() {
-        let (skill_storage, memory_storage, chat_storage, shared_space_storage, _temp_dir) =
-            setup_storage();
+        let (
+            skill_storage,
+            memory_storage,
+            chat_storage,
+            shared_space_storage,
+            secret_storage,
+            config_storage,
+            agent_task_storage,
+            _temp_dir,
+        ) = setup_storage();
         let registry = create_tool_registry(
             skill_storage,
             memory_storage,
             chat_storage,
             shared_space_storage,
+            secret_storage,
+            config_storage,
+            agent_task_storage,
             None,
         );
 
@@ -473,12 +624,24 @@ mod tests {
         assert!(registry.has("skill"));
         assert!(registry.has("memory_search"));
         assert!(registry.has("shared_space"));
+        // New system management tools
+        assert!(registry.has("manage_secrets"));
+        assert!(registry.has("manage_config"));
+        assert!(registry.has("manage_tasks"));
     }
 
     #[test]
     fn test_skill_provider_list_empty() {
-        let (storage, _memory_storage, _chat_storage, _shared_space_storage, _temp_dir) =
-            setup_storage();
+        let (
+            storage,
+            _memory_storage,
+            _chat_storage,
+            _shared_space_storage,
+            _secret_storage,
+            _config_storage,
+            _agent_task_storage,
+            _temp_dir,
+        ) = setup_storage();
         let provider = SkillStorageProvider::new(storage);
 
         let skills = provider.list_skills();
@@ -487,8 +650,16 @@ mod tests {
 
     #[test]
     fn test_skill_provider_with_data() {
-        let (storage, _memory_storage, _chat_storage, _shared_space_storage, _temp_dir) =
-            setup_storage();
+        let (
+            storage,
+            _memory_storage,
+            _chat_storage,
+            _shared_space_storage,
+            _secret_storage,
+            _config_storage,
+            _agent_task_storage,
+            _temp_dir,
+        ) = setup_storage();
 
         // Add a skill
         let skill = crate::models::Skill::new(
