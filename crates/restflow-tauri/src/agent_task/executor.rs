@@ -147,7 +147,9 @@ impl RealAgentExecutor {
 
         for model in AIModel::all() {
             let provider = Self::to_llm_provider(model.provider());
-            let spec = if model.is_codex_cli() {
+            let spec = if model.is_opencode_cli() {
+                ModelSpec::opencode(model.as_serialized_str())
+            } else if model.is_codex_cli() {
                 ModelSpec::codex(model.as_serialized_str(), model.as_str())
             } else if model.is_opencode_cli() {
                 ModelSpec::opencode(model.as_serialized_str(), model.as_str())
