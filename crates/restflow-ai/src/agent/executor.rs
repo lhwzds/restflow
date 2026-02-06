@@ -8,10 +8,12 @@ use serde_json::Value;
 
 use crate::agent::context::{AgentContext, ContextDiscoveryConfig, WorkspaceContextCache};
 use crate::agent::state::{AgentState, AgentStatus};
+use crate::agent::stream::{StreamEmitter, ToolCallAccumulator};
 use crate::error::{AiError, Result};
-use crate::llm::{CompletionRequest, FinishReason, LlmClient, Message};
+use crate::llm::{CompletionRequest, FinishReason, LlmClient, Message, ToolCall};
 use crate::memory::{CompactionConfig, DEFAULT_MAX_MESSAGES, WorkingMemory};
 use crate::tools::ToolRegistry;
+use futures::StreamExt;
 use tracing::debug;
 
 /// Agent type for system prompt composition.
@@ -322,6 +324,221 @@ impl AgentExecutor {
             total_tokens,
             state,
         })
+    }
+
+    pub async fn execute_streaming(
+        &self,
+        config: AgentConfig,
+        emitter: &mut dyn StreamEmitter,
+    ) -> Result<AgentResult> {
+        let execution_id = uuid::Uuid::new_v4().to_string();
+        let mut state = AgentState::new(execution_id, config.max_iterations);
+        state.context = config.context.clone();
+        let mut total_tokens: u32 = 0;
+
+        let mut memory = WorkingMemory::new(config.max_memory_messages);
+        if let Some(compaction_config) = config.compaction_config.clone() {
+            memory.enable_compaction(compaction_config);
+        }
+
+        let system_prompt = self.build_system_prompt(&config).await;
+        let system_msg = Message::system(&system_prompt);
+        let user_msg = Message::user(&config.goal);
+
+        state.add_message(system_msg.clone());
+        state.add_message(user_msg.clone());
+        memory.add(system_msg);
+        memory.add(user_msg);
+
+        while state.iteration < state.max_iterations && !state.is_terminal() {
+            let summarizer = self.summarizer.as_deref().unwrap_or(self.llm.as_ref());
+            if let Some(_result) = memory
+                .auto_compact_if_needed(summarizer, config.context_window)
+                .await?
+            {
+                // Compaction affects working memory only; full state history remains intact.
+            }
+
+            let mut request =
+                CompletionRequest::new(memory.get_messages()).with_tools(self.tools.schemas());
+
+            if let Some(temp) = config.temperature {
+                request = request.with_temperature(temp);
+            }
+
+            let response = self.get_streaming_completion(request, emitter).await?;
+
+            if let Some(usage) = &response.usage {
+                total_tokens += usage.total_tokens;
+            }
+
+            if response.tool_calls.is_empty() {
+                let answer = response.content.unwrap_or_default();
+                let assistant_msg = Message::assistant(&answer);
+                state.add_message(assistant_msg.clone());
+                memory.add(assistant_msg);
+
+                match response.finish_reason {
+                    FinishReason::MaxTokens => {
+                        state.fail("Response truncated due to max token limit");
+                        break;
+                    }
+                    FinishReason::Error => {
+                        state.fail("LLM returned an error");
+                        break;
+                    }
+                    _ => {
+                        emitter.emit_complete().await;
+                        state.complete(&answer);
+                        break;
+                    }
+                }
+            }
+
+            let tool_call_msg = Message::assistant_with_tool_calls(
+                response.content.clone(),
+                response.tool_calls.clone(),
+            );
+            state.add_message(tool_call_msg.clone());
+            memory.add(tool_call_msg);
+
+            let results = self
+                .execute_tools_with_events(&response.tool_calls, emitter, config.tool_timeout)
+                .await;
+
+            for (tool_call_id, result) in results {
+                let mut result_str = match result {
+                    Ok(output) if output.success => {
+                        serde_json::to_string(&output.result).unwrap_or_default()
+                    }
+                    Ok(output) => format!("Error: {}", output.error.unwrap_or_default()),
+                    Err(e) => format!("Error: {}", e),
+                };
+
+                if result_str.len() > config.max_tool_result_length {
+                    result_str = format!(
+                        "{}...[truncated, {} chars total]",
+                        &result_str[..config.max_tool_result_length],
+                        result_str.len()
+                    );
+                }
+
+                let tool_result_msg = Message::tool_result(tool_call_id.clone(), result_str);
+                state.add_message(tool_result_msg.clone());
+                memory.add(tool_result_msg);
+            }
+
+            state.increment_iteration();
+        }
+
+        Ok(AgentResult {
+            success: matches!(state.status, AgentStatus::Completed),
+            answer: state.final_answer.clone(),
+            error: match &state.status {
+                AgentStatus::Failed { error } => Some(error.clone()),
+                AgentStatus::MaxIterations => Some("Max iterations reached".to_string()),
+                _ => None,
+            },
+            iterations: state.iteration,
+            total_tokens,
+            state,
+        })
+    }
+
+    async fn get_streaming_completion(
+        &self,
+        request: CompletionRequest,
+        emitter: &mut dyn StreamEmitter,
+    ) -> Result<crate::llm::CompletionResponse> {
+        if !self.llm.supports_streaming() {
+            let response = self.llm.complete(request).await?;
+            if let Some(content) = &response.content {
+                emitter.emit_text_delta(content).await;
+            }
+            return Ok(response);
+        }
+
+        let mut stream = self.llm.complete_stream(request);
+        let mut text = String::new();
+        let mut accumulator = ToolCallAccumulator::new();
+        let mut usage = None;
+        let mut finish_reason = None;
+
+        while let Some(chunk_result) = stream.next().await {
+            let chunk = chunk_result?;
+
+            if !chunk.text.is_empty() {
+                text.push_str(&chunk.text);
+                emitter.emit_text_delta(&chunk.text).await;
+            }
+
+            if let Some(thinking) = &chunk.thinking {
+                emitter.emit_thinking_delta(thinking).await;
+            }
+
+            if let Some(delta) = &chunk.tool_call_delta {
+                accumulator.accumulate(delta);
+            }
+
+            if let Some(chunk_usage) = chunk.usage {
+                usage = Some(chunk_usage);
+            }
+
+            if let Some(reason) = chunk.finish_reason {
+                finish_reason = Some(reason);
+            }
+        }
+
+        Ok(crate::llm::CompletionResponse {
+            content: if text.is_empty() { None } else { Some(text) },
+            tool_calls: accumulator.finalize(),
+            finish_reason: finish_reason.unwrap_or(FinishReason::Stop),
+            usage,
+        })
+    }
+
+    async fn execute_tools_with_events(
+        &self,
+        tool_calls: &[ToolCall],
+        emitter: &mut dyn StreamEmitter,
+        tool_timeout: Duration,
+    ) -> Vec<(String, Result<crate::tools::ToolOutput>)> {
+        let mut results = Vec::new();
+
+        for call in tool_calls {
+            let arguments = serde_json::to_string(&call.arguments).unwrap_or_default();
+            emitter
+                .emit_tool_call_start(&call.id, &call.name, &arguments)
+                .await;
+
+            let result = tokio::time::timeout(
+                tool_timeout,
+                self.tools.execute(&call.name, call.arguments.clone()),
+            )
+            .await
+            .map_err(|_| AiError::Tool(format!("Tool {} timed out", call.name)))
+            .and_then(|result| result);
+
+            if let Ok(output) = &result {
+                let result_str = if output.success {
+                    serde_json::to_string(&output.result).unwrap_or_default()
+                } else {
+                    format!("Error: {}", output.error.clone().unwrap_or_default())
+                };
+                emitter
+                    .emit_tool_call_result(&call.id, &call.name, &result_str, output.success)
+                    .await;
+            } else if let Err(error) = &result {
+                let result_str = format!("Error: {}", error);
+                emitter
+                    .emit_tool_call_result(&call.id, &call.name, &result_str, false)
+                    .await;
+            }
+
+            results.push((call.id.clone(), result));
+        }
+
+        results
     }
 
     async fn build_system_prompt(&self, config: &AgentConfig) -> String {

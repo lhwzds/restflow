@@ -38,6 +38,7 @@ mod executor;
 pub mod react;
 mod state;
 pub mod strategy;
+mod stream;
 mod trace;
 mod unified;
 
@@ -47,5 +48,6 @@ pub use context::{
 };
 pub use executor::{AgentConfig, AgentExecutor, AgentResult};
 pub use state::{AgentState, AgentStatus};
+pub use stream::{NullEmitter, StreamEmitter, ToolCallAccumulator};
 pub use trace::TraceEvent;
 pub use unified::{ExecutionResult, UnifiedAgent, UnifiedAgentConfig};

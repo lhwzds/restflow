@@ -6,6 +6,8 @@
 use std::sync::Arc;
 use std::time::Instant;
 
+use async_trait::async_trait;
+use restflow_ai::agent::StreamEmitter;
 use tauri::{AppHandle, Emitter};
 use tokio::sync::broadcast;
 use tracing::{debug, warn};
@@ -244,6 +246,29 @@ impl ChatStreamState {
                 "Emitted chat stream event"
             );
         }
+    }
+}
+
+#[async_trait]
+impl StreamEmitter for ChatStreamState {
+    async fn emit_text_delta(&mut self, text: &str) {
+        self.emit_token(text);
+    }
+
+    async fn emit_thinking_delta(&mut self, text: &str) {
+        self.emit_thinking(text);
+    }
+
+    async fn emit_tool_call_start(&mut self, id: &str, name: &str, arguments: &str) {
+        ChatStreamState::emit_tool_call_start(self, id, name, arguments);
+    }
+
+    async fn emit_tool_call_result(&mut self, id: &str, _name: &str, result: &str, success: bool) {
+        ChatStreamState::emit_tool_call_end(self, id, result, success);
+    }
+
+    async fn emit_complete(&mut self) {
+        self.emit_completed();
     }
 }
 
