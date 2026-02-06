@@ -154,10 +154,7 @@ pub async fn resize_pty(
 
 /// Close PTY session and update database status
 #[tauri::command]
-pub async fn close_pty(
-    app_state: State<'_, AppState>,
-    session_id: String,
-) -> Result<(), String> {
+pub async fn close_pty(app_state: State<'_, AppState>, session_id: String) -> Result<(), String> {
     let history = app_state.process_registry.remove_session(&session_id);
 
     if history.is_some() {
@@ -232,9 +229,7 @@ pub async fn save_terminal_history(
 
 /// Save history for all running terminals (called on app close)
 #[tauri::command]
-pub async fn save_all_terminal_history(
-    app_state: State<'_, AppState>,
-) -> Result<(), String> {
+pub async fn save_all_terminal_history(app_state: State<'_, AppState>) -> Result<(), String> {
     let session_ids = app_state
         .process_registry
         .list_session_ids_by_source(ProcessSessionSource::User);

@@ -320,16 +320,28 @@ pub enum IpcResponse {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
 pub enum StreamFrame {
-    Start { stream_id: String },
-    Data { content: String },
+    Start {
+        stream_id: String,
+    },
+    Data {
+        content: String,
+    },
     ToolCall {
         id: String,
         name: String,
         arguments: serde_json::Value,
     },
-    ToolResult { id: String, result: String },
-    Done { total_tokens: Option<u32> },
-    Error { code: i32, message: String },
+    ToolResult {
+        id: String,
+        result: String,
+    },
+    Done {
+        total_tokens: Option<u32>,
+    },
+    Error {
+        code: i32,
+        message: String,
+    },
 }
 
 impl IpcResponse {
@@ -495,7 +507,11 @@ mod tests {
         let json = serde_json::to_string(&request).unwrap();
         let parsed: IpcRequest = serde_json::from_str(&json).unwrap();
 
-        if let IpcRequest::AppendMessage { session_id, message } = parsed {
+        if let IpcRequest::AppendMessage {
+            session_id,
+            message,
+        } = parsed
+        {
             assert_eq!(session_id, "session-2");
             assert!(matches!(message.role, crate::models::ChatRole::User));
             assert_eq!(message.content, "Hello");
@@ -548,10 +564,8 @@ mod tests {
 
     #[test]
     fn test_save_terminal_session_serialization() {
-        let session = crate::models::TerminalSession::new(
-            "terminal-9".to_string(),
-            "Terminal 9".to_string(),
-        );
+        let session =
+            crate::models::TerminalSession::new("terminal-9".to_string(), "Terminal 9".to_string());
         let request = IpcRequest::SaveTerminalSession { session };
         let json = serde_json::to_string(&request).unwrap();
         let parsed: IpcRequest = serde_json::from_str(&json).unwrap();

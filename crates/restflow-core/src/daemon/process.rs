@@ -75,7 +75,7 @@ impl ProcessManager {
         if let Some(pid) = self.get_running_pid()? {
             #[cfg(unix)]
             {
-                use nix::sys::signal::{kill, Signal};
+                use nix::sys::signal::{Signal, kill};
                 use nix::unistd::Pid;
                 kill(Pid::from_raw(pid as i32), Signal::SIGTERM)?;
             }

@@ -116,10 +116,7 @@ impl Tool for FileTool {
                     content.len()
                 ))))
             }
-            _ => Ok(ToolResult::error(format!(
-                "Unknown action: {}",
-                action
-            ))),
+            _ => Ok(ToolResult::error(format!("Unknown action: {}", action))),
         }
     }
 }

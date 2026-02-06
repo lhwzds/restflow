@@ -981,27 +981,13 @@ mod tests {
 
         // First insert should create
         let result = storage
-            .put_chunk_if_not_exists(
-                "chunk-001",
-                "agent-001",
-                None,
-                "unique-hash",
-                &[],
-                b"data",
-            )
+            .put_chunk_if_not_exists("chunk-001", "agent-001", None, "unique-hash", &[], b"data")
             .unwrap();
         assert_eq!(result, PutChunkResult::Created("chunk-001".to_string()));
 
         // Second insert with same hash should return existing
         let result = storage
-            .put_chunk_if_not_exists(
-                "chunk-002",
-                "agent-001",
-                None,
-                "unique-hash",
-                &[],
-                b"data",
-            )
+            .put_chunk_if_not_exists("chunk-002", "agent-001", None, "unique-hash", &[], b"data")
             .unwrap();
         assert_eq!(result, PutChunkResult::Existing("chunk-001".to_string()));
 
@@ -1052,14 +1038,21 @@ mod tests {
                 PutChunkResult::Created(id) | PutChunkResult::Existing(id) => id.clone(),
             })
             .collect();
-        assert_eq!(chunk_ids.len(), 1, "All threads should get the same chunk ID");
+        assert_eq!(
+            chunk_ids.len(),
+            1,
+            "All threads should get the same chunk ID"
+        );
 
         // Exactly one should be Created, the rest Existing
         let created_count = results
             .iter()
             .filter(|r| matches!(r, PutChunkResult::Created(_)))
             .count();
-        assert_eq!(created_count, 1, "Exactly one thread should create the chunk");
+        assert_eq!(
+            created_count, 1,
+            "Exactly one thread should create the chunk"
+        );
 
         // Only one chunk should exist in storage
         let chunks = storage.list_chunks_by_agent_raw("agent-001").unwrap();
@@ -1121,9 +1114,7 @@ mod tests {
             .map(|_| {
                 let s = Arc::clone(&storage);
                 let m = metadata.clone();
-                thread::spawn(move || {
-                    s.delete_all_chunks_for_agent_with_metadata("agent-001", &m)
-                })
+                thread::spawn(move || s.delete_all_chunks_for_agent_with_metadata("agent-001", &m))
             })
             .collect();
 

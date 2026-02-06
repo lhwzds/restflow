@@ -4,7 +4,7 @@
 //! chat sessions in the SkillWorkspace.
 
 use crate::agent::{
-    registry_from_allowlist, SubagentDeps, ToolRegistry, UnifiedAgent, UnifiedAgentConfig,
+    SubagentDeps, ToolRegistry, UnifiedAgent, UnifiedAgentConfig, registry_from_allowlist,
 };
 use crate::chat::ChatStreamState;
 use crate::state::AppState;
@@ -386,7 +386,8 @@ async fn execute_agent_for_session(
     let model = agent_node.require_model().map_err(|e| e.to_string())?;
 
     // Resolve API key
-    let api_key = resolve_api_key(state, model.provider(), agent_node.api_key_config.as_ref()).await?;
+    let api_key =
+        resolve_api_key(state, model.provider(), agent_node.api_key_config.as_ref()).await?;
 
     // Create LLM client
     let llm = create_llm_client(model, &api_key);
@@ -408,12 +409,7 @@ async fn execute_agent_for_session(
     let config = build_agent_config(agent_node, model);
 
     // Create UnifiedAgent with session history
-    let mut agent = UnifiedAgent::new(
-        llm,
-        tools,
-        system_prompt,
-        config,
-    );
+    let mut agent = UnifiedAgent::new(llm, tools, system_prompt, config);
 
     // Add conversation history (excluding the last message which is the current input)
     add_session_history(&mut agent, session, 20);
@@ -533,6 +529,8 @@ pub async fn send_chat_message_stream(
 
     // Spawn background task for agent execution
     tokio::spawn(async move {
+        let mut stream_state = stream_state;
+
         // Emit stream started
         stream_state.emit_started();
 
@@ -642,18 +640,16 @@ pub async fn send_chat_message_stream(
         let config = build_agent_config(agent_node, model);
 
         // Create UnifiedAgent with session history
-        let mut agent = UnifiedAgent::new(
-            llm,
-            tools,
-            system_prompt,
-            config,
-        );
+        let mut agent = UnifiedAgent::new(llm, tools, system_prompt, config);
 
         // Add conversation history (excluding the last message which is the current input)
         add_session_history(&mut agent, &session, 20);
 
         // Execute agent
-        let result = match agent.execute(&user_input).await {
+        let result = match agent
+            .execute_streaming(&user_input, &mut stream_state)
+            .await
+        {
             Ok(r) => r,
             Err(e) => {
                 stream_state.emit_failed(&format!("Agent execution failed: {}", e));
@@ -671,14 +667,17 @@ pub async fn send_chat_message_stream(
             format!("Error: {}", result.output)
         };
 
-        // Emit completed event
-        stream_state.emit_completed();
+        if !result.success {
+            stream_state.emit_failed(&response);
+        }
 
         // Save assistant response via IPC
         let execution = MessageExecution::new().complete(duration_ms, result.iterations as u32);
         let mut assistant_message = ChatMessage::assistant(&response);
         assistant_message = assistant_message.with_execution(execution);
-        let _ = executor.append_message(session_id_clone, assistant_message).await;
+        let _ = executor
+            .append_message(session_id_clone, assistant_message)
+            .await;
 
         // Remove from stream manager
         stream_manager.remove(&message_id_clone);

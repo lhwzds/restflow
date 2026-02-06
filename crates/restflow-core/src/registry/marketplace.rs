@@ -8,10 +8,12 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
 
-use super::{SkillProvider, SkillProviderError, SkillSearchQuery, SkillSearchResult, SkillSortOrder};
+use super::{
+    SkillProvider, SkillProviderError, SkillSearchQuery, SkillSearchResult, SkillSortOrder,
+};
 use crate::models::{
-    SkillManifest, SkillSource, SkillVersion, SkillAuthor, SkillPermissions,
-    GatingRequirements, BinaryRequirement, EnvVarRequirement, OsType,
+    BinaryRequirement, EnvVarRequirement, GatingRequirements, OsType, SkillAuthor, SkillManifest,
+    SkillPermissions, SkillSource, SkillVersion,
 };
 
 /// Default marketplace API URL
@@ -144,9 +146,10 @@ impl MarketplaceProvider {
     /// Convert marketplace skill to internal manifest
     fn to_manifest(skill: MarketplaceSkill) -> Result<SkillManifest, SkillProviderError> {
         use crate::models::{SkillDependency, VersionRequirement};
-        
-        let version = SkillVersion::parse(&skill.version)
-            .ok_or_else(|| SkillProviderError::Parse(format!("Invalid version: {}", skill.version)))?;
+
+        let version = SkillVersion::parse(&skill.version).ok_or_else(|| {
+            SkillProviderError::Parse(format!("Invalid version: {}", skill.version))
+        })?;
 
         // Parse author
         let author = skill.author.map(|name| SkillAuthor {
@@ -156,39 +159,50 @@ impl MarketplaceProvider {
         });
 
         // Parse dependencies
-        let dependencies: Vec<SkillDependency> = skill.dependencies.into_iter().map(|(k, v)| {
-            SkillDependency {
+        let dependencies: Vec<SkillDependency> = skill
+            .dependencies
+            .into_iter()
+            .map(|(k, v)| SkillDependency {
                 skill_id: k,
                 version: VersionRequirement::parse(&v).unwrap_or(VersionRequirement::Any),
                 optional: false,
-            }
-        }).collect();
+            })
+            .collect();
 
         // Parse gating requirements
         let gating = GatingRequirements {
-            binaries: skill.gating.required_binaries.into_iter().map(|name| {
-                BinaryRequirement {
+            binaries: skill
+                .gating
+                .required_binaries
+                .into_iter()
+                .map(|name| BinaryRequirement {
                     name,
                     version: None,
                     version_command: None,
                     version_pattern: None,
-                }
-            }).collect(),
-            env_vars: skill.gating.required_env.into_iter().map(|name| {
-                EnvVarRequirement {
+                })
+                .collect(),
+            env_vars: skill
+                .gating
+                .required_env
+                .into_iter()
+                .map(|name| EnvVarRequirement {
                     name,
                     required: true,
                     description: None,
-                }
-            }).collect(),
-            supported_os: skill.gating.os.into_iter().filter_map(|os| {
-                match os.to_lowercase().as_str() {
+                })
+                .collect(),
+            supported_os: skill
+                .gating
+                .os
+                .into_iter()
+                .filter_map(|os| match os.to_lowercase().as_str() {
                     "windows" => Some(OsType::Windows),
                     "macos" | "darwin" => Some(OsType::MacOS),
                     "linux" => Some(OsType::Linux),
                     _ => None,
-                }
-            }).collect(),
+                })
+                .collect(),
             min_restflow_version: None,
         };
 
@@ -219,7 +233,7 @@ impl MarketplaceProvider {
     /// Make an authenticated request
     async fn request(&self, url: &str) -> Result<reqwest::Response, SkillProviderError> {
         let mut request = self.client.get(url);
-        
+
         if let Some(ref key) = self.api_key {
             request = request.header("Authorization", format!("Bearer {}", key));
         }
@@ -247,9 +261,12 @@ impl SkillProvider for MarketplaceProvider {
         50 // Medium priority
     }
 
-    async fn search(&self, query: &SkillSearchQuery) -> Result<Vec<SkillSearchResult>, SkillProviderError> {
+    async fn search(
+        &self,
+        query: &SkillSearchQuery,
+    ) -> Result<Vec<SkillSearchResult>, SkillProviderError> {
         let cache_key = Self::search_cache_key(query);
-        
+
         // Check cache
         {
             let cache = self.search_cache.read().await;
@@ -298,7 +315,7 @@ impl SkillProvider for MarketplaceProvider {
         };
 
         let response = self.request(&url).await?;
-        
+
         if !response.status().is_success() {
             return Err(SkillProviderError::Network(format!(
                 "Marketplace API returned status {}",
@@ -376,14 +393,18 @@ impl SkillProvider for MarketplaceProvider {
         Ok(manifest)
     }
 
-    async fn get_content(&self, id: &str, version: &SkillVersion) -> Result<String, SkillProviderError> {
+    async fn get_content(
+        &self,
+        id: &str,
+        version: &SkillVersion,
+    ) -> Result<String, SkillProviderError> {
         let url = format!(
             "{}/skills/{}/content?version={}",
             self.base_url,
             urlencoding::encode(id),
             version
         );
-        
+
         let response = self.request(&url).await?;
 
         if response.status().as_u16() == 404 {
@@ -404,7 +425,11 @@ impl SkillProvider for MarketplaceProvider {
     }
 
     async fn list_versions(&self, id: &str) -> Result<Vec<SkillVersion>, SkillProviderError> {
-        let url = format!("{}/skills/{}/versions", self.base_url, urlencoding::encode(id));
+        let url = format!(
+            "{}/skills/{}/versions",
+            self.base_url,
+            urlencoding::encode(id)
+        );
         let response = self.request(&url).await?;
 
         if response.status().as_u16() == 404 {
@@ -451,7 +476,7 @@ mod tests {
             tags: vec!["llm".to_string()],
             ..Default::default()
         };
-        
+
         let key = MarketplaceProvider::search_cache_key(&query);
         assert!(key.contains("test"));
         assert!(key.contains("ai"));

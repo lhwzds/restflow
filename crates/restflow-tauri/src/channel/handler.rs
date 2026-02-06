@@ -273,7 +273,10 @@ mod tests {
         let trigger = MockTaskTrigger::new();
 
         // Simulate forwarding a message
-        trigger.send_input_to_task("task-1", "continue").await.unwrap();
+        trigger
+            .send_input_to_task("task-1", "continue")
+            .await
+            .unwrap();
 
         let last_input = trigger.last_input.lock().await;
         assert!(last_input.is_some());

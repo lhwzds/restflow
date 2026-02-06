@@ -16,7 +16,9 @@ pub async fn run(
     match command {
         ConfigCommands::Show => show_config(executor, format).await,
         ConfigCommands::Get { key } => get_config_value(executor, &key, format).await,
-        ConfigCommands::Set { key, value } => set_config_value(executor, &key, &value, format).await,
+        ConfigCommands::Set { key, value } => {
+            set_config_value(executor, &key, &value, format).await
+        }
         ConfigCommands::Reset => reset_config(executor, format).await,
     }
 }

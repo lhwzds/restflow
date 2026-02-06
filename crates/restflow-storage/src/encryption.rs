@@ -1,6 +1,6 @@
-use anyhow::Result;
 use aes_gcm::aead::{Aead, KeyInit};
 use aes_gcm::{Aes256Gcm, Nonce};
+use anyhow::Result;
 use rand::RngCore;
 
 const NONCE_SIZE: usize = 12;
@@ -52,5 +52,4 @@ impl SecretEncryptor {
             .map_err(|err| anyhow::anyhow!("Failed to decrypt payload: {:?}", err))?;
         Ok(plaintext)
     }
-
 }

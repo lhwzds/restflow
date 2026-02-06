@@ -84,12 +84,12 @@ impl McpToolCache {
                     return;
                 }
 
-                let futures: Vec<_> = servers.iter().map(|name| self.discover_server(name)).collect();
-                let _ = tokio::time::timeout(
-                    Duration::from_secs(30),
-                    future::join_all(futures),
-                )
-                .await;
+                let futures: Vec<_> = servers
+                    .iter()
+                    .map(|name| self.discover_server(name))
+                    .collect();
+                let _ =
+                    tokio::time::timeout(Duration::from_secs(30), future::join_all(futures)).await;
             })
             .await;
     }

@@ -290,7 +290,10 @@ mod tests {
         let memory_storage = MemoryStorage::new(db.clone()).unwrap();
         let chat_storage = ChatSessionStorage::new(db).unwrap();
 
-        (UnifiedSearchEngine::new(memory_storage, chat_storage), temp_dir)
+        (
+            UnifiedSearchEngine::new(memory_storage, chat_storage),
+            temp_dir,
+        )
     }
 
     #[test]
@@ -298,11 +301,7 @@ mod tests {
         let (engine, _temp) = create_engine();
 
         let chunk = MemoryChunk::new("agent-1".to_string(), "Rust memory guide".to_string());
-        engine
-            .memory_engine
-            .storage()
-            .store_chunk(&chunk)
-            .unwrap();
+        engine.memory_engine.storage().store_chunk(&chunk).unwrap();
 
         let base = MemorySearchQuery::new("agent-1".to_string())
             .with_query("rust".to_string())
@@ -341,11 +340,7 @@ mod tests {
         let (engine, _temp) = create_engine();
 
         let chunk = MemoryChunk::new("agent-1".to_string(), "Rust memory safety".to_string());
-        engine
-            .memory_engine
-            .storage()
-            .store_chunk(&chunk)
-            .unwrap();
+        engine.memory_engine.storage().store_chunk(&chunk).unwrap();
 
         let mut session = ChatSession::new("agent-1".to_string(), "claude".to_string());
         session.add_message(ChatMessage::assistant("Rust prevents memory leaks"));

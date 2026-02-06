@@ -6,11 +6,13 @@
 use std::sync::Arc;
 use std::time::Instant;
 
+use async_trait::async_trait;
+use restflow_ai::agent::StreamEmitter;
 use tauri::{AppHandle, Emitter};
 use tokio::sync::broadcast;
 use tracing::{debug, warn};
 
-use super::events::{ChatStreamEvent, CHAT_STREAM_EVENT};
+use super::events::{CHAT_STREAM_EVENT, ChatStreamEvent};
 
 /// Handle for cancelling an active stream
 #[derive(Debug, Clone)]
@@ -247,6 +249,29 @@ impl ChatStreamState {
     }
 }
 
+#[async_trait]
+impl StreamEmitter for ChatStreamState {
+    async fn emit_text_delta(&mut self, text: &str) {
+        self.emit_token(text);
+    }
+
+    async fn emit_thinking_delta(&mut self, text: &str) {
+        self.emit_thinking(text);
+    }
+
+    async fn emit_tool_call_start(&mut self, id: &str, name: &str, arguments: &str) {
+        ChatStreamState::emit_tool_call_start(self, id, name, arguments);
+    }
+
+    async fn emit_tool_call_result(&mut self, id: &str, _name: &str, result: &str, success: bool) {
+        ChatStreamState::emit_tool_call_end(self, id, result, success);
+    }
+
+    async fn emit_complete(&mut self) {
+        self.emit_completed();
+    }
+}
+
 /// Manager for tracking active streams
 pub struct StreamManager {
     /// Active stream cancel handles keyed by message_id
@@ -263,7 +288,8 @@ impl StreamManager {
 
     /// Register a new stream
     pub fn register(&self, message_id: &str, cancel_handle: StreamCancelHandle) {
-        self.active_streams.insert(message_id.to_string(), cancel_handle);
+        self.active_streams
+            .insert(message_id.to_string(), cancel_handle);
     }
 
     /// Cancel a stream by message ID

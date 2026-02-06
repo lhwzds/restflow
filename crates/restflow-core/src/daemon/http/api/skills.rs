@@ -1,11 +1,11 @@
+use crate::AppCore;
 use crate::daemon::http::ApiError;
 use crate::models::Skill;
 use crate::services::skills as skills_service;
-use crate::AppCore;
 use axum::{
+    Json, Router,
     extract::{Extension, Path},
     routing::get,
-    Json, Router,
 };
 use serde::Deserialize;
 use std::sync::Arc;
@@ -13,7 +13,10 @@ use std::sync::Arc;
 pub fn router() -> Router {
     Router::new()
         .route("/", get(list_skills).post(create_skill))
-        .route("/{id}", get(get_skill).put(update_skill).delete(delete_skill))
+        .route(
+            "/{id}",
+            get(get_skill).put(update_skill).delete(delete_skill),
+        )
 }
 
 async fn list_skills(

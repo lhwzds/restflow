@@ -26,6 +26,7 @@ class Restflow < Formula
 
   def install
     bin.install "restflow"
+    bin.install_symlink "restflow" => "rf"
   end
 
   test do

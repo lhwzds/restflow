@@ -61,9 +61,7 @@ pub fn default_registry() -> ToolRegistry {
 }
 
 /// Create a registry with default tools and diagnostics support.
-pub fn default_registry_with_diagnostics(
-    provider: Arc<dyn DiagnosticsProvider>,
-) -> ToolRegistry {
+pub fn default_registry_with_diagnostics(provider: Arc<dyn DiagnosticsProvider>) -> ToolRegistry {
     let mut registry = ToolRegistry::new();
     let tracker = Arc::new(FileTracker::new());
 

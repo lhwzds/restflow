@@ -324,18 +324,13 @@ fn format_schedule(schedule: &TaskSchedule) -> String {
             let start_label = start_at
                 .map(|ts| format_timestamp(Some(ts)))
                 .unwrap_or_else(|| "now".to_string());
-            format!(
-                "every {} ms, starting at {}",
-                interval_ms, start_label
-            )
+            format!("every {} ms, starting at {}", interval_ms, start_label)
         }
         TaskSchedule::Cron {
             expression,
             timezone,
         } => {
-            let tz_label = timezone
-                .as_deref()
-                .unwrap_or("UTC");
+            let tz_label = timezone.as_deref().unwrap_or("UTC");
             format!("cron: {} ({})", expression, tz_label)
         }
     }

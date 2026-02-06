@@ -134,7 +134,9 @@ impl Tool for ProcessTool {
                 Ok(ToolOutput::success(serde_json::to_value(result)?))
             }
             ProcessAction::Write { session_id, data } => {
-                self.manager.write(&session_id, &data).map_err(to_tool_error)?;
+                self.manager
+                    .write(&session_id, &data)
+                    .map_err(to_tool_error)?;
                 Ok(ToolOutput::success(json!({"session_id": session_id})))
             }
             ProcessAction::Kill { session_id } => {
@@ -152,7 +154,10 @@ impl Tool for ProcessTool {
             } => {
                 let offset = offset.unwrap_or(0);
                 let limit = limit.unwrap_or(10_000);
-                let log = self.manager.log(&session_id, offset, limit).map_err(to_tool_error)?;
+                let log = self
+                    .manager
+                    .log(&session_id, offset, limit)
+                    .map_err(to_tool_error)?;
                 Ok(ToolOutput::success(serde_json::to_value(log)?))
             }
         }

@@ -56,8 +56,7 @@ impl JsonRpcResponse {
             .result
             .ok_or_else(|| JsonRpcError::new(-1, "Missing response result"))?;
 
-        serde_json::from_value(result)
-            .map_err(|err| JsonRpcError::new(-2, err.to_string()))
+        serde_json::from_value(result).map_err(|err| JsonRpcError::new(-2, err.to_string()))
     }
 }
 

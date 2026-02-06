@@ -12,6 +12,7 @@ use crate::llm::client::{
     CompletionRequest, CompletionResponse, FinishReason, LlmClient, Role, StreamChunk,
     StreamResult, TokenUsage, ToolCall, ToolCallDelta,
 };
+use crate::llm::retry::{LlmRetryConfig, response_to_error};
 
 /// OpenAI client
 pub struct OpenAIClient {
@@ -19,6 +20,7 @@ pub struct OpenAIClient {
     api_key: String,
     model: String,
     base_url: String,
+    retry_config: LlmRetryConfig,
 }
 
 impl OpenAIClient {
@@ -29,6 +31,7 @@ impl OpenAIClient {
             api_key: api_key.into(),
             model: "gpt-4o".to_string(),
             base_url: "https://api.openai.com/v1".to_string(),
+            retry_config: LlmRetryConfig::default(),
         }
     }
 
@@ -41,6 +44,11 @@ impl OpenAIClient {
     /// Set custom base URL (for API-compatible services)
     pub fn with_base_url(mut self, url: impl Into<String>) -> Self {
         self.base_url = url.into();
+        self
+    }
+
+    pub fn with_retry_config(mut self, config: LlmRetryConfig) -> Self {
+        self.retry_config = config;
         self
     }
 }
@@ -244,58 +252,79 @@ impl LlmClient for OpenAIClient {
             max_tokens: request.max_tokens,
         };
 
-        let response = self
-            .client
-            .post(format!("{}/chat/completions", self.base_url))
-            .header("Authorization", format!("Bearer {}", self.api_key))
-            .header("Content-Type", "application/json")
-            .json(&body)
-            .send()
-            .await?;
+        let mut last_error = None;
 
-        if !response.status().is_success() {
-            let error = response.text().await.unwrap_or_default();
-            return Err(AiError::Llm(format!("OpenAI API error: {}", error)));
+        for attempt in 0..=self.retry_config.max_retries {
+            let response = self
+                .client
+                .post(format!("{}/chat/completions", self.base_url))
+                .header("Authorization", format!("Bearer {}", self.api_key))
+                .header("Content-Type", "application/json")
+                .json(&body)
+                .send()
+                .await?;
+
+            if response.status().is_success() {
+                let data: OpenAIResponse = response.json().await?;
+                let choice = data
+                    .choices
+                    .into_iter()
+                    .next()
+                    .ok_or_else(|| AiError::Llm("No response from OpenAI".to_string()))?;
+
+                let tool_calls = choice
+                    .message
+                    .tool_calls
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|tc| ToolCall {
+                        id: tc.id,
+                        name: tc.function.name,
+                        arguments: serde_json::from_str(&tc.function.arguments)
+                            .unwrap_or(Value::Null),
+                    })
+                    .collect();
+
+                let finish_reason = match choice.finish_reason.as_str() {
+                    "stop" => FinishReason::Stop,
+                    "tool_calls" => FinishReason::ToolCalls,
+                    "length" => FinishReason::MaxTokens,
+                    _ => FinishReason::Error,
+                };
+
+                let usage = data.usage.map(|u| TokenUsage {
+                    prompt_tokens: u.prompt_tokens,
+                    completion_tokens: u.completion_tokens,
+                    total_tokens: u.total_tokens,
+                });
+
+                return Ok(CompletionResponse {
+                    content: choice.message.content,
+                    tool_calls,
+                    finish_reason,
+                    usage,
+                });
+            }
+
+            let error = response_to_error(response, "OpenAI").await;
+            if !error.is_retryable() || attempt == self.retry_config.max_retries {
+                return Err(error);
+            }
+
+            let delay = self
+                .retry_config
+                .delay_for(attempt + 1, error.retry_after());
+            tracing::warn!(
+                attempt = attempt + 1,
+                delay_ms = delay.as_millis(),
+                "Retrying OpenAI request"
+            );
+            tokio::time::sleep(delay).await;
+            last_error = Some(error);
         }
 
-        let data: OpenAIResponse = response.json().await?;
-        let choice = data
-            .choices
-            .into_iter()
-            .next()
-            .ok_or_else(|| AiError::Llm("No response from OpenAI".to_string()))?;
-
-        let tool_calls = choice
-            .message
-            .tool_calls
-            .unwrap_or_default()
-            .into_iter()
-            .map(|tc| ToolCall {
-                id: tc.id,
-                name: tc.function.name,
-                arguments: serde_json::from_str(&tc.function.arguments).unwrap_or(Value::Null),
-            })
-            .collect();
-
-        let finish_reason = match choice.finish_reason.as_str() {
-            "stop" => FinishReason::Stop,
-            "tool_calls" => FinishReason::ToolCalls,
-            "length" => FinishReason::MaxTokens,
-            _ => FinishReason::Error,
-        };
-
-        let usage = data.usage.map(|u| TokenUsage {
-            prompt_tokens: u.prompt_tokens,
-            completion_tokens: u.completion_tokens,
-            total_tokens: u.total_tokens,
-        });
-
-        Ok(CompletionResponse {
-            content: choice.message.content,
-            tool_calls,
-            finish_reason,
-            usage,
-        })
+        Err(last_error
+            .unwrap_or_else(|| AiError::Llm("OpenAI request failed after retries".to_string())))
     }
 
     fn complete_stream(&self, request: CompletionRequest) -> StreamResult {
@@ -390,8 +419,7 @@ impl LlmClient for OpenAIClient {
             };
 
             if !response.status().is_success() {
-                let error = response.text().await.unwrap_or_default();
-                yield Err(AiError::Llm(format!("OpenAI API error: {}", error)));
+                yield Err(response_to_error(response, "OpenAI").await);
                 return;
             }
 
@@ -477,7 +505,7 @@ impl LlmClient for OpenAIClient {
                                         }
 
                                         let arguments = tc.function.as_ref().and_then(|f| f.arguments.clone());
-                                        
+
                                         yield Ok(StreamChunk {
                                             text: String::new(),
                                             thinking: None,

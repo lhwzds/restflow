@@ -72,7 +72,7 @@ mod trigger;
 
 pub use chat_dispatcher::{ChatDispatcher, ChatDispatcherConfig, ChatError, ChatSessionManager};
 pub use debounce::MessageDebouncer;
-pub use handler::{start_message_handler, start_message_handler_with_chat, MessageHandlerConfig};
+pub use handler::{MessageHandlerConfig, start_message_handler, start_message_handler_with_chat};
 pub use router::{MessageRouter, RouteDecision};
 pub use trigger::{SystemStatus, TaskTrigger};
 

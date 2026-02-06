@@ -7,8 +7,8 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 use uuid::Uuid;
 
-use crate::Provider;
 use super::resolver::CredentialResolver;
+use crate::Provider;
 
 /// Secret key naming convention for auth profiles.
 pub fn secret_key(profile_id: &str, field: &str) -> String {
@@ -219,7 +219,9 @@ impl SecureCredential {
         match self {
             SecureCredential::ApiKey { secret_ref, .. } => secret_ref,
             SecureCredential::Token { secret_ref, .. } => secret_ref,
-            SecureCredential::OAuth { access_token_ref, .. } => access_token_ref,
+            SecureCredential::OAuth {
+                access_token_ref, ..
+            } => access_token_ref,
         }
     }
 
@@ -438,7 +440,13 @@ impl AuthProfile {
         source: CredentialSource,
         provider: AuthProvider,
     ) -> Self {
-        Self::new_with_id(Uuid::new_v4().to_string(), name, credential, source, provider)
+        Self::new_with_id(
+            Uuid::new_v4().to_string(),
+            name,
+            credential,
+            source,
+            provider,
+        )
     }
 
     /// Create a new auth profile with a specific id.
@@ -553,8 +561,8 @@ mod tests {
     use super::*;
     use crate::storage::SecretStorage;
     use redb::Database;
-    use tempfile::TempDir;
     use std::sync::Arc;
+    use tempfile::TempDir;
 
     fn create_test_resolver() -> (Arc<SecretStorage>, CredentialResolver, TempDir) {
         let dir = TempDir::new().unwrap();

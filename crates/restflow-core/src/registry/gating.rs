@@ -8,9 +8,7 @@
 
 use std::process::Command;
 
-use crate::models::{
-    BinaryRequirement, GatingCheckResult, GatingRequirements, SkillVersion,
-};
+use crate::models::{BinaryRequirement, GatingCheckResult, GatingRequirements, SkillVersion};
 
 /// Gating requirements checker
 pub struct GatingChecker {
@@ -80,10 +78,8 @@ impl GatingChecker {
     fn check_binary(&self, requirement: &BinaryRequirement) -> bool {
         // Try to find the binary using 'which' on Unix or 'where' on Windows
         let which_cmd = if cfg!(windows) { "where" } else { "which" };
-        
-        let output = Command::new(which_cmd)
-            .arg(&requirement.name)
-            .output();
+
+        let output = Command::new(which_cmd).arg(&requirement.name).output();
 
         match output {
             Ok(output) if output.status.success() => {
@@ -105,14 +101,12 @@ impl GatingChecker {
             .as_deref()
             .unwrap_or("--version");
 
-        let output = Command::new(&requirement.name)
-            .arg(version_cmd)
-            .output();
+        let output = Command::new(&requirement.name).arg(version_cmd).output();
 
         match output {
             Ok(output) if output.status.success() => {
                 let output_str = String::from_utf8_lossy(&output.stdout);
-                
+
                 // Extract version using pattern or simple heuristics
                 if let Some(ref pattern) = requirement.version_pattern {
                     self.extract_version_with_pattern(&output_str, pattern, requirement)
@@ -156,7 +150,7 @@ impl GatingChecker {
     fn extract_simple_version(&self, output: &str, requirement: &BinaryRequirement) -> bool {
         // Look for patterns like "1.2.3" or "v1.2.3"
         let re = regex::Regex::new(r"v?(\d+\.\d+\.\d+)").unwrap();
-        
+
         if let Some(caps) = re.captures(output)
             && let Some(m) = caps.get(1)
             && let Some(version) = SkillVersion::parse(m.as_str())
@@ -164,7 +158,7 @@ impl GatingChecker {
         {
             return version.satisfies(req);
         }
-        
+
         // If no version requirement, just return true (binary exists)
         requirement.version.is_none()
     }
@@ -245,13 +239,13 @@ impl Default for GatingChecker {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::EnvVarRequirement;
     use crate::OsType;
+    use crate::models::EnvVarRequirement;
 
     #[test]
     fn test_os_check() {
         let checker = GatingChecker::default_version();
-        
+
         // Should pass with any OS
         let requirements = GatingRequirements {
             supported_os: vec![OsType::Any],
@@ -259,7 +253,7 @@ mod tests {
         };
         let result = checker.check(&requirements);
         assert!(result.os_supported);
-        
+
         // Should pass with current OS
         #[cfg(target_os = "macos")]
         {
@@ -275,10 +269,10 @@ mod tests {
     #[test]
     fn test_binary_check() {
         let checker = GatingChecker::default_version();
-        
+
         // Check for a common binary
         assert!(checker.check_single_binary("sh") || checker.check_single_binary("cmd"));
-        
+
         // Check for a non-existent binary
         assert!(!checker.check_single_binary("this-binary-does-not-exist-12345"));
     }
@@ -286,10 +280,10 @@ mod tests {
     #[test]
     fn test_env_var_check() {
         let checker = GatingChecker::default_version();
-        
+
         // PATH should always exist
         assert!(checker.check_env_var("PATH"));
-        
+
         // Random env var should not exist
         assert!(!checker.check_env_var("THIS_ENV_VAR_SHOULD_NOT_EXIST_12345"));
     }
@@ -297,7 +291,7 @@ mod tests {
     #[test]
     fn test_full_check() {
         let checker = GatingChecker::default_version();
-        
+
         let requirements = GatingRequirements {
             binaries: vec![BinaryRequirement {
                 name: "sh".to_string(),
@@ -319,7 +313,7 @@ mod tests {
             let result = checker.check(&requirements);
             assert!(result.passed, "Check failed: {}", result.summary);
         }
-        
+
         #[cfg(not(unix))]
         let _ = checker.check(&requirements);
     }

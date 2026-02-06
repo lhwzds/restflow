@@ -14,10 +14,10 @@
 //!
 //! See `mod.rs` for full architecture comparison with event-driven systems.
 
-use std::collections::HashMap;
-use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::HashMap;
+use std::time::Duration;
 
 /// Unified configuration for all strategies
 #[derive(Debug, Clone)]

@@ -23,7 +23,7 @@ use std::process::Stdio;
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::process::Command;
-use tokio::time::{timeout, Duration};
+use tokio::time::{Duration, timeout};
 
 use super::traits::{Tool, ToolOutput};
 use crate::error::Result;
@@ -123,7 +123,12 @@ impl BashTool {
         let (stdout, stdout_truncated) = self.truncate_output(&output.stdout);
         let (stderr, stderr_truncated) = self.truncate_output(&output.stderr);
 
-        Ok((exit_code, stdout, stderr, stdout_truncated || stderr_truncated))
+        Ok((
+            exit_code,
+            stdout,
+            stderr,
+            stdout_truncated || stderr_truncated,
+        ))
     }
 
     /// Truncate output if it exceeds max size
@@ -356,7 +361,12 @@ mod tests {
         let schema = tool.parameters_schema();
         assert_eq!(schema["type"], "object");
         assert!(schema["properties"]["command"].is_object());
-        assert!(schema["required"].as_array().unwrap().contains(&Value::String("command".to_string())));
+        assert!(
+            schema["required"]
+                .as_array()
+                .unwrap()
+                .contains(&Value::String("command".to_string()))
+        );
     }
 
     #[test]

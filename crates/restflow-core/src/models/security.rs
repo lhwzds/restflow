@@ -499,14 +499,14 @@ impl Default for SecurityPolicy {
                 CommandPattern::with_description("rm -rf ~/*", "Delete home directory"),
                 CommandPattern::with_description("rm -rf $HOME/*", "Delete home directory"),
                 CommandPattern::with_description("sudo rm -rf *", "Privileged recursive delete"),
-                CommandPattern::with_description(
-                    ":(){ :|:& };:",
-                    "Fork bomb - will crash system",
-                ),
+                CommandPattern::with_description(":(){ :|:& };:", "Fork bomb - will crash system"),
                 CommandPattern::with_description("mkfs*", "Format filesystem"),
                 CommandPattern::with_description("dd if=* of=/dev/*", "Write to raw device"),
                 CommandPattern::with_description("> /dev/sda*", "Overwrite disk"),
-                CommandPattern::with_description("chmod -R 777 /*", "Make everything world-writable"),
+                CommandPattern::with_description(
+                    "chmod -R 777 /*",
+                    "Make everything world-writable",
+                ),
                 CommandPattern::with_description("curl * | bash", "Execute remote script"),
                 CommandPattern::with_description("wget * | bash", "Execute remote script"),
                 CommandPattern::with_description("curl * | sh", "Execute remote script"),
@@ -649,8 +649,10 @@ mod tests {
 
     #[test]
     fn test_security_check_result_blocked() {
-        let result =
-            SecurityCheckResult::blocked("Blocked by policy".to_string(), Some("rm -rf *".to_string()));
+        let result = SecurityCheckResult::blocked(
+            "Blocked by policy".to_string(),
+            Some("rm -rf *".to_string()),
+        );
         assert!(!result.allowed);
         assert!(!result.requires_approval);
         assert_eq!(result.matched_pattern, Some("rm -rf *".to_string()));
@@ -658,8 +660,10 @@ mod tests {
 
     #[test]
     fn test_security_check_result_requires_approval() {
-        let result =
-            SecurityCheckResult::requires_approval("approval-123".to_string(), Some("Needs user OK".to_string()));
+        let result = SecurityCheckResult::requires_approval(
+            "approval-123".to_string(),
+            Some("Needs user OK".to_string()),
+        );
         assert!(!result.allowed);
         assert!(result.requires_approval);
         assert_eq!(result.approval_id, Some("approval-123".to_string()));

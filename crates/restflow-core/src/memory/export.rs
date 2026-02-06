@@ -517,8 +517,8 @@ impl MemoryExporterBuilder {
 mod tests {
     use super::*;
     use redb::Database;
-    use std::sync::Arc;
     use restflow_storage::time_utils;
+    use std::sync::Arc;
     use tempfile::tempdir;
 
     fn create_test_exporter() -> MemoryExporter {

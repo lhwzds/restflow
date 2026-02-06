@@ -31,12 +31,12 @@
 //!
 //! This is a placeholder. Implementation needed.
 
-use std::sync::Arc;
-use crate::llm::LlmClient;
-use crate::tools::ToolRegistry;
 use super::traits::{
     AgentStrategy, RecommendedSettings, StrategyConfig, StrategyFeature, StrategyResult,
 };
+use crate::llm::LlmClient;
+use crate::tools::ToolRegistry;
+use std::sync::Arc;
 
 /// Configuration specific to Pre-Act strategy
 #[derive(Debug, Clone)]

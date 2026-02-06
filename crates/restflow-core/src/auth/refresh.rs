@@ -1,7 +1,7 @@
 //! OAuth token refreshers.
 
 use crate::auth::{AuthProvider, Credential};
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, Utc};
 use reqwest::Client;

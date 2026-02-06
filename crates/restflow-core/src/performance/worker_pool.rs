@@ -39,7 +39,11 @@ pub struct WorkerPool {
 }
 
 impl WorkerPool {
-    pub fn new(queue: Arc<TaskQueue>, executor: Arc<dyn TaskExecutor>, config: WorkerPoolConfig) -> Self {
+    pub fn new(
+        queue: Arc<TaskQueue>,
+        executor: Arc<dyn TaskExecutor>,
+        config: WorkerPoolConfig,
+    ) -> Self {
         let (shutdown_tx, _) = broadcast::channel(1);
         Self {
             queue,

@@ -50,7 +50,10 @@ pub trait McpBackend: Send + Sync {
     async fn get_memory_stats(&self, agent_id: &str) -> Result<MemoryStats, String>;
 
     async fn list_sessions(&self) -> Result<Vec<ChatSessionSummary>, String>;
-    async fn list_sessions_by_agent(&self, agent_id: &str) -> Result<Vec<ChatSessionSummary>, String>;
+    async fn list_sessions_by_agent(
+        &self,
+        agent_id: &str,
+    ) -> Result<Vec<ChatSessionSummary>, String>;
     async fn get_session(&self, id: &str) -> Result<ChatSession, String>;
 }
 
@@ -134,7 +137,10 @@ impl McpBackend for CoreBackend {
             .map_err(|e| e.to_string())
     }
 
-    async fn list_sessions_by_agent(&self, agent_id: &str) -> Result<Vec<ChatSessionSummary>, String> {
+    async fn list_sessions_by_agent(
+        &self,
+        agent_id: &str,
+    ) -> Result<Vec<ChatSessionSummary>, String> {
         let sessions = self
             .core
             .storage
@@ -201,7 +207,10 @@ impl McpBackend for IpcBackend {
 
     async fn get_agent(&self, id: &str) -> Result<StoredAgent, String> {
         let mut client = self.client.lock().await;
-        client.get_agent(id.to_string()).await.map_err(|e| e.to_string())
+        client
+            .get_agent(id.to_string())
+            .await
+            .map_err(|e| e.to_string())
     }
 
     async fn search_memory(&self, query: MemorySearchQuery) -> Result<MemorySearchResult, String> {
@@ -235,7 +244,10 @@ impl McpBackend for IpcBackend {
         client.list_sessions().await.map_err(|e| e.to_string())
     }
 
-    async fn list_sessions_by_agent(&self, agent_id: &str) -> Result<Vec<ChatSessionSummary>, String> {
+    async fn list_sessions_by_agent(
+        &self,
+        agent_id: &str,
+    ) -> Result<Vec<ChatSessionSummary>, String> {
         let mut client = self.client.lock().await;
         let sessions = client
             .list_sessions_by_agent(agent_id.to_string())
@@ -246,7 +258,10 @@ impl McpBackend for IpcBackend {
 
     async fn get_session(&self, id: &str) -> Result<ChatSession, String> {
         let mut client = self.client.lock().await;
-        client.get_session(id.to_string()).await.map_err(|e| e.to_string())
+        client
+            .get_session(id.to_string())
+            .await
+            .map_err(|e| e.to_string())
     }
 }
 
@@ -1210,13 +1225,10 @@ mod tests {
         let (server, core, _temp_dir) = create_test_server().await;
 
         let agent_node = create_test_agent_node("Test prompt");
-        let stored = crate::services::agent::create_agent(
-            &core,
-            "Test Agent".to_string(),
-            agent_node,
-        )
-        .await
-        .unwrap();
+        let stored =
+            crate::services::agent::create_agent(&core, "Test Agent".to_string(), agent_node)
+                .await
+                .unwrap();
 
         let params = GetAgentParams {
             id: stored.id.clone(),
@@ -1484,7 +1496,10 @@ mod tests {
             Ok(self.agent_summary())
         }
 
-        async fn search_memory(&self, _query: MemorySearchQuery) -> Result<MemorySearchResult, String> {
+        async fn search_memory(
+            &self,
+            _query: MemorySearchQuery,
+        ) -> Result<MemorySearchResult, String> {
             Ok(MemorySearchResult {
                 chunks: Vec::new(),
                 total_count: 0,

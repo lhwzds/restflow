@@ -1,5 +1,5 @@
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Performance metrics collector.
 #[derive(Default)]
@@ -58,32 +58,20 @@ impl Metrics {
     fn avg_read_time(&self) -> u64 {
         let count = self.db_read_count.load(Ordering::Relaxed);
         let time = self.db_read_time_us.load(Ordering::Relaxed);
-        if count > 0 {
-            time / count
-        } else {
-            0
-        }
+        if count > 0 { time / count } else { 0 }
     }
 
     fn avg_write_time(&self) -> u64 {
         let count = self.db_write_count.load(Ordering::Relaxed);
         let time = self.db_write_time_us.load(Ordering::Relaxed);
-        if count > 0 {
-            time / count
-        } else {
-            0
-        }
+        if count > 0 { time / count } else { 0 }
     }
 
     fn cache_hit_rate(&self) -> f64 {
         let hits = self.cache_hits.load(Ordering::Relaxed) as f64;
         let misses = self.cache_misses.load(Ordering::Relaxed) as f64;
         let total = hits + misses;
-        if total > 0.0 {
-            hits / total
-        } else {
-            0.0
-        }
+        if total > 0.0 { hits / total } else { 0.0 }
     }
 }
 

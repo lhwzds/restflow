@@ -119,12 +119,8 @@ async fn run_daemon(core: Arc<AppCore>, config: DaemonConfig) -> Result<()> {
         let mcp_shutdown = shutdown_tx.subscribe();
         let mcp_core = core.clone();
         Some(tokio::spawn(async move {
-            if let Err(err) = restflow_core::daemon::run_mcp_http_server(
-                mcp_core,
-                addr,
-                mcp_shutdown,
-            )
-            .await
+            if let Err(err) =
+                restflow_core::daemon::run_mcp_http_server(mcp_core, addr, mcp_shutdown).await
             {
                 error!(error = %err, "MCP server stopped unexpectedly");
             }

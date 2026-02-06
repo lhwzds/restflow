@@ -95,7 +95,7 @@ impl LlmClientFactory for DefaultLlmClientFactory {
         match spec.provider {
             LlmProvider::OpenAI => {
                 if spec.is_codex_cli {
-                    Ok(Arc::new(CodexClient::new(spec.client_model)))
+                    Ok(Arc::new(CodexClient::new().with_model(spec.client_model)))
                 } else {
                     let key = api_key.ok_or_else(|| {
                         AiError::Llm("OpenAI API key is required".to_string())
