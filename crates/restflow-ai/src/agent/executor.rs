@@ -272,7 +272,7 @@ impl AgentExecutor {
                     async move {
                         // Tool timeout
                         let result =
-                            tokio::time::timeout(timeout, tools.execute(&name, args)).await;
+                            tokio::time::timeout(timeout, tools.execute_safe(&name, args)).await;
                         let result = match result {
                             Ok(r) => r,
                             Err(_) => Err(AiError::Tool(format!("Tool {} timed out", name))),
@@ -503,6 +503,28 @@ impl AgentExecutor {
         emitter: &mut dyn StreamEmitter,
         tool_timeout: Duration,
     ) -> Vec<(String, Result<crate::tools::ToolOutput>)> {
+        let all_parallel = tool_calls.iter().all(|call| {
+            self.tools
+                .get(&call.name)
+                .map(|tool| tool.supports_parallel_for(&call.arguments))
+                .unwrap_or(false)
+        });
+
+        if all_parallel && tool_calls.len() > 1 {
+            self.execute_tools_parallel(tool_calls, emitter, tool_timeout)
+                .await
+        } else {
+            self.execute_tools_sequential(tool_calls, emitter, tool_timeout)
+                .await
+        }
+    }
+
+    async fn execute_tools_sequential(
+        &self,
+        tool_calls: &[ToolCall],
+        emitter: &mut dyn StreamEmitter,
+        tool_timeout: Duration,
+    ) -> Vec<(String, Result<crate::tools::ToolOutput>)> {
         let mut results = Vec::new();
 
         for call in tool_calls {
@@ -513,7 +535,7 @@ impl AgentExecutor {
 
             let result = tokio::time::timeout(
                 tool_timeout,
-                self.tools.execute(&call.name, call.arguments.clone()),
+                self.tools.execute_safe(&call.name, call.arguments.clone()),
             )
             .await
             .map_err(|_| AiError::Tool(format!("Tool {} timed out", call.name)))
@@ -539,6 +561,65 @@ impl AgentExecutor {
         }
 
         results
+    }
+
+    async fn execute_tools_parallel(
+        &self,
+        tool_calls: &[ToolCall],
+        emitter: &mut dyn StreamEmitter,
+        tool_timeout: Duration,
+    ) -> Vec<(String, Result<crate::tools::ToolOutput>)> {
+        for call in tool_calls {
+            let arguments = serde_json::to_string(&call.arguments).unwrap_or_default();
+            emitter
+                .emit_tool_call_start(&call.id, &call.name, &arguments)
+                .await;
+        }
+
+        let tools = Arc::clone(&self.tools);
+        let futures: Vec<_> = tool_calls
+            .iter()
+            .map(|call| {
+                let name = call.name.clone();
+                let args = call.arguments.clone();
+                let id = call.id.clone();
+                let tools = Arc::clone(&tools);
+                let timeout_dur = tool_timeout;
+                async move {
+                    let result = tokio::time::timeout(
+                        timeout_dur,
+                        tools.execute_safe(&name, args),
+                    )
+                    .await
+                    .map_err(|_| AiError::Tool(format!("Tool {} timed out", name)))
+                    .and_then(|r| r);
+                    (id, name, result)
+                }
+            })
+            .collect();
+
+        let results = futures::future::join_all(futures).await;
+        let mut output = Vec::new();
+
+        for (id, name, result) in results {
+            let (result_str, success) = match &result {
+                Ok(output) if output.success => {
+                    (serde_json::to_string(&output.result).unwrap_or_default(), true)
+                }
+                Ok(output) => (
+                    format!("Error: {}", output.error.clone().unwrap_or_default()),
+                    false,
+                ),
+                Err(error) => (format!("Error: {}", error), false),
+            };
+
+            emitter
+                .emit_tool_call_result(&id, &name, &result_str, success)
+                .await;
+            output.push((id, result));
+        }
+
+        output
     }
 
     async fn build_system_prompt(&self, config: &AgentConfig) -> String {
