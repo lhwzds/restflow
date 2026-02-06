@@ -30,12 +30,10 @@ pub fn parse_model(input: &str) -> Result<AIModel> {
         "gpt-5-mini" => AIModel::Gpt5Mini,
         "gpt-5-nano" => AIModel::Gpt5Nano,
         "gpt-5-pro" => AIModel::Gpt5Pro,
-        // OpenAI O-series
-        "o4-mini" => AIModel::O4Mini,
-        "o3" => AIModel::O3,
-        "o3-mini" => AIModel::O3Mini,
+        "gpt-5.1" | "gpt-5-1" => AIModel::Gpt5_1,
+        "gpt-5.2" | "gpt-5-2" => AIModel::Gpt5_2,
         // Anthropic Claude (direct API)
-        "claude-opus-4-1" => AIModel::ClaudeOpus4_1,
+        "claude-opus-4-6" => AIModel::ClaudeOpus4_6,
         "claude-sonnet-4-5" => AIModel::ClaudeSonnet4_5,
         "claude-haiku-4-5" => AIModel::ClaudeHaiku4_5,
         // Claude Code CLI (accepts both full name and short alias)
@@ -50,6 +48,31 @@ pub fn parse_model(input: &str) -> Result<AIModel> {
         // DeepSeek
         "deepseek-chat" => AIModel::DeepseekChat,
         "deepseek-reasoner" => AIModel::DeepseekReasoner,
+        // Google Gemini
+        "gemini-2.5-pro" | "gemini-pro" => AIModel::Gemini25Pro,
+        "gemini-2.5-flash" | "gemini-flash" => AIModel::Gemini25Flash,
+        "gemini-3-pro" | "gemini-3-pro-preview" => AIModel::Gemini3Pro,
+        "gemini-3-flash" | "gemini-3-flash-preview" => AIModel::Gemini3Flash,
+        // Groq
+        "groq-scout" | "llama-4-scout" => AIModel::GroqLlama4Scout,
+        "groq-maverick" | "llama-4-maverick" => AIModel::GroqLlama4Maverick,
+        // X.AI
+        "grok-4" | "grok4" => AIModel::Grok4,
+        "grok-3-mini" | "grok3-mini" => AIModel::Grok3Mini,
+        // Qwen
+        "qwen3-max" | "qwen-max" | "qwen" => AIModel::Qwen3Max,
+        "qwen3-plus" | "qwen-plus" => AIModel::Qwen3Plus,
+        // Zhipu
+        "glm-4.7" | "glm-4-7" | "glm" => AIModel::Glm4_7,
+        // Moonshot
+        "kimi-k2.5" | "kimi-k2-5" | "kimi" | "moonshot" => AIModel::KimiK2_5,
+        // Doubao
+        "doubao-pro" | "doubao" => AIModel::DoubaoPro,
+        // Yi
+        "yi-lightning" | "yi" => AIModel::YiLightning,
+        // Aggregators
+        "openrouter" => AIModel::OpenRouterAuto,
+        "siliconflow" => AIModel::SiliconFlowAuto,
         _ => {
             bail!("Unknown model: {input}")
         }

@@ -6,10 +6,10 @@
     "name": "Claude Sonnet 4.5"
   },
   {
-    "model": "claude-opus-4-1",
+    "model": "claude-opus-4-6",
     "provider": "anthropic",
     "supports_temperature": true,
-    "name": "Claude Opus 4.1"
+    "name": "Claude Opus 4.6"
   },
   {
     "model": "claude-haiku-4-5",
@@ -20,26 +20,20 @@
   {
     "model": "gpt-5",
     "provider": "openai",
-    "supports_temperature": true,
+    "supports_temperature": false,
     "name": "GPT-5"
   },
   {
     "model": "gpt-5-mini",
     "provider": "openai",
-    "supports_temperature": true,
+    "supports_temperature": false,
     "name": "GPT-5 Mini"
   },
   {
-    "model": "o3",
+    "model": "gpt-5-1",
     "provider": "openai",
     "supports_temperature": false,
-    "name": "o3"
-  },
-  {
-    "model": "o3-mini",
-    "provider": "openai",
-    "supports_temperature": false,
-    "name": "o3-mini"
+    "name": "GPT-5.1"
   },
   {
     "model": "deepseek-chat",
@@ -48,9 +42,9 @@
     "name": "DeepSeek Chat"
   },
   {
-    "model": "deepseek-reasoner",
-    "provider": "deepseek",
+    "model": "gemini-2-5-pro",
+    "provider": "google",
     "supports_temperature": true,
-    "name": "DeepSeek Reasoner"
+    "name": "Gemini 2.5 Pro"
   }
 ]

@@ -109,11 +109,7 @@ impl RealAgentExecutor {
         }
 
         // Fall back to well-known secret names for each provider
-        let secret_name = match provider {
-            Provider::OpenAI => "OPENAI_API_KEY",
-            Provider::Anthropic => "ANTHROPIC_API_KEY",
-            Provider::DeepSeek => "DEEPSEEK_API_KEY",
-        };
+        let secret_name = provider.api_key_env();
 
         if let Some(secret_value) = self.storage.secrets.get_secret(secret_name)? {
             return Ok(secret_value);
@@ -179,6 +175,16 @@ impl RealAgentExecutor {
             Provider::OpenAI => LlmProvider::OpenAI,
             Provider::Anthropic => LlmProvider::Anthropic,
             Provider::DeepSeek => LlmProvider::DeepSeek,
+            Provider::Google => LlmProvider::Google,
+            Provider::Groq => LlmProvider::Groq,
+            Provider::OpenRouter => LlmProvider::OpenRouter,
+            Provider::XAI => LlmProvider::XAI,
+            Provider::Qwen => LlmProvider::Qwen,
+            Provider::Zhipu => LlmProvider::Zhipu,
+            Provider::Moonshot => LlmProvider::Moonshot,
+            Provider::Doubao => LlmProvider::Doubao,
+            Provider::Yi => LlmProvider::Yi,
+            Provider::SiliconFlow => LlmProvider::SiliconFlow,
         }
     }
 
@@ -189,12 +195,12 @@ impl RealAgentExecutor {
     ) -> HashMap<LlmProvider, String> {
         let mut keys = HashMap::new();
 
-        for provider in [Provider::OpenAI, Provider::Anthropic, Provider::DeepSeek] {
+        for provider in Provider::all() {
             if let Ok(key) = self
-                .resolve_api_key_for_model(provider, agent_api_key_config, primary_provider)
+                .resolve_api_key_for_model(*provider, agent_api_key_config, primary_provider)
                 .await
             {
-                keys.insert(Self::to_llm_provider(provider), key);
+                keys.insert(Self::to_llm_provider(*provider), key);
             }
         }
 
