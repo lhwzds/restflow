@@ -11,8 +11,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use restflow_ai::{
-    DefaultLlmClientFactory, LlmClient, LlmClientFactory, LlmProvider, ModelSpec, SecretResolver,
-    SwappableLlm, SwitchModelTool,
+    DefaultLlmClientFactory, LlmClient, LlmClientFactory, LlmProvider, ModelSpec, SwappableLlm,
+    SwitchModelTool,
 };
 use restflow_core::{
     AIModel, Provider,
@@ -29,7 +29,7 @@ use super::retry::{RetryConfig, RetryState};
 use super::runner::{AgentExecutor, ExecutionResult};
 use crate::agent::{
     SubagentDeps, ToolRegistry, UnifiedAgent, UnifiedAgentConfig, build_agent_system_prompt,
-    registry_from_allowlist,
+    registry_from_allowlist, secret_resolver_from_storage,
 };
 use crate::subagent::{AgentDefinitionRegistry, SubagentConfig, SubagentTracker};
 
@@ -221,12 +221,9 @@ impl RealAgentExecutor {
         factory: Arc<dyn LlmClientFactory>,
     ) -> Arc<ToolRegistry> {
         let subagent_deps = self.build_subagent_deps(llm_client);
-        let secret_resolver: SecretResolver = {
-            let secrets = Arc::new(self.storage.secrets.clone());
-            Arc::new(move |key| secrets.get_secret(key).ok().flatten())
-        };
+        let secret_resolver = Some(secret_resolver_from_storage(&self.storage));
         let mut registry =
-            registry_from_allowlist(tool_names, Some(&subagent_deps), Some(secret_resolver));
+            registry_from_allowlist(tool_names, Some(&subagent_deps), secret_resolver);
 
         let enable_switch = tool_names
             .map(|names| names.iter().any(|name| name == "switch_model"))

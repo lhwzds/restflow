@@ -86,6 +86,10 @@ impl Tool for BashTool {
         })
     }
 
+    fn supports_parallel(&self) -> bool {
+        false
+    }
+
     async fn execute(&self, args: Value) -> Result<ToolResult> {
         let command = args
             .get("command")

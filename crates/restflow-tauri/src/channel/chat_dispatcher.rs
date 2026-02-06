@@ -8,7 +8,7 @@ use std::sync::Arc;
 use tracing::{debug, error, info, warn};
 
 use restflow_ai::llm::Message;
-use restflow_ai::{AnthropicClient, ClaudeCodeClient, LlmClient, OpenAIClient, SecretResolver};
+use restflow_ai::{AnthropicClient, ClaudeCodeClient, LlmClient, OpenAIClient};
 use restflow_core::auth::AuthProfileManager;
 use restflow_core::channel::{ChannelRouter, InboundMessage, OutboundMessage};
 use restflow_core::models::{ApiKeyConfig, ChatMessage, ChatRole, ChatSession};
@@ -18,7 +18,7 @@ use restflow_core::{AIModel, Provider};
 use super::debounce::MessageDebouncer;
 use crate::agent::{
     SubagentDeps, ToolRegistry, UnifiedAgent, UnifiedAgentConfig, build_agent_system_prompt,
-    registry_from_allowlist,
+    registry_from_allowlist, secret_resolver_from_storage,
 };
 use crate::subagent::{AgentDefinitionRegistry, SubagentConfig, SubagentTracker};
 
@@ -353,11 +353,6 @@ impl ChatDispatcher {
         }
     }
 
-    fn secret_resolver(&self) -> SecretResolver {
-        let secrets = Arc::new(self.storage.secrets.clone());
-        Arc::new(move |key| secrets.get_secret(key).ok().flatten())
-    }
-
     /// Convert a stored chat message into an LLM message.
     fn chat_message_to_llm_message(message: &ChatMessage) -> Message {
         match message.role {
@@ -475,10 +470,11 @@ impl ChatDispatcher {
         debug!("Creating LLM client");
         let llm = self.create_llm_client(model, &api_key);
         let subagent_deps = self.build_subagent_deps(llm.clone());
+        let secret_resolver = Some(secret_resolver_from_storage(&self.storage));
         let tools = Arc::new(registry_from_allowlist(
             agent_node.tools.as_deref(),
             Some(&subagent_deps),
-            Some(self.secret_resolver()),
+            secret_resolver,
         ));
         let system_prompt = build_agent_system_prompt(self.storage.clone(), agent_node)
             .map_err(|e| ChatError::ExecutionFailed(e.to_string()))?;

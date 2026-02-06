@@ -1520,6 +1520,18 @@ impl Tool for FileTool {
         })
     }
 
+    fn supports_parallel_for(&self, input: &Value) -> bool {
+        let action = input.get("action").and_then(|value| value.as_str());
+        match action {
+            Some("write") | Some("delete") => false,
+            Some(
+                "read" | "list" | "search" | "exists" | "batch_read" | "batch_exists"
+                | "batch_search",
+            ) => true,
+            _ => true,
+        }
+    }
+
     async fn execute(&self, input: Value) -> Result<ToolOutput> {
         let action: FileAction = serde_json::from_value(input)?;
 

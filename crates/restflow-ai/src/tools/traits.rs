@@ -85,6 +85,18 @@ pub trait Tool: Send + Sync {
     /// Execute the tool with given input
     async fn execute(&self, input: Value) -> Result<ToolOutput>;
 
+    /// Whether this tool supports parallel execution by default.
+    /// Override to false for tools with side effects.
+    fn supports_parallel(&self) -> bool {
+        true
+    }
+
+    /// Whether this tool supports parallel execution for a specific input.
+    /// Defaults to `supports_parallel()`.
+    fn supports_parallel_for(&self, _input: &Value) -> bool {
+        self.supports_parallel()
+    }
+
     /// Build complete schema for LLM
     fn schema(&self) -> ToolSchema {
         ToolSchema {
