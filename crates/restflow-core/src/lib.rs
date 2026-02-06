@@ -4,6 +4,7 @@ pub mod context;
 pub mod daemon;
 pub mod engine;
 pub mod loader;
+pub mod lsp;
 pub mod mcp;
 pub mod memory;
 pub mod models;

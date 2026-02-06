@@ -1,26 +1,38 @@
-//! Tool for LSP-based diagnostics.
+//! Diagnostics tool backed by a diagnostics provider (LSP).
 
 use async_trait::async_trait;
-use lsp_types::DiagnosticSeverity;
-use serde_json::Value;
+use lsp_types::Diagnostic;
+use serde_json::{Value, json};
+use std::path::Path;
 use std::sync::Arc;
-use tokio::sync::Mutex;
+use std::time::Duration;
 
-use crate::error::Result;
-use crate::lsp::LspManager;
+use crate::error::{AiError, Result};
 
 use super::traits::{Tool, ToolOutput};
 
-/// Tool that retrieves diagnostics from LSP.
-#[derive(Debug, Clone)]
+/// Provider interface for diagnostics.
+#[async_trait]
+pub trait DiagnosticsProvider: Send + Sync {
+    async fn ensure_open(&self, path: &Path) -> Result<()>;
+    async fn did_change(&self, path: &Path, content: &str) -> Result<()>;
+    async fn wait_for_diagnostics(
+        &self,
+        path: &Path,
+        timeout: Duration,
+    ) -> Result<Vec<Diagnostic>>;
+    async fn get_diagnostics(&self, path: &Path) -> Result<Vec<Diagnostic>>;
+}
+
+/// Tool for querying diagnostics from the provider.
+#[derive(Clone)]
 pub struct DiagnosticsTool {
-    lsp_manager: Arc<Mutex<LspManager>>,
+    provider: Arc<dyn DiagnosticsProvider>,
 }
 
 impl DiagnosticsTool {
-    /// Create a new diagnostics tool.
-    pub fn new(lsp_manager: Arc<Mutex<LspManager>>) -> Self {
-        Self { lsp_manager }
+    pub fn new(provider: Arc<dyn DiagnosticsProvider>) -> Self {
+        Self { provider }
     }
 }
 
@@ -31,75 +43,47 @@ impl Tool for DiagnosticsTool {
     }
 
     fn description(&self) -> &str {
-        "Get code diagnostics (errors, warnings) for a file using LSP. Use this after editing code."
+        "Fetch diagnostics for a file from the language server"
     }
 
     fn parameters_schema(&self) -> Value {
-        serde_json::json!({
+        json!({
             "type": "object",
             "properties": {
                 "path": {
                     "type": "string",
-                    "description": "Path to the file to diagnose"
+                    "description": "File path to fetch diagnostics for"
+                },
+                "timeout_ms": {
+                    "type": "integer",
+                    "description": "Max time to wait for diagnostics",
+                    "default": 5000,
+                    "minimum": 0
                 }
             },
             "required": ["path"]
         })
     }
 
-    async fn execute(&self, input: Value) -> Result<ToolOutput> {
-        let path = input
+    async fn execute(&self, args: Value) -> Result<ToolOutput> {
+        let path = args
             .get("path")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| crate::error::AiError::Tool("path is required".to_string()))?;
-        let path = std::path::Path::new(path);
+            .ok_or_else(|| AiError::Tool("Missing 'path' argument".to_string()))?;
+        let timeout_ms = args
+            .get("timeout_ms")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(5000);
 
-        let content = tokio::fs::read_to_string(path).await?;
+        let path = Path::new(path);
 
-        let diagnostics = {
-            let mut manager = self.lsp_manager.lock().await;
-            manager.get_diagnostics(path, &content).await
-        };
+        self.provider.ensure_open(path).await?;
 
-        let diagnostics = match diagnostics {
-            Ok(list) => list,
-            Err(err) => {
-                return Ok(ToolOutput::error(format!(
-                    "Failed to get diagnostics: {}",
-                    err
-                )))
-            }
-        };
+        let diagnostics = self
+            .provider
+            .wait_for_diagnostics(path, Duration::from_millis(timeout_ms))
+            .await?;
 
-        if diagnostics.is_empty() {
-            return Ok(ToolOutput::success(serde_json::json!({
-                "message": "No diagnostics found."
-            })));
-        }
-
-        let formatted: Vec<Value> = diagnostics
-            .iter()
-            .map(|diag| {
-                let severity = match diag.severity {
-                    Some(DiagnosticSeverity::ERROR) => "error",
-                    Some(DiagnosticSeverity::WARNING) => "warning",
-                    Some(DiagnosticSeverity::INFORMATION) => "information",
-                    Some(DiagnosticSeverity::HINT) => "hint",
-                    Some(_) => "unknown",
-                    None => "unknown",
-                };
-
-                serde_json::json!({
-                    "severity": severity,
-                    "message": diag.message,
-                    "line": diag.range.start.line + 1,
-                    "character": diag.range.start.character + 1
-                })
-            })
-            .collect();
-
-        Ok(ToolOutput::success(serde_json::json!({
-            "diagnostics": formatted
-        })))
+        Ok(ToolOutput::success(serde_json::to_value(diagnostics)?))
     }
 }
