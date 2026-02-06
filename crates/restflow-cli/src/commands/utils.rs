@@ -45,6 +45,8 @@ pub fn parse_model(input: &str) -> Result<AIModel> {
         // DeepSeek
         "deepseek-chat" => AIModel::DeepseekChat,
         "deepseek-reasoner" => AIModel::DeepseekReasoner,
+        // Codex CLI
+        "codex" | "codex-cli" => AIModel::CodexCli,
         _ => {
             bail!("Unknown model: {input}")
         }
