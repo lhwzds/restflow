@@ -6,6 +6,7 @@
 use std::sync::Arc;
 
 mod bash;
+mod config;
 mod diagnostics;
 mod email;
 mod file;
@@ -18,7 +19,9 @@ mod patch;
 mod process;
 mod python;
 mod registry;
+mod secrets;
 mod skill;
+mod task;
 mod switch_model;
 mod telegram;
 mod traits;
@@ -26,6 +29,7 @@ mod traits;
 use file_tracker::FileTracker;
 
 pub use bash::{BashInput, BashOutput, BashTool};
+pub use config::ConfigTool;
 pub use diagnostics::{DiagnosticsProvider, DiagnosticsTool};
 pub use email::EmailTool;
 pub use file::{FileAction, FileTool};
@@ -40,7 +44,9 @@ pub use patch::PatchTool;
 pub use process::{ProcessLog, ProcessManager, ProcessPollResult, ProcessSessionInfo, ProcessTool};
 pub use python::PythonTool;
 pub use registry::ToolRegistry;
+pub use secrets::SecretsTool;
 pub use skill::SkillTool;
+pub use task::{TaskCreateRequest, TaskStore, TaskTool};
 pub use switch_model::SwitchModelTool;
 pub use telegram::{TelegramTool, send_telegram_notification};
 pub use traits::{SkillContent, SkillInfo, SkillProvider, Tool, ToolOutput, ToolSchema};
