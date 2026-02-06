@@ -4,7 +4,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::error::{AiError, Result};
-use crate::llm::{AnthropicClient, ClaudeCodeClient, CodexClient, LlmClient, OpenAIClient};
+use crate::llm::{
+    AnthropicClient, ClaudeCodeClient, CodexClient, LlmClient, OpenAIClient, OpenCodeClient,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum LlmProvider {
@@ -29,6 +31,7 @@ pub struct ModelSpec {
     pub provider: LlmProvider,
     pub client_model: String,
     pub is_codex_cli: bool,
+    pub is_opencode_cli: bool,
 }
 
 impl ModelSpec {
@@ -42,6 +45,7 @@ impl ModelSpec {
             provider,
             client_model: client_model.into(),
             is_codex_cli: false,
+            is_opencode_cli: false,
         }
     }
 
@@ -51,6 +55,17 @@ impl ModelSpec {
             provider: LlmProvider::OpenAI,
             client_model: client_model.into(),
             is_codex_cli: true,
+            is_opencode_cli: false,
+        }
+    }
+
+    pub fn opencode(name: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            provider: LlmProvider::OpenAI,
+            client_model: String::new(),
+            is_codex_cli: false,
+            is_opencode_cli: true,
         }
     }
 }
@@ -61,6 +76,7 @@ pub trait LlmClientFactory: Send + Sync {
     fn resolve_api_key(&self, provider: LlmProvider) -> Option<String>;
     fn provider_for_model(&self, model: &str) -> Option<LlmProvider>;
     fn is_codex_cli_model(&self, model: &str) -> bool;
+    fn is_opencode_cli_model(&self, model: &str) -> bool;
 }
 
 pub struct DefaultLlmClientFactory {
@@ -97,6 +113,12 @@ impl LlmClientFactory for DefaultLlmClientFactory {
             LlmProvider::OpenAI => {
                 if spec.is_codex_cli {
                     Ok(Arc::new(CodexClient::new().with_model(spec.client_model)))
+                } else if spec.is_opencode_cli {
+                    let mut client = OpenCodeClient::new();
+                    if let Some(key) = api_key {
+                        client = client.with_provider_env("OPENAI_API_KEY", key.to_string());
+                    }
+                    Ok(Arc::new(client))
                 } else {
                     let key = api_key
                         .ok_or_else(|| AiError::Llm("OpenAI API key is required".to_string()))?;
@@ -146,6 +168,14 @@ impl LlmClientFactory for DefaultLlmClientFactory {
         self.models
             .get(&key)
             .map(|spec| spec.is_codex_cli)
+            .unwrap_or(false)
+    }
+
+    fn is_opencode_cli_model(&self, model: &str) -> bool {
+        let key = normalize_model_name(model);
+        self.models
+            .get(&key)
+            .map(|spec| spec.is_opencode_cli)
             .unwrap_or(false)
     }
 }
