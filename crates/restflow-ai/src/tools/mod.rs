@@ -5,6 +5,8 @@
 
 use std::sync::Arc;
 
+mod agent_crud;
+mod auth_profile;
 mod bash;
 mod config;
 mod diagnostics;
@@ -14,12 +16,14 @@ mod file_memory;
 mod file_tracker;
 mod http;
 mod mcp_cache;
+mod memory_mgmt;
 mod memory_search;
 mod patch;
 mod process;
 mod python;
 mod registry;
 mod secrets;
+mod session;
 mod skill;
 mod switch_model;
 mod task;
@@ -30,6 +34,11 @@ mod vision;
 
 use file_tracker::FileTracker;
 
+pub use agent_crud::{AgentCrudTool, AgentCreateRequest, AgentStore, AgentUpdateRequest};
+pub use auth_profile::{
+    AuthProfileCreateRequest, AuthProfileStore, AuthProfileTestRequest, AuthProfileTool,
+    CredentialInput,
+};
 pub use bash::{BashInput, BashOutput, BashTool};
 pub use config::ConfigTool;
 pub use diagnostics::{DiagnosticsProvider, DiagnosticsTool};
@@ -41,18 +50,26 @@ pub use file_memory::{
 };
 pub use http::HttpTool;
 pub use mcp_cache::{McpServerConfig, get_mcp_tools, invalidate_mcp_cache};
+pub use memory_mgmt::{
+    MemoryClearRequest, MemoryCompactRequest, MemoryExportRequest, MemoryManagementTool,
+    MemoryManager,
+};
 pub use memory_search::{MemorySearchMatch, MemorySearchTool, SemanticMemory};
 pub use patch::PatchTool;
 pub use process::{ProcessLog, ProcessManager, ProcessPollResult, ProcessSessionInfo, ProcessTool};
 pub use python::PythonTool;
 pub use registry::ToolRegistry;
 pub use secrets::SecretsTool;
+pub use session::{
+    SessionCreateRequest, SessionListFilter, SessionSearchQuery, SessionStore, SessionTool,
+};
 pub use skill::SkillTool;
 pub use switch_model::SwitchModelTool;
 pub use task::{TaskCreateRequest, TaskStore, TaskTool};
 pub use telegram::{TelegramTool, send_telegram_notification};
 pub use traits::{
-    SecretResolver, SkillContent, SkillInfo, SkillProvider, Tool, ToolOutput, ToolSchema,
+    SecretResolver, SkillContent, SkillInfo, SkillProvider, SkillRecord, SkillUpdate, Tool,
+    ToolOutput, ToolSchema,
 };
 pub use transcribe::TranscribeTool;
 pub use vision::VisionTool;

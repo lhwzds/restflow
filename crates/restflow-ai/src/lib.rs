@@ -51,8 +51,13 @@ pub use memory::{
 pub use security::{SecurityDecision, SecurityGate};
 pub use steer::{SteerMessage, SteerSource};
 pub use tools::{
-    DiagnosticsProvider, DiagnosticsTool, EmailTool, HttpTool, MemorySearchMatch, MemorySearchTool,
-    PythonTool, SecretResolver, SemanticMemory, SkillContent, SkillInfo, SkillProvider, SkillTool,
-    SwitchModelTool, Tool, ToolOutput, ToolRegistry, ToolSchema, TranscribeTool, VisionTool,
+    AgentCrudTool, AgentCreateRequest, AgentStore, AgentUpdateRequest, AuthProfileCreateRequest,
+    AuthProfileStore, AuthProfileTestRequest, AuthProfileTool, CredentialInput,
+    DiagnosticsProvider, DiagnosticsTool, EmailTool, HttpTool, MemoryClearRequest,
+    MemoryCompactRequest, MemoryExportRequest, MemoryManagementTool, MemoryManager,
+    MemorySearchMatch, MemorySearchTool, PythonTool, SecretResolver, SemanticMemory,
+    SessionCreateRequest, SessionListFilter, SessionSearchQuery, SessionStore, SessionTool,
+    SkillContent, SkillInfo, SkillProvider, SkillRecord, SkillTool, SkillUpdate, SwitchModelTool,
+    Tool, ToolOutput, ToolRegistry, ToolSchema, TranscribeTool, VisionTool,
 };
 pub use workflow_def::WorkflowDef;

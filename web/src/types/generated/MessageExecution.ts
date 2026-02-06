@@ -22,6 +22,18 @@ duration_ms: bigint,
  */
 tokens_used: number, 
 /**
+ * Cost in USD for this response
+ */
+cost_usd: number | null, 
+/**
+ * Input tokens for this response
+ */
+input_tokens: number | null, 
+/**
+ * Output tokens for this response
+ */
+output_tokens: number | null, 
+/**
  * Overall execution status
  */
 status: ChatExecutionStatus, };
