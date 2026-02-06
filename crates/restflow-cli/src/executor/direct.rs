@@ -7,8 +7,9 @@ use tracing::warn;
 use crate::executor::{CommandExecutor, CreateTaskInput};
 use crate::setup;
 use restflow_ai::{
-    AgentConfig, AgentExecutor, AgentState, AgentStatus, DefaultLlmClientFactory, LlmProvider,
-    LlmClientFactory, ModelSpec, Role, SwappableLlm, SwitchModelTool, ToolRegistry,
+    AgentConfig, AgentExecutor, AgentState, AgentStatus, DefaultLlmClientFactory, LlmClientFactory,
+    LlmProvider, ModelSpec, Role, SecretResolver, SwappableLlm, SwitchModelTool, ToolRegistry,
+    TranscribeTool, VisionTool,
 };
 use restflow_core::auth::{AuthManagerConfig, AuthProfileManager, AuthProvider};
 use restflow_core::memory::{ChatSessionMirror, ExportResult, MemoryExporter, MessageMirror};
@@ -310,6 +311,15 @@ async fn resolve_agent_id(core: &Arc<AppCore>, agent_id: Option<String>) -> Resu
     Ok(agents[0].id.clone())
 }
 
+fn build_secret_resolver(
+    secret_storage: Option<&restflow_core::storage::SecretStorage>,
+) -> Option<SecretResolver> {
+    secret_storage.map(|storage| {
+        let secrets = storage.clone();
+        Arc::new(move |key| secrets.get_secret(key).ok().flatten()) as SecretResolver
+    })
+}
+
 async fn resolve_api_key(
     api_key_config: Option<&ApiKeyConfig>,
     secret_storage: Option<&restflow_core::storage::SecretStorage>,
@@ -427,9 +437,7 @@ async fn build_api_keys(
             None
         };
 
-        if let Ok(key) =
-            resolve_api_key(api_key_config, secret_storage, provider, core).await
-        {
+        if let Ok(key) = resolve_api_key(api_key_config, secret_storage, provider, core).await {
             keys.insert(to_llm_provider(provider), key);
         }
     }
@@ -470,7 +478,7 @@ async fn run_agent_with_executor(
     let llm_client = factory.create_client(model.as_serialized_str(), api_key.as_deref())?;
     let swappable = Arc::new(SwappableLlm::new(llm_client));
 
-    let full_registry = create_tool_registry(
+    let mut full_registry = create_tool_registry(
         skill_storage,
         memory_storage,
         chat_storage,
@@ -480,6 +488,11 @@ async fn run_agent_with_executor(
         core.storage.agent_tasks.clone(),
         None,
     );
+
+    if let Some(resolver) = build_secret_resolver(secret_storage) {
+        full_registry.register(TranscribeTool::new(resolver.clone()));
+        full_registry.register(VisionTool::new(resolver));
+    }
 
     let mut tools = if let Some(ref tool_names) = agent_node.tools {
         if tool_names.is_empty() {
