@@ -30,9 +30,10 @@ use tokio::io::AsyncWriteExt;
 
 use super::diagnostics::DiagnosticsProvider;
 use super::file_tracker::FileTracker;
-use super::traits::{Tool, ToolOutput};
+use super::traits::{Tool, ToolOutput, check_security};
 use crate::cache::{AgentCacheManager, CachedSearchResult, SearchMatch as CachedSearchMatch};
 use crate::error::Result;
+use crate::security::{SecurityGate, ToolAction};
 
 /// Maximum file size to read (1MB)
 const DEFAULT_MAX_READ_BYTES: usize = 1_000_000;
@@ -80,6 +81,12 @@ pub struct FileTool {
     diagnostics: Option<Arc<dyn DiagnosticsProvider>>,
     /// Optional cache manager for file/search operations
     cache_manager: Option<Arc<AgentCacheManager>>,
+    /// Optional security gate
+    security_gate: Option<Arc<dyn SecurityGate>>,
+    /// Agent identifier for security checks
+    agent_id: Option<String>,
+    /// Task identifier for security checks
+    task_id: Option<String>,
 }
 
 impl Default for FileTool {
@@ -101,6 +108,9 @@ impl FileTool {
             tracker,
             diagnostics: None,
             cache_manager: None,
+            security_gate: None,
+            agent_id: None,
+            task_id: None,
         }
     }
 
@@ -126,6 +136,19 @@ impl FileTool {
     /// Attach a cache manager for file and search operations
     pub fn with_cache_manager(mut self, cache_manager: Arc<AgentCacheManager>) -> Self {
         self.cache_manager = Some(cache_manager);
+        self
+    }
+
+    /// Attach a security gate for tool approval
+    pub fn with_security(
+        mut self,
+        security_gate: Arc<dyn SecurityGate>,
+        agent_id: impl Into<String>,
+        task_id: impl Into<String>,
+    ) -> Self {
+        self.security_gate = Some(security_gate);
+        self.agent_id = Some(agent_id.into());
+        self.task_id = Some(task_id.into());
         self
     }
 
@@ -1534,6 +1557,64 @@ impl Tool for FileTool {
 
     async fn execute(&self, input: Value) -> Result<ToolOutput> {
         let action: FileAction = serde_json::from_value(input)?;
+
+        let action_info = match &action {
+            FileAction::Read { path, .. } => {
+                Some(("read", path.clone(), format!("Read file: {}", path)))
+            }
+            FileAction::Write { path, .. } => {
+                Some(("write", path.clone(), format!("Write file: {}", path)))
+            }
+            FileAction::List { path, .. } => {
+                Some(("list", path.clone(), format!("List directory: {}", path)))
+            }
+            FileAction::Search { path, .. } => {
+                Some(("search", path.clone(), format!("Search files in: {}", path)))
+            }
+            FileAction::Delete { path } => {
+                Some(("delete", path.clone(), format!("Delete path: {}", path)))
+            }
+            FileAction::Exists { path } => Some((
+                "exists",
+                path.clone(),
+                format!("Check path exists: {}", path),
+            )),
+            FileAction::BatchRead { paths, .. } => Some((
+                "batch_read",
+                format!("{} paths", paths.len()),
+                format!("Read {} files", paths.len()),
+            )),
+            FileAction::BatchExists { paths } => Some((
+                "batch_exists",
+                format!("{} paths", paths.len()),
+                format!("Check {} paths", paths.len()),
+            )),
+            FileAction::BatchSearch { locations, .. } => Some((
+                "batch_search",
+                format!("{} locations", locations.len()),
+                format!("Search {} locations", locations.len()),
+            )),
+        };
+
+        if let Some((operation, target, summary)) = action_info {
+            let action = ToolAction {
+                tool_name: "file".to_string(),
+                operation: operation.to_string(),
+                target,
+                summary,
+            };
+
+            if let Some(message) = check_security(
+                self.security_gate.as_deref(),
+                action,
+                self.agent_id.as_deref(),
+                self.task_id.as_deref(),
+            )
+            .await?
+            {
+                return Ok(ToolOutput::error(message));
+            }
+        }
 
         let output = match action {
             FileAction::Read {

@@ -4,10 +4,12 @@ use async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::process::Stdio;
+use std::sync::Arc;
 use tokio::process::Command;
 
 use crate::error::Result;
-use crate::tools::traits::{Tool, ToolOutput};
+use crate::security::{SecurityGate, ToolAction};
+use crate::tools::traits::{Tool, ToolOutput, check_security};
 
 #[derive(Debug, Deserialize)]
 struct PythonInput {
@@ -18,6 +20,9 @@ struct PythonInput {
 /// Python code execution tool
 pub struct PythonTool {
     python_path: String,
+    security_gate: Option<Arc<dyn SecurityGate>>,
+    agent_id: Option<String>,
+    task_id: Option<String>,
 }
 
 impl Default for PythonTool {
@@ -31,6 +36,9 @@ impl PythonTool {
     pub fn new() -> Self {
         Self {
             python_path: "python3".to_string(),
+            security_gate: None,
+            agent_id: None,
+            task_id: None,
         }
     }
 
@@ -38,7 +46,23 @@ impl PythonTool {
     pub fn with_python_path(python_path: impl Into<String>) -> Self {
         Self {
             python_path: python_path.into(),
+            security_gate: None,
+            agent_id: None,
+            task_id: None,
         }
+    }
+
+    /// Attach a security gate for tool approval
+    pub fn with_security(
+        mut self,
+        security_gate: Arc<dyn SecurityGate>,
+        agent_id: impl Into<String>,
+        task_id: impl Into<String>,
+    ) -> Self {
+        self.security_gate = Some(security_gate);
+        self.agent_id = Some(agent_id.into());
+        self.task_id = Some(task_id.into());
+        self
     }
 }
 
@@ -76,6 +100,24 @@ impl Tool for PythonTool {
     async fn execute(&self, input: Value) -> Result<ToolOutput> {
         let params: PythonInput = serde_json::from_value(input)?;
         let timeout = params.timeout_seconds.unwrap_or(30);
+
+        let action = ToolAction {
+            tool_name: "run_python".to_string(),
+            operation: "execute".to_string(),
+            target: "python".to_string(),
+            summary: "Execute Python code".to_string(),
+        };
+
+        if let Some(message) = check_security(
+            self.security_gate.as_deref(),
+            action,
+            self.agent_id.as_deref(),
+            self.task_id.as_deref(),
+        )
+        .await?
+        {
+            return Ok(ToolOutput::error(message));
+        }
 
         let result = tokio::time::timeout(
             std::time::Duration::from_secs(timeout),

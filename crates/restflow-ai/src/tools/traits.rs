@@ -5,7 +5,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
 
-use crate::error::Result;
+use crate::error::{AiError, Result};
+use crate::security::{SecurityGate, ToolAction};
 
 pub type SecretResolver = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
 
@@ -68,6 +69,43 @@ pub trait SkillProvider: Send + Sync {
     fn list_skills(&self) -> Vec<SkillInfo>;
     /// Get skill content by ID
     fn get_skill(&self, id: &str) -> Option<SkillContent>;
+}
+
+/// Helper for tools to check security before executing.
+///
+/// Returns Ok(None) if allowed, Ok(Some(message)) if blocked or requires approval.
+pub async fn check_security(
+    gate: Option<&dyn SecurityGate>,
+    action: ToolAction,
+    agent_id: Option<&str>,
+    task_id: Option<&str>,
+) -> Result<Option<String>> {
+    let Some(gate) = gate else {
+        return Ok(None);
+    };
+
+    let agent_id = agent_id.ok_or_else(|| AiError::Tool("Missing agent_id".into()))?;
+    let task_id = task_id.ok_or_else(|| AiError::Tool("Missing task_id".into()))?;
+
+    match gate
+        .check_tool_action(&action, Some(agent_id), Some(task_id))
+        .await?
+    {
+        crate::security::SecurityDecision { allowed: true, .. } => Ok(None),
+        crate::security::SecurityDecision {
+            requires_approval: true,
+            approval_id,
+            ..
+        } => Ok(Some(format!(
+            "Action requires user approval (ID: {}). Waiting for approval of: {}",
+            approval_id.unwrap_or_else(|| "unknown".to_string()),
+            action.summary
+        ))),
+        crate::security::SecurityDecision { reason, .. } => Ok(Some(format!(
+            "Action blocked: {}",
+            reason.unwrap_or_else(|| "Blocked by policy".to_string())
+        ))),
+    }
 }
 
 /// Core trait for agent tools

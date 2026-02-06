@@ -3,9 +3,11 @@
 use async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::{Value, json};
+use std::sync::Arc;
 
 use crate::error::Result;
-use crate::tools::traits::{Tool, ToolOutput};
+use crate::security::{SecurityGate, ToolAction};
+use crate::tools::traits::{Tool, ToolOutput, check_security};
 
 #[derive(Debug, Deserialize)]
 struct EmailInput {
@@ -19,6 +21,9 @@ struct EmailInput {
 pub struct EmailTool {
     // In production, this would hold SMTP configuration
     dry_run: bool,
+    security_gate: Option<Arc<dyn SecurityGate>>,
+    agent_id: Option<String>,
+    task_id: Option<String>,
 }
 
 impl Default for EmailTool {
@@ -30,12 +35,35 @@ impl Default for EmailTool {
 impl EmailTool {
     /// Create a new email tool in dry run mode
     pub fn new() -> Self {
-        Self { dry_run: true }
+        Self {
+            dry_run: true,
+            security_gate: None,
+            agent_id: None,
+            task_id: None,
+        }
     }
 
     /// Create with dry run mode setting
     pub fn with_dry_run(dry_run: bool) -> Self {
-        Self { dry_run }
+        Self {
+            dry_run,
+            security_gate: None,
+            agent_id: None,
+            task_id: None,
+        }
+    }
+
+    /// Attach a security gate for tool approval
+    pub fn with_security(
+        mut self,
+        security_gate: Arc<dyn SecurityGate>,
+        agent_id: impl Into<String>,
+        task_id: impl Into<String>,
+    ) -> Self {
+        self.security_gate = Some(security_gate);
+        self.agent_id = Some(agent_id.into());
+        self.task_id = Some(task_id.into());
+        self
     }
 }
 
@@ -80,6 +108,24 @@ impl Tool for EmailTool {
 
     async fn execute(&self, input: Value) -> Result<ToolOutput> {
         let params: EmailInput = serde_json::from_value(input)?;
+
+        let action = ToolAction {
+            tool_name: "send_email".to_string(),
+            operation: "send".to_string(),
+            target: params.to.clone(),
+            summary: format!("Send email to {}", params.to),
+        };
+
+        if let Some(message) = check_security(
+            self.security_gate.as_deref(),
+            action,
+            self.agent_id.as_deref(),
+            self.task_id.as_deref(),
+        )
+        .await?
+        {
+            return Ok(ToolOutput::error(message));
+        }
 
         if self.dry_run {
             // In dry run mode, just return success without actually sending

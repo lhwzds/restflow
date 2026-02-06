@@ -39,6 +39,10 @@ pub struct SecurityPolicy {
     #[serde(default)]
     pub approval_required: Vec<CommandPattern>,
 
+    /// Tool-specific rules evaluated before default action
+    #[serde(default)]
+    pub tool_rules: Vec<ToolRule>,
+
     /// Approval timeout in seconds (default: 300 = 5 minutes)
     #[serde(default = "default_approval_timeout")]
     pub approval_timeout_secs: u64,
@@ -60,6 +64,22 @@ pub enum SecurityAction {
     /// Command requires explicit user approval before execution
     #[default]
     RequireApproval,
+}
+
+/// Tool rule for non-shell actions.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct ToolRule {
+    pub id: String,
+    pub tool_name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub operation: Option<String>,
+    pub target_pattern: String,
+    pub action: SecurityAction,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub priority: i32,
 }
 
 /// Security mode for a given agent.
@@ -163,6 +183,7 @@ impl AgentSecurityConfig {
             allowlist: self.allowlist.clone(),
             blocklist: self.blocklist.clone(),
             approval_required: self.approval_required.clone(),
+            tool_rules: Vec::new(),
             approval_timeout_secs: default_approval_timeout(),
         }
     }
@@ -231,7 +252,7 @@ impl CommandPattern {
 /// Special handling: trailing ` *` (space + wildcard) also matches when there are no arguments.
 /// This means `ls *` matches both `ls` and `ls -la`.
 #[allow(clippy::needless_range_loop)]
-fn glob_match(pattern: &str, text: &str) -> bool {
+pub(crate) fn glob_match(pattern: &str, text: &str) -> bool {
     // Special case: if pattern ends with " *", also try matching without it
     // This allows "ls *" to match both "ls" and "ls -la"
     if let Some(base_pattern) = pattern.strip_suffix(" *")
@@ -528,6 +549,7 @@ impl Default for SecurityPolicy {
                 CommandPattern::with_description("mv *", "Move/rename files"),
                 CommandPattern::with_description("cp -r *", "Copy recursively"),
             ],
+            tool_rules: Vec::new(),
             approval_timeout_secs: default_approval_timeout(),
         }
     }
@@ -587,6 +609,7 @@ mod tests {
         assert!(!policy.allowlist.is_empty());
         assert!(!policy.blocklist.is_empty());
         assert!(!policy.approval_required.is_empty());
+        assert!(policy.tool_rules.is_empty());
         assert_eq!(policy.default_action, SecurityAction::RequireApproval);
     }
 

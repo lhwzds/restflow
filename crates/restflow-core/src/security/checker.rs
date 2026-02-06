@@ -15,7 +15,7 @@ use crate::models::security::{
 };
 use crate::security::path_resolver::{CommandResolution, matches_path_pattern};
 use crate::security::shell_parser;
-use restflow_ai::{SecurityDecision, SecurityGate};
+use restflow_ai::{SecurityDecision, SecurityGate, ToolAction};
 
 /// Security checker for validating commands.
 ///
@@ -260,6 +260,64 @@ impl SecurityChecker {
         }
     }
 
+    /// Check if a tool action is allowed to execute.
+    pub async fn check_tool_action(
+        &self,
+        action: &ToolAction,
+        agent_id: Option<&str>,
+        task_id: Option<&str>,
+    ) -> anyhow::Result<SecurityDecision> {
+        let policy = self.get_policy().await;
+
+        let mut rules: Vec<_> = policy
+            .tool_rules
+            .iter()
+            .filter(|rule| rule.tool_name == "*" || rule.tool_name == action.tool_name)
+            .filter(|rule| {
+                rule.operation
+                    .as_deref()
+                    .map_or(true, |op| op == action.operation)
+            })
+            .collect();
+
+        rules.sort_by(|a, b| b.priority.cmp(&a.priority));
+
+        for rule in rules {
+            if crate::models::security::glob_match(&rule.target_pattern, &action.target) {
+                return match rule.action {
+                    SecurityAction::Allow => Ok(SecurityDecision::allowed(Some(
+                        "Action allowed by policy".to_string(),
+                    ))),
+                    SecurityAction::Block => Ok(SecurityDecision::blocked(Some(
+                        rule.description
+                            .clone()
+                            .unwrap_or_else(|| format!("Blocked by rule: {}", rule.id)),
+                    ))),
+                    SecurityAction::RequireApproval => {
+                        let task_id = task_id
+                            .ok_or_else(|| anyhow::anyhow!("Missing task_id for tool approval"))?;
+                        let agent_id = agent_id
+                            .ok_or_else(|| anyhow::anyhow!("Missing agent_id for tool approval"))?;
+                        let approval_id = self
+                            .approval_manager
+                            .create_approval(action.summary.clone(), task_id, agent_id, None)
+                            .await?;
+                        Ok(SecurityDecision::requires_approval(
+                            approval_id,
+                            rule.description
+                                .clone()
+                                .or_else(|| Some("Action requires approval".to_string())),
+                        ))
+                    }
+                };
+            }
+        }
+
+        Ok(SecurityDecision::allowed(Some(
+            "Action allowed by policy".to_string(),
+        )))
+    }
+
     /// Check if a previously created approval has been granted.
     ///
     /// Returns an updated `SecurityCheckResult` based on the approval status.
@@ -466,6 +524,17 @@ impl SecurityGate for SecurityChecker {
 
         Ok(SecurityDecision::blocked(result.reason))
     }
+
+    async fn check_tool_action(
+        &self,
+        action: &ToolAction,
+        agent_id: Option<&str>,
+        task_id: Option<&str>,
+    ) -> restflow_ai::Result<SecurityDecision> {
+        SecurityChecker::check_tool_action(self, action, agent_id, task_id)
+            .await
+            .map_err(|err| restflow_ai::AiError::Tool(err.to_string()))
+    }
 }
 
 fn matches_pattern(
@@ -488,6 +557,8 @@ fn matches_pattern(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::security::ToolRule;
+    use restflow_ai::ToolAction;
 
     fn create_test_checker() -> SecurityChecker {
         SecurityChecker::with_defaults()
@@ -853,5 +924,68 @@ mod tests {
             checker.would_allow("cargo publish").await,
             SecurityAction::RequireApproval
         );
+    }
+
+    #[tokio::test]
+    async fn test_tool_rule_blocked() {
+        let checker = create_test_checker();
+        let mut policy = checker.get_policy().await;
+        policy.tool_rules.push(ToolRule {
+            id: "rule-1".to_string(),
+            tool_name: "http_request".to_string(),
+            operation: Some("delete".to_string()),
+            target_pattern: "*".to_string(),
+            action: SecurityAction::Block,
+            description: Some("No deletes".to_string()),
+            priority: 10,
+        });
+        checker.set_policy(policy).await;
+
+        let action = ToolAction {
+            tool_name: "http_request".to_string(),
+            operation: "delete".to_string(),
+            target: "https://example.com".to_string(),
+            summary: "HTTP delete".to_string(),
+        };
+
+        let decision = checker
+            .check_tool_action(&action, Some("agent-1"), Some("task-1"))
+            .await
+            .unwrap();
+
+        assert!(!decision.allowed);
+        assert!(!decision.requires_approval);
+    }
+
+    #[tokio::test]
+    async fn test_tool_rule_requires_approval() {
+        let checker = create_test_checker();
+        let mut policy = checker.get_policy().await;
+        policy.tool_rules.push(ToolRule {
+            id: "rule-2".to_string(),
+            tool_name: "send_email".to_string(),
+            operation: Some("send".to_string()),
+            target_pattern: "*".to_string(),
+            action: SecurityAction::RequireApproval,
+            description: None,
+            priority: 5,
+        });
+        checker.set_policy(policy).await;
+
+        let action = ToolAction {
+            tool_name: "send_email".to_string(),
+            operation: "send".to_string(),
+            target: "user@example.com".to_string(),
+            summary: "Send email".to_string(),
+        };
+
+        let decision = checker
+            .check_tool_action(&action, Some("agent-1"), Some("task-1"))
+            .await
+            .unwrap();
+
+        assert!(!decision.allowed);
+        assert!(decision.requires_approval);
+        assert!(decision.approval_id.is_some());
     }
 }

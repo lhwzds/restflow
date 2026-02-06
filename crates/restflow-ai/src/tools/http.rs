@@ -4,10 +4,12 @@ use async_trait::async_trait;
 use reqwest::Client;
 use serde::Deserialize;
 use serde_json::{Value, json};
+use std::sync::Arc;
 
 use crate::error::Result;
 use crate::http_client::build_http_client;
-use crate::tools::traits::{Tool, ToolOutput};
+use crate::security::{SecurityGate, ToolAction};
+use crate::tools::traits::{Tool, ToolOutput, check_security};
 
 #[derive(Debug, Deserialize)]
 struct HttpInput {
@@ -20,6 +22,9 @@ struct HttpInput {
 /// HTTP request tool for making API calls
 pub struct HttpTool {
     client: Client,
+    security_gate: Option<Arc<dyn SecurityGate>>,
+    agent_id: Option<String>,
+    task_id: Option<String>,
 }
 
 impl Default for HttpTool {
@@ -33,12 +38,33 @@ impl HttpTool {
     pub fn new() -> Self {
         Self {
             client: build_http_client(),
+            security_gate: None,
+            agent_id: None,
+            task_id: None,
         }
     }
 
     /// Create with a custom reqwest client
     pub fn with_client(client: Client) -> Self {
-        Self { client }
+        Self {
+            client,
+            security_gate: None,
+            agent_id: None,
+            task_id: None,
+        }
+    }
+
+    /// Attach a security gate for tool approval
+    pub fn with_security(
+        mut self,
+        security_gate: Arc<dyn SecurityGate>,
+        agent_id: impl Into<String>,
+        task_id: impl Into<String>,
+    ) -> Self {
+        self.security_gate = Some(security_gate);
+        self.agent_id = Some(agent_id.into());
+        self.task_id = Some(task_id.into());
+        self
     }
 }
 
@@ -80,6 +106,24 @@ impl Tool for HttpTool {
 
     async fn execute(&self, input: Value) -> Result<ToolOutput> {
         let params: HttpInput = serde_json::from_value(input)?;
+
+        let action = ToolAction {
+            tool_name: "http_request".to_string(),
+            operation: params.method.to_lowercase(),
+            target: params.url.clone(),
+            summary: format!("HTTP {} {}", params.method, params.url),
+        };
+
+        if let Some(message) = check_security(
+            self.security_gate.as_deref(),
+            action,
+            self.agent_id.as_deref(),
+            self.task_id.as_deref(),
+        )
+        .await?
+        {
+            return Ok(ToolOutput::error(message));
+        }
 
         let mut request = match params.method.to_uppercase().as_str() {
             "GET" => self.client.get(&params.url),
