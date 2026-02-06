@@ -406,7 +406,7 @@ mod tests {
         let (storage, _temp_dir) = create_test_storage();
         let executor = create_test_executor(storage);
 
-        let result = executor.execute("nonexistent-agent", None).await;
+        let result = executor.execute("nonexistent-agent", None, None).await;
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("not found"));
     }
@@ -426,7 +426,7 @@ mod tests {
         let agent_id = &agents[0].id;
 
         let executor = create_test_executor(storage);
-        let result = executor.execute(agent_id, Some("test input")).await;
+        let result = executor.execute(agent_id, Some("test input"), None).await;
 
         // Should fail due to missing API key (no ANTHROPIC_API_KEY secret configured)
         assert!(result.is_err());
