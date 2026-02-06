@@ -5,6 +5,7 @@ mod claude_code;
 mod client;
 mod codex;
 mod factory;
+mod opencode;
 mod openai;
 mod pricing;
 mod retry;
@@ -17,6 +18,7 @@ pub use client::{
     StreamResult, TokenUsage, ToolCall, ToolCallDelta,
 };
 pub use codex::CodexClient;
+pub use opencode::OpenCodeClient;
 pub use factory::{DefaultLlmClientFactory, LlmClientFactory, LlmProvider, ModelSpec};
 pub use openai::OpenAIClient;
 pub use retry::LlmRetryConfig;

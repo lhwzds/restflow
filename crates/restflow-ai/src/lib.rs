@@ -41,7 +41,8 @@ pub use error::{AiError, Result};
 pub use graph::{Graph, GraphNode};
 pub use llm::{
     AnthropicClient, ClaudeCodeClient, CodexClient, DefaultLlmClientFactory, LlmClient,
-    LlmClientFactory, LlmProvider, Message, ModelSpec, OpenAIClient, Role, SwappableLlm,
+    LlmClientFactory, LlmProvider, Message, ModelSpec, OpenAIClient, OpenCodeClient, Role,
+    SwappableLlm,
 };
 pub use memory::{
     CompactionConfig, CompactionResult, ContextCompactor, DEFAULT_MAX_MESSAGES, WorkingMemory,
