@@ -39,9 +39,58 @@ pub struct SecurityPolicy {
     #[serde(default)]
     pub approval_required: Vec<CommandPattern>,
 
+    /// Tool-specific rules for non-shell actions
+    #[serde(default)]
+    pub tool_rules: Vec<ToolRule>,
+
     /// Approval timeout in seconds (default: 300 = 5 minutes)
     #[serde(default = "default_approval_timeout")]
     pub approval_timeout_secs: u64,
+}
+
+/// Generic tool operation for policy evaluation.
+/// Replaces the bash-only command string approach.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct ToolAction {
+    pub tool_name: String,
+    pub operation: String,
+    pub target: String,
+    pub summary: String,
+}
+
+impl ToolAction {
+    /// Format as pattern-matchable string: "tool:operation target"
+    pub fn as_pattern_string(&self) -> String {
+        format!("{}:{} {}", self.tool_name, self.operation, self.target)
+    }
+}
+
+impl From<&restflow_ai::ToolAction> for ToolAction {
+    fn from(action: &restflow_ai::ToolAction) -> Self {
+        Self {
+            tool_name: action.tool_name.clone(),
+            operation: action.operation.clone(),
+            target: action.target.clone(),
+            summary: action.summary.clone(),
+        }
+    }
+}
+
+/// Tool-specific security rule.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct ToolRule {
+    pub id: String,
+    pub tool_name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub operation: Option<String>,
+    pub target_pattern: String,
+    pub action: SecurityAction,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub priority: i32,
 }
 
 fn default_approval_timeout() -> u64 {
@@ -163,6 +212,7 @@ impl AgentSecurityConfig {
             allowlist: self.allowlist.clone(),
             blocklist: self.blocklist.clone(),
             approval_required: self.approval_required.clone(),
+            tool_rules: Vec::new(),
             approval_timeout_secs: default_approval_timeout(),
         }
     }
@@ -231,7 +281,7 @@ impl CommandPattern {
 /// Special handling: trailing ` *` (space + wildcard) also matches when there are no arguments.
 /// This means `ls *` matches both `ls` and `ls -la`.
 #[allow(clippy::needless_range_loop)]
-fn glob_match(pattern: &str, text: &str) -> bool {
+pub(crate) fn glob_match(pattern: &str, text: &str) -> bool {
     // Special case: if pattern ends with " *", also try matching without it
     // This allows "ls *" to match both "ls" and "ls -la"
     if let Some(base_pattern) = pattern.strip_suffix(" *")
@@ -528,6 +578,7 @@ impl Default for SecurityPolicy {
                 CommandPattern::with_description("mv *", "Move/rename files"),
                 CommandPattern::with_description("cp -r *", "Copy recursively"),
             ],
+            tool_rules: Vec::new(),
             approval_timeout_secs: default_approval_timeout(),
         }
     }
@@ -677,6 +728,23 @@ mod tests {
     #[test]
     fn test_approval_status_default() {
         assert_eq!(ApprovalStatus::default(), ApprovalStatus::Pending);
+    }
+
+    #[test]
+    fn test_tool_action_pattern_string() {
+        let action = ToolAction {
+            tool_name: "email".to_string(),
+            operation: "send".to_string(),
+            target: "user@test.com".to_string(),
+            summary: "Send email".to_string(),
+        };
+        assert_eq!(action.as_pattern_string(), "email:send user@test.com");
+    }
+
+    #[test]
+    fn test_tool_rules_default_empty() {
+        let policy = SecurityPolicy::default();
+        assert!(policy.tool_rules.is_empty());
     }
 
     #[test]

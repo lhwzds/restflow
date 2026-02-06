@@ -31,8 +31,11 @@ use tokio::io::AsyncWriteExt;
 use super::diagnostics::DiagnosticsProvider;
 use super::file_tracker::FileTracker;
 use super::traits::{Tool, ToolOutput};
+use crate::ToolAction;
 use crate::cache::{AgentCacheManager, CachedSearchResult, SearchMatch as CachedSearchMatch};
 use crate::error::Result;
+use crate::security::SecurityGate;
+use crate::tools::traits::check_security;
 
 /// Maximum file size to read (1MB)
 const DEFAULT_MAX_READ_BYTES: usize = 1_000_000;
@@ -80,6 +83,12 @@ pub struct FileTool {
     diagnostics: Option<Arc<dyn DiagnosticsProvider>>,
     /// Optional cache manager for file/search operations
     cache_manager: Option<Arc<AgentCacheManager>>,
+    /// Optional security gate
+    security_gate: Option<Arc<dyn SecurityGate>>,
+    /// Agent identifier for security checks
+    agent_id: Option<String>,
+    /// Task identifier for security checks
+    task_id: Option<String>,
 }
 
 impl Default for FileTool {
@@ -101,6 +110,9 @@ impl FileTool {
             tracker,
             diagnostics: None,
             cache_manager: None,
+            security_gate: None,
+            agent_id: None,
+            task_id: None,
         }
     }
 
@@ -126,6 +138,17 @@ impl FileTool {
     /// Attach a cache manager for file and search operations
     pub fn with_cache_manager(mut self, cache_manager: Arc<AgentCacheManager>) -> Self {
         self.cache_manager = Some(cache_manager);
+        self
+    }
+    pub fn with_security(
+        mut self,
+        security_gate: Arc<dyn SecurityGate>,
+        agent_id: impl Into<String>,
+        task_id: impl Into<String>,
+    ) -> Self {
+        self.security_gate = Some(security_gate);
+        self.agent_id = Some(agent_id.into());
+        self.task_id = Some(task_id.into());
         self
     }
 
@@ -1534,6 +1557,149 @@ impl Tool for FileTool {
 
     async fn execute(&self, input: Value) -> Result<ToolOutput> {
         let action: FileAction = serde_json::from_value(input)?;
+
+        async fn check_paths_inner(
+            security_gate: Option<&dyn SecurityGate>,
+            agent_id: Option<&str>,
+            task_id: Option<&str>,
+            operation: &str,
+            paths: &[String],
+        ) -> Result<Option<String>> {
+            for path in paths {
+                let action = ToolAction {
+                    tool_name: "file".to_string(),
+                    operation: operation.to_string(),
+                    target: path.clone(),
+                    summary: format!("File {} {}", operation, path),
+                };
+                if let Some(message) =
+                    check_security(security_gate, action, agent_id, task_id).await?
+                {
+                    return Ok(Some(message));
+                }
+            }
+            Ok(None)
+        }
+
+        match &action {
+            FileAction::Read { path, .. } => {
+                if let Some(message) = check_paths_inner(
+                    self.security_gate.as_deref(),
+                    self.agent_id.as_deref(),
+                    self.task_id.as_deref(),
+                    "read",
+                    &[path.clone()],
+                )
+                .await?
+                {
+                    return Ok(ToolOutput::error(message));
+                }
+            }
+            FileAction::Write { path, .. } => {
+                if let Some(message) = check_paths_inner(
+                    self.security_gate.as_deref(),
+                    self.agent_id.as_deref(),
+                    self.task_id.as_deref(),
+                    "write",
+                    &[path.clone()],
+                )
+                .await?
+                {
+                    return Ok(ToolOutput::error(message));
+                }
+            }
+            FileAction::List { path, .. } => {
+                if let Some(message) = check_paths_inner(
+                    self.security_gate.as_deref(),
+                    self.agent_id.as_deref(),
+                    self.task_id.as_deref(),
+                    "list",
+                    &[path.clone()],
+                )
+                .await?
+                {
+                    return Ok(ToolOutput::error(message));
+                }
+            }
+            FileAction::Search { path, .. } => {
+                if let Some(message) = check_paths_inner(
+                    self.security_gate.as_deref(),
+                    self.agent_id.as_deref(),
+                    self.task_id.as_deref(),
+                    "search",
+                    &[path.clone()],
+                )
+                .await?
+                {
+                    return Ok(ToolOutput::error(message));
+                }
+            }
+            FileAction::Delete { path } => {
+                if let Some(message) = check_paths_inner(
+                    self.security_gate.as_deref(),
+                    self.agent_id.as_deref(),
+                    self.task_id.as_deref(),
+                    "delete",
+                    &[path.clone()],
+                )
+                .await?
+                {
+                    return Ok(ToolOutput::error(message));
+                }
+            }
+            FileAction::Exists { path } => {
+                if let Some(message) = check_paths_inner(
+                    self.security_gate.as_deref(),
+                    self.agent_id.as_deref(),
+                    self.task_id.as_deref(),
+                    "exists",
+                    &[path.clone()],
+                )
+                .await?
+                {
+                    return Ok(ToolOutput::error(message));
+                }
+            }
+            FileAction::BatchRead { paths, .. } => {
+                if let Some(message) = check_paths_inner(
+                    self.security_gate.as_deref(),
+                    self.agent_id.as_deref(),
+                    self.task_id.as_deref(),
+                    "read",
+                    paths,
+                )
+                .await?
+                {
+                    return Ok(ToolOutput::error(message));
+                }
+            }
+            FileAction::BatchExists { paths } => {
+                if let Some(message) = check_paths_inner(
+                    self.security_gate.as_deref(),
+                    self.agent_id.as_deref(),
+                    self.task_id.as_deref(),
+                    "exists",
+                    paths,
+                )
+                .await?
+                {
+                    return Ok(ToolOutput::error(message));
+                }
+            }
+            FileAction::BatchSearch { locations, .. } => {
+                if let Some(message) = check_paths_inner(
+                    self.security_gate.as_deref(),
+                    self.agent_id.as_deref(),
+                    self.task_id.as_deref(),
+                    "search",
+                    locations,
+                )
+                .await?
+                {
+                    return Ok(ToolOutput::error(message));
+                }
+            }
+        }
 
         let output = match action {
             FileAction::Read {
