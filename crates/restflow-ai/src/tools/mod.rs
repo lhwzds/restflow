@@ -22,6 +22,8 @@ mod skill;
 mod switch_model;
 mod telegram;
 mod traits;
+mod transcribe;
+mod vision;
 
 use file_tracker::FileTracker;
 
@@ -43,7 +45,11 @@ pub use registry::ToolRegistry;
 pub use skill::SkillTool;
 pub use switch_model::SwitchModelTool;
 pub use telegram::{TelegramTool, send_telegram_notification};
-pub use traits::{SkillContent, SkillInfo, SkillProvider, Tool, ToolOutput, ToolSchema};
+pub use traits::{
+    SecretResolver, SkillContent, SkillInfo, SkillProvider, Tool, ToolOutput, ToolSchema,
+};
+pub use transcribe::TranscribeTool;
+pub use vision::VisionTool;
 
 /// Create a registry with default tools
 pub fn default_registry() -> ToolRegistry {
