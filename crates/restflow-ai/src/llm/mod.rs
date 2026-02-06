@@ -6,6 +6,7 @@ mod client;
 mod codex;
 mod factory;
 mod openai;
+mod opencode;
 mod retry;
 mod swappable;
 
@@ -18,5 +19,6 @@ pub use client::{
 pub use codex::CodexClient;
 pub use factory::{DefaultLlmClientFactory, LlmClientFactory, LlmProvider, ModelSpec};
 pub use openai::OpenAIClient;
+pub use opencode::OpenCodeClient;
 pub use retry::LlmRetryConfig;
 pub use swappable::SwappableLlm;

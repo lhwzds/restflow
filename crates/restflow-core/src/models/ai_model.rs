@@ -77,6 +77,10 @@ pub enum AIModel {
     // Codex CLI (OpenAI)
     #[serde(rename = "codex-cli")]
     CodexCli,
+
+    // OpenCode CLI (multi-provider)
+    #[serde(rename = "opencode-cli")]
+    OpenCodeCli,
 }
 
 impl AIModel {
@@ -174,6 +178,13 @@ impl AIModel {
                 supports_temperature: false,
                 name: "Codex CLI",
             },
+
+            // OpenCode CLI
+            Self::OpenCodeCli => ModelMetadata {
+                provider: Provider::OpenAI,
+                supports_temperature: false,
+                name: "OpenCode CLI",
+            },
         }
     }
 
@@ -217,6 +228,9 @@ impl AIModel {
 
             // Codex CLI
             Self::CodexCli => "gpt-5.3-codex",
+
+            // OpenCode CLI
+            Self::OpenCodeCli => "opencode",
         }
     }
 
@@ -252,6 +266,9 @@ impl AIModel {
             // Codex CLI
             Self::CodexCli => "codex-cli",
 
+            // OpenCode CLI
+            Self::OpenCodeCli => "opencode-cli",
+
             // DeepSeek series
             Self::DeepseekChat => "deepseek-chat",
             Self::DeepseekReasoner => "deepseek-reasoner",
@@ -269,6 +286,11 @@ impl AIModel {
             self,
             Self::ClaudeCodeOpus | Self::ClaudeCodeSonnet | Self::ClaudeCodeHaiku
         )
+    }
+
+    /// Check if this model uses the OpenCode CLI
+    pub fn is_opencode_cli(&self) -> bool {
+        matches!(self, Self::OpenCodeCli)
     }
 
     /// Get all available models as a slice
@@ -295,6 +317,8 @@ impl AIModel {
             Self::DeepseekReasoner,
             // Codex CLI
             Self::CodexCli,
+            // OpenCode CLI
+            Self::OpenCodeCli,
         ]
     }
 
@@ -337,6 +361,7 @@ mod tests {
         assert!(!AIModel::O3.supports_temperature());
         assert!(!AIModel::O4Mini.supports_temperature());
         assert!(!AIModel::CodexCli.supports_temperature());
+        assert!(!AIModel::OpenCodeCli.supports_temperature());
 
         // Models that support temperature
         assert!(AIModel::ClaudeSonnet4_5.supports_temperature());
@@ -351,12 +376,19 @@ mod tests {
     }
 
     #[test]
+    fn test_is_opencode_cli() {
+        assert!(AIModel::OpenCodeCli.is_opencode_cli());
+        assert!(!AIModel::Gpt5.is_opencode_cli());
+    }
+
+    #[test]
     fn test_as_str() {
         assert_eq!(AIModel::Gpt5.as_str(), "gpt-5");
         assert_eq!(AIModel::O3.as_str(), "o3");
         assert_eq!(AIModel::ClaudeSonnet4_5.as_str(), "claude-sonnet-4-5");
         assert_eq!(AIModel::ClaudeHaiku4_5.as_str(), "claude-haiku-4-5");
         assert_eq!(AIModel::CodexCli.as_str(), "gpt-5.3-codex");
+        assert_eq!(AIModel::OpenCodeCli.as_str(), "opencode");
         assert_eq!(AIModel::DeepseekChat.as_str(), "deepseek-chat");
         assert_eq!(AIModel::CodexCli.as_str(), "gpt-5.3-codex");
     }
@@ -367,6 +399,7 @@ mod tests {
         assert_eq!(AIModel::ClaudeSonnet4_5.display_name(), "Claude Sonnet 4.5");
         assert_eq!(AIModel::ClaudeHaiku4_5.display_name(), "Claude Haiku 4.5");
         assert_eq!(AIModel::CodexCli.display_name(), "Codex CLI");
+        assert_eq!(AIModel::OpenCodeCli.display_name(), "OpenCode CLI");
         assert_eq!(AIModel::DeepseekChat.display_name(), "DeepSeek Chat");
         assert_eq!(AIModel::CodexCli.display_name(), "Codex CLI");
     }
@@ -374,13 +407,14 @@ mod tests {
     #[test]
     fn test_all_models() {
         let models = AIModel::all();
-        assert_eq!(models.len(), 16);
+        assert_eq!(models.len(), 17);
         assert!(models.contains(&AIModel::Gpt5));
         assert!(models.contains(&AIModel::O3));
         assert!(models.contains(&AIModel::ClaudeOpus4_1));
         assert!(models.contains(&AIModel::ClaudeSonnet4_5));
         assert!(models.contains(&AIModel::ClaudeHaiku4_5));
         assert!(models.contains(&AIModel::CodexCli));
+        assert!(models.contains(&AIModel::OpenCodeCli));
         assert!(models.contains(&AIModel::DeepseekChat));
         assert!(models.contains(&AIModel::CodexCli));
     }
