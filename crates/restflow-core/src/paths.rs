@@ -6,6 +6,7 @@ const DB_FILE: &str = "restflow.db";
 const CONFIG_FILE: &str = "config.json";
 const MASTER_KEY_FILE: &str = "master.key";
 const LOGS_DIR: &str = "logs";
+const SKILLS_DIR: &str = "skills";
 
 /// Environment variable to override the RestFlow directory.
 const RESTFLOW_DIR_ENV: &str = "RESTFLOW_DIR";
@@ -58,6 +59,30 @@ pub fn master_key_path() -> Result<PathBuf> {
 /// Get the logs directory: ~/.restflow/logs/
 pub fn logs_dir() -> Result<PathBuf> {
     let dir = resolve_restflow_dir()?.join(LOGS_DIR);
+    std::fs::create_dir_all(&dir)?;
+    Ok(dir)
+}
+
+/// User-global skills directory: ~/.restflow/skills/
+pub fn user_skills_dir() -> Result<PathBuf> {
+    Ok(resolve_restflow_dir()?.join(SKILLS_DIR))
+}
+
+/// Ensure the user-global skills directory exists.
+pub fn ensure_user_skills_dir() -> Result<PathBuf> {
+    let dir = user_skills_dir()?;
+    std::fs::create_dir_all(&dir)?;
+    Ok(dir)
+}
+
+/// Workspace-local skills directory: .restflow/skills/
+pub fn workspace_skills_dir() -> PathBuf {
+    PathBuf::from(RESTFLOW_DIR).join(SKILLS_DIR)
+}
+
+/// Ensure the workspace-local skills directory exists.
+pub fn ensure_workspace_skills_dir() -> Result<PathBuf> {
+    let dir = workspace_skills_dir();
     std::fs::create_dir_all(&dir)?;
     Ok(dir)
 }

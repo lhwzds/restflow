@@ -5,6 +5,32 @@ use sha2::{Digest, Sha256};
 use walkdir::WalkDir;
 
 use crate::models::{Skill, SkillScript, StorageMode};
+use crate::paths;
+
+pub fn discover_skill_dirs(dir: &Path) -> Result<Vec<PathBuf>> {
+    let mut found = Vec::new();
+
+    let root_skill = dir.join("SKILL.md");
+    if root_skill.exists() {
+        found.push(dir.to_path_buf());
+    }
+
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+                continue;
+            }
+
+            let skill_md = path.join("SKILL.md");
+            if skill_md.exists() {
+                found.push(path);
+            }
+        }
+    }
+
+    Ok(found)
+}
 
 #[derive(Debug, Clone)]
 pub struct SkillFolderLoader {
@@ -44,6 +70,24 @@ impl SkillFolderLoader {
                 .load_skill_folder(folder_path)
                 .with_context(|| format!("Failed to load skill folder at {:?}", folder_path))?;
             skills.push(skill);
+        }
+
+        Ok(skills)
+    }
+
+    pub fn scan_all() -> Result<Vec<Skill>> {
+        let mut skills = Vec::new();
+
+        let user_dir = paths::user_skills_dir()?;
+        if user_dir.exists() {
+            let loader = SkillFolderLoader::new(user_dir);
+            skills.extend(loader.scan()?);
+        }
+
+        let workspace_dir = paths::workspace_skills_dir();
+        if workspace_dir.exists() {
+            let loader = SkillFolderLoader::new(workspace_dir);
+            skills.extend(loader.scan()?);
         }
 
         Ok(skills)

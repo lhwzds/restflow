@@ -1,13 +1,18 @@
 use anyhow::Result;
+use chrono::Utc;
 use comfy_table::{Cell, Table};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::cli::SkillCommands;
 use crate::commands::utils::{format_timestamp, preview_text, slugify};
 use crate::executor::CommandExecutor;
 use crate::output::{OutputFormat, json::print_json};
-use restflow_core::models::Skill;
+use restflow_core::loader::git_source::GitSkillSource;
+use restflow_core::loader::skill_folder::{SkillFolderLoader, discover_skill_dirs};
+use restflow_core::loader::skill_package::SkillPackageImporter;
+use restflow_core::models::{Skill, StorageMode};
+use restflow_core::paths;
 use restflow_core::registry::{MarketplaceProvider, SkillRegistry, SkillSearchQuery};
 use restflow_core::services::skills as skill_service;
 use serde_json::json;
@@ -25,7 +30,11 @@ pub async fn run(
         SkillCommands::Import { path } => import_skill(executor, &path, format).await,
         SkillCommands::Export { id, output } => export_skill(executor, &id, output, format).await,
         SkillCommands::Search { query } => search_skills(&query, format).await,
-        SkillCommands::Install { name } => install_skill(executor, &name, format).await,
+        SkillCommands::Install {
+            source,
+            path,
+            scope,
+        } => install_skill(executor, &source, path.as_deref(), &scope, format).await,
     }
 }
 
@@ -204,6 +213,25 @@ async fn search_skills(query: &str, format: OutputFormat) -> Result<()> {
 
 async fn install_skill(
     executor: Arc<dyn CommandExecutor>,
+    source: &str,
+    path: Option<&str>,
+    scope: &str,
+    format: OutputFormat,
+) -> Result<()> {
+    let source_path = Path::new(source);
+    if source_path.exists() {
+        return install_from_local(executor, source_path, scope, format).await;
+    }
+
+    if is_git_source(source) {
+        return install_from_git(executor, source, path, scope, format).await;
+    }
+
+    install_from_marketplace(executor, source, format).await
+}
+
+async fn install_from_marketplace(
+    executor: Arc<dyn CommandExecutor>,
     name: &str,
     format: OutputFormat,
 ) -> Result<()> {
@@ -249,5 +277,129 @@ async fn install_skill(
         "Skill installed: {} ({})",
         installed.manifest.name, installed.manifest.id
     );
+    Ok(())
+}
+
+async fn install_from_local(
+    executor: Arc<dyn CommandExecutor>,
+    source_path: &Path,
+    scope: &str,
+    format: OutputFormat,
+) -> Result<()> {
+    if source_path.is_file() && is_skill_package(source_path) {
+        let (temp_dir, skill_dirs) = SkillPackageImporter::import(source_path)?;
+        let _temp_dir = temp_dir;
+        return install_skill_dirs(executor, skill_dirs, scope, format).await;
+    }
+
+    if source_path.is_dir() {
+        let skill_dirs = discover_skill_dirs(source_path)?;
+        return install_skill_dirs(executor, skill_dirs, scope, format).await;
+    }
+
+    Err(anyhow::anyhow!(
+        "Unsupported skill source: {}",
+        source_path.display()
+    ))
+}
+
+async fn install_from_git(
+    executor: Arc<dyn CommandExecutor>,
+    source: &str,
+    subpath: Option<&str>,
+    scope: &str,
+    format: OutputFormat,
+) -> Result<()> {
+    let (temp_dir, skill_dirs) = GitSkillSource::clone_and_discover(source, subpath).await?;
+    let _temp_dir = temp_dir;
+    install_skill_dirs(executor, skill_dirs, scope, format).await
+}
+
+async fn install_skill_dirs(
+    executor: Arc<dyn CommandExecutor>,
+    skill_dirs: Vec<PathBuf>,
+    scope: &str,
+    format: OutputFormat,
+) -> Result<()> {
+    if skill_dirs.is_empty() {
+        return Err(anyhow::anyhow!("No SKILL.md files found"));
+    }
+
+    let target_root = match scope {
+        "user" => paths::ensure_user_skills_dir()?,
+        "workspace" => paths::ensure_workspace_skills_dir()?,
+        _ => {
+            return Err(anyhow::anyhow!(
+                "Invalid scope '{}'. Use 'user' or 'workspace'",
+                scope
+            ));
+        }
+    };
+
+    let loader = SkillFolderLoader::new(PathBuf::new());
+    let mut installed = Vec::new();
+
+    for skill_dir in skill_dirs {
+        let mut skill = loader.load_skill_folder(&skill_dir)?;
+        let target_dir = target_root.join(&skill.id);
+        copy_skill_dir(&skill_dir, &target_dir)?;
+
+        skill.folder_path = Some(target_dir.to_string_lossy().to_string());
+        skill.storage_mode = StorageMode::FileSystemOnly;
+        skill.is_synced = true;
+
+        let existing = executor.get_skill(&skill.id).await?;
+        if let Some(existing_skill) = existing {
+            skill.created_at = existing_skill.created_at;
+            skill.updated_at = Utc::now().timestamp_millis();
+            executor.update_skill(&skill.id, skill.clone()).await?;
+        } else {
+            executor.create_skill(skill.clone()).await?;
+        }
+
+        installed.push(skill);
+    }
+
+    if format.is_json() {
+        return print_json(&json!({
+            "installed": installed,
+            "count": installed.len()
+        }));
+    }
+
+    println!("Installed {} skill(s)", installed.len());
+    Ok(())
+}
+
+fn is_git_source(source: &str) -> bool {
+    source.ends_with(".git") || source.starts_with("https://") || source.starts_with("git@")
+}
+
+fn is_skill_package(path: &Path) -> bool {
+    path.extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| matches!(ext.to_lowercase().as_str(), "skill" | "zip"))
+        .unwrap_or(false)
+}
+
+fn copy_skill_dir(source: &Path, target: &Path) -> Result<()> {
+    if target.exists() {
+        std::fs::remove_dir_all(target)?;
+    }
+    std::fs::create_dir_all(target)?;
+
+    for entry in std::fs::read_dir(source)? {
+        let entry = entry?;
+        let file_type = entry.file_type()?;
+        let source_path = entry.path();
+        let target_path = target.join(entry.file_name());
+
+        if file_type.is_dir() {
+            copy_skill_dir(&source_path, &target_path)?;
+        } else if file_type.is_file() {
+            std::fs::copy(&source_path, &target_path)?;
+        }
+    }
+
     Ok(())
 }
