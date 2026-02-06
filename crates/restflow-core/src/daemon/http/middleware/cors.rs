@@ -3,9 +3,7 @@ use axum::http::HeaderValue;
 use tower_http::cors::{AllowOrigin, Any, CorsLayer};
 
 pub fn build_cors_layer(config: &HttpConfig) -> CorsLayer {
-    let mut layer = CorsLayer::new()
-        .allow_methods(Any)
-        .allow_headers(Any);
+    let mut layer = CorsLayer::new().allow_methods(Any).allow_headers(Any);
 
     if config.cors_origins.is_empty() || config.cors_origins.iter().any(|o| o == "*") {
         layer = layer.allow_origin(Any);

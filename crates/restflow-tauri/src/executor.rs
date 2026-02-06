@@ -62,8 +62,7 @@ impl TauriExecutor {
         name: String,
         agent: AgentNode,
     ) -> Result<restflow_core::storage::agent::StoredAgent> {
-        self.request(IpcRequest::CreateAgent { name, agent })
-            .await
+        self.request(IpcRequest::CreateAgent { name, agent }).await
     }
 
     pub async fn update_agent(
@@ -184,7 +183,8 @@ impl TauriExecutor {
     }
 
     pub async fn get_memory_chunk(&self, id: String) -> Result<Option<MemoryChunk>> {
-        self.request_optional(IpcRequest::GetMemoryChunk { id }).await
+        self.request_optional(IpcRequest::GetMemoryChunk { id })
+            .await
     }
 
     pub async fn list_memory(
@@ -192,8 +192,7 @@ impl TauriExecutor {
         agent_id: Option<String>,
         tag: Option<String>,
     ) -> Result<Vec<MemoryChunk>> {
-        self.request(IpcRequest::ListMemory { agent_id, tag })
-            .await
+        self.request(IpcRequest::ListMemory { agent_id, tag }).await
     }
 
     pub async fn add_memory(
@@ -285,13 +284,11 @@ impl TauriExecutor {
     }
 
     pub async fn list_memory_sessions(&self, agent_id: String) -> Result<Vec<MemorySession>> {
-        self.request(IpcRequest::ListMemorySessions { agent_id }).await
+        self.request(IpcRequest::ListMemorySessions { agent_id })
+            .await
     }
 
-    pub async fn create_memory_session(
-        &self,
-        session: MemorySession,
-    ) -> Result<MemorySession> {
+    pub async fn create_memory_session(&self, session: MemorySession) -> Result<MemorySession> {
         self.request(IpcRequest::CreateMemorySession { session })
             .await
     }
@@ -371,8 +368,7 @@ impl TauriExecutor {
     }
 
     pub async fn rename_session(&self, id: String, name: String) -> Result<ChatSession> {
-        self.request(IpcRequest::RenameSession { id, name })
-            .await
+        self.request(IpcRequest::RenameSession { id, name }).await
     }
 
     pub async fn delete_session(&self, id: String) -> Result<bool> {
@@ -407,8 +403,11 @@ impl TauriExecutor {
         session_id: String,
         message: ChatMessage,
     ) -> Result<ChatSession> {
-        self.request(IpcRequest::AppendMessage { session_id, message })
-            .await
+        self.request(IpcRequest::AppendMessage {
+            session_id,
+            message,
+        })
+        .await
     }
 
     pub async fn get_session_messages(
@@ -457,20 +456,21 @@ impl TauriExecutor {
         .await
     }
 
-    pub async fn save_terminal_session(
-        &self,
-        session: TerminalSession,
-    ) -> Result<TerminalSession> {
-        self.request(IpcRequest::SaveTerminalSession { session }).await
+    pub async fn save_terminal_session(&self, session: TerminalSession) -> Result<TerminalSession> {
+        self.request(IpcRequest::SaveTerminalSession { session })
+            .await
     }
 
     pub async fn delete_terminal_session(&self, id: String) -> Result<()> {
-        let _: Value = self.request(IpcRequest::DeleteTerminalSession { id }).await?;
+        let _: Value = self
+            .request(IpcRequest::DeleteTerminalSession { id })
+            .await?;
         Ok(())
     }
 
     pub async fn mark_all_terminal_sessions_stopped(&self) -> Result<usize> {
-        self.request(IpcRequest::MarkAllTerminalSessionsStopped).await
+        self.request(IpcRequest::MarkAllTerminalSessionsStopped)
+            .await
     }
 
     pub async fn list_auth_profiles(&self) -> Result<Vec<AuthProfile>> {

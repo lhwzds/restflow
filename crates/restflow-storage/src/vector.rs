@@ -154,7 +154,12 @@ impl VectorStorage {
     }
 
     /// Search for similar vectors.
-    pub fn search(&self, query: &[f32], top_k: usize, ef_search: usize) -> Result<Vec<(String, f32)>> {
+    pub fn search(
+        &self,
+        query: &[f32],
+        top_k: usize,
+        ef_search: usize,
+    ) -> Result<Vec<(String, f32)>> {
         if query.len() != self.config.dimension {
             anyhow::bail!(
                 "Query dimension mismatch: expected {}, got {}",

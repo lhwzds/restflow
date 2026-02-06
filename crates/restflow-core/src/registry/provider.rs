@@ -94,7 +94,10 @@ pub trait SkillProvider: Send + Sync {
     }
 
     /// Search for skills matching the query
-    async fn search(&self, query: &SkillSearchQuery) -> Result<Vec<SkillSearchResult>, SkillProviderError>;
+    async fn search(
+        &self,
+        query: &SkillSearchQuery,
+    ) -> Result<Vec<SkillSearchResult>, SkillProviderError>;
 
     /// Get a skill manifest by ID
     async fn get_manifest(&self, id: &str) -> Result<SkillManifest, SkillProviderError>;
@@ -117,7 +120,11 @@ pub trait SkillProvider: Send + Sync {
     }
 
     /// Get the content of a skill
-    async fn get_content(&self, id: &str, version: &SkillVersion) -> Result<String, SkillProviderError>;
+    async fn get_content(
+        &self,
+        id: &str,
+        version: &SkillVersion,
+    ) -> Result<String, SkillProviderError>;
 
     /// List all available versions of a skill
     async fn list_versions(&self, id: &str) -> Result<Vec<SkillVersion>, SkillProviderError>;
@@ -147,10 +154,12 @@ pub trait SkillProvider: Send + Sync {
                     a.patch.cmp(&b.patch)
                 }
             })
-            .ok_or_else(|| SkillProviderError::VersionNotFound(format!(
-                "No version of {} satisfies requirement",
-                id
-            )))
+            .ok_or_else(|| {
+                SkillProviderError::VersionNotFound(format!(
+                    "No version of {} satisfies requirement",
+                    id
+                ))
+            })
     }
 }
 
@@ -174,7 +183,7 @@ impl LocalSkillProvider {
     /// Scan the directory for skills
     async fn scan_skills(&self) -> Result<Vec<SkillManifest>, SkillProviderError> {
         let mut manifests = Vec::new();
-        
+
         if !self.base_dir.exists() {
             return Ok(manifests);
         }
@@ -182,7 +191,7 @@ impl LocalSkillProvider {
         let mut entries = tokio::fs::read_dir(&self.base_dir).await?;
         while let Some(entry) = entries.next_entry().await? {
             let path = entry.path();
-            
+
             // Check for skill.toml or skill.json
             let manifest_path = if path.is_dir() {
                 let toml_path = path.join("skill.toml");
@@ -223,7 +232,7 @@ impl LocalSkillProvider {
     /// Parse a manifest file
     async fn parse_manifest(&self, path: &PathBuf) -> Result<SkillManifest, SkillProviderError> {
         let content = tokio::fs::read_to_string(path).await?;
-        
+
         if path.extension().map(|e| e == "toml").unwrap_or(false) {
             toml::from_str(&content).map_err(|e| SkillProviderError::Parse(e.to_string()))
         } else {
@@ -242,9 +251,12 @@ impl SkillProvider for LocalSkillProvider {
         100 // Local has highest priority
     }
 
-    async fn search(&self, query: &SkillSearchQuery) -> Result<Vec<SkillSearchResult>, SkillProviderError> {
+    async fn search(
+        &self,
+        query: &SkillSearchQuery,
+    ) -> Result<Vec<SkillSearchResult>, SkillProviderError> {
         let manifests = self.scan_skills().await?;
-        
+
         let results: Vec<SkillSearchResult> = manifests
             .into_iter()
             .filter(|m| {
@@ -256,7 +268,9 @@ impl SkillProvider for LocalSkillProvider {
                             .as_ref()
                             .map(|d| d.to_lowercase().contains(&q_lower))
                             .unwrap_or(false)
-                        || m.keywords.iter().any(|k| k.to_lowercase().contains(&q_lower));
+                        || m.keywords
+                            .iter()
+                            .any(|k| k.to_lowercase().contains(&q_lower));
                     if !matches {
                         return false;
                     }
@@ -290,7 +304,7 @@ impl SkillProvider for LocalSkillProvider {
         // Apply pagination
         let offset = query.offset.unwrap_or(0);
         let limit = query.limit.unwrap_or(100);
-        
+
         Ok(results.into_iter().skip(offset).take(limit).collect())
     }
 
@@ -305,7 +319,7 @@ impl SkillProvider for LocalSkillProvider {
 
         // Scan and try again
         self.scan_skills().await?;
-        
+
         let cache = self.cache.read().await;
         cache
             .get(id)
@@ -313,10 +327,14 @@ impl SkillProvider for LocalSkillProvider {
             .ok_or_else(|| SkillProviderError::NotFound(id.to_string()))
     }
 
-    async fn get_content(&self, id: &str, _version: &SkillVersion) -> Result<String, SkillProviderError> {
+    async fn get_content(
+        &self,
+        id: &str,
+        _version: &SkillVersion,
+    ) -> Result<String, SkillProviderError> {
         let skill_dir = self.base_dir.join(id);
         let content_path = skill_dir.join("skill.md");
-        
+
         if content_path.exists() {
             tokio::fs::read_to_string(&content_path)
                 .await
@@ -324,9 +342,9 @@ impl SkillProvider for LocalSkillProvider {
         } else {
             // Try reading from manifest
             let manifest = self.get_manifest(id).await?;
-            manifest.readme.ok_or_else(|| SkillProviderError::NotFound(
-                format!("Content not found for skill {}", id)
-            ))
+            manifest.readme.ok_or_else(|| {
+                SkillProviderError::NotFound(format!("Content not found for skill {}", id))
+            })
         }
     }
 
@@ -347,10 +365,10 @@ impl BuiltinSkillProvider {
     /// Create a new builtin provider with the default skills
     pub fn new() -> Self {
         let skills = HashMap::new();
-        
+
         // Add built-in skills here
         // These would typically be loaded from embedded resources
-        
+
         Self { skills }
     }
 
@@ -376,7 +394,10 @@ impl SkillProvider for BuiltinSkillProvider {
         90 // Second highest priority after local
     }
 
-    async fn search(&self, query: &SkillSearchQuery) -> Result<Vec<SkillSearchResult>, SkillProviderError> {
+    async fn search(
+        &self,
+        query: &SkillSearchQuery,
+    ) -> Result<Vec<SkillSearchResult>, SkillProviderError> {
         let results: Vec<SkillSearchResult> = self
             .skills
             .values()
@@ -410,7 +431,11 @@ impl SkillProvider for BuiltinSkillProvider {
             .ok_or_else(|| SkillProviderError::NotFound(id.to_string()))
     }
 
-    async fn get_content(&self, id: &str, _version: &SkillVersion) -> Result<String, SkillProviderError> {
+    async fn get_content(
+        &self,
+        id: &str,
+        _version: &SkillVersion,
+    ) -> Result<String, SkillProviderError> {
         self.skills
             .get(id)
             .map(|(_, c)| c.clone())
@@ -432,7 +457,7 @@ mod tests {
     #[tokio::test]
     async fn test_builtin_provider() {
         let mut provider = BuiltinSkillProvider::new();
-        
+
         let manifest = SkillManifest {
             id: "test-skill".to_string(),
             name: "Test Skill".to_string(),
@@ -440,13 +465,16 @@ mod tests {
             description: Some("A test skill".to_string()),
             ..Default::default()
         };
-        
+
         provider.add_skill(manifest.clone(), "# Test Content".to_string());
-        
+
         let result = provider.get_manifest("test-skill").await.unwrap();
         assert_eq!(result.id, "test-skill");
-        
-        let content = provider.get_content("test-skill", &SkillVersion::new(1, 0, 0)).await.unwrap();
+
+        let content = provider
+            .get_content("test-skill", &SkillVersion::new(1, 0, 0))
+            .await
+            .unwrap();
         assert_eq!(content, "# Test Content");
     }
 }

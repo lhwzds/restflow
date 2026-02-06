@@ -1,11 +1,11 @@
 use anyhow::Result;
 use dashmap::DashMap;
 use portable_pty::{CommandBuilder, PtySize, native_pty_system};
+use restflow_storage::time_utils;
 use std::io::{Read, Write};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
-use restflow_storage::time_utils;
 use uuid::Uuid;
 
 use restflow_ai::tools::{ProcessLog, ProcessManager, ProcessPollResult, ProcessSessionInfo};
@@ -417,23 +417,15 @@ impl ProcessRegistry {
     }
 
     pub fn get_output_buffer(&self, session_id: &str) -> Option<String> {
-        self.sessions.get(session_id).and_then(|session| {
-            session
-                .output
-                .lock()
-                .ok()
-                .map(|o| o.aggregated.clone())
-        })
+        self.sessions
+            .get(session_id)
+            .and_then(|session| session.output.lock().ok().map(|o| o.aggregated.clone()))
     }
 
     pub fn remove_session(&self, session_id: &str) -> Option<String> {
         if let Some((_, session)) = self.sessions.remove(session_id) {
             let _ = session.kill();
-            return session
-                .output
-                .lock()
-                .ok()
-                .map(|o| o.aggregated.clone());
+            return session.output.lock().ok().map(|o| o.aggregated.clone());
         }
 
         if let Some((_, finished)) = self.finished.remove(session_id) {

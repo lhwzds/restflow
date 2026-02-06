@@ -188,28 +188,40 @@ pub fn registry_from_allowlist(
                 if let Some(deps) = subagent_deps {
                     builder = builder.with_spawn_agent(Arc::new(deps.clone()));
                 } else {
-                    warn!(tool_name = "spawn_agent", "Subagent dependencies missing, skipping");
+                    warn!(
+                        tool_name = "spawn_agent",
+                        "Subagent dependencies missing, skipping"
+                    );
                 }
             }
             "wait_agents" => {
                 if let Some(deps) = subagent_deps {
                     builder = builder.with_wait_agents(Arc::new(deps.clone()));
                 } else {
-                    warn!(tool_name = "wait_agents", "Subagent dependencies missing, skipping");
+                    warn!(
+                        tool_name = "wait_agents",
+                        "Subagent dependencies missing, skipping"
+                    );
                 }
             }
             "list_agents" => {
                 if let Some(deps) = subagent_deps {
                     builder = builder.with_list_agents(Arc::new(deps.clone()));
                 } else {
-                    warn!(tool_name = "list_agents", "Subagent dependencies missing, skipping");
+                    warn!(
+                        tool_name = "list_agents",
+                        "Subagent dependencies missing, skipping"
+                    );
                 }
             }
             "use_skill" => {
                 if let Some(deps) = subagent_deps {
                     builder = builder.with_use_skill(Arc::new(deps.clone()));
                 } else {
-                    warn!(tool_name = "use_skill", "Subagent dependencies missing, skipping");
+                    warn!(
+                        tool_name = "use_skill",
+                        "Subagent dependencies missing, skipping"
+                    );
                 }
             }
             unknown => {

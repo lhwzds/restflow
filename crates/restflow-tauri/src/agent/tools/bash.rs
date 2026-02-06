@@ -111,10 +111,12 @@ impl Tool for BashTool {
             cmd.output(),
         )
         .await
-        .map_err(|_| AiError::Tool(format!(
-            "Command timed out after {}s",
-            self.config.timeout_secs
-        )))?
+        .map_err(|_| {
+            AiError::Tool(format!(
+                "Command timed out after {}s",
+                self.config.timeout_secs
+            ))
+        })?
         .map_err(|e| AiError::Tool(format!("Failed to execute command: {}", e)))?;
 
         let stdout = String::from_utf8_lossy(&output.stdout);

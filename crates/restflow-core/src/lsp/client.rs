@@ -4,8 +4,8 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::str::FromStr;
-use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicI64, Ordering};
 
 use anyhow::Context;
 use dashmap::DashMap;
@@ -17,7 +17,7 @@ use lsp_types::{
 use serde_json::Value;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin, Command};
-use tokio::sync::{mpsc, oneshot, Mutex, Notify, RwLock};
+use tokio::sync::{Mutex, Notify, RwLock, mpsc, oneshot};
 use tokio::time::Duration;
 use tracing::{debug, warn};
 use url::Url;
@@ -147,8 +147,7 @@ impl LspClient {
             return Ok(());
         }
 
-        let url = Url::from_file_path(path)
-            .map_err(|_| anyhow::anyhow!("Invalid file path"))?;
+        let url = Url::from_file_path(path).map_err(|_| anyhow::anyhow!("Invalid file path"))?;
         let uri = Uri::from_str(url.as_str())
             .map_err(|err| anyhow::anyhow!("Invalid file uri: {err}"))?;
         let params = DidOpenTextDocumentParams {
@@ -168,8 +167,7 @@ impl LspClient {
     }
 
     pub async fn did_change(&self, path: &Path, content: &str) -> anyhow::Result<()> {
-        let url = Url::from_file_path(path)
-            .map_err(|_| anyhow::anyhow!("Invalid file path"))?;
+        let url = Url::from_file_path(path).map_err(|_| anyhow::anyhow!("Invalid file path"))?;
         let uri = Uri::from_str(url.as_str())
             .map_err(|err| anyhow::anyhow!("Invalid file uri: {err}"))?;
 
@@ -214,7 +212,8 @@ impl LspClient {
                 return Ok(Vec::new());
             }
 
-            let notified = tokio::time::timeout(remaining, self.diagnostics_notify.notified()).await;
+            let notified =
+                tokio::time::timeout(remaining, self.diagnostics_notify.notified()).await;
             if notified.is_err() {
                 return Ok(Vec::new());
             }
@@ -288,10 +287,7 @@ async fn handle_incoming(
                 if let Ok(url) = Url::parse(payload.uri.as_str())
                     && let Ok(path) = url.to_file_path()
                 {
-                    diagnostics
-                        .write()
-                        .await
-                        .insert(path, payload.diagnostics);
+                    diagnostics.write().await.insert(path, payload.diagnostics);
                     diagnostics_notify.notify_waiters();
                 }
             }

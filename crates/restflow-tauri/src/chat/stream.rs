@@ -10,7 +10,7 @@ use tauri::{AppHandle, Emitter};
 use tokio::sync::broadcast;
 use tracing::{debug, warn};
 
-use super::events::{ChatStreamEvent, CHAT_STREAM_EVENT};
+use super::events::{CHAT_STREAM_EVENT, ChatStreamEvent};
 
 /// Handle for cancelling an active stream
 #[derive(Debug, Clone)]
@@ -263,7 +263,8 @@ impl StreamManager {
 
     /// Register a new stream
     pub fn register(&self, message_id: &str, cancel_handle: StreamCancelHandle) {
-        self.active_streams.insert(message_id.to_string(), cancel_handle);
+        self.active_streams
+            .insert(message_id.to_string(), cancel_handle);
     }
 
     /// Cancel a stream by message ID

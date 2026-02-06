@@ -10,13 +10,15 @@
 use anyhow::{Result, anyhow};
 use restflow_ai::llm::Message;
 use restflow_core::models::{AgentTask, AgentTaskStatus, ExecutionMode, NotificationConfig};
-use restflow_core::performance::{TaskPriority, TaskQueue, TaskQueueConfig, WorkerPool, WorkerPoolConfig, TaskExecutor};
+use restflow_core::performance::{
+    TaskExecutor, TaskPriority, TaskQueue, TaskQueueConfig, WorkerPool, WorkerPoolConfig,
+};
 use restflow_core::storage::{AgentTaskStorage, MemoryStorage};
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use tokio::sync::{mpsc, oneshot, RwLock};
-use tokio::time::{interval, Duration, Instant};
+use std::sync::atomic::{AtomicU64, Ordering};
+use tokio::sync::{RwLock, mpsc, oneshot};
+use tokio::time::{Duration, Instant, interval};
 use tracing::{debug, error, info, warn};
 
 use super::events::{NoopEventEmitter, TaskEventEmitter, TaskStreamEvent};
@@ -303,7 +305,9 @@ impl AgentTaskRunner {
         self.emit_status(RunnerStatus::Running, Some("Runner started".to_string()))
             .await;
 
-        let executor = Arc::new(RunnerTaskExecutor { runner: self.clone() });
+        let executor = Arc::new(RunnerTaskExecutor {
+            runner: self.clone(),
+        });
         let mut worker_pool = WorkerPool::new(
             self.task_queue.clone(),
             executor,
@@ -534,7 +538,10 @@ impl AgentTaskRunner {
     /// Cancel a running task
     async fn cancel_task(&self, task_id: &str) {
         if !self.running_tasks.read().await.contains(task_id) {
-            debug!("Cancel requested for task {}, but it is not running", task_id);
+            debug!(
+                "Cancel requested for task {}, but it is not running",
+                task_id
+            );
         }
 
         let cancel_sender = self.cancel_senders.write().await.remove(task_id);
@@ -572,7 +579,11 @@ impl AgentTaskRunner {
             Err(e) => {
                 error!("Failed to start task execution for {}: {}", task_id, e);
                 self.cleanup_task_tracking(task_id).await;
-                return Err(anyhow!("Failed to start task execution for {}: {}", task_id, e));
+                return Err(anyhow!(
+                    "Failed to start task execution for {}: {}",
+                    task_id,
+                    e
+                ));
             }
         };
 
@@ -620,16 +631,14 @@ impl AgentTaskRunner {
                     let event_emitter = self.event_emitter.clone();
                     let task_id_for_events = task_id.to_string();
 
-                    let cli_executor =
-                        CliAgentExecutor::with_output_callback(move |line| {
-                            let event =
-                                TaskStreamEvent::output(&task_id_for_events, line, false);
-                            let emitter = event_emitter.clone();
-                            // Spawn a task to emit the event asynchronously
-                            tokio::spawn(async move {
-                                emitter.emit(event).await;
-                            });
+                    let cli_executor = CliAgentExecutor::with_output_callback(move |line| {
+                        let event = TaskStreamEvent::output(&task_id_for_events, line, false);
+                        let emitter = event_emitter.clone();
+                        // Spawn a task to emit the event asynchronously
+                        tokio::spawn(async move {
+                            emitter.emit(event).await;
                         });
+                    });
 
                     // Execute with timeout
                     let timeout = Duration::from_secs(cli_config.timeout_secs);

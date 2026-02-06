@@ -1,12 +1,12 @@
+use crate::AppCore;
 use crate::daemon::http::ApiError;
 use crate::models::{AIModel, AgentNode};
 use crate::services::agent as agent_service;
-use crate::AppCore;
 use axum::{
+    Json, Router,
     extract::{Extension, Path},
     http::StatusCode,
     routing::{get, post},
-    Json, Router,
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -19,7 +19,10 @@ fn parse_model(s: &str) -> Option<AIModel> {
 pub fn router() -> Router {
     Router::new()
         .route("/", get(list_agents).post(create_agent))
-        .route("/{id}", get(get_agent).put(update_agent).delete(delete_agent))
+        .route(
+            "/{id}",
+            get(get_agent).put(update_agent).delete(delete_agent),
+        )
         .route("/{id}/execute", post(execute_agent))
 }
 
@@ -77,7 +80,7 @@ async fn create_agent(
     Json(req): Json<CreateAgentRequest>,
 ) -> Result<Json<AgentResponse>, ApiError> {
     let mut agent_node = AgentNode::new();
-    
+
     if let Some(model_str) = req.model {
         agent_node.model = parse_model(&model_str);
     }
@@ -129,11 +132,12 @@ async fn delete_agent(
     Ok(Json(serde_json::json!({ "deleted": true, "id": id })))
 }
 
-async fn execute_agent(
-    Path(id): Path<String>,
-) -> Result<Json<serde_json::Value>, ApiError> {
+async fn execute_agent(Path(id): Path<String>) -> Result<Json<serde_json::Value>, ApiError> {
     Err(ApiError::new(
         StatusCode::NOT_IMPLEMENTED,
-        format!("Agent execution is not supported for daemon HTTP API (agent {}).", id),
+        format!(
+            "Agent execution is not supported for daemon HTTP API (agent {}).",
+            id
+        ),
     ))
 }

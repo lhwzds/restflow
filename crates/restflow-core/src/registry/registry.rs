@@ -17,8 +17,8 @@ use crate::models::{
 
 use super::gating::GatingChecker;
 use super::provider::{
-    SkillProvider, SkillProviderError, SkillSearchQuery, SkillSearchResult,
-    LocalSkillProvider, BuiltinSkillProvider,
+    BuiltinSkillProvider, LocalSkillProvider, SkillProvider, SkillProviderError, SkillSearchQuery,
+    SkillSearchResult,
 };
 use super::resolver::{DependencyError, DependencyResolver, InstallPlan};
 
@@ -91,7 +91,8 @@ impl SkillRegistry {
     /// Add a custom provider
     pub fn add_provider(&mut self, provider: Arc<dyn SkillProvider>) {
         self.providers.push(provider);
-        self.providers.sort_by_key(|p| std::cmp::Reverse(p.priority()));
+        self.providers
+            .sort_by_key(|p| std::cmp::Reverse(p.priority()));
     }
 
     /// Search for skills across all providers
@@ -314,15 +315,18 @@ impl SkillRegistry {
     }
 
     /// Recheck gating requirements for installed skills
-    pub async fn recheck_gating(&self, skill_id: &str) -> Result<GatingCheckResult, SkillProviderError> {
+    pub async fn recheck_gating(
+        &self,
+        skill_id: &str,
+    ) -> Result<GatingCheckResult, SkillProviderError> {
         let mut installed = self.installed.write().await;
-        
+
         let skill = installed
             .get_mut(skill_id)
             .ok_or_else(|| SkillProviderError::NotFound(skill_id.to_string()))?;
 
         let result = self.gating_checker.check(&skill.manifest.gating);
-        
+
         skill.gating_result = Some(result.clone());
         skill.status = if result.passed {
             InstallStatus::Installed
@@ -336,7 +340,7 @@ impl SkillRegistry {
     /// Load installed skills from disk
     pub async fn load_installed(&self) -> Result<(), SkillProviderError> {
         let skills_dir = &self.config.skills_dir;
-        
+
         if !skills_dir.exists() {
             return Ok(());
         }
@@ -397,15 +401,17 @@ impl SkillRegistry {
     }
 
     /// Load an installed skill from disk
-    async fn load_installed_skill(&self, path: &std::path::Path) -> Result<InstalledSkill, SkillProviderError> {
+    async fn load_installed_skill(
+        &self,
+        path: &std::path::Path,
+    ) -> Result<InstalledSkill, SkillProviderError> {
         let manifest_path = path.join("skill.json");
         let content_path = path.join("skill.md");
         let metadata_path = path.join("metadata.json");
 
         let manifest: SkillManifest = {
             let content = tokio::fs::read_to_string(&manifest_path).await?;
-            serde_json::from_str(&content)
-                .map_err(|e| SkillProviderError::Parse(e.to_string()))?
+            serde_json::from_str(&content).map_err(|e| SkillProviderError::Parse(e.to_string()))?
         };
 
         let content = tokio::fs::read_to_string(&content_path).await?;
@@ -457,7 +463,7 @@ mod tests {
         };
 
         let registry = SkillRegistry::new(config);
-        
+
         // Search should return empty for now (no skills)
         let results = registry.search(&SkillSearchQuery::default()).await;
         assert!(results.is_empty());

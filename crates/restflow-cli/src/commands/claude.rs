@@ -413,10 +413,7 @@ mod tests {
 
         assert_eq!(
             args,
-            vec![
-                "--add-dir".to_string(),
-                home.to_string_lossy().to_string()
-            ]
+            vec!["--add-dir".to_string(), home.to_string_lossy().to_string()]
         );
 
         // SAFETY: Restoring original env vars; test runs serially.

@@ -106,11 +106,7 @@ impl LspManager {
     }
 
     /// Notify file change and request updated diagnostics.
-    pub async fn notify_change(
-        &mut self,
-        path: &Path,
-        content: &str,
-    ) -> Result<Vec<Diagnostic>> {
+    pub async fn notify_change(&mut self, path: &Path, content: &str) -> Result<Vec<Diagnostic>> {
         let client = self.get_client_for_file(path).await?;
         let version = self.next_version(path, false);
 

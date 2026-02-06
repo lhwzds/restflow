@@ -19,8 +19,7 @@ pub fn analyze_command(command: &str) -> Result<ShellAnalysis, String> {
         return Err("Command contains subshell".to_string());
     }
 
-    let tokens = shell_words::split(command)
-        .map_err(|e| format!("Invalid shell syntax: {e}"))?;
+    let tokens = shell_words::split(command).map_err(|e| format!("Invalid shell syntax: {e}"))?;
 
     let mut analysis = ShellAnalysis::default();
     for token in &tokens {

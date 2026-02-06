@@ -1,11 +1,11 @@
 //! Secrets storage - encrypted storage for API keys and credentials.
 
 use crate::encryption::SecretEncryptor;
+use crate::paths;
 use anyhow::{Context, Result};
-use base64::{engine::general_purpose::STANDARD, Engine as _};
+use base64::{Engine as _, engine::general_purpose::STANDARD};
 use rand::RngCore;
 use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
-use crate::paths;
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::fs::{self, OpenOptions};

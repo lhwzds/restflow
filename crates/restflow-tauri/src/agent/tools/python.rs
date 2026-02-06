@@ -80,10 +80,7 @@ impl Tool for PythonTool {
         if output.status.success() {
             Ok(ToolResult::success(json!(stdout.to_string())))
         } else {
-            Ok(ToolResult::error(format!(
-                "Python error: {}",
-                stderr
-            )))
+            Ok(ToolResult::error(format!("Python error: {}", stderr)))
         }
     }
 }

@@ -37,10 +37,8 @@ pub async fn forward_to_task(
     match trigger.send_input_to_task(task_id, &message.content).await {
         Ok(()) => {
             // Acknowledge receipt
-            let response = OutboundMessage::new(
-                &message.conversation_id,
-                "📨 Message forwarded to agent.",
-            );
+            let response =
+                OutboundMessage::new(&message.conversation_id, "📨 Message forwarded to agent.");
             router.send_to(message.channel_type, response).await
         }
         Err(e) => {
@@ -80,18 +78,14 @@ async fn handle_approval(
             router.send_to(message.channel_type, response).await
         }
         Ok(false) => {
-            let response = OutboundMessage::new(
-                &message.conversation_id,
-                "No pending approval found.",
-            )
-            .with_level(MessageLevel::Warning);
+            let response =
+                OutboundMessage::new(&message.conversation_id, "No pending approval found.")
+                    .with_level(MessageLevel::Warning);
             router.send_to(message.channel_type, response).await
         }
         Err(e) => {
-            let response = OutboundMessage::error(
-                &message.conversation_id,
-                format!("Approval error: {}", e),
-            );
+            let response =
+                OutboundMessage::error(&message.conversation_id, format!("Approval error: {}", e));
             router.send_to(message.channel_type, response).await
         }
     }

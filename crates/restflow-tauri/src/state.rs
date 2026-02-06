@@ -21,7 +21,7 @@ use restflow_core::process::ProcessRegistry;
 use restflow_core::security::SecurityChecker;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::{RwLock, mpsc, Mutex};
+use tokio::sync::{Mutex, RwLock, mpsc};
 use tracing::{error, info};
 
 /// Information about a running task stored in state
@@ -354,12 +354,7 @@ impl TaskTrigger for AppTaskTrigger {
 
     async fn find_and_run_task(&self, name_or_id: &str) -> Result<AgentTask> {
         // Try to find by ID first
-        if let Ok(Some(task)) = self
-            .state
-            .executor()
-            .get_task(name_or_id.to_string())
-            .await
-        {
+        if let Ok(Some(task)) = self.state.executor().get_task(name_or_id.to_string()).await {
             // Trigger the task to run
             self.state.run_task_now(task.id.clone()).await?;
             return Ok(task);
@@ -391,14 +386,14 @@ impl TaskTrigger for AppTaskTrigger {
         };
 
         // If the task isn't running (or cancel couldn't be requested), pause it directly.
-        if let Ok(Some(task)) = self
-            .state
-            .executor()
-            .get_task(task_id.to_string())
-            .await
+        if let Ok(Some(task)) = self.state.executor().get_task(task_id.to_string()).await
             && (task.status != restflow_core::models::AgentTaskStatus::Running || !cancel_requested)
         {
-            let _ = self.state.executor().pause_task(task_id.to_string()).await?;
+            let _ = self
+                .state
+                .executor()
+                .pause_task(task_id.to_string())
+                .await?;
         }
 
         // Mark the task as completed/stopped in our tracking

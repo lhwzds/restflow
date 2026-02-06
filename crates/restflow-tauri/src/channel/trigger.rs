@@ -53,8 +53,8 @@ pub trait TaskTrigger: Send + Sync {
 #[cfg(test)]
 pub mod mock {
     use super::*;
-    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use tokio::sync::Mutex;
 
     /// Mock task trigger for testing

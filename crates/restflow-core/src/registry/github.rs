@@ -13,10 +13,11 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
 
-use super::{SkillProvider, SkillProviderError, SkillSearchQuery, SkillSearchResult, SkillSortOrder};
+use super::{
+    SkillProvider, SkillProviderError, SkillSearchQuery, SkillSearchResult, SkillSortOrder,
+};
 use crate::models::{
-    SkillManifest, SkillSource, SkillVersion, SkillAuthor, SkillPermissions,
-    GatingRequirements,
+    GatingRequirements, SkillAuthor, SkillManifest, SkillPermissions, SkillSource, SkillVersion,
 };
 
 /// GitHub API base URL
@@ -148,9 +149,11 @@ impl GitHubProvider {
 
     /// Make an authenticated request to GitHub API
     async fn request(&self, url: &str) -> Result<reqwest::Response, SkillProviderError> {
-        let mut request = self.client.get(url)
+        let mut request = self
+            .client
+            .get(url)
             .header("Accept", "application/vnd.github.v3+json");
-        
+
         if let Some(ref token) = self.token {
             request = request.header("Authorization", format!("Bearer {}", token));
         }
@@ -170,7 +173,7 @@ impl GitHubProvider {
         let url = url.trim_start_matches("https://");
         let url = url.trim_start_matches("http://");
         let url = url.trim_start_matches("github.com/");
-        
+
         let parts: Vec<&str> = url.split('/').collect();
         if parts.len() >= 2 {
             Some((parts[0].to_string(), parts[1].to_string()))
@@ -180,24 +183,29 @@ impl GitHubProvider {
     }
 
     /// Convert a GitHub repo to a skill manifest
-    async fn repo_to_manifest(&self, repo: &GitHubRepo) -> Result<SkillManifest, SkillProviderError> {
+    async fn repo_to_manifest(
+        &self,
+        repo: &GitHubRepo,
+    ) -> Result<SkillManifest, SkillProviderError> {
         // Try to fetch the skill manifest from the repo
         let manifest_url = format!(
             "https://raw.githubusercontent.com/{}/{}/skill.toml",
             repo.full_name, repo.default_branch
         );
-        
+
         // Try TOML first, then JSON
         let response = self.client.get(&manifest_url).send().await;
-        
+
         if let Ok(resp) = response
             && resp.status().is_success()
         {
-            let content = resp.text().await
+            let content = resp
+                .text()
+                .await
                 .map_err(|e| SkillProviderError::Network(e.to_string()))?;
-            
-            let mut manifest: SkillManifest = toml::from_str(&content)
-                .map_err(|e| SkillProviderError::Parse(e.to_string()))?;
+
+            let mut manifest: SkillManifest =
+                toml::from_str(&content).map_err(|e| SkillProviderError::Parse(e.to_string()))?;
 
             manifest.source = SkillSource::GitHub {
                 owner: repo.owner.login.clone(),
@@ -205,7 +213,7 @@ impl GitHubProvider {
                 git_ref: Some(repo.default_branch.clone()),
                 path: None,
             };
-            
+
             return Ok(manifest);
         }
 
@@ -214,15 +222,17 @@ impl GitHubProvider {
             "https://raw.githubusercontent.com/{}/{}/skill.json",
             repo.full_name, repo.default_branch
         );
-        
+
         let response = self.client.get(&manifest_url).send().await;
-        
+
         if let Ok(resp) = response
             && resp.status().is_success()
         {
-            let content = resp.text().await
+            let content = resp
+                .text()
+                .await
                 .map_err(|e| SkillProviderError::Network(e.to_string()))?;
-            
+
             let mut manifest: SkillManifest = serde_json::from_str(&content)
                 .map_err(|e| SkillProviderError::Parse(e.to_string()))?;
 
@@ -232,7 +242,7 @@ impl GitHubProvider {
                 git_ref: Some(repo.default_branch.clone()),
                 path: None,
             };
-            
+
             return Ok(manifest);
         }
 
@@ -252,7 +262,7 @@ impl GitHubProvider {
             categories: vec![],
             repository: Some(repo.html_url.clone()),
             homepage: None,
-            source: SkillSource::GitHub { 
+            source: SkillSource::GitHub {
                 owner: repo.owner.login.clone(),
                 repo: repo.name.clone(),
                 git_ref: Some(repo.default_branch.clone()),
@@ -269,7 +279,11 @@ impl GitHubProvider {
     }
 
     /// Fetch releases for a repository
-    async fn fetch_releases(&self, owner: &str, repo: &str) -> Result<Vec<GitHubRelease>, SkillProviderError> {
+    async fn fetch_releases(
+        &self,
+        owner: &str,
+        repo: &str,
+    ) -> Result<Vec<GitHubRelease>, SkillProviderError> {
         let url = format!("{}/repos/{}/{}/releases", GITHUB_API_URL, owner, repo);
         let response = self.request(&url).await?;
 
@@ -300,10 +314,13 @@ impl SkillProvider for GitHubProvider {
         30 // Lower priority than marketplace
     }
 
-    async fn search(&self, query: &SkillSearchQuery) -> Result<Vec<SkillSearchResult>, SkillProviderError> {
+    async fn search(
+        &self,
+        query: &SkillSearchQuery,
+    ) -> Result<Vec<SkillSearchResult>, SkillProviderError> {
         // Build GitHub search query
         let mut search_parts = vec!["topic:restflow-skill".to_string()];
-        
+
         if let Some(ref q) = query.query {
             search_parts.push(q.clone());
         }
@@ -313,7 +330,7 @@ impl SkillProvider for GitHubProvider {
         }
 
         let search_query = search_parts.join(" ");
-        
+
         // Sort parameter
         let sort = match query.sort {
             Some(SkillSortOrder::RecentlyUpdated) => "updated",
@@ -339,7 +356,8 @@ impl SkillProvider for GitHubProvider {
             let status = response.status();
             if status.as_u16() == 403 {
                 return Err(SkillProviderError::Network(
-                    "GitHub API rate limit exceeded. Consider using a personal access token.".to_string()
+                    "GitHub API rate limit exceeded. Consider using a personal access token."
+                        .to_string(),
                 ));
             }
             return Err(SkillProviderError::Network(format!(
@@ -354,7 +372,7 @@ impl SkillProvider for GitHubProvider {
             .map_err(|e| SkillProviderError::Parse(e.to_string()))?;
 
         let mut results = Vec::new();
-        
+
         for repo in search_response.items {
             match self.repo_to_manifest(&repo).await {
                 Ok(manifest) => {
@@ -386,8 +404,9 @@ impl SkillProvider for GitHubProvider {
         }
 
         // Parse the ID as owner/repo
-        let (owner, repo) = Self::parse_repo_url(id)
-            .ok_or_else(|| SkillProviderError::NotFound(format!("Invalid GitHub skill ID: {}", id)))?;
+        let (owner, repo) = Self::parse_repo_url(id).ok_or_else(|| {
+            SkillProviderError::NotFound(format!("Invalid GitHub skill ID: {}", id))
+        })?;
 
         let url = format!("{}/repos/{}/{}", GITHUB_API_URL, owner, repo);
         let response = self.request(&url).await?;
@@ -419,14 +438,19 @@ impl SkillProvider for GitHubProvider {
         Ok(manifest)
     }
 
-    async fn get_content(&self, id: &str, _version: &SkillVersion) -> Result<String, SkillProviderError> {
-        let (owner, repo) = Self::parse_repo_url(id)
-            .ok_or_else(|| SkillProviderError::NotFound(format!("Invalid GitHub skill ID: {}", id)))?;
+    async fn get_content(
+        &self,
+        id: &str,
+        _version: &SkillVersion,
+    ) -> Result<String, SkillProviderError> {
+        let (owner, repo) = Self::parse_repo_url(id).ok_or_else(|| {
+            SkillProviderError::NotFound(format!("Invalid GitHub skill ID: {}", id))
+        })?;
 
         // Get default branch
         let repo_url = format!("{}/repos/{}/{}", GITHUB_API_URL, owner, repo);
         let response = self.request(&repo_url).await?;
-        
+
         let repo_data: GitHubRepo = response
             .json()
             .await
@@ -438,13 +462,15 @@ impl SkillProvider for GitHubProvider {
                 "https://raw.githubusercontent.com/{}/{}/{}",
                 repo_data.full_name, repo_data.default_branch, filename
             );
-            
+
             let response = self.client.get(&content_url).send().await;
-            
+
             if let Ok(resp) = response
                 && resp.status().is_success()
             {
-                return resp.text().await
+                return resp
+                    .text()
+                    .await
                     .map_err(|e| SkillProviderError::Network(e.to_string()));
             }
         }
@@ -456,8 +482,9 @@ impl SkillProvider for GitHubProvider {
     }
 
     async fn list_versions(&self, id: &str) -> Result<Vec<SkillVersion>, SkillProviderError> {
-        let (owner, repo) = Self::parse_repo_url(id)
-            .ok_or_else(|| SkillProviderError::NotFound(format!("Invalid GitHub skill ID: {}", id)))?;
+        let (owner, repo) = Self::parse_repo_url(id).ok_or_else(|| {
+            SkillProviderError::NotFound(format!("Invalid GitHub skill ID: {}", id))
+        })?;
 
         let releases = self.fetch_releases(&owner, &repo).await?;
 
@@ -498,10 +525,7 @@ mod tests {
             GitHubProvider::parse_repo_url("owner/repo"),
             Some(("owner".to_string(), "repo".to_string()))
         );
-        assert_eq!(
-            GitHubProvider::parse_repo_url("owner"),
-            None
-        );
+        assert_eq!(GitHubProvider::parse_repo_url("owner"), None);
     }
 
     #[test]

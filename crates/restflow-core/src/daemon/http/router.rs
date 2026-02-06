@@ -1,9 +1,9 @@
 use crate::AppCore;
-use axum::{routing::get, Extension, Router};
+use axum::{Extension, Router, routing::get};
 use std::{path::Path, sync::Arc};
 use tower_http::services::{ServeDir, ServeFile};
 
-use super::{api, middleware, ws, HttpConfig};
+use super::{HttpConfig, api, middleware, ws};
 
 pub fn build_router(core: Arc<AppCore>, config: &HttpConfig) -> Router {
     let cors = middleware::cors::build_cors_layer(config);

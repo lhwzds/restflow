@@ -1,10 +1,10 @@
+use crate::AppCore;
 use crate::daemon::http::ApiError;
 use crate::models::chat_session::{ChatSession, ChatSessionSummary};
-use crate::AppCore;
 use axum::{
+    Json, Router,
     extract::{Extension, Path, Query},
     routing::get,
-    Json, Router,
 };
 use serde::Deserialize;
 use std::sync::Arc;
@@ -69,7 +69,7 @@ async fn search_sessions(
 ) -> Result<Json<Vec<ChatSessionSummary>>, ApiError> {
     let normalized = query.q.to_lowercase();
     let sessions = core.storage.chat_sessions.list()?;
-    
+
     let matches: Vec<ChatSessionSummary> = sessions
         .into_iter()
         .filter(|session| {

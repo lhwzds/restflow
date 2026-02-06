@@ -6,9 +6,8 @@ use restflow_core::AppCore;
 use restflow_core::daemon::is_daemon_available;
 use restflow_core::memory::ExportResult;
 use restflow_core::models::{
-    AgentExecuteResponse, AgentNode, AgentTask, AgentTaskStatus, ChatSession,
-    ChatSessionSummary, MemoryChunk, MemorySearchResult, MemoryStats, Secret, Skill,
-    TaskEvent, TaskSchedule,
+    AgentExecuteResponse, AgentNode, AgentTask, AgentTaskStatus, ChatSession, ChatSessionSummary,
+    MemoryChunk, MemorySearchResult, MemoryStats, Secret, Skill, TaskEvent, TaskSchedule,
 };
 use restflow_core::paths;
 use restflow_core::storage::SystemConfig;
@@ -83,12 +82,7 @@ pub trait CommandExecutor: Send + Sync {
     async fn search_sessions(&self, query: String) -> Result<Vec<ChatSessionSummary>>;
 
     async fn list_secrets(&self) -> Result<Vec<Secret>>;
-    async fn set_secret(
-        &self,
-        key: &str,
-        value: &str,
-        description: Option<String>,
-    ) -> Result<()>;
+    async fn set_secret(&self, key: &str, value: &str, description: Option<String>) -> Result<()>;
     async fn delete_secret(&self, key: &str) -> Result<()>;
     async fn has_secret(&self, key: &str) -> Result<bool>;
 

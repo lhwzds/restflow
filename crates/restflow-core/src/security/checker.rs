@@ -13,7 +13,7 @@ use super::{ApprovalManager, SecurityConfigStore};
 use crate::models::security::{
     AgentSecurityConfig, AskMode, SecurityAction, SecurityCheckResult, SecurityMode, SecurityPolicy,
 };
-use crate::security::path_resolver::{matches_path_pattern, CommandResolution};
+use crate::security::path_resolver::{CommandResolution, matches_path_pattern};
 use crate::security::shell_parser;
 use restflow_ai::{SecurityDecision, SecurityGate};
 
@@ -35,8 +35,8 @@ pub struct SecurityChecker {
 impl SecurityChecker {
     /// Create a new security checker with the given policy and approval manager.
     pub fn new(policy: SecurityPolicy, approval_manager: Arc<ApprovalManager>) -> Self {
-        let config_store = SecurityConfigStore::new(AgentSecurityConfig::from_policy(policy.clone()))
-            .shared();
+        let config_store =
+            SecurityConfigStore::new(AgentSecurityConfig::from_policy(policy.clone())).shared();
         Self {
             policy: RwLock::new(policy),
             approval_manager,
@@ -47,8 +47,8 @@ impl SecurityChecker {
     /// Create a new security checker with default policy and a new approval manager.
     pub fn with_defaults() -> Self {
         let policy = SecurityPolicy::default();
-        let config_store = SecurityConfigStore::new(AgentSecurityConfig::from_policy(policy.clone()))
-            .shared();
+        let config_store =
+            SecurityConfigStore::new(AgentSecurityConfig::from_policy(policy.clone())).shared();
         Self {
             policy: RwLock::new(policy),
             approval_manager: Arc::new(ApprovalManager::new()),
@@ -267,9 +267,9 @@ impl SecurityChecker {
         let status = self.approval_manager.check_status(approval_id).await;
 
         match status {
-            Some(crate::models::security::ApprovalStatus::Approved) => {
-                Ok(SecurityCheckResult::approved_result(approval_id.to_string()))
-            }
+            Some(crate::models::security::ApprovalStatus::Approved) => Ok(
+                SecurityCheckResult::approved_result(approval_id.to_string()),
+            ),
             Some(crate::models::security::ApprovalStatus::Rejected) => {
                 let approval = self.approval_manager.get(approval_id).await;
                 let reason = approval
@@ -277,9 +277,9 @@ impl SecurityChecker {
                     .unwrap_or_else(|| "User rejected".to_string());
                 Ok(SecurityCheckResult::blocked(reason, None))
             }
-            Some(crate::models::security::ApprovalStatus::Expired) => {
-                Ok(SecurityCheckResult::blocked("Approval request expired".to_string(), None))
-            }
+            Some(crate::models::security::ApprovalStatus::Expired) => Ok(
+                SecurityCheckResult::blocked("Approval request expired".to_string(), None),
+            ),
             Some(crate::models::security::ApprovalStatus::Pending) => {
                 Ok(SecurityCheckResult::requires_approval(
                     approval_id.to_string(),
@@ -457,9 +457,7 @@ impl SecurityGate for SecurityChecker {
         }
 
         if result.requires_approval {
-            let approval_id = result
-                .approval_id
-                .unwrap_or_else(|| "unknown".to_string());
+            let approval_id = result.approval_id.unwrap_or_else(|| "unknown".to_string());
             return Ok(SecurityDecision::requires_approval(
                 approval_id,
                 result.reason,
@@ -538,10 +536,12 @@ mod tests {
 
         assert!(!result.allowed);
         assert!(!result.requires_approval);
-        assert!(result
-            .reason
-            .unwrap_or_default()
-            .contains("Pipeline commands not allowed"));
+        assert!(
+            result
+                .reason
+                .unwrap_or_default()
+                .contains("Pipeline commands not allowed")
+        );
     }
 
     #[tokio::test]
@@ -571,10 +571,12 @@ mod tests {
 
         assert!(!result.allowed);
         assert!(!result.requires_approval);
-        assert!(result
-            .reason
-            .unwrap_or_default()
-            .contains("Redirect commands not allowed"));
+        assert!(
+            result
+                .reason
+                .unwrap_or_default()
+                .contains("Redirect commands not allowed")
+        );
     }
 
     #[tokio::test]
@@ -789,10 +791,22 @@ mod tests {
     async fn test_git_read_commands_allowed() {
         let checker = create_test_checker();
 
-        assert_eq!(checker.would_allow("git status").await, SecurityAction::Allow);
-        assert_eq!(checker.would_allow("git log --oneline").await, SecurityAction::Allow);
-        assert_eq!(checker.would_allow("git diff HEAD").await, SecurityAction::Allow);
-        assert_eq!(checker.would_allow("git branch -a").await, SecurityAction::Allow);
+        assert_eq!(
+            checker.would_allow("git status").await,
+            SecurityAction::Allow
+        );
+        assert_eq!(
+            checker.would_allow("git log --oneline").await,
+            SecurityAction::Allow
+        );
+        assert_eq!(
+            checker.would_allow("git diff HEAD").await,
+            SecurityAction::Allow
+        );
+        assert_eq!(
+            checker.would_allow("git branch -a").await,
+            SecurityAction::Allow
+        );
     }
 
     #[tokio::test]
@@ -813,10 +827,22 @@ mod tests {
     async fn test_cargo_commands_allowed() {
         let checker = create_test_checker();
 
-        assert_eq!(checker.would_allow("cargo test").await, SecurityAction::Allow);
-        assert_eq!(checker.would_allow("cargo build --release").await, SecurityAction::Allow);
-        assert_eq!(checker.would_allow("cargo check").await, SecurityAction::Allow);
-        assert_eq!(checker.would_allow("cargo clippy").await, SecurityAction::Allow);
+        assert_eq!(
+            checker.would_allow("cargo test").await,
+            SecurityAction::Allow
+        );
+        assert_eq!(
+            checker.would_allow("cargo build --release").await,
+            SecurityAction::Allow
+        );
+        assert_eq!(
+            checker.would_allow("cargo check").await,
+            SecurityAction::Allow
+        );
+        assert_eq!(
+            checker.would_allow("cargo clippy").await,
+            SecurityAction::Allow
+        );
     }
 
     #[tokio::test]

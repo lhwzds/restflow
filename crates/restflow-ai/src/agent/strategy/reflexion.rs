@@ -32,12 +32,12 @@
 //! This is a placeholder. Implementation needed.
 //! Can leverage existing MemoryStorage for storing reflections.
 
-use std::sync::Arc;
-use crate::llm::LlmClient;
-use crate::tools::ToolRegistry;
 use super::traits::{
     AgentStrategy, RecommendedSettings, StrategyConfig, StrategyFeature, StrategyResult,
 };
+use crate::llm::LlmClient;
+use crate::tools::ToolRegistry;
+use std::sync::Arc;
 
 /// Configuration specific to Reflexion strategy
 #[derive(Debug, Clone)]

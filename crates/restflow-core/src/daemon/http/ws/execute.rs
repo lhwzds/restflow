@@ -14,8 +14,6 @@ async fn handle_socket(mut socket: WebSocket) {
     let payload = json!({
         "error": "Streaming execution is not implemented in daemon HTTP API yet."
     });
-    let _ = socket
-        .send(Message::Text(payload.to_string().into()))
-        .await;
+    let _ = socket.send(Message::Text(payload.to_string().into())).await;
     let _ = socket.close().await;
 }

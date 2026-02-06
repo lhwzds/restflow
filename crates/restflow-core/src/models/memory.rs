@@ -130,8 +130,8 @@ impl MemoryChunk {
     ///
     /// Generates a unique ID and content hash automatically.
     pub fn new(agent_id: String, content: String) -> Self {
-        use sha2::{Digest, Sha256};
         use restflow_storage::time_utils;
+        use sha2::{Digest, Sha256};
 
         let id = format!("chunk-{}", uuid::Uuid::new_v4());
         let content_hash = hex::encode(Sha256::digest(content.as_bytes()));

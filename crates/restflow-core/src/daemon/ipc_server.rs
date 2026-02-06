@@ -1,18 +1,18 @@
 use super::ipc_protocol::{IpcRequest, IpcResponse, MAX_MESSAGE_SIZE};
-use chrono::Utc;
+use crate::AppCore;
 use crate::auth::{AuthManagerConfig, AuthProfileManager};
 use crate::memory::{MemoryExporter, MemoryExporterBuilder, SearchEngineBuilder};
 use crate::models::{
     AgentNode, AgentTaskStatus, ChatExecutionStatus, ChatMessage, ChatRole, ChatSessionSummary,
     MemoryChunk, MemorySearchQuery, MessageExecution, TerminalSession,
 };
+use crate::services::tool_registry::create_tool_registry;
 use crate::services::{
     agent as agent_service, config as config_service, secrets as secrets_service,
     skills as skills_service,
 };
-use crate::services::tool_registry::create_tool_registry;
-use crate::AppCore;
 use anyhow::Result;
+use chrono::Utc;
 use restflow_storage::AuthProfileStorage;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -195,12 +195,10 @@ impl IpcServer {
                     Err(err) => IpcResponse::error(500, err.to_string()),
                 }
             }
-            IpcRequest::UpdateTask { task } => {
-                match core.storage.agent_tasks.update_task(&task) {
-                    Ok(()) => IpcResponse::success(task),
-                    Err(err) => IpcResponse::error(500, err.to_string()),
-                }
-            }
+            IpcRequest::UpdateTask { task } => match core.storage.agent_tasks.update_task(&task) {
+                Ok(()) => IpcResponse::success(task),
+                Err(err) => IpcResponse::error(500, err.to_string()),
+            },
             IpcRequest::DeleteTask { id } => match core.storage.agent_tasks.delete_task(&id) {
                 Ok(deleted) => IpcResponse::success(serde_json::json!({ "deleted": deleted })),
                 Err(err) => IpcResponse::error(500, err.to_string()),
@@ -294,21 +292,17 @@ impl IpcServer {
             },
             IpcRequest::ListMemory { agent_id, tag } => {
                 let result = match (agent_id, tag) {
-                    (Some(agent_id), Some(tag)) => core
-                        .storage
-                        .memory
-                        .list_chunks(&agent_id)
-                        .map(|chunks| {
+                    (Some(agent_id), Some(tag)) => {
+                        core.storage.memory.list_chunks(&agent_id).map(|chunks| {
                             chunks
                                 .into_iter()
                                 .filter(|chunk| chunk.tags.iter().any(|t| t == &tag))
                                 .collect::<Vec<_>>()
-                        }),
+                        })
+                    }
                     (Some(agent_id), None) => core.storage.memory.list_chunks(&agent_id),
                     (None, Some(tag)) => core.storage.memory.list_chunks_by_tag(&tag),
-                    (None, None) => {
-                        return IpcResponse::error(400, "agent_id or tag is required")
-                    }
+                    (None, None) => return IpcResponse::error(400, "agent_id or tag is required"),
                 };
                 match result {
                     Ok(chunks) => IpcResponse::success(chunks),
@@ -461,7 +455,11 @@ impl IpcServer {
             IpcRequest::DeleteMemorySession {
                 session_id,
                 delete_chunks,
-            } => match core.storage.memory.delete_session(&session_id, delete_chunks) {
+            } => match core
+                .storage
+                .memory
+                .delete_session(&session_id, delete_chunks)
+            {
                 Ok(deleted) => IpcResponse::success(serde_json::json!({ "deleted": deleted })),
                 Err(err) => IpcResponse::error(500, err.to_string()),
             },
@@ -584,9 +582,10 @@ impl IpcServer {
                         .into_iter()
                         .filter(|session| {
                             session.name.to_lowercase().contains(&query)
-                                || session.messages.iter().any(|message| {
-                                    message.content.to_lowercase().contains(&query)
-                                })
+                                || session
+                                    .messages
+                                    .iter()
+                                    .any(|message| message.content.to_lowercase().contains(&query))
                         })
                         .map(|session| ChatSessionSummary::from(&session))
                         .collect();
@@ -626,7 +625,10 @@ impl IpcServer {
                     Err(err) => IpcResponse::error(500, err.to_string()),
                 }
             }
-            IpcRequest::AppendMessage { session_id, message } => {
+            IpcRequest::AppendMessage {
+                session_id,
+                message,
+            } => {
                 let mut session = match core.storage.chat_sessions.get(&session_id) {
                     Ok(Some(session)) => session,
                     Ok(None) => return IpcResponse::not_found("Session"),
@@ -921,10 +923,12 @@ impl IpcServer {
                     Err(err) => IpcResponse::error(500, err.to_string()),
                 }
             }
-            IpcRequest::GetTaskHistory { id } => match core.storage.agent_tasks.list_events_for_task(&id) {
-                Ok(events) => IpcResponse::success(events),
-                Err(err) => IpcResponse::error(500, err.to_string()),
-            },
+            IpcRequest::GetTaskHistory { id } => {
+                match core.storage.agent_tasks.list_events_for_task(&id) {
+                    Ok(events) => IpcResponse::success(events),
+                    Err(err) => IpcResponse::error(500, err.to_string()),
+                }
+            }
             IpcRequest::SubscribeTaskEvents { task_id: _ } => {
                 IpcResponse::error(-3, "Task event streaming not available via IPC")
             }
@@ -954,7 +958,11 @@ impl IpcServer {
                     core.storage.shared_space.clone(),
                     None,
                 );
-                let tools: Vec<String> = registry.list().iter().map(|name| name.to_string()).collect();
+                let tools: Vec<String> = registry
+                    .list()
+                    .iter()
+                    .map(|name| name.to_string())
+                    .collect();
                 IpcResponse::success(tools)
             }
             IpcRequest::ListMcpServers => IpcResponse::success(Vec::<String>::new()),

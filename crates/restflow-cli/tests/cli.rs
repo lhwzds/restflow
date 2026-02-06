@@ -24,3 +24,12 @@ fn test_cli_completions() {
         .success()
         .stdout(starts_with("_restflow"));
 }
+
+#[test]
+fn test_cli_status() {
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("restflow"));
+    cmd.arg("status")
+        .assert()
+        .success()
+        .stdout(contains("RestFlow Status"));
+}

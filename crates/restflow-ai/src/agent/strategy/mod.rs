@@ -105,24 +105,24 @@
 //! let result = agent.execute(config).await?;
 //! ```
 
+mod hierarchical;
 mod preact;
 mod reflexion;
-mod hierarchical;
 mod swarm;
 mod tot;
 mod traits;
 
+pub use hierarchical::{HierarchicalConfig, HierarchicalStrategy};
 pub use preact::{PreActConfig, PreActStrategy};
 pub use reflexion::{ReflexionConfig, ReflexionStrategy};
-pub use hierarchical::{HierarchicalConfig, HierarchicalStrategy};
 pub use swarm::{SwarmConfig, SwarmStrategy};
 pub use tot::{TreeOfThoughtConfig, TreeOfThoughtStrategy};
 pub use traits::{AgentStrategy, StrategyConfig, StrategyResult};
 
-use std::sync::Arc;
+use crate::agent::AgentExecutor;
 use crate::llm::LlmClient;
 use crate::tools::ToolRegistry;
-use crate::agent::AgentExecutor;
+use std::sync::Arc;
 
 /// Available agent strategy types
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -194,29 +194,16 @@ impl AgentStrategyFactory {
                 // Use existing AgentExecutor wrapped in a strategy adapter
                 Box::new(ReactStrategyAdapter::new(llm, tools))
             }
-            StrategyType::PreAct => {
-                Box::new(PreActStrategy::new(llm, tools))
-            }
-            StrategyType::Reflexion => {
-                Box::new(ReflexionStrategy::new(llm, tools))
-            }
-            StrategyType::Hierarchical => {
-                Box::new(HierarchicalStrategy::new(llm, tools))
-            }
-            StrategyType::Swarm => {
-                Box::new(SwarmStrategy::new(llm, tools))
-            }
-            StrategyType::TreeOfThought => {
-                Box::new(TreeOfThoughtStrategy::new(llm, tools))
-            }
+            StrategyType::PreAct => Box::new(PreActStrategy::new(llm, tools)),
+            StrategyType::Reflexion => Box::new(ReflexionStrategy::new(llm, tools)),
+            StrategyType::Hierarchical => Box::new(HierarchicalStrategy::new(llm, tools)),
+            StrategyType::Swarm => Box::new(SwarmStrategy::new(llm, tools)),
+            StrategyType::TreeOfThought => Box::new(TreeOfThoughtStrategy::new(llm, tools)),
         }
     }
 
     /// Create an agent with the default strategy (ReAct)
-    pub fn default(
-        llm: Arc<dyn LlmClient>,
-        tools: Arc<ToolRegistry>,
-    ) -> Box<dyn AgentStrategy> {
+    pub fn default(llm: Arc<dyn LlmClient>, tools: Arc<ToolRegistry>) -> Box<dyn AgentStrategy> {
         Self::create(StrategyType::ReAct, llm, tools)
     }
 
