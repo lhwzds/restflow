@@ -431,8 +431,19 @@ pub enum SkillCommands {
     /// Search marketplace
     Search { query: String },
 
-    /// Install from marketplace
-    Install { name: String },
+    /// Install a skill from marketplace, git, or local sources
+    Install {
+        /// Source: marketplace id, git URL, local path, or .skill package
+        source: String,
+
+        /// Subpath within a git repository
+        #[arg(long)]
+        path: Option<String>,
+
+        /// Install scope: user (default) or workspace
+        #[arg(long, default_value = "user")]
+        scope: String,
+    },
 }
 
 #[derive(Subcommand)]
