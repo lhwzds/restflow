@@ -39,7 +39,9 @@ pub use embedding::{
 };
 pub use error::{AiError, Result};
 pub use graph::{Graph, GraphNode};
-pub use llm::{AnthropicClient, ClaudeCodeClient, CodexClient, LlmClient, Message, OpenAIClient, Role};
+pub use llm::{
+    AnthropicClient, ClaudeCodeClient, CodexClient, LlmClient, Message, OpenAIClient, Role,
+};
 pub use memory::{
     CompactionConfig, CompactionResult, ContextCompactor, DEFAULT_MAX_MESSAGES, WorkingMemory,
 };

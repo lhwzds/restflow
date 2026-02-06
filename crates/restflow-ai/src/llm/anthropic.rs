@@ -13,6 +13,7 @@ use crate::llm::client::{
     CompletionRequest, CompletionResponse, FinishReason, LlmClient, Role, StreamChunk,
     StreamResult, TokenUsage, ToolCall, ToolCallDelta,
 };
+use crate::llm::retry::{LlmRetryConfig, response_to_error};
 
 /// Anthropic client
 pub struct AnthropicClient {
@@ -20,6 +21,7 @@ pub struct AnthropicClient {
     api_key: String,
     auth_type: AnthropicAuthType,
     model: String,
+    retry_config: LlmRetryConfig,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -48,12 +50,18 @@ impl AnthropicClient {
             api_key,
             auth_type,
             model: "claude-sonnet-4-20250514".to_string(),
+            retry_config: LlmRetryConfig::default(),
         }
     }
 
     /// Set the model to use
     pub fn with_model(mut self, model: impl Into<String>) -> Self {
         self.model = model.into();
+        self
+    }
+
+    pub fn with_retry_config(mut self, config: LlmRetryConfig) -> Self {
+        self.retry_config = config;
         self
     }
 
@@ -371,58 +379,79 @@ impl LlmClient for AnthropicClient {
             tools,
         };
 
-        let response = self
-            .client
-            .post("https://api.anthropic.com/v1/messages")
-            .headers(self.build_auth_headers())
-            .json(&body)
-            .send()
-            .await?;
+        let mut last_error = None;
 
-        if !response.status().is_success() {
-            let error = response.text().await.unwrap_or_default();
-            return Err(AiError::Llm(format!("Anthropic API error: {}", error)));
-        }
+        for attempt in 0..=self.retry_config.max_retries {
+            let response = self
+                .client
+                .post("https://api.anthropic.com/v1/messages")
+                .headers(self.build_auth_headers())
+                .json(&body)
+                .send()
+                .await?;
 
-        let data: AnthropicResponse = response.json().await?;
+            if response.status().is_success() {
+                let data: AnthropicResponse = response.json().await?;
 
-        let mut content = None;
-        let mut tool_calls = vec![];
+                let mut content = None;
+                let mut tool_calls = vec![];
 
-        for block in data.content {
-            match block.r#type.as_str() {
-                "text" => content = block.text,
-                "tool_use" => {
-                    if let (Some(id), Some(name), Some(input)) = (block.id, block.name, block.input)
-                    {
-                        tool_calls.push(ToolCall {
-                            id,
-                            name,
-                            arguments: input,
-                        });
+                for block in data.content {
+                    match block.r#type.as_str() {
+                        "text" => content = block.text,
+                        "tool_use" => {
+                            if let (Some(id), Some(name), Some(input)) =
+                                (block.id, block.name, block.input)
+                            {
+                                tool_calls.push(ToolCall {
+                                    id,
+                                    name,
+                                    arguments: input,
+                                });
+                            }
+                        }
+                        _ => {}
                     }
                 }
-                _ => {}
+
+                let finish_reason = match data.stop_reason.as_deref() {
+                    Some("end_turn") => FinishReason::Stop,
+                    Some("tool_use") => FinishReason::ToolCalls,
+                    Some("max_tokens") => FinishReason::MaxTokens,
+                    _ => FinishReason::Stop,
+                };
+
+                return Ok(CompletionResponse {
+                    content,
+                    tool_calls,
+                    finish_reason,
+                    usage: Some(TokenUsage {
+                        prompt_tokens: data.usage.input_tokens,
+                        completion_tokens: data.usage.output_tokens,
+                        total_tokens: data.usage.input_tokens + data.usage.output_tokens,
+                    }),
+                });
             }
+
+            let error = response_to_error(response, "Anthropic").await;
+            if !error.is_retryable() || attempt == self.retry_config.max_retries {
+                return Err(error);
+            }
+
+            let delay = self
+                .retry_config
+                .delay_for(attempt + 1, error.retry_after());
+            tracing::warn!(
+                attempt = attempt + 1,
+                delay_ms = delay.as_millis(),
+                "Retrying Anthropic request"
+            );
+            tokio::time::sleep(delay).await;
+            last_error = Some(error);
         }
 
-        let finish_reason = match data.stop_reason.as_deref() {
-            Some("end_turn") => FinishReason::Stop,
-            Some("tool_use") => FinishReason::ToolCalls,
-            Some("max_tokens") => FinishReason::MaxTokens,
-            _ => FinishReason::Stop,
-        };
-
-        Ok(CompletionResponse {
-            content,
-            tool_calls,
-            finish_reason,
-            usage: Some(TokenUsage {
-                prompt_tokens: data.usage.input_tokens,
-                completion_tokens: data.usage.output_tokens,
-                total_tokens: data.usage.input_tokens + data.usage.output_tokens,
-            }),
-        })
+        Err(last_error
+            .unwrap_or_else(|| AiError::Llm("Anthropic request failed after retries".to_string())))
     }
 
     fn complete_stream(&self, request: CompletionRequest) -> StreamResult {
@@ -544,8 +573,7 @@ impl LlmClient for AnthropicClient {
             };
 
             if !response.status().is_success() {
-                let error = response.text().await.unwrap_or_default();
-                yield Err(AiError::Llm(format!("Anthropic API error: {}", error)));
+                yield Err(response_to_error(response, "Anthropic").await);
                 return;
             }
 
