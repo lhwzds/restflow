@@ -48,14 +48,19 @@ jobs:
         if: runner.os != 'Windows'
         run: |
           cd target/${{ matrix.target }}/release
-          tar -czvf restflow-${{ matrix.target }}.tar.gz restflow
+          ln -sfn restflow rf
+          tar -czvf restflow-${{ matrix.target }}.tar.gz restflow rf
           mv restflow-${{ matrix.target }}.tar.gz ../../../
 
       - name: Package (Windows)
         if: runner.os == 'Windows'
         run: |
           cd target/${{ matrix.target }}/release
-          7z a restflow-${{ matrix.target }}.zip restflow.exe
+          @"
+          @echo off
+          "%~dp0restflow.exe" %*
+          "@ | Set-Content -NoNewline rf.cmd
+          7z a restflow-${{ matrix.target }}.zip restflow.exe rf.cmd
           mv restflow-${{ matrix.target }}.zip ../../../
 
       - name: Upload artifact

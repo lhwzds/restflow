@@ -10,10 +10,11 @@ npm install -g restflow-cli
 
 ## Usage
 
-After installation, the `restflow` command will be available:
+After installation, both `restflow` and `rf` commands will be available:
 
 ```bash
 restflow --help
+rf --help
 restflow daemon start
 restflow claude -p "Hello, world!"
 ```
