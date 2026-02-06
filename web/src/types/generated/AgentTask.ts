@@ -75,6 +75,14 @@ success_count: number,
  */
 failure_count: number, 
 /**
+ * Cumulative tokens used across executions
+ */
+total_tokens_used: number, 
+/**
+ * Cumulative cost in USD across executions
+ */
+total_cost_usd: number, 
+/**
  * Last error message if failed
  */
 last_error: string | null, 
