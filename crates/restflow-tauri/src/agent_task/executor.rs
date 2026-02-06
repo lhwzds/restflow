@@ -17,10 +17,11 @@ use restflow_ai::{
 use restflow_core::{
     AIModel, Provider,
     auth::AuthProfileManager,
-    models::{AgentNode, ApiKeyConfig},
+    models::{AgentNode, ApiKeyConfig, SteerMessage},
     process::ProcessRegistry,
     storage::Storage,
 };
+use tokio::sync::mpsc;
 use tokio::time::sleep;
 use tracing::info;
 
@@ -312,7 +313,15 @@ impl AgentExecutor for RealAgentExecutor {
     /// 5. Creates the tool registry
     /// 6. Executes the agent via restflow_ai::AgentExecutor
     /// 7. Returns the execution result with output and messages
-    async fn execute(&self, agent_id: &str, input: Option<&str>) -> Result<ExecutionResult> {
+    async fn execute(
+        &self,
+        agent_id: &str,
+        input: Option<&str>,
+        _steer_rx: Option<mpsc::Receiver<SteerMessage>>,
+    ) -> Result<ExecutionResult> {
+        // Note: steer_rx is not used here because UnifiedAgent doesn't support
+        // steer channels in its current implementation. Full steer support
+        // requires passing this to the underlying agent execution.
         let stored_agent = self
             .storage
             .agents
@@ -331,6 +340,8 @@ impl AgentExecutor for RealAgentExecutor {
         loop {
             let input_ref = input_owned.as_deref();
             let agent_node_clone = agent_node.clone();
+            // Note: steer_rx is consumed on first execution attempt only.
+            // Retries after this point won't have steering support.
             let result = execute_with_failover(&failover_manager, |model| {
                 let node = agent_node_clone.clone();
                 async move {
@@ -401,7 +412,7 @@ mod tests {
         let (storage, _temp_dir) = create_test_storage();
         let executor = create_test_executor(storage);
 
-        let result = executor.execute("nonexistent-agent", None).await;
+        let result = executor.execute("nonexistent-agent", None, None).await;
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("not found"));
     }
@@ -421,7 +432,7 @@ mod tests {
         let agent_id = &agents[0].id;
 
         let executor = create_test_executor(storage);
-        let result = executor.execute(agent_id, Some("test input")).await;
+        let result = executor.execute(agent_id, Some("test input"), None).await;
 
         // Should fail due to missing API key (no ANTHROPIC_API_KEY secret configured)
         assert!(result.is_err());

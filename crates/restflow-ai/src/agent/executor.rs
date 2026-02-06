@@ -12,8 +12,10 @@ use crate::agent::stream::{StreamEmitter, ToolCallAccumulator};
 use crate::error::{AiError, Result};
 use crate::llm::{CompletionRequest, FinishReason, LlmClient, Message, ToolCall};
 use crate::memory::{CompactionConfig, DEFAULT_MAX_MESSAGES, WorkingMemory};
+use crate::steer::SteerMessage;
 use crate::tools::ToolRegistry;
 use futures::StreamExt;
+use tokio::sync::{Mutex, mpsc};
 use tracing::debug;
 
 /// Agent type for system prompt composition.
@@ -156,6 +158,7 @@ pub struct AgentExecutor {
     tools: Arc<ToolRegistry>,
     summarizer: Option<Arc<dyn LlmClient>>,
     context_cache: Option<WorkspaceContextCache>,
+    steer_rx: Option<Mutex<mpsc::Receiver<SteerMessage>>>,
 }
 
 impl AgentExecutor {
@@ -170,6 +173,7 @@ impl AgentExecutor {
             tools,
             summarizer: None,
             context_cache,
+            steer_rx: None,
         }
     }
 
@@ -177,6 +181,51 @@ impl AgentExecutor {
     pub fn with_summarizer(mut self, summarizer: Arc<dyn LlmClient>) -> Self {
         self.summarizer = Some(summarizer);
         self
+    }
+
+    /// Attach a steer channel for live instruction updates.
+    pub fn with_steer_channel(mut self, rx: mpsc::Receiver<SteerMessage>) -> Self {
+        self.steer_rx = Some(Mutex::new(rx));
+        self
+    }
+
+    async fn drain_steer_messages(&self) -> Vec<SteerMessage> {
+        let Some(rx) = &self.steer_rx else {
+            return Vec::new();
+        };
+
+        let mut rx = rx.lock().await;
+        let mut messages = Vec::new();
+        loop {
+            match rx.try_recv() {
+                Ok(msg) => messages.push(msg),
+                Err(tokio::sync::mpsc::error::TryRecvError::Empty) => break,
+                Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => break,
+            }
+        }
+        messages
+    }
+
+    async fn apply_steer_messages(
+        &self,
+        state: &mut AgentState,
+        memory: &mut WorkingMemory,
+    ) {
+        let messages = self.drain_steer_messages().await;
+        if messages.is_empty() {
+            return;
+        }
+
+        for steer in messages {
+            tracing::info!(
+                instruction = %steer.instruction,
+                source = ?steer.source,
+                "Received steer message, injecting into conversation"
+            );
+            let msg = Message::user(format!("[User Update]: {}", steer.instruction));
+            state.add_message(msg.clone());
+            memory.add(msg);
+        }
     }
 
     /// Execute agent - simplified Swarm-style loop
@@ -213,6 +262,8 @@ impl AgentExecutor {
             {
                 // Compaction affects working memory only; full state history remains intact.
             }
+
+            self.apply_steer_messages(&mut state, &mut memory).await;
 
             // 1. LLM call - use working memory for context (handles overflow)
             let mut request =
@@ -365,6 +416,8 @@ impl AgentExecutor {
             {
                 // Compaction affects working memory only; full state history remains intact.
             }
+
+            self.apply_steer_messages(&mut state, &mut memory).await;
 
             let mut request =
                 CompletionRequest::new(memory.get_messages()).with_tools(self.tools.schemas());
