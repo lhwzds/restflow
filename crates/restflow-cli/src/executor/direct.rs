@@ -1,13 +1,14 @@
 use anyhow::{Result, bail};
 use async_trait::async_trait;
+use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::warn;
 
 use crate::executor::{CommandExecutor, CreateTaskInput};
 use crate::setup;
 use restflow_ai::{
-    AgentConfig, AgentExecutor, AgentState, AgentStatus, AnthropicClient, ClaudeCodeClient,
-    CodexClient, LlmClient, OpenAIClient, Role, ToolRegistry,
+    AgentConfig, AgentExecutor, AgentState, AgentStatus, DefaultLlmClientFactory, LlmProvider,
+    LlmClientFactory, ModelSpec, Role, SwappableLlm, SwitchModelTool, ToolRegistry,
 };
 use restflow_core::auth::{AuthManagerConfig, AuthProfileManager, AuthProvider};
 use restflow_core::memory::{ChatSessionMirror, ExportResult, MemoryExporter, MessageMirror};
@@ -23,7 +24,7 @@ use restflow_core::services::{
 use restflow_core::storage::SystemConfig;
 use restflow_core::storage::agent::StoredAgent;
 use restflow_core::{
-    AppCore,
+    AIModel, AppCore,
     models::{
         AgentTask, AgentTaskStatus, ChatSession, ChatSessionSummary, MemoryChunk,
         MemorySearchResult, MemoryStats, Secret, Skill,
@@ -310,12 +311,12 @@ async fn resolve_agent_id(core: &Arc<AppCore>, agent_id: Option<String>) -> Resu
 }
 
 async fn resolve_api_key(
-    agent_node: &AgentNode,
+    api_key_config: Option<&ApiKeyConfig>,
     secret_storage: Option<&restflow_core::storage::SecretStorage>,
     provider: Provider,
     core: &Arc<AppCore>,
 ) -> Result<String> {
-    if let Some(config) = &agent_node.api_key_config {
+    if let Some(config) = api_key_config {
         match config {
             ApiKeyConfig::Direct(key) => {
                 if !key.is_empty() {
@@ -373,6 +374,69 @@ async fn resolve_api_key_from_profiles(
     }
 }
 
+fn build_model_specs() -> Vec<ModelSpec> {
+    let mut specs = Vec::new();
+
+    for model in AIModel::all() {
+        let provider = to_llm_provider(model.provider());
+        let spec = if model.is_codex_cli() {
+            ModelSpec::codex(model.as_serialized_str(), model.as_str())
+        } else {
+            ModelSpec::new(model.as_serialized_str(), provider, model.as_str())
+        };
+        specs.push(spec);
+
+        if model.is_claude_code() {
+            specs.push(ModelSpec::new(model.as_str(), provider, model.as_str()));
+        }
+    }
+
+    for codex_model in [
+        "gpt-5.3-codex",
+        "gpt-5.2-codex",
+        "gpt-5.1-codex-max",
+        "gpt-5.1-codex",
+        "gpt-5-codex",
+    ] {
+        specs.push(ModelSpec::codex(codex_model, codex_model));
+    }
+
+    specs
+}
+
+fn to_llm_provider(provider: Provider) -> LlmProvider {
+    match provider {
+        Provider::OpenAI => LlmProvider::OpenAI,
+        Provider::Anthropic => LlmProvider::Anthropic,
+        Provider::DeepSeek => LlmProvider::DeepSeek,
+    }
+}
+
+async fn build_api_keys(
+    agent_node: &AgentNode,
+    secret_storage: Option<&restflow_core::storage::SecretStorage>,
+    core: &Arc<AppCore>,
+    primary_provider: Provider,
+) -> HashMap<LlmProvider, String> {
+    let mut keys = HashMap::new();
+
+    for provider in [Provider::OpenAI, Provider::Anthropic, Provider::DeepSeek] {
+        let api_key_config = if provider == primary_provider {
+            agent_node.api_key_config.as_ref()
+        } else {
+            None
+        };
+
+        if let Ok(key) =
+            resolve_api_key(api_key_config, secret_storage, provider, core).await
+        {
+            keys.insert(to_llm_provider(provider), key);
+        }
+    }
+
+    keys
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn run_agent_with_executor(
     core: &Arc<AppCore>,
@@ -386,31 +450,25 @@ async fn run_agent_with_executor(
 ) -> Result<AgentExecuteResponse> {
     let model = agent_node.require_model().map_err(|e| anyhow::anyhow!(e))?;
 
+    let api_keys = build_api_keys(agent_node, secret_storage, core, model.provider()).await;
+    let factory = Arc::new(DefaultLlmClientFactory::new(api_keys, build_model_specs()));
+
     let api_key = if model.is_codex_cli() {
-        String::new()
+        None
     } else {
-        resolve_api_key(agent_node, secret_storage, model.provider(), core).await?
+        Some(
+            resolve_api_key(
+                agent_node.api_key_config.as_ref(),
+                secret_storage,
+                model.provider(),
+                core,
+            )
+            .await?,
+        )
     };
 
-    let llm: Arc<dyn LlmClient> = if model.is_codex_cli() {
-        Arc::new(CodexClient::new().with_model(model.as_str()))
-    } else {
-        match model.provider() {
-            Provider::OpenAI => Arc::new(OpenAIClient::new(&api_key).with_model(model.as_str())),
-            Provider::Anthropic => {
-                if api_key.starts_with("sk-ant-oat") {
-                    Arc::new(ClaudeCodeClient::new(&api_key).with_model(model.as_str()))
-                } else {
-                    Arc::new(AnthropicClient::new(&api_key).with_model(model.as_str()))
-                }
-            }
-            Provider::DeepSeek => Arc::new(
-                OpenAIClient::new(&api_key)
-                    .with_model(model.as_str())
-                    .with_base_url("https://api.deepseek.com/v1"),
-            ),
-        }
-    };
+    let llm_client = factory.create_client(model.as_serialized_str(), api_key.as_deref())?;
+    let swappable = Arc::new(SwappableLlm::new(llm_client));
 
     let full_registry = create_tool_registry(
         skill_storage,
@@ -423,9 +481,9 @@ async fn run_agent_with_executor(
         None,
     );
 
-    let tools = if let Some(ref tool_names) = agent_node.tools {
+    let mut tools = if let Some(ref tool_names) = agent_node.tools {
         if tool_names.is_empty() {
-            Arc::new(ToolRegistry::new())
+            ToolRegistry::new()
         } else {
             let mut filtered_registry = ToolRegistry::new();
             for name in tool_names {
@@ -435,11 +493,22 @@ async fn run_agent_with_executor(
                     warn!(tool_name = %name, "Configured tool not found in registry, skipping");
                 }
             }
-            Arc::new(filtered_registry)
+            filtered_registry
         }
     } else {
-        Arc::new(ToolRegistry::new())
+        ToolRegistry::new()
     };
+
+    if agent_node
+        .tools
+        .as_deref()
+        .map(|names| names.iter().any(|name| name == "switch_model"))
+        .unwrap_or(false)
+    {
+        tools.register(SwitchModelTool::new(swappable.clone(), factory.clone()));
+    }
+
+    let tools = Arc::new(tools);
 
     let mut config = AgentConfig::new(input);
 
@@ -453,7 +522,7 @@ async fn run_agent_with_executor(
         config = config.with_temperature(temp as f32);
     }
 
-    let executor = AgentExecutor::new(llm, tools);
+    let executor = AgentExecutor::new(swappable, tools);
     let result = executor.run(config).await?;
 
     let response = result.answer.unwrap_or_else(|| {

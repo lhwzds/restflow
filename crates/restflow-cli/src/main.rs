@@ -64,6 +64,11 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
+    if let Some(Commands::Upgrade(args)) = &cli.command {
+        commands::upgrade::run(*args, cli.format).await?;
+        return Ok(());
+    }
+
     // Handle daemon commands that don't need AppCore (to avoid database lock conflicts)
     if let Some(Commands::Daemon { command }) = &cli.command {
         match command {
@@ -177,6 +182,7 @@ async fn main() -> Result<()> {
             Some(Commands::Completions { .. }) => Ok(()),
             Some(Commands::Stop) => Ok(()),
             Some(Commands::Status) => Ok(()),
+            Some(Commands::Upgrade(_)) => Ok(()),
             None => {
                 Cli::command().print_help()?;
                 Ok(())
