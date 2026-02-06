@@ -34,11 +34,13 @@
 //! ```
 
 mod context;
+mod definitions;
 mod executor;
 pub mod react;
 mod state;
 pub mod strategy;
 mod stream;
+mod sub_agent;
 mod trace;
 mod unified;
 
@@ -46,8 +48,14 @@ pub use context::{
     AgentContext, ContextDiscoveryConfig, ContextLoader, DiscoveredContext, MemoryContext,
     SkillSummary, WorkspaceContextCache,
 };
+pub use definitions::{AgentDefinition, AgentDefinitionRegistry, builtin_agents};
 pub use executor::{AgentConfig, AgentExecutor, AgentResult};
 pub use state::{AgentState, AgentStatus};
 pub use stream::{NullEmitter, StreamEmitter, ToolCallAccumulator};
+pub use sub_agent::{
+    SpawnHandle, SpawnPriority, SpawnRequest, SubAgentManager, SubagentCompletion,
+    SubagentConfig, SubagentResult, SubagentState, SubagentStatus, SubagentTracker,
+    spawn_subagent,
+};
 pub use trace::TraceEvent;
 pub use unified::{ExecutionResult, UnifiedAgent, UnifiedAgentConfig};

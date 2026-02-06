@@ -45,6 +45,10 @@ impl Tool for PythonTool {
         })
     }
 
+    fn supports_parallel(&self) -> bool {
+        false
+    }
+
     async fn execute(&self, args: Value) -> Result<ToolResult> {
         let code = args
             .get("code")
