@@ -3,8 +3,11 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::sync::Arc;
 
 use crate::error::Result;
+
+pub type SecretResolver = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
 
 /// JSON Schema for tool parameters
 #[derive(Debug, Clone, Serialize, Deserialize)]

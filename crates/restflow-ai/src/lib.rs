@@ -49,7 +49,7 @@ pub use memory::{
 pub use security::{SecurityDecision, SecurityGate};
 pub use tools::{
     DiagnosticsProvider, DiagnosticsTool, EmailTool, HttpTool, MemorySearchMatch, MemorySearchTool,
-    PythonTool, SemanticMemory, SkillContent, SkillInfo, SkillProvider, SkillTool,
-    SwitchModelTool, Tool, ToolOutput, ToolRegistry, ToolSchema,
+    PythonTool, SecretResolver, SemanticMemory, SkillContent, SkillInfo, SkillProvider, SkillTool,
+    SwitchModelTool, Tool, ToolOutput, ToolRegistry, ToolSchema, TranscribeTool, VisionTool,
 };
 pub use workflow_def::WorkflowDef;
