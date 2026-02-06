@@ -68,15 +68,15 @@ pub enum AIModel {
     #[serde(rename = "claude-code-haiku")]
     ClaudeCodeHaiku,
 
-    // Codex CLI (OpenAI)
-    #[serde(rename = "codex-cli")]
-    CodexCli,
-
     // DeepSeek series
     #[serde(rename = "deepseek-chat")]
     DeepseekChat,
     #[serde(rename = "deepseek-reasoner")]
     DeepseekReasoner,
+
+    // Codex CLI (OpenAI)
+    #[serde(rename = "codex-cli")]
+    CodexCli,
 }
 
 impl AIModel {
@@ -156,13 +156,6 @@ impl AIModel {
                 name: "Claude Code Haiku",
             },
 
-            // Codex CLI
-            Self::CodexCli => ModelMetadata {
-                provider: Provider::OpenAI,
-                supports_temperature: false,
-                name: "Codex CLI",
-            },
-
             // DeepSeek series
             Self::DeepseekChat => ModelMetadata {
                 provider: Provider::DeepSeek,
@@ -173,6 +166,13 @@ impl AIModel {
                 provider: Provider::DeepSeek,
                 supports_temperature: true,
                 name: "DeepSeek Reasoner",
+            },
+
+            // Codex CLI
+            Self::CodexCli => ModelMetadata {
+                provider: Provider::OpenAI,
+                supports_temperature: false,
+                name: "Codex CLI",
             },
         }
     }
@@ -211,12 +211,12 @@ impl AIModel {
             Self::ClaudeCodeSonnet => "sonnet",
             Self::ClaudeCodeHaiku => "haiku",
 
-            // Codex CLI
-            Self::CodexCli => "gpt-5.3-codex",
-
             // DeepSeek series
             Self::DeepseekChat => "deepseek-chat",
             Self::DeepseekReasoner => "deepseek-reasoner",
+
+            // Codex CLI
+            Self::CodexCli => "gpt-5.3-codex",
         }
     }
 
@@ -290,11 +290,11 @@ impl AIModel {
             Self::ClaudeCodeOpus,
             Self::ClaudeCodeSonnet,
             Self::ClaudeCodeHaiku,
-            // OpenAI (Codex CLI)
-            Self::CodexCli,
             // DeepSeek
             Self::DeepseekChat,
             Self::DeepseekReasoner,
+            // Codex CLI
+            Self::CodexCli,
         ]
     }
 
@@ -336,11 +336,18 @@ mod tests {
         assert!(!AIModel::Gpt5Mini.supports_temperature());
         assert!(!AIModel::O3.supports_temperature());
         assert!(!AIModel::O4Mini.supports_temperature());
+        assert!(!AIModel::CodexCli.supports_temperature());
 
         // Models that support temperature
         assert!(AIModel::ClaudeSonnet4_5.supports_temperature());
         assert!(AIModel::ClaudeHaiku4_5.supports_temperature());
         assert!(AIModel::DeepseekChat.supports_temperature());
+    }
+
+    #[test]
+    fn test_is_codex_cli() {
+        assert!(AIModel::CodexCli.is_codex_cli());
+        assert!(!AIModel::Gpt5.is_codex_cli());
     }
 
     #[test]
@@ -351,6 +358,7 @@ mod tests {
         assert_eq!(AIModel::ClaudeHaiku4_5.as_str(), "claude-haiku-4-5");
         assert_eq!(AIModel::CodexCli.as_str(), "gpt-5.3-codex");
         assert_eq!(AIModel::DeepseekChat.as_str(), "deepseek-chat");
+        assert_eq!(AIModel::CodexCli.as_str(), "gpt-5.3-codex");
     }
 
     #[test]
@@ -360,6 +368,7 @@ mod tests {
         assert_eq!(AIModel::ClaudeHaiku4_5.display_name(), "Claude Haiku 4.5");
         assert_eq!(AIModel::CodexCli.display_name(), "Codex CLI");
         assert_eq!(AIModel::DeepseekChat.display_name(), "DeepSeek Chat");
+        assert_eq!(AIModel::CodexCli.display_name(), "Codex CLI");
     }
 
     #[test]
@@ -373,6 +382,7 @@ mod tests {
         assert!(models.contains(&AIModel::ClaudeHaiku4_5));
         assert!(models.contains(&AIModel::CodexCli));
         assert!(models.contains(&AIModel::DeepseekChat));
+        assert!(models.contains(&AIModel::CodexCli));
     }
 
     #[test]

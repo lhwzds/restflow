@@ -11,7 +11,10 @@ pub struct HealthChecker {
 
 impl HealthChecker {
     pub fn new(ipc_socket: PathBuf, http_url: Option<String>) -> Self {
-        Self { ipc_socket, http_url }
+        Self {
+            ipc_socket,
+            http_url,
+        }
     }
 
     pub async fn check(&self) -> HealthStatus {
@@ -33,7 +36,11 @@ impl HealthChecker {
         let url = self.http_url.as_ref()?;
         let client = reqwest::Client::new();
         let response = client.get(format!("{}/health", url)).send().await;
-        Some(response.map(|resp| resp.status().is_success()).unwrap_or(false))
+        Some(
+            response
+                .map(|resp| resp.status().is_success())
+                .unwrap_or(false),
+        )
     }
 }
 

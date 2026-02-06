@@ -48,12 +48,12 @@
 //!
 //! This is a placeholder. Can integrate with Phase 8 TaskQueue.
 
-use std::sync::Arc;
-use crate::llm::LlmClient;
-use crate::tools::ToolRegistry;
 use super::traits::{
     AgentStrategy, RecommendedSettings, StrategyConfig, StrategyFeature, StrategyResult,
 };
+use crate::llm::LlmClient;
+use crate::tools::ToolRegistry;
+use std::sync::Arc;
 
 /// Configuration specific to Hierarchical strategy
 #[derive(Debug, Clone)]
@@ -208,10 +208,7 @@ impl HierarchicalStrategy {
     /// }
     /// ```
     #[allow(dead_code)]
-    async fn execute_subtasks(
-        &self,
-        _subtasks: Vec<Subtask>,
-    ) -> crate::error::Result<Vec<String>> {
+    async fn execute_subtasks(&self, _subtasks: Vec<Subtask>) -> crate::error::Result<Vec<String>> {
         // TODO: Implement parallel subtask execution
         unimplemented!("Hierarchical execution not yet implemented")
     }

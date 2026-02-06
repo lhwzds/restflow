@@ -61,7 +61,11 @@ pub async fn create_secret(
 
     state
         .executor()
-        .set_secret(request.key.clone(), request.value, request.description.clone())
+        .set_secret(
+            request.key.clone(),
+            request.value,
+            request.description.clone(),
+        )
         .await
         .map_err(|e| e.to_string())?;
 

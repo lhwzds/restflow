@@ -11,9 +11,16 @@ use anyhow::Result;
 use clap::{CommandFactory, Parser};
 use clap_complete::generate;
 use cli::{Cli, Commands, DaemonCommands};
-use restflow_core::daemon::{check_daemon_status, start_daemon, stop_daemon, DaemonStatus};
+use restflow_core::daemon::{DaemonStatus, check_daemon_status, start_daemon, stop_daemon};
 use restflow_core::paths;
 use std::io;
+
+fn command_needs_direct_core(command: &Option<Commands>) -> bool {
+    matches!(
+        command,
+        Some(Commands::Daemon { .. }) | Some(Commands::Codex(_)) | Some(Commands::Run(_))
+    )
+}
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -47,10 +54,22 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
+    if let Some(Commands::Status) = cli.command {
+        commands::status::run(cli.format).await?;
+        return Ok(());
+    }
+
+    if let Some(Commands::Start(args)) = &cli.command {
+        commands::start::run(*args).await?;
+        return Ok(());
+    }
+
     // Handle daemon commands that don't need AppCore (to avoid database lock conflicts)
     if let Some(Commands::Daemon { command }) = &cli.command {
         match command {
-            DaemonCommands::Start { foreground: false, .. } => {
+            DaemonCommands::Start {
+                foreground: false, ..
+            } => {
                 match check_daemon_status()? {
                     DaemonStatus::Running { pid } => {
                         println!("Daemon already running (PID: {})", pid);
@@ -84,7 +103,9 @@ async fn main() -> Result<()> {
                 }
                 return Ok(());
             }
-            DaemonCommands::Start { foreground: true, .. } => {
+            DaemonCommands::Start {
+                foreground: true, ..
+            } => {
                 // Continue to open database for foreground mode
             }
         }
@@ -106,15 +127,9 @@ async fn main() -> Result<()> {
         return commands::mcp::run(command.clone(), cli.format).await;
     }
 
-    // Commands that need direct core access (daemon, codex, run, start)
+    // Commands that need direct core access (daemon, codex, run)
     // These bypass the executor pattern for now
-    let needs_direct_core = matches!(
-        &cli.command,
-        Some(Commands::Daemon { .. })
-            | Some(Commands::Codex(_))
-            | Some(Commands::Run(_))
-            | Some(Commands::Start(_))
-    );
+    let needs_direct_core = command_needs_direct_core(&cli.command);
 
     let db_path = setup::resolve_db_path(cli.db_path.clone())?;
 
@@ -124,7 +139,6 @@ async fn main() -> Result<()> {
 
         match cli.command {
             Some(Commands::Run(args)) => commands::run::run(core, args, cli.format).await,
-            Some(Commands::Start(args)) => commands::start::run(args).await,
             Some(Commands::Daemon { command }) => commands::daemon::run(core, command).await,
             Some(Commands::Codex(args)) => commands::codex::run(core, args, cli.format).await,
             _ => unreachable!(),
@@ -162,11 +176,47 @@ async fn main() -> Result<()> {
             Some(Commands::Info) => commands::info::run(),
             Some(Commands::Completions { .. }) => Ok(()),
             Some(Commands::Stop) => Ok(()),
+            Some(Commands::Status) => Ok(()),
             None => {
                 Cli::command().print_help()?;
                 Ok(())
             }
             _ => unreachable!(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::command_needs_direct_core;
+    use crate::cli::{CodexArgs, Commands, RunArgs, StartArgs};
+
+    #[test]
+    fn start_does_not_need_direct_core() {
+        let command = Some(Commands::Start(StartArgs::default()));
+        assert!(!command_needs_direct_core(&command));
+    }
+
+    #[test]
+    fn run_needs_direct_core() {
+        let command = Some(Commands::Run(RunArgs {
+            agent_id: "agent-1".to_string(),
+            input: None,
+            background: false,
+            stream: false,
+        }));
+        assert!(command_needs_direct_core(&command));
+    }
+
+    #[test]
+    fn codex_needs_direct_core() {
+        let command = Some(Commands::Codex(CodexArgs {
+            prompt: None,
+            model: "gpt-5".to_string(),
+            session: None,
+            cwd: None,
+            timeout: 300,
+        }));
+        assert!(command_needs_direct_core(&command));
     }
 }

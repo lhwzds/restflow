@@ -3,4 +3,4 @@
 /**
  * AI model enum - Single Source of Truth for all supported models
  */
-export type AIModel = "gpt-5" | "gpt-5-mini" | "gpt-5-nano" | "gpt-5-pro" | "o4-mini" | "o3" | "o3-mini" | "claude-opus-4-1" | "claude-sonnet-4-5" | "claude-haiku-4-5" | "claude-code-opus" | "claude-code-sonnet" | "claude-code-haiku" | "codex-cli" | "deepseek-chat" | "deepseek-reasoner";
+export type AIModel = "gpt-5" | "gpt-5-mini" | "gpt-5-nano" | "gpt-5-pro" | "o4-mini" | "o3" | "o3-mini" | "claude-opus-4-1" | "claude-sonnet-4-5" | "claude-haiku-4-5" | "claude-code-opus" | "claude-code-sonnet" | "claude-code-haiku" | "deepseek-chat" | "deepseek-reasoner" | "codex-cli";

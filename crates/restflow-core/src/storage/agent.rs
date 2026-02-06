@@ -3,12 +3,12 @@
 use crate::models::AgentNode;
 use anyhow::Result;
 use redb::Database;
-use serde::{Deserialize, Serialize};
+use restflow_storage::SimpleStorage;
 use restflow_storage::time_utils;
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use ts_rs::TS;
 use uuid::Uuid;
-use restflow_storage::SimpleStorage;
 
 /// Stored agent with metadata
 #[derive(Serialize, Deserialize, Debug, Clone, TS)]

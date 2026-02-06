@@ -18,7 +18,9 @@ use redb::Database;
 use std::sync::Arc;
 
 // Re-export types that are self-contained in restflow-storage
-pub use restflow_storage::{ConfigStorage, Secret, SecretStorage, SecretStorageConfig, SystemConfig};
+pub use restflow_storage::{
+    ConfigStorage, Secret, SecretStorage, SecretStorageConfig, SystemConfig,
+};
 
 pub use agent::AgentStorage;
 pub use agent_task::AgentTaskStorage;

@@ -7,8 +7,8 @@ use tracing::warn;
 use crate::executor::{CommandExecutor, CreateTaskInput};
 use crate::setup;
 use restflow_ai::{
-    AgentConfig, AgentExecutor, AgentState, AgentStatus, DefaultLlmClientFactory, LlmClient,
-    LlmClientFactory, LlmProvider, ModelSpec, Role, SwappableLlm, SwitchModelTool, ToolRegistry,
+    AgentConfig, AgentExecutor, AgentState, AgentStatus, DefaultLlmClientFactory, LlmProvider,
+    LlmClientFactory, ModelSpec, Role, SwappableLlm, SwitchModelTool, ToolRegistry,
 };
 use restflow_core::auth::{AuthManagerConfig, AuthProfileManager, AuthProvider};
 use restflow_core::memory::{ChatSessionMirror, ExportResult, MemoryExporter, MessageMirror};
@@ -23,7 +23,13 @@ use restflow_core::services::{
 };
 use restflow_core::storage::SystemConfig;
 use restflow_core::storage::agent::StoredAgent;
-use restflow_core::{AppCore, models::{AgentTask, AgentTaskStatus, ChatSession, ChatSessionSummary, MemoryChunk, MemorySearchResult, MemoryStats, Secret, Skill}};
+use restflow_core::{
+    AIModel, AppCore,
+    models::{
+        AgentTask, AgentTaskStatus, ChatSession, ChatSessionSummary, MemoryChunk,
+        MemorySearchResult, MemoryStats, Secret, Skill,
+    },
+};
 use restflow_storage::AuthProfileStorage;
 
 pub struct DirectExecutor {
@@ -180,8 +186,8 @@ impl CommandExecutor for DirectExecutor {
         _limit: Option<u32>,
     ) -> Result<MemorySearchResult> {
         let agent_id = resolve_agent_id(&self.core, agent_id).await?;
-        let search = restflow_core::models::memory::MemorySearchQuery::new(agent_id)
-            .with_query(query);
+        let search =
+            restflow_core::models::memory::MemorySearchQuery::new(agent_id).with_query(query);
         let results = self.core.storage.memory.search(&search)?;
         Ok(results)
     }
@@ -268,12 +274,7 @@ impl CommandExecutor for DirectExecutor {
         secrets_service::list_secrets(&self.core).await
     }
 
-    async fn set_secret(
-        &self,
-        key: &str,
-        value: &str,
-        description: Option<String>,
-    ) -> Result<()> {
+    async fn set_secret(&self, key: &str, value: &str, description: Option<String>) -> Result<()> {
         secrets_service::set_secret(&self.core, key, value, description).await
     }
 
@@ -282,7 +283,9 @@ impl CommandExecutor for DirectExecutor {
     }
 
     async fn has_secret(&self, key: &str) -> Result<bool> {
-        Ok(secrets_service::get_secret(&self.core, key).await?.is_some())
+        Ok(secrets_service::get_secret(&self.core, key)
+            .await?
+            .is_some())
     }
 
     async fn get_config(&self) -> Result<SystemConfig> {

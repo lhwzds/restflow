@@ -11,6 +11,8 @@ use crate::llm::client::{
     CompletionRequest, CompletionResponse, FinishReason, LlmClient, Role, StreamResult,
 };
 
+const DEFAULT_MODEL: &str = "gpt-5.3-codex";
+
 /// Codex CLI client (auth via ~/.codex/auth.json)
 pub struct CodexClient {
     model: String,
@@ -18,12 +20,20 @@ pub struct CodexClient {
 
 impl CodexClient {
     /// Create a new Codex CLI client
-    pub fn new(model: impl Into<String>) -> Self {
+    pub fn new() -> Self {
         Self {
-            model: model.into(),
+            model: DEFAULT_MODEL.to_string(),
         }
     }
+}
 
+impl Default for CodexClient {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl CodexClient {
     /// Set the model to use
     pub fn with_model(mut self, model: impl Into<String>) -> Self {
         self.model = model.into();
@@ -40,31 +50,62 @@ impl CodexClient {
     }
 
     fn parse_jsonl_output(output: &str) -> Result<(String, Option<String>)> {
-        let mut content_parts: Vec<String> = Vec::new();
-        let mut thread_id: Option<String> = None;
+        let mut content = String::new();
+        let mut thread_id = None;
 
-        for line in output.lines().filter(|line| !line.trim().is_empty()) {
-            let value: Value = serde_json::from_str(line)?;
-
-            if let Some(error) = extract_error(&value) {
-                return Err(AiError::Llm(error));
+        for line in output.lines() {
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                continue;
             }
 
-            if let Some(id) = find_thread_id(&value) {
-                thread_id = Some(id);
+            let value: Value = serde_json::from_str(trimmed)
+                .map_err(|e| AiError::Llm(format!("Failed to parse Codex CLI JSONL line: {e}")))?;
+
+            if thread_id.is_none()
+                && let Some(id) = value.get("thread_id").and_then(|v| v.as_str())
+            {
+                thread_id = Some(id.to_string());
             }
 
-            collect_texts(&value, &mut content_parts);
+            if let Some(err) = extract_error(&value) {
+                return Err(AiError::Llm(format!("Codex CLI error: {err}")));
+            }
+
+            if let Some(text) = extract_text(&value) {
+                content.push_str(text);
+            }
         }
 
-        if content_parts.is_empty() {
-            return Err(AiError::InvalidFormat(
-                "Codex CLI returned no content".to_string(),
-            ));
+        if content.trim().is_empty() {
+            return Err(AiError::Llm("Codex CLI returned empty output".to_string()));
         }
 
-        Ok((content_parts.join(""), thread_id))
+        Ok((content, thread_id))
     }
+}
+
+fn extract_error(value: &Value) -> Option<String> {
+    value
+        .get("error")
+        .and_then(|v| v.as_str().map(|err| err.to_string()))
+        .or_else(|| {
+            value
+                .get("error")
+                .and_then(|v| v.get("message"))
+                .and_then(|v| v.as_str())
+                .map(|err| err.to_string())
+        })
+}
+
+fn extract_text(value: &Value) -> Option<&str> {
+    value
+        .get("content")
+        .and_then(|v| v.as_str())
+        .or_else(|| value.get("text").and_then(|v| v.as_str()))
+        .or_else(|| value.get("delta").and_then(|v| v.as_str()))
+        .or_else(|| value.pointer("/message/content").and_then(|v| v.as_str()))
+        .or_else(|| value.pointer("/data/content").and_then(|v| v.as_str()))
 }
 
 #[async_trait]
@@ -78,7 +119,7 @@ impl LlmClient for CodexClient {
     }
 
     async fn complete(&self, request: CompletionRequest) -> Result<CompletionResponse> {
-        info!(model = %self.model, "CodexClient: executing via CLI");
+        info!("CodexClient: executing via CLI");
 
         let prompt = Self::build_prompt(&request.messages);
 
@@ -109,10 +150,11 @@ impl LlmClient for CodexClient {
             return Err(AiError::Llm(format!("Codex CLI error: {}", stderr)));
         }
 
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let (content, thread_id) = Self::parse_jsonl_output(stdout.trim())?;
+        let raw_output = String::from_utf8_lossy(&output.stdout).to_string();
+        let (content, thread_id) = Self::parse_jsonl_output(&raw_output)?;
         debug!(
-            thread_id = %thread_id.as_deref().unwrap_or("unknown"),
+            content_len = content.len(),
+            thread_id = thread_id.as_deref().unwrap_or("n/a"),
             "Codex CLI response parsed"
         );
 
@@ -137,95 +179,34 @@ impl LlmClient for CodexClient {
     }
 }
 
-fn extract_error(value: &Value) -> Option<String> {
-    if let Some(message) = value.get("error").and_then(|v| v.as_str()) {
-        return Some(message.to_string());
-    }
-
-    if let Some(message) = value.get("error_message").and_then(|v| v.as_str()) {
-        return Some(message.to_string());
-    }
-
-    if let Some(error) = value.get("error")
-        && let Some(message) = error.get("message").and_then(|v| v.as_str())
-    {
-        return Some(message.to_string());
-    }
-
-    if value.get("type").and_then(|v| v.as_str()) == Some("error")
-        && let Some(message) = value.get("message").and_then(|v| v.as_str())
-    {
-        return Some(message.to_string());
-    }
-
-    None
-}
-
-fn find_thread_id(value: &Value) -> Option<String> {
-    if let Some(id) = value.get("thread_id").and_then(|v| v.as_str()) {
-        return Some(id.to_string());
-    }
-
-    if let Some(id) = value.get("threadId").and_then(|v| v.as_str()) {
-        return Some(id.to_string());
-    }
-
-    None
-}
-
-fn collect_texts(value: &Value, output: &mut Vec<String>) {
-    match value {
-        Value::Array(items) => {
-            for item in items {
-                collect_texts(item, output);
-            }
-        }
-        Value::Object(map) => {
-            if map.get("type").and_then(|v| v.as_str()) == Some("output_text")
-                && let Some(text) = map.get("text").and_then(|v| v.as_str())
-            {
-                output.push(text.to_string());
-            }
-
-            if let Some(text) = map.get("content").and_then(|v| v.as_str()) {
-                output.push(text.to_string());
-            }
-
-            for value in map.values() {
-                collect_texts(value, output);
-            }
-        }
-        _ => {}
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn parses_jsonl_output_with_thread_id() {
-        let payload = r#"{"type":"response","thread_id":"thread_123","output":[{"type":"message","content":[{"type":"output_text","text":"Hello"}]}]}"#;
-        let (content, thread_id) = CodexClient::parse_jsonl_output(payload).unwrap();
-        assert_eq!(content, "Hello");
-        assert_eq!(thread_id.as_deref(), Some("thread_123"));
+    fn test_parse_jsonl_output() {
+        let output = r#"{"type":"response.output_text.delta","delta":"Hello "}
+{"type":"response.output_text.delta","delta":"world"}
+{"type":"response.completed","thread_id":"thread_123"}
+"#;
+
+        let (content, thread_id) = CodexClient::parse_jsonl_output(output).unwrap();
+        assert_eq!(content, "Hello world");
+        assert_eq!(thread_id, Some("thread_123".to_string()));
     }
 
     #[test]
-    fn parses_jsonl_output_with_content_string() {
-        let payload = r#"{"content":"Hi from Codex"}"#;
-        let (content, thread_id) = CodexClient::parse_jsonl_output(payload).unwrap();
-        assert_eq!(content, "Hi from Codex");
+    fn test_parse_jsonl_output_with_message_content() {
+        let output = r#"{"message":{"content":"Hi"}}"#;
+        let (content, thread_id) = CodexClient::parse_jsonl_output(output).unwrap();
+        assert_eq!(content, "Hi");
         assert!(thread_id.is_none());
     }
 
     #[test]
-    fn returns_error_from_payload() {
-        let payload = r#"{"type":"error","message":"Missing auth"}"#;
-        let err = CodexClient::parse_jsonl_output(payload).unwrap_err();
-        match err {
-            AiError::Llm(message) => assert!(message.contains("Missing auth")),
-            _ => panic!("Expected LLM error"),
-        }
+    fn test_parse_jsonl_output_error() {
+        let output = r#"{"error":"invalid"}"#;
+        let err = CodexClient::parse_jsonl_output(output).unwrap_err();
+        assert!(err.to_string().contains("Codex CLI error"));
     }
 }

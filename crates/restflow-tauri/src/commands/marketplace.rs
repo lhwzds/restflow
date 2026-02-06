@@ -1,12 +1,12 @@
 //! Skill Marketplace Tauri commands
 
 use crate::state::AppState;
-use restflow_core::registry::{
-    SkillSearchQuery, SkillSearchResult, SkillSortOrder,
-    MarketplaceProvider, GitHubProvider, GatingChecker,
-};
-use restflow_core::models::{GatingCheckResult, SkillManifest, SkillVersion};
 use restflow_core::models::storage_mode::StorageMode;
+use restflow_core::models::{GatingCheckResult, SkillManifest, SkillVersion};
+use restflow_core::registry::{
+    GatingChecker, GitHubProvider, MarketplaceProvider, SkillSearchQuery, SkillSearchResult,
+    SkillSortOrder,
+};
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
@@ -63,7 +63,7 @@ impl From<SkillSearchResult> for SearchResultResponse {
             restflow_core::models::SkillSource::Builtin => "builtin",
             restflow_core::models::SkillSource::Git { .. } => "git",
         };
-        
+
         Self {
             manifest: result.manifest,
             score: result.score,
@@ -81,7 +81,7 @@ pub async fn marketplace_search(
     request: SearchRequest,
 ) -> Result<Vec<SearchResultResponse>, String> {
     use restflow_core::registry::SkillProvider;
-    
+
     let query = SkillSearchQuery {
         query: request.query,
         category: request.category,
@@ -104,7 +104,11 @@ pub async fn marketplace_search(
     let marketplace = MarketplaceProvider::new();
     match marketplace.search(&query).await {
         Ok(marketplace_results) => {
-            results.extend(marketplace_results.into_iter().map(SearchResultResponse::from));
+            results.extend(
+                marketplace_results
+                    .into_iter()
+                    .map(SearchResultResponse::from),
+            );
         }
         Err(e) => {
             tracing::warn!("Marketplace search failed: {}", e);
@@ -143,9 +147,9 @@ pub async fn marketplace_get_skill(
     source: Option<String>,
 ) -> Result<SkillManifest, String> {
     use restflow_core::registry::SkillProvider;
-    
+
     let source = source.unwrap_or_else(|| "marketplace".to_string());
-    
+
     match source.as_str() {
         "marketplace" => {
             let provider = MarketplaceProvider::new();
@@ -167,9 +171,9 @@ pub async fn marketplace_get_versions(
     source: Option<String>,
 ) -> Result<Vec<SkillVersion>, String> {
     use restflow_core::registry::SkillProvider;
-    
+
     let source = source.unwrap_or_else(|| "marketplace".to_string());
-    
+
     match source.as_str() {
         "marketplace" => {
             let provider = MarketplaceProvider::new();
@@ -192,29 +196,47 @@ pub async fn marketplace_get_content(
     source: Option<String>,
 ) -> Result<String, String> {
     use restflow_core::registry::SkillProvider;
-    
+
     let source = source.unwrap_or_else(|| "marketplace".to_string());
-    
+
     match source.as_str() {
         "marketplace" => {
             let provider = MarketplaceProvider::new();
             let fallback_version = if version.is_none() {
-                Some(provider.get_manifest(&id).await.map_err(|e| e.to_string())?.version)
+                Some(
+                    provider
+                        .get_manifest(&id)
+                        .await
+                        .map_err(|e| e.to_string())?
+                        .version,
+                )
             } else {
                 None
             };
             let resolved_version = resolve_content_version(version, fallback_version)?;
-            provider.get_content(&id, &resolved_version).await.map_err(|e| e.to_string())
+            provider
+                .get_content(&id, &resolved_version)
+                .await
+                .map_err(|e| e.to_string())
         }
         "github" => {
             let provider = GitHubProvider::new();
             let fallback_version = if version.is_none() {
-                Some(provider.get_manifest(&id).await.map_err(|e| e.to_string())?.version)
+                Some(
+                    provider
+                        .get_manifest(&id)
+                        .await
+                        .map_err(|e| e.to_string())?
+                        .version,
+                )
             } else {
                 None
             };
             let resolved_version = resolve_content_version(version, fallback_version)?;
-            provider.get_content(&id, &resolved_version).await.map_err(|e| e.to_string())
+            provider
+                .get_content(&id, &resolved_version)
+                .await
+                .map_err(|e| e.to_string())
         }
         _ => Err(format!("Unknown source: {}", source)),
     }
@@ -228,18 +250,24 @@ pub async fn marketplace_check_gating(
     source: Option<String>,
 ) -> Result<GatingCheckResult, String> {
     use restflow_core::registry::SkillProvider;
-    
+
     let source = source.unwrap_or_else(|| "marketplace".to_string());
-    
+
     // Get the manifest first
     let manifest = match source.as_str() {
         "marketplace" => {
             let provider = MarketplaceProvider::new();
-            provider.get_manifest(&id).await.map_err(|e| e.to_string())?
+            provider
+                .get_manifest(&id)
+                .await
+                .map_err(|e| e.to_string())?
         }
         "github" => {
             let provider = GitHubProvider::new();
-            provider.get_manifest(&id).await.map_err(|e| e.to_string())?
+            provider
+                .get_manifest(&id)
+                .await
+                .map_err(|e| e.to_string())?
         }
         _ => return Err(format!("Unknown source: {}", source)),
     };
@@ -257,22 +285,28 @@ pub async fn marketplace_install_skill(
     version: Option<String>,
     source: Option<String>,
 ) -> Result<(), String> {
-    use restflow_core::registry::SkillProvider;
     use restflow_core::Skill;
     use restflow_core::models::{OsType, SkillGating};
-    
+    use restflow_core::registry::SkillProvider;
+
     let version = version.and_then(|v| SkillVersion::parse(&v));
     let source = source.unwrap_or_else(|| "marketplace".to_string());
-    
+
     // Get the manifest
     let manifest = match source.as_str() {
         "marketplace" => {
             let provider = MarketplaceProvider::new();
-            provider.get_manifest(&id).await.map_err(|e| e.to_string())?
+            provider
+                .get_manifest(&id)
+                .await
+                .map_err(|e| e.to_string())?
         }
         "github" => {
             let provider = GitHubProvider::new();
-            provider.get_manifest(&id).await.map_err(|e| e.to_string())?
+            provider
+                .get_manifest(&id)
+                .await
+                .map_err(|e| e.to_string())?
         }
         _ => return Err(format!("Unknown source: {}", source)),
     };
@@ -281,7 +315,10 @@ pub async fn marketplace_install_skill(
     let checker = GatingChecker::default();
     let gating_result = checker.check(&manifest.gating);
     if !gating_result.passed {
-        return Err(format!("Gating requirements not met: {}", gating_result.summary));
+        return Err(format!(
+            "Gating requirements not met: {}",
+            gating_result.summary
+        ));
     }
 
     // Get the content
@@ -419,11 +456,7 @@ mod tests {
 
     #[test]
     fn resolve_content_version_parses_requested() {
-        let resolved = resolve_content_version(
-            Some("1.2.3-beta.1".to_string()),
-            None,
-        )
-        .unwrap();
+        let resolved = resolve_content_version(Some("1.2.3-beta.1".to_string()), None).unwrap();
         assert_eq!(resolved.prerelease.as_deref(), Some("beta.1"));
     }
 

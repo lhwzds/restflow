@@ -42,7 +42,10 @@ impl MessageRouter {
     /// Route an inbound message to the appropriate handler.
     pub async fn route(&self, message: &InboundMessage) -> RouteDecision {
         // 1. Check if conversation is linked to an active task
-        if let Some(ctx) = self.channel_router.get_conversation(&message.conversation_id).await
+        if let Some(ctx) = self
+            .channel_router
+            .get_conversation(&message.conversation_id)
+            .await
             && let Some(task_id) = ctx.task_id
         {
             return RouteDecision::ForwardToTask { task_id };
@@ -63,7 +66,7 @@ impl MessageRouter {
     fn parse_command(&self, content: &str) -> Option<(String, Vec<String>)> {
         let trimmed = content.strip_prefix(&self.command_prefix)?;
         let parts: Vec<&str> = trimmed.split_whitespace().collect();
-        
+
         if parts.is_empty() {
             return None;
         }
@@ -108,7 +111,7 @@ mod tests {
 
         assert!(matches!(
             decision,
-            RouteDecision::HandleCommand { command, args } 
+            RouteDecision::HandleCommand { command, args }
             if command == "run" && args == vec!["my", "task"]
         ));
     }
@@ -127,7 +130,7 @@ mod tests {
     #[tokio::test]
     async fn test_route_task_linked_conversation() {
         let channel_router = Arc::new(ChannelRouter::new());
-        
+
         // Record a conversation with a task link
         let message = create_message("test");
         channel_router

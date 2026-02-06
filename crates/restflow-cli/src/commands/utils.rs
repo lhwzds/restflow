@@ -1,4 +1,4 @@
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use chrono::{DateTime, Local, TimeZone};
 use restflow_core::models::AIModel;
 use std::io::{self, Read};
@@ -64,9 +64,7 @@ pub fn slugify(input: &str) -> String {
         if ch.is_ascii_alphanumeric() {
             output.push(ch.to_ascii_lowercase());
             last_dash = false;
-        } else if (ch.is_whitespace() || ch == '-' || ch == '_')
-            && !last_dash
-            && !output.is_empty()
+        } else if (ch.is_whitespace() || ch == '-' || ch == '_') && !last_dash && !output.is_empty()
         {
             output.push('-');
             last_dash = true;

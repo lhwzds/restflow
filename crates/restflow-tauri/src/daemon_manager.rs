@@ -34,7 +34,10 @@ impl DaemonManager {
             self.connect().await?;
         }
 
-        Ok(self.client.as_mut().expect("IPC client should be available"))
+        Ok(self
+            .client
+            .as_mut()
+            .expect("IPC client should be available"))
     }
 
     async fn connect(&mut self) -> Result<()> {

@@ -179,10 +179,7 @@ impl LspManager {
             return Ok(Vec::new());
         };
 
-        Ok(client
-            .get_diagnostics(path)
-            .await?
-            .unwrap_or_default())
+        Ok(client.get_diagnostics(path).await?.unwrap_or_default())
     }
 }
 

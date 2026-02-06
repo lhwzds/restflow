@@ -4,8 +4,8 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use crate::models::skill_folder::{SkillGating, SkillReference, SkillScript};
 use crate::models::StorageMode;
+use crate::models::skill_folder::{SkillGating, SkillReference, SkillScript};
 
 /// A skill represents a reusable AI prompt template
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]

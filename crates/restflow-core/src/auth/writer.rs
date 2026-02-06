@@ -4,7 +4,7 @@ use crate::storage::SecretStorage;
 use anyhow::Result;
 use std::sync::Arc;
 
-use super::types::{secret_key, Credential, SecureCredential};
+use super::types::{Credential, SecureCredential, secret_key};
 
 /// Writes credentials to SecretStorage.
 pub struct CredentialWriter {
@@ -17,7 +17,11 @@ impl CredentialWriter {
     }
 
     /// Convert a legacy credential to a secure credential, storing secrets.
-    pub fn store_credential(&self, profile_id: &str, credential: &Credential) -> Result<SecureCredential> {
+    pub fn store_credential(
+        &self,
+        profile_id: &str,
+        credential: &Credential,
+    ) -> Result<SecureCredential> {
         match credential {
             Credential::ApiKey { key, email } => {
                 let secret_ref = secret_key(profile_id, "api_key");
@@ -47,7 +51,8 @@ impl CredentialWriter {
                 email,
             } => {
                 let access_token_ref = secret_key(profile_id, "access_token");
-                self.secrets.set_secret(&access_token_ref, access_token, None)?;
+                self.secrets
+                    .set_secret(&access_token_ref, access_token, None)?;
                 let refresh_token_ref = if let Some(refresh) = refresh_token {
                     let refresh_ref = secret_key(profile_id, "refresh_token");
                     self.secrets.set_secret(&refresh_ref, refresh, None)?;

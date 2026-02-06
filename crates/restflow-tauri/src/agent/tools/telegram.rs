@@ -95,7 +95,10 @@ impl Tool for TelegramTool {
         } else {
             let status = response.status();
             let text = response.text().await.unwrap_or_default();
-            Ok(ToolResult::error(format!("Telegram API error {}: {}", status, text)))
+            Ok(ToolResult::error(format!(
+                "Telegram API error {}: {}",
+                status, text
+            )))
         }
     }
 }

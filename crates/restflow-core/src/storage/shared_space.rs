@@ -1,10 +1,10 @@
 //! Typed shared space storage wrapper.
 
 use crate::models::SharedEntry;
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use restflow_storage::SharedSpaceStorage as RawStorage;
-use restflow_storage::time_utils;
 use restflow_storage::SimpleStorage;
+use restflow_storage::time_utils;
 
 #[derive(Clone)]
 pub struct SharedSpaceStorage {
@@ -82,21 +82,13 @@ impl SharedSpaceStorage {
     }
 
     /// Convenience: quick set (public, no owner)
-    pub fn quick_set(
-        &self,
-        key: &str,
-        value: &str,
-        modifier_id: Option<&str>,
-    ) -> Result<()> {
+    pub fn quick_set(&self, key: &str, value: &str, modifier_id: Option<&str>) -> Result<()> {
         let now = time_utils::now_ms();
         let existing = self.get_unchecked(key)?;
         let entry = SharedEntry {
             key: key.to_string(),
             value: value.to_string(),
-            visibility: existing
-                .as_ref()
-                .map(|e| e.visibility)
-                .unwrap_or_default(),
+            visibility: existing.as_ref().map(|e| e.visibility).unwrap_or_default(),
             owner: existing.as_ref().and_then(|e| e.owner.clone()),
             content_type: None,
             type_hint: None,

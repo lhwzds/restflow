@@ -62,14 +62,14 @@ impl MessageDebouncer {
             let buffer = pending
                 .entry(conversation_id.to_string())
                 .or_insert_with(PendingBuffer::new);
-            
+
             let is_first = buffer.messages.is_empty();
             buffer.messages.push(text.to_string());
             let notify = buffer.notify.clone();
-            
+
             // Notify any waiting tasks that a new message arrived
             notify.notify_waiters();
-            
+
             (is_first, notify)
         };
 
@@ -159,16 +159,12 @@ mod tests {
         let debouncer2 = debouncer.clone();
 
         // Spawn two message sends in quick succession
-        let handle1 = tokio::spawn(async move {
-            debouncer1.debounce("chat-1", "Hello").await
-        });
+        let handle1 = tokio::spawn(async move { debouncer1.debounce("chat-1", "Hello").await });
 
         // Small delay to ensure ordering
         sleep(Duration::from_millis(10)).await;
 
-        let handle2 = tokio::spawn(async move {
-            debouncer2.debounce("chat-1", "World").await
-        });
+        let handle2 = tokio::spawn(async move { debouncer2.debounce("chat-1", "World").await });
 
         let result1 = handle1.await.unwrap();
         let result2 = handle2.await.unwrap();
@@ -190,13 +186,9 @@ mod tests {
         let debouncer1 = debouncer.clone();
         let debouncer2 = debouncer.clone();
 
-        let handle1 = tokio::spawn(async move {
-            debouncer1.debounce("chat-1", "Message 1").await
-        });
+        let handle1 = tokio::spawn(async move { debouncer1.debounce("chat-1", "Message 1").await });
 
-        let handle2 = tokio::spawn(async move {
-            debouncer2.debounce("chat-2", "Message 2").await
-        });
+        let handle2 = tokio::spawn(async move { debouncer2.debounce("chat-2", "Message 2").await });
 
         let result1 = handle1.await.unwrap();
         let result2 = handle2.await.unwrap();

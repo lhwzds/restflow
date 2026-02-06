@@ -3,11 +3,13 @@
 use crate::lsp::LspManager;
 use crate::memory::UnifiedSearchEngine;
 use crate::models::{MemorySearchQuery, SearchMode, SharedEntry, UnifiedSearchQuery, Visibility};
-use crate::storage::{ChatSessionStorage, MemoryStorage, SharedSpaceStorage};
 use crate::storage::skill::SkillStorage;
+use crate::storage::{ChatSessionStorage, MemoryStorage, SharedSpaceStorage};
 use chrono::Utc;
 use restflow_ai::error::AiError;
-use restflow_ai::{SkillContent, SkillInfo, SkillProvider, SkillTool, Tool, ToolOutput, ToolRegistry};
+use restflow_ai::{
+    SkillContent, SkillInfo, SkillProvider, SkillTool, Tool, ToolOutput, ToolRegistry,
+};
 use serde_json::json;
 use std::sync::Arc;
 
@@ -152,9 +154,7 @@ impl Tool for MemorySearchTool {
         let agent_id = input
             .get("agent_id")
             .and_then(|value| value.as_str())
-            .ok_or_else(|| {
-                AiError::Tool("Missing agent_id parameter".to_string())
-            })?;
+            .ok_or_else(|| AiError::Tool("Missing agent_id parameter".to_string()))?;
         let include_sessions = input
             .get("include_sessions")
             .and_then(|value| value.as_bool())
@@ -390,9 +390,7 @@ impl Tool for SharedSpaceTool {
                 })))
             }
             "list" => {
-                let namespace = input
-                    .get("namespace")
-                    .and_then(|value| value.as_str());
+                let namespace = input.get("namespace").and_then(|value| value.as_str());
                 let prefix = namespace.map(|ns| format!("{}:", ns));
                 let entries = self
                     .storage
@@ -432,8 +430,7 @@ mod tests {
     use redb::Database;
     use tempfile::tempdir;
 
-    fn setup_storage(
-    ) -> (
+    fn setup_storage() -> (
         SkillStorage,
         MemoryStorage,
         ChatSessionStorage,
@@ -446,9 +443,8 @@ mod tests {
         let skill_storage = SkillStorage::new(db.clone()).unwrap();
         let memory_storage = MemoryStorage::new(db.clone()).unwrap();
         let chat_storage = ChatSessionStorage::new(db.clone()).unwrap();
-        let shared_space_storage = SharedSpaceStorage::new(
-            restflow_storage::SharedSpaceStorage::new(db).unwrap(),
-        );
+        let shared_space_storage =
+            SharedSpaceStorage::new(restflow_storage::SharedSpaceStorage::new(db).unwrap());
         (
             skill_storage,
             memory_storage,

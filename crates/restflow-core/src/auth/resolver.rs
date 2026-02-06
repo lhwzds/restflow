@@ -1,7 +1,7 @@
 //! Credential resolver for secure credentials.
 
 use crate::storage::SecretStorage;
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use std::sync::Arc;
 
 use super::types::SecureCredential;

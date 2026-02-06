@@ -46,12 +46,12 @@
 //!
 //! This is a placeholder.
 
-use std::sync::Arc;
-use crate::llm::LlmClient;
-use crate::tools::ToolRegistry;
 use super::traits::{
     AgentStrategy, RecommendedSettings, StrategyConfig, StrategyFeature, StrategyResult,
 };
+use crate::llm::LlmClient;
+use crate::tools::ToolRegistry;
+use std::sync::Arc;
 
 /// Configuration specific to Tree-of-Thought strategy
 #[derive(Debug, Clone)]
@@ -227,11 +227,7 @@ impl TreeOfThoughtStrategy {
     /// }
     /// ```
     #[allow(dead_code)]
-    async fn evaluate_thought(
-        &self,
-        _problem: &str,
-        _thought: &str,
-    ) -> crate::error::Result<f32> {
+    async fn evaluate_thought(&self, _problem: &str, _thought: &str) -> crate::error::Result<f32> {
         // TODO: Implement thought evaluation
         unimplemented!("ToT thought evaluation not yet implemented")
     }
