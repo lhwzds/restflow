@@ -13,6 +13,7 @@
 #![allow(dead_code)]
 
 pub mod agent;
+pub mod cache;
 pub mod embedding;
 pub mod error;
 pub mod eval;
