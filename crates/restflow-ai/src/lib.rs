@@ -19,6 +19,7 @@ pub mod eval;
 pub mod graph;
 mod http_client;
 pub mod llm;
+pub mod lsp;
 pub mod memory;
 pub mod security;
 pub mod tools;
