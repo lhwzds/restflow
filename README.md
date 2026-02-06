@@ -117,21 +117,11 @@ restflow auth add --provider claude-code --key <your-oauth-token>
 restflow claude -p "Hello, world!"
 ```
 
-Theme selection:
-
-```bash
-restflow --theme light chat
-```
-
 Generate shell completions:
 
 ```bash
 restflow completions bash > restflow.bash
 ```
-
-### Try the Online Demo
-
-**[restflow.ai](https://restflow.ai)** - Live demo deployed on Vercel
 
 ## Documentation
 
