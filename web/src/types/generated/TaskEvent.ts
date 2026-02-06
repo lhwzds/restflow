@@ -30,6 +30,14 @@ message: string | null,
  */
 output: string | null, 
 /**
+ * Tokens used during execution
+ */
+tokens_used: number | null, 
+/**
+ * Cost in USD for this execution
+ */
+cost_usd: number | null, 
+/**
  * Duration of execution in milliseconds (for completion events)
  */
 duration_ms: number | null, };

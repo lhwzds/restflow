@@ -15,8 +15,8 @@ use chrono::Utc;
 use restflow_ai::error::AiError;
 use restflow_ai::tools::{ConfigTool, SecretsTool, TaskCreateRequest, TaskStore, TaskTool};
 use restflow_ai::{
-    SecretResolver, SkillContent, SkillInfo, SkillProvider, SkillTool, Tool, ToolOutput,
-    ToolRegistry, TranscribeTool, VisionTool,
+    SecretResolver, SkillContent, SkillInfo, SkillProvider, SkillRecord, SkillTool, SkillUpdate,
+    Tool, ToolOutput, ToolRegistry, TranscribeTool, VisionTool,
 };
 use serde_json::json;
 use std::sync::Arc;
@@ -65,6 +65,77 @@ impl SkillProvider for SkillStorageProvider {
                 None
             }
         }
+    }
+
+    fn create_skill(&self, skill: SkillRecord) -> Result<SkillRecord, String> {
+        let model = crate::models::Skill::new(
+            skill.id.clone(),
+            skill.name.clone(),
+            skill.description.clone(),
+            skill.tags.clone(),
+            skill.content.clone(),
+        );
+        self.storage.create(&model).map_err(|e| e.to_string())?;
+        Ok(skill)
+    }
+
+    fn update_skill(&self, id: &str, update: SkillUpdate) -> Result<SkillRecord, String> {
+        let mut skill = self
+            .storage
+            .get(id)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| format!("Skill {} not found", id))?;
+
+        skill.update(update.name, update.description, update.tags, update.content);
+        self.storage.update(id, &skill).map_err(|e| e.to_string())?;
+
+        Ok(SkillRecord {
+            id: skill.id,
+            name: skill.name,
+            description: skill.description,
+            tags: skill.tags,
+            content: skill.content,
+        })
+    }
+
+    fn delete_skill(&self, id: &str) -> Result<bool, String> {
+        if !self.storage.exists(id).map_err(|e| e.to_string())? {
+            return Ok(false);
+        }
+        self.storage.delete(id).map_err(|e| e.to_string())?;
+        Ok(true)
+    }
+
+    fn export_skill(&self, id: &str) -> Result<String, String> {
+        let skill = self
+            .storage
+            .get(id)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| format!("Skill {} not found", id))?;
+        Ok(skill.to_markdown())
+    }
+
+    fn import_skill(&self, id: &str, markdown: &str, overwrite: bool) -> Result<SkillRecord, String> {
+        let exists = self.storage.exists(id).map_err(|e| e.to_string())?;
+        if exists && !overwrite {
+            return Err(format!("Skill {} already exists", id));
+        }
+
+        let skill = crate::models::Skill::from_markdown(id, markdown).map_err(|e| e.to_string())?;
+
+        if exists {
+            self.storage.update(id, &skill).map_err(|e| e.to_string())?;
+        } else {
+            self.storage.create(&skill).map_err(|e| e.to_string())?;
+        }
+
+        Ok(SkillRecord {
+            id: skill.id,
+            name: skill.name,
+            description: skill.description,
+            tags: skill.tags,
+            content: skill.content,
+        })
     }
 }
 
