@@ -21,8 +21,8 @@ mod python;
 mod registry;
 mod secrets;
 mod skill;
-mod task;
 mod switch_model;
+mod task;
 mod telegram;
 mod traits;
 mod transcribe;
@@ -48,8 +48,8 @@ pub use python::PythonTool;
 pub use registry::ToolRegistry;
 pub use secrets::SecretsTool;
 pub use skill::SkillTool;
-pub use task::{TaskCreateRequest, TaskStore, TaskTool};
 pub use switch_model::SwitchModelTool;
+pub use task::{TaskCreateRequest, TaskStore, TaskTool};
 pub use telegram::{TelegramTool, send_telegram_notification};
 pub use traits::{
     SecretResolver, SkillContent, SkillInfo, SkillProvider, Tool, ToolOutput, ToolSchema,

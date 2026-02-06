@@ -316,7 +316,8 @@ fn build_secret_resolver(
 ) -> Option<SecretResolver> {
     secret_storage.map(|storage| {
         let secrets = storage.clone();
-        Arc::new(move |key| secrets.get_secret(key).ok().flatten()) as SecretResolver
+        Arc::new(move |key: &str| -> Option<String> { secrets.get_secret(key).ok().flatten() })
+            as SecretResolver
     })
 }
 
