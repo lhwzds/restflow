@@ -1588,7 +1588,7 @@ impl Tool for FileTool {
                     self.agent_id.as_deref(),
                     self.task_id.as_deref(),
                     "read",
-                    &[path.clone()],
+                    std::slice::from_ref(path),
                 )
                 .await?
                 {
@@ -1601,7 +1601,7 @@ impl Tool for FileTool {
                     self.agent_id.as_deref(),
                     self.task_id.as_deref(),
                     "write",
-                    &[path.clone()],
+                    std::slice::from_ref(path),
                 )
                 .await?
                 {
@@ -1614,7 +1614,7 @@ impl Tool for FileTool {
                     self.agent_id.as_deref(),
                     self.task_id.as_deref(),
                     "list",
-                    &[path.clone()],
+                    std::slice::from_ref(path),
                 )
                 .await?
                 {
@@ -1627,7 +1627,7 @@ impl Tool for FileTool {
                     self.agent_id.as_deref(),
                     self.task_id.as_deref(),
                     "search",
-                    &[path.clone()],
+                    std::slice::from_ref(path),
                 )
                 .await?
                 {
@@ -1640,7 +1640,7 @@ impl Tool for FileTool {
                     self.agent_id.as_deref(),
                     self.task_id.as_deref(),
                     "delete",
-                    &[path.clone()],
+                    std::slice::from_ref(path),
                 )
                 .await?
                 {
@@ -1653,7 +1653,7 @@ impl Tool for FileTool {
                     self.agent_id.as_deref(),
                     self.task_id.as_deref(),
                     "exists",
-                    &[path.clone()],
+                    std::slice::from_ref(path),
                 )
                 .await?
                 {
