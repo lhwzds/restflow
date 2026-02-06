@@ -135,8 +135,13 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'
           registry-url: 'https://registry.npmjs.org'
+
+      - name: Ensure npm supports trusted publishing
+        run: |
+          npm install -g npm@11
+          npm --version
 
       - name: Extract version from tag
         id: version
@@ -147,7 +152,9 @@ jobs:
           cd npm
           npm version ${{ steps.version.outputs.VERSION }} --no-git-tag-version
 
-      - name: Publish to npm with provenance
+      - name: Publish to npm with provenance (OIDC)
         run: |
+          unset NODE_AUTH_TOKEN
+          unset NPM_CONFIG_USERCONFIG
           cd npm
           npm publish --provenance --access public

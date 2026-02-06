@@ -12,6 +12,7 @@ use crate::llm::client::{
     CompletionRequest, CompletionResponse, FinishReason, LlmClient, Role, StreamChunk,
     StreamResult, TokenUsage, ToolCall, ToolCallDelta,
 };
+use crate::llm::pricing::calculate_cost;
 use crate::llm::retry::{LlmRetryConfig, response_to_error};
 
 /// OpenAI client
@@ -292,10 +293,14 @@ impl LlmClient for OpenAIClient {
                     _ => FinishReason::Error,
                 };
 
-                let usage = data.usage.map(|u| TokenUsage {
-                    prompt_tokens: u.prompt_tokens,
-                    completion_tokens: u.completion_tokens,
-                    total_tokens: u.total_tokens,
+                let usage = data.usage.map(|u| {
+                    let cost_usd = calculate_cost(&self.model, u.prompt_tokens, u.completion_tokens);
+                    TokenUsage {
+                        prompt_tokens: u.prompt_tokens,
+                        completion_tokens: u.completion_tokens,
+                        total_tokens: u.total_tokens,
+                        cost_usd,
+                    }
                 });
 
                 return Ok(CompletionResponse {
@@ -463,6 +468,11 @@ impl LlmClient for OpenAIClient {
                                         prompt_tokens: usage.prompt_tokens,
                                         completion_tokens: usage.completion_tokens,
                                         total_tokens: usage.total_tokens,
+                                        cost_usd: calculate_cost(
+                                            &model,
+                                            usage.prompt_tokens,
+                                            usage.completion_tokens,
+                                        ),
                                     }),
                                 ));
                                 continue;
