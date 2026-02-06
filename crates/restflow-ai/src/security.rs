@@ -3,6 +3,20 @@ use async_trait::async_trait;
 use crate::error::Result;
 
 #[derive(Debug, Clone)]
+pub struct ToolAction {
+    pub tool_name: String,
+    pub operation: String,
+    pub target: String,
+    pub summary: String,
+}
+
+impl ToolAction {
+    pub fn as_pattern_string(&self) -> String {
+        format!("{}:{} {}", self.tool_name, self.operation, self.target)
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct SecurityDecision {
     pub allowed: bool,
     pub requires_approval: bool,
@@ -48,4 +62,13 @@ pub trait SecurityGate: Send + Sync {
         agent_id: &str,
         workdir: Option<&str>,
     ) -> Result<SecurityDecision>;
+
+    async fn check_tool_action(
+        &self,
+        _action: &ToolAction,
+        _agent_id: Option<&str>,
+        _task_id: Option<&str>,
+    ) -> Result<SecurityDecision> {
+        Ok(SecurityDecision::allowed(None))
+    }
 }

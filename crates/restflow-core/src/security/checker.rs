@@ -11,7 +11,8 @@ use tokio::sync::RwLock;
 
 use super::{ApprovalManager, SecurityConfigStore};
 use crate::models::security::{
-    AgentSecurityConfig, AskMode, SecurityAction, SecurityCheckResult, SecurityMode, SecurityPolicy,
+    AgentSecurityConfig, AskMode, SecurityAction, SecurityCheckResult, SecurityMode,
+    SecurityPolicy, ToolAction, ToolRule,
 };
 use crate::security::path_resolver::{CommandResolution, matches_path_pattern};
 use crate::security::shell_parser;
@@ -260,6 +261,61 @@ impl SecurityChecker {
         }
     }
 
+    /// Check if a tool action is allowed to execute.
+    pub async fn check_tool_action(
+        &self,
+        action: &restflow_ai::ToolAction,
+        agent_id: Option<&str>,
+        task_id: Option<&str>,
+    ) -> anyhow::Result<SecurityDecision> {
+        let policy = self.get_policy().await;
+        let action = ToolAction::from(action);
+
+        let mut rules: Vec<&ToolRule> = policy
+            .tool_rules
+            .iter()
+            .filter(|rule| rule.tool_name == "*" || rule.tool_name == action.tool_name)
+            .filter(|rule| {
+                rule.operation
+                    .as_deref()
+                    .map_or(true, |op| op == action.operation)
+            })
+            .collect();
+
+        rules.sort_by(|a, b| b.priority.cmp(&a.priority));
+
+        for rule in rules {
+            if crate::models::security::glob_match(&rule.target_pattern, &action.target) {
+                return match rule.action {
+                    SecurityAction::Allow => Ok(SecurityDecision::allowed(Some(
+                        "Tool action allowed by rule".to_string(),
+                    ))),
+                    SecurityAction::Block => Ok(SecurityDecision::blocked(Some(
+                        rule.description
+                            .clone()
+                            .unwrap_or_else(|| format!("Blocked by rule: {}", rule.id)),
+                    ))),
+                    SecurityAction::RequireApproval => {
+                        let task_id = task_id.unwrap_or("unknown");
+                        let agent_id = agent_id.unwrap_or("unknown");
+                        let approval_id = self
+                            .approval_manager
+                            .create_approval(action.summary.clone(), task_id, agent_id, None)
+                            .await?;
+                        Ok(SecurityDecision::requires_approval(
+                            approval_id,
+                            Some("Tool action requires approval".to_string()),
+                        ))
+                    }
+                };
+            }
+        }
+
+        Ok(SecurityDecision::allowed(Some(
+            "Tool action allowed by default".to_string(),
+        )))
+    }
+
     /// Check if a previously created approval has been granted.
     ///
     /// Returns an updated `SecurityCheckResult` based on the approval status.
@@ -465,6 +521,17 @@ impl SecurityGate for SecurityChecker {
         }
 
         Ok(SecurityDecision::blocked(result.reason))
+    }
+
+    async fn check_tool_action(
+        &self,
+        action: &restflow_ai::ToolAction,
+        agent_id: Option<&str>,
+        task_id: Option<&str>,
+    ) -> restflow_ai::Result<SecurityDecision> {
+        self.check_tool_action(action, agent_id, task_id)
+            .await
+            .map_err(|err| restflow_ai::AiError::Tool(err.to_string()))
     }
 }
 

@@ -48,7 +48,7 @@ pub use llm::{
 pub use memory::{
     CompactionConfig, CompactionResult, ContextCompactor, DEFAULT_MAX_MESSAGES, WorkingMemory,
 };
-pub use security::{SecurityDecision, SecurityGate};
+pub use security::{SecurityDecision, SecurityGate, ToolAction};
 pub use steer::{SteerMessage, SteerSource};
 pub use tools::{
     AgentCrudTool, AgentCreateRequest, AgentStore, AgentUpdateRequest, AuthProfileCreateRequest,
