@@ -56,6 +56,9 @@ pub enum Commands {
     /// Show RestFlow status
     Status,
 
+    /// Upgrade RestFlow CLI to the latest release
+    Upgrade(UpgradeArgs),
+
     /// Agent management
     Agent {
         #[command(subcommand)]
@@ -239,6 +242,13 @@ pub struct RunArgs {
 #[derive(Args, Default, Clone, Copy)]
 pub struct StartArgs {}
 
+#[derive(Args, Clone, Copy, Default)]
+pub struct UpgradeArgs {
+    /// Reinstall even if the current version is already the latest
+    #[arg(long)]
+    pub force: bool,
+}
+
 #[cfg(test)]
 mod tests {
     use super::Cli;
@@ -260,6 +270,12 @@ mod tests {
     fn parses_status_command() {
         let cli = Cli::try_parse_from(["restflow", "status"]).expect("parse status");
         assert!(matches!(cli.command, Some(super::Commands::Status)));
+    }
+
+    #[test]
+    fn parses_upgrade_command() {
+        let cli = Cli::try_parse_from(["restflow", "upgrade"]).expect("parse upgrade");
+        assert!(matches!(cli.command, Some(super::Commands::Upgrade(_))));
     }
 }
 

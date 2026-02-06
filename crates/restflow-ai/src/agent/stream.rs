@@ -62,16 +62,16 @@ impl ToolCallAccumulator {
                 arguments_json: String::new(),
             });
 
-        if let Some(id) = &delta.id {
-            if builder.id.is_empty() {
-                builder.id = id.clone();
-            }
+        if let Some(id) = &delta.id
+            && builder.id.is_empty()
+        {
+            builder.id = id.clone();
         }
 
-        if let Some(name) = &delta.name {
-            if builder.name.is_empty() {
-                builder.name = name.clone();
-            }
+        if let Some(name) = &delta.name
+            && builder.name.is_empty()
+        {
+            builder.name = name.clone();
         }
 
         if let Some(args) = &delta.arguments {

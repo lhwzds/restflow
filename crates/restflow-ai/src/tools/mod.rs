@@ -22,6 +22,7 @@ mod registry;
 mod secrets;
 mod skill;
 mod task;
+mod switch_model;
 mod telegram;
 mod traits;
 
@@ -46,6 +47,7 @@ pub use registry::ToolRegistry;
 pub use secrets::SecretsTool;
 pub use skill::SkillTool;
 pub use task::{TaskCreateRequest, TaskStore, TaskTool};
+pub use switch_model::SwitchModelTool;
 pub use telegram::{TelegramTool, send_telegram_notification};
 pub use traits::{SkillContent, SkillInfo, SkillProvider, Tool, ToolOutput, ToolSchema};
 
