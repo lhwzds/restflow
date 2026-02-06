@@ -7,9 +7,13 @@
 
 use anyhow::{Result, anyhow};
 use async_trait::async_trait;
+use std::collections::HashMap;
 use std::sync::Arc;
 
-use restflow_ai::{AnthropicClient, ClaudeCodeClient, CodexClient, LlmClient, OpenAIClient};
+use restflow_ai::{
+    DefaultLlmClientFactory, LlmClient, LlmClientFactory, LlmProvider, ModelSpec, SwappableLlm,
+    SwitchModelTool,
+};
 use restflow_core::{
     AIModel, Provider,
     auth::AuthProfileManager,
@@ -24,8 +28,8 @@ use super::failover::{FailoverConfig, FailoverManager, execute_with_failover};
 use super::retry::{RetryConfig, RetryState};
 use super::runner::{AgentExecutor, ExecutionResult};
 use crate::agent::{
-    SubagentDeps, ToolRegistry, UnifiedAgent, UnifiedAgentConfig, build_agent_system_prompt,
-    registry_from_allowlist,
+    SubagentDeps, ToolRegistry, UnifiedAgent, UnifiedAgentConfig,
+    build_agent_system_prompt, registry_from_allowlist,
 };
 use crate::subagent::{AgentDefinitionRegistry, SubagentConfig, SubagentTracker};
 
@@ -137,37 +141,62 @@ impl RealAgentExecutor {
         self.resolve_api_key(provider, config).await
     }
 
-    /// Create an LLM client for the given model.
-    fn create_llm_client(&self, model: AIModel, api_key: &str) -> Result<Arc<dyn LlmClient>> {
-        let model_str = model.as_str();
+    /// Build the model catalog for dynamic model switching.
+    fn build_model_specs() -> Vec<ModelSpec> {
+        let mut specs = Vec::new();
 
-        if model.is_codex_cli() {
-            let client = CodexClient::new().with_model(model_str);
-            return Ok(Arc::new(client));
+        for model in AIModel::all() {
+            let provider = Self::to_llm_provider(model.provider());
+            let spec = if model.is_codex_cli() {
+                ModelSpec::codex(model.as_serialized_str(), model.as_str())
+            } else {
+                ModelSpec::new(model.as_serialized_str(), provider, model.as_str())
+            };
+            specs.push(spec);
+
+            if model.is_claude_code() {
+                specs.push(ModelSpec::new(model.as_str(), provider, model.as_str()));
+            }
         }
 
-        match model.provider() {
-            Provider::OpenAI => {
-                let client = OpenAIClient::new(api_key).with_model(model_str);
-                Ok(Arc::new(client))
-            }
-            Provider::Anthropic => {
-                if api_key.starts_with("sk-ant-oat") {
-                    let client = ClaudeCodeClient::new(api_key).with_model(model_str);
-                    Ok(Arc::new(client))
-                } else {
-                    let client = AnthropicClient::new(api_key).with_model(model_str);
-                    Ok(Arc::new(client))
-                }
-            }
-            Provider::DeepSeek => {
-                // DeepSeek uses OpenAI-compatible API
-                let client = OpenAIClient::new(api_key)
-                    .with_model(model_str)
-                    .with_base_url("https://api.deepseek.com/v1");
-                Ok(Arc::new(client))
+        for codex_model in [
+            "gpt-5.3-codex",
+            "gpt-5.2-codex",
+            "gpt-5.1-codex-max",
+            "gpt-5.1-codex",
+            "gpt-5-codex",
+        ] {
+            specs.push(ModelSpec::codex(codex_model, codex_model));
+        }
+
+        specs
+    }
+
+    fn to_llm_provider(provider: Provider) -> LlmProvider {
+        match provider {
+            Provider::OpenAI => LlmProvider::OpenAI,
+            Provider::Anthropic => LlmProvider::Anthropic,
+            Provider::DeepSeek => LlmProvider::DeepSeek,
+        }
+    }
+
+    async fn build_api_keys(
+        &self,
+        agent_api_key_config: Option<&ApiKeyConfig>,
+        primary_provider: Provider,
+    ) -> HashMap<LlmProvider, String> {
+        let mut keys = HashMap::new();
+
+        for provider in [Provider::OpenAI, Provider::Anthropic, Provider::DeepSeek] {
+            if let Ok(key) = self
+                .resolve_api_key_for_model(provider, agent_api_key_config, primary_provider)
+                .await
+            {
+                keys.insert(Self::to_llm_provider(provider), key);
             }
         }
+
+        keys
     }
 
     fn build_subagent_deps(&self, llm_client: Arc<dyn LlmClient>) -> SubagentDeps {
@@ -188,9 +217,21 @@ impl RealAgentExecutor {
         &self,
         tool_names: Option<&[String]>,
         llm_client: Arc<dyn LlmClient>,
+        swappable: Arc<SwappableLlm>,
+        factory: Arc<dyn LlmClientFactory>,
     ) -> Arc<ToolRegistry> {
         let subagent_deps = self.build_subagent_deps(llm_client);
-        Arc::new(registry_from_allowlist(tool_names, Some(&subagent_deps)))
+        let mut registry = registry_from_allowlist(tool_names, Some(&subagent_deps));
+
+        let enable_switch = tool_names
+            .map(|names| names.iter().any(|name| name == "switch_model"))
+            .unwrap_or(false);
+
+        if enable_switch {
+            registry.register(SwitchModelTool::new(swappable, factory));
+        }
+
+        Arc::new(registry)
     }
 
     async fn execute_with_model(
@@ -200,19 +241,33 @@ impl RealAgentExecutor {
         input: Option<&str>,
         primary_provider: Provider,
     ) -> Result<ExecutionResult> {
+        let model_specs = Self::build_model_specs();
+        let api_keys = self
+            .build_api_keys(agent_node.api_key_config.as_ref(), primary_provider)
+            .await;
+        let factory = Arc::new(DefaultLlmClientFactory::new(api_keys, model_specs));
+
         let api_key = if model.is_codex_cli() {
-            String::new()
+            None
         } else {
-            self.resolve_api_key_for_model(
-                model.provider(),
-                agent_node.api_key_config.as_ref(),
-                primary_provider,
+            Some(
+                self.resolve_api_key_for_model(
+                    model.provider(),
+                    agent_node.api_key_config.as_ref(),
+                    primary_provider,
+                )
+                .await?,
             )
-            .await?
         };
 
-        let llm = self.create_llm_client(model, &api_key)?;
-        let tools = self.build_tool_registry(agent_node.tools.as_deref(), llm.clone());
+        let llm_client = factory.create_client(model.as_serialized_str(), api_key.as_deref())?;
+        let swappable = Arc::new(SwappableLlm::new(llm_client));
+        let tools = self.build_tool_registry(
+            agent_node.tools.as_deref(),
+            swappable.clone(),
+            swappable.clone(),
+            factory,
+        );
         let system_prompt = build_agent_system_prompt(self.storage.clone(), agent_node)?;
 
         let mut config = UnifiedAgentConfig::default();
@@ -222,7 +277,12 @@ impl RealAgentExecutor {
             config.temperature = temp as f32;
         }
 
-        let mut agent = UnifiedAgent::new(llm, tools, system_prompt, config);
+        let mut agent = UnifiedAgent::new(
+            swappable,
+            tools,
+            system_prompt,
+            config,
+        );
 
         let goal = input.unwrap_or("Execute the agent task");
         let result = agent.execute(goal).await?;
