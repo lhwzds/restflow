@@ -70,7 +70,8 @@ impl AIModel {
             Self::ClaudeCodeOpus
             | Self::ClaudeCodeSonnet
             | Self::ClaudeCodeHaiku
-            | Self::CodexCli => None,
+            | Self::CodexCli
+            | Self::OpenCodeCli => None,
         }
     }
 }
@@ -98,6 +99,7 @@ mod tests {
     fn test_pricing_cli_models_none() {
         assert!(AIModel::ClaudeCodeOpus.pricing().is_none());
         assert!(AIModel::CodexCli.pricing().is_none());
+        assert!(AIModel::OpenCodeCli.pricing().is_none());
     }
 
     #[test]
