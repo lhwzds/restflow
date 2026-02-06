@@ -234,6 +234,36 @@ impl AIModel {
         }
     }
 
+    /// Convert an API model name into an AIModel.
+    pub fn from_api_name(name: &str) -> Option<Self> {
+        if let Some(model) = Self::all().iter().find(|m| m.as_str() == name).copied() {
+            return Some(model);
+        }
+
+        match name {
+            "claude-sonnet-4-5-20250514" | "claude-sonnet-4-20250514" => {
+                Some(Self::ClaudeSonnet4_5)
+            }
+            "claude-opus-4-1-20250805" | "claude-opus-4-1-20250514" => {
+                Some(Self::ClaudeOpus4_1)
+            }
+            "claude-haiku-4-5-20250514" | "claude-haiku-4-20250514" => {
+                Some(Self::ClaudeHaiku4_5)
+            }
+            _ => {
+                if name.starts_with("claude-sonnet-4") {
+                    Some(Self::ClaudeSonnet4_5)
+                } else if name.starts_with("claude-opus-4-1") || name.starts_with("claude-opus-4") {
+                    Some(Self::ClaudeOpus4_1)
+                } else if name.starts_with("claude-haiku-4") {
+                    Some(Self::ClaudeHaiku4_5)
+                } else {
+                    None
+                }
+            }
+        }
+    }
+
     /// Get the display name for UI
     pub fn display_name(&self) -> &'static str {
         self.metadata().name
@@ -390,7 +420,19 @@ mod tests {
         assert_eq!(AIModel::CodexCli.as_str(), "gpt-5.3-codex");
         assert_eq!(AIModel::OpenCodeCli.as_str(), "opencode");
         assert_eq!(AIModel::DeepseekChat.as_str(), "deepseek-chat");
-        assert_eq!(AIModel::CodexCli.as_str(), "gpt-5.3-codex");
+    }
+
+    #[test]
+    fn test_from_api_name() {
+        assert_eq!(
+            AIModel::from_api_name("claude-sonnet-4-5-20250514"),
+            Some(AIModel::ClaudeSonnet4_5)
+        );
+        assert_eq!(
+            AIModel::from_api_name("claude-sonnet-4-20250514"),
+            Some(AIModel::ClaudeSonnet4_5)
+        );
+        assert_eq!(AIModel::from_api_name("nonexistent"), None);
     }
 
     #[test]
@@ -401,7 +443,6 @@ mod tests {
         assert_eq!(AIModel::CodexCli.display_name(), "Codex CLI");
         assert_eq!(AIModel::OpenCodeCli.display_name(), "OpenCode CLI");
         assert_eq!(AIModel::DeepseekChat.display_name(), "DeepSeek Chat");
-        assert_eq!(AIModel::CodexCli.display_name(), "Codex CLI");
     }
 
     #[test]
@@ -416,7 +457,6 @@ mod tests {
         assert!(models.contains(&AIModel::CodexCli));
         assert!(models.contains(&AIModel::OpenCodeCli));
         assert!(models.contains(&AIModel::DeepseekChat));
-        assert!(models.contains(&AIModel::CodexCli));
     }
 
     #[test]

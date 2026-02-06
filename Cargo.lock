@@ -4780,7 +4780,7 @@ dependencies = [
 
 [[package]]
 name = "restflow-ai"
-version = "0.2.2"
+version = "0.2.4"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -4811,7 +4811,7 @@ dependencies = [
 
 [[package]]
 name = "restflow-cli"
-version = "0.2.2"
+version = "0.2.4"
 dependencies = [
  "anyhow",
  "assert_cmd",
@@ -4850,7 +4850,7 @@ dependencies = [
 
 [[package]]
 name = "restflow-core"
-version = "0.2.2"
+version = "0.2.4"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4910,7 +4910,7 @@ dependencies = [
 
 [[package]]
 name = "restflow-storage"
-version = "0.2.2"
+version = "0.2.4"
 dependencies = [
  "aes-gcm",
  "anyhow",
@@ -4934,7 +4934,7 @@ dependencies = [
 
 [[package]]
 name = "restflow-tauri"
-version = "0.2.2"
+version = "0.2.4"
 dependencies = [
  "anyhow",
  "async-trait",

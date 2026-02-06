@@ -27,24 +27,16 @@ impl OpenCodeClient {
             provider_env: None,
         }
     }
-}
 
-impl Default for OpenCodeClient {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl OpenCodeClient {
     /// Set the model to use
     pub fn with_model(mut self, model: impl Into<String>) -> Self {
         self.model = model.into();
         self
     }
 
-    /// Set provider env var for auth
-    pub fn with_provider_env(mut self, env_var: impl Into<String>, value: impl Into<String>) -> Self {
-        self.provider_env = Some((env_var.into(), value.into()));
+    /// Inject provider credentials as an env var
+    pub fn with_provider_env(mut self, var_name: impl Into<String>, value: impl Into<String>) -> Self {
+        self.provider_env = Some((var_name.into(), value.into()));
         self
     }
 
@@ -59,14 +51,29 @@ impl OpenCodeClient {
 
     fn parse_json_output(output: &str) -> Result<String> {
         let value: Value = serde_json::from_str(output.trim()).map_err(|e| {
-            AiError::Llm(format!("Failed to parse OpenCode output: {e}"))
+            AiError::Llm(format!("Failed to parse OpenCode CLI output: {e}"))
         })?;
 
-        value
+        if let Some(err) = value.get("error").and_then(|v| v.as_str()) {
+            return Err(AiError::Llm(format!("OpenCode CLI error: {err}")));
+        }
+
+        let response = value
             .get("response")
             .and_then(|v| v.as_str())
-            .map(|s| s.to_string())
-            .ok_or_else(|| AiError::Llm("OpenCode output missing 'response' field".to_string()))
+            .ok_or_else(|| AiError::Llm("OpenCode output missing 'response' field".to_string()))?;
+
+        if response.trim().is_empty() {
+            return Err(AiError::Llm("OpenCode CLI returned empty output".to_string()));
+        }
+
+        Ok(response.to_string())
+    }
+}
+
+impl Default for OpenCodeClient {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -95,8 +102,8 @@ impl LlmClient for OpenCodeClient {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
-        if let Some((env_var, key)) = &self.provider_env {
-            cmd.env(env_var, key);
+        if let Some((env_var, value)) = &self.provider_env {
+            cmd.env(env_var, value);
         }
 
         let output = cmd.output().await.map_err(|e| {
@@ -142,16 +149,15 @@ mod tests {
 
     #[test]
     fn test_parse_json_output() {
-        let output = r#"{"response": "Hello world"}"#;
+        let output = r#"{"response":"Hello world"}"#;
         let content = OpenCodeClient::parse_json_output(output).unwrap();
         assert_eq!(content, "Hello world");
     }
 
     #[test]
     fn test_parse_json_output_missing_response() {
-        let output = r#"{"error": "oops"}"#;
-        let err = OpenCodeClient::parse_json_output(output).unwrap_err();
-        assert!(err.to_string().contains("missing 'response'"));
+        let output = r#"{"error":"something"}"#;
+        assert!(OpenCodeClient::parse_json_output(output).is_err());
     }
 
     #[test]
@@ -164,31 +170,12 @@ mod tests {
     #[test]
     fn test_build_prompt() {
         let messages = vec![
-            crate::llm::Message {
-                role: Role::System,
-                content: "sys".to_string(),
-                tool_calls: None,
-                tool_call_id: None,
-                name: None,
-            },
-            crate::llm::Message {
-                role: Role::User,
-                content: "Hello".to_string(),
-                tool_calls: None,
-                tool_call_id: None,
-                name: None,
-            },
-            crate::llm::Message {
-                role: Role::Assistant,
-                content: "World".to_string(),
-                tool_calls: None,
-                tool_call_id: None,
-                name: None,
-            },
+            crate::llm::Message::new(Role::System, "system"),
+            crate::llm::Message::new(Role::User, "hello"),
+            crate::llm::Message::new(Role::Assistant, "world"),
         ];
-
         let prompt = OpenCodeClient::build_prompt(&messages);
-        assert_eq!(prompt, "Hello\n\nWorld");
+        assert_eq!(prompt, "hello\n\nworld");
     }
 
     #[test]

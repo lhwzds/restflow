@@ -394,6 +394,8 @@ fn build_model_specs() -> Vec<ModelSpec> {
             ModelSpec::opencode(model.as_serialized_str())
         } else if model.is_codex_cli() {
             ModelSpec::codex(model.as_serialized_str(), model.as_str())
+        } else if model.is_opencode_cli() {
+            ModelSpec::opencode(model.as_serialized_str(), model.as_str())
         } else {
             ModelSpec::new(model.as_serialized_str(), provider, model.as_str())
         };

@@ -59,11 +59,11 @@ impl ModelSpec {
         }
     }
 
-    pub fn opencode(name: impl Into<String>) -> Self {
+    pub fn opencode(name: impl Into<String>, client_model: impl Into<String>) -> Self {
         Self {
             name: name.into(),
             provider: LlmProvider::OpenAI,
-            client_model: String::new(),
+            client_model: client_model.into(),
             is_codex_cli: false,
             is_opencode_cli: true,
         }
@@ -111,14 +111,15 @@ impl LlmClientFactory for DefaultLlmClientFactory {
 
         match spec.provider {
             LlmProvider::OpenAI => {
-                if spec.is_codex_cli {
-                    Ok(Arc::new(CodexClient::new().with_model(spec.client_model)))
-                } else if spec.is_opencode_cli {
-                    let mut client = OpenCodeClient::new();
+                if spec.is_opencode_cli {
+                    let mut client = OpenCodeClient::new().with_model(spec.client_model);
                     if let Some(key) = api_key {
-                        client = client.with_provider_env("OPENAI_API_KEY", key.to_string());
+                        let env_var = detect_env_var(key);
+                        client = client.with_provider_env(env_var, key.to_string());
                     }
                     Ok(Arc::new(client))
+                } else if spec.is_codex_cli {
+                    Ok(Arc::new(CodexClient::new().with_model(spec.client_model)))
                 } else {
                     let key = api_key
                         .ok_or_else(|| AiError::Llm("OpenAI API key is required".to_string()))?;
@@ -182,4 +183,23 @@ impl LlmClientFactory for DefaultLlmClientFactory {
 
 fn normalize_model_name(model: &str) -> String {
     model.trim().to_lowercase()
+}
+
+fn detect_env_var(api_key: &str) -> &'static str {
+    let normalized = api_key.trim();
+    if normalized.starts_with("sk-ant-") {
+        "ANTHROPIC_API_KEY"
+    } else if normalized.starts_with("ghp_") || normalized.starts_with("gho_") {
+        "GITHUB_TOKEN"
+    } else if normalized.starts_with("xai-") {
+        "XAI_API_KEY"
+    } else if normalized.starts_with("sk-or-") {
+        "OPENROUTER_API_KEY"
+    } else if normalized.starts_with("gsk_") {
+        "GROQ_API_KEY"
+    } else if normalized.starts_with("AIza") {
+        "GEMINI_API_KEY"
+    } else {
+        "OPENAI_API_KEY"
+    }
 }
