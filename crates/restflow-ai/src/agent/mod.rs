@@ -41,7 +41,10 @@ pub mod strategy;
 mod trace;
 mod unified;
 
-pub use context::{load_workspace_context, AgentContext, MemoryContext, SkillSummary};
+pub use context::{
+    AgentContext, ContextDiscoveryConfig, ContextLoader, DiscoveredContext, MemoryContext,
+    SkillSummary, WorkspaceContextCache,
+};
 pub use executor::{AgentConfig, AgentExecutor, AgentResult};
 pub use state::{AgentState, AgentStatus};
 pub use trace::TraceEvent;

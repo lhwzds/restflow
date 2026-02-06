@@ -1,10 +1,11 @@
 pub mod auth;
 pub mod channel;
+pub mod context;
 pub mod daemon;
 pub mod engine;
 pub mod loader;
-pub mod memory;
 pub mod mcp;
+pub mod memory;
 pub mod models;
 pub mod node;
 pub mod paths;
