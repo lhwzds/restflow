@@ -8,11 +8,14 @@ use async_trait::async_trait;
 use futures::Stream;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use std::path::Path;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
+use tokio::fs;
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
+use uuid::Uuid;
 
 use super::traits::{Channel, StreamReceiver};
 use super::types::{ChannelType, InboundMessage, OutboundMessage};
@@ -193,10 +196,81 @@ impl TelegramChannel {
         Ok(updates)
     }
 
+    async fn download_telegram_file(&self, file_id: &str) -> Result<Option<String>> {
+        #[cfg(test)]
+        if file_id.starts_with("test-") {
+            return Ok(Some(format!("/tmp/restflow-media/{}", file_id)));
+        }
+
+        let url = self.api_url("getFile");
+        let params = serde_json::json!({
+            "file_id": file_id,
+        });
+
+        let response = self
+            .client
+            .post(&url)
+            .json(&params)
+            .timeout(std::time::Duration::from_secs(API_TIMEOUT_SECS))
+            .send()
+            .await?;
+
+        let body: TelegramResponse<TelegramFile> = response.json().await?;
+        if !body.ok {
+            return Err(anyhow!(
+                "Telegram API error: {:?}",
+                body.description.unwrap_or_default()
+            ));
+        }
+
+        let file = match body.result {
+            Some(file) => file,
+            None => return Ok(None),
+        };
+
+        let file_path = match file.file_path {
+            Some(path) => path,
+            None => return Ok(None),
+        };
+
+        let file_url = format!(
+            "https://api.telegram.org/file/bot{}/{}",
+            self.config.bot_token, file_path
+        );
+
+        let response = self
+            .client
+            .get(&file_url)
+            .timeout(std::time::Duration::from_secs(API_TIMEOUT_SECS))
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            let error = response.text().await.unwrap_or_default();
+            return Err(anyhow!("Telegram file download error: {}", error));
+        }
+
+        let bytes = response.bytes().await?;
+        let dir = "/tmp/restflow-media";
+        fs::create_dir_all(dir).await?;
+
+        let extension = Path::new(&file_path)
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .map(|ext| format!(".{}", ext))
+            .unwrap_or_default();
+
+        let filename = format!("tg-{}{}", Uuid::new_v4(), extension);
+        let local_path = format!("{}/{}", dir, filename);
+
+        fs::write(&local_path, bytes).await?;
+
+        Ok(Some(local_path))
+    }
+
     /// Convert Telegram update to InboundMessage
-    fn convert_update(&self, update: TelegramUpdate) -> Option<InboundMessage> {
+    async fn convert_update(&self, update: TelegramUpdate) -> Option<InboundMessage> {
         let message = update.message?;
-        let text = message.text?;
         let from = message.from?;
 
         let sender_name = from
@@ -214,21 +288,112 @@ impl TelegramChannel {
             })
             .filter(|s| !s.is_empty());
 
-        Some(
+        let mut metadata = serde_json::json!({
+            "chat_type": message.chat.r#type,
+            "chat_title": message.chat.title,
+            "update_id": update.update_id,
+        });
+
+        let inbound = |content: String| {
             InboundMessage::new(
                 format!("tg_{}", message.message_id),
                 ChannelType::Telegram,
                 from.id.to_string(),
                 message.chat.id.to_string(),
-                text,
+                content,
             )
-            .with_sender_name(sender_name.unwrap_or_default())
-            .with_metadata(serde_json::json!({
-                "chat_type": message.chat.r#type,
-                "chat_title": message.chat.title,
-                "update_id": update.update_id,
-            })),
-        )
+            .with_sender_name(sender_name.clone().unwrap_or_default())
+        };
+
+        if let Some(text) = message.text {
+            return Some(inbound(text).with_metadata(metadata));
+        }
+
+        if let Some(voice) = message.voice {
+            let file_path = self
+                .download_telegram_file(&voice.file_id)
+                .await
+                .ok()
+                .flatten()?;
+            metadata["media_type"] = serde_json::Value::String("voice".to_string());
+            metadata["file_path"] = serde_json::Value::String(file_path.clone());
+            let content = format!("[Voice message, {}s]", voice.duration);
+            return Some(inbound(content).with_metadata(metadata));
+        }
+
+        if let Some(photos) = message.photo {
+            let best = photos
+                .iter()
+                .max_by_key(|photo| photo.file_size.unwrap_or(0))?;
+            let file_path = self
+                .download_telegram_file(&best.file_id)
+                .await
+                .ok()
+                .flatten()?;
+            metadata["media_type"] = serde_json::Value::String("photo".to_string());
+            metadata["file_path"] = serde_json::Value::String(file_path.clone());
+            let caption = message.caption.clone();
+            let content = match caption {
+                Some(text) if !text.is_empty() => format!("[Photo] {}", text),
+                _ => "[Photo]".to_string(),
+            };
+            return Some(inbound(content).with_metadata(metadata));
+        }
+
+        if let Some(video) = message.video {
+            let file_path = self
+                .download_telegram_file(&video.file_id)
+                .await
+                .ok()
+                .flatten()?;
+            metadata["media_type"] = serde_json::Value::String("video".to_string());
+            metadata["file_path"] = serde_json::Value::String(file_path.clone());
+            let caption = message.caption.clone();
+            let content = match caption {
+                Some(text) if !text.is_empty() => {
+                    format!("[Video, {}s] {}", video.duration, text)
+                }
+                _ => format!("[Video, {}s]", video.duration),
+            };
+            return Some(inbound(content).with_metadata(metadata));
+        }
+
+        if let Some(video_note) = message.video_note {
+            let file_path = self
+                .download_telegram_file(&video_note.file_id)
+                .await
+                .ok()
+                .flatten()?;
+            metadata["media_type"] = serde_json::Value::String("video_note".to_string());
+            metadata["file_path"] = serde_json::Value::String(file_path.clone());
+            let content = format!("[Video note, {}s]", video_note.duration);
+            return Some(inbound(content).with_metadata(metadata));
+        }
+
+        if let Some(document) = message.document {
+            let file_path = self
+                .download_telegram_file(&document.file_id)
+                .await
+                .ok()
+                .flatten()?;
+            metadata["media_type"] = serde_json::Value::String("document".to_string());
+            metadata["file_path"] = serde_json::Value::String(file_path.clone());
+            if let Some(file_name) = document.file_name.clone() {
+                metadata["file_name"] = serde_json::Value::String(file_name.clone());
+            }
+            let caption = message.caption.clone();
+            let label = document
+                .file_name
+                .clone()
+                .unwrap_or_else(|| "document".to_string());
+            let content = match caption {
+                Some(text) if !text.is_empty() => format!("[Document: {}] {}", label, text),
+                _ => format!("[Document: {}]", label),
+            };
+            return Some(inbound(content).with_metadata(metadata));
+        }
+
+        None
     }
 
     /// Test the connection by calling getMe
@@ -344,7 +509,7 @@ impl Channel for TelegramChannel {
                 match channel.poll_updates().await {
                     Ok(updates) => {
                         for update in updates {
-                            if let Some(message) = channel.convert_update(update) {
+                            if let Some(message) = channel.convert_update(update).await {
                                 debug!(
                                     "Received Telegram message: {} from {}",
                                     message.id, message.sender_id
@@ -412,6 +577,81 @@ struct TelegramUpdate {
 }
 
 #[derive(Debug, Deserialize)]
+struct TelegramFile {
+    #[allow(dead_code)]
+    file_id: String,
+    #[allow(dead_code)]
+    file_unique_id: String,
+    #[allow(dead_code)]
+    file_size: Option<i64>,
+    file_path: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct TelegramVoice {
+    file_id: String,
+    #[allow(dead_code)]
+    file_unique_id: String,
+    duration: u32,
+    #[allow(dead_code)]
+    mime_type: Option<String>,
+    #[allow(dead_code)]
+    file_size: Option<i64>,
+}
+
+#[derive(Debug, Deserialize)]
+struct TelegramPhotoSize {
+    file_id: String,
+    #[allow(dead_code)]
+    file_unique_id: String,
+    #[allow(dead_code)]
+    width: u32,
+    #[allow(dead_code)]
+    height: u32,
+    file_size: Option<i64>,
+}
+
+#[derive(Debug, Deserialize)]
+struct TelegramVideo {
+    file_id: String,
+    #[allow(dead_code)]
+    file_unique_id: String,
+    #[allow(dead_code)]
+    width: u32,
+    #[allow(dead_code)]
+    height: u32,
+    duration: u32,
+    #[allow(dead_code)]
+    mime_type: Option<String>,
+    #[allow(dead_code)]
+    file_size: Option<i64>,
+}
+
+#[derive(Debug, Deserialize)]
+struct TelegramDocument {
+    file_id: String,
+    #[allow(dead_code)]
+    file_unique_id: String,
+    file_name: Option<String>,
+    #[allow(dead_code)]
+    mime_type: Option<String>,
+    #[allow(dead_code)]
+    file_size: Option<i64>,
+}
+
+#[derive(Debug, Deserialize)]
+struct TelegramVideoNote {
+    file_id: String,
+    #[allow(dead_code)]
+    file_unique_id: String,
+    #[allow(dead_code)]
+    length: u32,
+    duration: u32,
+    #[allow(dead_code)]
+    file_size: Option<i64>,
+}
+
+#[derive(Debug, Deserialize)]
 struct TelegramMessage {
     message_id: i64,
     from: Option<TelegramUser>,
@@ -419,6 +659,12 @@ struct TelegramMessage {
     #[allow(dead_code)]
     date: u64,
     text: Option<String>,
+    caption: Option<String>,
+    voice: Option<TelegramVoice>,
+    photo: Option<Vec<TelegramPhotoSize>>,
+    video: Option<TelegramVideo>,
+    video_note: Option<TelegramVideoNote>,
+    document: Option<TelegramDocument>,
     #[allow(dead_code)]
     reply_to_message: Option<Box<TelegramMessage>>,
 }
@@ -517,8 +763,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_convert_update() {
+    #[tokio::test]
+    async fn test_convert_update() {
         let channel = TelegramChannel::with_token("test");
 
         let update = TelegramUpdate {
@@ -540,11 +786,17 @@ mod tests {
                 },
                 date: 1234567890,
                 text: Some("Hello world".to_string()),
+                caption: None,
+                voice: None,
+                photo: None,
+                video: None,
+                video_note: None,
+                document: None,
                 reply_to_message: None,
             }),
         };
 
-        let inbound = channel.convert_update(update).unwrap();
+        let inbound = channel.convert_update(update).await.unwrap();
         assert_eq!(inbound.id, "tg_100");
         assert_eq!(inbound.sender_id, "42");
         assert_eq!(inbound.conversation_id, "999");
@@ -553,8 +805,8 @@ mod tests {
         assert_eq!(inbound.channel_type, ChannelType::Telegram);
     }
 
-    #[test]
-    fn test_convert_update_no_username() {
+    #[tokio::test]
+    async fn test_convert_update_no_username() {
         let channel = TelegramChannel::with_token("test");
 
         let update = TelegramUpdate {
@@ -576,16 +828,22 @@ mod tests {
                 },
                 date: 1234567890,
                 text: Some("Hello".to_string()),
+                caption: None,
+                voice: None,
+                photo: None,
+                video: None,
+                video_note: None,
+                document: None,
                 reply_to_message: None,
             }),
         };
 
-        let inbound = channel.convert_update(update).unwrap();
+        let inbound = channel.convert_update(update).await.unwrap();
         assert_eq!(inbound.sender_name, Some("John Doe".to_string()));
     }
 
-    #[test]
-    fn test_convert_update_no_message() {
+    #[tokio::test]
+    async fn test_convert_update_no_message() {
         let channel = TelegramChannel::with_token("test");
 
         let update = TelegramUpdate {
@@ -593,11 +851,11 @@ mod tests {
             message: None,
         };
 
-        assert!(channel.convert_update(update).is_none());
+        assert!(channel.convert_update(update).await.is_none());
     }
 
-    #[test]
-    fn test_convert_update_no_text() {
+    #[tokio::test]
+    async fn test_convert_update_no_text() {
         let channel = TelegramChannel::with_token("test");
 
         let update = TelegramUpdate {
@@ -618,11 +876,169 @@ mod tests {
                     username: None,
                 },
                 date: 1234567890,
-                text: None, // No text (e.g., photo message)
+                text: None,
+                caption: None,
+                voice: None,
+                photo: None,
+                video: None,
+                video_note: None,
+                document: None,
                 reply_to_message: None,
             }),
         };
 
-        assert!(channel.convert_update(update).is_none());
+        assert!(channel.convert_update(update).await.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_convert_update_voice() {
+        let channel = TelegramChannel::with_token("test");
+
+        let update = TelegramUpdate {
+            update_id: 12345,
+            message: Some(TelegramMessage {
+                message_id: 101,
+                from: Some(TelegramUser {
+                    id: 7,
+                    is_bot: false,
+                    first_name: Some("Ada".to_string()),
+                    last_name: None,
+                    username: None,
+                }),
+                chat: TelegramChat {
+                    id: 777,
+                    r#type: "private".to_string(),
+                    title: None,
+                    username: None,
+                },
+                date: 1234567890,
+                text: None,
+                caption: None,
+                voice: Some(TelegramVoice {
+                    file_id: "test-voice".to_string(),
+                    file_unique_id: "voice-1".to_string(),
+                    duration: 5,
+                    mime_type: None,
+                    file_size: Some(12),
+                }),
+                photo: None,
+                video: None,
+                video_note: None,
+                document: None,
+                reply_to_message: None,
+            }),
+        };
+
+        let inbound = channel.convert_update(update).await.unwrap();
+        assert_eq!(inbound.content, "[Voice message, 5s]");
+        let metadata = inbound.metadata.unwrap();
+        assert_eq!(metadata["media_type"], "voice");
+        assert_eq!(metadata["file_path"], "/tmp/restflow-media/test-voice");
+    }
+
+    #[tokio::test]
+    async fn test_convert_update_photo() {
+        let channel = TelegramChannel::with_token("test");
+
+        let update = TelegramUpdate {
+            update_id: 12345,
+            message: Some(TelegramMessage {
+                message_id: 102,
+                from: Some(TelegramUser {
+                    id: 8,
+                    is_bot: false,
+                    first_name: Some("Lin".to_string()),
+                    last_name: None,
+                    username: None,
+                }),
+                chat: TelegramChat {
+                    id: 888,
+                    r#type: "private".to_string(),
+                    title: None,
+                    username: None,
+                },
+                date: 1234567890,
+                text: None,
+                caption: Some("Look".to_string()),
+                voice: None,
+                photo: Some(vec![
+                    TelegramPhotoSize {
+                        file_id: "test-photo-small".to_string(),
+                        file_unique_id: "photo-1".to_string(),
+                        width: 90,
+                        height: 90,
+                        file_size: Some(10),
+                    },
+                    TelegramPhotoSize {
+                        file_id: "test-photo-large".to_string(),
+                        file_unique_id: "photo-2".to_string(),
+                        width: 180,
+                        height: 180,
+                        file_size: Some(20),
+                    },
+                ]),
+                video: None,
+                video_note: None,
+                document: None,
+                reply_to_message: None,
+            }),
+        };
+
+        let inbound = channel.convert_update(update).await.unwrap();
+        assert_eq!(inbound.content, "[Photo] Look");
+        let metadata = inbound.metadata.unwrap();
+        assert_eq!(metadata["media_type"], "photo");
+        assert_eq!(
+            metadata["file_path"],
+            "/tmp/restflow-media/test-photo-large"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_convert_update_video() {
+        let channel = TelegramChannel::with_token("test");
+
+        let update = TelegramUpdate {
+            update_id: 12345,
+            message: Some(TelegramMessage {
+                message_id: 103,
+                from: Some(TelegramUser {
+                    id: 9,
+                    is_bot: false,
+                    first_name: Some("Sam".to_string()),
+                    last_name: None,
+                    username: None,
+                }),
+                chat: TelegramChat {
+                    id: 999,
+                    r#type: "private".to_string(),
+                    title: None,
+                    username: None,
+                },
+                date: 1234567890,
+                text: None,
+                caption: None,
+                voice: None,
+                photo: None,
+                video: Some(TelegramVideo {
+                    file_id: "test-video".to_string(),
+                    file_unique_id: "video-1".to_string(),
+                    width: 640,
+                    height: 480,
+                    duration: 12,
+                    mime_type: None,
+                    file_size: Some(100),
+                }),
+                video_note: None,
+                document: None,
+                reply_to_message: None,
+            }),
+        };
+
+        let inbound = channel.convert_update(update).await.unwrap();
+        assert_eq!(inbound.content, "[Video, 12s]");
+        let metadata = inbound.metadata.unwrap();
+        assert_eq!(metadata["media_type"], "video");
+        assert_eq!(metadata["file_path"], "/tmp/restflow-media/test-video");
     }
 }

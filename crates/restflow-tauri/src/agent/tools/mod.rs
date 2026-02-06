@@ -5,8 +5,11 @@ use tracing::warn;
 
 use crate::subagent::{AgentDefinitionRegistry, SubagentConfig, SubagentTracker};
 use restflow_ai::LlmClient;
+use restflow_core::storage::Storage;
 
-pub use restflow_ai::tools::{Tool, ToolOutput, ToolRegistry};
+pub use restflow_ai::tools::{
+    SecretResolver, Tool, ToolOutput, ToolRegistry, TranscribeTool, VisionTool,
+};
 
 mod bash;
 mod email;
@@ -42,6 +45,11 @@ pub struct SubagentDeps {
     pub llm_client: Arc<dyn LlmClient>,
     pub tool_registry: Arc<ToolRegistry>,
     pub config: SubagentConfig,
+}
+
+pub fn secret_resolver_from_storage(storage: &Storage) -> SecretResolver {
+    let secrets = storage.secrets.clone();
+    Arc::new(move |key| secrets.get_secret(key).ok().flatten())
 }
 
 /// Builder for creating a fully configured ToolRegistry.
@@ -98,6 +106,18 @@ impl ToolRegistryBuilder {
         self
     }
 
+    /// Add transcription tool.
+    pub fn with_transcribe(mut self, resolver: SecretResolver) -> Self {
+        self.registry.register(TranscribeTool::new(resolver));
+        self
+    }
+
+    /// Add vision tool.
+    pub fn with_vision(mut self, resolver: SecretResolver) -> Self {
+        self.registry.register(VisionTool::new(resolver));
+        self
+    }
+
     /// Add spawn tool for subagent creation.
     pub fn with_spawn(mut self, spawner: Arc<dyn SubagentSpawner>) -> Self {
         self.registry.register(SpawnTool::new(spawner));
@@ -147,6 +167,7 @@ impl ToolRegistryBuilder {
 pub fn registry_from_allowlist(
     tool_names: Option<&[String]>,
     subagent_deps: Option<&SubagentDeps>,
+    secret_resolver: Option<SecretResolver>,
 ) -> ToolRegistry {
     let Some(tool_names) = tool_names else {
         return ToolRegistry::new();
@@ -183,6 +204,23 @@ pub fn registry_from_allowlist(
             }
             "telegram_send" | "telegram" => {
                 builder = builder.with_telegram();
+            }
+            "transcribe" => {
+                if let Some(resolver) = secret_resolver.clone() {
+                    builder = builder.with_transcribe(resolver);
+                } else {
+                    warn!(
+                        tool_name = "transcribe",
+                        "Secret resolver missing, skipping"
+                    );
+                }
+            }
+            "vision" => {
+                if let Some(resolver) = secret_resolver.clone() {
+                    builder = builder.with_vision(resolver);
+                } else {
+                    warn!(tool_name = "vision", "Secret resolver missing, skipping");
+                }
             }
             "spawn_agent" => {
                 if let Some(deps) = subagent_deps {
