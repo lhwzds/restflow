@@ -529,6 +529,8 @@ pub async fn send_chat_message_stream(
 
     // Spawn background task for agent execution
     tokio::spawn(async move {
+        let mut stream_state = stream_state;
+
         // Emit stream started
         stream_state.emit_started();
 
@@ -644,7 +646,10 @@ pub async fn send_chat_message_stream(
         add_session_history(&mut agent, &session, 20);
 
         // Execute agent
-        let result = match agent.execute(&user_input).await {
+        let result = match agent
+            .execute_streaming(&user_input, &mut stream_state)
+            .await
+        {
             Ok(r) => r,
             Err(e) => {
                 stream_state.emit_failed(&format!("Agent execution failed: {}", e));
@@ -662,8 +667,9 @@ pub async fn send_chat_message_stream(
             format!("Error: {}", result.output)
         };
 
-        // Emit completed event
-        stream_state.emit_completed();
+        if !result.success {
+            stream_state.emit_failed(&response);
+        }
 
         // Save assistant response via IPC
         let execution = MessageExecution::new().complete(duration_ms, result.iterations as u32);
