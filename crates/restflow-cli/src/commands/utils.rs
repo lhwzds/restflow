@@ -45,6 +45,8 @@ pub fn parse_model(input: &str) -> Result<AIModel> {
         // Codex CLI
         "codex" | "codex-cli" | "gpt-5.3-codex" | "gpt-5.2-codex" | "gpt-5.1-codex-max"
         | "gpt-5.1-codex" | "gpt-5-codex" => AIModel::CodexCli,
+        // OpenCode CLI
+        "opencode" | "opencode-cli" => AIModel::OpenCodeCli,
         // DeepSeek
         "deepseek-chat" => AIModel::DeepseekChat,
         "deepseek-reasoner" => AIModel::DeepseekReasoner,
