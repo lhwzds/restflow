@@ -82,9 +82,10 @@ impl DefaultLlmClientFactory {
 
     fn model_spec(&self, model: &str) -> Result<ModelSpec> {
         let key = normalize_model_name(model);
-        self.models.get(&key).cloned().ok_or_else(|| {
-            AiError::Llm(format!("Unknown model '{model}'"))
-        })
+        self.models
+            .get(&key)
+            .cloned()
+            .ok_or_else(|| AiError::Llm(format!("Unknown model '{model}'")))
     }
 }
 
@@ -97,17 +98,15 @@ impl LlmClientFactory for DefaultLlmClientFactory {
                 if spec.is_codex_cli {
                     Ok(Arc::new(CodexClient::new().with_model(spec.client_model)))
                 } else {
-                    let key = api_key.ok_or_else(|| {
-                        AiError::Llm("OpenAI API key is required".to_string())
-                    })?;
+                    let key = api_key
+                        .ok_or_else(|| AiError::Llm("OpenAI API key is required".to_string()))?;
                     let client = OpenAIClient::new(key).with_model(spec.client_model);
                     Ok(Arc::new(client))
                 }
             }
             LlmProvider::Anthropic => {
-                let key = api_key.ok_or_else(|| {
-                    AiError::Llm("Anthropic API key is required".to_string())
-                })?;
+                let key = api_key
+                    .ok_or_else(|| AiError::Llm("Anthropic API key is required".to_string()))?;
                 if key.starts_with("sk-ant-oat") {
                     let client = ClaudeCodeClient::new(key).with_model(spec.client_model);
                     Ok(Arc::new(client))
@@ -117,9 +116,8 @@ impl LlmClientFactory for DefaultLlmClientFactory {
                 }
             }
             LlmProvider::DeepSeek => {
-                let key = api_key.ok_or_else(|| {
-                    AiError::Llm("DeepSeek API key is required".to_string())
-                })?;
+                let key = api_key
+                    .ok_or_else(|| AiError::Llm("DeepSeek API key is required".to_string()))?;
                 let client = OpenAIClient::new(key)
                     .with_model(spec.client_model)
                     .with_base_url("https://api.deepseek.com/v1");

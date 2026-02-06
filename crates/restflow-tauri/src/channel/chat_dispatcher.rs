@@ -18,7 +18,7 @@ use restflow_core::{AIModel, Provider};
 use super::debounce::MessageDebouncer;
 use crate::agent::{
     SubagentDeps, ToolRegistry, UnifiedAgent, UnifiedAgentConfig, build_agent_system_prompt,
-    registry_from_allowlist,
+    registry_from_allowlist, secret_resolver_from_storage,
 };
 use crate::subagent::{AgentDefinitionRegistry, SubagentConfig, SubagentTracker};
 
@@ -470,9 +470,11 @@ impl ChatDispatcher {
         debug!("Creating LLM client");
         let llm = self.create_llm_client(model, &api_key);
         let subagent_deps = self.build_subagent_deps(llm.clone());
+        let secret_resolver = Some(secret_resolver_from_storage(&self.storage));
         let tools = Arc::new(registry_from_allowlist(
             agent_node.tools.as_deref(),
             Some(&subagent_deps),
+            secret_resolver,
         ));
         let system_prompt = build_agent_system_prompt(self.storage.clone(), agent_node)
             .map_err(|e| ChatError::ExecutionFailed(e.to_string()))?;
