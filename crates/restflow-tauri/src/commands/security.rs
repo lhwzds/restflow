@@ -8,7 +8,7 @@
 
 use crate::state::AppState;
 use restflow_core::models::security::{
-    ApprovalStatus, PendingApproval, SecurityAction, SecurityPolicy,
+    ApprovalStatus, PendingApproval, SecurityAction, SecurityPolicy, ToolRule,
 };
 use serde::{Deserialize, Serialize};
 use tauri::State;
@@ -38,6 +38,8 @@ pub struct SecuritySummary {
     pub blocklist_count: usize,
     /// Number of patterns requiring approval
     pub approval_required_count: usize,
+    /// Number of tool-specific rules
+    pub tool_rule_count: usize,
     /// Number of pending approvals
     pub pending_approvals_count: usize,
     /// The default action for unmatched commands
@@ -102,6 +104,7 @@ pub async fn get_security_summary(state: State<'_, AppState>) -> Result<Security
         allowlist_count: policy.allowlist.len(),
         blocklist_count: policy.blocklist.len(),
         approval_required_count: policy.approval_required.len(),
+        tool_rule_count: policy.tool_rules.len(),
         pending_approvals_count: pending.len(),
         default_action: policy.default_action,
     })
@@ -200,6 +203,41 @@ pub async fn remove_approval_required_pattern(
         state.security_checker().set_policy(policy).await;
     }
     Ok(state.security_checker().get_policy().await)
+}
+
+// ============================================================================
+// Tool Rule Commands
+// ============================================================================
+
+/// Add a tool rule to the policy
+#[tauri::command]
+pub async fn add_tool_rule(
+    state: State<'_, AppState>,
+    rule: ToolRule,
+) -> Result<SecurityPolicy, String> {
+    let mut policy = state.security_checker().get_policy().await;
+    policy.tool_rules.push(rule);
+    state.security_checker().set_policy(policy).await;
+    Ok(state.security_checker().get_policy().await)
+}
+
+/// Remove a tool rule by ID
+#[tauri::command]
+pub async fn remove_tool_rule(
+    state: State<'_, AppState>,
+    rule_id: String,
+) -> Result<SecurityPolicy, String> {
+    let mut policy = state.security_checker().get_policy().await;
+    policy.tool_rules.retain(|rule| rule.id != rule_id);
+    state.security_checker().set_policy(policy).await;
+    Ok(state.security_checker().get_policy().await)
+}
+
+/// List all tool rules
+#[tauri::command]
+pub async fn list_tool_rules(state: State<'_, AppState>) -> Result<Vec<ToolRule>, String> {
+    let policy = state.security_checker().get_policy().await;
+    Ok(policy.tool_rules)
 }
 
 // ============================================================================
@@ -406,6 +444,7 @@ mod tests {
             allowlist_count: 5,
             blocklist_count: 3,
             approval_required_count: 2,
+            tool_rule_count: 1,
             pending_approvals_count: 1,
             default_action: SecurityAction::RequireApproval,
         };
@@ -413,5 +452,6 @@ mod tests {
         assert!(json.contains("\"allowlist_count\":5"));
         assert!(json.contains("\"blocklist_count\":3"));
         assert!(json.contains("require_approval"));
+        assert!(json.contains("\"tool_rule_count\":1"));
     }
 }

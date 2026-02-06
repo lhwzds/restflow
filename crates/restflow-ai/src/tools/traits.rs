@@ -6,8 +6,41 @@ use serde_json::Value;
 use std::sync::Arc;
 
 use crate::error::Result;
+use crate::security::{SecurityGate, ToolAction};
 
 pub type SecretResolver = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
+
+pub async fn check_security(
+    gate: Option<&dyn SecurityGate>,
+    action: ToolAction,
+    agent_id: Option<&str>,
+    task_id: Option<&str>,
+) -> Result<Option<String>> {
+    let Some(gate) = gate else {
+        return Ok(None);
+    };
+
+    let decision = gate.check_tool_action(&action, agent_id, task_id).await?;
+
+    if decision.allowed {
+        return Ok(None);
+    }
+
+    if decision.requires_approval {
+        let approval_id = decision
+            .approval_id
+            .unwrap_or_else(|| "unknown".to_string());
+        return Ok(Some(format!(
+            "Action requires user approval (ID: {}). Waiting for approval of: {}",
+            approval_id, action.summary
+        )));
+    }
+
+    let reason = decision
+        .reason
+        .unwrap_or_else(|| "Action blocked by policy".to_string());
+    Ok(Some(format!("Action blocked: {}", reason)))
+}
 
 /// JSON Schema for tool parameters
 #[derive(Debug, Clone, Serialize, Deserialize)]
