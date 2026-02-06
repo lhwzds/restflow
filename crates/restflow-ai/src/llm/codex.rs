@@ -25,6 +25,15 @@ impl CodexClient {
             model: DEFAULT_MODEL.to_string(),
         }
     }
+}
+
+impl Default for CodexClient {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl CodexClient {
 
     /// Set the model to use
     pub fn with_model(mut self, model: impl Into<String>) -> Self {
@@ -55,10 +64,10 @@ impl CodexClient {
                 AiError::Llm(format!("Failed to parse Codex CLI JSONL line: {e}"))
             })?;
 
-            if thread_id.is_none() {
-                if let Some(id) = value.get("thread_id").and_then(|v| v.as_str()) {
-                    thread_id = Some(id.to_string());
-                }
+            if thread_id.is_none()
+                && let Some(id) = value.get("thread_id").and_then(|v| v.as_str())
+            {
+                thread_id = Some(id.to_string());
             }
 
             if let Some(err) = extract_error(&value) {
