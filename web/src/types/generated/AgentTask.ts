@@ -81,4 +81,8 @@ last_error: string | null,
 /**
  * Webhook configuration for external triggers
  */
-webhook: WebhookConfig | null, };
+webhook: WebhookConfig | null, 
+/**
+ * Summary message pointer for compacted task sessions
+ */
+summary_message_id: string | null, };

@@ -56,6 +56,22 @@ updated_at: bigint,
  */
 skill_id: string | null, 
 /**
+ * Summary message pointer for compacted sessions
+ */
+summary_message_id: string | null, 
+/**
+ * Cumulative prompt tokens used in this session
+ */
+prompt_tokens: bigint, 
+/**
+ * Cumulative completion tokens used in this session
+ */
+completion_tokens: bigint, 
+/**
+ * Total cost accumulated for this session (including compaction)
+ */
+cost: number, 
+/**
  * Session metadata (tokens, message count, etc.)
  */
 metadata: ChatSessionMetadata, };

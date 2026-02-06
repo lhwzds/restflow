@@ -1,5 +1,11 @@
 //! Context compaction utilities for working memory.
 
+use std::sync::Arc;
+
+use async_trait::async_trait;
+use tokio::sync::mpsc;
+use tokio::task::JoinHandle;
+
 use crate::error::Result;
 use crate::llm::{CompletionRequest, LlmClient, Message, Role};
 
@@ -8,7 +14,7 @@ pub const COMPACTION_PROMPT: &str = include_str!("templates/compaction_prompt.md
 /// Compaction configuration.
 #[derive(Debug, Clone)]
 pub struct CompactionConfig {
-    /// Token threshold ratio to trigger compaction (default: 0.75).
+    /// Token threshold ratio to trigger compaction (default: 0.95).
     /// When context usage exceeds this ratio of model's context window.
     pub threshold_ratio: f32,
     /// Maximum tokens for recent user messages to preserve (default: 20_000).
@@ -22,12 +28,28 @@ pub struct CompactionConfig {
 impl Default for CompactionConfig {
     fn default() -> Self {
         Self {
-            threshold_ratio: 0.75,
+            threshold_ratio: 0.95,
             keep_recent_user_tokens: 20_000,
             max_summary_tokens: 2_000,
             auto_compact: true,
         }
     }
+}
+
+/// Storage adapter for persisting compaction summaries.
+#[async_trait]
+pub trait CompactionStorage: Send + Sync {
+    async fn add_message(&self, session_id: &str, message: Message) -> Result<String>;
+    async fn update_session_summary(&self, session_id: &str, summary_message_id: &str)
+        -> Result<()>;
+}
+
+/// Events emitted during compaction.
+#[derive(Debug, Clone)]
+pub enum CompactionEvent {
+    Started,
+    Completed(CompactionResult),
+    Failed(String),
 }
 
 /// Categorized messages for compaction.
@@ -116,6 +138,12 @@ pub struct CompactionResult {
     pub compacted_count: usize,
     /// Estimated tokens saved.
     pub tokens_saved: usize,
+    /// Summary message ID stored in persistence layer, if available.
+    pub summary_message_id: Option<String>,
+    /// Estimated tokens before compaction.
+    pub tokens_before: usize,
+    /// Estimated tokens after compaction.
+    pub tokens_after: usize,
 }
 
 /// Context compactor for working memory.
@@ -164,6 +192,67 @@ impl ContextCompactor {
             summary,
             compacted_count: original_count.saturating_sub(new_history_len),
             tokens_saved: original_tokens.saturating_sub(new_tokens),
+            summary_message_id: None,
+            tokens_before: original_tokens,
+            tokens_after: new_tokens,
+        })
+    }
+
+    /// Perform compaction asynchronously and persist the summary.
+    pub fn compact_async(
+        &self,
+        messages: Vec<Message>,
+        summarizer: Arc<dyn LlmClient>,
+        session_id: String,
+        storage: Arc<dyn CompactionStorage>,
+        event_tx: Option<mpsc::Sender<CompactionEvent>>,
+    ) -> JoinHandle<Result<CompactionResult>> {
+        let config = self.config.clone();
+        tokio::spawn(async move {
+            if let Some(tx) = event_tx.as_ref() {
+                let _ = tx.send(CompactionEvent::Started).await;
+            }
+
+            let result: Result<CompactionResult> = async {
+                let tokens_before = estimate_total_tokens(&messages);
+                let categorized = CategorizedMessages::from_messages(&messages);
+                let conversation = categorized.format_for_summary();
+                let summary = generate_summary(&*summarizer, &conversation, &config).await?;
+
+                let summary_message = build_summary_message(&summary);
+                let tokens_after = estimate_message_tokens(&summary_message);
+                let summary_message_id =
+                    storage.add_message(&session_id, summary_message).await?;
+                storage
+                    .update_session_summary(&session_id, &summary_message_id)
+                    .await?;
+
+                Ok(CompactionResult {
+                    new_history: Vec::new(),
+                    summary,
+                    compacted_count: messages.len(),
+                    tokens_saved: tokens_before.saturating_sub(tokens_after),
+                    summary_message_id: Some(summary_message_id),
+                    tokens_before,
+                    tokens_after,
+                })
+            }
+            .await;
+
+            match &result {
+                Ok(compaction) => {
+                    if let Some(tx) = event_tx.as_ref() {
+                        let _ = tx.send(CompactionEvent::Completed(compaction.clone())).await;
+                    }
+                }
+                Err(err) => {
+                    if let Some(tx) = event_tx.as_ref() {
+                        let _ = tx.send(CompactionEvent::Failed(err.to_string())).await;
+                    }
+                }
+            }
+
+            result
         })
     }
 }
@@ -209,6 +298,19 @@ pub async fn generate_summary(
     Ok(response.content.unwrap_or_default())
 }
 
+fn build_summary_message(summary: &str) -> Message {
+    Message {
+        role: Role::Assistant,
+        content: format!(
+            "[Conversation Summary - Previous context has been compacted]\n\n{}",
+            summary
+        ),
+        tool_calls: None,
+        tool_call_id: None,
+        name: None,
+    }
+}
+
 /// Build compacted history.
 pub fn build_compacted_history(
     system_messages: Vec<Message>,
@@ -218,16 +320,7 @@ pub fn build_compacted_history(
     let mut history = Vec::new();
     history.extend(system_messages);
 
-    let summary_message = Message {
-        role: Role::System,
-        content: format!(
-            "[Conversation Summary - Previous context has been compacted]\n\n{}",
-            summary
-        ),
-        tool_calls: None,
-        tool_call_id: None,
-        name: None,
-    };
+    let summary_message = build_summary_message(summary);
     history.push(summary_message);
     history.extend(recent_user_messages);
     history

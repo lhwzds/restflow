@@ -159,6 +159,9 @@ impl MessageExecution {
 #[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
 #[ts(export)]
 pub struct ChatMessage {
+    /// Unique identifier for this message
+    #[serde(default = "new_message_id")]
+    pub id: String,
     /// Role of the message sender
     pub role: ChatRole,
     /// Message content (text)
@@ -170,10 +173,15 @@ pub struct ChatMessage {
     pub execution: Option<MessageExecution>,
 }
 
+fn new_message_id() -> String {
+    uuid::Uuid::new_v4().to_string()
+}
+
 impl ChatMessage {
     /// Create a new user message.
     pub fn user(content: impl Into<String>) -> Self {
         Self {
+            id: new_message_id(),
             role: ChatRole::User,
             content: content.into(),
             timestamp: chrono::Utc::now().timestamp_millis(),
@@ -184,6 +192,7 @@ impl ChatMessage {
     /// Create a new assistant message.
     pub fn assistant(content: impl Into<String>) -> Self {
         Self {
+            id: new_message_id(),
             role: ChatRole::Assistant,
             content: content.into(),
             timestamp: chrono::Utc::now().timestamp_millis(),
@@ -194,6 +203,7 @@ impl ChatMessage {
     /// Create a new system message.
     pub fn system(content: impl Into<String>) -> Self {
         Self {
+            id: new_message_id(),
             role: ChatRole::System,
             content: content.into(),
             timestamp: chrono::Utc::now().timestamp_millis(),
@@ -277,6 +287,18 @@ pub struct ChatSession {
     /// Optional skill ID for context-aware sessions
     #[serde(skip_serializing_if = "Option::is_none")]
     pub skill_id: Option<String>,
+    /// Summary message pointer for compacted sessions
+    #[serde(default)]
+    pub summary_message_id: Option<String>,
+    /// Cumulative prompt tokens used in this session
+    #[serde(default)]
+    pub prompt_tokens: i64,
+    /// Cumulative completion tokens used in this session
+    #[serde(default)]
+    pub completion_tokens: i64,
+    /// Total cost accumulated for this session (including compaction)
+    #[serde(default)]
+    pub cost: f64,
     /// Session metadata (tokens, message count, etc.)
     pub metadata: ChatSessionMetadata,
 }
@@ -303,6 +325,10 @@ impl ChatSession {
             created_at: now,
             updated_at: now,
             skill_id: None,
+            summary_message_id: None,
+            prompt_tokens: 0,
+            completion_tokens: 0,
+            cost: 0.0,
             metadata: ChatSessionMetadata::new(),
         }
     }
