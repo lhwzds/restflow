@@ -6,12 +6,28 @@ use std::time::Duration;
 
 use serde_json::Value;
 
-use crate::agent::context::AgentContext;
+use crate::agent::context::{AgentContext, ContextDiscoveryConfig, WorkspaceContextCache};
 use crate::agent::state::{AgentState, AgentStatus};
 use crate::error::{AiError, Result};
 use crate::llm::{CompletionRequest, FinishReason, LlmClient, Message};
 use crate::memory::{CompactionConfig, DEFAULT_MAX_MESSAGES, WorkingMemory};
 use crate::tools::ToolRegistry;
+use tracing::debug;
+
+/// Agent type for system prompt composition.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AgentType {
+    Coder,
+    Task,
+    Summarizer,
+    Title,
+}
+
+impl Default for AgentType {
+    fn default() -> Self {
+        Self::Coder
+    }
+}
 
 /// Configuration for agent execution
 #[derive(Debug, Clone)]
@@ -35,6 +51,8 @@ pub struct AgentConfig {
     pub compaction_config: Option<CompactionConfig>,
     /// Optional agent context injected into the system prompt.
     pub agent_context: Option<AgentContext>,
+    /// Agent type for context injection rules.
+    pub agent_type: AgentType,
 }
 
 impl AgentConfig {
@@ -52,6 +70,7 @@ impl AgentConfig {
             context_window: 128_000,
             compaction_config: None,
             agent_context: None,
+            agent_type: AgentType::default(),
         }
     }
 
@@ -114,6 +133,12 @@ impl AgentConfig {
         self.agent_context = Some(context);
         self
     }
+
+    /// Set agent type for context injection rules.
+    pub fn with_agent_type(mut self, agent_type: AgentType) -> Self {
+        self.agent_type = agent_type;
+        self
+    }
 }
 
 /// Result of agent execution
@@ -131,12 +156,29 @@ pub struct AgentResult {
 pub struct AgentExecutor {
     llm: Arc<dyn LlmClient>,
     tools: Arc<ToolRegistry>,
+    summarizer: Option<Arc<dyn LlmClient>>,
+    context_cache: Option<WorkspaceContextCache>,
 }
 
 impl AgentExecutor {
     /// Create a new agent executor
     pub fn new(llm: Arc<dyn LlmClient>, tools: Arc<ToolRegistry>) -> Self {
-        Self { llm, tools }
+        let context_cache = std::env::current_dir()
+            .ok()
+            .map(|workdir| WorkspaceContextCache::new(ContextDiscoveryConfig::default(), workdir));
+
+        Self {
+            llm,
+            tools,
+            summarizer: None,
+            context_cache,
+        }
+    }
+
+    /// Configure a dedicated summarizer LLM.
+    pub fn with_summarizer(mut self, summarizer: Arc<dyn LlmClient>) -> Self {
+        self.summarizer = Some(summarizer);
+        self
     }
 
     /// Execute agent - simplified Swarm-style loop
@@ -153,7 +195,7 @@ impl AgentExecutor {
         }
 
         // Initialize messages
-        let system_prompt = self.build_system_prompt(&config);
+        let system_prompt = self.build_system_prompt(&config).await;
         let system_msg = Message::system(&system_prompt);
         let user_msg = Message::user(&config.goal);
 
@@ -165,8 +207,9 @@ impl AgentExecutor {
 
         // Core loop (Swarm-inspired simplicity)
         while state.iteration < state.max_iterations && !state.is_terminal() {
+            let summarizer = self.summarizer.as_deref().unwrap_or(self.llm.as_ref());
             if let Some(_result) = memory
-                .auto_compact_if_needed(self.llm.as_ref(), config.context_window)
+                .auto_compact_if_needed(summarizer, config.context_window)
                 .await?
             {
                 // Compaction affects working memory only; full state history remains intact.
@@ -286,7 +329,7 @@ impl AgentExecutor {
         })
     }
 
-    fn build_system_prompt(&self, config: &AgentConfig) -> String {
+    async fn build_system_prompt(&self, config: &AgentConfig) -> String {
         let mut sections = Vec::new();
 
         let base = config
@@ -307,7 +350,20 @@ impl AgentExecutor {
             sections.push(format!("## Available Tools\n\n{}", tools_desc.join("\n")));
         }
 
-        if let Some(ref context) = config.agent_context {
+        if let Some(cache) = &self.context_cache {
+            let context = cache.get().await;
+            if !context.content.is_empty() {
+                debug!(
+                    files = ?context.loaded_files,
+                    bytes = context.total_bytes,
+                    "Loaded workspace context"
+                );
+                sections.push(context.content.clone());
+            }
+        }
+        if matches!(config.agent_type, AgentType::Coder | AgentType::Task)
+            && let Some(ref context) = config.agent_context
+        {
             let context_str = context.format_for_prompt();
             if !context_str.is_empty() {
                 sections.push(context_str);

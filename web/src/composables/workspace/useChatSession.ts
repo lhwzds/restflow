@@ -192,11 +192,20 @@ export function useChatSession(options: UseChatSessionOptions = {}) {
   }
 }
 
+const createMessageId = (): string => {
+  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+    return crypto.randomUUID()
+  }
+
+  return `msg-${Date.now()}-${Math.random().toString(16).slice(2)}`
+}
+
 /**
  * Helper to create a user message object
  */
 export function createUserMessage(content: string): ChatMessage {
   return {
+    id: createMessageId(),
     role: 'user' as ChatRole,
     content,
     timestamp: BigInt(Date.now()),
@@ -209,6 +218,7 @@ export function createUserMessage(content: string): ChatMessage {
  */
 export function createAssistantMessage(content: string): ChatMessage {
   return {
+    id: createMessageId(),
     role: 'assistant' as ChatRole,
     content,
     timestamp: BigInt(Date.now()),

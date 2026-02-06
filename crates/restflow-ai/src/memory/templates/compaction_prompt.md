@@ -1,31 +1,9 @@
-You are performing a CONTEXT CHECKPOINT COMPACTION for an AI agent session. Create a concise handoff summary that will help the agent seamlessly continue its work.
+Provide a detailed but concise summary of the conversation so far, including:
 
-## Required Information
+1. **What was done** - Completed tasks and their outcomes
+2. **Current state** - What is being worked on right now
+3. **Files modified** - List of files that were changed and why
+4. **Key decisions** - Important choices made during the conversation
+5. **Next steps** - What needs to be done next
 
-### 1. Progress Summary
-- What has been accomplished so far
-- Key decisions made and their reasoning
-- Important outcomes or results
-
-### 2. Current State
-- Active task or goal being worked on
-- Any constraints or requirements established
-- User preferences mentioned during conversation
-
-### 3. Critical Context
-- Important facts, data, or references needed
-- File paths, code snippets, or configurations discussed
-- Error messages or issues encountered
-
-### 4. Next Steps
-- What remains to be done
-- Any pending questions or blockers
-- Recommended approach for continuation
-
-## Output Format
-Provide a structured summary in markdown format. Be concise but comprehensive. Focus on information essential for continuing the work effectively.
-
-Do NOT include:
-- Greetings or conversational filler
-- Redundant information
-- Low-priority details that can be re-discovered
+Keep the summary focused and actionable. Include specific file paths, function names, and error messages where relevant.

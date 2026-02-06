@@ -1,5 +1,6 @@
 //! Tool registry service for creating tool registries with storage access.
 
+use crate::lsp::LspManager;
 use crate::memory::UnifiedSearchEngine;
 use crate::models::{MemorySearchQuery, SearchMode, SharedEntry, UnifiedSearchQuery, Visibility};
 use crate::storage::{ChatSessionStorage, MemoryStorage, SharedSpaceStorage};
@@ -70,7 +71,9 @@ pub fn create_tool_registry(
     shared_space_storage: SharedSpaceStorage,
     accessor_id: Option<String>,
 ) -> ToolRegistry {
-    let mut registry = restflow_ai::tools::default_registry();
+    let root = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    let lsp_manager = Arc::new(LspManager::new(root));
+    let mut registry = restflow_ai::tools::default_registry_with_diagnostics(lsp_manager);
 
     // Add SkillTool with storage access
     let skill_provider = Arc::new(SkillStorageProvider::new(skill_storage));

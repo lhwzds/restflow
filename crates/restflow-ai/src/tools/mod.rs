@@ -3,12 +3,18 @@
 //! This module provides tools that can be used by AI agents.
 //! Tools implement the `Tool` trait for integration with the agent executor.
 
+use std::sync::Arc;
+
 mod bash;
+mod diagnostics;
 mod email;
 mod file;
 mod file_memory;
+mod file_tracker;
 mod http;
+mod mcp_cache;
 mod memory_search;
+mod patch;
 mod process;
 mod python;
 mod registry;
@@ -16,7 +22,10 @@ mod skill;
 mod telegram;
 mod traits;
 
+use file_tracker::FileTracker;
+
 pub use bash::{BashInput, BashOutput, BashTool};
+pub use diagnostics::{DiagnosticsProvider, DiagnosticsTool};
 pub use email::EmailTool;
 pub use file::{FileAction, FileTool};
 pub use file_memory::{
@@ -24,7 +33,9 @@ pub use file_memory::{
     ReadMemoryTool, SaveMemoryTool,
 };
 pub use http::HttpTool;
+pub use mcp_cache::{McpServerConfig, get_mcp_tools, invalidate_mcp_cache};
 pub use memory_search::{MemorySearchMatch, MemorySearchTool, SemanticMemory};
+pub use patch::PatchTool;
 pub use process::{ProcessLog, ProcessManager, ProcessPollResult, ProcessSessionInfo, ProcessTool};
 pub use python::PythonTool;
 pub use registry::ToolRegistry;
@@ -35,11 +46,34 @@ pub use traits::{SkillContent, SkillInfo, SkillProvider, Tool, ToolOutput, ToolS
 /// Create a registry with default tools
 pub fn default_registry() -> ToolRegistry {
     let mut registry = ToolRegistry::new();
+    let tracker = Arc::new(FileTracker::new());
+
     registry.register(BashTool::new());
-    registry.register(FileTool::new());
+    registry.register(FileTool::with_tracker(tracker.clone()));
+    registry.register(PatchTool::new(tracker));
     registry.register(HttpTool::new());
     registry.register(PythonTool::new());
     registry.register(EmailTool::new());
     registry.register(TelegramTool::new());
+    registry
+}
+
+/// Create a registry with default tools and diagnostics support.
+pub fn default_registry_with_diagnostics(
+    provider: Arc<dyn DiagnosticsProvider>,
+) -> ToolRegistry {
+    let mut registry = ToolRegistry::new();
+    let tracker = Arc::new(FileTracker::new());
+
+    registry.register(BashTool::new());
+    registry.register(
+        FileTool::with_tracker(tracker.clone()).with_diagnostics_provider(provider.clone()),
+    );
+    registry.register(PatchTool::new(tracker));
+    registry.register(HttpTool::new());
+    registry.register(PythonTool::new());
+    registry.register(EmailTool::new());
+    registry.register(TelegramTool::new());
+    registry.register(DiagnosticsTool::new(provider));
     registry
 }
