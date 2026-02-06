@@ -171,6 +171,7 @@ impl TaskStore for TaskStoreAdapter {
 /// - Default tools from restflow-ai (http_request, run_python, send_email)
 /// - SkillTool that can access skills from storage
 /// - Memory search tool for unified memory and session search
+#[allow(clippy::too_many_arguments)]
 pub fn create_tool_registry(
     skill_storage: SkillStorage,
     memory_storage: MemoryStorage,
