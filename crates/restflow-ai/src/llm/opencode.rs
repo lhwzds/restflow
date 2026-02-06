@@ -170,9 +170,9 @@ mod tests {
     #[test]
     fn test_build_prompt() {
         let messages = vec![
-            crate::llm::Message::new(Role::System, "system"),
-            crate::llm::Message::new(Role::User, "hello"),
-            crate::llm::Message::new(Role::Assistant, "world"),
+            crate::llm::Message::system("system"),
+            crate::llm::Message::user("hello"),
+            crate::llm::Message::assistant("world"),
         ];
         let prompt = OpenCodeClient::build_prompt(&messages);
         assert_eq!(prompt, "hello\n\nworld");
