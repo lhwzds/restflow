@@ -2,14 +2,21 @@
 
 use crate::lsp::LspManager;
 use crate::memory::UnifiedSearchEngine;
-use crate::models::{AgentTaskStatus, MemorySearchQuery, SearchMode, SharedEntry, TaskSchedule, UnifiedSearchQuery, Visibility};
+use crate::models::{
+    AgentTaskStatus, MemorySearchQuery, SearchMode, SharedEntry, TaskSchedule, UnifiedSearchQuery,
+    Visibility,
+};
 use crate::storage::skill::SkillStorage;
-use crate::storage::{AgentTaskStorage, ChatSessionStorage, ConfigStorage, MemoryStorage, SecretStorage, SharedSpaceStorage};
+use crate::storage::{
+    AgentTaskStorage, ChatSessionStorage, ConfigStorage, MemoryStorage, SecretStorage,
+    SharedSpaceStorage,
+};
 use chrono::Utc;
 use restflow_ai::error::AiError;
 use restflow_ai::tools::{ConfigTool, SecretsTool, TaskCreateRequest, TaskStore, TaskTool};
 use restflow_ai::{
-    SkillContent, SkillInfo, SkillProvider, SkillTool, Tool, ToolOutput, ToolRegistry,
+    SecretResolver, SkillContent, SkillInfo, SkillProvider, SkillTool, Tool, ToolOutput,
+    ToolRegistry, TranscribeTool, VisionTool,
 };
 use serde_json::json;
 use std::sync::Arc;
@@ -84,7 +91,10 @@ impl TaskStoreAdapter {
 }
 
 impl TaskStore for TaskStoreAdapter {
-    fn create_task(&self, request: TaskCreateRequest) -> restflow_ai::error::Result<serde_json::Value> {
+    fn create_task(
+        &self,
+        request: TaskCreateRequest,
+    ) -> restflow_ai::error::Result<serde_json::Value> {
         let schedule = match request.schedule {
             Some(value) => serde_json::from_value::<TaskSchedule>(value)
                 .map_err(|e| AiError::Tool(e.to_string()))?,
@@ -185,6 +195,14 @@ pub fn create_tool_registry(
     let root = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
     let lsp_manager = Arc::new(LspManager::new(root));
     let mut registry = restflow_ai::tools::default_registry_with_diagnostics(lsp_manager);
+
+    let secret_resolver: SecretResolver = {
+        let secrets = Arc::new(secret_storage.clone());
+        Arc::new(move |key| secrets.get_secret(key).ok().flatten())
+    };
+
+    registry.register(TranscribeTool::new(secret_resolver.clone()));
+    registry.register(VisionTool::new(secret_resolver));
 
     // Add SkillTool with storage access
     let skill_provider = Arc::new(SkillStorageProvider::new(skill_storage));
