@@ -107,21 +107,21 @@ fn parse_hunk_lines(lines: &[String]) -> Result<Hunk> {
     let mut finished_changes = false;
 
     for line in lines {
-        if line.starts_with('-') {
+        if let Some(stripped) = line.strip_prefix('-') {
             if finished_changes {
                 return Err(anyhow!("Change lines must be contiguous"));
             }
             in_changes = true;
-            removals.push(line[1..].to_string());
+            removals.push(stripped.to_string());
             continue;
         }
 
-        if line.starts_with('+') {
+        if let Some(stripped) = line.strip_prefix('+') {
             if finished_changes {
                 return Err(anyhow!("Change lines must be contiguous"));
             }
             in_changes = true;
-            additions.push(line[1..].to_string());
+            additions.push(stripped.to_string());
             continue;
         }
 

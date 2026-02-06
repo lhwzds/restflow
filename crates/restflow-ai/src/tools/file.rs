@@ -118,10 +118,7 @@ impl FileTool {
     }
 
     /// Attach a diagnostics provider.
-    pub fn with_diagnostics_provider(
-        mut self,
-        provider: Arc<dyn DiagnosticsProvider>,
-    ) -> Self {
+    pub fn with_diagnostics_provider(mut self, provider: Arc<dyn DiagnosticsProvider>) -> Self {
         self.diagnostics = Some(provider);
         self
     }
@@ -190,12 +187,7 @@ impl FileTool {
     }
 
     /// Read file with line numbers
-    async fn read_file(
-        &self,
-        path: &str,
-        offset: usize,
-        limit: Option<usize>,
-    ) -> ToolOutput {
+    async fn read_file(&self, path: &str, offset: usize, limit: Option<usize>) -> ToolOutput {
         let path = match self.resolve_path(path) {
             Ok(p) => p,
             Err(e) => return ToolOutput::error(e),
@@ -297,12 +289,7 @@ impl FileTool {
     }
 
     /// Write or append to a file
-    async fn write_file(
-        &self,
-        path: &str,
-        content: &str,
-        append: bool,
-    ) -> ToolOutput {
+    async fn write_file(&self, path: &str, content: &str, append: bool) -> ToolOutput {
         let path = match self.resolve_path(path) {
             Ok(p) => p,
             Err(e) => return ToolOutput::error(e),
@@ -381,12 +368,7 @@ impl FileTool {
     }
 
     /// List directory contents
-    async fn list_dir(
-        &self,
-        path: &str,
-        recursive: bool,
-        pattern: Option<&str>,
-    ) -> ToolOutput {
+    async fn list_dir(&self, path: &str, recursive: bool, pattern: Option<&str>) -> ToolOutput {
         let path = match self.resolve_path(path) {
             Ok(p) => p,
             Err(e) => return ToolOutput::error(e),
@@ -403,7 +385,8 @@ impl FileTool {
         let mut entries: Vec<Value> = Vec::new();
 
         if recursive {
-            self.list_recursive(&path, &mut entries, pattern, &path).await;
+            self.list_recursive(&path, &mut entries, pattern, &path)
+                .await;
         } else {
             let mut read_dir = match fs::read_dir(&path).await {
                 Ok(rd) => rd,
@@ -510,7 +493,8 @@ impl FileTool {
                 {
                     // Still recurse into directories even if they don't match
                     if file_type == "dir" {
-                        self.list_recursive(&entry_path, entries, pattern, base).await;
+                        self.list_recursive(&entry_path, entries, pattern, base)
+                            .await;
                     }
                     continue;
                 }
@@ -529,7 +513,8 @@ impl FileTool {
 
                 // Recurse into directories
                 if file_type == "dir" {
-                    self.list_recursive(&entry_path, entries, pattern, base).await;
+                    self.list_recursive(&entry_path, entries, pattern, base)
+                        .await;
                 }
             }
         })
@@ -937,11 +922,7 @@ impl FileTool {
         }
     }
 
-    async fn read_single_for_batch(
-        &self,
-        path: &str,
-        params: &BatchReadParams,
-    ) -> BatchReadResult {
+    async fn read_single_for_batch(&self, path: &str, params: &BatchReadParams) -> BatchReadResult {
         let resolved = match self.resolve_path(path) {
             Ok(p) => p,
             Err(e) => {
@@ -1060,7 +1041,11 @@ impl FileTool {
                 exists: true,
                 is_file: meta.is_file(),
                 is_dir: meta.is_dir(),
-                size: if meta.is_file() { Some(meta.len()) } else { None },
+                size: if meta.is_file() {
+                    Some(meta.len())
+                } else {
+                    None
+                },
                 error: None,
             },
             Err(_) => BatchExistsResult {
@@ -1148,13 +1133,10 @@ impl FileTool {
         let mut matches: Vec<SearchMatch> = Vec::new();
 
         let error = if has_glob(location) {
-            match self
+            (self
                 .search_glob_location(location, regex, max_matches, context_lines, &mut matches)
-                .await
-            {
-                Ok(()) => None,
-                Err(e) => Some(e),
-            }
+                .await)
+                .err()
         } else {
             match self.resolve_path(location) {
                 Ok(path) => {
@@ -1226,6 +1208,7 @@ impl FileTool {
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn search_path_with_context_filtered<'a>(
         &'a self,
         path: &'a Path,
@@ -1249,8 +1232,15 @@ impl FileTool {
                     }
                 }
 
-                self.search_in_file_with_context(path, regex, max_matches, context_lines, matches, base)
-                    .await;
+                self.search_in_file_with_context(
+                    path,
+                    regex,
+                    max_matches,
+                    context_lines,
+                    matches,
+                    base,
+                )
+                .await;
                 return;
             }
 
@@ -1361,7 +1351,6 @@ impl FileTool {
             }
         }
     }
-
 }
 
 /// Input parameters for file operations
@@ -1535,24 +1524,31 @@ impl Tool for FileTool {
         let action: FileAction = serde_json::from_value(input)?;
 
         let output = match action {
-            FileAction::Read { path, offset, limit } => {
-                self.read_file(&path, offset, limit).await
+            FileAction::Read {
+                path,
+                offset,
+                limit,
+            } => self.read_file(&path, offset, limit).await,
+            FileAction::Write {
+                path,
+                content,
+                append,
+            } => self.write_file(&path, &content, append).await,
+            FileAction::List {
+                path,
+                recursive,
+                pattern,
+            } => self.list_dir(&path, recursive, pattern.as_deref()).await,
+            FileAction::Search {
+                path,
+                pattern,
+                file_pattern,
+            } => {
+                self.search_files(&path, &pattern, file_pattern.as_deref())
+                    .await
             }
-            FileAction::Write { path, content, append } => {
-                self.write_file(&path, &content, append).await
-            }
-            FileAction::List { path, recursive, pattern } => {
-                self.list_dir(&path, recursive, pattern.as_deref()).await
-            }
-            FileAction::Search { path, pattern, file_pattern } => {
-                self.search_files(&path, &pattern, file_pattern.as_deref()).await
-            }
-            FileAction::Delete { path } => {
-                self.delete_file(&path).await
-            }
-            FileAction::Exists { path } => {
-                self.check_exists(&path).await
-            }
+            FileAction::Delete { path } => self.delete_file(&path).await,
+            FileAction::Exists { path } => self.check_exists(&path).await,
             FileAction::BatchRead {
                 paths,
                 line_limit,
@@ -1594,7 +1590,7 @@ impl Tool for FileTool {
 fn glob_match(pattern: &str, text: &str) -> bool {
     let pattern_chars: Vec<char> = pattern.chars().collect();
     let text_chars: Vec<char> = text.chars().collect();
-    
+
     glob_match_helper(&pattern_chars, &text_chars)
 }
 
@@ -1603,16 +1599,14 @@ fn glob_match_helper(pattern: &[char], text: &[char]) -> bool {
         (None, None) => true,
         (Some('*'), _) => {
             // * matches zero or more characters
-            glob_match_helper(&pattern[1..], text) ||
-            (!text.is_empty() && glob_match_helper(pattern, &text[1..]))
+            glob_match_helper(&pattern[1..], text)
+                || (!text.is_empty() && glob_match_helper(pattern, &text[1..]))
         }
         (Some('?'), Some(_)) => {
             // ? matches exactly one character
             glob_match_helper(&pattern[1..], &text[1..])
         }
-        (Some(p), Some(t)) if *p == *t => {
-            glob_match_helper(&pattern[1..], &text[1..])
-        }
+        (Some(p), Some(t)) if *p == *t => glob_match_helper(&pattern[1..], &text[1..]),
         (Some(_), None) => {
             // Check if remaining pattern is all *
             pattern.iter().all(|c| *c == '*')
@@ -1648,7 +1642,9 @@ fn split_glob_base(value: &str) -> (&str, &str) {
 
 fn normalize_path_for_glob(path: &Path, base: &Path) -> String {
     let relative = path.strip_prefix(base).unwrap_or(path);
-    relative.to_string_lossy().replace(std::path::MAIN_SEPARATOR, "/")
+    relative
+        .to_string_lossy()
+        .replace(std::path::MAIN_SEPARATOR, "/")
 }
 
 /// Normalize a path without canonicalizing (for non-existent paths)
@@ -1686,15 +1682,13 @@ fn find_existing_ancestor(path: &Path) -> Option<(PathBuf, PathBuf)> {
 /// Check if a file is likely binary based on extension
 fn is_likely_binary(name: &str) -> bool {
     let binary_extensions = [
-        ".exe", ".dll", ".so", ".dylib", ".a", ".o", ".obj",
-        ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".ico", ".webp",
-        ".mp3", ".mp4", ".avi", ".mov", ".mkv", ".wav", ".flac",
-        ".zip", ".tar", ".gz", ".bz2", ".xz", ".7z", ".rar",
-        ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
-        ".wasm", ".pyc", ".pyo", ".class", ".jar",
-        ".ttf", ".otf", ".woff", ".woff2", ".eot",
+        ".exe", ".dll", ".so", ".dylib", ".a", ".o", ".obj", ".png", ".jpg", ".jpeg", ".gif",
+        ".bmp", ".ico", ".webp", ".mp3", ".mp4", ".avi", ".mov", ".mkv", ".wav", ".flac", ".zip",
+        ".tar", ".gz", ".bz2", ".xz", ".7z", ".rar", ".pdf", ".doc", ".docx", ".xls", ".xlsx",
+        ".ppt", ".pptx", ".wasm", ".pyc", ".pyo", ".class", ".jar", ".ttf", ".otf", ".woff",
+        ".woff2", ".eot",
     ];
-    
+
     let lower = name.to_lowercase();
     binary_extensions.iter().any(|ext| lower.ends_with(ext))
 }
@@ -1789,7 +1783,11 @@ mod tests {
         .unwrap();
 
         match action {
-            FileAction::Read { path, offset, limit } => {
+            FileAction::Read {
+                path,
+                offset,
+                limit,
+            } => {
                 assert_eq!(path, "/tmp/test.txt");
                 assert_eq!(offset, 0);
                 assert!(limit.is_none());
@@ -1808,7 +1806,11 @@ mod tests {
         .unwrap();
 
         match action {
-            FileAction::Write { path, content, append } => {
+            FileAction::Write {
+                path,
+                content,
+                append,
+            } => {
                 assert_eq!(path, "/tmp/test.txt");
                 assert_eq!(content, "hello world");
                 assert!(!append);
@@ -1828,7 +1830,11 @@ mod tests {
         .unwrap();
 
         match action {
-            FileAction::List { path, recursive, pattern } => {
+            FileAction::List {
+                path,
+                recursive,
+                pattern,
+            } => {
                 assert_eq!(path, "/tmp");
                 assert!(recursive);
                 assert_eq!(pattern, Some("*.rs".to_string()));
@@ -1841,24 +1847,30 @@ mod tests {
     async fn test_write_and_read_file() {
         let temp_dir = TempDir::new().unwrap();
         let tool = FileTool::new();
-        
+
         let file_path = temp_dir.path().join("test.txt").display().to_string();
-        
+
         // Write file
-        let output = tool.execute(serde_json::json!({
-            "action": "write",
-            "path": &file_path,
-            "content": "line 1\nline 2\nline 3"
-        })).await.unwrap();
-        
+        let output = tool
+            .execute(serde_json::json!({
+                "action": "write",
+                "path": &file_path,
+                "content": "line 1\nline 2\nline 3"
+            }))
+            .await
+            .unwrap();
+
         assert!(output.success);
-        
+
         // Read file
-        let output = tool.execute(serde_json::json!({
-            "action": "read",
-            "path": &file_path
-        })).await.unwrap();
-        
+        let output = tool
+            .execute(serde_json::json!({
+                "action": "read",
+                "path": &file_path
+            }))
+            .await
+            .unwrap();
+
         assert!(output.success);
         assert!(output.result["total_lines"].as_u64().unwrap() == 3);
     }
@@ -1867,30 +1879,37 @@ mod tests {
     async fn test_write_append() {
         let temp_dir = TempDir::new().unwrap();
         let tool = FileTool::new();
-        
+
         let file_path = temp_dir.path().join("append.txt").display().to_string();
-        
+
         // Write initial content
         tool.execute(serde_json::json!({
             "action": "write",
             "path": &file_path,
             "content": "first\n"
-        })).await.unwrap();
-        
+        }))
+        .await
+        .unwrap();
+
         // Append more content
         tool.execute(serde_json::json!({
             "action": "write",
             "path": &file_path,
             "content": "second\n",
             "append": true
-        })).await.unwrap();
-        
+        }))
+        .await
+        .unwrap();
+
         // Read and verify
-        let output = tool.execute(serde_json::json!({
-            "action": "read",
-            "path": &file_path
-        })).await.unwrap();
-        
+        let output = tool
+            .execute(serde_json::json!({
+                "action": "read",
+                "path": &file_path
+            }))
+            .await
+            .unwrap();
+
         let content = output.result["content"].as_str().unwrap();
         assert!(content.contains("first"));
         assert!(content.contains("second"));
@@ -1900,17 +1919,26 @@ mod tests {
     async fn test_list_directory() {
         let temp_dir = TempDir::new().unwrap();
         let tool = FileTool::new();
-        
+
         // Create some files
-        fs::write(temp_dir.path().join("file1.txt"), "content").await.unwrap();
-        fs::write(temp_dir.path().join("file2.rs"), "content").await.unwrap();
-        fs::create_dir(temp_dir.path().join("subdir")).await.unwrap();
-        
-        let output = tool.execute(serde_json::json!({
-            "action": "list",
-            "path": temp_dir.path().display().to_string()
-        })).await.unwrap();
-        
+        fs::write(temp_dir.path().join("file1.txt"), "content")
+            .await
+            .unwrap();
+        fs::write(temp_dir.path().join("file2.rs"), "content")
+            .await
+            .unwrap();
+        fs::create_dir(temp_dir.path().join("subdir"))
+            .await
+            .unwrap();
+
+        let output = tool
+            .execute(serde_json::json!({
+                "action": "list",
+                "path": temp_dir.path().display().to_string()
+            }))
+            .await
+            .unwrap();
+
         assert!(output.success);
         assert!(output.result["count"].as_u64().unwrap() >= 3);
     }
@@ -1919,18 +1947,27 @@ mod tests {
     async fn test_list_with_pattern() {
         let temp_dir = TempDir::new().unwrap();
         let tool = FileTool::new();
-        
+
         // Create files
-        fs::write(temp_dir.path().join("file1.txt"), "content").await.unwrap();
-        fs::write(temp_dir.path().join("file2.rs"), "content").await.unwrap();
-        fs::write(temp_dir.path().join("file3.txt"), "content").await.unwrap();
-        
-        let output = tool.execute(serde_json::json!({
-            "action": "list",
-            "path": temp_dir.path().display().to_string(),
-            "pattern": "*.txt"
-        })).await.unwrap();
-        
+        fs::write(temp_dir.path().join("file1.txt"), "content")
+            .await
+            .unwrap();
+        fs::write(temp_dir.path().join("file2.rs"), "content")
+            .await
+            .unwrap();
+        fs::write(temp_dir.path().join("file3.txt"), "content")
+            .await
+            .unwrap();
+
+        let output = tool
+            .execute(serde_json::json!({
+                "action": "list",
+                "path": temp_dir.path().display().to_string(),
+                "pattern": "*.txt"
+            }))
+            .await
+            .unwrap();
+
         assert!(output.success);
         assert_eq!(output.result["count"].as_u64().unwrap(), 2);
     }
@@ -1939,17 +1976,27 @@ mod tests {
     async fn test_search_files() {
         let temp_dir = TempDir::new().unwrap();
         let tool = FileTool::new();
-        
+
         // Create files with content
-        fs::write(temp_dir.path().join("file1.txt"), "hello world\ngoodbye world").await.unwrap();
-        fs::write(temp_dir.path().join("file2.txt"), "no match here").await.unwrap();
-        
-        let output = tool.execute(serde_json::json!({
-            "action": "search",
-            "path": temp_dir.path().display().to_string(),
-            "pattern": "world"
-        })).await.unwrap();
-        
+        fs::write(
+            temp_dir.path().join("file1.txt"),
+            "hello world\ngoodbye world",
+        )
+        .await
+        .unwrap();
+        fs::write(temp_dir.path().join("file2.txt"), "no match here")
+            .await
+            .unwrap();
+
+        let output = tool
+            .execute(serde_json::json!({
+                "action": "search",
+                "path": temp_dir.path().display().to_string(),
+                "pattern": "world"
+            }))
+            .await
+            .unwrap();
+
         assert!(output.success);
         assert!(output.result["match_count"].as_u64().unwrap() >= 2);
     }
@@ -1958,26 +2005,32 @@ mod tests {
     async fn test_exists() {
         let temp_dir = TempDir::new().unwrap();
         let tool = FileTool::new();
-        
+
         let file_path = temp_dir.path().join("exists.txt");
         fs::write(&file_path, "content").await.unwrap();
-        
+
         // Check existing file
-        let output = tool.execute(serde_json::json!({
-            "action": "exists",
-            "path": file_path.display().to_string()
-        })).await.unwrap();
-        
+        let output = tool
+            .execute(serde_json::json!({
+                "action": "exists",
+                "path": file_path.display().to_string()
+            }))
+            .await
+            .unwrap();
+
         assert!(output.success);
         assert!(output.result["exists"].as_bool().unwrap());
         assert_eq!(output.result["type"].as_str().unwrap(), "file");
-        
+
         // Check non-existing file
-        let output = tool.execute(serde_json::json!({
-            "action": "exists",
-            "path": temp_dir.path().join("nonexistent.txt").display().to_string()
-        })).await.unwrap();
-        
+        let output = tool
+            .execute(serde_json::json!({
+                "action": "exists",
+                "path": temp_dir.path().join("nonexistent.txt").display().to_string()
+            }))
+            .await
+            .unwrap();
+
         assert!(output.success);
         assert!(!output.result["exists"].as_bool().unwrap());
     }
@@ -1986,17 +2039,20 @@ mod tests {
     async fn test_delete_file() {
         let temp_dir = TempDir::new().unwrap();
         let tool = FileTool::new();
-        
+
         let file_path = temp_dir.path().join("delete_me.txt");
         fs::write(&file_path, "content").await.unwrap();
-        
+
         assert!(file_path.exists());
-        
-        let output = tool.execute(serde_json::json!({
-            "action": "delete",
-            "path": file_path.display().to_string()
-        })).await.unwrap();
-        
+
+        let output = tool
+            .execute(serde_json::json!({
+                "action": "delete",
+                "path": file_path.display().to_string()
+            }))
+            .await
+            .unwrap();
+
         assert!(output.success);
         assert!(!file_path.exists());
     }
@@ -2005,17 +2061,22 @@ mod tests {
     async fn test_read_with_offset_and_limit() {
         let temp_dir = TempDir::new().unwrap();
         let tool = FileTool::new();
-        
+
         let file_path = temp_dir.path().join("lines.txt");
-        fs::write(&file_path, "line 0\nline 1\nline 2\nline 3\nline 4").await.unwrap();
-        
-        let output = tool.execute(serde_json::json!({
-            "action": "read",
-            "path": file_path.display().to_string(),
-            "offset": 1,
-            "limit": 2
-        })).await.unwrap();
-        
+        fs::write(&file_path, "line 0\nline 1\nline 2\nline 3\nline 4")
+            .await
+            .unwrap();
+
+        let output = tool
+            .execute(serde_json::json!({
+                "action": "read",
+                "path": file_path.display().to_string(),
+                "offset": 1,
+                "limit": 2
+            }))
+            .await
+            .unwrap();
+
         assert!(output.success);
         let content = output.result["content"].as_str().unwrap();
         assert!(content.contains("line 1"));
@@ -2028,15 +2089,24 @@ mod tests {
     async fn test_base_dir_restriction() {
         let temp_dir = TempDir::new().unwrap();
         let tool = FileTool::new().with_base_dir(temp_dir.path());
-        
+
         // Try to escape base directory
-        let output = tool.execute(serde_json::json!({
-            "action": "read",
-            "path": "../../../etc/passwd"
-        })).await.unwrap();
-        
+        let output = tool
+            .execute(serde_json::json!({
+                "action": "read",
+                "path": "../../../etc/passwd"
+            }))
+            .await
+            .unwrap();
+
         assert!(!output.success);
-        assert!(output.error.as_ref().unwrap().contains("escapes base directory"));
+        assert!(
+            output
+                .error
+                .as_ref()
+                .unwrap()
+                .contains("escapes base directory")
+        );
     }
 
     #[tokio::test]
@@ -2061,18 +2131,27 @@ mod tests {
             .unwrap();
 
         assert!(!output.success);
-        assert!(output.error.as_ref().unwrap().contains("escapes base directory"));
+        assert!(
+            output
+                .error
+                .as_ref()
+                .unwrap()
+                .contains("escapes base directory")
+        );
     }
 
     #[tokio::test]
     async fn test_read_nonexistent_file() {
         let tool = FileTool::new();
-        
-        let output = tool.execute(serde_json::json!({
-            "action": "read",
-            "path": "/nonexistent/path/file.txt"
-        })).await.unwrap();
-        
+
+        let output = tool
+            .execute(serde_json::json!({
+                "action": "read",
+                "path": "/nonexistent/path/file.txt"
+            }))
+            .await
+            .unwrap();
+
         assert!(!output.success);
         assert!(output.error.as_ref().unwrap().contains("not found"));
     }
@@ -2081,15 +2160,18 @@ mod tests {
     async fn test_write_creates_parent_dirs() {
         let temp_dir = TempDir::new().unwrap();
         let tool = FileTool::new();
-        
+
         let deep_path = temp_dir.path().join("a/b/c/file.txt");
-        
-        let output = tool.execute(serde_json::json!({
-            "action": "write",
-            "path": deep_path.display().to_string(),
-            "content": "nested content"
-        })).await.unwrap();
-        
+
+        let output = tool
+            .execute(serde_json::json!({
+                "action": "write",
+                "path": deep_path.display().to_string(),
+                "content": "nested content"
+            }))
+            .await
+            .unwrap();
+
         assert!(output.success);
         assert!(deep_path.exists());
     }
@@ -2100,9 +2182,15 @@ mod tests {
         let tool = FileTool::new();
 
         // Create test files
-        fs::write(temp_dir.path().join("file1.txt"), "content 1").await.unwrap();
-        fs::write(temp_dir.path().join("file2.txt"), "content 2").await.unwrap();
-        fs::write(temp_dir.path().join("file3.txt"), "content 3").await.unwrap();
+        fs::write(temp_dir.path().join("file1.txt"), "content 1")
+            .await
+            .unwrap();
+        fs::write(temp_dir.path().join("file2.txt"), "content 2")
+            .await
+            .unwrap();
+        fs::write(temp_dir.path().join("file3.txt"), "content 3")
+            .await
+            .unwrap();
 
         let output = tool
             .execute(serde_json::json!({
@@ -2128,7 +2216,9 @@ mod tests {
         let tool = FileTool::new();
 
         // Create one file, leave others missing
-        fs::write(temp_dir.path().join("exists.txt"), "content").await.unwrap();
+        fs::write(temp_dir.path().join("exists.txt"), "content")
+            .await
+            .unwrap();
 
         let output = tool
             .execute(serde_json::json!({
@@ -2173,8 +2263,12 @@ mod tests {
         let tool = FileTool::new();
 
         // Create some paths
-        fs::write(temp_dir.path().join("file.txt"), "content").await.unwrap();
-        fs::create_dir(temp_dir.path().join("subdir")).await.unwrap();
+        fs::write(temp_dir.path().join("file.txt"), "content")
+            .await
+            .unwrap();
+        fs::create_dir(temp_dir.path().join("subdir"))
+            .await
+            .unwrap();
 
         let output = tool
             .execute(serde_json::json!({
@@ -2206,9 +2300,15 @@ mod tests {
         let tool = FileTool::new();
 
         // Create files with searchable content
-        fs::write(temp_dir.path().join("file1.txt"), "hello world\ntest line").await.unwrap();
-        fs::write(temp_dir.path().join("file2.txt"), "no match here").await.unwrap();
-        fs::write(temp_dir.path().join("file3.txt"), "another hello").await.unwrap();
+        fs::write(temp_dir.path().join("file1.txt"), "hello world\ntest line")
+            .await
+            .unwrap();
+        fs::write(temp_dir.path().join("file2.txt"), "no match here")
+            .await
+            .unwrap();
+        fs::write(temp_dir.path().join("file3.txt"), "another hello")
+            .await
+            .unwrap();
 
         let output = tool
             .execute(serde_json::json!({

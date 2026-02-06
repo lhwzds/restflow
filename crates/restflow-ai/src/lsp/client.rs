@@ -1,24 +1,26 @@
 //! LSP client implementation backed by stdio JSON-RPC.
 
 use std::path::Path;
+use std::str::FromStr;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use lsp_types::{
-    ClientCapabilities, Diagnostic, DocumentDiagnosticParams, DocumentDiagnosticReport,
-    DidChangeTextDocumentParams, DidOpenTextDocumentParams, InitializeParams, InitializedParams,
-    TextDocumentContentChangeEvent, TextDocumentIdentifier, TextDocumentItem, Url,
+    ClientCapabilities, Diagnostic, DidChangeTextDocumentParams, DidOpenTextDocumentParams,
+    DocumentDiagnosticParams, DocumentDiagnosticReport, InitializeParams, InitializedParams,
+    TextDocumentContentChangeEvent, TextDocumentIdentifier, TextDocumentItem, Uri,
     VersionedTextDocumentIdentifier, WorkspaceFolder,
 };
-use serde::de::DeserializeOwned;
 use serde::Serialize;
+use serde::de::DeserializeOwned;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin, ChildStdout, Command};
 use tokio::sync::Mutex;
+use url::Url;
 
 use crate::error::{AiError, Result};
 
-use super::types::{JsonRpcMessage, JsonRpcRequest, JsonRpcResponse};
 use super::LspServerConfig;
+use super::types::{JsonRpcMessage, JsonRpcRequest, JsonRpcResponse};
 
 /// LSP client for a single language server.
 #[derive(Debug)]
@@ -66,7 +68,8 @@ impl LspClient {
     async fn initialize(&self) -> Result<()> {
         let root_uri = std::env::current_dir()
             .ok()
-            .and_then(|path| Url::from_file_path(path).ok());
+            .and_then(|path| Url::from_file_path(path).ok())
+            .and_then(|url| Uri::from_str(url.as_str()).ok());
 
         let workspace_folders = root_uri.as_ref().map(|uri| {
             vec![WorkspaceFolder {
@@ -90,8 +93,10 @@ impl LspClient {
 
     /// Notify server that a document has been opened.
     pub async fn did_open(&self, path: &Path, content: &str, version: i32) -> Result<()> {
-        let uri = Url::from_file_path(path)
+        let url = Url::from_file_path(path)
             .map_err(|_| AiError::Tool(format!("Invalid file path: {}", path.display())))?;
+        let uri = Uri::from_str(url.as_str())
+            .map_err(|err| AiError::Tool(format!("Invalid file uri: {err}")))?;
 
         let params = DidOpenTextDocumentParams {
             text_document: TextDocumentItem {
@@ -102,14 +107,15 @@ impl LspClient {
             },
         };
 
-        self.send_notification("textDocument/didOpen", params)
-            .await
+        self.send_notification("textDocument/didOpen", params).await
     }
 
     /// Notify server that a document has changed.
     pub async fn did_change(&self, path: &Path, content: &str, version: i32) -> Result<()> {
-        let uri = Url::from_file_path(path)
+        let url = Url::from_file_path(path)
             .map_err(|_| AiError::Tool(format!("Invalid file path: {}", path.display())))?;
+        let uri = Uri::from_str(url.as_str())
+            .map_err(|err| AiError::Tool(format!("Invalid file uri: {err}")))?;
 
         let params = DidChangeTextDocumentParams {
             text_document: VersionedTextDocumentIdentifier { uri, version },
@@ -126,8 +132,10 @@ impl LspClient {
 
     /// Request diagnostics for a document.
     pub async fn get_diagnostics(&self, path: &Path) -> Result<Vec<Diagnostic>> {
-        let uri = Url::from_file_path(path)
+        let url = Url::from_file_path(path)
             .map_err(|_| AiError::Tool(format!("Invalid file path: {}", path.display())))?;
+        let uri = Uri::from_str(url.as_str())
+            .map_err(|err| AiError::Tool(format!("Invalid file uri: {err}")))?;
 
         let params = DocumentDiagnosticParams {
             text_document: TextDocumentIdentifier { uri },
@@ -141,9 +149,7 @@ impl LspClient {
             self.send_request("textDocument/diagnostic", params).await?;
 
         let diagnostics = match report {
-            DocumentDiagnosticReport::Full(full) => {
-                full.full_document_diagnostic_report.items
-            }
+            DocumentDiagnosticReport::Full(full) => full.full_document_diagnostic_report.items,
             DocumentDiagnosticReport::Unchanged(_) => Vec::new(),
         };
 
@@ -153,7 +159,8 @@ impl LspClient {
     /// Shutdown the LSP session.
     pub async fn shutdown(&mut self) -> Result<()> {
         let _: serde_json::Value = self.send_request("shutdown", serde_json::json!({})).await?;
-        self.send_notification("exit", serde_json::json!({})).await?;
+        self.send_notification("exit", serde_json::json!({}))
+            .await?;
         let _ = self.process.wait().await;
         Ok(())
     }
@@ -165,12 +172,13 @@ impl LspClient {
     {
         let id = self.request_id.fetch_add(1, Ordering::SeqCst);
         let request = JsonRpcRequest::new(id, method, params);
-        self.write_message(&JsonRpcMessage::Request(request)).await?;
+        self.write_message(&JsonRpcMessage::Request(request))
+            .await?;
 
         let response = self.read_response(id).await?;
-        response.into_result().map_err(|err| {
-            AiError::Tool(format!("LSP error {}: {}", err.code, err.message))
-        })
+        response
+            .into_result()
+            .map_err(|err| AiError::Tool(format!("LSP error {}: {}", err.code, err.message)))
     }
 
     async fn send_notification<P>(&self, method: &str, params: P) -> Result<()>
@@ -187,7 +195,10 @@ impl LspClient {
         let header = format!("Content-Length: {}\r\n\r\n", payload.len());
 
         let mut stdin = self.stdin.lock().await;
-        stdin.write_all(header.as_bytes()).await.map_err(AiError::Io)?;
+        stdin
+            .write_all(header.as_bytes())
+            .await
+            .map_err(AiError::Io)?;
         stdin.write_all(&payload).await.map_err(AiError::Io)?;
         stdin.flush().await.map_err(AiError::Io)?;
         Ok(())
@@ -196,7 +207,9 @@ impl LspClient {
     async fn read_response(&self, expected_id: u64) -> Result<JsonRpcResponse> {
         loop {
             let message = self.read_message().await?;
-            if let JsonRpcMessage::Response(response) = message && response.id == expected_id {
+            if let JsonRpcMessage::Response(response) = message
+                && response.id == expected_id
+            {
                 return Ok(response);
             }
         }
