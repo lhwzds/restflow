@@ -68,6 +68,10 @@ pub enum AIModel {
     #[serde(rename = "claude-code-haiku")]
     ClaudeCodeHaiku,
 
+    // Codex CLI (OpenAI)
+    #[serde(rename = "codex-cli")]
+    CodexCli,
+
     // DeepSeek series
     #[serde(rename = "deepseek-chat")]
     DeepseekChat,
@@ -152,6 +156,13 @@ impl AIModel {
                 name: "Claude Code Haiku",
             },
 
+            // Codex CLI
+            Self::CodexCli => ModelMetadata {
+                provider: Provider::OpenAI,
+                supports_temperature: false,
+                name: "Codex CLI",
+            },
+
             // DeepSeek series
             Self::DeepseekChat => ModelMetadata {
                 provider: Provider::DeepSeek,
@@ -200,6 +211,9 @@ impl AIModel {
             Self::ClaudeCodeSonnet => "sonnet",
             Self::ClaudeCodeHaiku => "haiku",
 
+            // Codex CLI
+            Self::CodexCli => "gpt-5.3-codex",
+
             // DeepSeek series
             Self::DeepseekChat => "deepseek-chat",
             Self::DeepseekReasoner => "deepseek-reasoner",
@@ -209,6 +223,52 @@ impl AIModel {
     /// Get the display name for UI
     pub fn display_name(&self) -> &'static str {
         self.metadata().name
+    }
+
+    /// Get the serialized string representation (serde rename)
+    pub fn as_serialized_str(&self) -> &'static str {
+        match self {
+            // GPT-5 series
+            Self::Gpt5 => "gpt-5",
+            Self::Gpt5Mini => "gpt-5-mini",
+            Self::Gpt5Nano => "gpt-5-nano",
+            Self::Gpt5Pro => "gpt-5-pro",
+
+            // O-series
+            Self::O4Mini => "o4-mini",
+            Self::O3 => "o3",
+            Self::O3Mini => "o3-mini",
+
+            // Claude series (direct API)
+            Self::ClaudeOpus4_1 => "claude-opus-4-1",
+            Self::ClaudeSonnet4_5 => "claude-sonnet-4-5",
+            Self::ClaudeHaiku4_5 => "claude-haiku-4-5",
+
+            // Claude Code CLI aliases
+            Self::ClaudeCodeOpus => "claude-code-opus",
+            Self::ClaudeCodeSonnet => "claude-code-sonnet",
+            Self::ClaudeCodeHaiku => "claude-code-haiku",
+
+            // Codex CLI
+            Self::CodexCli => "codex-cli",
+
+            // DeepSeek series
+            Self::DeepseekChat => "deepseek-chat",
+            Self::DeepseekReasoner => "deepseek-reasoner",
+        }
+    }
+
+    /// Check if this model uses the Codex CLI
+    pub fn is_codex_cli(&self) -> bool {
+        matches!(self, Self::CodexCli)
+    }
+
+    /// Check if this model uses the Claude Code CLI
+    pub fn is_claude_code(&self) -> bool {
+        matches!(
+            self,
+            Self::ClaudeCodeOpus | Self::ClaudeCodeSonnet | Self::ClaudeCodeHaiku
+        )
     }
 
     /// Get all available models as a slice
@@ -230,6 +290,8 @@ impl AIModel {
             Self::ClaudeCodeOpus,
             Self::ClaudeCodeSonnet,
             Self::ClaudeCodeHaiku,
+            // OpenAI (Codex CLI)
+            Self::CodexCli,
             // DeepSeek
             Self::DeepseekChat,
             Self::DeepseekReasoner,
@@ -287,6 +349,7 @@ mod tests {
         assert_eq!(AIModel::O3.as_str(), "o3");
         assert_eq!(AIModel::ClaudeSonnet4_5.as_str(), "claude-sonnet-4-5");
         assert_eq!(AIModel::ClaudeHaiku4_5.as_str(), "claude-haiku-4-5");
+        assert_eq!(AIModel::CodexCli.as_str(), "gpt-5.3-codex");
         assert_eq!(AIModel::DeepseekChat.as_str(), "deepseek-chat");
     }
 
@@ -295,18 +358,20 @@ mod tests {
         assert_eq!(AIModel::Gpt5.display_name(), "GPT-5");
         assert_eq!(AIModel::ClaudeSonnet4_5.display_name(), "Claude Sonnet 4.5");
         assert_eq!(AIModel::ClaudeHaiku4_5.display_name(), "Claude Haiku 4.5");
+        assert_eq!(AIModel::CodexCli.display_name(), "Codex CLI");
         assert_eq!(AIModel::DeepseekChat.display_name(), "DeepSeek Chat");
     }
 
     #[test]
     fn test_all_models() {
         let models = AIModel::all();
-        assert_eq!(models.len(), 15);
+        assert_eq!(models.len(), 16);
         assert!(models.contains(&AIModel::Gpt5));
         assert!(models.contains(&AIModel::O3));
         assert!(models.contains(&AIModel::ClaudeOpus4_1));
         assert!(models.contains(&AIModel::ClaudeSonnet4_5));
         assert!(models.contains(&AIModel::ClaudeHaiku4_5));
+        assert!(models.contains(&AIModel::CodexCli));
         assert!(models.contains(&AIModel::DeepseekChat));
     }
 

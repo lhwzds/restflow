@@ -19,6 +19,7 @@ mod process;
 mod python;
 mod registry;
 mod skill;
+mod switch_model;
 mod telegram;
 mod traits;
 
@@ -40,6 +41,7 @@ pub use process::{ProcessLog, ProcessManager, ProcessPollResult, ProcessSessionI
 pub use python::PythonTool;
 pub use registry::ToolRegistry;
 pub use skill::SkillTool;
+pub use switch_model::SwitchModelTool;
 pub use telegram::{TelegramTool, send_telegram_notification};
 pub use traits::{SkillContent, SkillInfo, SkillProvider, Tool, ToolOutput, ToolSchema};
 

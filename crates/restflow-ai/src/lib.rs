@@ -39,14 +39,17 @@ pub use embedding::{
 };
 pub use error::{AiError, Result};
 pub use graph::{Graph, GraphNode};
-pub use llm::{AnthropicClient, ClaudeCodeClient, LlmClient, Message, OpenAIClient, Role};
+pub use llm::{
+    AnthropicClient, ClaudeCodeClient, CodexClient, DefaultLlmClientFactory, LlmClient,
+    LlmClientFactory, LlmProvider, Message, ModelSpec, OpenAIClient, Role, SwappableLlm,
+};
 pub use memory::{
     CompactionConfig, CompactionResult, ContextCompactor, DEFAULT_MAX_MESSAGES, WorkingMemory,
 };
 pub use security::{SecurityDecision, SecurityGate};
 pub use tools::{
     DiagnosticsProvider, DiagnosticsTool, EmailTool, HttpTool, MemorySearchMatch, MemorySearchTool,
-    PythonTool, SemanticMemory, SkillContent, SkillInfo, SkillProvider, SkillTool, Tool, ToolOutput,
-    ToolRegistry, ToolSchema,
+    PythonTool, SemanticMemory, SkillContent, SkillInfo, SkillProvider, SkillTool,
+    SwitchModelTool, Tool, ToolOutput, ToolRegistry, ToolSchema,
 };
 pub use workflow_def::WorkflowDef;
