@@ -39,7 +39,7 @@ impl Default for ChatDispatcherConfig {
     fn default() -> Self {
         Self {
             max_session_history: 20,
-            response_timeout_secs: 60,
+            response_timeout_secs: 300,
             send_typing_indicator: true,
             default_agent_name: "default".to_string(),
         }
@@ -580,7 +580,7 @@ mod tests {
     fn test_config_defaults() {
         let config = ChatDispatcherConfig::default();
         assert_eq!(config.max_session_history, 20);
-        assert_eq!(config.response_timeout_secs, 60);
+        assert_eq!(config.response_timeout_secs, 300);
         assert!(config.send_typing_indicator);
     }
 
