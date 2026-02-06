@@ -69,6 +69,10 @@ impl Tool for PythonTool {
         })
     }
 
+    fn supports_parallel(&self) -> bool {
+        false
+    }
+
     async fn execute(&self, input: Value) -> Result<ToolOutput> {
         let params: PythonInput = serde_json::from_value(input)?;
         let timeout = params.timeout_seconds.unwrap_or(30);
