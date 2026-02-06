@@ -3,9 +3,11 @@
 use super::react::{AgentAction, AgentState, ConversationHistory, ReActConfig, ResponseParser};
 use crate::LlmClient;
 use crate::agent::context::{ContextDiscoveryConfig, WorkspaceContextCache};
+use crate::agent::stream::{StreamEmitter, ToolCallAccumulator};
 use crate::error::{AiError, Result};
-use crate::llm::{CompletionRequest, Message, ToolCall};
+use crate::llm::{CompletionRequest, FinishReason, Message, ToolCall};
 use crate::tools::{ToolOutput, ToolRegistry, ToolSchema};
+use futures::StreamExt;
 use std::sync::Arc;
 use tracing::{debug, info, warn};
 
@@ -160,6 +162,182 @@ impl UnifiedAgent {
                 }
             }
         }
+    }
+
+    pub async fn execute_streaming(
+        &mut self,
+        input: &str,
+        emitter: &mut dyn StreamEmitter,
+    ) -> Result<ExecutionResult> {
+        info!(
+            "UnifiedAgent streaming execute: {}...",
+            &input[..input.len().min(50)]
+        );
+
+        let system_prompt = self.build_system_prompt().await;
+        self.history.prepend(Message::system(system_prompt));
+        self.history.add(Message::user(input.to_string()));
+
+        let mut iterations = 0;
+        self.state = AgentState::Thinking;
+
+        loop {
+            iterations += 1;
+            if iterations > self.config.react.max_iterations {
+                warn!(
+                    "Agent reached max iterations ({})",
+                    self.config.react.max_iterations
+                );
+                return Ok(ExecutionResult {
+                    output: "Reached maximum iterations".to_string(),
+                    messages: self.history.clone().into_messages(),
+                    success: false,
+                    iterations,
+                });
+            }
+
+            debug!("ReAct iteration {}", iterations);
+
+            let response = self.get_streaming_completion(emitter).await?;
+            let action = ResponseParser::parse(
+                response.content.as_deref().unwrap_or_default(),
+                Some(&response.tool_calls),
+            )?;
+
+            match action {
+                AgentAction::ToolCall { .. } => {
+                    self.state = AgentState::Acting {
+                        tool: response
+                            .tool_calls
+                            .first()
+                            .map(|call| call.name.clone())
+                            .unwrap_or_else(|| "unknown".to_string()),
+                    };
+
+                    self.history.add(Message::assistant_with_tool_calls(
+                        response.content,
+                        response.tool_calls.clone(),
+                    ));
+
+                    self.execute_tool_calls_with_events(&response.tool_calls, emitter)
+                        .await?;
+                    self.state = AgentState::Observing;
+                }
+                AgentAction::FinalAnswer { content } => {
+                    self.state = AgentState::Completed {
+                        output: content.clone(),
+                    };
+                    emitter.emit_complete().await;
+                    info!("Agent completed in {} iterations", iterations);
+                    return Ok(ExecutionResult {
+                        output: content,
+                        messages: self.history.clone().into_messages(),
+                        success: true,
+                        iterations,
+                    });
+                }
+                AgentAction::Continue => {
+                    self.history
+                        .add(Message::assistant(response.content.unwrap_or_default()));
+                    self.state = AgentState::Thinking;
+                }
+            }
+        }
+    }
+
+    async fn get_streaming_completion(
+        &self,
+        emitter: &mut dyn StreamEmitter,
+    ) -> Result<crate::llm::CompletionResponse> {
+        let request = CompletionRequest::new(self.history.messages().to_vec())
+            .with_tools(self.tool_schemas())
+            .with_max_tokens(self.config.max_tokens)
+            .with_temperature(self.config.temperature);
+
+        if !self.llm_client.supports_streaming() {
+            let response = self.llm_client.complete(request).await?;
+            if let Some(content) = &response.content {
+                emitter.emit_text_delta(content).await;
+            }
+            return Ok(response);
+        }
+
+        let mut stream = self.llm_client.complete_stream(request);
+        let mut text = String::new();
+        let mut accumulator = ToolCallAccumulator::new();
+        let mut usage = None;
+        let mut finish_reason = None;
+
+        while let Some(chunk_result) = stream.next().await {
+            let chunk = chunk_result?;
+
+            if !chunk.text.is_empty() {
+                text.push_str(&chunk.text);
+                emitter.emit_text_delta(&chunk.text).await;
+            }
+
+            if let Some(thinking) = &chunk.thinking {
+                emitter.emit_thinking_delta(thinking).await;
+            }
+
+            if let Some(delta) = &chunk.tool_call_delta {
+                accumulator.accumulate(delta);
+            }
+
+            if let Some(chunk_usage) = chunk.usage {
+                usage = Some(chunk_usage);
+            }
+
+            if let Some(reason) = chunk.finish_reason {
+                finish_reason = Some(reason);
+            }
+        }
+
+        Ok(crate::llm::CompletionResponse {
+            content: if text.is_empty() { None } else { Some(text) },
+            tool_calls: accumulator.finalize(),
+            finish_reason: finish_reason.unwrap_or(FinishReason::Stop),
+            usage,
+        })
+    }
+
+    async fn execute_tool_calls_with_events(
+        &mut self,
+        tool_calls: &[ToolCall],
+        emitter: &mut dyn StreamEmitter,
+    ) -> Result<()> {
+        for call in tool_calls {
+            let arguments = serde_json::to_string(&call.arguments).unwrap_or_default();
+            emitter
+                .emit_tool_call_start(&call.id, &call.name, &arguments)
+                .await;
+
+            let result = self
+                .tool_registry
+                .execute(&call.name, call.arguments.clone())
+                .await?;
+
+            let output = if result.success {
+                result.result.to_string()
+            } else {
+                result
+                    .error
+                    .clone()
+                    .unwrap_or_else(|| "Unknown tool error".to_string())
+            };
+
+            emitter
+                .emit_tool_call_result(&call.id, &call.name, &output, result.success)
+                .await;
+
+            if !result.success {
+                return Err(AiError::Tool(output));
+            }
+
+            self.history
+                .add(Message::tool_result(call.id.clone(), output));
+        }
+        Ok(())
     }
 
     async fn build_system_prompt(&self) -> String {
