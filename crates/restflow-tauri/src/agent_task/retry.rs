@@ -254,7 +254,6 @@ impl RetryState {
 /// - Bad requests (400)
 /// - Not found (404)
 /// - Configuration errors
-/// Check if an error is transient (retryable).
 ///
 /// Prefer using `AiError::is_retryable()` when the original error type is available.
 /// This string-based check is a fallback for contexts where only the error message is available.
