@@ -19,6 +19,7 @@ use restflow_core::channel::ChannelRouter;
 use restflow_core::models::AgentTask;
 use restflow_core::process::ProcessRegistry;
 use restflow_core::security::SecurityChecker;
+use restflow_core::steer::SteerRegistry;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{Mutex, RwLock, mpsc};
@@ -59,6 +60,8 @@ pub struct AppState {
     pub subagent_definitions: Arc<AgentDefinitionRegistry>,
     /// Configuration for sub-agent execution
     pub subagent_config: SubagentConfig,
+    /// Steer registry for sending messages to running tasks
+    pub steer_registry: Arc<SteerRegistry>,
 }
 
 impl AppState {
@@ -73,6 +76,7 @@ impl AppState {
         let subagent_config = SubagentConfig::default();
         let daemon = Arc::new(Mutex::new(DaemonManager::new()));
         let executor = Arc::new(TauriExecutor::new(daemon.clone()));
+        let steer_registry = Arc::new(SteerRegistry::new());
         Ok(Self {
             core: Some(core),
             runner_handle: RwLock::new(None),
@@ -86,6 +90,7 @@ impl AppState {
             subagent_tracker,
             subagent_definitions,
             subagent_config,
+            steer_registry,
         })
     }
 
@@ -99,6 +104,7 @@ impl AppState {
         let subagent_config = SubagentConfig::default();
         let daemon = Arc::new(Mutex::new(DaemonManager::new()));
         let executor = Arc::new(TauriExecutor::new(daemon.clone()));
+        let steer_registry = Arc::new(SteerRegistry::new());
 
         Ok(Self {
             core: None,
@@ -113,6 +119,7 @@ impl AppState {
             subagent_tracker,
             subagent_definitions,
             subagent_config,
+            steer_registry,
         })
     }
 
@@ -183,6 +190,7 @@ impl AppState {
             Arc::new(executor),
             Arc::new(notifier),
             config.unwrap_or_default(),
+            self.steer_registry.clone(),
         ));
 
         let handle = runner.start();
@@ -225,6 +233,7 @@ impl AppState {
             Arc::new(notifier),
             config.unwrap_or_default(),
             heartbeat_emitter,
+            self.steer_registry.clone(),
         ));
 
         let handle = runner.start();

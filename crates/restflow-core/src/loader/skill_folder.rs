@@ -5,10 +5,39 @@ use sha2::{Digest, Sha256};
 use walkdir::WalkDir;
 
 use crate::models::{Skill, SkillScript, StorageMode};
+use crate::paths;
 
 #[derive(Debug, Clone)]
 pub struct SkillFolderLoader {
     base_dir: PathBuf,
+}
+
+pub fn discover_skill_dirs(dir: &Path) -> Result<Vec<PathBuf>> {
+    let mut found = Vec::new();
+    if !dir.exists() {
+        return Ok(found);
+    }
+
+    let root_skill = dir.join("SKILL.md");
+    if root_skill.exists() {
+        found.push(dir.to_path_buf());
+    }
+
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let file_type = entry.file_type().ok();
+            if !matches!(file_type, Some(t) if t.is_dir()) {
+                continue;
+            }
+            let path = entry.path();
+            if path.join("SKILL.md").exists() {
+                found.push(path);
+            }
+        }
+    }
+
+    found.sort();
+    Ok(found)
 }
 
 impl SkillFolderLoader {
@@ -44,6 +73,22 @@ impl SkillFolderLoader {
                 .load_skill_folder(folder_path)
                 .with_context(|| format!("Failed to load skill folder at {:?}", folder_path))?;
             skills.push(skill);
+        }
+
+        Ok(skills)
+    }
+
+    pub fn scan_all() -> Result<Vec<Skill>> {
+        let mut skills = Vec::new();
+
+        if let Ok(user_dir) = paths::user_skills_dir() {
+            let loader = SkillFolderLoader::new(user_dir);
+            skills.extend(loader.scan()?);
+        }
+
+        if let Ok(workspace_dir) = paths::workspace_skills_dir() {
+            let loader = SkillFolderLoader::new(workspace_dir);
+            skills.extend(loader.scan()?);
         }
 
         Ok(skills)
@@ -140,5 +185,36 @@ impl SkillFolderLoader {
             let candidate_path = folder_path.join(&script.path);
             script.lang = Self::detect_lang(&candidate_path);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::discover_skill_dirs;
+
+    #[test]
+    fn test_discover_skill_dirs_root() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::write(
+            temp.path().join("SKILL.md"),
+            "---\nname: Root\n---\n\n# Root",
+        )
+        .unwrap();
+
+        let found = discover_skill_dirs(temp.path()).unwrap();
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0], temp.path());
+    }
+
+    #[test]
+    fn test_discover_skill_dirs_subdirs() {
+        let temp = tempfile::tempdir().unwrap();
+        let skill_dir = temp.path().join("skill-a");
+        std::fs::create_dir_all(&skill_dir).unwrap();
+        std::fs::write(skill_dir.join("SKILL.md"), "---\nname: Sub\n---\n\n# Sub").unwrap();
+
+        let found = discover_skill_dirs(temp.path()).unwrap();
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0], skill_dir);
     }
 }

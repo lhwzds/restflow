@@ -23,6 +23,7 @@ pub mod llm;
 pub mod lsp;
 pub mod memory;
 pub mod security;
+pub mod steer;
 pub mod tools;
 pub mod workflow_def;
 
@@ -48,9 +49,15 @@ pub use memory::{
     CompactionConfig, CompactionResult, ContextCompactor, DEFAULT_MAX_MESSAGES, WorkingMemory,
 };
 pub use security::{SecurityDecision, SecurityGate, ToolAction};
+pub use steer::{SteerMessage, SteerSource};
 pub use tools::{
-    DiagnosticsProvider, DiagnosticsTool, EmailTool, HttpTool, MemorySearchMatch, MemorySearchTool,
-    PythonTool, SecretResolver, SemanticMemory, SkillContent, SkillInfo, SkillProvider, SkillTool,
-    SwitchModelTool, Tool, ToolOutput, ToolRegistry, ToolSchema, TranscribeTool, VisionTool,
+    AgentCrudTool, AgentCreateRequest, AgentStore, AgentUpdateRequest, AuthProfileCreateRequest,
+    AuthProfileStore, AuthProfileTestRequest, AuthProfileTool, CredentialInput,
+    DiagnosticsProvider, DiagnosticsTool, EmailTool, HttpTool, MemoryClearRequest,
+    MemoryCompactRequest, MemoryExportRequest, MemoryManagementTool, MemoryManager,
+    MemorySearchMatch, MemorySearchTool, PythonTool, SecretResolver, SemanticMemory,
+    SessionCreateRequest, SessionListFilter, SessionSearchQuery, SessionStore, SessionTool,
+    SkillContent, SkillInfo, SkillProvider, SkillRecord, SkillTool, SkillUpdate, SwitchModelTool,
+    Tool, ToolOutput, ToolRegistry, ToolSchema, TranscribeTool, VisionTool,
 };
 pub use workflow_def::WorkflowDef;

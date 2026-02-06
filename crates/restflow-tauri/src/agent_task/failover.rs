@@ -656,7 +656,7 @@ mod tests {
         assert!(config.contains(AIModel::ClaudeSonnet4_5));
         assert!(config.contains(AIModel::Gpt5));
         assert!(config.contains(AIModel::DeepseekChat));
-        assert!(!config.contains(AIModel::O3));
+        assert!(!config.contains(AIModel::Gemini25Pro));
     }
 
     #[tokio::test]

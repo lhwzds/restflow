@@ -9,6 +9,7 @@ pub mod input;
 pub mod memory;
 pub mod output;
 pub mod pricing;
+pub mod steer;
 pub mod security;
 pub mod shared_space;
 pub mod skill;
@@ -41,7 +42,8 @@ pub use output::{
     AgentOutput, EmailOutput, HttpOutput, ManualTriggerOutput, NodeOutput, PrintOutput,
     PythonOutput, ScheduleOutput, WebhookTriggerOutput,
 };
-pub use pricing::{ModelPricing, calculate_cost};
+pub use pricing::{calculate_cost, ModelPricing};
+pub use steer::{SteerMessage, SteerSource};
 pub use webhook::{WebhookConfig, WebhookRateLimiter, WebhookRequest, WebhookResponse};
 // Secret is now defined in restflow-storage
 pub use chat_session::{
