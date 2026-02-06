@@ -9,11 +9,14 @@
 
 use anyhow::{Result, anyhow};
 use restflow_ai::llm::Message;
-use restflow_core::models::{AgentTask, AgentTaskStatus, ExecutionMode, NotificationConfig};
+use restflow_core::models::{
+    AgentTask, AgentTaskStatus, ExecutionMode, NotificationConfig, SteerMessage,
+};
 use restflow_core::performance::{
     TaskExecutor, TaskPriority, TaskQueue, TaskQueueConfig, WorkerPool, WorkerPoolConfig,
 };
 use restflow_core::storage::{AgentTaskStorage, MemoryStorage};
+use restflow_core::SteerRegistry;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -143,7 +146,13 @@ pub trait AgentExecutor: Send + Sync {
     ///
     /// Returns an `ExecutionResult` containing the output and conversation
     /// messages for optional memory persistence.
-    async fn execute(&self, agent_id: &str, input: Option<&str>) -> Result<ExecutionResult>;
+    async fn execute(
+        &self,
+        task_id: &str,
+        agent_id: &str,
+        input: Option<&str>,
+        steer_rx: Option<mpsc::Receiver<SteerMessage>>,
+    ) -> Result<ExecutionResult>;
 }
 
 /// Notification sender trait for dependency injection
@@ -173,6 +182,8 @@ pub struct AgentTaskRunner {
     event_emitter: Arc<dyn TaskEventEmitter>,
     sequence: AtomicU64,
     start_time: Instant,
+    /// Registry for steer messages into running tasks
+    steer_registry: Arc<SteerRegistry>,
     /// Optional memory persister for long-term memory storage
     memory_persister: Option<MemoryPersister>,
 }
@@ -184,6 +195,7 @@ impl AgentTaskRunner {
         executor: Arc<dyn AgentExecutor>,
         notifier: Arc<dyn NotificationSender>,
         config: RunnerConfig,
+        steer_registry: Arc<SteerRegistry>,
     ) -> Self {
         let queue_config = TaskQueueConfig {
             max_concurrent: config.max_concurrent_tasks,
@@ -204,6 +216,7 @@ impl AgentTaskRunner {
             event_emitter: Arc::new(NoopEventEmitter),
             sequence: AtomicU64::new(0),
             start_time: Instant::now(),
+            steer_registry,
             memory_persister: None,
         }
     }
@@ -215,6 +228,7 @@ impl AgentTaskRunner {
         notifier: Arc<dyn NotificationSender>,
         config: RunnerConfig,
         heartbeat_emitter: Arc<dyn HeartbeatEmitter>,
+        steer_registry: Arc<SteerRegistry>,
     ) -> Self {
         let queue_config = TaskQueueConfig {
             max_concurrent: config.max_concurrent_tasks,
@@ -235,6 +249,7 @@ impl AgentTaskRunner {
             event_emitter: Arc::new(NoopEventEmitter),
             sequence: AtomicU64::new(0),
             start_time: Instant::now(),
+            steer_registry,
             memory_persister: None,
         }
     }
@@ -250,6 +265,7 @@ impl AgentTaskRunner {
         config: RunnerConfig,
         heartbeat_emitter: Arc<dyn HeartbeatEmitter>,
         memory_storage: MemoryStorage,
+        steer_registry: Arc<SteerRegistry>,
     ) -> Self {
         let queue_config = TaskQueueConfig {
             max_concurrent: config.max_concurrent_tasks,
@@ -270,6 +286,7 @@ impl AgentTaskRunner {
             event_emitter: Arc::new(NoopEventEmitter),
             sequence: AtomicU64::new(0),
             start_time: Instant::now(),
+            steer_registry,
             memory_persister: Some(MemoryPersister::new(memory_storage)),
         }
     }
@@ -278,6 +295,11 @@ impl AgentTaskRunner {
     pub fn with_event_emitter(mut self, event_emitter: Arc<dyn TaskEventEmitter>) -> Self {
         self.event_emitter = event_emitter;
         self
+    }
+
+    /// Get the steer registry for sending steer messages to running tasks.
+    pub fn steer_registry(&self) -> Arc<SteerRegistry> {
+        self.steer_registry.clone()
     }
 
     /// Start the runner and return a handle for controlling it
@@ -606,6 +628,9 @@ impl AgentTaskRunner {
             ))
             .await;
 
+        // Register steer channel for this task
+        let steer_rx = self.steer_registry.register(task_id).await;
+
         let exec_future = async {
             match &task.execution_mode {
                 ExecutionMode::Api => {
@@ -614,7 +639,12 @@ impl AgentTaskRunner {
                     let timeout = Duration::from_secs(self.config.task_timeout_secs);
                     tokio::time::timeout(
                         timeout,
-                        self.executor.execute(&task.agent_id, task.input.as_deref()),
+                        self.executor.execute(
+                            task_id,
+                            &task.agent_id,
+                            task.input.as_deref(),
+                            Some(steer_rx),
+                        ),
                     )
                     .await
                 }
@@ -772,6 +802,7 @@ impl AgentTaskRunner {
         self.running_tasks.write().await.remove(task_id);
         self.cancel_senders.write().await.remove(task_id);
         self.pending_cancel_receivers.write().await.remove(task_id);
+        self.steer_registry.unregister(task_id).await;
     }
 
     async fn take_cancel_receiver(&self, task_id: &str) -> oneshot::Receiver<()> {
@@ -954,7 +985,13 @@ mod tests {
 
     #[async_trait::async_trait]
     impl AgentExecutor for MockExecutor {
-        async fn execute(&self, agent_id: &str, input: Option<&str>) -> Result<ExecutionResult> {
+        async fn execute(
+            &self,
+            _task_id: &str,
+            agent_id: &str,
+            input: Option<&str>,
+            _steer_rx: Option<mpsc::Receiver<SteerMessage>>,
+        ) -> Result<ExecutionResult> {
             self.call_count.fetch_add(1, Ordering::SeqCst);
 
             if self.delay_ms > 0 {

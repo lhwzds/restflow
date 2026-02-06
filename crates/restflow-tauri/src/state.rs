@@ -15,8 +15,9 @@ use anyhow::Result;
 use async_trait::async_trait;
 use restflow_ai::{LlmClient, SecretResolver};
 use restflow_core::AppCore;
+use restflow_core::SteerRegistry;
 use restflow_core::channel::ChannelRouter;
-use restflow_core::models::AgentTask;
+use restflow_core::models::{AgentTask, SteerMessage, SteerSource};
 use restflow_core::process::ProcessRegistry;
 use restflow_core::security::SecurityChecker;
 use std::collections::HashMap;
@@ -59,6 +60,8 @@ pub struct AppState {
     pub subagent_definitions: Arc<AgentDefinitionRegistry>,
     /// Configuration for sub-agent execution
     pub subagent_config: SubagentConfig,
+    /// Steer registry for sending steer messages to running tasks
+    pub steer_registry: Arc<SteerRegistry>,
 }
 
 impl AppState {
@@ -71,6 +74,7 @@ impl AppState {
         let subagent_tracker = Arc::new(SubagentTracker::new(completion_tx, completion_rx));
         let subagent_definitions = Arc::new(AgentDefinitionRegistry::with_builtins());
         let subagent_config = SubagentConfig::default();
+        let steer_registry = Arc::new(SteerRegistry::new());
         let daemon = Arc::new(Mutex::new(DaemonManager::new()));
         let executor = Arc::new(TauriExecutor::new(daemon.clone()));
         Ok(Self {
@@ -86,6 +90,7 @@ impl AppState {
             subagent_tracker,
             subagent_definitions,
             subagent_config,
+            steer_registry,
         })
     }
 
@@ -97,6 +102,7 @@ impl AppState {
         let subagent_tracker = Arc::new(SubagentTracker::new(completion_tx, completion_rx));
         let subagent_definitions = Arc::new(AgentDefinitionRegistry::with_builtins());
         let subagent_config = SubagentConfig::default();
+        let steer_registry = Arc::new(SteerRegistry::new());
         let daemon = Arc::new(Mutex::new(DaemonManager::new()));
         let executor = Arc::new(TauriExecutor::new(daemon.clone()));
 
@@ -113,6 +119,7 @@ impl AppState {
             subagent_tracker,
             subagent_definitions,
             subagent_config,
+            steer_registry,
         })
     }
 
@@ -183,6 +190,7 @@ impl AppState {
             Arc::new(executor),
             Arc::new(notifier),
             config.unwrap_or_default(),
+            self.steer_registry.clone(),
         ));
 
         let handle = runner.start();
@@ -225,6 +233,7 @@ impl AppState {
             Arc::new(notifier),
             config.unwrap_or_default(),
             heartbeat_emitter,
+            self.steer_registry.clone(),
         ));
 
         let handle = runner.start();
@@ -443,15 +452,22 @@ impl TaskTrigger for AppTaskTrigger {
         })
     }
 
-    async fn send_input_to_task(&self, _task_id: &str, _input: &str) -> Result<()> {
-        // TODO: Implement task input forwarding once we have a task input channel
-        // For now, this is a placeholder that will be implemented when we add
-        // interactive task support
-        info!(
-            "Task input forwarding not yet implemented: {} -> {}",
-            _task_id, _input
-        );
-        Ok(())
+    async fn send_input_to_task(&self, task_id: &str, input: &str) -> Result<()> {
+        let message = SteerMessage {
+            instruction: input.to_string(),
+            source: SteerSource::User,
+            timestamp: chrono::Utc::now().timestamp_millis(),
+        };
+
+        if self.state.steer_registry.steer(task_id, message).await {
+            info!("Steer message sent to task {}: {}", task_id, input);
+            Ok(())
+        } else {
+            Err(anyhow::anyhow!(
+                "Task {} is not running or not accepting steer messages",
+                task_id
+            ))
+        }
     }
 
     async fn handle_approval(&self, _task_id: &str, _approved: bool) -> Result<bool> {

@@ -540,7 +540,7 @@ async fn run_agent_with_executor(
         config = config.with_temperature(temp as f32);
     }
 
-    let executor = AgentExecutor::new(swappable, tools);
+    let mut executor = AgentExecutor::new(swappable, tools);
     let result = executor.run(config).await?;
 
     let response = result.answer.unwrap_or_else(|| {

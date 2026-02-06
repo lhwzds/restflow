@@ -23,6 +23,7 @@ pub mod llm;
 pub mod lsp;
 pub mod memory;
 pub mod security;
+pub mod steer;
 pub mod tools;
 pub mod workflow_def;
 
@@ -48,6 +49,7 @@ pub use memory::{
     CompactionConfig, CompactionResult, ContextCompactor, DEFAULT_MAX_MESSAGES, WorkingMemory,
 };
 pub use security::{SecurityDecision, SecurityGate};
+pub use steer::{SteerMessage, SteerSource};
 pub use tools::{
     DiagnosticsProvider, DiagnosticsTool, EmailTool, HttpTool, MemorySearchMatch, MemorySearchTool,
     PythonTool, SecretResolver, SemanticMemory, SkillContent, SkillInfo, SkillProvider, SkillTool,

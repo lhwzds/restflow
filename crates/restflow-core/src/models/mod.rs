@@ -18,6 +18,7 @@ pub mod skill_meta;
 pub mod storage_mode;
 pub mod terminal_session;
 pub mod trigger;
+pub mod steer;
 pub mod webhook;
 
 pub use agent::{AgentNode, ApiKeyConfig};
@@ -43,6 +44,7 @@ pub use output::{
     PythonOutput, ScheduleOutput, WebhookTriggerOutput,
 };
 pub use webhook::{WebhookConfig, WebhookRateLimiter, WebhookRequest, WebhookResponse};
+pub use steer::{SteerMessage, SteerSource};
 // Secret is now defined in restflow-storage
 pub use chat_session::{
     ChatExecutionStatus, ChatMessage, ChatRole, ChatSession, ChatSessionMetadata,

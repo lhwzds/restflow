@@ -17,10 +17,11 @@ use restflow_ai::{
 use restflow_core::{
     AIModel, Provider,
     auth::AuthProfileManager,
-    models::{AgentNode, ApiKeyConfig},
+    models::{AgentNode, ApiKeyConfig, SteerMessage},
     process::ProcessRegistry,
     storage::Storage,
 };
+use tokio::sync::mpsc;
 use tokio::time::sleep;
 use tracing::info;
 
@@ -244,6 +245,7 @@ impl RealAgentExecutor {
         model: AIModel,
         input: Option<&str>,
         primary_provider: Provider,
+        steer_rx: Option<mpsc::Receiver<SteerMessage>>,
     ) -> Result<ExecutionResult> {
         let model_specs = Self::build_model_specs();
         let api_keys = self
@@ -282,6 +284,9 @@ impl RealAgentExecutor {
         }
 
         let mut agent = UnifiedAgent::new(swappable, tools, system_prompt, config);
+        if let Some(rx) = steer_rx {
+            agent = agent.with_steer_channel(rx);
+        }
 
         let goal = input.unwrap_or("Execute the agent task");
         let result = agent.execute(goal).await?;
@@ -304,9 +309,15 @@ impl AgentExecutor for RealAgentExecutor {
     /// 3. Creates the appropriate LLM client
     /// 4. Builds the system prompt (from agent config or skill)
     /// 5. Creates the tool registry
-    /// 6. Executes the agent via restflow_ai::AgentExecutor
+    /// 6. Executes the agent via restflow_ai::UnifiedAgent
     /// 7. Returns the execution result with output and messages
-    async fn execute(&self, agent_id: &str, input: Option<&str>) -> Result<ExecutionResult> {
+    async fn execute(
+        &self,
+        _task_id: &str,
+        agent_id: &str,
+        input: Option<&str>,
+        steer_rx: Option<mpsc::Receiver<SteerMessage>>,
+    ) -> Result<ExecutionResult> {
         let stored_agent = self
             .storage
             .agents
@@ -316,6 +327,19 @@ impl AgentExecutor for RealAgentExecutor {
         let agent_node = stored_agent.agent.clone();
         let primary_model = agent_node.require_model().map_err(|e| anyhow!(e))?;
         let primary_provider = primary_model.provider();
+
+        // If steer_rx is provided, skip failover (receiver can only be moved once)
+        if steer_rx.is_some() {
+            return self
+                .execute_with_model(
+                    &agent_node,
+                    primary_model,
+                    input,
+                    primary_provider,
+                    steer_rx,
+                )
+                .await;
+        }
 
         let failover_manager = FailoverManager::new(FailoverConfig::with_primary(primary_model));
         let retry_config = RetryConfig::default();
@@ -328,7 +352,7 @@ impl AgentExecutor for RealAgentExecutor {
             let result = execute_with_failover(&failover_manager, |model| {
                 let node = agent_node_clone.clone();
                 async move {
-                    self.execute_with_model(&node, model, input_ref, primary_provider)
+                    self.execute_with_model(&node, model, input_ref, primary_provider, None)
                         .await
                 }
             })

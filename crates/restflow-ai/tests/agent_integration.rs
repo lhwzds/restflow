@@ -23,7 +23,7 @@ async fn test_agent_with_http_tool() {
     let mut tools = ToolRegistry::new();
     tools.register(HttpTool::new());
 
-    let executor = AgentExecutor::new(llm, Arc::new(tools));
+    let mut executor = AgentExecutor::new(llm, Arc::new(tools));
     let config =
         AgentConfig::new("What is my IP address? Use the http tool to check httpbin.org/ip")
             .with_max_iterations(5);
@@ -47,7 +47,7 @@ async fn test_agent_with_anthropic() {
     let mut tools = ToolRegistry::new();
     tools.register(HttpTool::new());
 
-    let executor = AgentExecutor::new(llm, Arc::new(tools));
+    let mut executor = AgentExecutor::new(llm, Arc::new(tools));
     let config = AgentConfig::new(
         "Use the http tool to fetch https://httpbin.org/get and tell me what the origin IP is",
     )

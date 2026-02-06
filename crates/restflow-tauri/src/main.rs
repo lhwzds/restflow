@@ -170,6 +170,7 @@ fn main() {
             commands::pause_agent_task,
             commands::resume_agent_task,
             commands::cancel_agent_task,
+            commands::steer_agent_task,
             commands::get_agent_task_events,
             commands::get_runnable_agent_tasks,
             commands::run_agent_task_streaming,

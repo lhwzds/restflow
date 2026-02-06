@@ -634,7 +634,7 @@ async fn execute_subagent(
     agent_config.system_prompt = Some(agent_def.system_prompt.clone());
     agent_config.max_iterations = max_iterations;
 
-    let executor = AgentExecutor::new(llm_client, registry);
+    let mut executor = AgentExecutor::new(llm_client, registry);
     let result = executor.run(agent_config).await?;
 
     Ok(result)

@@ -6,9 +6,11 @@ use crate::agent::context::{ContextDiscoveryConfig, WorkspaceContextCache};
 use crate::agent::stream::{StreamEmitter, ToolCallAccumulator};
 use crate::error::{AiError, Result};
 use crate::llm::{CompletionRequest, FinishReason, Message, ToolCall};
+use crate::steer::SteerMessage;
 use crate::tools::{ToolOutput, ToolRegistry, ToolSchema};
 use futures::StreamExt;
 use std::sync::Arc;
+use tokio::sync::mpsc;
 use tracing::{debug, info, warn};
 
 /// Configuration for UnifiedAgent
@@ -49,6 +51,7 @@ pub struct UnifiedAgent {
     history: ConversationHistory,
     state: AgentState,
     context_cache: Option<WorkspaceContextCache>,
+    steer_rx: Option<mpsc::Receiver<SteerMessage>>,
 }
 
 impl UnifiedAgent {
@@ -70,6 +73,7 @@ impl UnifiedAgent {
             history: ConversationHistory::new(config.max_history),
             state: AgentState::Ready,
             context_cache,
+            steer_rx: None,
         }
     }
 
@@ -84,6 +88,26 @@ impl UnifiedAgent {
             self.history.add(message);
         }
         self
+    }
+
+    /// Attach a steer channel for injecting user updates mid-execution.
+    pub fn with_steer_channel(mut self, rx: mpsc::Receiver<SteerMessage>) -> Self {
+        self.steer_rx = Some(rx);
+        self
+    }
+
+    fn drain_steer_messages(&mut self) {
+        if let Some(rx) = &mut self.steer_rx {
+            while let Ok(steer) = rx.try_recv() {
+                info!(
+                    instruction = %steer.instruction,
+                    source = ?steer.source,
+                    "Received steer message, injecting into conversation"
+                );
+                self.history
+                    .add(Message::user(format!("[User Update]: {}", steer.instruction)));
+            }
+        }
     }
 
     /// Execute the agent with given input
@@ -118,6 +142,8 @@ impl UnifiedAgent {
             }
 
             debug!("ReAct iteration {}", iterations);
+
+            self.drain_steer_messages();
 
             let response = self.get_completion().await?;
             let action = ResponseParser::parse(
@@ -197,6 +223,8 @@ impl UnifiedAgent {
             }
 
             debug!("ReAct iteration {}", iterations);
+
+            self.drain_steer_messages();
 
             let response = self.get_streaming_completion(emitter).await?;
             let action = ResponseParser::parse(

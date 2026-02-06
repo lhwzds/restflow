@@ -12,8 +12,10 @@ use crate::agent::stream::{StreamEmitter, ToolCallAccumulator};
 use crate::error::{AiError, Result};
 use crate::llm::{CompletionRequest, FinishReason, LlmClient, Message, ToolCall};
 use crate::memory::{CompactionConfig, DEFAULT_MAX_MESSAGES, WorkingMemory};
+use crate::steer::SteerMessage;
 use crate::tools::ToolRegistry;
 use futures::StreamExt;
+use tokio::sync::mpsc;
 use tracing::debug;
 
 /// Agent type for system prompt composition.
@@ -156,6 +158,7 @@ pub struct AgentExecutor {
     tools: Arc<ToolRegistry>,
     summarizer: Option<Arc<dyn LlmClient>>,
     context_cache: Option<WorkspaceContextCache>,
+    steer_rx: Option<mpsc::Receiver<SteerMessage>>,
 }
 
 impl AgentExecutor {
@@ -170,6 +173,7 @@ impl AgentExecutor {
             tools,
             summarizer: None,
             context_cache,
+            steer_rx: None,
         }
     }
 
@@ -179,8 +183,14 @@ impl AgentExecutor {
         self
     }
 
+    /// Attach a steer channel for injecting user updates mid-execution.
+    pub fn with_steer_channel(mut self, rx: mpsc::Receiver<SteerMessage>) -> Self {
+        self.steer_rx = Some(rx);
+        self
+    }
+
     /// Execute agent - simplified Swarm-style loop
-    pub async fn run(&self, config: AgentConfig) -> Result<AgentResult> {
+    pub async fn run(&mut self, config: AgentConfig) -> Result<AgentResult> {
         let execution_id = uuid::Uuid::new_v4().to_string();
         let mut state = AgentState::new(execution_id, config.max_iterations);
         state.context = config.context.clone();
@@ -212,6 +222,19 @@ impl AgentExecutor {
                 .await?
             {
                 // Compaction affects working memory only; full state history remains intact.
+            }
+
+            if let Some(rx) = &mut self.steer_rx {
+                while let Ok(steer) = rx.try_recv() {
+                    tracing::info!(
+                        instruction = %steer.instruction,
+                        source = ?steer.source,
+                        "Received steer message, injecting into conversation"
+                    );
+                    let steer_msg = Message::user(format!("[User Update]: {}", steer.instruction));
+                    state.add_message(steer_msg.clone());
+                    memory.add(steer_msg);
+                }
             }
 
             // 1. LLM call - use working memory for context (handles overflow)
@@ -333,7 +356,7 @@ impl AgentExecutor {
     }
 
     pub async fn execute_streaming(
-        &self,
+        &mut self,
         config: AgentConfig,
         emitter: &mut dyn StreamEmitter,
     ) -> Result<AgentResult> {
@@ -364,6 +387,19 @@ impl AgentExecutor {
                 .await?
             {
                 // Compaction affects working memory only; full state history remains intact.
+            }
+
+            if let Some(rx) = &mut self.steer_rx {
+                while let Ok(steer) = rx.try_recv() {
+                    tracing::info!(
+                        instruction = %steer.instruction,
+                        source = ?steer.source,
+                        "Received steer message, injecting into conversation"
+                    );
+                    let steer_msg = Message::user(format!("[User Update]: {}", steer.instruction));
+                    state.add_message(steer_msg.clone());
+                    memory.add(steer_msg);
+                }
             }
 
             let mut request =
@@ -799,7 +835,7 @@ mod tests {
 
         let mock_llm = Arc::new(MockLlmClient::new(vec![response]));
         let tools = Arc::new(ToolRegistry::new());
-        let executor = AgentExecutor::new(mock_llm.clone(), tools);
+        let mut executor = AgentExecutor::new(mock_llm.clone(), tools);
 
         let config = AgentConfig::new("Say hello");
         let result = executor.run(config).await.unwrap();
@@ -821,7 +857,7 @@ mod tests {
 
         let mock_llm = Arc::new(MockLlmClient::new(vec![response]));
         let tools = Arc::new(ToolRegistry::new());
-        let executor = AgentExecutor::new(mock_llm.clone(), tools);
+        let mut executor = AgentExecutor::new(mock_llm.clone(), tools);
 
         let config = AgentConfig::new("Test task")
             .with_system_prompt("You are a test assistant")
@@ -867,7 +903,7 @@ mod tests {
 
         let mock_llm = Arc::new(MockLlmClient::new(responses));
         let tools = Arc::new(ToolRegistry::new());
-        let executor = AgentExecutor::new(mock_llm.clone(), tools);
+        let mut executor = AgentExecutor::new(mock_llm.clone(), tools);
 
         // Set a very small memory limit
         let config = AgentConfig::new("Multi-turn task").with_max_memory_messages(4); // system + user + assistant + tool_result
@@ -907,7 +943,7 @@ mod tests {
 
         let mock_llm = Arc::new(MockLlmClient::new(responses));
         let tools = Arc::new(ToolRegistry::new());
-        let executor = AgentExecutor::new(mock_llm, tools);
+        let mut executor = AgentExecutor::new(mock_llm, tools);
 
         let config = AgentConfig::new("Test").with_max_memory_messages(100); // Large enough to hold all
 

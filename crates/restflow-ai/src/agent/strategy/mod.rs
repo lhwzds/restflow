@@ -240,7 +240,7 @@ impl AgentStrategy for ReactStrategyAdapter {
     }
 
     async fn execute(&self, config: StrategyConfig) -> crate::error::Result<StrategyResult> {
-        let executor = AgentExecutor::new(self.llm.clone(), self.tools.clone());
+        let mut executor = AgentExecutor::new(self.llm.clone(), self.tools.clone());
 
         let agent_config = crate::agent::AgentConfig::new(&config.goal)
             .with_max_iterations(config.max_iterations)
