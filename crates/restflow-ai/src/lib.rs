@@ -47,7 +47,7 @@ pub use llm::{
 pub use memory::{
     CompactionConfig, CompactionResult, ContextCompactor, DEFAULT_MAX_MESSAGES, WorkingMemory,
 };
-pub use security::{SecurityDecision, SecurityGate};
+pub use security::{SecurityDecision, SecurityGate, ToolAction};
 pub use tools::{
     DiagnosticsProvider, DiagnosticsTool, EmailTool, HttpTool, MemorySearchMatch, MemorySearchTool,
     PythonTool, SecretResolver, SemanticMemory, SkillContent, SkillInfo, SkillProvider, SkillTool,
