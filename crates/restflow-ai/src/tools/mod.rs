@@ -6,6 +6,7 @@
 use std::sync::Arc;
 
 mod bash;
+mod diagnostics;
 mod email;
 mod file;
 mod file_memory;
@@ -24,6 +25,7 @@ mod traits;
 use file_tracker::FileTracker;
 
 pub use bash::{BashInput, BashOutput, BashTool};
+pub use diagnostics::{DiagnosticsProvider, DiagnosticsTool};
 pub use email::EmailTool;
 pub use file::{FileAction, FileTool};
 pub use file_memory::{
@@ -53,5 +55,25 @@ pub fn default_registry() -> ToolRegistry {
     registry.register(PythonTool::new());
     registry.register(EmailTool::new());
     registry.register(TelegramTool::new());
+    registry
+}
+
+/// Create a registry with default tools and diagnostics support.
+pub fn default_registry_with_diagnostics(
+    provider: Arc<dyn DiagnosticsProvider>,
+) -> ToolRegistry {
+    let mut registry = ToolRegistry::new();
+    let tracker = Arc::new(FileTracker::new());
+
+    registry.register(BashTool::new());
+    registry.register(
+        FileTool::with_tracker(tracker.clone()).with_diagnostics_provider(provider.clone()),
+    );
+    registry.register(PatchTool::new(tracker));
+    registry.register(HttpTool::new());
+    registry.register(PythonTool::new());
+    registry.register(EmailTool::new());
+    registry.register(TelegramTool::new());
+    registry.register(DiagnosticsTool::new(provider));
     registry
 }
