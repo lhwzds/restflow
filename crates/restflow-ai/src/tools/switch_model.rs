@@ -79,16 +79,12 @@ impl Tool for SwitchModelTool {
         let api_key = if self.factory.is_codex_cli_model(&model_name) {
             None
         } else {
-            Some(
-                self.factory
-                    .resolve_api_key(provider)
-                    .ok_or_else(|| {
-                        AiError::Tool(format!(
-                            "No API key available for provider {}",
-                            provider.as_str()
-                        ))
-                    })?,
-            )
+            Some(self.factory.resolve_api_key(provider).ok_or_else(|| {
+                AiError::Tool(format!(
+                    "No API key available for provider {}",
+                    provider.as_str()
+                ))
+            })?)
         };
 
         let client = self

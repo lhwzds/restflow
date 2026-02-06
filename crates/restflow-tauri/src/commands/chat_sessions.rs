@@ -5,6 +5,7 @@
 
 use crate::agent::{
     SubagentDeps, ToolRegistry, UnifiedAgent, UnifiedAgentConfig, registry_from_allowlist,
+    secret_resolver_from_storage,
 };
 use crate::chat::ChatStreamState;
 use crate::state::AppState;
@@ -394,10 +395,14 @@ async fn execute_agent_for_session(
 
     // Build tool registry
     let subagent_deps = state.subagent_deps(llm.clone());
+    let secret_resolver = state
+        .core
+        .as_ref()
+        .map(|core| secret_resolver_from_storage(&core.storage));
     let tools = Arc::new(registry_from_allowlist(
         agent_node.tools.as_deref(),
         Some(&subagent_deps),
-        state.secret_resolver(),
+        secret_resolver,
     ));
 
     let system_prompt = state
@@ -527,7 +532,10 @@ pub async fn send_chat_message_stream(
     let subagent_tracker = state.subagent_tracker.clone();
     let subagent_definitions = state.subagent_definitions.clone();
     let subagent_config = state.subagent_config.clone();
-    let secret_resolver = state.secret_resolver();
+    let secret_resolver = state
+        .core
+        .as_ref()
+        .map(|core| secret_resolver_from_storage(&core.storage));
 
     // Spawn background task for agent execution
     tokio::spawn(async move {

@@ -5,6 +5,7 @@ use tracing::warn;
 
 use crate::subagent::{AgentDefinitionRegistry, SubagentConfig, SubagentTracker};
 use restflow_ai::LlmClient;
+use restflow_core::storage::Storage;
 
 pub use restflow_ai::tools::{
     SecretResolver, Tool, ToolOutput, ToolRegistry, TranscribeTool, VisionTool,
@@ -44,6 +45,11 @@ pub struct SubagentDeps {
     pub llm_client: Arc<dyn LlmClient>,
     pub tool_registry: Arc<ToolRegistry>,
     pub config: SubagentConfig,
+}
+
+pub fn secret_resolver_from_storage(storage: &Storage) -> SecretResolver {
+    let secrets = storage.secrets.clone();
+    Arc::new(move |key| secrets.get_secret(key).ok().flatten())
 }
 
 /// Builder for creating a fully configured ToolRegistry.
@@ -100,7 +106,7 @@ impl ToolRegistryBuilder {
         self
     }
 
-    /// Add transcribe tool.
+    /// Add transcription tool.
     pub fn with_transcribe(mut self, resolver: SecretResolver) -> Self {
         self.registry.register(TranscribeTool::new(resolver));
         self

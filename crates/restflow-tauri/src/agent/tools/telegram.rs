@@ -59,6 +59,10 @@ impl Tool for TelegramTool {
         })
     }
 
+    fn supports_parallel(&self) -> bool {
+        false
+    }
+
     async fn execute(&self, args: Value) -> Result<ToolResult> {
         let payload: TelegramInput = serde_json::from_value(args)
             .map_err(|e| AiError::Tool(format!("Invalid input: {}", e)))?;

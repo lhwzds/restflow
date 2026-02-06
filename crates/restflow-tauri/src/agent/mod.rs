@@ -15,7 +15,7 @@ pub use tools::{
     BashConfig, BashTool, EmailTool, FileConfig, FileTool, HttpTool, ListAgentsTool, PythonTool,
     SpawnAgentTool, SpawnTool, SubagentDeps, SubagentSpawner, TelegramTool, Tool, ToolRegistry,
     ToolRegistryBuilder, ToolResult, UseSkillTool, WaitAgentsTool, default_registry,
-    registry_from_allowlist,
+    registry_from_allowlist, secret_resolver_from_storage,
 };
 
 pub fn build_agent_system_prompt(

@@ -75,6 +75,11 @@ impl Tool for FileTool {
         })
     }
 
+    fn supports_parallel_for(&self, input: &Value) -> bool {
+        let action = input.get("action").and_then(|value| value.as_str());
+        !matches!(action, Some("write"))
+    }
+
     async fn execute(&self, args: Value) -> Result<ToolResult> {
         let action = args
             .get("action")
