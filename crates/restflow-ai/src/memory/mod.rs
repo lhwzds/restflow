@@ -26,6 +26,7 @@ mod compaction;
 mod working;
 
 pub use compaction::{
-    COMPACTION_PROMPT, CategorizedMessages, CompactionConfig, CompactionResult, ContextCompactor,
+    CompactionEvent, CompactionStorage, COMPACTION_PROMPT, CategorizedMessages, CompactionConfig,
+    CompactionResult, ContextCompactor,
 };
 pub use working::{DEFAULT_MAX_MESSAGES, WorkingMemory};

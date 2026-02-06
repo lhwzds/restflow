@@ -10,6 +10,10 @@ import type { MessageExecution } from "./MessageExecution";
  */
 export type ChatMessage = { 
 /**
+ * Unique identifier for this message
+ */
+id: string, 
+/**
  * Role of the message sender
  */
 role: ChatRole, 
