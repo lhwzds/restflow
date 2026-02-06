@@ -397,6 +397,7 @@ async fn execute_agent_for_session(
     let tools = Arc::new(registry_from_allowlist(
         agent_node.tools.as_deref(),
         Some(&subagent_deps),
+        state.secret_resolver(),
     ));
 
     let system_prompt = state
@@ -526,6 +527,7 @@ pub async fn send_chat_message_stream(
     let subagent_tracker = state.subagent_tracker.clone();
     let subagent_definitions = state.subagent_definitions.clone();
     let subagent_config = state.subagent_config.clone();
+    let secret_resolver = state.secret_resolver();
 
     // Spawn background task for agent execution
     tokio::spawn(async move {
@@ -625,6 +627,7 @@ pub async fn send_chat_message_stream(
         let tools = Arc::new(registry_from_allowlist(
             agent_node.tools.as_deref(),
             Some(&subagent_deps),
+            secret_resolver.clone(),
         ));
 
         let system_prompt = match executor.build_agent_system_prompt(agent_node.clone()).await {

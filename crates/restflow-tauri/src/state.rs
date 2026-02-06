@@ -13,7 +13,7 @@ use crate::executor::TauriExecutor;
 use crate::subagent::{AgentDefinitionRegistry, SubagentConfig, SubagentTracker};
 use anyhow::Result;
 use async_trait::async_trait;
-use restflow_ai::LlmClient;
+use restflow_ai::{LlmClient, SecretResolver};
 use restflow_core::AppCore;
 use restflow_core::channel::ChannelRouter;
 use restflow_core::models::AgentTask;
@@ -145,6 +145,13 @@ impl AppState {
             tool_registry: Arc::new(ToolRegistry::new()),
             config: self.subagent_config.clone(),
         }
+    }
+
+    /// Build a secret resolver for media tools when storage is available.
+    pub fn secret_resolver(&self) -> Option<SecretResolver> {
+        let core = self.core.as_ref()?;
+        let secrets = Arc::new(core.storage.secrets.clone());
+        Some(Arc::new(move |key| secrets.get_secret(key).ok().flatten()))
     }
 
     /// Start the agent task runner with the provided executor and notifier.

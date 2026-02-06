@@ -8,7 +8,7 @@ use std::sync::Arc;
 use tracing::{debug, error, info, warn};
 
 use restflow_ai::llm::Message;
-use restflow_ai::{AnthropicClient, ClaudeCodeClient, LlmClient, OpenAIClient};
+use restflow_ai::{AnthropicClient, ClaudeCodeClient, LlmClient, OpenAIClient, SecretResolver};
 use restflow_core::auth::AuthProfileManager;
 use restflow_core::channel::{ChannelRouter, InboundMessage, OutboundMessage};
 use restflow_core::models::{ApiKeyConfig, ChatMessage, ChatRole, ChatSession};
@@ -353,6 +353,11 @@ impl ChatDispatcher {
         }
     }
 
+    fn secret_resolver(&self) -> SecretResolver {
+        let secrets = Arc::new(self.storage.secrets.clone());
+        Arc::new(move |key| secrets.get_secret(key).ok().flatten())
+    }
+
     /// Convert a stored chat message into an LLM message.
     fn chat_message_to_llm_message(message: &ChatMessage) -> Message {
         match message.role {
@@ -473,6 +478,7 @@ impl ChatDispatcher {
         let tools = Arc::new(registry_from_allowlist(
             agent_node.tools.as_deref(),
             Some(&subagent_deps),
+            Some(self.secret_resolver()),
         ));
         let system_prompt = build_agent_system_prompt(self.storage.clone(), agent_node)
             .map_err(|e| ChatError::ExecutionFailed(e.to_string()))?;
