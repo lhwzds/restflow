@@ -349,6 +349,13 @@ async fn resolve_api_key(
         return Ok(key);
     }
 
+    if let Some(storage) = secret_storage {
+        let secret_name = provider.api_key_env();
+        if let Some(secret_value) = storage.get_secret(secret_name)? {
+            return Ok(secret_value);
+        }
+    }
+
     bail!("No API key configured");
 }
 
@@ -376,7 +383,8 @@ async fn resolve_api_key_from_profiles(
             }
         }
         Provider::OpenAI => manager.select_profile(AuthProvider::OpenAI).await,
-        Provider::DeepSeek => None,
+        Provider::Google => manager.select_profile(AuthProvider::Google).await,
+        _ => manager.select_profile(AuthProvider::Other).await,
     };
 
     match selection {
@@ -422,6 +430,16 @@ fn to_llm_provider(provider: Provider) -> LlmProvider {
         Provider::OpenAI => LlmProvider::OpenAI,
         Provider::Anthropic => LlmProvider::Anthropic,
         Provider::DeepSeek => LlmProvider::DeepSeek,
+        Provider::Google => LlmProvider::Google,
+        Provider::Groq => LlmProvider::Groq,
+        Provider::OpenRouter => LlmProvider::OpenRouter,
+        Provider::XAI => LlmProvider::XAI,
+        Provider::Qwen => LlmProvider::Qwen,
+        Provider::Zhipu => LlmProvider::Zhipu,
+        Provider::Moonshot => LlmProvider::Moonshot,
+        Provider::Doubao => LlmProvider::Doubao,
+        Provider::Yi => LlmProvider::Yi,
+        Provider::SiliconFlow => LlmProvider::SiliconFlow,
     }
 }
 
@@ -433,15 +451,15 @@ async fn build_api_keys(
 ) -> HashMap<LlmProvider, String> {
     let mut keys = HashMap::new();
 
-    for provider in [Provider::OpenAI, Provider::Anthropic, Provider::DeepSeek] {
-        let api_key_config = if provider == primary_provider {
+    for provider in Provider::all() {
+        let api_key_config = if *provider == primary_provider {
             agent_node.api_key_config.as_ref()
         } else {
             None
         };
 
-        if let Ok(key) = resolve_api_key(api_key_config, secret_storage, provider, core).await {
-            keys.insert(to_llm_provider(provider), key);
+        if let Ok(key) = resolve_api_key(api_key_config, secret_storage, *provider, core).await {
+            keys.insert(to_llm_provider(*provider), key);
         }
     }
 

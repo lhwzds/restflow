@@ -6,6 +6,7 @@ use restflow_core::channel::ChannelRouter;
 use restflow_core::models::{AgentTask, AgentTaskStatus};
 use restflow_core::paths;
 use restflow_core::process::ProcessRegistry;
+use restflow_core::steer::SteerRegistry;
 use restflow_core::storage::SecretStorage;
 use restflow_storage::AuthProfileStorage;
 use restflow_tauri_lib::{
@@ -84,6 +85,7 @@ impl CliTaskRunner {
             subagent_config.clone(),
         );
         let notifier = TelegramNotifier::new(secrets);
+        let steer_registry = Arc::new(SteerRegistry::new());
 
         let runner = Arc::new(AgentTaskRunner::new(
             Arc::new(storage.agent_tasks.clone()),
@@ -94,6 +96,7 @@ impl CliTaskRunner {
                 max_concurrent_tasks: 5,
                 task_timeout_secs: 3600,
             },
+            steer_registry,
         ));
 
         let handle = runner.clone().start();

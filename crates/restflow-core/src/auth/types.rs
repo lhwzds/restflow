@@ -368,7 +368,8 @@ impl AuthProvider {
         match provider {
             Provider::Anthropic => vec![AuthProvider::ClaudeCode, AuthProvider::Anthropic],
             Provider::OpenAI => vec![AuthProvider::OpenAICodex, AuthProvider::OpenAI],
-            Provider::DeepSeek => vec![AuthProvider::Other],
+            Provider::Google => vec![AuthProvider::Google],
+            _ => vec![AuthProvider::Other],
         }
     }
 }

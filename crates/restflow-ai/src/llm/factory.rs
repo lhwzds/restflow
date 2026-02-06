@@ -13,6 +13,16 @@ pub enum LlmProvider {
     OpenAI,
     Anthropic,
     DeepSeek,
+    Google,
+    Groq,
+    OpenRouter,
+    XAI,
+    Qwen,
+    Zhipu,
+    Moonshot,
+    Doubao,
+    Yi,
+    SiliconFlow,
 }
 
 impl LlmProvider {
@@ -21,6 +31,34 @@ impl LlmProvider {
             Self::OpenAI => "openai",
             Self::Anthropic => "anthropic",
             Self::DeepSeek => "deepseek",
+            Self::Google => "google",
+            Self::Groq => "groq",
+            Self::OpenRouter => "openrouter",
+            Self::XAI => "xai",
+            Self::Qwen => "qwen",
+            Self::Zhipu => "zhipu",
+            Self::Moonshot => "moonshot",
+            Self::Doubao => "doubao",
+            Self::Yi => "yi",
+            Self::SiliconFlow => "siliconflow",
+        }
+    }
+
+    pub fn base_url(&self) -> &'static str {
+        match self {
+            Self::OpenAI => "https://api.openai.com/v1",
+            Self::Anthropic => "",
+            Self::DeepSeek => "https://api.deepseek.com/v1",
+            Self::Google => "https://generativelanguage.googleapis.com/v1beta/openai",
+            Self::Groq => "https://api.groq.com/openai/v1",
+            Self::OpenRouter => "https://openrouter.ai/api/v1",
+            Self::XAI => "https://api.x.ai/v1",
+            Self::Qwen => "https://dashscope.aliyuncs.com/compatible-mode/v1",
+            Self::Zhipu => "https://open.bigmodel.cn/api/paas/v4",
+            Self::Moonshot => "https://api.moonshot.cn/v1",
+            Self::Doubao => "https://ark.cn-beijing.volces.com/api/v3",
+            Self::Yi => "https://api.lingyiwanwu.com/v1",
+            Self::SiliconFlow => "https://api.siliconflow.cn/v1",
         }
     }
 }
@@ -109,27 +147,25 @@ impl LlmClientFactory for DefaultLlmClientFactory {
     fn create_client(&self, model: &str, api_key: Option<&str>) -> Result<Arc<dyn LlmClient>> {
         let spec = self.model_spec(model)?;
 
-        match spec.provider {
-            LlmProvider::OpenAI => {
-                if spec.is_opencode_cli {
-                    let mut client = OpenCodeClient::new().with_model(spec.client_model);
-                    if let Some(key) = api_key {
-                        let env_var = detect_env_var(key);
-                        client = client.with_provider_env(env_var, key.to_string());
-                    }
-                    Ok(Arc::new(client))
-                } else if spec.is_codex_cli {
-                    Ok(Arc::new(CodexClient::new().with_model(spec.client_model)))
-                } else {
-                    let key = api_key
-                        .ok_or_else(|| AiError::Llm("OpenAI API key is required".to_string()))?;
-                    let client = OpenAIClient::new(key).with_model(spec.client_model);
-                    Ok(Arc::new(client))
-                }
+        if spec.is_opencode_cli {
+            let mut client = OpenCodeClient::new().with_model(spec.client_model);
+            if let Some(key) = api_key {
+                let env_var = detect_env_var(key);
+                client = client.with_provider_env(env_var, key.to_string());
             }
+            return Ok(Arc::new(client));
+        }
+
+        if spec.is_codex_cli {
+            return Ok(Arc::new(CodexClient::new().with_model(spec.client_model)));
+        }
+
+        let key = api_key.ok_or_else(|| {
+            AiError::Llm(format!("{} API key is required", spec.provider.as_str()))
+        })?;
+
+        match spec.provider {
             LlmProvider::Anthropic => {
-                let key = api_key
-                    .ok_or_else(|| AiError::Llm("Anthropic API key is required".to_string()))?;
                 if key.starts_with("sk-ant-oat") {
                     let client = ClaudeCodeClient::new(key).with_model(spec.client_model);
                     Ok(Arc::new(client))
@@ -138,12 +174,10 @@ impl LlmClientFactory for DefaultLlmClientFactory {
                     Ok(Arc::new(client))
                 }
             }
-            LlmProvider::DeepSeek => {
-                let key = api_key
-                    .ok_or_else(|| AiError::Llm("DeepSeek API key is required".to_string()))?;
+            provider => {
                 let client = OpenAIClient::new(key)
                     .with_model(spec.client_model)
-                    .with_base_url("https://api.deepseek.com/v1");
+                    .with_base_url(provider.base_url());
                 Ok(Arc::new(client))
             }
         }
