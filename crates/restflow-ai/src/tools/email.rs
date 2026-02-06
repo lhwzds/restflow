@@ -116,15 +116,16 @@ impl Tool for EmailTool {
             summary: format!("Send email to {}", params.to),
         };
 
-        if let Some(message) = check_security(
+        let result = check_security(
             self.security_gate.as_deref(),
             action,
             self.agent_id.as_deref(),
             self.task_id.as_deref(),
         )
-        .await?
-        {
-            return Ok(ToolOutput::error(message));
+        .await?;
+
+        if let Some(output) = result.to_tool_output() {
+            return Ok(output);
         }
 
         if self.dry_run {

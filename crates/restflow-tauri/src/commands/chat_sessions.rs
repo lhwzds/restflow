@@ -4,8 +4,8 @@
 //! chat sessions in the SkillWorkspace.
 
 use crate::agent::{
-    SubagentDeps, ToolRegistry, UnifiedAgent, UnifiedAgentConfig, registry_from_allowlist,
-    secret_resolver_from_storage,
+    SubagentDeps, ToolRegistry, ToolSecurityContext, UnifiedAgent, UnifiedAgentConfig,
+    registry_from_allowlist_with_security, secret_resolver_from_storage,
 };
 use crate::chat::ChatStreamState;
 use crate::state::AppState;
@@ -399,10 +399,16 @@ async fn execute_agent_for_session(
         .core
         .as_ref()
         .map(|core| secret_resolver_from_storage(&core.storage));
-    let tools = Arc::new(registry_from_allowlist(
+    let security_ctx = ToolSecurityContext {
+        security_gate: state.security_checker_arc(),
+        agent_id: session.agent_id.clone(),
+        task_id: Uuid::new_v4().to_string(),
+    };
+    let tools = Arc::new(registry_from_allowlist_with_security(
         agent_node.tools.as_deref(),
         Some(&subagent_deps),
         secret_resolver,
+        Some(&security_ctx),
     ));
 
     let system_prompt = state
@@ -632,10 +638,16 @@ pub async fn send_chat_message_stream(
             tool_registry: Arc::new(ToolRegistry::new()),
             config: subagent_config,
         };
-        let tools = Arc::new(registry_from_allowlist(
+        let security_ctx = ToolSecurityContext {
+            security_gate: state.security_checker_arc(),
+            agent_id: session.agent_id.clone(),
+            task_id: Uuid::new_v4().to_string(),
+        };
+        let tools = Arc::new(registry_from_allowlist_with_security(
             agent_node.tools.as_deref(),
             Some(&subagent_deps),
             secret_resolver.clone(),
+            Some(&security_ctx),
         ));
 
         let system_prompt = match executor.build_agent_system_prompt(agent_node.clone()).await {

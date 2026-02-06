@@ -279,6 +279,176 @@ pub fn registry_from_allowlist(
     builder.build()
 }
 
+/// Security context for tool operations.
+#[derive(Clone)]
+pub struct ToolSecurityContext {
+    pub security_gate: Arc<dyn restflow_ai::SecurityGate>,
+    pub agent_id: String,
+    pub task_id: String,
+}
+
+/// Build a tool registry filtered by an allowlist with optional security enforcement.
+///
+/// When security context is provided, uses restflow-ai tool implementations
+/// that enforce tool_rules via the SecurityChecker.
+pub fn registry_from_allowlist_with_security(
+    tool_names: Option<&[String]>,
+    subagent_deps: Option<&SubagentDeps>,
+    secret_resolver: Option<SecretResolver>,
+    security_ctx: Option<&ToolSecurityContext>,
+) -> ToolRegistry {
+    let Some(tool_names) = tool_names else {
+        return ToolRegistry::new();
+    };
+
+    if tool_names.is_empty() {
+        return ToolRegistry::new();
+    }
+
+    let mut registry = ToolRegistry::new();
+    let mut allow_file = false;
+    let mut allow_file_write = false;
+
+    for raw_name in tool_names {
+        match raw_name.as_str() {
+            "bash" => {
+                // Use restflow-ai BashTool with security support
+                let mut tool = restflow_ai::tools::BashTool::new();
+                if let Some(ctx) = security_ctx {
+                    tool = tool.with_security(
+                        ctx.security_gate.clone(),
+                        ctx.agent_id.clone(),
+                        ctx.task_id.clone(),
+                    );
+                }
+                registry.register(tool);
+            }
+            "file" | "read" => {
+                allow_file = true;
+            }
+            "write" => {
+                allow_file = true;
+                allow_file_write = true;
+            }
+            "http" | "http_request" => {
+                // Use restflow-ai HttpTool with security support
+                let mut tool = restflow_ai::tools::HttpTool::new();
+                if let Some(ctx) = security_ctx {
+                    tool = tool.with_security(
+                        ctx.security_gate.clone(),
+                        ctx.agent_id.clone(),
+                        ctx.task_id.clone(),
+                    );
+                }
+                registry.register(tool);
+            }
+            "run_python" | "python" => {
+                // Use restflow-ai PythonTool with security support
+                let mut tool = restflow_ai::tools::PythonTool::new();
+                if let Some(ctx) = security_ctx {
+                    tool = tool.with_security(
+                        ctx.security_gate.clone(),
+                        ctx.agent_id.clone(),
+                        ctx.task_id.clone(),
+                    );
+                }
+                registry.register(tool);
+            }
+            "send_email" | "email" => {
+                // Use restflow-ai EmailTool with security support
+                let mut tool = restflow_ai::tools::EmailTool::new();
+                if let Some(ctx) = security_ctx {
+                    tool = tool.with_security(
+                        ctx.security_gate.clone(),
+                        ctx.agent_id.clone(),
+                        ctx.task_id.clone(),
+                    );
+                }
+                registry.register(tool);
+            }
+            "telegram_send" | "telegram" => {
+                registry.register(TelegramTool::new());
+            }
+            "transcribe" => {
+                if let Some(resolver) = secret_resolver.clone() {
+                    registry.register(TranscribeTool::new(resolver));
+                } else {
+                    warn!(
+                        tool_name = "transcribe",
+                        "Secret resolver missing, skipping"
+                    );
+                }
+            }
+            "vision" => {
+                if let Some(resolver) = secret_resolver.clone() {
+                    registry.register(VisionTool::new(resolver));
+                } else {
+                    warn!(tool_name = "vision", "Secret resolver missing, skipping");
+                }
+            }
+            "spawn_agent" => {
+                if let Some(deps) = subagent_deps {
+                    registry.register(SpawnAgentTool::new(Arc::new(deps.clone())));
+                } else {
+                    warn!(
+                        tool_name = "spawn_agent",
+                        "Subagent dependencies missing, skipping"
+                    );
+                }
+            }
+            "wait_agents" => {
+                if let Some(deps) = subagent_deps {
+                    registry.register(WaitAgentsTool::new(Arc::new(deps.clone())));
+                } else {
+                    warn!(
+                        tool_name = "wait_agents",
+                        "Subagent dependencies missing, skipping"
+                    );
+                }
+            }
+            "list_agents" => {
+                if let Some(deps) = subagent_deps {
+                    registry.register(ListAgentsTool::new(Arc::new(deps.clone())));
+                } else {
+                    warn!(
+                        tool_name = "list_agents",
+                        "Subagent dependencies missing, skipping"
+                    );
+                }
+            }
+            "use_skill" => {
+                if let Some(deps) = subagent_deps {
+                    registry.register(UseSkillTool::new(Arc::new(deps.clone())));
+                } else {
+                    warn!(
+                        tool_name = "use_skill",
+                        "Subagent dependencies missing, skipping"
+                    );
+                }
+            }
+            unknown => {
+                warn!(tool_name = %unknown, "Configured tool not found in registry, skipping");
+            }
+        }
+    }
+
+    if allow_file {
+        // Use restflow-ai FileTool with security support
+        let mut tool = restflow_ai::tools::FileTool::new();
+        if let Some(ctx) = security_ctx {
+            tool = tool.with_security(
+                ctx.security_gate.clone(),
+                ctx.agent_id.clone(),
+                ctx.task_id.clone(),
+            );
+        }
+        // Note: restflow-ai FileTool handles write permission internally
+        registry.register(tool);
+    }
+
+    registry
+}
+
 /// Create a registry with default tools.
 pub fn default_registry() -> ToolRegistry {
     ToolRegistryBuilder::new()

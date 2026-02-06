@@ -6,6 +6,7 @@ use restflow_core::channel::ChannelRouter;
 use restflow_core::models::{AgentTask, AgentTaskStatus};
 use restflow_core::paths;
 use restflow_core::process::ProcessRegistry;
+use restflow_core::security::SecurityChecker;
 use restflow_core::storage::SecretStorage;
 use restflow_storage::AuthProfileStorage;
 use restflow_tauri_lib::{
@@ -75,13 +76,17 @@ impl CliTaskRunner {
         let subagent_definitions = Arc::new(AgentDefinitionRegistry::with_builtins());
         let subagent_config = SubagentConfig::default();
 
-        let executor = RealAgentExecutor::new(
+        // Create security checker for tool rule enforcement
+        let security_checker = Arc::new(SecurityChecker::with_defaults());
+
+        let executor = RealAgentExecutor::with_security(
             storage.clone(),
             process_registry,
             auth_manager.clone(),
             subagent_tracker.clone(),
             subagent_definitions.clone(),
             subagent_config.clone(),
+            security_checker,
         );
         let notifier = TelegramNotifier::new(secrets);
 
@@ -131,6 +136,7 @@ impl CliTaskRunner {
                 subagent_tracker.clone(),
                 subagent_definitions.clone(),
                 subagent_config.clone(),
+                security_checker.clone(),
             ));
 
             start_message_handler_with_chat(

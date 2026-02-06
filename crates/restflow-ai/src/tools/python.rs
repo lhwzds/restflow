@@ -108,15 +108,16 @@ impl Tool for PythonTool {
             summary: "Execute Python code".to_string(),
         };
 
-        if let Some(message) = check_security(
+        let result = check_security(
             self.security_gate.as_deref(),
             action,
             self.agent_id.as_deref(),
             self.task_id.as_deref(),
         )
-        .await?
-        {
-            return Ok(ToolOutput::error(message));
+        .await?;
+
+        if let Some(output) = result.to_tool_output() {
+            return Ok(output);
         }
 
         let result = tokio::time::timeout(

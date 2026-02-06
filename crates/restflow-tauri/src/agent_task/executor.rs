@@ -19,6 +19,7 @@ use restflow_core::{
     auth::AuthProfileManager,
     models::{AgentNode, ApiKeyConfig},
     process::ProcessRegistry,
+    security::SecurityChecker,
     storage::Storage,
 };
 use tokio::time::sleep;
@@ -28,8 +29,8 @@ use super::failover::{FailoverConfig, FailoverManager, execute_with_failover};
 use super::retry::{RetryConfig, RetryState};
 use super::runner::{AgentExecutor, ExecutionResult};
 use crate::agent::{
-    SubagentDeps, ToolRegistry, UnifiedAgent, UnifiedAgentConfig, build_agent_system_prompt,
-    registry_from_allowlist, secret_resolver_from_storage,
+    SubagentDeps, ToolRegistry, ToolSecurityContext, UnifiedAgent, UnifiedAgentConfig,
+    build_agent_system_prompt, registry_from_allowlist_with_security, secret_resolver_from_storage,
 };
 use crate::subagent::{AgentDefinitionRegistry, SubagentConfig, SubagentTracker};
 
@@ -49,6 +50,7 @@ pub struct RealAgentExecutor {
     subagent_tracker: Arc<SubagentTracker>,
     subagent_definitions: Arc<AgentDefinitionRegistry>,
     subagent_config: SubagentConfig,
+    security_checker: Option<Arc<SecurityChecker>>,
 }
 
 impl RealAgentExecutor {
@@ -68,6 +70,28 @@ impl RealAgentExecutor {
             subagent_tracker,
             subagent_definitions,
             subagent_config,
+            security_checker: None,
+        }
+    }
+
+    /// Create a new RealAgentExecutor with security checking enabled.
+    pub fn with_security(
+        storage: Arc<Storage>,
+        process_registry: Arc<ProcessRegistry>,
+        auth_manager: Arc<AuthProfileManager>,
+        subagent_tracker: Arc<SubagentTracker>,
+        subagent_definitions: Arc<AgentDefinitionRegistry>,
+        subagent_config: SubagentConfig,
+        security_checker: Arc<SecurityChecker>,
+    ) -> Self {
+        Self {
+            storage,
+            process_registry,
+            auth_manager,
+            subagent_tracker,
+            subagent_definitions,
+            subagent_config,
+            security_checker: Some(security_checker),
         }
     }
 
@@ -215,17 +239,37 @@ impl RealAgentExecutor {
     ///
     /// If the agent has specific tools configured, only those tools are registered.
     /// Otherwise, an empty registry is used (secure default).
+    ///
+    /// When a security checker is configured, tool actions are checked against
+    /// the security policy before execution.
     fn build_tool_registry(
         &self,
         tool_names: Option<&[String]>,
+        agent_id: &str,
         llm_client: Arc<dyn LlmClient>,
         swappable: Arc<SwappableLlm>,
         factory: Arc<dyn LlmClientFactory>,
     ) -> Arc<ToolRegistry> {
         let subagent_deps = self.build_subagent_deps(llm_client);
         let secret_resolver = Some(secret_resolver_from_storage(&self.storage));
-        let mut registry =
-            registry_from_allowlist(tool_names, Some(&subagent_deps), secret_resolver);
+
+        // Create security context if security checker is configured
+        let security_ctx = self.security_checker.as_ref().map(|checker| {
+            // Use agent_id as task_id for now - approvals are scoped by agent
+            let execution_id = uuid::Uuid::new_v4().to_string();
+            ToolSecurityContext {
+                security_gate: checker.clone(),
+                agent_id: agent_id.to_string(),
+                task_id: execution_id,
+            }
+        });
+
+        let mut registry = registry_from_allowlist_with_security(
+            tool_names,
+            Some(&subagent_deps),
+            secret_resolver,
+            security_ctx.as_ref(),
+        );
 
         let enable_switch = tool_names
             .map(|names| names.iter().any(|name| name == "switch_model"))
@@ -240,6 +284,7 @@ impl RealAgentExecutor {
 
     async fn execute_with_model(
         &self,
+        agent_id: &str,
         agent_node: &AgentNode,
         model: AIModel,
         input: Option<&str>,
@@ -268,6 +313,7 @@ impl RealAgentExecutor {
         let swappable = Arc::new(SwappableLlm::new(llm_client));
         let tools = self.build_tool_registry(
             agent_node.tools.as_deref(),
+            agent_id,
             swappable.clone(),
             swappable.clone(),
             factory,
@@ -325,10 +371,12 @@ impl AgentExecutor for RealAgentExecutor {
         loop {
             let input_ref = input_owned.as_deref();
             let agent_node_clone = agent_node.clone();
+            let agent_id_owned = agent_id.to_string();
             let result = execute_with_failover(&failover_manager, |model| {
                 let node = agent_node_clone.clone();
+                let agent_id_ref = agent_id_owned.clone();
                 async move {
-                    self.execute_with_model(&node, model, input_ref, primary_provider)
+                    self.execute_with_model(&agent_id_ref, &node, model, input_ref, primary_provider)
                         .await
                 }
             })

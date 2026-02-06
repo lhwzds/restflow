@@ -71,40 +71,88 @@ pub trait SkillProvider: Send + Sync {
     fn get_skill(&self, id: &str) -> Option<SkillContent>;
 }
 
+/// Result of a security check for tool actions.
+#[derive(Debug, Clone)]
+pub enum SecurityCheckResult {
+    /// Action is allowed to proceed
+    Allowed,
+    /// Action is blocked by policy
+    Blocked { reason: String },
+    /// Action requires user approval before proceeding
+    RequiresApproval {
+        approval_id: String,
+        summary: String,
+    },
+}
+
+impl SecurityCheckResult {
+    /// Convert the security check result to a ToolOutput for blocked/approval cases.
+    /// Returns None if allowed.
+    pub fn to_tool_output(&self) -> Option<ToolOutput> {
+        match self {
+            SecurityCheckResult::Allowed => None,
+            SecurityCheckResult::Blocked { reason } => Some(ToolOutput {
+                success: false,
+                result: serde_json::json!({
+                    "blocked": true,
+                }),
+                error: Some(reason.clone()),
+            }),
+            SecurityCheckResult::RequiresApproval {
+                approval_id,
+                summary,
+            } => Some(ToolOutput {
+                success: false,
+                result: serde_json::json!({
+                    "pending_approval": true,
+                    "approval_id": approval_id,
+                }),
+                error: Some(format!(
+                    "Action requires user approval (ID: {}). Waiting for approval of: {}",
+                    approval_id, summary
+                )),
+            }),
+        }
+    }
+}
+
 /// Helper for tools to check security before executing.
 ///
-/// Returns Ok(None) if allowed, Ok(Some(message)) if blocked or requires approval.
+/// Returns a SecurityCheckResult indicating whether the action is allowed,
+/// blocked, or requires approval.
 pub async fn check_security(
     gate: Option<&dyn SecurityGate>,
     action: ToolAction,
     agent_id: Option<&str>,
     task_id: Option<&str>,
-) -> Result<Option<String>> {
+) -> Result<SecurityCheckResult> {
     let Some(gate) = gate else {
-        return Ok(None);
+        return Ok(SecurityCheckResult::Allowed);
     };
 
     let agent_id = agent_id.ok_or_else(|| AiError::Tool("Missing agent_id".into()))?;
     let task_id = task_id.ok_or_else(|| AiError::Tool("Missing task_id".into()))?;
 
+    let summary = action.summary.clone();
+
     match gate
         .check_tool_action(&action, Some(agent_id), Some(task_id))
         .await?
     {
-        crate::security::SecurityDecision { allowed: true, .. } => Ok(None),
+        crate::security::SecurityDecision { allowed: true, .. } => {
+            Ok(SecurityCheckResult::Allowed)
+        }
         crate::security::SecurityDecision {
             requires_approval: true,
             approval_id,
             ..
-        } => Ok(Some(format!(
-            "Action requires user approval (ID: {}). Waiting for approval of: {}",
-            approval_id.unwrap_or_else(|| "unknown".to_string()),
-            action.summary
-        ))),
-        crate::security::SecurityDecision { reason, .. } => Ok(Some(format!(
-            "Action blocked: {}",
-            reason.unwrap_or_else(|| "Blocked by policy".to_string())
-        ))),
+        } => Ok(SecurityCheckResult::RequiresApproval {
+            approval_id: approval_id.unwrap_or_else(|| "unknown".to_string()),
+            summary,
+        }),
+        crate::security::SecurityDecision { reason, .. } => Ok(SecurityCheckResult::Blocked {
+            reason: reason.unwrap_or_else(|| "Blocked by policy".to_string()),
+        }),
     }
 }
 

@@ -152,6 +152,42 @@ impl FileTool {
         self
     }
 
+    /// Check security for multiple paths in batch operations.
+    /// Returns Some(ToolOutput) if any path is blocked or requires approval.
+    async fn check_paths_security(
+        &self,
+        operation: &str,
+        paths: &[String],
+        summary_prefix: &str,
+    ) -> Result<Option<ToolOutput>> {
+        let Some(security_gate) = &self.security_gate else {
+            return Ok(None);
+        };
+
+        for path in paths {
+            let action = ToolAction {
+                tool_name: "file".to_string(),
+                operation: operation.to_string(),
+                target: path.clone(),
+                summary: format!("{}: {}", summary_prefix, path),
+            };
+
+            let result = check_security(
+                Some(security_gate.as_ref()),
+                action,
+                self.agent_id.as_deref(),
+                self.task_id.as_deref(),
+            )
+            .await?;
+
+            if let Some(output) = result.to_tool_output() {
+                return Ok(Some(output));
+            }
+        }
+
+        Ok(None)
+    }
+
     /// Resolve and validate a path against the base directory
     fn resolve_path(&self, path: &str) -> std::result::Result<PathBuf, String> {
         let path = PathBuf::from(path);
@@ -1558,61 +1594,78 @@ impl Tool for FileTool {
     async fn execute(&self, input: Value) -> Result<ToolOutput> {
         let action: FileAction = serde_json::from_value(input)?;
 
-        let action_info = match &action {
-            FileAction::Read { path, .. } => {
-                Some(("read", path.clone(), format!("Read file: {}", path)))
+        // For batch operations, check each path individually
+        match &action {
+            FileAction::BatchRead { paths, .. } => {
+                if let Some(output) = self
+                    .check_paths_security("read", paths, "Read file")
+                    .await?
+                {
+                    return Ok(output);
+                }
             }
-            FileAction::Write { path, .. } => {
-                Some(("write", path.clone(), format!("Write file: {}", path)))
+            FileAction::BatchExists { paths } => {
+                if let Some(output) = self
+                    .check_paths_security("exists", paths, "Check path exists")
+                    .await?
+                {
+                    return Ok(output);
+                }
             }
-            FileAction::List { path, .. } => {
-                Some(("list", path.clone(), format!("List directory: {}", path)))
+            FileAction::BatchSearch { locations, .. } => {
+                if let Some(output) = self
+                    .check_paths_security("search", locations, "Search location")
+                    .await?
+                {
+                    return Ok(output);
+                }
             }
-            FileAction::Search { path, .. } => {
-                Some(("search", path.clone(), format!("Search files in: {}", path)))
-            }
-            FileAction::Delete { path } => {
-                Some(("delete", path.clone(), format!("Delete path: {}", path)))
-            }
-            FileAction::Exists { path } => Some((
-                "exists",
-                path.clone(),
-                format!("Check path exists: {}", path),
-            )),
-            FileAction::BatchRead { paths, .. } => Some((
-                "batch_read",
-                format!("{} paths", paths.len()),
-                format!("Read {} files", paths.len()),
-            )),
-            FileAction::BatchExists { paths } => Some((
-                "batch_exists",
-                format!("{} paths", paths.len()),
-                format!("Check {} paths", paths.len()),
-            )),
-            FileAction::BatchSearch { locations, .. } => Some((
-                "batch_search",
-                format!("{} locations", locations.len()),
-                format!("Search {} locations", locations.len()),
-            )),
-        };
+            _ => {
+                // For single-path operations, check normally
+                let action_info = match &action {
+                    FileAction::Read { path, .. } => {
+                        Some(("read", path.clone(), format!("Read file: {}", path)))
+                    }
+                    FileAction::Write { path, .. } => {
+                        Some(("write", path.clone(), format!("Write file: {}", path)))
+                    }
+                    FileAction::List { path, .. } => {
+                        Some(("list", path.clone(), format!("List directory: {}", path)))
+                    }
+                    FileAction::Search { path, .. } => {
+                        Some(("search", path.clone(), format!("Search files in: {}", path)))
+                    }
+                    FileAction::Delete { path } => {
+                        Some(("delete", path.clone(), format!("Delete path: {}", path)))
+                    }
+                    FileAction::Exists { path } => Some((
+                        "exists",
+                        path.clone(),
+                        format!("Check path exists: {}", path),
+                    )),
+                    _ => None,
+                };
 
-        if let Some((operation, target, summary)) = action_info {
-            let action = ToolAction {
-                tool_name: "file".to_string(),
-                operation: operation.to_string(),
-                target,
-                summary,
-            };
+                if let Some((operation, target, summary)) = action_info {
+                    let tool_action = ToolAction {
+                        tool_name: "file".to_string(),
+                        operation: operation.to_string(),
+                        target,
+                        summary,
+                    };
 
-            if let Some(message) = check_security(
-                self.security_gate.as_deref(),
-                action,
-                self.agent_id.as_deref(),
-                self.task_id.as_deref(),
-            )
-            .await?
-            {
-                return Ok(ToolOutput::error(message));
+                    let result = check_security(
+                        self.security_gate.as_deref(),
+                        tool_action,
+                        self.agent_id.as_deref(),
+                        self.task_id.as_deref(),
+                    )
+                    .await?;
+
+                    if let Some(output) = result.to_tool_output() {
+                        return Ok(output);
+                    }
+                }
             }
         }
 

@@ -52,7 +52,8 @@ pub use switch_model::SwitchModelTool;
 pub use task::{TaskCreateRequest, TaskStore, TaskTool};
 pub use telegram::{TelegramTool, send_telegram_notification};
 pub use traits::{
-    SecretResolver, SkillContent, SkillInfo, SkillProvider, Tool, ToolOutput, ToolSchema,
+    SecretResolver, SecurityCheckResult, SkillContent, SkillInfo, SkillProvider, Tool, ToolOutput,
+    ToolSchema,
 };
 pub use transcribe::TranscribeTool;
 pub use vision::VisionTool;

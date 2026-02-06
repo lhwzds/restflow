@@ -12,15 +12,17 @@ use restflow_ai::{AnthropicClient, ClaudeCodeClient, LlmClient, OpenAIClient};
 use restflow_core::auth::AuthProfileManager;
 use restflow_core::channel::{ChannelRouter, InboundMessage, OutboundMessage};
 use restflow_core::models::{ApiKeyConfig, ChatMessage, ChatRole, ChatSession};
+use restflow_core::security::SecurityChecker;
 use restflow_core::storage::Storage;
 use restflow_core::{AIModel, Provider};
 
 use super::debounce::MessageDebouncer;
 use crate::agent::{
-    SubagentDeps, ToolRegistry, UnifiedAgent, UnifiedAgentConfig, build_agent_system_prompt,
-    registry_from_allowlist, secret_resolver_from_storage,
+    SubagentDeps, ToolRegistry, ToolSecurityContext, UnifiedAgent, UnifiedAgentConfig,
+    build_agent_system_prompt, registry_from_allowlist_with_security, secret_resolver_from_storage,
 };
 use crate::subagent::{AgentDefinitionRegistry, SubagentConfig, SubagentTracker};
+use uuid::Uuid;
 
 /// Configuration for the ChatDispatcher.
 #[derive(Debug, Clone)]
@@ -250,6 +252,7 @@ pub struct ChatDispatcher {
     subagent_tracker: Arc<SubagentTracker>,
     subagent_definitions: Arc<AgentDefinitionRegistry>,
     subagent_config: SubagentConfig,
+    security_checker: Arc<SecurityChecker>,
 }
 
 impl ChatDispatcher {
@@ -265,6 +268,7 @@ impl ChatDispatcher {
         subagent_tracker: Arc<SubagentTracker>,
         subagent_definitions: Arc<AgentDefinitionRegistry>,
         subagent_config: SubagentConfig,
+        security_checker: Arc<SecurityChecker>,
     ) -> Self {
         Self {
             sessions,
@@ -276,6 +280,7 @@ impl ChatDispatcher {
             subagent_tracker,
             subagent_definitions,
             subagent_config,
+            security_checker,
         }
     }
 
@@ -471,10 +476,16 @@ impl ChatDispatcher {
         let llm = self.create_llm_client(model, &api_key);
         let subagent_deps = self.build_subagent_deps(llm.clone());
         let secret_resolver = Some(secret_resolver_from_storage(&self.storage));
-        let tools = Arc::new(registry_from_allowlist(
+        let security_ctx = ToolSecurityContext {
+            security_gate: self.security_checker.clone(),
+            agent_id: session.agent_id.clone(),
+            task_id: Uuid::new_v4().to_string(),
+        };
+        let tools = Arc::new(registry_from_allowlist_with_security(
             agent_node.tools.as_deref(),
             Some(&subagent_deps),
             secret_resolver,
+            Some(&security_ctx),
         ));
         let system_prompt = build_agent_system_prompt(self.storage.clone(), agent_node)
             .map_err(|e| ChatError::ExecutionFailed(e.to_string()))?;

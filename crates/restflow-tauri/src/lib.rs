@@ -19,9 +19,9 @@ pub mod webhook;
 pub use agent::{
     BashConfig, BashTool, EmailTool, ExecutionResult, FileConfig, FileTool, HttpTool,
     ListAgentsTool, PythonTool, SpawnAgentTool, SpawnTool, SubagentDeps, SubagentSpawner,
-    TelegramTool, Tool, ToolRegistry, ToolRegistryBuilder, ToolResult, UnifiedAgent,
-    UnifiedAgentConfig, UseSkillTool, WaitAgentsTool, build_agent_system_prompt, default_registry,
-    registry_from_allowlist,
+    TelegramTool, Tool, ToolRegistry, ToolRegistryBuilder, ToolResult, ToolSecurityContext,
+    UnifiedAgent, UnifiedAgentConfig, UseSkillTool, WaitAgentsTool, build_agent_system_prompt,
+    default_registry, registry_from_allowlist, registry_from_allowlist_with_security,
 };
 pub use agent_task::{
     AgentExecutor, AgentTaskRunner, HEARTBEAT_EVENT, HeartbeatEmitter, HeartbeatEvent,
