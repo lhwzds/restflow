@@ -4819,11 +4819,13 @@ dependencies = [
  "colored",
  "comfy-table",
  "dirs 6.0.0",
+ "flate2",
  "futures",
  "indicatif",
  "nix 0.29.0",
  "predicates",
  "redb",
+ "reqwest 0.12.28",
  "restflow-ai",
  "restflow-core",
  "restflow-storage",
@@ -4831,6 +4833,7 @@ dependencies = [
  "rpassword",
  "serde",
  "serde_json",
+ "tar",
  "tempfile",
  "tokio",
  "toml 0.9.11+spec-1.1.0",
@@ -4838,6 +4841,7 @@ dependencies = [
  "tracing-appender",
  "tracing-subscriber",
  "uuid",
+ "zip",
 ]
 
 [[package]]
