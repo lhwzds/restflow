@@ -60,6 +60,8 @@ RestFlow is an **AI assistant that can execute workflows**. Unlike traditional w
 
 ### CLI (Recommended)
 
+Both `restflow` and `rf` command names are supported.
+
 **Homebrew (macOS/Linux)**
 ```bash
 brew install lhwzds/tap/restflow

@@ -21,7 +21,8 @@
     "url": "https://github.com/lhwzds/restflow/issues"
   },
   "bin": {
-    "restflow": "bin/restflow"
+    "restflow": "bin/restflow",
+    "rf": "bin/restflow"
   },
   "scripts": {
     "postinstall": "node scripts/install.js",
