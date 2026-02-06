@@ -13,12 +13,14 @@
 #![allow(dead_code)]
 
 pub mod agent;
+pub mod cache;
 pub mod embedding;
 pub mod error;
 pub mod eval;
 pub mod graph;
 mod http_client;
 pub mod llm;
+pub mod lsp;
 pub mod memory;
 pub mod security;
 pub mod tools;
@@ -43,7 +45,8 @@ pub use memory::{
 };
 pub use security::{SecurityDecision, SecurityGate};
 pub use tools::{
-    EmailTool, HttpTool, MemorySearchMatch, MemorySearchTool, PythonTool, SemanticMemory,
-    SkillContent, SkillInfo, SkillProvider, SkillTool, Tool, ToolOutput, ToolRegistry, ToolSchema,
+    DiagnosticsProvider, DiagnosticsTool, EmailTool, HttpTool, MemorySearchMatch, MemorySearchTool,
+    PythonTool, SemanticMemory, SkillContent, SkillInfo, SkillProvider, SkillTool, Tool, ToolOutput,
+    ToolRegistry, ToolSchema,
 };
 pub use workflow_def::WorkflowDef;

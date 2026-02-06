@@ -302,6 +302,9 @@ pub struct AgentTask {
     /// Webhook configuration for external triggers
     #[serde(default)]
     pub webhook: Option<super::webhook::WebhookConfig>,
+    /// Summary message pointer for compacted task sessions
+    #[serde(default)]
+    pub summary_message_id: Option<String>,
 }
 
 impl AgentTask {
@@ -329,6 +332,7 @@ impl AgentTask {
             failure_count: 0,
             last_error: None,
             webhook: None,
+            summary_message_id: None,
         }
     }
 
