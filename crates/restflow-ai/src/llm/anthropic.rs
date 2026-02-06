@@ -13,6 +13,7 @@ use crate::llm::client::{
     CompletionRequest, CompletionResponse, FinishReason, LlmClient, Role, StreamChunk,
     StreamResult, TokenUsage, ToolCall, ToolCallDelta,
 };
+use crate::llm::pricing::calculate_cost;
 use crate::llm::retry::{LlmRetryConfig, response_to_error};
 
 /// Anthropic client
@@ -421,6 +422,9 @@ impl LlmClient for AnthropicClient {
                     _ => FinishReason::Stop,
                 };
 
+                let cost_usd =
+                    calculate_cost(&self.model, data.usage.input_tokens, data.usage.output_tokens);
+
                 return Ok(CompletionResponse {
                     content,
                     tool_calls,
@@ -429,6 +433,7 @@ impl LlmClient for AnthropicClient {
                         prompt_tokens: data.usage.input_tokens,
                         completion_tokens: data.usage.output_tokens,
                         total_tokens: data.usage.input_tokens + data.usage.output_tokens,
+                        cost_usd,
                     }),
                 });
             }
@@ -690,12 +695,14 @@ impl LlmClient for AnthropicClient {
                                             "max_tokens" => FinishReason::MaxTokens,
                                             _ => FinishReason::Stop,
                                         };
+                                        let cost_usd = calculate_cost(&model, input_tokens, output_tokens);
                                         yield Ok(StreamChunk::final_chunk(
                                             finish_reason,
                                             Some(TokenUsage {
                                                 prompt_tokens: input_tokens,
                                                 completion_tokens: output_tokens,
                                                 total_tokens: input_tokens + output_tokens,
+                                                cost_usd,
                                             }),
                                         ));
                                     }

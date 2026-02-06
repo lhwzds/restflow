@@ -6,6 +6,7 @@ mod client;
 mod codex;
 mod factory;
 mod openai;
+mod pricing;
 mod retry;
 mod swappable;
 

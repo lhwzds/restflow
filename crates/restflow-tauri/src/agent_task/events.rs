@@ -143,6 +143,9 @@ pub struct ExecutionStats {
     /// Tokens used (for API mode)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tokens_used: Option<u32>,
+    /// Cost in USD (for API mode)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cost_usd: Option<f64>,
 }
 
 impl TaskStreamEvent {
@@ -493,6 +496,7 @@ mod tests {
             output_bytes: Some(5000),
             api_calls: None,
             tokens_used: None,
+            cost_usd: None,
         };
         let event = TaskStreamEvent::completed_with_stats("task-1", "Done", 2000, stats);
 
@@ -688,6 +692,7 @@ mod tests {
             output_bytes: Some(8000),
             api_calls: Some(3),
             tokens_used: Some(1500),
+            cost_usd: None,
         };
         let event =
             TaskStreamEvent::completed_with_stats("task-1", "Build successful", 45000, stats);

@@ -1,7 +1,7 @@
 //! Sub-agent spawning support for tool-based execution.
 
 use crate::agent::definitions::{AgentDefinition, AgentDefinitionRegistry};
-use crate::agent::executor::{AgentConfig, AgentExecutor};
+use crate::agent::executor::{AgentConfig, AgentExecutor, AgentResult};
 use crate::error::{AiError, Result};
 use crate::llm::LlmClient;
 use crate::tools::ToolRegistry;
@@ -125,6 +125,9 @@ pub struct SubagentResult {
     /// Tokens used
     pub tokens_used: Option<u32>,
 
+    /// Cost in USD
+    pub cost_usd: Option<f64>,
+
     /// Error message (if failed)
     pub error: Option<String>,
 }
@@ -220,6 +223,7 @@ impl SubagentTracker {
                         summary: None,
                         duration_ms: 0,
                         tokens_used: None,
+                        cost_usd: None,
                         error: Some(format!("Task panicked: {}", e)),
                     };
                     tracker.mark_completed(&id_for_task, result);
@@ -368,6 +372,7 @@ impl SubagentTracker {
                 summary: None,
                 duration_ms: 0,
                 tokens_used: None,
+                cost_usd: None,
                 error: Some("Sub-agent timed out".to_string()),
             },
         );
@@ -539,17 +544,25 @@ pub fn spawn_subagent(
         let duration_ms = start.elapsed().as_millis() as u64;
 
         let (subagent_result, timed_out) = match result {
-            Ok(Ok(output)) => (
-                SubagentResult {
-                    success: true,
-                    output,
-                    summary: None,
-                    duration_ms,
-                    tokens_used: None,
-                    error: None,
-                },
-                false,
-            ),
+            Ok(Ok(result)) => {
+                let cost_usd = if result.total_cost_usd > 0.0 {
+                    Some(result.total_cost_usd)
+                } else {
+                    None
+                };
+                (
+                    SubagentResult {
+                        success: true,
+                        output: result.answer.unwrap_or_default(),
+                        summary: None,
+                        duration_ms,
+                        tokens_used: Some(result.total_tokens),
+                        cost_usd,
+                        error: None,
+                    },
+                    false,
+                )
+            }
             Ok(Err(e)) => (
                 SubagentResult {
                     success: false,
@@ -557,6 +570,7 @@ pub fn spawn_subagent(
                     summary: None,
                     duration_ms,
                     tokens_used: None,
+                    cost_usd: None,
                     error: Some(e.to_string()),
                 },
                 false,
@@ -568,6 +582,7 @@ pub fn spawn_subagent(
                     summary: None,
                     duration_ms,
                     tokens_used: None,
+                    cost_usd: None,
                     error: Some("Sub-agent timed out".to_string()),
                 },
                 true,
@@ -606,7 +621,7 @@ async fn execute_subagent(
     agent_def: AgentDefinition,
     task: String,
     config: SubagentConfig,
-) -> Result<String> {
+) -> Result<AgentResult> {
     let registry = build_registry_for_agent(&tool_registry, &agent_def.allowed_tools);
     let registry = Arc::new(registry);
 
@@ -622,7 +637,7 @@ async fn execute_subagent(
     let executor = AgentExecutor::new(llm_client, registry);
     let result = executor.run(agent_config).await?;
 
-    Ok(result.answer.unwrap_or_default())
+    Ok(result)
 }
 
 fn build_registry_for_agent(

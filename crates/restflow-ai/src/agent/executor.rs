@@ -146,6 +146,7 @@ pub struct AgentResult {
     pub error: Option<String>,
     pub iterations: usize,
     pub total_tokens: u32,
+    pub total_cost_usd: f64,
     pub state: AgentState,
 }
 
@@ -184,6 +185,7 @@ impl AgentExecutor {
         let mut state = AgentState::new(execution_id, config.max_iterations);
         state.context = config.context.clone();
         let mut total_tokens: u32 = 0;
+        let mut total_cost_usd: f64 = 0.0;
 
         // Initialize working memory for context window management
         let mut memory = WorkingMemory::new(config.max_memory_messages);
@@ -226,6 +228,9 @@ impl AgentExecutor {
             // Track token usage
             if let Some(usage) = &response.usage {
                 total_tokens += usage.total_tokens;
+                if let Some(cost) = usage.cost_usd {
+                    total_cost_usd += cost;
+                }
             }
 
             // 2. No tool calls → check finish reason and complete
@@ -322,6 +327,7 @@ impl AgentExecutor {
             },
             iterations: state.iteration,
             total_tokens,
+            total_cost_usd,
             state,
         })
     }
@@ -335,6 +341,7 @@ impl AgentExecutor {
         let mut state = AgentState::new(execution_id, config.max_iterations);
         state.context = config.context.clone();
         let mut total_tokens: u32 = 0;
+        let mut total_cost_usd: f64 = 0.0;
 
         let mut memory = WorkingMemory::new(config.max_memory_messages);
         if let Some(compaction_config) = config.compaction_config.clone() {
@@ -370,6 +377,9 @@ impl AgentExecutor {
 
             if let Some(usage) = &response.usage {
                 total_tokens += usage.total_tokens;
+                if let Some(cost) = usage.cost_usd {
+                    total_cost_usd += cost;
+                }
             }
 
             if response.tool_calls.is_empty() {
@@ -441,6 +451,7 @@ impl AgentExecutor {
             },
             iterations: state.iteration,
             total_tokens,
+            total_cost_usd,
             state,
         })
     }
@@ -733,6 +744,7 @@ mod tests {
                         prompt_tokens: 10,
                         completion_tokens: 5,
                         total_tokens: 15,
+                        cost_usd: None,
                     }),
                 })
             } else {
@@ -781,6 +793,7 @@ mod tests {
                 prompt_tokens: 20,
                 completion_tokens: 10,
                 total_tokens: 30,
+                cost_usd: None,
             }),
         };
 

@@ -215,6 +215,12 @@ pub struct TaskEvent {
     /// Execution output (for completion events)
     #[serde(default)]
     pub output: Option<String>,
+    /// Tokens used during execution
+    #[serde(default)]
+    pub tokens_used: Option<u32>,
+    /// Cost in USD for this execution
+    #[serde(default)]
+    pub cost_usd: Option<f64>,
     /// Duration of execution in milliseconds (for completion events)
     #[serde(default)]
     #[ts(type = "number | null")]
@@ -296,6 +302,12 @@ pub struct AgentTask {
     /// Count of failed executions
     #[serde(default)]
     pub failure_count: u32,
+    /// Cumulative tokens used across executions
+    #[serde(default)]
+    pub total_tokens_used: u32,
+    /// Cumulative cost in USD across executions
+    #[serde(default)]
+    pub total_cost_usd: f64,
     /// Last error message if failed
     #[serde(default)]
     pub last_error: Option<String>,
@@ -330,6 +342,8 @@ impl AgentTask {
             next_run_at: next_run,
             success_count: 0,
             failure_count: 0,
+            total_tokens_used: 0,
+            total_cost_usd: 0.0,
             last_error: None,
             webhook: None,
             summary_message_id: None,
@@ -499,6 +513,8 @@ impl TaskEvent {
             timestamp: chrono::Utc::now().timestamp_millis(),
             message: None,
             output: None,
+            tokens_used: None,
+            cost_usd: None,
             duration_ms: None,
         }
     }

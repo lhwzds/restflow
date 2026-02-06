@@ -110,6 +110,15 @@ pub struct MessageExecution {
     pub duration_ms: u64,
     /// Number of tokens used for this response
     pub tokens_used: u32,
+    /// Cost in USD for this response
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cost_usd: Option<f64>,
+    /// Input tokens for this response
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub input_tokens: Option<u32>,
+    /// Output tokens for this response
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output_tokens: Option<u32>,
     /// Overall execution status
     pub status: ChatExecutionStatus,
 }
@@ -120,6 +129,9 @@ impl Default for MessageExecution {
             steps: Vec::new(),
             duration_ms: 0,
             tokens_used: 0,
+            cost_usd: None,
+            input_tokens: None,
+            output_tokens: None,
             status: ChatExecutionStatus::Running,
         }
     }
