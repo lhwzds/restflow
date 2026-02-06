@@ -34,7 +34,6 @@ impl Default for CodexClient {
 }
 
 impl CodexClient {
-
     /// Set the model to use
     pub fn with_model(mut self, model: impl Into<String>) -> Self {
         self.model = model.into();
@@ -60,9 +59,8 @@ impl CodexClient {
                 continue;
             }
 
-            let value: Value = serde_json::from_str(trimmed).map_err(|e| {
-                AiError::Llm(format!("Failed to parse Codex CLI JSONL line: {e}"))
-            })?;
+            let value: Value = serde_json::from_str(trimmed)
+                .map_err(|e| AiError::Llm(format!("Failed to parse Codex CLI JSONL line: {e}")))?;
 
             if thread_id.is_none()
                 && let Some(id) = value.get("thread_id").and_then(|v| v.as_str())
