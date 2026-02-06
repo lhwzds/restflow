@@ -8,9 +8,9 @@ use petgraph::graph::{DiGraph, NodeIndex};
 use std::collections::HashMap;
 use thiserror::Error;
 
-use crate::models::{SkillManifest, SkillVersion};
 #[cfg(test)]
 use crate::models::SkillDependency;
+use crate::models::{SkillManifest, SkillVersion};
 
 /// Errors that can occur during dependency resolution
 #[derive(Debug, Error)]
@@ -314,15 +314,21 @@ mod tests {
         let mut resolver = DependencyResolver::new();
 
         // A depends on B, B depends on C
-        resolver.add_skill(create_manifest("skill-a", vec!["skill-b"])).unwrap();
-        resolver.add_skill(create_manifest("skill-b", vec!["skill-c"])).unwrap();
-        resolver.add_skill(create_manifest("skill-c", vec![])).unwrap();
+        resolver
+            .add_skill(create_manifest("skill-a", vec!["skill-b"]))
+            .unwrap();
+        resolver
+            .add_skill(create_manifest("skill-b", vec!["skill-c"]))
+            .unwrap();
+        resolver
+            .add_skill(create_manifest("skill-c", vec![]))
+            .unwrap();
 
         let plan = resolver.resolve(&["skill-a".to_string()]).unwrap();
 
         // Should install C, then B, then A
         assert_eq!(plan.to_install.len(), 3);
-        
+
         // Find positions
         let pos_a = plan.to_install.iter().position(|s| s == "skill-a").unwrap();
         let pos_b = plan.to_install.iter().position(|s| s == "skill-b").unwrap();
@@ -336,13 +342,17 @@ mod tests {
     #[test]
     fn test_already_installed() {
         let mut resolver = DependencyResolver::new();
-        
+
         let mut installed = HashMap::new();
         installed.insert("skill-b".to_string(), SkillVersion::new(1, 0, 0));
         resolver.set_installed(installed);
 
-        resolver.add_skill(create_manifest("skill-a", vec!["skill-b"])).unwrap();
-        resolver.add_skill(create_manifest("skill-b", vec![])).unwrap();
+        resolver
+            .add_skill(create_manifest("skill-a", vec!["skill-b"]))
+            .unwrap();
+        resolver
+            .add_skill(create_manifest("skill-b", vec![]))
+            .unwrap();
 
         let plan = resolver.resolve(&["skill-a".to_string()]).unwrap();
 
@@ -356,11 +366,18 @@ mod tests {
     fn test_circular_dependency() {
         let mut resolver = DependencyResolver::new();
 
-        resolver.add_skill(create_manifest("skill-a", vec!["skill-b"])).unwrap();
-        resolver.add_skill(create_manifest("skill-b", vec!["skill-a"])).unwrap();
+        resolver
+            .add_skill(create_manifest("skill-a", vec!["skill-b"]))
+            .unwrap();
+        resolver
+            .add_skill(create_manifest("skill-b", vec!["skill-a"]))
+            .unwrap();
 
         let result = resolver.resolve(&["skill-a".to_string()]);
-        assert!(matches!(result, Err(DependencyError::CircularDependency(_))));
+        assert!(matches!(
+            result,
+            Err(DependencyError::CircularDependency(_))
+        ));
     }
 
     #[test]
@@ -368,16 +385,24 @@ mod tests {
         let mut resolver = DependencyResolver::new();
 
         // A depends on B and C, both B and C depend on D
-        resolver.add_skill(create_manifest("skill-a", vec!["skill-b", "skill-c"])).unwrap();
-        resolver.add_skill(create_manifest("skill-b", vec!["skill-d"])).unwrap();
-        resolver.add_skill(create_manifest("skill-c", vec!["skill-d"])).unwrap();
-        resolver.add_skill(create_manifest("skill-d", vec![])).unwrap();
+        resolver
+            .add_skill(create_manifest("skill-a", vec!["skill-b", "skill-c"]))
+            .unwrap();
+        resolver
+            .add_skill(create_manifest("skill-b", vec!["skill-d"]))
+            .unwrap();
+        resolver
+            .add_skill(create_manifest("skill-c", vec!["skill-d"]))
+            .unwrap();
+        resolver
+            .add_skill(create_manifest("skill-d", vec![]))
+            .unwrap();
 
         let plan = resolver.resolve(&["skill-a".to_string()]).unwrap();
 
         // All 4 skills should be installed
         assert_eq!(plan.to_install.len(), 4);
-        
+
         // D should come before B and C
         let pos_d = plan.to_install.iter().position(|s| s == "skill-d").unwrap();
         let pos_b = plan.to_install.iter().position(|s| s == "skill-b").unwrap();

@@ -53,6 +53,9 @@ pub enum Commands {
     /// Stop RestFlow daemon
     Stop,
 
+    /// Show RestFlow status
+    Status,
+
     /// Agent management
     Agent {
         #[command(subcommand)]
@@ -251,6 +254,12 @@ mod tests {
     fn parses_stop_command() {
         let cli = Cli::try_parse_from(["restflow", "stop"]).expect("parse stop");
         assert!(matches!(cli.command, Some(super::Commands::Stop)));
+    }
+
+    #[test]
+    fn parses_status_command() {
+        let cli = Cli::try_parse_from(["restflow", "status"]).expect("parse status");
+        assert!(matches!(cli.command, Some(super::Commands::Status)));
     }
 }
 

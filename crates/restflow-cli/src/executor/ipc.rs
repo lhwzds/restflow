@@ -5,16 +5,15 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 use crate::executor::{CommandExecutor, CreateTaskInput};
+use restflow_core::AppCore;
 use restflow_core::daemon::{IpcClient, IpcRequest, IpcResponse};
 use restflow_core::memory::ExportResult;
 use restflow_core::models::{
-    AgentExecuteResponse, AgentNode, AgentTask, AgentTaskStatus, ChatSession,
-    ChatSessionSummary, MemoryChunk, MemorySearchResult, MemoryStats, Secret, Skill,
-    TaskEvent,
+    AgentExecuteResponse, AgentNode, AgentTask, AgentTaskStatus, ChatSession, ChatSessionSummary,
+    MemoryChunk, MemorySearchResult, MemoryStats, Secret, Skill, TaskEvent,
 };
 use restflow_core::storage::SystemConfig;
 use restflow_core::storage::agent::StoredAgent;
-use restflow_core::AppCore;
 
 pub struct IpcExecutor {
     client: Mutex<IpcClient>,
@@ -99,7 +98,8 @@ impl CommandExecutor for IpcExecutor {
         let response = self
             .request(IpcRequest::DeleteAgent { id: id.to_string() })
             .await?;
-        self.decode_response::<serde_json::Value>(response).map(|_| ())
+        self.decode_response::<serde_json::Value>(response)
+            .map(|_| ())
     }
 
     async fn execute_agent(
@@ -132,7 +132,8 @@ impl CommandExecutor for IpcExecutor {
 
     async fn create_skill(&self, skill: Skill) -> Result<()> {
         let response = self.request(IpcRequest::CreateSkill { skill }).await?;
-        self.decode_response::<serde_json::Value>(response).map(|_| ())
+        self.decode_response::<serde_json::Value>(response)
+            .map(|_| ())
     }
 
     async fn update_skill(&self, id: &str, skill: Skill) -> Result<()> {
@@ -142,14 +143,16 @@ impl CommandExecutor for IpcExecutor {
                 skill,
             })
             .await?;
-        self.decode_response::<serde_json::Value>(response).map(|_| ())
+        self.decode_response::<serde_json::Value>(response)
+            .map(|_| ())
     }
 
     async fn delete_skill(&self, id: &str) -> Result<()> {
         let response = self
             .request(IpcRequest::DeleteSkill { id: id.to_string() })
             .await?;
-        self.decode_response::<serde_json::Value>(response).map(|_| ())
+        self.decode_response::<serde_json::Value>(response)
+            .map(|_| ())
     }
 
     async fn list_tasks(&self) -> Result<Vec<AgentTask>> {
@@ -262,9 +265,7 @@ impl CommandExecutor for IpcExecutor {
     }
 
     async fn clear_memory(&self, agent_id: Option<String>) -> Result<u32> {
-        let response = self
-            .request(IpcRequest::ClearMemory { agent_id })
-            .await?;
+        let response = self.request(IpcRequest::ClearMemory { agent_id }).await?;
         #[derive(serde::Deserialize)]
         struct ClearResponse {
             deleted: u32,
@@ -281,9 +282,7 @@ impl CommandExecutor for IpcExecutor {
     }
 
     async fn export_memory(&self, agent_id: Option<String>) -> Result<ExportResult> {
-        let response = self
-            .request(IpcRequest::ExportMemory { agent_id })
-            .await?;
+        let response = self.request(IpcRequest::ExportMemory { agent_id }).await?;
         self.decode_response(response)
     }
 
@@ -319,12 +318,7 @@ impl CommandExecutor for IpcExecutor {
         self.decode_response(response)
     }
 
-    async fn set_secret(
-        &self,
-        key: &str,
-        value: &str,
-        description: Option<String>,
-    ) -> Result<()> {
+    async fn set_secret(&self, key: &str, value: &str, description: Option<String>) -> Result<()> {
         let response = self
             .request(IpcRequest::SetSecret {
                 key: key.to_string(),
@@ -332,7 +326,8 @@ impl CommandExecutor for IpcExecutor {
                 description,
             })
             .await?;
-        self.decode_response::<serde_json::Value>(response).map(|_| ())
+        self.decode_response::<serde_json::Value>(response)
+            .map(|_| ())
     }
 
     async fn delete_secret(&self, key: &str) -> Result<()> {
@@ -341,7 +336,8 @@ impl CommandExecutor for IpcExecutor {
                 key: key.to_string(),
             })
             .await?;
-        self.decode_response::<serde_json::Value>(response).map(|_| ())
+        self.decode_response::<serde_json::Value>(response)
+            .map(|_| ())
     }
 
     async fn has_secret(&self, key: &str) -> Result<bool> {
@@ -365,6 +361,7 @@ impl CommandExecutor for IpcExecutor {
 
     async fn set_config(&self, config: SystemConfig) -> Result<()> {
         let response = self.request(IpcRequest::SetConfig { config }).await?;
-        self.decode_response::<serde_json::Value>(response).map(|_| ())
+        self.decode_response::<serde_json::Value>(response)
+            .map(|_| ())
     }
 }

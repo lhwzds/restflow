@@ -24,8 +24,8 @@ use super::failover::{FailoverConfig, FailoverManager, execute_with_failover};
 use super::retry::{RetryConfig, RetryState};
 use super::runner::{AgentExecutor, ExecutionResult};
 use crate::agent::{
-    SubagentDeps, ToolRegistry, UnifiedAgent, UnifiedAgentConfig,
-    build_agent_system_prompt, registry_from_allowlist,
+    SubagentDeps, ToolRegistry, UnifiedAgent, UnifiedAgentConfig, build_agent_system_prompt,
+    registry_from_allowlist,
 };
 use crate::subagent::{AgentDefinitionRegistry, SubagentConfig, SubagentTracker};
 
@@ -214,12 +214,7 @@ impl RealAgentExecutor {
             config.temperature = temp as f32;
         }
 
-        let mut agent = UnifiedAgent::new(
-            llm,
-            tools,
-            system_prompt,
-            config,
-        );
+        let mut agent = UnifiedAgent::new(llm, tools, system_prompt, config);
 
         let goal = input.unwrap_or("Execute the agent task");
         let result = agent.execute(goal).await?;

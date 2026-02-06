@@ -40,8 +40,11 @@ impl Default for CompactionConfig {
 #[async_trait]
 pub trait CompactionStorage: Send + Sync {
     async fn add_message(&self, session_id: &str, message: Message) -> Result<String>;
-    async fn update_session_summary(&self, session_id: &str, summary_message_id: &str)
-        -> Result<()>;
+    async fn update_session_summary(
+        &self,
+        session_id: &str,
+        summary_message_id: &str,
+    ) -> Result<()>;
 }
 
 /// Events emitted during compaction.
@@ -221,8 +224,7 @@ impl ContextCompactor {
 
                 let summary_message = build_summary_message(&summary);
                 let tokens_after = estimate_message_tokens(&summary_message);
-                let summary_message_id =
-                    storage.add_message(&session_id, summary_message).await?;
+                let summary_message_id = storage.add_message(&session_id, summary_message).await?;
                 storage
                     .update_session_summary(&session_id, &summary_message_id)
                     .await?;
@@ -242,7 +244,9 @@ impl ContextCompactor {
             match &result {
                 Ok(compaction) => {
                     if let Some(tx) = event_tx.as_ref() {
-                        let _ = tx.send(CompactionEvent::Completed(compaction.clone())).await;
+                        let _ = tx
+                            .send(CompactionEvent::Completed(compaction.clone()))
+                            .await;
                     }
                 }
                 Err(err) => {

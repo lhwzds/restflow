@@ -3,7 +3,7 @@
 //! Handles initialization of the RestFlow core for CLI usage.
 
 use anyhow::Result;
-use restflow_core::{paths, AppCore};
+use restflow_core::{AppCore, paths};
 use std::sync::Arc;
 
 /// Resolve the database path for CLI usage.

@@ -69,15 +69,12 @@ impl SkillVersion {
                     // For 0.x versions, caret is more restrictive
                     self.minor == v.minor && self.patch >= v.patch
                 } else {
-                    (self.minor > v.minor)
-                        || (self.minor == v.minor && self.patch >= v.patch)
+                    (self.minor > v.minor) || (self.minor == v.minor && self.patch >= v.patch)
                 }
             }
             VersionRequirement::Tilde(v) => {
                 // ~1.2.3 allows >=1.2.3 and <1.3.0
-                self.major == v.major
-                    && self.minor == v.minor
-                    && self.patch >= v.patch
+                self.major == v.major && self.minor == v.minor && self.patch >= v.patch
             }
             VersionRequirement::GreaterThan(v) => self.compare(v) > 0,
             VersionRequirement::GreaterOrEqual(v) => self.compare(v) >= 0,

@@ -47,13 +47,13 @@
 //!
 //! This is a placeholder. Can integrate with RestFlow's SharedSpaceStorage.
 
-use std::sync::Arc;
-use crate::llm::LlmClient;
-use crate::tools::ToolRegistry;
 use super::traits::{
     AgentStrategy, RecommendedSettings, StrategyConfig, StrategyFeature, StrategyResult,
     SwarmPattern,
 };
+use crate::llm::LlmClient;
+use crate::tools::ToolRegistry;
+use std::sync::Arc;
 
 /// Configuration specific to Swarm strategy
 #[derive(Debug, Clone)]
@@ -91,13 +91,25 @@ pub enum SwarmMessage {
     /// Agent claiming a task
     TaskClaimed { task_id: String, agent_id: String },
     /// Partial result
-    PartialResult { task_id: String, agent_id: String, content: String },
+    PartialResult {
+        task_id: String,
+        agent_id: String,
+        content: String,
+    },
     /// Final result
-    FinalResult { task_id: String, agent_id: String, content: String },
+    FinalResult {
+        task_id: String,
+        agent_id: String,
+        content: String,
+    },
     /// Agent requesting help
     HelpRequest { agent_id: String, question: String },
     /// Agent offering help
-    HelpResponse { to_agent: String, from_agent: String, answer: String },
+    HelpResponse {
+        to_agent: String,
+        from_agent: String,
+        answer: String,
+    },
     /// Coordination signal
     Signal { signal_type: String, data: String },
 }

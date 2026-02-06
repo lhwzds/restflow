@@ -36,11 +36,7 @@ impl FileContentCache {
     }
 
     /// Get file content using existing metadata
-    pub async fn get_with_metadata(
-        &self,
-        path: &Path,
-        meta: &std::fs::Metadata,
-    ) -> Option<String> {
+    pub async fn get_with_metadata(&self, path: &Path, meta: &std::fs::Metadata) -> Option<String> {
         let cache = self.cache.read().await;
         let cached = cache.get(path)?;
         let mtime = meta.modified().ok()?;
@@ -58,7 +54,9 @@ impl FileContentCache {
         }
 
         let mut cache = self.cache.write().await;
-        if cache.len() >= self.max_entries && let Some(key) = cache.keys().next().cloned() {
+        if cache.len() >= self.max_entries
+            && let Some(key) = cache.keys().next().cloned()
+        {
             cache.remove(&key);
         }
 

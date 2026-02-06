@@ -2,8 +2,9 @@ use super::ipc_protocol::{IpcRequest, IpcResponse, MAX_MESSAGE_SIZE};
 use crate::auth::{AuthProfile, AuthProvider, Credential, CredentialSource, ProfileUpdate};
 use crate::memory::ExportResult;
 use crate::models::{
-    AgentNode, AgentTask, ChatMessage, ChatRole, ChatSession, ChatSessionSummary, ChatSessionUpdate,
-    MemoryChunk, MemorySearchResult, MemorySession, MemoryStats, Skill, TaskEvent, TerminalSession,
+    AgentNode, AgentTask, ChatMessage, ChatRole, ChatSession, ChatSessionSummary,
+    ChatSessionUpdate, MemoryChunk, MemorySearchResult, MemorySession, MemoryStats, Skill,
+    TaskEvent, TerminalSession,
 };
 use crate::storage::agent::StoredAgent;
 use anyhow::{Context, Result, bail};
@@ -62,7 +63,10 @@ impl IpcClient {
         }
     }
 
-    async fn request_optional<T: DeserializeOwned>(&mut self, req: IpcRequest) -> Result<Option<T>> {
+    async fn request_optional<T: DeserializeOwned>(
+        &mut self,
+        req: IpcRequest,
+    ) -> Result<Option<T>> {
         match self.request(req).await? {
             IpcResponse::Success(value) => Ok(Some(serde_json::from_value(value)?)),
             IpcResponse::Error { code: 404, .. } => Ok(None),
@@ -94,12 +98,16 @@ impl IpcClient {
     }
 
     pub async fn create_skill(&mut self, skill: Skill) -> Result<()> {
-        let _: serde_json::Value = self.request_typed(IpcRequest::CreateSkill { skill }).await?;
+        let _: serde_json::Value = self
+            .request_typed(IpcRequest::CreateSkill { skill })
+            .await?;
         Ok(())
     }
 
     pub async fn update_skill(&mut self, id: String, skill: Skill) -> Result<()> {
-        let _: serde_json::Value = self.request_typed(IpcRequest::UpdateSkill { id, skill }).await?;
+        let _: serde_json::Value = self
+            .request_typed(IpcRequest::UpdateSkill { id, skill })
+            .await?;
         Ok(())
     }
 
@@ -185,9 +193,7 @@ impl IpcClient {
         struct DeleteResponse {
             deleted: bool,
         }
-        let resp: DeleteResponse = self
-            .request_typed(IpcRequest::DeleteMemory { id })
-            .await?;
+        let resp: DeleteResponse = self.request_typed(IpcRequest::DeleteMemory { id }).await?;
         Ok(resp.deleted)
     }
 
@@ -240,8 +246,14 @@ impl IpcClient {
         .await
     }
 
-    pub async fn get_memory_session(&mut self, session_id: String) -> Result<Option<MemorySession>> {
-        match self.request(IpcRequest::GetMemorySession { session_id }).await? {
+    pub async fn get_memory_session(
+        &mut self,
+        session_id: String,
+    ) -> Result<Option<MemorySession>> {
+        match self
+            .request(IpcRequest::GetMemorySession { session_id })
+            .await?
+        {
             IpcResponse::Success(value) => Ok(Some(serde_json::from_value(value)?)),
             IpcResponse::Error { code: 404, .. } => Ok(None),
             IpcResponse::Error { code, message } => {
@@ -336,7 +348,8 @@ impl IpcClient {
     }
 
     pub async fn rename_session(&mut self, id: String, name: String) -> Result<ChatSession> {
-        self.request_typed(IpcRequest::RenameSession { id, name }).await
+        self.request_typed(IpcRequest::RenameSession { id, name })
+            .await
     }
 
     pub async fn delete_session(&mut self, id: String) -> Result<bool> {
@@ -344,9 +357,7 @@ impl IpcClient {
         struct DeleteResponse {
             deleted: bool,
         }
-        let resp: DeleteResponse = self
-            .request_typed(IpcRequest::DeleteSession { id })
-            .await?;
+        let resp: DeleteResponse = self.request_typed(IpcRequest::DeleteSession { id }).await?;
         Ok(resp.deleted)
     }
 
@@ -374,8 +385,11 @@ impl IpcClient {
         session_id: String,
         message: ChatMessage,
     ) -> Result<ChatSession> {
-        self.request_typed(IpcRequest::AppendMessage { session_id, message })
-            .await
+        self.request_typed(IpcRequest::AppendMessage {
+            session_id,
+            message,
+        })
+        .await
     }
 
     pub async fn get_session_messages(
@@ -392,7 +406,8 @@ impl IpcClient {
     }
 
     pub async fn get_terminal_session(&mut self, id: String) -> Result<TerminalSession> {
-        self.request_typed(IpcRequest::GetTerminalSession { id }).await
+        self.request_typed(IpcRequest::GetTerminalSession { id })
+            .await
     }
 
     pub async fn create_terminal_session(&mut self) -> Result<TerminalSession> {
@@ -487,7 +502,9 @@ impl IpcClient {
     }
 
     pub async fn enable_auth_profile(&mut self, id: String) -> Result<()> {
-        let _: serde_json::Value = self.request_typed(IpcRequest::EnableAuthProfile { id }).await?;
+        let _: serde_json::Value = self
+            .request_typed(IpcRequest::EnableAuthProfile { id })
+            .await?;
         Ok(())
     }
 
@@ -532,12 +549,16 @@ impl IpcClient {
     }
 
     pub async fn mark_auth_success(&mut self, id: String) -> Result<()> {
-        let _: serde_json::Value = self.request_typed(IpcRequest::MarkAuthSuccess { id }).await?;
+        let _: serde_json::Value = self
+            .request_typed(IpcRequest::MarkAuthSuccess { id })
+            .await?;
         Ok(())
     }
 
     pub async fn mark_auth_failure(&mut self, id: String) -> Result<()> {
-        let _: serde_json::Value = self.request_typed(IpcRequest::MarkAuthFailure { id }).await?;
+        let _: serde_json::Value = self
+            .request_typed(IpcRequest::MarkAuthFailure { id })
+            .await?;
         Ok(())
     }
 
@@ -584,9 +605,7 @@ impl IpcClient {
         struct DeleteResponse {
             deleted: bool,
         }
-        let resp: DeleteResponse = self
-            .request_typed(IpcRequest::DeleteTask { id })
-            .await?;
+        let resp: DeleteResponse = self.request_typed(IpcRequest::DeleteTask { id }).await?;
         Ok(resp.deleted)
     }
 
@@ -720,7 +739,10 @@ impl IpcClient {
         self.request_typed(IpcRequest::Ping).await
     }
 
-    pub async fn list_memory_by_session(&mut self, _session_id: String) -> Result<Vec<MemoryChunk>> {
+    pub async fn list_memory_by_session(
+        &mut self,
+        _session_id: String,
+    ) -> Result<Vec<MemoryChunk>> {
         self.request_typed(IpcRequest::Ping).await
     }
 
@@ -757,7 +779,10 @@ impl IpcClient {
         self.request_typed(IpcRequest::Ping).await
     }
 
-    pub async fn get_memory_session(&mut self, _session_id: String) -> Result<Option<MemorySession>> {
+    pub async fn get_memory_session(
+        &mut self,
+        _session_id: String,
+    ) -> Result<Option<MemorySession>> {
         self.request_typed(IpcRequest::Ping).await
     }
 
@@ -765,7 +790,10 @@ impl IpcClient {
         self.request_typed(IpcRequest::Ping).await
     }
 
-    pub async fn create_memory_session(&mut self, _session: MemorySession) -> Result<MemorySession> {
+    pub async fn create_memory_session(
+        &mut self,
+        _session: MemorySession,
+    ) -> Result<MemorySession> {
         self.request_typed(IpcRequest::Ping).await
     }
 
@@ -890,7 +918,10 @@ impl IpcClient {
         self.request_typed(IpcRequest::Ping).await
     }
 
-    pub async fn save_terminal_session(&mut self, _session: TerminalSession) -> Result<TerminalSession> {
+    pub async fn save_terminal_session(
+        &mut self,
+        _session: TerminalSession,
+    ) -> Result<TerminalSession> {
         self.request_typed(IpcRequest::Ping).await
     }
 

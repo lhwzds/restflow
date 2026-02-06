@@ -33,7 +33,8 @@ impl EmbeddingCache {
         let key = Self::cache_key(text, model);
         if let Ok(mut cache) = self.cache.write() {
             if cache.len() >= self.max_entries {
-                let keys_to_remove: Vec<_> = cache.keys().take(self.max_entries / 2).cloned().collect();
+                let keys_to_remove: Vec<_> =
+                    cache.keys().take(self.max_entries / 2).cloned().collect();
                 for k in keys_to_remove {
                     cache.remove(&k);
                 }

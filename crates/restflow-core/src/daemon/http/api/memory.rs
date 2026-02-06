@@ -1,11 +1,11 @@
+use crate::AppCore;
 use crate::daemon::http::ApiError;
 use crate::models::memory::{MemoryChunk, MemorySearchQuery, MemorySearchResult};
 use crate::services::agent as agent_service;
-use crate::AppCore;
 use axum::{
+    Json, Router,
     extract::{Extension, Query},
     routing::get,
-    Json, Router,
 };
 use serde::Deserialize;
 use std::sync::Arc;
@@ -96,7 +96,10 @@ async fn memory_stats(
     Ok(Json(serde_json::to_value(stats).unwrap()))
 }
 
-async fn resolve_agent_id(core: &Arc<AppCore>, agent_id: Option<String>) -> Result<String, ApiError> {
+async fn resolve_agent_id(
+    core: &Arc<AppCore>,
+    agent_id: Option<String>,
+) -> Result<String, ApiError> {
     if let Some(id) = agent_id {
         return Ok(id);
     }

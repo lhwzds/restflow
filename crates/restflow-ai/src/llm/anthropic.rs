@@ -83,7 +83,6 @@ impl AnthropicClient {
 
         headers
     }
-
 }
 
 fn build_auth_headers(api_key: &str, auth_type: AnthropicAuthType) -> HeaderMap {

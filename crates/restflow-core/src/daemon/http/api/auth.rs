@@ -1,11 +1,11 @@
+use crate::AppCore;
+use crate::auth::manager::ProfileUpdate;
 use crate::auth::{AuthManagerConfig, AuthProfile, AuthProvider, Credential, CredentialSource};
 use crate::daemon::http::ApiError;
-use crate::auth::manager::ProfileUpdate;
-use crate::AppCore;
 use axum::{
+    Json, Router,
     extract::{Extension, Path},
     routing::{get, post},
-    Json, Router,
 };
 use restflow_storage::AuthProfileStorage;
 use std::sync::Arc;
@@ -105,7 +105,9 @@ async fn discover_auth(
     Ok(Json(serde_json::to_value(summary).unwrap()))
 }
 
-async fn build_auth_manager(core: &Arc<AppCore>) -> Result<crate::auth::AuthProfileManager, ApiError> {
+async fn build_auth_manager(
+    core: &Arc<AppCore>,
+) -> Result<crate::auth::AuthProfileManager, ApiError> {
     let config = AuthManagerConfig {
         auto_discover: false,
         ..AuthManagerConfig::default()
@@ -113,11 +115,8 @@ async fn build_auth_manager(core: &Arc<AppCore>) -> Result<crate::auth::AuthProf
     let db = core.storage.get_db();
     let secrets = Arc::new(core.storage.secrets.clone());
     let profile_storage = AuthProfileStorage::new(db)?;
-    let manager = crate::auth::AuthProfileManager::with_storage(
-        config,
-        secrets,
-        Some(profile_storage),
-    );
+    let manager =
+        crate::auth::AuthProfileManager::with_storage(config, secrets, Some(profile_storage));
     manager.initialize().await?;
     Ok(manager)
 }

@@ -11,7 +11,7 @@ use anyhow::Result;
 use clap::{CommandFactory, Parser};
 use clap_complete::generate;
 use cli::{Cli, Commands, DaemonCommands};
-use restflow_core::daemon::{check_daemon_status, start_daemon, stop_daemon, DaemonStatus};
+use restflow_core::daemon::{DaemonStatus, check_daemon_status, start_daemon, stop_daemon};
 use restflow_core::paths;
 use std::io;
 
@@ -47,10 +47,17 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
+    if let Some(Commands::Status) = cli.command {
+        commands::status::run(cli.format).await?;
+        return Ok(());
+    }
+
     // Handle daemon commands that don't need AppCore (to avoid database lock conflicts)
     if let Some(Commands::Daemon { command }) = &cli.command {
         match command {
-            DaemonCommands::Start { foreground: false, .. } => {
+            DaemonCommands::Start {
+                foreground: false, ..
+            } => {
                 match check_daemon_status()? {
                     DaemonStatus::Running { pid } => {
                         println!("Daemon already running (PID: {})", pid);
@@ -84,7 +91,9 @@ async fn main() -> Result<()> {
                 }
                 return Ok(());
             }
-            DaemonCommands::Start { foreground: true, .. } => {
+            DaemonCommands::Start {
+                foreground: true, ..
+            } => {
                 // Continue to open database for foreground mode
             }
         }
@@ -162,6 +171,7 @@ async fn main() -> Result<()> {
             Some(Commands::Info) => commands::info::run(),
             Some(Commands::Completions { .. }) => Ok(()),
             Some(Commands::Stop) => Ok(()),
+            Some(Commands::Status) => Ok(()),
             None => {
                 Cli::command().print_help()?;
                 Ok(())

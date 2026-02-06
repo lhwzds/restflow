@@ -71,6 +71,8 @@ impl Tool for EmailTool {
             payload.subject
         );
 
-        Ok(ToolResult::error("Email tool not configured - SMTP settings required"))
+        Ok(ToolResult::error(
+            "Email tool not configured - SMTP settings required",
+        ))
     }
 }

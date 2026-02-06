@@ -251,7 +251,12 @@ impl ChatStreamEvent {
     }
 
     /// Create a failed event
-    pub fn failed(session_id: &str, message_id: &str, error: &str, partial_content: Option<String>) -> Self {
+    pub fn failed(
+        session_id: &str,
+        message_id: &str,
+        error: &str,
+        partial_content: Option<String>,
+    ) -> Self {
         Self {
             session_id: session_id.to_string(),
             message_id: message_id.to_string(),

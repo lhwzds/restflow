@@ -38,8 +38,8 @@ use crate::models::memory::{MemoryChunk, MemorySearchQuery, SearchMode};
 use crate::storage::MemoryStorage;
 use anyhow::Result;
 use regex::RegexBuilder;
-use serde::{Deserialize, Serialize};
 use restflow_storage::time_utils;
+use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 /// A search result with relevance score.

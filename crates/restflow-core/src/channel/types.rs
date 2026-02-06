@@ -309,7 +309,10 @@ mod tests {
 
         // Plain message with title
         let msg_with_title = OutboundMessage::plain("123", "Hello world").with_title("Greeting");
-        assert_eq!(msg_with_title.formatted_content(), "*Greeting*\n\nHello world");
+        assert_eq!(
+            msg_with_title.formatted_content(),
+            "*Greeting*\n\nHello world"
+        );
     }
 
     #[test]

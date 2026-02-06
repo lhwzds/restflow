@@ -477,7 +477,7 @@ impl LlmClient for OpenAIClient {
                                         }
 
                                         let arguments = tc.function.as_ref().and_then(|f| f.arguments.clone());
-                                        
+
                                         yield Ok(StreamChunk {
                                             text: String::new(),
                                             thinking: None,

@@ -17,8 +17,8 @@ use restflow_core::{AIModel, Provider};
 
 use super::debounce::MessageDebouncer;
 use crate::agent::{
-    SubagentDeps, ToolRegistry, UnifiedAgent, UnifiedAgentConfig,
-    build_agent_system_prompt, registry_from_allowlist,
+    SubagentDeps, ToolRegistry, UnifiedAgent, UnifiedAgentConfig, build_agent_system_prompt,
+    registry_from_allowlist,
 };
 use crate::subagent::{AgentDefinitionRegistry, SubagentConfig, SubagentTracker};
 
@@ -67,7 +67,9 @@ impl ChatError {
     /// Get a user-friendly error message.
     pub fn user_message(&self) -> &str {
         match self {
-            Self::NoDefaultAgent => "No AI agent configured. Please set up a default agent in settings.",
+            Self::NoDefaultAgent => {
+                "No AI agent configured. Please set up a default agent in settings."
+            }
             Self::NoApiKey { .. } => "API key not configured. Please add your API key in settings.",
             Self::RateLimited => "Too many requests. Please wait a moment and try again.",
             Self::Timeout => "AI response timed out. Please try again or simplify your question.",
@@ -138,11 +140,10 @@ impl ChatSessionManager {
         let agent_id = self.get_default_agent_id()?;
         let model = self.get_agent_model(&agent_id)?;
 
-        let session = ChatSession::new(agent_id, model)
-            .with_name(session_name);
+        let session = ChatSession::new(agent_id, model).with_name(session_name);
 
         self.storage.chat_sessions.create(&session)?;
-        
+
         info!(
             "Created new chat session {} for conversation {} (user: {})",
             session.id, conversation_id, user_id
@@ -204,7 +205,7 @@ impl ChatSessionManager {
 
         // Try to find an agent named "default" or use the first available agent
         let agents = self.storage.agents.list_agents()?;
-        
+
         if let Some(agent) = agents.iter().find(|a| a.name.to_lowercase() == "default") {
             return Ok(agent.id.clone());
         }
@@ -224,7 +225,10 @@ impl ChatSessionManager {
             .get_agent(agent_id.to_string())?
             .ok_or_else(|| anyhow!("Agent not found: {}", agent_id))?;
 
-        Ok(agent.agent.model.map(|m| m.as_str().to_string())
+        Ok(agent
+            .agent
+            .model
+            .map(|m| m.as_str().to_string())
             .unwrap_or_else(|| "unknown".to_string()))
     }
 }
@@ -316,10 +320,7 @@ impl ChatDispatcher {
             return Ok(secret_value);
         }
 
-        Err(anyhow!(
-            "No API key configured for provider {:?}",
-            provider
-        ))
+        Err(anyhow!("No API key configured for provider {:?}", provider))
     }
 
     /// Create an LLM client for the given model.
@@ -364,7 +365,11 @@ impl ChatDispatcher {
     /// Dispatch a message to the AI agent.
     pub async fn dispatch(&self, message: &InboundMessage) -> Result<()> {
         // 1. Debounce messages
-        let input = match self.debouncer.debounce(&message.conversation_id, &message.content).await {
+        let input = match self
+            .debouncer
+            .debounce(&message.conversation_id, &message.content)
+            .await
+        {
             Some(text) => text,
             None => {
                 // Not the primary message in this batch; skip
@@ -377,14 +382,15 @@ impl ChatDispatcher {
         };
 
         // 2. Get or create session
-        let session = match self.sessions.get_or_create_session(
-            &message.conversation_id,
-            &message.sender_id,
-        ) {
+        let session = match self
+            .sessions
+            .get_or_create_session(&message.conversation_id, &message.sender_id)
+        {
             Ok(s) => s,
             Err(e) => {
                 error!("Failed to get/create session: {}", e);
-                self.send_error_response(message, ChatError::NoDefaultAgent).await?;
+                self.send_error_response(message, ChatError::NoDefaultAgent)
+                    .await?;
                 return Ok(());
             }
         };
@@ -409,12 +415,14 @@ impl ChatDispatcher {
             Ok(Some(a)) => a,
             Ok(None) => {
                 error!("Agent '{}' not found", session.agent_id);
-                self.send_error_response(message, ChatError::NoDefaultAgent).await?;
+                self.send_error_response(message, ChatError::NoDefaultAgent)
+                    .await?;
                 return Ok(());
             }
             Err(e) => {
                 error!("Failed to load agent: {}", e);
-                self.send_error_response(message, ChatError::ExecutionFailed(e.to_string())).await?;
+                self.send_error_response(message, ChatError::ExecutionFailed(e.to_string()))
+                    .await?;
                 return Ok(());
             }
         };
@@ -425,24 +433,39 @@ impl ChatDispatcher {
             Ok(m) => m,
             Err(e) => {
                 error!("Failed to get model: {}", e);
-                self.send_error_response(message, ChatError::ExecutionFailed(e.to_string())).await?;
+                self.send_error_response(message, ChatError::ExecutionFailed(e.to_string()))
+                    .await?;
                 return Ok(());
             }
         };
-        debug!("Model: {} (provider: {:?})", model.as_str(), model.provider());
+        debug!(
+            "Model: {} (provider: {:?})",
+            model.as_str(),
+            model.provider()
+        );
 
         debug!("Resolving API key");
-        let api_key = match self.resolve_api_key(model.provider(), agent_node.api_key_config.as_ref()).await {
+        let api_key = match self
+            .resolve_api_key(model.provider(), agent_node.api_key_config.as_ref())
+            .await
+        {
             Ok(key) => key,
             Err(e) => {
                 error!("Failed to resolve API key: {}", e);
-                self.send_error_response(message, ChatError::NoApiKey {
-                    provider: format!("{:?}", model.provider()),
-                }).await?;
+                self.send_error_response(
+                    message,
+                    ChatError::NoApiKey {
+                        provider: format!("{:?}", model.provider()),
+                    },
+                )
+                .await?;
                 return Ok(());
             }
         };
-        debug!("API key resolved (starts with: {}...)", &api_key[..api_key.len().min(10)]);
+        debug!(
+            "API key resolved (starts with: {}...)",
+            &api_key[..api_key.len().min(10)]
+        );
 
         debug!("Creating LLM client");
         let llm = self.create_llm_client(model, &api_key);
@@ -461,16 +484,13 @@ impl ChatDispatcher {
             config.temperature = temp as f32;
         }
 
-        let mut agent = UnifiedAgent::new(
-            llm,
-            tools,
-            system_prompt,
-            config,
-        );
+        let mut agent = UnifiedAgent::new(llm, tools, system_prompt, config);
 
         // Add conversation history
         let history = self.sessions.get_history(&session.id).unwrap_or_default();
-        let start = history.len().saturating_sub(self.config.max_session_history);
+        let start = history
+            .len()
+            .saturating_sub(self.config.max_session_history);
         for msg in &history[start..] {
             agent.add_history_message(Self::chat_message_to_llm_message(msg));
         }
@@ -485,24 +505,31 @@ impl ChatDispatcher {
             Ok(Ok(result)) => result,
             Ok(Err(e)) => {
                 error!("Agent execution failed: {}", e);
-                self.send_error_response(message, ChatError::ExecutionFailed(e.to_string())).await?;
+                self.send_error_response(message, ChatError::ExecutionFailed(e.to_string()))
+                    .await?;
                 return Ok(());
             }
             Err(_) => {
                 error!("Agent execution timed out");
-                self.send_error_response(message, ChatError::Timeout).await?;
+                self.send_error_response(message, ChatError::Timeout)
+                    .await?;
                 return Ok(());
             }
         };
 
         // 6. Save exchange to session
-        if let Err(e) = self.sessions.append_exchange(&session.id, &input, &result.output) {
+        if let Err(e) = self
+            .sessions
+            .append_exchange(&session.id, &input, &result.output)
+        {
             warn!("Failed to save exchange to session: {}", e);
         }
 
         // 7. Send response (plain message without emoji prefix for AI chat)
         let response = OutboundMessage::plain(&message.conversation_id, &result.output);
-        self.channel_router.send_to(message.channel_type, response).await?;
+        self.channel_router
+            .send_to(message.channel_type, response)
+            .await?;
 
         info!(
             "Chat response sent for session {} (output length: {} chars)",
@@ -521,14 +548,12 @@ impl ChatDispatcher {
     }
 
     /// Send an error response to the user.
-    async fn send_error_response(
-        &self,
-        message: &InboundMessage,
-        error: ChatError,
-    ) -> Result<()> {
+    async fn send_error_response(&self, message: &InboundMessage, error: ChatError) -> Result<()> {
         let error_text = format!("⚠️ {}", error.user_message());
         let response = OutboundMessage::new(&message.conversation_id, &error_text);
-        self.channel_router.send_to(message.channel_type, response).await
+        self.channel_router
+            .send_to(message.channel_type, response)
+            .await
     }
 }
 
@@ -562,14 +587,20 @@ mod tests {
     #[test]
     fn test_chat_error_user_messages() {
         assert!(!ChatError::NoDefaultAgent.user_message().is_empty());
-        assert!(!ChatError::NoApiKey { provider: "test".to_string() }
+        assert!(
+            !ChatError::NoApiKey {
+                provider: "test".to_string()
+            }
             .user_message()
-            .is_empty());
+            .is_empty()
+        );
         assert!(!ChatError::RateLimited.user_message().is_empty());
         assert!(!ChatError::Timeout.user_message().is_empty());
-        assert!(!ChatError::ExecutionFailed("test".to_string())
-            .user_message()
-            .is_empty());
+        assert!(
+            !ChatError::ExecutionFailed("test".to_string())
+                .user_message()
+                .is_empty()
+        );
     }
 
     #[tokio::test]

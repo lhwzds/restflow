@@ -6,7 +6,7 @@
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use tokio::sync::{mpsc, oneshot, Mutex};
+use tokio::sync::{Mutex, mpsc, oneshot};
 use tokio::task::{AbortHandle, JoinHandle};
 use ts_rs::TS;
 
@@ -233,11 +233,7 @@ impl SubagentTracker {
 
     /// Wait for all running sub-agents to complete
     pub async fn wait_all(&self) -> Vec<SubagentResult> {
-        let ids: Vec<String> = self
-            .abort_handles
-            .iter()
-            .map(|r| r.key().clone())
-            .collect();
+        let ids: Vec<String> = self.abort_handles.iter().map(|r| r.key().clone()).collect();
 
         let mut results = Vec::new();
         for id in ids {
@@ -273,11 +269,7 @@ impl SubagentTracker {
 
     /// Cancel all running sub-agents
     pub fn cancel_all(&self) -> usize {
-        let ids: Vec<String> = self
-            .abort_handles
-            .iter()
-            .map(|r| r.key().clone())
-            .collect();
+        let ids: Vec<String> = self.abort_handles.iter().map(|r| r.key().clone()).collect();
         let mut cancelled = 0;
         for id in ids {
             if self.cancel(&id) {

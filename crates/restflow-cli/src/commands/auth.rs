@@ -326,8 +326,10 @@ mod tests {
             .await
             .unwrap_err();
 
-        assert!(result
-            .to_string()
-            .contains("RestFlow daemon is not running"));
+        assert!(
+            result
+                .to_string()
+                .contains("RestFlow daemon is not running")
+        );
     }
 }

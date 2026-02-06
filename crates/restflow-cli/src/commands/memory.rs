@@ -1,11 +1,11 @@
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use comfy_table::{Cell, Table};
 use std::sync::Arc;
 
 use crate::cli::MemoryCommands;
 use crate::commands::utils::{format_timestamp, preview_text};
 use crate::executor::CommandExecutor;
-use crate::output::{json::print_json, OutputFormat};
+use crate::output::{OutputFormat, json::print_json};
 use restflow_core::models::memory::MemoryChunk;
 use serde_json::json;
 

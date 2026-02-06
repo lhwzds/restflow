@@ -1,16 +1,12 @@
 use crate::daemon::http::ApiError;
 use axum::{
     body::Body,
-    http::{header, Request},
+    http::{Request, header},
     middleware::Next,
     response::{IntoResponse, Response},
 };
 
-pub async fn require_api_key(
-    req: Request<Body>,
-    next: Next,
-    api_key: Option<String>,
-) -> Response {
+pub async fn require_api_key(req: Request<Body>, next: Next, api_key: Option<String>) -> Response {
     let Some(expected) = api_key else {
         return ApiError::unauthorized("API key is not configured").into_response();
     };

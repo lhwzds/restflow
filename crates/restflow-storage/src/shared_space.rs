@@ -1,6 +1,6 @@
 //! Shared space storage - global key-value store for AI agents.
 
-use crate::{define_simple_storage, SimpleStorage};
+use crate::{SimpleStorage, define_simple_storage};
 use anyhow::Result;
 use redb::{ReadableDatabase, ReadableTable};
 

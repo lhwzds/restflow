@@ -3,8 +3,8 @@ use anyhow::Result;
 use async_trait::async_trait;
 use crossbeam_queue::SegQueue;
 use dashmap::DashMap;
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 use tokio::sync::Semaphore;
 
@@ -195,22 +195,14 @@ impl TaskQueue {
         let total = self.stats.total_exec_time_ms.load(Ordering::Relaxed);
         let count = self.stats.completed_count.load(Ordering::Relaxed)
             + self.stats.failed_count.load(Ordering::Relaxed);
-        if count > 0 {
-            total / count
-        } else {
-            0
-        }
+        if count > 0 { total / count } else { 0 }
     }
 
     fn calculate_avg_wait_time(&self) -> u64 {
         let total = self.stats.total_wait_time_ms.load(Ordering::Relaxed);
         let count = self.stats.completed_count.load(Ordering::Relaxed)
             + self.stats.failed_count.load(Ordering::Relaxed);
-        if count > 0 {
-            total / count
-        } else {
-            0
-        }
+        if count > 0 { total / count } else { 0 }
     }
 }
 

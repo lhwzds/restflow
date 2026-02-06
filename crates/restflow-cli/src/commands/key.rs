@@ -353,13 +353,18 @@ mod tests {
     async fn run_requires_daemon() {
         let dir = tempdir().expect("tempdir");
         let socket_path = dir.path().join("restflow.sock");
-        let result =
-            run_with_socket_path(&socket_path, KeyCommands::List { provider: None }, OutputFormat::Text)
-                .await
-                .unwrap_err();
+        let result = run_with_socket_path(
+            &socket_path,
+            KeyCommands::List { provider: None },
+            OutputFormat::Text,
+        )
+        .await
+        .unwrap_err();
 
-        assert!(result
-            .to_string()
-            .contains("RestFlow daemon is not running"));
+        assert!(
+            result
+                .to_string()
+                .contains("RestFlow daemon is not running")
+        );
     }
 }

@@ -7,8 +7,8 @@ use std::process::Command;
 use crate::cli::McpCommands;
 use crate::output::{OutputFormat, json::print_json};
 use restflow_core::daemon::{IpcClient, ensure_daemon_running};
-use restflow_core::paths;
 use restflow_core::mcp::RestFlowMcpServer;
+use restflow_core::paths;
 
 const MCP_SERVERS_FILE: &str = "mcp_servers.json";
 

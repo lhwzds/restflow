@@ -16,11 +16,8 @@ use super::traits::{Tool, ToolOutput};
 pub trait DiagnosticsProvider: Send + Sync {
     async fn ensure_open(&self, path: &Path) -> Result<()>;
     async fn did_change(&self, path: &Path, content: &str) -> Result<()>;
-    async fn wait_for_diagnostics(
-        &self,
-        path: &Path,
-        timeout: Duration,
-    ) -> Result<Vec<Diagnostic>>;
+    async fn wait_for_diagnostics(&self, path: &Path, timeout: Duration)
+    -> Result<Vec<Diagnostic>>;
     async fn get_diagnostics(&self, path: &Path) -> Result<Vec<Diagnostic>>;
 }
 

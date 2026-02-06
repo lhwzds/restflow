@@ -12,16 +12,16 @@ pub mod daemon_manager;
 pub mod error;
 pub mod executor;
 pub mod mcp;
-pub mod subagent;
 pub mod state;
+pub mod subagent;
 pub mod webhook;
 
 pub use agent::{
     BashConfig, BashTool, EmailTool, ExecutionResult, FileConfig, FileTool, HttpTool,
     ListAgentsTool, PythonTool, SpawnAgentTool, SpawnTool, SubagentDeps, SubagentSpawner,
     TelegramTool, Tool, ToolRegistry, ToolRegistryBuilder, ToolResult, UnifiedAgent,
-    UnifiedAgentConfig, UseSkillTool, WaitAgentsTool, build_agent_system_prompt,
-    default_registry, registry_from_allowlist,
+    UnifiedAgentConfig, UseSkillTool, WaitAgentsTool, build_agent_system_prompt, default_registry,
+    registry_from_allowlist,
 };
 pub use agent_task::{
     AgentExecutor, AgentTaskRunner, HEARTBEAT_EVENT, HeartbeatEmitter, HeartbeatEvent,

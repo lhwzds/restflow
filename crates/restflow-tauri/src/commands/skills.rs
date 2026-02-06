@@ -7,7 +7,11 @@ use tauri::State;
 /// List all skills
 #[tauri::command]
 pub async fn list_skills(state: State<'_, AppState>) -> Result<Vec<Skill>, String> {
-    state.executor().list_skills().await.map_err(|e| e.to_string())
+    state
+        .executor()
+        .list_skills()
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// Get a skill by ID

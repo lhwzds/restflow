@@ -149,11 +149,7 @@ pub async fn search_memory_advanced(
 ) -> Result<RankedSearchResult, String> {
     state
         .executor()
-        .search_memory_ranked(
-            request.query,
-            request.min_score,
-            request.scoring_preset,
-        )
+        .search_memory_ranked(request.query, request.min_score, request.scoring_preset)
         .await
         .map_err(|e| e.to_string())
 }

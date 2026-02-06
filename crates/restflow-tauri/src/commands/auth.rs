@@ -199,7 +199,11 @@ pub async fn auth_update_profile(
     profile_id: String,
     update: ProfileUpdate,
 ) -> Result<ProfileResponse, String> {
-    match state.executor().update_auth_profile(profile_id, update).await {
+    match state
+        .executor()
+        .update_auth_profile(profile_id, update)
+        .await
+    {
         Ok(profile) => Ok(ProfileResponse::success(profile)),
         Err(e) => Ok(ProfileResponse::error(e.to_string())),
     }
@@ -211,7 +215,11 @@ pub async fn auth_enable_profile(
     state: State<'_, AppState>,
     profile_id: String,
 ) -> Result<ProfileResponse, String> {
-    if let Err(e) = state.executor().enable_auth_profile(profile_id.clone()).await {
+    if let Err(e) = state
+        .executor()
+        .enable_auth_profile(profile_id.clone())
+        .await
+    {
         return Ok(ProfileResponse::error(e.to_string()));
     }
 

@@ -2,13 +2,13 @@
 
 use super::definition::{AgentDefinition, AgentDefinitionRegistry};
 use super::tracker::{SubagentResult, SubagentTracker};
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use restflow_ai::llm::CompletionRequest;
 use restflow_ai::{LlmClient, Message};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::oneshot;
-use tokio::time::{timeout, Duration};
+use tokio::time::{Duration, timeout};
 use ts_rs::TS;
 
 /// Configuration for sub-agent execution.

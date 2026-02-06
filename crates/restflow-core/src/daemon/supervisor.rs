@@ -84,7 +84,8 @@ impl Supervisor {
     async fn restart_daemon(&self) -> Result<()> {
         self.process_manager.stop()?;
         tokio::time::sleep(Duration::from_secs(1)).await;
-        self.process_manager.start(self.config.daemon_config.clone())?;
+        self.process_manager
+            .start(self.config.daemon_config.clone())?;
         Ok(())
     }
 }

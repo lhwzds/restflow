@@ -6,7 +6,7 @@ use std::sync::Arc;
 use crate::cli::SkillCommands;
 use crate::commands::utils::{format_timestamp, preview_text, slugify};
 use crate::executor::CommandExecutor;
-use crate::output::{json::print_json, OutputFormat};
+use crate::output::{OutputFormat, json::print_json};
 use restflow_core::models::Skill;
 use restflow_core::registry::{MarketplaceProvider, SkillRegistry, SkillSearchQuery};
 use restflow_core::services::skills as skill_service;

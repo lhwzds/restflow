@@ -39,14 +39,10 @@ pub async fn run(args: MigrateArgs) -> Result<()> {
             });
         }
 
-        let old_mcp_db = data_dir
-            .join("com.restflow.app")
-            .join("restflow-mcp.db");
+        let old_mcp_db = data_dir.join("com.restflow.app").join("restflow-mcp.db");
         if old_mcp_db.exists() {
             println!("⚠️  Found old MCP database: {}", old_mcp_db.display());
-            println!(
-                "   This database is no longer used (MCP now shares main database)"
-            );
+            println!("   This database is no longer used (MCP now shares main database)");
             println!("   You can safely delete it after verifying your data.\n");
         }
     }
