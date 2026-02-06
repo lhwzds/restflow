@@ -11,7 +11,7 @@ pub use anthropic::AnthropicClient;
 pub use claude_code::ClaudeCodeClient;
 pub use client::{
     CompletionRequest, CompletionResponse, FinishReason, LlmClient, Message, Role, StreamChunk,
-    StreamResult, TokenUsage, ToolCall,
+    StreamResult, TokenUsage, ToolCall, ToolCallDelta,
 };
 pub use codex::CodexClient;
 pub use openai::OpenAIClient;
