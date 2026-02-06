@@ -9,6 +9,7 @@ pub mod input;
 pub mod memory;
 pub mod output;
 pub mod pricing;
+pub mod steer;
 pub mod security;
 pub mod shared_space;
 pub mod skill;
@@ -29,6 +30,7 @@ pub use agent_task::{
 };
 pub use ai_model::{AIModel, ModelMetadataDTO, Provider};
 pub use pricing::{calculate_cost, ModelPricing};
+pub use steer::{SteerMessage, SteerSource};
 pub use execution::{ExecutionHistoryPage, ExecutionStatus, ExecutionSummary};
 pub use input::{
     AgentInput, EmailInput, HttpInput, ManualTriggerInput, NodeInput, PrintInput, PythonInput,

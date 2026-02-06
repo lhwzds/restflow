@@ -16,9 +16,11 @@ pub mod python;
 pub mod registry;
 pub mod security;
 pub mod services;
+pub mod steer;
 pub mod storage;
 
 pub use models::*;
+pub use steer::SteerRegistry;
 
 use once_cell::sync::OnceCell;
 use std::sync::Arc;
