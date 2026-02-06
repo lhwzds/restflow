@@ -68,6 +68,7 @@ impl SystemConfig {
 }
 
 /// Configuration storage
+#[derive(Clone)]
 pub struct ConfigStorage {
     db: Arc<Database>,
 }

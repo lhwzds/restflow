@@ -956,6 +956,9 @@ impl IpcServer {
                     core.storage.memory.clone(),
                     core.storage.chat_sessions.clone(),
                     core.storage.shared_space.clone(),
+                    core.storage.secrets.clone(),
+                    core.storage.config.clone(),
+                    core.storage.agent_tasks.clone(),
                     None,
                 );
                 let tools: Vec<String> = registry
