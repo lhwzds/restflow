@@ -15,18 +15,13 @@ use crate::tools::ToolRegistry;
 use tracing::debug;
 
 /// Agent type for system prompt composition.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum AgentType {
+    #[default]
     Coder,
     Task,
     Summarizer,
     Title,
-}
-
-impl Default for AgentType {
-    fn default() -> Self {
-        Self::Coder
-    }
 }
 
 /// Configuration for agent execution
