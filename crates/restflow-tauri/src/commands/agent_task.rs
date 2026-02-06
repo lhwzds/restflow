@@ -20,7 +20,8 @@
 use crate::agent_task::{TASK_STREAM_EVENT, TaskStreamEvent, TauriEventEmitter};
 use crate::state::AppState;
 use restflow_core::models::{
-    AgentTask, AgentTaskStatus, ExecutionMode, NotificationConfig, TaskEvent, TaskSchedule,
+    AgentTask, AgentTaskStatus, ExecutionMode, NotificationConfig, SteerMessage, SteerSource,
+    TaskEvent, TaskSchedule,
 };
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
@@ -260,6 +261,29 @@ pub async fn cancel_agent_task(
         .map_err(|e| e.to_string())?;
 
     Ok(true)
+}
+
+/// Send a steer message to a running task.
+///
+/// This allows injecting new instructions into a running agent's ReAct loop.
+/// The instruction will be processed at the next iteration of the loop.
+///
+/// Returns true if the message was sent, false if the task is not running
+/// or doesn't support steering (e.g., CLI execution mode).
+#[tauri::command]
+pub async fn steer_task(
+    state: State<'_, AppState>,
+    task_id: String,
+    instruction: String,
+) -> Result<bool, String> {
+    let message = SteerMessage {
+        instruction,
+        source: SteerSource::User,
+        timestamp: chrono::Utc::now().timestamp_millis(),
+    };
+
+    let sent = state.steer_registry.steer(&task_id, message).await;
+    Ok(sent)
 }
 
 /// Get events for a specific task
