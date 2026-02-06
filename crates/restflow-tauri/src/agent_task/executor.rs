@@ -9,7 +9,7 @@ use anyhow::{Result, anyhow};
 use async_trait::async_trait;
 use std::sync::Arc;
 
-use restflow_ai::{AnthropicClient, ClaudeCodeClient, LlmClient, OpenAIClient};
+use restflow_ai::{AnthropicClient, ClaudeCodeClient, CodexClient, LlmClient, OpenAIClient};
 use restflow_core::{
     AIModel, Provider,
     auth::AuthProfileManager,
@@ -141,6 +141,11 @@ impl RealAgentExecutor {
     fn create_llm_client(&self, model: AIModel, api_key: &str) -> Result<Arc<dyn LlmClient>> {
         let model_str = model.as_str();
 
+        if model.is_codex_cli() {
+            let client = CodexClient::new().with_model(model_str);
+            return Ok(Arc::new(client));
+        }
+
         match model.provider() {
             Provider::OpenAI => {
                 let client = OpenAIClient::new(api_key).with_model(model_str);
@@ -195,13 +200,16 @@ impl RealAgentExecutor {
         input: Option<&str>,
         primary_provider: Provider,
     ) -> Result<ExecutionResult> {
-        let api_key = self
-            .resolve_api_key_for_model(
+        let api_key = if model.is_codex_cli() {
+            String::new()
+        } else {
+            self.resolve_api_key_for_model(
                 model.provider(),
                 agent_node.api_key_config.as_ref(),
                 primary_provider,
             )
-            .await?;
+            .await?
+        };
 
         let llm = self.create_llm_client(model, &api_key)?;
         let tools = self.build_tool_registry(agent_node.tools.as_deref(), llm.clone());

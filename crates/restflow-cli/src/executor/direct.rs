@@ -7,7 +7,7 @@ use crate::executor::{CommandExecutor, CreateTaskInput};
 use crate::setup;
 use restflow_ai::{
     AgentConfig, AgentExecutor, AgentState, AgentStatus, AnthropicClient, ClaudeCodeClient,
-    LlmClient, OpenAIClient, Role, ToolRegistry,
+    CodexClient, LlmClient, OpenAIClient, Role, ToolRegistry,
 };
 use restflow_core::auth::{AuthManagerConfig, AuthProfileManager, AuthProvider};
 use restflow_core::memory::{ChatSessionMirror, ExportResult, MemoryExporter, MessageMirror};
@@ -386,22 +386,30 @@ async fn run_agent_with_executor(
 ) -> Result<AgentExecuteResponse> {
     let model = agent_node.require_model().map_err(|e| anyhow::anyhow!(e))?;
 
-    let api_key = resolve_api_key(agent_node, secret_storage, model.provider(), core).await?;
+    let api_key = if model.is_codex_cli() {
+        String::new()
+    } else {
+        resolve_api_key(agent_node, secret_storage, model.provider(), core).await?
+    };
 
-    let llm: Arc<dyn LlmClient> = match model.provider() {
-        Provider::OpenAI => Arc::new(OpenAIClient::new(&api_key).with_model(model.as_str())),
-        Provider::Anthropic => {
-            if api_key.starts_with("sk-ant-oat") {
-                Arc::new(ClaudeCodeClient::new(&api_key).with_model(model.as_str()))
-            } else {
-                Arc::new(AnthropicClient::new(&api_key).with_model(model.as_str()))
+    let llm: Arc<dyn LlmClient> = if model.is_codex_cli() {
+        Arc::new(CodexClient::new().with_model(model.as_str()))
+    } else {
+        match model.provider() {
+            Provider::OpenAI => Arc::new(OpenAIClient::new(&api_key).with_model(model.as_str())),
+            Provider::Anthropic => {
+                if api_key.starts_with("sk-ant-oat") {
+                    Arc::new(ClaudeCodeClient::new(&api_key).with_model(model.as_str()))
+                } else {
+                    Arc::new(AnthropicClient::new(&api_key).with_model(model.as_str()))
+                }
             }
+            Provider::DeepSeek => Arc::new(
+                OpenAIClient::new(&api_key)
+                    .with_model(model.as_str())
+                    .with_base_url("https://api.deepseek.com/v1"),
+            ),
         }
-        Provider::DeepSeek => Arc::new(
-            OpenAIClient::new(&api_key)
-                .with_model(model.as_str())
-                .with_base_url("https://api.deepseek.com/v1"),
-        ),
     };
 
     let full_registry = create_tool_registry(
