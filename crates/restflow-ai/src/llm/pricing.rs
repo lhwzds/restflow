@@ -47,27 +47,9 @@ pub fn get_pricing(model_name: &str) -> Option<ModelPricing> {
             cost_per_1m_output: 8.0,
         });
     }
-    if model_name.starts_with("o4-mini") {
-        return Some(ModelPricing {
-            cost_per_1m_input: 1.1,
-            cost_per_1m_output: 4.4,
-        });
-    }
-    if model_name.starts_with("o3-mini") {
-        return Some(ModelPricing {
-            cost_per_1m_input: 1.1,
-            cost_per_1m_output: 4.4,
-        });
-    }
-    if model_name.starts_with("o3") {
-        return Some(ModelPricing {
-            cost_per_1m_input: 2.0,
-            cost_per_1m_output: 8.0,
-        });
-    }
 
     // Anthropic
-    if model_name.starts_with("claude-opus-4-1") || model_name.starts_with("claude-opus-4") {
+    if model_name.starts_with("claude-opus-4-6") || model_name.starts_with("claude-opus-4") {
         return Some(ModelPricing {
             cost_per_1m_input: 15.0,
             cost_per_1m_output: 75.0,

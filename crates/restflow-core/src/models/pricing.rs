@@ -29,21 +29,17 @@ impl AIModel {
                 cost_per_1m_input: 10.0,
                 cost_per_1m_output: 40.0,
             }),
-            Self::O4Mini => Some(ModelPricing {
-                cost_per_1m_input: 1.1,
-                cost_per_1m_output: 4.4,
-            }),
-            Self::O3 => Some(ModelPricing {
+            Self::Gpt5_1 => Some(ModelPricing {
                 cost_per_1m_input: 2.0,
                 cost_per_1m_output: 8.0,
             }),
-            Self::O3Mini => Some(ModelPricing {
-                cost_per_1m_input: 1.1,
-                cost_per_1m_output: 4.4,
+            Self::Gpt5_2 => Some(ModelPricing {
+                cost_per_1m_input: 2.0,
+                cost_per_1m_output: 8.0,
             }),
 
             // Anthropic
-            Self::ClaudeOpus4_1 => Some(ModelPricing {
+            Self::ClaudeOpus4_6 => Some(ModelPricing {
                 cost_per_1m_input: 15.0,
                 cost_per_1m_output: 75.0,
             }),
@@ -65,6 +61,24 @@ impl AIModel {
                 cost_per_1m_input: 0.55,
                 cost_per_1m_output: 2.19,
             }),
+
+            // Other providers (pricing varies by provider)
+            Self::Gemini25Pro
+            | Self::Gemini25Flash
+            | Self::Gemini3Pro
+            | Self::Gemini3Flash
+            | Self::GroqLlama4Scout
+            | Self::GroqLlama4Maverick
+            | Self::Grok4
+            | Self::Grok3Mini
+            | Self::OpenRouterAuto
+            | Self::Qwen3Max
+            | Self::Qwen3Plus
+            | Self::Glm4_7
+            | Self::KimiK2_5
+            | Self::DoubaoPro
+            | Self::YiLightning
+            | Self::SiliconFlowAuto => None,
 
             // CLI-based (cost tracked externally)
             Self::ClaudeCodeOpus

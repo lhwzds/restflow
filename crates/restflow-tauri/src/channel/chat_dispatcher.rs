@@ -310,11 +310,7 @@ impl ChatDispatcher {
         }
 
         // Fall back to well-known secret names
-        let secret_name = match provider {
-            Provider::OpenAI => "OPENAI_API_KEY",
-            Provider::Anthropic => "ANTHROPIC_API_KEY",
-            Provider::DeepSeek => "DEEPSEEK_API_KEY",
-        };
+        let secret_name = provider.api_key_env();
 
         if let Some(secret_value) = self.storage.secrets.get_secret(secret_name)? {
             return Ok(secret_value);
@@ -327,7 +323,6 @@ impl ChatDispatcher {
     fn create_llm_client(&self, model: AIModel, api_key: &str) -> Arc<dyn LlmClient> {
         let model_str = model.as_str();
         match model.provider() {
-            Provider::OpenAI => Arc::new(OpenAIClient::new(api_key).with_model(model_str)),
             Provider::Anthropic => {
                 if api_key.starts_with("sk-ant-oat") {
                     Arc::new(ClaudeCodeClient::new(api_key).with_model(model_str))
@@ -335,11 +330,51 @@ impl ChatDispatcher {
                     Arc::new(AnthropicClient::new(api_key).with_model(model_str))
                 }
             }
-            Provider::DeepSeek => Arc::new(
-                OpenAIClient::new(api_key)
-                    .with_model(model_str)
-                    .with_base_url("https://api.deepseek.com/v1"),
-            ),
+            provider => {
+                let mut client = OpenAIClient::new(api_key).with_model(model_str);
+                match provider {
+                    Provider::OpenAI => {}
+                    Provider::DeepSeek => {
+                        client = client.with_base_url("https://api.deepseek.com/v1");
+                    }
+                    Provider::Google => {
+                        client = client.with_base_url(
+                            "https://generativelanguage.googleapis.com/v1beta/openai",
+                        );
+                    }
+                    Provider::Groq => {
+                        client = client.with_base_url("https://api.groq.com/openai/v1");
+                    }
+                    Provider::OpenRouter => {
+                        client = client.with_base_url("https://openrouter.ai/api/v1");
+                    }
+                    Provider::XAI => {
+                        client = client.with_base_url("https://api.x.ai/v1");
+                    }
+                    Provider::Qwen => {
+                        client = client.with_base_url(
+                            "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                        );
+                    }
+                    Provider::Zhipu => {
+                        client = client.with_base_url("https://open.bigmodel.cn/api/paas/v4");
+                    }
+                    Provider::Moonshot => {
+                        client = client.with_base_url("https://api.moonshot.cn/v1");
+                    }
+                    Provider::Doubao => {
+                        client = client.with_base_url("https://ark.cn-beijing.volces.com/api/v3");
+                    }
+                    Provider::Yi => {
+                        client = client.with_base_url("https://api.lingyiwanwu.com/v1");
+                    }
+                    Provider::SiliconFlow => {
+                        client = client.with_base_url("https://api.siliconflow.cn/v1");
+                    }
+                    Provider::Anthropic => {}
+                }
+                Arc::new(client)
+            }
         }
     }
 
