@@ -334,6 +334,16 @@ impl EnvVarDiscoverer {
                 ("OPENAI_API_KEY".to_string(), AuthProvider::OpenAI),
                 ("GOOGLE_API_KEY".to_string(), AuthProvider::Google),
                 ("GEMINI_API_KEY".to_string(), AuthProvider::Google),
+                ("DEEPSEEK_API_KEY".to_string(), AuthProvider::Other),
+                ("GROQ_API_KEY".to_string(), AuthProvider::Other),
+                ("OPENROUTER_API_KEY".to_string(), AuthProvider::Other),
+                ("XAI_API_KEY".to_string(), AuthProvider::Other),
+                ("DASHSCOPE_API_KEY".to_string(), AuthProvider::Other),
+                ("ZHIPU_API_KEY".to_string(), AuthProvider::Other),
+                ("MOONSHOT_API_KEY".to_string(), AuthProvider::Other),
+                ("ARK_API_KEY".to_string(), AuthProvider::Other),
+                ("YI_API_KEY".to_string(), AuthProvider::Other),
+                ("SILICONFLOW_API_KEY".to_string(), AuthProvider::Other),
             ],
         }
     }

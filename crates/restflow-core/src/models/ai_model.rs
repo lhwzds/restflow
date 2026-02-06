@@ -9,6 +9,54 @@ pub enum Provider {
     OpenAI,
     Anthropic,
     DeepSeek,
+    Google,
+    Groq,
+    OpenRouter,
+    XAI,
+    Qwen,
+    Zhipu,
+    Moonshot,
+    Doubao,
+    Yi,
+    SiliconFlow,
+}
+
+impl Provider {
+    pub fn all() -> &'static [Provider] {
+        &[
+            Self::OpenAI,
+            Self::Anthropic,
+            Self::DeepSeek,
+            Self::Google,
+            Self::Groq,
+            Self::OpenRouter,
+            Self::XAI,
+            Self::Qwen,
+            Self::Zhipu,
+            Self::Moonshot,
+            Self::Doubao,
+            Self::Yi,
+            Self::SiliconFlow,
+        ]
+    }
+
+    pub fn api_key_env(&self) -> &'static str {
+        match self {
+            Self::OpenAI => "OPENAI_API_KEY",
+            Self::Anthropic => "ANTHROPIC_API_KEY",
+            Self::DeepSeek => "DEEPSEEK_API_KEY",
+            Self::Google => "GEMINI_API_KEY",
+            Self::Groq => "GROQ_API_KEY",
+            Self::OpenRouter => "OPENROUTER_API_KEY",
+            Self::XAI => "XAI_API_KEY",
+            Self::Qwen => "DASHSCOPE_API_KEY",
+            Self::Zhipu => "ZHIPU_API_KEY",
+            Self::Moonshot => "MOONSHOT_API_KEY",
+            Self::Doubao => "ARK_API_KEY",
+            Self::Yi => "YI_API_KEY",
+            Self::SiliconFlow => "SILICONFLOW_API_KEY",
+        }
+    }
 }
 
 /// Model metadata containing provider, temperature support, and display name
@@ -43,18 +91,14 @@ pub enum AIModel {
     Gpt5Nano,
     #[serde(rename = "gpt-5-pro")]
     Gpt5Pro,
-
-    // OpenAI O-series (no temperature support)
-    #[serde(rename = "o4-mini")]
-    O4Mini,
-    #[serde(rename = "o3")]
-    O3,
-    #[serde(rename = "o3-mini")]
-    O3Mini,
+    #[serde(rename = "gpt-5-1")]
+    Gpt5_1,
+    #[serde(rename = "gpt-5-2")]
+    Gpt5_2,
 
     // Anthropic Claude series (latest models only, for direct API)
-    #[serde(rename = "claude-opus-4-1")]
-    ClaudeOpus4_1,
+    #[serde(rename = "claude-opus-4-6")]
+    ClaudeOpus4_6,
     #[serde(rename = "claude-sonnet-4-5")]
     ClaudeSonnet4_5,
     #[serde(rename = "claude-haiku-4-5")]
@@ -73,6 +117,58 @@ pub enum AIModel {
     DeepseekChat,
     #[serde(rename = "deepseek-reasoner")]
     DeepseekReasoner,
+
+    // Google Gemini (OpenAI-compatible endpoint)
+    #[serde(rename = "gemini-2-5-pro")]
+    Gemini25Pro,
+    #[serde(rename = "gemini-2-5-flash")]
+    Gemini25Flash,
+    #[serde(rename = "gemini-3-pro")]
+    Gemini3Pro,
+    #[serde(rename = "gemini-3-flash")]
+    Gemini3Flash,
+
+    // Groq
+    #[serde(rename = "groq-llama4-scout")]
+    GroqLlama4Scout,
+    #[serde(rename = "groq-llama4-maverick")]
+    GroqLlama4Maverick,
+
+    // X.AI
+    #[serde(rename = "grok-4")]
+    Grok4,
+    #[serde(rename = "grok-3-mini")]
+    Grok3Mini,
+
+    // OpenRouter
+    #[serde(rename = "openrouter")]
+    OpenRouterAuto,
+
+    // Qwen
+    #[serde(rename = "qwen3-max")]
+    Qwen3Max,
+    #[serde(rename = "qwen3-plus")]
+    Qwen3Plus,
+
+    // Zhipu
+    #[serde(rename = "glm-4-7")]
+    Glm4_7,
+
+    // Moonshot
+    #[serde(rename = "kimi-k2-5")]
+    KimiK2_5,
+
+    // Doubao
+    #[serde(rename = "doubao-pro")]
+    DoubaoPro,
+
+    // Yi
+    #[serde(rename = "yi-lightning")]
+    YiLightning,
+
+    // SiliconFlow
+    #[serde(rename = "siliconflow")]
+    SiliconFlowAuto,
 
     // Codex CLI (OpenAI)
     #[serde(rename = "codex-cli")]
@@ -108,29 +204,22 @@ impl AIModel {
                 supports_temperature: false,
                 name: "GPT-5 Pro",
             },
-
-            // O-series (no temperature support)
-            Self::O4Mini => ModelMetadata {
+            Self::Gpt5_1 => ModelMetadata {
                 provider: Provider::OpenAI,
                 supports_temperature: false,
-                name: "O4 Mini",
+                name: "GPT-5.1",
             },
-            Self::O3 => ModelMetadata {
+            Self::Gpt5_2 => ModelMetadata {
                 provider: Provider::OpenAI,
                 supports_temperature: false,
-                name: "O3",
-            },
-            Self::O3Mini => ModelMetadata {
-                provider: Provider::OpenAI,
-                supports_temperature: false,
-                name: "O3 Mini",
+                name: "GPT-5.2",
             },
 
             // Claude series
-            Self::ClaudeOpus4_1 => ModelMetadata {
+            Self::ClaudeOpus4_6 => ModelMetadata {
                 provider: Provider::Anthropic,
                 supports_temperature: true,
-                name: "Claude Opus 4.1",
+                name: "Claude Opus 4.6",
             },
             Self::ClaudeSonnet4_5 => ModelMetadata {
                 provider: Provider::Anthropic,
@@ -172,6 +261,106 @@ impl AIModel {
                 name: "DeepSeek Reasoner",
             },
 
+            // Google Gemini
+            Self::Gemini25Pro => ModelMetadata {
+                provider: Provider::Google,
+                supports_temperature: true,
+                name: "Gemini 2.5 Pro",
+            },
+            Self::Gemini25Flash => ModelMetadata {
+                provider: Provider::Google,
+                supports_temperature: true,
+                name: "Gemini 2.5 Flash",
+            },
+            Self::Gemini3Pro => ModelMetadata {
+                provider: Provider::Google,
+                supports_temperature: true,
+                name: "Gemini 3 Pro Preview",
+            },
+            Self::Gemini3Flash => ModelMetadata {
+                provider: Provider::Google,
+                supports_temperature: true,
+                name: "Gemini 3 Flash Preview",
+            },
+
+            // Groq
+            Self::GroqLlama4Scout => ModelMetadata {
+                provider: Provider::Groq,
+                supports_temperature: true,
+                name: "Llama 4 Scout",
+            },
+            Self::GroqLlama4Maverick => ModelMetadata {
+                provider: Provider::Groq,
+                supports_temperature: true,
+                name: "Llama 4 Maverick",
+            },
+
+            // X.AI
+            Self::Grok4 => ModelMetadata {
+                provider: Provider::XAI,
+                supports_temperature: true,
+                name: "Grok 4",
+            },
+            Self::Grok3Mini => ModelMetadata {
+                provider: Provider::XAI,
+                supports_temperature: true,
+                name: "Grok 3 Mini",
+            },
+
+            // OpenRouter
+            Self::OpenRouterAuto => ModelMetadata {
+                provider: Provider::OpenRouter,
+                supports_temperature: true,
+                name: "OpenRouter Auto",
+            },
+
+            // Qwen
+            Self::Qwen3Max => ModelMetadata {
+                provider: Provider::Qwen,
+                supports_temperature: true,
+                name: "Qwen3 Max",
+            },
+            Self::Qwen3Plus => ModelMetadata {
+                provider: Provider::Qwen,
+                supports_temperature: true,
+                name: "Qwen3 Plus",
+            },
+
+            // Zhipu
+            Self::Glm4_7 => ModelMetadata {
+                provider: Provider::Zhipu,
+                supports_temperature: true,
+                name: "GLM-4.7",
+            },
+
+            // Moonshot
+            Self::KimiK2_5 => ModelMetadata {
+                provider: Provider::Moonshot,
+                supports_temperature: true,
+                name: "Kimi K2.5",
+            },
+
+            // Doubao
+            Self::DoubaoPro => ModelMetadata {
+                provider: Provider::Doubao,
+                supports_temperature: true,
+                name: "Doubao Pro",
+            },
+
+            // Yi
+            Self::YiLightning => ModelMetadata {
+                provider: Provider::Yi,
+                supports_temperature: true,
+                name: "Yi Lightning",
+            },
+
+            // SiliconFlow
+            Self::SiliconFlowAuto => ModelMetadata {
+                provider: Provider::SiliconFlow,
+                supports_temperature: true,
+                name: "SiliconFlow Auto",
+            },
+
             // Codex CLI
             Self::CodexCli => ModelMetadata {
                 provider: Provider::OpenAI,
@@ -206,14 +395,11 @@ impl AIModel {
             Self::Gpt5Mini => "gpt-5-mini",
             Self::Gpt5Nano => "gpt-5-nano",
             Self::Gpt5Pro => "gpt-5-pro",
-
-            // O-series
-            Self::O4Mini => "o4-mini",
-            Self::O3 => "o3",
-            Self::O3Mini => "o3-mini",
+            Self::Gpt5_1 => "gpt-5.1",
+            Self::Gpt5_2 => "gpt-5.2",
 
             // Claude series (direct API)
-            Self::ClaudeOpus4_1 => "claude-opus-4-1",
+            Self::ClaudeOpus4_6 => "claude-opus-4-6",
             Self::ClaudeSonnet4_5 => "claude-sonnet-4-5",
             Self::ClaudeHaiku4_5 => "claude-haiku-4-5",
 
@@ -225,6 +411,42 @@ impl AIModel {
             // DeepSeek series
             Self::DeepseekChat => "deepseek-chat",
             Self::DeepseekReasoner => "deepseek-reasoner",
+
+            // Google Gemini
+            Self::Gemini25Pro => "gemini-2.5-pro",
+            Self::Gemini25Flash => "gemini-2.5-flash",
+            Self::Gemini3Pro => "gemini-3-pro-preview",
+            Self::Gemini3Flash => "gemini-3-flash-preview",
+
+            // Groq
+            Self::GroqLlama4Scout => "meta-llama/llama-4-scout-17b-16e-instruct",
+            Self::GroqLlama4Maverick => "meta-llama/llama-4-maverick-17b-128e-instruct",
+
+            // X.AI
+            Self::Grok4 => "grok-4",
+            Self::Grok3Mini => "grok-3-mini",
+
+            // OpenRouter
+            Self::OpenRouterAuto => "openrouter/auto",
+
+            // Qwen
+            Self::Qwen3Max => "qwen3-max",
+            Self::Qwen3Plus => "qwen3-plus",
+
+            // Zhipu
+            Self::Glm4_7 => "glm-4.7",
+
+            // Moonshot
+            Self::KimiK2_5 => "kimi-k2.5",
+
+            // Doubao
+            Self::DoubaoPro => "doubao-pro-256k",
+
+            // Yi
+            Self::YiLightning => "yi-lightning",
+
+            // SiliconFlow
+            Self::SiliconFlowAuto => "deepseek-ai/DeepSeek-V3",
 
             // Codex CLI
             Self::CodexCli => "gpt-5.3-codex",
@@ -244,8 +466,8 @@ impl AIModel {
             "claude-sonnet-4-5-20250514" | "claude-sonnet-4-20250514" => {
                 Some(Self::ClaudeSonnet4_5)
             }
-            "claude-opus-4-1-20250805" | "claude-opus-4-1-20250514" => {
-                Some(Self::ClaudeOpus4_1)
+            "claude-opus-4-6-20260205" | "claude-opus-4-6-20250514" => {
+                Some(Self::ClaudeOpus4_6)
             }
             "claude-haiku-4-5-20250514" | "claude-haiku-4-20250514" => {
                 Some(Self::ClaudeHaiku4_5)
@@ -253,8 +475,8 @@ impl AIModel {
             _ => {
                 if name.starts_with("claude-sonnet-4") {
                     Some(Self::ClaudeSonnet4_5)
-                } else if name.starts_with("claude-opus-4-1") || name.starts_with("claude-opus-4") {
-                    Some(Self::ClaudeOpus4_1)
+                } else if name.starts_with("claude-opus-4-6") || name.starts_with("claude-opus-4") {
+                    Some(Self::ClaudeOpus4_6)
                 } else if name.starts_with("claude-haiku-4") {
                     Some(Self::ClaudeHaiku4_5)
                 } else {
@@ -277,14 +499,11 @@ impl AIModel {
             Self::Gpt5Mini => "gpt-5-mini",
             Self::Gpt5Nano => "gpt-5-nano",
             Self::Gpt5Pro => "gpt-5-pro",
-
-            // O-series
-            Self::O4Mini => "o4-mini",
-            Self::O3 => "o3",
-            Self::O3Mini => "o3-mini",
+            Self::Gpt5_1 => "gpt-5-1",
+            Self::Gpt5_2 => "gpt-5-2",
 
             // Claude series (direct API)
-            Self::ClaudeOpus4_1 => "claude-opus-4-1",
+            Self::ClaudeOpus4_6 => "claude-opus-4-6",
             Self::ClaudeSonnet4_5 => "claude-sonnet-4-5",
             Self::ClaudeHaiku4_5 => "claude-haiku-4-5",
 
@@ -293,15 +512,51 @@ impl AIModel {
             Self::ClaudeCodeSonnet => "claude-code-sonnet",
             Self::ClaudeCodeHaiku => "claude-code-haiku",
 
+            // DeepSeek series
+            Self::DeepseekChat => "deepseek-chat",
+            Self::DeepseekReasoner => "deepseek-reasoner",
+
+            // Google Gemini
+            Self::Gemini25Pro => "gemini-2-5-pro",
+            Self::Gemini25Flash => "gemini-2-5-flash",
+            Self::Gemini3Pro => "gemini-3-pro",
+            Self::Gemini3Flash => "gemini-3-flash",
+
+            // Groq
+            Self::GroqLlama4Scout => "groq-llama4-scout",
+            Self::GroqLlama4Maverick => "groq-llama4-maverick",
+
+            // X.AI
+            Self::Grok4 => "grok-4",
+            Self::Grok3Mini => "grok-3-mini",
+
+            // OpenRouter
+            Self::OpenRouterAuto => "openrouter",
+
+            // Qwen
+            Self::Qwen3Max => "qwen3-max",
+            Self::Qwen3Plus => "qwen3-plus",
+
+            // Zhipu
+            Self::Glm4_7 => "glm-4-7",
+
+            // Moonshot
+            Self::KimiK2_5 => "kimi-k2-5",
+
+            // Doubao
+            Self::DoubaoPro => "doubao-pro",
+
+            // Yi
+            Self::YiLightning => "yi-lightning",
+
+            // SiliconFlow
+            Self::SiliconFlowAuto => "siliconflow",
+
             // Codex CLI
             Self::CodexCli => "codex-cli",
 
             // OpenCode CLI
             Self::OpenCodeCli => "opencode-cli",
-
-            // DeepSeek series
-            Self::DeepseekChat => "deepseek-chat",
-            Self::DeepseekReasoner => "deepseek-reasoner",
         }
     }
 
@@ -331,11 +586,10 @@ impl AIModel {
             Self::Gpt5Mini,
             Self::Gpt5Nano,
             Self::Gpt5Pro,
-            Self::O4Mini,
-            Self::O3,
-            Self::O3Mini,
+            Self::Gpt5_1,
+            Self::Gpt5_2,
             // Anthropic (direct API)
-            Self::ClaudeOpus4_1,
+            Self::ClaudeOpus4_6,
             Self::ClaudeSonnet4_5,
             Self::ClaudeHaiku4_5,
             // Anthropic (Claude Code CLI)
@@ -345,6 +599,32 @@ impl AIModel {
             // DeepSeek
             Self::DeepseekChat,
             Self::DeepseekReasoner,
+            // Google Gemini
+            Self::Gemini25Pro,
+            Self::Gemini25Flash,
+            Self::Gemini3Pro,
+            Self::Gemini3Flash,
+            // Groq
+            Self::GroqLlama4Scout,
+            Self::GroqLlama4Maverick,
+            // X.AI
+            Self::Grok4,
+            Self::Grok3Mini,
+            // OpenRouter
+            Self::OpenRouterAuto,
+            // Qwen
+            Self::Qwen3Max,
+            Self::Qwen3Plus,
+            // Zhipu
+            Self::Glm4_7,
+            // Moonshot
+            Self::KimiK2_5,
+            // Doubao
+            Self::DoubaoPro,
+            // Yi
+            Self::YiLightning,
+            // SiliconFlow
+            Self::SiliconFlowAuto,
             // Codex CLI
             Self::CodexCli,
             // OpenCode CLI
@@ -381,6 +661,14 @@ mod tests {
         assert_eq!(AIModel::Gpt5.provider(), Provider::OpenAI);
         assert_eq!(AIModel::ClaudeSonnet4_5.provider(), Provider::Anthropic);
         assert_eq!(AIModel::DeepseekChat.provider(), Provider::DeepSeek);
+        assert_eq!(AIModel::Gemini25Pro.provider(), Provider::Google);
+        assert_eq!(AIModel::GroqLlama4Scout.provider(), Provider::Groq);
+        assert_eq!(AIModel::Grok4.provider(), Provider::XAI);
+        assert_eq!(AIModel::Qwen3Max.provider(), Provider::Qwen);
+        assert_eq!(AIModel::Glm4_7.provider(), Provider::Zhipu);
+        assert_eq!(AIModel::KimiK2_5.provider(), Provider::Moonshot);
+        assert_eq!(AIModel::DoubaoPro.provider(), Provider::Doubao);
+        assert_eq!(AIModel::YiLightning.provider(), Provider::Yi);
     }
 
     #[test]
@@ -388,8 +676,8 @@ mod tests {
         // Models that don't support temperature
         assert!(!AIModel::Gpt5.supports_temperature());
         assert!(!AIModel::Gpt5Mini.supports_temperature());
-        assert!(!AIModel::O3.supports_temperature());
-        assert!(!AIModel::O4Mini.supports_temperature());
+        assert!(!AIModel::Gpt5_1.supports_temperature());
+        assert!(!AIModel::Gpt5_2.supports_temperature());
         assert!(!AIModel::CodexCli.supports_temperature());
         assert!(!AIModel::OpenCodeCli.supports_temperature());
 
@@ -397,6 +685,8 @@ mod tests {
         assert!(AIModel::ClaudeSonnet4_5.supports_temperature());
         assert!(AIModel::ClaudeHaiku4_5.supports_temperature());
         assert!(AIModel::DeepseekChat.supports_temperature());
+        assert!(AIModel::Gemini25Flash.supports_temperature());
+        assert!(AIModel::GroqLlama4Maverick.supports_temperature());
     }
 
     #[test]
@@ -414,12 +704,14 @@ mod tests {
     #[test]
     fn test_as_str() {
         assert_eq!(AIModel::Gpt5.as_str(), "gpt-5");
-        assert_eq!(AIModel::O3.as_str(), "o3");
+        assert_eq!(AIModel::Gpt5_1.as_str(), "gpt-5.1");
         assert_eq!(AIModel::ClaudeSonnet4_5.as_str(), "claude-sonnet-4-5");
         assert_eq!(AIModel::ClaudeHaiku4_5.as_str(), "claude-haiku-4-5");
         assert_eq!(AIModel::CodexCli.as_str(), "gpt-5.3-codex");
         assert_eq!(AIModel::OpenCodeCli.as_str(), "opencode");
         assert_eq!(AIModel::DeepseekChat.as_str(), "deepseek-chat");
+        assert_eq!(AIModel::Gemini25Pro.as_str(), "gemini-2.5-pro");
+        assert_eq!(AIModel::GroqLlama4Scout.as_str(), "meta-llama/llama-4-scout-17b-16e-instruct");
     }
 
     #[test]
@@ -438,6 +730,7 @@ mod tests {
     #[test]
     fn test_display_name() {
         assert_eq!(AIModel::Gpt5.display_name(), "GPT-5");
+        assert_eq!(AIModel::Gpt5_2.display_name(), "GPT-5.2");
         assert_eq!(AIModel::ClaudeSonnet4_5.display_name(), "Claude Sonnet 4.5");
         assert_eq!(AIModel::ClaudeHaiku4_5.display_name(), "Claude Haiku 4.5");
         assert_eq!(AIModel::CodexCli.display_name(), "Codex CLI");
@@ -448,15 +741,16 @@ mod tests {
     #[test]
     fn test_all_models() {
         let models = AIModel::all();
-        assert_eq!(models.len(), 17);
+        assert_eq!(models.len(), 32);
         assert!(models.contains(&AIModel::Gpt5));
-        assert!(models.contains(&AIModel::O3));
-        assert!(models.contains(&AIModel::ClaudeOpus4_1));
+        assert!(models.contains(&AIModel::Gpt5_1));
+        assert!(models.contains(&AIModel::ClaudeOpus4_6));
         assert!(models.contains(&AIModel::ClaudeSonnet4_5));
         assert!(models.contains(&AIModel::ClaudeHaiku4_5));
         assert!(models.contains(&AIModel::CodexCli));
         assert!(models.contains(&AIModel::OpenCodeCli));
         assert!(models.contains(&AIModel::DeepseekChat));
+        assert!(models.contains(&AIModel::Gemini25Pro));
     }
 
     #[test]
@@ -478,5 +772,12 @@ mod tests {
         assert_eq!(metadata.provider, Provider::DeepSeek);
         assert!(metadata.supports_temperature);
         assert_eq!(metadata.name, "DeepSeek Chat");
+    }
+
+    #[test]
+    fn test_provider_api_key_env() {
+        assert_eq!(Provider::Google.api_key_env(), "GEMINI_API_KEY");
+        assert_eq!(Provider::Groq.api_key_env(), "GROQ_API_KEY");
+        assert_eq!(Provider::Qwen.api_key_env(), "DASHSCOPE_API_KEY");
     }
 }
