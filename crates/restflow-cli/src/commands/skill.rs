@@ -371,9 +371,10 @@ async fn install_from_dirs(
 async fn upsert_skill(executor: &Arc<dyn CommandExecutor>, mut skill: Skill) -> Result<()> {
     let existing = executor.get_skill(&skill.id).await?;
     if let Some(existing_skill) = existing {
+        let skill_id = skill.id.clone();
         skill.created_at = existing_skill.created_at;
         skill.updated_at = chrono::Utc::now().timestamp_millis();
-        executor.update_skill(&skill.id, skill).await?;
+        executor.update_skill(&skill_id, skill).await?;
     } else {
         executor.create_skill(skill).await?;
     }
@@ -422,4 +423,48 @@ fn copy_skill_dir(source: &Path, target: &Path) -> Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[test]
+    fn test_git_source_detection() {
+        assert!(is_git_source("https://github.com/org/repo.git"));
+        assert!(is_git_source("git@github.com:org/repo.git"));
+        assert!(!is_git_source("skills/my-local-skill"));
+    }
+
+    #[test]
+    fn test_skill_package_detection() {
+        assert!(is_skill_package("/tmp/example.skill"));
+        assert!(is_skill_package("/tmp/example.zip"));
+        assert!(!is_skill_package("/tmp/example"));
+    }
+
+    #[test]
+    fn test_copy_skill_dir_recursive() -> Result<()> {
+        let source_root = tempdir()?;
+        let target_root = tempdir()?;
+
+        let source = source_root.path().join("source");
+        let target = target_root.path().join("target");
+
+        std::fs::create_dir_all(source.join("nested"))?;
+        std::fs::write(source.join("SKILL.md"), "# Demo Skill\n")?;
+        std::fs::write(source.join("nested").join("config.json"), "{\"k\":1}")?;
+
+        copy_skill_dir(&source, &target)?;
+
+        assert!(target.join("SKILL.md").exists());
+        assert!(target.join("nested").join("config.json").exists());
+        assert_eq!(
+            std::fs::read_to_string(target.join("SKILL.md"))?,
+            "# Demo Skill\n"
+        );
+
+        Ok(())
+    }
 }

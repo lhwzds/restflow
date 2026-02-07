@@ -206,11 +206,7 @@ impl AgentExecutor {
         messages
     }
 
-    async fn apply_steer_messages(
-        &self,
-        state: &mut AgentState,
-        memory: &mut WorkingMemory,
-    ) {
+    async fn apply_steer_messages(&self, state: &mut AgentState, memory: &mut WorkingMemory) {
         let messages = self.drain_steer_messages().await;
         if messages.is_empty() {
             return;
@@ -650,13 +646,10 @@ impl AgentExecutor {
                 let tools = Arc::clone(&tools);
                 let timeout_dur = tool_timeout;
                 async move {
-                    let result = tokio::time::timeout(
-                        timeout_dur,
-                        tools.execute_safe(&name, args),
-                    )
-                    .await
-                    .map_err(|_| AiError::Tool(format!("Tool {} timed out", name)))
-                    .and_then(|r| r);
+                    let result = tokio::time::timeout(timeout_dur, tools.execute_safe(&name, args))
+                        .await
+                        .map_err(|_| AiError::Tool(format!("Tool {} timed out", name)))
+                        .and_then(|r| r);
                     (id, name, result)
                 }
             })
@@ -667,9 +660,10 @@ impl AgentExecutor {
 
         for (id, name, result) in results {
             let (result_str, success) = match &result {
-                Ok(output) if output.success => {
-                    (serde_json::to_string(&output.result).unwrap_or_default(), true)
-                }
+                Ok(output) if output.success => (
+                    serde_json::to_string(&output.result).unwrap_or_default(),
+                    true,
+                ),
                 Ok(output) => (
                     format!("Error: {}", output.error.clone().unwrap_or_default()),
                     false,

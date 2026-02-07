@@ -170,15 +170,6 @@ impl CliTaskRunner {
     pub async fn is_running(&self) -> bool {
         self.handle.read().await.is_some()
     }
-
-    pub async fn run_task_now(&self, task_id: &str) -> Result<()> {
-        if let Some(handle) = self.handle.read().await.as_ref() {
-            handle.run_task_now(task_id.to_string()).await?;
-        } else {
-            anyhow::bail!("Runner not started");
-        }
-        Ok(())
-    }
 }
 
 struct CliTaskTrigger {

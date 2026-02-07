@@ -34,7 +34,7 @@ mod vision;
 
 use file_tracker::FileTracker;
 
-pub use agent_crud::{AgentCrudTool, AgentCreateRequest, AgentStore, AgentUpdateRequest};
+pub use agent_crud::{AgentCreateRequest, AgentCrudTool, AgentStore, AgentUpdateRequest};
 pub use auth_profile::{
     AuthProfileCreateRequest, AuthProfileStore, AuthProfileTestRequest, AuthProfileTool,
     CredentialInput,
@@ -65,7 +65,10 @@ pub use session::{
 };
 pub use skill::SkillTool;
 pub use switch_model::SwitchModelTool;
-pub use task::{TaskCreateRequest, TaskStore, TaskTool};
+pub use task::{
+    TaskControlRequest, TaskCreateRequest, TaskMessageListRequest, TaskMessageRequest,
+    TaskProgressRequest, TaskStore, TaskTool, TaskUpdateRequest,
+};
 pub use telegram::{TelegramTool, send_telegram_notification};
 pub use traits::{
     SecretResolver, SkillContent, SkillInfo, SkillProvider, SkillRecord, SkillUpdate, Tool,

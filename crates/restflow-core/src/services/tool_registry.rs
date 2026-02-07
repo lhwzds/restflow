@@ -3,8 +3,9 @@
 use crate::lsp::LspManager;
 use crate::memory::UnifiedSearchEngine;
 use crate::models::{
-    AgentTaskStatus, MemorySearchQuery, SearchMode, SharedEntry, TaskSchedule, UnifiedSearchQuery,
-    Visibility,
+    AgentTaskStatus, BackgroundAgentControlAction, BackgroundAgentPatch, BackgroundAgentSpec,
+    BackgroundMessageSource, MemoryConfig, MemoryScope, MemorySearchQuery, SearchMode, SharedEntry,
+    TaskSchedule, UnifiedSearchQuery, Visibility,
 };
 use crate::storage::skill::SkillStorage;
 use crate::storage::{
@@ -13,11 +14,15 @@ use crate::storage::{
 };
 use chrono::Utc;
 use restflow_ai::error::AiError;
-use restflow_ai::tools::{ConfigTool, SecretsTool, TaskCreateRequest, TaskStore, TaskTool};
+use restflow_ai::tools::{
+    ConfigTool, SecretsTool, TaskControlRequest, TaskCreateRequest, TaskMessageListRequest,
+    TaskMessageRequest, TaskProgressRequest, TaskStore, TaskTool, TaskUpdateRequest,
+};
 use restflow_ai::{
     SecretResolver, SkillContent, SkillInfo, SkillProvider, SkillRecord, SkillTool, SkillUpdate,
     Tool, ToolOutput, ToolRegistry, TranscribeTool, VisionTool,
 };
+use serde::de::DeserializeOwned;
 use serde_json::json;
 use std::sync::Arc;
 
@@ -115,7 +120,12 @@ impl SkillProvider for SkillStorageProvider {
         Ok(skill.to_markdown())
     }
 
-    fn import_skill(&self, id: &str, markdown: &str, overwrite: bool) -> Result<SkillRecord, String> {
+    fn import_skill(
+        &self,
+        id: &str,
+        markdown: &str,
+        overwrite: bool,
+    ) -> Result<SkillRecord, String> {
         let exists = self.storage.exists(id).map_err(|e| e.to_string())?;
         if exists && !overwrite {
             return Err(format!("Skill {} already exists", id));
@@ -159,6 +169,69 @@ impl TaskStoreAdapter {
             _ => Err(AiError::Tool(format!("Unknown status: {}", status))),
         }
     }
+
+    fn parse_control_action(action: &str) -> Result<BackgroundAgentControlAction, AiError> {
+        match action.trim().to_lowercase().as_str() {
+            "start" => Ok(BackgroundAgentControlAction::Start),
+            "pause" => Ok(BackgroundAgentControlAction::Pause),
+            "resume" => Ok(BackgroundAgentControlAction::Resume),
+            "stop" => Ok(BackgroundAgentControlAction::Stop),
+            "run_now" | "run-now" | "runnow" => Ok(BackgroundAgentControlAction::RunNow),
+            _ => Err(AiError::Tool(format!("Unknown control action: {}", action))),
+        }
+    }
+
+    fn parse_message_source(source: Option<&str>) -> Result<BackgroundMessageSource, AiError> {
+        match source.map(|value| value.trim().to_lowercase()) {
+            None => Ok(BackgroundMessageSource::User),
+            Some(value) if value.is_empty() => Ok(BackgroundMessageSource::User),
+            Some(value) if value == "user" => Ok(BackgroundMessageSource::User),
+            Some(value) if value == "agent" => Ok(BackgroundMessageSource::Agent),
+            Some(value) if value == "system" => Ok(BackgroundMessageSource::System),
+            Some(value) => Err(AiError::Tool(format!("Unknown message source: {}", value))),
+        }
+    }
+
+    fn parse_optional_value<T: DeserializeOwned>(
+        field: &str,
+        value: Option<serde_json::Value>,
+    ) -> Result<Option<T>, AiError> {
+        match value {
+            Some(value) => serde_json::from_value(value)
+                .map(Some)
+                .map_err(|e| AiError::Tool(format!("Invalid {}: {}", field, e))),
+            None => Ok(None),
+        }
+    }
+
+    fn parse_memory_scope(value: Option<&str>) -> Result<Option<MemoryScope>, AiError> {
+        match value.map(|scope| scope.trim().to_lowercase()) {
+            None => Ok(None),
+            Some(scope) if scope.is_empty() => Ok(None),
+            Some(scope) if scope == "shared_agent" => Ok(Some(MemoryScope::SharedAgent)),
+            Some(scope) if scope == "per_task" => Ok(Some(MemoryScope::PerTask)),
+            Some(scope) => Err(AiError::Tool(format!("Unknown memory_scope: {}", scope))),
+        }
+    }
+
+    fn merge_memory_scope(
+        memory: Option<MemoryConfig>,
+        memory_scope: Option<String>,
+    ) -> Result<Option<MemoryConfig>, AiError> {
+        let parsed_scope = Self::parse_memory_scope(memory_scope.as_deref())?;
+        match (memory, parsed_scope) {
+            (Some(mut memory), Some(scope)) => {
+                memory.memory_scope = scope;
+                Ok(Some(memory))
+            }
+            (Some(memory), None) => Ok(Some(memory)),
+            (None, Some(scope)) => Ok(Some(MemoryConfig {
+                memory_scope: scope,
+                ..MemoryConfig::default()
+            })),
+            (None, None) => Ok(None),
+        }
+    }
 }
 
 impl TaskStore for TaskStoreAdapter {
@@ -166,25 +239,57 @@ impl TaskStore for TaskStoreAdapter {
         &self,
         request: TaskCreateRequest,
     ) -> restflow_ai::error::Result<serde_json::Value> {
-        let schedule = match request.schedule {
-            Some(value) => serde_json::from_value::<TaskSchedule>(value)
-                .map_err(|e| AiError::Tool(e.to_string()))?,
-            None => TaskSchedule::default(),
+        let schedule = Self::parse_optional_value::<TaskSchedule>("schedule", request.schedule)?
+            .unwrap_or_default();
+        let memory = Self::merge_memory_scope(None, request.memory_scope)?;
+        let task = self
+            .storage
+            .create_background_agent(BackgroundAgentSpec {
+                name: request.name,
+                agent_id: request.agent_id,
+                description: None,
+                input: request.input,
+                input_template: request.input_template,
+                schedule,
+                notification: None,
+                execution_mode: None,
+                memory,
+            })
+            .map_err(|e| AiError::Tool(e.to_string()))?;
+        serde_json::to_value(task).map_err(AiError::from)
+    }
+
+    fn update_task(
+        &self,
+        request: TaskUpdateRequest,
+    ) -> restflow_ai::error::Result<serde_json::Value> {
+        let memory = Self::parse_optional_value("memory", request.memory)?;
+        let memory = Self::merge_memory_scope(memory, request.memory_scope)?;
+        let patch = BackgroundAgentPatch {
+            name: request.name,
+            description: request.description,
+            agent_id: request.agent_id,
+            input: request.input,
+            input_template: request.input_template,
+            schedule: Self::parse_optional_value("schedule", request.schedule)?,
+            notification: Self::parse_optional_value("notification", request.notification)?,
+            execution_mode: Self::parse_optional_value("execution_mode", request.execution_mode)?,
+            memory,
         };
 
-        let mut task = self
+        let task = self
             .storage
-            .create_task(request.name, request.agent_id, schedule)
+            .update_background_agent(&request.id, patch)
             .map_err(|e| AiError::Tool(e.to_string()))?;
-
-        if let Some(input) = request.input {
-            task.input = Some(input);
-            self.storage
-                .update_task(&task)
-                .map_err(|e| AiError::Tool(e.to_string()))?;
-        }
-
         serde_json::to_value(task).map_err(AiError::from)
+    }
+
+    fn delete_task(&self, id: &str) -> restflow_ai::error::Result<serde_json::Value> {
+        let deleted = self
+            .storage
+            .delete_task(id)
+            .map_err(|e| AiError::Tool(e.to_string()))?;
+        Ok(json!({ "id": id, "deleted": deleted }))
     }
 
     fn list_tasks(&self, status: Option<String>) -> restflow_ai::error::Result<serde_json::Value> {
@@ -202,47 +307,50 @@ impl TaskStore for TaskStoreAdapter {
         serde_json::to_value(tasks).map_err(AiError::from)
     }
 
-    fn pause_task(&self, id: &str) -> restflow_ai::error::Result<serde_json::Value> {
+    fn control_task(
+        &self,
+        request: TaskControlRequest,
+    ) -> restflow_ai::error::Result<serde_json::Value> {
+        let action = Self::parse_control_action(&request.action)?;
         let task = self
             .storage
-            .pause_task(id)
+            .control_background_agent(&request.id, action)
             .map_err(|e| AiError::Tool(e.to_string()))?;
         serde_json::to_value(task).map_err(AiError::from)
     }
 
-    fn resume_task(&self, id: &str) -> restflow_ai::error::Result<serde_json::Value> {
-        let task = self
+    fn get_progress(
+        &self,
+        request: TaskProgressRequest,
+    ) -> restflow_ai::error::Result<serde_json::Value> {
+        let progress = self
             .storage
-            .resume_task(id)
+            .get_background_agent_progress(&request.id, request.event_limit.unwrap_or(10).max(1))
             .map_err(|e| AiError::Tool(e.to_string()))?;
-        serde_json::to_value(task).map_err(AiError::from)
+        serde_json::to_value(progress).map_err(AiError::from)
     }
 
-    fn cancel_task(&self, id: &str) -> restflow_ai::error::Result<serde_json::Value> {
-        let deleted = self
+    fn send_message(
+        &self,
+        request: TaskMessageRequest,
+    ) -> restflow_ai::error::Result<serde_json::Value> {
+        let source = Self::parse_message_source(request.source.as_deref())?;
+        let message = self
             .storage
-            .delete_task(id)
+            .send_background_agent_message(&request.id, request.message, source)
             .map_err(|e| AiError::Tool(e.to_string()))?;
-        Ok(json!({ "id": id, "deleted": deleted }))
+        serde_json::to_value(message).map_err(AiError::from)
     }
 
-    fn run_task(&self, id: &str) -> restflow_ai::error::Result<serde_json::Value> {
-        let mut task = self
+    fn list_messages(
+        &self,
+        request: TaskMessageListRequest,
+    ) -> restflow_ai::error::Result<serde_json::Value> {
+        let messages = self
             .storage
-            .get_task(id)
-            .map_err(|e| AiError::Tool(e.to_string()))?
-            .ok_or_else(|| AiError::Tool(format!("Task {} not found", id)))?;
-
-        let now = chrono::Utc::now().timestamp_millis();
-        task.status = AgentTaskStatus::Active;
-        task.next_run_at = Some(now);
-        task.updated_at = now;
-
-        self.storage
-            .update_task(&task)
+            .list_background_agent_messages(&request.id, request.limit.unwrap_or(50).max(1))
             .map_err(|e| AiError::Tool(e.to_string()))?;
-
-        serde_json::to_value(task).map_err(AiError::from)
+        serde_json::to_value(messages).map_err(AiError::from)
     }
 }
 
@@ -290,7 +398,7 @@ pub fn create_tool_registry(
     registry.register(SecretsTool::new(Arc::new(secret_storage)));
     registry.register(ConfigTool::new(Arc::new(config_storage)));
     let task_store = Arc::new(TaskStoreAdapter::new(agent_task_storage));
-    registry.register(TaskTool::new(task_store));
+    registry.register(TaskTool::new(task_store).with_write(true));
 
     registry
 }
@@ -775,5 +883,139 @@ mod tests {
 
         // Test get nonexistent
         assert!(provider.get_skill("nonexistent").is_none());
+    }
+
+    #[test]
+    fn test_task_store_adapter_background_agent_flow() {
+        let (
+            _skill_storage,
+            _memory_storage,
+            _chat_storage,
+            _shared_space_storage,
+            _secret_storage,
+            _config_storage,
+            agent_task_storage,
+            _temp_dir,
+        ) = setup_storage();
+
+        let adapter = TaskStoreAdapter::new(agent_task_storage);
+
+        let created = TaskStore::create_task(
+            &adapter,
+            TaskCreateRequest {
+                name: "Background Agent".to_string(),
+                agent_id: "agent-001".to_string(),
+                schedule: None,
+                input: Some("Run periodic checks".to_string()),
+                input_template: Some("Template {{task.id}}".to_string()),
+                memory_scope: Some("per_task".to_string()),
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            created
+                .get("input_template")
+                .and_then(|value| value.as_str()),
+            Some("Template {{task.id}}")
+        );
+        assert_eq!(
+            created
+                .get("memory")
+                .and_then(|value| value.get("memory_scope"))
+                .and_then(|value| value.as_str()),
+            Some("per_task")
+        );
+        let task_id = created
+            .get("id")
+            .and_then(|value| value.as_str())
+            .unwrap()
+            .to_string();
+
+        let updated = TaskStore::update_task(
+            &adapter,
+            TaskUpdateRequest {
+                id: task_id.clone(),
+                name: Some("Background Agent Updated".to_string()),
+                description: Some("Updated description".to_string()),
+                agent_id: None,
+                input: Some("Run checks and summarize".to_string()),
+                input_template: Some("Updated {{task.name}}".to_string()),
+                schedule: None,
+                notification: None,
+                execution_mode: None,
+                memory: None,
+                memory_scope: Some("shared_agent".to_string()),
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            updated.get("name").and_then(|value| value.as_str()),
+            Some("Background Agent Updated")
+        );
+        assert_eq!(
+            updated
+                .get("memory")
+                .and_then(|value| value.get("memory_scope"))
+                .and_then(|value| value.as_str()),
+            Some("shared_agent")
+        );
+
+        let controlled = TaskStore::control_task(
+            &adapter,
+            TaskControlRequest {
+                id: task_id.clone(),
+                action: "run_now".to_string(),
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            controlled.get("status").and_then(|value| value.as_str()),
+            Some("active")
+        );
+
+        let message = TaskStore::send_message(
+            &adapter,
+            TaskMessageRequest {
+                id: task_id.clone(),
+                message: "Also check deployment logs".to_string(),
+                source: Some("user".to_string()),
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            message.get("status").and_then(|value| value.as_str()),
+            Some("queued")
+        );
+
+        let progress = TaskStore::get_progress(
+            &adapter,
+            TaskProgressRequest {
+                id: task_id.clone(),
+                event_limit: Some(5),
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            progress
+                .get("background_agent_id")
+                .and_then(|value| value.as_str()),
+            Some(task_id.as_str())
+        );
+
+        let messages = TaskStore::list_messages(
+            &adapter,
+            TaskMessageListRequest {
+                id: task_id.clone(),
+                limit: Some(10),
+            },
+        )
+        .unwrap();
+        assert_eq!(messages.as_array().map(|items| items.len()), Some(1));
+
+        let deleted = TaskStore::delete_task(&adapter, &task_id).unwrap();
+        assert_eq!(
+            deleted.get("deleted").and_then(|value| value.as_bool()),
+            Some(true)
+        );
     }
 }

@@ -17,6 +17,15 @@ const TASK_EVENT_INDEX_TABLE: TableDefinition<&str, &str> =
 /// Index table: status:task_id -> task_id (for listing tasks by status)
 const TASK_STATUS_INDEX_TABLE: TableDefinition<&str, &str> =
     TableDefinition::new("agent_task_status_index");
+/// Background message payload table
+const BACKGROUND_MESSAGE_TABLE: TableDefinition<&str, &[u8]> =
+    TableDefinition::new("background_messages");
+/// Index table: task_id:message_id -> message_id
+const BACKGROUND_MESSAGE_TASK_INDEX_TABLE: TableDefinition<&str, &str> =
+    TableDefinition::new("background_message_task_index");
+/// Index table: status:task_id:message_id -> message_id
+const BACKGROUND_MESSAGE_STATUS_INDEX_TABLE: TableDefinition<&str, &str> =
+    TableDefinition::new("background_message_status_index");
 
 /// Low-level agent task storage with byte-level API
 #[derive(Clone)]
@@ -33,6 +42,9 @@ impl AgentTaskStorage {
         write_txn.open_table(TASK_EVENT_TABLE)?;
         write_txn.open_table(TASK_EVENT_INDEX_TABLE)?;
         write_txn.open_table(TASK_STATUS_INDEX_TABLE)?;
+        write_txn.open_table(BACKGROUND_MESSAGE_TABLE)?;
+        write_txn.open_table(BACKGROUND_MESSAGE_TASK_INDEX_TABLE)?;
+        write_txn.open_table(BACKGROUND_MESSAGE_STATUS_INDEX_TABLE)?;
         write_txn.commit()?;
 
         Ok(Self { db })
@@ -165,6 +177,180 @@ impl AgentTaskStorage {
         };
         write_txn.commit()?;
         Ok(existed)
+    }
+
+    // ============== Background Message Operations ==============
+
+    /// Store raw background message data with task/status indices.
+    pub fn put_background_message_raw_with_status(
+        &self,
+        message_id: &str,
+        task_id: &str,
+        status: &str,
+        data: &[u8],
+    ) -> Result<()> {
+        let write_txn = self.db.begin_write()?;
+        {
+            let mut message_table = write_txn.open_table(BACKGROUND_MESSAGE_TABLE)?;
+            message_table.insert(message_id, data)?;
+
+            let mut task_index = write_txn.open_table(BACKGROUND_MESSAGE_TASK_INDEX_TABLE)?;
+            let task_key = format!("{}:{}", task_id, message_id);
+            task_index.insert(task_key.as_str(), message_id)?;
+
+            let mut status_index = write_txn.open_table(BACKGROUND_MESSAGE_STATUS_INDEX_TABLE)?;
+            let status_key = format!("{}:{}:{}", status, task_id, message_id);
+            status_index.insert(status_key.as_str(), message_id)?;
+        }
+        write_txn.commit()?;
+        Ok(())
+    }
+
+    /// Update raw background message data and keep status index consistent.
+    pub fn update_background_message_raw_with_status(
+        &self,
+        message_id: &str,
+        task_id: &str,
+        old_status: &str,
+        new_status: &str,
+        data: &[u8],
+    ) -> Result<()> {
+        let write_txn = self.db.begin_write()?;
+        {
+            let mut message_table = write_txn.open_table(BACKGROUND_MESSAGE_TABLE)?;
+            message_table.insert(message_id, data)?;
+
+            let mut status_index = write_txn.open_table(BACKGROUND_MESSAGE_STATUS_INDEX_TABLE)?;
+            if old_status != new_status {
+                let old_key = format!("{}:{}:{}", old_status, task_id, message_id);
+                status_index.remove(old_key.as_str())?;
+            }
+
+            let new_key = format!("{}:{}:{}", new_status, task_id, message_id);
+            status_index.insert(new_key.as_str(), message_id)?;
+        }
+        write_txn.commit()?;
+        Ok(())
+    }
+
+    /// Get raw background message data by ID.
+    pub fn get_background_message_raw(&self, message_id: &str) -> Result<Option<Vec<u8>>> {
+        let read_txn = self.db.begin_read()?;
+        let table = read_txn.open_table(BACKGROUND_MESSAGE_TABLE)?;
+
+        if let Some(value) = table.get(message_id)? {
+            Ok(Some(value.value().to_vec()))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// List raw background messages for a task.
+    pub fn list_background_messages_for_task_raw(
+        &self,
+        task_id: &str,
+    ) -> Result<Vec<(String, Vec<u8>)>> {
+        let read_txn = self.db.begin_read()?;
+        let task_index = read_txn.open_table(BACKGROUND_MESSAGE_TASK_INDEX_TABLE)?;
+        let message_table = read_txn.open_table(BACKGROUND_MESSAGE_TABLE)?;
+
+        let prefix = format!("{}:", task_id);
+        let (start, end) = prefix_range(&prefix);
+        let mut messages = Vec::new();
+
+        for item in task_index.range(start.as_str()..end.as_str())? {
+            let (_, value) = item?;
+            let message_id = value.value();
+            if let Some(data) = message_table.get(message_id)? {
+                messages.push((message_id.to_string(), data.value().to_vec()));
+            }
+        }
+
+        Ok(messages)
+    }
+
+    /// List raw background messages for a task by status.
+    pub fn list_background_messages_by_status_for_task_raw(
+        &self,
+        task_id: &str,
+        status: &str,
+    ) -> Result<Vec<(String, Vec<u8>)>> {
+        let read_txn = self.db.begin_read()?;
+        let status_index = read_txn.open_table(BACKGROUND_MESSAGE_STATUS_INDEX_TABLE)?;
+        let message_table = read_txn.open_table(BACKGROUND_MESSAGE_TABLE)?;
+
+        let prefix = format!("{}:{}:", status, task_id);
+        let (start, end) = prefix_range(&prefix);
+        let mut messages = Vec::new();
+
+        for item in status_index.range(start.as_str()..end.as_str())? {
+            let (_, value) = item?;
+            let message_id = value.value();
+            if let Some(data) = message_table.get(message_id)? {
+                messages.push((message_id.to_string(), data.value().to_vec()));
+            }
+        }
+
+        Ok(messages)
+    }
+
+    /// Delete one background message and related indices.
+    pub fn delete_background_message(
+        &self,
+        message_id: &str,
+        task_id: &str,
+        status: &str,
+    ) -> Result<bool> {
+        let write_txn = self.db.begin_write()?;
+        let existed = {
+            let mut message_table = write_txn.open_table(BACKGROUND_MESSAGE_TABLE)?;
+            let existed = message_table.remove(message_id)?.is_some();
+
+            let mut task_index = write_txn.open_table(BACKGROUND_MESSAGE_TASK_INDEX_TABLE)?;
+            let task_key = format!("{}:{}", task_id, message_id);
+            task_index.remove(task_key.as_str())?;
+
+            let mut status_index = write_txn.open_table(BACKGROUND_MESSAGE_STATUS_INDEX_TABLE)?;
+            let status_key = format!("{}:{}:{}", status, task_id, message_id);
+            status_index.remove(status_key.as_str())?;
+
+            existed
+        };
+        write_txn.commit()?;
+        Ok(existed)
+    }
+
+    /// Delete all background messages for a task.
+    pub fn delete_background_messages_for_task(&self, task_id: &str) -> Result<u32> {
+        let messages = self.list_background_messages_for_task_raw(task_id)?;
+        let count = messages.len() as u32;
+
+        if count == 0 {
+            return Ok(0);
+        }
+
+        let write_txn = self.db.begin_write()?;
+        {
+            let mut message_table = write_txn.open_table(BACKGROUND_MESSAGE_TABLE)?;
+            let mut task_index = write_txn.open_table(BACKGROUND_MESSAGE_TASK_INDEX_TABLE)?;
+            let mut status_index = write_txn.open_table(BACKGROUND_MESSAGE_STATUS_INDEX_TABLE)?;
+
+            for (message_id, data) in &messages {
+                message_table.remove(message_id.as_str())?;
+
+                let task_key = format!("{}:{}", task_id, message_id);
+                task_index.remove(task_key.as_str())?;
+
+                if let Ok(value) = serde_json::from_slice::<serde_json::Value>(data)
+                    && let Some(status) = value.get("status").and_then(|s| s.as_str())
+                {
+                    let status_key = format!("{}:{}:{}", status, task_id, message_id);
+                    status_index.remove(status_key.as_str())?;
+                }
+            }
+        }
+        write_txn.commit()?;
+        Ok(count)
     }
 
     // ============== Task Event Operations ==============
@@ -381,6 +567,133 @@ mod tests {
 
         let active_tasks = storage.list_tasks_by_status_indexed("active").unwrap();
         assert!(active_tasks.is_empty());
+    }
+
+    #[test]
+    fn test_put_and_get_background_message_raw() {
+        let storage = create_test_storage();
+        let data = br#"{"id":"msg-1","status":"queued"}"#;
+
+        storage
+            .put_background_message_raw_with_status("msg-1", "task-1", "queued", data)
+            .unwrap();
+
+        let raw = storage.get_background_message_raw("msg-1").unwrap();
+        assert!(raw.is_some());
+        assert_eq!(raw.unwrap(), data);
+    }
+
+    #[test]
+    fn test_list_background_messages_for_task_raw() {
+        let storage = create_test_storage();
+        storage
+            .put_background_message_raw_with_status(
+                "msg-1",
+                "task-1",
+                "queued",
+                br#"{"id":"msg-1","status":"queued"}"#,
+            )
+            .unwrap();
+        storage
+            .put_background_message_raw_with_status(
+                "msg-2",
+                "task-1",
+                "delivered",
+                br#"{"id":"msg-2","status":"delivered"}"#,
+            )
+            .unwrap();
+        storage
+            .put_background_message_raw_with_status(
+                "msg-3",
+                "task-2",
+                "queued",
+                br#"{"id":"msg-3","status":"queued"}"#,
+            )
+            .unwrap();
+
+        let task1 = storage
+            .list_background_messages_for_task_raw("task-1")
+            .unwrap();
+        let queued_task1 = storage
+            .list_background_messages_by_status_for_task_raw("task-1", "queued")
+            .unwrap();
+
+        assert_eq!(task1.len(), 2);
+        assert_eq!(queued_task1.len(), 1);
+    }
+
+    #[test]
+    fn test_update_background_message_raw_with_status() {
+        let storage = create_test_storage();
+        storage
+            .put_background_message_raw_with_status(
+                "msg-1",
+                "task-1",
+                "queued",
+                br#"{"id":"msg-1","status":"queued"}"#,
+            )
+            .unwrap();
+        storage
+            .update_background_message_raw_with_status(
+                "msg-1",
+                "task-1",
+                "queued",
+                "delivered",
+                br#"{"id":"msg-1","status":"delivered"}"#,
+            )
+            .unwrap();
+
+        let queued = storage
+            .list_background_messages_by_status_for_task_raw("task-1", "queued")
+            .unwrap();
+        let delivered = storage
+            .list_background_messages_by_status_for_task_raw("task-1", "delivered")
+            .unwrap();
+        assert!(queued.is_empty());
+        assert_eq!(delivered.len(), 1);
+    }
+
+    #[test]
+    fn test_delete_background_messages_for_task() {
+        let storage = create_test_storage();
+        storage
+            .put_background_message_raw_with_status(
+                "msg-1",
+                "task-1",
+                "queued",
+                br#"{"id":"msg-1","status":"queued"}"#,
+            )
+            .unwrap();
+        storage
+            .put_background_message_raw_with_status(
+                "msg-2",
+                "task-1",
+                "delivered",
+                br#"{"id":"msg-2","status":"delivered"}"#,
+            )
+            .unwrap();
+        storage
+            .put_background_message_raw_with_status(
+                "msg-3",
+                "task-2",
+                "queued",
+                br#"{"id":"msg-3","status":"queued"}"#,
+            )
+            .unwrap();
+
+        let deleted = storage
+            .delete_background_messages_for_task("task-1")
+            .unwrap();
+        assert_eq!(deleted, 2);
+
+        let remaining_task1 = storage
+            .list_background_messages_for_task_raw("task-1")
+            .unwrap();
+        let remaining_task2 = storage
+            .list_background_messages_for_task_raw("task-2")
+            .unwrap();
+        assert!(remaining_task1.is_empty());
+        assert_eq!(remaining_task2.len(), 1);
     }
 
     #[test]

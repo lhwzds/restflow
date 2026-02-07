@@ -935,6 +935,68 @@ impl IpcServer {
                     Err(err) => IpcResponse::error(500, err.to_string()),
                 }
             }
+            IpcRequest::CreateBackgroundAgent { spec } => {
+                match core.storage.agent_tasks.create_background_agent(spec) {
+                    Ok(task) => IpcResponse::success(task),
+                    Err(err) => IpcResponse::error(500, err.to_string()),
+                }
+            }
+            IpcRequest::UpdateBackgroundAgent { id, patch } => {
+                match core.storage.agent_tasks.update_background_agent(&id, patch) {
+                    Ok(task) => IpcResponse::success(task),
+                    Err(err) => IpcResponse::error(500, err.to_string()),
+                }
+            }
+            IpcRequest::DeleteBackgroundAgent { id } => {
+                match core.storage.agent_tasks.delete_task(&id) {
+                    Ok(deleted) => {
+                        IpcResponse::success(serde_json::json!({ "deleted": deleted, "id": id }))
+                    }
+                    Err(err) => IpcResponse::error(500, err.to_string()),
+                }
+            }
+            IpcRequest::ControlBackgroundAgent { id, action } => {
+                match core
+                    .storage
+                    .agent_tasks
+                    .control_background_agent(&id, action)
+                {
+                    Ok(task) => IpcResponse::success(task),
+                    Err(err) => IpcResponse::error(500, err.to_string()),
+                }
+            }
+            IpcRequest::GetBackgroundAgentProgress { id, event_limit } => {
+                match core
+                    .storage
+                    .agent_tasks
+                    .get_background_agent_progress(&id, event_limit.unwrap_or(10))
+                {
+                    Ok(progress) => IpcResponse::success(progress),
+                    Err(err) => IpcResponse::error(500, err.to_string()),
+                }
+            }
+            IpcRequest::SendBackgroundAgentMessage {
+                id,
+                message,
+                source,
+            } => match core.storage.agent_tasks.send_background_agent_message(
+                &id,
+                message,
+                source.unwrap_or(crate::models::BackgroundMessageSource::User),
+            ) {
+                Ok(msg) => IpcResponse::success(msg),
+                Err(err) => IpcResponse::error(500, err.to_string()),
+            },
+            IpcRequest::ListBackgroundAgentMessages { id, limit } => {
+                match core
+                    .storage
+                    .agent_tasks
+                    .list_background_agent_messages(&id, limit.unwrap_or(50).max(1))
+                {
+                    Ok(messages) => IpcResponse::success(messages),
+                    Err(err) => IpcResponse::error(500, err.to_string()),
+                }
+            }
             IpcRequest::SubscribeTaskEvents { task_id: _ } => {
                 IpcResponse::error(-3, "Task event streaming not available via IPC")
             }

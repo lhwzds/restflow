@@ -13,6 +13,8 @@ import type { TaskEvent } from '@/types/generated/TaskEvent'
 import type { TaskSchedule } from '@/types/generated/TaskSchedule'
 import type { NotificationConfig } from '@/types/generated/NotificationConfig'
 import type { ExecutionMode } from '@/types/generated/ExecutionMode'
+import type { MemoryConfig } from '@/types/generated/MemoryConfig'
+import type { MemoryScope } from '@/types/generated/MemoryScope'
 import type { TaskStreamEvent } from '@/types/generated/TaskStreamEvent'
 import type { StreamEventKind } from '@/types/generated/StreamEventKind'
 import { API_ENDPOINTS } from '@/constants'
@@ -33,6 +35,8 @@ export type {
   TaskSchedule,
   NotificationConfig,
   ExecutionMode,
+  MemoryConfig,
+  MemoryScope,
   TaskStreamEvent,
   StreamEventKind,
 }
@@ -56,10 +60,16 @@ export interface CreateAgentTaskRequest {
   description?: string
   /** Optional input/prompt to send to the agent */
   input?: string
+  /** Optional runtime template used to render task input */
+  input_template?: string
   /** Optional notification configuration */
   notification?: NotificationConfig
   /** Optional execution mode (API or CLI) */
   execution_mode?: ExecutionMode
+  /** Optional memory configuration */
+  memory?: MemoryConfig
+  /** Optional memory scope override */
+  memory_scope?: MemoryScope
 }
 
 /**
@@ -74,10 +84,16 @@ export interface UpdateAgentTaskRequest {
   agent_id?: string
   /** New input/prompt (optional) */
   input?: string
+  /** New runtime template (optional) */
+  input_template?: string
   /** New schedule (optional) */
   schedule?: TaskSchedule
   /** New notification config (optional) */
   notification?: NotificationConfig
+  /** New memory config (optional) */
+  memory?: MemoryConfig
+  /** New memory scope override (optional) */
+  memory_scope?: MemoryScope
 }
 
 /**

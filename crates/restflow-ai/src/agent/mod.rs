@@ -53,9 +53,8 @@ pub use executor::{AgentConfig, AgentExecutor, AgentResult};
 pub use state::{AgentState, AgentStatus};
 pub use stream::{NullEmitter, StreamEmitter, ToolCallAccumulator};
 pub use sub_agent::{
-    SpawnHandle, SpawnPriority, SpawnRequest, SubAgentManager, SubagentCompletion,
-    SubagentConfig, SubagentResult, SubagentState, SubagentStatus, SubagentTracker,
-    spawn_subagent,
+    SpawnHandle, SpawnPriority, SpawnRequest, SubAgentManager, SubagentCompletion, SubagentConfig,
+    SubagentResult, SubagentState, SubagentStatus, SubagentTracker, spawn_subagent,
 };
 pub use trace::TraceEvent;
 pub use unified::{ExecutionResult, UnifiedAgent, UnifiedAgentConfig};

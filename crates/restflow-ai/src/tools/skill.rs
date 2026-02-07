@@ -5,15 +5,17 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use std::sync::Arc;
 
-use crate::error::Result;
 use crate::error::AiError;
+use crate::error::Result;
 use crate::tools::traits::{SkillProvider, SkillRecord, SkillUpdate, Tool, ToolOutput};
 
 #[derive(Debug, Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case")]
 enum SkillInput {
     List,
-    Read { id: String },
+    Read {
+        id: String,
+    },
     Create {
         id: String,
         name: String,
@@ -34,8 +36,12 @@ enum SkillInput {
         #[serde(default)]
         content: Option<String>,
     },
-    Delete { id: String },
-    Export { id: String },
+    Delete {
+        id: String,
+    },
+    Export {
+        id: String,
+    },
     Import {
         id: String,
         markdown: String,
@@ -74,7 +80,13 @@ impl SkillTool {
         }
     }
 
-    fn to_record(id: String, name: String, description: Option<String>, tags: Option<Vec<String>>, content: String) -> SkillRecord {
+    fn to_record(
+        id: String,
+        name: String,
+        description: Option<String>,
+        tags: Option<Vec<String>>,
+        content: String,
+    ) -> SkillRecord {
         SkillRecord {
             id,
             name,
@@ -293,7 +305,10 @@ mod tests {
                 .iter()
                 .find(|s| s.id == id)
                 .ok_or_else(|| format!("Skill {} not found", id))?;
-            Ok(format!("---\nname: {}\n---\n\n{}", skill.name, skill.content))
+            Ok(format!(
+                "---\nname: {}\n---\n\n{}",
+                skill.name, skill.content
+            ))
         }
 
         fn import_skill(

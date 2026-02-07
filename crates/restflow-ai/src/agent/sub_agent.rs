@@ -537,7 +537,13 @@ pub fn spawn_subagent(
 
         let result = timeout(
             Duration::from_secs(timeout_secs),
-            execute_subagent(llm_client, tool_registry, agent_def, task.clone(), config_clone),
+            execute_subagent(
+                llm_client,
+                tool_registry,
+                agent_def,
+                task.clone(),
+                config_clone,
+            ),
         )
         .await;
 
@@ -640,10 +646,7 @@ async fn execute_subagent(
     Ok(result)
 }
 
-fn build_registry_for_agent(
-    parent: &Arc<ToolRegistry>,
-    allowed_tools: &[String],
-) -> ToolRegistry {
+fn build_registry_for_agent(parent: &Arc<ToolRegistry>, allowed_tools: &[String]) -> ToolRegistry {
     let mut registry = ToolRegistry::new();
 
     if allowed_tools.is_empty() {

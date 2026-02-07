@@ -1,33 +1,59 @@
 use anyhow::Result;
 use async_trait::async_trait;
-use std::sync::Arc;
-
-use restflow_core::AppCore;
 use restflow_core::daemon::is_daemon_available;
 use restflow_core::memory::ExportResult;
 use restflow_core::models::{
-    AgentExecuteResponse, AgentNode, AgentTask, AgentTaskStatus, ChatSession, ChatSessionSummary,
-    MemoryChunk, MemorySearchResult, MemoryStats, Secret, Skill, TaskEvent, TaskSchedule,
+    AgentExecuteResponse, AgentNode, AgentTask, AgentTaskStatus, BackgroundAgentControlAction,
+    BackgroundAgentPatch, BackgroundAgentSpec, BackgroundMessage, BackgroundMessageSource,
+    BackgroundProgress, ChatSession, ChatSessionSummary, MemoryChunk, MemorySearchResult,
+    MemoryStats, Secret, Skill, TaskEvent,
 };
 use restflow_core::paths;
 use restflow_core::storage::SystemConfig;
 use restflow_core::storage::agent::StoredAgent;
+use std::sync::Arc;
 
 pub mod direct;
 pub mod ipc;
 
 #[derive(Debug, Clone)]
-pub struct CreateTaskInput {
-    pub name: String,
-    pub agent_id: String,
-    pub schedule: TaskSchedule,
-    pub input: Option<String>,
+pub struct CreateBackgroundAgentInput {
+    pub spec: BackgroundAgentSpec,
+}
+
+#[derive(Debug, Clone)]
+pub struct UpdateBackgroundAgentInput {
+    pub id: String,
+    pub patch: BackgroundAgentPatch,
+}
+
+#[derive(Debug, Clone)]
+pub struct ControlBackgroundAgentInput {
+    pub id: String,
+    pub action: BackgroundAgentControlAction,
+}
+
+#[derive(Debug, Clone)]
+pub struct BackgroundProgressInput {
+    pub id: String,
+    pub event_limit: Option<usize>,
+}
+
+#[derive(Debug, Clone)]
+pub struct SendBackgroundMessageInput {
+    pub id: String,
+    pub message: String,
+    pub source: Option<BackgroundMessageSource>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ListBackgroundMessageInput {
+    pub id: String,
+    pub limit: Option<usize>,
 }
 
 #[async_trait]
 pub trait CommandExecutor: Send + Sync {
-    fn core(&self) -> Option<Arc<AppCore>>;
-
     async fn list_agents(&self) -> Result<Vec<StoredAgent>>;
     async fn get_agent(&self, id: &str) -> Result<StoredAgent>;
     async fn create_agent(&self, name: String, agent: AgentNode) -> Result<StoredAgent>;
@@ -54,11 +80,28 @@ pub trait CommandExecutor: Send + Sync {
     async fn list_tasks(&self) -> Result<Vec<AgentTask>>;
     async fn list_tasks_by_status(&self, status: AgentTaskStatus) -> Result<Vec<AgentTask>>;
     async fn get_task(&self, id: &str) -> Result<Option<AgentTask>>;
-    async fn create_task(&self, input: CreateTaskInput) -> Result<AgentTask>;
-    async fn pause_task(&self, id: &str) -> Result<AgentTask>;
-    async fn resume_task(&self, id: &str) -> Result<AgentTask>;
-    async fn delete_task(&self, id: &str) -> Result<bool>;
     async fn get_task_history(&self, id: &str) -> Result<Vec<TaskEvent>>;
+    async fn create_background_agent(&self, input: CreateBackgroundAgentInput)
+    -> Result<AgentTask>;
+    async fn update_background_agent(&self, input: UpdateBackgroundAgentInput)
+    -> Result<AgentTask>;
+    async fn delete_background_agent(&self, id: &str) -> Result<bool>;
+    async fn control_background_agent(
+        &self,
+        input: ControlBackgroundAgentInput,
+    ) -> Result<AgentTask>;
+    async fn get_background_progress(
+        &self,
+        input: BackgroundProgressInput,
+    ) -> Result<BackgroundProgress>;
+    async fn send_background_message(
+        &self,
+        input: SendBackgroundMessageInput,
+    ) -> Result<BackgroundMessage>;
+    async fn list_background_messages(
+        &self,
+        input: ListBackgroundMessageInput,
+    ) -> Result<Vec<BackgroundMessage>>;
 
     async fn search_memory(
         &self,

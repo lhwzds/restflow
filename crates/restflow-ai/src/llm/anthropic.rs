@@ -422,8 +422,11 @@ impl LlmClient for AnthropicClient {
                     _ => FinishReason::Stop,
                 };
 
-                let cost_usd =
-                    calculate_cost(&self.model, data.usage.input_tokens, data.usage.output_tokens);
+                let cost_usd = calculate_cost(
+                    &self.model,
+                    data.usage.input_tokens,
+                    data.usage.output_tokens,
+                );
 
                 return Ok(CompletionResponse {
                     content,

@@ -231,8 +231,12 @@ impl RealAgentExecutor {
     ) -> Arc<ToolRegistry> {
         let subagent_deps = self.build_subagent_deps(llm_client);
         let secret_resolver = Some(secret_resolver_from_storage(&self.storage));
-        let mut registry =
-            registry_from_allowlist(tool_names, Some(&subagent_deps), secret_resolver);
+        let mut registry = registry_from_allowlist(
+            tool_names,
+            Some(&subagent_deps),
+            secret_resolver,
+            Some(self.storage.as_ref()),
+        );
 
         let enable_switch = tool_names
             .map(|names| names.iter().any(|name| name == "switch_model"))
@@ -251,6 +255,7 @@ impl RealAgentExecutor {
         model: AIModel,
         input: Option<&str>,
         primary_provider: Provider,
+        steer_rx: Option<mpsc::Receiver<SteerMessage>>,
     ) -> Result<ExecutionResult> {
         let model_specs = Self::build_model_specs();
         let api_keys = self
@@ -289,6 +294,9 @@ impl RealAgentExecutor {
         }
 
         let mut agent = UnifiedAgent::new(swappable, tools, system_prompt, config);
+        if let Some(rx) = steer_rx {
+            agent = agent.with_steer_channel(rx);
+        }
 
         let goal = input.unwrap_or("Execute the agent task");
         let result = agent.execute(goal).await?;
@@ -317,11 +325,8 @@ impl AgentExecutor for RealAgentExecutor {
         &self,
         agent_id: &str,
         input: Option<&str>,
-        _steer_rx: Option<mpsc::Receiver<SteerMessage>>,
+        steer_rx: Option<mpsc::Receiver<SteerMessage>>,
     ) -> Result<ExecutionResult> {
-        // Note: steer_rx is not used here because UnifiedAgent doesn't support
-        // steer channels in its current implementation. Full steer support
-        // requires passing this to the underlying agent execution.
         let stored_agent = self
             .storage
             .agents
@@ -336,6 +341,7 @@ impl AgentExecutor for RealAgentExecutor {
         let retry_config = RetryConfig::default();
         let mut retry_state = RetryState::new();
         let input_owned = input.map(|value| value.to_string());
+        let mut steer_rx = steer_rx;
 
         loop {
             let input_ref = input_owned.as_deref();
@@ -344,8 +350,9 @@ impl AgentExecutor for RealAgentExecutor {
             // Retries after this point won't have steering support.
             let result = execute_with_failover(&failover_manager, |model| {
                 let node = agent_node_clone.clone();
+                let steer_rx = steer_rx.take();
                 async move {
-                    self.execute_with_model(&node, model, input_ref, primary_provider)
+                    self.execute_with_model(&node, model, input_ref, primary_provider, steer_rx)
                         .await
                 }
             })

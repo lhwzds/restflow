@@ -1,16 +1,19 @@
 use anyhow::{Result, bail};
 use async_trait::async_trait;
 use std::path::Path;
-use std::sync::Arc;
 use tokio::sync::Mutex;
 
-use crate::executor::{CommandExecutor, CreateTaskInput};
-use restflow_core::AppCore;
+use crate::executor::{
+    BackgroundProgressInput, CommandExecutor, ControlBackgroundAgentInput,
+    CreateBackgroundAgentInput, ListBackgroundMessageInput, SendBackgroundMessageInput,
+    UpdateBackgroundAgentInput,
+};
 use restflow_core::daemon::{IpcClient, IpcRequest, IpcResponse};
 use restflow_core::memory::ExportResult;
 use restflow_core::models::{
-    AgentExecuteResponse, AgentNode, AgentTask, AgentTaskStatus, ChatSession, ChatSessionSummary,
-    MemoryChunk, MemorySearchResult, MemoryStats, Secret, Skill, TaskEvent,
+    AgentExecuteResponse, AgentNode, AgentTask, AgentTaskStatus, BackgroundMessage,
+    BackgroundProgress, ChatSession, ChatSessionSummary, MemoryChunk, MemorySearchResult,
+    MemoryStats, Secret, Skill, TaskEvent,
 };
 use restflow_core::storage::SystemConfig;
 use restflow_core::storage::agent::StoredAgent;
@@ -55,10 +58,6 @@ impl IpcExecutor {
 
 #[async_trait]
 impl CommandExecutor for IpcExecutor {
-    fn core(&self) -> Option<Arc<AppCore>> {
-        None
-    }
-
     async fn list_agents(&self) -> Result<Vec<StoredAgent>> {
         let response = self.request(IpcRequest::ListAgents).await?;
         self.decode_response(response)
@@ -183,56 +182,97 @@ impl CommandExecutor for IpcExecutor {
         self.decode_response_optional(response)
     }
 
-    async fn create_task(&self, input: CreateTaskInput) -> Result<AgentTask> {
-        let response = self
-            .request(IpcRequest::CreateTask {
-                name: input.name,
-                agent_id: input.agent_id,
-                schedule: input.schedule,
-            })
-            .await?;
-        let mut task: AgentTask = self.decode_response(response)?;
-
-        // Note: IPC protocol doesn't support input yet, so we can't set it remotely
-        // This is a known limitation that may require protocol extension
-        if input.input.is_some() {
-            tracing::warn!("Task input cannot be set via IPC; task created without input");
-        }
-        task.input = input.input;
-
-        Ok(task)
-    }
-
-    async fn pause_task(&self, id: &str) -> Result<AgentTask> {
-        let response = self
-            .request(IpcRequest::PauseTask { id: id.to_string() })
-            .await?;
-        self.decode_response(response)
-    }
-
-    async fn resume_task(&self, id: &str) -> Result<AgentTask> {
-        let response = self
-            .request(IpcRequest::ResumeTask { id: id.to_string() })
-            .await?;
-        self.decode_response(response)
-    }
-
-    async fn delete_task(&self, id: &str) -> Result<bool> {
-        let response = self
-            .request(IpcRequest::StopTask { id: id.to_string() })
-            .await?;
-        // StopTask returns an error for IPC, so treat any success as deleted
-        match response {
-            IpcResponse::Success(_) => Ok(true),
-            IpcResponse::Error { code: 404, .. } => Ok(false),
-            IpcResponse::Error { message, .. } => bail!(message),
-            IpcResponse::Pong => bail!("Unexpected Pong response"),
-        }
-    }
-
     async fn get_task_history(&self, id: &str) -> Result<Vec<TaskEvent>> {
         let response = self
             .request(IpcRequest::GetTaskHistory { id: id.to_string() })
+            .await?;
+        self.decode_response(response)
+    }
+
+    async fn create_background_agent(
+        &self,
+        input: CreateBackgroundAgentInput,
+    ) -> Result<AgentTask> {
+        let response = self
+            .request(IpcRequest::CreateBackgroundAgent { spec: input.spec })
+            .await?;
+        self.decode_response(response)
+    }
+
+    async fn update_background_agent(
+        &self,
+        input: UpdateBackgroundAgentInput,
+    ) -> Result<AgentTask> {
+        let response = self
+            .request(IpcRequest::UpdateBackgroundAgent {
+                id: input.id,
+                patch: input.patch,
+            })
+            .await?;
+        self.decode_response(response)
+    }
+
+    async fn delete_background_agent(&self, id: &str) -> Result<bool> {
+        let response = self
+            .request(IpcRequest::DeleteBackgroundAgent { id: id.to_string() })
+            .await?;
+        #[derive(serde::Deserialize)]
+        struct DeleteResponse {
+            deleted: bool,
+        }
+        let value: DeleteResponse = self.decode_response(response)?;
+        Ok(value.deleted)
+    }
+
+    async fn control_background_agent(
+        &self,
+        input: ControlBackgroundAgentInput,
+    ) -> Result<AgentTask> {
+        let response = self
+            .request(IpcRequest::ControlBackgroundAgent {
+                id: input.id,
+                action: input.action,
+            })
+            .await?;
+        self.decode_response(response)
+    }
+
+    async fn get_background_progress(
+        &self,
+        input: BackgroundProgressInput,
+    ) -> Result<BackgroundProgress> {
+        let response = self
+            .request(IpcRequest::GetBackgroundAgentProgress {
+                id: input.id,
+                event_limit: input.event_limit,
+            })
+            .await?;
+        self.decode_response(response)
+    }
+
+    async fn send_background_message(
+        &self,
+        input: SendBackgroundMessageInput,
+    ) -> Result<BackgroundMessage> {
+        let response = self
+            .request(IpcRequest::SendBackgroundAgentMessage {
+                id: input.id,
+                message: input.message,
+                source: input.source,
+            })
+            .await?;
+        self.decode_response(response)
+    }
+
+    async fn list_background_messages(
+        &self,
+        input: ListBackgroundMessageInput,
+    ) -> Result<Vec<BackgroundMessage>> {
+        let response = self
+            .request(IpcRequest::ListBackgroundAgentMessages {
+                id: input.id,
+                limit: input.limit,
+            })
             .await?;
         self.decode_response(response)
     }

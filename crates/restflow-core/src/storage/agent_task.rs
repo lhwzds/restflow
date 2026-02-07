@@ -3,7 +3,11 @@
 //! Provides type-safe access to agent task storage by wrapping the byte-level
 //! APIs from restflow-storage with Rust types from our models.
 
-use crate::models::{AgentTask, AgentTaskStatus, TaskEvent, TaskEventType, TaskSchedule};
+use crate::models::{
+    AgentTask, AgentTaskStatus, BackgroundAgentControlAction, BackgroundAgentPatch,
+    BackgroundAgentSpec, BackgroundMessage, BackgroundMessageSource, BackgroundMessageStatus,
+    BackgroundProgress, TaskEvent, TaskEventType, TaskSchedule,
+};
 use anyhow::Result;
 use redb::Database;
 use std::sync::Arc;
@@ -119,6 +123,8 @@ impl AgentTaskStorage {
             None => return Ok(false),
         };
 
+        // First delete all queued background messages for this task
+        self.inner.delete_background_messages_for_task(id)?;
         // First delete all events for this task
         self.inner.delete_events_for_task(id)?;
         // Then delete the task itself with status index cleanup
@@ -164,6 +170,14 @@ impl AgentTaskStorage {
         let mut task = self
             .get_task(id)?
             .ok_or_else(|| anyhow::anyhow!("Task {} not found", id))?;
+
+        if task.status != AgentTaskStatus::Active {
+            return Err(anyhow::anyhow!(
+                "Task {} cannot start from status {}",
+                id,
+                task.status.as_str()
+            ));
+        }
 
         task.set_running();
         self.update_task(&task)?;
@@ -223,6 +237,305 @@ impl AgentTaskStorage {
         self.add_event(&event)?;
 
         Ok(task)
+    }
+
+    // ============== Background Agent Operations ==============
+
+    /// Create a background agent from a rich spec.
+    pub fn create_background_agent(&self, spec: BackgroundAgentSpec) -> Result<AgentTask> {
+        let mut task = self.create_task(spec.name, spec.agent_id, spec.schedule)?;
+
+        task.description = spec.description;
+        task.input = spec.input;
+        task.input_template = spec.input_template;
+        if let Some(notification) = spec.notification {
+            task.notification = notification;
+        }
+        if let Some(execution_mode) = spec.execution_mode {
+            task.execution_mode = execution_mode;
+        }
+        if let Some(memory) = spec.memory {
+            task.memory = memory;
+        }
+        task.updated_at = chrono::Utc::now().timestamp_millis();
+        self.update_task(&task)?;
+        Ok(task)
+    }
+
+    /// Update a background agent with a partial patch.
+    pub fn update_background_agent(
+        &self,
+        id: &str,
+        patch: BackgroundAgentPatch,
+    ) -> Result<AgentTask> {
+        let mut task = self
+            .get_task(id)?
+            .ok_or_else(|| anyhow::anyhow!("Task {} not found", id))?;
+
+        if let Some(name) = patch.name {
+            task.name = name;
+        }
+        if let Some(description) = patch.description {
+            task.description = Some(description);
+        }
+        if let Some(agent_id) = patch.agent_id {
+            task.agent_id = agent_id;
+        }
+        if let Some(input) = patch.input {
+            task.input = Some(input);
+        }
+        if let Some(input_template) = patch.input_template {
+            task.input_template = Some(input_template);
+        }
+        if let Some(schedule) = patch.schedule {
+            task.schedule = schedule;
+            task.update_next_run();
+        }
+        if let Some(notification) = patch.notification {
+            task.notification = notification;
+        }
+        if let Some(execution_mode) = patch.execution_mode {
+            task.execution_mode = execution_mode;
+        }
+        if let Some(memory) = patch.memory {
+            task.memory = memory;
+        }
+
+        task.updated_at = chrono::Utc::now().timestamp_millis();
+        self.update_task(&task)?;
+        Ok(task)
+    }
+
+    /// Apply a control action to a background agent.
+    pub fn control_background_agent(
+        &self,
+        id: &str,
+        action: BackgroundAgentControlAction,
+    ) -> Result<AgentTask> {
+        let mut task = self
+            .get_task(id)?
+            .ok_or_else(|| anyhow::anyhow!("Task {} not found", id))?;
+
+        let now = chrono::Utc::now().timestamp_millis();
+        let event = match action {
+            BackgroundAgentControlAction::Start => {
+                task.status = AgentTaskStatus::Active;
+                task.next_run_at = Some(now);
+                task.updated_at = now;
+                TaskEvent::new(task.id.clone(), TaskEventType::Resumed)
+                    .with_message("Background agent started")
+            }
+            BackgroundAgentControlAction::Pause => {
+                task.pause();
+                TaskEvent::new(task.id.clone(), TaskEventType::Paused)
+                    .with_message("Background agent paused")
+            }
+            BackgroundAgentControlAction::Resume => {
+                task.resume();
+                TaskEvent::new(task.id.clone(), TaskEventType::Resumed)
+                    .with_message("Background agent resumed")
+            }
+            BackgroundAgentControlAction::Stop => {
+                task.pause();
+                TaskEvent::new(task.id.clone(), TaskEventType::Paused)
+                    .with_message("Background agent stopped")
+            }
+            BackgroundAgentControlAction::RunNow => {
+                task.status = AgentTaskStatus::Active;
+                task.next_run_at = Some(now);
+                task.updated_at = now;
+                TaskEvent::new(task.id.clone(), TaskEventType::Resumed)
+                    .with_message("Background agent scheduled for immediate run")
+            }
+        };
+
+        self.update_task(&task)?;
+        self.add_event(&event)?;
+        Ok(task)
+    }
+
+    /// Get aggregated progress for a background agent.
+    pub fn get_background_agent_progress(
+        &self,
+        id: &str,
+        event_limit: usize,
+    ) -> Result<BackgroundProgress> {
+        let task = self
+            .get_task(id)?
+            .ok_or_else(|| anyhow::anyhow!("Task {} not found", id))?;
+        let recent_events = self.list_recent_events_for_task(id, event_limit.max(1))?;
+        let recent_event = recent_events.first().cloned();
+        let stage = recent_event
+            .as_ref()
+            .map(|event| Self::event_stage_label(&event.event_type));
+        let pending_message_count =
+            self.list_pending_background_messages(id, usize::MAX)?.len() as u32;
+
+        Ok(BackgroundProgress {
+            background_agent_id: task.id.clone(),
+            status: task.status,
+            stage,
+            recent_event,
+            recent_events,
+            last_run_at: task.last_run_at,
+            next_run_at: task.next_run_at,
+            total_tokens_used: task.total_tokens_used,
+            total_cost_usd: task.total_cost_usd,
+            success_count: task.success_count,
+            failure_count: task.failure_count,
+            pending_message_count,
+        })
+    }
+
+    // ============== Background Message Operations ==============
+
+    /// Queue a message for a background agent.
+    pub fn send_background_agent_message(
+        &self,
+        background_agent_id: &str,
+        message: String,
+        source: BackgroundMessageSource,
+    ) -> Result<BackgroundMessage> {
+        if self.get_task(background_agent_id)?.is_none() {
+            return Err(anyhow::anyhow!("Task {} not found", background_agent_id));
+        }
+
+        let bg_message = BackgroundMessage::new(background_agent_id.to_string(), source, message);
+        self.persist_background_message(&bg_message, None)?;
+        Ok(bg_message)
+    }
+
+    /// Get a background message by ID.
+    pub fn get_background_message(&self, message_id: &str) -> Result<Option<BackgroundMessage>> {
+        if let Some(bytes) = self.inner.get_background_message_raw(message_id)? {
+            let message: BackgroundMessage = serde_json::from_slice(&bytes)?;
+            Ok(Some(message))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// List all background messages for an agent, sorted by timestamp descending.
+    pub fn list_background_agent_messages(
+        &self,
+        background_agent_id: &str,
+        limit: usize,
+    ) -> Result<Vec<BackgroundMessage>> {
+        let raw = self
+            .inner
+            .list_background_messages_for_task_raw(background_agent_id)?;
+        let mut result = Vec::new();
+        for (_, bytes) in raw {
+            let message: BackgroundMessage = serde_json::from_slice(&bytes)?;
+            result.push(message);
+        }
+        result.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        Ok(result.into_iter().take(limit).collect())
+    }
+
+    /// List queued messages waiting for delivery.
+    pub fn list_pending_background_messages(
+        &self,
+        background_agent_id: &str,
+        limit: usize,
+    ) -> Result<Vec<BackgroundMessage>> {
+        let raw = self.inner.list_background_messages_by_status_for_task_raw(
+            background_agent_id,
+            BackgroundMessageStatus::Queued.as_str(),
+        )?;
+        let mut result = Vec::new();
+        for (_, bytes) in raw {
+            let message: BackgroundMessage = serde_json::from_slice(&bytes)?;
+            result.push(message);
+        }
+        result.sort_by(|a, b| a.created_at.cmp(&b.created_at));
+        Ok(result.into_iter().take(limit).collect())
+    }
+
+    /// Mark a queued message as delivered.
+    pub fn mark_background_message_delivered(
+        &self,
+        message_id: &str,
+    ) -> Result<Option<BackgroundMessage>> {
+        let mut message = match self.get_background_message(message_id)? {
+            Some(message) => message,
+            None => return Ok(None),
+        };
+        let previous_status = message.status.clone();
+        message.mark_delivered();
+        self.persist_background_message(&message, Some(previous_status))?;
+        Ok(Some(message))
+    }
+
+    /// Mark a delivered message as consumed.
+    pub fn mark_background_message_consumed(
+        &self,
+        message_id: &str,
+    ) -> Result<Option<BackgroundMessage>> {
+        let mut message = match self.get_background_message(message_id)? {
+            Some(message) => message,
+            None => return Ok(None),
+        };
+        let previous_status = message.status.clone();
+        message.mark_consumed();
+        self.persist_background_message(&message, Some(previous_status))?;
+        Ok(Some(message))
+    }
+
+    /// Mark a message as failed with an error.
+    pub fn mark_background_message_failed(
+        &self,
+        message_id: &str,
+        error: String,
+    ) -> Result<Option<BackgroundMessage>> {
+        let mut message = match self.get_background_message(message_id)? {
+            Some(message) => message,
+            None => return Ok(None),
+        };
+        let previous_status = message.status.clone();
+        message.mark_failed(error);
+        self.persist_background_message(&message, Some(previous_status))?;
+        Ok(Some(message))
+    }
+
+    fn persist_background_message(
+        &self,
+        message: &BackgroundMessage,
+        previous_status: Option<BackgroundMessageStatus>,
+    ) -> Result<()> {
+        let json_bytes = serde_json::to_vec(message)?;
+        if let Some(previous_status) = previous_status {
+            self.inner.update_background_message_raw_with_status(
+                &message.id,
+                &message.background_agent_id,
+                previous_status.as_str(),
+                message.status.as_str(),
+                &json_bytes,
+            )?;
+        } else {
+            self.inner.put_background_message_raw_with_status(
+                &message.id,
+                &message.background_agent_id,
+                message.status.as_str(),
+                &json_bytes,
+            )?;
+        }
+        Ok(())
+    }
+
+    fn event_stage_label(event_type: &TaskEventType) -> String {
+        match event_type {
+            TaskEventType::Created => "created",
+            TaskEventType::Started => "running",
+            TaskEventType::Completed => "completed",
+            TaskEventType::Failed => "failed",
+            TaskEventType::Paused => "paused",
+            TaskEventType::Resumed => "active",
+            TaskEventType::NotificationSent => "notification_sent",
+            TaskEventType::NotificationFailed => "notification_failed",
+            TaskEventType::Compaction => "compaction",
+        }
+        .to_string()
     }
 
     // ============== Task Event Operations ==============
@@ -608,5 +921,170 @@ mod tests {
         let result = storage.pause_task("nonexistent");
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("not found"));
+    }
+
+    #[test]
+    fn test_background_agent_lifecycle() {
+        let storage = create_test_storage();
+
+        let created = storage
+            .create_background_agent(BackgroundAgentSpec {
+                name: "BG Agent".to_string(),
+                agent_id: "agent-001".to_string(),
+                description: Some("Background agent".to_string()),
+                input: Some("Run checks".to_string()),
+                input_template: None,
+                schedule: TaskSchedule::Interval {
+                    interval_ms: 60_000,
+                    start_at: None,
+                },
+                notification: None,
+                execution_mode: None,
+                memory: None,
+            })
+            .unwrap();
+        assert_eq!(created.name, "BG Agent");
+
+        let updated = storage
+            .update_background_agent(
+                &created.id,
+                BackgroundAgentPatch {
+                    name: Some("BG Agent Updated".to_string()),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(updated.name, "BG Agent Updated");
+
+        let paused = storage
+            .control_background_agent(&created.id, BackgroundAgentControlAction::Pause)
+            .unwrap();
+        assert_eq!(paused.status, AgentTaskStatus::Paused);
+
+        let resumed = storage
+            .control_background_agent(&created.id, BackgroundAgentControlAction::Resume)
+            .unwrap();
+        assert_eq!(resumed.status, AgentTaskStatus::Active);
+
+        let run_now = storage
+            .control_background_agent(&created.id, BackgroundAgentControlAction::RunNow)
+            .unwrap();
+        assert_eq!(run_now.status, AgentTaskStatus::Active);
+        assert!(run_now.next_run_at.is_some());
+    }
+
+    #[test]
+    fn test_background_message_queue_and_progress() {
+        let storage = create_test_storage();
+        let task = storage
+            .create_task(
+                "Message Task".to_string(),
+                "agent-001".to_string(),
+                TaskSchedule::default(),
+            )
+            .unwrap();
+
+        let queued = storage
+            .send_background_agent_message(
+                &task.id,
+                "Please also verify logs".to_string(),
+                BackgroundMessageSource::User,
+            )
+            .unwrap();
+        assert_eq!(queued.status, BackgroundMessageStatus::Queued);
+
+        let pending = storage
+            .list_pending_background_messages(&task.id, 10)
+            .unwrap();
+        assert_eq!(pending.len(), 1);
+
+        let delivered = storage
+            .mark_background_message_delivered(&queued.id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(delivered.status, BackgroundMessageStatus::Delivered);
+
+        let consumed = storage
+            .mark_background_message_consumed(&queued.id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(consumed.status, BackgroundMessageStatus::Consumed);
+
+        let progress = storage.get_background_agent_progress(&task.id, 5).unwrap();
+        assert_eq!(progress.background_agent_id, task.id);
+        assert_eq!(progress.pending_message_count, 0);
+    }
+
+    #[test]
+    fn test_create_background_agent_with_template_and_memory_scope() {
+        use crate::models::{MemoryConfig, MemoryScope};
+
+        let storage = create_test_storage();
+        let created = storage
+            .create_background_agent(BackgroundAgentSpec {
+                name: "Templated Task".to_string(),
+                agent_id: "agent-001".to_string(),
+                description: None,
+                input: Some("fallback".to_string()),
+                input_template: Some("Run task {{task.id}}".to_string()),
+                schedule: TaskSchedule::default(),
+                notification: None,
+                execution_mode: None,
+                memory: Some(MemoryConfig {
+                    max_messages: 120,
+                    enable_file_memory: true,
+                    persist_on_complete: true,
+                    memory_scope: MemoryScope::PerTask,
+                }),
+            })
+            .unwrap();
+
+        assert_eq!(
+            created.input_template.as_deref(),
+            Some("Run task {{task.id}}")
+        );
+        assert_eq!(created.memory.memory_scope, MemoryScope::PerTask);
+    }
+
+    #[test]
+    fn test_update_background_agent_updates_template_and_memory_scope() {
+        use crate::models::{MemoryConfig, MemoryScope};
+
+        let storage = create_test_storage();
+        let created = storage
+            .create_background_agent(BackgroundAgentSpec {
+                name: "Updatable Task".to_string(),
+                agent_id: "agent-001".to_string(),
+                description: None,
+                input: None,
+                input_template: None,
+                schedule: TaskSchedule::default(),
+                notification: None,
+                execution_mode: None,
+                memory: None,
+            })
+            .unwrap();
+
+        let updated = storage
+            .update_background_agent(
+                &created.id,
+                BackgroundAgentPatch {
+                    input_template: Some("Template {{task.name}}".to_string()),
+                    memory: Some(MemoryConfig {
+                        max_messages: 80,
+                        enable_file_memory: false,
+                        persist_on_complete: true,
+                        memory_scope: MemoryScope::PerTask,
+                    }),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+
+        assert_eq!(
+            updated.input_template.as_deref(),
+            Some("Template {{task.name}}")
+        );
+        assert_eq!(updated.memory.memory_scope, MemoryScope::PerTask);
     }
 }

@@ -40,6 +40,7 @@ const createMockTask = (overrides: Partial<AgentTask> = {}): AgentTask => ({
     max_messages: 100,
     enable_file_memory: false,
     persist_on_complete: false,
+    memory_scope: 'shared_agent',
   },
   status: 'active',
   created_at: Date.now(),

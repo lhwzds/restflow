@@ -4,11 +4,15 @@
 //! ChatDispatcher processes it through an AI agent and returns the response.
 
 use anyhow::{Result, anyhow};
+use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{debug, error, info, warn};
 
 use restflow_ai::llm::Message;
-use restflow_ai::{AnthropicClient, ClaudeCodeClient, LlmClient, OpenAIClient};
+use restflow_ai::{
+    DefaultLlmClientFactory, LlmClient, LlmClientFactory, LlmProvider, ModelSpec, SwappableLlm,
+    SwitchModelTool,
+};
 use restflow_core::auth::AuthProfileManager;
 use restflow_core::channel::{ChannelRouter, InboundMessage, OutboundMessage};
 use restflow_core::models::{ApiKeyConfig, ChatMessage, ChatRole, ChatSession};
@@ -158,6 +162,7 @@ impl ChatSessionManager {
         session_id: &str,
         user_message: &str,
         assistant_message: &str,
+        active_model: Option<&str>,
     ) -> Result<()> {
         let mut session = self
             .storage
@@ -170,6 +175,11 @@ impl ChatSessionManager {
 
         // Add assistant message
         session.add_message(ChatMessage::assistant(assistant_message));
+
+        if let Some(model) = active_model {
+            session.model = model.to_string();
+            session.metadata.last_model = Some(model.to_string());
+        }
 
         // Trim history if needed
         if session.messages.len() > self.max_history * 2 {
@@ -319,63 +329,129 @@ impl ChatDispatcher {
         Err(anyhow!("No API key configured for provider {:?}", provider))
     }
 
-    /// Create an LLM client for the given model.
-    fn create_llm_client(&self, model: AIModel, api_key: &str) -> Arc<dyn LlmClient> {
-        let model_str = model.as_str();
-        match model.provider() {
-            Provider::Anthropic => {
-                if api_key.starts_with("sk-ant-oat") {
-                    Arc::new(ClaudeCodeClient::new(api_key).with_model(model_str))
-                } else {
-                    Arc::new(AnthropicClient::new(api_key).with_model(model_str))
-                }
-            }
-            provider => {
-                let mut client = OpenAIClient::new(api_key).with_model(model_str);
-                match provider {
-                    Provider::OpenAI => {}
-                    Provider::DeepSeek => {
-                        client = client.with_base_url("https://api.deepseek.com/v1");
-                    }
-                    Provider::Google => {
-                        client = client.with_base_url(
-                            "https://generativelanguage.googleapis.com/v1beta/openai",
-                        );
-                    }
-                    Provider::Groq => {
-                        client = client.with_base_url("https://api.groq.com/openai/v1");
-                    }
-                    Provider::OpenRouter => {
-                        client = client.with_base_url("https://openrouter.ai/api/v1");
-                    }
-                    Provider::XAI => {
-                        client = client.with_base_url("https://api.x.ai/v1");
-                    }
-                    Provider::Qwen => {
-                        client = client.with_base_url(
-                            "https://dashscope.aliyuncs.com/compatible-mode/v1",
-                        );
-                    }
-                    Provider::Zhipu => {
-                        client = client.with_base_url("https://open.bigmodel.cn/api/paas/v4");
-                    }
-                    Provider::Moonshot => {
-                        client = client.with_base_url("https://api.moonshot.cn/v1");
-                    }
-                    Provider::Doubao => {
-                        client = client.with_base_url("https://ark.cn-beijing.volces.com/api/v3");
-                    }
-                    Provider::Yi => {
-                        client = client.with_base_url("https://api.lingyiwanwu.com/v1");
-                    }
-                    Provider::SiliconFlow => {
-                        client = client.with_base_url("https://api.siliconflow.cn/v1");
-                    }
-                    Provider::Anthropic => {}
-                }
-                Arc::new(client)
+    /// Resolve API key, avoiding mismatched agent-level keys for fallback providers.
+    async fn resolve_api_key_for_model(
+        &self,
+        provider: Provider,
+        agent_api_key_config: Option<&ApiKeyConfig>,
+        primary_provider: Provider,
+    ) -> Result<String> {
+        let config = if provider == primary_provider {
+            agent_api_key_config
+        } else {
+            None
+        };
+        self.resolve_api_key(provider, config).await
+    }
+
+    /// Build the model catalog for dynamic model switching.
+    fn build_model_specs() -> Vec<ModelSpec> {
+        let mut specs = Vec::new();
+
+        for model in AIModel::all() {
+            let provider = Self::to_llm_provider(model.provider());
+            let spec = if model.is_opencode_cli() {
+                ModelSpec::opencode(model.as_serialized_str(), model.as_str())
+            } else if model.is_codex_cli() {
+                ModelSpec::codex(model.as_serialized_str(), model.as_str())
+            } else {
+                ModelSpec::new(model.as_serialized_str(), provider, model.as_str())
+            };
+            specs.push(spec);
+
+            if model.is_claude_code() {
+                specs.push(ModelSpec::new(model.as_str(), provider, model.as_str()));
             }
         }
+
+        for codex_model in [
+            "gpt-5.3-codex",
+            "gpt-5.2-codex",
+            "gpt-5.1-codex-max",
+            "gpt-5.1-codex",
+            "gpt-5-codex",
+        ] {
+            specs.push(ModelSpec::codex(codex_model, codex_model));
+        }
+
+        specs
+    }
+
+    fn to_llm_provider(provider: Provider) -> LlmProvider {
+        match provider {
+            Provider::OpenAI => LlmProvider::OpenAI,
+            Provider::Anthropic => LlmProvider::Anthropic,
+            Provider::DeepSeek => LlmProvider::DeepSeek,
+            Provider::Google => LlmProvider::Google,
+            Provider::Groq => LlmProvider::Groq,
+            Provider::OpenRouter => LlmProvider::OpenRouter,
+            Provider::XAI => LlmProvider::XAI,
+            Provider::Qwen => LlmProvider::Qwen,
+            Provider::Zhipu => LlmProvider::Zhipu,
+            Provider::Moonshot => LlmProvider::Moonshot,
+            Provider::Doubao => LlmProvider::Doubao,
+            Provider::Yi => LlmProvider::Yi,
+            Provider::SiliconFlow => LlmProvider::SiliconFlow,
+        }
+    }
+
+    async fn build_api_keys(
+        &self,
+        agent_api_key_config: Option<&ApiKeyConfig>,
+        primary_provider: Provider,
+    ) -> HashMap<LlmProvider, String> {
+        let mut keys = HashMap::new();
+
+        for provider in Provider::all() {
+            if let Ok(key) = self
+                .resolve_api_key_for_model(*provider, agent_api_key_config, primary_provider)
+                .await
+            {
+                keys.insert(Self::to_llm_provider(*provider), key);
+            }
+        }
+
+        keys
+    }
+
+    fn switch_model_enabled(tool_names: Option<&[String]>) -> bool {
+        tool_names
+            .map(|names| names.iter().any(|name| name == "switch_model"))
+            .unwrap_or(false)
+    }
+
+    fn main_agent_default_tool_names() -> Vec<String> {
+        vec![
+            "bash",
+            "file",
+            "http",
+            "python",
+            "email",
+            "telegram",
+            "transcribe",
+            "vision",
+            "spawn_agent",
+            "wait_agents",
+            "list_agents",
+            "use_skill",
+            "manage_tasks",
+            "switch_model",
+        ]
+        .into_iter()
+        .map(str::to_string)
+        .collect()
+    }
+
+    fn effective_main_agent_tool_names(tool_names: Option<&[String]>) -> Vec<String> {
+        let mut merged = Self::main_agent_default_tool_names();
+        if let Some(extra) = tool_names {
+            for name in extra {
+                if !merged.iter().any(|item| item == name) {
+                    merged.push(name.clone());
+                }
+            }
+        }
+        merged
     }
 
     fn build_subagent_deps(&self, llm_client: Arc<dyn LlmClient>) -> SubagentDeps {
@@ -479,38 +555,74 @@ impl ChatDispatcher {
             model.provider()
         );
 
-        debug!("Resolving API key");
-        let api_key = match self
-            .resolve_api_key(model.provider(), agent_node.api_key_config.as_ref())
-            .await
-        {
-            Ok(key) => key,
-            Err(e) => {
-                error!("Failed to resolve API key: {}", e);
-                self.send_error_response(
-                    message,
-                    ChatError::NoApiKey {
-                        provider: format!("{:?}", model.provider()),
-                    },
+        let primary_provider = model.provider();
+        let model_specs = Self::build_model_specs();
+        let api_keys = self
+            .build_api_keys(agent_node.api_key_config.as_ref(), primary_provider)
+            .await;
+        let factory: Arc<dyn LlmClientFactory> =
+            Arc::new(DefaultLlmClientFactory::new(api_keys, model_specs));
+
+        debug!("Resolving API key for initial model");
+        let api_key = if model.is_codex_cli() {
+            None
+        } else {
+            match self
+                .resolve_api_key_for_model(
+                    model.provider(),
+                    agent_node.api_key_config.as_ref(),
+                    primary_provider,
                 )
-                .await?;
+                .await
+            {
+                Ok(key) => Some(key),
+                Err(e) => {
+                    error!("Failed to resolve API key: {}", e);
+                    self.send_error_response(
+                        message,
+                        ChatError::NoApiKey {
+                            provider: format!("{:?}", model.provider()),
+                        },
+                    )
+                    .await?;
+                    return Ok(());
+                }
+            }
+        };
+        if let Some(ref key) = api_key {
+            debug!(
+                "API key resolved (starts with: {}...)",
+                &key[..key.len().min(10)]
+            );
+        } else {
+            debug!("No API key required for initial model");
+        }
+
+        debug!("Creating swappable LLM client");
+        let llm_client = match factory.create_client(model.as_serialized_str(), api_key.as_deref())
+        {
+            Ok(client) => client,
+            Err(e) => {
+                error!("Failed to create LLM client: {}", e);
+                self.send_error_response(message, ChatError::ExecutionFailed(e.to_string()))
+                    .await?;
                 return Ok(());
             }
         };
-        debug!(
-            "API key resolved (starts with: {}...)",
-            &api_key[..api_key.len().min(10)]
-        );
-
-        debug!("Creating LLM client");
-        let llm = self.create_llm_client(model, &api_key);
-        let subagent_deps = self.build_subagent_deps(llm.clone());
+        let swappable = Arc::new(SwappableLlm::new(llm_client));
+        let subagent_deps = self.build_subagent_deps(swappable.clone());
         let secret_resolver = Some(secret_resolver_from_storage(&self.storage));
-        let tools = Arc::new(registry_from_allowlist(
-            agent_node.tools.as_deref(),
+        let effective_tools = Self::effective_main_agent_tool_names(agent_node.tools.as_deref());
+        let mut tools = registry_from_allowlist(
+            Some(&effective_tools),
             Some(&subagent_deps),
             secret_resolver,
-        ));
+            Some(self.storage.as_ref()),
+        );
+        if Self::switch_model_enabled(Some(&effective_tools)) {
+            tools.register(SwitchModelTool::new(swappable.clone(), factory));
+        }
+        let tools = Arc::new(tools);
         let system_prompt = build_agent_system_prompt(self.storage.clone(), agent_node)
             .map_err(|e| ChatError::ExecutionFailed(e.to_string()))?;
 
@@ -521,7 +633,7 @@ impl ChatDispatcher {
             config.temperature = temp as f32;
         }
 
-        let mut agent = UnifiedAgent::new(llm, tools, system_prompt, config);
+        let mut agent = UnifiedAgent::new(swappable.clone(), tools, system_prompt, config);
 
         // Add conversation history
         let history = self.sessions.get_history(&session.id).unwrap_or_default();
@@ -555,9 +667,10 @@ impl ChatDispatcher {
         };
 
         // 6. Save exchange to session
-        if let Err(e) = self
-            .sessions
-            .append_exchange(&session.id, &input, &result.output)
+        let active_model = swappable.current_model();
+        if let Err(e) =
+            self.sessions
+                .append_exchange(&session.id, &input, &result.output, Some(&active_model))
         {
             warn!("Failed to save exchange to session: {}", e);
         }
@@ -681,7 +794,7 @@ mod tests {
         let session = manager.get_or_create_session("conv-1", "user-1").unwrap();
 
         manager
-            .append_exchange(&session.id, "Hello!", "Hi there!")
+            .append_exchange(&session.id, "Hello!", "Hi there!", None)
             .unwrap();
 
         let history = manager.get_history(&session.id).unwrap();
@@ -697,5 +810,90 @@ mod tests {
         // First message should get the combined result
         let result = debouncer.debounce("conv-1", "Hello").await;
         assert!(result.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_session_manager_updates_model_on_append() {
+        let (storage, _temp_dir) = create_test_storage();
+
+        use restflow_core::models::AgentNode;
+        storage
+            .agents
+            .create_agent("Test Agent".to_string(), AgentNode::new())
+            .unwrap();
+        let agents = storage.agents.list_agents().unwrap();
+        let agent_id = agents[0].id.clone();
+
+        let manager = ChatSessionManager::new(storage.clone(), 20).with_default_agent(agent_id);
+        let session = manager.get_or_create_session("conv-1", "user-1").unwrap();
+
+        manager
+            .append_exchange(
+                &session.id,
+                "Hello!",
+                "Switched to Codex.",
+                Some("gpt-5.3-codex"),
+            )
+            .unwrap();
+
+        let updated = storage
+            .chat_sessions
+            .get(&session.id)
+            .unwrap()
+            .expect("session should exist");
+        assert_eq!(updated.model, "gpt-5.3-codex");
+        assert_eq!(
+            updated.metadata.last_model.as_deref(),
+            Some("gpt-5.3-codex")
+        );
+    }
+
+    #[test]
+    fn test_model_specs_include_codex_entries() {
+        let specs = ChatDispatcher::build_model_specs();
+
+        assert!(
+            specs
+                .iter()
+                .any(|spec| spec.name == "codex-cli" && spec.is_codex_cli)
+        );
+        assert!(
+            specs
+                .iter()
+                .any(|spec| spec.name == "gpt-5.3-codex" && spec.is_codex_cli)
+        );
+    }
+
+    #[test]
+    fn test_switch_model_enabled_detection() {
+        let enabled = vec!["bash".to_string(), "switch_model".to_string()];
+        let disabled = vec!["bash".to_string(), "http".to_string()];
+
+        assert!(ChatDispatcher::switch_model_enabled(Some(&enabled)));
+        assert!(!ChatDispatcher::switch_model_enabled(Some(&disabled)));
+        assert!(!ChatDispatcher::switch_model_enabled(None));
+    }
+
+    #[test]
+    fn test_main_agent_default_tools_include_switch_model() {
+        let tools = ChatDispatcher::main_agent_default_tool_names();
+
+        assert!(tools.iter().any(|name| name == "switch_model"));
+        assert!(tools.iter().any(|name| name == "manage_tasks"));
+        assert!(tools.iter().any(|name| name == "bash"));
+    }
+
+    #[test]
+    fn test_effective_main_agent_tool_names_merges_extra_tools() {
+        let extra = vec!["custom_tool".to_string(), "bash".to_string()];
+        let merged = ChatDispatcher::effective_main_agent_tool_names(Some(&extra));
+
+        assert!(merged.iter().any(|name| name == "switch_model"));
+        assert!(merged.iter().any(|name| name == "manage_tasks"));
+        assert!(merged.iter().any(|name| name == "custom_tool"));
+        assert_eq!(
+            merged.iter().filter(|name| name.as_str() == "bash").count(),
+            1
+        );
     }
 }
