@@ -473,12 +473,36 @@ impl ChatDispatcher {
         }
     }
 
+    /// Build the effective agent input from an inbound message.
+    ///
+    /// For voice messages, we attach a media context block so the main agent
+    /// can call the `transcribe` tool with a concrete local file path.
+    fn build_agent_input(message: &InboundMessage) -> String {
+        let Some(metadata) = message.metadata.as_ref() else {
+            return message.content.clone();
+        };
+
+        let media_type = metadata.get("media_type").and_then(|value| value.as_str());
+        let file_path = metadata.get("file_path").and_then(|value| value.as_str());
+
+        match (media_type, file_path) {
+            (Some("voice"), Some(path)) => format!(
+                "{content}\n\n[Media Context]\nmedia_type: voice\nlocal_file_path: {path}\ninstruction: Use the transcribe tool with this file_path before answering.",
+                content = message.content,
+                path = path
+            ),
+            _ => message.content.clone(),
+        }
+    }
+
     /// Dispatch a message to the AI agent.
     pub async fn dispatch(&self, message: &InboundMessage) -> Result<()> {
+        let agent_input = Self::build_agent_input(message);
+
         // 1. Debounce messages
         let input = match self
             .debouncer
-            .debounce(&message.conversation_id, &message.content)
+            .debounce(&message.conversation_id, &agent_input)
             .await
         {
             Some(text) => text,
@@ -668,10 +692,12 @@ impl ChatDispatcher {
 
         // 6. Save exchange to session
         let active_model = swappable.current_model();
-        if let Err(e) =
-            self.sessions
-                .append_exchange(&session.id, &input, &result.output, Some(&active_model))
-        {
+        if let Err(e) = self.sessions.append_exchange(
+            &session.id,
+            &message.content,
+            &result.output,
+            Some(&active_model),
+        ) {
             warn!("Failed to save exchange to session: {}", e);
         }
 
@@ -711,6 +737,7 @@ impl ChatDispatcher {
 mod tests {
     use super::*;
     use restflow_core::channel::ChannelType;
+    use serde_json::json;
     use tempfile::tempdir;
     use tokio::time::Duration;
 
@@ -724,6 +751,36 @@ mod tests {
     #[allow(dead_code)]
     fn create_message(content: &str) -> InboundMessage {
         InboundMessage::new("msg-1", ChannelType::Telegram, "user-1", "chat-1", content)
+    }
+
+    #[test]
+    fn test_build_agent_input_plain_text_unchanged() {
+        let message = create_message("hello");
+        let input = ChatDispatcher::build_agent_input(&message);
+        assert_eq!(input, "hello");
+    }
+
+    #[test]
+    fn test_build_agent_input_voice_includes_transcribe_hint() {
+        let message = create_message("[Voice message, 6s]").with_metadata(json!({
+            "media_type": "voice",
+            "file_path": "/tmp/restflow-media/tg-voice.ogg"
+        }));
+
+        let input = ChatDispatcher::build_agent_input(&message);
+        assert!(input.contains("media_type: voice"));
+        assert!(input.contains("local_file_path: /tmp/restflow-media/tg-voice.ogg"));
+        assert!(input.contains("Use the transcribe tool with this file_path"));
+    }
+
+    #[test]
+    fn test_build_agent_input_voice_without_file_path_keeps_original_content() {
+        let message = create_message("[Voice message, 6s]").with_metadata(json!({
+            "media_type": "voice"
+        }));
+
+        let input = ChatDispatcher::build_agent_input(&message);
+        assert_eq!(input, "[Voice message, 6s]");
     }
 
     #[test]
