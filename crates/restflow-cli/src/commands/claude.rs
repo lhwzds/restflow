@@ -1,6 +1,10 @@
 use anyhow::{Result, bail};
+use reqwest::header::ACCEPT;
 use restflow_core::auth::AuthProvider;
-use restflow_core::daemon::{IpcClient, is_daemon_available};
+use restflow_core::daemon::{
+    DaemonConfig, DaemonStatus, IpcClient, check_daemon_status, ensure_daemon_running_with_config,
+    is_daemon_available, stop_daemon,
+};
 use restflow_core::models::ChatRole;
 use restflow_core::paths;
 use serde::{Deserialize, Serialize};
@@ -50,6 +54,73 @@ impl ClaudeOutput {
             .or(self.message.as_deref())
             .or(self.content.as_deref())
     }
+}
+
+fn build_restflow_mcp_url(port: u16) -> String {
+    format!("http://127.0.0.1:{port}/mcp")
+}
+
+async fn is_mcp_http_ready(port: u16) -> bool {
+    let client = match reqwest::Client::builder()
+        .timeout(Duration::from_secs(2))
+        .build()
+    {
+        Ok(client) => client,
+        Err(_) => return false,
+    };
+
+    let response = client
+        .get(build_restflow_mcp_url(port))
+        .header(ACCEPT, "text/event-stream")
+        .send()
+        .await;
+
+    match response {
+        Ok(resp) => matches!(resp.status().as_u16(), 200 | 401 | 406),
+        Err(_) => false,
+    }
+}
+
+async fn wait_for_daemon_exit() -> Result<()> {
+    for _ in 0..50 {
+        match check_daemon_status()? {
+            DaemonStatus::Running { .. } => tokio::time::sleep(Duration::from_millis(100)).await,
+            DaemonStatus::NotRunning | DaemonStatus::Stale { .. } => return Ok(()),
+        }
+    }
+
+    bail!("Daemon did not stop within timeout")
+}
+
+async fn ensure_daemon_with_mcp(mcp_port: u16) -> Result<()> {
+    let daemon_config = DaemonConfig {
+        mcp: true,
+        mcp_port: Some(mcp_port),
+        ..DaemonConfig::default()
+    };
+
+    ensure_daemon_running_with_config(daemon_config.clone()).await?;
+    if is_mcp_http_ready(mcp_port).await {
+        return Ok(());
+    }
+
+    if matches!(check_daemon_status()?, DaemonStatus::Running { .. }) {
+        eprintln!(
+            "RestFlow daemon is running without MCP HTTP. Restarting daemon with MCP enabled..."
+        );
+        let _ = stop_daemon()?;
+        wait_for_daemon_exit().await?;
+    }
+
+    ensure_daemon_running_with_config(daemon_config).await?;
+    if !is_mcp_http_ready(mcp_port).await {
+        bail!(
+            "RestFlow MCP HTTP server is not reachable at {}",
+            build_restflow_mcp_url(mcp_port)
+        );
+    }
+
+    Ok(())
 }
 
 async fn get_ipc_client() -> Result<IpcClient> {
@@ -144,7 +215,7 @@ async fn ensure_npx_available() -> Result<()> {
     Ok(())
 }
 
-async fn generate_mcp_config(args: &ClaudeArgs) -> Result<PathBuf> {
+async fn generate_mcp_config(args: &ClaudeArgs, restflow_mcp_url: &str) -> Result<PathBuf> {
     let config_dir = paths::ensure_restflow_dir()?;
     let config_path = config_dir.join("claude_mcp.json");
 
@@ -152,9 +223,8 @@ async fn generate_mcp_config(args: &ClaudeArgs) -> Result<PathBuf> {
     servers.insert(
         "restflow".to_string(),
         serde_json::json!({
-            "command": "restflow",
-            "args": ["mcp", "serve"],
-            "env": {}
+            "type": "http",
+            "url": restflow_mcp_url
         }),
     );
 
@@ -177,6 +247,7 @@ async fn generate_mcp_config(args: &ClaudeArgs) -> Result<PathBuf> {
         servers.insert(
             "playwright".to_string(),
             serde_json::json!({
+                "type": "stdio",
                 "command": "npx",
                 "args": playwright_args,
                 "env": {}
@@ -264,6 +335,8 @@ pub async fn run(args: ClaudeArgs, format: OutputFormat) -> Result<()> {
         bail!("Prompt is required");
     }
 
+    ensure_daemon_with_mcp(args.mcp_port).await?;
+
     let session_id = resolve_session_id(&args).await?;
     if args.new_session
         && let Some(ref id) = session_id
@@ -279,7 +352,8 @@ pub async fn run(args: ClaudeArgs, format: OutputFormat) -> Result<()> {
         setup_claude_token(&oauth_token).await?;
     }
 
-    let mcp_config_path = generate_mcp_config(&args).await?;
+    let mcp_url = build_restflow_mcp_url(args.mcp_port);
+    let mcp_config_path = generate_mcp_config(&args, &mcp_url).await?;
 
     // Build environment with OAuth token
     // Use CLAUDE_CODE_OAUTH_TOKEN for setup tokens (sk-ant-oat01-...)
@@ -384,7 +458,7 @@ fn add_default_home_dir(cmd: &mut Command) {
 
 #[cfg(test)]
 mod tests {
-    use super::add_default_home_dir;
+    use super::{add_default_home_dir, build_restflow_mcp_url};
     use std::env;
     use tokio::process::Command;
 
@@ -427,5 +501,10 @@ mod tests {
                 None => env::remove_var("USERPROFILE"),
             }
         }
+    }
+
+    #[test]
+    fn build_restflow_mcp_url_uses_loopback_and_port() {
+        assert_eq!(build_restflow_mcp_url(8787), "http://127.0.0.1:8787/mcp");
     }
 }

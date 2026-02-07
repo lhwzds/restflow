@@ -11,9 +11,9 @@ use anyhow::Result;
 use clap::{CommandFactory, Parser};
 use clap_complete::generate;
 use cli::{Cli, Commands, DaemonCommands};
+use commands::claude_mcp::try_sync_restflow_stdio_mcp;
 use restflow_core::daemon::{
-    DaemonConfig, DaemonStatus, check_daemon_status, start_daemon, start_daemon_with_config,
-    stop_daemon,
+    DaemonConfig, DaemonStatus, check_daemon_status, start_daemon_with_config, stop_daemon,
 };
 use restflow_core::paths;
 use std::io;
@@ -85,15 +85,28 @@ async fn main() -> Result<()> {
     if let Some(Commands::Daemon { command }) = &cli.command {
         match command {
             DaemonCommands::Start {
-                foreground: false, ..
+                foreground: false,
+                http,
+                port,
+                mcp,
+                mcp_port,
             } => {
                 match check_daemon_status()? {
                     DaemonStatus::Running { pid } => {
                         println!("Daemon already running (PID: {})", pid);
                     }
                     _ => {
-                        let pid = start_daemon()?;
+                        let config = DaemonConfig {
+                            http: *http,
+                            http_port: *port,
+                            mcp: *mcp,
+                            mcp_port: *mcp_port,
+                        };
+                        let pid = start_daemon_with_config(config)?;
                         println!("Daemon started (PID: {})", pid);
+                        if *mcp && let Err(err) = try_sync_restflow_stdio_mcp().await {
+                            eprintln!("Warning: failed to auto-configure Claude MCP: {err}");
+                        }
                     }
                 }
                 return Ok(());
@@ -144,6 +157,9 @@ async fn main() -> Result<()> {
                     println!("Daemon restarted (PID: {})", pid);
                 } else {
                     println!("Daemon started (PID: {})", pid);
+                }
+                if *mcp && let Err(err) = try_sync_restflow_stdio_mcp().await {
+                    eprintln!("Warning: failed to auto-configure Claude MCP: {err}");
                 }
                 return Ok(());
             }

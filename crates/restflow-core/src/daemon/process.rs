@@ -4,12 +4,23 @@ use std::fs::File;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct DaemonConfig {
     pub http: bool,
     pub http_port: Option<u16>,
     pub mcp: bool,
     pub mcp_port: Option<u16>,
+}
+
+impl Default for DaemonConfig {
+    fn default() -> Self {
+        Self {
+            http: false,
+            http_port: None,
+            mcp: true,
+            mcp_port: Some(8787),
+        }
+    }
 }
 
 pub struct ProcessManager {

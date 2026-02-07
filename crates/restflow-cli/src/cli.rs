@@ -194,6 +194,10 @@ pub struct ClaudeArgs {
     /// Auth profile ID to use (defaults to first available Anthropic profile)
     #[arg(long)]
     pub auth_profile: Option<String>,
+
+    /// MCP HTTP server port exposed by RestFlow daemon
+    #[arg(long, default_value_t = 8787)]
+    pub mcp_port: u16,
 }
 
 #[derive(Args)]
@@ -575,7 +579,7 @@ pub enum DaemonCommands {
         port: Option<u16>,
 
         /// Enable the MCP HTTP server
-        #[arg(long)]
+        #[arg(long, default_value_t = true)]
         mcp: bool,
 
         /// MCP HTTP server port
@@ -604,7 +608,7 @@ pub enum DaemonCommands {
         port: Option<u16>,
 
         /// Enable the MCP HTTP server
-        #[arg(long)]
+        #[arg(long, default_value_t = true)]
         mcp: bool,
 
         /// MCP HTTP server port

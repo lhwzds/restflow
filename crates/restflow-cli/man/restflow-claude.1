@@ -4,7 +4,7 @@
 .SH NAME
 claude \- Execute via Claude Code CLI (uses OAuth)
 .SH SYNOPSIS
-\fBclaude\fR [\fB\-p\fR|\fB\-\-prompt\fR] [\fB\-m\fR|\fB\-\-model\fR] [\fB\-s\fR|\fB\-\-session\fR] [\fB\-\-new\-session\fR] [\fB\-w\fR|\fB\-\-cwd\fR] [\fB\-\-timeout\fR] [\fB\-\-browser\fR] [\fB\-\-headless\fR] [\fB\-\-viewport\fR] [\fB\-\-auth\-profile\fR] [\fB\-h\fR|\fB\-\-help\fR] 
+\fBclaude\fR [\fB\-p\fR|\fB\-\-prompt\fR] [\fB\-m\fR|\fB\-\-model\fR] [\fB\-s\fR|\fB\-\-session\fR] [\fB\-\-new\-session\fR] [\fB\-w\fR|\fB\-\-cwd\fR] [\fB\-\-timeout\fR] [\fB\-\-browser\fR] [\fB\-\-headless\fR] [\fB\-\-viewport\fR] [\fB\-\-auth\-profile\fR] [\fB\-\-mcp\-port\fR] [\fB\-h\fR|\fB\-\-help\fR] 
 .SH DESCRIPTION
 Execute via Claude Code CLI (uses OAuth)
 .SH OPTIONS
@@ -38,6 +38,9 @@ Set Playwright viewport size, e.g. 1280x720
 .TP
 \fB\-\-auth\-profile\fR \fI<AUTH_PROFILE>\fR
 Auth profile ID to use (defaults to first available Anthropic profile)
+.TP
+\fB\-\-mcp\-port\fR \fI<MCP_PORT>\fR [default: 8787]
+MCP HTTP server port exposed by RestFlow daemon
 .TP
 \fB\-h\fR, \fB\-\-help\fR
 Print help
