@@ -18,6 +18,10 @@ blocklist_count: number,
  */
 approval_required_count: number, 
 /**
+ * Number of tool-specific rules
+ */
+tool_rule_count: number, 
+/**
  * Number of pending approvals
  */
 pending_approvals_count: number, 
