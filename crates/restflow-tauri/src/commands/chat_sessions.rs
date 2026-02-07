@@ -439,6 +439,7 @@ async fn execute_agent_for_session(
         Some(&subagent_deps),
         secret_resolver,
         tool_storage,
+        Some(&session.agent_id),
     ));
 
     let system_prompt = state
@@ -671,6 +672,7 @@ pub async fn send_chat_message_stream(
             Some(&subagent_deps),
             secret_resolver.clone(),
             tool_storage.as_deref(),
+            Some(&session.agent_id),
         ));
 
         let system_prompt = match executor.build_agent_system_prompt(agent_node.clone()).await {
