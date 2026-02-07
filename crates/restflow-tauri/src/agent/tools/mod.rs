@@ -72,6 +72,10 @@ pub fn main_agent_default_tool_names() -> Vec<String> {
         "list_agents",
         "use_skill",
         "manage_tasks",
+        "manage_marketplace",
+        "manage_triggers",
+        "manage_terminal",
+        "security_query",
         "switch_model",
     ]
     .into_iter()
@@ -222,6 +226,10 @@ pub fn registry_from_allowlist(
     let mut allow_file = false;
     let mut allow_file_write = false;
     let mut enable_manage_tasks = false;
+    let mut enable_manage_marketplace = false;
+    let mut enable_manage_triggers = false;
+    let mut enable_manage_terminal = false;
+    let mut enable_security_query = false;
 
     for raw_name in tool_names {
         match raw_name.as_str() {
@@ -307,6 +315,18 @@ pub fn registry_from_allowlist(
             "manage_tasks" => {
                 enable_manage_tasks = true;
             }
+            "manage_marketplace" => {
+                enable_manage_marketplace = true;
+            }
+            "manage_triggers" => {
+                enable_manage_triggers = true;
+            }
+            "manage_terminal" => {
+                enable_manage_terminal = true;
+            }
+            "security_query" => {
+                enable_security_query = true;
+            }
             "switch_model" => {
                 // Registered by callers that provide SwappableLlm + LlmClientFactory.
             }
@@ -324,7 +344,12 @@ pub fn registry_from_allowlist(
         builder = builder.with_file(config);
     }
 
-    if enable_manage_tasks {
+    if enable_manage_tasks
+        || enable_manage_marketplace
+        || enable_manage_triggers
+        || enable_manage_terminal
+        || enable_security_query
+    {
         if let Some(storage) = storage {
             let core_registry = create_tool_registry(
                 storage.skills.clone(),
@@ -334,21 +359,45 @@ pub fn registry_from_allowlist(
                 storage.secrets.clone(),
                 storage.config.clone(),
                 storage.agent_tasks.clone(),
+                storage.triggers.clone(),
+                storage.terminal_sessions.clone(),
                 None,
             );
-            if let Some(tool) = core_registry.get("manage_tasks") {
-                builder.registry.register_arc(tool);
-            } else {
-                warn!(
-                    tool_name = "manage_tasks",
-                    "Tool was requested but not found in core registry"
-                );
+            let storage_backed_tools = [
+                ("manage_tasks", enable_manage_tasks),
+                ("manage_marketplace", enable_manage_marketplace),
+                ("manage_triggers", enable_manage_triggers),
+                ("manage_terminal", enable_manage_terminal),
+                ("security_query", enable_security_query),
+            ];
+            for (tool_name, enabled) in storage_backed_tools {
+                if !enabled {
+                    continue;
+                }
+                if let Some(tool) = core_registry.get(tool_name) {
+                    builder.registry.register_arc(tool);
+                } else {
+                    warn!(
+                        tool_name = tool_name,
+                        "Tool was requested but not found in core registry"
+                    );
+                }
             }
         } else {
-            warn!(
-                tool_name = "manage_tasks",
-                "Storage is unavailable, skipping storage-backed tool"
-            );
+            for (tool_name, enabled) in [
+                ("manage_tasks", enable_manage_tasks),
+                ("manage_marketplace", enable_manage_marketplace),
+                ("manage_triggers", enable_manage_triggers),
+                ("manage_terminal", enable_manage_terminal),
+                ("security_query", enable_security_query),
+            ] {
+                if enabled {
+                    warn!(
+                        tool_name = tool_name,
+                        "Storage is unavailable, skipping storage-backed tool"
+                    );
+                }
+            }
         }
     }
 
@@ -395,11 +444,35 @@ mod tests {
     }
 
     #[test]
+    fn test_platform_tools_registered_with_storage() {
+        let dir = tempdir().expect("temp dir should be created");
+        let db_path = dir.path().join("platform-tools.db");
+        let storage = Storage::new(db_path.to_str().expect("db path should be valid"))
+            .expect("storage should be created");
+        let names = vec![
+            "manage_marketplace".to_string(),
+            "manage_triggers".to_string(),
+            "manage_terminal".to_string(),
+            "security_query".to_string(),
+        ];
+
+        let registry = registry_from_allowlist(Some(&names), None, None, Some(&storage));
+        assert!(registry.has("manage_marketplace"));
+        assert!(registry.has("manage_triggers"));
+        assert!(registry.has("manage_terminal"));
+        assert!(registry.has("security_query"));
+    }
+
+    #[test]
     fn test_main_agent_default_tools_include_transcribe_and_switch_model() {
         let tools = main_agent_default_tool_names();
         assert!(tools.iter().any(|name| name == "transcribe"));
         assert!(tools.iter().any(|name| name == "vision"));
         assert!(tools.iter().any(|name| name == "switch_model"));
+        assert!(tools.iter().any(|name| name == "manage_marketplace"));
+        assert!(tools.iter().any(|name| name == "manage_triggers"));
+        assert!(tools.iter().any(|name| name == "manage_terminal"));
+        assert!(tools.iter().any(|name| name == "security_query"));
     }
 
     #[test]
