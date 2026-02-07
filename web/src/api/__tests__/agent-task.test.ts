@@ -24,6 +24,7 @@ describe('Agent Task API', () => {
     description: null,
     agent_id: 'agent-001',
     input: null,
+    input_template: null,
     schedule: { type: 'interval', interval_ms: 3600000, start_at: null },
     execution_mode: { type: 'api' },
     notification: {
@@ -46,6 +47,8 @@ describe('Agent Task API', () => {
     next_run_at: Date.now() + 3600000,
     success_count: 0,
     failure_count: 0,
+    total_tokens_used: 0,
+    total_cost_usd: 0,
     last_error: null,
     webhook: null,
     summary_message_id: null,
@@ -59,6 +62,8 @@ describe('Agent Task API', () => {
     timestamp: Date.now(),
     message: 'Task completed successfully',
     output: 'Agent output',
+    tokens_used: null,
+    cost_usd: null,
     duration_ms: 1500,
   })
 

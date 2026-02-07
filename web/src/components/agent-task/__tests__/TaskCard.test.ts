@@ -27,6 +27,7 @@ const createMockTask = (overrides: Partial<AgentTask> = {}): AgentTask => ({
   description: 'A test task description',
   agent_id: 'agent-1',
   input: 'test input',
+  input_template: null,
   schedule: { type: 'interval', interval_ms: 3600000, start_at: null },
   execution_mode: { type: 'api' },
   notification: {
@@ -49,6 +50,8 @@ const createMockTask = (overrides: Partial<AgentTask> = {}): AgentTask => ({
   next_run_at: Date.now() + 3600000,
   success_count: 5,
   failure_count: 1,
+  total_tokens_used: 0,
+  total_cost_usd: 0,
   last_error: null,
   webhook: null,
   summary_message_id: null,
