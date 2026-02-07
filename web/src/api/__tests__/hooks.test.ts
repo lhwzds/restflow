@@ -39,7 +39,7 @@ describe('Hook API', () => {
 
     const hooks = await hookApi.listHooks()
     expect(hooks).toHaveLength(1)
-    expect(hooks[0].id).toBe('hook-1')
+    expect(hooks[0]!.id).toBe('hook-1')
   })
 
   it('creates a hook', async () => {
