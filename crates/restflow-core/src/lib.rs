@@ -15,6 +15,7 @@ pub mod performance;
 pub mod process;
 pub mod python;
 pub mod registry;
+pub mod runtime;
 pub mod security;
 pub mod services;
 pub mod steer;
