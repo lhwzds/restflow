@@ -212,6 +212,32 @@ impl AuthProfileManager {
             .collect()
     }
 
+    /// Get available profiles compatible with a model provider.
+    ///
+    /// Returned profiles are sorted by:
+    /// 1. Priority (lower value first)
+    /// 2. Least recently used first
+    pub async fn get_compatible_profiles_for_model_provider(
+        &self,
+        provider: Provider,
+    ) -> Vec<AuthProfile> {
+        let compatible = AuthProvider::compatible_with(provider);
+        let profiles = self.profiles.read().await;
+        let mut candidates: Vec<AuthProfile> = profiles
+            .values()
+            .filter(|profile| profile.is_available() && compatible.contains(&profile.provider))
+            .cloned()
+            .collect();
+
+        candidates.sort_by(|a, b| {
+            a.priority
+                .cmp(&b.priority)
+                .then_with(|| a.last_used_at.cmp(&b.last_used_at))
+        });
+
+        candidates
+    }
+
     /// Get the best available profile for a specific provider.
     pub async fn get_available_profile(&self, provider: AuthProvider) -> Option<AuthProfile> {
         self.select_profile(provider)
@@ -1047,6 +1073,27 @@ mod tests {
             .get_profiles_for_provider(AuthProvider::OpenAI)
             .await;
         assert_eq!(openai_profiles.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_manager_get_compatible_profiles_for_model_provider_sorted() {
+        let (secrets, _dir) = create_test_secrets();
+        let manager = AuthProfileManager::new(secrets.clone());
+
+        let profile_high = create_test_profile(&secrets, "A", AuthProvider::Anthropic);
+        let mut profile_low = create_test_profile(&secrets, "B", AuthProvider::ClaudeCode);
+        profile_low.priority = -1;
+        profile_low.last_used_at = Some(chrono::Utc::now());
+
+        let id_high = manager.add_profile(profile_high).await.unwrap();
+        let id_low = manager.add_profile(profile_low).await.unwrap();
+
+        let profiles = manager
+            .get_compatible_profiles_for_model_provider(Provider::Anthropic)
+            .await;
+        assert_eq!(profiles.len(), 2);
+        assert_eq!(profiles[0].id, id_low);
+        assert_eq!(profiles[1].id, id_high);
     }
 
     #[tokio::test]
