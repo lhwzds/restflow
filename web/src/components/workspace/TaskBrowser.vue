@@ -8,7 +8,7 @@
   5. Integrates with agentTaskStore for state management
 -->
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import {
   CalendarClock,
   Plus,
@@ -45,8 +45,13 @@ const showCreateDialog = ref(false)
 const loadingTaskIds = ref<Set<string>>(new Set())
 
 // Load tasks on mount
-onMounted(() => {
-  store.fetchTasks()
+onMounted(async () => {
+  await store.fetchTasks()
+  await store.startRealtimeSync()
+})
+
+onUnmounted(() => {
+  store.stopRealtimeSync()
 })
 
 // Filter tasks by search query

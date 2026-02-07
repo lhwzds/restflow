@@ -1,10 +1,11 @@
 //! Application state management for Tauri
 
 use crate::agent::{SubagentDeps, ToolRegistry};
+use crate::agent_task::events::TaskEventEmitter;
 use crate::agent_task::runner::{
     AgentExecutor, AgentTaskRunner, NotificationSender, RunnerConfig, RunnerHandle,
 };
-use crate::agent_task::{HeartbeatEmitter, TauriHeartbeatEmitter};
+use crate::agent_task::{HeartbeatEmitter, TauriEventEmitter, TauriHeartbeatEmitter};
 use crate::channel::{SystemStatus, TaskTrigger};
 use crate::chat::StreamManager;
 use crate::commands::agent_task::ActiveTaskInfo;
@@ -230,7 +231,9 @@ impl AppState {
             .ok_or_else(|| anyhow::anyhow!("App core is not available in IPC mode"))?;
         let storage = Arc::new(core.storage.agent_tasks.clone());
         let heartbeat_emitter: Arc<dyn HeartbeatEmitter> =
-            Arc::new(TauriHeartbeatEmitter::new(app_handle));
+            Arc::new(TauriHeartbeatEmitter::new(app_handle.clone()));
+        let task_event_emitter: Arc<dyn TaskEventEmitter> =
+            Arc::new(TauriEventEmitter::new(app_handle));
         let hook_executor = self.build_hook_executor(core);
 
         let runner = Arc::new(
@@ -242,6 +245,7 @@ impl AppState {
                 heartbeat_emitter,
                 self.steer_registry.clone(),
             )
+            .with_event_emitter(task_event_emitter)
             .with_hook_executor(hook_executor),
         );
 

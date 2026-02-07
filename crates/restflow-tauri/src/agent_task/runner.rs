@@ -1151,6 +1151,7 @@ impl TaskExecutor for RunnerTaskExecutor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::agent_task::{ChannelEventEmitter, StreamEventKind};
     use restflow_core::hooks::{HookExecutor, HookTaskScheduler};
     use restflow_core::models::{
         Hook, HookAction, HookEvent, MemoryScope, TaskEventType, TaskSchedule,
@@ -1368,6 +1369,54 @@ mod tests {
         let updated_task = storage.get_task(&task.id).unwrap().unwrap();
         assert_eq!(updated_task.status, AgentTaskStatus::Completed);
         assert_eq!(updated_task.success_count, 1);
+    }
+
+    #[tokio::test]
+    async fn test_runner_emits_stream_events_with_custom_emitter() {
+        let (storage, _temp_dir) = create_test_storage();
+        let executor = Arc::new(MockExecutor::new());
+        let notifier = Arc::new(NoopNotificationSender);
+        let (channel_emitter, mut event_rx) = ChannelEventEmitter::new();
+
+        let past_time = chrono::Utc::now().timestamp_millis() - 1000;
+        let mut task = storage
+            .create_task(
+                "Event Task".to_string(),
+                "agent-001".to_string(),
+                TaskSchedule::Once { run_at: past_time },
+            )
+            .unwrap();
+        task.next_run_at = Some(past_time);
+        storage.update_task(&task).unwrap();
+
+        let config = RunnerConfig {
+            poll_interval_ms: 100,
+            ..Default::default()
+        };
+
+        let steer_registry = Arc::new(SteerRegistry::new());
+        let runner = Arc::new(
+            AgentTaskRunner::new(storage, executor, notifier, config, steer_registry)
+                .with_event_emitter(Arc::new(channel_emitter)),
+        );
+
+        let handle = runner.clone().start();
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        handle.stop().await.unwrap();
+
+        let mut started_seen = false;
+        let mut completed_seen = false;
+        while let Ok(event) = event_rx.try_recv() {
+            if let StreamEventKind::Started { .. } = event.kind {
+                started_seen = true;
+            }
+            if let StreamEventKind::Completed { .. } = event.kind {
+                completed_seen = true;
+            }
+        }
+
+        assert!(started_seen);
+        assert!(completed_seen);
     }
 
     #[tokio::test]
