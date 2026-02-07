@@ -140,87 +140,11 @@ pub enum Commands {
     /// Show system information
     Info,
 
-    /// Execute via Claude Code CLI (uses OAuth)
-    Claude(ClaudeArgs),
-
-    /// Execute via OpenAI Codex CLI
-    Codex(CodexArgs),
-
     /// Manage chat sessions
     Session {
         #[command(subcommand)]
         command: SessionCommands,
     },
-}
-
-#[derive(Args)]
-pub struct ClaudeArgs {
-    /// Prompt to send to Claude
-    #[arg(short, long)]
-    pub prompt: Option<String>,
-
-    /// Model to use (opus, sonnet, haiku)
-    #[arg(short, long, default_value = "sonnet")]
-    pub model: String,
-
-    /// Session ID for conversation persistence
-    #[arg(short = 's', long)]
-    pub session: Option<String>,
-
-    /// Create a new session and use it
-    #[arg(long)]
-    pub new_session: bool,
-
-    /// Working directory
-    #[arg(short = 'w', long)]
-    pub cwd: Option<String>,
-
-    /// Timeout in seconds
-    #[arg(long, default_value = "300")]
-    pub timeout: u64,
-
-    /// Enable Playwright browser tools via MCP
-    #[arg(long)]
-    pub browser: bool,
-
-    /// Run Playwright in headless mode (use --headless=false for headed)
-    #[arg(long, default_value_t = true)]
-    pub headless: bool,
-
-    /// Set Playwright viewport size, e.g. 1280x720
-    #[arg(long)]
-    pub viewport: Option<String>,
-
-    /// Auth profile ID to use (defaults to first available Anthropic profile)
-    #[arg(long)]
-    pub auth_profile: Option<String>,
-
-    /// MCP HTTP server port exposed by RestFlow daemon
-    #[arg(long, default_value_t = 8787)]
-    pub mcp_port: u16,
-}
-
-#[derive(Args)]
-pub struct CodexArgs {
-    /// Prompt to send to Codex
-    #[arg(short, long)]
-    pub prompt: Option<String>,
-
-    /// Model to use
-    #[arg(short, long, default_value = "gpt-5")]
-    pub model: String,
-
-    /// Session ID for conversation persistence
-    #[arg(short = 's', long)]
-    pub session: Option<String>,
-
-    /// Working directory
-    #[arg(short = 'w', long)]
-    pub cwd: Option<String>,
-
-    /// Timeout in seconds
-    #[arg(long, default_value = "300")]
-    pub timeout: u64,
 }
 
 #[derive(Args)]
