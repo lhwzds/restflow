@@ -36,7 +36,8 @@ impl SwitchModelTool {
         let normalized = Self::normalize_provider(value);
         match normalized.as_str() {
             "openai" | "gpt" => Some(ProviderSelector::Api(LlmProvider::OpenAI)),
-            "anthropic" | "claude" => Some(ProviderSelector::Api(LlmProvider::Anthropic)),
+            "anthropic" => Some(ProviderSelector::Api(LlmProvider::Anthropic)),
+            "claudecode" => Some(ProviderSelector::ClaudeCode),
             "deepseek" => Some(ProviderSelector::Api(LlmProvider::DeepSeek)),
             "google" | "gemini" => Some(ProviderSelector::Api(LlmProvider::Google)),
             "groq" => Some(ProviderSelector::Api(LlmProvider::Groq)),
@@ -48,7 +49,7 @@ impl SwitchModelTool {
             "doubao" => Some(ProviderSelector::Api(LlmProvider::Doubao)),
             "yi" => Some(ProviderSelector::Api(LlmProvider::Yi)),
             "siliconflow" => Some(ProviderSelector::Api(LlmProvider::SiliconFlow)),
-            "codex" | "codexcli" | "openaicodex" => Some(ProviderSelector::CodexCli),
+            "codex" | "codexcli" | "openaicodex" => Some(ProviderSelector::OpenAICodex),
             "opencode" | "opencodecli" => Some(ProviderSelector::OpenCodeCli),
             "geminicli" => Some(ProviderSelector::GeminiCli),
             _ => None,
@@ -80,11 +81,28 @@ impl SwitchModelTool {
 
     fn model_matches_provider(&self, model: &str, provider: ProviderSelector) -> bool {
         match provider {
-            ProviderSelector::Api(value) => self.factory.provider_for_model(model) == Some(value),
-            ProviderSelector::CodexCli => self.factory.is_codex_cli_model(model),
+            ProviderSelector::Api(value) => {
+                self.factory.provider_for_model(model) == Some(value)
+                    && !self.is_cli_scoped_model(model)
+            }
+            ProviderSelector::ClaudeCode => Self::is_claude_code_model(model),
+            ProviderSelector::OpenAICodex => self.factory.is_codex_cli_model(model),
             ProviderSelector::OpenCodeCli => self.factory.is_opencode_cli_model(model),
             ProviderSelector::GeminiCli => self.factory.is_gemini_cli_model(model),
         }
+    }
+
+    fn is_claude_code_model(model: &str) -> bool {
+        let normalized = Self::normalize_model(model);
+        normalized.starts_with("claude-code-")
+            || matches!(normalized.as_str(), "opus" | "sonnet" | "haiku")
+    }
+
+    fn is_cli_scoped_model(&self, model: &str) -> bool {
+        self.factory.is_codex_cli_model(model)
+            || self.factory.is_opencode_cli_model(model)
+            || self.factory.is_gemini_cli_model(model)
+            || Self::is_claude_code_model(model)
     }
 
     fn resolve_target_model(
@@ -103,7 +121,7 @@ impl SwitchModelTool {
         let provider_raw = requested_provider.expect("requested_provider checked above");
         let provider = Self::parse_provider(provider_raw).ok_or_else(|| {
             AiError::Tool(format!(
-                "Unknown provider: {provider_raw}. Use provider names like openai, anthropic, codex-cli, opencode-cli, gemini-cli"
+                "Unknown provider: {provider_raw}. Use provider names like openai, anthropic, claude-code, openai-codex, gemini-cli"
             ))
         })?;
 
@@ -144,7 +162,8 @@ impl SwitchModelTool {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ProviderSelector {
     Api(LlmProvider),
-    CodexCli,
+    ClaudeCode,
+    OpenAICodex,
     OpenCodeCli,
     GeminiCli,
 }
@@ -153,7 +172,8 @@ impl ProviderSelector {
     fn label(self) -> &'static str {
         match self {
             Self::Api(provider) => provider.as_str(),
-            Self::CodexCli => "codex-cli",
+            Self::ClaudeCode => "claude-code",
+            Self::OpenAICodex => "openai-codex",
             Self::OpenCodeCli => "opencode-cli",
             Self::GeminiCli => "gemini-cli",
         }
@@ -177,7 +197,7 @@ impl Tool for SwitchModelTool {
             "properties": {
                 "provider": {
                     "type": "string",
-                    "description": "Provider selector (e.g. openai, anthropic, codex-cli, opencode-cli, gemini-cli)"
+                    "description": "Provider selector (e.g. openai, anthropic, claude-code, openai-codex, gemini-cli)"
                 },
                 "model": {
                     "type": "string",
@@ -424,7 +444,7 @@ mod tests {
 
         let output = tool
             .execute(json!({
-                "provider": "codex-cli",
+                "provider": "openai-codex",
                 "model": "gpt-5.3-codex"
             }))
             .await
@@ -465,6 +485,67 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn execute_supports_claude_code_provider_for_claude_code_models() {
+        let factory = Arc::new(MockFactory::new(
+            vec!["claude-sonnet-4-5", "claude-code-sonnet"],
+            vec![
+                ("claude-sonnet-4-5", LlmProvider::Anthropic),
+                ("claude-code-sonnet", LlmProvider::Anthropic),
+            ],
+            vec![(LlmProvider::Anthropic, "anthropic-key")],
+            vec![],
+        ));
+        let (tool, llm) = build_tool(factory.clone());
+
+        let output = tool
+            .execute(json!({
+                "provider": "claude-code",
+                "model": "claude-code-sonnet"
+            }))
+            .await
+            .expect("switch should succeed");
+
+        assert!(output.success);
+        assert_eq!(llm.current_model(), "claude-code-sonnet");
+        assert_eq!(
+            factory.calls(),
+            vec![(
+                "claude-code-sonnet".to_string(),
+                Some("anthropic-key".to_string())
+            )]
+        );
+    }
+
+    #[tokio::test]
+    async fn execute_rejects_openai_provider_for_openai_codex_model() {
+        let factory = Arc::new(MockFactory::new(
+            vec!["gpt-5", "gpt-5.3-codex"],
+            vec![
+                ("gpt-5", LlmProvider::OpenAI),
+                ("gpt-5.3-codex", LlmProvider::OpenAI),
+            ],
+            vec![(LlmProvider::OpenAI, "openai-key")],
+            vec!["gpt-5.3-codex"],
+        ));
+        let (tool, _) = build_tool(factory);
+
+        let error = tool
+            .execute(json!({
+                "provider": "openai",
+                "model": "gpt-5.3-codex"
+            }))
+            .await
+            .expect_err("switch should fail");
+
+        assert!(
+            error
+                .to_string()
+                .contains("does not belong to provider 'openai'"),
+            "unexpected error: {error}"
+        );
+    }
+
+    #[tokio::test]
     async fn execute_rejects_missing_model() {
         let factory = Arc::new(MockFactory::new(
             vec!["gpt-5.3-codex", "claude-sonnet-4-5"],
@@ -478,7 +559,7 @@ mod tests {
         let (tool, _) = build_tool(factory);
 
         let error = tool
-            .execute(json!({ "provider": "codex-cli" }))
+            .execute(json!({ "provider": "openai-codex" }))
             .await
             .expect_err("switch should fail without model");
 
@@ -505,8 +586,8 @@ mod tests {
 
         let output = tool
             .execute(json!({
-                "provider": "codex-cli",
-                "model": "codex-cli:gpt-5.3-codex"
+                "provider": "openai-codex",
+                "model": "openai-codex:gpt-5.3-codex"
             }))
             .await
             .expect("switch should succeed");
