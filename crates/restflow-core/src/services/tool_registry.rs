@@ -1,7 +1,7 @@
 //! Tool registry service for creating tool registries with storage access.
 
 use crate::lsp::LspManager;
-use crate::memory::UnifiedSearchEngine;
+use crate::memory::{MemoryExporter, UnifiedSearchEngine};
 use crate::models::{
     AgentTaskStatus, BackgroundAgentControlAction, BackgroundAgentPatch, BackgroundAgentSpec,
     BackgroundMessageSource, MemoryConfig, MemoryScope, MemorySearchQuery, SearchMode, SharedEntry,
@@ -21,16 +21,19 @@ use crate::storage::{
 use chrono::Utc;
 use restflow_ai::error::AiError;
 use restflow_ai::tools::{
-    AgentCreateRequest, AgentCrudTool, AgentStore, AgentUpdateRequest, ConfigTool, SecretsTool,
-    TaskControlRequest, TaskCreateRequest, TaskMessageListRequest, TaskMessageRequest,
-    TaskProgressRequest, TaskStore, TaskTool, TaskUpdateRequest,
+    AgentCreateRequest, AgentCrudTool, AgentStore, AgentUpdateRequest, AuthProfileCreateRequest,
+    AuthProfileStore, AuthProfileTestRequest, AuthProfileTool, ConfigTool,
+    MemoryClearRequest, MemoryCompactRequest, MemoryExportRequest, MemoryManagementTool,
+    MemoryManager, SecretsTool, SessionCreateRequest, SessionListFilter, SessionSearchQuery,
+    SessionStore, SessionTool, TaskControlRequest, TaskCreateRequest, TaskMessageListRequest,
+    TaskMessageRequest, TaskProgressRequest, TaskStore, TaskTool, TaskUpdateRequest,
 };
 use restflow_ai::{
     SecretResolver, SkillContent, SkillInfo, SkillProvider, SkillRecord, SkillTool, SkillUpdate,
     Tool, ToolOutput, ToolRegistry, TranscribeTool, VisionTool,
 };
 use serde::{Deserialize, de::DeserializeOwned};
-use serde_json::json;
+use serde_json::{Value, json};
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -431,6 +434,361 @@ impl TaskStore for TaskStoreAdapter {
     }
 }
 
+// ============== Session Storage Adapter ==============
+
+#[derive(Clone)]
+struct SessionStorageAdapter {
+    storage: ChatSessionStorage,
+}
+
+impl SessionStorageAdapter {
+    fn new(storage: ChatSessionStorage) -> Self {
+        Self { storage }
+    }
+}
+
+impl SessionStore for SessionStorageAdapter {
+    fn list_sessions(&self, filter: SessionListFilter) -> restflow_ai::error::Result<Value> {
+        let sessions = if let Some(agent_id) = &filter.agent_id {
+            self.storage
+                .list_by_agent(agent_id)
+                .map_err(|e| AiError::Tool(e.to_string()))?
+        } else if let Some(skill_id) = &filter.skill_id {
+            self.storage
+                .list_by_skill(skill_id)
+                .map_err(|e| AiError::Tool(e.to_string()))?
+        } else {
+            self.storage
+                .list()
+                .map_err(|e| AiError::Tool(e.to_string()))?
+        };
+
+        if filter.include_messages.unwrap_or(false) {
+            serde_json::to_value(sessions).map_err(AiError::from)
+        } else {
+            let summaries = self
+                .storage
+                .list_summaries()
+                .map_err(|e| AiError::Tool(e.to_string()))?;
+            serde_json::to_value(summaries).map_err(AiError::from)
+        }
+    }
+
+    fn get_session(&self, id: &str) -> restflow_ai::error::Result<Value> {
+        let session = self
+            .storage
+            .get(id)
+            .map_err(|e| AiError::Tool(e.to_string()))?
+            .ok_or_else(|| AiError::Tool(format!("Session {} not found", id)))?;
+        serde_json::to_value(session).map_err(AiError::from)
+    }
+
+    fn create_session(&self, request: SessionCreateRequest) -> restflow_ai::error::Result<Value> {
+        let mut session =
+            crate::models::ChatSession::new(request.agent_id, request.model);
+        if let Some(name) = request.name {
+            session = session.with_name(name);
+        }
+        if let Some(skill_id) = request.skill_id {
+            session = session.with_skill(skill_id);
+        }
+        self.storage
+            .create(&session)
+            .map_err(|e| AiError::Tool(e.to_string()))?;
+        serde_json::to_value(session).map_err(AiError::from)
+    }
+
+    fn delete_session(&self, id: &str) -> restflow_ai::error::Result<Value> {
+        let deleted = self
+            .storage
+            .delete(id)
+            .map_err(|e| AiError::Tool(e.to_string()))?;
+        Ok(json!({ "id": id, "deleted": deleted }))
+    }
+
+    fn search_sessions(
+        &self,
+        query: SessionSearchQuery,
+    ) -> restflow_ai::error::Result<Value> {
+        // Search by iterating sessions and filtering by query string
+        let sessions = if let Some(agent_id) = &query.agent_id {
+            self.storage
+                .list_by_agent(agent_id)
+                .map_err(|e| AiError::Tool(e.to_string()))?
+        } else {
+            self.storage
+                .list()
+                .map_err(|e| AiError::Tool(e.to_string()))?
+        };
+
+        let keyword = query.query.to_lowercase();
+        let limit = query.limit.unwrap_or(20) as usize;
+
+        let matched: Vec<_> = sessions
+            .into_iter()
+            .filter(|s| {
+                let name_match = s.name.to_lowercase().contains(&keyword);
+                let msg_match = s
+                    .messages
+                    .iter()
+                    .any(|m| m.content.to_lowercase().contains(&keyword));
+                name_match || msg_match
+            })
+            .take(limit)
+            .collect();
+
+        serde_json::to_value(matched).map_err(AiError::from)
+    }
+}
+
+// ============== Memory Manager Adapter ==============
+
+#[derive(Clone)]
+struct MemoryManagerAdapter {
+    storage: MemoryStorage,
+}
+
+impl MemoryManagerAdapter {
+    fn new(storage: MemoryStorage) -> Self {
+        Self { storage }
+    }
+}
+
+impl MemoryManager for MemoryManagerAdapter {
+    fn stats(&self, agent_id: &str) -> restflow_ai::error::Result<Value> {
+        let stats = self
+            .storage
+            .get_stats(agent_id)
+            .map_err(|e| AiError::Tool(e.to_string()))?;
+        serde_json::to_value(stats).map_err(AiError::from)
+    }
+
+    fn export(&self, request: MemoryExportRequest) -> restflow_ai::error::Result<Value> {
+        let exporter = MemoryExporter::new(self.storage.clone());
+        let result = if let Some(session_id) = &request.session_id {
+            exporter
+                .export_session(session_id)
+                .map_err(|e| AiError::Tool(e.to_string()))?
+        } else {
+            exporter
+                .export_agent(&request.agent_id)
+                .map_err(|e| AiError::Tool(e.to_string()))?
+        };
+        serde_json::to_value(result).map_err(AiError::from)
+    }
+
+    fn clear(&self, request: MemoryClearRequest) -> restflow_ai::error::Result<Value> {
+        if let Some(session_id) = &request.session_id {
+            let delete_chunks = request.delete_sessions.unwrap_or(true);
+            let deleted = self
+                .storage
+                .delete_session(session_id, delete_chunks)
+                .map_err(|e| AiError::Tool(e.to_string()))?;
+            Ok(json!({
+                "agent_id": request.agent_id,
+                "session_id": session_id,
+                "deleted": deleted
+            }))
+        } else {
+            let deleted = self
+                .storage
+                .delete_chunks_for_agent(&request.agent_id)
+                .map_err(|e| AiError::Tool(e.to_string()))?;
+            Ok(json!({
+                "agent_id": request.agent_id,
+                "chunks_deleted": deleted
+            }))
+        }
+    }
+
+    fn compact(&self, request: MemoryCompactRequest) -> restflow_ai::error::Result<Value> {
+        let chunks = self
+            .storage
+            .list_chunks(&request.agent_id)
+            .map_err(|e| AiError::Tool(e.to_string()))?;
+
+        let keep_recent = request.keep_recent.unwrap_or(10) as usize;
+        let before_ms = request.before_ms;
+
+        let mut to_delete: Vec<String> = Vec::new();
+
+        if chunks.len() > keep_recent {
+            // Sort by created_at ascending, delete oldest first
+            let mut sorted = chunks.clone();
+            sorted.sort_by_key(|c| c.created_at);
+
+            let removable = sorted.len() - keep_recent;
+            for chunk in sorted.into_iter().take(removable) {
+                if let Some(threshold) = before_ms {
+                    if chunk.created_at < threshold {
+                        to_delete.push(chunk.id.clone());
+                    }
+                } else {
+                    to_delete.push(chunk.id.clone());
+                }
+            }
+        }
+
+        let deleted_count = to_delete.len();
+        for chunk_id in &to_delete {
+            self.storage
+                .delete_chunk(chunk_id)
+                .map_err(|e| AiError::Tool(e.to_string()))?;
+        }
+
+        Ok(json!({
+            "agent_id": request.agent_id,
+            "total_chunks": chunks.len(),
+            "deleted": deleted_count,
+            "remaining": chunks.len() - deleted_count
+        }))
+    }
+}
+
+// ============== Auth Profile Storage Adapter ==============
+
+#[derive(Clone)]
+struct AuthProfileStorageAdapter {
+    storage: SecretStorage,
+}
+
+impl AuthProfileStorageAdapter {
+    fn new(storage: SecretStorage) -> Self {
+        Self { storage }
+    }
+}
+
+impl AuthProfileStore for AuthProfileStorageAdapter {
+    fn list_profiles(&self) -> restflow_ai::error::Result<Value> {
+        let secrets = self
+            .storage
+            .list_secrets()
+            .map_err(|e| AiError::Tool(e.to_string()))?;
+
+        let profiles: Vec<Value> = secrets
+            .iter()
+            .filter(|s| s.key.ends_with("_API_KEY") || s.key.ends_with("_TOKEN"))
+            .map(|s| {
+                // list_secrets() clears values for security, use has_secret to check
+                let has_value = self
+                    .storage
+                    .has_secret(&s.key)
+                    .unwrap_or(false);
+                json!({
+                    "id": s.key,
+                    "name": s.key,
+                    "has_credential": has_value,
+                    "description": s.description
+                })
+            })
+            .collect();
+
+        Ok(json!(profiles))
+    }
+
+    fn discover_profiles(&self) -> restflow_ai::error::Result<Value> {
+        let known_vars = [
+            "ANTHROPIC_API_KEY",
+            "OPENAI_API_KEY",
+            "GEMINI_API_KEY",
+            "GROQ_API_KEY",
+            "DEEPSEEK_API_KEY",
+            "OPENROUTER_API_KEY",
+            "XAI_API_KEY",
+            "GITHUB_TOKEN",
+        ];
+
+        let discovered: Vec<Value> = known_vars
+            .iter()
+            .filter_map(|var| {
+                std::env::var(var).ok().map(|_| {
+                    json!({
+                        "env_var": var,
+                        "available": true
+                    })
+                })
+            })
+            .collect();
+
+        Ok(json!({
+            "total": discovered.len(),
+            "profiles": discovered
+        }))
+    }
+
+    fn add_profile(
+        &self,
+        request: AuthProfileCreateRequest,
+    ) -> restflow_ai::error::Result<Value> {
+        let key_name = format!(
+            "{}_API_KEY",
+            request.provider.to_uppercase().replace('-', "_")
+        );
+        let secret_value = match &request.credential {
+            restflow_ai::tools::CredentialInput::ApiKey { key, .. } => key.clone(),
+            restflow_ai::tools::CredentialInput::Token { token, .. } => token.clone(),
+            restflow_ai::tools::CredentialInput::OAuth { access_token, .. } => {
+                access_token.clone()
+            }
+        };
+        self.storage
+            .set_secret(&key_name, &secret_value, Some(format!("Auth profile: {}", request.name)))
+            .map_err(|e| AiError::Tool(e.to_string()))?;
+
+        Ok(json!({
+            "id": key_name,
+            "name": request.name,
+            "provider": request.provider,
+            "created": true
+        }))
+    }
+
+    fn remove_profile(&self, id: &str) -> restflow_ai::error::Result<Value> {
+        self.storage
+            .delete_secret(id)
+            .map_err(|e| AiError::Tool(e.to_string()))?;
+        Ok(json!({ "id": id, "removed": true }))
+    }
+
+    fn test_profile(
+        &self,
+        request: AuthProfileTestRequest,
+    ) -> restflow_ai::error::Result<Value> {
+        if let Some(id) = &request.id {
+            let available = self
+                .storage
+                .get_secret(id)
+                .ok()
+                .flatten()
+                .map(|v| !v.is_empty())
+                .unwrap_or(false);
+            Ok(json!({
+                "id": id,
+                "available": available
+            }))
+        } else if let Some(provider) = &request.provider {
+            let key_name = format!(
+                "{}_API_KEY",
+                provider.to_uppercase().replace('-', "_")
+            );
+            let available = self
+                .storage
+                .get_secret(&key_name)
+                .ok()
+                .flatten()
+                .map(|v| !v.is_empty())
+                .unwrap_or(false);
+            Ok(json!({
+                "provider": provider,
+                "key_name": key_name,
+                "available": available
+            }))
+        } else {
+            Ok(json!({ "available": false, "reason": "No id or provider specified" }))
+        }
+    }
+}
+
 /// Create a tool registry with all available tools including storage-backed tools.
 ///
 /// This function creates a registry with:
@@ -467,12 +825,24 @@ pub fn create_tool_registry(
     let skill_provider = Arc::new(SkillStorageProvider::new(skill_storage.clone()));
     registry.register(SkillTool::new(skill_provider));
 
+    // Session management tool (clone before move)
+    let session_store = Arc::new(SessionStorageAdapter::new(chat_storage.clone()));
+    registry.register(SessionTool::new(session_store).with_write(true));
+
+    // Memory management tool (clone before move)
+    let memory_manager = Arc::new(MemoryManagerAdapter::new(memory_storage.clone()));
+    registry.register(MemoryManagementTool::new(memory_manager).with_write(true));
+
     // Add unified memory search tool
     let search_engine = UnifiedSearchEngine::new(memory_storage, chat_storage);
     registry.register(MemorySearchTool::new(search_engine));
 
     // Add shared space tool
     registry.register(SharedSpaceTool::new(shared_space_storage, accessor_id));
+
+    // Auth profile management tool (clone before move)
+    let auth_store = Arc::new(AuthProfileStorageAdapter::new(secret_storage.clone()));
+    registry.register(AuthProfileTool::new(auth_store).with_write(true));
 
     // Add system management tools (read-only by default)
     registry.register(SecretsTool::new(Arc::new(secret_storage)));
@@ -1558,6 +1928,10 @@ mod tests {
         assert!(registry.has("manage_triggers"));
         assert!(registry.has("manage_terminal"));
         assert!(registry.has("security_query"));
+        // Session, memory management, and auth profile tools
+        assert!(registry.has("manage_sessions"));
+        assert!(registry.has("manage_memory"));
+        assert!(registry.has("manage_auth_profiles"));
     }
 
     #[test]
