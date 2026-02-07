@@ -4,11 +4,14 @@
 //! to AI assistants like Claude Code.
 
 use crate::AppCore;
-use crate::daemon::IpcClient;
+use crate::daemon::{IpcClient, IpcRequest, IpcResponse};
 use crate::models::{
-    ChatSession, ChatSessionSummary, MemoryChunk, MemorySearchQuery, MemorySearchResult,
-    MemorySource, MemoryStats, SearchMode, Skill,
+    AgentTask, AgentTaskStatus, BackgroundAgentControlAction, BackgroundAgentPatch,
+    BackgroundAgentSpec, BackgroundMessage, BackgroundMessageSource, BackgroundProgress,
+    ChatSession, ChatSessionSummary, MemoryChunk, MemoryConfig, MemoryScope, MemorySearchQuery,
+    MemorySearchResult, MemorySource, MemoryStats, SearchMode, Skill, TaskSchedule,
 };
+use crate::services::tool_registry::create_tool_registry;
 use crate::storage::agent::StoredAgent;
 use rmcp::{
     ErrorData as McpError, ServerHandler, ServiceExt,
@@ -20,8 +23,10 @@ use rmcp::{
     schemars::{self, JsonSchema},
     service::{RequestContext, RoleServer},
 };
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::io::{stdin, stdout};
 use tokio::sync::Mutex;
@@ -32,6 +37,20 @@ use tokio::sync::Mutex;
 #[derive(Clone)]
 pub struct RestFlowMcpServer {
     backend: Arc<dyn McpBackend>,
+}
+
+#[derive(Debug, Clone)]
+pub struct RuntimeToolDefinition {
+    pub name: String,
+    pub description: String,
+    pub parameters: Value,
+}
+
+#[derive(Debug, Clone)]
+pub struct RuntimeToolResult {
+    pub success: bool,
+    pub result: Value,
+    pub error: Option<String>,
 }
 
 #[async_trait::async_trait]
@@ -55,6 +74,57 @@ pub trait McpBackend: Send + Sync {
         agent_id: &str,
     ) -> Result<Vec<ChatSessionSummary>, String>;
     async fn get_session(&self, id: &str) -> Result<ChatSession, String>;
+
+    async fn list_tasks(&self, status: Option<AgentTaskStatus>) -> Result<Vec<AgentTask>, String>;
+    async fn create_background_agent(&self, spec: BackgroundAgentSpec)
+    -> Result<AgentTask, String>;
+    async fn update_background_agent(
+        &self,
+        id: &str,
+        patch: BackgroundAgentPatch,
+    ) -> Result<AgentTask, String>;
+    async fn delete_background_agent(&self, id: &str) -> Result<bool, String>;
+    async fn control_background_agent(
+        &self,
+        id: &str,
+        action: BackgroundAgentControlAction,
+    ) -> Result<AgentTask, String>;
+    async fn get_background_agent_progress(
+        &self,
+        id: &str,
+        event_limit: usize,
+    ) -> Result<BackgroundProgress, String>;
+    async fn send_background_agent_message(
+        &self,
+        id: &str,
+        message: String,
+        source: BackgroundMessageSource,
+    ) -> Result<BackgroundMessage, String>;
+    async fn list_background_agent_messages(
+        &self,
+        id: &str,
+        limit: usize,
+    ) -> Result<Vec<BackgroundMessage>, String>;
+
+    async fn list_runtime_tools(&self) -> Result<Vec<RuntimeToolDefinition>, String>;
+    async fn execute_runtime_tool(
+        &self,
+        name: &str,
+        input: Value,
+    ) -> Result<RuntimeToolResult, String>;
+}
+
+fn create_runtime_tool_registry_for_core(core: &Arc<AppCore>) -> restflow_ai::tools::ToolRegistry {
+    create_tool_registry(
+        core.storage.skills.clone(),
+        core.storage.memory.clone(),
+        core.storage.chat_sessions.clone(),
+        core.storage.shared_space.clone(),
+        core.storage.secrets.clone(),
+        core.storage.config.clone(),
+        core.storage.agent_tasks.clone(),
+        None,
+    )
 }
 
 struct CoreBackend {
@@ -158,10 +228,148 @@ impl McpBackend for CoreBackend {
             .map_err(|e| e.to_string())?
             .ok_or_else(|| format!("Session not found: {}", id))
     }
+
+    async fn list_tasks(&self, status: Option<AgentTaskStatus>) -> Result<Vec<AgentTask>, String> {
+        match status {
+            Some(status) => self
+                .core
+                .storage
+                .agent_tasks
+                .list_tasks_by_status(status)
+                .map_err(|e| e.to_string()),
+            None => self
+                .core
+                .storage
+                .agent_tasks
+                .list_tasks()
+                .map_err(|e| e.to_string()),
+        }
+    }
+
+    async fn create_background_agent(
+        &self,
+        spec: BackgroundAgentSpec,
+    ) -> Result<AgentTask, String> {
+        self.core
+            .storage
+            .agent_tasks
+            .create_background_agent(spec)
+            .map_err(|e| e.to_string())
+    }
+
+    async fn update_background_agent(
+        &self,
+        id: &str,
+        patch: BackgroundAgentPatch,
+    ) -> Result<AgentTask, String> {
+        self.core
+            .storage
+            .agent_tasks
+            .update_background_agent(id, patch)
+            .map_err(|e| e.to_string())
+    }
+
+    async fn delete_background_agent(&self, id: &str) -> Result<bool, String> {
+        self.core
+            .storage
+            .agent_tasks
+            .delete_task(id)
+            .map_err(|e| e.to_string())
+    }
+
+    async fn control_background_agent(
+        &self,
+        id: &str,
+        action: BackgroundAgentControlAction,
+    ) -> Result<AgentTask, String> {
+        self.core
+            .storage
+            .agent_tasks
+            .control_background_agent(id, action)
+            .map_err(|e| e.to_string())
+    }
+
+    async fn get_background_agent_progress(
+        &self,
+        id: &str,
+        event_limit: usize,
+    ) -> Result<BackgroundProgress, String> {
+        self.core
+            .storage
+            .agent_tasks
+            .get_background_agent_progress(id, event_limit)
+            .map_err(|e| e.to_string())
+    }
+
+    async fn send_background_agent_message(
+        &self,
+        id: &str,
+        message: String,
+        source: BackgroundMessageSource,
+    ) -> Result<BackgroundMessage, String> {
+        self.core
+            .storage
+            .agent_tasks
+            .send_background_agent_message(id, message, source)
+            .map_err(|e| e.to_string())
+    }
+
+    async fn list_background_agent_messages(
+        &self,
+        id: &str,
+        limit: usize,
+    ) -> Result<Vec<BackgroundMessage>, String> {
+        self.core
+            .storage
+            .agent_tasks
+            .list_background_agent_messages(id, limit)
+            .map_err(|e| e.to_string())
+    }
+
+    async fn list_runtime_tools(&self) -> Result<Vec<RuntimeToolDefinition>, String> {
+        let registry = create_runtime_tool_registry_for_core(&self.core);
+        Ok(registry
+            .schemas()
+            .into_iter()
+            .map(|schema| RuntimeToolDefinition {
+                name: schema.name,
+                description: schema.description,
+                parameters: schema.parameters,
+            })
+            .collect())
+    }
+
+    async fn execute_runtime_tool(
+        &self,
+        name: &str,
+        input: Value,
+    ) -> Result<RuntimeToolResult, String> {
+        let registry = create_runtime_tool_registry_for_core(&self.core);
+        let output = registry
+            .execute_safe(name, input)
+            .await
+            .map_err(|e| e.to_string())?;
+        Ok(RuntimeToolResult {
+            success: output.success,
+            result: output.result,
+            error: output.error,
+        })
+    }
 }
 
 struct IpcBackend {
     client: Arc<Mutex<IpcClient>>,
+}
+
+impl IpcBackend {
+    async fn request_typed<T: DeserializeOwned>(&self, req: IpcRequest) -> Result<T, String> {
+        let mut client = self.client.lock().await;
+        match client.request(req).await.map_err(|e| e.to_string())? {
+            IpcResponse::Success(value) => serde_json::from_value(value).map_err(|e| e.to_string()),
+            IpcResponse::Error { code, message } => Err(format!("IPC error {}: {}", code, message)),
+            IpcResponse::Pong => Err("Unexpected IPC pong response".to_string()),
+        }
+    }
 }
 
 #[async_trait::async_trait]
@@ -262,6 +470,132 @@ impl McpBackend for IpcBackend {
             .get_session(id.to_string())
             .await
             .map_err(|e| e.to_string())
+    }
+
+    async fn list_tasks(&self, status: Option<AgentTaskStatus>) -> Result<Vec<AgentTask>, String> {
+        let mut client = self.client.lock().await;
+        match status {
+            Some(status) => client
+                .list_tasks_by_status(status.as_str().to_string())
+                .await
+                .map_err(|e| e.to_string()),
+            None => client.list_tasks().await.map_err(|e| e.to_string()),
+        }
+    }
+
+    async fn create_background_agent(
+        &self,
+        spec: BackgroundAgentSpec,
+    ) -> Result<AgentTask, String> {
+        self.request_typed(IpcRequest::CreateBackgroundAgent { spec })
+            .await
+    }
+
+    async fn update_background_agent(
+        &self,
+        id: &str,
+        patch: BackgroundAgentPatch,
+    ) -> Result<AgentTask, String> {
+        self.request_typed(IpcRequest::UpdateBackgroundAgent {
+            id: id.to_string(),
+            patch,
+        })
+        .await
+    }
+
+    async fn delete_background_agent(&self, id: &str) -> Result<bool, String> {
+        #[derive(Deserialize)]
+        struct DeleteResponse {
+            deleted: bool,
+        }
+
+        let response: DeleteResponse = self
+            .request_typed(IpcRequest::DeleteBackgroundAgent { id: id.to_string() })
+            .await?;
+        Ok(response.deleted)
+    }
+
+    async fn control_background_agent(
+        &self,
+        id: &str,
+        action: BackgroundAgentControlAction,
+    ) -> Result<AgentTask, String> {
+        self.request_typed(IpcRequest::ControlBackgroundAgent {
+            id: id.to_string(),
+            action,
+        })
+        .await
+    }
+
+    async fn get_background_agent_progress(
+        &self,
+        id: &str,
+        event_limit: usize,
+    ) -> Result<BackgroundProgress, String> {
+        self.request_typed(IpcRequest::GetBackgroundAgentProgress {
+            id: id.to_string(),
+            event_limit: Some(event_limit),
+        })
+        .await
+    }
+
+    async fn send_background_agent_message(
+        &self,
+        id: &str,
+        message: String,
+        source: BackgroundMessageSource,
+    ) -> Result<BackgroundMessage, String> {
+        self.request_typed(IpcRequest::SendBackgroundAgentMessage {
+            id: id.to_string(),
+            message,
+            source: Some(source),
+        })
+        .await
+    }
+
+    async fn list_background_agent_messages(
+        &self,
+        id: &str,
+        limit: usize,
+    ) -> Result<Vec<BackgroundMessage>, String> {
+        self.request_typed(IpcRequest::ListBackgroundAgentMessages {
+            id: id.to_string(),
+            limit: Some(limit),
+        })
+        .await
+    }
+
+    async fn list_runtime_tools(&self) -> Result<Vec<RuntimeToolDefinition>, String> {
+        let mut client = self.client.lock().await;
+        let tools = client
+            .get_available_tool_definitions()
+            .await
+            .map_err(|e| e.to_string())?;
+        Ok(tools
+            .into_iter()
+            .map(|tool| RuntimeToolDefinition {
+                name: tool.name,
+                description: tool.description,
+                parameters: tool.parameters,
+            })
+            .collect())
+    }
+
+    async fn execute_runtime_tool(
+        &self,
+        name: &str,
+        input: Value,
+    ) -> Result<RuntimeToolResult, String> {
+        let mut client = self.client.lock().await;
+        let output = client
+            .execute_tool(name.to_string(), input)
+            .await
+            .map_err(|e| e.to_string())?;
+        Ok(RuntimeToolResult {
+            success: output.success,
+            result: output.result,
+            error: output.error,
+        })
     }
 }
 
@@ -420,6 +754,64 @@ pub struct ChatSessionGetParams {
     pub session_id: String,
 }
 
+/// Parameters for manage_tasks tool
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct ManageTasksParams {
+    /// Operation to perform
+    pub operation: String,
+    /// Task/background agent ID
+    #[serde(default)]
+    pub id: Option<String>,
+    /// Task name
+    #[serde(default)]
+    pub name: Option<String>,
+    /// Agent ID for execution
+    #[serde(default)]
+    pub agent_id: Option<String>,
+    /// Optional description
+    #[serde(default)]
+    pub description: Option<String>,
+    /// Optional task input
+    #[serde(default)]
+    pub input: Option<String>,
+    /// Optional task input template
+    #[serde(default)]
+    pub input_template: Option<String>,
+    /// Optional schedule payload
+    #[serde(default)]
+    pub schedule: Option<Value>,
+    /// Optional notification payload
+    #[serde(default)]
+    pub notification: Option<Value>,
+    /// Optional execution mode payload
+    #[serde(default)]
+    pub execution_mode: Option<Value>,
+    /// Optional memory payload
+    #[serde(default)]
+    pub memory: Option<Value>,
+    /// Optional memory scope override
+    #[serde(default)]
+    pub memory_scope: Option<String>,
+    /// Optional list status filter
+    #[serde(default)]
+    pub status: Option<String>,
+    /// Optional control action
+    #[serde(default)]
+    pub action: Option<String>,
+    /// Optional progress event limit
+    #[serde(default)]
+    pub event_limit: Option<usize>,
+    /// Optional message body
+    #[serde(default)]
+    pub message: Option<String>,
+    /// Optional message source
+    #[serde(default)]
+    pub source: Option<String>,
+    /// Optional message list limit
+    #[serde(default)]
+    pub limit: Option<usize>,
+}
+
 // ============================================================================
 // Response Types
 // ============================================================================
@@ -462,6 +854,198 @@ fn default_session_limit() -> u32 {
 // ============================================================================
 
 impl RestFlowMcpServer {
+    fn required_string(value: Option<String>, field: &str) -> Result<String, String> {
+        value
+            .map(|v| v.trim().to_string())
+            .filter(|v| !v.is_empty())
+            .ok_or_else(|| format!("Missing required field: {}", field))
+    }
+
+    fn parse_task_status(value: Option<String>) -> Result<Option<AgentTaskStatus>, String> {
+        match value.map(|s| s.trim().to_lowercase()) {
+            None => Ok(None),
+            Some(s) if s.is_empty() => Ok(None),
+            Some(s) if s == "active" => Ok(Some(AgentTaskStatus::Active)),
+            Some(s) if s == "paused" => Ok(Some(AgentTaskStatus::Paused)),
+            Some(s) if s == "running" => Ok(Some(AgentTaskStatus::Running)),
+            Some(s) if s == "completed" => Ok(Some(AgentTaskStatus::Completed)),
+            Some(s) if s == "failed" => Ok(Some(AgentTaskStatus::Failed)),
+            Some(s) => Err(format!("Unknown status: {}", s)),
+        }
+    }
+
+    fn parse_control_action(value: Option<String>) -> Result<BackgroundAgentControlAction, String> {
+        match value.map(|s| s.trim().to_lowercase()) {
+            Some(s) if s == "start" => Ok(BackgroundAgentControlAction::Start),
+            Some(s) if s == "pause" => Ok(BackgroundAgentControlAction::Pause),
+            Some(s) if s == "resume" => Ok(BackgroundAgentControlAction::Resume),
+            Some(s) if s == "stop" => Ok(BackgroundAgentControlAction::Stop),
+            Some(s) if s == "run_now" || s == "run-now" || s == "runnow" => {
+                Ok(BackgroundAgentControlAction::RunNow)
+            }
+            Some(s) => Err(format!("Unknown control action: {}", s)),
+            None => Err("Missing required field: action".to_string()),
+        }
+    }
+
+    fn parse_message_source(value: Option<String>) -> Result<BackgroundMessageSource, String> {
+        match value.map(|s| s.trim().to_lowercase()) {
+            None => Ok(BackgroundMessageSource::User),
+            Some(s) if s.is_empty() => Ok(BackgroundMessageSource::User),
+            Some(s) if s == "user" => Ok(BackgroundMessageSource::User),
+            Some(s) if s == "agent" => Ok(BackgroundMessageSource::Agent),
+            Some(s) if s == "system" => Ok(BackgroundMessageSource::System),
+            Some(s) => Err(format!("Unknown message source: {}", s)),
+        }
+    }
+
+    fn parse_memory_scope(value: Option<String>) -> Result<Option<MemoryScope>, String> {
+        match value.map(|s| s.trim().to_lowercase()) {
+            None => Ok(None),
+            Some(s) if s.is_empty() => Ok(None),
+            Some(s) if s == "shared_agent" => Ok(Some(MemoryScope::SharedAgent)),
+            Some(s) if s == "per_task" => Ok(Some(MemoryScope::PerTask)),
+            Some(s) => Err(format!("Unknown memory_scope: {}", s)),
+        }
+    }
+
+    fn parse_optional_value<T: DeserializeOwned>(
+        field: &str,
+        value: Option<Value>,
+    ) -> Result<Option<T>, String> {
+        match value {
+            Some(v) => serde_json::from_value(v)
+                .map(Some)
+                .map_err(|e| format!("Invalid {}: {}", field, e)),
+            None => Ok(None),
+        }
+    }
+
+    fn merge_memory_scope(
+        memory: Option<MemoryConfig>,
+        memory_scope: Option<String>,
+    ) -> Result<Option<MemoryConfig>, String> {
+        let parsed_scope = Self::parse_memory_scope(memory_scope)?;
+        match (memory, parsed_scope) {
+            (Some(mut memory), Some(scope)) => {
+                memory.memory_scope = scope;
+                Ok(Some(memory))
+            }
+            (Some(memory), None) => Ok(Some(memory)),
+            (None, Some(scope)) => Ok(Some(MemoryConfig {
+                memory_scope: scope,
+                ..MemoryConfig::default()
+            })),
+            (None, None) => Ok(None),
+        }
+    }
+
+    fn runtime_alias_target(name: &str) -> Option<&'static str> {
+        match name {
+            "http" => Some("http_request"),
+            "python" => Some("run_python"),
+            "email" => Some("send_email"),
+            "telegram" => Some("telegram_send"),
+            "use_skill" => Some("skill"),
+            _ => None,
+        }
+    }
+
+    fn convert_use_skill_input(input: Value) -> Value {
+        let Value::Object(mut map) = input else {
+            return serde_json::json!({ "action": "list" });
+        };
+
+        if map.contains_key("action") {
+            return Value::Object(map);
+        }
+
+        if map.get("list").and_then(|v| v.as_bool()).unwrap_or(false) {
+            return serde_json::json!({ "action": "list" });
+        }
+
+        if let Some(skill_id) = map.remove("skill_id").or_else(|| map.remove("id")) {
+            return serde_json::json!({
+                "action": "read",
+                "id": skill_id
+            });
+        }
+
+        serde_json::json!({ "action": "list" })
+    }
+
+    fn session_scoped_runtime_tools() -> Vec<RuntimeToolDefinition> {
+        vec![
+            RuntimeToolDefinition {
+                name: "spawn_agent".to_string(),
+                description: "Spawn a specialized agent to work on a task in parallel. Requires active main-agent runtime context.".to_string(),
+                parameters: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "agent": {
+                            "type": "string",
+                            "enum": ["researcher", "coder", "reviewer", "writer", "analyst"],
+                            "description": "The specialized agent to spawn"
+                        },
+                        "task": {
+                            "type": "string",
+                            "description": "Detailed task description for the agent"
+                        },
+                        "wait": {
+                            "type": "boolean",
+                            "default": false,
+                            "description": "If true, wait for completion. If false, run in background."
+                        },
+                        "timeout_secs": {
+                            "type": "integer",
+                            "default": 300,
+                            "description": "Timeout in seconds"
+                        }
+                    },
+                    "required": ["agent", "task"]
+                }),
+            },
+            RuntimeToolDefinition {
+                name: "wait_agents".to_string(),
+                description: "Wait for one or more sub-agents to finish. Requires active main-agent runtime context.".to_string(),
+                parameters: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "task_ids": {
+                            "type": "array",
+                            "items": { "type": "string" },
+                            "description": "List of sub-agent task IDs to wait for"
+                        },
+                        "timeout_secs": {
+                            "type": "integer",
+                            "default": 300,
+                            "description": "Timeout in seconds"
+                        }
+                    },
+                    "required": ["task_ids"]
+                }),
+            },
+            RuntimeToolDefinition {
+                name: "switch_model".to_string(),
+                description: "Switch the active LLM model during execution. Requires active main-agent runtime context.".to_string(),
+                parameters: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "model": {
+                            "type": "string",
+                            "description": "Model name to switch to"
+                        },
+                        "reason": {
+                            "type": "string",
+                            "description": "Optional reason for switching models"
+                        }
+                    },
+                    "required": ["model"]
+                }),
+            },
+        ]
+    }
+
     async fn handle_list_skills(&self) -> Result<String, String> {
         let skills = self
             .backend
@@ -685,6 +1269,157 @@ impl RestFlowMcpServer {
         serde_json::to_string_pretty(&session)
             .map_err(|e| format!("Failed to serialize session: {}", e))
     }
+
+    async fn handle_manage_tasks(&self, params: ManageTasksParams) -> Result<String, String> {
+        let operation = params.operation.trim().to_lowercase();
+
+        let value = match operation.as_str() {
+            "list" => {
+                let status = Self::parse_task_status(params.status)?;
+                serde_json::to_value(self.backend.list_tasks(status).await?)
+                    .map_err(|e| e.to_string())?
+            }
+            "create" => {
+                let name = Self::required_string(params.name, "name")?;
+                let agent_id = Self::required_string(params.agent_id, "agent_id")?;
+                let schedule =
+                    Self::parse_optional_value::<TaskSchedule>("schedule", params.schedule)?
+                        .unwrap_or_default();
+                let memory = Self::parse_optional_value::<MemoryConfig>("memory", params.memory)?;
+                let memory = Self::merge_memory_scope(memory, params.memory_scope)?;
+                let spec = BackgroundAgentSpec {
+                    name,
+                    agent_id,
+                    description: params.description,
+                    input: params.input,
+                    input_template: params.input_template,
+                    schedule,
+                    notification: Self::parse_optional_value("notification", params.notification)?,
+                    execution_mode: Self::parse_optional_value(
+                        "execution_mode",
+                        params.execution_mode,
+                    )?,
+                    memory,
+                };
+                serde_json::to_value(self.backend.create_background_agent(spec).await?)
+                    .map_err(|e| e.to_string())?
+            }
+            "update" => {
+                let id = Self::required_string(params.id, "id")?;
+                let memory = Self::parse_optional_value::<MemoryConfig>("memory", params.memory)?;
+                let memory = Self::merge_memory_scope(memory, params.memory_scope)?;
+                let patch = BackgroundAgentPatch {
+                    name: params.name,
+                    description: params.description,
+                    agent_id: params.agent_id,
+                    input: params.input,
+                    input_template: params.input_template,
+                    schedule: Self::parse_optional_value("schedule", params.schedule)?,
+                    notification: Self::parse_optional_value("notification", params.notification)?,
+                    execution_mode: Self::parse_optional_value(
+                        "execution_mode",
+                        params.execution_mode,
+                    )?,
+                    memory,
+                };
+                serde_json::to_value(self.backend.update_background_agent(&id, patch).await?)
+                    .map_err(|e| e.to_string())?
+            }
+            "delete" => {
+                let id = Self::required_string(params.id, "id")?;
+                let deleted = self.backend.delete_background_agent(&id).await?;
+                serde_json::json!({ "id": id, "deleted": deleted })
+            }
+            "pause" => {
+                let id = Self::required_string(params.id, "id")?;
+                serde_json::to_value(
+                    self.backend
+                        .control_background_agent(&id, BackgroundAgentControlAction::Pause)
+                        .await?,
+                )
+                .map_err(|e| e.to_string())?
+            }
+            "resume" => {
+                let id = Self::required_string(params.id, "id")?;
+                serde_json::to_value(
+                    self.backend
+                        .control_background_agent(&id, BackgroundAgentControlAction::Resume)
+                        .await?,
+                )
+                .map_err(|e| e.to_string())?
+            }
+            "run" => {
+                let id = Self::required_string(params.id, "id")?;
+                serde_json::to_value(
+                    self.backend
+                        .control_background_agent(&id, BackgroundAgentControlAction::RunNow)
+                        .await?,
+                )
+                .map_err(|e| e.to_string())?
+            }
+            "cancel" => {
+                let id = Self::required_string(params.id, "id")?;
+                let deleted = self.backend.delete_background_agent(&id).await?;
+                serde_json::json!({ "id": id, "deleted": deleted })
+            }
+            "control" => {
+                let id = Self::required_string(params.id, "id")?;
+                let action = Self::parse_control_action(params.action)?;
+                serde_json::to_value(self.backend.control_background_agent(&id, action).await?)
+                    .map_err(|e| e.to_string())?
+            }
+            "progress" => {
+                let id = Self::required_string(params.id, "id")?;
+                let event_limit = params.event_limit.unwrap_or(10).max(1);
+                serde_json::to_value(
+                    self.backend
+                        .get_background_agent_progress(&id, event_limit)
+                        .await?,
+                )
+                .map_err(|e| e.to_string())?
+            }
+            "send_message" => {
+                let id = Self::required_string(params.id, "id")?;
+                let message = Self::required_string(params.message, "message")?;
+                let source = Self::parse_message_source(params.source)?;
+                serde_json::to_value(
+                    self.backend
+                        .send_background_agent_message(&id, message, source)
+                        .await?,
+                )
+                .map_err(|e| e.to_string())?
+            }
+            "list_messages" => {
+                let id = Self::required_string(params.id, "id")?;
+                let limit = params.limit.unwrap_or(50).max(1);
+                serde_json::to_value(
+                    self.backend
+                        .list_background_agent_messages(&id, limit)
+                        .await?,
+                )
+                .map_err(|e| e.to_string())?
+            }
+            _ => {
+                return Err(format!(
+                    "Unknown operation: {}. Supported: create, update, delete, list, control, progress, send_message, list_messages, pause, resume, cancel, run",
+                    operation
+                ));
+            }
+        };
+
+        serde_json::to_string_pretty(&value).map_err(|e| e.to_string())
+    }
+
+    async fn handle_runtime_tool(&self, name: &str, input: Value) -> Result<String, String> {
+        let output = self.backend.execute_runtime_tool(name, input).await?;
+        if output.success {
+            serde_json::to_string_pretty(&output.result).map_err(|e| e.to_string())
+        } else {
+            Err(output
+                .error
+                .unwrap_or_else(|| format!("Tool '{}' execution failed", name)))
+        }
+    }
 }
 
 // ============================================================================
@@ -706,7 +1441,8 @@ impl ServerHandler for RestFlowMcpServer {
             instructions: Some(
                 "RestFlow MCP Server - Manage skills, agents, memory, and chat sessions. \
                 Use list_skills/get_skill to access skills, list_agents/get_agent for agents, \
-                memory_search/memory_store for memory, and chat_session_list/chat_session_get for sessions."
+                memory_search/memory_store for memory, chat_session_list/chat_session_get for sessions, \
+                and manage_tasks for background task operations."
                     .to_string(),
             ),
         }
@@ -717,7 +1453,7 @@ impl ServerHandler for RestFlowMcpServer {
         _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, McpError> {
-        let tools = vec![
+        let mut tools = vec![
             Tool::new(
                 "list_skills",
                 "List all available skills in RestFlow. Returns a summary of each skill including ID, name, description, and tags.",
@@ -783,7 +1519,70 @@ impl ServerHandler for RestFlowMcpServer {
                 "Get a chat session by ID, including its message history.",
                 schema_for_type::<ChatSessionGetParams>(),
             ),
+            Tool::new(
+                "manage_tasks",
+                "Manage background agent tasks: create/update/delete/list/control/progress/message operations.",
+                schema_for_type::<ManageTasksParams>(),
+            ),
         ];
+
+        if let Ok(runtime_tools) = self.backend.list_runtime_tools().await {
+            let mut known_names: HashSet<String> =
+                tools.iter().map(|tool| tool.name.to_string()).collect();
+            let mut runtime_by_name: HashMap<String, RuntimeToolDefinition> = HashMap::new();
+
+            for runtime_tool in runtime_tools {
+                runtime_by_name.insert(runtime_tool.name.clone(), runtime_tool.clone());
+                if known_names.insert(runtime_tool.name.clone()) {
+                    let parameters = match runtime_tool.parameters {
+                        Value::Object(map) => map,
+                        _ => serde_json::Map::new(),
+                    };
+                    tools.push(Tool::new(
+                        runtime_tool.name,
+                        runtime_tool.description,
+                        parameters,
+                    ));
+                }
+            }
+
+            for (alias_name, target_name) in [
+                ("http", "http_request"),
+                ("python", "run_python"),
+                ("email", "send_email"),
+                ("telegram", "telegram_send"),
+                ("use_skill", "skill"),
+            ] {
+                if !known_names.contains(alias_name)
+                    && let Some(target) = runtime_by_name.get(target_name)
+                {
+                    let parameters = match target.parameters.clone() {
+                        Value::Object(map) => map,
+                        _ => serde_json::Map::new(),
+                    };
+                    tools.push(Tool::new(
+                        alias_name,
+                        format!("Alias of '{}' for main-agent compatibility.", target_name),
+                        parameters,
+                    ));
+                    known_names.insert(alias_name.to_string());
+                }
+            }
+
+            for runtime_tool in Self::session_scoped_runtime_tools() {
+                if known_names.insert(runtime_tool.name.clone()) {
+                    let parameters = match runtime_tool.parameters {
+                        Value::Object(map) => map,
+                        _ => serde_json::Map::new(),
+                    };
+                    tools.push(Tool::new(
+                        runtime_tool.name,
+                        runtime_tool.description,
+                        parameters,
+                    ));
+                }
+            }
+        }
 
         Ok(ListToolsResult {
             meta: None,
@@ -888,7 +1687,39 @@ impl ServerHandler for RestFlowMcpServer {
                         })?;
                 self.handle_chat_session_get(params).await
             }
-            _ => Err(format!("Unknown tool: {}", request.name)),
+            "manage_tasks" => {
+                let params: ManageTasksParams =
+                    serde_json::from_value(Value::Object(request.arguments.unwrap_or_default()))
+                        .map_err(|e| {
+                            McpError::invalid_params(format!("Invalid parameters: {}", e), None)
+                        })?;
+                self.handle_manage_tasks(params).await
+            }
+            "spawn_agent" | "wait_agents" | "switch_model" => Err(format!(
+                "Tool '{}' requires active main-agent runtime context and is not executable from standalone MCP yet.",
+                request.name
+            )),
+            "use_skill" => {
+                let converted = Self::convert_use_skill_input(Value::Object(
+                    request.arguments.unwrap_or_default(),
+                ));
+                self.handle_runtime_tool("skill", converted).await
+            }
+            _ => {
+                if let Some(target) = Self::runtime_alias_target(request.name.as_ref()) {
+                    self.handle_runtime_tool(
+                        target,
+                        Value::Object(request.arguments.unwrap_or_default()),
+                    )
+                    .await
+                } else {
+                    self.handle_runtime_tool(
+                        request.name.as_ref(),
+                        Value::Object(request.arguments.unwrap_or_default()),
+                    )
+                    .await
+                }
+            }
         };
 
         match result {
@@ -1288,10 +2119,11 @@ mod tests {
             "skill_execute",
             "chat_session_list",
             "chat_session_get",
+            "manage_tasks",
         ];
 
         // Verify we have definitions for all expected tools
-        assert_eq!(expected_tools.len(), 13);
+        assert_eq!(expected_tools.len(), 14);
     }
 
     #[tokio::test]
@@ -1541,6 +2373,94 @@ mod tests {
                 Err(format!("Session not found: {}", id))
             }
         }
+
+        async fn list_tasks(
+            &self,
+            _status: Option<AgentTaskStatus>,
+        ) -> Result<Vec<AgentTask>, String> {
+            Ok(Vec::new())
+        }
+
+        async fn create_background_agent(
+            &self,
+            _spec: BackgroundAgentSpec,
+        ) -> Result<AgentTask, String> {
+            Err("not implemented in mock backend".to_string())
+        }
+
+        async fn update_background_agent(
+            &self,
+            _id: &str,
+            _patch: BackgroundAgentPatch,
+        ) -> Result<AgentTask, String> {
+            Err("not implemented in mock backend".to_string())
+        }
+
+        async fn delete_background_agent(&self, _id: &str) -> Result<bool, String> {
+            Ok(true)
+        }
+
+        async fn control_background_agent(
+            &self,
+            _id: &str,
+            _action: BackgroundAgentControlAction,
+        ) -> Result<AgentTask, String> {
+            Err("not implemented in mock backend".to_string())
+        }
+
+        async fn get_background_agent_progress(
+            &self,
+            _id: &str,
+            _event_limit: usize,
+        ) -> Result<BackgroundProgress, String> {
+            Err("not implemented in mock backend".to_string())
+        }
+
+        async fn send_background_agent_message(
+            &self,
+            _id: &str,
+            _message: String,
+            _source: BackgroundMessageSource,
+        ) -> Result<BackgroundMessage, String> {
+            Err("not implemented in mock backend".to_string())
+        }
+
+        async fn list_background_agent_messages(
+            &self,
+            _id: &str,
+            _limit: usize,
+        ) -> Result<Vec<BackgroundMessage>, String> {
+            Ok(Vec::new())
+        }
+
+        async fn list_runtime_tools(&self) -> Result<Vec<RuntimeToolDefinition>, String> {
+            Ok(vec![RuntimeToolDefinition {
+                name: "echo_runtime".to_string(),
+                description: "Echo the input payload.".to_string(),
+                parameters: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "value": { "type": "string" }
+                    }
+                }),
+            }])
+        }
+
+        async fn execute_runtime_tool(
+            &self,
+            name: &str,
+            input: Value,
+        ) -> Result<RuntimeToolResult, String> {
+            if name == "echo_runtime" {
+                Ok(RuntimeToolResult {
+                    success: true,
+                    result: input,
+                    error: None,
+                })
+            } else {
+                Err(format!("Unknown runtime tool: {}", name))
+            }
+        }
     }
 
     #[tokio::test]
@@ -1563,5 +2483,66 @@ mod tests {
         let sessions: Vec<ChatSessionSummary> = serde_json::from_str(&json).unwrap();
         assert_eq!(sessions.len(), 1);
         assert_eq!(sessions[0].agent_id, "mock-agent");
+    }
+
+    #[tokio::test]
+    async fn test_manage_tasks_list_operation() {
+        let server = RestFlowMcpServer::with_backend(Arc::new(MockBackend::new()));
+        let params = ManageTasksParams {
+            operation: "list".to_string(),
+            id: None,
+            name: None,
+            agent_id: None,
+            description: None,
+            input: None,
+            input_template: None,
+            schedule: None,
+            notification: None,
+            execution_mode: None,
+            memory: None,
+            memory_scope: None,
+            status: None,
+            action: None,
+            event_limit: None,
+            message: None,
+            source: None,
+            limit: None,
+        };
+
+        let json = server.handle_manage_tasks(params).await.unwrap();
+        let tasks: Vec<serde_json::Value> = serde_json::from_str(&json).unwrap();
+        assert!(tasks.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_runtime_tool_fallback() {
+        let server = RestFlowMcpServer::with_backend(Arc::new(MockBackend::new()));
+        let json = server
+            .handle_runtime_tool(
+                "echo_runtime",
+                serde_json::json!({ "value": "hello-runtime" }),
+            )
+            .await
+            .unwrap();
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(value["value"], "hello-runtime");
+    }
+
+    #[test]
+    fn test_convert_use_skill_input_maps_to_skill_read() {
+        let input = serde_json::json!({
+            "skill_id": "my-skill"
+        });
+        let output = RestFlowMcpServer::convert_use_skill_input(input);
+        assert_eq!(output["action"], "read");
+        assert_eq!(output["id"], "my-skill");
+    }
+
+    #[test]
+    fn test_session_scoped_runtime_tools_include_switch_model() {
+        let tools = RestFlowMcpServer::session_scoped_runtime_tools();
+        assert!(tools.iter().any(|tool| tool.name == "switch_model"));
+        assert!(tools.iter().any(|tool| tool.name == "spawn_agent"));
+        assert!(tools.iter().any(|tool| tool.name == "wait_agents"));
     }
 }

@@ -6,9 +6,24 @@ use crate::models::{
 };
 use crate::storage::SystemConfig;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 /// Message frame: [4 bytes length LE][JSON payload]
 pub const MAX_MESSAGE_SIZE: usize = 16 * 1024 * 1024;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolDefinition {
+    pub name: String,
+    pub description: String,
+    pub parameters: Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolExecutionResult {
+    pub success: bool,
+    pub result: Value,
+    pub error: Option<String>,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
@@ -330,6 +345,11 @@ pub enum IpcRequest {
     InitPython,
     GetAvailableModels,
     GetAvailableTools,
+    GetAvailableToolDefinitions,
+    ExecuteTool {
+        name: String,
+        input: Value,
+    },
     ListMcpServers,
 
     BuildAgentSystemPrompt {
@@ -825,5 +845,32 @@ mod tests {
         let parsed: IpcRequest = serde_json::from_str(&json).unwrap();
 
         assert!(matches!(parsed, IpcRequest::GetSystemInfo));
+    }
+
+    #[test]
+    fn test_get_available_tool_definitions_serialization() {
+        let request = IpcRequest::GetAvailableToolDefinitions;
+        let json = serde_json::to_string(&request).unwrap();
+        let parsed: IpcRequest = serde_json::from_str(&json).unwrap();
+
+        assert!(matches!(parsed, IpcRequest::GetAvailableToolDefinitions));
+    }
+
+    #[test]
+    fn test_execute_tool_serialization() {
+        let request = IpcRequest::ExecuteTool {
+            name: "manage_tasks".to_string(),
+            input: serde_json::json!({ "operation": "list" }),
+        };
+        let json = serde_json::to_string(&request).unwrap();
+        let parsed: IpcRequest = serde_json::from_str(&json).unwrap();
+
+        match parsed {
+            IpcRequest::ExecuteTool { name, input } => {
+                assert_eq!(name, "manage_tasks");
+                assert_eq!(input["operation"], "list");
+            }
+            _ => panic!("Wrong variant"),
+        }
     }
 }

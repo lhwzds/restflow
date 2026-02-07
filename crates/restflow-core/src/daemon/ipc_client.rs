@@ -1,4 +1,6 @@
-use super::ipc_protocol::{IpcRequest, IpcResponse, MAX_MESSAGE_SIZE};
+use super::ipc_protocol::{
+    IpcRequest, IpcResponse, MAX_MESSAGE_SIZE, ToolDefinition, ToolExecutionResult,
+};
 use crate::auth::{AuthProfile, AuthProvider, Credential, CredentialSource, ProfileUpdate};
 use crate::memory::ExportResult;
 use crate::models::{
@@ -645,6 +647,20 @@ impl IpcClient {
         let resp: InitResponse = self.request_typed(IpcRequest::InitPython).await?;
         Ok(resp.ready)
     }
+
+    pub async fn get_available_tool_definitions(&mut self) -> Result<Vec<ToolDefinition>> {
+        self.request_typed(IpcRequest::GetAvailableToolDefinitions)
+            .await
+    }
+
+    pub async fn execute_tool(
+        &mut self,
+        name: String,
+        input: serde_json::Value,
+    ) -> Result<ToolExecutionResult> {
+        self.request_typed(IpcRequest::ExecuteTool { name, input })
+            .await
+    }
 }
 
 #[cfg(not(unix))]
@@ -1045,6 +1061,18 @@ impl IpcClient {
     }
 
     pub async fn init_python(&mut self) -> Result<bool> {
+        self.request_typed(IpcRequest::Ping).await
+    }
+
+    pub async fn get_available_tool_definitions(&mut self) -> Result<Vec<ToolDefinition>> {
+        self.request_typed(IpcRequest::Ping).await
+    }
+
+    pub async fn execute_tool(
+        &mut self,
+        _name: String,
+        _input: serde_json::Value,
+    ) -> Result<ToolExecutionResult> {
         self.request_typed(IpcRequest::Ping).await
     }
 }
