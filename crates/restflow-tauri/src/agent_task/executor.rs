@@ -148,6 +148,8 @@ impl RealAgentExecutor {
                 ModelSpec::opencode(model.as_serialized_str(), model.as_str())
             } else if model.is_codex_cli() {
                 ModelSpec::codex(model.as_serialized_str(), model.as_str())
+            } else if model.is_gemini_cli() {
+                ModelSpec::gemini_cli(model.as_serialized_str(), model.as_str())
             } else {
                 ModelSpec::new(model.as_serialized_str(), provider, model.as_str())
             };
@@ -265,6 +267,14 @@ impl RealAgentExecutor {
 
         let api_key = if model.is_codex_cli() {
             None
+        } else if model.is_gemini_cli() {
+            self.resolve_api_key_for_model(
+                model.provider(),
+                agent_node.api_key_config.as_ref(),
+                primary_provider,
+            )
+            .await
+            .ok()
         } else {
             Some(
                 self.resolve_api_key_for_model(

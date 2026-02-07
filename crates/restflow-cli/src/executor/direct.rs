@@ -442,6 +442,8 @@ fn build_model_specs() -> Vec<ModelSpec> {
             ModelSpec::opencode(model.as_serialized_str(), model.as_str())
         } else if model.is_codex_cli() {
             ModelSpec::codex(model.as_serialized_str(), model.as_str())
+        } else if model.is_gemini_cli() {
+            ModelSpec::gemini_cli(model.as_serialized_str(), model.as_str())
         } else {
             ModelSpec::new(model.as_serialized_str(), provider, model.as_str())
         };
@@ -524,6 +526,15 @@ async fn run_agent_with_executor(
 
     let api_key = if model.is_codex_cli() {
         None
+    } else if model.is_gemini_cli() {
+        resolve_api_key(
+            agent_node.api_key_config.as_ref(),
+            secret_storage,
+            model.provider(),
+            core,
+        )
+        .await
+        .ok()
     } else {
         Some(
             resolve_api_key(
