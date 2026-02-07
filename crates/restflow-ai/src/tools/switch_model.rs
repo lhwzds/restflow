@@ -87,18 +87,6 @@ impl SwitchModelTool {
         }
     }
 
-    fn resolve_model_for_provider(
-        &self,
-        available: &[String],
-        provider: ProviderSelector,
-    ) -> Result<String> {
-        available
-            .iter()
-            .find(|model| self.model_matches_provider(model, provider))
-            .cloned()
-            .ok_or_else(|| AiError::Tool(format!("No models available for {}", provider.label())))
-    }
-
     fn resolve_target_model(
         &self,
         requested_provider: Option<&str>,
@@ -106,59 +94,44 @@ impl SwitchModelTool {
     ) -> Result<String> {
         let available = self.factory.available_models();
 
-        if requested_provider.is_none() && requested_model.is_none() {
+        if requested_provider.is_none() || requested_model.is_none() {
             return Err(AiError::Tool(
-                "Missing parameters: provide 'model' or 'provider'".to_string(),
+                "Missing parameters: both 'provider' and 'model' are required".to_string(),
             ));
         }
 
-        if let Some(provider_raw) = requested_provider {
-            let provider = Self::parse_provider(provider_raw).ok_or_else(|| {
-                AiError::Tool(format!(
-                    "Unknown provider: {provider_raw}. Use provider names like openai, anthropic, codex-cli, opencode-cli, gemini-cli"
-                ))
-            })?;
-
-            if let Some(model_raw) = requested_model {
-                let model = self
-                    .find_model_by_name(&available, model_raw)
-                    .ok_or_else(|| AiError::Tool(format!("Unknown model: {model_raw}")))?;
-                if !self.model_matches_provider(model, provider) {
-                    return Err(AiError::Tool(format!(
-                        "Model '{model_raw}' does not belong to provider '{}'",
-                        provider.label()
-                    )));
-                }
-                return Ok(model.to_string());
-            }
-
-            return self.resolve_model_for_provider(&available, provider);
-        }
+        let provider_raw = requested_provider.expect("requested_provider checked above");
+        let provider = Self::parse_provider(provider_raw).ok_or_else(|| {
+            AiError::Tool(format!(
+                "Unknown provider: {provider_raw}. Use provider names like openai, anthropic, codex-cli, opencode-cli, gemini-cli"
+            ))
+        })?;
 
         let model_raw = requested_model.expect("requested_model checked above");
-        if let Some((provider, inline_model)) = Self::split_provider_qualified_model(model_raw) {
-            let model = self
-                .find_model_by_name(&available, &inline_model)
-                .ok_or_else(|| AiError::Tool(format!("Unknown model: {inline_model}")))?;
-            if !self.model_matches_provider(model, provider) {
+        let model_candidate = if let Some((inline_provider, inline_model)) =
+            Self::split_provider_qualified_model(model_raw)
+        {
+            if inline_provider != provider {
                 return Err(AiError::Tool(format!(
-                    "Model '{inline_model}' does not belong to provider '{}'",
+                    "Model '{model_raw}' does not belong to provider '{}'",
                     provider.label()
                 )));
             }
-            return Ok(model.to_string());
-        }
+            inline_model
+        } else {
+            model_raw.to_string()
+        };
 
-        if let Some(model) = self.find_model_by_name(&available, model_raw) {
-            return Ok(model.to_string());
+        let model = self
+            .find_model_by_name(&available, &model_candidate)
+            .ok_or_else(|| AiError::Tool(format!("Unknown model: {model_candidate}")))?;
+        if !self.model_matches_provider(model, provider) {
+            return Err(AiError::Tool(format!(
+                "Model '{model_raw}' does not belong to provider '{}'",
+                provider.label()
+            )));
         }
-
-        // Backward-compatible alias: `model: "codex-cli"` (and similar)
-        if let Some(provider) = Self::parse_provider(model_raw) {
-            return self.resolve_model_for_provider(&available, provider);
-        }
-
-        Err(AiError::Tool(format!("Unknown model: {model_raw}")))
+        Ok(model.to_string())
     }
 
     fn resolve_provider(&self, model: &str) -> Result<LlmProvider> {
@@ -168,7 +141,7 @@ impl SwitchModelTool {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ProviderSelector {
     Api(LlmProvider),
     CodexCli,
@@ -200,10 +173,11 @@ impl Tool for SwitchModelTool {
     fn parameters_schema(&self) -> Value {
         json!({
             "type": "object",
+            "description": "Both 'provider' and 'model' are required.",
             "properties": {
                 "provider": {
                     "type": "string",
-                    "description": "Optional provider selector (e.g. openai, anthropic, codex-cli, opencode-cli, gemini-cli)"
+                    "description": "Provider selector (e.g. openai, anthropic, codex-cli, opencode-cli, gemini-cli)"
                 },
                 "model": {
                     "type": "string",
@@ -214,10 +188,7 @@ impl Tool for SwitchModelTool {
                     "description": "Optional reason for switching models"
                 }
             },
-            "anyOf": [
-                { "required": ["model"] },
-                { "required": ["provider"] }
-            ]
+            "required": ["provider", "model"]
         })
     }
 
@@ -413,7 +384,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn execute_supports_legacy_model_only_input() {
+    async fn execute_requires_provider_and_model() {
         let factory = Arc::new(MockFactory::new(
             vec!["claude-sonnet-4-5", "gpt-5.3-codex"],
             vec![
@@ -423,21 +394,18 @@ mod tests {
             vec![(LlmProvider::Anthropic, "anthropic-key")],
             vec!["gpt-5.3-codex"],
         ));
-        let (tool, llm) = build_tool(factory.clone());
+        let (tool, _) = build_tool(factory);
 
-        let output = tool
+        let error = tool
             .execute(json!({ "model": "CLAUDE-SONNET-4-5" }))
             .await
-            .expect("switch should succeed");
+            .expect_err("switch should fail without provider");
 
-        assert!(output.success);
-        assert_eq!(llm.current_model(), "claude-sonnet-4-5");
-        assert_eq!(
-            factory.calls(),
-            vec![(
-                "claude-sonnet-4-5".to_string(),
-                Some("anthropic-key".to_string())
-            )]
+        assert!(
+            error
+                .to_string()
+                .contains("both 'provider' and 'model' are required"),
+            "unexpected error: {error}"
         );
     }
 
@@ -497,7 +465,33 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn execute_supports_provider_alias_in_legacy_model_field() {
+    async fn execute_rejects_missing_model() {
+        let factory = Arc::new(MockFactory::new(
+            vec!["gpt-5.3-codex", "claude-sonnet-4-5"],
+            vec![
+                ("claude-sonnet-4-5", LlmProvider::Anthropic),
+                ("gpt-5.3-codex", LlmProvider::OpenAI),
+            ],
+            vec![],
+            vec!["gpt-5.3-codex"],
+        ));
+        let (tool, _) = build_tool(factory);
+
+        let error = tool
+            .execute(json!({ "provider": "codex-cli" }))
+            .await
+            .expect_err("switch should fail without model");
+
+        assert!(
+            error
+                .to_string()
+                .contains("both 'provider' and 'model' are required"),
+            "unexpected error: {error}"
+        );
+    }
+
+    #[tokio::test]
+    async fn execute_supports_provider_qualified_model_when_provider_matches() {
         let factory = Arc::new(MockFactory::new(
             vec!["gpt-5.3-codex", "claude-sonnet-4-5"],
             vec![
@@ -510,12 +504,36 @@ mod tests {
         let (tool, llm) = build_tool(factory.clone());
 
         let output = tool
-            .execute(json!({ "model": "codex-cli" }))
+            .execute(json!({
+                "provider": "codex-cli",
+                "model": "codex-cli:gpt-5.3-codex"
+            }))
             .await
             .expect("switch should succeed");
 
         assert!(output.success);
         assert_eq!(llm.current_model(), "gpt-5.3-codex");
         assert_eq!(factory.calls(), vec![("gpt-5.3-codex".to_string(), None)]);
+    }
+
+    #[test]
+    fn schema_is_claude_compatible() {
+        let factory = Arc::new(MockFactory::new(
+            vec!["claude-sonnet-4-5"],
+            vec![("claude-sonnet-4-5", LlmProvider::Anthropic)],
+            vec![(LlmProvider::Anthropic, "anthropic-key")],
+            vec![],
+        ));
+        let (tool, _) = build_tool(factory);
+        let schema = tool.parameters_schema();
+
+        assert!(schema.get("anyOf").is_none());
+        assert!(schema.get("oneOf").is_none());
+        assert!(schema.get("allOf").is_none());
+        assert_eq!(
+            schema["required"],
+            json!(["provider", "model"]),
+            "provider and model should both be required"
+        );
     }
 }

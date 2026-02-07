@@ -1032,10 +1032,11 @@ impl RestFlowMcpServer {
                 description: "Switch the active LLM model during execution. Requires active main-agent runtime context.".to_string(),
                 parameters: serde_json::json!({
                     "type": "object",
+                    "description": "Both 'provider' and 'model' are required.",
                     "properties": {
                         "provider": {
                             "type": "string",
-                            "description": "Optional provider selector (e.g. openai, anthropic, codex-cli, opencode-cli, gemini-cli)"
+                            "description": "Provider selector (e.g. openai, anthropic, codex-cli, opencode-cli, gemini-cli)"
                         },
                         "model": {
                             "type": "string",
@@ -1046,10 +1047,7 @@ impl RestFlowMcpServer {
                             "description": "Optional reason for switching models"
                         }
                     },
-                    "anyOf": [
-                        { "required": ["model"] },
-                        { "required": ["provider"] }
-                    ]
+                    "required": ["provider", "model"]
                 }),
             },
         ]
@@ -2553,5 +2551,17 @@ mod tests {
         assert!(tools.iter().any(|tool| tool.name == "switch_model"));
         assert!(tools.iter().any(|tool| tool.name == "spawn_agent"));
         assert!(tools.iter().any(|tool| tool.name == "wait_agents"));
+
+        let switch_model = tools
+            .iter()
+            .find(|tool| tool.name == "switch_model")
+            .expect("switch_model tool should exist");
+        assert!(switch_model.parameters.get("anyOf").is_none());
+        assert!(switch_model.parameters.get("oneOf").is_none());
+        assert!(switch_model.parameters.get("allOf").is_none());
+        assert_eq!(
+            switch_model.parameters["required"],
+            serde_json::json!(["provider", "model"])
+        );
     }
 }
