@@ -39,6 +39,22 @@ impl ClaudeCodeClient {
             .collect::<Vec<_>>()
             .join("\n\n")
     }
+
+    fn build_cli_command(&self, prompt: &str) -> Command {
+        let mut cmd = Command::new("claude");
+        cmd.env("CLAUDE_CODE_OAUTH_TOKEN", &self.oauth_token)
+            .arg("--print")
+            .arg("--permission-mode")
+            .arg("bypassPermissions")
+            .arg("--dangerously-skip-permissions")
+            .arg("--model")
+            .arg(&self.model)
+            .arg(prompt)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        cmd
+    }
 }
 
 #[async_trait]
@@ -56,15 +72,8 @@ impl LlmClient for ClaudeCodeClient {
 
         let prompt = Self::build_prompt(&request.messages);
 
-        let output = Command::new("claude")
-            .env("CLAUDE_CODE_OAUTH_TOKEN", &self.oauth_token)
-            .arg("--print")
-            .arg("--model")
-            .arg(&self.model)
-            .arg(&prompt)
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
+        let output = self
+            .build_cli_command(&prompt)
             .output()
             .await
             .map_err(|e| {
@@ -100,5 +109,31 @@ impl LlmClient for ClaudeCodeClient {
 
     fn supports_streaming(&self) -> bool {
         false
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ClaudeCodeClient;
+
+    #[test]
+    fn build_cli_command_includes_permission_bypass_flags() {
+        let client = ClaudeCodeClient::new("token").with_model("claude-sonnet-4-5");
+        let cmd = client.build_cli_command("hello");
+
+        let args: Vec<String> = cmd
+            .as_std()
+            .get_args()
+            .map(|arg| arg.to_string_lossy().to_string())
+            .collect();
+
+        assert!(
+            args.windows(2)
+                .any(|w| { w[0] == "--permission-mode" && w[1] == "bypassPermissions" })
+        );
+        assert!(
+            args.iter()
+                .any(|arg| arg == "--dangerously-skip-permissions")
+        );
     }
 }
