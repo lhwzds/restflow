@@ -15,6 +15,7 @@ mod file;
 mod file_memory;
 mod file_tracker;
 mod http;
+mod jina_reader;
 mod mcp_cache;
 mod memory_mgmt;
 mod memory_search;
@@ -31,6 +32,8 @@ mod telegram;
 mod traits;
 mod transcribe;
 mod vision;
+mod web_fetch;
+mod web_search;
 
 use file_tracker::FileTracker;
 
@@ -45,10 +48,11 @@ pub use diagnostics::{DiagnosticsProvider, DiagnosticsTool};
 pub use email::EmailTool;
 pub use file::{FileAction, FileTool};
 pub use file_memory::{
-    DeleteMemoryTool, FileMemoryConfig, ListMemoryTool, MemoryEntry, MemoryEntryMeta,
-    ReadMemoryTool, SaveMemoryTool,
+    DeleteMemoryTool, FileMemoryConfig, FileMemoryStore, ListMemoryTool, MemoryEntry,
+    MemoryEntryMeta, MemoryStore, ReadMemoryTool, SaveMemoryTool,
 };
 pub use http::HttpTool;
+pub use jina_reader::JinaReaderTool;
 pub use mcp_cache::{McpServerConfig, get_mcp_tools, invalidate_mcp_cache};
 pub use memory_mgmt::{
     MemoryClearRequest, MemoryCompactRequest, MemoryExportRequest, MemoryManagementTool,
@@ -76,6 +80,8 @@ pub use traits::{
 };
 pub use transcribe::TranscribeTool;
 pub use vision::VisionTool;
+pub use web_fetch::WebFetchTool;
+pub use web_search::WebSearchTool;
 
 /// Create a registry with default tools
 pub fn default_registry() -> ToolRegistry {
@@ -89,6 +95,9 @@ pub fn default_registry() -> ToolRegistry {
     registry.register(PythonTool::new());
     registry.register(EmailTool::new());
     registry.register(TelegramTool::new());
+    registry.register(WebSearchTool::new());
+    registry.register(WebFetchTool::new());
+    registry.register(JinaReaderTool::new());
     registry
 }
 
@@ -107,5 +116,8 @@ pub fn default_registry_with_diagnostics(provider: Arc<dyn DiagnosticsProvider>)
     registry.register(EmailTool::new());
     registry.register(TelegramTool::new());
     registry.register(DiagnosticsTool::new(provider));
+    registry.register(WebSearchTool::new());
+    registry.register(WebFetchTool::new());
+    registry.register(JinaReaderTool::new());
     registry
 }
