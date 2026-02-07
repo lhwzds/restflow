@@ -5,6 +5,8 @@
 
 use anyhow::Result;
 use std::sync::Arc;
+use std::time::Duration;
+use tokio::time::sleep;
 use tokio_stream::StreamExt;
 use tracing::{debug, error, info, warn};
 
@@ -15,6 +17,11 @@ use super::commands::{handle_command, send_help};
 use super::forwarder::forward_to_task;
 use super::router::{MessageRouter, RouteDecision};
 use super::trigger::TaskTrigger;
+
+#[cfg(test)]
+const STREAM_RECONNECT_DELAY: Duration = Duration::from_millis(20);
+#[cfg(not(test))]
+const STREAM_RECONNECT_DELAY: Duration = Duration::from_secs(2);
 
 /// Message handler configuration
 #[derive(Debug, Clone)]
@@ -85,24 +92,36 @@ fn start_message_handler_internal<T: TaskTrigger + 'static>(
     let msg_router = Arc::new(MessageRouter::new(router.clone(), &config.command_prefix));
 
     for channel_type in interactive_channels {
-        if let Some(channel) = router.get(channel_type)
-            && let Some(stream) = channel.start_receiving()
-        {
-            let router = router.clone();
-            let trigger = task_trigger.clone();
-            let msg_router = msg_router.clone();
-            let chat_dispatcher = chat_dispatcher.clone();
-            let config = config.clone();
+        let Some(channel) = router.get(channel_type).cloned() else {
+            continue;
+        };
+        let router = router.clone();
+        let trigger = task_trigger.clone();
+        let msg_router = msg_router.clone();
+        let chat_dispatcher = chat_dispatcher.clone();
+        let config = config.clone();
 
-            tokio::spawn(async move {
-                info!("Listening for messages on {:?}", channel_type);
+        tokio::spawn(async move {
+            info!("Listening for messages on {:?}", channel_type);
 
-                let mut stream = stream;
+            loop {
+                let Some(mut stream) = channel.start_receiving() else {
+                    warn!(
+                        "Failed to start message stream for {:?}, retrying in {:?}",
+                        channel_type, STREAM_RECONNECT_DELAY
+                    );
+                    sleep(STREAM_RECONNECT_DELAY).await;
+                    continue;
+                };
+
                 loop {
                     let message = match stream.next().await {
                         Some(msg) => msg,
                         None => {
-                            warn!("Message stream ended for {:?}", channel_type);
+                            warn!(
+                                "Message stream ended for {:?}, restarting in {:?}",
+                                channel_type, STREAM_RECONNECT_DELAY
+                            );
                             break;
                         }
                     };
@@ -138,8 +157,10 @@ fn start_message_handler_internal<T: TaskTrigger + 'static>(
 
                     // Continue processing next message regardless of error
                 }
-            });
-        }
+
+                sleep(STREAM_RECONNECT_DELAY).await;
+            }
+        });
     }
 }
 
@@ -198,10 +219,60 @@ async fn handle_message_routed(
 mod tests {
     use super::*;
     use crate::channel::trigger::mock::MockTaskTrigger;
-    use restflow_core::channel::ChannelType;
+    use anyhow::Result as AnyhowResult;
+    use async_trait::async_trait;
+    use restflow_core::channel::{Channel, ChannelType, OutboundMessage};
+    use std::collections::VecDeque;
+    use std::pin::Pin;
+    use std::sync::Mutex;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use tokio::sync::Mutex as AsyncMutex;
+    use tokio::time::timeout;
+    use tokio_stream::iter;
 
     fn create_message(content: &str) -> InboundMessage {
         InboundMessage::new("msg-1", ChannelType::Telegram, "user-1", "chat-1", content)
+    }
+
+    struct ReconnectTestChannel {
+        streams: Mutex<VecDeque<Vec<InboundMessage>>>,
+        sent_messages: Arc<AsyncMutex<Vec<OutboundMessage>>>,
+        start_calls: Arc<AtomicUsize>,
+    }
+
+    impl ReconnectTestChannel {
+        fn new(batches: Vec<Vec<InboundMessage>>) -> Self {
+            Self {
+                streams: Mutex::new(VecDeque::from(batches)),
+                sent_messages: Arc::new(AsyncMutex::new(Vec::new())),
+                start_calls: Arc::new(AtomicUsize::new(0)),
+            }
+        }
+    }
+
+    #[async_trait]
+    impl Channel for ReconnectTestChannel {
+        fn channel_type(&self) -> ChannelType {
+            ChannelType::Telegram
+        }
+
+        fn is_configured(&self) -> bool {
+            true
+        }
+
+        async fn send(&self, message: OutboundMessage) -> AnyhowResult<()> {
+            self.sent_messages.lock().await.push(message);
+            Ok(())
+        }
+
+        fn start_receiving(
+            &self,
+        ) -> Option<Pin<Box<dyn tokio_stream::Stream<Item = InboundMessage> + Send>>> {
+            self.start_calls.fetch_add(1, Ordering::SeqCst);
+            let mut streams = self.streams.lock().expect("lock reconnect test streams");
+            let batch = streams.pop_front()?;
+            Some(Box::pin(iter(batch)))
+        }
     }
 
     #[test]
@@ -312,5 +383,37 @@ mod tests {
             decision,
             RouteDecision::ForwardToTask { task_id } if task_id == "task-123"
         ));
+    }
+
+    #[tokio::test]
+    async fn test_handler_recovers_after_stream_ends() {
+        let first =
+            InboundMessage::new("msg-1", ChannelType::Telegram, "user-1", "chat-1", "first");
+        let second =
+            InboundMessage::new("msg-2", ChannelType::Telegram, "user-1", "chat-1", "second");
+
+        let test_channel = ReconnectTestChannel::new(vec![vec![first], vec![second]]);
+        let sent_messages = test_channel.sent_messages.clone();
+        let start_calls = test_channel.start_calls.clone();
+
+        let mut router = ChannelRouter::new();
+        router.register(test_channel);
+        let router = Arc::new(router);
+        let trigger = Arc::new(MockTaskTrigger::new());
+
+        start_message_handler(router, trigger, MessageHandlerConfig::default());
+
+        timeout(Duration::from_secs(2), async {
+            loop {
+                let send_count = sent_messages.lock().await.len();
+                let stream_start_count = start_calls.load(Ordering::SeqCst);
+                if send_count >= 2 && stream_start_count >= 2 {
+                    break;
+                }
+                sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("message handler should reconnect after stream end");
     }
 }
