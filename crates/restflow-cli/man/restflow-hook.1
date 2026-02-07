@@ -1,0 +1,29 @@
+.ie \n(.g .ds Aq \(aq
+.el .ds Aq '
+.TH hook 1  "hook " 
+.SH NAME
+hook \- Hook management
+.SH SYNOPSIS
+\fBhook\fR [\fB\-h\fR|\fB\-\-help\fR] <\fIsubcommands\fR>
+.SH DESCRIPTION
+Hook management
+.SH OPTIONS
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Print help
+.SH SUBCOMMANDS
+.TP
+hook\-list(1)
+List hooks
+.TP
+hook\-create(1)
+Create a hook quickly from CLI
+.TP
+hook\-delete(1)
+Delete a hook
+.TP
+hook\-test(1)
+Execute a hook with synthetic context
+.TP
+hook\-help(1)
+Print this message or the help of the given subcommand(s)

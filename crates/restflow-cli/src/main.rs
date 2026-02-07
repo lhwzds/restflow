@@ -22,7 +22,10 @@ use tokio::time::{Duration, sleep};
 fn command_needs_direct_core(command: &Option<Commands>) -> bool {
     matches!(
         command,
-        Some(Commands::Daemon { .. }) | Some(Commands::Codex(_)) | Some(Commands::Run(_))
+        Some(Commands::Daemon { .. })
+            | Some(Commands::Codex(_))
+            | Some(Commands::Run(_))
+            | Some(Commands::Hook { .. })
     )
 }
 
@@ -185,6 +188,9 @@ async fn main() -> Result<()> {
             Some(Commands::Run(args)) => commands::run::run(core, args, cli.format).await,
             Some(Commands::Daemon { command }) => commands::daemon::run(core, command).await,
             Some(Commands::Codex(args)) => commands::codex::run(core, args, cli.format).await,
+            Some(Commands::Hook { command }) => {
+                commands::hook::run(core, command, cli.format).await
+            }
             _ => unreachable!(),
         }
     } else {
@@ -246,7 +252,7 @@ async fn wait_for_daemon_exit() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::command_needs_direct_core;
-    use crate::cli::{CodexArgs, Commands, RunArgs, StartArgs};
+    use crate::cli::{CodexArgs, Commands, HookCommands, RunArgs, StartArgs};
 
     #[test]
     fn start_does_not_need_direct_core() {
@@ -274,6 +280,14 @@ mod tests {
             cwd: None,
             timeout: 300,
         }));
+        assert!(command_needs_direct_core(&command));
+    }
+
+    #[test]
+    fn hook_needs_direct_core() {
+        let command = Some(Commands::Hook {
+            command: HookCommands::List,
+        });
         assert!(command_needs_direct_core(&command));
     }
 }

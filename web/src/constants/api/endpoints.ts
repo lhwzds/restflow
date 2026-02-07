@@ -62,6 +62,15 @@ export const API_ENDPOINTS = {
     LIST_BY_STATUS: (status: string) => `${API_PREFIX}/agent-tasks?status=${status}` as const,
     RUNNABLE: `${API_PREFIX}/agent-tasks/runnable`,
   },
+
+  HOOK: {
+    LIST: `${API_PREFIX}/hooks`,
+    CREATE: `${API_PREFIX}/hooks`,
+    GET: (id: string) => `${API_PREFIX}/hooks/${id}` as const,
+    UPDATE: (id: string) => `${API_PREFIX}/hooks/${id}` as const,
+    DELETE: (id: string) => `${API_PREFIX}/hooks/${id}` as const,
+    TEST: (id: string) => `${API_PREFIX}/hooks/${id}/test` as const,
+  },
 } as const
 
 export type ApiEndpoints = typeof API_ENDPOINTS
@@ -70,3 +79,4 @@ export type SecretEndpoints = typeof API_ENDPOINTS.SECRET
 export type ModelEndpoints = typeof API_ENDPOINTS.MODEL
 export type SkillEndpoints = typeof API_ENDPOINTS.SKILL
 export type AgentTaskEndpoints = typeof API_ENDPOINTS.AGENT_TASK
+export type HookEndpoints = typeof API_ENDPOINTS.HOOK

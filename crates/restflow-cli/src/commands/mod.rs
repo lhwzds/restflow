@@ -4,6 +4,7 @@ pub mod claude;
 pub mod codex;
 pub mod config;
 pub mod daemon;
+pub mod hook;
 pub mod info;
 pub mod key;
 pub mod mcp;

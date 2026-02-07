@@ -16,6 +16,7 @@ use async_trait::async_trait;
 use restflow_ai::{LlmClient, SecretResolver};
 use restflow_core::AppCore;
 use restflow_core::channel::ChannelRouter;
+use restflow_core::hooks::{AgentTaskHookScheduler, HookExecutor};
 use restflow_core::models::AgentTask;
 use restflow_core::process::ProcessRegistry;
 use restflow_core::security::SecurityChecker;
@@ -185,13 +186,17 @@ impl AppState {
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("App core is not available in IPC mode"))?;
         let storage = Arc::new(core.storage.agent_tasks.clone());
-        let runner = Arc::new(AgentTaskRunner::new(
-            storage,
-            Arc::new(executor),
-            Arc::new(notifier),
-            config.unwrap_or_default(),
-            self.steer_registry.clone(),
-        ));
+        let hook_executor = self.build_hook_executor(core);
+        let runner = Arc::new(
+            AgentTaskRunner::new(
+                storage,
+                Arc::new(executor),
+                Arc::new(notifier),
+                config.unwrap_or_default(),
+                self.steer_registry.clone(),
+            )
+            .with_hook_executor(hook_executor),
+        );
 
         let handle = runner.start();
         info!("Agent task runner started");
@@ -226,15 +231,19 @@ impl AppState {
         let storage = Arc::new(core.storage.agent_tasks.clone());
         let heartbeat_emitter: Arc<dyn HeartbeatEmitter> =
             Arc::new(TauriHeartbeatEmitter::new(app_handle));
+        let hook_executor = self.build_hook_executor(core);
 
-        let runner = Arc::new(AgentTaskRunner::with_heartbeat_emitter(
-            storage,
-            Arc::new(executor),
-            Arc::new(notifier),
-            config.unwrap_or_default(),
-            heartbeat_emitter,
-            self.steer_registry.clone(),
-        ));
+        let runner = Arc::new(
+            AgentTaskRunner::with_heartbeat_emitter(
+                storage,
+                Arc::new(executor),
+                Arc::new(notifier),
+                config.unwrap_or_default(),
+                heartbeat_emitter,
+                self.steer_registry.clone(),
+            )
+            .with_hook_executor(hook_executor),
+        );
 
         let handle = runner.start();
         info!("Agent task runner started with heartbeat emitter");
@@ -340,6 +349,17 @@ impl AppState {
     /// Get count of running tasks
     pub async fn running_task_count(&self) -> usize {
         self.running_tasks.read().await.len()
+    }
+
+    fn build_hook_executor(&self, core: &Arc<AppCore>) -> Arc<HookExecutor> {
+        let scheduler = Arc::new(AgentTaskHookScheduler::new(
+            core.storage.agent_tasks.clone(),
+        ));
+        Arc::new(
+            HookExecutor::with_storage(core.storage.hooks.clone())
+                .with_channel_router(self.channel_router.clone())
+                .with_task_scheduler(scheduler),
+        )
     }
 }
 
