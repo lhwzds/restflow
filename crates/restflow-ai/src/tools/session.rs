@@ -120,7 +120,7 @@ impl Tool for SessionTool {
     }
 
     fn description(&self) -> &str {
-        "Manage chat sessions. Supports list, get, create, delete, and search."
+        "Create, list, fetch, search, and delete chat sessions."
     }
 
     fn parameters_schema(&self) -> Value {

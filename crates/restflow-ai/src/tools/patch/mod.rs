@@ -94,7 +94,7 @@ impl Tool for PatchTool {
     }
 
     fn description(&self) -> &str {
-        "Apply coordinated changes across multiple files atomically. Supports update, add, and delete operations."
+        "Apply structured multi-file patches (add, update, delete) in one operation."
     }
 
     fn parameters_schema(&self) -> Value {

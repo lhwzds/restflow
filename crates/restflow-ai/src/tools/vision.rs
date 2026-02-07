@@ -59,7 +59,7 @@ impl Tool for VisionTool {
     }
 
     fn description(&self) -> &str {
-        "Describe an image using OpenAI vision models. Provide a local file_path."
+        "Analyze a local image and return a text description using OpenAI vision models."
     }
 
     fn parameters_schema(&self) -> Value {

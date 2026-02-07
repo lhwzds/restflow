@@ -187,7 +187,7 @@ impl Tool for SwitchModelTool {
     }
 
     fn description(&self) -> &str {
-        "Switch the agent to a different LLM model during execution"
+        "Switch the active LLM provider and model for the current agent execution."
     }
 
     fn parameters_schema(&self) -> Value {

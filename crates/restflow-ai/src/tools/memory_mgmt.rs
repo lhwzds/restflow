@@ -108,7 +108,7 @@ impl Tool for MemoryManagementTool {
     }
 
     fn description(&self) -> &str {
-        "Manage long-term memory. Supports stats, export, clear, and compact."
+        "Inspect and maintain long-term memory storage with stats, export, clear, and compact operations."
     }
 
     fn parameters_schema(&self) -> Value {
