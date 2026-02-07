@@ -8,11 +8,11 @@ use restflow_ai::LlmClient;
 use restflow_core::services::tool_registry::create_tool_registry;
 use restflow_core::storage::Storage;
 
-pub use restflow_ai::tools::{
-    SecretResolver, Tool, ToolOutput, ToolRegistry, TranscribeTool, VisionTool,
-};
 use restflow_ai::tools::{
     DeleteMemoryTool, FileMemoryConfig, ListMemoryTool, ReadMemoryTool, SaveMemoryTool,
+};
+pub use restflow_ai::tools::{
+    SecretResolver, Tool, ToolOutput, ToolRegistry, TranscribeTool, VisionTool,
 };
 
 mod bash;
@@ -91,6 +91,9 @@ pub fn main_agent_default_tool_names() -> Vec<String> {
         "manage_auth_profiles",
         "patch",
         "diagnostics",
+        "web_search",
+        "web_fetch",
+        "jina_reader",
     ]
     .into_iter()
     .map(str::to_string)
@@ -390,6 +393,23 @@ pub fn registry_from_allowlist(
             "save_to_memory" | "read_memory" | "list_memories" | "delete_memory" => {
                 enable_file_memory = true;
             }
+            "web_search" => {
+                let mut tool = restflow_ai::tools::WebSearchTool::new();
+                if let Some(resolver) = secret_resolver.clone() {
+                    tool = tool.with_secret_resolver(resolver);
+                }
+                builder.registry.register(tool);
+            }
+            "web_fetch" => {
+                builder
+                    .registry
+                    .register(restflow_ai::tools::WebFetchTool::new());
+            }
+            "jina_reader" => {
+                builder
+                    .registry
+                    .register(restflow_ai::tools::JinaReaderTool::new());
+            }
             "switch_model" => {
                 // Registered by callers that provide SwappableLlm + LlmClientFactory.
             }
@@ -507,9 +527,15 @@ pub fn registry_from_allowlist(
                 .unwrap_or_else(|| std::path::PathBuf::from("."))
                 .join("restflow");
             let config = FileMemoryConfig::new(base_path, aid);
-            builder.registry.register(SaveMemoryTool::new(config.clone()));
-            builder.registry.register(ReadMemoryTool::new(config.clone()));
-            builder.registry.register(ListMemoryTool::new(config.clone()));
+            builder
+                .registry
+                .register(SaveMemoryTool::new(config.clone()));
+            builder
+                .registry
+                .register(ReadMemoryTool::new(config.clone()));
+            builder
+                .registry
+                .register(ListMemoryTool::new(config.clone()));
             builder.registry.register(DeleteMemoryTool::new(config));
         } else {
             warn!("File memory tools requested but agent_id not provided, skipping");
@@ -648,8 +674,7 @@ mod tests {
             "list_memories".to_string(),
             "delete_memory".to_string(),
         ];
-        let registry =
-            registry_from_allowlist(Some(&names), None, None, None, Some("test-agent"));
+        let registry = registry_from_allowlist(Some(&names), None, None, None, Some("test-agent"));
         assert!(registry.has("save_to_memory"));
         assert!(registry.has("read_memory"));
         assert!(registry.has("list_memories"));
