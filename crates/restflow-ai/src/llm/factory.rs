@@ -5,7 +5,8 @@ use std::sync::Arc;
 
 use crate::error::{AiError, Result};
 use crate::llm::{
-    AnthropicClient, ClaudeCodeClient, CodexClient, LlmClient, OpenAIClient, OpenCodeClient,
+    AnthropicClient, ClaudeCodeClient, CodexClient, GeminiCliClient, LlmClient, OpenAIClient,
+    OpenCodeClient,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -70,6 +71,7 @@ pub struct ModelSpec {
     pub client_model: String,
     pub is_codex_cli: bool,
     pub is_opencode_cli: bool,
+    pub is_gemini_cli: bool,
 }
 
 impl ModelSpec {
@@ -84,6 +86,7 @@ impl ModelSpec {
             client_model: client_model.into(),
             is_codex_cli: false,
             is_opencode_cli: false,
+            is_gemini_cli: false,
         }
     }
 
@@ -94,6 +97,7 @@ impl ModelSpec {
             client_model: client_model.into(),
             is_codex_cli: true,
             is_opencode_cli: false,
+            is_gemini_cli: false,
         }
     }
 
@@ -104,6 +108,18 @@ impl ModelSpec {
             client_model: client_model.into(),
             is_codex_cli: false,
             is_opencode_cli: true,
+            is_gemini_cli: false,
+        }
+    }
+
+    pub fn gemini_cli(name: impl Into<String>, client_model: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            provider: LlmProvider::Google,
+            client_model: client_model.into(),
+            is_codex_cli: false,
+            is_opencode_cli: false,
+            is_gemini_cli: true,
         }
     }
 }
@@ -115,6 +131,7 @@ pub trait LlmClientFactory: Send + Sync {
     fn provider_for_model(&self, model: &str) -> Option<LlmProvider>;
     fn is_codex_cli_model(&self, model: &str) -> bool;
     fn is_opencode_cli_model(&self, model: &str) -> bool;
+    fn is_gemini_cli_model(&self, model: &str) -> bool;
 }
 
 pub struct DefaultLlmClientFactory {
@@ -158,6 +175,14 @@ impl LlmClientFactory for DefaultLlmClientFactory {
 
         if spec.is_codex_cli {
             return Ok(Arc::new(CodexClient::new().with_model(spec.client_model)));
+        }
+
+        if spec.is_gemini_cli {
+            let mut client = GeminiCliClient::new().with_model(spec.client_model);
+            if let Some(key) = api_key {
+                client = client.with_api_key(key.to_string());
+            }
+            return Ok(Arc::new(client));
         }
 
         let key = api_key.ok_or_else(|| {
@@ -211,6 +236,14 @@ impl LlmClientFactory for DefaultLlmClientFactory {
         self.models
             .get(&key)
             .map(|spec| spec.is_opencode_cli)
+            .unwrap_or(false)
+    }
+
+    fn is_gemini_cli_model(&self, model: &str) -> bool {
+        let key = normalize_model_name(model);
+        self.models
+            .get(&key)
+            .map(|spec| spec.is_gemini_cli)
             .unwrap_or(false)
     }
 }

@@ -177,6 +177,10 @@ pub enum AIModel {
     // OpenCode CLI (multi-provider)
     #[serde(rename = "opencode-cli")]
     OpenCodeCli,
+
+    // Gemini CLI (Google)
+    #[serde(rename = "gemini-cli")]
+    GeminiCli,
 }
 
 impl AIModel {
@@ -374,6 +378,13 @@ impl AIModel {
                 supports_temperature: false,
                 name: "OpenCode CLI",
             },
+
+            // Gemini CLI
+            Self::GeminiCli => ModelMetadata {
+                provider: Provider::Google,
+                supports_temperature: false,
+                name: "Gemini CLI",
+            },
         }
     }
 
@@ -453,6 +464,9 @@ impl AIModel {
 
             // OpenCode CLI
             Self::OpenCodeCli => "opencode",
+
+            // Gemini CLI
+            Self::GeminiCli => "gemini-2.5-pro",
         }
     }
 
@@ -553,6 +567,9 @@ impl AIModel {
 
             // OpenCode CLI
             Self::OpenCodeCli => "opencode-cli",
+
+            // Gemini CLI
+            Self::GeminiCli => "gemini-cli",
         }
     }
 
@@ -572,6 +589,11 @@ impl AIModel {
     /// Check if this model uses the OpenCode CLI
     pub fn is_opencode_cli(&self) -> bool {
         matches!(self, Self::OpenCodeCli)
+    }
+
+    /// Check if this model uses the Gemini CLI
+    pub fn is_gemini_cli(&self) -> bool {
+        matches!(self, Self::GeminiCli)
     }
 
     /// Get all available models as a slice
@@ -625,6 +647,8 @@ impl AIModel {
             Self::CodexCli,
             // OpenCode CLI
             Self::OpenCodeCli,
+            // Gemini CLI
+            Self::GeminiCli,
         ]
     }
 
@@ -676,6 +700,7 @@ mod tests {
         assert!(!AIModel::Gpt5_2.supports_temperature());
         assert!(!AIModel::CodexCli.supports_temperature());
         assert!(!AIModel::OpenCodeCli.supports_temperature());
+        assert!(!AIModel::GeminiCli.supports_temperature());
 
         // Models that support temperature
         assert!(AIModel::ClaudeSonnet4_5.supports_temperature());
@@ -698,6 +723,12 @@ mod tests {
     }
 
     #[test]
+    fn test_is_gemini_cli() {
+        assert!(AIModel::GeminiCli.is_gemini_cli());
+        assert!(!AIModel::Gpt5.is_gemini_cli());
+    }
+
+    #[test]
     fn test_as_str() {
         assert_eq!(AIModel::Gpt5.as_str(), "gpt-5");
         assert_eq!(AIModel::Gpt5_1.as_str(), "gpt-5.1");
@@ -705,6 +736,7 @@ mod tests {
         assert_eq!(AIModel::ClaudeHaiku4_5.as_str(), "claude-haiku-4-5");
         assert_eq!(AIModel::CodexCli.as_str(), "gpt-5.3-codex");
         assert_eq!(AIModel::OpenCodeCli.as_str(), "opencode");
+        assert_eq!(AIModel::GeminiCli.as_str(), "gemini-2.5-pro");
         assert_eq!(AIModel::DeepseekChat.as_str(), "deepseek-chat");
         assert_eq!(AIModel::Gemini25Pro.as_str(), "gemini-2.5-pro");
         assert_eq!(
@@ -734,13 +766,14 @@ mod tests {
         assert_eq!(AIModel::ClaudeHaiku4_5.display_name(), "Claude Haiku 4.5");
         assert_eq!(AIModel::CodexCli.display_name(), "Codex CLI");
         assert_eq!(AIModel::OpenCodeCli.display_name(), "OpenCode CLI");
+        assert_eq!(AIModel::GeminiCli.display_name(), "Gemini CLI");
         assert_eq!(AIModel::DeepseekChat.display_name(), "DeepSeek Chat");
     }
 
     #[test]
     fn test_all_models() {
         let models = AIModel::all();
-        assert_eq!(models.len(), 32);
+        assert_eq!(models.len(), 33);
         assert!(models.contains(&AIModel::Gpt5));
         assert!(models.contains(&AIModel::Gpt5_1));
         assert!(models.contains(&AIModel::ClaudeOpus4_6));
@@ -748,6 +781,7 @@ mod tests {
         assert!(models.contains(&AIModel::ClaudeHaiku4_5));
         assert!(models.contains(&AIModel::CodexCli));
         assert!(models.contains(&AIModel::OpenCodeCli));
+        assert!(models.contains(&AIModel::GeminiCli));
         assert!(models.contains(&AIModel::DeepseekChat));
         assert!(models.contains(&AIModel::Gemini25Pro));
     }
