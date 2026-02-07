@@ -84,6 +84,9 @@ impl AIModel {
             Self::ClaudeCodeOpus
             | Self::ClaudeCodeSonnet
             | Self::ClaudeCodeHaiku
+            | Self::Gpt5Codex
+            | Self::Gpt5_1Codex
+            | Self::Gpt5_2Codex
             | Self::CodexCli
             | Self::OpenCodeCli
             | Self::GeminiCli => None,
@@ -113,6 +116,9 @@ mod tests {
     #[test]
     fn test_pricing_cli_models_none() {
         assert!(AIModel::ClaudeCodeOpus.pricing().is_none());
+        assert!(AIModel::Gpt5Codex.pricing().is_none());
+        assert!(AIModel::Gpt5_1Codex.pricing().is_none());
+        assert!(AIModel::Gpt5_2Codex.pricing().is_none());
         assert!(AIModel::CodexCli.pricing().is_none());
         assert!(AIModel::OpenCodeCli.pricing().is_none());
         assert!(AIModel::GeminiCli.pricing().is_none());

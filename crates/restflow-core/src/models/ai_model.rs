@@ -191,7 +191,13 @@ pub enum AIModel {
     SiliconFlowAuto,
 
     // Codex CLI (OpenAI)
-    #[serde(rename = "codex-cli")]
+    #[serde(rename = "gpt-5-codex")]
+    Gpt5Codex,
+    #[serde(rename = "gpt-5.1-codex")]
+    Gpt5_1Codex,
+    #[serde(rename = "gpt-5.2-codex")]
+    Gpt5_2Codex,
+    #[serde(rename = "gpt-5.3-codex")]
     CodexCli,
 
     // OpenCode CLI (multi-provider)
@@ -210,7 +216,7 @@ impl AIModel {
         if self.is_opencode_cli() {
             ModelSpec::opencode(self.as_serialized_str(), self.as_str())
         } else if self.is_codex_cli() {
-            ModelSpec::codex(self.as_str(), self.as_str())
+            ModelSpec::codex(self.as_serialized_str(), self.as_str())
         } else if self.is_gemini_cli() {
             ModelSpec::gemini_cli(self.as_serialized_str(), self.as_str())
         } else {
@@ -416,10 +422,25 @@ impl AIModel {
             },
 
             // Codex CLI
+            Self::Gpt5Codex => ModelMetadata {
+                provider: Provider::OpenAI,
+                supports_temperature: false,
+                name: "Codex GPT-5",
+            },
+            Self::Gpt5_1Codex => ModelMetadata {
+                provider: Provider::OpenAI,
+                supports_temperature: false,
+                name: "Codex GPT-5.1",
+            },
+            Self::Gpt5_2Codex => ModelMetadata {
+                provider: Provider::OpenAI,
+                supports_temperature: false,
+                name: "Codex GPT-5.2",
+            },
             Self::CodexCli => ModelMetadata {
                 provider: Provider::OpenAI,
                 supports_temperature: false,
-                name: "Codex CLI",
+                name: "Codex GPT-5.3",
             },
 
             // OpenCode CLI
@@ -510,6 +531,9 @@ impl AIModel {
             Self::SiliconFlowAuto => "deepseek-ai/DeepSeek-V3",
 
             // Codex CLI
+            Self::Gpt5Codex => "gpt-5-codex",
+            Self::Gpt5_1Codex => "gpt-5.1-codex",
+            Self::Gpt5_2Codex => "gpt-5.2-codex",
             Self::CodexCli => "gpt-5.3-codex",
 
             // OpenCode CLI
@@ -613,7 +637,10 @@ impl AIModel {
             Self::SiliconFlowAuto => "siliconflow",
 
             // Codex CLI
-            Self::CodexCli => "codex-cli",
+            Self::Gpt5Codex => "gpt-5-codex",
+            Self::Gpt5_1Codex => "gpt-5.1-codex",
+            Self::Gpt5_2Codex => "gpt-5.2-codex",
+            Self::CodexCli => "gpt-5.3-codex",
 
             // OpenCode CLI
             Self::OpenCodeCli => "opencode-cli",
@@ -625,7 +652,10 @@ impl AIModel {
 
     /// Check if this model uses the Codex CLI
     pub fn is_codex_cli(&self) -> bool {
-        matches!(self, Self::CodexCli)
+        matches!(
+            self,
+            Self::Gpt5Codex | Self::Gpt5_1Codex | Self::Gpt5_2Codex | Self::CodexCli
+        )
     }
 
     /// Check if this model uses the Claude Code CLI
@@ -694,6 +724,9 @@ impl AIModel {
             // SiliconFlow
             Self::SiliconFlowAuto,
             // Codex CLI
+            Self::Gpt5Codex,
+            Self::Gpt5_1Codex,
+            Self::Gpt5_2Codex,
             Self::CodexCli,
             // OpenCode CLI
             Self::OpenCodeCli,
@@ -748,6 +781,9 @@ mod tests {
         assert!(!AIModel::Gpt5Mini.supports_temperature());
         assert!(!AIModel::Gpt5_1.supports_temperature());
         assert!(!AIModel::Gpt5_2.supports_temperature());
+        assert!(!AIModel::Gpt5Codex.supports_temperature());
+        assert!(!AIModel::Gpt5_1Codex.supports_temperature());
+        assert!(!AIModel::Gpt5_2Codex.supports_temperature());
         assert!(!AIModel::CodexCli.supports_temperature());
         assert!(!AIModel::OpenCodeCli.supports_temperature());
         assert!(!AIModel::GeminiCli.supports_temperature());
@@ -762,6 +798,9 @@ mod tests {
 
     #[test]
     fn test_is_codex_cli() {
+        assert!(AIModel::Gpt5Codex.is_codex_cli());
+        assert!(AIModel::Gpt5_1Codex.is_codex_cli());
+        assert!(AIModel::Gpt5_2Codex.is_codex_cli());
         assert!(AIModel::CodexCli.is_codex_cli());
         assert!(!AIModel::Gpt5.is_codex_cli());
     }
@@ -784,6 +823,9 @@ mod tests {
         assert_eq!(AIModel::Gpt5_1.as_str(), "gpt-5.1");
         assert_eq!(AIModel::ClaudeSonnet4_5.as_str(), "claude-sonnet-4-5");
         assert_eq!(AIModel::ClaudeHaiku4_5.as_str(), "claude-haiku-4-5");
+        assert_eq!(AIModel::Gpt5Codex.as_str(), "gpt-5-codex");
+        assert_eq!(AIModel::Gpt5_1Codex.as_str(), "gpt-5.1-codex");
+        assert_eq!(AIModel::Gpt5_2Codex.as_str(), "gpt-5.2-codex");
         assert_eq!(AIModel::CodexCli.as_str(), "gpt-5.3-codex");
         assert_eq!(AIModel::OpenCodeCli.as_str(), "opencode");
         assert_eq!(AIModel::GeminiCli.as_str(), "gemini-2.5-pro");
@@ -814,7 +856,10 @@ mod tests {
         assert_eq!(AIModel::Gpt5_2.display_name(), "GPT-5.2");
         assert_eq!(AIModel::ClaudeSonnet4_5.display_name(), "Claude Sonnet 4.5");
         assert_eq!(AIModel::ClaudeHaiku4_5.display_name(), "Claude Haiku 4.5");
-        assert_eq!(AIModel::CodexCli.display_name(), "Codex CLI");
+        assert_eq!(AIModel::Gpt5Codex.display_name(), "Codex GPT-5");
+        assert_eq!(AIModel::Gpt5_1Codex.display_name(), "Codex GPT-5.1");
+        assert_eq!(AIModel::Gpt5_2Codex.display_name(), "Codex GPT-5.2");
+        assert_eq!(AIModel::CodexCli.display_name(), "Codex GPT-5.3");
         assert_eq!(AIModel::OpenCodeCli.display_name(), "OpenCode CLI");
         assert_eq!(AIModel::GeminiCli.display_name(), "Gemini CLI");
         assert_eq!(AIModel::DeepseekChat.display_name(), "DeepSeek Chat");
@@ -823,12 +868,15 @@ mod tests {
     #[test]
     fn test_all_models() {
         let models = AIModel::all();
-        assert_eq!(models.len(), 33);
+        assert_eq!(models.len(), 36);
         assert!(models.contains(&AIModel::Gpt5));
         assert!(models.contains(&AIModel::Gpt5_1));
         assert!(models.contains(&AIModel::ClaudeOpus4_6));
         assert!(models.contains(&AIModel::ClaudeSonnet4_5));
         assert!(models.contains(&AIModel::ClaudeHaiku4_5));
+        assert!(models.contains(&AIModel::Gpt5Codex));
+        assert!(models.contains(&AIModel::Gpt5_1Codex));
+        assert!(models.contains(&AIModel::Gpt5_2Codex));
         assert!(models.contains(&AIModel::CodexCli));
         assert!(models.contains(&AIModel::OpenCodeCli));
         assert!(models.contains(&AIModel::GeminiCli));
@@ -870,6 +918,21 @@ mod tests {
     #[test]
     fn test_build_model_specs_contains_codex_cli() {
         let specs = AIModel::build_model_specs();
+        assert!(
+            specs
+                .iter()
+                .any(|spec| spec.name == "gpt-5-codex" && spec.is_codex_cli)
+        );
+        assert!(
+            specs
+                .iter()
+                .any(|spec| spec.name == "gpt-5.1-codex" && spec.is_codex_cli)
+        );
+        assert!(
+            specs
+                .iter()
+                .any(|spec| spec.name == "gpt-5.2-codex" && spec.is_codex_cli)
+        );
         assert!(
             specs
                 .iter()

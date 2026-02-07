@@ -40,8 +40,11 @@ pub fn parse_model(input: &str) -> Result<AIModel> {
         "claude-code-opus" | "opus" => AIModel::ClaudeCodeOpus,
         "claude-code-sonnet" | "sonnet" => AIModel::ClaudeCodeSonnet,
         "claude-code-haiku" | "haiku" => AIModel::ClaudeCodeHaiku,
-        // Codex CLI
-        "codex" | "codex-cli" | "openai-codex" | "gpt-5.3-codex" => AIModel::CodexCli,
+        // Codex CLI (must use concrete model names)
+        "gpt-5-codex" => AIModel::Gpt5Codex,
+        "gpt-5.1-codex" => AIModel::Gpt5_1Codex,
+        "gpt-5.2-codex" => AIModel::Gpt5_2Codex,
+        "gpt-5.3-codex" => AIModel::CodexCli,
         // OpenCode CLI
         "opencode" | "opencode-cli" => AIModel::OpenCodeCli,
         // Gemini CLI
