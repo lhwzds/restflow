@@ -45,6 +45,8 @@ pub fn parse_model(input: &str) -> Result<AIModel> {
         | "gpt-5.1-codex" | "gpt-5-codex" => AIModel::CodexCli,
         // OpenCode CLI
         "opencode" | "opencode-cli" => AIModel::OpenCodeCli,
+        // Gemini CLI
+        "gemini-cli" => AIModel::GeminiCli,
         // DeepSeek
         "deepseek-chat" => AIModel::DeepseekChat,
         "deepseek-reasoner" => AIModel::DeepseekReasoner,
