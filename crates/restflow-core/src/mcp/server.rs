@@ -1033,16 +1033,23 @@ impl RestFlowMcpServer {
                 parameters: serde_json::json!({
                     "type": "object",
                     "properties": {
+                        "provider": {
+                            "type": "string",
+                            "description": "Optional provider selector (e.g. openai, anthropic, codex-cli, opencode-cli, gemini-cli)"
+                        },
                         "model": {
                             "type": "string",
-                            "description": "Model name to switch to"
+                            "description": "Model name to switch to. Supports provider-qualified format like codex-cli:gpt-5.3-codex."
                         },
                         "reason": {
                             "type": "string",
                             "description": "Optional reason for switching models"
                         }
                     },
-                    "required": ["model"]
+                    "anyOf": [
+                        { "required": ["model"] },
+                        { "required": ["provider"] }
+                    ]
                 }),
             },
         ]
