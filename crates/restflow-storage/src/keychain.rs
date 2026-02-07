@@ -2,7 +2,7 @@ use anyhow::Result;
 
 #[cfg(target_os = "macos")]
 pub fn get_or_create_master_key(service: &str, account: &str) -> Result<[u8; 32]> {
-    use rand::RngCore;
+    use rand::TryRngCore;
     use security_framework::passwords::{get_generic_password, set_generic_password};
 
     match get_generic_password(service, account) {
@@ -16,7 +16,8 @@ pub fn get_or_create_master_key(service: &str, account: &str) -> Result<[u8; 32]
         }
         Err(_) => {
             let mut key = [0u8; 32];
-            rand::rngs::OsRng.fill_bytes(&mut key);
+            let mut rng = rand::rngs::OsRng;
+            rng.try_fill_bytes(&mut key)?;
             set_generic_password(service, account, &key)?;
             Ok(key)
         }

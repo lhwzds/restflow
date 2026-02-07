@@ -238,7 +238,7 @@ impl VectorStorage {
     }
 
     fn persist_vector(&self, chunk_id: &str, vector: &[f32]) -> Result<()> {
-        let bytes = bincode::serialize(vector)?;
+        let bytes = bincode::serde::encode_to_vec(vector, bincode::config::standard())?;
         let write_txn = self.db.begin_write()?;
         {
             let mut table = write_txn.open_table(VECTOR_TABLE)?;
@@ -255,7 +255,8 @@ impl VectorStorage {
         for item in table.iter()? {
             let (key, value) = item?;
             let chunk_id = key.value().to_string();
-            let vector: Vec<f32> = bincode::deserialize(value.value())?;
+            let (vector, _): (Vec<f32>, usize) =
+                bincode::serde::decode_from_slice(value.value(), bincode::config::standard())?;
             vectors.push((chunk_id, vector));
         }
         drop(read_txn);

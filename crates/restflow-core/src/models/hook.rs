@@ -243,26 +243,26 @@ mod tests {
 
     #[test]
     fn export_bindings_hook() {
-        Hook::export().expect("export Hook");
+        Hook::export_to_string(&ts_rs::Config::default()).expect("export Hook");
     }
 
     #[test]
     fn export_bindings_hook_event() {
-        HookEvent::export().expect("export HookEvent");
+        HookEvent::export_to_string(&ts_rs::Config::default()).expect("export HookEvent");
     }
 
     #[test]
     fn export_bindings_hook_action() {
-        HookAction::export().expect("export HookAction");
+        HookAction::export_to_string(&ts_rs::Config::default()).expect("export HookAction");
     }
 
     #[test]
     fn export_bindings_hook_filter() {
-        HookFilter::export().expect("export HookFilter");
+        HookFilter::export_to_string(&ts_rs::Config::default()).expect("export HookFilter");
     }
 
     #[test]
     fn export_bindings_hook_context() {
-        HookContext::export().expect("export HookContext");
+        HookContext::export_to_string(&ts_rs::Config::default()).expect("export HookContext");
     }
 }
