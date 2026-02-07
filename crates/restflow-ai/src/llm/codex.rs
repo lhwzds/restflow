@@ -99,6 +99,16 @@ fn extract_error(value: &Value) -> Option<String> {
 }
 
 fn extract_text(value: &Value) -> Option<&str> {
+    if let Some(item) = value.get("item") {
+        let item_type = item.get("type").and_then(|v| v.as_str());
+        if matches!(item_type, Some("agent_message" | "assistant_message")) {
+            return item
+                .get("text")
+                .and_then(|v| v.as_str())
+                .or_else(|| item.get("content").and_then(|v| v.as_str()));
+        }
+    }
+
     value
         .get("content")
         .and_then(|v| v.as_str())
@@ -210,5 +220,18 @@ mod tests {
         let output = r#"{"error":"invalid"}"#;
         let err = CodexClient::parse_jsonl_output(output).unwrap_err();
         assert!(err.to_string().contains("Codex CLI error"));
+    }
+
+    #[test]
+    fn test_parse_jsonl_output_with_item_text_ignores_reasoning() {
+        let output = r#"{"type":"thread.started","thread_id":"thread_abc"}
+{"type":"item.completed","item":{"id":"item_0","type":"reasoning","text":"Thinking..."}}
+{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"Hello from Codex"}}
+{"type":"turn.completed"}
+"#;
+
+        let (content, thread_id) = CodexClient::parse_jsonl_output(output).unwrap();
+        assert_eq!(content, "Hello from Codex");
+        assert_eq!(thread_id, Some("thread_abc".to_string()));
     }
 }
