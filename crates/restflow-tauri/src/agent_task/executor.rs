@@ -11,8 +11,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use restflow_ai::{
-    DefaultLlmClientFactory, LlmClient, LlmClientFactory, LlmProvider, ModelSpec, SwappableLlm,
-    SwitchModelTool,
+    AiError, DefaultLlmClientFactory, LlmClient, LlmClientFactory, LlmProvider, ModelSpec,
+    SwappableLlm, SwitchModelTool,
 };
 use restflow_core::{
     AIModel, Provider,
@@ -23,7 +23,7 @@ use restflow_core::{
 };
 use tokio::sync::mpsc;
 use tokio::time::sleep;
-use tracing::info;
+use tracing::{info, warn};
 
 use super::failover::{FailoverConfig, FailoverManager, execute_with_failover};
 use super::retry::{RetryConfig, RetryState};
@@ -251,6 +251,46 @@ impl RealAgentExecutor {
         Arc::new(registry)
     }
 
+    async fn execute_agent_with_client(
+        &self,
+        agent_node: &AgentNode,
+        model: AIModel,
+        llm_client: Arc<dyn LlmClient>,
+        input: Option<&str>,
+        steer_rx: Option<mpsc::Receiver<SteerMessage>>,
+        factory: Arc<dyn LlmClientFactory>,
+    ) -> Result<ExecutionResult> {
+        let swappable = Arc::new(SwappableLlm::new(llm_client));
+        let tools = self.build_tool_registry(
+            agent_node.tools.as_deref(),
+            swappable.clone(),
+            swappable.clone(),
+            factory,
+        );
+        let system_prompt = build_agent_system_prompt(self.storage.clone(), agent_node)?;
+
+        let mut config = UnifiedAgentConfig::default();
+        if model.supports_temperature()
+            && let Some(temp) = agent_node.temperature
+        {
+            config.temperature = temp as f32;
+        }
+
+        let mut agent = UnifiedAgent::new(swappable, tools, system_prompt, config);
+        if let Some(rx) = steer_rx {
+            agent = agent.with_steer_channel(rx);
+        }
+
+        let goal = input.unwrap_or("Execute the agent task");
+        let result = agent.execute(goal).await?;
+
+        if result.success {
+            Ok(ExecutionResult::success(result.output, result.messages))
+        } else {
+            Err(anyhow!("Agent execution failed: {}", result.output))
+        }
+    }
+
     async fn execute_with_model(
         &self,
         agent_node: &AgentNode,
@@ -287,36 +327,144 @@ impl RealAgentExecutor {
         };
 
         let llm_client = factory.create_client(model.as_serialized_str(), api_key.as_deref())?;
-        let swappable = Arc::new(SwappableLlm::new(llm_client));
-        let tools = self.build_tool_registry(
-            agent_node.tools.as_deref(),
-            swappable.clone(),
-            swappable.clone(),
-            factory,
-        );
-        let system_prompt = build_agent_system_prompt(self.storage.clone(), agent_node)?;
-
-        let mut config = UnifiedAgentConfig::default();
-        if model.supports_temperature()
-            && let Some(temp) = agent_node.temperature
-        {
-            config.temperature = temp as f32;
-        }
-
-        let mut agent = UnifiedAgent::new(swappable, tools, system_prompt, config);
-        if let Some(rx) = steer_rx {
-            agent = agent.with_steer_channel(rx);
-        }
-
-        let goal = input.unwrap_or("Execute the agent task");
-        let result = agent.execute(goal).await?;
-
-        if result.success {
-            Ok(ExecutionResult::success(result.output, result.messages))
-        } else {
-            Err(anyhow!("Agent execution failed: {}", result.output))
-        }
+        self.execute_agent_with_client(agent_node, model, llm_client, input, steer_rx, factory)
+            .await
     }
+
+    async fn execute_with_profiles(
+        &self,
+        agent_node: &AgentNode,
+        model: AIModel,
+        input: Option<&str>,
+        primary_provider: Provider,
+        steer_rx: Option<mpsc::Receiver<SteerMessage>>,
+    ) -> Result<ExecutionResult> {
+        if agent_node.api_key_config.is_some() {
+            return self
+                .execute_with_model(agent_node, model, input, primary_provider, steer_rx)
+                .await;
+        }
+
+        let profiles = self
+            .auth_manager
+            .get_compatible_profiles_for_model_provider(model.provider())
+            .await;
+
+        if profiles.is_empty() {
+            return self
+                .execute_with_model(agent_node, model, input, primary_provider, steer_rx)
+                .await;
+        }
+
+        let mut last_error: Option<anyhow::Error> = None;
+        let mut steer_rx = steer_rx;
+
+        for profile in profiles {
+            let api_key = match profile.get_api_key(self.auth_manager.resolver()) {
+                Ok(key) => key,
+                Err(error) => {
+                    warn!(
+                        profile_id = %profile.id,
+                        profile_name = %profile.name,
+                        model = ?model,
+                        error = %error,
+                        "Skipping profile because credential resolution failed"
+                    );
+                    continue;
+                }
+            };
+
+            let model_specs = Self::build_model_specs();
+            let api_keys = self
+                .build_api_keys(agent_node.api_key_config.as_ref(), primary_provider)
+                .await;
+            let factory = Arc::new(DefaultLlmClientFactory::new(api_keys, model_specs));
+            let llm_client =
+                factory.create_client(model.as_serialized_str(), Some(api_key.as_str()))?;
+
+            match self
+                .execute_agent_with_client(
+                    agent_node,
+                    model,
+                    llm_client,
+                    input,
+                    steer_rx.take(),
+                    factory,
+                )
+                .await
+            {
+                Ok(result) => {
+                    if let Err(error) = self.auth_manager.mark_success(&profile.id).await {
+                        warn!(
+                            profile_id = %profile.id,
+                            profile_name = %profile.name,
+                            model = ?model,
+                            error = %error,
+                            "Failed to mark profile success"
+                        );
+                    }
+                    return Ok(result);
+                }
+                Err(error) => {
+                    if is_credential_error(&error) {
+                        if let Err(mark_error) = self.auth_manager.mark_failure(&profile.id).await {
+                            warn!(
+                                profile_id = %profile.id,
+                                profile_name = %profile.name,
+                                model = ?model,
+                                error = %mark_error,
+                                "Failed to mark profile failure"
+                            );
+                        }
+
+                        warn!(
+                            profile_id = %profile.id,
+                            profile_name = %profile.name,
+                            model = ?model,
+                            error = %error,
+                            "Profile failed with credential-related error, trying next profile"
+                        );
+                        last_error = Some(error);
+                        continue;
+                    }
+
+                    return Err(error);
+                }
+            }
+        }
+
+        Err(last_error.unwrap_or_else(|| {
+            anyhow!("All profiles exhausted for provider {:?}", model.provider())
+        }))
+    }
+}
+
+fn is_credential_error(error: &anyhow::Error) -> bool {
+    if let Some(ai_error) = error.downcast_ref::<AiError>() {
+        return match ai_error {
+            AiError::LlmHttp { status, .. } => matches!(status, 401 | 403 | 429),
+            AiError::Llm(message) => {
+                let lower = message.to_lowercase();
+                lower.contains("rate limit")
+                    || lower.contains("429")
+                    || lower.contains("unauthorized")
+                    || lower.contains("forbidden")
+                    || lower.contains("quota")
+                    || lower.contains("billing")
+                    || lower.contains("api key")
+            }
+            _ => false,
+        };
+    }
+
+    let lower = error.to_string().to_lowercase();
+    lower.contains("rate limit")
+        || lower.contains("429")
+        || lower.contains("unauthorized")
+        || lower.contains("forbidden")
+        || lower.contains("quota")
+        || lower.contains("billing")
+        || lower.contains("api key")
 }
 
 #[async_trait]
@@ -362,7 +510,7 @@ impl AgentExecutor for RealAgentExecutor {
                 let node = agent_node_clone.clone();
                 let steer_rx = steer_rx.take();
                 async move {
-                    self.execute_with_model(&node, model, input_ref, primary_provider, steer_rx)
+                    self.execute_with_profiles(&node, model, input_ref, primary_provider, steer_rx)
                         .await
                 }
             })
@@ -459,6 +607,42 @@ mod tests {
             "Error should mention API key: {}",
             err_msg
         );
+    }
+
+    #[test]
+    fn test_is_credential_error_for_http_statuses() {
+        let rate_limit = anyhow::Error::new(AiError::LlmHttp {
+            provider: "anthropic".to_string(),
+            status: 429,
+            message: "rate limited".to_string(),
+            retry_after_secs: Some(1),
+        });
+        assert!(is_credential_error(&rate_limit));
+
+        let unauthorized = anyhow::Error::new(AiError::LlmHttp {
+            provider: "openai".to_string(),
+            status: 401,
+            message: "unauthorized".to_string(),
+            retry_after_secs: None,
+        });
+        assert!(is_credential_error(&unauthorized));
+
+        let server_error = anyhow::Error::new(AiError::LlmHttp {
+            provider: "openai".to_string(),
+            status: 500,
+            message: "server error".to_string(),
+            retry_after_secs: None,
+        });
+        assert!(!is_credential_error(&server_error));
+    }
+
+    #[test]
+    fn test_is_credential_error_for_llm_message_fallback() {
+        let err = anyhow::Error::new(AiError::Llm("Rate limit exceeded".to_string()));
+        assert!(is_credential_error(&err));
+
+        let err = anyhow::Error::new(AiError::Llm("context window exceeded".to_string()));
+        assert!(!is_credential_error(&err));
     }
 
     // Note: test_build_tool_registry removed because build_tool_registry now requires
