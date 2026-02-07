@@ -7,6 +7,7 @@ use restflow_storage::SimpleStorage;
 use std::sync::Arc;
 
 /// Typed trigger storage wrapper around restflow-storage::TriggerStorage.
+#[derive(Debug, Clone)]
 pub struct TriggerStorage {
     inner: restflow_storage::TriggerStorage,
 }

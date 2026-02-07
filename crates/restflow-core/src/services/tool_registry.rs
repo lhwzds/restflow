@@ -5,12 +5,18 @@ use crate::memory::UnifiedSearchEngine;
 use crate::models::{
     AgentTaskStatus, BackgroundAgentControlAction, BackgroundAgentPatch, BackgroundAgentSpec,
     BackgroundMessageSource, MemoryConfig, MemoryScope, MemorySearchQuery, SearchMode, SharedEntry,
-    TaskSchedule, UnifiedSearchQuery, Visibility,
+    Skill, TaskSchedule, TerminalSession, ToolAction, TriggerConfig, UnifiedSearchQuery,
+    Visibility,
 };
+use crate::registry::{
+    GitHubProvider, MarketplaceProvider, SkillProvider as MarketplaceSkillProvider,
+    SkillSearchQuery,
+};
+use crate::security::SecurityChecker;
 use crate::storage::skill::SkillStorage;
 use crate::storage::{
     AgentTaskStorage, ChatSessionStorage, ConfigStorage, MemoryStorage, SecretStorage,
-    SharedSpaceStorage,
+    SharedSpaceStorage, TerminalSessionStorage, TriggerStorage,
 };
 use chrono::Utc;
 use restflow_ai::error::AiError;
@@ -22,9 +28,10 @@ use restflow_ai::{
     SecretResolver, SkillContent, SkillInfo, SkillProvider, SkillRecord, SkillTool, SkillUpdate,
     Tool, ToolOutput, ToolRegistry, TranscribeTool, VisionTool,
 };
-use serde::de::DeserializeOwned;
+use serde::{Deserialize, de::DeserializeOwned};
 use serde_json::json;
 use std::sync::Arc;
+use uuid::Uuid;
 
 /// SkillProvider implementation that reads from SkillStorage
 pub struct SkillStorageProvider {
@@ -369,6 +376,8 @@ pub fn create_tool_registry(
     secret_storage: SecretStorage,
     config_storage: ConfigStorage,
     agent_task_storage: AgentTaskStorage,
+    trigger_storage: TriggerStorage,
+    terminal_storage: TerminalSessionStorage,
     accessor_id: Option<String>,
 ) -> ToolRegistry {
     let root = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
@@ -384,7 +393,7 @@ pub fn create_tool_registry(
     registry.register(VisionTool::new(secret_resolver));
 
     // Add SkillTool with storage access
-    let skill_provider = Arc::new(SkillStorageProvider::new(skill_storage));
+    let skill_provider = Arc::new(SkillStorageProvider::new(skill_storage.clone()));
     registry.register(SkillTool::new(skill_provider));
 
     // Add unified memory search tool
@@ -399,6 +408,10 @@ pub fn create_tool_registry(
     registry.register(ConfigTool::new(Arc::new(config_storage)));
     let task_store = Arc::new(TaskStoreAdapter::new(agent_task_storage));
     registry.register(TaskTool::new(task_store).with_write(true));
+    registry.register(MarketplaceTool::new(skill_storage));
+    registry.register(TriggerTool::new(trigger_storage));
+    registry.register(TerminalTool::new(terminal_storage));
+    registry.register(SecurityQueryTool::new());
 
     registry
 }
@@ -736,6 +749,625 @@ impl Tool for SharedSpaceTool {
     }
 }
 
+#[derive(Clone)]
+struct MarketplaceTool {
+    storage: SkillStorage,
+}
+
+impl MarketplaceTool {
+    fn new(storage: SkillStorage) -> Self {
+        Self { storage }
+    }
+
+    fn provider_name(source: Option<&str>) -> &str {
+        match source {
+            Some("github") => "github",
+            _ => "marketplace",
+        }
+    }
+
+    async fn search_source(
+        source: &str,
+        query: &SkillSearchQuery,
+    ) -> Result<Vec<crate::registry::SkillSearchResult>, AiError> {
+        match source {
+            "github" => GitHubProvider::new()
+                .search(query)
+                .await
+                .map_err(|e| AiError::Tool(e.to_string())),
+            _ => MarketplaceProvider::new()
+                .search(query)
+                .await
+                .map_err(|e| AiError::Tool(e.to_string())),
+        }
+    }
+
+    async fn get_manifest(source: &str, id: &str) -> Result<crate::models::SkillManifest, AiError> {
+        match source {
+            "github" => GitHubProvider::new()
+                .get_manifest(id)
+                .await
+                .map_err(|e| AiError::Tool(e.to_string())),
+            _ => MarketplaceProvider::new()
+                .get_manifest(id)
+                .await
+                .map_err(|e| AiError::Tool(e.to_string())),
+        }
+    }
+
+    async fn get_content(
+        source: &str,
+        id: &str,
+        version: &crate::models::SkillVersion,
+    ) -> Result<String, AiError> {
+        match source {
+            "github" => GitHubProvider::new()
+                .get_content(id, version)
+                .await
+                .map_err(|e| AiError::Tool(e.to_string())),
+            _ => MarketplaceProvider::new()
+                .get_content(id, version)
+                .await
+                .map_err(|e| AiError::Tool(e.to_string())),
+        }
+    }
+
+    fn manifest_to_skill(manifest: crate::models::SkillManifest, content: String) -> Skill {
+        let now = Utc::now().timestamp_millis();
+        Skill {
+            id: manifest.id,
+            name: manifest.name,
+            description: manifest.description,
+            tags: Some(manifest.keywords),
+            content,
+            folder_path: None,
+            suggested_tools: Vec::new(),
+            scripts: Vec::new(),
+            references: Vec::new(),
+            gating: None,
+            version: Some(manifest.version.to_string()),
+            author: manifest.author.map(|a| a.name),
+            license: manifest.license,
+            content_hash: None,
+            storage_mode: crate::models::StorageMode::DatabaseOnly,
+            is_synced: false,
+            created_at: now,
+            updated_at: now,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(tag = "operation", rename_all = "snake_case")]
+enum MarketplaceOperation {
+    Search {
+        #[serde(default)]
+        query: Option<String>,
+        #[serde(default)]
+        category: Option<String>,
+        #[serde(default)]
+        tags: Option<Vec<String>>,
+        #[serde(default)]
+        author: Option<String>,
+        #[serde(default)]
+        limit: Option<usize>,
+        #[serde(default)]
+        offset: Option<usize>,
+        #[serde(default)]
+        source: Option<String>,
+    },
+    Info {
+        id: String,
+        #[serde(default)]
+        source: Option<String>,
+    },
+    Install {
+        id: String,
+        #[serde(default)]
+        source: Option<String>,
+        #[serde(default)]
+        overwrite: bool,
+    },
+    Uninstall {
+        id: String,
+    },
+    ListInstalled,
+}
+
+#[async_trait::async_trait]
+impl Tool for MarketplaceTool {
+    fn name(&self) -> &str {
+        "manage_marketplace"
+    }
+
+    fn description(&self) -> &str {
+        "Search marketplace skills and install/uninstall them into local skill storage."
+    }
+
+    fn parameters_schema(&self) -> serde_json::Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "operation": {
+                    "type": "string",
+                    "enum": ["search", "info", "install", "uninstall", "list_installed"]
+                },
+                "id": { "type": "string" },
+                "query": { "type": "string" },
+                "category": { "type": "string" },
+                "tags": {
+                    "type": "array",
+                    "items": { "type": "string" }
+                },
+                "author": { "type": "string" },
+                "limit": { "type": "integer", "minimum": 1 },
+                "offset": { "type": "integer", "minimum": 0 },
+                "source": { "type": "string", "enum": ["marketplace", "github"] },
+                "overwrite": { "type": "boolean", "default": false }
+            },
+            "required": ["operation"]
+        })
+    }
+
+    async fn execute(&self, input: serde_json::Value) -> restflow_ai::error::Result<ToolOutput> {
+        let operation: MarketplaceOperation = serde_json::from_value(input)?;
+        match operation {
+            MarketplaceOperation::Search {
+                query,
+                category,
+                tags,
+                author,
+                limit,
+                offset,
+                source,
+            } => {
+                let query = SkillSearchQuery {
+                    query,
+                    category,
+                    tags: tags.unwrap_or_default(),
+                    author,
+                    limit,
+                    offset,
+                    sort: None,
+                };
+                let source_name = Self::provider_name(source.as_deref());
+                let results = Self::search_source(source_name, &query).await?;
+                Ok(ToolOutput::success(serde_json::to_value(results)?))
+            }
+            MarketplaceOperation::Info { id, source } => {
+                let source_name = Self::provider_name(source.as_deref());
+                let manifest = Self::get_manifest(source_name, &id).await?;
+                Ok(ToolOutput::success(serde_json::to_value(manifest)?))
+            }
+            MarketplaceOperation::Install {
+                id,
+                source,
+                overwrite,
+            } => {
+                let source_name = Self::provider_name(source.as_deref());
+                let manifest = Self::get_manifest(source_name, &id).await?;
+                let content = Self::get_content(source_name, &id, &manifest.version).await?;
+                let skill = Self::manifest_to_skill(manifest.clone(), content);
+
+                let exists = self
+                    .storage
+                    .exists(&id)
+                    .map_err(|e| AiError::Tool(e.to_string()))?;
+                if exists && !overwrite {
+                    return Ok(ToolOutput::error(
+                        "Skill already installed. Set overwrite=true to replace.",
+                    ));
+                }
+
+                if exists {
+                    self.storage
+                        .update(&id, &skill)
+                        .map_err(|e| AiError::Tool(e.to_string()))?;
+                } else {
+                    self.storage
+                        .create(&skill)
+                        .map_err(|e| AiError::Tool(e.to_string()))?;
+                }
+
+                Ok(ToolOutput::success(json!({
+                    "id": id,
+                    "name": skill.name,
+                    "version": skill.version,
+                    "installed": true,
+                    "updated": exists
+                })))
+            }
+            MarketplaceOperation::Uninstall { id } => {
+                let exists = self
+                    .storage
+                    .exists(&id)
+                    .map_err(|e| AiError::Tool(e.to_string()))?;
+                if exists {
+                    self.storage
+                        .delete(&id)
+                        .map_err(|e| AiError::Tool(e.to_string()))?;
+                }
+                Ok(ToolOutput::success(json!({
+                    "id": id,
+                    "deleted": exists
+                })))
+            }
+            MarketplaceOperation::ListInstalled => {
+                let skills = self
+                    .storage
+                    .list()
+                    .map_err(|e| AiError::Tool(e.to_string()))?;
+                Ok(ToolOutput::success(serde_json::to_value(skills)?))
+            }
+        }
+    }
+}
+
+struct TriggerTool {
+    storage: TriggerStorage,
+}
+
+impl TriggerTool {
+    fn new(storage: TriggerStorage) -> Self {
+        Self { storage }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(tag = "operation", rename_all = "snake_case")]
+enum TriggerOperation {
+    Create {
+        workflow_id: String,
+        trigger_config: TriggerConfig,
+        #[serde(default)]
+        id: Option<String>,
+    },
+    List,
+    Delete {
+        id: String,
+    },
+    Enable {
+        workflow_id: String,
+        trigger_config: TriggerConfig,
+        #[serde(default)]
+        id: Option<String>,
+    },
+    Disable {
+        id: String,
+    },
+}
+
+#[async_trait::async_trait]
+impl Tool for TriggerTool {
+    fn name(&self) -> &str {
+        "manage_triggers"
+    }
+
+    fn description(&self) -> &str {
+        "Create/list/enable/disable workflow triggers."
+    }
+
+    fn parameters_schema(&self) -> serde_json::Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "operation": {
+                    "type": "string",
+                    "enum": ["create", "list", "delete", "enable", "disable"]
+                },
+                "id": { "type": "string" },
+                "workflow_id": { "type": "string" },
+                "trigger_config": {
+                    "type": "object",
+                    "description": "TriggerConfig payload with a `type` discriminator (manual/webhook/schedule)."
+                }
+            },
+            "required": ["operation"]
+        })
+    }
+
+    async fn execute(&self, input: serde_json::Value) -> restflow_ai::error::Result<ToolOutput> {
+        let operation: TriggerOperation = serde_json::from_value(input)?;
+        match operation {
+            TriggerOperation::Create {
+                workflow_id,
+                trigger_config,
+                id,
+            }
+            | TriggerOperation::Enable {
+                workflow_id,
+                trigger_config,
+                id,
+            } => {
+                let mut trigger = crate::models::ActiveTrigger::new(workflow_id, trigger_config);
+                if let Some(id) = id {
+                    trigger.id = id;
+                }
+                self.storage
+                    .activate_trigger(&trigger)
+                    .map_err(|e| AiError::Tool(e.to_string()))?;
+                Ok(ToolOutput::success(serde_json::to_value(trigger)?))
+            }
+            TriggerOperation::List => {
+                let triggers = self
+                    .storage
+                    .list_active_triggers()
+                    .map_err(|e| AiError::Tool(e.to_string()))?;
+                Ok(ToolOutput::success(serde_json::to_value(triggers)?))
+            }
+            TriggerOperation::Delete { id } | TriggerOperation::Disable { id } => {
+                self.storage
+                    .deactivate_trigger(&id)
+                    .map_err(|e| AiError::Tool(e.to_string()))?;
+                Ok(ToolOutput::success(json!({
+                    "id": id,
+                    "deleted": true
+                })))
+            }
+        }
+    }
+}
+
+#[derive(Clone)]
+struct TerminalTool {
+    storage: TerminalSessionStorage,
+}
+
+impl TerminalTool {
+    fn new(storage: TerminalSessionStorage) -> Self {
+        Self { storage }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(tag = "operation", rename_all = "snake_case")]
+enum TerminalOperation {
+    Create {
+        #[serde(default)]
+        name: Option<String>,
+        #[serde(default)]
+        working_directory: Option<String>,
+        #[serde(default)]
+        startup_command: Option<String>,
+    },
+    List,
+    SendInput {
+        session_id: String,
+        data: String,
+    },
+    ReadOutput {
+        session_id: String,
+    },
+    Close {
+        session_id: String,
+    },
+}
+
+#[async_trait::async_trait]
+impl Tool for TerminalTool {
+    fn name(&self) -> &str {
+        "manage_terminal"
+    }
+
+    fn description(&self) -> &str {
+        "Manage persistent terminal session metadata. Interactive PTY streaming is not available in this runtime."
+    }
+
+    fn parameters_schema(&self) -> serde_json::Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "operation": {
+                    "type": "string",
+                    "enum": ["create", "list", "send_input", "read_output", "close"]
+                },
+                "session_id": { "type": "string" },
+                "name": { "type": "string" },
+                "working_directory": { "type": "string" },
+                "startup_command": { "type": "string" },
+                "data": { "type": "string" }
+            },
+            "required": ["operation"]
+        })
+    }
+
+    async fn execute(&self, input: serde_json::Value) -> restflow_ai::error::Result<ToolOutput> {
+        let operation: TerminalOperation = serde_json::from_value(input)?;
+        match operation {
+            TerminalOperation::Create {
+                name,
+                working_directory,
+                startup_command,
+            } => {
+                let id = format!("terminal-{}", Uuid::new_v4());
+                let default_name = self
+                    .storage
+                    .get_next_name()
+                    .map_err(|e| AiError::Tool(e.to_string()))?;
+                let mut session = TerminalSession::new(id, name.unwrap_or(default_name));
+                session.set_config(working_directory, startup_command);
+                self.storage
+                    .create(&session)
+                    .map_err(|e| AiError::Tool(e.to_string()))?;
+                Ok(ToolOutput::success(serde_json::to_value(session)?))
+            }
+            TerminalOperation::List => {
+                let sessions = self
+                    .storage
+                    .list()
+                    .map_err(|e| AiError::Tool(e.to_string()))?;
+                Ok(ToolOutput::success(serde_json::to_value(sessions)?))
+            }
+            TerminalOperation::SendInput { session_id, data } => {
+                let mut session = self
+                    .storage
+                    .get(&session_id)
+                    .map_err(|e| AiError::Tool(e.to_string()))?
+                    .ok_or_else(|| {
+                        AiError::Tool(format!("Terminal session not found: {}", session_id))
+                    })?;
+
+                let mut history = session.history.clone().unwrap_or_default();
+                history.push_str(&format!("\n$ {}", data));
+                session.update_history(history);
+                self.storage
+                    .update(&session_id, &session)
+                    .map_err(|e| AiError::Tool(e.to_string()))?;
+
+                Ok(ToolOutput::success(json!({
+                    "session_id": session_id,
+                    "accepted": true,
+                    "live_runtime": false
+                })))
+            }
+            TerminalOperation::ReadOutput { session_id } => {
+                let session = self
+                    .storage
+                    .get(&session_id)
+                    .map_err(|e| AiError::Tool(e.to_string()))?
+                    .ok_or_else(|| {
+                        AiError::Tool(format!("Terminal session not found: {}", session_id))
+                    })?;
+                Ok(ToolOutput::success(json!({
+                    "session_id": session_id,
+                    "output": session.history.unwrap_or_default(),
+                    "live_runtime": false
+                })))
+            }
+            TerminalOperation::Close { session_id } => {
+                let mut session = self
+                    .storage
+                    .get(&session_id)
+                    .map_err(|e| AiError::Tool(e.to_string()))?
+                    .ok_or_else(|| {
+                        AiError::Tool(format!("Terminal session not found: {}", session_id))
+                    })?;
+                session.status = crate::models::TerminalStatus::Stopped;
+                session.stopped_at = Some(Utc::now().timestamp_millis());
+                self.storage
+                    .update(&session_id, &session)
+                    .map_err(|e| AiError::Tool(e.to_string()))?;
+                Ok(ToolOutput::success(json!({
+                    "session_id": session_id,
+                    "closed": true
+                })))
+            }
+        }
+    }
+}
+
+#[derive(Clone, Default)]
+struct SecurityQueryTool;
+
+impl SecurityQueryTool {
+    fn new() -> Self {
+        Self
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(tag = "operation", rename_all = "snake_case")]
+enum SecurityQueryOperation {
+    CheckPermission {
+        tool_name: String,
+        operation_name: String,
+        #[serde(default)]
+        target: Option<String>,
+        #[serde(default)]
+        summary: Option<String>,
+    },
+    ListPermissions,
+    ShowPolicy,
+    RequestElevation {
+        reason: String,
+    },
+}
+
+#[async_trait::async_trait]
+impl Tool for SecurityQueryTool {
+    fn name(&self) -> &str {
+        "security_query"
+    }
+
+    fn description(&self) -> &str {
+        "Inspect default security policy and evaluate whether an action would require approval."
+    }
+
+    fn parameters_schema(&self) -> serde_json::Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "operation": {
+                    "type": "string",
+                    "enum": ["check_permission", "list_permissions", "show_policy", "request_elevation"]
+                },
+                "tool_name": { "type": "string" },
+                "operation_name": { "type": "string" },
+                "target": { "type": "string" },
+                "summary": { "type": "string" },
+                "reason": { "type": "string" }
+            },
+            "required": ["operation"]
+        })
+    }
+
+    async fn execute(&self, input: serde_json::Value) -> restflow_ai::error::Result<ToolOutput> {
+        let operation: SecurityQueryOperation = serde_json::from_value(input)?;
+        match operation {
+            SecurityQueryOperation::ShowPolicy => {
+                let policy = crate::models::SecurityPolicy::default();
+                Ok(ToolOutput::success(serde_json::to_value(policy)?))
+            }
+            SecurityQueryOperation::ListPermissions => {
+                let policy = crate::models::SecurityPolicy::default();
+                Ok(ToolOutput::success(json!({
+                    "default_action": policy.default_action,
+                    "allowlist_count": policy.allowlist.len(),
+                    "blocklist_count": policy.blocklist.len(),
+                    "approval_required_count": policy.approval_required.len(),
+                    "tool_rule_count": policy.tool_rules.len()
+                })))
+            }
+            SecurityQueryOperation::CheckPermission {
+                tool_name,
+                operation_name,
+                target,
+                summary,
+            } => {
+                let checker = SecurityChecker::with_defaults();
+                let action = ToolAction {
+                    tool_name: tool_name.clone(),
+                    operation: operation_name.clone(),
+                    target: target.unwrap_or_else(|| "*".to_string()),
+                    summary: summary.unwrap_or_else(|| {
+                        format!("{}:{}", tool_name.as_str(), operation_name.as_str())
+                    }),
+                };
+                let ai_action = restflow_ai::ToolAction {
+                    tool_name: action.tool_name.clone(),
+                    operation: action.operation.clone(),
+                    target: action.target.clone(),
+                    summary: action.summary.clone(),
+                };
+                let decision = checker
+                    .check_tool_action(&ai_action, Some("runtime"), Some("runtime"))
+                    .await
+                    .map_err(|e| AiError::Tool(e.to_string()))?;
+                Ok(ToolOutput::success(json!({
+                    "allowed": decision.allowed,
+                    "requires_approval": decision.requires_approval,
+                    "approval_id": decision.approval_id,
+                    "reason": decision.reason
+                })))
+            }
+            SecurityQueryOperation::RequestElevation { reason } => Ok(ToolOutput::error(format!(
+                "Elevation requires human approval outside runtime tools: {}",
+                reason
+            ))),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -750,6 +1382,8 @@ mod tests {
         SecretStorage,
         ConfigStorage,
         AgentTaskStorage,
+        TriggerStorage,
+        TerminalSessionStorage,
         tempfile::TempDir,
     ) {
         let temp_dir = tempdir().unwrap();
@@ -775,7 +1409,9 @@ mod tests {
         )
         .unwrap();
         let config_storage = ConfigStorage::new(db.clone()).unwrap();
-        let agent_task_storage = AgentTaskStorage::new(db).unwrap();
+        let agent_task_storage = AgentTaskStorage::new(db.clone()).unwrap();
+        let trigger_storage = TriggerStorage::new(db.clone()).unwrap();
+        let terminal_storage = TerminalSessionStorage::new(db).unwrap();
 
         unsafe {
             std::env::remove_var("RESTFLOW_DIR");
@@ -788,6 +1424,8 @@ mod tests {
             secret_storage,
             config_storage,
             agent_task_storage,
+            trigger_storage,
+            terminal_storage,
             temp_dir,
         )
     }
@@ -802,6 +1440,8 @@ mod tests {
             secret_storage,
             config_storage,
             agent_task_storage,
+            trigger_storage,
+            terminal_storage,
             _temp_dir,
         ) = setup_storage();
         let registry = create_tool_registry(
@@ -812,6 +1452,8 @@ mod tests {
             secret_storage,
             config_storage,
             agent_task_storage,
+            trigger_storage,
+            terminal_storage,
             None,
         );
 
@@ -826,6 +1468,10 @@ mod tests {
         assert!(registry.has("manage_secrets"));
         assert!(registry.has("manage_config"));
         assert!(registry.has("manage_tasks"));
+        assert!(registry.has("manage_marketplace"));
+        assert!(registry.has("manage_triggers"));
+        assert!(registry.has("manage_terminal"));
+        assert!(registry.has("security_query"));
     }
 
     #[test]
@@ -838,6 +1484,8 @@ mod tests {
             _secret_storage,
             _config_storage,
             _agent_task_storage,
+            _trigger_storage,
+            _terminal_storage,
             _temp_dir,
         ) = setup_storage();
         let provider = SkillStorageProvider::new(storage);
@@ -856,6 +1504,8 @@ mod tests {
             _secret_storage,
             _config_storage,
             _agent_task_storage,
+            _trigger_storage,
+            _terminal_storage,
             _temp_dir,
         ) = setup_storage();
 
@@ -895,6 +1545,8 @@ mod tests {
             _secret_storage,
             _config_storage,
             agent_task_storage,
+            _trigger_storage,
+            _terminal_storage,
             _temp_dir,
         ) = setup_storage();
 
@@ -1017,5 +1669,264 @@ mod tests {
             deleted.get("deleted").and_then(|value| value.as_bool()),
             Some(true)
         );
+    }
+
+    #[tokio::test]
+    async fn test_marketplace_tool_list_and_uninstall() {
+        let (
+            skill_storage,
+            memory_storage,
+            chat_storage,
+            shared_space_storage,
+            secret_storage,
+            config_storage,
+            agent_task_storage,
+            trigger_storage,
+            terminal_storage,
+            _temp_dir,
+        ) = setup_storage();
+
+        let local_skill = Skill::new(
+            "local-skill".to_string(),
+            "Local Skill".to_string(),
+            Some("from test".to_string()),
+            None,
+            "# Local".to_string(),
+        );
+        skill_storage.create(&local_skill).unwrap();
+
+        let registry = create_tool_registry(
+            skill_storage,
+            memory_storage,
+            chat_storage,
+            shared_space_storage,
+            secret_storage,
+            config_storage,
+            agent_task_storage,
+            trigger_storage,
+            terminal_storage,
+            None,
+        );
+
+        let listed = registry
+            .execute_safe(
+                "manage_marketplace",
+                json!({ "operation": "list_installed" }),
+            )
+            .await
+            .unwrap();
+        assert!(listed.success);
+        assert_eq!(listed.result.as_array().map(|items| items.len()), Some(1));
+
+        let deleted = registry
+            .execute_safe(
+                "manage_marketplace",
+                json!({ "operation": "uninstall", "id": "local-skill" }),
+            )
+            .await
+            .unwrap();
+        assert!(deleted.success);
+        assert_eq!(deleted.result["deleted"].as_bool(), Some(true));
+    }
+
+    #[tokio::test]
+    async fn test_trigger_tool_create_list_disable() {
+        let (
+            skill_storage,
+            memory_storage,
+            chat_storage,
+            shared_space_storage,
+            secret_storage,
+            config_storage,
+            agent_task_storage,
+            trigger_storage,
+            terminal_storage,
+            _temp_dir,
+        ) = setup_storage();
+
+        let registry = create_tool_registry(
+            skill_storage,
+            memory_storage,
+            chat_storage,
+            shared_space_storage,
+            secret_storage,
+            config_storage,
+            agent_task_storage,
+            trigger_storage,
+            terminal_storage,
+            None,
+        );
+
+        let created = registry
+            .execute_safe(
+                "manage_triggers",
+                json!({
+                    "operation": "create",
+                    "workflow_id": "wf-001",
+                    "trigger_config": {
+                        "type": "schedule",
+                        "cron": "0 * * * * *",
+                        "timezone": "UTC",
+                        "payload": {"from": "test"}
+                    }
+                }),
+            )
+            .await
+            .unwrap();
+        assert!(created.success);
+        let trigger_id = created.result["id"].as_str().unwrap().to_string();
+
+        let listed = registry
+            .execute_safe("manage_triggers", json!({ "operation": "list" }))
+            .await
+            .unwrap();
+        assert!(listed.success);
+        assert_eq!(listed.result.as_array().map(|items| items.len()), Some(1));
+
+        let disabled = registry
+            .execute_safe(
+                "manage_triggers",
+                json!({ "operation": "disable", "id": trigger_id }),
+            )
+            .await
+            .unwrap();
+        assert!(disabled.success);
+    }
+
+    #[tokio::test]
+    async fn test_terminal_tool_create_send_read_close() {
+        let (
+            skill_storage,
+            memory_storage,
+            chat_storage,
+            shared_space_storage,
+            secret_storage,
+            config_storage,
+            agent_task_storage,
+            trigger_storage,
+            terminal_storage,
+            _temp_dir,
+        ) = setup_storage();
+
+        let registry = create_tool_registry(
+            skill_storage,
+            memory_storage,
+            chat_storage,
+            shared_space_storage,
+            secret_storage,
+            config_storage,
+            agent_task_storage,
+            trigger_storage,
+            terminal_storage,
+            None,
+        );
+
+        let created = registry
+            .execute_safe(
+                "manage_terminal",
+                json!({
+                    "operation": "create",
+                    "name": "Agent Session",
+                    "working_directory": "/tmp"
+                }),
+            )
+            .await
+            .unwrap();
+        assert!(created.success);
+        let session_id = created.result["id"].as_str().unwrap().to_string();
+
+        let sent = registry
+            .execute_safe(
+                "manage_terminal",
+                json!({
+                    "operation": "send_input",
+                    "session_id": session_id,
+                    "data": "echo hello"
+                }),
+            )
+            .await
+            .unwrap();
+        assert!(sent.success);
+        let read = registry
+            .execute_safe(
+                "manage_terminal",
+                json!({
+                    "operation": "read_output",
+                    "session_id": sent.result["session_id"].as_str().unwrap()
+                }),
+            )
+            .await
+            .unwrap();
+        assert!(read.success);
+        assert!(
+            read.result["output"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("echo hello")
+        );
+
+        let closed = registry
+            .execute_safe(
+                "manage_terminal",
+                json!({
+                    "operation": "close",
+                    "session_id": sent.result["session_id"].as_str().unwrap()
+                }),
+            )
+            .await
+            .unwrap();
+        assert!(closed.success);
+    }
+
+    #[tokio::test]
+    async fn test_security_query_tool_show_policy_and_check_permission() {
+        let (
+            skill_storage,
+            memory_storage,
+            chat_storage,
+            shared_space_storage,
+            secret_storage,
+            config_storage,
+            agent_task_storage,
+            trigger_storage,
+            terminal_storage,
+            _temp_dir,
+        ) = setup_storage();
+
+        let registry = create_tool_registry(
+            skill_storage,
+            memory_storage,
+            chat_storage,
+            shared_space_storage,
+            secret_storage,
+            config_storage,
+            agent_task_storage,
+            trigger_storage,
+            terminal_storage,
+            None,
+        );
+
+        let summary = registry
+            .execute_safe("security_query", json!({ "operation": "list_permissions" }))
+            .await
+            .unwrap();
+        assert!(summary.success);
+        assert!(summary.result["allowlist_count"].as_u64().unwrap_or(0) > 0);
+
+        let check = registry
+            .execute_safe(
+                "security_query",
+                json!({
+                    "operation": "check_permission",
+                    "tool_name": "manage_marketplace",
+                    "operation_name": "install",
+                    "target": "skill-id",
+                    "summary": "Install skill"
+                }),
+            )
+            .await
+            .unwrap();
+        assert!(check.success);
+        assert!(check.result.get("allowed").is_some());
     }
 }
