@@ -5,6 +5,7 @@ mod claude_code;
 mod client;
 mod codex;
 mod factory;
+mod gemini_cli;
 mod openai;
 mod opencode;
 mod pricing;
@@ -19,6 +20,7 @@ pub use client::{
 };
 pub use codex::CodexClient;
 pub use factory::{DefaultLlmClientFactory, LlmClientFactory, LlmProvider, ModelSpec};
+pub use gemini_cli::GeminiCliClient;
 pub use openai::OpenAIClient;
 pub use opencode::OpenCodeClient;
 pub use retry::LlmRetryConfig;

@@ -22,10 +22,7 @@ use tokio::time::{Duration, sleep};
 fn command_needs_direct_core(command: &Option<Commands>) -> bool {
     matches!(
         command,
-        Some(Commands::Daemon { .. })
-            | Some(Commands::Codex(_))
-            | Some(Commands::Run(_))
-            | Some(Commands::Hook { .. })
+        Some(Commands::Daemon { .. }) | Some(Commands::Run(_)) | Some(Commands::Hook { .. })
     )
 }
 
@@ -176,11 +173,10 @@ async fn main() -> Result<()> {
 
     if matches!(
         &cli.command,
-        Some(Commands::Key { .. }) | Some(Commands::Claude(_)) | Some(Commands::Auth { .. })
+        Some(Commands::Key { .. }) | Some(Commands::Auth { .. })
     ) {
         return match cli.command {
             Some(Commands::Key { command }) => commands::key::run(command, cli.format).await,
-            Some(Commands::Claude(args)) => commands::claude::run(args, cli.format).await,
             Some(Commands::Auth { command }) => commands::auth::run(command, cli.format).await,
             _ => unreachable!(),
         };
@@ -190,7 +186,7 @@ async fn main() -> Result<()> {
         return commands::mcp::run(command.clone(), cli.format).await;
     }
 
-    // Commands that need direct core access (daemon, codex, run)
+    // Commands that need direct core access (daemon, run, hook)
     // These bypass the executor pattern for now
     let needs_direct_core = command_needs_direct_core(&cli.command);
 
@@ -203,7 +199,6 @@ async fn main() -> Result<()> {
         match cli.command {
             Some(Commands::Run(args)) => commands::run::run(core, args, cli.format).await,
             Some(Commands::Daemon { command }) => commands::daemon::run(core, command).await,
-            Some(Commands::Codex(args)) => commands::codex::run(core, args, cli.format).await,
             Some(Commands::Hook { command }) => {
                 commands::hook::run(core, command, cli.format).await
             }
@@ -268,7 +263,7 @@ async fn wait_for_daemon_exit() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::command_needs_direct_core;
-    use crate::cli::{CodexArgs, Commands, HookCommands, RunArgs, StartArgs};
+    use crate::cli::{Commands, HookCommands, RunArgs, StartArgs};
 
     #[test]
     fn start_does_not_need_direct_core() {
@@ -283,18 +278,6 @@ mod tests {
             input: None,
             background: false,
             stream: false,
-        }));
-        assert!(command_needs_direct_core(&command));
-    }
-
-    #[test]
-    fn codex_needs_direct_core() {
-        let command = Some(Commands::Codex(CodexArgs {
-            prompt: None,
-            model: "gpt-5".to_string(),
-            session: None,
-            cwd: None,
-            timeout: 300,
         }));
         assert!(command_needs_direct_core(&command));
     }
