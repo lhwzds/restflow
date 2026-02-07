@@ -9,8 +9,9 @@
 
 use anyhow::{Result, anyhow};
 use restflow_ai::llm::Message;
+use restflow_core::hooks::HookExecutor;
 use restflow_core::models::{
-    AgentTask, AgentTaskStatus, BackgroundMessageSource, ExecutionMode, MemoryScope,
+    AgentTask, AgentTaskStatus, BackgroundMessageSource, ExecutionMode, HookContext, MemoryScope,
     NotificationConfig, SteerMessage, SteerSource,
 };
 use restflow_core::performance::{
@@ -184,6 +185,8 @@ pub struct AgentTaskRunner {
     start_time: Instant,
     /// Optional memory persister for long-term memory storage
     memory_persister: Option<MemoryPersister>,
+    /// Optional hook executor for lifecycle automation
+    hook_executor: Option<Arc<HookExecutor>>,
     steer_registry: Arc<SteerRegistry>,
 }
 
@@ -216,6 +219,7 @@ impl AgentTaskRunner {
             sequence: AtomicU64::new(0),
             start_time: Instant::now(),
             memory_persister: None,
+            hook_executor: None,
             steer_registry,
         }
     }
@@ -249,6 +253,7 @@ impl AgentTaskRunner {
             sequence: AtomicU64::new(0),
             start_time: Instant::now(),
             memory_persister: None,
+            hook_executor: None,
             steer_registry,
         }
     }
@@ -286,6 +291,7 @@ impl AgentTaskRunner {
             sequence: AtomicU64::new(0),
             start_time: Instant::now(),
             memory_persister: Some(MemoryPersister::new(memory_storage)),
+            hook_executor: None,
             steer_registry,
         }
     }
@@ -293,6 +299,12 @@ impl AgentTaskRunner {
     /// Attach a task event emitter for streaming updates.
     pub fn with_event_emitter(mut self, event_emitter: Arc<dyn TaskEventEmitter>) -> Self {
         self.event_emitter = event_emitter;
+        self
+    }
+
+    /// Attach a hook executor for lifecycle actions.
+    pub fn with_hook_executor(mut self, hook_executor: Arc<HookExecutor>) -> Self {
+        self.hook_executor = Some(hook_executor);
         self
     }
 
@@ -667,6 +679,7 @@ impl AgentTaskRunner {
                 &execution_mode_str,
             ))
             .await;
+        self.fire_hooks(&HookContext::from_started(&task)).await;
 
         // Register steer channel for API-based tasks
         let steer_rx = if matches!(task.execution_mode, ExecutionMode::Api) {
@@ -799,6 +812,12 @@ impl AgentTaskRunner {
                         duration_ms,
                     ))
                     .await;
+                self.fire_hooks(&HookContext::from_cancelled(
+                    &task,
+                    "Cancelled by user",
+                    duration_ms,
+                ))
+                .await;
                 if let Err(e) = self.storage.pause_task(task_id) {
                     error!("Failed to mark task {} as paused: {}", task_id, e);
                 }
@@ -832,6 +851,12 @@ impl AgentTaskRunner {
                         duration_ms,
                     ))
                     .await;
+                self.fire_hooks(&HookContext::from_completed(
+                    &task,
+                    &exec_result.output,
+                    duration_ms,
+                ))
+                .await;
 
                 if let Err(e) = self.storage.complete_task_execution(
                     task_id,
@@ -863,6 +888,8 @@ impl AgentTaskRunner {
                         false,
                     ))
                     .await;
+                self.fire_hooks(&HookContext::from_failed(&task, &error_msg, duration_ms))
+                    .await;
 
                 if let Err(e) =
                     self.storage
@@ -888,6 +915,8 @@ impl AgentTaskRunner {
                         self.config.task_timeout_secs,
                         duration_ms,
                     ))
+                    .await;
+                self.fire_hooks(&HookContext::from_failed(&task, &error_msg, duration_ms))
                     .await;
 
                 if let Err(e) =
@@ -1025,6 +1054,12 @@ impl AgentTaskRunner {
         }
     }
 
+    async fn fire_hooks(&self, context: &HookContext) {
+        if let Some(executor) = &self.hook_executor {
+            executor.fire(context).await;
+        }
+    }
+
     /// Send notification for task completion/failure
     async fn send_notification(&self, task: &AgentTask, success: bool, message: &str) {
         // Check if notifications are enabled
@@ -1116,7 +1151,10 @@ impl TaskExecutor for RunnerTaskExecutor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use restflow_core::models::{MemoryScope, TaskEventType, TaskSchedule};
+    use restflow_core::hooks::{HookExecutor, HookTaskScheduler};
+    use restflow_core::models::{
+        Hook, HookAction, HookEvent, MemoryScope, TaskEventType, TaskSchedule,
+    };
     use std::sync::atomic::{AtomicU32, Ordering};
     use std::time::Instant;
     use tempfile::tempdir;
@@ -1216,6 +1254,30 @@ mod tests {
         }
     }
 
+    struct MockHookScheduler {
+        call_count: AtomicU32,
+    }
+
+    impl MockHookScheduler {
+        fn new() -> Self {
+            Self {
+                call_count: AtomicU32::new(0),
+            }
+        }
+
+        fn call_count(&self) -> u32 {
+            self.call_count.load(Ordering::SeqCst)
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl HookTaskScheduler for MockHookScheduler {
+        async fn schedule_task(&self, _agent_id: &str, _input: &str) -> Result<()> {
+            self.call_count.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+    }
+
     /// Creates test storage and returns it along with the TempDir.
     /// The TempDir must be kept alive for the duration of the test to prevent
     /// the database from being deleted (important on Windows).
@@ -1306,6 +1368,53 @@ mod tests {
         let updated_task = storage.get_task(&task.id).unwrap().unwrap();
         assert_eq!(updated_task.status, AgentTaskStatus::Completed);
         assert_eq!(updated_task.success_count, 1);
+    }
+
+    #[tokio::test]
+    async fn test_runner_triggers_hooks_on_completion() {
+        let (storage, _temp_dir) = create_test_storage();
+        let executor = Arc::new(MockExecutor::new());
+        let notifier = Arc::new(NoopNotificationSender);
+        let hook_scheduler = Arc::new(MockHookScheduler::new());
+
+        let hook = Hook::new(
+            "Run follow-up".to_string(),
+            HookEvent::TaskCompleted,
+            HookAction::RunTask {
+                agent_id: "agent-next".to_string(),
+                input_template: "From hook".to_string(),
+            },
+        );
+        let hook_executor =
+            Arc::new(HookExecutor::new(vec![hook]).with_task_scheduler(hook_scheduler.clone()));
+
+        let past_time = chrono::Utc::now().timestamp_millis() - 1000;
+        let mut task = storage
+            .create_task(
+                "Task With Hook".to_string(),
+                "agent-001".to_string(),
+                TaskSchedule::Once { run_at: past_time },
+            )
+            .unwrap();
+        task.next_run_at = Some(past_time);
+        storage.update_task(&task).unwrap();
+
+        let config = RunnerConfig {
+            poll_interval_ms: 100,
+            ..Default::default()
+        };
+
+        let steer_registry = Arc::new(SteerRegistry::new());
+        let runner = Arc::new(
+            AgentTaskRunner::new(storage, executor, notifier, config, steer_registry)
+                .with_hook_executor(hook_executor),
+        );
+
+        let handle = runner.clone().start();
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        handle.stop().await.unwrap();
+
+        assert_eq!(hook_scheduler.call_count(), 1);
     }
 
     #[tokio::test]

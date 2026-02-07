@@ -74,6 +74,12 @@ pub enum Commands {
         command: TaskCommands,
     },
 
+    /// Hook management
+    Hook {
+        #[command(subcommand)]
+        command: HookCommands,
+    },
+
     /// Daemon management
     Daemon {
         #[command(subcommand)]
@@ -301,6 +307,17 @@ mod tests {
             })
         ));
     }
+
+    #[test]
+    fn parses_hook_list_command() {
+        let cli = Cli::try_parse_from(["restflow", "hook", "list"]).expect("parse hook list");
+        assert!(matches!(
+            cli.command,
+            Some(super::Commands::Hook {
+                command: super::HookCommands::List
+            })
+        ));
+    }
 }
 
 #[derive(Subcommand)]
@@ -489,6 +506,56 @@ pub enum TaskMessageCommands {
         #[arg(long, default_value_t = 20)]
         limit: usize,
     },
+}
+
+#[derive(Subcommand)]
+pub enum HookCommands {
+    /// List hooks
+    List,
+
+    /// Create a hook quickly from CLI
+    Create {
+        #[arg(long)]
+        name: String,
+
+        /// One of: task_started, task_completed, task_failed, task_cancelled
+        #[arg(long)]
+        event: String,
+
+        /// One of: webhook, script, send_message, run_task
+        #[arg(long)]
+        action: String,
+
+        /// URL for webhook action
+        #[arg(long)]
+        url: Option<String>,
+
+        /// Script path for script action
+        #[arg(long)]
+        script: Option<String>,
+
+        /// Channel type for send_message action
+        #[arg(long)]
+        channel: Option<String>,
+
+        /// Message template for send_message action
+        #[arg(long)]
+        message: Option<String>,
+
+        /// Agent ID for run_task action
+        #[arg(long)]
+        agent: Option<String>,
+
+        /// Input template for run_task action
+        #[arg(long)]
+        input: Option<String>,
+    },
+
+    /// Delete a hook
+    Delete { id: String },
+
+    /// Execute a hook with synthetic context
+    Test { id: String },
 }
 
 #[derive(Subcommand)]

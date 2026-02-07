@@ -177,6 +177,12 @@ fn main() {
             commands::get_task_stream_event_name,
             commands::get_heartbeat_event_name,
             commands::emit_test_task_event,
+            // Hooks
+            commands::list_hooks,
+            commands::create_hook,
+            commands::update_hook,
+            commands::delete_hook,
+            commands::test_hook,
             // Secrets
             commands::list_secrets,
             commands::create_secret,

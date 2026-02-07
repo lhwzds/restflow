@@ -105,6 +105,17 @@ impl ChannelRouter {
         channel.send(message).await
     }
 
+    /// Send text to the configured default conversation of a channel.
+    pub async fn send_to_default(&self, channel_type: ChannelType, content: &str) -> Result<()> {
+        let conversation_id = self
+            .default_conversations
+            .get(&channel_type)
+            .ok_or_else(|| anyhow!("No default conversation configured for {:?}", channel_type))?;
+
+        let message = OutboundMessage::new(conversation_id, content);
+        self.send_to(channel_type, message).await
+    }
+
     /// Send typing indicator to a specific channel
     pub async fn send_typing_to(
         &self,
@@ -330,6 +341,18 @@ mod tests {
         let message = OutboundMessage::new("chat-123", "Hello");
         router
             .send_to(ChannelType::Telegram, message)
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_send_to_default_channel() {
+        let mut router = ChannelRouter::new();
+        let channel = MockChannel::new(ChannelType::Telegram);
+        router.register_with_default(channel, "chat-default");
+
+        router
+            .send_to_default(ChannelType::Telegram, "Hello")
             .await
             .unwrap();
     }

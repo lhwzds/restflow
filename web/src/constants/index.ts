@@ -15,6 +15,7 @@ export {
   type SecretEndpoints,
   type SkillEndpoints,
   type AgentTaskEndpoints,
+  type HookEndpoints,
 } from './api/endpoints'
 
 // ===== Node Related =====
