@@ -380,7 +380,7 @@ describe('agentTaskStore', () => {
       expect(agentTaskApi.onTaskStreamEvent).toHaveBeenCalledTimes(1)
       expect(streamCallback).not.toBeNull()
 
-      streamCallback?.({
+      streamCallback!({
         task_id: 'task-1',
         timestamp: Date.now(),
         kind: { type: 'completed', result: 'done', duration_ms: 100 },
