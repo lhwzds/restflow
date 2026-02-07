@@ -78,6 +78,16 @@ pub fn main_agent_default_tool_names() -> Vec<String> {
         "manage_terminal",
         "security_query",
         "switch_model",
+        "skill",
+        "memory_search",
+        "shared_space",
+        "manage_secrets",
+        "manage_config",
+        "manage_sessions",
+        "manage_memory",
+        "manage_auth_profiles",
+        "patch",
+        "diagnostics",
     ]
     .into_iter()
     .map(str::to_string)
@@ -232,6 +242,16 @@ pub fn registry_from_allowlist(
     let mut enable_manage_triggers = false;
     let mut enable_manage_terminal = false;
     let mut enable_security_query = false;
+    let mut enable_skill = false;
+    let mut enable_memory_search = false;
+    let mut enable_shared_space = false;
+    let mut enable_manage_secrets = false;
+    let mut enable_manage_config = false;
+    let mut enable_manage_sessions = false;
+    let mut enable_manage_memory = false;
+    let mut enable_manage_auth_profiles = false;
+    let mut enable_patch = false;
+    let mut enable_diagnostics = false;
 
     for raw_name in tool_names {
         match raw_name.as_str() {
@@ -332,6 +352,44 @@ pub fn registry_from_allowlist(
             "security_query" => {
                 enable_security_query = true;
             }
+            "skill" => {
+                enable_skill = true;
+            }
+            "memory_search" => {
+                enable_memory_search = true;
+            }
+            "shared_space" => {
+                enable_shared_space = true;
+            }
+            "manage_secrets" | "secrets" => {
+                enable_manage_secrets = true;
+            }
+            "manage_config" | "config" => {
+                enable_manage_config = true;
+            }
+            "manage_sessions" | "sessions" => {
+                enable_manage_sessions = true;
+            }
+            "manage_memory" => {
+                enable_manage_memory = true;
+            }
+            "manage_auth_profiles" | "auth_profiles" => {
+                enable_manage_auth_profiles = true;
+            }
+            "patch" => {
+                enable_patch = true;
+            }
+            "diagnostics" => {
+                enable_diagnostics = true;
+            }
+            "save_to_memory" | "read_memory" | "list_memories" | "delete_memory" => {
+                // File memory tools require FileMemoryConfig with agent_id.
+                // Not available via core registry; skip for now.
+                warn!(
+                    tool_name = %raw_name,
+                    "File memory tools require agent_id context; not yet wired in tauri allowlist"
+                );
+            }
             "switch_model" => {
                 // Registered by callers that provide SwappableLlm + LlmClientFactory.
             }
@@ -349,13 +407,24 @@ pub fn registry_from_allowlist(
         builder = builder.with_file(config);
     }
 
-    if enable_manage_tasks
+    let any_storage_tool = enable_manage_tasks
         || enable_manage_agents
         || enable_manage_marketplace
         || enable_manage_triggers
         || enable_manage_terminal
         || enable_security_query
-    {
+        || enable_skill
+        || enable_memory_search
+        || enable_shared_space
+        || enable_manage_secrets
+        || enable_manage_config
+        || enable_manage_sessions
+        || enable_manage_memory
+        || enable_manage_auth_profiles
+        || enable_patch
+        || enable_diagnostics;
+
+    if any_storage_tool {
         if let Some(storage) = storage {
             let core_registry = create_tool_registry(
                 storage.skills.clone(),
@@ -377,6 +446,16 @@ pub fn registry_from_allowlist(
                 ("manage_triggers", enable_manage_triggers),
                 ("manage_terminal", enable_manage_terminal),
                 ("security_query", enable_security_query),
+                ("skill", enable_skill),
+                ("memory_search", enable_memory_search),
+                ("shared_space", enable_shared_space),
+                ("manage_secrets", enable_manage_secrets),
+                ("manage_config", enable_manage_config),
+                ("manage_sessions", enable_manage_sessions),
+                ("manage_memory", enable_manage_memory),
+                ("manage_auth_profiles", enable_manage_auth_profiles),
+                ("patch", enable_patch),
+                ("diagnostics", enable_diagnostics),
             ];
             for (tool_name, enabled) in storage_backed_tools {
                 if !enabled {
@@ -392,14 +471,25 @@ pub fn registry_from_allowlist(
                 }
             }
         } else {
-            for (tool_name, enabled) in [
+            let storage_backed_tools = [
                 ("manage_tasks", enable_manage_tasks),
                 ("manage_agents", enable_manage_agents),
                 ("manage_marketplace", enable_manage_marketplace),
                 ("manage_triggers", enable_manage_triggers),
                 ("manage_terminal", enable_manage_terminal),
                 ("security_query", enable_security_query),
-            ] {
+                ("skill", enable_skill),
+                ("memory_search", enable_memory_search),
+                ("shared_space", enable_shared_space),
+                ("manage_secrets", enable_manage_secrets),
+                ("manage_config", enable_manage_config),
+                ("manage_sessions", enable_manage_sessions),
+                ("manage_memory", enable_manage_memory),
+                ("manage_auth_profiles", enable_manage_auth_profiles),
+                ("patch", enable_patch),
+                ("diagnostics", enable_diagnostics),
+            ];
+            for (tool_name, enabled) in storage_backed_tools {
                 if enabled {
                     warn!(
                         tool_name = tool_name,
@@ -485,6 +575,53 @@ mod tests {
         assert!(tools.iter().any(|name| name == "manage_triggers"));
         assert!(tools.iter().any(|name| name == "manage_terminal"));
         assert!(tools.iter().any(|name| name == "security_query"));
+    }
+
+    #[test]
+    fn test_new_storage_tools_registered_with_storage() {
+        let dir = tempdir().expect("temp dir should be created");
+        let db_path = dir.path().join("new-tools.db");
+        let storage = Storage::new(db_path.to_str().expect("db path should be valid"))
+            .expect("storage should be created");
+        let names = vec![
+            "skill".to_string(),
+            "memory_search".to_string(),
+            "shared_space".to_string(),
+            "manage_secrets".to_string(),
+            "manage_config".to_string(),
+            "manage_sessions".to_string(),
+            "manage_memory".to_string(),
+            "manage_auth_profiles".to_string(),
+            "patch".to_string(),
+            "diagnostics".to_string(),
+        ];
+
+        let registry = registry_from_allowlist(Some(&names), None, None, Some(&storage));
+        assert!(registry.has("skill"));
+        assert!(registry.has("memory_search"));
+        assert!(registry.has("shared_space"));
+        assert!(registry.has("manage_secrets"));
+        assert!(registry.has("manage_config"));
+        assert!(registry.has("manage_sessions"));
+        assert!(registry.has("manage_memory"));
+        assert!(registry.has("manage_auth_profiles"));
+        assert!(registry.has("patch"));
+        assert!(registry.has("diagnostics"));
+    }
+
+    #[test]
+    fn test_main_agent_default_tools_include_new_tools() {
+        let tools = main_agent_default_tool_names();
+        assert!(tools.iter().any(|name| name == "skill"));
+        assert!(tools.iter().any(|name| name == "memory_search"));
+        assert!(tools.iter().any(|name| name == "shared_space"));
+        assert!(tools.iter().any(|name| name == "manage_secrets"));
+        assert!(tools.iter().any(|name| name == "manage_config"));
+        assert!(tools.iter().any(|name| name == "manage_sessions"));
+        assert!(tools.iter().any(|name| name == "manage_memory"));
+        assert!(tools.iter().any(|name| name == "manage_auth_profiles"));
+        assert!(tools.iter().any(|name| name == "patch"));
+        assert!(tools.iter().any(|name| name == "diagnostics"));
     }
 
     #[test]
