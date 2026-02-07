@@ -6,13 +6,18 @@
 use crate::AppCore;
 use crate::daemon::{IpcClient, IpcRequest, IpcResponse};
 use crate::models::{
-    AgentTask, AgentTaskStatus, BackgroundAgentControlAction, BackgroundAgentPatch,
+    AIModel, AgentTask, AgentTaskStatus, BackgroundAgentControlAction, BackgroundAgentPatch,
     BackgroundAgentSpec, BackgroundMessage, BackgroundMessageSource, BackgroundProgress,
     ChatSession, ChatSessionSummary, MemoryChunk, MemoryConfig, MemoryScope, MemorySearchQuery,
-    MemorySearchResult, MemorySource, MemoryStats, SearchMode, Skill, TaskSchedule,
+    MemorySearchResult, MemorySource, MemoryStats, Provider, SearchMode, Skill, TaskSchedule,
 };
 use crate::services::tool_registry::create_tool_registry;
+use crate::storage::SecretStorage;
 use crate::storage::agent::StoredAgent;
+use restflow_ai::llm::{
+    CodexClient, DefaultLlmClientFactory, LlmClient, LlmProvider, ModelSpec, SwappableLlm,
+};
+use restflow_ai::tools::{SwitchModelTool, Tool as RuntimeTool};
 use rmcp::{
     ErrorData as McpError, ServerHandler, ServiceExt,
     handler::server::tool::schema_for_type,
@@ -37,6 +42,7 @@ use tokio::sync::Mutex;
 #[derive(Clone)]
 pub struct RestFlowMcpServer {
     backend: Arc<dyn McpBackend>,
+    switch_model_tool: SwitchModelTool,
 }
 
 #[derive(Debug, Clone)]
@@ -127,6 +133,86 @@ fn create_runtime_tool_registry_for_core(core: &Arc<AppCore>) -> restflow_ai::to
         core.storage.terminal_sessions.clone(),
         None,
     )
+}
+
+fn to_llm_provider(provider: Provider) -> LlmProvider {
+    match provider {
+        Provider::OpenAI => LlmProvider::OpenAI,
+        Provider::Anthropic => LlmProvider::Anthropic,
+        Provider::DeepSeek => LlmProvider::DeepSeek,
+        Provider::Google => LlmProvider::Google,
+        Provider::Groq => LlmProvider::Groq,
+        Provider::OpenRouter => LlmProvider::OpenRouter,
+        Provider::XAI => LlmProvider::XAI,
+        Provider::Qwen => LlmProvider::Qwen,
+        Provider::Zhipu => LlmProvider::Zhipu,
+        Provider::Moonshot => LlmProvider::Moonshot,
+        Provider::Doubao => LlmProvider::Doubao,
+        Provider::Yi => LlmProvider::Yi,
+        Provider::SiliconFlow => LlmProvider::SiliconFlow,
+    }
+}
+
+fn build_model_specs() -> Vec<ModelSpec> {
+    let mut specs = Vec::new();
+    for model in AIModel::all() {
+        let provider = to_llm_provider(model.provider());
+        let spec = if model.is_opencode_cli() {
+            ModelSpec::opencode(model.as_serialized_str(), model.as_str())
+        } else if model.is_codex_cli() {
+            ModelSpec::codex(model.as_serialized_str(), model.as_str())
+        } else if model.is_gemini_cli() {
+            ModelSpec::gemini_cli(model.as_serialized_str(), model.as_str())
+        } else {
+            ModelSpec::new(model.as_serialized_str(), provider, model.as_str())
+        };
+        specs.push(spec);
+
+        if model.is_claude_code() {
+            specs.push(ModelSpec::new(model.as_str(), provider, model.as_str()));
+        }
+    }
+
+    for codex_model in [
+        "gpt-5.3-codex",
+        "gpt-5.2-codex",
+        "gpt-5.1-codex-max",
+        "gpt-5.1-codex",
+        "gpt-5-codex",
+    ] {
+        specs.push(ModelSpec::codex(codex_model, codex_model));
+    }
+
+    specs
+}
+
+fn build_api_keys(secret_storage: Option<&SecretStorage>) -> HashMap<LlmProvider, String> {
+    let mut keys = HashMap::new();
+    for provider in Provider::all() {
+        let env_name = provider.api_key_env();
+        if let Some(storage) = secret_storage
+            && let Ok(Some(value)) = storage.get_secret(env_name)
+            && !value.trim().is_empty()
+        {
+            keys.insert(to_llm_provider(*provider), value);
+            continue;
+        }
+
+        if let Ok(value) = std::env::var(env_name)
+            && !value.trim().is_empty()
+        {
+            keys.insert(to_llm_provider(*provider), value);
+        }
+    }
+    keys
+}
+
+fn build_switch_model_tool(secret_storage: Option<&SecretStorage>) -> SwitchModelTool {
+    let api_keys = build_api_keys(secret_storage);
+    let factory = Arc::new(DefaultLlmClientFactory::new(api_keys, build_model_specs()));
+    let initial_client: Arc<dyn LlmClient> = Arc::new(CodexClient::new());
+    let swappable = Arc::new(SwappableLlm::new(initial_client));
+    SwitchModelTool::new(swappable, factory)
 }
 
 struct CoreBackend {
@@ -605,6 +691,7 @@ impl RestFlowMcpServer {
     /// Create a new MCP server with the given AppCore
     pub fn new(core: Arc<AppCore>) -> Self {
         Self {
+            switch_model_tool: build_switch_model_tool(Some(&core.storage.secrets)),
             backend: Arc::new(CoreBackend { core }),
         }
     }
@@ -612,6 +699,7 @@ impl RestFlowMcpServer {
     /// Create a new MCP server using daemon IPC
     pub fn with_ipc(client: IpcClient) -> Self {
         Self {
+            switch_model_tool: build_switch_model_tool(None),
             backend: Arc::new(IpcBackend {
                 client: Arc::new(Mutex::new(client)),
             }),
@@ -620,7 +708,10 @@ impl RestFlowMcpServer {
 
     /// Create a new MCP server with a custom backend
     pub fn with_backend(backend: Arc<dyn McpBackend>) -> Self {
-        Self { backend }
+        Self {
+            switch_model_tool: build_switch_model_tool(None),
+            backend,
+        }
     }
 
     /// Run the MCP server using stdio transport
@@ -1029,18 +1120,18 @@ impl RestFlowMcpServer {
             },
             RuntimeToolDefinition {
                 name: "switch_model".to_string(),
-                description: "Switch the active LLM model during execution. Requires active main-agent runtime context.".to_string(),
+                description: "Switch the active LLM model for the current MCP server session.".to_string(),
                 parameters: serde_json::json!({
                     "type": "object",
                     "description": "Both 'provider' and 'model' are required.",
                     "properties": {
                         "provider": {
                             "type": "string",
-                            "description": "Provider selector (e.g. openai, anthropic, codex-cli, opencode-cli, gemini-cli)"
+                            "description": "Provider selector (e.g. openai, anthropic, claude-code, openai-codex, gemini-cli)"
                         },
                         "model": {
                             "type": "string",
-                            "description": "Model name to switch to. Supports provider-qualified format like codex-cli:gpt-5.3-codex."
+                            "description": "Model name to switch to. Supports provider-qualified format like openai-codex:gpt-5.3-codex."
                         },
                         "reason": {
                             "type": "string",
@@ -1427,6 +1518,19 @@ impl RestFlowMcpServer {
                 .unwrap_or_else(|| format!("Tool '{}' execution failed", name)))
         }
     }
+
+    async fn handle_switch_model_for_mcp(&self, input: Value) -> Result<String, String> {
+        let output = RuntimeTool::execute(&self.switch_model_tool, input)
+            .await
+            .map_err(|e| e.to_string())?;
+        if output.success {
+            serde_json::to_string_pretty(&output.result).map_err(|e| e.to_string())
+        } else {
+            Err(output
+                .error
+                .unwrap_or_else(|| "switch_model execution failed".to_string()))
+        }
+    }
 }
 
 // ============================================================================
@@ -1702,7 +1806,13 @@ impl ServerHandler for RestFlowMcpServer {
                         })?;
                 self.handle_manage_tasks(params).await
             }
-            "spawn_agent" | "wait_agents" | "switch_model" => Err(format!(
+            "switch_model" => {
+                self.handle_switch_model_for_mcp(Value::Object(
+                    request.arguments.unwrap_or_default(),
+                ))
+                .await
+            }
+            "spawn_agent" | "wait_agents" => Err(format!(
                 "Tool '{}' requires active main-agent runtime context and is not executable from standalone MCP yet.",
                 request.name
             )),
@@ -2563,5 +2673,25 @@ mod tests {
             switch_model.parameters["required"],
             serde_json::json!(["provider", "model"])
         );
+    }
+
+    #[tokio::test]
+    async fn test_switch_model_works_in_standalone_mcp_mode() {
+        let (server, _core, _temp_dir) = create_test_server().await;
+
+        let result = server
+            .handle_switch_model_for_mcp(serde_json::json!({
+                "provider": "openai-codex",
+                "model": "gpt-5.3-codex",
+                "reason": "MCP standalone test"
+            }))
+            .await
+            .expect("switch_model should succeed in standalone MCP mode");
+
+        let value: serde_json::Value =
+            serde_json::from_str(&result).expect("switch_model result should be valid JSON");
+        assert_eq!(value["switched"], true);
+        assert_eq!(value["to"]["model"], "gpt-5.3-codex");
+        assert_eq!(value["to"]["provider"], "codex-cli");
     }
 }
