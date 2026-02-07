@@ -11,6 +11,9 @@ use restflow_ai::LlmClient;
 pub use restflow_ai::tools::{
     SecretResolver, Tool, ToolOutput, ToolRegistry, TranscribeTool, VisionTool,
 };
+use restflow_ai::tools::{
+    DeleteMemoryTool, FileMemoryConfig, ListMemoryTool, ReadMemoryTool, SaveMemoryTool,
+};
 
 mod bash;
 mod email;
@@ -78,6 +81,16 @@ pub fn main_agent_default_tool_names() -> Vec<String> {
         "manage_terminal",
         "security_query",
         "switch_model",
+        "skill",
+        "memory_search",
+        "shared_space",
+        "manage_secrets",
+        "manage_config",
+        "manage_sessions",
+        "manage_memory",
+        "manage_auth_profiles",
+        "patch",
+        "diagnostics",
     ]
     .into_iter()
     .map(str::to_string)
@@ -214,6 +227,7 @@ pub fn registry_from_allowlist(
     subagent_deps: Option<&SubagentDeps>,
     secret_resolver: Option<SecretResolver>,
     storage: Option<&Storage>,
+    agent_id: Option<&str>,
 ) -> ToolRegistry {
     let Some(tool_names) = tool_names else {
         return ToolRegistry::new();
@@ -232,6 +246,17 @@ pub fn registry_from_allowlist(
     let mut enable_manage_triggers = false;
     let mut enable_manage_terminal = false;
     let mut enable_security_query = false;
+    let mut enable_skill = false;
+    let mut enable_memory_search = false;
+    let mut enable_shared_space = false;
+    let mut enable_manage_secrets = false;
+    let mut enable_manage_config = false;
+    let mut enable_manage_sessions = false;
+    let mut enable_manage_memory = false;
+    let mut enable_manage_auth_profiles = false;
+    let mut enable_patch = false;
+    let mut enable_diagnostics = false;
+    let mut enable_file_memory = false;
 
     for raw_name in tool_names {
         match raw_name.as_str() {
@@ -332,6 +357,39 @@ pub fn registry_from_allowlist(
             "security_query" => {
                 enable_security_query = true;
             }
+            "skill" => {
+                enable_skill = true;
+            }
+            "memory_search" => {
+                enable_memory_search = true;
+            }
+            "shared_space" => {
+                enable_shared_space = true;
+            }
+            "manage_secrets" | "secrets" => {
+                enable_manage_secrets = true;
+            }
+            "manage_config" | "config" => {
+                enable_manage_config = true;
+            }
+            "manage_sessions" | "sessions" => {
+                enable_manage_sessions = true;
+            }
+            "manage_memory" => {
+                enable_manage_memory = true;
+            }
+            "manage_auth_profiles" | "auth_profiles" => {
+                enable_manage_auth_profiles = true;
+            }
+            "patch" => {
+                enable_patch = true;
+            }
+            "diagnostics" => {
+                enable_diagnostics = true;
+            }
+            "save_to_memory" | "read_memory" | "list_memories" | "delete_memory" => {
+                enable_file_memory = true;
+            }
             "switch_model" => {
                 // Registered by callers that provide SwappableLlm + LlmClientFactory.
             }
@@ -349,13 +407,24 @@ pub fn registry_from_allowlist(
         builder = builder.with_file(config);
     }
 
-    if enable_manage_tasks
+    let any_storage_tool = enable_manage_tasks
         || enable_manage_agents
         || enable_manage_marketplace
         || enable_manage_triggers
         || enable_manage_terminal
         || enable_security_query
-    {
+        || enable_skill
+        || enable_memory_search
+        || enable_shared_space
+        || enable_manage_secrets
+        || enable_manage_config
+        || enable_manage_sessions
+        || enable_manage_memory
+        || enable_manage_auth_profiles
+        || enable_patch
+        || enable_diagnostics;
+
+    if any_storage_tool {
         if let Some(storage) = storage {
             let core_registry = create_tool_registry(
                 storage.skills.clone(),
@@ -377,6 +446,16 @@ pub fn registry_from_allowlist(
                 ("manage_triggers", enable_manage_triggers),
                 ("manage_terminal", enable_manage_terminal),
                 ("security_query", enable_security_query),
+                ("skill", enable_skill),
+                ("memory_search", enable_memory_search),
+                ("shared_space", enable_shared_space),
+                ("manage_secrets", enable_manage_secrets),
+                ("manage_config", enable_manage_config),
+                ("manage_sessions", enable_manage_sessions),
+                ("manage_memory", enable_manage_memory),
+                ("manage_auth_profiles", enable_manage_auth_profiles),
+                ("patch", enable_patch),
+                ("diagnostics", enable_diagnostics),
             ];
             for (tool_name, enabled) in storage_backed_tools {
                 if !enabled {
@@ -392,14 +471,25 @@ pub fn registry_from_allowlist(
                 }
             }
         } else {
-            for (tool_name, enabled) in [
+            let storage_backed_tools = [
                 ("manage_tasks", enable_manage_tasks),
                 ("manage_agents", enable_manage_agents),
                 ("manage_marketplace", enable_manage_marketplace),
                 ("manage_triggers", enable_manage_triggers),
                 ("manage_terminal", enable_manage_terminal),
                 ("security_query", enable_security_query),
-            ] {
+                ("skill", enable_skill),
+                ("memory_search", enable_memory_search),
+                ("shared_space", enable_shared_space),
+                ("manage_secrets", enable_manage_secrets),
+                ("manage_config", enable_manage_config),
+                ("manage_sessions", enable_manage_sessions),
+                ("manage_memory", enable_manage_memory),
+                ("manage_auth_profiles", enable_manage_auth_profiles),
+                ("patch", enable_patch),
+                ("diagnostics", enable_diagnostics),
+            ];
+            for (tool_name, enabled) in storage_backed_tools {
                 if enabled {
                     warn!(
                         tool_name = tool_name,
@@ -407,6 +497,22 @@ pub fn registry_from_allowlist(
                     );
                 }
             }
+        }
+    }
+
+    // Register file memory tools (require agent_id for path isolation)
+    if enable_file_memory {
+        if let Some(aid) = agent_id {
+            let base_path = dirs::data_dir()
+                .unwrap_or_else(|| std::path::PathBuf::from("."))
+                .join("restflow");
+            let config = FileMemoryConfig::new(base_path, aid);
+            builder.registry.register(SaveMemoryTool::new(config.clone()));
+            builder.registry.register(ReadMemoryTool::new(config.clone()));
+            builder.registry.register(ListMemoryTool::new(config.clone()));
+            builder.registry.register(DeleteMemoryTool::new(config));
+        } else {
+            warn!("File memory tools requested but agent_id not provided, skipping");
         }
     }
 
@@ -441,7 +547,7 @@ mod tests {
             .expect("storage should be created");
         let names = vec!["manage_tasks".to_string(), "manage_agents".to_string()];
 
-        let registry = registry_from_allowlist(Some(&names), None, None, Some(&storage));
+        let registry = registry_from_allowlist(Some(&names), None, None, Some(&storage), None);
         assert!(registry.has("manage_tasks"));
         assert!(registry.has("manage_agents"));
     }
@@ -449,7 +555,7 @@ mod tests {
     #[test]
     fn test_manage_tasks_tool_skipped_without_storage() {
         let names = vec!["manage_tasks".to_string(), "manage_agents".to_string()];
-        let registry = registry_from_allowlist(Some(&names), None, None, None);
+        let registry = registry_from_allowlist(Some(&names), None, None, None, None);
         assert!(!registry.has("manage_tasks"));
         assert!(!registry.has("manage_agents"));
     }
@@ -467,7 +573,7 @@ mod tests {
             "security_query".to_string(),
         ];
 
-        let registry = registry_from_allowlist(Some(&names), None, None, Some(&storage));
+        let registry = registry_from_allowlist(Some(&names), None, None, Some(&storage), None);
         assert!(registry.has("manage_marketplace"));
         assert!(registry.has("manage_triggers"));
         assert!(registry.has("manage_terminal"));

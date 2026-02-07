@@ -177,6 +177,7 @@ impl RealAgentExecutor {
         llm_client: Arc<dyn LlmClient>,
         swappable: Arc<SwappableLlm>,
         factory: Arc<dyn LlmClientFactory>,
+        agent_id: Option<&str>,
     ) -> Arc<ToolRegistry> {
         let subagent_deps = self.build_subagent_deps(llm_client);
         let secret_resolver = Some(secret_resolver_from_storage(&self.storage));
@@ -185,6 +186,7 @@ impl RealAgentExecutor {
             Some(&subagent_deps),
             secret_resolver,
             Some(self.storage.as_ref()),
+            agent_id,
         );
 
         let enable_switch = tool_names
@@ -198,6 +200,7 @@ impl RealAgentExecutor {
         Arc::new(registry)
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn execute_agent_with_client(
         &self,
         agent_node: &AgentNode,
@@ -206,6 +209,7 @@ impl RealAgentExecutor {
         input: Option<&str>,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
         factory: Arc<dyn LlmClientFactory>,
+        agent_id: Option<&str>,
     ) -> Result<ExecutionResult> {
         let swappable = Arc::new(SwappableLlm::new(llm_client));
         let tools = self.build_tool_registry(
@@ -213,6 +217,7 @@ impl RealAgentExecutor {
             swappable.clone(),
             swappable.clone(),
             factory,
+            agent_id,
         );
         let system_prompt = build_agent_system_prompt(self.storage.clone(), agent_node)?;
 
@@ -245,6 +250,7 @@ impl RealAgentExecutor {
         input: Option<&str>,
         primary_provider: Provider,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
+        agent_id: Option<&str>,
     ) -> Result<ExecutionResult> {
         let model_specs = AIModel::build_model_specs();
         let api_keys = self
@@ -274,7 +280,7 @@ impl RealAgentExecutor {
         };
 
         let llm_client = factory.create_client(model.as_serialized_str(), api_key.as_deref())?;
-        self.execute_agent_with_client(agent_node, model, llm_client, input, steer_rx, factory)
+        self.execute_agent_with_client(agent_node, model, llm_client, input, steer_rx, factory, agent_id)
             .await
     }
 
@@ -285,10 +291,11 @@ impl RealAgentExecutor {
         input: Option<&str>,
         primary_provider: Provider,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
+        agent_id: Option<&str>,
     ) -> Result<ExecutionResult> {
         if agent_node.api_key_config.is_some() {
             return self
-                .execute_with_model(agent_node, model, input, primary_provider, steer_rx)
+                .execute_with_model(agent_node, model, input, primary_provider, steer_rx, agent_id)
                 .await;
         }
 
@@ -299,7 +306,7 @@ impl RealAgentExecutor {
 
         if profiles.is_empty() {
             return self
-                .execute_with_model(agent_node, model, input, primary_provider, steer_rx)
+                .execute_with_model(agent_node, model, input, primary_provider, steer_rx, agent_id)
                 .await;
         }
 
@@ -337,6 +344,7 @@ impl RealAgentExecutor {
                     input,
                     steer_rx.take(),
                     factory,
+                    agent_id,
                 )
                 .await
             {
@@ -457,7 +465,7 @@ impl AgentExecutor for RealAgentExecutor {
                 let node = agent_node_clone.clone();
                 let steer_rx = steer_rx.take();
                 async move {
-                    self.execute_with_profiles(&node, model, input_ref, primary_provider, steer_rx)
+                    self.execute_with_profiles(&node, model, input_ref, primary_provider, steer_rx, Some(agent_id))
                         .await
                 }
             })

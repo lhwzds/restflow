@@ -557,6 +557,7 @@ impl ChatDispatcher {
             Some(&subagent_deps),
             secret_resolver,
             Some(self.storage.as_ref()),
+            Some(&session.agent_id),
         );
         if Self::switch_model_enabled(Some(&effective_tools)) {
             tools.register(SwitchModelTool::new(swappable.clone(), factory));

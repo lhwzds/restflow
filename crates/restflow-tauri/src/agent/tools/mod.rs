@@ -11,6 +11,9 @@ use restflow_core::storage::Storage;
 pub use restflow_ai::tools::{
     SecretResolver, Tool, ToolOutput, ToolRegistry, TranscribeTool, VisionTool,
 };
+use restflow_ai::tools::{
+    DeleteMemoryTool, FileMemoryConfig, ListMemoryTool, ReadMemoryTool, SaveMemoryTool,
+};
 
 mod bash;
 mod email;
@@ -224,6 +227,7 @@ pub fn registry_from_allowlist(
     subagent_deps: Option<&SubagentDeps>,
     secret_resolver: Option<SecretResolver>,
     storage: Option<&Storage>,
+    agent_id: Option<&str>,
 ) -> ToolRegistry {
     let Some(tool_names) = tool_names else {
         return ToolRegistry::new();
@@ -252,6 +256,7 @@ pub fn registry_from_allowlist(
     let mut enable_manage_auth_profiles = false;
     let mut enable_patch = false;
     let mut enable_diagnostics = false;
+    let mut enable_file_memory = false;
 
     for raw_name in tool_names {
         match raw_name.as_str() {
@@ -383,12 +388,7 @@ pub fn registry_from_allowlist(
                 enable_diagnostics = true;
             }
             "save_to_memory" | "read_memory" | "list_memories" | "delete_memory" => {
-                // File memory tools require FileMemoryConfig with agent_id.
-                // Not available via core registry; skip for now.
-                warn!(
-                    tool_name = %raw_name,
-                    "File memory tools require agent_id context; not yet wired in tauri allowlist"
-                );
+                enable_file_memory = true;
             }
             "switch_model" => {
                 // Registered by callers that provide SwappableLlm + LlmClientFactory.
@@ -500,6 +500,22 @@ pub fn registry_from_allowlist(
         }
     }
 
+    // Register file memory tools (require agent_id for path isolation)
+    if enable_file_memory {
+        if let Some(aid) = agent_id {
+            let base_path = dirs::data_dir()
+                .unwrap_or_else(|| std::path::PathBuf::from("."))
+                .join("restflow");
+            let config = FileMemoryConfig::new(base_path, aid);
+            builder.registry.register(SaveMemoryTool::new(config.clone()));
+            builder.registry.register(ReadMemoryTool::new(config.clone()));
+            builder.registry.register(ListMemoryTool::new(config.clone()));
+            builder.registry.register(DeleteMemoryTool::new(config));
+        } else {
+            warn!("File memory tools requested but agent_id not provided, skipping");
+        }
+    }
+
     builder.build()
 }
 
@@ -531,7 +547,7 @@ mod tests {
             .expect("storage should be created");
         let names = vec!["manage_tasks".to_string(), "manage_agents".to_string()];
 
-        let registry = registry_from_allowlist(Some(&names), None, None, Some(&storage));
+        let registry = registry_from_allowlist(Some(&names), None, None, Some(&storage), None);
         assert!(registry.has("manage_tasks"));
         assert!(registry.has("manage_agents"));
     }
@@ -539,7 +555,7 @@ mod tests {
     #[test]
     fn test_manage_tasks_tool_skipped_without_storage() {
         let names = vec!["manage_tasks".to_string(), "manage_agents".to_string()];
-        let registry = registry_from_allowlist(Some(&names), None, None, None);
+        let registry = registry_from_allowlist(Some(&names), None, None, None, None);
         assert!(!registry.has("manage_tasks"));
         assert!(!registry.has("manage_agents"));
     }
@@ -557,7 +573,7 @@ mod tests {
             "security_query".to_string(),
         ];
 
-        let registry = registry_from_allowlist(Some(&names), None, None, Some(&storage));
+        let registry = registry_from_allowlist(Some(&names), None, None, Some(&storage), None);
         assert!(registry.has("manage_marketplace"));
         assert!(registry.has("manage_triggers"));
         assert!(registry.has("manage_terminal"));
@@ -596,7 +612,7 @@ mod tests {
             "diagnostics".to_string(),
         ];
 
-        let registry = registry_from_allowlist(Some(&names), None, None, Some(&storage));
+        let registry = registry_from_allowlist(Some(&names), None, None, Some(&storage), None);
         assert!(registry.has("skill"));
         assert!(registry.has("memory_search"));
         assert!(registry.has("shared_space"));
@@ -622,6 +638,29 @@ mod tests {
         assert!(tools.iter().any(|name| name == "manage_auth_profiles"));
         assert!(tools.iter().any(|name| name == "patch"));
         assert!(tools.iter().any(|name| name == "diagnostics"));
+    }
+
+    #[test]
+    fn test_file_memory_tools_registered_with_agent_id() {
+        let names = vec![
+            "save_to_memory".to_string(),
+            "read_memory".to_string(),
+            "list_memories".to_string(),
+            "delete_memory".to_string(),
+        ];
+        let registry =
+            registry_from_allowlist(Some(&names), None, None, None, Some("test-agent"));
+        assert!(registry.has("save_to_memory"));
+        assert!(registry.has("read_memory"));
+        assert!(registry.has("list_memories"));
+        assert!(registry.has("delete_memory"));
+    }
+
+    #[test]
+    fn test_file_memory_tools_skipped_without_agent_id() {
+        let names = vec!["save_to_memory".to_string()];
+        let registry = registry_from_allowlist(Some(&names), None, None, None, None);
+        assert!(!registry.has("save_to_memory"));
     }
 
     #[test]
