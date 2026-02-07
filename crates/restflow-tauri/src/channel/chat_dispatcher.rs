@@ -22,7 +22,7 @@ use restflow_core::{AIModel, Provider};
 use super::debounce::MessageDebouncer;
 use crate::agent::{
     SubagentDeps, ToolRegistry, UnifiedAgent, UnifiedAgentConfig, build_agent_system_prompt,
-    registry_from_allowlist, secret_resolver_from_storage,
+    effective_main_agent_tool_names, registry_from_allowlist, secret_resolver_from_storage,
 };
 use crate::subagent::{AgentDefinitionRegistry, SubagentConfig, SubagentTracker};
 
@@ -420,40 +420,6 @@ impl ChatDispatcher {
             .unwrap_or(false)
     }
 
-    fn main_agent_default_tool_names() -> Vec<String> {
-        vec![
-            "bash",
-            "file",
-            "http",
-            "python",
-            "email",
-            "telegram",
-            "transcribe",
-            "vision",
-            "spawn_agent",
-            "wait_agents",
-            "list_agents",
-            "use_skill",
-            "manage_tasks",
-            "switch_model",
-        ]
-        .into_iter()
-        .map(str::to_string)
-        .collect()
-    }
-
-    fn effective_main_agent_tool_names(tool_names: Option<&[String]>) -> Vec<String> {
-        let mut merged = Self::main_agent_default_tool_names();
-        if let Some(extra) = tool_names {
-            for name in extra {
-                if !merged.iter().any(|item| item == name) {
-                    merged.push(name.clone());
-                }
-            }
-        }
-        merged
-    }
-
     fn build_subagent_deps(&self, llm_client: Arc<dyn LlmClient>) -> SubagentDeps {
         SubagentDeps {
             tracker: self.subagent_tracker.clone(),
@@ -636,7 +602,7 @@ impl ChatDispatcher {
         let swappable = Arc::new(SwappableLlm::new(llm_client));
         let subagent_deps = self.build_subagent_deps(swappable.clone());
         let secret_resolver = Some(secret_resolver_from_storage(&self.storage));
-        let effective_tools = Self::effective_main_agent_tool_names(agent_node.tools.as_deref());
+        let effective_tools = effective_main_agent_tool_names(agent_node.tools.as_deref());
         let mut tools = registry_from_allowlist(
             Some(&effective_tools),
             Some(&subagent_deps),
@@ -933,7 +899,7 @@ mod tests {
 
     #[test]
     fn test_main_agent_default_tools_include_switch_model() {
-        let tools = ChatDispatcher::main_agent_default_tool_names();
+        let tools = crate::agent::main_agent_default_tool_names();
 
         assert!(tools.iter().any(|name| name == "switch_model"));
         assert!(tools.iter().any(|name| name == "manage_tasks"));
@@ -943,7 +909,7 @@ mod tests {
     #[test]
     fn test_effective_main_agent_tool_names_merges_extra_tools() {
         let extra = vec!["custom_tool".to_string(), "bash".to_string()];
-        let merged = ChatDispatcher::effective_main_agent_tool_names(Some(&extra));
+        let merged = effective_main_agent_tool_names(Some(&extra));
 
         assert!(merged.iter().any(|name| name == "switch_model"));
         assert!(merged.iter().any(|name| name == "manage_tasks"));
