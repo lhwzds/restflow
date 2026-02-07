@@ -15,14 +15,15 @@ use crate::registry::{
 use crate::security::SecurityChecker;
 use crate::storage::skill::SkillStorage;
 use crate::storage::{
-    AgentTaskStorage, ChatSessionStorage, ConfigStorage, MemoryStorage, SecretStorage,
-    SharedSpaceStorage, TerminalSessionStorage, TriggerStorage,
+    AgentStorage, AgentTaskStorage, ChatSessionStorage, ConfigStorage, MemoryStorage,
+    SecretStorage, SharedSpaceStorage, TerminalSessionStorage, TriggerStorage,
 };
 use chrono::Utc;
 use restflow_ai::error::AiError;
 use restflow_ai::tools::{
-    ConfigTool, SecretsTool, TaskControlRequest, TaskCreateRequest, TaskMessageListRequest,
-    TaskMessageRequest, TaskProgressRequest, TaskStore, TaskTool, TaskUpdateRequest,
+    AgentCreateRequest, AgentCrudTool, AgentStore, AgentUpdateRequest, ConfigTool, SecretsTool,
+    TaskControlRequest, TaskCreateRequest, TaskMessageListRequest, TaskMessageRequest,
+    TaskProgressRequest, TaskStore, TaskTool, TaskUpdateRequest,
 };
 use restflow_ai::{
     SecretResolver, SkillContent, SkillInfo, SkillProvider, SkillRecord, SkillTool, SkillUpdate,
@@ -153,6 +154,75 @@ impl SkillProvider for SkillStorageProvider {
             tags: skill.tags,
             content: skill.content,
         })
+    }
+}
+
+#[derive(Clone)]
+struct AgentStoreAdapter {
+    storage: AgentStorage,
+}
+
+impl AgentStoreAdapter {
+    fn new(storage: AgentStorage) -> Self {
+        Self { storage }
+    }
+
+    fn parse_agent_node(value: serde_json::Value) -> Result<crate::models::AgentNode, AiError> {
+        serde_json::from_value(value)
+            .map_err(|e| AiError::Tool(format!("Invalid agent payload: {}", e)))
+    }
+}
+
+impl AgentStore for AgentStoreAdapter {
+    fn list_agents(&self) -> restflow_ai::error::Result<serde_json::Value> {
+        let agents = self
+            .storage
+            .list_agents()
+            .map_err(|e| AiError::Tool(e.to_string()))?;
+        serde_json::to_value(agents).map_err(AiError::from)
+    }
+
+    fn get_agent(&self, id: &str) -> restflow_ai::error::Result<serde_json::Value> {
+        let agent = self
+            .storage
+            .get_agent(id.to_string())
+            .map_err(|e| AiError::Tool(e.to_string()))?
+            .ok_or_else(|| AiError::Tool(format!("Agent {} not found", id)))?;
+        serde_json::to_value(agent).map_err(AiError::from)
+    }
+
+    fn create_agent(
+        &self,
+        request: AgentCreateRequest,
+    ) -> restflow_ai::error::Result<serde_json::Value> {
+        let agent = Self::parse_agent_node(request.agent)?;
+        let created = self
+            .storage
+            .create_agent(request.name, agent)
+            .map_err(|e| AiError::Tool(e.to_string()))?;
+        serde_json::to_value(created).map_err(AiError::from)
+    }
+
+    fn update_agent(
+        &self,
+        request: AgentUpdateRequest,
+    ) -> restflow_ai::error::Result<serde_json::Value> {
+        let agent = match request.agent {
+            Some(value) => Some(Self::parse_agent_node(value)?),
+            None => None,
+        };
+        let updated = self
+            .storage
+            .update_agent(request.id, request.name, agent)
+            .map_err(|e| AiError::Tool(e.to_string()))?;
+        serde_json::to_value(updated).map_err(AiError::from)
+    }
+
+    fn delete_agent(&self, id: &str) -> restflow_ai::error::Result<serde_json::Value> {
+        self.storage
+            .delete_agent(id.to_string())
+            .map_err(|e| AiError::Tool(e.to_string()))?;
+        Ok(json!({ "id": id, "deleted": true }))
     }
 }
 
@@ -375,6 +445,7 @@ pub fn create_tool_registry(
     shared_space_storage: SharedSpaceStorage,
     secret_storage: SecretStorage,
     config_storage: ConfigStorage,
+    agent_storage: AgentStorage,
     agent_task_storage: AgentTaskStorage,
     trigger_storage: TriggerStorage,
     terminal_storage: TerminalSessionStorage,
@@ -406,6 +477,8 @@ pub fn create_tool_registry(
     // Add system management tools (read-only by default)
     registry.register(SecretsTool::new(Arc::new(secret_storage)));
     registry.register(ConfigTool::new(Arc::new(config_storage)));
+    let agent_store = Arc::new(AgentStoreAdapter::new(agent_storage));
+    registry.register(AgentCrudTool::new(agent_store).with_write(true));
     let task_store = Arc::new(TaskStoreAdapter::new(agent_task_storage));
     registry.register(TaskTool::new(task_store).with_write(true));
     registry.register(MarketplaceTool::new(skill_storage));
@@ -1381,6 +1454,7 @@ mod tests {
         SharedSpaceStorage,
         SecretStorage,
         ConfigStorage,
+        AgentStorage,
         AgentTaskStorage,
         TriggerStorage,
         TerminalSessionStorage,
@@ -1411,6 +1485,7 @@ mod tests {
         )
         .unwrap();
         let config_storage = ConfigStorage::new(db.clone()).unwrap();
+        let agent_storage = AgentStorage::new(db.clone()).unwrap();
         let agent_task_storage = AgentTaskStorage::new(db.clone()).unwrap();
         let trigger_storage = TriggerStorage::new(db.clone()).unwrap();
         let terminal_storage = TerminalSessionStorage::new(db).unwrap();
@@ -1430,6 +1505,7 @@ mod tests {
             shared_space_storage,
             secret_storage,
             config_storage,
+            agent_storage,
             agent_task_storage,
             trigger_storage,
             terminal_storage,
@@ -1446,6 +1522,7 @@ mod tests {
             shared_space_storage,
             secret_storage,
             config_storage,
+            agent_storage,
             agent_task_storage,
             trigger_storage,
             terminal_storage,
@@ -1458,6 +1535,7 @@ mod tests {
             shared_space_storage,
             secret_storage,
             config_storage,
+            agent_storage,
             agent_task_storage,
             trigger_storage,
             terminal_storage,
@@ -1474,6 +1552,7 @@ mod tests {
         // New system management tools
         assert!(registry.has("manage_secrets"));
         assert!(registry.has("manage_config"));
+        assert!(registry.has("manage_agents"));
         assert!(registry.has("manage_tasks"));
         assert!(registry.has("manage_marketplace"));
         assert!(registry.has("manage_triggers"));
@@ -1490,6 +1569,7 @@ mod tests {
             _shared_space_storage,
             _secret_storage,
             _config_storage,
+            _agent_storage,
             _agent_task_storage,
             _trigger_storage,
             _terminal_storage,
@@ -1510,6 +1590,7 @@ mod tests {
             _shared_space_storage,
             _secret_storage,
             _config_storage,
+            _agent_storage,
             _agent_task_storage,
             _trigger_storage,
             _terminal_storage,
@@ -1543,6 +1624,89 @@ mod tests {
     }
 
     #[test]
+    fn test_agent_store_adapter_crud_flow() {
+        let (
+            _skill_storage,
+            _memory_storage,
+            _chat_storage,
+            _shared_space_storage,
+            _secret_storage,
+            _config_storage,
+            agent_storage,
+            _agent_task_storage,
+            _trigger_storage,
+            _terminal_storage,
+            _temp_dir,
+        ) = setup_storage();
+
+        let adapter = AgentStoreAdapter::new(agent_storage);
+        let base_node = crate::models::AgentNode {
+            model: Some(crate::models::AIModel::ClaudeSonnet4_5),
+            prompt: Some("You are a testing assistant".to_string()),
+            temperature: Some(0.3),
+            api_key_config: Some(crate::models::ApiKeyConfig::Direct("test-key".to_string())),
+            tools: Some(vec!["manage_tasks".to_string()]),
+            skills: Some(vec!["ops-skill".to_string()]),
+            skill_variables: None,
+        };
+
+        let created = AgentStore::create_agent(
+            &adapter,
+            AgentCreateRequest {
+                name: "Ops Agent".to_string(),
+                agent: serde_json::to_value(base_node).unwrap(),
+            },
+        )
+        .unwrap();
+        let agent_id = created
+            .get("id")
+            .and_then(|value| value.as_str())
+            .unwrap()
+            .to_string();
+
+        let listed = AgentStore::list_agents(&adapter).unwrap();
+        assert_eq!(listed.as_array().map(|items| items.len()), Some(1));
+
+        let fetched = AgentStore::get_agent(&adapter, &agent_id).unwrap();
+        assert_eq!(
+            fetched.get("name").and_then(|value| value.as_str()),
+            Some("Ops Agent")
+        );
+
+        let updated = AgentStore::update_agent(
+            &adapter,
+            AgentUpdateRequest {
+                id: agent_id.clone(),
+                name: Some("Ops Agent Updated".to_string()),
+                agent: Some(serde_json::json!({
+                    "model": "gpt-5-mini",
+                    "prompt": "Updated prompt",
+                    "tools": ["manage_tasks", "manage_agents"],
+                    "skills": ["ops-skill", "audit-skill"]
+                })),
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            updated.get("name").and_then(|value| value.as_str()),
+            Some("Ops Agent Updated")
+        );
+        assert_eq!(
+            updated
+                .get("agent")
+                .and_then(|value| value.get("prompt"))
+                .and_then(|value| value.as_str()),
+            Some("Updated prompt")
+        );
+
+        let deleted = AgentStore::delete_agent(&adapter, &agent_id).unwrap();
+        assert_eq!(
+            deleted.get("deleted").and_then(|value| value.as_bool()),
+            Some(true)
+        );
+    }
+
+    #[test]
     fn test_task_store_adapter_background_agent_flow() {
         let (
             _skill_storage,
@@ -1551,6 +1715,7 @@ mod tests {
             _shared_space_storage,
             _secret_storage,
             _config_storage,
+            _agent_storage,
             agent_task_storage,
             _trigger_storage,
             _terminal_storage,
@@ -1687,6 +1852,7 @@ mod tests {
             shared_space_storage,
             secret_storage,
             config_storage,
+            agent_storage,
             agent_task_storage,
             trigger_storage,
             terminal_storage,
@@ -1709,6 +1875,7 @@ mod tests {
             shared_space_storage,
             secret_storage,
             config_storage,
+            agent_storage,
             agent_task_storage,
             trigger_storage,
             terminal_storage,
@@ -1745,6 +1912,7 @@ mod tests {
             shared_space_storage,
             secret_storage,
             config_storage,
+            agent_storage,
             agent_task_storage,
             trigger_storage,
             terminal_storage,
@@ -1758,6 +1926,7 @@ mod tests {
             shared_space_storage,
             secret_storage,
             config_storage,
+            agent_storage,
             agent_task_storage,
             trigger_storage,
             terminal_storage,
@@ -1809,6 +1978,7 @@ mod tests {
             shared_space_storage,
             secret_storage,
             config_storage,
+            agent_storage,
             agent_task_storage,
             trigger_storage,
             terminal_storage,
@@ -1822,6 +1992,7 @@ mod tests {
             shared_space_storage,
             secret_storage,
             config_storage,
+            agent_storage,
             agent_task_storage,
             trigger_storage,
             terminal_storage,
@@ -1894,6 +2065,7 @@ mod tests {
             shared_space_storage,
             secret_storage,
             config_storage,
+            agent_storage,
             agent_task_storage,
             trigger_storage,
             terminal_storage,
@@ -1907,6 +2079,7 @@ mod tests {
             shared_space_storage,
             secret_storage,
             config_storage,
+            agent_storage,
             agent_task_storage,
             trigger_storage,
             terminal_storage,

@@ -24,6 +24,7 @@ pub struct StoredAgent {
 }
 
 /// Typed agent storage wrapper around restflow-storage::AgentStorage.
+#[derive(Clone)]
 pub struct AgentStorage {
     inner: restflow_storage::AgentStorage,
 }

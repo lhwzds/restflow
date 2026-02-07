@@ -128,6 +128,7 @@ fn create_runtime_tool_registry_for_core(core: &Arc<AppCore>) -> restflow_ai::to
         core.storage.shared_space.clone(),
         core.storage.secrets.clone(),
         core.storage.config.clone(),
+        core.storage.agents.clone(),
         core.storage.agent_tasks.clone(),
         core.storage.triggers.clone(),
         core.storage.terminal_sessions.clone(),
@@ -2643,6 +2644,28 @@ mod tests {
             .unwrap();
         let value: serde_json::Value = serde_json::from_str(&json).unwrap();
         assert_eq!(value["value"], "hello-runtime");
+    }
+
+    #[tokio::test]
+    async fn test_runtime_tools_include_manage_agents() {
+        let (server, _core, _temp_dir) = create_test_server().await;
+        let runtime_tools = server.backend.list_runtime_tools().await.unwrap();
+        assert!(
+            runtime_tools
+                .iter()
+                .any(|tool| tool.name == "manage_agents")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_manage_agents_runtime_tool_list_operation() {
+        let (server, _core, _temp_dir) = create_test_server().await;
+        let json = server
+            .handle_runtime_tool("manage_agents", serde_json::json!({ "operation": "list" }))
+            .await
+            .unwrap();
+        let agents: Vec<serde_json::Value> = serde_json::from_str(&json).unwrap();
+        assert!(!agents.is_empty());
     }
 
     #[test]
