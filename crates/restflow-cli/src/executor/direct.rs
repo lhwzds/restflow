@@ -557,6 +557,7 @@ async fn run_agent_with_executor(
         shared_space_storage,
         core.storage.secrets.clone(),
         core.storage.config.clone(),
+        core.storage.agents.clone(),
         core.storage.agent_tasks.clone(),
         core.storage.triggers.clone(),
         core.storage.terminal_sessions.clone(),
