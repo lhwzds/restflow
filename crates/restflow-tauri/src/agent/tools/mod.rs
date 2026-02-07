@@ -53,6 +53,45 @@ pub fn secret_resolver_from_storage(storage: &Storage) -> SecretResolver {
     Arc::new(move |key| secrets.get_secret(key).ok().flatten())
 }
 
+/// Default tools for main agents.
+///
+/// These defaults are shared by channel chat dispatch and workspace session chat
+/// so both execution paths expose a consistent baseline capability set.
+pub fn main_agent_default_tool_names() -> Vec<String> {
+    vec![
+        "bash",
+        "file",
+        "http",
+        "python",
+        "email",
+        "telegram",
+        "transcribe",
+        "vision",
+        "spawn_agent",
+        "wait_agents",
+        "list_agents",
+        "use_skill",
+        "manage_tasks",
+        "switch_model",
+    ]
+    .into_iter()
+    .map(str::to_string)
+    .collect()
+}
+
+/// Merge the default main-agent tools with agent-specific additions.
+pub fn effective_main_agent_tool_names(tool_names: Option<&[String]>) -> Vec<String> {
+    let mut merged = main_agent_default_tool_names();
+    if let Some(extra) = tool_names {
+        for name in extra {
+            if !merged.iter().any(|item| item == name) {
+                merged.push(name.clone());
+            }
+        }
+    }
+    merged
+}
+
 /// Builder for creating a fully configured ToolRegistry.
 pub struct ToolRegistryBuilder {
     registry: ToolRegistry,
@@ -330,7 +369,9 @@ pub fn default_registry() -> ToolRegistry {
 
 #[cfg(test)]
 mod tests {
-    use super::registry_from_allowlist;
+    use super::{
+        effective_main_agent_tool_names, main_agent_default_tool_names, registry_from_allowlist,
+    };
     use restflow_core::storage::Storage;
     use tempfile::tempdir;
 
@@ -351,5 +392,24 @@ mod tests {
         let names = vec!["manage_tasks".to_string()];
         let registry = registry_from_allowlist(Some(&names), None, None, None);
         assert!(!registry.has("manage_tasks"));
+    }
+
+    #[test]
+    fn test_main_agent_default_tools_include_transcribe_and_switch_model() {
+        let tools = main_agent_default_tool_names();
+        assert!(tools.iter().any(|name| name == "transcribe"));
+        assert!(tools.iter().any(|name| name == "vision"));
+        assert!(tools.iter().any(|name| name == "switch_model"));
+    }
+
+    #[test]
+    fn test_effective_main_agent_tool_names_merges_without_duplicates() {
+        let extra = vec!["custom_tool".to_string(), "bash".to_string()];
+        let merged = effective_main_agent_tool_names(Some(&extra));
+        assert!(merged.iter().any(|name| name == "custom_tool"));
+        assert_eq!(
+            merged.iter().filter(|name| name.as_str() == "bash").count(),
+            1
+        );
     }
 }
