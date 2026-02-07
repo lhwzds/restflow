@@ -5,8 +5,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::sync::Arc;
 
-use crate::error::{AiError, Result};
 use super::traits::{Tool, ToolOutput};
+use crate::error::{AiError, Result};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TaskCreateRequest {
@@ -16,15 +16,74 @@ pub struct TaskCreateRequest {
     pub schedule: Option<Value>,
     #[serde(default)]
     pub input: Option<String>,
+    #[serde(default)]
+    pub input_template: Option<String>,
+    #[serde(default)]
+    pub memory_scope: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TaskUpdateRequest {
+    pub id: String,
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub agent_id: Option<String>,
+    #[serde(default)]
+    pub input: Option<String>,
+    #[serde(default)]
+    pub input_template: Option<String>,
+    #[serde(default)]
+    pub schedule: Option<Value>,
+    #[serde(default)]
+    pub notification: Option<Value>,
+    #[serde(default)]
+    pub execution_mode: Option<Value>,
+    #[serde(default)]
+    pub memory: Option<Value>,
+    #[serde(default)]
+    pub memory_scope: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TaskControlRequest {
+    pub id: String,
+    pub action: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TaskProgressRequest {
+    pub id: String,
+    #[serde(default)]
+    pub event_limit: Option<usize>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TaskMessageRequest {
+    pub id: String,
+    pub message: String,
+    #[serde(default)]
+    pub source: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TaskMessageListRequest {
+    pub id: String,
+    #[serde(default)]
+    pub limit: Option<usize>,
 }
 
 pub trait TaskStore: Send + Sync {
     fn create_task(&self, request: TaskCreateRequest) -> Result<Value>;
+    fn update_task(&self, request: TaskUpdateRequest) -> Result<Value>;
+    fn delete_task(&self, id: &str) -> Result<Value>;
     fn list_tasks(&self, status: Option<String>) -> Result<Value>;
-    fn pause_task(&self, id: &str) -> Result<Value>;
-    fn resume_task(&self, id: &str) -> Result<Value>;
-    fn cancel_task(&self, id: &str) -> Result<Value>;
-    fn run_task(&self, id: &str) -> Result<Value>;
+    fn control_task(&self, request: TaskControlRequest) -> Result<Value>;
+    fn get_progress(&self, request: TaskProgressRequest) -> Result<Value>;
+    fn send_message(&self, request: TaskMessageRequest) -> Result<Value>;
+    fn list_messages(&self, request: TaskMessageListRequest) -> Result<Value>;
 }
 
 #[derive(Clone)]
@@ -67,15 +126,73 @@ enum TaskAction {
         schedule: Option<Value>,
         #[serde(default)]
         input: Option<String>,
+        #[serde(default)]
+        input_template: Option<String>,
+        #[serde(default)]
+        memory_scope: Option<String>,
+    },
+    Update {
+        id: String,
+        #[serde(default)]
+        name: Option<String>,
+        #[serde(default)]
+        description: Option<String>,
+        #[serde(default)]
+        agent_id: Option<String>,
+        #[serde(default)]
+        input: Option<String>,
+        #[serde(default)]
+        input_template: Option<String>,
+        #[serde(default)]
+        schedule: Option<Value>,
+        #[serde(default)]
+        notification: Option<Value>,
+        #[serde(default)]
+        execution_mode: Option<Value>,
+        #[serde(default)]
+        memory: Option<Value>,
+        #[serde(default)]
+        memory_scope: Option<String>,
+    },
+    Delete {
+        id: String,
     },
     List {
         #[serde(default)]
         status: Option<String>,
     },
-    Pause { id: String },
-    Resume { id: String },
-    Cancel { id: String },
-    Run { id: String },
+    Control {
+        id: String,
+        action: String,
+    },
+    Progress {
+        id: String,
+        #[serde(default)]
+        event_limit: Option<usize>,
+    },
+    SendMessage {
+        id: String,
+        message: String,
+        #[serde(default)]
+        source: Option<String>,
+    },
+    ListMessages {
+        id: String,
+        #[serde(default)]
+        limit: Option<usize>,
+    },
+    Pause {
+        id: String,
+    },
+    Resume {
+        id: String,
+    },
+    Cancel {
+        id: String,
+    },
+    Run {
+        id: String,
+    },
 }
 
 #[async_trait]
@@ -85,7 +202,7 @@ impl Tool for TaskTool {
     }
 
     fn description(&self) -> &str {
-        "Manage scheduled agent tasks. Supports create, list, pause, resume, cancel, and run."
+        "Manage background agent tasks. Supports create, update, delete, control, list, progress, and messaging."
     }
 
     fn parameters_schema(&self) -> Value {
@@ -94,32 +211,91 @@ impl Tool for TaskTool {
             "properties": {
                 "operation": {
                     "type": "string",
-                    "enum": ["create", "list", "pause", "resume", "cancel", "run"],
+                    "enum": [
+                        "create",
+                        "update",
+                        "delete",
+                        "list",
+                        "control",
+                        "progress",
+                        "send_message",
+                        "list_messages",
+                        "pause",
+                        "resume",
+                        "cancel",
+                        "run"
+                    ],
                     "description": "Task operation to perform"
                 },
                 "id": {
-                    "type": "string",
-                    "description": "Task ID (for pause/resume/cancel/run)"
+                    "type": "string"
                 },
                 "name": {
                     "type": "string",
-                    "description": "Task name (for create)"
+                    "description": "Task name (for create/update)"
                 },
                 "agent_id": {
                     "type": "string",
-                    "description": "Agent ID (for create)"
+                    "description": "Agent ID (for create/update)"
+                },
+                "description": {
+                    "type": "string",
+                    "description": "Task description (for update)"
                 },
                 "schedule": {
                     "type": "object",
-                    "description": "Task schedule object (for create)"
+                    "description": "Task schedule object (for create/update)"
+                },
+                "notification": {
+                    "type": "object",
+                    "description": "Notification configuration (for update)"
+                },
+                "execution_mode": {
+                    "type": "object",
+                    "description": "Execution mode payload (for update)"
+                },
+                "memory": {
+                    "type": "object",
+                    "description": "Memory configuration payload (for update)"
                 },
                 "input": {
                     "type": "string",
-                    "description": "Optional input for the task (for create)"
+                    "description": "Optional input for the task (for create/update)"
+                },
+                "input_template": {
+                    "type": "string",
+                    "description": "Optional runtime template for task input (for create/update)"
+                },
+                "memory_scope": {
+                    "type": "string",
+                    "enum": ["shared_agent", "per_task"],
+                    "description": "Memory namespace scope (for create/update)"
                 },
                 "status": {
                     "type": "string",
-                    "description": "Filter list by status"
+                    "description": "Filter list by status (for list)"
+                },
+                "action": {
+                    "type": "string",
+                    "enum": ["start", "pause", "resume", "stop", "run_now"],
+                    "description": "Control action (for control)"
+                },
+                "event_limit": {
+                    "type": "integer",
+                    "description": "Recent event count for progress"
+                },
+                "message": {
+                    "type": "string",
+                    "description": "Message content for send_message"
+                },
+                "source": {
+                    "type": "string",
+                    "enum": ["user", "agent", "system"],
+                    "description": "Message source for send_message"
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Message list limit for list_messages"
                 }
             },
             "required": ["operation"]
@@ -139,6 +315,8 @@ impl Tool for TaskTool {
                 agent_id,
                 schedule,
                 input,
+                input_template,
+                memory_scope,
             } => {
                 self.write_guard()?;
                 let result = self.store.create_task(TaskCreateRequest {
@@ -146,29 +324,93 @@ impl Tool for TaskTool {
                     agent_id,
                     schedule,
                     input,
+                    input_template,
+                    memory_scope,
                 })?;
                 ToolOutput::success(result)
             }
+            TaskAction::Update {
+                id,
+                name,
+                description,
+                agent_id,
+                input,
+                input_template,
+                schedule,
+                notification,
+                execution_mode,
+                memory,
+                memory_scope,
+            } => {
+                self.write_guard()?;
+                let result = self.store.update_task(TaskUpdateRequest {
+                    id,
+                    name,
+                    description,
+                    agent_id,
+                    input,
+                    input_template,
+                    schedule,
+                    notification,
+                    execution_mode,
+                    memory,
+                    memory_scope,
+                })?;
+                ToolOutput::success(result)
+            }
+            TaskAction::Delete { id } => {
+                self.write_guard()?;
+                ToolOutput::success(self.store.delete_task(&id)?)
+            }
             TaskAction::Pause { id } => {
                 self.write_guard()?;
-                let result = self.store.pause_task(&id)?;
-                ToolOutput::success(result)
+                ToolOutput::success(self.store.control_task(TaskControlRequest {
+                    id,
+                    action: "pause".to_string(),
+                })?)
             }
             TaskAction::Resume { id } => {
                 self.write_guard()?;
-                let result = self.store.resume_task(&id)?;
-                ToolOutput::success(result)
+                ToolOutput::success(self.store.control_task(TaskControlRequest {
+                    id,
+                    action: "resume".to_string(),
+                })?)
             }
             TaskAction::Cancel { id } => {
                 self.write_guard()?;
-                let result = self.store.cancel_task(&id)?;
-                ToolOutput::success(result)
+                ToolOutput::success(self.store.delete_task(&id)?)
             }
             TaskAction::Run { id } => {
                 self.write_guard()?;
-                let result = self.store.run_task(&id)?;
-                ToolOutput::success(result)
+                ToolOutput::success(self.store.control_task(TaskControlRequest {
+                    id,
+                    action: "run_now".to_string(),
+                })?)
             }
+            TaskAction::Control { id, action } => {
+                self.write_guard()?;
+                ToolOutput::success(self.store.control_task(TaskControlRequest { id, action })?)
+            }
+            TaskAction::Progress { id, event_limit } => ToolOutput::success(
+                self.store
+                    .get_progress(TaskProgressRequest { id, event_limit })?,
+            ),
+            TaskAction::SendMessage {
+                id,
+                message,
+                source,
+            } => {
+                self.write_guard()?;
+                ToolOutput::success(self.store.send_message(TaskMessageRequest {
+                    id,
+                    message,
+                    source,
+                })?)
+            }
+            TaskAction::ListMessages { id, limit } => ToolOutput::success(
+                self.store
+                    .list_messages(TaskMessageListRequest { id, limit })?,
+            ),
         };
 
         Ok(output)
@@ -186,24 +428,44 @@ mod tests {
             Ok(json!({ "id": "task-1" }))
         }
 
+        fn update_task(&self, _request: TaskUpdateRequest) -> Result<Value> {
+            Ok(json!({ "id": "task-1", "updated": true }))
+        }
+
+        fn delete_task(&self, _id: &str) -> Result<Value> {
+            Ok(json!({ "deleted": true }))
+        }
+
         fn list_tasks(&self, _status: Option<String>) -> Result<Value> {
             Ok(json!([{"id": "task-1"}]))
         }
 
-        fn pause_task(&self, _id: &str) -> Result<Value> {
-            Ok(json!({ "status": "paused" }))
+        fn control_task(&self, request: TaskControlRequest) -> Result<Value> {
+            Ok(json!({ "id": request.id, "action": request.action }))
         }
 
-        fn resume_task(&self, _id: &str) -> Result<Value> {
-            Ok(json!({ "status": "active" }))
+        fn get_progress(&self, request: TaskProgressRequest) -> Result<Value> {
+            Ok(json!({
+                "id": request.id,
+                "event_limit": request.event_limit.unwrap_or(10),
+                "status": "active"
+            }))
         }
 
-        fn cancel_task(&self, _id: &str) -> Result<Value> {
-            Ok(json!({ "deleted": true }))
+        fn send_message(&self, request: TaskMessageRequest) -> Result<Value> {
+            Ok(json!({
+                "id": request.id,
+                "message": request.message,
+                "source": request.source.unwrap_or_else(|| "user".to_string())
+            }))
         }
 
-        fn run_task(&self, _id: &str) -> Result<Value> {
-            Ok(json!({ "status": "running" }))
+        fn list_messages(&self, request: TaskMessageListRequest) -> Result<Value> {
+            Ok(json!([{
+                "id": "msg-1",
+                "task_id": request.id,
+                "limit": request.limit.unwrap_or(50)
+            }]))
         }
     }
 
@@ -225,5 +487,19 @@ mod tests {
             }))
             .await;
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_progress_operation() {
+        let tool = TaskTool::new(Arc::new(MockStore));
+        let output = tool
+            .execute(json!({
+                "operation": "progress",
+                "id": "task-1",
+                "event_limit": 5
+            }))
+            .await
+            .unwrap();
+        assert!(output.success);
     }
 }

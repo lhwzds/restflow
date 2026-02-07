@@ -8,6 +8,7 @@ use restflow_core::daemon::{
 };
 use restflow_core::paths;
 use std::sync::Arc;
+use tokio::time::{Duration, sleep};
 use tracing::error;
 
 pub async fn run(core: Arc<AppCore>, command: DaemonCommands) -> Result<()> {
@@ -19,6 +20,13 @@ pub async fn run(core: Arc<AppCore>, command: DaemonCommands) -> Result<()> {
             mcp,
             mcp_port,
         } => start(core, foreground, http, port, mcp, mcp_port).await,
+        DaemonCommands::Restart {
+            foreground,
+            http,
+            port,
+            mcp,
+            mcp_port,
+        } => restart(core, foreground, http, port, mcp, mcp_port).await,
         DaemonCommands::Stop => stop().await,
         DaemonCommands::Status => status().await,
     }
@@ -53,6 +61,40 @@ async fn start(
                 Ok(())
             }
         }
+    }
+}
+
+async fn restart(
+    core: Arc<AppCore>,
+    foreground: bool,
+    http: bool,
+    port: Option<u16>,
+    mcp: bool,
+    mcp_port: Option<u16>,
+) -> Result<()> {
+    let config = DaemonConfig {
+        http,
+        http_port: port,
+        mcp,
+        mcp_port,
+    };
+
+    let was_running = stop_daemon()?;
+    if was_running {
+        println!("Sent stop signal to daemon");
+        wait_for_daemon_exit().await?;
+    }
+
+    if foreground {
+        run_daemon(core, config).await
+    } else {
+        let pid = start_daemon_with_config(config)?;
+        if was_running {
+            println!("Daemon restarted (PID: {})", pid);
+        } else {
+            println!("Daemon started (PID: {})", pid);
+        }
+        Ok(())
     }
 }
 
@@ -175,4 +217,15 @@ async fn status() -> Result<()> {
         }
     }
     Ok(())
+}
+
+async fn wait_for_daemon_exit() -> Result<()> {
+    for _ in 0..50 {
+        match check_daemon_status()? {
+            DaemonStatus::Running { .. } => sleep(Duration::from_millis(100)).await,
+            DaemonStatus::NotRunning | DaemonStatus::Stale { .. } => return Ok(()),
+        }
+    }
+
+    anyhow::bail!("Daemon did not stop within timeout")
 }

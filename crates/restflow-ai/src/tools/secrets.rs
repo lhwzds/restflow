@@ -7,8 +7,8 @@ use std::sync::Arc;
 
 use restflow_storage::{Secret, SecretStorage};
 
-use crate::error::{AiError, Result};
 use super::traits::{Tool, ToolOutput};
+use crate::error::{AiError, Result};
 
 #[derive(Clone)]
 pub struct SecretsTool {
@@ -44,15 +44,21 @@ impl SecretsTool {
 #[serde(tag = "operation", rename_all = "snake_case")]
 enum SecretsAction {
     List,
-    Get { key: String },
+    Get {
+        key: String,
+    },
     Set {
         key: String,
         value: String,
         #[serde(default)]
         description: Option<String>,
     },
-    Delete { key: String },
-    Has { key: String },
+    Delete {
+        key: String,
+    },
+    Has {
+        key: String,
+    },
 }
 
 #[async_trait]

@@ -7,8 +7,8 @@ use std::sync::Arc;
 
 use restflow_storage::{ConfigStorage, SystemConfig};
 
-use crate::error::{AiError, Result};
 use super::traits::{Tool, ToolOutput};
+use crate::error::{AiError, Result};
 
 #[derive(Clone)]
 pub struct ConfigTool {
@@ -74,12 +74,7 @@ impl ConfigTool {
                     .ok_or_else(|| AiError::Tool("max_retries must be a number".to_string()))?;
                 config.max_retries = retries as u32;
             }
-            _ => {
-                return Err(AiError::Tool(format!(
-                    "Unknown config field: {}",
-                    key
-                )))
-            }
+            _ => return Err(AiError::Tool(format!("Unknown config field: {}", key))),
         }
 
         Ok(config)

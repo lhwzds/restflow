@@ -1,6 +1,7 @@
 use crate::auth::{AuthProvider, Credential, CredentialSource, ProfileUpdate};
 use crate::models::{
-    AgentNode, AgentTask, ChatMessage, ChatRole, ChatSessionUpdate, MemoryChunk, MemorySession,
+    AgentNode, AgentTask, BackgroundAgentControlAction, BackgroundAgentPatch, BackgroundAgentSpec,
+    BackgroundMessageSource, ChatMessage, ChatRole, ChatSessionUpdate, MemoryChunk, MemorySession,
     Skill, TaskSchedule, TerminalSession,
 };
 use crate::storage::SystemConfig;
@@ -279,6 +280,33 @@ pub enum IpcRequest {
     },
     GetTaskHistory {
         id: String,
+    },
+    CreateBackgroundAgent {
+        spec: BackgroundAgentSpec,
+    },
+    UpdateBackgroundAgent {
+        id: String,
+        patch: BackgroundAgentPatch,
+    },
+    DeleteBackgroundAgent {
+        id: String,
+    },
+    ControlBackgroundAgent {
+        id: String,
+        action: BackgroundAgentControlAction,
+    },
+    GetBackgroundAgentProgress {
+        id: String,
+        event_limit: Option<usize>,
+    },
+    SendBackgroundAgentMessage {
+        id: String,
+        message: String,
+        source: Option<BackgroundMessageSource>,
+    },
+    ListBackgroundAgentMessages {
+        id: String,
+        limit: Option<usize>,
     },
     SubscribeTaskEvents {
         task_id: String,

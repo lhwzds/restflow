@@ -109,8 +109,10 @@ impl UnifiedAgent {
                         source = ?steer.source,
                         "Received steer message, injecting into conversation"
                     );
-                    self.history
-                        .add(Message::user(format!("[User Update]: {}", steer.instruction)));
+                    self.history.add(Message::user(format!(
+                        "[User Update]: {}",
+                        steer.instruction
+                    )));
                 }
                 Err(tokio::sync::mpsc::error::TryRecvError::Empty) => break,
                 Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => break,

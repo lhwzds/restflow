@@ -37,6 +37,7 @@ describe('Agent Task API', () => {
       max_messages: 100,
       enable_file_memory: false,
       persist_on_complete: false,
+      memory_scope: 'shared_agent',
     },
     status: 'active',
     created_at: Date.now(),
@@ -180,6 +181,36 @@ describe('Agent Task API', () => {
       expect(result.name).toBe('Full Task')
       expect(result.description).toBe('A complete task')
     })
+
+    it('should pass input_template and memory_scope fields', async () => {
+      const request: agentTaskApi.CreateAgentTaskRequest = {
+        name: 'Templated Task',
+        agent_id: 'agent-003',
+        schedule: { type: 'interval', interval_ms: 3600000, start_at: null },
+        input_template: 'Task {{task.id}}',
+        memory_scope: 'per_task',
+      }
+
+      const mockResponse = createMockTask('templated-task', {
+        name: 'Templated Task',
+      })
+
+      mock.onPost(API_ENDPOINTS.AGENT_TASK.CREATE).reply((config) => {
+        const body = JSON.parse(config.data)
+        expect(body.input_template).toBe('Task {{task.id}}')
+        expect(body.memory_scope).toBe('per_task')
+        return [
+          200,
+          {
+            success: true,
+            data: mockResponse,
+          },
+        ]
+      })
+
+      const result = await agentTaskApi.createAgentTask(request)
+      expect(result.id).toBe('templated-task')
+    })
   })
 
   describe('updateAgentTask', () => {
@@ -206,6 +237,28 @@ describe('Agent Task API', () => {
 
       const result = await agentTaskApi.updateAgentTask('task1', { schedule: newSchedule })
       expect(result.schedule.type).toBe('once')
+    })
+
+    it('should pass input_template and memory_scope on update', async () => {
+      const mockResponse = createMockTask('task1')
+
+      mock.onPut(API_ENDPOINTS.AGENT_TASK.UPDATE('task1')).reply((config) => {
+        const body = JSON.parse(config.data)
+        expect(body.input_template).toBe('Updated {{task.name}}')
+        expect(body.memory_scope).toBe('shared_agent')
+        return [
+          200,
+          {
+            success: true,
+            data: mockResponse,
+          },
+        ]
+      })
+
+      await agentTaskApi.updateAgentTask('task1', {
+        input_template: 'Updated {{task.name}}',
+        memory_scope: 'shared_agent',
+      })
     })
   })
 

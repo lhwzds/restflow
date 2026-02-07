@@ -152,6 +152,25 @@ fn default_max_messages() -> usize {
     100
 }
 
+/// Scope for task memory persistence.
+///
+/// Controls whether long-term memory is shared across all tasks of an agent
+/// or isolated per task.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, TS, PartialEq)]
+#[ts(export)]
+#[serde(rename_all = "snake_case")]
+pub enum MemoryScope {
+    /// Share long-term memory across tasks using the same agent_id.
+    #[default]
+    SharedAgent,
+    /// Isolate long-term memory by task.
+    PerTask,
+}
+
+fn default_memory_scope() -> MemoryScope {
+    MemoryScope::SharedAgent
+}
+
 /// Memory configuration for agent task execution
 ///
 /// Controls working memory behavior and persistence settings.
@@ -172,6 +191,12 @@ pub struct MemoryConfig {
     /// Working memory is chunked and stored for future retrieval
     #[serde(default = "default_true")]
     pub persist_on_complete: bool,
+
+    /// Scope for long-term memory persistence.
+    /// Shared scope stores memory under the agent ID, while per-task scope
+    /// stores memory under a task-specific namespace.
+    #[serde(default = "default_memory_scope")]
+    pub memory_scope: MemoryScope,
 }
 
 impl Default for MemoryConfig {
@@ -180,6 +205,7 @@ impl Default for MemoryConfig {
             max_messages: default_max_messages(),
             enable_file_memory: true,
             persist_on_complete: true,
+            memory_scope: MemoryScope::SharedAgent,
         }
     }
 }
@@ -194,6 +220,240 @@ impl Default for NotificationConfig {
             include_output: true, // Default to true for include_output
         }
     }
+}
+
+/// Creation payload for background agents.
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
+#[ts(export)]
+pub struct BackgroundAgentSpec {
+    /// Display name of the background agent
+    pub name: String,
+    /// ID of the agent to execute
+    pub agent_id: String,
+    /// Optional description
+    #[serde(default)]
+    pub description: Option<String>,
+    /// Optional input prompt
+    #[serde(default)]
+    pub input: Option<String>,
+    /// Optional input template rendered at runtime
+    #[serde(default)]
+    pub input_template: Option<String>,
+    /// Schedule configuration
+    pub schedule: TaskSchedule,
+    /// Optional notification configuration
+    #[serde(default)]
+    pub notification: Option<NotificationConfig>,
+    /// Optional execution mode
+    #[serde(default)]
+    pub execution_mode: Option<ExecutionMode>,
+    /// Optional memory configuration
+    #[serde(default)]
+    pub memory: Option<MemoryConfig>,
+}
+
+/// Partial update payload for background agents.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, TS, PartialEq)]
+#[ts(export)]
+pub struct BackgroundAgentPatch {
+    /// New display name
+    #[serde(default)]
+    pub name: Option<String>,
+    /// New description
+    #[serde(default)]
+    pub description: Option<String>,
+    /// New agent ID
+    #[serde(default)]
+    pub agent_id: Option<String>,
+    /// New input prompt
+    #[serde(default)]
+    pub input: Option<String>,
+    /// New input template
+    #[serde(default)]
+    pub input_template: Option<String>,
+    /// New schedule configuration
+    #[serde(default)]
+    pub schedule: Option<TaskSchedule>,
+    /// New notification configuration
+    #[serde(default)]
+    pub notification: Option<NotificationConfig>,
+    /// New execution mode
+    #[serde(default)]
+    pub execution_mode: Option<ExecutionMode>,
+    /// New memory configuration
+    #[serde(default)]
+    pub memory: Option<MemoryConfig>,
+}
+
+/// Control actions for a background agent.
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq, Eq)]
+#[ts(export)]
+#[serde(rename_all = "snake_case")]
+pub enum BackgroundAgentControlAction {
+    /// Start an agent that is not active
+    Start,
+    /// Pause future executions
+    Pause,
+    /// Resume scheduled executions
+    Resume,
+    /// Stop current/future execution
+    Stop,
+    /// Trigger immediate execution
+    RunNow,
+}
+
+/// Source for background communication messages.
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq, Eq, Default)]
+#[ts(export)]
+#[serde(rename_all = "snake_case")]
+pub enum BackgroundMessageSource {
+    /// Message provided by a human user
+    #[default]
+    User,
+    /// Message provided by another agent
+    Agent,
+    /// System generated message
+    System,
+}
+
+/// Delivery state of background communication messages.
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq, Eq, Default)]
+#[ts(export)]
+#[serde(rename_all = "snake_case")]
+pub enum BackgroundMessageStatus {
+    /// Waiting to be injected into a running agent
+    #[default]
+    Queued,
+    /// Successfully injected to a running agent
+    Delivered,
+    /// Processed and consumed by a run
+    Consumed,
+    /// Delivery failed
+    Failed,
+}
+
+impl BackgroundMessageStatus {
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            BackgroundMessageStatus::Queued => "queued",
+            BackgroundMessageStatus::Delivered => "delivered",
+            BackgroundMessageStatus::Consumed => "consumed",
+            BackgroundMessageStatus::Failed => "failed",
+        }
+    }
+}
+
+/// A communication message sent to a background agent.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct BackgroundMessage {
+    /// Message ID
+    pub id: String,
+    /// Target background agent ID
+    pub background_agent_id: String,
+    /// Source of the message
+    pub source: BackgroundMessageSource,
+    /// Delivery status
+    pub status: BackgroundMessageStatus,
+    /// Message content
+    pub message: String,
+    /// Message creation timestamp
+    #[ts(type = "number")]
+    pub created_at: i64,
+    /// Delivery timestamp
+    #[serde(default)]
+    #[ts(type = "number | null")]
+    pub delivered_at: Option<i64>,
+    /// Consumption timestamp
+    #[serde(default)]
+    #[ts(type = "number | null")]
+    pub consumed_at: Option<i64>,
+    /// Error details for failed delivery
+    #[serde(default)]
+    pub error: Option<String>,
+}
+
+impl BackgroundMessage {
+    /// Create a new queued background message.
+    pub fn new(
+        background_agent_id: String,
+        source: BackgroundMessageSource,
+        message: String,
+    ) -> Self {
+        Self {
+            id: uuid::Uuid::new_v4().to_string(),
+            background_agent_id,
+            source,
+            status: BackgroundMessageStatus::Queued,
+            message,
+            created_at: chrono::Utc::now().timestamp_millis(),
+            delivered_at: None,
+            consumed_at: None,
+            error: None,
+        }
+    }
+
+    /// Mark message as delivered to a running agent.
+    pub fn mark_delivered(&mut self) {
+        self.status = BackgroundMessageStatus::Delivered;
+        self.delivered_at = Some(chrono::Utc::now().timestamp_millis());
+        self.error = None;
+    }
+
+    /// Mark message as consumed by an execution.
+    pub fn mark_consumed(&mut self) {
+        self.status = BackgroundMessageStatus::Consumed;
+        self.consumed_at = Some(chrono::Utc::now().timestamp_millis());
+        self.error = None;
+    }
+
+    /// Mark message delivery as failed.
+    pub fn mark_failed(&mut self, error: String) {
+        self.status = BackgroundMessageStatus::Failed;
+        self.error = Some(error);
+    }
+}
+
+/// Aggregated progress snapshot for a background agent.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct BackgroundProgress {
+    /// Background agent ID
+    pub background_agent_id: String,
+    /// Current status
+    pub status: AgentTaskStatus,
+    /// Current stage label from the latest event
+    #[serde(default)]
+    pub stage: Option<String>,
+    /// Most recent event
+    #[serde(default)]
+    pub recent_event: Option<TaskEvent>,
+    /// Recent events in descending order
+    #[serde(default)]
+    pub recent_events: Vec<TaskEvent>,
+    /// Last run timestamp
+    #[serde(default)]
+    #[ts(type = "number | null")]
+    pub last_run_at: Option<i64>,
+    /// Next run timestamp
+    #[serde(default)]
+    #[ts(type = "number | null")]
+    pub next_run_at: Option<i64>,
+    /// Total token usage
+    #[serde(default)]
+    pub total_tokens_used: u32,
+    /// Total execution cost
+    #[serde(default)]
+    pub total_cost_usd: f64,
+    /// Successful run count
+    #[serde(default)]
+    pub success_count: u32,
+    /// Failed run count
+    #[serde(default)]
+    pub failure_count: u32,
+    /// Pending queued message count
+    #[serde(default)]
+    pub pending_message_count: u32,
 }
 
 /// Record of a task execution event
@@ -268,6 +528,9 @@ pub struct AgentTask {
     /// Input/prompt to send to the agent
     #[serde(default)]
     pub input: Option<String>,
+    /// Optional template rendered to construct runtime input
+    #[serde(default)]
+    pub input_template: Option<String>,
     /// Schedule configuration
     pub schedule: TaskSchedule,
     /// Execution mode (API or CLI)
@@ -331,6 +594,7 @@ impl AgentTask {
             description: None,
             agent_id,
             input: None,
+            input_template: None,
             schedule,
             execution_mode: ExecutionMode::default(),
             notification: NotificationConfig::default(),
@@ -558,6 +822,7 @@ mod tests {
         assert_eq!(task.name, "Test Task");
         assert_eq!(task.agent_id, "agent-456");
         assert_eq!(task.status, AgentTaskStatus::Active);
+        assert!(task.input_template.is_none());
         assert!(task.created_at > 0);
         assert!(task.next_run_at.is_some());
         assert_eq!(task.success_count, 0);
@@ -856,6 +1121,7 @@ mod tests {
         assert_eq!(config.max_messages, 100);
         assert!(config.enable_file_memory);
         assert!(config.persist_on_complete);
+        assert_eq!(config.memory_scope, MemoryScope::SharedAgent);
     }
 
     #[test]
@@ -864,11 +1130,13 @@ mod tests {
             max_messages: 50,
             enable_file_memory: false,
             persist_on_complete: true,
+            memory_scope: MemoryScope::PerTask,
         };
 
         assert_eq!(config.max_messages, 50);
         assert!(!config.enable_file_memory);
         assert!(config.persist_on_complete);
+        assert_eq!(config.memory_scope, MemoryScope::PerTask);
     }
 
     #[test]
@@ -884,6 +1152,7 @@ mod tests {
         assert_eq!(task.memory.max_messages, 100);
         assert!(task.memory.enable_file_memory);
         assert!(task.memory.persist_on_complete);
+        assert_eq!(task.memory.memory_scope, MemoryScope::SharedAgent);
     }
 
     #[test]
@@ -892,6 +1161,7 @@ mod tests {
             max_messages: 75,
             enable_file_memory: true,
             persist_on_complete: false,
+            memory_scope: MemoryScope::PerTask,
         };
 
         let json = serde_json::to_string(&config).unwrap();
@@ -900,6 +1170,7 @@ mod tests {
         assert_eq!(deserialized.max_messages, 75);
         assert!(deserialized.enable_file_memory);
         assert!(!deserialized.persist_on_complete);
+        assert_eq!(deserialized.memory_scope, MemoryScope::PerTask);
     }
 
     #[test]
@@ -911,6 +1182,7 @@ mod tests {
         assert_eq!(config.max_messages, 100);
         assert!(config.enable_file_memory);
         assert!(config.persist_on_complete);
+        assert_eq!(config.memory_scope, MemoryScope::SharedAgent);
     }
 
     #[test]
@@ -928,5 +1200,6 @@ mod tests {
 
         let deserialized: AgentTask = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized.memory.max_messages, 100);
+        assert_eq!(deserialized.memory.memory_scope, MemoryScope::SharedAgent);
     }
 }

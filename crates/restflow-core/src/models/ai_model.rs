@@ -466,12 +466,8 @@ impl AIModel {
             "claude-sonnet-4-5-20250514" | "claude-sonnet-4-20250514" => {
                 Some(Self::ClaudeSonnet4_5)
             }
-            "claude-opus-4-6-20260205" | "claude-opus-4-6-20250514" => {
-                Some(Self::ClaudeOpus4_6)
-            }
-            "claude-haiku-4-5-20250514" | "claude-haiku-4-20250514" => {
-                Some(Self::ClaudeHaiku4_5)
-            }
+            "claude-opus-4-6-20260205" | "claude-opus-4-6-20250514" => Some(Self::ClaudeOpus4_6),
+            "claude-haiku-4-5-20250514" | "claude-haiku-4-20250514" => Some(Self::ClaudeHaiku4_5),
             _ => {
                 if name.starts_with("claude-sonnet-4") {
                     Some(Self::ClaudeSonnet4_5)
@@ -711,7 +707,10 @@ mod tests {
         assert_eq!(AIModel::OpenCodeCli.as_str(), "opencode");
         assert_eq!(AIModel::DeepseekChat.as_str(), "deepseek-chat");
         assert_eq!(AIModel::Gemini25Pro.as_str(), "gemini-2.5-pro");
-        assert_eq!(AIModel::GroqLlama4Scout.as_str(), "meta-llama/llama-4-scout-17b-16e-instruct");
+        assert_eq!(
+            AIModel::GroqLlama4Scout.as_str(),
+            "meta-llama/llama-4-scout-17b-16e-instruct"
+        );
     }
 
     #[test]

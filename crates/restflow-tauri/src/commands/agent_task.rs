@@ -20,8 +20,8 @@
 use crate::agent_task::{TASK_STREAM_EVENT, TaskStreamEvent, TauriEventEmitter};
 use crate::state::AppState;
 use restflow_core::models::{
-    AgentTask, AgentTaskStatus, ExecutionMode, NotificationConfig, SteerMessage, SteerSource,
-    TaskEvent, TaskSchedule,
+    AgentTask, AgentTaskStatus, ExecutionMode, MemoryConfig, MemoryScope, NotificationConfig,
+    SteerMessage, SteerSource, TaskEvent, TaskSchedule,
 };
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
@@ -41,12 +41,21 @@ pub struct CreateAgentTaskRequest {
     /// Optional input/prompt to send to the agent
     #[serde(default)]
     pub input: Option<String>,
+    /// Optional runtime template for constructing input
+    #[serde(default)]
+    pub input_template: Option<String>,
     /// Optional notification configuration
     #[serde(default)]
     pub notification: Option<NotificationConfig>,
     /// Optional execution mode (API or CLI)
     #[serde(default)]
     pub execution_mode: Option<ExecutionMode>,
+    /// Optional memory configuration
+    #[serde(default)]
+    pub memory: Option<MemoryConfig>,
+    /// Optional memory scope override
+    #[serde(default)]
+    pub memory_scope: Option<MemoryScope>,
 }
 
 /// Request to update an existing agent task
@@ -64,12 +73,21 @@ pub struct UpdateAgentTaskRequest {
     /// New input/prompt (optional)
     #[serde(default)]
     pub input: Option<String>,
+    /// New runtime input template (optional)
+    #[serde(default)]
+    pub input_template: Option<String>,
     /// New schedule (optional)
     #[serde(default)]
     pub schedule: Option<TaskSchedule>,
     /// New notification config (optional)
     #[serde(default)]
     pub notification: Option<NotificationConfig>,
+    /// New memory configuration (optional)
+    #[serde(default)]
+    pub memory: Option<MemoryConfig>,
+    /// New memory scope override (optional)
+    #[serde(default)]
+    pub memory_scope: Option<MemoryScope>,
 }
 
 /// List all agent tasks
@@ -138,6 +156,10 @@ pub async fn create_agent_task(
         task.input = Some(input);
         needs_update = true;
     }
+    if let Some(input_template) = request.input_template {
+        task.input_template = Some(input_template);
+        needs_update = true;
+    }
 
     if let Some(notification) = request.notification {
         task.notification = notification;
@@ -146,6 +168,11 @@ pub async fn create_agent_task(
 
     if let Some(execution_mode) = request.execution_mode {
         task.execution_mode = execution_mode;
+        needs_update = true;
+    }
+
+    if request.memory.is_some() || request.memory_scope.is_some() {
+        task.memory = merge_memory_scope(request.memory, request.memory_scope);
         needs_update = true;
     }
 
@@ -192,6 +219,9 @@ pub async fn update_agent_task(
     if let Some(input) = request.input {
         task.input = Some(input);
     }
+    if let Some(input_template) = request.input_template {
+        task.input_template = Some(input_template);
+    }
 
     if let Some(schedule) = request.schedule {
         task.schedule = schedule;
@@ -201,6 +231,10 @@ pub async fn update_agent_task(
 
     if let Some(notification) = request.notification {
         task.notification = notification;
+    }
+
+    if request.memory.is_some() || request.memory_scope.is_some() {
+        task.memory = merge_memory_scope(request.memory, request.memory_scope);
     }
 
     // Update timestamp
@@ -318,6 +352,24 @@ pub async fn get_runnable_agent_tasks(
         .agent_tasks
         .list_runnable_tasks(current_time)
         .map_err(|e| e.to_string())
+}
+
+fn merge_memory_scope(
+    memory: Option<MemoryConfig>,
+    memory_scope: Option<MemoryScope>,
+) -> MemoryConfig {
+    match (memory, memory_scope) {
+        (Some(mut memory), Some(scope)) => {
+            memory.memory_scope = scope;
+            memory
+        }
+        (Some(memory), None) => memory,
+        (None, Some(scope)) => MemoryConfig {
+            memory_scope: scope,
+            ..MemoryConfig::default()
+        },
+        (None, None) => MemoryConfig::default(),
+    }
 }
 
 // ============================================================================

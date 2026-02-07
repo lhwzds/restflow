@@ -6,13 +6,17 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use std::sync::Arc;
 
-use crate::error::{AiError, Result};
 use super::traits::{Tool, ToolOutput};
+use crate::error::{AiError, Result};
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum CredentialInput {
-    ApiKey { key: String, #[serde(default)] email: Option<String> },
+    ApiKey {
+        key: String,
+        #[serde(default)]
+        email: Option<String>,
+    },
     Token {
         token: String,
         #[serde(default)]
@@ -98,7 +102,9 @@ enum AuthProfileAction {
         source: Option<String>,
         credential: CredentialInput,
     },
-    Remove { id: String },
+    Remove {
+        id: String,
+    },
     Test {
         #[serde(default)]
         id: Option<String>,

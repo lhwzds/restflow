@@ -51,7 +51,7 @@ pub use memory::{
 pub use security::{SecurityDecision, SecurityGate, ToolAction};
 pub use steer::{SteerMessage, SteerSource};
 pub use tools::{
-    AgentCrudTool, AgentCreateRequest, AgentStore, AgentUpdateRequest, AuthProfileCreateRequest,
+    AgentCreateRequest, AgentCrudTool, AgentStore, AgentUpdateRequest, AuthProfileCreateRequest,
     AuthProfileStore, AuthProfileTestRequest, AuthProfileTool, CredentialInput,
     DiagnosticsProvider, DiagnosticsTool, EmailTool, HttpTool, MemoryClearRequest,
     MemoryCompactRequest, MemoryExportRequest, MemoryManagementTool, MemoryManager,

@@ -278,7 +278,7 @@ impl SecurityChecker {
             .filter(|rule| {
                 rule.operation
                     .as_deref()
-                    .map_or(true, |op| op == action.operation)
+                    .is_none_or(|op| op == action.operation)
             })
             .collect();
 

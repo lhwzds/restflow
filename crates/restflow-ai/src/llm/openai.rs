@@ -294,7 +294,8 @@ impl LlmClient for OpenAIClient {
                 };
 
                 let usage = data.usage.map(|u| {
-                    let cost_usd = calculate_cost(&self.model, u.prompt_tokens, u.completion_tokens);
+                    let cost_usd =
+                        calculate_cost(&self.model, u.prompt_tokens, u.completion_tokens);
                     TokenUsage {
                         prompt_tokens: u.prompt_tokens,
                         completion_tokens: u.completion_tokens,

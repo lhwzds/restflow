@@ -5,8 +5,8 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use std::sync::Arc;
 
-use crate::error::{AiError, Result};
 use super::traits::{Tool, ToolOutput};
+use crate::error::{AiError, Result};
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct SessionCreateRequest {
@@ -88,7 +88,9 @@ enum SessionAction {
         #[serde(default)]
         include_messages: Option<bool>,
     },
-    Get { id: String },
+    Get {
+        id: String,
+    },
     Create {
         agent_id: String,
         model: String,
@@ -97,7 +99,9 @@ enum SessionAction {
         #[serde(default)]
         skill_id: Option<String>,
     },
-    Delete { id: String },
+    Delete {
+        id: String,
+    },
     Search {
         query: String,
         #[serde(default)]

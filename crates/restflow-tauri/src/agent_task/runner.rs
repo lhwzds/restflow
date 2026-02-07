@@ -10,7 +10,8 @@
 use anyhow::{Result, anyhow};
 use restflow_ai::llm::Message;
 use restflow_core::models::{
-    AgentTask, AgentTaskStatus, ExecutionMode, NotificationConfig, SteerMessage,
+    AgentTask, AgentTaskStatus, BackgroundMessageSource, ExecutionMode, MemoryScope,
+    NotificationConfig, SteerMessage, SteerSource,
 };
 use restflow_core::performance::{
     TaskExecutor, TaskPriority, TaskQueue, TaskQueueConfig, WorkerPool, WorkerPoolConfig,
@@ -584,6 +585,47 @@ impl AgentTaskRunner {
         }
     }
 
+    fn to_steer_source(source: &BackgroundMessageSource) -> SteerSource {
+        match source {
+            BackgroundMessageSource::User => SteerSource::User,
+            BackgroundMessageSource::Agent => SteerSource::Api,
+            BackgroundMessageSource::System => SteerSource::Hook,
+        }
+    }
+
+    async fn forward_pending_messages(&self, task_id: &str) {
+        let pending_messages = match self.storage.list_pending_background_messages(task_id, 32) {
+            Ok(messages) => messages,
+            Err(e) => {
+                warn!(
+                    "Failed to list pending background messages for task {}: {}",
+                    task_id, e
+                );
+                return;
+            }
+        };
+
+        if pending_messages.is_empty() {
+            return;
+        }
+
+        for queued in pending_messages {
+            let steer_message = SteerMessage {
+                instruction: queued.message.clone(),
+                source: Self::to_steer_source(&queued.source),
+                timestamp: chrono::Utc::now().timestamp_millis(),
+            };
+
+            let sent = self.steer_registry.steer(task_id, steer_message).await;
+            if sent && let Err(e) = self.storage.mark_background_message_consumed(&queued.id) {
+                warn!(
+                    "Failed to mark background message {} as consumed: {}",
+                    queued.id, e
+                );
+            }
+        }
+    }
+
     /// Execute a single task
     /// Note: Task must already be in running_tasks before calling this
     async fn execute_task(
@@ -633,6 +675,66 @@ impl AgentTaskRunner {
             None
         };
 
+        // Start a lightweight message pump so queued background messages can be
+        // injected into the running agent loop.
+        let mut message_pump = if matches!(task.execution_mode, ExecutionMode::Api) {
+            self.forward_pending_messages(task_id).await;
+
+            let storage = self.storage.clone();
+            let steer_registry = self.steer_registry.clone();
+            let task_id = task_id.to_string();
+
+            Some(tokio::spawn(async move {
+                let mut ticker = interval(Duration::from_millis(500));
+
+                loop {
+                    ticker.tick().await;
+
+                    let pending_messages =
+                        match storage.list_pending_background_messages(&task_id, 32) {
+                            Ok(messages) => messages,
+                            Err(e) => {
+                                warn!(
+                                    "Failed to list pending background messages for task {}: {}",
+                                    task_id, e
+                                );
+                                continue;
+                            }
+                        };
+
+                    if pending_messages.is_empty() {
+                        continue;
+                    }
+
+                    for queued in pending_messages {
+                        let source = match &queued.source {
+                            BackgroundMessageSource::User => SteerSource::User,
+                            BackgroundMessageSource::Agent => SteerSource::Api,
+                            BackgroundMessageSource::System => SteerSource::Hook,
+                        };
+                        let steer_message = SteerMessage {
+                            instruction: queued.message.clone(),
+                            source,
+                            timestamp: chrono::Utc::now().timestamp_millis(),
+                        };
+
+                        let sent = steer_registry.steer(&task_id, steer_message).await;
+                        if sent && let Err(e) = storage.mark_background_message_consumed(&queued.id)
+                        {
+                            warn!(
+                                "Failed to mark background message {} as consumed: {}",
+                                queued.id, e
+                            );
+                        }
+                    }
+                }
+            }))
+        } else {
+            None
+        };
+
+        let resolved_input = self.resolve_task_input(&task);
+
         let exec_future = async {
             match &task.execution_mode {
                 ExecutionMode::Api => {
@@ -641,7 +743,8 @@ impl AgentTaskRunner {
                     let timeout = Duration::from_secs(self.config.task_timeout_secs);
                     tokio::time::timeout(
                         timeout,
-                        self.executor.execute(&task.agent_id, task.input.as_deref(), steer_rx),
+                        self.executor
+                            .execute(&task.agent_id, resolved_input.as_deref(), steer_rx),
                     )
                     .await
                 }
@@ -671,7 +774,7 @@ impl AgentTaskRunner {
                     let timeout = Duration::from_secs(cli_config.timeout_secs);
                     tokio::time::timeout(
                         timeout,
-                        cli_executor.execute_cli(cli_config, task.input.as_deref()),
+                        cli_executor.execute_cli(cli_config, resolved_input.as_deref()),
                     )
                     .await
                 }
@@ -685,6 +788,10 @@ impl AgentTaskRunner {
                     "Task '{}' cancelled by user (duration={}ms)",
                     task.name, duration_ms
                 );
+                if let Some(pump) = message_pump.take() {
+                    pump.abort();
+                    let _ = pump.await;
+                }
                 self.event_emitter
                     .emit(TaskStreamEvent::cancelled(
                         task_id,
@@ -700,6 +807,11 @@ impl AgentTaskRunner {
             }
             result = exec_future => result,
         };
+
+        if let Some(pump) = message_pump.take() {
+            pump.abort();
+            let _ = pump.await;
+        }
 
         let duration_ms = chrono::Utc::now().timestamp_millis() - start_time;
         let mut success = false;
@@ -830,20 +942,86 @@ impl AgentTaskRunner {
         let tags: Vec<String> = vec![
             format!("task:{}", task.id),
             format!("agent:{}", task.agent_id),
+            format!(
+                "memory_scope:{}",
+                Self::memory_scope_label(&task.memory.memory_scope)
+            ),
         ];
+        let memory_agent_id = Self::resolve_memory_agent_id(task);
 
-        match persister.persist(messages, &task.agent_id, &task.id, &task.name, &tags) {
+        match persister.persist(messages, &memory_agent_id, &task.id, &task.name, &tags) {
             Ok(result) => {
                 if result.chunk_count > 0 {
                     info!(
-                        "Persisted {} memory chunks for task '{}' (session: {})",
-                        result.chunk_count, task.name, result.session_id
+                        "Persisted {} memory chunks for task '{}' (session: {}, namespace: {})",
+                        result.chunk_count, task.name, result.session_id, memory_agent_id
                     );
                 }
             }
             Err(e) => {
                 warn!("Failed to persist memory for task '{}': {}", task.name, e);
             }
+        }
+    }
+
+    fn resolve_task_input(&self, task: &AgentTask) -> Option<String> {
+        if let Some(template) = task.input_template.as_deref() {
+            return Some(Self::render_input_template(task, template));
+        }
+        task.input.clone()
+    }
+
+    fn render_input_template(task: &AgentTask, template: &str) -> String {
+        let now = chrono::Utc::now();
+        let replacements = vec![
+            ("{{task.id}}".to_string(), task.id.clone()),
+            ("{{task.name}}".to_string(), task.name.clone()),
+            ("{{task.agent_id}}".to_string(), task.agent_id.clone()),
+            (
+                "{{task.description}}".to_string(),
+                task.description.clone().unwrap_or_default(),
+            ),
+            (
+                "{{task.input}}".to_string(),
+                task.input.clone().unwrap_or_default(),
+            ),
+            (
+                "{{task.last_run_at}}".to_string(),
+                Self::format_optional_timestamp(task.last_run_at),
+            ),
+            (
+                "{{task.next_run_at}}".to_string(),
+                Self::format_optional_timestamp(task.next_run_at),
+            ),
+            ("{{now.iso}}".to_string(), now.to_rfc3339()),
+            (
+                "{{now.unix_ms}}".to_string(),
+                now.timestamp_millis().to_string(),
+            ),
+        ];
+
+        let mut rendered = template.to_string();
+        for (pattern, replacement) in replacements {
+            rendered = rendered.replace(&pattern, &replacement);
+        }
+        rendered
+    }
+
+    fn format_optional_timestamp(timestamp: Option<i64>) -> String {
+        timestamp.map(|value| value.to_string()).unwrap_or_default()
+    }
+
+    fn resolve_memory_agent_id(task: &AgentTask) -> String {
+        match task.memory.memory_scope {
+            MemoryScope::SharedAgent => task.agent_id.clone(),
+            MemoryScope::PerTask => format!("{}::task::{}", task.agent_id, task.id),
+        }
+    }
+
+    fn memory_scope_label(scope: &MemoryScope) -> &'static str {
+        match scope {
+            MemoryScope::SharedAgent => "shared_agent",
+            MemoryScope::PerTask => "per_task",
         }
     }
 
@@ -938,7 +1116,7 @@ impl TaskExecutor for RunnerTaskExecutor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use restflow_core::models::TaskSchedule;
+    use restflow_core::models::{MemoryScope, TaskEventType, TaskSchedule};
     use std::sync::atomic::{AtomicU32, Ordering};
     use std::time::Instant;
     use tempfile::tempdir;
@@ -1060,7 +1238,13 @@ mod tests {
         };
 
         let steer_registry = Arc::new(SteerRegistry::new());
-        let runner = Arc::new(AgentTaskRunner::new(storage, executor, notifier, config, steer_registry));
+        let runner = Arc::new(AgentTaskRunner::new(
+            storage,
+            executor,
+            notifier,
+            config,
+            steer_registry,
+        ));
 
         let handle = runner.clone().start();
 
@@ -1323,6 +1507,60 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_runner_uses_input_template_when_running_task() {
+        let (storage, _temp_dir) = create_test_storage();
+        let executor = Arc::new(MockExecutor::new());
+        let notifier = Arc::new(NoopNotificationSender);
+
+        let config = RunnerConfig {
+            poll_interval_ms: 10_000,
+            ..Default::default()
+        };
+
+        let steer_registry = Arc::new(SteerRegistry::new());
+        let runner = Arc::new(AgentTaskRunner::new(
+            storage.clone(),
+            executor.clone(),
+            notifier,
+            config,
+            steer_registry,
+        ));
+
+        let handle = runner.clone().start();
+
+        let future_time = chrono::Utc::now().timestamp_millis() + 3_600_000;
+        let mut task = storage
+            .create_task(
+                "Template Task".to_string(),
+                "agent-001".to_string(),
+                TaskSchedule::Once {
+                    run_at: future_time,
+                },
+            )
+            .unwrap();
+        task.input = Some("fallback input".to_string());
+        task.input_template = Some("Task {{task.id}} for {{task.name}}".to_string());
+        storage.update_task(&task).unwrap();
+
+        handle.run_task_now(task.id.clone()).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        handle.stop().await.unwrap();
+
+        assert_eq!(executor.call_count(), 1);
+
+        let events = storage.list_events_for_task(&task.id).unwrap();
+        let completed = events
+            .iter()
+            .find(|event| event.event_type == TaskEventType::Completed)
+            .and_then(|event| event.output.as_deref())
+            .unwrap_or_default()
+            .to_string();
+
+        assert!(completed.contains(&format!("Task {} for Template Task", task.id)));
+        assert!(!completed.contains("fallback input"));
+    }
+
+    #[tokio::test]
     async fn test_runner_skips_paused_tasks() {
         let (storage, _temp_dir) = create_test_storage();
         let executor = Arc::new(MockExecutor::new());
@@ -1363,6 +1601,49 @@ mod tests {
 
         // Should not have executed paused task
         assert_eq!(executor.call_count(), 0);
+    }
+
+    #[test]
+    fn test_render_input_template_replaces_known_placeholders() {
+        let mut task = AgentTask::new(
+            "task-123".to_string(),
+            "Template Unit Test".to_string(),
+            "agent-456".to_string(),
+            TaskSchedule::default(),
+        );
+        task.description = Some("description".to_string());
+        task.input = Some("input".to_string());
+
+        let rendered = AgentTaskRunner::render_input_template(
+            &task,
+            "ID={{task.id}}, NAME={{task.name}}, AGENT={{task.agent_id}}, DESC={{task.description}}, INPUT={{task.input}}, NOW={{now.unix_ms}}",
+        );
+
+        assert!(rendered.contains("ID=task-123"));
+        assert!(rendered.contains("NAME=Template Unit Test"));
+        assert!(rendered.contains("AGENT=agent-456"));
+        assert!(rendered.contains("DESC=description"));
+        assert!(rendered.contains("INPUT=input"));
+        assert!(!rendered.contains("{{now.unix_ms}}"));
+    }
+
+    #[test]
+    fn test_resolve_memory_agent_id_respects_scope() {
+        let mut task = AgentTask::new(
+            "task-123".to_string(),
+            "Memory Scope Test".to_string(),
+            "agent-456".to_string(),
+            TaskSchedule::default(),
+        );
+
+        task.memory.memory_scope = MemoryScope::SharedAgent;
+        assert_eq!(AgentTaskRunner::resolve_memory_agent_id(&task), "agent-456");
+
+        task.memory.memory_scope = MemoryScope::PerTask;
+        assert_eq!(
+            AgentTaskRunner::resolve_memory_agent_id(&task),
+            "agent-456::task::task-123"
+        );
     }
 
     #[tokio::test]
@@ -1477,7 +1758,13 @@ mod tests {
         };
 
         let steer_registry = Arc::new(SteerRegistry::new());
-        let runner = Arc::new(AgentTaskRunner::new(storage, executor, notifier, config, steer_registry));
+        let runner = Arc::new(AgentTaskRunner::new(
+            storage,
+            executor,
+            notifier,
+            config,
+            steer_registry,
+        ));
 
         let handle = runner.clone().start();
 

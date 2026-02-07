@@ -35,7 +35,11 @@ impl OpenCodeClient {
     }
 
     /// Inject provider credentials as an env var
-    pub fn with_provider_env(mut self, var_name: impl Into<String>, value: impl Into<String>) -> Self {
+    pub fn with_provider_env(
+        mut self,
+        var_name: impl Into<String>,
+        value: impl Into<String>,
+    ) -> Self {
         self.provider_env = Some((var_name.into(), value.into()));
         self
     }
@@ -50,9 +54,8 @@ impl OpenCodeClient {
     }
 
     fn parse_json_output(output: &str) -> Result<String> {
-        let value: Value = serde_json::from_str(output.trim()).map_err(|e| {
-            AiError::Llm(format!("Failed to parse OpenCode CLI output: {e}"))
-        })?;
+        let value: Value = serde_json::from_str(output.trim())
+            .map_err(|e| AiError::Llm(format!("Failed to parse OpenCode CLI output: {e}")))?;
 
         if let Some(err) = value.get("error").and_then(|v| v.as_str()) {
             return Err(AiError::Llm(format!("OpenCode CLI error: {err}")));
@@ -64,7 +67,9 @@ impl OpenCodeClient {
             .ok_or_else(|| AiError::Llm("OpenCode output missing 'response' field".to_string()))?;
 
         if response.trim().is_empty() {
-            return Err(AiError::Llm("OpenCode CLI returned empty output".to_string()));
+            return Err(AiError::Llm(
+                "OpenCode CLI returned empty output".to_string(),
+            ));
         }
 
         Ok(response.to_string())

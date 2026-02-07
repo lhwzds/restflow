@@ -5,8 +5,8 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use std::sync::Arc;
 
-use crate::error::{AiError, Result};
 use super::traits::{Tool, ToolOutput};
+use crate::error::{AiError, Result};
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct AgentCreateRequest {
@@ -65,8 +65,13 @@ impl AgentCrudTool {
 #[serde(tag = "operation", rename_all = "snake_case")]
 enum AgentAction {
     List,
-    Show { id: String },
-    Create { name: String, agent: Value },
+    Show {
+        id: String,
+    },
+    Create {
+        name: String,
+        agent: Value,
+    },
     Update {
         id: String,
         #[serde(default)]
@@ -74,7 +79,9 @@ enum AgentAction {
         #[serde(default)]
         agent: Option<Value>,
     },
-    Delete { id: String },
+    Delete {
+        id: String,
+    },
 }
 
 #[async_trait]

@@ -4,7 +4,11 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::warn;
 
-use crate::executor::{CommandExecutor, CreateTaskInput};
+use crate::executor::{
+    BackgroundProgressInput, CommandExecutor, ControlBackgroundAgentInput,
+    CreateBackgroundAgentInput, ListBackgroundMessageInput, SendBackgroundMessageInput,
+    UpdateBackgroundAgentInput,
+};
 use crate::setup;
 use restflow_ai::{
     AgentConfig, AgentExecutor, AgentState, AgentStatus, DefaultLlmClientFactory, LlmClientFactory,
@@ -27,8 +31,8 @@ use restflow_core::storage::agent::StoredAgent;
 use restflow_core::{
     AIModel, AppCore,
     models::{
-        AgentTask, AgentTaskStatus, ChatSession, ChatSessionSummary, MemoryChunk,
-        MemorySearchResult, MemoryStats, Secret, Skill,
+        AgentTask, AgentTaskStatus, BackgroundMessage, BackgroundProgress, ChatSession,
+        ChatSessionSummary, MemoryChunk, MemorySearchResult, MemoryStats, Secret, Skill,
     },
 };
 use restflow_storage::AuthProfileStorage;
@@ -46,10 +50,6 @@ impl DirectExecutor {
 
 #[async_trait]
 impl CommandExecutor for DirectExecutor {
-    fn core(&self) -> Option<Arc<AppCore>> {
-        Some(self.core.clone())
-    }
-
     async fn list_agents(&self) -> Result<Vec<StoredAgent>> {
         agent_service::list_agents(&self.core).await
     }
@@ -149,35 +149,75 @@ impl CommandExecutor for DirectExecutor {
         self.core.storage.agent_tasks.get_task(id)
     }
 
-    async fn create_task(&self, input: CreateTaskInput) -> Result<AgentTask> {
-        let mut task = self.core.storage.agent_tasks.create_task(
-            input.name,
-            input.agent_id,
-            input.schedule,
-        )?;
-
-        if let Some(text) = input.input {
-            task.input = Some(text);
-            self.core.storage.agent_tasks.update_task(&task)?;
-        }
-
-        Ok(task)
+    async fn get_task_history(&self, id: &str) -> Result<Vec<TaskEvent>> {
+        self.core.storage.agent_tasks.list_events_for_task(id)
     }
 
-    async fn pause_task(&self, id: &str) -> Result<AgentTask> {
-        self.core.storage.agent_tasks.pause_task(id)
+    async fn create_background_agent(
+        &self,
+        input: CreateBackgroundAgentInput,
+    ) -> Result<AgentTask> {
+        self.core
+            .storage
+            .agent_tasks
+            .create_background_agent(input.spec)
     }
 
-    async fn resume_task(&self, id: &str) -> Result<AgentTask> {
-        self.core.storage.agent_tasks.resume_task(id)
+    async fn update_background_agent(
+        &self,
+        input: UpdateBackgroundAgentInput,
+    ) -> Result<AgentTask> {
+        self.core
+            .storage
+            .agent_tasks
+            .update_background_agent(&input.id, input.patch)
     }
 
-    async fn delete_task(&self, id: &str) -> Result<bool> {
+    async fn delete_background_agent(&self, id: &str) -> Result<bool> {
         self.core.storage.agent_tasks.delete_task(id)
     }
 
-    async fn get_task_history(&self, id: &str) -> Result<Vec<TaskEvent>> {
-        self.core.storage.agent_tasks.list_events_for_task(id)
+    async fn control_background_agent(
+        &self,
+        input: ControlBackgroundAgentInput,
+    ) -> Result<AgentTask> {
+        self.core
+            .storage
+            .agent_tasks
+            .control_background_agent(&input.id, input.action)
+    }
+
+    async fn get_background_progress(
+        &self,
+        input: BackgroundProgressInput,
+    ) -> Result<BackgroundProgress> {
+        self.core
+            .storage
+            .agent_tasks
+            .get_background_agent_progress(&input.id, input.event_limit.unwrap_or(10).max(1))
+    }
+
+    async fn send_background_message(
+        &self,
+        input: SendBackgroundMessageInput,
+    ) -> Result<BackgroundMessage> {
+        self.core.storage.agent_tasks.send_background_agent_message(
+            &input.id,
+            input.message,
+            input
+                .source
+                .unwrap_or(restflow_core::models::BackgroundMessageSource::User),
+        )
+    }
+
+    async fn list_background_messages(
+        &self,
+        input: ListBackgroundMessageInput,
+    ) -> Result<Vec<BackgroundMessage>> {
+        self.core
+            .storage
+            .agent_tasks
+            .list_background_agent_messages(&input.id, input.limit.unwrap_or(50).max(1))
     }
 
     async fn search_memory(

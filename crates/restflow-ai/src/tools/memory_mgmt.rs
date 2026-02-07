@@ -5,8 +5,8 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use std::sync::Arc;
 
-use crate::error::{AiError, Result};
 use super::traits::{Tool, ToolOutput};
+use crate::error::{AiError, Result};
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct MemoryExportRequest {
@@ -75,7 +75,9 @@ impl MemoryManagementTool {
 #[derive(Debug, Deserialize)]
 #[serde(tag = "operation", rename_all = "snake_case")]
 enum MemoryAction {
-    Stats { agent_id: String },
+    Stats {
+        agent_id: String,
+    },
     Export {
         agent_id: String,
         #[serde(default)]
@@ -153,9 +155,7 @@ impl Tool for MemoryManagementTool {
         let action: MemoryAction = serde_json::from_value(input)?;
 
         let output = match action {
-            MemoryAction::Stats { agent_id } => {
-                ToolOutput::success(self.manager.stats(&agent_id)?)
-            }
+            MemoryAction::Stats { agent_id } => ToolOutput::success(self.manager.stats(&agent_id)?),
             MemoryAction::Export {
                 agent_id,
                 session_id,

@@ -344,9 +344,8 @@ fn create_llm_client(model: AIModel, api_key: &str) -> Arc<dyn LlmClient> {
                     client = client.with_base_url("https://api.deepseek.com/v1");
                 }
                 Provider::Google => {
-                    client = client.with_base_url(
-                        "https://generativelanguage.googleapis.com/v1beta/openai",
-                    );
+                    client = client
+                        .with_base_url("https://generativelanguage.googleapis.com/v1beta/openai");
                 }
                 Provider::Groq => {
                     client = client.with_base_url("https://api.groq.com/openai/v1");
@@ -433,10 +432,12 @@ async fn execute_agent_for_session(
         .core
         .as_ref()
         .map(|core| secret_resolver_from_storage(&core.storage));
+    let tool_storage = state.core.as_ref().map(|core| core.storage.as_ref());
     let tools = Arc::new(registry_from_allowlist(
         agent_node.tools.as_deref(),
         Some(&subagent_deps),
         secret_resolver,
+        tool_storage,
     ));
 
     let system_prompt = state
@@ -570,6 +571,7 @@ pub async fn send_chat_message_stream(
         .core
         .as_ref()
         .map(|core| secret_resolver_from_storage(&core.storage));
+    let tool_storage = state.core.as_ref().map(|core| core.storage.clone());
 
     // Spawn background task for agent execution
     tokio::spawn(async move {
@@ -666,6 +668,7 @@ pub async fn send_chat_message_stream(
             agent_node.tools.as_deref(),
             Some(&subagent_deps),
             secret_resolver.clone(),
+            tool_storage.as_deref(),
         ));
 
         let system_prompt = match executor.build_agent_system_prompt(agent_node.clone()).await {

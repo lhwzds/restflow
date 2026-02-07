@@ -56,6 +56,9 @@ pub enum Commands {
     /// Show RestFlow status
     Status,
 
+    /// Restart RestFlow daemon
+    Restart(RestartArgs),
+
     /// Upgrade RestFlow CLI to the latest release
     Upgrade(UpgradeArgs),
 
@@ -242,6 +245,9 @@ pub struct RunArgs {
 #[derive(Args, Default, Clone, Copy)]
 pub struct StartArgs {}
 
+#[derive(Args, Default, Clone, Copy)]
+pub struct RestartArgs {}
+
 #[derive(Args, Clone, Copy, Default)]
 pub struct UpgradeArgs {
     /// Reinstall even if the current version is already the latest
@@ -273,9 +279,27 @@ mod tests {
     }
 
     #[test]
+    fn parses_restart_command() {
+        let cli = Cli::try_parse_from(["restflow", "restart"]).expect("parse restart");
+        assert!(matches!(cli.command, Some(super::Commands::Restart(_))));
+    }
+
+    #[test]
     fn parses_upgrade_command() {
         let cli = Cli::try_parse_from(["restflow", "upgrade"]).expect("parse upgrade");
         assert!(matches!(cli.command, Some(super::Commands::Upgrade(_))));
+    }
+
+    #[test]
+    fn parses_daemon_restart_command() {
+        let cli =
+            Cli::try_parse_from(["restflow", "daemon", "restart"]).expect("parse daemon restart");
+        assert!(matches!(
+            cli.command,
+            Some(super::Commands::Daemon {
+                command: super::DaemonCommands::Restart { .. }
+            })
+        ));
     }
 }
 
@@ -348,8 +372,84 @@ pub enum TaskCommands {
         #[arg(long)]
         input: Option<String>,
 
+        /// Override task prompt (alias of --input)
+        #[arg(long)]
+        prompt: Option<String>,
+
+        /// Runtime template used to build task input
+        #[arg(long)]
+        input_template: Option<String>,
+
+        #[arg(long)]
+        description: Option<String>,
+
+        /// Memory scope: shared_agent or per_task
+        #[arg(long)]
+        memory_scope: Option<String>,
+
         #[arg(long)]
         cron: Option<String>,
+
+        #[arg(long)]
+        timezone: Option<String>,
+    },
+
+    /// Update background task definition
+    Update {
+        id: String,
+
+        #[arg(long)]
+        name: Option<String>,
+
+        #[arg(long)]
+        agent: Option<String>,
+
+        #[arg(long)]
+        description: Option<String>,
+
+        #[arg(long)]
+        input: Option<String>,
+
+        /// Override task prompt (alias of --input)
+        #[arg(long)]
+        prompt: Option<String>,
+
+        /// Runtime template used to build task input
+        #[arg(long)]
+        input_template: Option<String>,
+
+        /// Memory scope: shared_agent or per_task
+        #[arg(long)]
+        memory_scope: Option<String>,
+
+        #[arg(long)]
+        cron: Option<String>,
+
+        #[arg(long)]
+        timezone: Option<String>,
+    },
+
+    /// Control background task execution state
+    Control {
+        id: String,
+
+        /// One of: start, pause, resume, stop, run_now
+        #[arg(long)]
+        action: String,
+    },
+
+    /// Show aggregated progress of a background task
+    Progress {
+        id: String,
+
+        #[arg(long, default_value_t = 10)]
+        event_limit: usize,
+    },
+
+    /// Send/list messages for a background task
+    Message {
+        #[command(subcommand)]
+        command: TaskMessageCommands,
     },
 
     /// Pause task
@@ -366,6 +466,29 @@ pub enum TaskCommands {
 
     /// Run task immediately
     Run { id: String },
+}
+
+#[derive(Subcommand)]
+pub enum TaskMessageCommands {
+    /// Send a message to a running/scheduled background task
+    Send {
+        id: String,
+
+        #[arg(long)]
+        message: String,
+
+        /// One of: user, agent, system
+        #[arg(long, default_value = "user")]
+        source: String,
+    },
+
+    /// List recent messages of a background task
+    List {
+        id: String,
+
+        #[arg(long, default_value_t = 20)]
+        limit: usize,
+    },
 }
 
 #[derive(Subcommand)]
@@ -398,6 +521,29 @@ pub enum DaemonCommands {
 
     /// Show daemon status
     Status,
+
+    /// Restart daemon
+    Restart {
+        /// Run in foreground
+        #[arg(long)]
+        foreground: bool,
+
+        /// Enable the HTTP API
+        #[arg(long)]
+        http: bool,
+
+        /// HTTP port for the API
+        #[arg(short, long)]
+        port: Option<u16>,
+
+        /// Enable the MCP HTTP server
+        #[arg(long)]
+        mcp: bool,
+
+        /// MCP HTTP server port
+        #[arg(long)]
+        mcp_port: Option<u16>,
+    },
 }
 
 #[derive(Subcommand)]

@@ -9,13 +9,13 @@ pub mod input;
 pub mod memory;
 pub mod output;
 pub mod pricing;
-pub mod steer;
 pub mod security;
 pub mod shared_space;
 pub mod skill;
 pub mod skill_folder;
 pub mod skill_marketplace;
 pub mod skill_meta;
+pub mod steer;
 pub mod storage_mode;
 pub mod terminal_session;
 pub mod trigger;
@@ -25,7 +25,9 @@ pub use agent::{AgentNode, ApiKeyConfig};
 pub use agent_execution::{AgentExecuteResponse, ExecutionDetails, ExecutionStep, ToolCallInfo};
 pub use agent_meta::{AgentMeta, AgentType};
 pub use agent_task::{
-    AgentTask, AgentTaskStatus, CliExecutionConfig, ExecutionMode, MemoryConfig,
+    AgentTask, AgentTaskStatus, BackgroundAgentControlAction, BackgroundAgentPatch,
+    BackgroundAgentSpec, BackgroundMessage, BackgroundMessageSource, BackgroundMessageStatus,
+    BackgroundProgress, CliExecutionConfig, ExecutionMode, MemoryConfig, MemoryScope,
     NotificationConfig, TaskEvent, TaskEventType, TaskSchedule,
 };
 pub use ai_model::{AIModel, ModelMetadataDTO, Provider};
@@ -42,7 +44,7 @@ pub use output::{
     AgentOutput, EmailOutput, HttpOutput, ManualTriggerOutput, NodeOutput, PrintOutput,
     PythonOutput, ScheduleOutput, WebhookTriggerOutput,
 };
-pub use pricing::{calculate_cost, ModelPricing};
+pub use pricing::{ModelPricing, calculate_cost};
 pub use steer::{SteerMessage, SteerSource};
 pub use webhook::{WebhookConfig, WebhookRateLimiter, WebhookRequest, WebhookResponse};
 // Secret is now defined in restflow-storage

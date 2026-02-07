@@ -5,6 +5,7 @@ use tracing::warn;
 
 use crate::subagent::{AgentDefinitionRegistry, SubagentConfig, SubagentTracker};
 use restflow_ai::LlmClient;
+use restflow_core::services::tool_registry::create_tool_registry;
 use restflow_core::storage::Storage;
 
 pub use restflow_ai::tools::{
@@ -168,6 +169,7 @@ pub fn registry_from_allowlist(
     tool_names: Option<&[String]>,
     subagent_deps: Option<&SubagentDeps>,
     secret_resolver: Option<SecretResolver>,
+    storage: Option<&Storage>,
 ) -> ToolRegistry {
     let Some(tool_names) = tool_names else {
         return ToolRegistry::new();
@@ -180,6 +182,7 @@ pub fn registry_from_allowlist(
     let mut builder = ToolRegistryBuilder::new();
     let mut allow_file = false;
     let mut allow_file_write = false;
+    let mut enable_manage_tasks = false;
 
     for raw_name in tool_names {
         match raw_name.as_str() {
@@ -262,6 +265,12 @@ pub fn registry_from_allowlist(
                     );
                 }
             }
+            "manage_tasks" => {
+                enable_manage_tasks = true;
+            }
+            "switch_model" => {
+                // Registered by callers that provide SwappableLlm + LlmClientFactory.
+            }
             unknown => {
                 warn!(tool_name = %unknown, "Configured tool not found in registry, skipping");
             }
@@ -274,6 +283,34 @@ pub fn registry_from_allowlist(
             config.allow_write = true;
         }
         builder = builder.with_file(config);
+    }
+
+    if enable_manage_tasks {
+        if let Some(storage) = storage {
+            let core_registry = create_tool_registry(
+                storage.skills.clone(),
+                storage.memory.clone(),
+                storage.chat_sessions.clone(),
+                storage.shared_space.clone(),
+                storage.secrets.clone(),
+                storage.config.clone(),
+                storage.agent_tasks.clone(),
+                None,
+            );
+            if let Some(tool) = core_registry.get("manage_tasks") {
+                builder.registry.register_arc(tool);
+            } else {
+                warn!(
+                    tool_name = "manage_tasks",
+                    "Tool was requested but not found in core registry"
+                );
+            }
+        } else {
+            warn!(
+                tool_name = "manage_tasks",
+                "Storage is unavailable, skipping storage-backed tool"
+            );
+        }
     }
 
     builder.build()
@@ -289,4 +326,30 @@ pub fn default_registry() -> ToolRegistry {
         .with_email()
         .with_telegram()
         .build()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::registry_from_allowlist;
+    use restflow_core::storage::Storage;
+    use tempfile::tempdir;
+
+    #[test]
+    fn test_manage_tasks_tool_registered_with_storage() {
+        let dir = tempdir().expect("temp dir should be created");
+        let db_path = dir.path().join("registry-tools.db");
+        let storage = Storage::new(db_path.to_str().expect("db path should be valid"))
+            .expect("storage should be created");
+        let names = vec!["manage_tasks".to_string()];
+
+        let registry = registry_from_allowlist(Some(&names), None, None, Some(&storage));
+        assert!(registry.has("manage_tasks"));
+    }
+
+    #[test]
+    fn test_manage_tasks_tool_skipped_without_storage() {
+        let names = vec!["manage_tasks".to_string()];
+        let registry = registry_from_allowlist(Some(&names), None, None, None);
+        assert!(!registry.has("manage_tasks"));
+    }
 }

@@ -11,9 +11,13 @@ use anyhow::Result;
 use clap::{CommandFactory, Parser};
 use clap_complete::generate;
 use cli::{Cli, Commands, DaemonCommands};
-use restflow_core::daemon::{DaemonStatus, check_daemon_status, start_daemon, stop_daemon};
+use restflow_core::daemon::{
+    DaemonConfig, DaemonStatus, check_daemon_status, start_daemon, start_daemon_with_config,
+    stop_daemon,
+};
 use restflow_core::paths;
 use std::io;
+use tokio::time::{Duration, sleep};
 
 fn command_needs_direct_core(command: &Option<Commands>) -> bool {
     matches!(
@@ -69,6 +73,11 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
+    if let Some(Commands::Restart(args)) = &cli.command {
+        commands::restart::run(*args).await?;
+        return Ok(());
+    }
+
     // Handle daemon commands that don't need AppCore (to avoid database lock conflicts)
     if let Some(Commands::Daemon { command }) = &cli.command {
         match command {
@@ -108,7 +117,37 @@ async fn main() -> Result<()> {
                 }
                 return Ok(());
             }
+            DaemonCommands::Restart {
+                foreground: false,
+                http,
+                port,
+                mcp,
+                mcp_port,
+            } => {
+                let was_running = stop_daemon()?;
+                if was_running {
+                    println!("Sent stop signal to daemon");
+                    wait_for_daemon_exit().await?;
+                }
+
+                let config = DaemonConfig {
+                    http: *http,
+                    http_port: *port,
+                    mcp: *mcp,
+                    mcp_port: *mcp_port,
+                };
+                let pid = start_daemon_with_config(config)?;
+                if was_running {
+                    println!("Daemon restarted (PID: {})", pid);
+                } else {
+                    println!("Daemon started (PID: {})", pid);
+                }
+                return Ok(());
+            }
             DaemonCommands::Start {
+                foreground: true, ..
+            }
+            | DaemonCommands::Restart {
                 foreground: true, ..
             } => {
                 // Continue to open database for foreground mode
@@ -183,6 +222,7 @@ async fn main() -> Result<()> {
             Some(Commands::Stop) => Ok(()),
             Some(Commands::Status) => Ok(()),
             Some(Commands::Upgrade(_)) => Ok(()),
+            Some(Commands::Restart(_)) => Ok(()),
             None => {
                 Cli::command().print_help()?;
                 Ok(())
@@ -190,6 +230,17 @@ async fn main() -> Result<()> {
             _ => unreachable!(),
         }
     }
+}
+
+async fn wait_for_daemon_exit() -> Result<()> {
+    for _ in 0..50 {
+        match check_daemon_status()? {
+            DaemonStatus::Running { .. } => sleep(Duration::from_millis(100)).await,
+            DaemonStatus::NotRunning | DaemonStatus::Stale { .. } => return Ok(()),
+        }
+    }
+
+    anyhow::bail!("Daemon did not stop within timeout")
 }
 
 #[cfg(test)]
