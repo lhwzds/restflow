@@ -27,6 +27,7 @@ const mockTask: AgentTask = {
   description: 'A test task',
   agent_id: 'agent-1',
   input: 'test input',
+  input_template: null,
   schedule: { type: 'once', run_at: Date.now() + 3600000 },
   execution_mode: { type: 'api' },
   notification: {
@@ -49,6 +50,8 @@ const mockTask: AgentTask = {
   next_run_at: Date.now() + 3600000,
   success_count: 0,
   failure_count: 0,
+  total_tokens_used: 0,
+  total_cost_usd: 0,
   last_error: null,
   webhook: null,
   summary_message_id: null,
