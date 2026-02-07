@@ -9,6 +9,7 @@ import { defineStore } from 'pinia'
 import type { AgentTask } from '@/types/generated/AgentTask'
 import type { AgentTaskStatus } from '@/types/generated/AgentTaskStatus'
 import type { TaskEvent } from '@/types/generated/TaskEvent'
+import type { TaskStreamEvent } from '@/types/generated/TaskStreamEvent'
 import * as agentTaskApi from '@/api/agent-task'
 import type { CreateAgentTaskRequest, UpdateAgentTaskRequest } from '@/api/agent-task'
 
@@ -38,6 +39,10 @@ interface AgentTaskState {
   searchQuery: string
   /** Version for reactive updates */
   version: number
+  /** Timer handle for polling-based realtime sync */
+  realtimeSyncTimer: ReturnType<typeof setInterval> | null
+  /** Unlisten handler for task stream events */
+  taskStreamUnlisten: (() => void) | null
 }
 
 export const useAgentTaskStore = defineStore('agentTask', {
@@ -53,6 +58,8 @@ export const useAgentTaskStore = defineStore('agentTask', {
     sortOrder: 'desc',
     searchQuery: '',
     version: 0,
+    realtimeSyncTimer: null,
+    taskStreamUnlisten: null,
   }),
 
   getters: {
@@ -412,6 +419,43 @@ export const useAgentTaskStore = defineStore('agentTask', {
         this.selectedTaskEvents = []
       }
       this.version++
+    },
+
+    /**
+     * Start realtime task synchronization.
+     *
+     * Uses event-stream updates when available (Tauri) and falls back to polling.
+     */
+    async startRealtimeSync(intervalMs = 3000): Promise<void> {
+      if (!this.taskStreamUnlisten) {
+        this.taskStreamUnlisten = await agentTaskApi.onTaskStreamEvent((event: TaskStreamEvent) => {
+          const type = event.kind.type
+          if (type === 'started' || type === 'completed' || type === 'failed' || type === 'cancelled') {
+            void this.getTask(event.task_id)
+          }
+        })
+      }
+
+      if (!this.realtimeSyncTimer) {
+        this.realtimeSyncTimer = setInterval(() => {
+          void this.fetchTasks()
+        }, intervalMs)
+      }
+    },
+
+    /**
+     * Stop realtime task synchronization.
+     */
+    stopRealtimeSync(): void {
+      if (this.taskStreamUnlisten) {
+        this.taskStreamUnlisten()
+        this.taskStreamUnlisten = null
+      }
+
+      if (this.realtimeSyncTimer) {
+        clearInterval(this.realtimeSyncTimer)
+        this.realtimeSyncTimer = null
+      }
     },
   },
 })

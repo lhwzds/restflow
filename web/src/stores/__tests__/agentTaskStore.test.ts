@@ -19,6 +19,7 @@ vi.mock('@/api/agent-task', () => ({
   pauseAgentTask: vi.fn(),
   resumeAgentTask: vi.fn(),
   getAgentTaskEvents: vi.fn(),
+  onTaskStreamEvent: vi.fn(),
 }))
 
 const mockTask: AgentTask = {
@@ -356,6 +357,56 @@ describe('agentTaskStore', () => {
 
       expect(store.tasks).toHaveLength(1)
       expect(store.tasks[0]!.id).toBe('task-2')
+    })
+  })
+
+  describe('realtime sync', () => {
+    it('should subscribe to task stream and refresh task on terminal events', async () => {
+      let streamCallback: ((event: any) => void) | null = null
+      const unlisten = vi.fn()
+
+      vi.mocked(agentTaskApi.onTaskStreamEvent).mockImplementation(async (callback: any) => {
+        streamCallback = callback
+        return unlisten
+      })
+      vi.mocked(agentTaskApi.getAgentTask).mockResolvedValue({
+        ...mockTask,
+        status: 'completed',
+      })
+
+      const store = useAgentTaskStore()
+      await store.startRealtimeSync()
+
+      expect(agentTaskApi.onTaskStreamEvent).toHaveBeenCalledTimes(1)
+      expect(streamCallback).not.toBeNull()
+
+      streamCallback?.({
+        task_id: 'task-1',
+        timestamp: Date.now(),
+        kind: { type: 'completed', result: 'done', duration_ms: 100 },
+      })
+
+      await Promise.resolve()
+      expect(agentTaskApi.getAgentTask).toHaveBeenCalledWith('task-1')
+
+      store.stopRealtimeSync()
+      expect(unlisten).toHaveBeenCalledTimes(1)
+    })
+
+    it('should poll tasks while realtime sync is active', async () => {
+      vi.useFakeTimers()
+      const unlisten = vi.fn()
+      vi.mocked(agentTaskApi.onTaskStreamEvent).mockResolvedValue(unlisten as any)
+      vi.mocked(agentTaskApi.listAgentTasks).mockResolvedValue([mockTask])
+
+      const store = useAgentTaskStore()
+      await store.startRealtimeSync(1000)
+
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(agentTaskApi.listAgentTasks).toHaveBeenCalledTimes(1)
+
+      store.stopRealtimeSync()
+      vi.useRealTimers()
     })
   })
 })
