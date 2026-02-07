@@ -558,6 +558,8 @@ async fn run_agent_with_executor(
         core.storage.secrets.clone(),
         core.storage.config.clone(),
         core.storage.agent_tasks.clone(),
+        core.storage.triggers.clone(),
+        core.storage.terminal_sessions.clone(),
         None,
     );
 

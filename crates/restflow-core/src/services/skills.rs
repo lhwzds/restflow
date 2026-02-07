@@ -67,7 +67,19 @@ mod tests {
     async fn create_test_core() -> Arc<AppCore> {
         let temp_dir = tempdir().unwrap();
         let db_path = temp_dir.path().join("test.db");
-        Arc::new(AppCore::new(db_path.to_str().unwrap()).await.unwrap())
+        let previous_master_key = std::env::var_os("RESTFLOW_MASTER_KEY");
+        unsafe {
+            std::env::remove_var("RESTFLOW_MASTER_KEY");
+        }
+        let core = Arc::new(AppCore::new(db_path.to_str().unwrap()).await.unwrap());
+        unsafe {
+            if let Some(value) = previous_master_key {
+                std::env::set_var("RESTFLOW_MASTER_KEY", value);
+            } else {
+                std::env::remove_var("RESTFLOW_MASTER_KEY");
+            }
+        }
+        core
     }
 
     fn create_test_skill(id: &str, name: &str) -> Skill {

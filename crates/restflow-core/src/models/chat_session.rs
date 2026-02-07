@@ -643,41 +643,41 @@ mod tests {
     // TypeScript binding export tests
     #[test]
     fn export_bindings_chat_role() {
-        ChatRole::export_to_string().unwrap();
+        ChatRole::export_to_string(&ts_rs::Config::default()).unwrap();
     }
 
     #[test]
     fn export_bindings_chat_execution_status() {
-        ChatExecutionStatus::export_to_string().unwrap();
+        ChatExecutionStatus::export_to_string(&ts_rs::Config::default()).unwrap();
     }
 
     #[test]
     fn export_bindings_execution_step_info() {
-        ExecutionStepInfo::export_to_string().unwrap();
+        ExecutionStepInfo::export_to_string(&ts_rs::Config::default()).unwrap();
     }
 
     #[test]
     fn export_bindings_message_execution() {
-        MessageExecution::export_to_string().unwrap();
+        MessageExecution::export_to_string(&ts_rs::Config::default()).unwrap();
     }
 
     #[test]
     fn export_bindings_chat_message() {
-        ChatMessage::export_to_string().unwrap();
+        ChatMessage::export_to_string(&ts_rs::Config::default()).unwrap();
     }
 
     #[test]
     fn export_bindings_chat_session_metadata() {
-        ChatSessionMetadata::export_to_string().unwrap();
+        ChatSessionMetadata::export_to_string(&ts_rs::Config::default()).unwrap();
     }
 
     #[test]
     fn export_bindings_chat_session() {
-        ChatSession::export_to_string().unwrap();
+        ChatSession::export_to_string(&ts_rs::Config::default()).unwrap();
     }
 
     #[test]
     fn export_bindings_chat_session_summary() {
-        ChatSessionSummary::export_to_string().unwrap();
+        ChatSessionSummary::export_to_string(&ts_rs::Config::default()).unwrap();
     }
 }

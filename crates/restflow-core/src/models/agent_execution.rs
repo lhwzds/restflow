@@ -62,21 +62,21 @@ mod tests {
 
     #[test]
     fn export_bindings_agentexecuteresponse() {
-        AgentExecuteResponse::export_all().unwrap();
+        AgentExecuteResponse::export_to_string(&ts_rs::Config::default()).unwrap();
     }
 
     #[test]
     fn export_bindings_executiondetails() {
-        ExecutionDetails::export_all().unwrap();
+        ExecutionDetails::export_to_string(&ts_rs::Config::default()).unwrap();
     }
 
     #[test]
     fn export_bindings_executionstep() {
-        ExecutionStep::export_all().unwrap();
+        ExecutionStep::export_to_string(&ts_rs::Config::default()).unwrap();
     }
 
     #[test]
     fn export_bindings_toolcallinfo() {
-        ToolCallInfo::export_all().unwrap();
+        ToolCallInfo::export_to_string(&ts_rs::Config::default()).unwrap();
     }
 }

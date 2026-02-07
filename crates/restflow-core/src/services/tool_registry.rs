@@ -1392,8 +1392,10 @@ mod tests {
 
         let state_dir = temp_dir.path().join("state");
         std::fs::create_dir_all(&state_dir).unwrap();
+        let previous_master_key = std::env::var_os("RESTFLOW_MASTER_KEY");
         unsafe {
             std::env::set_var("RESTFLOW_DIR", &state_dir);
+            std::env::remove_var("RESTFLOW_MASTER_KEY");
         }
 
         let skill_storage = SkillStorage::new(db.clone()).unwrap();
@@ -1415,6 +1417,11 @@ mod tests {
 
         unsafe {
             std::env::remove_var("RESTFLOW_DIR");
+            if let Some(value) = previous_master_key {
+                std::env::set_var("RESTFLOW_MASTER_KEY", value);
+            } else {
+                std::env::remove_var("RESTFLOW_MASTER_KEY");
+            }
         }
         (
             skill_storage,
