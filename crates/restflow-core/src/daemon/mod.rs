@@ -14,7 +14,9 @@ pub use core_access::CoreAccess;
 pub use health::{HealthChecker, HealthStatus, check_health};
 pub use http::{HttpConfig, HttpServer};
 pub use ipc_client::{IpcClient, is_daemon_available};
-pub use ipc_protocol::{IpcRequest, IpcResponse, MAX_MESSAGE_SIZE, StreamFrame};
+pub use ipc_protocol::{
+    IpcRequest, IpcResponse, MAX_MESSAGE_SIZE, StreamFrame, ToolDefinition, ToolExecutionResult,
+};
 pub use ipc_server::IpcServer;
 pub use launcher::{
     DaemonStatus, check_daemon_status, ensure_daemon_running, ensure_daemon_running_with_config,
