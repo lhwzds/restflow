@@ -11,8 +11,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use restflow_ai::{
-    AiError, DefaultLlmClientFactory, LlmClient, LlmClientFactory, LlmProvider, ModelSpec,
-    SwappableLlm, SwitchModelTool,
+    AiError, DefaultLlmClientFactory, LlmClient, LlmClientFactory, LlmProvider, SwappableLlm,
+    SwitchModelTool,
 };
 use restflow_core::{
     AIModel, Provider,
@@ -138,59 +138,6 @@ impl RealAgentExecutor {
         self.resolve_api_key(provider, config).await
     }
 
-    /// Build the model catalog for dynamic model switching.
-    fn build_model_specs() -> Vec<ModelSpec> {
-        let mut specs = Vec::new();
-
-        for model in AIModel::all() {
-            let provider = Self::to_llm_provider(model.provider());
-            let spec = if model.is_opencode_cli() {
-                ModelSpec::opencode(model.as_serialized_str(), model.as_str())
-            } else if model.is_codex_cli() {
-                ModelSpec::codex(model.as_serialized_str(), model.as_str())
-            } else if model.is_gemini_cli() {
-                ModelSpec::gemini_cli(model.as_serialized_str(), model.as_str())
-            } else {
-                ModelSpec::new(model.as_serialized_str(), provider, model.as_str())
-            };
-            specs.push(spec);
-
-            if model.is_claude_code() {
-                specs.push(ModelSpec::new(model.as_str(), provider, model.as_str()));
-            }
-        }
-
-        for codex_model in [
-            "gpt-5.3-codex",
-            "gpt-5.2-codex",
-            "gpt-5.1-codex-max",
-            "gpt-5.1-codex",
-            "gpt-5-codex",
-        ] {
-            specs.push(ModelSpec::codex(codex_model, codex_model));
-        }
-
-        specs
-    }
-
-    fn to_llm_provider(provider: Provider) -> LlmProvider {
-        match provider {
-            Provider::OpenAI => LlmProvider::OpenAI,
-            Provider::Anthropic => LlmProvider::Anthropic,
-            Provider::DeepSeek => LlmProvider::DeepSeek,
-            Provider::Google => LlmProvider::Google,
-            Provider::Groq => LlmProvider::Groq,
-            Provider::OpenRouter => LlmProvider::OpenRouter,
-            Provider::XAI => LlmProvider::XAI,
-            Provider::Qwen => LlmProvider::Qwen,
-            Provider::Zhipu => LlmProvider::Zhipu,
-            Provider::Moonshot => LlmProvider::Moonshot,
-            Provider::Doubao => LlmProvider::Doubao,
-            Provider::Yi => LlmProvider::Yi,
-            Provider::SiliconFlow => LlmProvider::SiliconFlow,
-        }
-    }
-
     async fn build_api_keys(
         &self,
         agent_api_key_config: Option<&ApiKeyConfig>,
@@ -203,7 +150,7 @@ impl RealAgentExecutor {
                 .resolve_api_key_for_model(*provider, agent_api_key_config, primary_provider)
                 .await
             {
-                keys.insert(Self::to_llm_provider(*provider), key);
+                keys.insert(provider.as_llm_provider(), key);
             }
         }
 
@@ -299,7 +246,7 @@ impl RealAgentExecutor {
         primary_provider: Provider,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
     ) -> Result<ExecutionResult> {
-        let model_specs = Self::build_model_specs();
+        let model_specs = AIModel::build_model_specs();
         let api_keys = self
             .build_api_keys(agent_node.api_key_config.as_ref(), primary_provider)
             .await;
@@ -374,7 +321,7 @@ impl RealAgentExecutor {
                 }
             };
 
-            let model_specs = Self::build_model_specs();
+            let model_specs = AIModel::build_model_specs();
             let api_keys = self
                 .build_api_keys(agent_node.api_key_config.as_ref(), primary_provider)
                 .await;
