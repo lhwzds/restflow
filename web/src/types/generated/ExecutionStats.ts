@@ -19,4 +19,8 @@ api_calls: number | null,
 /**
  * Tokens used (for API mode)
  */
-tokens_used: number | null, };
+tokens_used: number | null, 
+/**
+ * Cost in USD (for API mode)
+ */
+cost_usd: number | null, };

@@ -25,6 +25,10 @@ duration_ms: bigint,
  */
 tokens_used: number | null, 
 /**
+ * Cost in USD
+ */
+cost_usd: number | null, 
+/**
  * Error message (if failed)
  */
 error: string | null, };

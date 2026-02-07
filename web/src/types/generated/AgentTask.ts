@@ -31,6 +31,10 @@ agent_id: string,
  */
 input: string | null, 
 /**
+ * Optional template rendered to construct runtime input
+ */
+input_template: string | null, 
+/**
  * Schedule configuration
  */
 schedule: TaskSchedule, 
