@@ -6,15 +6,15 @@ use restflow_core::channel::ChannelRouter;
 use restflow_core::models::{AgentTask, AgentTaskStatus};
 use restflow_core::paths;
 use restflow_core::process::ProcessRegistry;
-use restflow_core::steer::SteerRegistry;
-use restflow_core::storage::SecretStorage;
-use restflow_storage::AuthProfileStorage;
-use restflow_tauri_lib::{
+use restflow_core::runtime::{
     AgentDefinitionRegistry, AgentTaskRunner, ChatDispatcher, ChatDispatcherConfig,
     ChatSessionManager, MessageDebouncer, MessageHandlerConfig, RealAgentExecutor, RunnerConfig,
     RunnerHandle, SubagentConfig, SubagentTracker, SystemStatus, TaskTrigger, TelegramNotifier,
     start_message_handler_with_chat,
 };
+use restflow_core::steer::SteerRegistry;
+use restflow_core::storage::SecretStorage;
+use restflow_storage::AuthProfileStorage;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{error, info};

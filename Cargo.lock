@@ -4744,7 +4744,6 @@ dependencies = [
  "restflow-ai",
  "restflow-core",
  "restflow-storage",
- "restflow-tauri",
  "rpassword",
  "serde",
  "serde_json",

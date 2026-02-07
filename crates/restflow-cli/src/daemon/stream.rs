@@ -1,5 +1,5 @@
-use restflow_tauri_lib::agent_task::TaskEventEmitter;
-use restflow_tauri_lib::agent_task::TaskStreamEvent;
+use restflow_core::runtime::TaskEventEmitter;
+use restflow_core::runtime::TaskStreamEvent;
 use std::io::{self, Write};
 use tokio::sync::Mutex;
 

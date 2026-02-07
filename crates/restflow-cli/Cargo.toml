@@ -13,7 +13,6 @@ path = "src/main.rs"
 restflow-core = { workspace = true }
 restflow-ai = { workspace = true }
 restflow-storage = { workspace = true }
-restflow-tauri = { path = "../restflow-tauri" }
 tokio = { workspace = true }
 anyhow = { workspace = true }
 async-trait = { workspace = true }
