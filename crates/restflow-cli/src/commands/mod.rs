@@ -1,8 +1,6 @@
 pub mod agent;
 pub mod auth;
-pub mod claude;
 pub mod claude_mcp;
-pub mod codex;
 pub mod config;
 pub mod daemon;
 pub mod hook;

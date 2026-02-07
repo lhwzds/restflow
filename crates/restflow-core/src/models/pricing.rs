@@ -85,7 +85,8 @@ impl AIModel {
             | Self::ClaudeCodeSonnet
             | Self::ClaudeCodeHaiku
             | Self::CodexCli
-            | Self::OpenCodeCli => None,
+            | Self::OpenCodeCli
+            | Self::GeminiCli => None,
         }
     }
 }
@@ -114,6 +115,7 @@ mod tests {
         assert!(AIModel::ClaudeCodeOpus.pricing().is_none());
         assert!(AIModel::CodexCli.pricing().is_none());
         assert!(AIModel::OpenCodeCli.pricing().is_none());
+        assert!(AIModel::GeminiCli.pricing().is_none());
     }
 
     #[test]
