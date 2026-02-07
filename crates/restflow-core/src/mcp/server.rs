@@ -15,7 +15,7 @@ use crate::services::tool_registry::create_tool_registry;
 use crate::storage::SecretStorage;
 use crate::storage::agent::StoredAgent;
 use restflow_ai::llm::{
-    CodexClient, DefaultLlmClientFactory, LlmClient, LlmProvider, ModelSpec, SwappableLlm,
+    CodexClient, DefaultLlmClientFactory, LlmClient, LlmProvider, SwappableLlm,
 };
 use restflow_ai::tools::{SwitchModelTool, Tool as RuntimeTool};
 use rmcp::{
@@ -136,57 +136,6 @@ fn create_runtime_tool_registry_for_core(core: &Arc<AppCore>) -> restflow_ai::to
     )
 }
 
-fn to_llm_provider(provider: Provider) -> LlmProvider {
-    match provider {
-        Provider::OpenAI => LlmProvider::OpenAI,
-        Provider::Anthropic => LlmProvider::Anthropic,
-        Provider::DeepSeek => LlmProvider::DeepSeek,
-        Provider::Google => LlmProvider::Google,
-        Provider::Groq => LlmProvider::Groq,
-        Provider::OpenRouter => LlmProvider::OpenRouter,
-        Provider::XAI => LlmProvider::XAI,
-        Provider::Qwen => LlmProvider::Qwen,
-        Provider::Zhipu => LlmProvider::Zhipu,
-        Provider::Moonshot => LlmProvider::Moonshot,
-        Provider::Doubao => LlmProvider::Doubao,
-        Provider::Yi => LlmProvider::Yi,
-        Provider::SiliconFlow => LlmProvider::SiliconFlow,
-    }
-}
-
-fn build_model_specs() -> Vec<ModelSpec> {
-    let mut specs = Vec::new();
-    for model in AIModel::all() {
-        let provider = to_llm_provider(model.provider());
-        let spec = if model.is_opencode_cli() {
-            ModelSpec::opencode(model.as_serialized_str(), model.as_str())
-        } else if model.is_codex_cli() {
-            ModelSpec::codex(model.as_serialized_str(), model.as_str())
-        } else if model.is_gemini_cli() {
-            ModelSpec::gemini_cli(model.as_serialized_str(), model.as_str())
-        } else {
-            ModelSpec::new(model.as_serialized_str(), provider, model.as_str())
-        };
-        specs.push(spec);
-
-        if model.is_claude_code() {
-            specs.push(ModelSpec::new(model.as_str(), provider, model.as_str()));
-        }
-    }
-
-    for codex_model in [
-        "gpt-5.3-codex",
-        "gpt-5.2-codex",
-        "gpt-5.1-codex-max",
-        "gpt-5.1-codex",
-        "gpt-5-codex",
-    ] {
-        specs.push(ModelSpec::codex(codex_model, codex_model));
-    }
-
-    specs
-}
-
 fn build_api_keys(secret_storage: Option<&SecretStorage>) -> HashMap<LlmProvider, String> {
     let mut keys = HashMap::new();
     for provider in Provider::all() {
@@ -195,14 +144,14 @@ fn build_api_keys(secret_storage: Option<&SecretStorage>) -> HashMap<LlmProvider
             && let Ok(Some(value)) = storage.get_secret(env_name)
             && !value.trim().is_empty()
         {
-            keys.insert(to_llm_provider(*provider), value);
+            keys.insert(provider.as_llm_provider(), value);
             continue;
         }
 
         if let Ok(value) = std::env::var(env_name)
             && !value.trim().is_empty()
         {
-            keys.insert(to_llm_provider(*provider), value);
+            keys.insert(provider.as_llm_provider(), value);
         }
     }
     keys
@@ -210,7 +159,10 @@ fn build_api_keys(secret_storage: Option<&SecretStorage>) -> HashMap<LlmProvider
 
 fn build_switch_model_tool(secret_storage: Option<&SecretStorage>) -> SwitchModelTool {
     let api_keys = build_api_keys(secret_storage);
-    let factory = Arc::new(DefaultLlmClientFactory::new(api_keys, build_model_specs()));
+    let factory = Arc::new(DefaultLlmClientFactory::new(
+        api_keys,
+        AIModel::build_model_specs(),
+    ));
     let initial_client: Arc<dyn LlmClient> = Arc::new(CodexClient::new());
     let swappable = Arc::new(SwappableLlm::new(initial_client));
     SwitchModelTool::new(swappable, factory)

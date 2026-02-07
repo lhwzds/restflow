@@ -1,3 +1,4 @@
+use restflow_ai::llm::{LlmProvider, ModelSpec};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -55,6 +56,25 @@ impl Provider {
             Self::Doubao => "ARK_API_KEY",
             Self::Yi => "YI_API_KEY",
             Self::SiliconFlow => "SILICONFLOW_API_KEY",
+        }
+    }
+
+    /// Convert Provider to LLM provider used by runtime factory.
+    pub fn as_llm_provider(&self) -> LlmProvider {
+        match self {
+            Self::OpenAI => LlmProvider::OpenAI,
+            Self::Anthropic => LlmProvider::Anthropic,
+            Self::DeepSeek => LlmProvider::DeepSeek,
+            Self::Google => LlmProvider::Google,
+            Self::Groq => LlmProvider::Groq,
+            Self::OpenRouter => LlmProvider::OpenRouter,
+            Self::XAI => LlmProvider::XAI,
+            Self::Qwen => LlmProvider::Qwen,
+            Self::Zhipu => LlmProvider::Zhipu,
+            Self::Moonshot => LlmProvider::Moonshot,
+            Self::Doubao => LlmProvider::Doubao,
+            Self::Yi => LlmProvider::Yi,
+            Self::SiliconFlow => LlmProvider::SiliconFlow,
         }
     }
 }
@@ -184,6 +204,36 @@ pub enum AIModel {
 }
 
 impl AIModel {
+    /// Convert AIModel to ModelSpec used by runtime LLM factory.
+    pub fn as_model_spec(&self) -> ModelSpec {
+        let provider = self.provider().as_llm_provider();
+        if self.is_opencode_cli() {
+            ModelSpec::opencode(self.as_serialized_str(), self.as_str())
+        } else if self.is_codex_cli() {
+            ModelSpec::codex(self.as_str(), self.as_str())
+        } else if self.is_gemini_cli() {
+            ModelSpec::gemini_cli(self.as_serialized_str(), self.as_str())
+        } else {
+            ModelSpec::new(self.as_serialized_str(), provider, self.as_str())
+        }
+    }
+
+    /// Build the shared model catalog for dynamic model switching.
+    pub fn build_model_specs() -> Vec<ModelSpec> {
+        let mut specs = Vec::new();
+        for model in Self::all() {
+            specs.push(model.as_model_spec());
+
+            // Claude Code aliases are matched by `as_str()` at runtime as well.
+            if model.is_claude_code() {
+                let provider = model.provider().as_llm_provider();
+                specs.push(ModelSpec::new(model.as_str(), provider, model.as_str()));
+            }
+        }
+
+        specs
+    }
+
     /// Get comprehensive metadata for this model
     pub fn metadata(&self) -> ModelMetadata {
         match self {
@@ -805,6 +855,26 @@ mod tests {
         assert_eq!(metadata.provider, Provider::DeepSeek);
         assert!(metadata.supports_temperature);
         assert_eq!(metadata.name, "DeepSeek Chat");
+    }
+
+    #[test]
+    fn test_provider_as_llm_provider() {
+        assert_eq!(Provider::OpenAI.as_llm_provider(), LlmProvider::OpenAI);
+        assert_eq!(
+            Provider::Anthropic.as_llm_provider(),
+            LlmProvider::Anthropic
+        );
+        assert_eq!(Provider::Google.as_llm_provider(), LlmProvider::Google);
+    }
+
+    #[test]
+    fn test_build_model_specs_contains_codex_cli() {
+        let specs = AIModel::build_model_specs();
+        assert!(
+            specs
+                .iter()
+                .any(|spec| spec.name == "gpt-5.3-codex" && spec.is_codex_cli)
+        );
     }
 
     #[test]

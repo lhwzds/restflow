@@ -41,8 +41,7 @@ pub fn parse_model(input: &str) -> Result<AIModel> {
         "claude-code-sonnet" | "sonnet" => AIModel::ClaudeCodeSonnet,
         "claude-code-haiku" | "haiku" => AIModel::ClaudeCodeHaiku,
         // Codex CLI
-        "codex" | "codex-cli" | "gpt-5.3-codex" | "gpt-5.2-codex" | "gpt-5.1-codex-max"
-        | "gpt-5.1-codex" | "gpt-5-codex" => AIModel::CodexCli,
+        "codex" | "codex-cli" | "openai-codex" | "gpt-5.3-codex" => AIModel::CodexCli,
         // OpenCode CLI
         "opencode" | "opencode-cli" => AIModel::OpenCodeCli,
         // Gemini CLI

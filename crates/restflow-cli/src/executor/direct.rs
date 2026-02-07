@@ -12,8 +12,8 @@ use crate::executor::{
 use crate::setup;
 use restflow_ai::{
     AgentConfig, AgentExecutor, AgentState, AgentStatus, DefaultLlmClientFactory, LlmClientFactory,
-    LlmProvider, ModelSpec, Role, SecretResolver, SwappableLlm, SwitchModelTool, ToolRegistry,
-    TranscribeTool, VisionTool,
+    LlmProvider, Role, SecretResolver, SwappableLlm, SwitchModelTool, ToolRegistry, TranscribeTool,
+    VisionTool,
 };
 use restflow_core::auth::{AuthManagerConfig, AuthProfileManager, AuthProvider};
 use restflow_core::memory::{ChatSessionMirror, ExportResult, MemoryExporter, MessageMirror};
@@ -433,58 +433,6 @@ async fn resolve_api_key_from_profiles(
     }
 }
 
-fn build_model_specs() -> Vec<ModelSpec> {
-    let mut specs = Vec::new();
-
-    for model in AIModel::all() {
-        let provider = to_llm_provider(model.provider());
-        let spec = if model.is_opencode_cli() {
-            ModelSpec::opencode(model.as_serialized_str(), model.as_str())
-        } else if model.is_codex_cli() {
-            ModelSpec::codex(model.as_serialized_str(), model.as_str())
-        } else if model.is_gemini_cli() {
-            ModelSpec::gemini_cli(model.as_serialized_str(), model.as_str())
-        } else {
-            ModelSpec::new(model.as_serialized_str(), provider, model.as_str())
-        };
-        specs.push(spec);
-
-        if model.is_claude_code() {
-            specs.push(ModelSpec::new(model.as_str(), provider, model.as_str()));
-        }
-    }
-
-    for codex_model in [
-        "gpt-5.3-codex",
-        "gpt-5.2-codex",
-        "gpt-5.1-codex-max",
-        "gpt-5.1-codex",
-        "gpt-5-codex",
-    ] {
-        specs.push(ModelSpec::codex(codex_model, codex_model));
-    }
-
-    specs
-}
-
-fn to_llm_provider(provider: Provider) -> LlmProvider {
-    match provider {
-        Provider::OpenAI => LlmProvider::OpenAI,
-        Provider::Anthropic => LlmProvider::Anthropic,
-        Provider::DeepSeek => LlmProvider::DeepSeek,
-        Provider::Google => LlmProvider::Google,
-        Provider::Groq => LlmProvider::Groq,
-        Provider::OpenRouter => LlmProvider::OpenRouter,
-        Provider::XAI => LlmProvider::XAI,
-        Provider::Qwen => LlmProvider::Qwen,
-        Provider::Zhipu => LlmProvider::Zhipu,
-        Provider::Moonshot => LlmProvider::Moonshot,
-        Provider::Doubao => LlmProvider::Doubao,
-        Provider::Yi => LlmProvider::Yi,
-        Provider::SiliconFlow => LlmProvider::SiliconFlow,
-    }
-}
-
 async fn build_api_keys(
     agent_node: &AgentNode,
     secret_storage: Option<&restflow_core::storage::SecretStorage>,
@@ -501,7 +449,7 @@ async fn build_api_keys(
         };
 
         if let Ok(key) = resolve_api_key(api_key_config, secret_storage, *provider, core).await {
-            keys.insert(to_llm_provider(*provider), key);
+            keys.insert(provider.as_llm_provider(), key);
         }
     }
 
@@ -522,7 +470,10 @@ async fn run_agent_with_executor(
     let model = agent_node.require_model().map_err(|e| anyhow::anyhow!(e))?;
 
     let api_keys = build_api_keys(agent_node, secret_storage, core, model.provider()).await;
-    let factory = Arc::new(DefaultLlmClientFactory::new(api_keys, build_model_specs()));
+    let factory = Arc::new(DefaultLlmClientFactory::new(
+        api_keys,
+        AIModel::build_model_specs(),
+    ));
 
     let api_key = if model.is_codex_cli() {
         None
