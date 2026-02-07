@@ -72,6 +72,7 @@ pub fn main_agent_default_tool_names() -> Vec<String> {
         "list_agents",
         "use_skill",
         "manage_tasks",
+        "manage_agents",
         "manage_marketplace",
         "manage_triggers",
         "manage_terminal",
@@ -226,6 +227,7 @@ pub fn registry_from_allowlist(
     let mut allow_file = false;
     let mut allow_file_write = false;
     let mut enable_manage_tasks = false;
+    let mut enable_manage_agents = false;
     let mut enable_manage_marketplace = false;
     let mut enable_manage_triggers = false;
     let mut enable_manage_terminal = false;
@@ -315,6 +317,9 @@ pub fn registry_from_allowlist(
             "manage_tasks" => {
                 enable_manage_tasks = true;
             }
+            "manage_agents" => {
+                enable_manage_agents = true;
+            }
             "manage_marketplace" => {
                 enable_manage_marketplace = true;
             }
@@ -345,6 +350,7 @@ pub fn registry_from_allowlist(
     }
 
     if enable_manage_tasks
+        || enable_manage_agents
         || enable_manage_marketplace
         || enable_manage_triggers
         || enable_manage_terminal
@@ -358,6 +364,7 @@ pub fn registry_from_allowlist(
                 storage.shared_space.clone(),
                 storage.secrets.clone(),
                 storage.config.clone(),
+                storage.agents.clone(),
                 storage.agent_tasks.clone(),
                 storage.triggers.clone(),
                 storage.terminal_sessions.clone(),
@@ -365,6 +372,7 @@ pub fn registry_from_allowlist(
             );
             let storage_backed_tools = [
                 ("manage_tasks", enable_manage_tasks),
+                ("manage_agents", enable_manage_agents),
                 ("manage_marketplace", enable_manage_marketplace),
                 ("manage_triggers", enable_manage_triggers),
                 ("manage_terminal", enable_manage_terminal),
@@ -386,6 +394,7 @@ pub fn registry_from_allowlist(
         } else {
             for (tool_name, enabled) in [
                 ("manage_tasks", enable_manage_tasks),
+                ("manage_agents", enable_manage_agents),
                 ("manage_marketplace", enable_manage_marketplace),
                 ("manage_triggers", enable_manage_triggers),
                 ("manage_terminal", enable_manage_terminal),
@@ -430,17 +439,19 @@ mod tests {
         let db_path = dir.path().join("registry-tools.db");
         let storage = Storage::new(db_path.to_str().expect("db path should be valid"))
             .expect("storage should be created");
-        let names = vec!["manage_tasks".to_string()];
+        let names = vec!["manage_tasks".to_string(), "manage_agents".to_string()];
 
         let registry = registry_from_allowlist(Some(&names), None, None, Some(&storage));
         assert!(registry.has("manage_tasks"));
+        assert!(registry.has("manage_agents"));
     }
 
     #[test]
     fn test_manage_tasks_tool_skipped_without_storage() {
-        let names = vec!["manage_tasks".to_string()];
+        let names = vec!["manage_tasks".to_string(), "manage_agents".to_string()];
         let registry = registry_from_allowlist(Some(&names), None, None, None);
         assert!(!registry.has("manage_tasks"));
+        assert!(!registry.has("manage_agents"));
     }
 
     #[test]
@@ -469,6 +480,7 @@ mod tests {
         assert!(tools.iter().any(|name| name == "transcribe"));
         assert!(tools.iter().any(|name| name == "vision"));
         assert!(tools.iter().any(|name| name == "switch_model"));
+        assert!(tools.iter().any(|name| name == "manage_agents"));
         assert!(tools.iter().any(|name| name == "manage_marketplace"));
         assert!(tools.iter().any(|name| name == "manage_triggers"));
         assert!(tools.iter().any(|name| name == "manage_terminal"));
