@@ -104,7 +104,7 @@ impl Tool for SkillTool {
     }
 
     fn description(&self) -> &str {
-        "Manage skills (reusable AI prompt templates). Supports list, read, create, update, delete, import, and export."
+        "Create, read, update, list, import, export, and delete reusable skill definitions."
     }
 
     fn parameters_schema(&self) -> Value {

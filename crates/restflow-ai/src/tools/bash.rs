@@ -191,9 +191,7 @@ impl Tool for BashTool {
     }
 
     fn description(&self) -> &str {
-        "Execute shell commands. Use for git operations, file manipulation, \
-         running scripts, and system commands. Always check command output \
-         for errors before proceeding."
+        "Run shell commands in the local environment and return stdout, stderr, and exit status."
     }
 
     fn parameters_schema(&self) -> Value {

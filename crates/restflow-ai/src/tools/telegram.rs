@@ -109,7 +109,7 @@ impl Tool for TelegramTool {
     }
 
     fn description(&self) -> &str {
-        "Send a message to a Telegram chat via Bot API. Useful for notifications and alerts."
+        "Send Telegram Bot API messages to a chat with optional formatting and notification flags."
     }
 
     fn parameters_schema(&self) -> Value {

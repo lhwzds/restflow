@@ -91,7 +91,7 @@ impl Tool for AgentCrudTool {
     }
 
     fn description(&self) -> &str {
-        "Manage stored agent configurations. Supports list, show, create, update, and delete."
+        "Create, read, update, list, and delete agent definitions and configuration."
     }
 
     fn parameters_schema(&self) -> Value {

@@ -141,10 +141,7 @@ impl Tool for SaveMemoryTool {
     }
 
     fn description(&self) -> &str {
-        "Save important information to persistent memory. Use this to store context, \
-         decisions, facts, or anything that should be remembered beyond the current \
-         conversation window. Provide a descriptive title and relevant tags for \
-         easier retrieval later."
+        "Store a persistent memory entry with title, content, and optional tags."
     }
 
     fn parameters_schema(&self) -> Value {
@@ -295,9 +292,7 @@ impl Tool for ReadMemoryTool {
     }
 
     fn description(&self) -> &str {
-        "Retrieve previously saved memories. You can read a specific entry by ID, \
-         search by tag, or search for keywords in titles. Use this to recall \
-         important context that was saved earlier."
+        "Retrieve stored memory entries by id, tag, or title keyword search."
     }
 
     fn parameters_schema(&self) -> Value {
@@ -423,8 +418,7 @@ impl Tool for ListMemoryTool {
     }
 
     fn description(&self) -> &str {
-        "List all saved memories. Returns titles, tags, and timestamps \
-         without the full content. Useful for browsing what has been saved."
+        "List stored memory metadata (id, title, tags, timestamps) with optional tag filtering."
     }
 
     fn parameters_schema(&self) -> Value {
@@ -527,7 +521,7 @@ impl Tool for DeleteMemoryTool {
     }
 
     fn description(&self) -> &str {
-        "Delete a previously saved memory by its ID."
+        "Delete a stored memory entry by id."
     }
 
     fn parameters_schema(&self) -> Value {

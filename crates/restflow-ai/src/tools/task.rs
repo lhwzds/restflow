@@ -202,7 +202,7 @@ impl Tool for TaskTool {
     }
 
     fn description(&self) -> &str {
-        "Manage background agent tasks. Supports create, update, delete, control, list, progress, and messaging."
+        "Create, update, control, inspect progress, message, list, and delete background agent tasks."
     }
 
     fn parameters_schema(&self) -> Value {

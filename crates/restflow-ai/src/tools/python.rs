@@ -74,7 +74,7 @@ impl Tool for PythonTool {
     }
 
     fn description(&self) -> &str {
-        "Execute Python code and return the output. Use print() to output results."
+        "Execute inline Python code in a subprocess and return stdout, stderr, and exit code."
     }
 
     fn parameters_schema(&self) -> Value {

@@ -76,7 +76,7 @@ impl Tool for HttpTool {
     }
 
     fn description(&self) -> &str {
-        "Make HTTP requests to external APIs. Supports GET, POST, PUT, DELETE methods."
+        "Send HTTP requests with method, URL, optional headers/body, and return status and response data."
     }
 
     fn parameters_schema(&self) -> Value {

@@ -1460,11 +1460,7 @@ impl Tool for FileTool {
     }
 
     fn description(&self) -> &str {
-        "File operations: read, write, list, search, delete, exists, batch_read, batch_exists, batch_search. \
-         Use 'read' to view file contents with line numbers, 'write' to create/modify files, \
-         'list' to see directory contents, 'search' to find text in files using regex. \
-         Use 'batch_read' to read multiple files at once, 'batch_exists' to check multiple paths, \
-         'batch_search' to search across multiple directories with context."
+        "Perform file and directory operations: read, write, list, search, delete, exists, and batch variants."
     }
 
     fn parameters_schema(&self) -> Value {
@@ -1904,7 +1900,7 @@ mod tests {
     #[test]
     fn test_file_tool_description() {
         let tool = FileTool::new();
-        assert!(tool.description().contains("File operations"));
+        assert!(tool.description().contains("file and directory operations"));
     }
 
     #[test]

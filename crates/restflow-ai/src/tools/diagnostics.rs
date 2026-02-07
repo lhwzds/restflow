@@ -40,7 +40,7 @@ impl Tool for DiagnosticsTool {
     }
 
     fn description(&self) -> &str {
-        "Fetch diagnostics for a file from the language server"
+        "Return language-server diagnostics for a file path, including errors and warnings."
     }
 
     fn parameters_schema(&self) -> Value {

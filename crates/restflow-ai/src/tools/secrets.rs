@@ -68,7 +68,7 @@ impl Tool for SecretsTool {
     }
 
     fn description(&self) -> &str {
-        "Manage stored secrets. Supports list, get, set, delete, and has operations."
+        "List, read, set, delete, and existence-check named secrets in secure storage."
     }
 
     fn parameters_schema(&self) -> Value {

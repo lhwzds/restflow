@@ -97,7 +97,7 @@ impl Tool for ProcessTool {
     }
 
     fn description(&self) -> &str {
-        "Manage background processes: spawn, poll, write, kill, list, and log output."
+        "Manage process sessions: spawn commands, poll status, write stdin, read logs, list, and kill."
     }
 
     fn parameters_schema(&self) -> Value {

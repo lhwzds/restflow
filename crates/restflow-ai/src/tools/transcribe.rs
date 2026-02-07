@@ -44,7 +44,7 @@ impl Tool for TranscribeTool {
     }
 
     fn description(&self) -> &str {
-        "Transcribe an audio file using OpenAI Whisper. Provide a local file_path."
+        "Convert a local audio file to text using OpenAI transcription models."
     }
 
     fn parameters_schema(&self) -> Value {

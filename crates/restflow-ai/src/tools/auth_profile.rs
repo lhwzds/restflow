@@ -120,7 +120,7 @@ impl Tool for AuthProfileTool {
     }
 
     fn description(&self) -> &str {
-        "Manage authentication profiles. Supports list, discover, add, remove, and test."
+        "Discover, create, test, list, and remove authentication profiles for model providers."
     }
 
     fn parameters_schema(&self) -> Value {

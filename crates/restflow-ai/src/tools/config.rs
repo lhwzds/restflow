@@ -104,7 +104,7 @@ impl Tool for ConfigTool {
     }
 
     fn description(&self) -> &str {
-        "Read or update system configuration. Supports get, show, set, and reset operations."
+        "Read and update runtime configuration values such as workers, retries, and timeouts."
     }
 
     fn parameters_schema(&self) -> Value {

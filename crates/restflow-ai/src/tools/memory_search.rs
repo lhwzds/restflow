@@ -54,8 +54,7 @@ impl Tool for MemorySearchTool {
     }
 
     fn description(&self) -> &str {
-        "Search long-term memory for relevant information using semantic similarity. \
-         Use this to recall past conversations, stored knowledge, or task results."
+        "Search long-term memory using semantic similarity and optional tag filters."
     }
 
     fn parameters_schema(&self) -> Value {
