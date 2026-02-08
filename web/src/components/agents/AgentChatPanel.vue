@@ -3,7 +3,6 @@ import { ref, onMounted, computed } from 'vue'
 import { Send, Trash2, User, CircleCheck, Eye, EyeOff, Loader2 } from 'lucide-vue-next'
 import type { StoredAgent } from '@/types/generated/StoredAgent'
 import type { AIModel } from '@/types/generated/AIModel'
-import { useAgentOperations } from '@/composables/agents/useAgentOperations'
 import MarkdownRenderer from '@/components/shared/MarkdownRenderer.vue'
 import ExecutionStepDisplay from '@/components/agents/ExecutionStepDisplay.vue'
 import { type ExecutionDetails, type ExecutionStep } from '@/api/agents'
@@ -16,9 +15,6 @@ import { Badge } from '@/components/ui/badge'
 const props = defineProps<{
   agent: StoredAgent
 }>()
-
-// Use inline execution to test with current (possibly unsaved) configuration
-const { executeAgentInline } = useAgentOperations()
 
 // Chat message type with execution details
 interface Message {
@@ -86,19 +82,11 @@ async function handleSend() {
   input.value = ''
 
   addMessage('user', userInput)
-
-  isLoading.value = true
-
-  try {
-    // Use inline execution with current agent config (supports unsaved changes)
-    const result = await executeAgentInline(props.agent.agent, userInput)
-    addMessage('assistant', result.response, false, result.execution_details ?? undefined)
-  } catch (err: unknown) {
-    const errorMessage = err instanceof Error ? err.message : 'Execution failed, please try again'
-    addMessage('assistant', errorMessage, true)
-  } finally {
-    isLoading.value = false
-  }
+  addMessage(
+    'assistant',
+    'Inline agent execution has been removed. Please use workspace chat or background agents.',
+    true,
+  )
 }
 
 function handleClear() {

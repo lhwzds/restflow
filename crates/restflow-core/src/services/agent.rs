@@ -1,7 +1,7 @@
 //! Agent service layer
 //!
-//! Agent execution is handled by restflow-ai's AgentExecutor.
-//! Use the daemon HTTP /api/agents endpoints for agent execution.
+//! This module only covers agent CRUD operations.
+//! Agent execution happens through chat sessions and background agent runtime paths.
 
 use crate::{AppCore, models::AgentNode, storage::agent::StoredAgent};
 use anyhow::{Context, Result};
@@ -51,9 +51,6 @@ pub async fn delete_agent(core: &Arc<AppCore>, id: &str) -> Result<()> {
         .delete_agent(id.to_string())
         .with_context(|| format!("Failed to delete agent {}", id))
 }
-
-// TODO: Implement agent execution using restflow-ai AgentExecutor
-// For now, agent execution should use the daemon /api/agents/execute endpoint
 
 #[cfg(test)]
 mod tests {

@@ -20,6 +20,5 @@ pub async fn prepare_core(db_path: Option<String>) -> Result<Arc<AppCore>> {
     Ok(Arc::new(AppCore::new(&db_path).await?))
 }
 
-// TODO: Add API key validation when agent execution is re-enabled
+// TODO: Add startup-time API key validation for chat/background-agent flows.
 // The old validation used rig-core which has been removed.
-// Agent execution is now handled by restflow-ai's AgentExecutor.

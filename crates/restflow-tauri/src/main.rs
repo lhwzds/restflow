@@ -158,8 +158,6 @@ fn main() {
             commands::create_agent,
             commands::update_agent,
             commands::delete_agent,
-            commands::execute_agent,
-            commands::execute_agent_inline,
             // Agent Tasks
             commands::list_background_agents,
             commands::list_background_agents_by_status,

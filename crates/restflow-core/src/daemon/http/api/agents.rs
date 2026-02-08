@@ -5,8 +5,7 @@ use crate::services::agent as agent_service;
 use axum::{
     Json, Router,
     extract::{Extension, Path},
-    http::StatusCode,
-    routing::{get, post},
+    routing::get,
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -23,7 +22,6 @@ pub fn router() -> Router {
             "/{id}",
             get(get_agent).put(update_agent).delete(delete_agent),
         )
-        .route("/{id}/execute", post(execute_agent))
 }
 
 #[derive(Debug, Serialize)]
@@ -130,14 +128,4 @@ async fn delete_agent(
 ) -> Result<Json<serde_json::Value>, ApiError> {
     agent_service::delete_agent(&core, &id).await?;
     Ok(Json(serde_json::json!({ "deleted": true, "id": id })))
-}
-
-async fn execute_agent(Path(id): Path<String>) -> Result<Json<serde_json::Value>, ApiError> {
-    Err(ApiError::new(
-        StatusCode::NOT_IMPLEMENTED,
-        format!(
-            "Agent execution is not supported for daemon HTTP API (agent {}).",
-            id
-        ),
-    ))
 }

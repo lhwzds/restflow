@@ -29,8 +29,6 @@ describe('Constants - API Endpoints', () => {
       expect(API_ENDPOINTS.AGENT.GET('agent1')).toBe('/api/agents/agent1')
       expect(API_ENDPOINTS.AGENT.UPDATE('agent1')).toBe('/api/agents/agent1')
       expect(API_ENDPOINTS.AGENT.DELETE('agent1')).toBe('/api/agents/agent1')
-      expect(API_ENDPOINTS.AGENT.EXECUTE('agent1')).toBe('/api/agents/agent1/execute')
-      expect(API_ENDPOINTS.AGENT.EXECUTE_INLINE).toBe('/api/agents/execute-inline')
     })
   })
 
