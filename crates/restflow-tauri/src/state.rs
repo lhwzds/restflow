@@ -13,7 +13,6 @@ use restflow_ai::{LlmClient, SecretResolver};
 use restflow_core::channel::ChannelRouter;
 use restflow_core::models::{BackgroundAgent, BackgroundAgentStatus, BackgroundMessageSource};
 use restflow_core::process::ProcessRegistry;
-use restflow_core::security::SecurityChecker;
 use restflow_core::steer::SteerRegistry;
 use std::sync::Arc;
 use tokio::sync::{Mutex, mpsc};
@@ -24,8 +23,6 @@ use tracing::error;
 /// In desktop mode, this state acts as a UI facade over daemon IPC.
 /// Business logic and storage access stay in daemon/core.
 pub struct AppState {
-    /// Security checker for command execution control
-    security_checker: Arc<SecurityChecker>,
     /// Channel router for message handling
     pub channel_router: Arc<ChannelRouter>,
     /// Process registry for background process tool
@@ -55,7 +52,6 @@ impl AppState {
     }
 
     pub async fn with_ipc() -> anyhow::Result<Self> {
-        let security_checker = Arc::new(SecurityChecker::with_defaults());
         let channel_router = Arc::new(ChannelRouter::new());
         let process_registry = Arc::new(ProcessRegistry::new());
         let (completion_tx, completion_rx) = mpsc::channel(100);
@@ -67,7 +63,6 @@ impl AppState {
         let steer_registry = Arc::new(SteerRegistry::new());
 
         Ok(Self {
-            security_checker,
             channel_router,
             process_registry,
             stream_manager: StreamManager::new(),
@@ -78,16 +73,6 @@ impl AppState {
             subagent_config,
             steer_registry,
         })
-    }
-
-    /// Get a reference to the security checker.
-    pub fn security_checker(&self) -> &SecurityChecker {
-        &self.security_checker
-    }
-
-    /// Get the security checker as an Arc (for sharing with tools).
-    pub fn security_checker_arc(&self) -> Arc<SecurityChecker> {
-        self.security_checker.clone()
     }
 
     /// Get a reference to the channel router.
@@ -341,38 +326,9 @@ impl BackgroundAgentTrigger for AppBackgroundAgentTrigger {
         task_id: &str,
         approved: bool,
     ) -> Result<bool> {
-        let approval_manager = self.state.security_checker().approval_manager();
-        let pending = approval_manager.get_for_task(task_id).await;
-        if let Some(approval) = pending.first() {
-            let resolved = if approved {
-                approval_manager.approve(&approval.id).await?
-            } else {
-                approval_manager
-                    .reject(
-                        &approval.id,
-                        Some("Rejected via background agent control command".to_string()),
-                    )
-                    .await?
-            };
-            if resolved.is_some() {
-                return Ok(true);
-            }
-        }
-
-        let message = if approved {
-            "User approved the pending action."
-        } else {
-            "User rejected the pending action."
-        };
-
         self.state
             .executor()
-            .send_background_agent_message(
-                task_id.to_string(),
-                message.to_string(),
-                Some(BackgroundMessageSource::System),
-            )
-            .await?;
-        Ok(false)
+            .handle_background_agent_approval(task_id.to_string(), approved)
+            .await
     }
 }

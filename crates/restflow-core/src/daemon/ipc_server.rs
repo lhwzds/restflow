@@ -994,6 +994,24 @@ impl IpcServer {
                 Ok(msg) => IpcResponse::success(msg),
                 Err(err) => IpcResponse::error(500, err.to_string()),
             },
+            IpcRequest::HandleBackgroundAgentApproval { id, approved } => {
+                let message = if approved {
+                    "User approved the pending action."
+                } else {
+                    "User rejected the pending action."
+                };
+                match core.storage.agent_tasks.send_background_agent_message(
+                    &id,
+                    message.to_string(),
+                    crate::models::BackgroundMessageSource::System,
+                ) {
+                    Ok(_) => {
+                        // Placeholder behavior: inject approval intent as a system message.
+                        IpcResponse::success(serde_json::json!({ "handled": false }))
+                    }
+                    Err(err) => IpcResponse::error(500, err.to_string()),
+                }
+            }
             IpcRequest::ListBackgroundAgentMessages { id, limit } => {
                 match core
                     .storage
