@@ -1,11 +1,11 @@
 pub mod agents;
 pub mod auth;
+pub mod background_agents;
 pub mod config;
 pub mod memory;
 pub mod secrets;
 pub mod sessions;
 pub mod skills;
-pub mod background_agents;
 
 use axum::Router;
 
