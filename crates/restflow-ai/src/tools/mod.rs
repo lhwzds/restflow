@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 mod agent_crud;
 mod auth_profile;
+mod background_agent;
 mod bash;
 mod config;
 mod diagnostics;
@@ -28,7 +29,6 @@ mod secrets;
 mod session;
 mod skill;
 mod switch_model;
-mod background_agent;
 mod telegram;
 mod traits;
 mod transcribe;
@@ -42,6 +42,11 @@ pub use agent_crud::{AgentCreateRequest, AgentCrudTool, AgentStore, AgentUpdateR
 pub use auth_profile::{
     AuthProfileCreateRequest, AuthProfileStore, AuthProfileTestRequest, AuthProfileTool,
     CredentialInput,
+};
+pub use background_agent::{
+    BackgroundAgentControlRequest, BackgroundAgentCreateRequest, BackgroundAgentMessageListRequest,
+    BackgroundAgentMessageRequest, BackgroundAgentProgressRequest, BackgroundAgentStore,
+    BackgroundAgentTool, BackgroundAgentUpdateRequest,
 };
 pub use bash::{BashInput, BashOutput, BashTool};
 pub use config::ConfigTool;
@@ -71,11 +76,6 @@ pub use session::{
 };
 pub use skill::SkillTool;
 pub use switch_model::SwitchModelTool;
-pub use background_agent::{
-    BackgroundAgentControlRequest, BackgroundAgentCreateRequest, BackgroundAgentMessageListRequest,
-    BackgroundAgentMessageRequest, BackgroundAgentProgressRequest, BackgroundAgentStore,
-    BackgroundAgentTool, BackgroundAgentUpdateRequest,
-};
 pub use telegram::{TelegramTool, send_telegram_notification};
 pub use traits::{
     SecretResolver, SkillContent, SkillInfo, SkillProvider, SkillRecord, SkillUpdate, Tool,
