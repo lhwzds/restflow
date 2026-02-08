@@ -73,10 +73,20 @@ impl Default for FailoverConfig {
 }
 
 impl FailoverConfig {
-    /// Create a new failover config with the specified primary model
+    /// Create a new failover config with the specified primary model.
+    ///
+    /// CLI-based models (Codex CLI, OpenCode, Gemini CLI) disable fallbacks
+    /// because they manage their own authentication and cannot fall back
+    /// to API-based models that require different credentials.
     pub fn with_primary(primary: AIModel) -> Self {
+        let fallbacks = if primary.is_cli_model() {
+            vec![]
+        } else {
+            Self::default().fallbacks
+        };
         Self {
             primary,
+            fallbacks,
             ..Default::default()
         }
     }
