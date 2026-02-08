@@ -5,7 +5,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import BackgroundAgentCard from '../BackgroundAgentCard.vue'
-import type { AgentTask } from '@/types/generated/AgentTask'
+import type { BackgroundAgent } from '@/types/background-agent'
 
 // Mock lucide-vue-next icons
 vi.mock('lucide-vue-next', () => ({
@@ -21,10 +21,10 @@ vi.mock('lucide-vue-next', () => ({
   BellOff: { template: '<span>BellOff</span>' },
 }))
 
-const createMockTask = (overrides: Partial<AgentTask> = {}): AgentTask => ({
+const createMockTask = (overrides: Partial<BackgroundAgent> = {}): BackgroundAgent => ({
   id: 'task-1',
-  name: 'Test Task',
-  description: 'A test task description',
+  name: 'Test Background Agent',
+  description: 'A test background agent description',
   agent_id: 'agent-1',
   input: 'test input',
   input_template: null,
@@ -62,7 +62,7 @@ describe('BackgroundAgentCard', () => {
   it('renders task name and description', () => {
     const task = createMockTask()
     const wrapper = mount(BackgroundAgentCard, {
-      props: { task },
+      props: { backgroundAgent: task },
       global: {
         stubs: {
           Card: { template: '<div class="card"><slot /></div>' },
@@ -73,14 +73,14 @@ describe('BackgroundAgentCard', () => {
       },
     })
 
-    expect(wrapper.text()).toContain('Test Task')
-    expect(wrapper.text()).toContain('A test task description')
+    expect(wrapper.text()).toContain('Test Background Agent')
+    expect(wrapper.text()).toContain('A test background agent description')
   })
 
   it('displays "No description" when description is null', () => {
     const task = createMockTask({ description: null })
     const wrapper = mount(BackgroundAgentCard, {
-      props: { task },
+      props: { backgroundAgent: task },
       global: {
         stubs: {
           Card: { template: '<div class="card"><slot /></div>' },
@@ -97,7 +97,7 @@ describe('BackgroundAgentCard', () => {
   it('shows schedule information', () => {
     const task = createMockTask()
     const wrapper = mount(BackgroundAgentCard, {
-      props: { task },
+      props: { backgroundAgent: task },
       global: {
         stubs: {
           Card: { template: '<div class="card"><slot /></div>' },
@@ -115,7 +115,7 @@ describe('BackgroundAgentCard', () => {
   it('displays success and failure counts', () => {
     const task = createMockTask({ success_count: 10, failure_count: 2 })
     const wrapper = mount(BackgroundAgentCard, {
-      props: { task },
+      props: { backgroundAgent: task },
       global: {
         stubs: {
           Card: { template: '<div class="card"><slot /></div>' },
@@ -133,7 +133,7 @@ describe('BackgroundAgentCard', () => {
   it('shows error message when present', () => {
     const task = createMockTask({ last_error: 'Connection timeout' })
     const wrapper = mount(BackgroundAgentCard, {
-      props: { task },
+      props: { backgroundAgent: task },
       global: {
         stubs: {
           Card: { template: '<div class="card"><slot /></div>' },
@@ -150,7 +150,7 @@ describe('BackgroundAgentCard', () => {
   it('emits click event when card is clicked', async () => {
     const task = createMockTask()
     const wrapper = mount(BackgroundAgentCard, {
-      props: { task },
+      props: { backgroundAgent: task },
       global: {
         stubs: {
           Card: { template: '<div class="card" @click="$emit(\'click\')"><slot /></div>' },
@@ -169,7 +169,7 @@ describe('BackgroundAgentCard', () => {
   it('emits pause event for active task', async () => {
     const task = createMockTask({ status: 'active' })
     const wrapper = mount(BackgroundAgentCard, {
-      props: { task },
+      props: { backgroundAgent: task },
       global: {
         stubs: {
           Card: { template: '<div class="card"><slot /></div>' },
@@ -196,7 +196,7 @@ describe('BackgroundAgentCard', () => {
   it('emits resume event for paused task', async () => {
     const task = createMockTask({ status: 'paused' })
     const wrapper = mount(BackgroundAgentCard, {
-      props: { task },
+      props: { backgroundAgent: task },
       global: {
         stubs: {
           Card: { template: '<div class="card"><slot /></div>' },
@@ -223,7 +223,7 @@ describe('BackgroundAgentCard', () => {
   it('shows loading state when isLoading is true', () => {
     const task = createMockTask()
     const wrapper = mount(BackgroundAgentCard, {
-      props: { task, isLoading: true },
+      props: { backgroundAgent: task, isLoading: true },
       global: {
         stubs: {
           Card: {
@@ -237,7 +237,7 @@ describe('BackgroundAgentCard', () => {
       },
     })
 
-    expect(wrapper.find('.card').classes()).toContain('task-card--loading')
+    expect(wrapper.find('.card').classes()).toContain('background-agent-card--loading')
   })
 
   it('shows notification indicator when telegram is enabled', () => {
@@ -251,7 +251,7 @@ describe('BackgroundAgentCard', () => {
       },
     })
     const wrapper = mount(BackgroundAgentCard, {
-      props: { task },
+      props: { backgroundAgent: task },
       global: {
         stubs: {
           Card: { template: '<div class="card"><slot /></div>' },
@@ -271,7 +271,7 @@ describe('BackgroundAgentCard', () => {
     statuses.forEach((status) => {
       const task = createMockTask({ status })
       const wrapper = mount(BackgroundAgentCard, {
-        props: { task },
+        props: { backgroundAgent: task },
         global: {
           stubs: {
             Card: { template: '<div class="card"><slot /></div>' },
@@ -297,7 +297,7 @@ describe('BackgroundAgentCard', () => {
       },
     })
     const wrapper = mount(BackgroundAgentCard, {
-      props: { task },
+      props: { backgroundAgent: task },
       global: {
         stubs: {
           Card: { template: '<div class="card"><slot /></div>' },
@@ -317,7 +317,7 @@ describe('BackgroundAgentCard', () => {
       schedule: { type: 'once', run_at: runAt },
     })
     const wrapper = mount(BackgroundAgentCard, {
-      props: { task },
+      props: { backgroundAgent: task },
       global: {
         stubs: {
           Card: { template: '<div class="card"><slot /></div>' },

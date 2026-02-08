@@ -1,55 +1,60 @@
 /**
- * Agent Task Store
+ * Background Agent Store
  *
- * Pinia store for managing agent tasks state, including CRUD operations,
+ * Pinia store for managing background agent state, including CRUD operations,
  * filtering, sorting, and real-time status updates.
  */
 
 import { defineStore } from 'pinia'
-import type { AgentTask } from '@/types/generated/AgentTask'
-import type { AgentTaskStatus } from '@/types/generated/AgentTaskStatus'
-import type { TaskEvent } from '@/types/generated/TaskEvent'
-import type { TaskStreamEvent } from '@/types/generated/TaskStreamEvent'
+import type {
+  BackgroundAgent,
+  BackgroundAgentEvent,
+  BackgroundAgentStatus,
+  BackgroundAgentStreamEvent,
+} from '@/types/background-agent'
 import * as backgroundAgentApi from '@/api/background-agent'
-import type { CreateBackgroundAgentRequest, UpdateBackgroundAgentRequest } from '@/api/background-agent'
+import type {
+  CreateBackgroundAgentRequest,
+  UpdateBackgroundAgentRequest,
+} from '@/api/background-agent'
 
 export type SortField = 'name' | 'status' | 'created_at' | 'next_run_at' | 'last_run_at'
 export type SortOrder = 'asc' | 'desc'
 
-interface AgentTaskState {
-  /** All loaded tasks */
-  tasks: AgentTask[]
-  /** Currently selected task ID */
-  selectedTaskId: string | null
-  /** Events for the selected task */
-  selectedTaskEvents: TaskEvent[]
-  /** Loading state for task list */
+interface BackgroundAgentState {
+  /** All loaded background agents */
+  agents: BackgroundAgent[]
+  /** Currently selected background agent ID */
+  selectedBackgroundAgentId: string | null
+  /** Events for the selected background agent */
+  selectedBackgroundAgentEvents: BackgroundAgentEvent[]
+  /** Loading state for background agent list */
   isLoading: boolean
-  /** Loading state for task events */
+  /** Loading state for background agent events */
   isLoadingEvents: boolean
   /** Error message if any */
   error: string | null
   /** Current filter by status */
-  statusFilter: AgentTaskStatus | 'all'
+  statusFilter: BackgroundAgentStatus | 'all'
   /** Current sort field */
   sortField: SortField
   /** Current sort order */
   sortOrder: SortOrder
-  /** Search query for filtering tasks */
+  /** Search query for filtering background agents */
   searchQuery: string
   /** Version for reactive updates */
   version: number
   /** Timer handle for polling-based realtime sync */
   realtimeSyncTimer: ReturnType<typeof setInterval> | null
-  /** Unlisten handler for task stream events */
-  taskStreamUnlisten: (() => void) | null
+  /** Unlisten handler for background agent stream events */
+  backgroundAgentStreamUnlisten: (() => void) | null
 }
 
 export const useBackgroundAgentStore = defineStore('backgroundAgent', {
-  state: (): AgentTaskState => ({
-    tasks: [],
-    selectedTaskId: null,
-    selectedTaskEvents: [],
+  state: (): BackgroundAgentState => ({
+    agents: [],
+    selectedBackgroundAgentId: null,
+    selectedBackgroundAgentEvents: [],
     isLoading: false,
     isLoadingEvents: false,
     error: null,
@@ -59,32 +64,29 @@ export const useBackgroundAgentStore = defineStore('backgroundAgent', {
     searchQuery: '',
     version: 0,
     realtimeSyncTimer: null,
-    taskStreamUnlisten: null,
+    backgroundAgentStreamUnlisten: null,
   }),
 
   getters: {
     /**
-     * Get filtered and sorted tasks
+     * Get filtered and sorted background agents
      */
-    filteredTasks(): AgentTask[] {
-      let result = [...this.tasks]
+    filteredBackgroundAgents(): BackgroundAgent[] {
+      let result = [...this.agents]
 
-      // Apply status filter
       if (this.statusFilter !== 'all') {
-        result = result.filter((task) => task.status === this.statusFilter)
+        result = result.filter((backgroundAgent) => backgroundAgent.status === this.statusFilter)
       }
 
-      // Apply search filter
       if (this.searchQuery.trim()) {
         const query = this.searchQuery.toLowerCase()
         result = result.filter(
-          (task) =>
-            task.name.toLowerCase().includes(query) ||
-            (task.description?.toLowerCase().includes(query) ?? false),
+          (backgroundAgent) =>
+            backgroundAgent.name.toLowerCase().includes(query) ||
+            (backgroundAgent.description?.toLowerCase().includes(query) ?? false),
         )
       }
 
-      // Apply sorting
       result.sort((a, b) => {
         let comparison = 0
         switch (this.sortField) {
@@ -98,7 +100,6 @@ export const useBackgroundAgentStore = defineStore('backgroundAgent', {
             comparison = a.created_at - b.created_at
             break
           case 'next_run_at':
-            // Handle null values - push to end
             if (a.next_run_at === null && b.next_run_at === null) comparison = 0
             else if (a.next_run_at === null) comparison = 1
             else if (b.next_run_at === null) comparison = -1
@@ -118,244 +119,265 @@ export const useBackgroundAgentStore = defineStore('backgroundAgent', {
     },
 
     /**
-     * Get the currently selected task
+     * Get the currently selected background agent
      */
-    selectedTask(): AgentTask | null {
-      if (!this.selectedTaskId) return null
-      return this.tasks.find((t) => t.id === this.selectedTaskId) ?? null
+    selectedBackgroundAgent(): BackgroundAgent | null {
+      if (!this.selectedBackgroundAgentId) return null
+      return (
+        this.agents.find(
+          (backgroundAgent) => backgroundAgent.id === this.selectedBackgroundAgentId,
+        ) ?? null
+      )
     },
 
     /**
-     * Get count of tasks by status
+     * Get count of background agents by status
      */
-    statusCounts(): Record<AgentTaskStatus | 'all', number> {
-      const counts: Record<AgentTaskStatus | 'all', number> = {
-        all: this.tasks.length,
+    statusCounts(): Record<BackgroundAgentStatus | 'all', number> {
+      const counts: Record<BackgroundAgentStatus | 'all', number> = {
+        all: this.agents.length,
         active: 0,
         paused: 0,
         running: 0,
         completed: 0,
         failed: 0,
       }
-      this.tasks.forEach((task) => {
-        counts[task.status]++
+      this.agents.forEach((backgroundAgent) => {
+        counts[backgroundAgent.status]++
       })
       return counts
     },
 
     /**
-     * Check if there are any tasks
+     * Check if there are any background agents
      */
-    hasTasks(): boolean {
-      return this.tasks.length > 0
+    hasBackgroundAgents(): boolean {
+      return this.agents.length > 0
     },
 
     /**
-     * Get active tasks (scheduled to run)
+     * Get active background agents (scheduled to run)
      */
-    activeTasks(): AgentTask[] {
-      return this.tasks.filter((t) => t.status === 'active' || t.status === 'running')
+    activeBackgroundAgents(): BackgroundAgent[] {
+      return this.agents.filter(
+        (backgroundAgent) =>
+          backgroundAgent.status === 'active' || backgroundAgent.status === 'running',
+      )
     },
 
     /**
-     * Get tasks that need attention (failed or paused)
+     * Get background agents that need attention (failed or paused)
      */
-    tasksNeedingAttention(): AgentTask[] {
-      return this.tasks.filter((t) => t.status === 'failed' || t.status === 'paused')
+    backgroundAgentsNeedingAttention(): BackgroundAgent[] {
+      return this.agents.filter(
+        (backgroundAgent) =>
+          backgroundAgent.status === 'failed' || backgroundAgent.status === 'paused',
+      )
     },
   },
 
   actions: {
     /**
-     * Fetch all tasks from the API
+     * Fetch all background agents from the API
      */
-    async fetchTasks(): Promise<void> {
+    async fetchBackgroundAgents(): Promise<void> {
       this.isLoading = true
       this.error = null
       try {
-        this.tasks = await backgroundAgentApi.listBackgroundAgents()
+        this.agents = await backgroundAgentApi.listBackgroundAgents()
         this.version++
       } catch (err) {
-        this.error = err instanceof Error ? err.message : 'Failed to fetch tasks'
-        console.error('Failed to fetch agent tasks:', err)
+        this.error = err instanceof Error ? err.message : 'Failed to fetch background agents'
+        console.error('Failed to fetch background agents:', err)
       } finally {
         this.isLoading = false
       }
     },
 
     /**
-     * Fetch tasks filtered by status
+     * Fetch background agents filtered by status
      */
-    async fetchTasksByStatus(status: AgentTaskStatus): Promise<void> {
+    async fetchBackgroundAgentsByStatus(status: BackgroundAgentStatus): Promise<void> {
       this.isLoading = true
       this.error = null
       try {
-        const tasks = await backgroundAgentApi.listBackgroundAgentsByStatus(status)
-        // Merge with existing tasks, replacing those with matching IDs
-        const taskIds = new Set(tasks.map((t) => t.id))
-        this.tasks = [...this.tasks.filter((t) => !taskIds.has(t.id)), ...tasks]
+        const agentsByStatus = await backgroundAgentApi.listBackgroundAgentsByStatus(status)
+        const backgroundAgentIds = new Set(
+          agentsByStatus.map((backgroundAgent) => backgroundAgent.id),
+        )
+        this.agents = [
+          ...this.agents.filter((backgroundAgent) => !backgroundAgentIds.has(backgroundAgent.id)),
+          ...agentsByStatus,
+        ]
         this.version++
       } catch (err) {
-        this.error = err instanceof Error ? err.message : 'Failed to fetch tasks'
-        console.error('Failed to fetch agent tasks by status:', err)
+        this.error = err instanceof Error ? err.message : 'Failed to fetch background agents'
+        console.error('Failed to fetch background agents by status:', err)
       } finally {
         this.isLoading = false
       }
     },
 
     /**
-     * Get a single task by ID
+     * Get a single background agent by ID
      */
-    async getTask(id: string): Promise<AgentTask | null> {
+    async getBackgroundAgent(id: string): Promise<BackgroundAgent | null> {
       try {
-        const task = await backgroundAgentApi.getBackgroundAgent(id)
-        // Update in local state
-        const index = this.tasks.findIndex((t) => t.id === id)
+        const backgroundAgent = await backgroundAgentApi.getBackgroundAgent(id)
+        const index = this.agents.findIndex((agent) => agent.id === id)
         if (index >= 0) {
-          this.tasks[index] = task
+          this.agents[index] = backgroundAgent
         } else {
-          this.tasks.push(task)
+          this.agents.push(backgroundAgent)
         }
         this.version++
-        return task
+        return backgroundAgent
       } catch (err) {
-        this.error = err instanceof Error ? err.message : 'Failed to get task'
-        console.error('Failed to get agent task:', err)
+        this.error = err instanceof Error ? err.message : 'Failed to get background agent'
+        console.error('Failed to get background agent:', err)
         return null
       }
     },
 
     /**
-     * Create a new task
+     * Create a new background agent
      */
-    async createTask(request: CreateBackgroundAgentRequest): Promise<AgentTask | null> {
+    async createBackgroundAgent(
+      request: CreateBackgroundAgentRequest,
+    ): Promise<BackgroundAgent | null> {
       this.error = null
       try {
-        const task = await backgroundAgentApi.createBackgroundAgent(request)
-        this.tasks.push(task)
+        const backgroundAgent = await backgroundAgentApi.createBackgroundAgent(request)
+        this.agents.push(backgroundAgent)
         this.version++
-        return task
+        return backgroundAgent
       } catch (err) {
-        this.error = err instanceof Error ? err.message : 'Failed to create task'
-        console.error('Failed to create agent task:', err)
+        this.error = err instanceof Error ? err.message : 'Failed to create background agent'
+        console.error('Failed to create background agent:', err)
         return null
       }
     },
 
     /**
-     * Update an existing task
+     * Update an existing background agent
      */
-    async updateTask(id: string, request: UpdateBackgroundAgentRequest): Promise<AgentTask | null> {
+    async updateBackgroundAgent(
+      id: string,
+      request: UpdateBackgroundAgentRequest,
+    ): Promise<BackgroundAgent | null> {
       this.error = null
       try {
-        const task = await backgroundAgentApi.updateBackgroundAgent(id, request)
-        const index = this.tasks.findIndex((t) => t.id === id)
+        const backgroundAgent = await backgroundAgentApi.updateBackgroundAgent(id, request)
+        const index = this.agents.findIndex((agent) => agent.id === id)
         if (index >= 0) {
-          this.tasks[index] = task
+          this.agents[index] = backgroundAgent
         }
         this.version++
-        return task
+        return backgroundAgent
       } catch (err) {
-        this.error = err instanceof Error ? err.message : 'Failed to update task'
-        console.error('Failed to update agent task:', err)
+        this.error = err instanceof Error ? err.message : 'Failed to update background agent'
+        console.error('Failed to update background agent:', err)
         return null
       }
     },
 
     /**
-     * Delete a task
+     * Delete a background agent
      */
-    async deleteTask(id: string): Promise<boolean> {
+    async deleteBackgroundAgent(id: string): Promise<boolean> {
       this.error = null
       try {
         const success = await backgroundAgentApi.deleteBackgroundAgent(id)
         if (success) {
-          this.tasks = this.tasks.filter((t) => t.id !== id)
-          if (this.selectedTaskId === id) {
-            this.selectedTaskId = null
-            this.selectedTaskEvents = []
+          this.agents = this.agents.filter((backgroundAgent) => backgroundAgent.id !== id)
+          if (this.selectedBackgroundAgentId === id) {
+            this.selectedBackgroundAgentId = null
+            this.selectedBackgroundAgentEvents = []
           }
           this.version++
         }
         return success
       } catch (err) {
-        this.error = err instanceof Error ? err.message : 'Failed to delete task'
-        console.error('Failed to delete agent task:', err)
+        this.error = err instanceof Error ? err.message : 'Failed to delete background agent'
+        console.error('Failed to delete background agent:', err)
         return false
       }
     },
 
     /**
-     * Pause a task
+     * Pause a background agent
      */
-    async pauseTask(id: string): Promise<boolean> {
+    async pauseBackgroundAgent(id: string): Promise<boolean> {
       this.error = null
       try {
-        const task = await backgroundAgentApi.pauseBackgroundAgent(id)
-        const index = this.tasks.findIndex((t) => t.id === id)
+        const backgroundAgent = await backgroundAgentApi.pauseBackgroundAgent(id)
+        const index = this.agents.findIndex((agent) => agent.id === id)
         if (index >= 0) {
-          this.tasks[index] = task
+          this.agents[index] = backgroundAgent
         }
         this.version++
         return true
       } catch (err) {
-        this.error = err instanceof Error ? err.message : 'Failed to pause task'
-        console.error('Failed to pause agent task:', err)
+        this.error = err instanceof Error ? err.message : 'Failed to pause background agent'
+        console.error('Failed to pause background agent:', err)
         return false
       }
     },
 
     /**
-     * Resume a paused task
+     * Resume a paused background agent
      */
-    async resumeTask(id: string): Promise<boolean> {
+    async resumeBackgroundAgent(id: string): Promise<boolean> {
       this.error = null
       try {
-        const task = await backgroundAgentApi.resumeBackgroundAgent(id)
-        const index = this.tasks.findIndex((t) => t.id === id)
+        const backgroundAgent = await backgroundAgentApi.resumeBackgroundAgent(id)
+        const index = this.agents.findIndex((agent) => agent.id === id)
         if (index >= 0) {
-          this.tasks[index] = task
+          this.agents[index] = backgroundAgent
         }
         this.version++
         return true
       } catch (err) {
-        this.error = err instanceof Error ? err.message : 'Failed to resume task'
-        console.error('Failed to resume agent task:', err)
+        this.error = err instanceof Error ? err.message : 'Failed to resume background agent'
+        console.error('Failed to resume background agent:', err)
         return false
       }
     },
 
     /**
-     * Fetch events for a task
+     * Fetch events for a background agent
      */
-    async fetchTaskEvents(taskId: string, limit?: number): Promise<void> {
+    async fetchBackgroundAgentEvents(backgroundAgentId: string, limit?: number): Promise<void> {
       this.isLoadingEvents = true
       try {
-        this.selectedTaskEvents = await backgroundAgentApi.getBackgroundAgentEvents(taskId, limit)
+        this.selectedBackgroundAgentEvents = await backgroundAgentApi.getBackgroundAgentEvents(
+          backgroundAgentId,
+          limit,
+        )
       } catch (err) {
-        console.error('Failed to fetch task events:', err)
-        this.selectedTaskEvents = []
+        console.error('Failed to fetch background agent events:', err)
+        this.selectedBackgroundAgentEvents = []
       } finally {
         this.isLoadingEvents = false
       }
     },
 
     /**
-     * Select a task and load its events
+     * Select a background agent and load its events
      */
-    async selectTask(taskId: string | null): Promise<void> {
-      this.selectedTaskId = taskId
-      if (taskId) {
-        await this.fetchTaskEvents(taskId)
+    async selectBackgroundAgent(backgroundAgentId: string | null): Promise<void> {
+      this.selectedBackgroundAgentId = backgroundAgentId
+      if (backgroundAgentId) {
+        await this.fetchBackgroundAgentEvents(backgroundAgentId)
       } else {
-        this.selectedTaskEvents = []
+        this.selectedBackgroundAgentEvents = []
       }
     },
 
     /**
      * Set status filter
      */
-    setStatusFilter(status: AgentTaskStatus | 'all'): void {
+    setStatusFilter(status: BackgroundAgentStatus | 'all'): void {
       this.statusFilter = status
     },
 
@@ -364,7 +386,6 @@ export const useBackgroundAgentStore = defineStore('backgroundAgent', {
      */
     setSort(field: SortField, order?: SortOrder): void {
       if (this.sortField === field && !order) {
-        // Toggle order if same field
         this.sortOrder = this.sortOrder === 'asc' ? 'desc' : 'asc'
       } else {
         this.sortField = field
@@ -397,64 +418,68 @@ export const useBackgroundAgentStore = defineStore('backgroundAgent', {
     },
 
     /**
-     * Update a task in the local state (for real-time updates)
+     * Update a background agent in local state (for real-time updates)
      */
-    updateTaskLocally(task: AgentTask): void {
-      const index = this.tasks.findIndex((t) => t.id === task.id)
+    updateBackgroundAgentLocally(backgroundAgent: BackgroundAgent): void {
+      const index = this.agents.findIndex((agent) => agent.id === backgroundAgent.id)
       if (index >= 0) {
-        this.tasks[index] = task
+        this.agents[index] = backgroundAgent
       } else {
-        this.tasks.push(task)
+        this.agents.push(backgroundAgent)
       }
       this.version++
     },
 
     /**
-     * Remove a task from local state
+     * Remove a background agent from local state
      */
-    removeTaskLocally(taskId: string): void {
-      this.tasks = this.tasks.filter((t) => t.id !== taskId)
-      if (this.selectedTaskId === taskId) {
-        this.selectedTaskId = null
-        this.selectedTaskEvents = []
+    removeBackgroundAgentLocally(backgroundAgentId: string): void {
+      this.agents = this.agents.filter(
+        (backgroundAgent) => backgroundAgent.id !== backgroundAgentId,
+      )
+      if (this.selectedBackgroundAgentId === backgroundAgentId) {
+        this.selectedBackgroundAgentId = null
+        this.selectedBackgroundAgentEvents = []
       }
       this.version++
     },
 
     /**
-     * Start realtime task synchronization.
+     * Start realtime background agent synchronization.
      *
      * Uses event-stream updates when available (Tauri) and falls back to polling.
      */
     async startRealtimeSync(intervalMs = 3000): Promise<void> {
-      if (!this.taskStreamUnlisten) {
-        this.taskStreamUnlisten = await backgroundAgentApi.onBackgroundAgentStreamEvent((event: TaskStreamEvent) => {
-          const type = event.kind.type
-          if (
-            type === 'started' ||
-            type === 'completed' ||
-            type === 'failed' ||
-            type === 'cancelled'
-          ) {
-            void this.getTask(event.task_id)
-          }
-        })
+      if (!this.backgroundAgentStreamUnlisten) {
+        this.backgroundAgentStreamUnlisten = await backgroundAgentApi.onBackgroundAgentStreamEvent(
+          (event: BackgroundAgentStreamEvent) => {
+            const type = event.kind.type
+            if (
+              type === 'started' ||
+              type === 'completed' ||
+              type === 'failed' ||
+              type === 'cancelled'
+            ) {
+              void this.getBackgroundAgent(event.task_id)
+            }
+          },
+        )
       }
 
       if (!this.realtimeSyncTimer) {
         this.realtimeSyncTimer = setInterval(() => {
-          void this.fetchTasks()
+          void this.fetchBackgroundAgents()
         }, intervalMs)
       }
     },
 
     /**
-     * Stop realtime task synchronization.
+     * Stop realtime background agent synchronization.
      */
     stopRealtimeSync(): void {
-      if (this.taskStreamUnlisten) {
-        this.taskStreamUnlisten()
-        this.taskStreamUnlisten = null
+      if (this.backgroundAgentStreamUnlisten) {
+        this.backgroundAgentStreamUnlisten()
+        this.backgroundAgentStreamUnlisten = null
       }
 
       if (this.realtimeSyncTimer) {

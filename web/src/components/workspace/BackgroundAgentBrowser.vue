@@ -4,8 +4,8 @@
   1. Follows the same pattern as TerminalBrowser for consistency
   2. searchQuery and viewMode are PROPS, managed in parent (SkillWorkspace)
   3. Uses existing BackgroundAgentCard component for display
-  4. Uses CreateBackgroundAgentDialog for creating new tasks
-  5. Integrates with agentTaskStore for state management
+  4. Uses CreateBackgroundAgentDialog for creating new background agents
+  5. Integrates with backgroundAgentStore for state management
 -->
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
@@ -19,8 +19,8 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card'
 import { CreateBackgroundAgentDialog } from '@/components/background-agent'
-import type { AgentTask } from '@/types/generated/AgentTask'
-import type { AgentTaskStatus } from '@/types/generated/AgentTaskStatus'
+import type { BackgroundAgent, BackgroundAgentStatus } from '@/types/background-agent'
+import type { CreateBackgroundAgentRequest } from '@/api/background-agent'
 import { formatSchedule, formatBackgroundAgentStatus } from '@/api/background-agent'
 
 const props = defineProps<{
@@ -29,17 +29,17 @@ const props = defineProps<{
 }>()
 
 const store = useBackgroundAgentStore()
-const { tasks, isLoading } = storeToRefs(store)
+const { agents, isLoading } = storeToRefs(store)
 const toast = useToast()
 const { confirm } = useConfirm()
 
 // Local state
 const showCreateDialog = ref(false)
-const loadingTaskIds = ref<Set<string>>(new Set())
+const loadingBackgroundAgentIds = ref<Set<string>>(new Set())
 
-// Load tasks on mount
+// Load background agents on mount
 onMounted(async () => {
-  await store.fetchTasks()
+  await store.fetchBackgroundAgents()
   await store.startRealtimeSync()
 })
 
@@ -47,33 +47,35 @@ onUnmounted(() => {
   store.stopRealtimeSync()
 })
 
-// Filter tasks by search query
-const filteredTasks = computed(() => {
-  if (!props.searchQuery) return tasks.value
+// Filter background agents by search query
+const filteredBackgroundAgents = computed(() => {
+  if (!props.searchQuery) return agents.value
   const query = props.searchQuery.toLowerCase()
-  return tasks.value.filter(
-    (task) =>
-      task.name.toLowerCase().includes(query) || task.description?.toLowerCase().includes(query),
+  return agents.value.filter(
+    (backgroundAgent) =>
+      backgroundAgent.name.toLowerCase().includes(query) ||
+      backgroundAgent.description?.toLowerCase().includes(query),
   )
 })
 
 // Get status badge variant
 function getStatusVariant(
-  status: AgentTaskStatus,
+  status: BackgroundAgentStatus,
 ): 'default' | 'secondary' | 'destructive' | 'outline' | 'success' | 'warning' | 'info' {
-  const variantMap: Record<AgentTaskStatus, 'success' | 'info' | 'default' | 'destructive'> = {
-    active: 'success',
-    paused: 'info',
-    running: 'default',
-    completed: 'success',
-    failed: 'destructive',
-  }
+  const variantMap: Record<BackgroundAgentStatus, 'success' | 'info' | 'default' | 'destructive'> =
+    {
+      active: 'success',
+      paused: 'info',
+      running: 'default',
+      completed: 'success',
+      failed: 'destructive',
+    }
   return variantMap[status] || 'default'
 }
 
 // Get status indicator class
-function getStatusIndicatorClass(status: AgentTaskStatus): string {
-  const classMap: Record<AgentTaskStatus, string> = {
+function getStatusIndicatorClass(status: BackgroundAgentStatus): string {
+  const classMap: Record<BackgroundAgentStatus, string> = {
     active: 'bg-green-500',
     running: 'bg-blue-500 animate-pulse',
     paused: 'bg-yellow-500',
@@ -105,44 +107,44 @@ function formatRelativeTime(timestamp: number | null): string {
   return date.toLocaleDateString()
 }
 
-// Handle task actions
-async function handlePauseTask(event: Event, task: AgentTask) {
+// Handle background agent actions
+async function handlePauseBackgroundAgent(event: Event, backgroundAgent: BackgroundAgent) {
   event.stopPropagation()
-  if (loadingTaskIds.value.has(task.id)) return
+  if (loadingBackgroundAgentIds.value.has(backgroundAgent.id)) return
 
-  loadingTaskIds.value.add(task.id)
+  loadingBackgroundAgentIds.value.add(backgroundAgent.id)
   try {
-    await store.pauseTask(task.id)
-    toast.success(`Task "${task.name}" paused`)
+    await store.pauseBackgroundAgent(backgroundAgent.id)
+    toast.success(`Background agent "${backgroundAgent.name}" paused`)
   } catch (error) {
-    toast.error('Failed to pause task')
+    toast.error('Failed to pause background agent')
   } finally {
-    loadingTaskIds.value.delete(task.id)
+    loadingBackgroundAgentIds.value.delete(backgroundAgent.id)
   }
 }
 
-async function handleResumeTask(event: Event, task: AgentTask) {
+async function handleResumeBackgroundAgent(event: Event, backgroundAgent: BackgroundAgent) {
   event.stopPropagation()
-  if (loadingTaskIds.value.has(task.id)) return
+  if (loadingBackgroundAgentIds.value.has(backgroundAgent.id)) return
 
-  loadingTaskIds.value.add(task.id)
+  loadingBackgroundAgentIds.value.add(backgroundAgent.id)
   try {
-    await store.resumeTask(task.id)
-    toast.success(`Task "${task.name}" resumed`)
+    await store.resumeBackgroundAgent(backgroundAgent.id)
+    toast.success(`Background agent "${backgroundAgent.name}" resumed`)
   } catch (error) {
-    toast.error('Failed to resume task')
+    toast.error('Failed to resume background agent')
   } finally {
-    loadingTaskIds.value.delete(task.id)
+    loadingBackgroundAgentIds.value.delete(backgroundAgent.id)
   }
 }
 
-async function handleDeleteTask(event: Event, task: AgentTask) {
+async function handleDeleteBackgroundAgent(event: Event, backgroundAgent: BackgroundAgent) {
   event.stopPropagation()
-  if (loadingTaskIds.value.has(task.id)) return
+  if (loadingBackgroundAgentIds.value.has(backgroundAgent.id)) return
 
   const confirmed = await confirm({
-    title: 'Delete Task',
-    description: `Are you sure you want to delete "${task.name}"? This action cannot be undone.`,
+    title: 'Delete Background Agent',
+    description: `Are you sure you want to delete "${backgroundAgent.name}"? This action cannot be undone.`,
     confirmText: 'Delete',
     cancelText: 'Cancel',
     variant: 'destructive',
@@ -150,27 +152,33 @@ async function handleDeleteTask(event: Event, task: AgentTask) {
 
   if (!confirmed) return
 
-  loadingTaskIds.value.add(task.id)
+  loadingBackgroundAgentIds.value.add(backgroundAgent.id)
   try {
-    await store.deleteTask(task.id)
-    toast.success(`Task "${task.name}" deleted`)
+    await store.deleteBackgroundAgent(backgroundAgent.id)
+    toast.success(`Background agent "${backgroundAgent.name}" deleted`)
   } catch (error) {
-    toast.error('Failed to delete task')
+    toast.error('Failed to delete background agent')
   } finally {
-    loadingTaskIds.value.delete(task.id)
+    loadingBackgroundAgentIds.value.delete(backgroundAgent.id)
   }
 }
 
-// Handle task click (could open details in future)
-function handleTaskClick(task: AgentTask) {
-  // TODO: Open task details in editor panel or dialog
-  console.log('Task clicked:', task.id)
+// Handle background agent click (could open details in future)
+function handleBackgroundAgentClick(backgroundAgent: BackgroundAgent) {
+  // TODO: Open background agent details in editor panel or dialog
+  console.log('Background agent clicked:', backgroundAgent.id)
 }
 
-// Handle task created
-function handleTaskCreated() {
+// Handle background agent creation
+async function handleCreateBackgroundAgent(request: CreateBackgroundAgentRequest) {
+  const created = await store.createBackgroundAgent(request)
+  if (created) {
+    toast.success(`Background agent "${created.name}" created`)
+  } else {
+    toast.error('Failed to create background agent')
+  }
   showCreateDialog.value = false
-  store.fetchTasks()
+  await store.fetchBackgroundAgents()
 }
 </script>
 
@@ -184,7 +192,7 @@ function handleTaskCreated() {
         class="flex flex-col items-center justify-center h-full text-muted-foreground"
       >
         <Loader2 :size="32" class="mb-2 animate-spin" />
-        <span class="text-sm">Loading tasks...</span>
+        <span class="text-sm">Loading background agents...</span>
       </div>
 
       <!-- Grid View -->
@@ -192,41 +200,43 @@ function handleTaskCreated() {
         v-else-if="viewMode === 'grid'"
         class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4"
       >
-        <!-- Existing tasks -->
+        <!-- Existing background agents -->
         <HoverCard
-          v-for="task in filteredTasks"
-          :key="task.id"
+          v-for="backgroundAgent in filteredBackgroundAgents"
+          :key="backgroundAgent.id"
           :open-delay="500"
           :close-delay="100"
         >
           <HoverCardTrigger as-child>
             <Card
               class="group relative cursor-pointer hover:border-primary transition-colors"
-              :class="{ 'opacity-50': loadingTaskIds.has(task.id) }"
-              @click="handleTaskClick(task)"
+              :class="{ 'opacity-50': loadingBackgroundAgentIds.has(backgroundAgent.id) }"
+              @click="handleBackgroundAgentClick(backgroundAgent)"
             >
               <CardContent class="flex flex-col items-center justify-center p-6">
                 <!-- Status indicator -->
                 <div class="absolute top-2 left-2">
                   <span
                     class="h-2 w-2 rounded-full inline-block"
-                    :class="getStatusIndicatorClass(task.status)"
-                    :title="formatBackgroundAgentStatus(task.status)"
+                    :class="getStatusIndicatorClass(backgroundAgent.status)"
+                    :title="formatBackgroundAgentStatus(backgroundAgent.status)"
                   />
                 </div>
                 <!-- Icon -->
                 <Loader2
-                  v-if="loadingTaskIds.has(task.id)"
+                  v-if="loadingBackgroundAgentIds.has(backgroundAgent.id)"
                   :size="32"
                   class="text-muted-foreground mb-2 animate-spin"
                 />
                 <CalendarClock v-else :size="32" class="text-muted-foreground mb-2" />
-                <span class="text-sm font-medium truncate w-full text-center">{{ task.name }}</span>
-                <Badge :variant="getStatusVariant(task.status)" class="mt-1 text-xs">
-                  {{ formatBackgroundAgentStatus(task.status) }}
+                <span class="text-sm font-medium truncate w-full text-center">{{
+                  backgroundAgent.name
+                }}</span>
+                <Badge :variant="getStatusVariant(backgroundAgent.status)" class="mt-1 text-xs">
+                  {{ formatBackgroundAgentStatus(backgroundAgent.status) }}
                 </Badge>
                 <span class="text-xs text-muted-foreground mt-1">{{
-                  formatSchedule(task.schedule)
+                  formatSchedule(backgroundAgent.schedule)
                 }}</span>
               </CardContent>
               <!-- Action buttons (show on hover) -->
@@ -234,24 +244,24 @@ function handleTaskCreated() {
                 class="absolute top-1 right-1 flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
               >
                 <Button
-                  v-if="task.status === 'active'"
+                  v-if="backgroundAgent.status === 'active'"
                   variant="ghost"
                   size="icon"
                   class="h-6 w-6 text-muted-foreground hover:text-orange-500"
-                  title="Pause task"
-                  :disabled="loadingTaskIds.has(task.id)"
-                  @click="handlePauseTask($event, task)"
+                  title="Pause background agent"
+                  :disabled="loadingBackgroundAgentIds.has(backgroundAgent.id)"
+                  @click="handlePauseBackgroundAgent($event, backgroundAgent)"
                 >
                   <Pause :size="14" />
                 </Button>
                 <Button
-                  v-if="task.status === 'paused'"
+                  v-if="backgroundAgent.status === 'paused'"
                   variant="ghost"
                   size="icon"
                   class="h-6 w-6 text-muted-foreground hover:text-green-500"
-                  title="Resume task"
-                  :disabled="loadingTaskIds.has(task.id)"
-                  @click="handleResumeTask($event, task)"
+                  title="Resume background agent"
+                  :disabled="loadingBackgroundAgentIds.has(backgroundAgent.id)"
+                  @click="handleResumeBackgroundAgent($event, backgroundAgent)"
                 >
                   <Play :size="14" />
                 </Button>
@@ -259,9 +269,9 @@ function handleTaskCreated() {
                   variant="ghost"
                   size="icon"
                   class="h-6 w-6 text-muted-foreground hover:text-destructive"
-                  title="Delete task"
-                  :disabled="loadingTaskIds.has(task.id)"
-                  @click="handleDeleteTask($event, task)"
+                  title="Delete background agent"
+                  :disabled="loadingBackgroundAgentIds.has(backgroundAgent.id)"
+                  @click="handleDeleteBackgroundAgent($event, backgroundAgent)"
                 >
                   <Trash2 :size="14" />
                 </Button>
@@ -273,35 +283,40 @@ function handleTaskCreated() {
             <!-- Header -->
             <div class="px-3 py-2 border-b flex items-center gap-2">
               <CalendarClock :size="16" class="text-muted-foreground" />
-              <span class="font-medium text-sm truncate">{{ task.name }}</span>
+              <span class="font-medium text-sm truncate">{{ backgroundAgent.name }}</span>
             </div>
 
             <!-- Description -->
-            <div v-if="task.description" class="px-3 py-2 border-b text-sm text-muted-foreground">
-              {{ task.description }}
+            <div
+              v-if="backgroundAgent.description"
+              class="px-3 py-2 border-b text-sm text-muted-foreground"
+            >
+              {{ backgroundAgent.description }}
             </div>
 
             <!-- Schedule Info -->
             <div class="px-3 py-2 text-xs text-muted-foreground space-y-1">
-              <div><strong>Schedule:</strong> {{ formatSchedule(task.schedule) }}</div>
-              <div><strong>Last run:</strong> {{ formatRelativeTime(task.last_run_at) }}</div>
-              <div v-if="task.next_run_at">
-                <strong>Next run:</strong> {{ formatRelativeTime(task.next_run_at) }}
+              <div><strong>Schedule:</strong> {{ formatSchedule(backgroundAgent.schedule) }}</div>
+              <div>
+                <strong>Last run:</strong> {{ formatRelativeTime(backgroundAgent.last_run_at) }}
+              </div>
+              <div v-if="backgroundAgent.next_run_at">
+                <strong>Next run:</strong> {{ formatRelativeTime(backgroundAgent.next_run_at) }}
               </div>
               <div class="flex gap-4 mt-2">
-                <span class="text-green-600">{{ task.success_count }} success</span>
-                <span class="text-red-600">{{ task.failure_count }} failed</span>
+                <span class="text-green-600">{{ backgroundAgent.success_count }} success</span>
+                <span class="text-red-600">{{ backgroundAgent.failure_count }} failed</span>
               </div>
             </div>
 
             <!-- Error -->
-            <div v-if="task.last_error" class="px-3 py-2 border-t text-xs text-red-500">
-              <strong>Error:</strong> {{ task.last_error }}
+            <div v-if="backgroundAgent.last_error" class="px-3 py-2 border-t text-xs text-red-500">
+              <strong>Error:</strong> {{ backgroundAgent.last_error }}
             </div>
           </HoverCardContent>
         </HoverCard>
 
-        <!-- Create new task card -->
+        <!-- Create new background agent card -->
         <Card
           class="cursor-pointer border-dashed hover:border-primary transition-colors"
           @click="showCreateDialog = true"
@@ -310,7 +325,7 @@ function handleTaskCreated() {
             class="flex flex-col items-center justify-center p-6 text-muted-foreground hover:text-foreground transition-colors"
           >
             <Plus :size="32" class="mb-2" />
-            <span class="text-sm">New Task</span>
+            <span class="text-sm">New Background Agent</span>
           </CardContent>
         </Card>
       </div>
@@ -318,40 +333,40 @@ function handleTaskCreated() {
       <!-- List View -->
       <div v-else-if="viewMode === 'list'" class="space-y-1">
         <HoverCard
-          v-for="task in filteredTasks"
-          :key="task.id"
+          v-for="backgroundAgent in filteredBackgroundAgents"
+          :key="backgroundAgent.id"
           :open-delay="500"
           :close-delay="100"
         >
           <HoverCardTrigger as-child>
             <button
               class="group w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-all text-left hover:bg-muted"
-              :class="{ 'opacity-50': loadingTaskIds.has(task.id) }"
-              @click="handleTaskClick(task)"
+              :class="{ 'opacity-50': loadingBackgroundAgentIds.has(backgroundAgent.id) }"
+              @click="handleBackgroundAgentClick(backgroundAgent)"
             >
               <!-- Status indicator -->
               <span
                 class="h-2 w-2 rounded-full inline-block shrink-0"
-                :class="getStatusIndicatorClass(task.status)"
-                :title="formatBackgroundAgentStatus(task.status)"
+                :class="getStatusIndicatorClass(backgroundAgent.status)"
+                :title="formatBackgroundAgentStatus(backgroundAgent.status)"
               />
 
               <!-- Icon -->
               <Loader2
-                v-if="loadingTaskIds.has(task.id)"
+                v-if="loadingBackgroundAgentIds.has(backgroundAgent.id)"
                 :size="20"
                 class="text-muted-foreground shrink-0 animate-spin"
               />
               <CalendarClock v-else :size="20" class="text-muted-foreground shrink-0" />
 
-              <span class="flex-1 text-sm truncate">{{ task.name }}</span>
+              <span class="flex-1 text-sm truncate">{{ backgroundAgent.name }}</span>
 
-              <Badge :variant="getStatusVariant(task.status)" class="text-xs shrink-0">
-                {{ formatBackgroundAgentStatus(task.status) }}
+              <Badge :variant="getStatusVariant(backgroundAgent.status)" class="text-xs shrink-0">
+                {{ formatBackgroundAgentStatus(backgroundAgent.status) }}
               </Badge>
 
               <span class="text-xs text-muted-foreground shrink-0">{{
-                formatSchedule(task.schedule)
+                formatSchedule(backgroundAgent.schedule)
               }}</span>
 
               <!-- Action buttons (show on hover) -->
@@ -359,24 +374,24 @@ function handleTaskCreated() {
                 class="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
               >
                 <Button
-                  v-if="task.status === 'active'"
+                  v-if="backgroundAgent.status === 'active'"
                   variant="ghost"
                   size="icon"
                   class="h-6 w-6 text-muted-foreground hover:text-orange-500"
-                  title="Pause task"
-                  :disabled="loadingTaskIds.has(task.id)"
-                  @click="handlePauseTask($event, task)"
+                  title="Pause background agent"
+                  :disabled="loadingBackgroundAgentIds.has(backgroundAgent.id)"
+                  @click="handlePauseBackgroundAgent($event, backgroundAgent)"
                 >
                   <Pause :size="14" />
                 </Button>
                 <Button
-                  v-if="task.status === 'paused'"
+                  v-if="backgroundAgent.status === 'paused'"
                   variant="ghost"
                   size="icon"
                   class="h-6 w-6 text-muted-foreground hover:text-green-500"
-                  title="Resume task"
-                  :disabled="loadingTaskIds.has(task.id)"
-                  @click="handleResumeTask($event, task)"
+                  title="Resume background agent"
+                  :disabled="loadingBackgroundAgentIds.has(backgroundAgent.id)"
+                  @click="handleResumeBackgroundAgent($event, backgroundAgent)"
                 >
                   <Play :size="14" />
                 </Button>
@@ -384,9 +399,9 @@ function handleTaskCreated() {
                   variant="ghost"
                   size="icon"
                   class="h-6 w-6 text-muted-foreground hover:text-destructive"
-                  title="Delete task"
-                  :disabled="loadingTaskIds.has(task.id)"
-                  @click="handleDeleteTask($event, task)"
+                  title="Delete background agent"
+                  :disabled="loadingBackgroundAgentIds.has(backgroundAgent.id)"
+                  @click="handleDeleteBackgroundAgent($event, backgroundAgent)"
                 >
                   <Trash2 :size="14" />
                 </Button>
@@ -398,46 +413,54 @@ function handleTaskCreated() {
             <!-- Header -->
             <div class="px-3 py-2 border-b flex items-center gap-2">
               <CalendarClock :size="16" class="text-muted-foreground" />
-              <span class="font-medium text-sm truncate">{{ task.name }}</span>
+              <span class="font-medium text-sm truncate">{{ backgroundAgent.name }}</span>
             </div>
 
             <!-- Description -->
-            <div v-if="task.description" class="px-3 py-2 border-b text-sm text-muted-foreground">
-              {{ task.description }}
+            <div
+              v-if="backgroundAgent.description"
+              class="px-3 py-2 border-b text-sm text-muted-foreground"
+            >
+              {{ backgroundAgent.description }}
             </div>
 
             <!-- Schedule Info -->
             <div class="px-3 py-2 text-xs text-muted-foreground space-y-1">
-              <div><strong>Schedule:</strong> {{ formatSchedule(task.schedule) }}</div>
-              <div><strong>Last run:</strong> {{ formatRelativeTime(task.last_run_at) }}</div>
-              <div v-if="task.next_run_at">
-                <strong>Next run:</strong> {{ formatRelativeTime(task.next_run_at) }}
+              <div><strong>Schedule:</strong> {{ formatSchedule(backgroundAgent.schedule) }}</div>
+              <div>
+                <strong>Last run:</strong> {{ formatRelativeTime(backgroundAgent.last_run_at) }}
+              </div>
+              <div v-if="backgroundAgent.next_run_at">
+                <strong>Next run:</strong> {{ formatRelativeTime(backgroundAgent.next_run_at) }}
               </div>
               <div class="flex gap-4 mt-2">
-                <span class="text-green-600">{{ task.success_count }} success</span>
-                <span class="text-red-600">{{ task.failure_count }} failed</span>
+                <span class="text-green-600">{{ backgroundAgent.success_count }} success</span>
+                <span class="text-red-600">{{ backgroundAgent.failure_count }} failed</span>
               </div>
             </div>
 
             <!-- Error -->
-            <div v-if="task.last_error" class="px-3 py-2 border-t text-xs text-red-500">
-              <strong>Error:</strong> {{ task.last_error }}
+            <div v-if="backgroundAgent.last_error" class="px-3 py-2 border-t text-xs text-red-500">
+              <strong>Error:</strong> {{ backgroundAgent.last_error }}
             </div>
           </HoverCardContent>
         </HoverCard>
 
-        <!-- Create new task row -->
+        <!-- Create new background agent row -->
         <button
           class="w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-all text-left border-2 border-dashed hover:border-primary hover:bg-muted/50"
           @click="showCreateDialog = true"
         >
           <Plus :size="20" class="text-muted-foreground shrink-0" />
-          <span class="flex-1 text-sm text-muted-foreground">New Task</span>
+          <span class="flex-1 text-sm text-muted-foreground">New Background Agent</span>
         </button>
       </div>
     </div>
 
-    <!-- Create Task Dialog -->
-    <CreateBackgroundAgentDialog v-model:open="showCreateDialog" @created="handleTaskCreated" />
+    <!-- Create Background Agent Dialog -->
+    <CreateBackgroundAgentDialog
+      v-model:open="showCreateDialog"
+      @create="handleCreateBackgroundAgent"
+    />
   </div>
 </template>

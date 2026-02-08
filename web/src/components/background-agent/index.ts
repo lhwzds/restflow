@@ -1,8 +1,8 @@
 /**
- * Agent Task Components
+ * Background Agent Components
  *
- * Exports all agent task related components for managing
- * scheduled agent executions.
+ * Exports all background agent related components for managing
+ * scheduled background agent executions.
  */
 
 export { default as BackgroundAgentCard } from './BackgroundAgentCard.vue'
