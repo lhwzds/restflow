@@ -4,7 +4,7 @@
 
 use anyhow::Result;
 use restflow_core::channel::{ChannelRouter, InboundMessage, MessageLevel, OutboundMessage};
-use restflow_core::models::AgentTaskStatus;
+use restflow_core::models::BackgroundAgentStatus;
 use tracing::debug;
 
 use super::trigger::BackgroundAgentTrigger;
@@ -72,11 +72,11 @@ async fn cmd_list_tasks(
     } else {
         for task in tasks.iter().take(10) {
             let status_emoji = match task.status {
-                AgentTaskStatus::Running => "🟢",
-                AgentTaskStatus::Active => "🟡",
-                AgentTaskStatus::Completed => "✅",
-                AgentTaskStatus::Failed => "❌",
-                AgentTaskStatus::Paused => "⏸️",
+                BackgroundAgentStatus::Running => "🟢",
+                BackgroundAgentStatus::Active => "🟡",
+                BackgroundAgentStatus::Completed => "✅",
+                BackgroundAgentStatus::Failed => "❌",
+                BackgroundAgentStatus::Paused => "⏸️",
             };
             text.push_str(&format!("{} `{}` - {}\n", status_emoji, task.id, task.name));
         }

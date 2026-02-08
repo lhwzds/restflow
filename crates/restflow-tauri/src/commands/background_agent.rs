@@ -20,9 +20,9 @@
 use crate::background_agent::{TASK_STREAM_EVENT, TaskStreamEvent, TauriEventEmitter};
 use crate::state::AppState;
 use restflow_core::models::{
-    AgentTask, AgentTaskStatus, BackgroundAgentControlAction, BackgroundAgentPatch,
-    BackgroundAgentSpec, ExecutionMode, MemoryConfig, MemoryScope, NotificationConfig,
-    SteerMessage, SteerSource, TaskEvent, TaskSchedule,
+    BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentEvent, BackgroundAgentPatch,
+    BackgroundAgentSchedule, BackgroundAgentSpec, BackgroundAgentStatus, ExecutionMode,
+    MemoryConfig, MemoryScope, NotificationConfig, SteerMessage, SteerSource,
 };
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
@@ -35,7 +35,7 @@ pub struct CreateBackgroundAgentRequest {
     /// ID of the agent to execute
     pub agent_id: String,
     /// Schedule configuration
-    pub schedule: TaskSchedule,
+    pub schedule: BackgroundAgentSchedule,
     /// Optional description
     #[serde(default)]
     pub description: Option<String>,
@@ -79,7 +79,7 @@ pub struct UpdateBackgroundAgentRequest {
     pub input_template: Option<String>,
     /// New schedule (optional)
     #[serde(default)]
-    pub schedule: Option<TaskSchedule>,
+    pub schedule: Option<BackgroundAgentSchedule>,
     /// New notification config (optional)
     #[serde(default)]
     pub notification: Option<NotificationConfig>,
@@ -93,7 +93,9 @@ pub struct UpdateBackgroundAgentRequest {
 
 /// List all agent tasks
 #[tauri::command]
-pub async fn list_background_agents(state: State<'_, AppState>) -> Result<Vec<AgentTask>, String> {
+pub async fn list_background_agents(
+    state: State<'_, AppState>,
+) -> Result<Vec<BackgroundAgent>, String> {
     state
         .executor()
         .list_background_agents(None)
@@ -105,14 +107,14 @@ pub async fn list_background_agents(state: State<'_, AppState>) -> Result<Vec<Ag
 #[tauri::command]
 pub async fn list_background_agents_by_status(
     state: State<'_, AppState>,
-    status: AgentTaskStatus,
-) -> Result<Vec<AgentTask>, String> {
+    status: BackgroundAgentStatus,
+) -> Result<Vec<BackgroundAgent>, String> {
     let status_str = match status {
-        AgentTaskStatus::Active => "active",
-        AgentTaskStatus::Paused => "paused",
-        AgentTaskStatus::Running => "running",
-        AgentTaskStatus::Completed => "completed",
-        AgentTaskStatus::Failed => "failed",
+        BackgroundAgentStatus::Active => "active",
+        BackgroundAgentStatus::Paused => "paused",
+        BackgroundAgentStatus::Running => "running",
+        BackgroundAgentStatus::Completed => "completed",
+        BackgroundAgentStatus::Failed => "failed",
     };
     state
         .executor()
@@ -126,7 +128,7 @@ pub async fn list_background_agents_by_status(
 pub async fn get_background_agent(
     state: State<'_, AppState>,
     id: String,
-) -> Result<AgentTask, String> {
+) -> Result<BackgroundAgent, String> {
     state
         .executor()
         .get_background_agent(id.clone())
@@ -140,7 +142,7 @@ pub async fn get_background_agent(
 pub async fn create_background_agent(
     state: State<'_, AppState>,
     request: CreateBackgroundAgentRequest,
-) -> Result<AgentTask, String> {
+) -> Result<BackgroundAgent, String> {
     let spec = BackgroundAgentSpec {
         name: request.name,
         agent_id: request.agent_id,
@@ -166,7 +168,7 @@ pub async fn update_background_agent(
     state: State<'_, AppState>,
     id: String,
     request: UpdateBackgroundAgentRequest,
-) -> Result<AgentTask, String> {
+) -> Result<BackgroundAgent, String> {
     let patch = BackgroundAgentPatch {
         name: request.name,
         description: request.description,
@@ -204,7 +206,7 @@ pub async fn delete_background_agent(
 pub async fn pause_background_agent(
     state: State<'_, AppState>,
     id: String,
-) -> Result<AgentTask, String> {
+) -> Result<BackgroundAgent, String> {
     state
         .executor()
         .control_background_agent(id, BackgroundAgentControlAction::Pause)
@@ -217,7 +219,7 @@ pub async fn pause_background_agent(
 pub async fn resume_background_agent(
     state: State<'_, AppState>,
     id: String,
-) -> Result<AgentTask, String> {
+) -> Result<BackgroundAgent, String> {
     state
         .executor()
         .control_background_agent(id, BackgroundAgentControlAction::Resume)
@@ -268,7 +270,7 @@ pub async fn get_background_agent_events(
     state: State<'_, AppState>,
     task_id: String,
     limit: Option<usize>,
-) -> Result<Vec<TaskEvent>, String> {
+) -> Result<Vec<BackgroundAgentEvent>, String> {
     let mut events = state
         .executor()
         .get_background_agent_history(task_id)
@@ -287,7 +289,7 @@ pub async fn get_background_agent_events(
 #[tauri::command]
 pub async fn get_runnable_background_agents(
     state: State<'_, AppState>,
-) -> Result<Vec<AgentTask>, String> {
+) -> Result<Vec<BackgroundAgent>, String> {
     let current_time = chrono::Utc::now().timestamp_millis();
     let core = state.core.as_ref().ok_or("AppCore not available")?;
     core.storage
@@ -608,7 +610,7 @@ mod tests {
 
         let request: CreateBackgroundAgentRequest = serde_json::from_str(json).unwrap();
         match request.schedule {
-            TaskSchedule::Cron {
+            BackgroundAgentSchedule::Cron {
                 expression,
                 timezone,
             } => {

@@ -5,8 +5,8 @@ use crate::AppCore;
 use crate::auth::{AuthManagerConfig, AuthProfileManager};
 use crate::memory::{MemoryExporter, MemoryExporterBuilder, SearchEngineBuilder};
 use crate::models::{
-    AgentNode, AgentTaskStatus, ChatExecutionStatus, ChatMessage, ChatRole, ChatSessionSummary,
-    MemoryChunk, MemorySearchQuery, MessageExecution, TerminalSession,
+    AgentNode, BackgroundAgentStatus, ChatExecutionStatus, ChatMessage, ChatRole,
+    ChatSessionSummary, MemoryChunk, MemorySearchQuery, MessageExecution, TerminalSession,
 };
 use crate::services::tool_registry::create_tool_registry;
 use crate::services::{
@@ -1064,13 +1064,13 @@ async fn build_auth_manager(core: &Arc<AppCore>) -> Result<AuthProfileManager> {
     Ok(manager)
 }
 
-fn parse_background_agent_status(status: &str) -> Result<AgentTaskStatus> {
+fn parse_background_agent_status(status: &str) -> Result<BackgroundAgentStatus> {
     match status.to_lowercase().as_str() {
-        "active" => Ok(AgentTaskStatus::Active),
-        "paused" => Ok(AgentTaskStatus::Paused),
-        "running" => Ok(AgentTaskStatus::Running),
-        "completed" => Ok(AgentTaskStatus::Completed),
-        "failed" => Ok(AgentTaskStatus::Failed),
+        "active" => Ok(BackgroundAgentStatus::Active),
+        "paused" => Ok(BackgroundAgentStatus::Paused),
+        "running" => Ok(BackgroundAgentStatus::Running),
+        "completed" => Ok(BackgroundAgentStatus::Completed),
+        "failed" => Ok(BackgroundAgentStatus::Failed),
         _ => Err(anyhow::anyhow!("Unknown task status: {}", status)),
     }
 }

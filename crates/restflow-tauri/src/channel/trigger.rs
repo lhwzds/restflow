@@ -5,7 +5,7 @@
 
 use anyhow::Result;
 use async_trait::async_trait;
-use restflow_core::models::AgentTask;
+use restflow_core::models::BackgroundAgent;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -30,10 +30,10 @@ pub struct SystemStatus {
 #[async_trait]
 pub trait BackgroundAgentTrigger: Send + Sync {
     /// List all tasks
-    async fn list_background_agents(&self) -> Result<Vec<AgentTask>>;
+    async fn list_background_agents(&self) -> Result<Vec<BackgroundAgent>>;
 
     /// Find task by name or ID and run it
-    async fn find_and_run_background_agent(&self, name_or_id: &str) -> Result<AgentTask>;
+    async fn find_and_run_background_agent(&self, name_or_id: &str) -> Result<BackgroundAgent>;
 
     /// Stop a running task
     async fn stop_background_agent(&self, task_id: &str) -> Result<()>;
@@ -60,7 +60,7 @@ pub mod mock {
 
     /// Mock task trigger for testing
     pub struct MockBackgroundAgentTrigger {
-        tasks: Arc<Mutex<Vec<AgentTask>>>,
+        tasks: Arc<Mutex<Vec<BackgroundAgent>>>,
         runner_active: AtomicBool,
         active_count: AtomicUsize,
         pending_count: AtomicUsize,
@@ -82,7 +82,7 @@ pub mod mock {
             }
         }
 
-        pub async fn add_task(&self, task: AgentTask) {
+        pub async fn add_task(&self, task: BackgroundAgent) {
             self.tasks.lock().await.push(task);
         }
 
@@ -103,11 +103,11 @@ pub mod mock {
 
     #[async_trait]
     impl BackgroundAgentTrigger for MockBackgroundAgentTrigger {
-        async fn list_background_agents(&self) -> Result<Vec<AgentTask>> {
+        async fn list_background_agents(&self) -> Result<Vec<BackgroundAgent>> {
             Ok(self.tasks.lock().await.clone())
         }
 
-        async fn find_and_run_background_agent(&self, name_or_id: &str) -> Result<AgentTask> {
+        async fn find_and_run_background_agent(&self, name_or_id: &str) -> Result<BackgroundAgent> {
             let tasks = self.tasks.lock().await;
             tasks
                 .iter()

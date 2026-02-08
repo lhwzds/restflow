@@ -3,10 +3,10 @@
 use crate::lsp::LspManager;
 use crate::memory::{MemoryExporter, UnifiedSearchEngine};
 use crate::models::{
-    AgentTaskStatus, BackgroundAgentControlAction, BackgroundAgentPatch, BackgroundAgentSpec,
-    BackgroundMessageSource, MemoryConfig, MemoryScope, MemorySearchQuery, SearchMode, SharedEntry,
-    Skill, TaskSchedule, TerminalSession, ToolAction, TriggerConfig, UnifiedSearchQuery,
-    Visibility,
+    BackgroundAgentControlAction, BackgroundAgentPatch, BackgroundAgentSchedule,
+    BackgroundAgentSpec, BackgroundAgentStatus, BackgroundMessageSource, MemoryConfig, MemoryScope,
+    MemorySearchQuery, SearchMode, SharedEntry, Skill, TerminalSession, ToolAction, TriggerConfig,
+    UnifiedSearchQuery, Visibility,
 };
 use crate::registry::{
     GitHubProvider, MarketplaceProvider, SkillProvider as MarketplaceSkillProvider,
@@ -241,13 +241,13 @@ impl BackgroundAgentStoreAdapter {
         Self { storage }
     }
 
-    fn parse_status(status: &str) -> Result<AgentTaskStatus, AiError> {
+    fn parse_status(status: &str) -> Result<BackgroundAgentStatus, AiError> {
         match status.trim().to_lowercase().as_str() {
-            "active" => Ok(AgentTaskStatus::Active),
-            "paused" => Ok(AgentTaskStatus::Paused),
-            "running" => Ok(AgentTaskStatus::Running),
-            "completed" => Ok(AgentTaskStatus::Completed),
-            "failed" => Ok(AgentTaskStatus::Failed),
+            "active" => Ok(BackgroundAgentStatus::Active),
+            "paused" => Ok(BackgroundAgentStatus::Paused),
+            "running" => Ok(BackgroundAgentStatus::Running),
+            "completed" => Ok(BackgroundAgentStatus::Completed),
+            "failed" => Ok(BackgroundAgentStatus::Failed),
             _ => Err(AiError::Tool(format!("Unknown status: {}", status))),
         }
     }
@@ -324,8 +324,9 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
         &self,
         request: BackgroundAgentCreateRequest,
     ) -> restflow_ai::error::Result<serde_json::Value> {
-        let schedule = Self::parse_optional_value::<TaskSchedule>("schedule", request.schedule)?
-            .unwrap_or_default();
+        let schedule =
+            Self::parse_optional_value::<BackgroundAgentSchedule>("schedule", request.schedule)?
+                .unwrap_or_default();
         let memory = Self::merge_memory_scope(None, request.memory_scope)?;
         let task = self
             .storage

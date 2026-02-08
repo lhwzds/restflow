@@ -2,7 +2,9 @@ use super::ipc_client::IpcClient;
 use super::ipc_protocol::{IpcRequest, IpcResponse};
 use super::launcher::ensure_daemon_running;
 use crate::AppCore;
-use crate::models::{AgentNode, AgentTaskStatus, BackgroundAgentSpec, Skill};
+use crate::models::{
+    AgentNode, BackgroundAgent, BackgroundAgentSpec, BackgroundAgentStatus, Skill,
+};
 use crate::paths;
 use crate::services::{
     agent as agent_service, config as config_service, secrets as secrets_service,
@@ -169,8 +171,8 @@ impl CoreAccess {
 
     pub async fn list_background_agents(
         &mut self,
-        status: Option<AgentTaskStatus>,
-    ) -> Result<Vec<crate::models::AgentTask>> {
+        status: Option<BackgroundAgentStatus>,
+    ) -> Result<Vec<BackgroundAgent>> {
         match self {
             CoreAccess::Local(core) => match status {
                 Some(status) => core.storage.agent_tasks.list_tasks_by_status(status),
@@ -187,10 +189,7 @@ impl CoreAccess {
         }
     }
 
-    pub async fn get_background_agent(
-        &mut self,
-        id: &str,
-    ) -> Result<Option<crate::models::AgentTask>> {
+    pub async fn get_background_agent(&mut self, id: &str) -> Result<Option<BackgroundAgent>> {
         match self {
             CoreAccess::Local(core) => core.storage.agent_tasks.get_task(id),
             CoreAccess::Remote(client) => {
@@ -210,7 +209,7 @@ impl CoreAccess {
     pub async fn create_background_agent(
         &mut self,
         spec: BackgroundAgentSpec,
-    ) -> Result<crate::models::AgentTask> {
+    ) -> Result<BackgroundAgent> {
         match self {
             CoreAccess::Local(core) => core.storage.agent_tasks.create_background_agent(spec),
             CoreAccess::Remote(client) => {

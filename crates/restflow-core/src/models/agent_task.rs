@@ -820,6 +820,21 @@ impl TaskEvent {
     }
 }
 
+/// Compatibility alias for background-agent-centric naming.
+pub type BackgroundAgent = AgentTask;
+
+/// Compatibility alias for background-agent-centric status naming.
+pub type BackgroundAgentStatus = AgentTaskStatus;
+
+/// Compatibility alias for background-agent-centric schedule naming.
+pub type BackgroundAgentSchedule = TaskSchedule;
+
+/// Compatibility alias for background-agent-centric event naming.
+pub type BackgroundAgentEvent = TaskEvent;
+
+/// Compatibility alias for background-agent-centric event type naming.
+pub type BackgroundAgentEventType = TaskEventType;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1228,5 +1243,28 @@ mod tests {
         let deserialized: AgentTask = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized.memory.max_messages, 100);
         assert_eq!(deserialized.memory.memory_scope, MemoryScope::SharedAgent);
+    }
+
+    #[test]
+    fn test_background_agent_aliases_are_compatible() {
+        let schedule = BackgroundAgentSchedule::default();
+        let mut background_agent = BackgroundAgent::new(
+            "bg-1".to_string(),
+            "Background Agent".to_string(),
+            "agent-1".to_string(),
+            schedule,
+        );
+        assert_eq!(background_agent.status, BackgroundAgentStatus::Active);
+
+        background_agent.set_running();
+        assert_eq!(background_agent.status, BackgroundAgentStatus::Running);
+
+        let event = BackgroundAgentEvent::new(
+            background_agent.id.clone(),
+            BackgroundAgentEventType::Started,
+        )
+        .with_message("started");
+        assert_eq!(event.event_type, BackgroundAgentEventType::Started);
+        assert_eq!(event.message.as_deref(), Some("started"));
     }
 }
