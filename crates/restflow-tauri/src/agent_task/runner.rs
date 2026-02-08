@@ -9,6 +9,7 @@
 
 use anyhow::{Result, anyhow};
 use restflow_ai::llm::Message;
+use restflow_core::channel::{ChannelRouter, MessageLevel};
 use restflow_core::hooks::HookExecutor;
 use restflow_core::models::{
     AgentTask, AgentTaskStatus, BackgroundMessageSource, ExecutionMode, HookContext, MemoryScope,
@@ -188,6 +189,8 @@ pub struct AgentTaskRunner {
     /// Optional hook executor for lifecycle automation
     hook_executor: Option<Arc<HookExecutor>>,
     steer_registry: Arc<SteerRegistry>,
+    /// Optional channel router for broadcasting notifications to all configured channels
+    channel_router: Arc<RwLock<Option<Arc<ChannelRouter>>>>,
 }
 
 impl AgentTaskRunner {
@@ -221,6 +224,7 @@ impl AgentTaskRunner {
             memory_persister: None,
             hook_executor: None,
             steer_registry,
+            channel_router: Arc::new(RwLock::new(None)),
         }
     }
 
@@ -255,6 +259,7 @@ impl AgentTaskRunner {
             memory_persister: None,
             hook_executor: None,
             steer_registry,
+            channel_router: Arc::new(RwLock::new(None)),
         }
     }
 
@@ -293,6 +298,7 @@ impl AgentTaskRunner {
             memory_persister: Some(MemoryPersister::new(memory_storage)),
             hook_executor: None,
             steer_registry,
+            channel_router: Arc::new(RwLock::new(None)),
         }
     }
 
@@ -306,6 +312,16 @@ impl AgentTaskRunner {
     pub fn with_hook_executor(mut self, hook_executor: Arc<HookExecutor>) -> Self {
         self.hook_executor = Some(hook_executor);
         self
+    }
+
+    /// Set the channel router for broadcasting notifications to all configured channels.
+    ///
+    /// When a channel router is set, task notifications are broadcast through
+    /// configured channels (e.g., Telegram) instead of requiring per-task
+    /// notification configuration.
+    pub async fn set_channel_router(&self, router: Arc<ChannelRouter>) {
+        let mut guard = self.channel_router.write().await;
+        *guard = Some(router);
     }
 
     /// Get a reference to the steer registry for sending messages to running tasks.
@@ -1060,13 +1076,53 @@ impl AgentTaskRunner {
         }
     }
 
-    /// Send notification for task completion/failure
-    async fn send_notification(&self, task: &AgentTask, success: bool, message: &str) {
-        // Check if notifications are enabled
-        if !task.notification.telegram_enabled {
-            return;
+    /// Format a notification message for broadcasting.
+    fn format_notification(task: &AgentTask, success: bool, message: &str) -> String {
+        let status_text = if success { "Completed" } else { "Failed" };
+
+        let mut formatted = format!("*Task {}*: {}\n\n", status_text, task.name);
+        formatted.push_str(&format!("Agent: `{}`\n", task.agent_id));
+
+        if let Some(ref input) = task.input {
+            let input_preview = if input.len() > 100 {
+                format!("{}...", &input[..100])
+            } else {
+                input.clone()
+            };
+            formatted.push_str(&format!("Input: {}\n", input_preview));
         }
 
+        formatted.push('\n');
+
+        if message.is_empty() {
+            if success {
+                formatted.push_str("Task completed successfully.");
+            } else {
+                formatted.push_str("Task failed with unknown error.");
+            }
+        } else {
+            let message_preview = if message.len() > 2000 {
+                format!("{}...\n\n_(truncated)_", &message[..2000])
+            } else {
+                message.to_string()
+            };
+
+            if success {
+                formatted.push_str(&format!("*Result:*\n```\n{}\n```", message_preview));
+            } else {
+                formatted.push_str(&format!("*Error:*\n```\n{}\n```", message_preview));
+            }
+        }
+
+        formatted
+    }
+
+    /// Send notification for task completion/failure.
+    ///
+    /// Prefers broadcasting through ChannelRouter when available (uses
+    /// credentials already configured on the channel). Falls back to
+    /// the dedicated NotificationSender when no router is set.
+    async fn send_notification(&self, task: &AgentTask, success: bool, message: &str) {
         // Check if we should only notify on failure
         if success && task.notification.notify_on_failure_only {
             return;
@@ -1079,6 +1135,57 @@ impl AgentTaskRunner {
         } else {
             "Task failed".to_string()
         };
+
+        // Try channel router first (it already has all channel credentials)
+        if let Some(router) = self.channel_router.read().await.as_ref() {
+            let formatted = Self::format_notification(task, success, &notification_message);
+            let level = if success {
+                MessageLevel::Success
+            } else {
+                MessageLevel::Error
+            };
+
+            let results = router.broadcast(&formatted, level).await;
+
+            let mut any_sent = false;
+            for (channel_type, result) in &results {
+                match result {
+                    Ok(()) => {
+                        any_sent = true;
+                        info!(
+                            "Notification sent via {:?} for task '{}'",
+                            channel_type, task.name
+                        );
+                    }
+                    Err(e) => {
+                        warn!(
+                            "Failed to send notification via {:?} for task '{}': {}",
+                            channel_type, task.name, e
+                        );
+                    }
+                }
+            }
+
+            if any_sent {
+                if let Err(e) = self.storage.record_notification_sent(
+                    &task.id,
+                    format!(
+                        "Broadcast notification: {}",
+                        if success { "success" } else { "failure" }
+                    ),
+                ) {
+                    warn!("Failed to record notification sent event: {}", e);
+                }
+                return;
+            }
+
+            // If broadcast found no channels, fall through to notifier
+        }
+
+        // Fall back to dedicated notifier (requires per-task telegram config)
+        if !task.notification.telegram_enabled {
+            return;
+        }
 
         match self
             .notifier

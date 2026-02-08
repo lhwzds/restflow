@@ -142,6 +142,13 @@ impl CliTaskRunner {
                 chat_dispatcher,
                 MessageHandlerConfig::default(),
             );
+
+            // Pass channel router to task runner so notifications are broadcast
+            // through configured channels automatically (no per-task config needed)
+            if let Some(ref runner) = *self.runner.read().await {
+                runner.set_channel_router(router.clone()).await;
+            }
+
             let mut router_guard = self.router.write().await;
             *router_guard = Some(router);
             info!("Telegram channel enabled for CLI daemon with AI chat support");
