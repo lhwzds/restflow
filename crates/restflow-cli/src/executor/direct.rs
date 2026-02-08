@@ -4,11 +4,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::warn;
 
-use crate::executor::{
-    BackgroundProgressInput, CommandExecutor, ControlBackgroundAgentInput,
-    CreateBackgroundAgentInput, ListBackgroundMessageInput, SendBackgroundMessageInput,
-    UpdateBackgroundAgentInput,
-};
+use crate::executor::CommandExecutor;
 use crate::setup;
 use restflow_ai::{
     AgentConfig, AgentExecutor, AgentState, AgentStatus, DefaultLlmClientFactory, LlmClientFactory,
@@ -19,7 +15,6 @@ use restflow_core::auth::{AuthManagerConfig, AuthProfileManager, AuthProvider};
 use restflow_core::memory::{ChatSessionMirror, ExportResult, MemoryExporter, MessageMirror};
 use restflow_core::models::{
     AgentExecuteResponse, AgentNode, ApiKeyConfig, ExecutionDetails, ExecutionStep, Provider,
-    TaskEvent,
 };
 use restflow_core::paths;
 use restflow_core::services::{
@@ -31,8 +26,8 @@ use restflow_core::storage::agent::StoredAgent;
 use restflow_core::{
     AIModel, AppCore,
     models::{
-        AgentTask, AgentTaskStatus, BackgroundMessage, BackgroundProgress, ChatSession,
-        ChatSessionSummary, MemoryChunk, MemorySearchResult, MemoryStats, Secret, Skill,
+        ChatSession, ChatSessionSummary, MemoryChunk, MemorySearchResult, MemoryStats, Secret,
+        Skill,
     },
 };
 use restflow_storage::AuthProfileStorage;
@@ -135,89 +130,6 @@ impl CommandExecutor for DirectExecutor {
 
     async fn delete_skill(&self, id: &str) -> Result<()> {
         skills_service::delete_skill(&self.core, id).await
-    }
-
-    async fn list_tasks(&self) -> Result<Vec<AgentTask>> {
-        self.core.storage.agent_tasks.list_tasks()
-    }
-
-    async fn list_tasks_by_status(&self, status: AgentTaskStatus) -> Result<Vec<AgentTask>> {
-        self.core.storage.agent_tasks.list_tasks_by_status(status)
-    }
-
-    async fn get_task(&self, id: &str) -> Result<Option<AgentTask>> {
-        self.core.storage.agent_tasks.get_task(id)
-    }
-
-    async fn get_task_history(&self, id: &str) -> Result<Vec<TaskEvent>> {
-        self.core.storage.agent_tasks.list_events_for_task(id)
-    }
-
-    async fn create_background_agent(
-        &self,
-        input: CreateBackgroundAgentInput,
-    ) -> Result<AgentTask> {
-        self.core
-            .storage
-            .agent_tasks
-            .create_background_agent(input.spec)
-    }
-
-    async fn update_background_agent(
-        &self,
-        input: UpdateBackgroundAgentInput,
-    ) -> Result<AgentTask> {
-        self.core
-            .storage
-            .agent_tasks
-            .update_background_agent(&input.id, input.patch)
-    }
-
-    async fn delete_background_agent(&self, id: &str) -> Result<bool> {
-        self.core.storage.agent_tasks.delete_task(id)
-    }
-
-    async fn control_background_agent(
-        &self,
-        input: ControlBackgroundAgentInput,
-    ) -> Result<AgentTask> {
-        self.core
-            .storage
-            .agent_tasks
-            .control_background_agent(&input.id, input.action)
-    }
-
-    async fn get_background_progress(
-        &self,
-        input: BackgroundProgressInput,
-    ) -> Result<BackgroundProgress> {
-        self.core
-            .storage
-            .agent_tasks
-            .get_background_agent_progress(&input.id, input.event_limit.unwrap_or(10).max(1))
-    }
-
-    async fn send_background_message(
-        &self,
-        input: SendBackgroundMessageInput,
-    ) -> Result<BackgroundMessage> {
-        self.core.storage.agent_tasks.send_background_agent_message(
-            &input.id,
-            input.message,
-            input
-                .source
-                .unwrap_or(restflow_core::models::BackgroundMessageSource::User),
-        )
-    }
-
-    async fn list_background_messages(
-        &self,
-        input: ListBackgroundMessageInput,
-    ) -> Result<Vec<BackgroundMessage>> {
-        self.core
-            .storage
-            .agent_tasks
-            .list_background_agent_messages(&input.id, input.limit.unwrap_or(50).max(1))
     }
 
     async fn search_memory(
