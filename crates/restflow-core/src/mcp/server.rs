@@ -651,6 +651,35 @@ impl McpBackend for IpcBackend {
         .await
     }
 
+    async fn list_hooks(&self) -> Result<Vec<Hook>, String> {
+        self.request_typed(IpcRequest::ListHooks).await
+    }
+
+    async fn create_hook(&self, hook: Hook) -> Result<Hook, String> {
+        self.request_typed(IpcRequest::CreateHook { hook }).await
+    }
+
+    async fn update_hook(&self, id: &str, hook: Hook) -> Result<Hook, String> {
+        self.request_typed(IpcRequest::UpdateHook {
+            id: id.to_string(),
+            hook,
+        })
+        .await
+    }
+
+    async fn delete_hook(&self, id: &str) -> Result<bool, String> {
+        #[derive(Deserialize)]
+        struct DeleteResponse {
+            deleted: bool,
+        }
+        let response: DeleteResponse = self
+            .request_typed(IpcRequest::DeleteHook {
+                id: id.to_string(),
+            })
+            .await?;
+        Ok(response.deleted)
+    }
+
     async fn list_runtime_tools(&self) -> Result<Vec<RuntimeToolDefinition>, String> {
         let mut client = self.client.lock().await;
         let tools = client
@@ -901,6 +930,34 @@ pub struct ManageBackgroundAgentsParams {
     /// Optional message list limit
     #[serde(default)]
     pub limit: Option<usize>,
+}
+
+/// Parameters for manage_hooks tool
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct ManageHooksParams {
+    /// Operation to perform: list, create, update, delete
+    pub operation: String,
+    /// Hook ID (required for update/delete)
+    #[serde(default)]
+    pub id: Option<String>,
+    /// Hook name (required for create)
+    #[serde(default)]
+    pub name: Option<String>,
+    /// Optional description
+    #[serde(default)]
+    pub description: Option<String>,
+    /// Hook event trigger (required for create): task_started, task_completed, task_failed, task_cancelled, tool_executed, approval_required
+    #[serde(default)]
+    pub event: Option<String>,
+    /// Hook action payload (required for create)
+    #[serde(default)]
+    pub action: Option<Value>,
+    /// Optional filter to limit when the hook fires
+    #[serde(default)]
+    pub filter: Option<Value>,
+    /// Whether the hook is enabled (default: true)
+    #[serde(default)]
+    pub enabled: Option<bool>,
 }
 
 // ============================================================================
@@ -1512,6 +1569,96 @@ impl RestFlowMcpServer {
         serde_json::to_string_pretty(&value).map_err(|e| e.to_string())
     }
 
+    async fn handle_manage_hooks(&self, params: ManageHooksParams) -> Result<String, String> {
+        let operation = params.operation.trim().to_lowercase();
+
+        let value = match operation.as_str() {
+            "list" => {
+                serde_json::to_value(self.backend.list_hooks().await?).map_err(|e| e.to_string())?
+            }
+            "create" => {
+                let name = Self::required_string(params.name, "name")?;
+                let event_str = Self::required_string(params.event, "event")?;
+                let event: HookEvent = serde_json::from_value(
+                    Value::String(event_str.clone()),
+                )
+                .map_err(|_| {
+                    format!(
+                        "Invalid event: {}. Supported: task_started, task_completed, task_failed, task_cancelled, tool_executed, approval_required",
+                        event_str
+                    )
+                })?;
+                let action_value = params
+                    .action
+                    .ok_or("Missing required field: action")?;
+                let action: HookAction =
+                    serde_json::from_value(action_value).map_err(|e| {
+                        format!("Invalid action: {}", e)
+                    })?;
+                let mut hook = Hook::new(name, event, action);
+                hook.description = params.description;
+                if let Some(filter_value) = params.filter {
+                    hook.filter = Some(
+                        serde_json::from_value::<HookFilter>(filter_value)
+                            .map_err(|e| format!("Invalid filter: {}", e))?,
+                    );
+                }
+                if let Some(enabled) = params.enabled {
+                    hook.enabled = enabled;
+                }
+                serde_json::to_value(self.backend.create_hook(hook).await?)
+                    .map_err(|e| e.to_string())?
+            }
+            "update" => {
+                let id = Self::required_string(params.id, "id")?;
+                let hooks = self.backend.list_hooks().await?;
+                let mut hook = hooks
+                    .into_iter()
+                    .find(|h| h.id == id)
+                    .ok_or_else(|| format!("Hook not found: {}", id))?;
+                if let Some(name) = params.name {
+                    hook.name = name;
+                }
+                if let Some(desc) = params.description {
+                    hook.description = Some(desc);
+                }
+                if let Some(event_str) = params.event {
+                    hook.event = serde_json::from_value(Value::String(event_str.clone()))
+                        .map_err(|_| format!("Invalid event: {}", event_str))?;
+                }
+                if let Some(action_value) = params.action {
+                    hook.action = serde_json::from_value(action_value)
+                        .map_err(|e| format!("Invalid action: {}", e))?;
+                }
+                if let Some(filter_value) = params.filter {
+                    hook.filter = Some(
+                        serde_json::from_value::<HookFilter>(filter_value)
+                            .map_err(|e| format!("Invalid filter: {}", e))?,
+                    );
+                }
+                if let Some(enabled) = params.enabled {
+                    hook.enabled = enabled;
+                }
+                hook.touch();
+                serde_json::to_value(self.backend.update_hook(&id, hook).await?)
+                    .map_err(|e| e.to_string())?
+            }
+            "delete" => {
+                let id = Self::required_string(params.id, "id")?;
+                let deleted = self.backend.delete_hook(&id).await?;
+                serde_json::json!({ "id": id, "deleted": deleted })
+            }
+            _ => {
+                return Err(format!(
+                    "Unknown operation: {}. Supported: list, create, update, delete",
+                    operation
+                ));
+            }
+        };
+
+        serde_json::to_string_pretty(&value).map_err(|e| e.to_string())
+    }
+
     async fn handle_runtime_tool(&self, name: &str, input: Value) -> Result<String, String> {
         let output = self.backend.execute_runtime_tool(name, input).await?;
         if output.success {
@@ -1554,9 +1701,10 @@ impl ServerHandler for RestFlowMcpServer {
                 website_url: None,
             },
             instructions: Some(
-                "RestFlow MCP Server - Manage skills, agents, memory, and chat sessions. \
+                "RestFlow MCP Server - Manage skills, agents, memory, chat sessions, and hooks. \
                 Use list_skills/get_skill to access skills, list_agents/get_agent for agents, \
                 memory_search/memory_store for memory, chat_session_list/chat_session_get for sessions, \
+                manage_hooks for lifecycle hook automation, \
                 and manage_background_agents for background agent lifecycle, progress, and messaging operations."
                     .to_string(),
             ),
@@ -1638,6 +1786,11 @@ impl ServerHandler for RestFlowMcpServer {
                 "manage_background_agents",
                 "Manage background agents with explicit operations: create, update, delete, list, control, progress, send_message, list_messages, pause, resume, cancel, and run.",
                 schema_for_type::<ManageBackgroundAgentsParams>(),
+            ),
+            Tool::new(
+                "manage_hooks",
+                "Create, list, update, and delete lifecycle hooks. Hooks trigger actions (webhook, script, send_message, run_task) when events occur (task_started, task_completed, task_failed, task_cancelled, tool_executed, approval_required).",
+                schema_for_type::<ManageHooksParams>(),
             ),
         ];
 
@@ -1809,6 +1962,14 @@ impl ServerHandler for RestFlowMcpServer {
                             McpError::invalid_params(format!("Invalid parameters: {}", e), None)
                         })?;
                 self.handle_manage_background_agents(params).await
+            }
+            "manage_hooks" => {
+                let params: ManageHooksParams =
+                    serde_json::from_value(Value::Object(request.arguments.unwrap_or_default()))
+                        .map_err(|e| {
+                            McpError::invalid_params(format!("Invalid parameters: {}", e), None)
+                        })?;
+                self.handle_manage_hooks(params).await
             }
             "switch_model" => {
                 self.handle_switch_model_for_mcp(Value::Object(
@@ -2554,6 +2715,22 @@ mod tests {
             _limit: usize,
         ) -> Result<Vec<BackgroundMessage>, String> {
             Ok(Vec::new())
+        }
+
+        async fn list_hooks(&self) -> Result<Vec<Hook>, String> {
+            Ok(Vec::new())
+        }
+
+        async fn create_hook(&self, hook: Hook) -> Result<Hook, String> {
+            Ok(hook)
+        }
+
+        async fn update_hook(&self, _id: &str, hook: Hook) -> Result<Hook, String> {
+            Ok(hook)
+        }
+
+        async fn delete_hook(&self, _id: &str) -> Result<bool, String> {
+            Ok(true)
         }
 
         async fn list_runtime_tools(&self) -> Result<Vec<RuntimeToolDefinition>, String> {
