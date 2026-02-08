@@ -243,7 +243,7 @@ impl RealAgentExecutor {
             return Ok(agent);
         }
 
-        let mut agents = self.storage.agents.list_agents()?;
+        let agents = self.storage.agents.list_agents()?;
         let fallback = agents
             .iter()
             .find(|agent| agent.name.eq_ignore_ascii_case("default"))
@@ -348,6 +348,7 @@ impl RealAgentExecutor {
         })
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn execute_session_with_model(
         &self,
         agent_node: &AgentNode,
@@ -400,6 +401,7 @@ impl RealAgentExecutor {
         .await
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn execute_session_with_profiles(
         &self,
         agent_node: &AgentNode,

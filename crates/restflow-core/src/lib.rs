@@ -2,7 +2,6 @@ pub mod auth;
 pub mod channel;
 pub mod context;
 pub mod daemon;
-pub mod engine;
 pub mod hooks;
 pub mod loader;
 pub mod lsp;

@@ -6,7 +6,6 @@
 pub mod agent;
 pub mod agent_task;
 pub mod chat_session;
-pub mod execution_history;
 pub mod hook;
 pub mod memory;
 pub mod shared_space;
@@ -27,7 +26,6 @@ pub use agent::AgentStorage;
 pub use agent_task::AgentTaskStorage;
 pub use agent_task::AgentTaskStorage as BackgroundAgentStorage;
 pub use chat_session::ChatSessionStorage;
-pub use execution_history::ExecutionHistoryStorage;
 pub use hook::HookStorage;
 pub use memory::MemoryStorage;
 pub use shared_space::SharedSpaceStorage;
@@ -49,7 +47,6 @@ pub struct Storage {
     pub skills: SkillStorage,
     pub shared_space: SharedSpaceStorage,
     pub terminal_sessions: TerminalSessionStorage,
-    pub execution_history: ExecutionHistoryStorage,
     pub memory: MemoryStorage,
     pub chat_sessions: ChatSessionStorage,
     pub hooks: HookStorage,
@@ -75,7 +72,6 @@ impl Storage {
         let shared_space_raw = restflow_storage::SharedSpaceStorage::new(db.clone())?;
         let shared_space = SharedSpaceStorage::new(shared_space_raw);
         let terminal_sessions = TerminalSessionStorage::new(db.clone())?;
-        let execution_history = ExecutionHistoryStorage::new(db.clone())?;
         let memory = MemoryStorage::new(db.clone())?;
         let chat_sessions = ChatSessionStorage::new(db.clone())?;
         let hooks = HookStorage::new(db.clone())?;
@@ -90,7 +86,6 @@ impl Storage {
             skills,
             shared_space,
             terminal_sessions,
-            execution_history,
             memory,
             chat_sessions,
             hooks,
