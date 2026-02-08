@@ -28,7 +28,7 @@ mod secrets;
 mod session;
 mod skill;
 mod switch_model;
-mod task;
+mod background_agent;
 mod telegram;
 mod traits;
 mod transcribe;
@@ -71,7 +71,7 @@ pub use session::{
 };
 pub use skill::SkillTool;
 pub use switch_model::SwitchModelTool;
-pub use task::{
+pub use background_agent::{
     BackgroundAgentControlRequest, BackgroundAgentCreateRequest, BackgroundAgentMessageListRequest,
     BackgroundAgentMessageRequest, BackgroundAgentProgressRequest, BackgroundAgentStore,
     BackgroundAgentTool, BackgroundAgentUpdateRequest,
