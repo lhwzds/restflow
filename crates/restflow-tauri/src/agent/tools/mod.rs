@@ -18,6 +18,7 @@ mod file;
 mod http;
 mod list_agents;
 mod python;
+mod show_panel;
 mod spawn;
 mod spawn_agent;
 mod telegram;
@@ -30,6 +31,7 @@ pub use file::{FileConfig, FileTool};
 pub use http::HttpTool;
 pub use list_agents::ListAgentsTool;
 pub use python::PythonTool;
+pub use show_panel::ShowPanelTool;
 pub use spawn::{SpawnTool, SubagentSpawner};
 pub use spawn_agent::SpawnAgentTool;
 pub use telegram::TelegramTool;
@@ -91,6 +93,7 @@ pub fn main_agent_default_tool_names() -> Vec<String> {
         "web_search",
         "web_fetch",
         "jina_reader",
+        "show_panel",
     ]
     .into_iter()
     .map(str::to_string)
@@ -409,6 +412,9 @@ pub fn registry_from_allowlist(
             }
             "switch_model" => {
                 // Registered by callers that provide SwappableLlm + LlmClientFactory.
+            }
+            "show_panel" => {
+                builder.registry.register(ShowPanelTool::new());
             }
             "reply" => {
                 // Registered by callers that provide a ReplySender (e.g., ChatDispatcher).
