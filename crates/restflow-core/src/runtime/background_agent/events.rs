@@ -13,7 +13,7 @@
 //!
 //! ```ignore
 //! use tauri::Manager;
-//! use restflow_tauri::agent_task::events::{TaskStreamEvent, StreamEventKind};
+//! use restflow_tauri::background_agent::events::{TaskStreamEvent, StreamEventKind};
 //!
 //! // In the runner, emit events to the frontend
 //! app_handle.emit("background-agent:stream", TaskStreamEvent::started(task_id));
@@ -371,7 +371,7 @@ impl TaskEventEmitter for ChannelEventEmitter {
 /// # Example
 ///
 /// ```ignore
-/// use restflow_tauri::agent_task::events::TauriEventEmitter;
+/// use restflow_tauri::background_agent::events::TauriEventEmitter;
 /// use tauri::Manager;
 ///
 /// // In a Tauri command

@@ -23,7 +23,9 @@ use restflow_core::models::{
     BackgroundAgentSchedule, BackgroundAgentSpec, BackgroundAgentStatus, ExecutionMode,
     MemoryConfig, MemoryScope, NotificationConfig, SteerMessage, SteerSource,
 };
-use restflow_core::runtime::agent_task::{HEARTBEAT_EVENT, TASK_STREAM_EVENT, TaskStreamEvent};
+use restflow_core::runtime::background_agent::{
+    HEARTBEAT_EVENT, TASK_STREAM_EVENT, TaskStreamEvent,
+};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
 
@@ -484,7 +486,7 @@ pub fn get_background_agent_stream_event_name() -> String {
 
 /// Get the heartbeat event name for frontend subscription
 ///
-/// The heartbeat events are now emitted inline by the AgentTaskRunner during
+/// The heartbeat events are now emitted inline by the BackgroundAgentRunner during
 /// its poll cycle, so there's no separate heartbeat runner to manage.
 ///
 /// # Usage

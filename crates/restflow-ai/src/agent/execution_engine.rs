@@ -1,4 +1,4 @@
-//! UnifiedAgent - The single agent implementation for all triggers.
+//! Agent execution engine used by all triggers.
 
 use super::react::{AgentAction, AgentState, ConversationHistory, ReActConfig, ResponseParser};
 use crate::LlmClient;
@@ -13,16 +13,16 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 use tracing::{debug, info, warn};
 
-/// Configuration for UnifiedAgent
+/// Configuration for the agent execution engine.
 #[derive(Debug, Clone)]
-pub struct UnifiedAgentConfig {
+pub struct AgentExecutionEngineConfig {
     pub react: ReActConfig,
     pub max_tokens: u32,
     pub temperature: f32,
     pub max_history: usize,
 }
 
-impl Default for UnifiedAgentConfig {
+impl Default for AgentExecutionEngineConfig {
     fn default() -> Self {
         Self {
             react: ReActConfig::default(),
@@ -42,24 +42,24 @@ pub struct ExecutionResult {
     pub iterations: usize,
 }
 
-/// The unified agent that all triggers use
-pub struct UnifiedAgent {
+/// The shared agent engine implementation used across triggers.
+pub struct AgentExecutionEngine {
     llm_client: Arc<dyn LlmClient>,
     tool_registry: Arc<ToolRegistry>,
     system_prompt: String,
-    config: UnifiedAgentConfig,
+    config: AgentExecutionEngineConfig,
     history: ConversationHistory,
     state: AgentState,
     context_cache: Option<WorkspaceContextCache>,
     steer_rx: Option<mpsc::Receiver<SteerMessage>>,
 }
 
-impl UnifiedAgent {
+impl AgentExecutionEngine {
     pub fn new(
         llm_client: Arc<dyn LlmClient>,
         tool_registry: Arc<ToolRegistry>,
         system_prompt: String,
-        config: UnifiedAgentConfig,
+        config: AgentExecutionEngineConfig,
     ) -> Self {
         let context_cache = std::env::current_dir()
             .ok()
@@ -123,7 +123,7 @@ impl UnifiedAgent {
     /// Execute the agent with given input
     pub async fn execute(&mut self, input: &str) -> Result<ExecutionResult> {
         info!(
-            "UnifiedAgent executing: {}...",
+            "AgentExecutionEngine executing: {}...",
             &input[..input.len().min(50)]
         );
 
@@ -205,7 +205,7 @@ impl UnifiedAgent {
         emitter: &mut dyn StreamEmitter,
     ) -> Result<ExecutionResult> {
         info!(
-            "UnifiedAgent streaming execute: {}...",
+            "AgentExecutionEngine streaming execute: {}...",
             &input[..input.len().min(50)]
         );
 

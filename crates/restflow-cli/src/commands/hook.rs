@@ -4,7 +4,7 @@ use std::sync::Arc;
 use crate::cli::HookCommands;
 use crate::output::{OutputFormat, json::print_json};
 use restflow_core::AppCore;
-use restflow_core::hooks::{AgentTaskHookScheduler, HookExecutor};
+use restflow_core::hooks::{BackgroundAgentHookScheduler, HookExecutor};
 use restflow_core::models::{Hook, HookAction, HookContext, HookEvent};
 
 pub async fn run(core: Arc<AppCore>, command: HookCommands, format: OutputFormat) -> Result<()> {
@@ -106,7 +106,7 @@ async fn test_hook(core: Arc<AppCore>, id: &str, format: OutputFormat) -> Result
         .get(id)?
         .ok_or_else(|| anyhow::anyhow!("Hook not found: {}", id))?;
 
-    let scheduler = Arc::new(AgentTaskHookScheduler::new(
+    let scheduler = Arc::new(BackgroundAgentHookScheduler::new(
         core.storage.background_agents.clone(),
     ));
     let executor = HookExecutor::new(Vec::new()).with_task_scheduler(scheduler);

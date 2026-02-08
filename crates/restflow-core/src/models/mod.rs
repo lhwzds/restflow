@@ -1,8 +1,8 @@
 pub mod agent;
 pub mod agent_execution;
 pub mod agent_meta;
-pub mod agent_task;
 pub mod ai_model;
+pub mod background_agent;
 pub mod chat_session;
 pub mod hook;
 pub mod memory;
@@ -22,14 +22,14 @@ pub mod webhook;
 pub use agent::{AgentNode, ApiKeyConfig};
 pub use agent_execution::{AgentExecuteResponse, ExecutionDetails, ExecutionStep, ToolCallInfo};
 pub use agent_meta::{AgentMeta, AgentType};
-pub use agent_task::{
-    AgentTask, AgentTaskStatus, BackgroundAgent, BackgroundAgentControlAction,
-    BackgroundAgentEvent, BackgroundAgentEventType, BackgroundAgentPatch, BackgroundAgentSchedule,
-    BackgroundAgentSpec, BackgroundAgentStatus, BackgroundMessage, BackgroundMessageSource,
-    BackgroundMessageStatus, BackgroundProgress, CliExecutionConfig, ExecutionMode, MemoryConfig,
-    MemoryScope, NotificationConfig, TaskEvent, TaskEventType, TaskSchedule,
-};
 pub use ai_model::{AIModel, ModelMetadataDTO, Provider};
+pub use background_agent::{
+    BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentEvent, BackgroundAgentEventType,
+    BackgroundAgentPatch, BackgroundAgentSchedule, BackgroundAgentSpec, BackgroundAgentStatus,
+    BackgroundMessage, BackgroundMessageSource, BackgroundMessageStatus, BackgroundProgress,
+    CliExecutionConfig, ExecutionMode, MemoryConfig, MemoryScope, NotificationConfig, TaskEvent,
+    TaskEventType, TaskSchedule,
+};
 pub use hook::{Hook, HookAction, HookContext, HookEvent, HookFilter};
 pub use memory::{
     MemoryChunk, MemorySearchQuery, MemorySearchResult, MemorySession, MemorySource, MemoryStats,

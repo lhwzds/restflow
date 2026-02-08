@@ -27,7 +27,7 @@
 //! # Usage
 //!
 //! ```rust,ignore
-//! use restflow_tauri::agent_task::MemoryPersister;
+//! use restflow_tauri::background_agent::MemoryPersister;
 //!
 //! let persister = MemoryPersister::new(memory_storage);
 //! let result = persister.persist(

@@ -21,7 +21,7 @@ fn default_include_running() -> bool {
     true
 }
 
-/// list_agents tool for the unified agent.
+/// list_agents tool for the shared agent execution engine.
 pub struct ListAgentsTool {
     deps: Arc<SubagentDeps>,
 }

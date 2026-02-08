@@ -1,7 +1,7 @@
 //! Real agent executor implementation for the task runner.
 //!
-//! This module provides `RealAgentExecutor`, which implements the
-//! `AgentExecutor` trait by running the unified agent stack.
+//! This module provides `AgentRuntimeExecutor`, which implements the
+//! `AgentExecutor` trait by running the shared agent execution engine.
 //! It loads agent configuration from storage, builds the appropriate LLM
 //! client, and executes the agent with the configured tools.
 
@@ -30,8 +30,9 @@ use super::failover::{FailoverConfig, FailoverManager, execute_with_failover};
 use super::retry::{RetryConfig, RetryState};
 use super::runner::{AgentExecutor, ExecutionResult};
 use crate::runtime::agent::{
-    SubagentDeps, ToolRegistry, UnifiedAgent, UnifiedAgentConfig, build_agent_system_prompt,
-    effective_main_agent_tool_names, registry_from_allowlist, secret_resolver_from_storage,
+    AgentExecutionEngine, AgentExecutionEngineConfig, SubagentDeps, ToolRegistry,
+    build_agent_system_prompt, effective_main_agent_tool_names, registry_from_allowlist,
+    secret_resolver_from_storage,
 };
 use crate::runtime::subagent::{AgentDefinitionRegistry, SubagentConfig, SubagentTracker};
 
@@ -43,7 +44,7 @@ use crate::runtime::subagent::{AgentDefinitionRegistry, SubagentConfig, Subagent
 /// - Creates the appropriate LLM client for the model
 /// - Builds the system prompt from the agent's skill
 /// - Executes the agent via the ReAct loop
-pub struct RealAgentExecutor {
+pub struct AgentRuntimeExecutor {
     storage: Arc<Storage>,
     #[allow(dead_code)]
     process_registry: Arc<ProcessRegistry>,
@@ -71,8 +72,8 @@ pub enum SessionInputMode {
     EphemeralInput,
 }
 
-impl RealAgentExecutor {
-    /// Create a new RealAgentExecutor with access to storage.
+impl AgentRuntimeExecutor {
+    /// Create a new AgentRuntimeExecutor with access to storage.
     pub fn new(
         storage: Arc<Storage>,
         process_registry: Arc<ProcessRegistry>,
@@ -300,7 +301,7 @@ impl RealAgentExecutor {
     }
 
     fn add_session_history(
-        agent: &mut UnifiedAgent,
+        agent: &mut AgentExecutionEngine,
         session: &ChatSession,
         max_messages: usize,
         input_mode: SessionInputMode,
@@ -348,14 +349,14 @@ impl RealAgentExecutor {
         );
         let system_prompt = build_agent_system_prompt(self.storage.clone(), agent_node)?;
 
-        let mut config = UnifiedAgentConfig::default();
+        let mut config = AgentExecutionEngineConfig::default();
         if model.supports_temperature()
             && let Some(temp) = agent_node.temperature
         {
             config.temperature = temp as f32;
         }
 
-        let mut agent = UnifiedAgent::new(swappable.clone(), tools, system_prompt, config);
+        let mut agent = AgentExecutionEngine::new(swappable.clone(), tools, system_prompt, config);
         Self::add_session_history(&mut agent, session, max_history, input_mode);
 
         let result = agent.execute(user_input).await?;
@@ -639,14 +640,14 @@ impl RealAgentExecutor {
         );
         let system_prompt = build_agent_system_prompt(self.storage.clone(), agent_node)?;
 
-        let mut config = UnifiedAgentConfig::default();
+        let mut config = AgentExecutionEngineConfig::default();
         if model.supports_temperature()
             && let Some(temp) = agent_node.temperature
         {
             config.temperature = temp as f32;
         }
 
-        let mut agent = UnifiedAgent::new(swappable, tools, system_prompt, config);
+        let mut agent = AgentExecutionEngine::new(swappable, tools, system_prompt, config);
         if let Some(rx) = steer_rx {
             agent = agent.with_steer_channel(rx);
         }
@@ -875,7 +876,7 @@ fn is_credential_error(error: &anyhow::Error) -> bool {
 }
 
 #[async_trait]
-impl AgentExecutor for RealAgentExecutor {
+impl AgentExecutor for AgentRuntimeExecutor {
     /// Execute an agent with the given input.
     ///
     /// This method:
@@ -962,13 +963,13 @@ mod tests {
         (Arc::new(storage), temp_dir)
     }
 
-    fn create_test_executor(storage: Arc<Storage>) -> RealAgentExecutor {
+    fn create_test_executor(storage: Arc<Storage>) -> AgentRuntimeExecutor {
         let auth_manager = Arc::new(AuthProfileManager::new(Arc::new(storage.secrets.clone())));
         let (completion_tx, completion_rx) = mpsc::channel(10);
         let subagent_tracker = Arc::new(SubagentTracker::new(completion_tx, completion_rx));
         let subagent_definitions = Arc::new(AgentDefinitionRegistry::with_builtins());
         let subagent_config = SubagentConfig::default();
-        RealAgentExecutor::new(
+        AgentRuntimeExecutor::new(
             storage,
             Arc::new(ProcessRegistry::new()),
             auth_manager,

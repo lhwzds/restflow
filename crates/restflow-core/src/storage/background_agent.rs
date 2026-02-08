@@ -13,17 +13,17 @@ use redb::Database;
 use std::sync::Arc;
 use uuid::Uuid;
 
-/// Typed agent task storage wrapper around restflow-storage::AgentTaskStorage.
+/// Typed agent task storage wrapper around restflow-storage::BackgroundAgentStorage.
 #[derive(Clone)]
-pub struct AgentTaskStorage {
-    inner: restflow_storage::AgentTaskStorage,
+pub struct BackgroundAgentStorage {
+    inner: restflow_storage::BackgroundAgentStorage,
 }
 
-impl AgentTaskStorage {
-    /// Create a new AgentTaskStorage instance
+impl BackgroundAgentStorage {
+    /// Create a new BackgroundAgentStorage instance
     pub fn new(db: Arc<Database>) -> Result<Self> {
         Ok(Self {
-            inner: restflow_storage::AgentTaskStorage::new(db)?,
+            inner: restflow_storage::BackgroundAgentStorage::new(db)?,
         })
     }
 
@@ -612,11 +612,11 @@ mod tests {
     use super::*;
     use tempfile::tempdir;
 
-    fn create_test_storage() -> AgentTaskStorage {
+    fn create_test_storage() -> BackgroundAgentStorage {
         let temp_dir = tempdir().unwrap();
         let db_path = temp_dir.path().join("test.db");
         let db = Arc::new(Database::create(db_path).unwrap());
-        AgentTaskStorage::new(db).unwrap()
+        BackgroundAgentStorage::new(db).unwrap()
     }
 
     #[test]

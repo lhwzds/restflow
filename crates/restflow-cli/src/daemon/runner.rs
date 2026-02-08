@@ -3,14 +3,14 @@ use async_trait::async_trait;
 use restflow_core::AppCore;
 use restflow_core::auth::{AuthManagerConfig, AuthProfileManager};
 use restflow_core::channel::ChannelRouter;
-use restflow_core::models::{AgentTask, AgentTaskStatus, BackgroundMessageSource};
+use restflow_core::models::{BackgroundAgent, BackgroundAgentStatus, BackgroundMessageSource};
 use restflow_core::paths;
 use restflow_core::process::ProcessRegistry;
 use restflow_core::runtime::{
-    AgentDefinitionRegistry, AgentTaskRunner, BackgroundAgentTrigger, ChatDispatcher,
-    ChatDispatcherConfig, ChatSessionManager, MessageDebouncer, MessageHandlerConfig,
-    RealAgentExecutor, RunnerConfig, RunnerHandle, SubagentConfig, SubagentTracker, SystemStatus,
-    TelegramNotifier, start_message_handler_with_chat,
+    AgentDefinitionRegistry, AgentRuntimeExecutor, BackgroundAgentRunner, BackgroundAgentTrigger,
+    ChatDispatcher, ChatDispatcherConfig, ChatSessionManager, MessageDebouncer,
+    MessageHandlerConfig, RunnerConfig, RunnerHandle, SubagentConfig, SubagentTracker,
+    SystemStatus, TelegramNotifier, start_message_handler_with_chat,
 };
 use restflow_core::steer::SteerRegistry;
 use restflow_core::storage::SecretStorage;
@@ -24,7 +24,7 @@ use super::telegram;
 pub struct CliBackgroundAgentRunner {
     core: Arc<AppCore>,
     handle: Arc<RwLock<Option<Arc<RunnerHandle>>>>,
-    runner: Arc<RwLock<Option<Arc<AgentTaskRunner>>>>,
+    runner: Arc<RwLock<Option<Arc<BackgroundAgentRunner>>>>,
     router: Arc<RwLock<Option<Arc<ChannelRouter>>>>,
 }
 
@@ -76,7 +76,7 @@ impl CliBackgroundAgentRunner {
         let subagent_definitions = Arc::new(AgentDefinitionRegistry::with_builtins());
         let subagent_config = SubagentConfig::default();
 
-        let executor = RealAgentExecutor::new(
+        let executor = AgentRuntimeExecutor::new(
             storage.clone(),
             process_registry,
             auth_manager.clone(),
@@ -87,7 +87,7 @@ impl CliBackgroundAgentRunner {
         let notifier = TelegramNotifier::new(secrets);
         let steer_registry = Arc::new(SteerRegistry::new());
 
-        let runner = Arc::new(AgentTaskRunner::new(
+        let runner = Arc::new(BackgroundAgentRunner::new(
             Arc::new(storage.background_agents.clone()),
             Arc::new(executor),
             Arc::new(notifier),
@@ -182,14 +182,14 @@ impl CliBackgroundAgentRunner {
 struct CliBackgroundAgentTrigger {
     core: Arc<AppCore>,
     handle: Arc<RwLock<Option<Arc<RunnerHandle>>>>,
-    runner: Arc<RwLock<Option<Arc<AgentTaskRunner>>>>,
+    runner: Arc<RwLock<Option<Arc<BackgroundAgentRunner>>>>,
 }
 
 impl CliBackgroundAgentTrigger {
     fn new(
         core: Arc<AppCore>,
         handle: Arc<RwLock<Option<Arc<RunnerHandle>>>>,
-        runner: Arc<RwLock<Option<Arc<AgentTaskRunner>>>>,
+        runner: Arc<RwLock<Option<Arc<BackgroundAgentRunner>>>>,
     ) -> Self {
         Self {
             core,
@@ -217,11 +217,11 @@ impl CliBackgroundAgentTrigger {
 
 #[async_trait]
 impl BackgroundAgentTrigger for CliBackgroundAgentTrigger {
-    async fn list_background_agents(&self) -> Result<Vec<AgentTask>> {
+    async fn list_background_agents(&self) -> Result<Vec<BackgroundAgent>> {
         self.core.storage.background_agents.list_tasks()
     }
 
-    async fn find_and_run_background_agent(&self, name_or_id: &str) -> Result<AgentTask> {
+    async fn find_and_run_background_agent(&self, name_or_id: &str) -> Result<BackgroundAgent> {
         if let Ok(Some(task)) = self.core.storage.background_agents.get_task(name_or_id) {
             self.runner_handle()
                 .await?
@@ -256,7 +256,7 @@ impl BackgroundAgentTrigger for CliBackgroundAgentTrigger {
         };
 
         if let Ok(Some(task)) = self.core.storage.background_agents.get_task(task_id)
-            && (task.status != AgentTaskStatus::Running || !cancel_requested)
+            && (task.status != BackgroundAgentStatus::Running || !cancel_requested)
         {
             self.core.storage.background_agents.pause_task(task_id)?;
         }
@@ -271,7 +271,7 @@ impl BackgroundAgentTrigger for CliBackgroundAgentTrigger {
         let tasks = self.core.storage.background_agents.list_tasks()?;
         let pending_count = tasks
             .iter()
-            .filter(|t| t.status == AgentTaskStatus::Active)
+            .filter(|t| t.status == BackgroundAgentStatus::Active)
             .count();
 
         let today_start = chrono::Utc::now()
@@ -282,7 +282,7 @@ impl BackgroundAgentTrigger for CliBackgroundAgentTrigger {
 
         let completed_today = tasks
             .iter()
-            .filter(|t| t.status == AgentTaskStatus::Completed && t.updated_at >= today_start)
+            .filter(|t| t.status == BackgroundAgentStatus::Completed && t.updated_at >= today_start)
             .count();
 
         Ok(SystemStatus {
@@ -338,7 +338,7 @@ mod tests {
     async fn setup_trigger_with_background_agent() -> (
         Arc<AppCore>,
         CliBackgroundAgentTrigger,
-        AgentTask,
+        BackgroundAgent,
         tempfile::TempDir,
     ) {
         let temp_dir = tempdir().expect("failed to create temp dir");

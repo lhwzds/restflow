@@ -111,7 +111,7 @@ pub struct Subtask {
 ///
 /// // Submit subtasks
 /// for subtask in subtasks {
-///     queue.submit(AgentTask {
+///     queue.submit(BackgroundAgent {
 ///         id: subtask.id,
 ///         description: subtask.description,
 ///         ..Default::default()

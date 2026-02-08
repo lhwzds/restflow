@@ -15,7 +15,7 @@ use crate::registry::{
 use crate::security::SecurityChecker;
 use crate::storage::skill::SkillStorage;
 use crate::storage::{
-    AgentStorage, AgentTaskStorage, ChatSessionStorage, ConfigStorage, MemoryStorage,
+    AgentStorage, BackgroundAgentStorage, ChatSessionStorage, ConfigStorage, MemoryStorage,
     SecretStorage, SharedSpaceStorage, TerminalSessionStorage, TriggerStorage,
 };
 use chrono::Utc;
@@ -233,11 +233,11 @@ impl AgentStore for AgentStoreAdapter {
 
 #[derive(Clone)]
 struct BackgroundAgentStoreAdapter {
-    storage: AgentTaskStorage,
+    storage: BackgroundAgentStorage,
 }
 
 impl BackgroundAgentStoreAdapter {
-    fn new(storage: AgentTaskStorage) -> Self {
+    fn new(storage: BackgroundAgentStorage) -> Self {
         Self { storage }
     }
 
@@ -1032,7 +1032,7 @@ pub fn create_tool_registry(
     secret_storage: SecretStorage,
     config_storage: ConfigStorage,
     agent_storage: AgentStorage,
-    agent_task_storage: AgentTaskStorage,
+    background_agent_storage: BackgroundAgentStorage,
     trigger_storage: TriggerStorage,
     terminal_storage: TerminalSessionStorage,
     accessor_id: Option<String>,
@@ -1092,7 +1092,8 @@ pub fn create_tool_registry(
     registry.register(ConfigTool::new(Arc::new(config_storage)));
     let agent_store = Arc::new(AgentStoreAdapter::new(agent_storage));
     registry.register(AgentCrudTool::new(agent_store).with_write(true));
-    let background_agent_store = Arc::new(BackgroundAgentStoreAdapter::new(agent_task_storage));
+    let background_agent_store =
+        Arc::new(BackgroundAgentStoreAdapter::new(background_agent_storage));
     registry.register(BackgroundAgentTool::new(background_agent_store).with_write(true));
     registry.register(MarketplaceTool::new(skill_storage));
     registry.register(TriggerTool::new(trigger_storage));
@@ -2068,7 +2069,7 @@ mod tests {
         SecretStorage,
         ConfigStorage,
         AgentStorage,
-        AgentTaskStorage,
+        BackgroundAgentStorage,
         TriggerStorage,
         TerminalSessionStorage,
         tempfile::TempDir,
@@ -2099,7 +2100,7 @@ mod tests {
         .unwrap();
         let config_storage = ConfigStorage::new(db.clone()).unwrap();
         let agent_storage = AgentStorage::new(db.clone()).unwrap();
-        let agent_task_storage = AgentTaskStorage::new(db.clone()).unwrap();
+        let background_agent_storage = BackgroundAgentStorage::new(db.clone()).unwrap();
         let trigger_storage = TriggerStorage::new(db.clone()).unwrap();
         let terminal_storage = TerminalSessionStorage::new(db).unwrap();
 
@@ -2119,7 +2120,7 @@ mod tests {
             secret_storage,
             config_storage,
             agent_storage,
-            agent_task_storage,
+            background_agent_storage,
             trigger_storage,
             terminal_storage,
             temp_dir,
@@ -2136,7 +2137,7 @@ mod tests {
             secret_storage,
             config_storage,
             agent_storage,
-            agent_task_storage,
+            background_agent_storage,
             trigger_storage,
             terminal_storage,
             _temp_dir,
@@ -2149,7 +2150,7 @@ mod tests {
             secret_storage,
             config_storage,
             agent_storage,
-            agent_task_storage,
+            background_agent_storage,
             trigger_storage,
             terminal_storage,
             None,
@@ -2188,7 +2189,7 @@ mod tests {
             _secret_storage,
             _config_storage,
             _agent_storage,
-            _agent_task_storage,
+            _background_agent_storage,
             _trigger_storage,
             _terminal_storage,
             _temp_dir,
@@ -2209,7 +2210,7 @@ mod tests {
             _secret_storage,
             _config_storage,
             _agent_storage,
-            _agent_task_storage,
+            _background_agent_storage,
             _trigger_storage,
             _terminal_storage,
             _temp_dir,
@@ -2251,7 +2252,7 @@ mod tests {
             _secret_storage,
             _config_storage,
             agent_storage,
-            _agent_task_storage,
+            _background_agent_storage,
             _trigger_storage,
             _terminal_storage,
             _temp_dir,
@@ -2335,13 +2336,13 @@ mod tests {
             _secret_storage,
             _config_storage,
             _agent_storage,
-            agent_task_storage,
+            background_agent_storage,
             _trigger_storage,
             _terminal_storage,
             _temp_dir,
         ) = setup_storage();
 
-        let adapter = BackgroundAgentStoreAdapter::new(agent_task_storage);
+        let adapter = BackgroundAgentStoreAdapter::new(background_agent_storage);
 
         let created = BackgroundAgentStore::create_background_agent(
             &adapter,
@@ -2472,7 +2473,7 @@ mod tests {
             secret_storage,
             config_storage,
             agent_storage,
-            agent_task_storage,
+            background_agent_storage,
             trigger_storage,
             terminal_storage,
             _temp_dir,
@@ -2495,7 +2496,7 @@ mod tests {
             secret_storage,
             config_storage,
             agent_storage,
-            agent_task_storage,
+            background_agent_storage,
             trigger_storage,
             terminal_storage,
             None,
@@ -2533,7 +2534,7 @@ mod tests {
             secret_storage,
             config_storage,
             agent_storage,
-            agent_task_storage,
+            background_agent_storage,
             trigger_storage,
             terminal_storage,
             _temp_dir,
@@ -2547,7 +2548,7 @@ mod tests {
             secret_storage,
             config_storage,
             agent_storage,
-            agent_task_storage,
+            background_agent_storage,
             trigger_storage,
             terminal_storage,
             None,
@@ -2600,7 +2601,7 @@ mod tests {
             secret_storage,
             config_storage,
             agent_storage,
-            agent_task_storage,
+            background_agent_storage,
             trigger_storage,
             terminal_storage,
             _temp_dir,
@@ -2614,7 +2615,7 @@ mod tests {
             secret_storage,
             config_storage,
             agent_storage,
-            agent_task_storage,
+            background_agent_storage,
             trigger_storage,
             terminal_storage,
             None,
@@ -2688,7 +2689,7 @@ mod tests {
             secret_storage,
             config_storage,
             agent_storage,
-            agent_task_storage,
+            background_agent_storage,
             trigger_storage,
             terminal_storage,
             _temp_dir,
@@ -2702,7 +2703,7 @@ mod tests {
             secret_storage,
             config_storage,
             agent_storage,
-            agent_task_storage,
+            background_agent_storage,
             trigger_storage,
             terminal_storage,
             None,
@@ -2743,7 +2744,7 @@ mod tests {
             _secret_storage,
             _config_storage,
             _agent_storage,
-            _agent_task_storage,
+            _background_agent_storage,
             _trigger_storage,
             _terminal_storage,
             _temp_dir,
@@ -2842,7 +2843,7 @@ mod tests {
             secret_storage,
             config_storage,
             agent_storage,
-            agent_task_storage,
+            background_agent_storage,
             trigger_storage,
             terminal_storage,
             _temp_dir,
@@ -2857,7 +2858,7 @@ mod tests {
             secret_storage,
             config_storage,
             agent_storage,
-            agent_task_storage,
+            background_agent_storage,
             trigger_storage,
             terminal_storage,
             None,

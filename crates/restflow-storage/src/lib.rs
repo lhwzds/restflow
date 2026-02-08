@@ -10,8 +10,8 @@
 //! restflow-core.
 
 pub mod agent;
-pub mod agent_task;
 pub mod auth_profiles;
+pub mod background_agent;
 pub mod chat_session;
 pub mod config;
 pub mod keychain;
@@ -34,9 +34,8 @@ use redb::Database;
 use std::sync::Arc;
 
 pub use agent::AgentStorage;
-pub use agent_task::AgentTaskStorage;
-pub use agent_task::AgentTaskStorage as BackgroundAgentStorage;
 pub use auth_profiles::AuthProfileStorage;
+pub use background_agent::BackgroundAgentStorage;
 pub use chat_session::ChatSessionStorage;
 pub use config::{ConfigStorage, SystemConfig};
 pub use memory::{MemoryStorage, PutChunkResult};
@@ -53,7 +52,7 @@ pub struct Storage {
     pub config: ConfigStorage,
     pub triggers: TriggerStorage,
     pub agents: AgentStorage,
-    pub background_agents: AgentTaskStorage,
+    pub background_agents: BackgroundAgentStorage,
     pub secrets: SecretStorage,
     pub skills: SkillStorage,
     pub terminal_sessions: TerminalSessionStorage,
@@ -72,7 +71,7 @@ impl Storage {
         let config = ConfigStorage::new(db.clone())?;
         let triggers = TriggerStorage::new(db.clone())?;
         let agents = AgentStorage::new(db.clone())?;
-        let background_agents = AgentTaskStorage::new(db.clone())?;
+        let background_agents = BackgroundAgentStorage::new(db.clone())?;
         let secrets = SecretStorage::new(db.clone())?;
         let skills = SkillStorage::new(db.clone())?;
         let terminal_sessions = TerminalSessionStorage::new(db.clone())?;

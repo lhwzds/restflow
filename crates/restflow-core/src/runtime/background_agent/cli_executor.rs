@@ -2,7 +2,7 @@
 //!
 //! This module provides an executor that runs external CLI tools as agent backends,
 //! enabling integration with tools like Claude Code CLI while maintaining the same
-//! AgentTask infrastructure.
+//! BackgroundAgent infrastructure.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -224,7 +224,7 @@ pub fn create_cli_executor_with_events<E>(
     event_emitter: Arc<E>,
 ) -> CliAgentExecutor
 where
-    E: crate::runtime::agent_task::TaskEventEmitter + 'static,
+    E: crate::runtime::background_agent::TaskEventEmitter + 'static,
 {
     CliAgentExecutor::with_output_callback(move |line| {
         let event = TaskStreamEvent::output(&task_id, line, false);

@@ -58,7 +58,7 @@ impl Default for CliExecutionConfig {
 #[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq, Default)]
 #[ts(export)]
 #[serde(rename_all = "lowercase")]
-pub enum AgentTaskStatus {
+pub enum BackgroundAgentStatus {
     /// Task is active and will run on schedule
     #[default]
     Active,
@@ -72,14 +72,14 @@ pub enum AgentTaskStatus {
     Failed,
 }
 
-impl AgentTaskStatus {
+impl BackgroundAgentStatus {
     pub const fn as_str(&self) -> &'static str {
         match self {
-            AgentTaskStatus::Active => "active",
-            AgentTaskStatus::Paused => "paused",
-            AgentTaskStatus::Running => "running",
-            AgentTaskStatus::Completed => "completed",
-            AgentTaskStatus::Failed => "failed",
+            BackgroundAgentStatus::Active => "active",
+            BackgroundAgentStatus::Paused => "paused",
+            BackgroundAgentStatus::Running => "running",
+            BackgroundAgentStatus::Completed => "completed",
+            BackgroundAgentStatus::Failed => "failed",
         }
     }
 }
@@ -439,7 +439,7 @@ pub struct BackgroundProgress {
     /// Background agent ID
     pub background_agent_id: String,
     /// Current status
-    pub status: AgentTaskStatus,
+    pub status: BackgroundAgentStatus,
     /// Current stage label from the latest event
     #[serde(default)]
     pub stage: Option<String>,
@@ -533,7 +533,7 @@ pub enum TaskEventType {
 /// An agent task represents a scheduled execution of an agent
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
-pub struct AgentTask {
+pub struct BackgroundAgent {
     /// Unique identifier for the task
     pub id: String,
     /// Display name of the task
@@ -562,7 +562,7 @@ pub struct AgentTask {
     pub memory: MemoryConfig,
     /// Current status of the task
     #[serde(default)]
-    pub status: AgentTaskStatus,
+    pub status: BackgroundAgentStatus,
     /// Timestamp when the task was created (milliseconds since epoch)
     #[ts(type = "number")]
     pub created_at: i64,
@@ -600,7 +600,7 @@ pub struct AgentTask {
     pub summary_message_id: Option<String>,
 }
 
-impl AgentTask {
+impl BackgroundAgent {
     /// Create a new agent task with the given parameters
     pub fn new(id: String, name: String, agent_id: String, schedule: TaskSchedule) -> Self {
         let now = chrono::Utc::now().timestamp_millis();
@@ -617,7 +617,7 @@ impl AgentTask {
             execution_mode: ExecutionMode::default(),
             notification: NotificationConfig::default(),
             memory: MemoryConfig::default(),
-            status: AgentTaskStatus::Active,
+            status: BackgroundAgentStatus::Active,
             created_at: now,
             updated_at: now,
             last_run_at: None,
@@ -715,7 +715,7 @@ impl AgentTask {
 
     /// Mark the task as running
     pub fn set_running(&mut self) {
-        self.status = AgentTaskStatus::Running;
+        self.status = BackgroundAgentStatus::Running;
         self.last_run_at = Some(chrono::Utc::now().timestamp_millis());
         self.updated_at = chrono::Utc::now().timestamp_millis();
     }
@@ -729,11 +729,11 @@ impl AgentTask {
         // Determine next status based on schedule type
         match &self.schedule {
             TaskSchedule::Once { .. } => {
-                self.status = AgentTaskStatus::Completed;
+                self.status = BackgroundAgentStatus::Completed;
                 self.next_run_at = None;
             }
             _ => {
-                self.status = AgentTaskStatus::Active;
+                self.status = BackgroundAgentStatus::Active;
                 self.update_next_run();
             }
         }
@@ -743,27 +743,27 @@ impl AgentTask {
     pub fn set_failed(&mut self, error: String) {
         self.failure_count += 1;
         self.last_error = Some(error);
-        self.status = AgentTaskStatus::Failed;
+        self.status = BackgroundAgentStatus::Failed;
         self.updated_at = chrono::Utc::now().timestamp_millis();
         self.update_next_run(); // Still schedule next run
     }
 
     /// Pause the task
     pub fn pause(&mut self) {
-        self.status = AgentTaskStatus::Paused;
+        self.status = BackgroundAgentStatus::Paused;
         self.updated_at = chrono::Utc::now().timestamp_millis();
     }
 
     /// Resume the task
     pub fn resume(&mut self) {
-        self.status = AgentTaskStatus::Active;
+        self.status = BackgroundAgentStatus::Active;
         self.updated_at = chrono::Utc::now().timestamp_millis();
         self.update_next_run();
     }
 
     /// Check if the task should run now
     pub fn should_run(&self, current_time: i64) -> bool {
-        if self.status != AgentTaskStatus::Active {
+        if self.status != BackgroundAgentStatus::Active {
             return false;
         }
 
@@ -776,12 +776,12 @@ impl AgentTask {
 
     /// Check if the task is active (can be scheduled)
     pub fn is_active(&self) -> bool {
-        self.status == AgentTaskStatus::Active
+        self.status == BackgroundAgentStatus::Active
     }
 
     /// Check if the task is running
     pub fn is_running(&self) -> bool {
-        self.status == AgentTaskStatus::Running
+        self.status == BackgroundAgentStatus::Running
     }
 }
 
@@ -820,12 +820,6 @@ impl TaskEvent {
     }
 }
 
-/// Compatibility alias for background-agent-centric naming.
-pub type BackgroundAgent = AgentTask;
-
-/// Compatibility alias for background-agent-centric status naming.
-pub type BackgroundAgentStatus = AgentTaskStatus;
-
 /// Compatibility alias for background-agent-centric schedule naming.
 pub type BackgroundAgentSchedule = TaskSchedule;
 
@@ -840,8 +834,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_agent_task_new() {
-        let task = AgentTask::new(
+    fn test_background_agent_new() {
+        let task = BackgroundAgent::new(
             "task-123".to_string(),
             "Test Task".to_string(),
             "agent-456".to_string(),
@@ -854,7 +848,7 @@ mod tests {
         assert_eq!(task.id, "task-123");
         assert_eq!(task.name, "Test Task");
         assert_eq!(task.agent_id, "agent-456");
-        assert_eq!(task.status, AgentTaskStatus::Active);
+        assert_eq!(task.status, BackgroundAgentStatus::Active);
         assert!(task.input_template.is_none());
         assert!(task.created_at > 0);
         assert!(task.next_run_at.is_some());
@@ -869,14 +863,17 @@ mod tests {
             run_at: future_time,
         };
 
-        let next = AgentTask::calculate_next_run(&schedule, chrono::Utc::now().timestamp_millis());
+        let next =
+            BackgroundAgent::calculate_next_run(&schedule, chrono::Utc::now().timestamp_millis());
         assert_eq!(next, Some(future_time));
 
         // Past time should return None
         let past_time = chrono::Utc::now().timestamp_millis() - 10000;
         let schedule_past = TaskSchedule::Once { run_at: past_time };
-        let next_past =
-            AgentTask::calculate_next_run(&schedule_past, chrono::Utc::now().timestamp_millis());
+        let next_past = BackgroundAgent::calculate_next_run(
+            &schedule_past,
+            chrono::Utc::now().timestamp_millis(),
+        );
         assert!(next_past.is_none());
     }
 
@@ -890,7 +887,7 @@ mod tests {
             start_at: Some(now - 1000), // Started 1 second ago
         };
 
-        let next = AgentTask::calculate_next_run(&schedule, now);
+        let next = BackgroundAgent::calculate_next_run(&schedule, now);
         assert!(next.is_some());
         let next_time = next.unwrap();
         assert!(next_time > now);
@@ -905,14 +902,14 @@ mod tests {
         };
 
         let now = chrono::Utc::now().timestamp_millis();
-        let next = AgentTask::calculate_next_run(&schedule, now);
+        let next = BackgroundAgent::calculate_next_run(&schedule, now);
         assert!(next.is_some());
         assert!(next.unwrap() > now);
     }
 
     #[test]
     fn test_task_status_transitions() {
-        let mut task = AgentTask::new(
+        let mut task = BackgroundAgent::new(
             "task-123".to_string(),
             "Test Task".to_string(),
             "agent-456".to_string(),
@@ -935,14 +932,14 @@ mod tests {
 
         task.set_running();
         task.set_failed("Test error".to_string());
-        assert_eq!(task.status, AgentTaskStatus::Failed);
+        assert_eq!(task.status, BackgroundAgentStatus::Failed);
         assert_eq!(task.failure_count, 1);
         assert_eq!(task.last_error, Some("Test error".to_string()));
     }
 
     #[test]
     fn test_pause_and_resume() {
-        let mut task = AgentTask::new(
+        let mut task = BackgroundAgent::new(
             "task-123".to_string(),
             "Test Task".to_string(),
             "agent-456".to_string(),
@@ -953,10 +950,10 @@ mod tests {
         );
 
         task.pause();
-        assert_eq!(task.status, AgentTaskStatus::Paused);
+        assert_eq!(task.status, BackgroundAgentStatus::Paused);
 
         task.resume();
-        assert_eq!(task.status, AgentTaskStatus::Active);
+        assert_eq!(task.status, BackgroundAgentStatus::Active);
     }
 
     #[test]
@@ -964,7 +961,7 @@ mod tests {
         // Use a future timestamp to ensure next_run_at is set
         let future_time = chrono::Utc::now().timestamp_millis() + 100000;
 
-        let mut task = AgentTask::new(
+        let mut task = BackgroundAgent::new(
             "task-123".to_string(),
             "Test Task".to_string(),
             "agent-456".to_string(),
@@ -989,7 +986,7 @@ mod tests {
 
     #[test]
     fn test_once_task_completion() {
-        let mut task = AgentTask::new(
+        let mut task = BackgroundAgent::new(
             "task-123".to_string(),
             "Test Task".to_string(),
             "agent-456".to_string(),
@@ -1001,7 +998,7 @@ mod tests {
         task.set_running();
         task.set_completed();
 
-        assert_eq!(task.status, AgentTaskStatus::Completed);
+        assert_eq!(task.status, BackgroundAgentStatus::Completed);
         assert!(task.next_run_at.is_none()); // No next run for one-time tasks
     }
 
@@ -1047,8 +1044,8 @@ mod tests {
 
     #[test]
     fn test_status_default() {
-        let status: AgentTaskStatus = Default::default();
-        assert_eq!(status, AgentTaskStatus::Active);
+        let status: BackgroundAgentStatus = Default::default();
+        assert_eq!(status, BackgroundAgentStatus::Active);
     }
 
     #[test]
@@ -1068,8 +1065,8 @@ mod tests {
     }
 
     #[test]
-    fn test_agent_task_with_api_execution() {
-        let task = AgentTask::new(
+    fn test_background_agent_with_api_execution() {
+        let task = BackgroundAgent::new(
             "task-123".to_string(),
             "Test Task".to_string(),
             "agent-456".to_string(),
@@ -1079,7 +1076,7 @@ mod tests {
     }
 
     #[test]
-    fn test_agent_task_with_cli_execution() {
+    fn test_background_agent_with_cli_execution() {
         let cli_config = CliExecutionConfig {
             binary: "aider".to_string(),
             args: vec!["--yes".to_string()],
@@ -1088,7 +1085,7 @@ mod tests {
             use_pty: true,
         };
 
-        let task = AgentTask::new_with_cli(
+        let task = BackgroundAgent::new_with_cli(
             "task-123".to_string(),
             "CLI Task".to_string(),
             "agent-456".to_string(),
@@ -1173,8 +1170,8 @@ mod tests {
     }
 
     #[test]
-    fn test_agent_task_with_memory_config() {
-        let task = AgentTask::new(
+    fn test_background_agent_with_memory_config() {
+        let task = BackgroundAgent::new(
             "task-123".to_string(),
             "Test Task".to_string(),
             "agent-456".to_string(),
@@ -1226,8 +1223,8 @@ mod tests {
     }
 
     #[test]
-    fn test_agent_task_serialization_with_memory() {
-        let task = AgentTask::new(
+    fn test_background_agent_serialization_with_memory() {
+        let task = BackgroundAgent::new(
             "task-123".to_string(),
             "Test Task".to_string(),
             "agent-456".to_string(),
@@ -1238,7 +1235,7 @@ mod tests {
         assert!(json.contains("memory"));
         assert!(json.contains("max_messages"));
 
-        let deserialized: AgentTask = serde_json::from_str(&json).unwrap();
+        let deserialized: BackgroundAgent = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized.memory.max_messages, 100);
         assert_eq!(deserialized.memory.memory_scope, MemoryScope::SharedAgent);
     }

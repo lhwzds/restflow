@@ -20,7 +20,7 @@ pub struct WaitAgentsParams {
     pub timeout_secs: Option<u64>,
 }
 
-/// wait_agents tool for the unified agent.
+/// wait_agents tool for the shared agent execution engine.
 pub struct WaitAgentsTool {
     deps: Arc<SubagentDeps>,
 }

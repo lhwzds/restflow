@@ -28,7 +28,7 @@ pub struct SpawnAgentParams {
     pub timeout_secs: Option<u64>,
 }
 
-/// spawn_agent tool for the unified agent.
+/// spawn_agent tool for the shared agent execution engine.
 pub struct SpawnAgentTool {
     deps: Arc<SubagentDeps>,
 }

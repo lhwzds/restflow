@@ -11,7 +11,7 @@ use tower_http::trace::TraceLayer;
 use tracing::{error, info};
 
 use restflow_core::models::WebhookRateLimiter;
-use restflow_core::storage::AgentTaskStorage;
+use restflow_core::storage::BackgroundAgentStorage;
 
 /// Type alias for the task trigger callback function
 pub type TriggerCallback = Arc<dyn Fn(String, Option<String>) -> String + Send + Sync>;
@@ -146,7 +146,7 @@ pub async fn start_webhook_server(
 /// Builder for creating and configuring a webhook server
 pub struct WebhookServerBuilder {
     config: WebhookServerConfig,
-    storage: Option<Arc<AgentTaskStorage>>,
+    storage: Option<Arc<BackgroundAgentStorage>>,
     trigger_callback: Option<TriggerCallback>,
 }
 
@@ -179,7 +179,7 @@ impl WebhookServerBuilder {
     }
 
     /// Set the storage
-    pub fn storage(mut self, storage: Arc<AgentTaskStorage>) -> Self {
+    pub fn storage(mut self, storage: Arc<BackgroundAgentStorage>) -> Self {
         self.storage = Some(storage);
         self
     }
@@ -234,11 +234,11 @@ mod tests {
     use super::*;
     use tempfile::TempDir;
 
-    fn create_test_storage() -> (Arc<AgentTaskStorage>, TempDir) {
+    fn create_test_storage() -> (Arc<BackgroundAgentStorage>, TempDir) {
         let temp_dir = TempDir::new().unwrap();
         let db_path = temp_dir.path().join("test.db");
         let db = std::sync::Arc::new(redb::Database::create(db_path).unwrap());
-        (Arc::new(AgentTaskStorage::new(db).unwrap()), temp_dir)
+        (Arc::new(BackgroundAgentStorage::new(db).unwrap()), temp_dir)
     }
 
     #[test]

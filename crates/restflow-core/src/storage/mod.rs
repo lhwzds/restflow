@@ -4,7 +4,7 @@
 //! the byte-level APIs from restflow-storage with Rust types from our models.
 
 pub mod agent;
-pub mod agent_task;
+pub mod background_agent;
 pub mod chat_session;
 pub mod hook;
 pub mod memory;
@@ -23,8 +23,7 @@ pub use restflow_storage::{
 };
 
 pub use agent::AgentStorage;
-pub use agent_task::AgentTaskStorage;
-pub use agent_task::AgentTaskStorage as BackgroundAgentStorage;
+pub use background_agent::BackgroundAgentStorage;
 pub use chat_session::ChatSessionStorage;
 pub use hook::HookStorage;
 pub use memory::MemoryStorage;
@@ -42,7 +41,7 @@ pub struct Storage {
     pub config: ConfigStorage,
     pub triggers: TriggerStorage,
     pub agents: AgentStorage,
-    pub background_agents: AgentTaskStorage,
+    pub background_agents: BackgroundAgentStorage,
     pub secrets: SecretStorage,
     pub skills: SkillStorage,
     pub shared_space: SharedSpaceStorage,
@@ -66,7 +65,7 @@ impl Storage {
         let config = ConfigStorage::new(db.clone())?;
         let triggers = TriggerStorage::new(db.clone())?;
         let agents = AgentStorage::new(db.clone())?;
-        let background_agents = AgentTaskStorage::new(db.clone())?;
+        let background_agents = BackgroundAgentStorage::new(db.clone())?;
         let secrets = SecretStorage::with_config(db.clone(), secret_config)?;
         let skills = SkillStorage::new(db.clone())?;
         let shared_space_raw = restflow_storage::SharedSpaceStorage::new(db.clone())?;

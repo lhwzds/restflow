@@ -2,4 +2,4 @@
 
 mod executor;
 
-pub use executor::{AgentTaskHookScheduler, HookExecutor, HookTaskScheduler};
+pub use executor::{BackgroundAgentHookScheduler, HookExecutor, HookTaskScheduler};

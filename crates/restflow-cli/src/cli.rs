@@ -224,7 +224,7 @@ mod tests {
     fn rejects_task_commands() {
         let cli = Cli::try_parse_from(["restflow", "task", "list"]);
         assert!(cli.is_err());
-        let cli = Cli::try_parse_from(["restflow", "agent-task", "list"]);
+        let cli = Cli::try_parse_from(["restflow", "background-agent", "list"]);
         assert!(cli.is_err());
     }
 

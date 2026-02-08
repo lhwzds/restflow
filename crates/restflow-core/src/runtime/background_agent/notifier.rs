@@ -9,7 +9,7 @@ use async_trait::async_trait;
 use std::sync::Arc;
 
 use crate::{
-    models::{AgentTask, NotificationConfig},
+    models::{BackgroundAgent, NotificationConfig},
     storage::SecretStorage,
 };
 use restflow_ai::tools::send_telegram_notification;
@@ -62,7 +62,7 @@ impl TelegramNotifier {
     /// Format the notification message for Telegram.
     ///
     /// Uses Markdown formatting for better readability.
-    fn format_message(&self, task: &AgentTask, success: bool, message: &str) -> String {
+    fn format_message(&self, task: &BackgroundAgent, success: bool, message: &str) -> String {
         let status_emoji = if success { "✅" } else { "❌" };
         let status_text = if success { "Completed" } else { "Failed" };
 
@@ -115,7 +115,7 @@ impl NotificationSender for TelegramNotifier {
     async fn send(
         &self,
         config: &NotificationConfig,
-        task: &AgentTask,
+        task: &BackgroundAgent,
         success: bool,
         message: &str,
     ) -> Result<()> {
@@ -158,9 +158,9 @@ mod tests {
         (Arc::new(SecretStorage::new(db).unwrap()), temp_dir)
     }
 
-    fn create_test_task() -> AgentTask {
+    fn create_test_task() -> BackgroundAgent {
         let now = chrono::Utc::now().timestamp_millis();
-        AgentTask::new(
+        BackgroundAgent::new(
             "test-task-id".to_string(),
             "Test Task".to_string(),
             "agent-001".to_string(),
