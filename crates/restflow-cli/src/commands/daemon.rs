@@ -1,5 +1,6 @@
 use crate::cli::DaemonCommands;
 use crate::commands::claude_mcp::try_sync_restflow_stdio_mcp;
+use crate::commands::codex_mcp::try_sync_codex_http_mcp;
 use crate::daemon::CliTaskRunner;
 use anyhow::Result;
 use restflow_core::AppCore;
@@ -11,6 +12,15 @@ use restflow_core::paths;
 use std::sync::Arc;
 use tokio::time::{Duration, sleep};
 use tracing::error;
+
+async fn sync_mcp_configs(mcp_port: Option<u16>) {
+    if let Err(err) = try_sync_restflow_stdio_mcp().await {
+        eprintln!("Warning: failed to auto-configure Claude MCP: {err}");
+    }
+    if let Err(err) = try_sync_codex_http_mcp(mcp_port.unwrap_or(8787)).await {
+        eprintln!("Warning: failed to auto-configure Codex MCP: {err}");
+    }
+}
 
 pub async fn run(core: Arc<AppCore>, command: DaemonCommands) -> Result<()> {
     match command {
@@ -48,10 +58,9 @@ async fn start(
         mcp_port,
     };
 
+    sync_mcp_configs(mcp_port).await;
+
     if foreground {
-        if mcp && let Err(err) = try_sync_restflow_stdio_mcp().await {
-            eprintln!("Warning: failed to auto-configure Claude MCP: {err}");
-        }
         run_daemon(core, config).await
     } else {
         match check_daemon_status()? {
@@ -62,9 +71,6 @@ async fn start(
             _ => {
                 let pid = start_daemon_with_config(config)?;
                 println!("Daemon started (PID: {})", pid);
-                if mcp && let Err(err) = try_sync_restflow_stdio_mcp().await {
-                    eprintln!("Warning: failed to auto-configure Claude MCP: {err}");
-                }
                 Ok(())
             }
         }
@@ -92,10 +98,9 @@ async fn restart(
         wait_for_daemon_exit().await?;
     }
 
+    sync_mcp_configs(mcp_port).await;
+
     if foreground {
-        if mcp && let Err(err) = try_sync_restflow_stdio_mcp().await {
-            eprintln!("Warning: failed to auto-configure Claude MCP: {err}");
-        }
         run_daemon(core, config).await
     } else {
         let pid = start_daemon_with_config(config)?;
@@ -103,9 +108,6 @@ async fn restart(
             println!("Daemon restarted (PID: {})", pid);
         } else {
             println!("Daemon started (PID: {})", pid);
-        }
-        if mcp && let Err(err) = try_sync_restflow_stdio_mcp().await {
-            eprintln!("Warning: failed to auto-configure Claude MCP: {err}");
         }
         Ok(())
     }
