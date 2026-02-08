@@ -11,7 +11,6 @@ pub mod commands;
 pub mod daemon_manager;
 pub mod error;
 pub mod executor;
-pub mod mcp;
 pub mod state;
 pub mod subagent;
 pub mod webhook;
@@ -40,7 +39,6 @@ pub use chat::{
 pub use daemon_manager::DaemonManager;
 pub use error::TauriError;
 pub use executor::TauriExecutor;
-pub use mcp::RestFlowMcpServer;
 pub use state::{AppBackgroundAgentTrigger, AppState};
 pub use subagent::{
     AgentDefinition, AgentDefinitionRegistry, SpawnHandle, SpawnPriority, SpawnRequest,

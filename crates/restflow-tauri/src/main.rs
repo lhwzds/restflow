@@ -2,12 +2,6 @@
 //!
 //! This is the main entry point for the RestFlow desktop application.
 //! It initializes the Tauri runtime and registers all command handlers.
-//!
-//! # MCP Mode
-//!
-//! When run with `--mcp-mode`, the application starts as an MCP server
-//! instead of the GUI, allowing AI assistants like Claude Code to interact
-//! with RestFlow via the Model Context Protocol.
 
 #![cfg_attr(
     all(not(debug_assertions), target_os = "windows"),
@@ -15,10 +9,8 @@
 )]
 
 use clap::Parser;
-use restflow_core::daemon::{IpcClient, ensure_daemon_running};
-use restflow_core::paths;
+use restflow_core::daemon::ensure_daemon_running;
 use restflow_tauri_lib::AppState;
-use restflow_tauri_lib::RestFlowMcpServer;
 use restflow_tauri_lib::commands;
 use restflow_tauri_lib::commands::pty::save_all_terminal_history_sync;
 use tauri::Manager;
@@ -29,38 +21,18 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 #[derive(Parser, Debug)]
 #[command(name = "restflow-tauri")]
 #[command(about = "RestFlow - Visual workflow automation with AI integration")]
-struct Args {
-    /// Run as MCP server instead of GUI
-    #[arg(long)]
-    mcp_mode: bool,
-
-    /// Database path (defaults to app data directory)
-    #[arg(long)]
-    db_path: Option<String>,
-}
+struct Args {}
 
 fn main() {
-    let args = Args::parse();
+    Args::parse();
     // Initialize tracing
-    // For MCP mode, use stderr to avoid interfering with stdio transport
-    let filter = tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
-        if args.mcp_mode {
-            "restflow_tauri=warn,restflow_core=warn".into()
-        } else {
-            "restflow_tauri=info,restflow_core=info".into()
-        }
-    });
+    let filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| "restflow_tauri=info,restflow_core=info".into());
 
     tracing_subscriber::registry()
         .with(filter)
         .with(tracing_subscriber::fmt::layer().with_writer(std::io::stderr))
         .init();
-
-    // If MCP mode is requested, run as MCP server
-    if args.mcp_mode {
-        run_mcp_server(args.db_path);
-        return;
-    }
 
     info!("Starting RestFlow Desktop Application");
 
@@ -266,32 +238,4 @@ fn main() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
-}
-
-/// Run RestFlow as an MCP server
-fn run_mcp_server(db_path: Option<String>) {
-    tracing::info!("Starting RestFlow MCP Server");
-
-    let rt = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
-
-    rt.block_on(async {
-        if let Some(db_path) = db_path {
-            tracing::warn!(db_path = %db_path, "Ignoring db_path in MCP mode (daemon owns the database)");
-        }
-
-        ensure_daemon_running()
-            .await
-            .expect("Failed to start daemon for MCP mode");
-
-        let socket_path = paths::socket_path().expect("Failed to resolve daemon socket path");
-        let client = IpcClient::connect(&socket_path)
-            .await
-            .expect("Failed to connect to daemon for MCP mode");
-        let mcp_server = RestFlowMcpServer::with_ipc(client);
-
-        if let Err(e) = mcp_server.run().await {
-            tracing::error!(error = %e, "MCP server error");
-            std::process::exit(1);
-        }
-    });
 }
