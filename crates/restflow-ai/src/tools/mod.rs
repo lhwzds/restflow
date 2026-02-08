@@ -72,8 +72,9 @@ pub use session::{
 pub use skill::SkillTool;
 pub use switch_model::SwitchModelTool;
 pub use task::{
-    TaskControlRequest, TaskCreateRequest, TaskMessageListRequest, TaskMessageRequest,
-    TaskProgressRequest, TaskStore, TaskTool, TaskUpdateRequest,
+    BackgroundAgentControlRequest, BackgroundAgentCreateRequest, BackgroundAgentMessageListRequest,
+    BackgroundAgentMessageRequest, BackgroundAgentProgressRequest, BackgroundAgentStore,
+    BackgroundAgentTool, BackgroundAgentUpdateRequest,
 };
 pub use telegram::{TelegramTool, send_telegram_notification};
 pub use traits::{

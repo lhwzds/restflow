@@ -534,7 +534,10 @@ const onCloseChat = () => {
          maximize content area, only shown in browse mode
       4. Layout: [Logo][Nav] --- spacer --- [Controls][Theme][Settings]
     -->
-    <header class="titlebar h-12 border-b flex items-center shrink-0 bg-background relative" data-tauri-drag-region>
+    <header
+      class="titlebar h-12 border-b flex items-center shrink-0 bg-background relative"
+      data-tauri-drag-region
+    >
       <!--
         Traffic light backgrounds - 3 orange circles behind macOS window buttons.
         These provide contrast so inactive traffic lights remain visible.
@@ -547,9 +550,15 @@ const onCloseChat = () => {
       -->
       <!-- Traffic light backgrounds only shown in Tauri desktop app, not in web mode -->
       <template v-if="isTauriApp && !isFullscreen">
-        <div class="absolute left-[13px] top-[14px] w-[12px] h-[12px] rounded-full bg-orange-400 dark:bg-orange-500" />
-        <div class="absolute left-[33px] top-[14px] w-[12px] h-[12px] rounded-full bg-orange-400 dark:bg-orange-500" />
-        <div class="absolute left-[53px] top-[14px] w-[12px] h-[12px] rounded-full bg-orange-400 dark:bg-orange-500" />
+        <div
+          class="absolute left-[13px] top-[14px] w-[12px] h-[12px] rounded-full bg-orange-400 dark:bg-orange-500"
+        />
+        <div
+          class="absolute left-[33px] top-[14px] w-[12px] h-[12px] rounded-full bg-orange-400 dark:bg-orange-500"
+        />
+        <div
+          class="absolute left-[53px] top-[14px] w-[12px] h-[12px] rounded-full bg-orange-400 dark:bg-orange-500"
+        />
       </template>
       <!-- Left: Traffic light spacer (70px in Tauri, none in web) + Logo + Navigation -->
       <div :class="['flex items-center gap-3 relative z-10', isTauriApp ? 'pl-[70px]' : 'pl-3']">
@@ -580,7 +589,9 @@ const onCloseChat = () => {
       <div class="flex items-center gap-2 pr-3">
         <!-- Browser controls only shown in browse mode to reduce clutter in editor, hidden on mobile -->
         <template v-if="!hasOpenTabs || showBrowser">
-          <span class="hidden sm:inline text-xs text-muted-foreground"> {{ itemCount }} items </span>
+          <span class="hidden sm:inline text-xs text-muted-foreground">
+            {{ itemCount }} items
+          </span>
 
           <div class="hidden sm:flex gap-0.5 border rounded-md p-0.5">
             <Button
@@ -710,12 +721,20 @@ const onCloseChat = () => {
                       ]"
                     >
                       <div class="text-xs text-muted-foreground mb-1">
-                        {{ msg.role === 'user' ? 'You' : msg.role === 'assistant' ? 'Agent' : 'System' }}
+                        {{
+                          msg.role === 'user'
+                            ? 'You'
+                            : msg.role === 'assistant'
+                              ? 'Agent'
+                              : 'System'
+                        }}
                       </div>
                       <div class="whitespace-pre-wrap break-words">{{ msg.content }}</div>
                     </div>
                     <div v-if="isExecuting" class="flex items-center gap-2 text-muted-foreground">
-                      <div class="animate-spin h-4 w-4 border-2 border-primary border-t-transparent rounded-full" />
+                      <div
+                        class="animate-spin h-4 w-4 border-2 border-primary border-t-transparent rounded-full"
+                      />
                       <span>Processing...</span>
                     </div>
                   </div>

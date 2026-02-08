@@ -112,7 +112,12 @@ function getAgentInfo(item: FileItem) {
         v-if="viewMode === 'grid'"
         class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4"
       >
-        <HoverCard v-for="item in filteredItems" :key="item.id" :open-delay="500" :close-delay="100">
+        <HoverCard
+          v-for="item in filteredItems"
+          :key="item.id"
+          :open-delay="500"
+          :close-delay="100"
+        >
           <HoverCardTrigger as-child>
             <button
               :class="
@@ -197,7 +202,9 @@ function getAgentInfo(item: FileItem) {
           @click="emit('create')"
         >
           <div class="w-14 h-14 flex items-center justify-center mb-2">
-            <Plus class="w-10 h-10 text-muted-foreground group-hover:text-primary transition-colors" />
+            <Plus
+              class="w-10 h-10 text-muted-foreground group-hover:text-primary transition-colors"
+            />
           </div>
           <span class="text-sm text-muted-foreground group-hover:text-primary transition-colors">{{
             createLabel
@@ -207,7 +214,12 @@ function getAgentInfo(item: FileItem) {
 
       <!-- List View -->
       <div v-else class="space-y-1">
-        <HoverCard v-for="item in filteredItems" :key="item.id" :open-delay="500" :close-delay="100">
+        <HoverCard
+          v-for="item in filteredItems"
+          :key="item.id"
+          :open-delay="500"
+          :close-delay="100"
+        >
           <HoverCardTrigger as-child>
             <button
               :class="
@@ -284,10 +296,14 @@ function getAgentInfo(item: FileItem) {
           class="group w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-all text-left hover:bg-muted"
           @click="emit('create')"
         >
-          <Plus :size="20" class="text-muted-foreground group-hover:text-primary transition-colors shrink-0" />
-          <span class="flex-1 text-sm text-muted-foreground group-hover:text-primary transition-colors">{{
-            createLabel
-          }}</span>
+          <Plus
+            :size="20"
+            class="text-muted-foreground group-hover:text-primary transition-colors shrink-0"
+          />
+          <span
+            class="flex-1 text-sm text-muted-foreground group-hover:text-primary transition-colors"
+            >{{ createLabel }}</span
+          >
         </button>
       </div>
 

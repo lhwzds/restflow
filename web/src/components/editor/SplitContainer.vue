@@ -97,7 +97,9 @@ function handleSkillSave() {
         @mousedown="startDragging"
       >
         <!-- Visual line stays 1px -->
-        <div class="w-px h-full bg-border group-hover:bg-primary/50 group-active:bg-primary transition-colors" />
+        <div
+          class="w-px h-full bg-border group-hover:bg-primary/50 group-active:bg-primary transition-colors"
+        />
       </div>
     </div>
 

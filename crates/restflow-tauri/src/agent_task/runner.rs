@@ -1059,14 +1059,14 @@ impl AgentTaskRunner {
     fn resolve_memory_agent_id(task: &AgentTask) -> String {
         match task.memory.memory_scope {
             MemoryScope::SharedAgent => task.agent_id.clone(),
-            MemoryScope::PerTask => format!("{}::task::{}", task.agent_id, task.id),
+            MemoryScope::PerBackgroundAgent => format!("{}::task::{}", task.agent_id, task.id),
         }
     }
 
     fn memory_scope_label(scope: &MemoryScope) -> &'static str {
         match scope {
             MemoryScope::SharedAgent => "shared_agent",
-            MemoryScope::PerTask => "per_task",
+            MemoryScope::PerBackgroundAgent => "per_background_agent",
         }
     }
 
@@ -1904,7 +1904,7 @@ mod tests {
         task.memory.memory_scope = MemoryScope::SharedAgent;
         assert_eq!(AgentTaskRunner::resolve_memory_agent_id(&task), "agent-456");
 
-        task.memory.memory_scope = MemoryScope::PerTask;
+        task.memory.memory_scope = MemoryScope::PerBackgroundAgent;
         assert_eq!(
             AgentTaskRunner::resolve_memory_agent_id(&task),
             "agent-456::task::task-123"

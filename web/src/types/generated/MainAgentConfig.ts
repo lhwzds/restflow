@@ -3,24 +3,25 @@
 /**
  * Main Agent configuration
  */
-export type MainAgentConfig = { 
-/**
- * Maximum number of parallel sub-agents
- */
-max_parallel_agents: number, 
-/**
- * Default timeout for sub-agents in seconds
- */
-subagent_timeout_secs: bigint, 
-/**
- * Whether to automatically wait for all sub-agents before responding
- */
-auto_wait_subagents: boolean, 
-/**
- * Default model for the main agent
- */
-default_model: string, 
-/**
- * Maximum ReAct loop iterations
- */
-max_iterations: number, };
+export type MainAgentConfig = {
+  /**
+   * Maximum number of parallel sub-agents
+   */
+  max_parallel_agents: number
+  /**
+   * Default timeout for sub-agents in seconds
+   */
+  subagent_timeout_secs: bigint
+  /**
+   * Whether to automatically wait for all sub-agents before responding
+   */
+  auto_wait_subagents: boolean
+  /**
+   * Default model for the main agent
+   */
+  default_model: string
+  /**
+   * Maximum ReAct loop iterations
+   */
+  max_iterations: number
+}

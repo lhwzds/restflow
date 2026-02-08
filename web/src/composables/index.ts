@@ -8,7 +8,7 @@ export * from './agents/useAgentEditor'
 export * from './agents/useAgentOperations'
 export * from './agents/useAgentPanelResize'
 export * from './agents/useAgentTools'
-export * from './agents/useTaskStreamEvents'
+export * from './agents/useBackgroundAgentStreamEvents'
 
 // Skill composables
 export * from './skills/useSkills'

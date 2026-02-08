@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * TaskCard Component
+ * BackgroundAgentCard Component
  *
  * Displays an agent task card with status, schedule, and action buttons.
  * Supports actions like pause/resume and delete.
@@ -24,7 +24,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import type { AgentTask } from '@/types/generated/AgentTask'
 import type { AgentTaskStatus } from '@/types/generated/AgentTaskStatus'
-import { formatSchedule, formatTaskStatus } from '@/api/agent-task'
+import { formatSchedule, formatBackgroundAgentStatus } from '@/api/background-agent'
 
 const props = defineProps<{
   task: AgentTask
@@ -42,7 +42,7 @@ const emit = defineEmits<{
  * Get badge variant based on task status
  */
 function getStatusVariant(
-  status: AgentTaskStatus
+  status: AgentTaskStatus,
 ): 'default' | 'secondary' | 'destructive' | 'outline' | 'success' | 'warning' | 'info' {
   const variantMap: Record<AgentTaskStatus, 'success' | 'info' | 'default' | 'destructive'> = {
     active: 'success',
@@ -92,7 +92,7 @@ function formatTime(timestamp: number | null): string {
   return date.toLocaleDateString()
 }
 
-const statusText = computed(() => formatTaskStatus(props.task.status))
+const statusText = computed(() => formatBackgroundAgentStatus(props.task.status))
 const statusVariant = computed(() => getStatusVariant(props.task.status))
 const StatusIcon = computed(() => getStatusIcon(props.task.status))
 const scheduleText = computed(() => formatSchedule(props.task.schedule))
@@ -130,7 +130,12 @@ function handleDelete(e: Event) {
       <!-- Header: Name and Status -->
       <div class="card-header">
         <div class="task-name">
-          <component :is="StatusIcon" class="status-icon" :class="`status-icon--${task.status}`" :size="16" />
+          <component
+            :is="StatusIcon"
+            class="status-icon"
+            :class="`status-icon--${task.status}`"
+            :size="16"
+          />
           <span>{{ task.name }}</span>
         </div>
         <Badge :variant="statusVariant">

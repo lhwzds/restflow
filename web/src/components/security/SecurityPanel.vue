@@ -38,11 +38,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from '@/components/ui/collapsible'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import ApprovalList from './ApprovalList.vue'
 import type { SecurityPolicy } from '@/types/generated/SecurityPolicy'
 import type { SecurityAction } from '@/types/generated/SecurityAction'
@@ -186,7 +182,7 @@ async function handleAddPattern() {
 
 async function handleRemovePattern(
   type: 'allowlist' | 'blocklist' | 'approval_required',
-  index: number
+  index: number,
 ) {
   isLoading.value = true
   try {
@@ -391,9 +387,7 @@ onUnmounted(() => {
     <Card v-if="policy">
       <CardHeader class="pb-3">
         <CardTitle class="text-lg">Default Action</CardTitle>
-        <CardDescription>
-          Action for commands that don't match any pattern
-        </CardDescription>
+        <CardDescription> Action for commands that don't match any pattern </CardDescription>
       </CardHeader>
       <CardContent>
         <Select
@@ -429,9 +423,7 @@ onUnmounted(() => {
                 Add
               </Button>
             </div>
-            <CardDescription>
-              Commands that are always allowed without approval
-            </CardDescription>
+            <CardDescription> Commands that are always allowed without approval </CardDescription>
           </CardHeader>
           <CollapsibleContent>
             <CardContent class="pt-0">
@@ -480,9 +472,7 @@ onUnmounted(() => {
                 Add
               </Button>
             </div>
-            <CardDescription>
-              Commands that are always blocked
-            </CardDescription>
+            <CardDescription> Commands that are always blocked </CardDescription>
           </CardHeader>
           <CollapsibleContent>
             <CardContent class="pt-0">
@@ -531,9 +521,7 @@ onUnmounted(() => {
                 Add
               </Button>
             </div>
-            <CardDescription>
-              Commands that require explicit user approval
-            </CardDescription>
+            <CardDescription> Commands that require explicit user approval </CardDescription>
           </CardHeader>
           <CollapsibleContent>
             <CardContent class="pt-0">
@@ -578,9 +566,7 @@ onUnmounted(() => {
           <Terminal class="h-5 w-5" />
           Preview Command
         </CardTitle>
-        <CardDescription>
-          Test what action would be taken for a command
-        </CardDescription>
+        <CardDescription> Test what action would be taken for a command </CardDescription>
       </CardHeader>
       <CardContent class="space-y-4">
         <div class="flex gap-2">
@@ -607,9 +593,7 @@ onUnmounted(() => {
         <CardTitle class="text-lg">Maintenance</CardTitle>
       </CardHeader>
       <CardContent>
-        <Button variant="outline" @click="handleCleanup">
-          Clean Up Expired Approvals
-        </Button>
+        <Button variant="outline" @click="handleCleanup"> Clean Up Expired Approvals </Button>
       </CardContent>
     </Card>
 
@@ -618,9 +602,7 @@ onUnmounted(() => {
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{{ getAddDialogTitle() }}</DialogTitle>
-          <DialogDescription>
-            Enter a glob-style pattern. Use * for wildcards.
-          </DialogDescription>
+          <DialogDescription> Enter a glob-style pattern. Use * for wildcards. </DialogDescription>
         </DialogHeader>
         <div class="space-y-4 py-4">
           <div class="space-y-2">

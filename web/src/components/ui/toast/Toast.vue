@@ -17,7 +17,7 @@ export const toastVariants = cva(
     defaultVariants: {
       variant: 'default',
     },
-  }
+  },
 )
 
 type ToastVariants = VariantProps<typeof toastVariants>

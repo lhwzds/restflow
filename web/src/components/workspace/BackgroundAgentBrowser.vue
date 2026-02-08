@@ -1,41 +1,34 @@
 <!--
-  TaskBrowser Component - Design Decisions:
+  BackgroundAgentBrowser Component - Design Decisions:
 
   1. Follows the same pattern as TerminalBrowser for consistency
   2. searchQuery and viewMode are PROPS, managed in parent (SkillWorkspace)
-  3. Uses existing TaskCard component for display
-  4. Uses CreateTaskDialog for creating new tasks
+  3. Uses existing BackgroundAgentCard component for display
+  4. Uses CreateBackgroundAgentDialog for creating new tasks
   5. Integrates with agentTaskStore for state management
 -->
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import {
-  CalendarClock,
-  Plus,
-  Trash2,
-  Loader2,
-  Play,
-  Pause,
-} from 'lucide-vue-next'
+import { CalendarClock, Plus, Trash2, Loader2, Play, Pause } from 'lucide-vue-next'
 import { storeToRefs } from 'pinia'
-import { useAgentTaskStore } from '@/stores/agentTaskStore'
+import { useBackgroundAgentStore } from '@/stores/backgroundAgentStore'
 import { useToast } from '@/composables/useToast'
 import { useConfirm } from '@/composables/useConfirm'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card'
-import { CreateTaskDialog } from '@/components/agent-task'
+import { CreateBackgroundAgentDialog } from '@/components/background-agent'
 import type { AgentTask } from '@/types/generated/AgentTask'
 import type { AgentTaskStatus } from '@/types/generated/AgentTaskStatus'
-import { formatSchedule, formatTaskStatus } from '@/api/agent-task'
+import { formatSchedule, formatBackgroundAgentStatus } from '@/api/background-agent'
 
 const props = defineProps<{
   searchQuery: string
   viewMode: 'grid' | 'list'
 }>()
 
-const store = useAgentTaskStore()
+const store = useBackgroundAgentStore()
 const { tasks, isLoading } = storeToRefs(store)
 const toast = useToast()
 const { confirm } = useConfirm()
@@ -60,14 +53,13 @@ const filteredTasks = computed(() => {
   const query = props.searchQuery.toLowerCase()
   return tasks.value.filter(
     (task) =>
-      task.name.toLowerCase().includes(query) ||
-      task.description?.toLowerCase().includes(query)
+      task.name.toLowerCase().includes(query) || task.description?.toLowerCase().includes(query),
   )
 })
 
 // Get status badge variant
 function getStatusVariant(
-  status: AgentTaskStatus
+  status: AgentTaskStatus,
 ): 'default' | 'secondary' | 'destructive' | 'outline' | 'success' | 'warning' | 'info' {
   const variantMap: Record<AgentTaskStatus, 'success' | 'info' | 'default' | 'destructive'> = {
     active: 'success',
@@ -219,7 +211,7 @@ function handleTaskCreated() {
                   <span
                     class="h-2 w-2 rounded-full inline-block"
                     :class="getStatusIndicatorClass(task.status)"
-                    :title="formatTaskStatus(task.status)"
+                    :title="formatBackgroundAgentStatus(task.status)"
                   />
                 </div>
                 <!-- Icon -->
@@ -229,11 +221,9 @@ function handleTaskCreated() {
                   class="text-muted-foreground mb-2 animate-spin"
                 />
                 <CalendarClock v-else :size="32" class="text-muted-foreground mb-2" />
-                <span class="text-sm font-medium truncate w-full text-center">{{
-                  task.name
-                }}</span>
+                <span class="text-sm font-medium truncate w-full text-center">{{ task.name }}</span>
                 <Badge :variant="getStatusVariant(task.status)" class="mt-1 text-xs">
-                  {{ formatTaskStatus(task.status) }}
+                  {{ formatBackgroundAgentStatus(task.status) }}
                 </Badge>
                 <span class="text-xs text-muted-foreground mt-1">{{
                   formatSchedule(task.schedule)
@@ -343,7 +333,7 @@ function handleTaskCreated() {
               <span
                 class="h-2 w-2 rounded-full inline-block shrink-0"
                 :class="getStatusIndicatorClass(task.status)"
-                :title="formatTaskStatus(task.status)"
+                :title="formatBackgroundAgentStatus(task.status)"
               />
 
               <!-- Icon -->
@@ -357,7 +347,7 @@ function handleTaskCreated() {
               <span class="flex-1 text-sm truncate">{{ task.name }}</span>
 
               <Badge :variant="getStatusVariant(task.status)" class="text-xs shrink-0">
-                {{ formatTaskStatus(task.status) }}
+                {{ formatBackgroundAgentStatus(task.status) }}
               </Badge>
 
               <span class="text-xs text-muted-foreground shrink-0">{{
@@ -448,9 +438,6 @@ function handleTaskCreated() {
     </div>
 
     <!-- Create Task Dialog -->
-    <CreateTaskDialog
-      v-model:open="showCreateDialog"
-      @created="handleTaskCreated"
-    />
+    <CreateBackgroundAgentDialog v-model:open="showCreateDialog" @created="handleTaskCreated" />
   </div>
 </template>

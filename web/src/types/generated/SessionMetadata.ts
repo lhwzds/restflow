@@ -3,24 +3,25 @@
 /**
  * Session metadata for tracking usage
  */
-export type SessionMetadata = { 
-/**
- * Total tokens used
- */
-total_tokens: bigint, 
-/**
- * Total sub-agents spawned
- */
-total_subagents_spawned: number, 
-/**
- * Total tool calls made
- */
-total_tools_called: number, 
-/**
- * Total message count
- */
-message_count: number, 
-/**
- * Skills used in this session
- */
-skills_used: Array<string>, };
+export type SessionMetadata = {
+  /**
+   * Total tokens used
+   */
+  total_tokens: bigint
+  /**
+   * Total sub-agents spawned
+   */
+  total_subagents_spawned: number
+  /**
+   * Total tool calls made
+   */
+  total_tools_called: number
+  /**
+   * Total message count
+   */
+  message_count: number
+  /**
+   * Skills used in this session
+   */
+  skills_used: Array<string>
+}

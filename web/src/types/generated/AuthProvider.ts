@@ -3,4 +3,4 @@
 /**
  * Provider type for the credential
  */
-export type AuthProvider = "anthropic" | "openai" | "google" | "other";
+export type AuthProvider = 'anthropic' | 'openai' | 'google' | 'other'

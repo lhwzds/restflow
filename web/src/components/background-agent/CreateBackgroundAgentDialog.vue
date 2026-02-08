@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * CreateTaskDialog Component
+ * CreateBackgroundAgentDialog Component
  *
  * Dialog for creating new agent tasks with schedule configuration,
  * agent selection, and optional notification settings.
@@ -31,7 +31,7 @@ import type { StoredAgent } from '@/types/generated/StoredAgent'
 import type { TaskSchedule } from '@/types/generated/TaskSchedule'
 import type { NotificationConfig } from '@/types/generated/NotificationConfig'
 import type { ExecutionMode } from '@/types/generated/ExecutionMode'
-import type { CreateAgentTaskRequest } from '@/api/agent-task'
+import type { CreateBackgroundAgentRequest } from '@/api/background-agent'
 import { listAgents } from '@/api/agents'
 import { useToast } from '@/composables/useToast'
 
@@ -41,7 +41,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   'update:open': [value: boolean]
-  create: [request: CreateAgentTaskRequest]
+  create: [request: CreateBackgroundAgentRequest]
 }>()
 
 const toast = useToast()
@@ -214,7 +214,7 @@ async function handleSubmit() {
 
   isSubmitting.value = true
   try {
-    const request: CreateAgentTaskRequest = {
+    const request: CreateBackgroundAgentRequest = {
       name: form.name.trim(),
       agent_id: form.agentId,
       schedule: buildSchedule(),
@@ -311,7 +311,11 @@ function handleCancel() {
               </SelectContent>
             </Select>
             <p class="text-xs text-muted-foreground">
-              {{ form.executionModeType === 'api' ? 'Use built-in RestFlow AI executor' : 'Use external CLI tool like Claude Code, Aider, etc.' }}
+              {{
+                form.executionModeType === 'api'
+                  ? 'Use built-in RestFlow AI executor'
+                  : 'Use external CLI tool like Claude Code, Aider, etc.'
+              }}
             </p>
           </div>
 

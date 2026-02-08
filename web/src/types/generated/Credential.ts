@@ -3,40 +3,49 @@
 /**
  * Credential type representing different authentication methods
  */
-export type Credential = { "type": "api_key", 
-/**
- * The API key value
- */
-key: string, 
-/**
- * Associated email/account (optional)
- */
-email: string | null, } | { "type": "token", 
-/**
- * The session token
- */
-token: string, 
-/**
- * Token expiration time
- */
-expires_at: string | null, 
-/**
- * Associated email/account
- */
-email: string | null, } | { "type": "o_auth", 
-/**
- * Access token for API calls
- */
-access_token: string, 
-/**
- * Refresh token for obtaining new access tokens
- */
-refresh_token: string | null, 
-/**
- * Access token expiration time
- */
-expires_at: string | null, 
-/**
- * Associated email/account
- */
-email: string | null, };
+export type Credential =
+  | {
+      type: 'api_key'
+      /**
+       * The API key value
+       */
+      key: string
+      /**
+       * Associated email/account (optional)
+       */
+      email: string | null
+    }
+  | {
+      type: 'token'
+      /**
+       * The session token
+       */
+      token: string
+      /**
+       * Token expiration time
+       */
+      expires_at: string | null
+      /**
+       * Associated email/account
+       */
+      email: string | null
+    }
+  | {
+      type: 'o_auth'
+      /**
+       * Access token for API calls
+       */
+      access_token: string
+      /**
+       * Refresh token for obtaining new access tokens
+       */
+      refresh_token: string | null
+      /**
+       * Access token expiration time
+       */
+      expires_at: string | null
+      /**
+       * Associated email/account
+       */
+      email: string | null
+    }

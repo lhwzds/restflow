@@ -4,9 +4,10 @@ use restflow_core::auth::{AuthProfile, AuthProvider, Credential, CredentialSourc
 use restflow_core::daemon::{IpcRequest, IpcResponse};
 use restflow_core::memory::{ExportResult, RankedSearchResult};
 use restflow_core::models::{
-    AgentExecuteResponse, AgentNode, AgentTask, BackgroundMessageSource, ChatMessage, ChatRole,
-    ChatSession, ChatSessionSummary, ChatSessionUpdate, MemoryChunk, MemorySearchResult,
-    MemorySession, MemoryStats, Skill, TaskEvent, TaskSchedule, TerminalSession,
+    AgentExecuteResponse, AgentNode, AgentTask, BackgroundAgentControlAction, BackgroundAgentPatch,
+    BackgroundAgentSpec, BackgroundMessageSource, ChatMessage, ChatRole, ChatSession,
+    ChatSessionSummary, ChatSessionUpdate, MemoryChunk, MemorySearchResult, MemorySession,
+    MemoryStats, Skill, TaskEvent, TerminalSession,
 };
 use restflow_core::storage::SystemConfig;
 use serde::de::DeserializeOwned;
@@ -103,55 +104,53 @@ impl TauriExecutor {
         Ok(())
     }
 
-    pub async fn list_tasks(&self) -> Result<Vec<AgentTask>> {
-        self.request(IpcRequest::ListTasks).await
+    pub async fn list_background_agents(&self, status: Option<String>) -> Result<Vec<AgentTask>> {
+        self.request(IpcRequest::ListBackgroundAgents { status })
+            .await
     }
 
-    pub async fn list_tasks_by_status(&self, status: String) -> Result<Vec<AgentTask>> {
-        self.request(IpcRequest::ListTasksByStatus { status }).await
+    pub async fn get_background_agent(&self, id: String) -> Result<Option<AgentTask>> {
+        self.request_optional(IpcRequest::GetBackgroundAgent { id })
+            .await
     }
 
-    pub async fn get_task(&self, id: String) -> Result<Option<AgentTask>> {
-        self.request_optional(IpcRequest::GetTask { id }).await
+    pub async fn create_background_agent(&self, spec: BackgroundAgentSpec) -> Result<AgentTask> {
+        self.request(IpcRequest::CreateBackgroundAgent { spec })
+            .await
     }
 
-    pub async fn create_task(
+    pub async fn update_background_agent(
         &self,
-        name: String,
-        agent_id: String,
-        schedule: TaskSchedule,
+        id: String,
+        patch: BackgroundAgentPatch,
     ) -> Result<AgentTask> {
-        self.request(IpcRequest::CreateTask {
-            name,
-            agent_id,
-            schedule,
-        })
-        .await
+        self.request(IpcRequest::UpdateBackgroundAgent { id, patch })
+            .await
     }
 
-    pub async fn update_task(&self, task: AgentTask) -> Result<AgentTask> {
-        self.request(IpcRequest::UpdateTask { task }).await
-    }
-
-    pub async fn delete_task(&self, id: String) -> Result<bool> {
+    pub async fn delete_background_agent(&self, id: String) -> Result<bool> {
         #[derive(serde::Deserialize)]
         struct DeleteResponse {
             deleted: bool,
         }
-        let response: DeleteResponse = self.request(IpcRequest::DeleteTask { id }).await?;
+        let response: DeleteResponse = self
+            .request(IpcRequest::DeleteBackgroundAgent { id })
+            .await?;
         Ok(response.deleted)
     }
 
-    pub async fn pause_task(&self, id: String) -> Result<AgentTask> {
-        self.request(IpcRequest::PauseTask { id }).await
+    pub async fn control_background_agent(
+        &self,
+        id: String,
+        action: BackgroundAgentControlAction,
+    ) -> Result<AgentTask> {
+        self.request(IpcRequest::ControlBackgroundAgent { id, action })
+            .await
     }
 
-    pub async fn resume_task(&self, id: String) -> Result<AgentTask> {
-        self.request(IpcRequest::ResumeTask { id }).await
-    }
-
-    pub async fn get_task_history(&self, id: String) -> Result<Vec<TaskEvent>> {
-        self.request(IpcRequest::GetTaskHistory { id }).await
+    pub async fn get_background_agent_history(&self, id: String) -> Result<Vec<TaskEvent>> {
+        self.request(IpcRequest::GetBackgroundAgentHistory { id })
+            .await
     }
 
     pub async fn send_background_agent_message(

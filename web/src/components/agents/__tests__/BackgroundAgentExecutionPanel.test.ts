@@ -1,11 +1,11 @@
 /**
- * Tests for TaskExecutionPanel component
+ * Tests for BackgroundAgentExecutionPanel component
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { mount, VueWrapper } from '@vue/test-utils'
 import { ref, nextTick } from 'vue'
-import TaskExecutionPanel from '../TaskExecutionPanel.vue'
+import BackgroundAgentExecutionPanel from '../BackgroundAgentExecutionPanel.vue'
 
 // Mock the composable
 const mockState = ref<any>(null)
@@ -23,8 +23,8 @@ const mockStopListening = vi.fn()
 const mockRunTask = vi.fn()
 const mockCancel = vi.fn()
 
-vi.mock('@/composables/agents/useTaskStreamEvents', () => ({
-  useTaskStreamEvents: vi.fn(() => ({
+vi.mock('@/composables/agents/useBackgroundAgentStreamEvents', () => ({
+  useBackgroundAgentStreamEvents: vi.fn(() => ({
     state: mockState,
     isListening: mockIsListening,
     isRunning: mockIsRunning,
@@ -77,7 +77,7 @@ vi.mock('@/components/ui/card', () => ({
   },
 }))
 
-describe('TaskExecutionPanel', () => {
+describe('BackgroundAgentExecutionPanel', () => {
   let wrapper: VueWrapper<any>
 
   beforeEach(() => {
@@ -99,7 +99,7 @@ describe('TaskExecutionPanel', () => {
   })
 
   function createWrapper(props = {}) {
-    return mount(TaskExecutionPanel, {
+    return mount(BackgroundAgentExecutionPanel, {
       props: {
         taskId: 'test-task-123',
         ...props,

@@ -2,7 +2,13 @@
 import { ref, onMounted, watch } from 'vue'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -64,7 +70,10 @@ async function performSearch() {
   try {
     results.value = await searchMarketplace({
       query: searchQuery.value || undefined,
-      category: selectedCategory.value && selectedCategory.value !== 'All' ? selectedCategory.value : undefined,
+      category:
+        selectedCategory.value && selectedCategory.value !== 'All'
+          ? selectedCategory.value
+          : undefined,
       sort: sortOrder.value,
       includeGithub: includeGithub.value,
       limit: 50,
@@ -91,7 +100,7 @@ async function loadInstalledSkills() {
 }
 
 function handleViewDetails(id: string) {
-  const skill = results.value.find(r => r.manifest.id === id)
+  const skill = results.value.find((r) => r.manifest.id === id)
   if (skill) {
     selectedSkill.value = skill
     showDetailModal.value = true
@@ -134,10 +143,7 @@ function clearFilters() {
 }
 
 onMounted(async () => {
-  await Promise.all([
-    performSearch(),
-    loadInstalledSkills(),
-  ])
+  await Promise.all([performSearch(), loadInstalledSkills()])
 })
 </script>
 
@@ -156,14 +162,12 @@ onMounted(async () => {
       <!-- Search & Filters -->
       <div class="flex flex-col sm:flex-row gap-4">
         <div class="relative flex-1">
-          <Search class="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input
-            v-model="searchQuery"
-            placeholder="Search skills..."
-            class="pl-9"
+          <Search
+            class="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground"
           />
+          <Input v-model="searchQuery" placeholder="Search skills..." class="pl-9" />
         </div>
-        
+
         <div class="flex gap-2">
           <Select v-model="selectedCategory">
             <SelectTrigger class="w-[150px]">
@@ -197,18 +201,23 @@ onMounted(async () => {
           <Label for="github" class="text-sm">Include GitHub</Label>
         </div>
 
-        <div v-if="searchQuery || (selectedCategory && selectedCategory !== 'All')" class="flex items-center gap-2">
+        <div
+          v-if="searchQuery || (selectedCategory && selectedCategory !== 'All')"
+          class="flex items-center gap-2"
+        >
           <Badge v-if="searchQuery" variant="secondary" class="gap-1">
             "{{ searchQuery }}"
             <X class="w-3 h-3 cursor-pointer" @click="searchQuery = ''" />
           </Badge>
-          <Badge v-if="selectedCategory && selectedCategory !== 'All'" variant="secondary" class="gap-1">
+          <Badge
+            v-if="selectedCategory && selectedCategory !== 'All'"
+            variant="secondary"
+            class="gap-1"
+          >
             {{ selectedCategory }}
             <X class="w-3 h-3 cursor-pointer" @click="selectedCategory = ''" />
           </Badge>
-          <Button variant="ghost" size="sm" @click="clearFilters">
-            Clear all
-          </Button>
+          <Button variant="ghost" size="sm" @click="clearFilters"> Clear all </Button>
         </div>
       </div>
     </div>
@@ -217,22 +226,26 @@ onMounted(async () => {
     <ScrollArea class="flex-1">
       <div class="p-4">
         <!-- Loading State -->
-        <div v-if="loading" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+        <div
+          v-if="loading"
+          class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4"
+        >
           <div v-for="i in 8" :key="i" class="space-y-3">
             <Skeleton class="h-[200px] w-full rounded-lg" />
           </div>
         </div>
 
         <!-- Empty State -->
-        <div v-else-if="results.length === 0" class="flex flex-col items-center justify-center py-16">
+        <div
+          v-else-if="results.length === 0"
+          class="flex flex-col items-center justify-center py-16"
+        >
           <Filter class="w-12 h-12 text-muted-foreground mb-4" />
           <h3 class="text-lg font-medium mb-2">No skills found</h3>
           <p class="text-muted-foreground text-center max-w-md">
             Try adjusting your search or filters to find what you're looking for.
           </p>
-          <Button variant="outline" class="mt-4" @click="clearFilters">
-            Clear filters
-          </Button>
+          <Button variant="outline" class="mt-4" @click="clearFilters"> Clear filters </Button>
         </div>
 
         <!-- Results Grid -->

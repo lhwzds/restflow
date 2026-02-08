@@ -188,133 +188,135 @@ function setEditValue(key: string, value: string) {
 
         <!-- Secrets Section -->
         <div class="flex flex-col space-y-3">
-        <div class="flex items-center justify-between">
-          <h3 class="text-sm font-medium flex items-center gap-2">
-            <Key :size="14" />
-            Secrets
-          </h3>
-          <Button
-            v-if="editState.mode !== 'creating'"
-            variant="ghost"
-            size="sm"
-            class="h-7 text-xs"
-            @click="handleAddSecret"
-          >
-            <Plus :size="12" class="mr-1" />
-            Add
-          </Button>
-        </div>
-
-        <!-- Secrets List -->
-        <div class="flex-1 space-y-1 overflow-auto">
-          <!-- New Secret Row -->
-          <div
-            v-if="editState.mode === 'creating'"
-            class="flex items-center gap-2 p-2 rounded-lg bg-muted/30"
-          >
-            <Input
-              v-model="editState.newRow!.key"
-              placeholder="KEY_NAME"
-              class="h-7 w-32 text-xs font-mono"
-              @blur="formatKeyOnBlur"
-            />
-            <div class="relative flex-1">
-              <Input
-                v-model="editState.newRow!.value"
-                placeholder="Value"
-                :type="showNewPassword ? 'text' : 'password'"
-                class="h-7 text-xs pr-7"
-              />
-              <Button
-                variant="ghost"
-                size="icon"
-                class="absolute right-0 top-0 h-7 w-7"
-                @click="showNewPassword = !showNewPassword"
-              >
-                <Eye v-if="!showNewPassword" :size="12" />
-                <EyeOff v-else :size="12" />
-              </Button>
-            </div>
-            <Button size="icon" class="h-7 w-7 shrink-0" @click="saveNewSecret">
-              <Check :size="12" />
-            </Button>
-            <Button variant="ghost" size="icon" class="h-7 w-7 shrink-0" @click="cancelEdit">
-              <X :size="12" />
+          <div class="flex items-center justify-between">
+            <h3 class="text-sm font-medium flex items-center gap-2">
+              <Key :size="14" />
+              Secrets
+            </h3>
+            <Button
+              v-if="editState.mode !== 'creating'"
+              variant="ghost"
+              size="sm"
+              class="h-7 text-xs"
+              @click="handleAddSecret"
+            >
+              <Plus :size="12" class="mr-1" />
+              Add
             </Button>
           </div>
 
-          <!-- Existing Secrets -->
-          <div
-            v-for="row in secrets"
-            :key="row.key"
-            class="flex items-center gap-2 p-2 rounded-lg hover:bg-muted/30"
-          >
-            <!-- Editing Mode -->
-            <template v-if="isEditing(row)">
-              <span class="font-mono text-xs text-primary w-32 truncate shrink-0">{{
-                row.key
-              }}</span>
+          <!-- Secrets List -->
+          <div class="flex-1 space-y-1 overflow-auto">
+            <!-- New Secret Row -->
+            <div
+              v-if="editState.mode === 'creating'"
+              class="flex items-center gap-2 p-2 rounded-lg bg-muted/30"
+            >
+              <Input
+                v-model="editState.newRow!.key"
+                placeholder="KEY_NAME"
+                class="h-7 w-32 text-xs font-mono"
+                @blur="formatKeyOnBlur"
+              />
               <div class="relative flex-1">
                 <Input
-                  :model-value="getEditValue(row.key)"
-                  @update:model-value="(val: string | number) => setEditValue(row.key, String(val))"
-                  placeholder="New value"
-                  :type="showEditPassword ? 'text' : 'password'"
+                  v-model="editState.newRow!.value"
+                  placeholder="Value"
+                  :type="showNewPassword ? 'text' : 'password'"
                   class="h-7 text-xs pr-7"
                 />
                 <Button
                   variant="ghost"
                   size="icon"
                   class="absolute right-0 top-0 h-7 w-7"
-                  @click="showEditPassword = !showEditPassword"
+                  @click="showNewPassword = !showNewPassword"
                 >
-                  <Eye v-if="!showEditPassword" :size="12" />
+                  <Eye v-if="!showNewPassword" :size="12" />
                   <EyeOff v-else :size="12" />
                 </Button>
               </div>
-              <Button size="icon" class="h-7 w-7 shrink-0" @click="saveEditedSecret(row.key)">
+              <Button size="icon" class="h-7 w-7 shrink-0" @click="saveNewSecret">
                 <Check :size="12" />
               </Button>
               <Button variant="ghost" size="icon" class="h-7 w-7 shrink-0" @click="cancelEdit">
                 <X :size="12" />
               </Button>
-            </template>
+            </div>
 
-            <!-- View Mode -->
-            <template v-else>
-              <span class="font-mono text-xs text-primary w-32 truncate shrink-0">{{
-                row.key
-              }}</span>
-              <span class="flex-1 text-xs text-muted-foreground">••••••••</span>
-              <Button
-                variant="ghost"
-                size="icon"
-                class="h-6 w-6 shrink-0"
-                @click="handleEditSecret(row)"
-                :disabled="editState.mode !== 'idle'"
-              >
-                <Pencil :size="12" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                class="h-6 w-6 shrink-0 text-destructive hover:text-destructive"
-                @click="handleDeleteSecret(row)"
-                :disabled="editState.mode !== 'idle'"
-              >
-                <Trash2 :size="12" />
-              </Button>
-            </template>
-          </div>
+            <!-- Existing Secrets -->
+            <div
+              v-for="row in secrets"
+              :key="row.key"
+              class="flex items-center gap-2 p-2 rounded-lg hover:bg-muted/30"
+            >
+              <!-- Editing Mode -->
+              <template v-if="isEditing(row)">
+                <span class="font-mono text-xs text-primary w-32 truncate shrink-0">{{
+                  row.key
+                }}</span>
+                <div class="relative flex-1">
+                  <Input
+                    :model-value="getEditValue(row.key)"
+                    @update:model-value="
+                      (val: string | number) => setEditValue(row.key, String(val))
+                    "
+                    placeholder="New value"
+                    :type="showEditPassword ? 'text' : 'password'"
+                    class="h-7 text-xs pr-7"
+                  />
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    class="absolute right-0 top-0 h-7 w-7"
+                    @click="showEditPassword = !showEditPassword"
+                  >
+                    <Eye v-if="!showEditPassword" :size="12" />
+                    <EyeOff v-else :size="12" />
+                  </Button>
+                </div>
+                <Button size="icon" class="h-7 w-7 shrink-0" @click="saveEditedSecret(row.key)">
+                  <Check :size="12" />
+                </Button>
+                <Button variant="ghost" size="icon" class="h-7 w-7 shrink-0" @click="cancelEdit">
+                  <X :size="12" />
+                </Button>
+              </template>
 
-          <!-- Empty State -->
-          <div
-            v-if="!isLoading && secrets.length === 0 && editState.mode !== 'creating'"
-            class="py-4 text-center text-muted-foreground text-xs"
-          >
-            No secrets yet
+              <!-- View Mode -->
+              <template v-else>
+                <span class="font-mono text-xs text-primary w-32 truncate shrink-0">{{
+                  row.key
+                }}</span>
+                <span class="flex-1 text-xs text-muted-foreground">••••••••</span>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  class="h-6 w-6 shrink-0"
+                  @click="handleEditSecret(row)"
+                  :disabled="editState.mode !== 'idle'"
+                >
+                  <Pencil :size="12" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  class="h-6 w-6 shrink-0 text-destructive hover:text-destructive"
+                  @click="handleDeleteSecret(row)"
+                  :disabled="editState.mode !== 'idle'"
+                >
+                  <Trash2 :size="12" />
+                </Button>
+              </template>
+            </div>
+
+            <!-- Empty State -->
+            <div
+              v-if="!isLoading && secrets.length === 0 && editState.mode !== 'creating'"
+              class="py-4 text-center text-muted-foreground text-xs"
+            >
+              No secrets yet
+            </div>
           </div>
-        </div>
         </div>
       </div>
     </DialogContent>

@@ -4,7 +4,7 @@
 //!
 //! # Streaming Events
 //!
-//! The `run_agent_task_streaming` command executes a task immediately and streams
+//! The `run_background_agent_streaming` command executes a task immediately and streams
 //! real-time events to the frontend via Tauri's event system. Frontend should
 //! listen to the `background-agent:stream` event to receive `TaskStreamEvent` updates.
 //!
@@ -20,7 +20,8 @@
 use crate::agent_task::{TASK_STREAM_EVENT, TaskStreamEvent, TauriEventEmitter};
 use crate::state::AppState;
 use restflow_core::models::{
-    AgentTask, AgentTaskStatus, ExecutionMode, MemoryConfig, MemoryScope, NotificationConfig,
+    AgentTask, AgentTaskStatus, BackgroundAgentControlAction, BackgroundAgentPatch,
+    BackgroundAgentSpec, ExecutionMode, MemoryConfig, MemoryScope, NotificationConfig,
     SteerMessage, SteerSource, TaskEvent, TaskSchedule,
 };
 use serde::{Deserialize, Serialize};
@@ -28,7 +29,7 @@ use tauri::{AppHandle, Emitter, State};
 
 /// Request to create a new agent task
 #[derive(Debug, Deserialize)]
-pub struct CreateAgentTaskRequest {
+pub struct CreateBackgroundAgentRequest {
     /// Display name of the task
     pub name: String,
     /// ID of the agent to execute
@@ -60,7 +61,7 @@ pub struct CreateAgentTaskRequest {
 
 /// Request to update an existing agent task
 #[derive(Debug, Deserialize)]
-pub struct UpdateAgentTaskRequest {
+pub struct UpdateBackgroundAgentRequest {
     /// New display name (optional)
     #[serde(default)]
     pub name: Option<String>,
@@ -92,17 +93,17 @@ pub struct UpdateAgentTaskRequest {
 
 /// List all agent tasks
 #[tauri::command]
-pub async fn list_agent_tasks(state: State<'_, AppState>) -> Result<Vec<AgentTask>, String> {
+pub async fn list_background_agents(state: State<'_, AppState>) -> Result<Vec<AgentTask>, String> {
     state
         .executor()
-        .list_tasks()
+        .list_background_agents(None)
         .await
         .map_err(|e| e.to_string())
 }
 
 /// List agent tasks filtered by status
 #[tauri::command]
-pub async fn list_agent_tasks_by_status(
+pub async fn list_background_agents_by_status(
     state: State<'_, AppState>,
     status: AgentTaskStatus,
 ) -> Result<Vec<AgentTask>, String> {
@@ -115,17 +116,20 @@ pub async fn list_agent_tasks_by_status(
     };
     state
         .executor()
-        .list_tasks_by_status(status_str.to_string())
+        .list_background_agents(Some(status_str.to_string()))
         .await
         .map_err(|e| e.to_string())
 }
 
 /// Get an agent task by ID
 #[tauri::command]
-pub async fn get_agent_task(state: State<'_, AppState>, id: String) -> Result<AgentTask, String> {
+pub async fn get_background_agent(
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<AgentTask, String> {
     state
         .executor()
-        .get_task(id.clone())
+        .get_background_agent(id.clone())
         .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Background agent '{}' not found", id))
@@ -133,159 +137,97 @@ pub async fn get_agent_task(state: State<'_, AppState>, id: String) -> Result<Ag
 
 /// Create a new agent task
 #[tauri::command]
-pub async fn create_agent_task(
+pub async fn create_background_agent(
     state: State<'_, AppState>,
-    request: CreateAgentTaskRequest,
+    request: CreateBackgroundAgentRequest,
 ) -> Result<AgentTask, String> {
-    // Create the task with basic info
-    let mut task = state
+    let spec = BackgroundAgentSpec {
+        name: request.name,
+        agent_id: request.agent_id,
+        description: request.description,
+        input: request.input,
+        input_template: request.input_template,
+        schedule: request.schedule,
+        notification: request.notification,
+        execution_mode: request.execution_mode,
+        memory: merge_memory_scope(request.memory, request.memory_scope),
+    };
+
+    state
         .executor()
-        .create_task(request.name, request.agent_id, request.schedule)
+        .create_background_agent(spec)
         .await
-        .map_err(|e| e.to_string())?;
-
-    // Apply optional fields if provided
-    let mut needs_update = false;
-
-    if let Some(description) = request.description {
-        task.description = Some(description);
-        needs_update = true;
-    }
-
-    if let Some(input) = request.input {
-        task.input = Some(input);
-        needs_update = true;
-    }
-    if let Some(input_template) = request.input_template {
-        task.input_template = Some(input_template);
-        needs_update = true;
-    }
-
-    if let Some(notification) = request.notification {
-        task.notification = notification;
-        needs_update = true;
-    }
-
-    if let Some(execution_mode) = request.execution_mode {
-        task.execution_mode = execution_mode;
-        needs_update = true;
-    }
-
-    if request.memory.is_some() || request.memory_scope.is_some() {
-        task.memory = merge_memory_scope(request.memory, request.memory_scope);
-        needs_update = true;
-    }
-
-    // Update if we modified any optional fields
-    if needs_update {
-        task = state
-            .executor()
-            .update_task(task)
-            .await
-            .map_err(|e| e.to_string())?;
-    }
-
-    Ok(task)
+        .map_err(|e| e.to_string())
 }
 
 /// Update an existing agent task
 #[tauri::command]
-pub async fn update_agent_task(
+pub async fn update_background_agent(
     state: State<'_, AppState>,
     id: String,
-    request: UpdateAgentTaskRequest,
+    request: UpdateBackgroundAgentRequest,
 ) -> Result<AgentTask, String> {
-    // Get existing task
-    let mut task = state
+    let patch = BackgroundAgentPatch {
+        name: request.name,
+        description: request.description,
+        agent_id: request.agent_id,
+        input: request.input,
+        input_template: request.input_template,
+        schedule: request.schedule,
+        notification: request.notification,
+        execution_mode: None,
+        memory: merge_memory_scope(request.memory, request.memory_scope),
+    };
+
+    state
         .executor()
-        .get_task(id.clone())
+        .update_background_agent(id, patch)
         .await
-        .map_err(|e| e.to_string())?
-        .ok_or_else(|| format!("Background agent '{}' not found", id))?;
-
-    // Apply updates
-    if let Some(name) = request.name {
-        task.name = name;
-    }
-
-    if let Some(description) = request.description {
-        task.description = Some(description);
-    }
-
-    if let Some(agent_id) = request.agent_id {
-        task.agent_id = agent_id;
-    }
-
-    if let Some(input) = request.input {
-        task.input = Some(input);
-    }
-    if let Some(input_template) = request.input_template {
-        task.input_template = Some(input_template);
-    }
-
-    if let Some(schedule) = request.schedule {
-        task.schedule = schedule;
-        // Recalculate next run time when schedule changes
-        task.update_next_run();
-    }
-
-    if let Some(notification) = request.notification {
-        task.notification = notification;
-    }
-
-    if request.memory.is_some() || request.memory_scope.is_some() {
-        task.memory = merge_memory_scope(request.memory, request.memory_scope);
-    }
-
-    // Update timestamp
-    task.updated_at = chrono::Utc::now().timestamp_millis();
-
-    // Save changes via executor
-    let task = state
-        .executor()
-        .update_task(task)
-        .await
-        .map_err(|e| e.to_string())?;
-
-    Ok(task)
+        .map_err(|e| e.to_string())
 }
 
 /// Delete an agent task
 #[tauri::command]
-pub async fn delete_agent_task(state: State<'_, AppState>, id: String) -> Result<bool, String> {
+pub async fn delete_background_agent(
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<bool, String> {
     state
         .executor()
-        .delete_task(id)
+        .delete_background_agent(id)
         .await
         .map_err(|e| e.to_string())
 }
 
 /// Pause an agent task
 #[tauri::command]
-pub async fn pause_agent_task(state: State<'_, AppState>, id: String) -> Result<AgentTask, String> {
+pub async fn pause_background_agent(
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<AgentTask, String> {
     state
         .executor()
-        .pause_task(id)
+        .control_background_agent(id, BackgroundAgentControlAction::Pause)
         .await
         .map_err(|e| e.to_string())
 }
 
 /// Resume a paused agent task
 #[tauri::command]
-pub async fn resume_agent_task(
+pub async fn resume_background_agent(
     state: State<'_, AppState>,
     id: String,
 ) -> Result<AgentTask, String> {
     state
         .executor()
-        .resume_task(id)
+        .control_background_agent(id, BackgroundAgentControlAction::Resume)
         .await
         .map_err(|e| e.to_string())
 }
 
 /// Cancel a running agent task
 #[tauri::command]
-pub async fn cancel_agent_task(
+pub async fn cancel_background_agent(
     state: State<'_, AppState>,
     task_id: String,
 ) -> Result<bool, String> {
@@ -322,14 +264,14 @@ pub async fn steer_task(
 
 /// Get events for a specific task
 #[tauri::command]
-pub async fn get_agent_task_events(
+pub async fn get_background_agent_events(
     state: State<'_, AppState>,
     task_id: String,
     limit: Option<usize>,
 ) -> Result<Vec<TaskEvent>, String> {
     let mut events = state
         .executor()
-        .get_task_history(task_id)
+        .get_background_agent_history(task_id)
         .await
         .map_err(|e| e.to_string())?;
 
@@ -343,7 +285,7 @@ pub async fn get_agent_task_events(
 
 /// Get runnable tasks (tasks that should run now based on schedule)
 #[tauri::command]
-pub async fn get_runnable_agent_tasks(
+pub async fn get_runnable_background_agents(
     state: State<'_, AppState>,
 ) -> Result<Vec<AgentTask>, String> {
     let current_time = chrono::Utc::now().timestamp_millis();
@@ -357,18 +299,18 @@ pub async fn get_runnable_agent_tasks(
 fn merge_memory_scope(
     memory: Option<MemoryConfig>,
     memory_scope: Option<MemoryScope>,
-) -> MemoryConfig {
+) -> Option<MemoryConfig> {
     match (memory, memory_scope) {
         (Some(mut memory), Some(scope)) => {
             memory.memory_scope = scope;
-            memory
+            Some(memory)
         }
-        (Some(memory), None) => memory,
-        (None, Some(scope)) => MemoryConfig {
+        (Some(memory), None) => Some(memory),
+        (None, Some(scope)) => Some(MemoryConfig {
             memory_scope: scope,
             ..MemoryConfig::default()
-        },
-        (None, None) => MemoryConfig::default(),
+        }),
+        (None, None) => None,
     }
 }
 
@@ -378,7 +320,7 @@ fn merge_memory_scope(
 
 /// Response for streaming task execution
 #[derive(Debug, Clone, Serialize)]
-pub struct StreamingTaskResponse {
+pub struct StreamingBackgroundAgentResponse {
     /// Task ID that was started
     pub task_id: String,
     /// Event channel name to listen on
@@ -399,7 +341,7 @@ pub struct StreamingTaskResponse {
 ///
 /// # Returns
 ///
-/// Returns a `StreamingTaskResponse` with the task ID and event channel name.
+/// Returns a `StreamingBackgroundAgentResponse` with the task ID and event channel name.
 ///
 /// # Events
 ///
@@ -436,15 +378,15 @@ pub struct StreamingTaskResponse {
 /// });
 ///
 /// // Trigger task execution
-/// const response = await invoke('run_agent_task_streaming', { id: 'task-123' });
+/// const response = await invoke('run_background_agent_streaming', { id: 'task-123' });
 /// console.log('Started task:', response.task_id);
 /// ```
 #[tauri::command]
-pub async fn run_agent_task_streaming(
+pub async fn run_background_agent_streaming(
     state: State<'_, AppState>,
     app_handle: AppHandle,
     id: String,
-) -> Result<StreamingTaskResponse, String> {
+) -> Result<StreamingBackgroundAgentResponse, String> {
     // Check if task exists
     let core = state.core.as_ref().ok_or("AppCore not available")?;
     let task = core
@@ -457,7 +399,7 @@ pub async fn run_agent_task_streaming(
     // Check if already running
     let already_running = state.is_task_running(&id).await;
     if already_running {
-        return Ok(StreamingTaskResponse {
+        return Ok(StreamingBackgroundAgentResponse {
             task_id: id,
             event_channel: TASK_STREAM_EVENT.to_string(),
             already_running: true,
@@ -486,7 +428,7 @@ pub async fn run_agent_task_streaming(
         return Err(e.to_string());
     }
 
-    Ok(StreamingTaskResponse {
+    Ok(StreamingBackgroundAgentResponse {
         task_id: id,
         event_channel: TASK_STREAM_EVENT.to_string(),
         already_running: false,
@@ -495,7 +437,7 @@ pub async fn run_agent_task_streaming(
 
 /// Information about an active/running task
 #[derive(Debug, Clone, Serialize)]
-pub struct ActiveTaskInfo {
+pub struct ActiveBackgroundAgentInfo {
     /// Task ID
     pub task_id: String,
     /// Task name
@@ -512,9 +454,9 @@ pub struct ActiveTaskInfo {
 ///
 /// Returns information about all tasks that are currently being executed.
 #[tauri::command]
-pub async fn get_active_agent_tasks(
+pub async fn get_active_background_agents(
     state: State<'_, AppState>,
-) -> Result<Vec<ActiveTaskInfo>, String> {
+) -> Result<Vec<ActiveBackgroundAgentInfo>, String> {
     state.get_active_tasks().await.map_err(|e| e.to_string())
 }
 
@@ -522,7 +464,7 @@ pub async fn get_active_agent_tasks(
 ///
 /// This is useful for debugging and testing the event system from the frontend.
 #[tauri::command]
-pub async fn emit_test_task_event(
+pub async fn emit_test_background_agent_event(
     app_handle: AppHandle,
     task_id: String,
     message: String,
@@ -553,7 +495,7 @@ pub async fn emit_test_task_event(
 /// unlisten();
 /// ```
 #[tauri::command]
-pub fn get_task_stream_event_name() -> String {
+pub fn get_background_agent_stream_event_name() -> String {
     TASK_STREAM_EVENT.to_string()
 }
 
@@ -574,7 +516,7 @@ use crate::agent_task::HEARTBEAT_EVENT;
 /// import { listen } from '@tauri-apps/api/event';
 /// import type { HeartbeatEvent } from './types/generated';
 ///
-/// const unlisten = await listen<HeartbeatEvent>('agent-task:heartbeat', (event) => {
+/// const unlisten = await listen<HeartbeatEvent>('background-agent:heartbeat', (event) => {
 ///   console.log('Heartbeat:', event.payload);
 /// });
 /// ```
@@ -597,14 +539,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_create_agent_task_request_deserialize() {
+    async fn test_create_background_agent_request_deserialize() {
         let json = r#"{
             "name": "Test Task",
             "agent_id": "agent-001",
             "schedule": { "type": "interval", "interval_ms": 3600000 }
         }"#;
 
-        let request: CreateAgentTaskRequest = serde_json::from_str(json).unwrap();
+        let request: CreateBackgroundAgentRequest = serde_json::from_str(json).unwrap();
         assert_eq!(request.name, "Test Task");
         assert_eq!(request.agent_id, "agent-001");
         assert!(request.description.is_none());
@@ -613,7 +555,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_create_agent_task_request_with_all_fields() {
+    async fn test_create_background_agent_request_with_all_fields() {
         let json = r#"{
             "name": "Full Task",
             "agent_id": "agent-002",
@@ -626,7 +568,7 @@ mod tests {
             }
         }"#;
 
-        let request: CreateAgentTaskRequest = serde_json::from_str(json).unwrap();
+        let request: CreateBackgroundAgentRequest = serde_json::from_str(json).unwrap();
         assert_eq!(request.name, "Full Task");
         assert_eq!(request.agent_id, "agent-002");
         assert_eq!(request.description, Some("A complete task".to_string()));
@@ -638,12 +580,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_update_agent_task_request_partial() {
+    async fn test_update_background_agent_request_partial() {
         let json = r#"{
             "name": "New Name"
         }"#;
 
-        let request: UpdateAgentTaskRequest = serde_json::from_str(json).unwrap();
+        let request: UpdateBackgroundAgentRequest = serde_json::from_str(json).unwrap();
         assert_eq!(request.name, Some("New Name".to_string()));
         assert!(request.description.is_none());
         assert!(request.agent_id.is_none());
@@ -664,7 +606,7 @@ mod tests {
             }
         }"#;
 
-        let request: CreateAgentTaskRequest = serde_json::from_str(json).unwrap();
+        let request: CreateBackgroundAgentRequest = serde_json::from_str(json).unwrap();
         match request.schedule {
             TaskSchedule::Cron {
                 expression,

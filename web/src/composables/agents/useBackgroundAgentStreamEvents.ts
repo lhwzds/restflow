@@ -10,13 +10,13 @@ import type { TaskStreamEvent } from '@/types/generated/TaskStreamEvent'
 import type { StreamEventKind } from '@/types/generated/StreamEventKind'
 import type { ExecutionStats } from '@/types/generated/ExecutionStats'
 import {
-  onTaskStreamEvent,
-  onTaskStreamEventForTask,
-  runAgentTaskStreaming,
-  cancelAgentTask,
-  getActiveAgentTasks,
+  onBackgroundAgentStreamEvent,
+  onBackgroundAgentStreamEventForAgent,
+  runBackgroundAgentStreaming,
+  cancelBackgroundAgent,
+  getActiveBackgroundAgents,
   isEventKind,
-} from '@/api/agent-task'
+} from '@/api/background-agent'
 
 /**
  * Execution state for a single task
@@ -93,7 +93,7 @@ function createInitialState(taskId: string): TaskExecutionState {
 }
 
 /**
- * Options for useTaskStreamEvents composable
+ * Options for useBackgroundAgentStreamEvents composable
  */
 export interface UseTaskStreamEventsOptions {
   /** Maximum number of output lines to keep (default: 10000) */
@@ -110,7 +110,7 @@ export interface UseTaskStreamEventsOptions {
  * @param taskId - The task ID to monitor
  * @param options - Configuration options
  */
-export function useTaskStreamEvents(
+export function useBackgroundAgentStreamEvents(
   taskId: Ref<string | null>,
   options: UseTaskStreamEventsOptions = {},
 ) {
@@ -185,10 +185,7 @@ export function useTaskStreamEvents(
   /**
    * Process output event
    */
-  function processOutput(
-    kind: Extract<StreamEventKind, { type: 'output' }>,
-    timestamp: number,
-  ) {
+  function processOutput(kind: Extract<StreamEventKind, { type: 'output' }>, timestamp: number) {
     if (!state.value) return
 
     const line: OutputLine = {
@@ -221,7 +218,7 @@ export function useTaskStreamEvents(
     state.value = createInitialState(taskId.value)
     isListening.value = true
 
-    unlistenFn = await onTaskStreamEventForTask(taskId.value, handleEvent)
+    unlistenFn = await onBackgroundAgentStreamEventForAgent(taskId.value, handleEvent)
   }
 
   /**
@@ -252,7 +249,7 @@ export function useTaskStreamEvents(
     }
 
     await startListening()
-    await runAgentTaskStreaming(taskId.value)
+    await runBackgroundAgentStreaming(taskId.value)
   }
 
   /**
@@ -262,7 +259,7 @@ export function useTaskStreamEvents(
     if (!taskId.value || state.value?.status !== 'running') {
       return false
     }
-    return cancelAgentTask(taskId.value)
+    return cancelBackgroundAgent(taskId.value)
   }
 
   // Computed properties
@@ -315,7 +312,7 @@ export function useTaskStreamEvents(
  * Use this when you need to monitor multiple tasks at once,
  * such as in a dashboard or task list view.
  */
-export function useMultiTaskStreamEvents(options: UseTaskStreamEventsOptions = {}) {
+export function useMultiBackgroundAgentStreamEvents(options: UseTaskStreamEventsOptions = {}) {
   const { maxOutputLines = 5000, maxEvents = 500 } = options
 
   const tasks = ref<Map<string, TaskExecutionState>>(new Map())
@@ -410,10 +407,10 @@ export function useMultiTaskStreamEvents(options: UseTaskStreamEventsOptions = {
     if (isListening.value) return
 
     isListening.value = true
-    unlistenFn = await onTaskStreamEvent(handleEvent)
+    unlistenFn = await onBackgroundAgentStreamEvent(handleEvent)
 
     // Load currently active tasks
-    const activeTasks = await getActiveAgentTasks()
+    const activeTasks = await getActiveBackgroundAgents()
     for (const task of activeTasks) {
       if (!tasks.value.has(task.task_id)) {
         const state = createInitialState(task.task_id)

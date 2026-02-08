@@ -84,7 +84,7 @@ export const useChatSessionStore = defineStore('chatSession', {
         result = result.filter(
           (s) =>
             s.name.toLowerCase().includes(query) ||
-            (s.last_message_preview?.toLowerCase().includes(query) ?? false)
+            (s.last_message_preview?.toLowerCase().includes(query) ?? false),
         )
       }
 
@@ -234,7 +234,7 @@ export const useChatSessionStore = defineStore('chatSession', {
       agentId: string,
       model: string,
       name?: string,
-      skillId?: string
+      skillId?: string,
     ): Promise<ChatSession | null> {
       this.error = null
       try {
@@ -392,7 +392,7 @@ export const useChatSessionStore = defineStore('chatSession', {
         // First, save the user message
         const sessionAfterUserMsg = await chatSessionApi.sendChatMessage(
           this.currentSessionId,
-          content
+          content,
         )
         this.sessions.set(sessionAfterUserMsg.id, sessionAfterUserMsg)
 
@@ -414,7 +414,8 @@ export const useChatSessionStore = defineStore('chatSession', {
         if (summary) {
           summary.message_count = sessionAfterExecution.messages.length
           summary.updated_at = sessionAfterExecution.updated_at
-          const lastMessage = sessionAfterExecution.messages[sessionAfterExecution.messages.length - 1]
+          const lastMessage =
+            sessionAfterExecution.messages[sessionAfterExecution.messages.length - 1]
           if (lastMessage) {
             summary.last_message_preview = lastMessage.content.slice(0, 100)
           }

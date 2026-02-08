@@ -14,7 +14,7 @@ export {
   type AgentEndpoints,
   type SecretEndpoints,
   type SkillEndpoints,
-  type AgentTaskEndpoints,
+  type BackgroundAgentEndpoints,
   type HookEndpoints,
 } from './api/endpoints'
 

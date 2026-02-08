@@ -4,9 +4,9 @@ use super::ipc_protocol::{
 use crate::auth::{AuthProfile, AuthProvider, Credential, CredentialSource, ProfileUpdate};
 use crate::memory::ExportResult;
 use crate::models::{
-    AgentNode, AgentTask, ChatMessage, ChatRole, ChatSession, ChatSessionSummary,
-    ChatSessionUpdate, MemoryChunk, MemorySearchResult, MemorySession, MemoryStats, Skill,
-    TaskEvent, TerminalSession,
+    AgentNode, AgentTask, BackgroundAgentControlAction, BackgroundAgentPatch, BackgroundAgentSpec,
+    ChatMessage, ChatRole, ChatSession, ChatSessionSummary, ChatSessionUpdate, MemoryChunk,
+    MemorySearchResult, MemorySession, MemoryStats, Skill, TaskEvent, TerminalSession,
 };
 use crate::storage::agent::StoredAgent;
 use anyhow::{Context, Result, bail};
@@ -569,12 +569,16 @@ impl IpcClient {
         Ok(())
     }
 
-    pub async fn list_tasks(&mut self) -> Result<Vec<AgentTask>> {
-        self.request_typed(IpcRequest::ListTasks).await
+    pub async fn list_background_agents(
+        &mut self,
+        status: Option<String>,
+    ) -> Result<Vec<AgentTask>> {
+        self.request_typed(IpcRequest::ListBackgroundAgents { status })
+            .await
     }
 
-    pub async fn get_task(&mut self, id: String) -> Result<Option<AgentTask>> {
-        match self.request(IpcRequest::GetTask { id }).await? {
+    pub async fn get_background_agent(&mut self, id: String) -> Result<Option<AgentTask>> {
+        match self.request(IpcRequest::GetBackgroundAgent { id }).await? {
             IpcResponse::Success(value) => Ok(Some(serde_json::from_value(value)?)),
             IpcResponse::Error { code: 404, .. } => Ok(None),
             IpcResponse::Error { code, message } => {
@@ -584,48 +588,46 @@ impl IpcClient {
         }
     }
 
-    pub async fn create_task(
+    pub async fn create_background_agent(
         &mut self,
-        name: String,
-        agent_id: String,
-        schedule: crate::models::TaskSchedule,
+        spec: BackgroundAgentSpec,
     ) -> Result<AgentTask> {
-        self.request_typed(IpcRequest::CreateTask {
-            name,
-            agent_id,
-            schedule,
-        })
-        .await
+        self.request_typed(IpcRequest::CreateBackgroundAgent { spec })
+            .await
     }
 
-    pub async fn update_task(&mut self, task: AgentTask) -> Result<AgentTask> {
-        self.request_typed(IpcRequest::UpdateTask { task }).await
+    pub async fn update_background_agent(
+        &mut self,
+        id: String,
+        patch: BackgroundAgentPatch,
+    ) -> Result<AgentTask> {
+        self.request_typed(IpcRequest::UpdateBackgroundAgent { id, patch })
+            .await
     }
 
-    pub async fn delete_task(&mut self, id: String) -> Result<bool> {
+    pub async fn delete_background_agent(&mut self, id: String) -> Result<bool> {
         #[derive(serde::Deserialize)]
         struct DeleteResponse {
             deleted: bool,
         }
-        let resp: DeleteResponse = self.request_typed(IpcRequest::DeleteTask { id }).await?;
+        let resp: DeleteResponse = self
+            .request_typed(IpcRequest::DeleteBackgroundAgent { id })
+            .await?;
         Ok(resp.deleted)
     }
 
-    pub async fn pause_task(&mut self, id: String) -> Result<AgentTask> {
-        self.request_typed(IpcRequest::PauseTask { id }).await
-    }
-
-    pub async fn resume_task(&mut self, id: String) -> Result<AgentTask> {
-        self.request_typed(IpcRequest::ResumeTask { id }).await
-    }
-
-    pub async fn list_tasks_by_status(&mut self, status: String) -> Result<Vec<AgentTask>> {
-        self.request_typed(IpcRequest::ListTasksByStatus { status })
+    pub async fn control_background_agent(
+        &mut self,
+        id: String,
+        action: BackgroundAgentControlAction,
+    ) -> Result<AgentTask> {
+        self.request_typed(IpcRequest::ControlBackgroundAgent { id, action })
             .await
     }
 
-    pub async fn get_task_history(&mut self, id: String) -> Result<Vec<TaskEvent>> {
-        self.request_typed(IpcRequest::GetTaskHistory { id }).await
+    pub async fn get_background_agent_history(&mut self, id: String) -> Result<Vec<TaskEvent>> {
+        self.request_typed(IpcRequest::GetBackgroundAgentHistory { id })
+            .await
     }
 
     pub async fn build_agent_system_prompt(&mut self, agent_node: AgentNode) -> Result<String> {
@@ -1015,44 +1017,45 @@ impl IpcClient {
         self.request_typed(IpcRequest::Ping).await
     }
 
-    pub async fn list_tasks(&mut self) -> Result<Vec<AgentTask>> {
-        self.request_typed(IpcRequest::Ping).await
-    }
-
-    pub async fn get_task(&mut self, _id: String) -> Result<Option<AgentTask>> {
-        self.request_typed(IpcRequest::Ping).await
-    }
-
-    pub async fn create_task(
+    pub async fn list_background_agents(
         &mut self,
-        _name: String,
-        _agent_id: String,
-        _schedule: crate::models::TaskSchedule,
+        _status: Option<String>,
+    ) -> Result<Vec<AgentTask>> {
+        self.request_typed(IpcRequest::Ping).await
+    }
+
+    pub async fn get_background_agent(&mut self, _id: String) -> Result<Option<AgentTask>> {
+        self.request_typed(IpcRequest::Ping).await
+    }
+
+    pub async fn create_background_agent(
+        &mut self,
+        _spec: BackgroundAgentSpec,
     ) -> Result<AgentTask> {
         self.request_typed(IpcRequest::Ping).await
     }
 
-    pub async fn update_task(&mut self, _task: AgentTask) -> Result<AgentTask> {
+    pub async fn update_background_agent(
+        &mut self,
+        _id: String,
+        _patch: BackgroundAgentPatch,
+    ) -> Result<AgentTask> {
         self.request_typed(IpcRequest::Ping).await
     }
 
-    pub async fn delete_task(&mut self, _id: String) -> Result<bool> {
+    pub async fn delete_background_agent(&mut self, _id: String) -> Result<bool> {
         self.request_typed(IpcRequest::Ping).await
     }
 
-    pub async fn pause_task(&mut self, _id: String) -> Result<AgentTask> {
+    pub async fn control_background_agent(
+        &mut self,
+        _id: String,
+        _action: BackgroundAgentControlAction,
+    ) -> Result<AgentTask> {
         self.request_typed(IpcRequest::Ping).await
     }
 
-    pub async fn resume_task(&mut self, _id: String) -> Result<AgentTask> {
-        self.request_typed(IpcRequest::Ping).await
-    }
-
-    pub async fn list_tasks_by_status(&mut self, _status: String) -> Result<Vec<AgentTask>> {
-        self.request_typed(IpcRequest::Ping).await
-    }
-
-    pub async fn get_task_history(&mut self, _id: String) -> Result<Vec<TaskEvent>> {
+    pub async fn get_background_agent_history(&mut self, _id: String) -> Result<Vec<TaskEvent>> {
         self.request_typed(IpcRequest::Ping).await
     }
 

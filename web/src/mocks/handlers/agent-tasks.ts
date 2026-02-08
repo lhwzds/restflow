@@ -80,7 +80,7 @@ export const agentTaskHandlers = [
       return HttpResponse.json(
         {
           success: false,
-          message: 'Task not found',
+          message: 'Background agent not found',
         },
         { status: 404 },
       )
@@ -126,7 +126,7 @@ export const agentTaskHandlers = [
       return HttpResponse.json(
         {
           success: false,
-          message: 'Task not found',
+          message: 'Background agent not found',
         },
         { status: 404 },
       )
@@ -138,7 +138,7 @@ export const agentTaskHandlers = [
       return HttpResponse.json(
         {
           success: false,
-          message: 'Task not found',
+          message: 'Background agent not found',
         },
         { status: 404 },
       )
@@ -164,7 +164,7 @@ export const agentTaskHandlers = [
       return HttpResponse.json(
         {
           success: false,
-          message: 'Task not found',
+          message: 'Background agent not found',
         },
         { status: 404 },
       )
@@ -183,7 +183,7 @@ export const agentTaskHandlers = [
       return HttpResponse.json(
         {
           success: false,
-          message: 'Task not found',
+          message: 'Background agent not found',
         },
         { status: 404 },
       )
@@ -226,7 +226,7 @@ export const agentTaskHandlers = [
       return HttpResponse.json(
         {
           success: false,
-          message: 'Task not found',
+          message: 'Background agent not found',
         },
         { status: 404 },
       )
@@ -271,13 +271,13 @@ export const agentTaskHandlers = [
 
   // Send a message to a background agent
   http.post('/api/background-agents/:id/messages', async ({ params, request }) => {
-    const body = (await request.json()) as { message?: string, source?: string }
+    const body = (await request.json()) as { message?: string; source?: string }
     const task = agentTasks.find((t) => t.id === params.id)
     if (!task) {
       return HttpResponse.json(
         {
           success: false,
-          message: 'Task not found',
+          message: 'Background agent not found',
         },
         { status: 404 },
       )
@@ -307,7 +307,7 @@ export const agentTaskHandlers = [
       return HttpResponse.json(
         {
           success: false,
-          message: 'Task not found',
+          message: 'Background agent not found',
         },
         { status: 404 },
       )

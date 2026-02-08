@@ -138,9 +138,7 @@ export function useChatStream(sessionId: () => string | null) {
 
         case 'tool_call_end':
           if ('tool_id' in kind) {
-            const step = state.value.steps.find(
-              (s) => s.status === 'running'
-            )
+            const step = state.value.steps.find((s) => s.status === 'running')
             if (step && 'success' in kind) {
               step.status = kind.success ? 'completed' : 'failed'
             }

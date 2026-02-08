@@ -4,22 +4,22 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { setActivePinia, createPinia } from 'pinia'
-import { useAgentTaskStore } from '../agentTaskStore'
+import { useBackgroundAgentStore } from '../backgroundAgentStore'
 import type { AgentTask } from '@/types/generated/AgentTask'
-import * as agentTaskApi from '@/api/agent-task'
+import * as backgroundAgentApi from '@/api/background-agent'
 
 // Mock the API module
-vi.mock('@/api/agent-task', () => ({
-  listAgentTasks: vi.fn(),
-  listAgentTasksByStatus: vi.fn(),
-  getAgentTask: vi.fn(),
-  createAgentTask: vi.fn(),
-  updateAgentTask: vi.fn(),
-  deleteAgentTask: vi.fn(),
-  pauseAgentTask: vi.fn(),
-  resumeAgentTask: vi.fn(),
-  getAgentTaskEvents: vi.fn(),
-  onTaskStreamEvent: vi.fn(),
+vi.mock('@/api/background-agent', () => ({
+  listBackgroundAgents: vi.fn(),
+  listBackgroundAgentsByStatus: vi.fn(),
+  getBackgroundAgent: vi.fn(),
+  createBackgroundAgent: vi.fn(),
+  updateBackgroundAgent: vi.fn(),
+  deleteBackgroundAgent: vi.fn(),
+  pauseBackgroundAgent: vi.fn(),
+  resumeBackgroundAgent: vi.fn(),
+  getBackgroundAgentEvents: vi.fn(),
+  onBackgroundAgentStreamEvent: vi.fn(),
 }))
 
 const mockTask: AgentTask = {
@@ -74,7 +74,7 @@ describe('agentTaskStore', () => {
 
   describe('initial state', () => {
     it('should have empty initial state', () => {
-      const store = useAgentTaskStore()
+      const store = useBackgroundAgentStore()
       expect(store.tasks).toEqual([])
       expect(store.selectedTaskId).toBeNull()
       expect(store.isLoading).toBe(false)
@@ -86,9 +86,9 @@ describe('agentTaskStore', () => {
   describe('fetchTasks', () => {
     it('should fetch and store tasks', async () => {
       const mockTasks = [mockTask, mockTask2]
-      vi.mocked(agentTaskApi.listAgentTasks).mockResolvedValue(mockTasks)
+      vi.mocked(backgroundAgentApi.listBackgroundAgents).mockResolvedValue(mockTasks)
 
-      const store = useAgentTaskStore()
+      const store = useBackgroundAgentStore()
       await store.fetchTasks()
 
       expect(store.tasks).toEqual(mockTasks)
@@ -97,9 +97,9 @@ describe('agentTaskStore', () => {
     })
 
     it('should handle fetch error', async () => {
-      vi.mocked(agentTaskApi.listAgentTasks).mockRejectedValue(new Error('Network error'))
+      vi.mocked(backgroundAgentApi.listBackgroundAgents).mockRejectedValue(new Error('Network error'))
 
-      const store = useAgentTaskStore()
+      const store = useBackgroundAgentStore()
       await store.fetchTasks()
 
       expect(store.tasks).toEqual([])
@@ -109,9 +109,9 @@ describe('agentTaskStore', () => {
 
   describe('createTask', () => {
     it('should create a new task and add to store', async () => {
-      vi.mocked(agentTaskApi.createAgentTask).mockResolvedValue(mockTask)
+      vi.mocked(backgroundAgentApi.createBackgroundAgent).mockResolvedValue(mockTask)
 
-      const store = useAgentTaskStore()
+      const store = useBackgroundAgentStore()
       const request = {
         name: 'Test Task',
         agent_id: 'agent-1',
@@ -125,9 +125,9 @@ describe('agentTaskStore', () => {
     })
 
     it('should handle create error', async () => {
-      vi.mocked(agentTaskApi.createAgentTask).mockRejectedValue(new Error('Create failed'))
+      vi.mocked(backgroundAgentApi.createBackgroundAgent).mockRejectedValue(new Error('Create failed'))
 
-      const store = useAgentTaskStore()
+      const store = useBackgroundAgentStore()
       const result = await store.createTask({
         name: 'Test',
         agent_id: 'agent-1',
@@ -142,9 +142,9 @@ describe('agentTaskStore', () => {
   describe('updateTask', () => {
     it('should update an existing task', async () => {
       const updatedTask = { ...mockTask, name: 'Updated Name' }
-      vi.mocked(agentTaskApi.updateAgentTask).mockResolvedValue(updatedTask)
+      vi.mocked(backgroundAgentApi.updateBackgroundAgent).mockResolvedValue(updatedTask)
 
-      const store = useAgentTaskStore()
+      const store = useBackgroundAgentStore()
       store.tasks = [mockTask]
 
       const result = await store.updateTask('task-1', { name: 'Updated Name' })
@@ -156,9 +156,9 @@ describe('agentTaskStore', () => {
 
   describe('deleteTask', () => {
     it('should delete a task and remove from store', async () => {
-      vi.mocked(agentTaskApi.deleteAgentTask).mockResolvedValue(true)
+      vi.mocked(backgroundAgentApi.deleteBackgroundAgent).mockResolvedValue(true)
 
-      const store = useAgentTaskStore()
+      const store = useBackgroundAgentStore()
       store.tasks = [mockTask, mockTask2]
 
       const result = await store.deleteTask('task-1')
@@ -169,9 +169,9 @@ describe('agentTaskStore', () => {
     })
 
     it('should clear selected task if deleted', async () => {
-      vi.mocked(agentTaskApi.deleteAgentTask).mockResolvedValue(true)
+      vi.mocked(backgroundAgentApi.deleteBackgroundAgent).mockResolvedValue(true)
 
-      const store = useAgentTaskStore()
+      const store = useBackgroundAgentStore()
       store.tasks = [mockTask]
       store.selectedTaskId = 'task-1'
 
@@ -184,9 +184,9 @@ describe('agentTaskStore', () => {
   describe('pauseTask and resumeTask', () => {
     it('should pause a task', async () => {
       const pausedTask = { ...mockTask, status: 'paused' as const }
-      vi.mocked(agentTaskApi.pauseAgentTask).mockResolvedValue(pausedTask)
+      vi.mocked(backgroundAgentApi.pauseBackgroundAgent).mockResolvedValue(pausedTask)
 
-      const store = useAgentTaskStore()
+      const store = useBackgroundAgentStore()
       store.tasks = [mockTask]
 
       const result = await store.pauseTask('task-1')
@@ -197,9 +197,9 @@ describe('agentTaskStore', () => {
 
     it('should resume a paused task', async () => {
       const activeTask = { ...mockTask2, status: 'active' as const }
-      vi.mocked(agentTaskApi.resumeAgentTask).mockResolvedValue(activeTask)
+      vi.mocked(backgroundAgentApi.resumeBackgroundAgent).mockResolvedValue(activeTask)
 
-      const store = useAgentTaskStore()
+      const store = useBackgroundAgentStore()
       store.tasks = [mockTask2]
 
       const result = await store.resumeTask('task-2')
@@ -211,7 +211,7 @@ describe('agentTaskStore', () => {
 
   describe('filteredTasks getter', () => {
     it('should filter by status', () => {
-      const store = useAgentTaskStore()
+      const store = useBackgroundAgentStore()
       store.tasks = [mockTask, mockTask2]
       store.statusFilter = 'paused'
 
@@ -220,7 +220,7 @@ describe('agentTaskStore', () => {
     })
 
     it('should filter by search query', () => {
-      const store = useAgentTaskStore()
+      const store = useBackgroundAgentStore()
       store.tasks = [mockTask, mockTask2]
       store.searchQuery = 'Another'
 
@@ -229,7 +229,7 @@ describe('agentTaskStore', () => {
     })
 
     it('should sort by name ascending', () => {
-      const store = useAgentTaskStore()
+      const store = useBackgroundAgentStore()
       store.tasks = [mockTask, mockTask2]
       store.sortField = 'name'
       store.sortOrder = 'asc'
@@ -239,7 +239,7 @@ describe('agentTaskStore', () => {
     })
 
     it('should sort by created_at descending by default', () => {
-      const store = useAgentTaskStore()
+      const store = useBackgroundAgentStore()
       store.tasks = [mockTask, mockTask2]
 
       // mockTask has later created_at, should come first in desc order
@@ -249,7 +249,7 @@ describe('agentTaskStore', () => {
 
   describe('statusCounts getter', () => {
     it('should count tasks by status', () => {
-      const store = useAgentTaskStore()
+      const store = useBackgroundAgentStore()
       store.tasks = [mockTask, mockTask2]
 
       expect(store.statusCounts).toEqual({
@@ -268,17 +268,17 @@ describe('agentTaskStore', () => {
       const mockEvents = [
         { id: 'event-1', task_id: 'task-1', event_type: 'started', timestamp: Date.now() },
       ]
-      vi.mocked(agentTaskApi.getAgentTaskEvents).mockResolvedValue(mockEvents as any)
+      vi.mocked(backgroundAgentApi.getBackgroundAgentEvents).mockResolvedValue(mockEvents as any)
 
-      const store = useAgentTaskStore()
+      const store = useBackgroundAgentStore()
       await store.selectTask('task-1')
 
       expect(store.selectedTaskId).toBe('task-1')
-      expect(agentTaskApi.getAgentTaskEvents).toHaveBeenCalledWith('task-1', undefined)
+      expect(backgroundAgentApi.getBackgroundAgentEvents).toHaveBeenCalledWith('task-1', undefined)
     })
 
     it('should clear selection when null', async () => {
-      const store = useAgentTaskStore()
+      const store = useBackgroundAgentStore()
       store.selectedTaskId = 'task-1'
       store.selectedTaskEvents = [{ id: 'event-1' } as any]
 
@@ -291,7 +291,7 @@ describe('agentTaskStore', () => {
 
   describe('setSort', () => {
     it('should toggle sort order when same field', () => {
-      const store = useAgentTaskStore()
+      const store = useBackgroundAgentStore()
       store.sortField = 'name'
       store.sortOrder = 'asc'
 
@@ -301,7 +301,7 @@ describe('agentTaskStore', () => {
     })
 
     it('should set new field with default desc order', () => {
-      const store = useAgentTaskStore()
+      const store = useBackgroundAgentStore()
       store.sortField = 'name'
       store.sortOrder = 'asc'
 
@@ -314,7 +314,7 @@ describe('agentTaskStore', () => {
 
   describe('clearFilters', () => {
     it('should reset all filters to defaults', () => {
-      const store = useAgentTaskStore()
+      const store = useBackgroundAgentStore()
       store.statusFilter = 'paused'
       store.searchQuery = 'test'
       store.sortField = 'name'
@@ -331,7 +331,7 @@ describe('agentTaskStore', () => {
 
   describe('local updates', () => {
     it('should update task locally', () => {
-      const store = useAgentTaskStore()
+      const store = useBackgroundAgentStore()
       store.tasks = [mockTask]
 
       const updatedTask = { ...mockTask, name: 'Locally Updated' }
@@ -341,7 +341,7 @@ describe('agentTaskStore', () => {
     })
 
     it('should add new task if not exists', () => {
-      const store = useAgentTaskStore()
+      const store = useBackgroundAgentStore()
       store.tasks = [mockTask]
 
       store.updateTaskLocally(mockTask2)
@@ -350,7 +350,7 @@ describe('agentTaskStore', () => {
     })
 
     it('should remove task locally', () => {
-      const store = useAgentTaskStore()
+      const store = useBackgroundAgentStore()
       store.tasks = [mockTask, mockTask2]
 
       store.removeTaskLocally('task-1')
@@ -365,19 +365,19 @@ describe('agentTaskStore', () => {
       let streamCallback: ((event: any) => void) | null = null
       const unlisten = vi.fn()
 
-      vi.mocked(agentTaskApi.onTaskStreamEvent).mockImplementation(async (callback: any) => {
+      vi.mocked(backgroundAgentApi.onBackgroundAgentStreamEvent).mockImplementation(async (callback: any) => {
         streamCallback = callback
         return unlisten
       })
-      vi.mocked(agentTaskApi.getAgentTask).mockResolvedValue({
+      vi.mocked(backgroundAgentApi.getBackgroundAgent).mockResolvedValue({
         ...mockTask,
         status: 'completed',
       })
 
-      const store = useAgentTaskStore()
+      const store = useBackgroundAgentStore()
       await store.startRealtimeSync()
 
-      expect(agentTaskApi.onTaskStreamEvent).toHaveBeenCalledTimes(1)
+      expect(backgroundAgentApi.onBackgroundAgentStreamEvent).toHaveBeenCalledTimes(1)
       expect(streamCallback).not.toBeNull()
 
       streamCallback!({
@@ -387,7 +387,7 @@ describe('agentTaskStore', () => {
       })
 
       await Promise.resolve()
-      expect(agentTaskApi.getAgentTask).toHaveBeenCalledWith('task-1')
+      expect(backgroundAgentApi.getBackgroundAgent).toHaveBeenCalledWith('task-1')
 
       store.stopRealtimeSync()
       expect(unlisten).toHaveBeenCalledTimes(1)
@@ -396,14 +396,14 @@ describe('agentTaskStore', () => {
     it('should poll tasks while realtime sync is active', async () => {
       vi.useFakeTimers()
       const unlisten = vi.fn()
-      vi.mocked(agentTaskApi.onTaskStreamEvent).mockResolvedValue(unlisten as any)
-      vi.mocked(agentTaskApi.listAgentTasks).mockResolvedValue([mockTask])
+      vi.mocked(backgroundAgentApi.onBackgroundAgentStreamEvent).mockResolvedValue(unlisten as any)
+      vi.mocked(backgroundAgentApi.listBackgroundAgents).mockResolvedValue([mockTask])
 
-      const store = useAgentTaskStore()
+      const store = useBackgroundAgentStore()
       await store.startRealtimeSync(1000)
 
       await vi.advanceTimersByTimeAsync(1000)
-      expect(agentTaskApi.listAgentTasks).toHaveBeenCalledTimes(1)
+      expect(backgroundAgentApi.listBackgroundAgents).toHaveBeenCalledTimes(1)
 
       store.stopRealtimeSync()
       vi.useRealTimers()

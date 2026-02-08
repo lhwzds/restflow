@@ -1,4 +1,4 @@
-//! Agent task management tool.
+//! Background agent management tool.
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -9,7 +9,7 @@ use super::traits::{Tool, ToolOutput};
 use crate::error::{AiError, Result};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct TaskCreateRequest {
+pub struct BackgroundAgentCreateRequest {
     pub name: String,
     pub agent_id: String,
     #[serde(default)]
@@ -23,7 +23,7 @@ pub struct TaskCreateRequest {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct TaskUpdateRequest {
+pub struct BackgroundAgentUpdateRequest {
     pub id: String,
     #[serde(default)]
     pub name: Option<String>,
@@ -48,20 +48,20 @@ pub struct TaskUpdateRequest {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct TaskControlRequest {
+pub struct BackgroundAgentControlRequest {
     pub id: String,
     pub action: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct TaskProgressRequest {
+pub struct BackgroundAgentProgressRequest {
     pub id: String,
     #[serde(default)]
     pub event_limit: Option<usize>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct TaskMessageRequest {
+pub struct BackgroundAgentMessageRequest {
     pub id: String,
     pub message: String,
     #[serde(default)]
@@ -69,31 +69,40 @@ pub struct TaskMessageRequest {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct TaskMessageListRequest {
+pub struct BackgroundAgentMessageListRequest {
     pub id: String,
     #[serde(default)]
     pub limit: Option<usize>,
 }
 
-pub trait TaskStore: Send + Sync {
-    fn create_task(&self, request: TaskCreateRequest) -> Result<Value>;
-    fn update_task(&self, request: TaskUpdateRequest) -> Result<Value>;
-    fn delete_task(&self, id: &str) -> Result<Value>;
-    fn list_tasks(&self, status: Option<String>) -> Result<Value>;
-    fn control_task(&self, request: TaskControlRequest) -> Result<Value>;
-    fn get_progress(&self, request: TaskProgressRequest) -> Result<Value>;
-    fn send_message(&self, request: TaskMessageRequest) -> Result<Value>;
-    fn list_messages(&self, request: TaskMessageListRequest) -> Result<Value>;
+pub trait BackgroundAgentStore: Send + Sync {
+    fn create_background_agent(&self, request: BackgroundAgentCreateRequest) -> Result<Value>;
+    fn update_background_agent(&self, request: BackgroundAgentUpdateRequest) -> Result<Value>;
+    fn delete_background_agent(&self, id: &str) -> Result<Value>;
+    fn list_background_agents(&self, status: Option<String>) -> Result<Value>;
+    fn control_background_agent(&self, request: BackgroundAgentControlRequest) -> Result<Value>;
+    fn get_background_agent_progress(
+        &self,
+        request: BackgroundAgentProgressRequest,
+    ) -> Result<Value>;
+    fn send_background_agent_message(
+        &self,
+        request: BackgroundAgentMessageRequest,
+    ) -> Result<Value>;
+    fn list_background_agent_messages(
+        &self,
+        request: BackgroundAgentMessageListRequest,
+    ) -> Result<Value>;
 }
 
 #[derive(Clone)]
-pub struct TaskTool {
-    store: Arc<dyn TaskStore>,
+pub struct BackgroundAgentTool {
+    store: Arc<dyn BackgroundAgentStore>,
     allow_write: bool,
 }
 
-impl TaskTool {
-    pub fn new(store: Arc<dyn TaskStore>) -> Self {
+impl BackgroundAgentTool {
+    pub fn new(store: Arc<dyn BackgroundAgentStore>) -> Self {
         Self {
             store,
             allow_write: false,
@@ -110,7 +119,7 @@ impl TaskTool {
             Ok(())
         } else {
             Err(AiError::Tool(
-                "Write access to tasks is disabled for this tool".to_string(),
+                "Write access to background agents is disabled for this tool".to_string(),
             ))
         }
     }
@@ -118,7 +127,7 @@ impl TaskTool {
 
 #[derive(Debug, Deserialize)]
 #[serde(tag = "operation", rename_all = "snake_case")]
-enum TaskAction {
+enum BackgroundAgentAction {
     Create {
         name: String,
         agent_id: String,
@@ -196,7 +205,7 @@ enum TaskAction {
 }
 
 #[async_trait]
-impl Tool for TaskTool {
+impl Tool for BackgroundAgentTool {
     fn name(&self) -> &str {
         "manage_background_agents"
     }
@@ -268,7 +277,7 @@ impl Tool for TaskTool {
                 },
                 "memory_scope": {
                     "type": "string",
-                    "enum": ["shared_agent", "per_task"],
+                    "enum": ["shared_agent", "per_background_agent"],
                     "description": "Memory namespace scope (for create/update)"
                 },
                 "status": {
@@ -303,14 +312,14 @@ impl Tool for TaskTool {
     }
 
     async fn execute(&self, input: Value) -> Result<ToolOutput> {
-        let action: TaskAction = serde_json::from_value(input)?;
+        let action: BackgroundAgentAction = serde_json::from_value(input)?;
 
         let output = match action {
-            TaskAction::List { status } => {
-                let result = self.store.list_tasks(status)?;
+            BackgroundAgentAction::List { status } => {
+                let result = self.store.list_background_agents(status)?;
                 ToolOutput::success(result)
             }
-            TaskAction::Create {
+            BackgroundAgentAction::Create {
                 name,
                 agent_id,
                 schedule,
@@ -319,17 +328,19 @@ impl Tool for TaskTool {
                 memory_scope,
             } => {
                 self.write_guard()?;
-                let result = self.store.create_task(TaskCreateRequest {
-                    name,
-                    agent_id,
-                    schedule,
-                    input,
-                    input_template,
-                    memory_scope,
-                })?;
+                let result = self
+                    .store
+                    .create_background_agent(BackgroundAgentCreateRequest {
+                        name,
+                        agent_id,
+                        schedule,
+                        input,
+                        input_template,
+                        memory_scope,
+                    })?;
                 ToolOutput::success(result)
             }
-            TaskAction::Update {
+            BackgroundAgentAction::Update {
                 id,
                 name,
                 description,
@@ -343,74 +354,89 @@ impl Tool for TaskTool {
                 memory_scope,
             } => {
                 self.write_guard()?;
-                let result = self.store.update_task(TaskUpdateRequest {
-                    id,
-                    name,
-                    description,
-                    agent_id,
-                    input,
-                    input_template,
-                    schedule,
-                    notification,
-                    execution_mode,
-                    memory,
-                    memory_scope,
-                })?;
+                let result = self
+                    .store
+                    .update_background_agent(BackgroundAgentUpdateRequest {
+                        id,
+                        name,
+                        description,
+                        agent_id,
+                        input,
+                        input_template,
+                        schedule,
+                        notification,
+                        execution_mode,
+                        memory,
+                        memory_scope,
+                    })?;
                 ToolOutput::success(result)
             }
-            TaskAction::Delete { id } => {
+            BackgroundAgentAction::Delete { id } => {
                 self.write_guard()?;
-                ToolOutput::success(self.store.delete_task(&id)?)
+                ToolOutput::success(self.store.delete_background_agent(&id)?)
             }
-            TaskAction::Pause { id } => {
+            BackgroundAgentAction::Pause { id } => {
                 self.write_guard()?;
-                ToolOutput::success(self.store.control_task(TaskControlRequest {
-                    id,
-                    action: "pause".to_string(),
-                })?)
+                ToolOutput::success(self.store.control_background_agent(
+                    BackgroundAgentControlRequest {
+                        id,
+                        action: "pause".to_string(),
+                    },
+                )?)
             }
-            TaskAction::Resume { id } => {
+            BackgroundAgentAction::Resume { id } => {
                 self.write_guard()?;
-                ToolOutput::success(self.store.control_task(TaskControlRequest {
-                    id,
-                    action: "resume".to_string(),
-                })?)
+                ToolOutput::success(self.store.control_background_agent(
+                    BackgroundAgentControlRequest {
+                        id,
+                        action: "resume".to_string(),
+                    },
+                )?)
             }
-            TaskAction::Cancel { id } => {
+            BackgroundAgentAction::Cancel { id } => {
                 self.write_guard()?;
-                ToolOutput::success(self.store.delete_task(&id)?)
+                ToolOutput::success(self.store.delete_background_agent(&id)?)
             }
-            TaskAction::Run { id } => {
+            BackgroundAgentAction::Run { id } => {
                 self.write_guard()?;
-                ToolOutput::success(self.store.control_task(TaskControlRequest {
-                    id,
-                    action: "run_now".to_string(),
-                })?)
+                ToolOutput::success(self.store.control_background_agent(
+                    BackgroundAgentControlRequest {
+                        id,
+                        action: "run_now".to_string(),
+                    },
+                )?)
             }
-            TaskAction::Control { id, action } => {
+            BackgroundAgentAction::Control { id, action } => {
                 self.write_guard()?;
-                ToolOutput::success(self.store.control_task(TaskControlRequest { id, action })?)
+                ToolOutput::success(
+                    self.store
+                        .control_background_agent(BackgroundAgentControlRequest { id, action })?,
+                )
             }
-            TaskAction::Progress { id, event_limit } => ToolOutput::success(
-                self.store
-                    .get_progress(TaskProgressRequest { id, event_limit })?,
-            ),
-            TaskAction::SendMessage {
+            BackgroundAgentAction::Progress { id, event_limit } => {
+                ToolOutput::success(self.store.get_background_agent_progress(
+                    BackgroundAgentProgressRequest { id, event_limit },
+                )?)
+            }
+            BackgroundAgentAction::SendMessage {
                 id,
                 message,
                 source,
             } => {
                 self.write_guard()?;
-                ToolOutput::success(self.store.send_message(TaskMessageRequest {
-                    id,
-                    message,
-                    source,
-                })?)
+                ToolOutput::success(self.store.send_background_agent_message(
+                    BackgroundAgentMessageRequest {
+                        id,
+                        message,
+                        source,
+                    },
+                )?)
             }
-            TaskAction::ListMessages { id, limit } => ToolOutput::success(
-                self.store
-                    .list_messages(TaskMessageListRequest { id, limit })?,
-            ),
+            BackgroundAgentAction::ListMessages { id, limit } => {
+                ToolOutput::success(self.store.list_background_agent_messages(
+                    BackgroundAgentMessageListRequest { id, limit },
+                )?)
+            }
         };
 
         Ok(output)
@@ -423,28 +449,34 @@ mod tests {
 
     struct MockStore;
 
-    impl TaskStore for MockStore {
-        fn create_task(&self, _request: TaskCreateRequest) -> Result<Value> {
+    impl BackgroundAgentStore for MockStore {
+        fn create_background_agent(&self, _request: BackgroundAgentCreateRequest) -> Result<Value> {
             Ok(json!({ "id": "task-1" }))
         }
 
-        fn update_task(&self, _request: TaskUpdateRequest) -> Result<Value> {
+        fn update_background_agent(&self, _request: BackgroundAgentUpdateRequest) -> Result<Value> {
             Ok(json!({ "id": "task-1", "updated": true }))
         }
 
-        fn delete_task(&self, _id: &str) -> Result<Value> {
+        fn delete_background_agent(&self, _id: &str) -> Result<Value> {
             Ok(json!({ "deleted": true }))
         }
 
-        fn list_tasks(&self, _status: Option<String>) -> Result<Value> {
+        fn list_background_agents(&self, _status: Option<String>) -> Result<Value> {
             Ok(json!([{"id": "task-1"}]))
         }
 
-        fn control_task(&self, request: TaskControlRequest) -> Result<Value> {
+        fn control_background_agent(
+            &self,
+            request: BackgroundAgentControlRequest,
+        ) -> Result<Value> {
             Ok(json!({ "id": request.id, "action": request.action }))
         }
 
-        fn get_progress(&self, request: TaskProgressRequest) -> Result<Value> {
+        fn get_background_agent_progress(
+            &self,
+            request: BackgroundAgentProgressRequest,
+        ) -> Result<Value> {
             Ok(json!({
                 "id": request.id,
                 "event_limit": request.event_limit.unwrap_or(10),
@@ -452,7 +484,10 @@ mod tests {
             }))
         }
 
-        fn send_message(&self, request: TaskMessageRequest) -> Result<Value> {
+        fn send_background_agent_message(
+            &self,
+            request: BackgroundAgentMessageRequest,
+        ) -> Result<Value> {
             Ok(json!({
                 "id": request.id,
                 "message": request.message,
@@ -460,7 +495,10 @@ mod tests {
             }))
         }
 
-        fn list_messages(&self, request: TaskMessageListRequest) -> Result<Value> {
+        fn list_background_agent_messages(
+            &self,
+            request: BackgroundAgentMessageListRequest,
+        ) -> Result<Value> {
             Ok(json!([{
                 "id": "msg-1",
                 "task_id": request.id,
@@ -471,14 +509,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_list_tasks() {
-        let tool = TaskTool::new(Arc::new(MockStore));
+        let tool = BackgroundAgentTool::new(Arc::new(MockStore));
         let output = tool.execute(json!({ "operation": "list" })).await.unwrap();
         assert!(output.success);
     }
 
     #[tokio::test]
     async fn test_write_guard() {
-        let tool = TaskTool::new(Arc::new(MockStore));
+        let tool = BackgroundAgentTool::new(Arc::new(MockStore));
         let result = tool
             .execute(json!({
                 "operation": "create",
@@ -491,7 +529,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_progress_operation() {
-        let tool = TaskTool::new(Arc::new(MockStore));
+        let tool = BackgroundAgentTool::new(Arc::new(MockStore));
         let output = tool
             .execute(json!({
                 "operation": "progress",

@@ -6,9 +6,9 @@ use crate::agent_task::runner::{
     AgentExecutor, AgentTaskRunner, NotificationSender, RunnerConfig, RunnerHandle,
 };
 use crate::agent_task::{HeartbeatEmitter, TauriEventEmitter, TauriHeartbeatEmitter};
-use crate::channel::{SystemStatus, TaskTrigger};
+use crate::channel::{BackgroundAgentTrigger, SystemStatus};
 use crate::chat::StreamManager;
-use crate::commands::agent_task::ActiveTaskInfo;
+use crate::commands::agent_task::ActiveBackgroundAgentInfo;
 use crate::daemon_manager::DaemonManager;
 use crate::executor::TauriExecutor;
 use crate::subagent::{AgentDefinitionRegistry, SubagentConfig, SubagentTracker};
@@ -336,11 +336,11 @@ impl AppState {
     }
 
     /// Get list of all currently running tasks
-    pub async fn get_active_tasks(&self) -> Result<Vec<ActiveTaskInfo>> {
+    pub async fn get_active_tasks(&self) -> Result<Vec<ActiveBackgroundAgentInfo>> {
         let guard = self.running_tasks.read().await;
         Ok(guard
             .values()
-            .map(|state| ActiveTaskInfo {
+            .map(|state| ActiveBackgroundAgentInfo {
                 task_id: state.task_id.clone(),
                 task_name: state.task_name.clone(),
                 agent_id: state.agent_id.clone(),
@@ -368,40 +368,45 @@ impl AppState {
 }
 
 // ============================================================================
-// TaskTrigger Implementation
+// BackgroundAgentTrigger Implementation
 // ============================================================================
 
-/// Wrapper to implement TaskTrigger for AppState
+/// Wrapper to implement BackgroundAgentTrigger for AppState
 ///
-/// This struct wraps an Arc<AppState> to implement the TaskTrigger trait,
+/// This struct wraps an Arc<AppState> to implement the BackgroundAgentTrigger trait,
 /// allowing the channel message handler to interact with tasks.
-pub struct AppTaskTrigger {
+pub struct AppBackgroundAgentTrigger {
     state: Arc<AppState>,
 }
 
-impl AppTaskTrigger {
-    /// Create a new AppTaskTrigger
+impl AppBackgroundAgentTrigger {
+    /// Create a new AppBackgroundAgentTrigger
     pub fn new(state: Arc<AppState>) -> Self {
         Self { state }
     }
 }
 
 #[async_trait]
-impl TaskTrigger for AppTaskTrigger {
-    async fn list_tasks(&self) -> Result<Vec<AgentTask>> {
-        self.state.executor().list_tasks().await
+impl BackgroundAgentTrigger for AppBackgroundAgentTrigger {
+    async fn list_background_agents(&self) -> Result<Vec<AgentTask>> {
+        self.state.executor().list_background_agents(None).await
     }
 
-    async fn find_and_run_task(&self, name_or_id: &str) -> Result<AgentTask> {
+    async fn find_and_run_background_agent(&self, name_or_id: &str) -> Result<AgentTask> {
         // Try to find by ID first
-        if let Ok(Some(task)) = self.state.executor().get_task(name_or_id.to_string()).await {
+        if let Ok(Some(task)) = self
+            .state
+            .executor()
+            .get_background_agent(name_or_id.to_string())
+            .await
+        {
             // Trigger the task to run
             self.state.run_task_now(task.id.clone()).await?;
             return Ok(task);
         }
 
         // Try to find by name
-        let tasks = self.state.executor().list_tasks().await?;
+        let tasks = self.state.executor().list_background_agents(None).await?;
         let task = tasks
             .into_iter()
             .find(|t| t.name.to_lowercase() == name_or_id.to_lowercase())
@@ -412,7 +417,7 @@ impl TaskTrigger for AppTaskTrigger {
         Ok(task)
     }
 
-    async fn stop_task(&self, task_id: &str) -> Result<()> {
+    async fn stop_background_agent(&self, task_id: &str) -> Result<()> {
         let cancel_requested = if self.state.is_runner_active().await {
             match self.state.cancel_task(task_id.to_string()).await {
                 Ok(()) => true,
@@ -426,13 +431,20 @@ impl TaskTrigger for AppTaskTrigger {
         };
 
         // If the task isn't running (or cancel couldn't be requested), pause it directly.
-        if let Ok(Some(task)) = self.state.executor().get_task(task_id.to_string()).await
+        if let Ok(Some(task)) = self
+            .state
+            .executor()
+            .get_background_agent(task_id.to_string())
+            .await
             && (task.status != restflow_core::models::AgentTaskStatus::Running || !cancel_requested)
         {
             let _ = self
                 .state
                 .executor()
-                .pause_task(task_id.to_string())
+                .control_background_agent(
+                    task_id.to_string(),
+                    restflow_core::models::BackgroundAgentControlAction::Pause,
+                )
                 .await?;
         }
 
@@ -447,7 +459,7 @@ impl TaskTrigger for AppTaskTrigger {
         let active_count = self.state.running_task_count().await;
 
         // Count pending (active but not running) tasks
-        let tasks = self.state.executor().list_tasks().await?;
+        let tasks = self.state.executor().list_background_agents(None).await?;
         let pending_count = tasks
             .iter()
             .filter(|t| t.status == restflow_core::models::AgentTaskStatus::Active)
@@ -476,7 +488,7 @@ impl TaskTrigger for AppTaskTrigger {
         })
     }
 
-    async fn send_input_to_task(&self, task_id: &str, input: &str) -> Result<()> {
+    async fn send_message_to_background_agent(&self, task_id: &str, input: &str) -> Result<()> {
         if let Some(core) = self.state.core.as_ref() {
             core.storage.agent_tasks.send_background_agent_message(
                 task_id,
@@ -497,7 +509,11 @@ impl TaskTrigger for AppTaskTrigger {
         Ok(())
     }
 
-    async fn handle_approval(&self, task_id: &str, approved: bool) -> Result<bool> {
+    async fn handle_background_agent_approval(
+        &self,
+        task_id: &str,
+        approved: bool,
+    ) -> Result<bool> {
         let message = if approved {
             "User approved the pending action."
         } else {

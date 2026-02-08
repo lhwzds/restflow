@@ -17,10 +17,7 @@ import { isTauri, tauriInvoke } from './config'
  * @param message - User message content
  * @returns Message ID for the generated response
  */
-export async function sendChatMessageStream(
-  sessionId: string,
-  message: string
-): Promise<string> {
+export async function sendChatMessageStream(sessionId: string, message: string): Promise<string> {
   if (isTauri()) {
     return tauriInvoke<string>('send_chat_message_stream', {
       sessionId,
@@ -37,10 +34,7 @@ export async function sendChatMessageStream(
  * @param sessionId - Chat session ID
  * @param messageId - Message ID being generated
  */
-export async function cancelChatStream(
-  sessionId: string,
-  messageId: string
-): Promise<void> {
+export async function cancelChatStream(sessionId: string, messageId: string): Promise<void> {
   if (isTauri()) {
     return tauriInvoke<void>('cancel_chat_stream', {
       sessionId,

@@ -3,24 +3,25 @@
 /**
  * Summary of discovered profiles
  */
-export type DiscoverySummary = { 
-/**
- * Total profiles discovered
- */
-total: number, 
-/**
- * Profiles by source
- */
-by_source: { [key in string]?: number }, 
-/**
- * Profiles by provider
- */
-by_provider: { [key in string]?: number }, 
-/**
- * Profiles that are available for use
- */
-available: number, 
-/**
- * Discovery errors encountered
- */
-errors: Array<string>, };
+export type DiscoverySummary = {
+  /**
+   * Total profiles discovered
+   */
+  total: number
+  /**
+   * Profiles by source
+   */
+  by_source: { [key in string]?: number }
+  /**
+   * Profiles by provider
+   */
+  by_provider: { [key in string]?: number }
+  /**
+   * Profiles that are available for use
+   */
+  available: number
+  /**
+   * Discovery errors encountered
+   */
+  errors: Array<string>
+}

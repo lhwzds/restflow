@@ -10,8 +10,8 @@ import type { AgentTask } from '@/types/generated/AgentTask'
 import type { AgentTaskStatus } from '@/types/generated/AgentTaskStatus'
 import type { TaskEvent } from '@/types/generated/TaskEvent'
 import type { TaskStreamEvent } from '@/types/generated/TaskStreamEvent'
-import * as agentTaskApi from '@/api/agent-task'
-import type { CreateAgentTaskRequest, UpdateAgentTaskRequest } from '@/api/agent-task'
+import * as backgroundAgentApi from '@/api/background-agent'
+import type { CreateBackgroundAgentRequest, UpdateBackgroundAgentRequest } from '@/api/background-agent'
 
 export type SortField = 'name' | 'status' | 'created_at' | 'next_run_at' | 'last_run_at'
 export type SortOrder = 'asc' | 'desc'
@@ -45,7 +45,7 @@ interface AgentTaskState {
   taskStreamUnlisten: (() => void) | null
 }
 
-export const useAgentTaskStore = defineStore('agentTask', {
+export const useBackgroundAgentStore = defineStore('backgroundAgent', {
   state: (): AgentTaskState => ({
     tasks: [],
     selectedTaskId: null,
@@ -80,7 +80,7 @@ export const useAgentTaskStore = defineStore('agentTask', {
         result = result.filter(
           (task) =>
             task.name.toLowerCase().includes(query) ||
-            (task.description?.toLowerCase().includes(query) ?? false)
+            (task.description?.toLowerCase().includes(query) ?? false),
         )
       }
 
@@ -173,7 +173,7 @@ export const useAgentTaskStore = defineStore('agentTask', {
       this.isLoading = true
       this.error = null
       try {
-        this.tasks = await agentTaskApi.listAgentTasks()
+        this.tasks = await backgroundAgentApi.listBackgroundAgents()
         this.version++
       } catch (err) {
         this.error = err instanceof Error ? err.message : 'Failed to fetch tasks'
@@ -190,7 +190,7 @@ export const useAgentTaskStore = defineStore('agentTask', {
       this.isLoading = true
       this.error = null
       try {
-        const tasks = await agentTaskApi.listAgentTasksByStatus(status)
+        const tasks = await backgroundAgentApi.listBackgroundAgentsByStatus(status)
         // Merge with existing tasks, replacing those with matching IDs
         const taskIds = new Set(tasks.map((t) => t.id))
         this.tasks = [...this.tasks.filter((t) => !taskIds.has(t.id)), ...tasks]
@@ -208,7 +208,7 @@ export const useAgentTaskStore = defineStore('agentTask', {
      */
     async getTask(id: string): Promise<AgentTask | null> {
       try {
-        const task = await agentTaskApi.getAgentTask(id)
+        const task = await backgroundAgentApi.getBackgroundAgent(id)
         // Update in local state
         const index = this.tasks.findIndex((t) => t.id === id)
         if (index >= 0) {
@@ -228,10 +228,10 @@ export const useAgentTaskStore = defineStore('agentTask', {
     /**
      * Create a new task
      */
-    async createTask(request: CreateAgentTaskRequest): Promise<AgentTask | null> {
+    async createTask(request: CreateBackgroundAgentRequest): Promise<AgentTask | null> {
       this.error = null
       try {
-        const task = await agentTaskApi.createAgentTask(request)
+        const task = await backgroundAgentApi.createBackgroundAgent(request)
         this.tasks.push(task)
         this.version++
         return task
@@ -245,10 +245,10 @@ export const useAgentTaskStore = defineStore('agentTask', {
     /**
      * Update an existing task
      */
-    async updateTask(id: string, request: UpdateAgentTaskRequest): Promise<AgentTask | null> {
+    async updateTask(id: string, request: UpdateBackgroundAgentRequest): Promise<AgentTask | null> {
       this.error = null
       try {
-        const task = await agentTaskApi.updateAgentTask(id, request)
+        const task = await backgroundAgentApi.updateBackgroundAgent(id, request)
         const index = this.tasks.findIndex((t) => t.id === id)
         if (index >= 0) {
           this.tasks[index] = task
@@ -268,7 +268,7 @@ export const useAgentTaskStore = defineStore('agentTask', {
     async deleteTask(id: string): Promise<boolean> {
       this.error = null
       try {
-        const success = await agentTaskApi.deleteAgentTask(id)
+        const success = await backgroundAgentApi.deleteBackgroundAgent(id)
         if (success) {
           this.tasks = this.tasks.filter((t) => t.id !== id)
           if (this.selectedTaskId === id) {
@@ -291,7 +291,7 @@ export const useAgentTaskStore = defineStore('agentTask', {
     async pauseTask(id: string): Promise<boolean> {
       this.error = null
       try {
-        const task = await agentTaskApi.pauseAgentTask(id)
+        const task = await backgroundAgentApi.pauseBackgroundAgent(id)
         const index = this.tasks.findIndex((t) => t.id === id)
         if (index >= 0) {
           this.tasks[index] = task
@@ -311,7 +311,7 @@ export const useAgentTaskStore = defineStore('agentTask', {
     async resumeTask(id: string): Promise<boolean> {
       this.error = null
       try {
-        const task = await agentTaskApi.resumeAgentTask(id)
+        const task = await backgroundAgentApi.resumeBackgroundAgent(id)
         const index = this.tasks.findIndex((t) => t.id === id)
         if (index >= 0) {
           this.tasks[index] = task
@@ -331,7 +331,7 @@ export const useAgentTaskStore = defineStore('agentTask', {
     async fetchTaskEvents(taskId: string, limit?: number): Promise<void> {
       this.isLoadingEvents = true
       try {
-        this.selectedTaskEvents = await agentTaskApi.getAgentTaskEvents(taskId, limit)
+        this.selectedTaskEvents = await backgroundAgentApi.getBackgroundAgentEvents(taskId, limit)
       } catch (err) {
         console.error('Failed to fetch task events:', err)
         this.selectedTaskEvents = []
@@ -428,9 +428,14 @@ export const useAgentTaskStore = defineStore('agentTask', {
      */
     async startRealtimeSync(intervalMs = 3000): Promise<void> {
       if (!this.taskStreamUnlisten) {
-        this.taskStreamUnlisten = await agentTaskApi.onTaskStreamEvent((event: TaskStreamEvent) => {
+        this.taskStreamUnlisten = await backgroundAgentApi.onBackgroundAgentStreamEvent((event: TaskStreamEvent) => {
           const type = event.kind.type
-          if (type === 'started' || type === 'completed' || type === 'failed' || type === 'cancelled') {
+          if (
+            type === 'started' ||
+            type === 'completed' ||
+            type === 'failed' ||
+            type === 'cancelled'
+          ) {
             void this.getTask(event.task_id)
           }
         })
