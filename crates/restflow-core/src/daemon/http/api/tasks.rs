@@ -1,9 +1,9 @@
 use crate::AppCore;
 use crate::daemon::http::ApiError;
 use crate::models::{
-    AgentTask, AgentTaskStatus, BackgroundAgentControlAction, BackgroundAgentPatch,
-    BackgroundAgentSpec, BackgroundMessage, BackgroundMessageSource, BackgroundProgress,
-    MemoryConfig, MemoryScope, NotificationConfig, TaskSchedule,
+    BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentPatch, BackgroundAgentSchedule,
+    BackgroundAgentSpec, BackgroundAgentStatus, BackgroundMessage, BackgroundMessageSource,
+    BackgroundProgress, MemoryConfig, MemoryScope, NotificationConfig,
 };
 use axum::{
     Json, Router,
@@ -41,7 +41,7 @@ struct ListBackgroundAgentsQuery {
 async fn list_background_agents(
     Extension(core): Extension<Arc<AppCore>>,
     Query(query): Query<ListBackgroundAgentsQuery>,
-) -> Result<Json<Vec<AgentTask>>, ApiError> {
+) -> Result<Json<Vec<BackgroundAgent>>, ApiError> {
     let tasks = list_tasks_by_optional_status(&core, query.status)?;
     Ok(Json(tasks))
 }
@@ -49,7 +49,7 @@ async fn list_background_agents(
 async fn get_background_agent(
     Extension(core): Extension<Arc<AppCore>>,
     Path(id): Path<String>,
-) -> Result<Json<AgentTask>, ApiError> {
+) -> Result<Json<BackgroundAgent>, ApiError> {
     let task = core
         .storage
         .agent_tasks
@@ -58,13 +58,13 @@ async fn get_background_agent(
     Ok(Json(task))
 }
 
-fn parse_task_status(input: &str) -> Result<AgentTaskStatus, ApiError> {
+fn parse_task_status(input: &str) -> Result<BackgroundAgentStatus, ApiError> {
     match input.trim().to_lowercase().as_str() {
-        "active" => Ok(AgentTaskStatus::Active),
-        "paused" => Ok(AgentTaskStatus::Paused),
-        "running" => Ok(AgentTaskStatus::Running),
-        "completed" => Ok(AgentTaskStatus::Completed),
-        "failed" => Ok(AgentTaskStatus::Failed),
+        "active" => Ok(BackgroundAgentStatus::Active),
+        "paused" => Ok(BackgroundAgentStatus::Paused),
+        "running" => Ok(BackgroundAgentStatus::Running),
+        "completed" => Ok(BackgroundAgentStatus::Completed),
+        "failed" => Ok(BackgroundAgentStatus::Failed),
         _ => Err(ApiError::bad_request(format!("Unknown status: {}", input))),
     }
 }
@@ -72,7 +72,7 @@ fn parse_task_status(input: &str) -> Result<AgentTaskStatus, ApiError> {
 fn list_tasks_by_optional_status(
     core: &Arc<AppCore>,
     status: Option<String>,
-) -> Result<Vec<AgentTask>, ApiError> {
+) -> Result<Vec<BackgroundAgent>, ApiError> {
     if let Some(status_str) = status {
         let status = parse_task_status(&status_str)?;
         Ok(core.storage.agent_tasks.list_tasks_by_status(status)?)
@@ -85,7 +85,7 @@ fn list_tasks_by_optional_status(
 struct CreateBackgroundAgentRequest {
     name: String,
     agent_id: String,
-    schedule: TaskSchedule,
+    schedule: BackgroundAgentSchedule,
     #[serde(default)]
     description: Option<String>,
     #[serde(default)]
@@ -103,7 +103,7 @@ struct CreateBackgroundAgentRequest {
 async fn create_background_agent(
     Extension(core): Extension<Arc<AppCore>>,
     Json(req): Json<CreateBackgroundAgentRequest>,
-) -> Result<Json<AgentTask>, ApiError> {
+) -> Result<Json<BackgroundAgent>, ApiError> {
     let task = core
         .storage
         .agent_tasks
@@ -134,7 +134,7 @@ struct UpdateBackgroundAgentRequest {
     #[serde(default)]
     input_template: Option<String>,
     #[serde(default)]
-    schedule: Option<TaskSchedule>,
+    schedule: Option<BackgroundAgentSchedule>,
     #[serde(default)]
     notification: Option<NotificationConfig>,
     #[serde(default)]
@@ -147,7 +147,7 @@ async fn update_background_agent(
     Extension(core): Extension<Arc<AppCore>>,
     Path(id): Path<String>,
     Json(req): Json<UpdateBackgroundAgentRequest>,
-) -> Result<Json<AgentTask>, ApiError> {
+) -> Result<Json<BackgroundAgent>, ApiError> {
     let task = core.storage.agent_tasks.update_background_agent(
         &id,
         BackgroundAgentPatch {
@@ -200,7 +200,7 @@ async fn control_background_agent(
     Extension(core): Extension<Arc<AppCore>>,
     Path(id): Path<String>,
     Json(req): Json<BackgroundControlRequest>,
-) -> Result<Json<AgentTask>, ApiError> {
+) -> Result<Json<BackgroundAgent>, ApiError> {
     let task = core
         .storage
         .agent_tasks
@@ -292,7 +292,7 @@ mod tests {
         (core, temp_dir)
     }
 
-    fn create_background_agent_for_test(core: &Arc<AppCore>) -> AgentTask {
+    fn create_background_agent_for_test(core: &Arc<AppCore>) -> BackgroundAgent {
         let default_agent = core
             .storage
             .agents
@@ -310,7 +310,7 @@ mod tests {
                 description: Some("test".to_string()),
                 input: Some("hello".to_string()),
                 input_template: None,
-                schedule: TaskSchedule::default(),
+                schedule: BackgroundAgentSchedule::default(),
                 notification: None,
                 execution_mode: None,
                 memory: None,
@@ -352,7 +352,7 @@ mod tests {
             Json(CreateBackgroundAgentRequest {
                 name: "HTTP Message Roundtrip".to_string(),
                 agent_id: default_agent.id,
-                schedule: TaskSchedule::Interval {
+                schedule: BackgroundAgentSchedule::Interval {
                     interval_ms: 3_600_000,
                     start_at: None,
                 },

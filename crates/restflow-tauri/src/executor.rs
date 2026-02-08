@@ -4,10 +4,10 @@ use restflow_core::auth::{AuthProfile, AuthProvider, Credential, CredentialSourc
 use restflow_core::daemon::{IpcRequest, IpcResponse};
 use restflow_core::memory::{ExportResult, RankedSearchResult};
 use restflow_core::models::{
-    AgentNode, AgentTask, BackgroundAgentControlAction, BackgroundAgentPatch, BackgroundAgentSpec,
-    BackgroundMessageSource, ChatMessage, ChatRole, ChatSession, ChatSessionSummary,
-    ChatSessionUpdate, MemoryChunk, MemorySearchResult, MemorySession, MemoryStats, Skill,
-    TaskEvent, TerminalSession,
+    AgentNode, BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentEvent,
+    BackgroundAgentPatch, BackgroundAgentSpec, BackgroundMessageSource, ChatMessage, ChatRole,
+    ChatSession, ChatSessionSummary, ChatSessionUpdate, MemoryChunk, MemorySearchResult,
+    MemorySession, MemoryStats, Skill, TerminalSession,
 };
 use restflow_core::storage::SystemConfig;
 use serde::de::DeserializeOwned;
@@ -104,17 +104,23 @@ impl TauriExecutor {
         Ok(())
     }
 
-    pub async fn list_background_agents(&self, status: Option<String>) -> Result<Vec<AgentTask>> {
+    pub async fn list_background_agents(
+        &self,
+        status: Option<String>,
+    ) -> Result<Vec<BackgroundAgent>> {
         self.request(IpcRequest::ListBackgroundAgents { status })
             .await
     }
 
-    pub async fn get_background_agent(&self, id: String) -> Result<Option<AgentTask>> {
+    pub async fn get_background_agent(&self, id: String) -> Result<Option<BackgroundAgent>> {
         self.request_optional(IpcRequest::GetBackgroundAgent { id })
             .await
     }
 
-    pub async fn create_background_agent(&self, spec: BackgroundAgentSpec) -> Result<AgentTask> {
+    pub async fn create_background_agent(
+        &self,
+        spec: BackgroundAgentSpec,
+    ) -> Result<BackgroundAgent> {
         self.request(IpcRequest::CreateBackgroundAgent { spec })
             .await
     }
@@ -123,7 +129,7 @@ impl TauriExecutor {
         &self,
         id: String,
         patch: BackgroundAgentPatch,
-    ) -> Result<AgentTask> {
+    ) -> Result<BackgroundAgent> {
         self.request(IpcRequest::UpdateBackgroundAgent { id, patch })
             .await
     }
@@ -143,12 +149,15 @@ impl TauriExecutor {
         &self,
         id: String,
         action: BackgroundAgentControlAction,
-    ) -> Result<AgentTask> {
+    ) -> Result<BackgroundAgent> {
         self.request(IpcRequest::ControlBackgroundAgent { id, action })
             .await
     }
 
-    pub async fn get_background_agent_history(&self, id: String) -> Result<Vec<TaskEvent>> {
+    pub async fn get_background_agent_history(
+        &self,
+        id: String,
+    ) -> Result<Vec<BackgroundAgentEvent>> {
         self.request(IpcRequest::GetBackgroundAgentHistory { id })
             .await
     }

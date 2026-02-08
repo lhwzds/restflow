@@ -18,7 +18,7 @@ use restflow_ai::{LlmClient, SecretResolver};
 use restflow_core::AppCore;
 use restflow_core::channel::ChannelRouter;
 use restflow_core::hooks::{AgentTaskHookScheduler, HookExecutor};
-use restflow_core::models::{AgentTask, BackgroundMessageSource};
+use restflow_core::models::{BackgroundAgent, BackgroundAgentStatus, BackgroundMessageSource};
 use restflow_core::process::ProcessRegistry;
 use restflow_core::security::SecurityChecker;
 use restflow_core::steer::SteerRegistry;
@@ -388,11 +388,11 @@ impl AppBackgroundAgentTrigger {
 
 #[async_trait]
 impl BackgroundAgentTrigger for AppBackgroundAgentTrigger {
-    async fn list_background_agents(&self) -> Result<Vec<AgentTask>> {
+    async fn list_background_agents(&self) -> Result<Vec<BackgroundAgent>> {
         self.state.executor().list_background_agents(None).await
     }
 
-    async fn find_and_run_background_agent(&self, name_or_id: &str) -> Result<AgentTask> {
+    async fn find_and_run_background_agent(&self, name_or_id: &str) -> Result<BackgroundAgent> {
         // Try to find by ID first
         if let Ok(Some(task)) = self
             .state
@@ -436,7 +436,7 @@ impl BackgroundAgentTrigger for AppBackgroundAgentTrigger {
             .executor()
             .get_background_agent(task_id.to_string())
             .await
-            && (task.status != restflow_core::models::AgentTaskStatus::Running || !cancel_requested)
+            && (task.status != BackgroundAgentStatus::Running || !cancel_requested)
         {
             let _ = self
                 .state
@@ -462,7 +462,7 @@ impl BackgroundAgentTrigger for AppBackgroundAgentTrigger {
         let tasks = self.state.executor().list_background_agents(None).await?;
         let pending_count = tasks
             .iter()
-            .filter(|t| t.status == restflow_core::models::AgentTaskStatus::Active)
+            .filter(|t| t.status == BackgroundAgentStatus::Active)
             .count();
 
         // Count completed today
@@ -474,10 +474,7 @@ impl BackgroundAgentTrigger for AppBackgroundAgentTrigger {
 
         let completed_today = tasks
             .iter()
-            .filter(|t| {
-                t.status == restflow_core::models::AgentTaskStatus::Completed
-                    && t.updated_at >= today_start
-            })
+            .filter(|t| t.status == BackgroundAgentStatus::Completed && t.updated_at >= today_start)
             .count();
 
         Ok(SystemStatus {

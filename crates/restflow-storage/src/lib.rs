@@ -48,6 +48,7 @@ use std::sync::Arc;
 
 pub use agent::AgentStorage;
 pub use agent_task::AgentTaskStorage;
+pub use agent_task::AgentTaskStorage as BackgroundAgentStorage;
 pub use auth_profiles::AuthProfileStorage;
 pub use chat_session::ChatSessionStorage;
 pub use config::{ConfigStorage, SystemConfig};

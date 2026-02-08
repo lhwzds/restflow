@@ -4,9 +4,9 @@
 //! APIs from restflow-storage with Rust types from our models.
 
 use crate::models::{
-    AgentTask, AgentTaskStatus, BackgroundAgentControlAction, BackgroundAgentPatch,
-    BackgroundAgentSpec, BackgroundMessage, BackgroundMessageSource, BackgroundMessageStatus,
-    BackgroundProgress, TaskEvent, TaskEventType, TaskSchedule,
+    BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentEvent, BackgroundAgentEventType,
+    BackgroundAgentPatch, BackgroundAgentSchedule, BackgroundAgentSpec, BackgroundAgentStatus,
+    BackgroundMessage, BackgroundMessageSource, BackgroundMessageStatus, BackgroundProgress,
 };
 use anyhow::Result;
 use redb::Database;
@@ -34,26 +34,26 @@ impl AgentTaskStorage {
         &self,
         name: String,
         agent_id: String,
-        schedule: TaskSchedule,
-    ) -> Result<AgentTask> {
-        let task = AgentTask::new(Uuid::new_v4().to_string(), name, agent_id, schedule);
+        schedule: BackgroundAgentSchedule,
+    ) -> Result<BackgroundAgent> {
+        let task = BackgroundAgent::new(Uuid::new_v4().to_string(), name, agent_id, schedule);
 
         let json_bytes = serde_json::to_vec(&task)?;
         self.inner
             .put_task_raw_with_status(&task.id, task.status.as_str(), &json_bytes)?;
 
         // Create a "created" event
-        let event =
-            TaskEvent::new(task.id.clone(), TaskEventType::Created).with_message("Task created");
+        let event = BackgroundAgentEvent::new(task.id.clone(), BackgroundAgentEventType::Created)
+            .with_message("Task created");
         self.add_event(&event)?;
 
         Ok(task)
     }
 
     /// Get an agent task by ID
-    pub fn get_task(&self, id: &str) -> Result<Option<AgentTask>> {
+    pub fn get_task(&self, id: &str) -> Result<Option<BackgroundAgent>> {
         if let Some(bytes) = self.inner.get_task_raw(id)? {
-            let task: AgentTask = serde_json::from_slice(&bytes)?;
+            let task: BackgroundAgent = serde_json::from_slice(&bytes)?;
             Ok(Some(task))
         } else {
             Ok(None)
@@ -61,18 +61,21 @@ impl AgentTaskStorage {
     }
 
     /// List all agent tasks
-    pub fn list_tasks(&self) -> Result<Vec<AgentTask>> {
+    pub fn list_tasks(&self) -> Result<Vec<BackgroundAgent>> {
         let tasks = self.inner.list_tasks_raw()?;
         let mut result = Vec::new();
         for (_, bytes) in tasks {
-            let task: AgentTask = serde_json::from_slice(&bytes)?;
+            let task: BackgroundAgent = serde_json::from_slice(&bytes)?;
             result.push(task);
         }
         Ok(result)
     }
 
     /// List tasks filtered by status
-    pub fn list_tasks_by_status(&self, status: AgentTaskStatus) -> Result<Vec<AgentTask>> {
+    pub fn list_tasks_by_status(
+        &self,
+        status: BackgroundAgentStatus,
+    ) -> Result<Vec<BackgroundAgent>> {
         let tasks = self.inner.list_tasks_by_status_indexed(status.as_str())?;
 
         if tasks.is_empty() {
@@ -85,14 +88,14 @@ impl AgentTaskStorage {
 
         let mut result = Vec::new();
         for (_, bytes) in tasks {
-            let task: AgentTask = serde_json::from_slice(&bytes)?;
+            let task: BackgroundAgent = serde_json::from_slice(&bytes)?;
             result.push(task);
         }
         Ok(result)
     }
 
     /// List tasks that are ready to run
-    pub fn list_runnable_tasks(&self, current_time: i64) -> Result<Vec<AgentTask>> {
+    pub fn list_runnable_tasks(&self, current_time: i64) -> Result<Vec<BackgroundAgent>> {
         let tasks = self.list_tasks()?;
         Ok(tasks
             .into_iter()
@@ -101,7 +104,7 @@ impl AgentTaskStorage {
     }
 
     /// Update an existing agent task
-    pub fn update_task(&self, task: &AgentTask) -> Result<()> {
+    pub fn update_task(&self, task: &BackgroundAgent) -> Result<()> {
         let json_bytes = serde_json::to_vec(task)?;
         let previous_status = self
             .get_task(&task.id)?
@@ -132,7 +135,7 @@ impl AgentTaskStorage {
     }
 
     /// Pause an agent task
-    pub fn pause_task(&self, id: &str) -> Result<AgentTask> {
+    pub fn pause_task(&self, id: &str) -> Result<BackgroundAgent> {
         let mut task = self
             .get_task(id)?
             .ok_or_else(|| anyhow::anyhow!("Task {} not found", id))?;
@@ -141,15 +144,15 @@ impl AgentTaskStorage {
         self.update_task(&task)?;
 
         // Record the pause event
-        let event =
-            TaskEvent::new(task.id.clone(), TaskEventType::Paused).with_message("Task paused");
+        let event = BackgroundAgentEvent::new(task.id.clone(), BackgroundAgentEventType::Paused)
+            .with_message("Task paused");
         self.add_event(&event)?;
 
         Ok(task)
     }
 
     /// Resume an agent task
-    pub fn resume_task(&self, id: &str) -> Result<AgentTask> {
+    pub fn resume_task(&self, id: &str) -> Result<BackgroundAgent> {
         let mut task = self
             .get_task(id)?
             .ok_or_else(|| anyhow::anyhow!("Task {} not found", id))?;
@@ -158,20 +161,20 @@ impl AgentTaskStorage {
         self.update_task(&task)?;
 
         // Record the resume event
-        let event =
-            TaskEvent::new(task.id.clone(), TaskEventType::Resumed).with_message("Task resumed");
+        let event = BackgroundAgentEvent::new(task.id.clone(), BackgroundAgentEventType::Resumed)
+            .with_message("Task resumed");
         self.add_event(&event)?;
 
         Ok(task)
     }
 
     /// Mark a task as running
-    pub fn start_task_execution(&self, id: &str) -> Result<AgentTask> {
+    pub fn start_task_execution(&self, id: &str) -> Result<BackgroundAgent> {
         let mut task = self
             .get_task(id)?
             .ok_or_else(|| anyhow::anyhow!("Task {} not found", id))?;
 
-        if task.status != AgentTaskStatus::Active {
+        if task.status != BackgroundAgentStatus::Active {
             return Err(anyhow::anyhow!(
                 "Task {} cannot start from status {}",
                 id,
@@ -183,7 +186,7 @@ impl AgentTaskStorage {
         self.update_task(&task)?;
 
         // Record the start event
-        let event = TaskEvent::new(task.id.clone(), TaskEventType::Started)
+        let event = BackgroundAgentEvent::new(task.id.clone(), BackgroundAgentEventType::Started)
             .with_message("Task execution started");
         self.add_event(&event)?;
 
@@ -196,7 +199,7 @@ impl AgentTaskStorage {
         id: &str,
         output: Option<String>,
         duration_ms: i64,
-    ) -> Result<AgentTask> {
+    ) -> Result<BackgroundAgent> {
         let mut task = self
             .get_task(id)?
             .ok_or_else(|| anyhow::anyhow!("Task {} not found", id))?;
@@ -205,9 +208,10 @@ impl AgentTaskStorage {
         self.update_task(&task)?;
 
         // Record the completion event
-        let mut event = TaskEvent::new(task.id.clone(), TaskEventType::Completed)
-            .with_message("Task execution completed")
-            .with_duration(duration_ms);
+        let mut event =
+            BackgroundAgentEvent::new(task.id.clone(), BackgroundAgentEventType::Completed)
+                .with_message("Task execution completed")
+                .with_duration(duration_ms);
         if let Some(out) = output {
             event = event.with_output(out);
         }
@@ -222,7 +226,7 @@ impl AgentTaskStorage {
         id: &str,
         error: String,
         duration_ms: i64,
-    ) -> Result<AgentTask> {
+    ) -> Result<BackgroundAgent> {
         let mut task = self
             .get_task(id)?
             .ok_or_else(|| anyhow::anyhow!("Task {} not found", id))?;
@@ -231,7 +235,7 @@ impl AgentTaskStorage {
         self.update_task(&task)?;
 
         // Record the failure event
-        let event = TaskEvent::new(task.id.clone(), TaskEventType::Failed)
+        let event = BackgroundAgentEvent::new(task.id.clone(), BackgroundAgentEventType::Failed)
             .with_message(error)
             .with_duration(duration_ms);
         self.add_event(&event)?;
@@ -242,7 +246,7 @@ impl AgentTaskStorage {
     // ============== Background Agent Operations ==============
 
     /// Create a background agent from a rich spec.
-    pub fn create_background_agent(&self, spec: BackgroundAgentSpec) -> Result<AgentTask> {
+    pub fn create_background_agent(&self, spec: BackgroundAgentSpec) -> Result<BackgroundAgent> {
         let mut task = self.create_task(spec.name, spec.agent_id, spec.schedule)?;
 
         task.description = spec.description;
@@ -267,7 +271,7 @@ impl AgentTaskStorage {
         &self,
         id: &str,
         patch: BackgroundAgentPatch,
-    ) -> Result<AgentTask> {
+    ) -> Result<BackgroundAgent> {
         let mut task = self
             .get_task(id)?
             .ok_or_else(|| anyhow::anyhow!("Task {} not found", id))?;
@@ -311,7 +315,7 @@ impl AgentTaskStorage {
         &self,
         id: &str,
         action: BackgroundAgentControlAction,
-    ) -> Result<AgentTask> {
+    ) -> Result<BackgroundAgent> {
         let mut task = self
             .get_task(id)?
             .ok_or_else(|| anyhow::anyhow!("Task {} not found", id))?;
@@ -319,32 +323,32 @@ impl AgentTaskStorage {
         let now = chrono::Utc::now().timestamp_millis();
         let event = match action {
             BackgroundAgentControlAction::Start => {
-                task.status = AgentTaskStatus::Active;
+                task.status = BackgroundAgentStatus::Active;
                 task.next_run_at = Some(now);
                 task.updated_at = now;
-                TaskEvent::new(task.id.clone(), TaskEventType::Resumed)
+                BackgroundAgentEvent::new(task.id.clone(), BackgroundAgentEventType::Resumed)
                     .with_message("Background agent started")
             }
             BackgroundAgentControlAction::Pause => {
                 task.pause();
-                TaskEvent::new(task.id.clone(), TaskEventType::Paused)
+                BackgroundAgentEvent::new(task.id.clone(), BackgroundAgentEventType::Paused)
                     .with_message("Background agent paused")
             }
             BackgroundAgentControlAction::Resume => {
                 task.resume();
-                TaskEvent::new(task.id.clone(), TaskEventType::Resumed)
+                BackgroundAgentEvent::new(task.id.clone(), BackgroundAgentEventType::Resumed)
                     .with_message("Background agent resumed")
             }
             BackgroundAgentControlAction::Stop => {
                 task.pause();
-                TaskEvent::new(task.id.clone(), TaskEventType::Paused)
+                BackgroundAgentEvent::new(task.id.clone(), BackgroundAgentEventType::Paused)
                     .with_message("Background agent stopped")
             }
             BackgroundAgentControlAction::RunNow => {
-                task.status = AgentTaskStatus::Active;
+                task.status = BackgroundAgentStatus::Active;
                 task.next_run_at = Some(now);
                 task.updated_at = now;
-                TaskEvent::new(task.id.clone(), TaskEventType::Resumed)
+                BackgroundAgentEvent::new(task.id.clone(), BackgroundAgentEventType::Resumed)
                     .with_message("Background agent scheduled for immediate run")
             }
         };
@@ -523,17 +527,17 @@ impl AgentTaskStorage {
         Ok(())
     }
 
-    fn event_stage_label(event_type: &TaskEventType) -> String {
+    fn event_stage_label(event_type: &BackgroundAgentEventType) -> String {
         match event_type {
-            TaskEventType::Created => "created",
-            TaskEventType::Started => "running",
-            TaskEventType::Completed => "completed",
-            TaskEventType::Failed => "failed",
-            TaskEventType::Paused => "paused",
-            TaskEventType::Resumed => "active",
-            TaskEventType::NotificationSent => "notification_sent",
-            TaskEventType::NotificationFailed => "notification_failed",
-            TaskEventType::Compaction => "compaction",
+            BackgroundAgentEventType::Created => "created",
+            BackgroundAgentEventType::Started => "running",
+            BackgroundAgentEventType::Completed => "completed",
+            BackgroundAgentEventType::Failed => "failed",
+            BackgroundAgentEventType::Paused => "paused",
+            BackgroundAgentEventType::Resumed => "active",
+            BackgroundAgentEventType::NotificationSent => "notification_sent",
+            BackgroundAgentEventType::NotificationFailed => "notification_failed",
+            BackgroundAgentEventType::Compaction => "compaction",
         }
         .to_string()
     }
@@ -541,7 +545,7 @@ impl AgentTaskStorage {
     // ============== Task Event Operations ==============
 
     /// Add a new event for a task
-    pub fn add_event(&self, event: &TaskEvent) -> Result<()> {
+    pub fn add_event(&self, event: &BackgroundAgentEvent) -> Result<()> {
         let json_bytes = serde_json::to_vec(event)?;
         self.inner
             .put_event_raw(&event.id, &event.task_id, &json_bytes)?;
@@ -549,9 +553,9 @@ impl AgentTaskStorage {
     }
 
     /// Get an event by ID
-    pub fn get_event(&self, event_id: &str) -> Result<Option<TaskEvent>> {
+    pub fn get_event(&self, event_id: &str) -> Result<Option<BackgroundAgentEvent>> {
         if let Some(bytes) = self.inner.get_event_raw(event_id)? {
-            let event: TaskEvent = serde_json::from_slice(&bytes)?;
+            let event: BackgroundAgentEvent = serde_json::from_slice(&bytes)?;
             Ok(Some(event))
         } else {
             Ok(None)
@@ -559,11 +563,11 @@ impl AgentTaskStorage {
     }
 
     /// List all events for a task
-    pub fn list_events_for_task(&self, task_id: &str) -> Result<Vec<TaskEvent>> {
+    pub fn list_events_for_task(&self, task_id: &str) -> Result<Vec<BackgroundAgentEvent>> {
         let events = self.inner.list_events_for_task_raw(task_id)?;
         let mut result = Vec::new();
         for (_, bytes) in events {
-            let event: TaskEvent = serde_json::from_slice(&bytes)?;
+            let event: BackgroundAgentEvent = serde_json::from_slice(&bytes)?;
             result.push(event);
         }
 
@@ -577,22 +581,28 @@ impl AgentTaskStorage {
         &self,
         task_id: &str,
         limit: usize,
-    ) -> Result<Vec<TaskEvent>> {
+    ) -> Result<Vec<BackgroundAgentEvent>> {
         let events = self.list_events_for_task(task_id)?;
         Ok(events.into_iter().take(limit).collect())
     }
 
     /// Record a notification event
     pub fn record_notification_sent(&self, task_id: &str, message: String) -> Result<()> {
-        let event = TaskEvent::new(task_id.to_string(), TaskEventType::NotificationSent)
-            .with_message(message);
+        let event = BackgroundAgentEvent::new(
+            task_id.to_string(),
+            BackgroundAgentEventType::NotificationSent,
+        )
+        .with_message(message);
         self.add_event(&event)
     }
 
     /// Record a notification failure event
     pub fn record_notification_failed(&self, task_id: &str, error: String) -> Result<()> {
-        let event = TaskEvent::new(task_id.to_string(), TaskEventType::NotificationFailed)
-            .with_message(error);
+        let event = BackgroundAgentEvent::new(
+            task_id.to_string(),
+            BackgroundAgentEventType::NotificationFailed,
+        )
+        .with_message(error);
         self.add_event(&event)
     }
 }
@@ -617,7 +627,7 @@ mod tests {
             .create_task(
                 "Test Task".to_string(),
                 "agent-001".to_string(),
-                TaskSchedule::Interval {
+                BackgroundAgentSchedule::Interval {
                     interval_ms: 3600000,
                     start_at: None,
                 },
@@ -627,7 +637,7 @@ mod tests {
         assert!(!task.id.is_empty());
         assert_eq!(task.name, "Test Task");
         assert_eq!(task.agent_id, "agent-001");
-        assert_eq!(task.status, AgentTaskStatus::Active);
+        assert_eq!(task.status, BackgroundAgentStatus::Active);
 
         let retrieved = storage.get_task(&task.id).unwrap();
         assert!(retrieved.is_some());
@@ -642,14 +652,14 @@ mod tests {
             .create_task(
                 "Task 1".to_string(),
                 "agent-001".to_string(),
-                TaskSchedule::default(),
+                BackgroundAgentSchedule::default(),
             )
             .unwrap();
         storage
             .create_task(
                 "Task 2".to_string(),
                 "agent-002".to_string(),
-                TaskSchedule::default(),
+                BackgroundAgentSchedule::default(),
             )
             .unwrap();
 
@@ -665,7 +675,7 @@ mod tests {
             .create_task(
                 "Active Task".to_string(),
                 "agent-001".to_string(),
-                TaskSchedule::default(),
+                BackgroundAgentSchedule::default(),
             )
             .unwrap();
 
@@ -673,17 +683,17 @@ mod tests {
             .create_task(
                 "Will be Paused".to_string(),
                 "agent-002".to_string(),
-                TaskSchedule::default(),
+                BackgroundAgentSchedule::default(),
             )
             .unwrap();
 
         storage.pause_task(&task2.id).unwrap();
 
         let active_tasks = storage
-            .list_tasks_by_status(AgentTaskStatus::Active)
+            .list_tasks_by_status(BackgroundAgentStatus::Active)
             .unwrap();
         let paused_tasks = storage
-            .list_tasks_by_status(AgentTaskStatus::Paused)
+            .list_tasks_by_status(BackgroundAgentStatus::Paused)
             .unwrap();
 
         assert_eq!(active_tasks.len(), 1);
@@ -700,12 +710,12 @@ mod tests {
             .create_task(
                 "To Delete".to_string(),
                 "agent-001".to_string(),
-                TaskSchedule::default(),
+                BackgroundAgentSchedule::default(),
             )
             .unwrap();
 
         // Add some events
-        let event = TaskEvent::new(task.id.clone(), TaskEventType::Started);
+        let event = BackgroundAgentEvent::new(task.id.clone(), BackgroundAgentEventType::Started);
         storage.add_event(&event).unwrap();
 
         // Delete the task
@@ -729,23 +739,23 @@ mod tests {
             .create_task(
                 "Test Task".to_string(),
                 "agent-001".to_string(),
-                TaskSchedule::default(),
+                BackgroundAgentSchedule::default(),
             )
             .unwrap();
 
         // Pause the task
         let paused = storage.pause_task(&task.id).unwrap();
-        assert_eq!(paused.status, AgentTaskStatus::Paused);
+        assert_eq!(paused.status, BackgroundAgentStatus::Paused);
 
         // Resume the task
         let resumed = storage.resume_task(&task.id).unwrap();
-        assert_eq!(resumed.status, AgentTaskStatus::Active);
+        assert_eq!(resumed.status, BackgroundAgentStatus::Active);
 
         // Check events were recorded
         let events = storage.list_events_for_task(&task.id).unwrap();
         let event_types: Vec<_> = events.iter().map(|e| &e.event_type).collect();
-        assert!(event_types.contains(&&TaskEventType::Paused));
-        assert!(event_types.contains(&&TaskEventType::Resumed));
+        assert!(event_types.contains(&&BackgroundAgentEventType::Paused));
+        assert!(event_types.contains(&&BackgroundAgentEventType::Resumed));
     }
 
     #[test]
@@ -756,27 +766,27 @@ mod tests {
             .create_task(
                 "Test Task".to_string(),
                 "agent-001".to_string(),
-                TaskSchedule::default(),
+                BackgroundAgentSchedule::default(),
             )
             .unwrap();
 
         // Start execution
         let running = storage.start_task_execution(&task.id).unwrap();
-        assert_eq!(running.status, AgentTaskStatus::Running);
+        assert_eq!(running.status, BackgroundAgentStatus::Running);
         assert!(running.last_run_at.is_some());
 
         // Complete execution
         let completed = storage
             .complete_task_execution(&task.id, Some("Success output".to_string()), 1500)
             .unwrap();
-        assert_eq!(completed.status, AgentTaskStatus::Active);
+        assert_eq!(completed.status, BackgroundAgentStatus::Active);
         assert_eq!(completed.success_count, 1);
 
         // Check events
         let events = storage.list_events_for_task(&task.id).unwrap();
         let event_types: Vec<_> = events.iter().map(|e| &e.event_type).collect();
-        assert!(event_types.contains(&&TaskEventType::Started));
-        assert!(event_types.contains(&&TaskEventType::Completed));
+        assert!(event_types.contains(&&BackgroundAgentEventType::Started));
+        assert!(event_types.contains(&&BackgroundAgentEventType::Completed));
     }
 
     #[test]
@@ -787,7 +797,7 @@ mod tests {
             .create_task(
                 "Test Task".to_string(),
                 "agent-001".to_string(),
-                TaskSchedule::default(),
+                BackgroundAgentSchedule::default(),
             )
             .unwrap();
 
@@ -797,7 +807,7 @@ mod tests {
             .fail_task_execution(&task.id, "Test error".to_string(), 500)
             .unwrap();
 
-        assert_eq!(failed.status, AgentTaskStatus::Failed);
+        assert_eq!(failed.status, BackgroundAgentStatus::Failed);
         assert_eq!(failed.failure_count, 1);
         assert_eq!(failed.last_error, Some("Test error".to_string()));
 
@@ -805,7 +815,7 @@ mod tests {
         let events = storage.list_events_for_task(&task.id).unwrap();
         let failed_events: Vec<_> = events
             .iter()
-            .filter(|e| e.event_type == TaskEventType::Failed)
+            .filter(|e| e.event_type == BackgroundAgentEventType::Failed)
             .collect();
         assert_eq!(failed_events.len(), 1);
         assert_eq!(failed_events[0].message, Some("Test error".to_string()));
@@ -819,14 +829,15 @@ mod tests {
             .create_task(
                 "Test Task".to_string(),
                 "agent-001".to_string(),
-                TaskSchedule::default(),
+                BackgroundAgentSchedule::default(),
             )
             .unwrap();
 
         // Add multiple events
         for i in 0..5 {
-            let event = TaskEvent::new(task.id.clone(), TaskEventType::Started)
-                .with_message(format!("Event {}", i));
+            let event =
+                BackgroundAgentEvent::new(task.id.clone(), BackgroundAgentEventType::Started)
+                    .with_message(format!("Event {}", i));
             storage.add_event(&event).unwrap();
         }
 
@@ -842,7 +853,7 @@ mod tests {
             .create_task(
                 "Test Task".to_string(),
                 "agent-001".to_string(),
-                TaskSchedule::default(),
+                BackgroundAgentSchedule::default(),
             )
             .unwrap();
 
@@ -860,8 +871,8 @@ mod tests {
         let notification_events: Vec<_> = events
             .iter()
             .filter(|e| {
-                e.event_type == TaskEventType::NotificationSent
-                    || e.event_type == TaskEventType::NotificationFailed
+                e.event_type == BackgroundAgentEventType::NotificationSent
+                    || e.event_type == BackgroundAgentEventType::NotificationFailed
             })
             .collect();
 
@@ -878,7 +889,7 @@ mod tests {
             .create_task(
                 "Ready Task".to_string(),
                 "agent-001".to_string(),
-                TaskSchedule::Once { run_at: past_time },
+                BackgroundAgentSchedule::Once { run_at: past_time },
             )
             .unwrap();
 
@@ -893,7 +904,7 @@ mod tests {
             .create_task(
                 "Future Task".to_string(),
                 "agent-002".to_string(),
-                TaskSchedule::Once {
+                BackgroundAgentSchedule::Once {
                     run_at: future_time,
                 },
             )
@@ -934,7 +945,7 @@ mod tests {
                 description: Some("Background agent".to_string()),
                 input: Some("Run checks".to_string()),
                 input_template: None,
-                schedule: TaskSchedule::Interval {
+                schedule: BackgroundAgentSchedule::Interval {
                     interval_ms: 60_000,
                     start_at: None,
                 },
@@ -959,17 +970,17 @@ mod tests {
         let paused = storage
             .control_background_agent(&created.id, BackgroundAgentControlAction::Pause)
             .unwrap();
-        assert_eq!(paused.status, AgentTaskStatus::Paused);
+        assert_eq!(paused.status, BackgroundAgentStatus::Paused);
 
         let resumed = storage
             .control_background_agent(&created.id, BackgroundAgentControlAction::Resume)
             .unwrap();
-        assert_eq!(resumed.status, AgentTaskStatus::Active);
+        assert_eq!(resumed.status, BackgroundAgentStatus::Active);
 
         let run_now = storage
             .control_background_agent(&created.id, BackgroundAgentControlAction::RunNow)
             .unwrap();
-        assert_eq!(run_now.status, AgentTaskStatus::Active);
+        assert_eq!(run_now.status, BackgroundAgentStatus::Active);
         assert!(run_now.next_run_at.is_some());
     }
 
@@ -980,7 +991,7 @@ mod tests {
             .create_task(
                 "Message Task".to_string(),
                 "agent-001".to_string(),
-                TaskSchedule::default(),
+                BackgroundAgentSchedule::default(),
             )
             .unwrap();
 
@@ -1027,7 +1038,7 @@ mod tests {
                 description: None,
                 input: Some("fallback".to_string()),
                 input_template: Some("Run task {{task.id}}".to_string()),
-                schedule: TaskSchedule::default(),
+                schedule: BackgroundAgentSchedule::default(),
                 notification: None,
                 execution_mode: None,
                 memory: Some(MemoryConfig {
@@ -1058,7 +1069,7 @@ mod tests {
                 description: None,
                 input: None,
                 input_template: None,
-                schedule: TaskSchedule::default(),
+                schedule: BackgroundAgentSchedule::default(),
                 notification: None,
                 execution_mode: None,
                 memory: None,

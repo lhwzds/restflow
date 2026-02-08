@@ -25,6 +25,7 @@ pub use restflow_storage::{
 
 pub use agent::AgentStorage;
 pub use agent_task::AgentTaskStorage;
+pub use agent_task::AgentTaskStorage as BackgroundAgentStorage;
 pub use chat_session::ChatSessionStorage;
 pub use execution_history::ExecutionHistoryStorage;
 pub use hook::HookStorage;

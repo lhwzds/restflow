@@ -3,7 +3,7 @@
 //! Handles command messages (/help, /agents, /run, /status, /stop) from channels.
 
 use crate::channel::{ChannelRouter, InboundMessage, MessageLevel, OutboundMessage};
-use crate::models::AgentTaskStatus;
+use crate::models::BackgroundAgentStatus;
 use anyhow::Result;
 use tracing::debug;
 
@@ -72,11 +72,11 @@ async fn cmd_list_tasks(
     } else {
         for task in tasks.iter().take(10) {
             let status_emoji = match task.status {
-                AgentTaskStatus::Running => "🟢",
-                AgentTaskStatus::Active => "🟡",
-                AgentTaskStatus::Completed => "✅",
-                AgentTaskStatus::Failed => "❌",
-                AgentTaskStatus::Paused => "⏸️",
+                BackgroundAgentStatus::Running => "🟢",
+                BackgroundAgentStatus::Active => "🟡",
+                BackgroundAgentStatus::Completed => "✅",
+                BackgroundAgentStatus::Failed => "❌",
+                BackgroundAgentStatus::Paused => "⏸️",
             };
             text.push_str(&format!("{} `{}` - {}\n", status_emoji, task.id, task.name));
         }

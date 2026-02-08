@@ -26,10 +26,11 @@ pub use agent::{AgentNode, ApiKeyConfig};
 pub use agent_execution::{AgentExecuteResponse, ExecutionDetails, ExecutionStep, ToolCallInfo};
 pub use agent_meta::{AgentMeta, AgentType};
 pub use agent_task::{
-    AgentTask, AgentTaskStatus, BackgroundAgentControlAction, BackgroundAgentPatch,
-    BackgroundAgentSpec, BackgroundMessage, BackgroundMessageSource, BackgroundMessageStatus,
-    BackgroundProgress, CliExecutionConfig, ExecutionMode, MemoryConfig, MemoryScope,
-    NotificationConfig, TaskEvent, TaskEventType, TaskSchedule,
+    AgentTask, AgentTaskStatus, BackgroundAgent, BackgroundAgentControlAction,
+    BackgroundAgentEvent, BackgroundAgentEventType, BackgroundAgentPatch, BackgroundAgentSchedule,
+    BackgroundAgentSpec, BackgroundAgentStatus, BackgroundMessage, BackgroundMessageSource,
+    BackgroundMessageStatus, BackgroundProgress, CliExecutionConfig, ExecutionMode, MemoryConfig,
+    MemoryScope, NotificationConfig, TaskEvent, TaskEventType, TaskSchedule,
 };
 pub use ai_model::{AIModel, ModelMetadataDTO, Provider};
 pub use execution::{ExecutionHistoryPage, ExecutionStatus, ExecutionSummary};

@@ -6,10 +6,11 @@
 use crate::AppCore;
 use crate::daemon::{IpcClient, IpcRequest, IpcResponse};
 use crate::models::{
-    AIModel, AgentTask, AgentTaskStatus, BackgroundAgentControlAction, BackgroundAgentPatch,
-    BackgroundAgentSpec, BackgroundMessage, BackgroundMessageSource, BackgroundProgress,
-    ChatSession, ChatSessionSummary, MemoryChunk, MemoryConfig, MemoryScope, MemorySearchQuery,
-    MemorySearchResult, MemorySource, MemoryStats, Provider, SearchMode, Skill, TaskSchedule,
+    AIModel, BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentPatch,
+    BackgroundAgentSchedule, BackgroundAgentSpec, BackgroundAgentStatus, BackgroundMessage,
+    BackgroundMessageSource, BackgroundProgress, ChatSession, ChatSessionSummary, MemoryChunk,
+    MemoryConfig, MemoryScope, MemorySearchQuery, MemorySearchResult, MemorySource, MemoryStats,
+    Provider, SearchMode, Skill,
 };
 use crate::services::tool_registry::create_tool_registry;
 use crate::storage::SecretStorage;
@@ -81,20 +82,25 @@ pub trait McpBackend: Send + Sync {
     ) -> Result<Vec<ChatSessionSummary>, String>;
     async fn get_session(&self, id: &str) -> Result<ChatSession, String>;
 
-    async fn list_tasks(&self, status: Option<AgentTaskStatus>) -> Result<Vec<AgentTask>, String>;
-    async fn create_background_agent(&self, spec: BackgroundAgentSpec)
-    -> Result<AgentTask, String>;
+    async fn list_tasks(
+        &self,
+        status: Option<BackgroundAgentStatus>,
+    ) -> Result<Vec<BackgroundAgent>, String>;
+    async fn create_background_agent(
+        &self,
+        spec: BackgroundAgentSpec,
+    ) -> Result<BackgroundAgent, String>;
     async fn update_background_agent(
         &self,
         id: &str,
         patch: BackgroundAgentPatch,
-    ) -> Result<AgentTask, String>;
+    ) -> Result<BackgroundAgent, String>;
     async fn delete_background_agent(&self, id: &str) -> Result<bool, String>;
     async fn control_background_agent(
         &self,
         id: &str,
         action: BackgroundAgentControlAction,
-    ) -> Result<AgentTask, String>;
+    ) -> Result<BackgroundAgent, String>;
     async fn get_background_agent_progress(
         &self,
         id: &str,
@@ -271,7 +277,10 @@ impl McpBackend for CoreBackend {
             .ok_or_else(|| format!("Session not found: {}", id))
     }
 
-    async fn list_tasks(&self, status: Option<AgentTaskStatus>) -> Result<Vec<AgentTask>, String> {
+    async fn list_tasks(
+        &self,
+        status: Option<BackgroundAgentStatus>,
+    ) -> Result<Vec<BackgroundAgent>, String> {
         match status {
             Some(status) => self
                 .core
@@ -291,7 +300,7 @@ impl McpBackend for CoreBackend {
     async fn create_background_agent(
         &self,
         spec: BackgroundAgentSpec,
-    ) -> Result<AgentTask, String> {
+    ) -> Result<BackgroundAgent, String> {
         self.core
             .storage
             .agent_tasks
@@ -303,7 +312,7 @@ impl McpBackend for CoreBackend {
         &self,
         id: &str,
         patch: BackgroundAgentPatch,
-    ) -> Result<AgentTask, String> {
+    ) -> Result<BackgroundAgent, String> {
         self.core
             .storage
             .agent_tasks
@@ -323,7 +332,7 @@ impl McpBackend for CoreBackend {
         &self,
         id: &str,
         action: BackgroundAgentControlAction,
-    ) -> Result<AgentTask, String> {
+    ) -> Result<BackgroundAgent, String> {
         self.core
             .storage
             .agent_tasks
@@ -514,7 +523,10 @@ impl McpBackend for IpcBackend {
             .map_err(|e| e.to_string())
     }
 
-    async fn list_tasks(&self, status: Option<AgentTaskStatus>) -> Result<Vec<AgentTask>, String> {
+    async fn list_tasks(
+        &self,
+        status: Option<BackgroundAgentStatus>,
+    ) -> Result<Vec<BackgroundAgent>, String> {
         let mut client = self.client.lock().await;
         client
             .list_background_agents(status.map(|value| value.as_str().to_string()))
@@ -525,7 +537,7 @@ impl McpBackend for IpcBackend {
     async fn create_background_agent(
         &self,
         spec: BackgroundAgentSpec,
-    ) -> Result<AgentTask, String> {
+    ) -> Result<BackgroundAgent, String> {
         self.request_typed(IpcRequest::CreateBackgroundAgent { spec })
             .await
     }
@@ -534,7 +546,7 @@ impl McpBackend for IpcBackend {
         &self,
         id: &str,
         patch: BackgroundAgentPatch,
-    ) -> Result<AgentTask, String> {
+    ) -> Result<BackgroundAgent, String> {
         self.request_typed(IpcRequest::UpdateBackgroundAgent {
             id: id.to_string(),
             patch,
@@ -558,7 +570,7 @@ impl McpBackend for IpcBackend {
         &self,
         id: &str,
         action: BackgroundAgentControlAction,
-    ) -> Result<AgentTask, String> {
+    ) -> Result<BackgroundAgent, String> {
         self.request_typed(IpcRequest::ControlBackgroundAgent {
             id: id.to_string(),
             action,
@@ -905,15 +917,15 @@ impl RestFlowMcpServer {
             .ok_or_else(|| format!("Missing required field: {}", field))
     }
 
-    fn parse_task_status(value: Option<String>) -> Result<Option<AgentTaskStatus>, String> {
+    fn parse_task_status(value: Option<String>) -> Result<Option<BackgroundAgentStatus>, String> {
         match value.map(|s| s.trim().to_lowercase()) {
             None => Ok(None),
             Some(s) if s.is_empty() => Ok(None),
-            Some(s) if s == "active" => Ok(Some(AgentTaskStatus::Active)),
-            Some(s) if s == "paused" => Ok(Some(AgentTaskStatus::Paused)),
-            Some(s) if s == "running" => Ok(Some(AgentTaskStatus::Running)),
-            Some(s) if s == "completed" => Ok(Some(AgentTaskStatus::Completed)),
-            Some(s) if s == "failed" => Ok(Some(AgentTaskStatus::Failed)),
+            Some(s) if s == "active" => Ok(Some(BackgroundAgentStatus::Active)),
+            Some(s) if s == "paused" => Ok(Some(BackgroundAgentStatus::Paused)),
+            Some(s) if s == "running" => Ok(Some(BackgroundAgentStatus::Running)),
+            Some(s) if s == "completed" => Ok(Some(BackgroundAgentStatus::Completed)),
+            Some(s) if s == "failed" => Ok(Some(BackgroundAgentStatus::Failed)),
             Some(s) => Err(format!("Unknown status: {}", s)),
         }
     }
@@ -1335,9 +1347,11 @@ impl RestFlowMcpServer {
             "create" => {
                 let name = Self::required_string(params.name, "name")?;
                 let agent_id = Self::required_string(params.agent_id, "agent_id")?;
-                let schedule =
-                    Self::parse_optional_value::<TaskSchedule>("schedule", params.schedule)?
-                        .unwrap_or_default();
+                let schedule = Self::parse_optional_value::<BackgroundAgentSchedule>(
+                    "schedule",
+                    params.schedule,
+                )?
+                .unwrap_or_default();
                 let memory = Self::parse_optional_value::<MemoryConfig>("memory", params.memory)?;
                 let memory = Self::merge_memory_scope(memory, params.memory_scope)?;
                 let spec = BackgroundAgentSpec {
@@ -2450,15 +2464,15 @@ mod tests {
 
         async fn list_tasks(
             &self,
-            _status: Option<AgentTaskStatus>,
-        ) -> Result<Vec<AgentTask>, String> {
+            _status: Option<BackgroundAgentStatus>,
+        ) -> Result<Vec<BackgroundAgent>, String> {
             Ok(Vec::new())
         }
 
         async fn create_background_agent(
             &self,
             _spec: BackgroundAgentSpec,
-        ) -> Result<AgentTask, String> {
+        ) -> Result<BackgroundAgent, String> {
             Err("not implemented in mock backend".to_string())
         }
 
@@ -2466,7 +2480,7 @@ mod tests {
             &self,
             _id: &str,
             _patch: BackgroundAgentPatch,
-        ) -> Result<AgentTask, String> {
+        ) -> Result<BackgroundAgent, String> {
             Err("not implemented in mock backend".to_string())
         }
 
@@ -2478,7 +2492,7 @@ mod tests {
             &self,
             _id: &str,
             _action: BackgroundAgentControlAction,
-        ) -> Result<AgentTask, String> {
+        ) -> Result<BackgroundAgent, String> {
             Err("not implemented in mock backend".to_string())
         }
 
