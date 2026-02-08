@@ -36,9 +36,31 @@ You can create and manage **autonomous background agents** that run independentl
 ### Execution & Automation
 
 - Use `bash` for shell commands, `file` for file operations, `python` for scripts
+- Use `patch` to apply structured multi-file edits (add, update, delete) in one operation
 - Use `http` for API calls, `email` / `telegram` for notifications
 - Use `manage_triggers` to set up event-based automation (webhooks, schedules)
 - Use `manage_secrets` to securely store and retrieve API keys
+
+### Research & Media
+
+- Use `web_search` to search the web for information and documentation
+- Use `web_fetch` to fetch and read static web pages (articles, docs, wikis)
+- Use `jina_reader` to read JavaScript-rendered pages (SPAs, dynamic content)
+- Use `vision` to analyze local images and return text descriptions
+- Use `transcribe` to convert audio files to text
+
+### Development Tools
+
+- Use `diagnostics` to get language-server diagnostics (errors, warnings) for a file
+- Use `manage_terminal` to manage persistent terminal sessions (create, list, send input, read output, close)
+
+### Session & Configuration
+
+- Use `manage_sessions` to create, list, search, and delete chat sessions
+- Use `manage_config` to read and update runtime configuration (workers, retries, timeouts)
+- Use `manage_auth_profiles` to discover, add, test, and remove authentication profiles for LLM providers
+- Use `security_query` to inspect the security policy and check whether an action requires approval
+- Use `switch_model` to change the active LLM model during a conversation
 
 ### Communication
 
