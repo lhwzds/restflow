@@ -1,17 +1,17 @@
 /**
- * Composable for handling real-time task stream events
+ * Composable for handling real-time background agent stream events.
  *
- * Provides reactive state management for task execution streaming,
+ * Provides reactive state management for background agent execution streaming,
  * including output buffering, status tracking, and event history.
  */
 
 import { ref, computed, onUnmounted, type Ref } from 'vue'
-import type { TaskStreamEvent } from '@/types/generated/TaskStreamEvent'
 import type { StreamEventKind } from '@/types/generated/StreamEventKind'
 import type { ExecutionStats } from '@/types/generated/ExecutionStats'
+import type { BackgroundAgentStreamEvent } from '@/types/background-agent'
 import {
   onBackgroundAgentStreamEvent,
-  onBackgroundAgentStreamEventForAgent,
+  onBackgroundAgentStreamEventForBackgroundAgent,
   runBackgroundAgentStreaming,
   cancelBackgroundAgent,
   getActiveBackgroundAgents,
@@ -19,13 +19,13 @@ import {
 } from '@/api/background-agent'
 
 /**
- * Execution state for a single task
+ * Execution state for a single background agent run.
  */
-export interface TaskExecutionState {
-  /** Task ID */
-  taskId: string
-  /** Task name (from started event) */
-  taskName: string | null
+export interface BackgroundAgentExecutionState {
+  /** Background agent ID */
+  backgroundAgentId: string
+  /** Background agent name (from started event) */
+  backgroundAgentName: string | null
   /** Agent ID being executed */
   agentId: string | null
   /** Execution mode (api, cli:claude, etc.) */
@@ -55,7 +55,7 @@ export interface TaskExecutionState {
   /** Last heartbeat timestamp */
   lastHeartbeat: number | null
   /** All events received (for debugging/history) */
-  events: TaskStreamEvent[]
+  events: BackgroundAgentStreamEvent[]
 }
 
 /**
@@ -68,12 +68,12 @@ export interface OutputLine {
 }
 
 /**
- * Create initial execution state for a task
+ * Create initial execution state for a background agent.
  */
-function createInitialState(taskId: string): TaskExecutionState {
+function createInitialState(backgroundAgentId: string): BackgroundAgentExecutionState {
   return {
-    taskId,
-    taskName: null,
+    backgroundAgentId,
+    backgroundAgentName: null,
     agentId: null,
     executionMode: null,
     status: 'pending',
@@ -95,7 +95,7 @@ function createInitialState(taskId: string): TaskExecutionState {
 /**
  * Options for useBackgroundAgentStreamEvents composable
  */
-export interface UseTaskStreamEventsOptions {
+export interface UseBackgroundAgentStreamEventsOptions {
   /** Maximum number of output lines to keep (default: 10000) */
   maxOutputLines?: number
   /** Maximum events to keep in history (default: 1000) */
@@ -105,26 +105,26 @@ export interface UseTaskStreamEventsOptions {
 }
 
 /**
- * Composable for managing task stream events for a single task
+ * Composable for managing stream events for a single background agent.
  *
- * @param taskId - The task ID to monitor
+ * @param backgroundAgentId - The background agent ID to monitor
  * @param options - Configuration options
  */
 export function useBackgroundAgentStreamEvents(
-  taskId: Ref<string | null>,
-  options: UseTaskStreamEventsOptions = {},
+  backgroundAgentId: Ref<string | null>,
+  options: UseBackgroundAgentStreamEventsOptions = {},
 ) {
   const { maxOutputLines = 10000, maxEvents = 1000 } = options
 
-  const state = ref<TaskExecutionState | null>(null)
+  const state = ref<BackgroundAgentExecutionState | null>(null)
   const isListening = ref(false)
   let unlistenFn: (() => void) | null = null
 
   /**
    * Process an incoming stream event
    */
-  function handleEvent(event: TaskStreamEvent) {
-    if (!state.value || state.value.taskId !== event.task_id) {
+  function handleEvent(event: BackgroundAgentStreamEvent) {
+    if (!state.value || state.value.backgroundAgentId !== event.task_id) {
       // Initialize state if needed
       state.value = createInitialState(event.task_id)
     }
@@ -141,7 +141,7 @@ export function useBackgroundAgentStreamEvents(
     switch (kind.type) {
       case 'started':
         state.value.status = 'running'
-        state.value.taskName = kind.task_name
+        state.value.backgroundAgentName = kind.task_name
         state.value.agentId = kind.agent_id
         state.value.executionMode = kind.execution_mode
         state.value.startedAt = event.timestamp
@@ -212,13 +212,16 @@ export function useBackgroundAgentStreamEvents(
    * Start listening for events
    */
   async function startListening() {
-    if (isListening.value || !taskId.value) return
+    if (isListening.value || !backgroundAgentId.value) return
 
     // Initialize state
-    state.value = createInitialState(taskId.value)
+    state.value = createInitialState(backgroundAgentId.value)
     isListening.value = true
 
-    unlistenFn = await onBackgroundAgentStreamEventForAgent(taskId.value, handleEvent)
+    unlistenFn = await onBackgroundAgentStreamEventForBackgroundAgent(
+      backgroundAgentId.value,
+      handleEvent,
+    )
   }
 
   /**
@@ -241,25 +244,25 @@ export function useBackgroundAgentStreamEvents(
   }
 
   /**
-   * Run the task and start listening
+   * Run the background agent and start listening
    */
-  async function runTask() {
-    if (!taskId.value) {
-      throw new Error('No task ID specified')
+  async function runBackgroundAgent() {
+    if (!backgroundAgentId.value) {
+      throw new Error('No background agent ID specified')
     }
 
     await startListening()
-    await runBackgroundAgentStreaming(taskId.value)
+    await runBackgroundAgentStreaming(backgroundAgentId.value)
   }
 
   /**
-   * Cancel the running task
+   * Cancel the running background agent
    */
   async function cancel() {
-    if (!taskId.value || state.value?.status !== 'running') {
+    if (!backgroundAgentId.value || state.value?.status !== 'running') {
       return false
     }
-    return cancelBackgroundAgent(taskId.value)
+    return cancelBackgroundAgent(backgroundAgentId.value)
   }
 
   // Computed properties
@@ -301,33 +304,35 @@ export function useBackgroundAgentStreamEvents(
     startListening,
     stopListening,
     reset,
-    runTask,
+    runBackgroundAgent,
     cancel,
   }
 }
 
 /**
- * Composable for managing multiple concurrent task executions
+ * Composable for managing multiple concurrent background agent executions
  *
- * Use this when you need to monitor multiple tasks at once,
- * such as in a dashboard or task list view.
+ * Use this when you need to monitor multiple background agents at once,
+ * such as in a dashboard or background agent list view.
  */
-export function useMultiBackgroundAgentStreamEvents(options: UseTaskStreamEventsOptions = {}) {
+export function useMultiBackgroundAgentStreamEvents(
+  options: UseBackgroundAgentStreamEventsOptions = {},
+) {
   const { maxOutputLines = 5000, maxEvents = 500 } = options
 
-  const tasks = ref<Map<string, TaskExecutionState>>(new Map())
+  const backgroundAgents = ref<Map<string, BackgroundAgentExecutionState>>(new Map())
   const isListening = ref(false)
   let unlistenFn: (() => void) | null = null
 
   /**
    * Process an incoming stream event
    */
-  function handleEvent(event: TaskStreamEvent) {
-    let state = tasks.value.get(event.task_id)
+  function handleEvent(event: BackgroundAgentStreamEvent) {
+    let state = backgroundAgents.value.get(event.task_id)
 
     if (!state) {
       state = createInitialState(event.task_id)
-      tasks.value.set(event.task_id, state)
+      backgroundAgents.value.set(event.task_id, state)
     }
 
     // Store event
@@ -342,7 +347,7 @@ export function useMultiBackgroundAgentStreamEvents(options: UseTaskStreamEvents
     switch (kind.type) {
       case 'started':
         state.status = 'running'
-        state.taskName = kind.task_name
+        state.backgroundAgentName = kind.task_name
         state.agentId = kind.agent_id
         state.executionMode = kind.execution_mode
         state.startedAt = event.timestamp
@@ -397,11 +402,11 @@ export function useMultiBackgroundAgentStreamEvents(options: UseTaskStreamEvents
     }
 
     // Trigger reactivity
-    tasks.value = new Map(tasks.value)
+    backgroundAgents.value = new Map(backgroundAgents.value)
   }
 
   /**
-   * Start listening for all task events
+   * Start listening for all background agent events
    */
   async function startListening() {
     if (isListening.value) return
@@ -409,17 +414,17 @@ export function useMultiBackgroundAgentStreamEvents(options: UseTaskStreamEvents
     isListening.value = true
     unlistenFn = await onBackgroundAgentStreamEvent(handleEvent)
 
-    // Load currently active tasks
-    const activeTasks = await getActiveBackgroundAgents()
-    for (const task of activeTasks) {
-      if (!tasks.value.has(task.task_id)) {
-        const state = createInitialState(task.task_id)
+    // Load currently active background agents
+    const activeBackgroundAgents = await getActiveBackgroundAgents()
+    for (const activeBackgroundAgent of activeBackgroundAgents) {
+      if (!backgroundAgents.value.has(activeBackgroundAgent.background_agent_id)) {
+        const state = createInitialState(activeBackgroundAgent.background_agent_id)
         state.status = 'running'
-        state.taskName = task.task_name
-        state.agentId = task.agent_id
-        state.executionMode = task.execution_mode
-        state.startedAt = task.started_at
-        tasks.value.set(task.task_id, state)
+        state.backgroundAgentName = activeBackgroundAgent.background_agent_name
+        state.agentId = activeBackgroundAgent.executor_agent_id
+        state.executionMode = activeBackgroundAgent.execution_mode
+        state.startedAt = activeBackgroundAgent.started_at
+        backgroundAgents.value.set(activeBackgroundAgent.background_agent_id, state)
       }
     }
   }
@@ -436,45 +441,49 @@ export function useMultiBackgroundAgentStreamEvents(options: UseTaskStreamEvents
   }
 
   /**
-   * Get state for a specific task
+   * Get state for a specific background agent
    */
-  function getTaskState(taskId: string): TaskExecutionState | undefined {
-    return tasks.value.get(taskId)
+  function getBackgroundAgentState(
+    backgroundAgentId: string,
+  ): BackgroundAgentExecutionState | undefined {
+    return backgroundAgents.value.get(backgroundAgentId)
   }
 
   /**
-   * Remove a task from tracking (e.g., after it's finished and dismissed)
+   * Remove a background agent from tracking (e.g., after it's finished and dismissed)
    */
-  function removeTask(taskId: string) {
-    tasks.value.delete(taskId)
-    tasks.value = new Map(tasks.value)
+  function removeBackgroundAgent(backgroundAgentId: string) {
+    backgroundAgents.value.delete(backgroundAgentId)
+    backgroundAgents.value = new Map(backgroundAgents.value)
   }
 
   /**
-   * Clear all finished tasks
+   * Clear all finished background agents
    */
   function clearFinished() {
-    for (const [taskId, state] of tasks.value) {
+    for (const [backgroundAgentId, state] of backgroundAgents.value) {
       if (['completed', 'failed', 'cancelled'].includes(state.status)) {
-        tasks.value.delete(taskId)
+        backgroundAgents.value.delete(backgroundAgentId)
       }
     }
-    tasks.value = new Map(tasks.value)
+    backgroundAgents.value = new Map(backgroundAgents.value)
   }
 
   // Computed properties
-  const runningTasks = computed(() =>
-    Array.from(tasks.value.values()).filter((t) => t.status === 'running'),
-  )
-
-  const finishedTasks = computed(() =>
-    Array.from(tasks.value.values()).filter((t) =>
-      ['completed', 'failed', 'cancelled'].includes(t.status),
+  const runningBackgroundAgents = computed(() =>
+    Array.from(backgroundAgents.value.values()).filter(
+      (backgroundAgent) => backgroundAgent.status === 'running',
     ),
   )
 
-  const taskCount = computed(() => tasks.value.size)
-  const runningCount = computed(() => runningTasks.value.length)
+  const finishedBackgroundAgents = computed(() =>
+    Array.from(backgroundAgents.value.values()).filter((backgroundAgent) =>
+      ['completed', 'failed', 'cancelled'].includes(backgroundAgent.status),
+    ),
+  )
+
+  const backgroundAgentCount = computed(() => backgroundAgents.value.size)
+  const runningCount = computed(() => runningBackgroundAgents.value.length)
 
   // Cleanup on unmount
   onUnmounted(() => {
@@ -483,20 +492,20 @@ export function useMultiBackgroundAgentStreamEvents(options: UseTaskStreamEvents
 
   return {
     // State
-    tasks,
+    backgroundAgents,
     isListening,
 
     // Computed
-    runningTasks,
-    finishedTasks,
-    taskCount,
+    runningBackgroundAgents,
+    finishedBackgroundAgents,
+    backgroundAgentCount,
     runningCount,
 
     // Actions
     startListening,
     stopListening,
-    getTaskState,
-    removeTask,
+    getBackgroundAgentState,
+    removeBackgroundAgent,
     clearFinished,
   }
 }

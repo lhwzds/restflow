@@ -7,7 +7,7 @@ import { skillHandlers } from './handlers/skills'
 import { chatSessionHandlers } from './handlers/chat-sessions'
 import { configHandlers } from './handlers/config'
 import { toolHandlers } from './handlers/tools'
-import { agentTaskHandlers } from './handlers/agent-tasks'
+import { backgroundAgentHandlers } from './handlers/background-agents'
 import { pythonHandlers } from './handlers/python'
 
 export const worker = setupWorker(
@@ -19,6 +19,6 @@ export const worker = setupWorker(
   ...chatSessionHandlers,
   ...configHandlers,
   ...toolHandlers,
-  ...agentTaskHandlers,
+  ...backgroundAgentHandlers,
   ...pythonHandlers,
 )

@@ -64,13 +64,13 @@ async function saveConfig() {
         await updateSecret(
           TELEGRAM_BOT_TOKEN_KEY,
           botToken.value,
-          'Telegram bot token for agent task notifications',
+          'Telegram bot token for background agent notifications',
         )
       } else {
         await createSecret(
           TELEGRAM_BOT_TOKEN_KEY,
           botToken.value,
-          'Telegram bot token for agent task notifications',
+          'Telegram bot token for background agent notifications',
         )
       }
       hasExistingToken.value = true
@@ -83,13 +83,13 @@ async function saveConfig() {
         await updateSecret(
           TELEGRAM_CHAT_ID_KEY,
           chatId.value,
-          'Default Telegram chat ID for agent task notifications',
+          'Default Telegram chat ID for background agent notifications',
         )
       } else {
         await createSecret(
           TELEGRAM_CHAT_ID_KEY,
           chatId.value,
-          'Default Telegram chat ID for agent task notifications',
+          'Default Telegram chat ID for background agent notifications',
         )
       }
       hasExistingChatId.value = true
@@ -145,7 +145,7 @@ async function testConnection() {
     </div>
 
     <p class="text-xs text-muted-foreground">
-      Configure Telegram to receive agent task notifications. Get your bot token from
+      Configure Telegram to receive background agent notifications. Get your bot token from
       <a href="https://t.me/BotFather" target="_blank" class="text-primary hover:underline"
         >@BotFather</a
       >

@@ -2,12 +2,14 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import MockAdapter from 'axios-mock-adapter'
 import { apiClient } from '@/api/config'
 import * as backgroundAgentApi from '@/api/background-agent'
-import type { AgentTask } from '@/types/generated/AgentTask'
-import type { TaskEvent } from '@/types/generated/TaskEvent'
-import type { TaskSchedule } from '@/types/generated/TaskSchedule'
+import type {
+  BackgroundAgent,
+  BackgroundAgentEvent,
+  BackgroundAgentSchedule,
+} from '@/types/background-agent'
 import { API_ENDPOINTS } from '@/constants'
 
-describe('Agent Task API', () => {
+describe('Background Agent API', () => {
   let mock: MockAdapter
 
   beforeEach(() => {
@@ -18,7 +20,10 @@ describe('Agent Task API', () => {
     mock.reset()
   })
 
-  const createMockTask = (id: string, overrides: Partial<AgentTask> = {}): AgentTask => ({
+  const createMockBackgroundAgent = (
+    id: string,
+    overrides: Partial<BackgroundAgent> = {},
+  ): BackgroundAgent => ({
     id,
     name: `Test Task ${id}`,
     description: null,
@@ -55,7 +60,7 @@ describe('Agent Task API', () => {
     ...overrides,
   })
 
-  const createMockEvent = (id: string, taskId: string): TaskEvent => ({
+  const createMockEvent = (id: string, taskId: string): BackgroundAgentEvent => ({
     id,
     task_id: taskId,
     event_type: 'completed',
@@ -68,8 +73,8 @@ describe('Agent Task API', () => {
   })
 
   describe('listBackgroundAgents', () => {
-    it('should fetch and return task list', async () => {
-      const mockTasks = [createMockTask('task1'), createMockTask('task2')]
+    it('should fetch and return background agent list', async () => {
+      const mockTasks = [createMockBackgroundAgent('task1'), createMockBackgroundAgent('task2')]
 
       mock.onGet(API_ENDPOINTS.BACKGROUND_AGENT.LIST).reply(200, {
         success: true,
@@ -81,7 +86,7 @@ describe('Agent Task API', () => {
       expect(result).toHaveLength(2)
     })
 
-    it('should return empty array when no tasks exist', async () => {
+    it('should return empty array when no background agents exist', async () => {
       mock.onGet(API_ENDPOINTS.BACKGROUND_AGENT.LIST).reply(200, {
         success: true,
         data: [],
@@ -93,10 +98,10 @@ describe('Agent Task API', () => {
   })
 
   describe('listBackgroundAgentsByStatus', () => {
-    it('should fetch tasks filtered by status', async () => {
+    it('should fetch background agents filtered by status', async () => {
       const mockTasks = [
-        createMockTask('task1', { status: 'active' }),
-        createMockTask('task2', { status: 'active' }),
+        createMockBackgroundAgent('task1', { status: 'active' }),
+        createMockBackgroundAgent('task2', { status: 'active' }),
       ]
 
       mock.onGet(API_ENDPOINTS.BACKGROUND_AGENT.LIST_BY_STATUS('active')).reply(200, {
@@ -111,8 +116,8 @@ describe('Agent Task API', () => {
   })
 
   describe('getBackgroundAgent', () => {
-    it('should fetch specific task by ID', async () => {
-      const mockTask = createMockTask('task1')
+    it('should fetch specific background agent by ID', async () => {
+      const mockTask = createMockBackgroundAgent('task1')
 
       mock.onGet(API_ENDPOINTS.BACKGROUND_AGENT.GET('task1')).reply(200, {
         success: true,
@@ -137,14 +142,14 @@ describe('Agent Task API', () => {
   })
 
   describe('createBackgroundAgent', () => {
-    it('should create task with minimal fields', async () => {
+    it('should create background agent with minimal fields', async () => {
       const request: backgroundAgentApi.CreateBackgroundAgentRequest = {
         name: 'New Task',
         agent_id: 'agent-001',
         schedule: { type: 'interval', interval_ms: 3600000, start_at: null },
       }
 
-      const mockResponse = createMockTask('new-task', { name: 'New Task' })
+      const mockResponse = createMockBackgroundAgent('new-task', { name: 'New Task' })
 
       mock.onPost(API_ENDPOINTS.BACKGROUND_AGENT.CREATE).reply(200, {
         success: true,
@@ -156,7 +161,7 @@ describe('Agent Task API', () => {
       expect(result.agent_id).toBe('agent-001')
     })
 
-    it('should create task with all fields', async () => {
+    it('should create background agent with all fields', async () => {
       const request: backgroundAgentApi.CreateBackgroundAgentRequest = {
         name: 'Full Task',
         agent_id: 'agent-002',
@@ -172,7 +177,7 @@ describe('Agent Task API', () => {
         },
       }
 
-      const mockResponse = createMockTask('full-task', {
+      const mockResponse = createMockBackgroundAgent('full-task', {
         name: 'Full Task',
         description: 'A complete task',
         input: 'Hello agent',
@@ -198,7 +203,7 @@ describe('Agent Task API', () => {
         memory_scope: 'per_background_agent',
       }
 
-      const mockResponse = createMockTask('templated-task', {
+      const mockResponse = createMockBackgroundAgent('templated-task', {
         name: 'Templated Task',
       })
 
@@ -221,33 +226,37 @@ describe('Agent Task API', () => {
   })
 
   describe('updateBackgroundAgent', () => {
-    it('should update task name', async () => {
-      const mockResponse = createMockTask('task1', { name: 'Updated Name' })
+    it('should update background agent name', async () => {
+      const mockResponse = createMockBackgroundAgent('task1', { name: 'Updated Name' })
 
       mock.onPatch(API_ENDPOINTS.BACKGROUND_AGENT.UPDATE('task1')).reply(200, {
         success: true,
         data: mockResponse,
       })
 
-      const result = await backgroundAgentApi.updateBackgroundAgent('task1', { name: 'Updated Name' })
+      const result = await backgroundAgentApi.updateBackgroundAgent('task1', {
+        name: 'Updated Name',
+      })
       expect(result.name).toBe('Updated Name')
     })
 
-    it('should update task schedule', async () => {
-      const newSchedule: TaskSchedule = { type: 'once', run_at: Date.now() + 86400000 }
-      const mockResponse = createMockTask('task1', { schedule: newSchedule })
+    it('should update background agent schedule', async () => {
+      const newSchedule: BackgroundAgentSchedule = { type: 'once', run_at: Date.now() + 86400000 }
+      const mockResponse = createMockBackgroundAgent('task1', { schedule: newSchedule })
 
       mock.onPatch(API_ENDPOINTS.BACKGROUND_AGENT.UPDATE('task1')).reply(200, {
         success: true,
         data: mockResponse,
       })
 
-      const result = await backgroundAgentApi.updateBackgroundAgent('task1', { schedule: newSchedule })
+      const result = await backgroundAgentApi.updateBackgroundAgent('task1', {
+        schedule: newSchedule,
+      })
       expect(result.schedule.type).toBe('once')
     })
 
     it('should pass input_template and memory_scope on update', async () => {
-      const mockResponse = createMockTask('task1')
+      const mockResponse = createMockBackgroundAgent('task1')
 
       mock.onPatch(API_ENDPOINTS.BACKGROUND_AGENT.UPDATE('task1')).reply((config) => {
         const body = JSON.parse(config.data)
@@ -270,7 +279,7 @@ describe('Agent Task API', () => {
   })
 
   describe('deleteBackgroundAgent', () => {
-    it('should delete task and return true', async () => {
+    it('should delete background agent and return true', async () => {
       mock.onDelete(API_ENDPOINTS.BACKGROUND_AGENT.DELETE('task1')).reply(200, {
         success: true,
         data: true,
@@ -282,8 +291,8 @@ describe('Agent Task API', () => {
   })
 
   describe('pauseBackgroundAgent', () => {
-    it('should pause task and return updated task', async () => {
-      const mockResponse = createMockTask('task1', { status: 'paused' })
+    it('should pause background agent and return updated task', async () => {
+      const mockResponse = createMockBackgroundAgent('task1', { status: 'paused' })
 
       mock.onPost(API_ENDPOINTS.BACKGROUND_AGENT.CONTROL('task1')).reply((config) => {
         const body = JSON.parse(config.data)
@@ -303,8 +312,8 @@ describe('Agent Task API', () => {
   })
 
   describe('resumeBackgroundAgent', () => {
-    it('should resume task and return updated task', async () => {
-      const mockResponse = createMockTask('task1', { status: 'active' })
+    it('should resume background agent and return updated task', async () => {
+      const mockResponse = createMockBackgroundAgent('task1', { status: 'active' })
 
       mock.onPost(API_ENDPOINTS.BACKGROUND_AGENT.CONTROL('task1')).reply((config) => {
         const body = JSON.parse(config.data)
@@ -354,11 +363,11 @@ describe('Agent Task API', () => {
   })
 
   describe('getRunnableBackgroundAgents', () => {
-    it('should fetch active tasks and filter by next_run_at', async () => {
+    it('should fetch active background agents and filter by next_run_at', async () => {
       const now = Date.now()
       const mockTasks = [
-        createMockTask('task1', { status: 'active', next_run_at: now - 1000 }),
-        createMockTask('task2', { status: 'active', next_run_at: now + 100000 }),
+        createMockBackgroundAgent('task1', { status: 'active', next_run_at: now - 1000 }),
+        createMockBackgroundAgent('task2', { status: 'active', next_run_at: now + 100000 }),
       ]
 
       mock.onGet(API_ENDPOINTS.BACKGROUND_AGENT.LIST_BY_STATUS('active')).reply(200, {
@@ -424,37 +433,53 @@ describe('Agent Task API', () => {
 
     describe('formatSchedule', () => {
       it('should format once schedule', () => {
-        const schedule: TaskSchedule = { type: 'once', run_at: 1704067200000 }
+        const schedule: BackgroundAgentSchedule = { type: 'once', run_at: 1704067200000 }
         const result = backgroundAgentApi.formatSchedule(schedule)
         expect(result).toContain('Once at')
       })
 
       it('should format interval schedule with hours', () => {
-        const schedule: TaskSchedule = { type: 'interval', interval_ms: 7200000, start_at: null }
+        const schedule: BackgroundAgentSchedule = {
+          type: 'interval',
+          interval_ms: 7200000,
+          start_at: null,
+        }
         const result = backgroundAgentApi.formatSchedule(schedule)
         expect(result).toBe('Every 2 hours')
       })
 
       it('should format interval schedule with minutes', () => {
-        const schedule: TaskSchedule = { type: 'interval', interval_ms: 1800000, start_at: null }
+        const schedule: BackgroundAgentSchedule = {
+          type: 'interval',
+          interval_ms: 1800000,
+          start_at: null,
+        }
         const result = backgroundAgentApi.formatSchedule(schedule)
         expect(result).toBe('Every 30 minutes')
       })
 
       it('should format interval schedule with hours and minutes', () => {
-        const schedule: TaskSchedule = { type: 'interval', interval_ms: 5400000, start_at: null }
+        const schedule: BackgroundAgentSchedule = {
+          type: 'interval',
+          interval_ms: 5400000,
+          start_at: null,
+        }
         const result = backgroundAgentApi.formatSchedule(schedule)
         expect(result).toBe('Every 1h 30m')
       })
 
       it('should format cron schedule', () => {
-        const schedule: TaskSchedule = { type: 'cron', expression: '0 9 * * *', timezone: null }
+        const schedule: BackgroundAgentSchedule = {
+          type: 'cron',
+          expression: '0 9 * * *',
+          timezone: null,
+        }
         const result = backgroundAgentApi.formatSchedule(schedule)
         expect(result).toBe('Cron: 0 9 * * *')
       })
 
       it('should format cron schedule with timezone', () => {
-        const schedule: TaskSchedule = {
+        const schedule: BackgroundAgentSchedule = {
           type: 'cron',
           expression: '0 9 * * *',
           timezone: 'America/Los_Angeles',
@@ -503,7 +528,9 @@ describe('Agent Task API', () => {
         schedule: { type: 'interval', interval_ms: 3600000, start_at: null },
       }
 
-      await expect(backgroundAgentApi.createBackgroundAgent(request)).rejects.toThrow('Internal server error')
+      await expect(backgroundAgentApi.createBackgroundAgent(request)).rejects.toThrow(
+        'Internal server error',
+      )
     })
 
     it('should handle network error', async () => {

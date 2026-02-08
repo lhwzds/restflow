@@ -20,7 +20,7 @@ const mockOutputLineCount = ref(0)
 
 const mockStartListening = vi.fn()
 const mockStopListening = vi.fn()
-const mockRunTask = vi.fn()
+const mockRunBackgroundAgent = vi.fn()
 const mockCancel = vi.fn()
 
 vi.mock('@/composables/agents/useBackgroundAgentStreamEvents', () => ({
@@ -36,7 +36,7 @@ vi.mock('@/composables/agents/useBackgroundAgentStreamEvents', () => ({
     outputLineCount: mockOutputLineCount,
     startListening: mockStartListening,
     stopListening: mockStopListening,
-    runTask: mockRunTask,
+    runBackgroundAgent: mockRunBackgroundAgent,
     cancel: mockCancel,
   })),
 }))
@@ -101,7 +101,7 @@ describe('BackgroundAgentExecutionPanel', () => {
   function createWrapper(props = {}) {
     return mount(BackgroundAgentExecutionPanel, {
       props: {
-        taskId: 'test-task-123',
+        backgroundAgentId: 'test-background-agent-123',
         ...props,
       },
       global: {
@@ -201,7 +201,7 @@ describe('BackgroundAgentExecutionPanel', () => {
       expect(wrapper.text()).toContain('Cancel')
     })
 
-    it('should call runTask when Run button is clicked', async () => {
+    it('should call runBackgroundAgent when Run button is clicked', async () => {
       mockIsRunning.value = false
       mockIsFinished.value = false
       wrapper = createWrapper()
@@ -209,7 +209,7 @@ describe('BackgroundAgentExecutionPanel', () => {
       const runButton = wrapper.findAll('button').find((b) => b.text().includes('Run'))
       if (runButton) {
         await runButton.trigger('click')
-        expect(mockRunTask).toHaveBeenCalled()
+        expect(mockRunBackgroundAgent).toHaveBeenCalled()
       }
     })
 
@@ -398,7 +398,7 @@ describe('BackgroundAgentExecutionPanel', () => {
 
       expect(typeof exposed.startListening).toBe('function')
       expect(typeof exposed.stopListening).toBe('function')
-      expect(typeof exposed.runTask).toBe('function')
+      expect(typeof exposed.runBackgroundAgent).toBe('function')
       expect(typeof exposed.cancel).toBe('function')
     })
   })

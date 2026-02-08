@@ -2,7 +2,7 @@
 /**
  * BackgroundAgentCard Component
  *
- * Displays an agent task card with status, schedule, and action buttons.
+ * Displays a background agent card with status, schedule, and action buttons.
  * Supports actions like pause/resume and delete.
  */
 
@@ -22,43 +22,43 @@ import {
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import type { AgentTask } from '@/types/generated/AgentTask'
-import type { AgentTaskStatus } from '@/types/generated/AgentTaskStatus'
+import type { BackgroundAgent, BackgroundAgentStatus } from '@/types/background-agent'
 import { formatSchedule, formatBackgroundAgentStatus } from '@/api/background-agent'
 
 const props = defineProps<{
-  task: AgentTask
+  backgroundAgent: BackgroundAgent
   isLoading?: boolean
 }>()
 
 const emit = defineEmits<{
-  click: [task: AgentTask]
-  pause: [task: AgentTask]
-  resume: [task: AgentTask]
-  delete: [task: AgentTask]
+  click: [backgroundAgent: BackgroundAgent]
+  pause: [backgroundAgent: BackgroundAgent]
+  resume: [backgroundAgent: BackgroundAgent]
+  delete: [backgroundAgent: BackgroundAgent]
 }>()
 
 /**
- * Get badge variant based on task status
+ * Get badge variant based on background agent status
  */
 function getStatusVariant(
-  status: AgentTaskStatus,
+  status: BackgroundAgentStatus,
 ): 'default' | 'secondary' | 'destructive' | 'outline' | 'success' | 'warning' | 'info' {
-  const variantMap: Record<AgentTaskStatus, 'success' | 'info' | 'default' | 'destructive'> = {
-    active: 'success',
-    paused: 'info',
-    running: 'default',
-    completed: 'success',
-    failed: 'destructive',
-  }
+  const variantMap: Record<BackgroundAgentStatus, 'success' | 'info' | 'default' | 'destructive'> =
+    {
+      active: 'success',
+      paused: 'info',
+      running: 'default',
+      completed: 'success',
+      failed: 'destructive',
+    }
   return variantMap[status] || 'default'
 }
 
 /**
  * Get status icon component
  */
-function getStatusIcon(status: AgentTaskStatus) {
-  const iconMap: Record<AgentTaskStatus, typeof CheckCircle2> = {
+function getStatusIcon(status: BackgroundAgentStatus) {
+  const iconMap: Record<BackgroundAgentStatus, typeof CheckCircle2> = {
     active: CheckCircle2,
     paused: Pause,
     running: Loader2,
@@ -92,51 +92,55 @@ function formatTime(timestamp: number | null): string {
   return date.toLocaleDateString()
 }
 
-const statusText = computed(() => formatBackgroundAgentStatus(props.task.status))
-const statusVariant = computed(() => getStatusVariant(props.task.status))
-const StatusIcon = computed(() => getStatusIcon(props.task.status))
-const scheduleText = computed(() => formatSchedule(props.task.schedule))
-const lastRunText = computed(() => formatTime(props.task.last_run_at))
-const nextRunText = computed(() => formatTime(props.task.next_run_at))
+const statusText = computed(() => formatBackgroundAgentStatus(props.backgroundAgent.status))
+const statusVariant = computed(() => getStatusVariant(props.backgroundAgent.status))
+const StatusIcon = computed(() => getStatusIcon(props.backgroundAgent.status))
+const scheduleText = computed(() => formatSchedule(props.backgroundAgent.schedule))
+const lastRunText = computed(() => formatTime(props.backgroundAgent.last_run_at))
+const nextRunText = computed(() => formatTime(props.backgroundAgent.next_run_at))
 
-const canPause = computed(() => props.task.status === 'active')
-const canResume = computed(() => props.task.status === 'paused')
-const isRunning = computed(() => props.task.status === 'running')
-const hasNotifications = computed(() => props.task.notification?.telegram_enabled)
+const canPause = computed(() => props.backgroundAgent.status === 'active')
+const canResume = computed(() => props.backgroundAgent.status === 'paused')
+const isRunning = computed(() => props.backgroundAgent.status === 'running')
+const hasNotifications = computed(() => props.backgroundAgent.notification?.telegram_enabled)
 
 function handleClick() {
-  emit('click', props.task)
+  emit('click', props.backgroundAgent)
 }
 
 function handlePause(e: Event) {
   e.stopPropagation()
-  emit('pause', props.task)
+  emit('pause', props.backgroundAgent)
 }
 
 function handleResume(e: Event) {
   e.stopPropagation()
-  emit('resume', props.task)
+  emit('resume', props.backgroundAgent)
 }
 
 function handleDelete(e: Event) {
   e.stopPropagation()
-  emit('delete', props.task)
+  emit('delete', props.backgroundAgent)
 }
 </script>
 
 <template>
-  <Card class="task-card" :class="{ 'task-card--loading': isLoading }" @click="handleClick">
+  <Card
+    class="background-agent-card"
+    :class="{ 'background-agent-card--loading': isLoading }"
+    @click="handleClick"
+  >
     <CardContent class="card-body">
       <!-- Header: Name and Status -->
       <div class="card-header">
-        <div class="task-name">
+        <div class="background-agent-name">
           <component
             :is="StatusIcon"
             class="status-icon"
-            :class="`status-icon--${task.status}`"
+            :class="`status-icon--${backgroundAgent.status}`"
             :size="16"
           />
-          <span>{{ task.name }}</span>
+          <span>{{ backgroundAgent.name }}</span>
         </div>
         <Badge :variant="statusVariant">
           {{ statusText }}
@@ -144,8 +148,11 @@ function handleDelete(e: Event) {
       </div>
 
       <!-- Description -->
-      <div class="task-description" :class="{ 'no-description': !task.description }">
-        {{ task.description || 'No description' }}
+      <div
+        class="background-agent-description"
+        :class="{ 'no-description': !backgroundAgent.description }"
+      >
+        {{ backgroundAgent.description || 'No description' }}
       </div>
 
       <!-- Schedule Info -->
@@ -159,7 +166,7 @@ function handleDelete(e: Event) {
           <span class="schedule-label">Last run:</span>
           <span class="schedule-value">{{ lastRunText }}</span>
         </div>
-        <div v-if="task.next_run_at" class="schedule-row">
+        <div v-if="backgroundAgent.next_run_at" class="schedule-row">
           <Clock :size="14" />
           <span class="schedule-label">Next run:</span>
           <span class="schedule-value">{{ nextRunText }}</span>
@@ -170,11 +177,11 @@ function handleDelete(e: Event) {
       <div class="stats-section">
         <div class="stat-item stat-item--success">
           <CheckCircle2 :size="12" />
-          <span>{{ task.success_count }}</span>
+          <span>{{ backgroundAgent.success_count }}</span>
         </div>
         <div class="stat-item stat-item--failed">
           <AlertCircle :size="12" />
-          <span>{{ task.failure_count }}</span>
+          <span>{{ backgroundAgent.failure_count }}</span>
         </div>
         <div class="stat-item stat-item--notification">
           <component :is="hasNotifications ? Bell : BellOff" :size="12" />
@@ -183,9 +190,9 @@ function handleDelete(e: Event) {
       </div>
 
       <!-- Error Message -->
-      <div v-if="task.last_error" class="error-section">
+      <div v-if="backgroundAgent.last_error" class="error-section">
         <AlertCircle :size="12" />
-        <span class="error-text">{{ task.last_error }}</span>
+        <span class="error-text">{{ backgroundAgent.last_error }}</span>
       </div>
 
       <!-- Actions -->
@@ -227,7 +234,7 @@ function handleDelete(e: Event) {
 </template>
 
 <style lang="scss" scoped>
-.task-card {
+.background-agent-card {
   cursor: pointer;
   transition: all var(--rf-transition-base) ease;
   border-radius: var(--rf-radius-base);
@@ -259,7 +266,7 @@ function handleDelete(e: Event) {
     align-items: center;
     min-height: var(--rf-size-xs);
 
-    .task-name {
+    .background-agent-name {
       display: flex;
       align-items: center;
       gap: var(--rf-spacing-xs);
@@ -298,7 +305,7 @@ function handleDelete(e: Event) {
     }
   }
 
-  .task-description {
+  .background-agent-description {
     color: var(--rf-color-text-regular);
     font-size: var(--rf-font-size-xs);
     line-height: 1.4;

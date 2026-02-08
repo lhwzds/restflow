@@ -1,8 +1,8 @@
 <script setup lang="ts">
 /**
- * Task Execution Panel Component
+ * Background Agent Execution Panel Component
  *
- * Displays real-time task execution with streaming output,
+ * Displays real-time background agent execution with streaming output,
  * progress tracking, and status indicators.
  */
 import { ref, computed, watch, nextTick, onMounted, toRef } from 'vue'
@@ -30,8 +30,8 @@ import { Card, CardContent, CardHeader } from '@/components/ui/card'
 
 const props = withDefaults(
   defineProps<{
-    /** Task ID to monitor */
-    taskId: string
+    /** Background agent ID to monitor */
+    backgroundAgentId: string
     /** Whether to auto-start listening on mount */
     autoStart?: boolean
     /** Whether to auto-scroll output */
@@ -50,18 +50,18 @@ const props = withDefaults(
 )
 
 const emit = defineEmits<{
-  /** Emitted when task completes */
+  /** Emitted when background agent completes */
   (e: 'completed', result: string | null): void
-  /** Emitted when task fails */
+  /** Emitted when background agent fails */
   (e: 'failed', error: string | null): void
-  /** Emitted when task is cancelled */
+  /** Emitted when background agent is cancelled */
   (e: 'cancelled'): void
 }>()
 
-// Create a ref for taskId
-const taskIdRef = toRef(() => props.taskId)
+// Create a ref for backgroundAgentId
+const backgroundAgentIdRef = toRef(() => props.backgroundAgentId)
 
-// Use the task stream events composable
+// Use the background agent stream events composable
 const {
   state,
   isRunning,
@@ -73,9 +73,9 @@ const {
   outputLineCount,
   startListening,
   stopListening,
-  runTask,
+  runBackgroundAgent,
   cancel,
-} = useBackgroundAgentStreamEvents(taskIdRef)
+} = useBackgroundAgentStreamEvents(backgroundAgentIdRef)
 
 // Local state
 const outputRef = ref<HTMLElement | null>(null)
@@ -157,7 +157,7 @@ const hasProgress = computed(() => {
   return state.value?.progressPercent !== null && state.value?.progressPercent !== undefined
 })
 
-// Watch for task completion events
+// Watch for background agent completion events
 watch(
   () => state.value?.status,
   (newStatus, oldStatus) => {
@@ -189,11 +189,11 @@ onMounted(() => {
 })
 
 // Actions
-async function handleRunTask() {
+async function handleRunBackgroundAgent() {
   try {
-    await runTask()
+    await runBackgroundAgent()
   } catch (error) {
-    console.error('Failed to start task:', error)
+    console.error('Failed to start background agent:', error)
   }
 }
 
@@ -201,7 +201,7 @@ async function handleCancel() {
   try {
     await cancel()
   } catch (error) {
-    console.error('Failed to cancel task:', error)
+    console.error('Failed to cancel background agent:', error)
   }
 }
 
@@ -235,14 +235,17 @@ function formatBytes(bytes: number): string {
 defineExpose({
   startListening,
   stopListening,
-  runTask: handleRunTask,
+  runBackgroundAgent: handleRunBackgroundAgent,
   cancel: handleCancel,
   state,
 })
 </script>
 
 <template>
-  <component :is="compact ? 'div' : Card" :class="['task-execution-panel', { compact }]">
+  <component
+    :is="compact ? 'div' : Card"
+    :class="['background-agent-execution-panel', { compact }]"
+  >
     <component :is="compact ? 'div' : CardHeader" class="panel-header">
       <div class="header-content">
         <div class="status-section">
@@ -265,7 +268,7 @@ defineExpose({
             v-if="!isRunning && !isFinished"
             size="sm"
             variant="default"
-            @click="handleRunTask"
+            @click="handleRunBackgroundAgent"
           >
             <Play :size="14" />
             Run
@@ -295,9 +298,11 @@ defineExpose({
         </div>
       </div>
 
-      <!-- Task info -->
-      <div v-if="state?.taskName || state?.agentId" class="task-info">
-        <span v-if="state.taskName" class="task-name">{{ state.taskName }}</span>
+      <!-- Background agent info -->
+      <div v-if="state?.backgroundAgentName || state?.agentId" class="background-agent-info">
+        <span v-if="state.backgroundAgentName" class="background-agent-name">{{
+          state.backgroundAgentName
+        }}</span>
         <span v-if="state.agentId" class="agent-id">Agent: {{ state.agentId }}</span>
       </div>
 
@@ -330,7 +335,7 @@ defineExpose({
       <div ref="outputRef" class="output-terminal" :style="{ maxHeight: maxHeight }">
         <div v-if="!hasOutput && !isRunning" class="output-placeholder">
           <Terminal :size="24" />
-          <span>Output will appear here when task runs...</span>
+          <span>Output will appear here when the background agent runs...</span>
         </div>
         <div v-else-if="!hasOutput && isRunning" class="output-placeholder">
           <Loader2 :size="24" class="spinning" />
@@ -395,7 +400,7 @@ defineExpose({
 </template>
 
 <style lang="scss" scoped>
-.task-execution-panel {
+.background-agent-execution-panel {
   &:not(.compact) {
     border: 1px solid var(--rf-color-border-base);
     border-radius: var(--rf-radius-medium);
@@ -456,14 +461,14 @@ defineExpose({
       gap: var(--rf-spacing-xs);
     }
 
-    .task-info {
+    .background-agent-info {
       display: flex;
       align-items: center;
       gap: var(--rf-spacing-md);
       margin-top: var(--rf-spacing-sm);
       font-size: var(--rf-font-size-sm);
 
-      .task-name {
+      .background-agent-name {
         font-weight: var(--rf-font-weight-semibold);
         color: var(--rf-color-text-primary);
       }
@@ -669,7 +674,7 @@ defineExpose({
 
 // Dark mode adjustments
 html.dark {
-  .task-execution-panel {
+  .background-agent-execution-panel {
     .output-terminal {
       background: #1a1a1a;
     }

@@ -2,7 +2,7 @@
 /**
  * CreateBackgroundAgentDialog Component
  *
- * Dialog for creating new agent tasks with schedule configuration,
+ * Dialog for creating new background agents with schedule configuration,
  * agent selection, and optional notification settings.
  */
 
@@ -28,7 +28,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import type { StoredAgent } from '@/types/generated/StoredAgent'
-import type { TaskSchedule } from '@/types/generated/TaskSchedule'
+import type { BackgroundAgentSchedule } from '@/types/background-agent'
 import type { NotificationConfig } from '@/types/generated/NotificationConfig'
 import type { ExecutionMode } from '@/types/generated/ExecutionMode'
 import type { CreateBackgroundAgentRequest } from '@/api/background-agent'
@@ -152,7 +152,7 @@ watch(
 /**
  * Build schedule object from form state
  */
-function buildSchedule(): TaskSchedule {
+function buildSchedule(): BackgroundAgentSchedule {
   switch (form.scheduleType) {
     case 'once':
       return {
@@ -242,9 +242,9 @@ function handleCancel() {
       <DialogHeader>
         <DialogTitle class="flex items-center gap-2">
           <Plus :size="18" />
-          Create Agent Task
+          Create Background Agent
         </DialogTitle>
-        <DialogDescription> Schedule an agent to run automatically </DialogDescription>
+        <DialogDescription> Schedule a background agent to run automatically </DialogDescription>
       </DialogHeader>
 
       <form class="flex-1 overflow-y-auto space-y-4 py-4" @submit.prevent="handleSubmit">
@@ -252,7 +252,7 @@ function handleCancel() {
         <div class="space-y-3">
           <div class="space-y-1">
             <Label for="name">Name *</Label>
-            <Input id="name" v-model="form.name" placeholder="My scheduled task" />
+            <Input id="name" v-model="form.name" placeholder="My background agent job" />
           </div>
 
           <div class="space-y-1">
@@ -260,7 +260,7 @@ function handleCancel() {
             <Textarea
               id="description"
               v-model="form.description"
-              placeholder="What this task does..."
+              placeholder="What this background agent does..."
               :rows="2"
             />
           </div>
@@ -519,7 +519,7 @@ function handleCancel() {
         <Button variant="outline" @click="handleCancel" :disabled="isSubmitting"> Cancel </Button>
         <Button @click="handleSubmit" :disabled="!isValid || isSubmitting">
           <Plus :size="14" class="mr-1" />
-          Create Task
+          Create Background Agent
         </Button>
       </DialogFooter>
     </DialogContent>
