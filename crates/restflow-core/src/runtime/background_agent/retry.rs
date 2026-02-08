@@ -14,7 +14,7 @@
 //! # Example
 //!
 //! ```ignore
-//! use restflow_tauri::agent_task::retry::{RetryConfig, RetryState};
+//! use restflow_tauri::background_agent::retry::{RetryConfig, RetryState};
 //!
 //! let config = RetryConfig::default();
 //! let mut state = RetryState::new();

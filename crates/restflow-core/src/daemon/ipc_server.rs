@@ -10,7 +10,7 @@ use crate::models::{
     TerminalSession,
 };
 use crate::process::ProcessRegistry;
-use crate::runtime::agent_task::{RealAgentExecutor, SessionInputMode};
+use crate::runtime::background_agent::{AgentRuntimeExecutor, SessionInputMode};
 use crate::runtime::subagent::{AgentDefinitionRegistry, SubagentConfig, SubagentTracker};
 use crate::services::tool_registry::create_tool_registry;
 use crate::services::{
@@ -362,7 +362,7 @@ impl IpcServer {
                     Ok(None) => return IpcResponse::not_found("Hook"),
                     Err(err) => return IpcResponse::error(500, err.to_string()),
                 };
-                let scheduler = Arc::new(crate::hooks::AgentTaskHookScheduler::new(
+                let scheduler = Arc::new(crate::hooks::BackgroundAgentHookScheduler::new(
                     core.storage.background_agents.clone(),
                 ));
                 let executor = crate::hooks::HookExecutor::with_storage(core.storage.hooks.clone())
@@ -1281,13 +1281,13 @@ fn create_runtime_tool_registry(core: &Arc<AppCore>) -> restflow_ai::tools::Tool
 fn create_chat_executor(
     core: &Arc<AppCore>,
     auth_manager: Arc<AuthProfileManager>,
-) -> RealAgentExecutor {
+) -> AgentRuntimeExecutor {
     let (completion_tx, completion_rx) = mpsc::channel(128);
     let subagent_tracker = Arc::new(SubagentTracker::new(completion_tx, completion_rx));
     let subagent_definitions = Arc::new(AgentDefinitionRegistry::with_builtins());
     let subagent_config = SubagentConfig::default();
 
-    RealAgentExecutor::new(
+    AgentRuntimeExecutor::new(
         core.storage.clone(),
         Arc::new(ProcessRegistry::new()),
         auth_manager,

@@ -1,4 +1,4 @@
-//! Unified agent components.
+//! Agent execution engine components.
 
 mod skills;
 pub mod tools;
@@ -9,7 +9,7 @@ use std::sync::Arc;
 use crate::models::AgentNode;
 use crate::storage::Storage;
 
-pub use restflow_ai::agent::{ExecutionResult, UnifiedAgent, UnifiedAgentConfig};
+pub use restflow_ai::agent::{AgentExecutionEngine, AgentExecutionEngineConfig, ExecutionResult};
 pub use skills::{ProcessedSkill, SkillLoader};
 pub use tools::{
     BashConfig, BashTool, EmailTool, FileConfig, FileTool, HttpTool, ListAgentsTool, PythonTool,

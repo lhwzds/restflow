@@ -15,11 +15,12 @@ pub mod subagent;
 pub mod webhook;
 
 pub use agent::{
-    BashConfig, BashTool, EmailTool, ExecutionResult, FileConfig, FileTool, HttpTool,
-    ListAgentsTool, PythonTool, SpawnAgentTool, SpawnTool, SubagentDeps, SubagentSpawner,
-    TelegramTool, Tool, ToolRegistry, ToolRegistryBuilder, ToolResult, UnifiedAgent,
-    UnifiedAgentConfig, UseSkillTool, WaitAgentsTool, build_agent_system_prompt, default_registry,
-    effective_main_agent_tool_names, main_agent_default_tool_names, registry_from_allowlist,
+    AgentExecutionEngine, AgentExecutionEngineConfig, BashConfig, BashTool, EmailTool,
+    ExecutionResult, FileConfig, FileTool, HttpTool, ListAgentsTool, PythonTool, SpawnAgentTool,
+    SpawnTool, SubagentDeps, SubagentSpawner, TelegramTool, Tool, ToolRegistry,
+    ToolRegistryBuilder, ToolResult, UseSkillTool, WaitAgentsTool, build_agent_system_prompt,
+    default_registry, effective_main_agent_tool_names, main_agent_default_tool_names,
+    registry_from_allowlist,
 };
 pub use channel::{
     BackgroundAgentTrigger, ChatDispatcher, ChatDispatcherConfig, ChatSessionManager,

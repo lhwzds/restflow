@@ -1,4 +1,4 @@
-use restflow_core::models::{AgentTask, TaskSchedule};
+use restflow_core::models::{BackgroundAgent, TaskSchedule};
 
 #[test]
 fn test_cron_parsing() {
@@ -8,7 +8,7 @@ fn test_cron_parsing() {
     };
 
     let now = chrono::Utc::now().timestamp_millis();
-    let next = AgentTask::calculate_next_run(&schedule, now);
+    let next = BackgroundAgent::calculate_next_run(&schedule, now);
 
     assert!(next.is_some());
     let next = next.unwrap();
@@ -23,7 +23,7 @@ fn test_cron_daily_9am() {
         timezone: Some("Asia/Shanghai".to_string()),
     };
 
-    let next = AgentTask::calculate_next_run(&schedule, 0);
+    let next = BackgroundAgent::calculate_next_run(&schedule, 0);
     assert!(next.is_some());
 }
 
@@ -34,6 +34,6 @@ fn test_invalid_cron() {
         timezone: None,
     };
 
-    let next = AgentTask::calculate_next_run(&schedule, 0);
+    let next = BackgroundAgent::calculate_next_run(&schedule, 0);
     assert!(next.is_none());
 }

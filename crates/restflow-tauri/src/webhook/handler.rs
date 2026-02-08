@@ -15,12 +15,12 @@ use tokio::sync::RwLock;
 use tracing::{info, warn};
 
 use restflow_core::models::{WebhookRateLimiter, WebhookRequest, WebhookResponse};
-use restflow_core::storage::AgentTaskStorage;
+use restflow_core::storage::BackgroundAgentStorage;
 
 /// Shared state for webhook handlers
 pub struct WebhookState {
     /// Storage for agent tasks
-    pub storage: Arc<AgentTaskStorage>,
+    pub storage: Arc<BackgroundAgentStorage>,
     /// Rate limiter for webhook requests
     pub rate_limiter: Arc<RwLock<WebhookRateLimiter>>,
     /// Callback to trigger task execution (returns run_id)
@@ -40,7 +40,7 @@ impl Clone for WebhookState {
 impl WebhookState {
     /// Create a new webhook state
     pub fn new(
-        storage: Arc<AgentTaskStorage>,
+        storage: Arc<BackgroundAgentStorage>,
         trigger_callback: impl Fn(String, Option<String>) -> String + Send + Sync + 'static,
     ) -> Self {
         Self {
@@ -162,19 +162,19 @@ mod tests {
     use super::*;
     use axum::body::Body;
     use axum::http::Request;
-    use restflow_core::models::{AgentTask, TaskSchedule, WebhookConfig};
+    use restflow_core::models::{BackgroundAgent, TaskSchedule, WebhookConfig};
     use tempfile::TempDir;
     use tower::ServiceExt;
 
-    fn create_test_storage() -> (Arc<AgentTaskStorage>, TempDir) {
+    fn create_test_storage() -> (Arc<BackgroundAgentStorage>, TempDir) {
         let temp_dir = TempDir::new().unwrap();
         let db_path = temp_dir.path().join("test.db");
         let db = std::sync::Arc::new(redb::Database::create(db_path).unwrap());
-        (Arc::new(AgentTaskStorage::new(db).unwrap()), temp_dir)
+        (Arc::new(BackgroundAgentStorage::new(db).unwrap()), temp_dir)
     }
 
-    fn create_test_task(id: &str, webhook_enabled: bool, token: &str) -> AgentTask {
-        let mut task = AgentTask::new(
+    fn create_test_task(id: &str, webhook_enabled: bool, token: &str) -> BackgroundAgent {
+        let mut task = BackgroundAgent::new(
             id.to_string(),
             "Test Task".to_string(),
             "agent-1".to_string(),
@@ -188,7 +188,7 @@ mod tests {
         task
     }
 
-    fn create_test_state(storage: Arc<AgentTaskStorage>) -> WebhookState {
+    fn create_test_state(storage: Arc<BackgroundAgentStorage>) -> WebhookState {
         WebhookState::new(storage, |task_id, _input| format!("run-{}", task_id))
     }
 

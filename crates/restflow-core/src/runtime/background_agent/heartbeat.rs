@@ -1,12 +1,12 @@
 //! Heartbeat types and emitters for agent task runner status.
 //!
 //! This module provides types for status events that are emitted inline
-//! by the AgentTaskRunner during its poll cycle.
+//! by the BackgroundAgentRunner during its poll cycle.
 //!
 //! # Usage
 //!
 //! ```ignore
-//! use restflow_tauri::agent_task::{HeartbeatEvent, RunnerStatus};
+//! use restflow_tauri::background_agent::{HeartbeatEvent, RunnerStatus};
 //! use tauri::Manager;
 //!
 //! // Emit status during poll cycle

@@ -11,7 +11,7 @@ use crate::auth::AuthProfileManager;
 use crate::channel::{ChannelRouter, InboundMessage, OutboundMessage};
 use crate::models::{ChatMessage, ChatSession};
 use crate::process::ProcessRegistry;
-use crate::runtime::agent_task::{RealAgentExecutor, SessionInputMode};
+use crate::runtime::background_agent::{AgentRuntimeExecutor, SessionInputMode};
 use crate::storage::Storage;
 
 use super::debounce::MessageDebouncer;
@@ -297,8 +297,8 @@ impl ChatDispatcher {
         }
     }
 
-    fn create_executor(&self) -> RealAgentExecutor {
-        RealAgentExecutor::new(
+    fn create_executor(&self) -> AgentRuntimeExecutor {
+        AgentRuntimeExecutor::new(
             self.storage.clone(),
             Arc::new(ProcessRegistry::new()),
             self.auth_manager.clone(),

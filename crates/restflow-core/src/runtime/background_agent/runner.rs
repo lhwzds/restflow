@@ -1,6 +1,6 @@
 //! Agent Task Runner - Background scheduler for agent tasks.
 //!
-//! The AgentTaskRunner is responsible for:
+//! The BackgroundAgentRunner is responsible for:
 //! - Polling storage for runnable tasks
 //! - Executing agents on schedule
 //! - Handling task lifecycle (start, complete, fail)
@@ -10,14 +10,14 @@
 use crate::channel::{ChannelRouter, MessageLevel};
 use crate::hooks::HookExecutor;
 use crate::models::{
-    AgentTask, AgentTaskStatus, BackgroundMessageSource, ExecutionMode, HookContext, MemoryScope,
-    NotificationConfig, SteerMessage, SteerSource,
+    BackgroundAgent, BackgroundAgentStatus, BackgroundMessageSource, ExecutionMode, HookContext,
+    MemoryScope, NotificationConfig, SteerMessage, SteerSource,
 };
 use crate::performance::{
     TaskExecutor, TaskPriority, TaskQueue, TaskQueueConfig, WorkerPool, WorkerPoolConfig,
 };
 use crate::steer::SteerRegistry;
-use crate::storage::{AgentTaskStorage, MemoryStorage};
+use crate::storage::{BackgroundAgentStorage, MemoryStorage};
 use anyhow::{Result, anyhow};
 use restflow_ai::llm::Message;
 use std::collections::{HashMap, HashSet};
@@ -82,7 +82,7 @@ pub enum RunnerCommand {
     CancelTask(String),
 }
 
-/// Configuration for the AgentTaskRunner
+/// Configuration for the BackgroundAgentRunner
 #[derive(Debug, Clone)]
 pub struct RunnerConfig {
     /// How often to poll for runnable tasks (in milliseconds)
@@ -103,7 +103,7 @@ impl Default for RunnerConfig {
     }
 }
 
-/// Handle to control a running AgentTaskRunner
+/// Handle to control a running BackgroundAgentRunner
 pub struct RunnerHandle {
     command_tx: mpsc::Sender<RunnerCommand>,
 }
@@ -164,15 +164,15 @@ pub trait NotificationSender: Send + Sync {
     async fn send(
         &self,
         config: &NotificationConfig,
-        task: &AgentTask,
+        task: &BackgroundAgent,
         success: bool,
         message: &str,
     ) -> Result<()>;
 }
 
-/// The main AgentTaskRunner that schedules and executes agent tasks
-pub struct AgentTaskRunner {
-    storage: Arc<AgentTaskStorage>,
+/// The main BackgroundAgentRunner that schedules and executes agent tasks
+pub struct BackgroundAgentRunner {
+    storage: Arc<BackgroundAgentStorage>,
     executor: Arc<dyn AgentExecutor>,
     notifier: Arc<dyn NotificationSender>,
     config: RunnerConfig,
@@ -193,10 +193,10 @@ pub struct AgentTaskRunner {
     channel_router: Arc<RwLock<Option<Arc<ChannelRouter>>>>,
 }
 
-impl AgentTaskRunner {
-    /// Create a new AgentTaskRunner
+impl BackgroundAgentRunner {
+    /// Create a new BackgroundAgentRunner
     pub fn new(
-        storage: Arc<AgentTaskStorage>,
+        storage: Arc<BackgroundAgentStorage>,
         executor: Arc<dyn AgentExecutor>,
         notifier: Arc<dyn NotificationSender>,
         config: RunnerConfig,
@@ -228,9 +228,9 @@ impl AgentTaskRunner {
         }
     }
 
-    /// Create a new AgentTaskRunner with a heartbeat emitter for status updates
+    /// Create a new BackgroundAgentRunner with a heartbeat emitter for status updates
     pub fn with_heartbeat_emitter(
-        storage: Arc<AgentTaskStorage>,
+        storage: Arc<BackgroundAgentStorage>,
         executor: Arc<dyn AgentExecutor>,
         notifier: Arc<dyn NotificationSender>,
         config: RunnerConfig,
@@ -263,12 +263,12 @@ impl AgentTaskRunner {
         }
     }
 
-    /// Create a new AgentTaskRunner with memory persistence enabled.
+    /// Create a new BackgroundAgentRunner with memory persistence enabled.
     ///
     /// When memory persistence is enabled, conversation messages from task
     /// executions are stored in long-term memory for later retrieval and search.
     pub fn with_memory_persistence(
-        storage: Arc<AgentTaskStorage>,
+        storage: Arc<BackgroundAgentStorage>,
         executor: Arc<dyn AgentExecutor>,
         notifier: Arc<dyn NotificationSender>,
         config: RunnerConfig,
@@ -346,7 +346,7 @@ impl AgentTaskRunner {
         let mut poll_interval = interval(Duration::from_millis(self.config.poll_interval_ms));
 
         info!(
-            "AgentTaskRunner started (poll_interval={}ms, max_concurrent={})",
+            "BackgroundAgentRunner started (poll_interval={}ms, max_concurrent={})",
             self.config.poll_interval_ms, self.config.max_concurrent_tasks
         );
 
@@ -377,7 +377,7 @@ impl AgentTaskRunner {
                 cmd = command_rx.recv() => {
                     match cmd {
                         Some(RunnerCommand::Stop) => {
-                            info!("AgentTaskRunner stopping...");
+                            info!("BackgroundAgentRunner stopping...");
                             self.emit_status(RunnerStatus::Stopping, Some("Runner stopping".to_string())).await;
                             worker_pool.stop().await;
                             break;
@@ -406,7 +406,7 @@ impl AgentTaskRunner {
 
         self.emit_status(RunnerStatus::Stopped, Some("Runner stopped".to_string()))
             .await;
-        info!("AgentTaskRunner stopped");
+        info!("BackgroundAgentRunner stopped");
     }
 
     /// Emit a heartbeat pulse with current status
@@ -532,11 +532,11 @@ impl AgentTaskRunner {
         // Verify task exists and is not paused/completed
         match self.storage.get_task(task_id) {
             Ok(Some(task)) => {
-                if task.status == AgentTaskStatus::Paused {
+                if task.status == BackgroundAgentStatus::Paused {
                     warn!("Cannot run paused task {}", task_id);
                     return;
                 }
-                if task.status == AgentTaskStatus::Completed {
+                if task.status == BackgroundAgentStatus::Completed {
                     warn!("Cannot run completed task {}", task_id);
                     return;
                 }
@@ -606,7 +606,7 @@ impl AgentTaskRunner {
 
         // No cancel channel found; if the task is marked running in storage, pause it.
         if let Ok(Some(task)) = self.storage.get_task(task_id)
-            && task.status == AgentTaskStatus::Running
+            && task.status == BackgroundAgentStatus::Running
             && let Err(e) = self.storage.pause_task(task_id)
         {
             error!("Failed to mark task {} as paused: {}", task_id, e);
@@ -971,7 +971,7 @@ impl AgentTaskRunner {
     /// Persist conversation messages to long-term memory.
     ///
     /// Called after successful task execution when `persist_on_complete` is enabled.
-    fn persist_memory(&self, task: &AgentTask, messages: &[Message]) {
+    fn persist_memory(&self, task: &BackgroundAgent, messages: &[Message]) {
         let Some(persister) = &self.memory_persister else {
             debug!("Memory persistence not configured, skipping");
             return;
@@ -983,7 +983,7 @@ impl AgentTaskRunner {
         }
 
         // Generate tags from task metadata
-        // Note: AgentTask doesn't have a tags field, so we use task name and agent_id
+        // Note: BackgroundAgent doesn't have a tags field, so we use task name and agent_id
         let tags: Vec<String> = vec![
             format!("task:{}", task.id),
             format!("agent:{}", task.agent_id),
@@ -1009,14 +1009,14 @@ impl AgentTaskRunner {
         }
     }
 
-    fn resolve_task_input(&self, task: &AgentTask) -> Option<String> {
+    fn resolve_task_input(&self, task: &BackgroundAgent) -> Option<String> {
         if let Some(template) = task.input_template.as_deref() {
             return Some(Self::render_input_template(task, template));
         }
         task.input.clone()
     }
 
-    fn render_input_template(task: &AgentTask, template: &str) -> String {
+    fn render_input_template(task: &BackgroundAgent, template: &str) -> String {
         let now = chrono::Utc::now();
         let replacements = vec![
             ("{{task.id}}".to_string(), task.id.clone()),
@@ -1056,7 +1056,7 @@ impl AgentTaskRunner {
         timestamp.map(|value| value.to_string()).unwrap_or_default()
     }
 
-    fn resolve_memory_agent_id(task: &AgentTask) -> String {
+    fn resolve_memory_agent_id(task: &BackgroundAgent) -> String {
         match task.memory.memory_scope {
             MemoryScope::SharedAgent => task.agent_id.clone(),
             MemoryScope::PerBackgroundAgent => format!("{}::task::{}", task.agent_id, task.id),
@@ -1077,7 +1077,7 @@ impl AgentTaskRunner {
     }
 
     /// Format a notification message for broadcasting.
-    fn format_notification(task: &AgentTask, success: bool, message: &str) -> String {
+    fn format_notification(task: &BackgroundAgent, success: bool, message: &str) -> String {
         let status_text = if success { "Completed" } else { "Failed" };
 
         let mut formatted = format!("*Task {}*: {}\n\n", status_text, task.name);
@@ -1122,7 +1122,7 @@ impl AgentTaskRunner {
     /// Prefers broadcasting through ChannelRouter when available (uses
     /// credentials already configured on the channel). Falls back to
     /// the dedicated NotificationSender when no router is set.
-    async fn send_notification(&self, task: &AgentTask, success: bool, message: &str) {
+    async fn send_notification(&self, task: &BackgroundAgent, success: bool, message: &str) {
         // Check if we should only notify on failure
         if success && task.notification.notify_on_failure_only {
             return;
@@ -1234,7 +1234,7 @@ impl NotificationSender for NoopNotificationSender {
     async fn send(
         &self,
         _config: &NotificationConfig,
-        _task: &AgentTask,
+        _task: &BackgroundAgent,
         _success: bool,
         _message: &str,
     ) -> Result<()> {
@@ -1244,12 +1244,12 @@ impl NotificationSender for NoopNotificationSender {
 }
 
 struct RunnerTaskExecutor {
-    runner: Arc<AgentTaskRunner>,
+    runner: Arc<BackgroundAgentRunner>,
 }
 
 #[async_trait::async_trait]
 impl TaskExecutor for RunnerTaskExecutor {
-    async fn execute(&self, task: &AgentTask) -> Result<bool> {
+    async fn execute(&self, task: &BackgroundAgent) -> Result<bool> {
         let cancel_rx = self.runner.take_cancel_receiver(&task.id).await;
         self.runner.execute_task(&task.id, cancel_rx).await
     }
@@ -1260,7 +1260,7 @@ mod tests {
     use super::*;
     use crate::hooks::{HookExecutor, HookTaskScheduler};
     use crate::models::{Hook, HookAction, HookEvent, MemoryScope, TaskEventType, TaskSchedule};
-    use crate::runtime::agent_task::{ChannelEventEmitter, StreamEventKind};
+    use crate::runtime::background_agent::{ChannelEventEmitter, StreamEventKind};
     use std::sync::atomic::{AtomicU32, Ordering};
     use std::time::Instant;
     use tempfile::tempdir;
@@ -1348,7 +1348,7 @@ mod tests {
         async fn send(
             &self,
             _config: &NotificationConfig,
-            task: &AgentTask,
+            task: &BackgroundAgent,
             success: bool,
             _message: &str,
         ) -> Result<()> {
@@ -1387,11 +1387,11 @@ mod tests {
     /// Creates test storage and returns it along with the TempDir.
     /// The TempDir must be kept alive for the duration of the test to prevent
     /// the database from being deleted (important on Windows).
-    fn create_test_storage() -> (Arc<AgentTaskStorage>, tempfile::TempDir) {
+    fn create_test_storage() -> (Arc<BackgroundAgentStorage>, tempfile::TempDir) {
         let temp_dir = tempdir().unwrap();
         let db_path = temp_dir.path().join("test.db");
         let db = Arc::new(redb::Database::create(db_path).unwrap());
-        (Arc::new(AgentTaskStorage::new(db).unwrap()), temp_dir)
+        (Arc::new(BackgroundAgentStorage::new(db).unwrap()), temp_dir)
     }
 
     #[tokio::test]
@@ -1406,7 +1406,7 @@ mod tests {
         };
 
         let steer_registry = Arc::new(SteerRegistry::new());
-        let runner = Arc::new(AgentTaskRunner::new(
+        let runner = Arc::new(BackgroundAgentRunner::new(
             storage,
             executor,
             notifier,
@@ -1452,7 +1452,7 @@ mod tests {
         };
 
         let steer_registry = Arc::new(SteerRegistry::new());
-        let runner = Arc::new(AgentTaskRunner::new(
+        let runner = Arc::new(BackgroundAgentRunner::new(
             storage.clone(),
             executor.clone(),
             notifier,
@@ -1472,7 +1472,7 @@ mod tests {
 
         // Verify task status updated
         let updated_task = storage.get_task(&task.id).unwrap().unwrap();
-        assert_eq!(updated_task.status, AgentTaskStatus::Completed);
+        assert_eq!(updated_task.status, BackgroundAgentStatus::Completed);
         assert_eq!(updated_task.success_count, 1);
     }
 
@@ -1501,7 +1501,7 @@ mod tests {
 
         let steer_registry = Arc::new(SteerRegistry::new());
         let runner = Arc::new(
-            AgentTaskRunner::new(storage, executor, notifier, config, steer_registry)
+            BackgroundAgentRunner::new(storage, executor, notifier, config, steer_registry)
                 .with_event_emitter(Arc::new(channel_emitter)),
         );
 
@@ -1560,7 +1560,7 @@ mod tests {
 
         let steer_registry = Arc::new(SteerRegistry::new());
         let runner = Arc::new(
-            AgentTaskRunner::new(storage, executor, notifier, config, steer_registry)
+            BackgroundAgentRunner::new(storage, executor, notifier, config, steer_registry)
                 .with_hook_executor(hook_executor),
         );
 
@@ -1596,7 +1596,7 @@ mod tests {
         };
 
         let steer_registry = Arc::new(SteerRegistry::new());
-        let runner = Arc::new(AgentTaskRunner::new(
+        let runner = Arc::new(BackgroundAgentRunner::new(
             storage.clone(),
             executor,
             notifier.clone(),
@@ -1612,7 +1612,7 @@ mod tests {
 
         // Verify task failed
         let updated_task = storage.get_task(&task.id).unwrap().unwrap();
-        assert_eq!(updated_task.status, AgentTaskStatus::Failed);
+        assert_eq!(updated_task.status, BackgroundAgentStatus::Failed);
         assert_eq!(updated_task.failure_count, 1);
         assert!(updated_task.last_error.is_some());
     }
@@ -1644,7 +1644,7 @@ mod tests {
         };
 
         let steer_registry = Arc::new(SteerRegistry::new());
-        let runner = Arc::new(AgentTaskRunner::new(
+        let runner = Arc::new(BackgroundAgentRunner::new(
             storage,
             executor.clone(),
             notifier,
@@ -1690,7 +1690,7 @@ mod tests {
         };
 
         let steer_registry = Arc::new(SteerRegistry::new());
-        let runner = Arc::new(AgentTaskRunner::new(
+        let runner = Arc::new(BackgroundAgentRunner::new(
             storage.clone(),
             executor.clone(),
             notifier,
@@ -1736,7 +1736,7 @@ mod tests {
         };
 
         let steer_registry = Arc::new(SteerRegistry::new());
-        let runner = Arc::new(AgentTaskRunner::new(
+        let runner = Arc::new(BackgroundAgentRunner::new(
             storage.clone(),
             executor.clone(),
             notifier,
@@ -1781,7 +1781,7 @@ mod tests {
         };
 
         let steer_registry = Arc::new(SteerRegistry::new());
-        let runner = Arc::new(AgentTaskRunner::new(
+        let runner = Arc::new(BackgroundAgentRunner::new(
             storage.clone(),
             executor.clone(),
             notifier,
@@ -1848,7 +1848,7 @@ mod tests {
         };
 
         let steer_registry = Arc::new(SteerRegistry::new());
-        let runner = Arc::new(AgentTaskRunner::new(
+        let runner = Arc::new(BackgroundAgentRunner::new(
             storage,
             executor.clone(),
             notifier,
@@ -1868,7 +1868,7 @@ mod tests {
 
     #[test]
     fn test_render_input_template_replaces_known_placeholders() {
-        let mut task = AgentTask::new(
+        let mut task = BackgroundAgent::new(
             "task-123".to_string(),
             "Template Unit Test".to_string(),
             "agent-456".to_string(),
@@ -1877,7 +1877,7 @@ mod tests {
         task.description = Some("description".to_string());
         task.input = Some("input".to_string());
 
-        let rendered = AgentTaskRunner::render_input_template(
+        let rendered = BackgroundAgentRunner::render_input_template(
             &task,
             "ID={{task.id}}, NAME={{task.name}}, AGENT={{task.agent_id}}, DESC={{task.description}}, INPUT={{task.input}}, NOW={{now.unix_ms}}",
         );
@@ -1892,7 +1892,7 @@ mod tests {
 
     #[test]
     fn test_resolve_memory_agent_id_respects_scope() {
-        let mut task = AgentTask::new(
+        let mut task = BackgroundAgent::new(
             "task-123".to_string(),
             "Memory Scope Test".to_string(),
             "agent-456".to_string(),
@@ -1900,11 +1900,14 @@ mod tests {
         );
 
         task.memory.memory_scope = MemoryScope::SharedAgent;
-        assert_eq!(AgentTaskRunner::resolve_memory_agent_id(&task), "agent-456");
+        assert_eq!(
+            BackgroundAgentRunner::resolve_memory_agent_id(&task),
+            "agent-456"
+        );
 
         task.memory.memory_scope = MemoryScope::PerBackgroundAgent;
         assert_eq!(
-            AgentTaskRunner::resolve_memory_agent_id(&task),
+            BackgroundAgentRunner::resolve_memory_agent_id(&task),
             "agent-456::task::task-123"
         );
     }
@@ -1935,7 +1938,7 @@ mod tests {
         };
 
         let steer_registry = Arc::new(SteerRegistry::new());
-        let runner = Arc::new(AgentTaskRunner::new(
+        let runner = Arc::new(BackgroundAgentRunner::new(
             storage,
             executor,
             notifier.clone(),
@@ -1980,7 +1983,7 @@ mod tests {
         };
 
         let steer_registry = Arc::new(SteerRegistry::new());
-        let runner = Arc::new(AgentTaskRunner::new(
+        let runner = Arc::new(BackgroundAgentRunner::new(
             storage,
             executor,
             notifier.clone(),
@@ -2021,7 +2024,7 @@ mod tests {
         };
 
         let steer_registry = Arc::new(SteerRegistry::new());
-        let runner = Arc::new(AgentTaskRunner::new(
+        let runner = Arc::new(BackgroundAgentRunner::new(
             storage,
             executor,
             notifier,

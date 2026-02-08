@@ -1,4 +1,4 @@
-use crate::models::AgentTask;
+use crate::models::BackgroundAgent;
 use crate::performance::TaskQueue;
 use async_trait::async_trait;
 use std::sync::Arc;
@@ -26,7 +26,7 @@ impl Default for WorkerPoolConfig {
 
 #[async_trait]
 pub trait TaskExecutor: Send + Sync + 'static {
-    async fn execute(&self, task: &AgentTask) -> anyhow::Result<bool>;
+    async fn execute(&self, task: &BackgroundAgent) -> anyhow::Result<bool>;
 }
 
 /// Worker pool.

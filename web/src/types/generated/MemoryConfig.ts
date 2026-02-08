@@ -24,7 +24,7 @@ enable_file_memory: boolean,
 persist_on_complete: boolean, 
 /**
  * Scope for long-term memory persistence.
- * Shared scope stores memory under the agent ID, while per-task scope
- * stores memory under a task-specific namespace.
+ * Shared scope stores memory under the agent ID, while isolated scope
+ * stores memory under a background-agent-specific namespace.
  */
 memory_scope: MemoryScope, };

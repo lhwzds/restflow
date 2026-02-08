@@ -31,12 +31,12 @@ const BACKGROUND_MESSAGE_STATUS_INDEX_TABLE: TableDefinition<&str, &str> =
 
 /// Low-level agent task storage with byte-level API
 #[derive(Clone)]
-pub struct AgentTaskStorage {
+pub struct BackgroundAgentStorage {
     db: Arc<Database>,
 }
 
-impl AgentTaskStorage {
-    /// Create a new AgentTaskStorage instance
+impl BackgroundAgentStorage {
+    /// Create a new BackgroundAgentStorage instance
     pub fn new(db: Arc<Database>) -> Result<Self> {
         // Initialize all tables
         let write_txn = db.begin_write()?;
@@ -456,11 +456,11 @@ mod tests {
     use super::*;
     use tempfile::tempdir;
 
-    fn create_test_storage() -> AgentTaskStorage {
+    fn create_test_storage() -> BackgroundAgentStorage {
         let temp_dir = tempdir().unwrap();
         let db_path = temp_dir.path().join("test.db");
         let db = Arc::new(Database::create(db_path).unwrap());
-        AgentTaskStorage::new(db).unwrap()
+        BackgroundAgentStorage::new(db).unwrap()
     }
 
     #[test]

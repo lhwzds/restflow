@@ -20,7 +20,7 @@ pub struct UseSkillParams {
     pub list: bool,
 }
 
-/// use_skill tool for the unified agent.
+/// use_skill tool for the shared agent execution engine.
 #[allow(dead_code)]
 pub struct UseSkillTool {
     deps: Arc<SubagentDeps>,

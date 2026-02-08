@@ -26,8 +26,8 @@ pub mod tools;
 
 // Re-export commonly used types
 pub use agent::{
-    AgentConfig, AgentExecutor, AgentResult, AgentState, AgentStatus, ExecutionResult, TraceEvent,
-    UnifiedAgent, UnifiedAgentConfig,
+    AgentConfig, AgentExecutionEngine, AgentExecutionEngineConfig, AgentExecutor, AgentResult,
+    AgentState, AgentStatus, ExecutionResult, TraceEvent,
 };
 pub use embedding::{
     EmbeddingCache, EmbeddingConfig, EmbeddingProvider, OpenAIEmbedding, VoyageEmbedding,

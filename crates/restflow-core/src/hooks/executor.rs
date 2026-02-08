@@ -2,7 +2,7 @@
 
 use crate::channel::{ChannelRouter, ChannelType};
 use crate::models::{Hook, HookAction, HookContext, HookFilter, TaskSchedule};
-use crate::storage::{AgentTaskStorage, HookStorage};
+use crate::storage::{BackgroundAgentStorage, HookStorage};
 use anyhow::Result;
 use async_trait::async_trait;
 use std::collections::HashMap;
@@ -17,20 +17,20 @@ pub trait HookTaskScheduler: Send + Sync {
     async fn schedule_task(&self, agent_id: &str, input: &str) -> Result<()>;
 }
 
-/// Default task scheduler backed by `AgentTaskStorage`.
+/// Default task scheduler backed by `BackgroundAgentStorage`.
 #[derive(Clone)]
-pub struct AgentTaskHookScheduler {
-    storage: AgentTaskStorage,
+pub struct BackgroundAgentHookScheduler {
+    storage: BackgroundAgentStorage,
 }
 
-impl AgentTaskHookScheduler {
-    pub fn new(storage: AgentTaskStorage) -> Self {
+impl BackgroundAgentHookScheduler {
+    pub fn new(storage: BackgroundAgentStorage) -> Self {
         Self { storage }
     }
 }
 
 #[async_trait]
-impl HookTaskScheduler for AgentTaskHookScheduler {
+impl HookTaskScheduler for BackgroundAgentHookScheduler {
     async fn schedule_task(&self, agent_id: &str, input: &str) -> Result<()> {
         let now = chrono::Utc::now().timestamp_millis();
         let task_name = format!("Hook follow-up: {}", agent_id);
