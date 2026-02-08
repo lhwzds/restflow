@@ -1,14 +1,14 @@
 //! Application state management for Tauri
 
 use crate::agent::{SubagentDeps, ToolRegistry};
-use crate::agent_task::events::TaskEventEmitter;
-use crate::agent_task::runner::{
+use crate::background_agent::events::TaskEventEmitter;
+use crate::background_agent::runner::{
     AgentExecutor, AgentTaskRunner, NotificationSender, RunnerConfig, RunnerHandle,
 };
-use crate::agent_task::{HeartbeatEmitter, TauriEventEmitter, TauriHeartbeatEmitter};
+use crate::background_agent::{HeartbeatEmitter, TauriEventEmitter, TauriHeartbeatEmitter};
 use crate::channel::{BackgroundAgentTrigger, SystemStatus};
 use crate::chat::StreamManager;
-use crate::commands::agent_task::ActiveBackgroundAgentInfo;
+use crate::commands::background_agent::ActiveBackgroundAgentInfo;
 use crate::daemon_manager::DaemonManager;
 use crate::executor::TauriExecutor;
 use crate::subagent::{AgentDefinitionRegistry, SubagentConfig, SubagentTracker};
@@ -29,7 +29,7 @@ use tracing::{error, info};
 
 /// Information about a running task stored in state
 #[derive(Debug, Clone)]
-pub struct RunningTaskState {
+pub struct RunningBackgroundAgentState {
     pub task_id: String,
     pub task_name: String,
     pub agent_id: String,
@@ -42,8 +42,8 @@ pub struct AppState {
     pub core: Option<Arc<AppCore>>,
     /// Handle to control the background agent task runner
     runner_handle: RwLock<Option<RunnerHandle>>,
-    /// Currently running tasks (task_id -> RunningTaskState)
-    running_tasks: RwLock<HashMap<String, RunningTaskState>>,
+    /// Currently running tasks (task_id -> RunningBackgroundAgentState)
+    running_tasks: RwLock<HashMap<String, RunningBackgroundAgentState>>,
     /// Security checker for command execution control
     security_checker: Arc<SecurityChecker>,
     /// Channel router for message handling
@@ -324,7 +324,7 @@ impl AppState {
     }
 
     /// Mark a task as running
-    pub async fn mark_task_running(&self, state: RunningTaskState) {
+    pub async fn mark_task_running(&self, state: RunningBackgroundAgentState) {
         let mut guard = self.running_tasks.write().await;
         guard.insert(state.task_id.clone(), state);
     }

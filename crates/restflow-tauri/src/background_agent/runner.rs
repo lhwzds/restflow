@@ -1258,7 +1258,7 @@ impl TaskExecutor for RunnerTaskExecutor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agent_task::{ChannelEventEmitter, StreamEventKind};
+    use crate::background_agent::{ChannelEventEmitter, StreamEventKind};
     use restflow_core::hooks::{HookExecutor, HookTaskScheduler};
     use restflow_core::models::{
         Hook, HookAction, HookEvent, MemoryScope, TaskEventType, TaskSchedule,

@@ -17,7 +17,7 @@
 //! });
 //! ```
 
-use crate::agent_task::{TASK_STREAM_EVENT, TaskStreamEvent, TauriEventEmitter};
+use crate::background_agent::{TASK_STREAM_EVENT, TaskStreamEvent, TauriEventEmitter};
 use crate::state::AppState;
 use restflow_core::models::{
     AgentTask, AgentTaskStatus, BackgroundAgentControlAction, BackgroundAgentPatch,
@@ -503,7 +503,7 @@ pub fn get_background_agent_stream_event_name() -> String {
 // Heartbeat Commands
 // ============================================================================
 
-use crate::agent_task::HEARTBEAT_EVENT;
+use crate::background_agent::HEARTBEAT_EVENT;
 
 /// Get the heartbeat event name for frontend subscription
 ///

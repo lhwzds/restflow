@@ -224,7 +224,7 @@ pub fn create_cli_executor_with_events<E>(
     event_emitter: Arc<E>,
 ) -> CliAgentExecutor
 where
-    E: crate::agent_task::TaskEventEmitter + 'static,
+    E: crate::background_agent::TaskEventEmitter + 'static,
 {
     CliAgentExecutor::with_output_callback(move |line| {
         let event = TaskStreamEvent::output(&task_id, line, false);

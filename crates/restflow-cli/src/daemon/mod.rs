@@ -4,7 +4,7 @@ mod telegram;
 use anyhow::Result;
 use std::path::PathBuf;
 
-pub use runner::CliTaskRunner;
+pub use runner::CliBackgroundAgentRunner;
 
 #[allow(dead_code)]
 pub fn pid_file() -> PathBuf {
