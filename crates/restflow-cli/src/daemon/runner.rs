@@ -322,3 +322,97 @@ impl TaskTrigger for CliTaskTrigger {
         Ok(true)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use restflow_core::models::{
+        BackgroundAgentSpec, MemoryConfig, NotificationConfig, TaskSchedule,
+    };
+    use tempfile::tempdir;
+
+    async fn setup_trigger_with_background_agent()
+    -> (Arc<AppCore>, CliTaskTrigger, AgentTask, tempfile::TempDir) {
+        let temp_dir = tempdir().expect("failed to create temp dir");
+        let db_path = temp_dir.path().join("runner-test.db");
+        let core = Arc::new(
+            AppCore::new(db_path.to_str().expect("invalid db path"))
+                .await
+                .expect("failed to initialize core"),
+        );
+
+        let default_agent = core
+            .storage
+            .agents
+            .list_agents()
+            .expect("failed to list agents")
+            .into_iter()
+            .next()
+            .expect("default agent missing");
+
+        let task = core
+            .storage
+            .agent_tasks
+            .create_background_agent(BackgroundAgentSpec {
+                name: "Background Agent Test".to_string(),
+                agent_id: default_agent.id,
+                description: Some("test".to_string()),
+                input: Some("hello".to_string()),
+                input_template: None,
+                schedule: TaskSchedule::default(),
+                notification: Some(NotificationConfig::default()),
+                execution_mode: None,
+                memory: Some(MemoryConfig::default()),
+            })
+            .expect("failed to create background agent");
+
+        let trigger = CliTaskTrigger::new(
+            core.clone(),
+            Arc::new(RwLock::new(None)),
+            Arc::new(RwLock::new(None)),
+        );
+
+        (core, trigger, task, temp_dir)
+    }
+
+    #[tokio::test]
+    async fn send_input_to_task_enqueues_user_message() {
+        let (core, trigger, task, _temp_dir) = setup_trigger_with_background_agent().await;
+
+        trigger
+            .send_input_to_task(&task.id, "hello from main agent")
+            .await
+            .expect("failed to send input");
+
+        let messages = core
+            .storage
+            .agent_tasks
+            .list_background_agent_messages(&task.id, 10)
+            .expect("failed to list background messages");
+
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].source, BackgroundMessageSource::User);
+        assert_eq!(messages[0].message, "hello from main agent");
+    }
+
+    #[tokio::test]
+    async fn handle_approval_falls_back_to_system_message_injection() {
+        let (core, trigger, task, _temp_dir) = setup_trigger_with_background_agent().await;
+
+        let handled = trigger
+            .handle_approval(&task.id, true)
+            .await
+            .expect("approval handling failed");
+        assert!(handled);
+
+        let messages = core
+            .storage
+            .agent_tasks
+            .list_background_agent_messages(&task.id, 10)
+            .expect("failed to list background messages");
+
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].source, BackgroundMessageSource::System);
+        assert!(messages[0].message.contains("approved"));
+    }
+}

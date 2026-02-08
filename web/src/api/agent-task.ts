@@ -17,6 +17,10 @@ import type { MemoryConfig } from '@/types/generated/MemoryConfig'
 import type { MemoryScope } from '@/types/generated/MemoryScope'
 import type { TaskStreamEvent } from '@/types/generated/TaskStreamEvent'
 import type { StreamEventKind } from '@/types/generated/StreamEventKind'
+import type { BackgroundAgentControlAction } from '@/types/generated/BackgroundAgentControlAction'
+import type { BackgroundProgress } from '@/types/generated/BackgroundProgress'
+import type { BackgroundMessage } from '@/types/generated/BackgroundMessage'
+import type { BackgroundMessageSource } from '@/types/generated/BackgroundMessageSource'
 import { API_ENDPOINTS } from '@/constants'
 
 export interface ActiveTaskInfo {
@@ -39,6 +43,10 @@ export type {
   MemoryScope,
   TaskStreamEvent,
   StreamEventKind,
+  BackgroundAgentControlAction,
+  BackgroundProgress,
+  BackgroundMessage,
+  BackgroundMessageSource,
 }
 
 /**
@@ -96,6 +104,15 @@ export interface UpdateAgentTaskRequest {
   memory_scope?: MemoryScope
 }
 
+interface ControlBackgroundAgentRequest {
+  action: BackgroundAgentControlAction
+}
+
+interface SendBackgroundMessageRequest {
+  message: string
+  source?: BackgroundMessageSource
+}
+
 /**
  * List all agent tasks
  */
@@ -147,7 +164,7 @@ export async function updateAgentTask(id: string, request: UpdateAgentTaskReques
   if (isTauri()) {
     return tauriInvoke<AgentTask>('update_agent_task', { id, request })
   }
-  const response = await apiClient.put<AgentTask>(API_ENDPOINTS.AGENT_TASK.UPDATE(id), request)
+  const response = await apiClient.patch<AgentTask>(API_ENDPOINTS.AGENT_TASK.UPDATE(id), request)
   return response.data
 }
 
@@ -169,7 +186,8 @@ export async function pauseAgentTask(id: string): Promise<AgentTask> {
   if (isTauri()) {
     return tauriInvoke<AgentTask>('pause_agent_task', { id })
   }
-  const response = await apiClient.post<AgentTask>(API_ENDPOINTS.AGENT_TASK.PAUSE(id))
+  const body: ControlBackgroundAgentRequest = { action: 'pause' }
+  const response = await apiClient.post<AgentTask>(API_ENDPOINTS.AGENT_TASK.CONTROL(id), body)
   return response.data
 }
 
@@ -180,7 +198,8 @@ export async function resumeAgentTask(id: string): Promise<AgentTask> {
   if (isTauri()) {
     return tauriInvoke<AgentTask>('resume_agent_task', { id })
   }
-  const response = await apiClient.post<AgentTask>(API_ENDPOINTS.AGENT_TASK.RESUME(id))
+  const body: ControlBackgroundAgentRequest = { action: 'resume' }
+  const response = await apiClient.post<AgentTask>(API_ENDPOINTS.AGENT_TASK.CONTROL(id), body)
   return response.data
 }
 
@@ -194,10 +213,10 @@ export async function getAgentTaskEvents(taskId: string, limit?: number): Promis
     return tauriInvoke<TaskEvent[]>('get_agent_task_events', { taskId, limit })
   }
   const url = limit
-    ? `${API_ENDPOINTS.AGENT_TASK.EVENTS(taskId)}?limit=${limit}`
-    : API_ENDPOINTS.AGENT_TASK.EVENTS(taskId)
-  const response = await apiClient.get<TaskEvent[]>(url)
-  return response.data
+    ? `${API_ENDPOINTS.AGENT_TASK.PROGRESS(taskId)}?event_limit=${limit}`
+    : API_ENDPOINTS.AGENT_TASK.PROGRESS(taskId)
+  const response = await apiClient.get<BackgroundProgress>(url)
+  return response.data.recent_events
 }
 
 /**
@@ -207,7 +226,36 @@ export async function getRunnableAgentTasks(): Promise<AgentTask[]> {
   if (isTauri()) {
     return tauriInvoke<AgentTask[]>('get_runnable_agent_tasks')
   }
-  const response = await apiClient.get<AgentTask[]>(API_ENDPOINTS.AGENT_TASK.RUNNABLE)
+  const response = await apiClient.get<AgentTask[]>(API_ENDPOINTS.AGENT_TASK.LIST_BY_STATUS('active'))
+  const now = Date.now()
+  return response.data.filter(
+    task =>
+      task.status === 'active'
+      && (task.next_run_at === null || task.next_run_at <= now),
+  )
+}
+
+/**
+ * Send an interaction message to a background agent.
+ */
+export async function sendBackgroundAgentMessage(
+  id: string,
+  request: SendBackgroundMessageRequest,
+): Promise<BackgroundMessage> {
+  const response = await apiClient.post<BackgroundMessage>(API_ENDPOINTS.AGENT_TASK.MESSAGES(id), request)
+  return response.data
+}
+
+/**
+ * List recent interaction messages for a background agent.
+ */
+export async function listBackgroundAgentMessages(
+  id: string,
+  limit = 50,
+): Promise<BackgroundMessage[]> {
+  const response = await apiClient.get<BackgroundMessage[]>(
+    `${API_ENDPOINTS.AGENT_TASK.MESSAGES(id)}?limit=${limit}`,
+  )
   return response.data
 }
 
