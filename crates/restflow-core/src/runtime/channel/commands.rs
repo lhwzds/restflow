@@ -218,7 +218,7 @@ pub async fn send_help(router: &ChannelRouter, message: &InboundMessage) -> Resu
 mod tests {
     use super::*;
     use crate::channel::ChannelType;
-    use crate::channel::trigger::mock::MockTaskTrigger;
+    use crate::runtime::channel::trigger::mock::MockTaskTrigger;
 
     fn create_message(content: &str) -> InboundMessage {
         InboundMessage::new("msg-1", ChannelType::Telegram, "user-1", "chat-1", content)

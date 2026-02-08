@@ -94,7 +94,7 @@ async fn handle_approval(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::channel::trigger::mock::MockTaskTrigger;
+    use crate::runtime::channel::trigger::mock::MockTaskTrigger;
 
     #[tokio::test]
     async fn test_approval_detection_approve() {

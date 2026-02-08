@@ -513,6 +513,7 @@ async fn run_agent_with_executor(
         core.storage.triggers.clone(),
         core.storage.terminal_sessions.clone(),
         None,
+        None,
     );
 
     if let Some(resolver) = build_secret_resolver(secret_storage) {

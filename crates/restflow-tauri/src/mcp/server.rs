@@ -676,6 +676,7 @@ mod tests {
             model: Some(AIModel::ClaudeSonnet4_5),
             prompt: Some(prompt.to_string()),
             temperature: Some(0.7),
+            codex_cli_reasoning_effort: None,
             api_key_config: Some(ApiKeyConfig::Direct("test_key".to_string())),
             tools: Some(vec!["add".to_string()]),
             skills: None,

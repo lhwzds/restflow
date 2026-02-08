@@ -1,19 +1,21 @@
-//! File-based memory tools for persisting agent context
+//! Memory tools for persisting agent context
 //!
 //! This module provides tools that allow AI agents to save important context
-//! and information to files, organized by agent_id and session_id.
-//! This enables agents to externalize knowledge that should persist beyond
-//! the working memory window.
+//! and information, organized by agent_id and session_id.
+//! The storage backend is abstracted via the `MemoryStore` trait, supporting
+//! both file-based (JSON) and database-backed implementations.
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::path::PathBuf;
-use tokio::fs;
+use std::sync::Arc;
 
 use crate::error::Result;
 use crate::tools::traits::{Tool, ToolOutput};
+
+// ============== Data Models ==============
 
 /// Metadata for a memory entry
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -35,7 +37,32 @@ pub struct MemoryEntry {
     pub content: String,
 }
 
-/// Configuration for file memory tools
+// ============== MemoryStore Trait ==============
+
+/// Backend trait for memory CRUD operations.
+///
+/// Implementations can use file storage or database storage.
+/// All methods are synchronous (matching other store traits in the codebase).
+pub trait MemoryStore: Send + Sync {
+    /// Save a new memory entry. Returns JSON with `{success, id, title, message}`.
+    fn save(&self, title: &str, content: &str, tags: &[String]) -> Result<Value>;
+
+    /// Read a single memory by ID. Returns `Some(json)` with `{found, entry}` or `None`.
+    fn read_by_id(&self, id: &str) -> Result<Option<Value>>;
+
+    /// Search memories by tag and/or title keyword. Returns `{count, memories}`.
+    fn search(&self, tag: Option<&str>, search: Option<&str>, limit: usize) -> Result<Value>;
+
+    /// List all memory metadata. Returns `{total, count, memories}`.
+    fn list(&self, tag: Option<&str>, limit: usize) -> Result<Value>;
+
+    /// Delete a memory by ID. Returns `{deleted, id, message}`.
+    fn delete(&self, id: &str) -> Result<Value>;
+}
+
+// ============== FileMemoryStore (file-based implementation) ==============
+
+/// Configuration for file memory storage
 #[derive(Debug, Clone)]
 pub struct FileMemoryConfig {
     pub base_path: PathBuf,
@@ -85,31 +112,28 @@ impl FileMemoryConfig {
     }
 }
 
-/// Tool for saving important context to file-based memory
+/// File-based implementation of MemoryStore.
 ///
-/// Allows agents to persist knowledge that should survive beyond the
-/// working memory window. Memories are organized by agent_id and
-/// optionally by session_id.
-pub struct SaveMemoryTool {
+/// Stores memories as individual JSON files with an `_index.json` for metadata.
+/// Uses synchronous std::fs operations (files are small).
+pub struct FileMemoryStore {
     config: FileMemoryConfig,
 }
 
-impl SaveMemoryTool {
-    /// Create a new SaveMemoryTool with the given config
+impl FileMemoryStore {
+    /// Create a new FileMemoryStore with the given config
     pub fn new(config: FileMemoryConfig) -> Self {
         Self { config }
     }
 
-    /// Generate a unique ID for a memory entry
     fn generate_id() -> String {
         uuid::Uuid::new_v4().to_string()
     }
 
-    /// Load the index file
-    async fn load_index(&self) -> Result<Vec<MemoryEntryMeta>> {
+    fn load_index(&self) -> Result<Vec<MemoryEntryMeta>> {
         let path = self.config.index_path();
         if path.exists() {
-            let content = fs::read_to_string(&path).await?;
+            let content = std::fs::read_to_string(&path)?;
             let index: Vec<MemoryEntryMeta> = serde_json::from_str(&content)?;
             Ok(index)
         } else {
@@ -117,12 +141,159 @@ impl SaveMemoryTool {
         }
     }
 
-    /// Save the index file
-    async fn save_index(&self, index: &[MemoryEntryMeta]) -> Result<()> {
+    fn save_index(&self, index: &[MemoryEntryMeta]) -> Result<()> {
         let path = self.config.index_path();
         let content = serde_json::to_string_pretty(index)?;
-        fs::write(&path, content).await?;
+        std::fs::write(&path, content)?;
         Ok(())
+    }
+
+    fn load_entry(&self, id: &str) -> Result<Option<MemoryEntry>> {
+        let path = self.config.entry_path(id);
+        if path.exists() {
+            let content = std::fs::read_to_string(&path)?;
+            let entry: MemoryEntry = serde_json::from_str(&content)?;
+            Ok(Some(entry))
+        } else {
+            Ok(None)
+        }
+    }
+}
+
+impl MemoryStore for FileMemoryStore {
+    fn save(&self, title: &str, content: &str, tags: &[String]) -> Result<Value> {
+        let dir = self.config.memory_dir();
+        std::fs::create_dir_all(&dir)?;
+
+        let now = Utc::now();
+        let id = Self::generate_id();
+
+        let entry = MemoryEntry {
+            meta: MemoryEntryMeta {
+                id: id.clone(),
+                title: title.to_string(),
+                tags: tags.to_vec(),
+                created_at: now,
+                updated_at: now,
+                agent_id: self.config.agent_id.clone(),
+                session_id: self.config.session_id.clone(),
+            },
+            content: content.to_string(),
+        };
+
+        let entry_path = self.config.entry_path(&id);
+        let entry_json = serde_json::to_string_pretty(&entry)?;
+        std::fs::write(&entry_path, entry_json)?;
+
+        let mut index = self.load_index().unwrap_or_default();
+        index.push(entry.meta);
+        if let Err(e) = self.save_index(&index) {
+            tracing::warn!("Failed to update memory index: {}", e);
+        }
+
+        Ok(json!({
+            "success": true,
+            "id": id,
+            "title": title,
+            "message": "Memory saved successfully"
+        }))
+    }
+
+    fn read_by_id(&self, id: &str) -> Result<Option<Value>> {
+        match self.load_entry(id)? {
+            Some(entry) => Ok(Some(json!({
+                "found": true,
+                "entry": entry
+            }))),
+            None => Ok(None),
+        }
+    }
+
+    fn search(&self, tag: Option<&str>, search: Option<&str>, limit: usize) -> Result<Value> {
+        let index = self.load_index()?;
+        let mut results: Vec<&MemoryEntryMeta> = index.iter().collect();
+
+        if let Some(tag) = tag {
+            let tag_lower = tag.to_lowercase();
+            results.retain(|m| m.tags.iter().any(|t| t.to_lowercase().contains(&tag_lower)));
+        }
+
+        if let Some(search) = search {
+            let search_lower = search.to_lowercase();
+            results.retain(|m| m.title.to_lowercase().contains(&search_lower));
+        }
+
+        results.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+        results.truncate(limit);
+
+        Ok(json!({
+            "count": results.len(),
+            "memories": results
+        }))
+    }
+
+    fn list(&self, tag: Option<&str>, limit: usize) -> Result<Value> {
+        let index = self.load_index()?;
+        let total = index.len();
+        let mut results: Vec<&MemoryEntryMeta> = index.iter().collect();
+
+        if let Some(tag) = tag {
+            let tag_lower = tag.to_lowercase();
+            results.retain(|m| m.tags.iter().any(|t| t.to_lowercase().contains(&tag_lower)));
+        }
+
+        results.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+        results.truncate(limit);
+
+        Ok(json!({
+            "total": total,
+            "count": results.len(),
+            "memories": results.iter().map(|m| json!({
+                "id": m.id,
+                "title": m.title,
+                "tags": m.tags,
+                "created_at": m.created_at,
+                "updated_at": m.updated_at
+            })).collect::<Vec<_>>()
+        }))
+    }
+
+    fn delete(&self, id: &str) -> Result<Value> {
+        let entry_path = self.config.entry_path(id);
+
+        if !entry_path.exists() {
+            return Ok(json!({
+                "deleted": false,
+                "message": format!("No memory found with ID: {}", id)
+            }));
+        }
+
+        std::fs::remove_file(&entry_path)?;
+
+        let mut index = self.load_index().unwrap_or_default();
+        index.retain(|m| m.id != id);
+        if let Err(e) = self.save_index(&index) {
+            tracing::warn!("Failed to update memory index after delete: {}", e);
+        }
+
+        Ok(json!({
+            "deleted": true,
+            "id": id,
+            "message": "Memory deleted successfully"
+        }))
+    }
+}
+
+// ============== Tool Implementations ==============
+
+/// Tool for saving important context to memory
+pub struct SaveMemoryTool {
+    store: Arc<dyn MemoryStore>,
+}
+
+impl SaveMemoryTool {
+    pub fn new(store: Arc<dyn MemoryStore>) -> Self {
+        Self { store }
     }
 }
 
@@ -172,111 +343,32 @@ impl Tool for SaveMemoryTool {
             Err(e) => return Ok(ToolOutput::error(format!("Invalid input: {}", e))),
         };
 
-        // Ensure directory exists
-        let dir = self.config.memory_dir();
-        if let Err(e) = fs::create_dir_all(&dir).await {
-            return Ok(ToolOutput::error(format!(
-                "Failed to create memory directory: {}",
-                e
-            )));
+        match self
+            .store
+            .save(&params.title, &params.content, &params.tags)
+        {
+            Ok(result) => Ok(ToolOutput::success(result)),
+            Err(e) => Ok(ToolOutput::error(format!("Failed to save memory: {}", e))),
         }
-
-        let now = Utc::now();
-        let id = Self::generate_id();
-
-        let entry = MemoryEntry {
-            meta: MemoryEntryMeta {
-                id: id.clone(),
-                title: params.title.clone(),
-                tags: params.tags.clone(),
-                created_at: now,
-                updated_at: now,
-                agent_id: self.config.agent_id.clone(),
-                session_id: self.config.session_id.clone(),
-            },
-            content: params.content,
-        };
-
-        // Save the entry
-        let entry_path = self.config.entry_path(&id);
-        let entry_json = match serde_json::to_string_pretty(&entry) {
-            Ok(j) => j,
-            Err(e) => {
-                return Ok(ToolOutput::error(format!(
-                    "Failed to serialize entry: {}",
-                    e
-                )));
-            }
-        };
-
-        if let Err(e) = fs::write(&entry_path, entry_json).await {
-            return Ok(ToolOutput::error(format!("Failed to write entry: {}", e)));
-        }
-
-        // Update index
-        let mut index = self.load_index().await.unwrap_or_default();
-        index.push(entry.meta.clone());
-        if let Err(e) = self.save_index(&index).await {
-            // Non-fatal: entry is saved, just index failed
-            tracing::warn!("Failed to update memory index: {}", e);
-        }
-
-        Ok(ToolOutput::success(json!({
-            "success": true,
-            "id": id,
-            "title": params.title,
-            "message": "Memory saved successfully"
-        })))
     }
 }
 
 /// Tool for reading saved memories
-///
-/// Allows agents to retrieve previously saved context and information.
 pub struct ReadMemoryTool {
-    config: FileMemoryConfig,
+    store: Arc<dyn MemoryStore>,
 }
 
 impl ReadMemoryTool {
-    /// Create a new ReadMemoryTool with the given config
-    pub fn new(config: FileMemoryConfig) -> Self {
-        Self { config }
-    }
-
-    /// Load the index file
-    async fn load_index(&self) -> Result<Vec<MemoryEntryMeta>> {
-        let path = self.config.index_path();
-        if path.exists() {
-            let content = fs::read_to_string(&path).await?;
-            let index: Vec<MemoryEntryMeta> = serde_json::from_str(&content)?;
-            Ok(index)
-        } else {
-            Ok(Vec::new())
-        }
-    }
-
-    /// Load a specific entry by ID
-    async fn load_entry(&self, id: &str) -> Result<Option<MemoryEntry>> {
-        let path = self.config.entry_path(id);
-        if path.exists() {
-            let content = fs::read_to_string(&path).await?;
-            let entry: MemoryEntry = serde_json::from_str(&content)?;
-            Ok(Some(entry))
-        } else {
-            Ok(None)
-        }
+    pub fn new(store: Arc<dyn MemoryStore>) -> Self {
+        Self { store }
     }
 }
 
 #[derive(Debug, Deserialize)]
 struct ReadMemoryInput {
-    /// Specific ID to read (optional)
     id: Option<String>,
-    /// Search by tag (optional)
     tag: Option<String>,
-    /// Search in title (optional)
     search: Option<String>,
-    /// Maximum number of results
     #[serde(default = "default_limit")]
     limit: usize,
 }
@@ -328,11 +420,8 @@ impl Tool for ReadMemoryTool {
 
         // If specific ID requested, return that entry
         if let Some(ref id) = params.id {
-            return match self.load_entry(id).await {
-                Ok(Some(entry)) => Ok(ToolOutput::success(json!({
-                    "found": true,
-                    "entry": entry
-                }))),
+            return match self.store.read_by_id(id) {
+                Ok(Some(result)) => Ok(ToolOutput::success(result)),
                 Ok(None) => Ok(ToolOutput::success(json!({
                     "found": false,
                     "message": format!("No memory found with ID: {}", id)
@@ -341,68 +430,35 @@ impl Tool for ReadMemoryTool {
             };
         }
 
-        // Load index and filter
-        let index = match self.load_index().await {
-            Ok(i) => i,
-            Err(e) => return Ok(ToolOutput::error(format!("Failed to load index: {}", e))),
-        };
-
-        let mut results: Vec<&MemoryEntryMeta> = index.iter().collect();
-
-        // Filter by tag
-        if let Some(ref tag) = params.tag {
-            let tag_lower = tag.to_lowercase();
-            results.retain(|m| m.tags.iter().any(|t| t.to_lowercase().contains(&tag_lower)));
+        // Search/filter
+        match self.store.search(
+            params.tag.as_deref(),
+            params.search.as_deref(),
+            params.limit,
+        ) {
+            Ok(result) => Ok(ToolOutput::success(result)),
+            Err(e) => Ok(ToolOutput::error(format!(
+                "Failed to search memories: {}",
+                e
+            ))),
         }
-
-        // Filter by search term in title
-        if let Some(ref search) = params.search {
-            let search_lower = search.to_lowercase();
-            results.retain(|m| m.title.to_lowercase().contains(&search_lower));
-        }
-
-        // Sort by updated_at descending (most recent first)
-        results.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
-
-        // Apply limit
-        results.truncate(params.limit);
-
-        Ok(ToolOutput::success(json!({
-            "count": results.len(),
-            "memories": results
-        })))
     }
 }
 
 /// Tool for listing all saved memories
 pub struct ListMemoryTool {
-    config: FileMemoryConfig,
+    store: Arc<dyn MemoryStore>,
 }
 
 impl ListMemoryTool {
-    /// Create a new ListMemoryTool with the given config
-    pub fn new(config: FileMemoryConfig) -> Self {
-        Self { config }
-    }
-
-    /// Load the index file
-    async fn load_index(&self) -> Result<Vec<MemoryEntryMeta>> {
-        let path = self.config.index_path();
-        if path.exists() {
-            let content = fs::read_to_string(&path).await?;
-            let index: Vec<MemoryEntryMeta> = serde_json::from_str(&content)?;
-            Ok(index)
-        } else {
-            Ok(Vec::new())
-        }
+    pub fn new(store: Arc<dyn MemoryStore>) -> Self {
+        Self { store }
     }
 }
 
 #[derive(Debug, Deserialize)]
 struct ListMemoryInput {
-    /// Filter by tag (optional)
     tag: Option<String>,
-    /// Maximum number of results
     #[serde(default = "default_list_limit")]
     limit: usize,
 }
@@ -444,68 +500,21 @@ impl Tool for ListMemoryTool {
             Err(e) => return Ok(ToolOutput::error(format!("Invalid input: {}", e))),
         };
 
-        let index = match self.load_index().await {
-            Ok(i) => i,
-            Err(e) => return Ok(ToolOutput::error(format!("Failed to load index: {}", e))),
-        };
-
-        let mut results: Vec<&MemoryEntryMeta> = index.iter().collect();
-
-        // Filter by tag
-        if let Some(ref tag) = params.tag {
-            let tag_lower = tag.to_lowercase();
-            results.retain(|m| m.tags.iter().any(|t| t.to_lowercase().contains(&tag_lower)));
+        match self.store.list(params.tag.as_deref(), params.limit) {
+            Ok(result) => Ok(ToolOutput::success(result)),
+            Err(e) => Ok(ToolOutput::error(format!("Failed to list memories: {}", e))),
         }
-
-        // Sort by updated_at descending
-        results.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
-
-        // Apply limit
-        results.truncate(params.limit);
-
-        Ok(ToolOutput::success(json!({
-            "total": index.len(),
-            "count": results.len(),
-            "memories": results.iter().map(|m| json!({
-                "id": m.id,
-                "title": m.title,
-                "tags": m.tags,
-                "created_at": m.created_at,
-                "updated_at": m.updated_at
-            })).collect::<Vec<_>>()
-        })))
     }
 }
 
 /// Tool for deleting a memory entry
 pub struct DeleteMemoryTool {
-    config: FileMemoryConfig,
+    store: Arc<dyn MemoryStore>,
 }
 
 impl DeleteMemoryTool {
-    /// Create a new DeleteMemoryTool with the given config
-    pub fn new(config: FileMemoryConfig) -> Self {
-        Self { config }
-    }
-
-    /// Load the index file
-    async fn load_index(&self) -> Result<Vec<MemoryEntryMeta>> {
-        let path = self.config.index_path();
-        if path.exists() {
-            let content = fs::read_to_string(&path).await?;
-            let index: Vec<MemoryEntryMeta> = serde_json::from_str(&content)?;
-            Ok(index)
-        } else {
-            Ok(Vec::new())
-        }
-    }
-
-    /// Save the index file
-    async fn save_index(&self, index: &[MemoryEntryMeta]) -> Result<()> {
-        let path = self.config.index_path();
-        let content = serde_json::to_string_pretty(index)?;
-        fs::write(&path, content).await?;
-        Ok(())
+    pub fn new(store: Arc<dyn MemoryStore>) -> Self {
+        Self { store }
     }
 }
 
@@ -543,49 +552,29 @@ impl Tool for DeleteMemoryTool {
             Err(e) => return Ok(ToolOutput::error(format!("Invalid input: {}", e))),
         };
 
-        let entry_path = self.config.entry_path(&params.id);
-
-        // Check if entry exists
-        if !entry_path.exists() {
-            return Ok(ToolOutput::success(json!({
-                "deleted": false,
-                "message": format!("No memory found with ID: {}", params.id)
-            })));
+        match self.store.delete(&params.id) {
+            Ok(result) => Ok(ToolOutput::success(result)),
+            Err(e) => Ok(ToolOutput::error(format!("Failed to delete memory: {}", e))),
         }
-
-        // Delete the file
-        if let Err(e) = fs::remove_file(&entry_path).await {
-            return Ok(ToolOutput::error(format!("Failed to delete memory: {}", e)));
-        }
-
-        // Update index
-        let mut index = self.load_index().await.unwrap_or_default();
-        index.retain(|m| m.id != params.id);
-        if let Err(e) = self.save_index(&index).await {
-            tracing::warn!("Failed to update memory index after delete: {}", e);
-        }
-
-        Ok(ToolOutput::success(json!({
-            "deleted": true,
-            "id": params.id,
-            "message": "Memory deleted successfully"
-        })))
     }
 }
+
+// ============== Tests ==============
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use tempfile::TempDir;
 
-    fn test_config(temp_dir: &TempDir) -> FileMemoryConfig {
-        FileMemoryConfig::new(temp_dir.path(), "test-agent")
+    fn test_store(temp_dir: &TempDir) -> Arc<dyn MemoryStore> {
+        let config = FileMemoryConfig::new(temp_dir.path(), "test-agent");
+        Arc::new(FileMemoryStore::new(config))
     }
 
     #[test]
     fn test_config_memory_dir() {
         let temp_dir = TempDir::new().unwrap();
-        let config = test_config(&temp_dir);
+        let config = FileMemoryConfig::new(temp_dir.path(), "test-agent");
 
         let dir = config.memory_dir();
         assert!(dir.ends_with("memory/test-agent"));
@@ -598,7 +587,7 @@ mod tests {
     #[test]
     fn test_config_entry_path() {
         let temp_dir = TempDir::new().unwrap();
-        let config = test_config(&temp_dir);
+        let config = FileMemoryConfig::new(temp_dir.path(), "test-agent");
 
         let path = config.entry_path("entry-id");
         assert!(path.ends_with("entry-id.json"));
@@ -607,7 +596,7 @@ mod tests {
     #[test]
     fn test_save_tool_schema() {
         let temp_dir = TempDir::new().unwrap();
-        let tool = SaveMemoryTool::new(test_config(&temp_dir));
+        let tool = SaveMemoryTool::new(test_store(&temp_dir));
 
         assert_eq!(tool.name(), "save_to_memory");
         assert!(!tool.description().is_empty());
@@ -622,7 +611,7 @@ mod tests {
     #[test]
     fn test_read_tool_schema() {
         let temp_dir = TempDir::new().unwrap();
-        let tool = ReadMemoryTool::new(test_config(&temp_dir));
+        let tool = ReadMemoryTool::new(test_store(&temp_dir));
 
         assert_eq!(tool.name(), "read_memory");
         assert!(!tool.description().is_empty());
@@ -637,7 +626,7 @@ mod tests {
     #[test]
     fn test_list_tool_schema() {
         let temp_dir = TempDir::new().unwrap();
-        let tool = ListMemoryTool::new(test_config(&temp_dir));
+        let tool = ListMemoryTool::new(test_store(&temp_dir));
 
         assert_eq!(tool.name(), "list_memories");
         assert!(!tool.description().is_empty());
@@ -646,7 +635,7 @@ mod tests {
     #[test]
     fn test_delete_tool_schema() {
         let temp_dir = TempDir::new().unwrap();
-        let tool = DeleteMemoryTool::new(test_config(&temp_dir));
+        let tool = DeleteMemoryTool::new(test_store(&temp_dir));
 
         assert_eq!(tool.name(), "delete_memory");
         assert!(!tool.description().is_empty());
@@ -655,10 +644,10 @@ mod tests {
     #[tokio::test]
     async fn test_save_and_read_memory() {
         let temp_dir = TempDir::new().unwrap();
-        let config = test_config(&temp_dir);
+        let store = test_store(&temp_dir);
 
-        let save_tool = SaveMemoryTool::new(config.clone());
-        let read_tool = ReadMemoryTool::new(config.clone());
+        let save_tool = SaveMemoryTool::new(store.clone());
+        let read_tool = ReadMemoryTool::new(store);
 
         // Save a memory
         let save_result = save_tool
@@ -686,10 +675,10 @@ mod tests {
     #[tokio::test]
     async fn test_save_and_list_memories() {
         let temp_dir = TempDir::new().unwrap();
-        let config = test_config(&temp_dir);
+        let store = test_store(&temp_dir);
 
-        let save_tool = SaveMemoryTool::new(config.clone());
-        let list_tool = ListMemoryTool::new(config.clone());
+        let save_tool = SaveMemoryTool::new(store.clone());
+        let list_tool = ListMemoryTool::new(store);
 
         // Save multiple memories
         save_tool
@@ -721,12 +710,11 @@ mod tests {
     #[tokio::test]
     async fn test_search_by_tag() {
         let temp_dir = TempDir::new().unwrap();
-        let config = test_config(&temp_dir);
+        let store = test_store(&temp_dir);
 
-        let save_tool = SaveMemoryTool::new(config.clone());
-        let read_tool = ReadMemoryTool::new(config.clone());
+        let save_tool = SaveMemoryTool::new(store.clone());
+        let read_tool = ReadMemoryTool::new(store);
 
-        // Save memories with different tags
         save_tool
             .execute(json!({
                 "title": "Important Note",
@@ -745,7 +733,6 @@ mod tests {
             .await
             .unwrap();
 
-        // Search by tag
         let search_result = read_tool
             .execute(json!({ "tag": "important" }))
             .await
@@ -758,12 +745,11 @@ mod tests {
     #[tokio::test]
     async fn test_search_by_title() {
         let temp_dir = TempDir::new().unwrap();
-        let config = test_config(&temp_dir);
+        let store = test_store(&temp_dir);
 
-        let save_tool = SaveMemoryTool::new(config.clone());
-        let read_tool = ReadMemoryTool::new(config.clone());
+        let save_tool = SaveMemoryTool::new(store.clone());
+        let read_tool = ReadMemoryTool::new(store);
 
-        // Save memories
         save_tool
             .execute(json!({
                 "title": "Meeting Notes for Project Alpha",
@@ -780,7 +766,6 @@ mod tests {
             .await
             .unwrap();
 
-        // Search in title
         let search_result = read_tool
             .execute(json!({ "search": "project" }))
             .await
@@ -793,13 +778,12 @@ mod tests {
     #[tokio::test]
     async fn test_delete_memory() {
         let temp_dir = TempDir::new().unwrap();
-        let config = test_config(&temp_dir);
+        let store = test_store(&temp_dir);
 
-        let save_tool = SaveMemoryTool::new(config.clone());
-        let delete_tool = DeleteMemoryTool::new(config.clone());
-        let list_tool = ListMemoryTool::new(config.clone());
+        let save_tool = SaveMemoryTool::new(store.clone());
+        let delete_tool = DeleteMemoryTool::new(store.clone());
+        let list_tool = ListMemoryTool::new(store);
 
-        // Save a memory
         let save_result = save_tool
             .execute(json!({
                 "title": "To Be Deleted",
@@ -810,17 +794,14 @@ mod tests {
 
         let id = save_result.result["id"].as_str().unwrap().to_string();
 
-        // Verify it exists
         let list_before = list_tool.execute(json!({})).await.unwrap();
         assert_eq!(list_before.result["count"], 1);
 
-        // Delete it
         let delete_result = delete_tool.execute(json!({ "id": id })).await.unwrap();
 
         assert!(delete_result.success);
         assert!(delete_result.result["deleted"].as_bool().unwrap());
 
-        // Verify it's gone
         let list_after = list_tool.execute(json!({})).await.unwrap();
         assert_eq!(list_after.result["count"], 0);
     }
@@ -828,9 +809,8 @@ mod tests {
     #[tokio::test]
     async fn test_read_nonexistent_memory() {
         let temp_dir = TempDir::new().unwrap();
-        let config = test_config(&temp_dir);
-
-        let read_tool = ReadMemoryTool::new(config);
+        let store = test_store(&temp_dir);
+        let read_tool = ReadMemoryTool::new(store);
 
         let result = read_tool
             .execute(json!({ "id": "nonexistent-id" }))
@@ -844,9 +824,8 @@ mod tests {
     #[tokio::test]
     async fn test_delete_nonexistent_memory() {
         let temp_dir = TempDir::new().unwrap();
-        let config = test_config(&temp_dir);
-
-        let delete_tool = DeleteMemoryTool::new(config);
+        let store = test_store(&temp_dir);
+        let delete_tool = DeleteMemoryTool::new(store);
 
         let result = delete_tool
             .execute(json!({ "id": "nonexistent-id" }))
@@ -864,13 +843,15 @@ mod tests {
         let config1 = FileMemoryConfig::new(temp_dir.path(), "agent").with_session("session-1");
         let config2 = FileMemoryConfig::new(temp_dir.path(), "agent").with_session("session-2");
 
-        let save1 = SaveMemoryTool::new(config1.clone());
-        let list1 = ListMemoryTool::new(config1);
+        let store1: Arc<dyn MemoryStore> = Arc::new(FileMemoryStore::new(config1));
+        let store2: Arc<dyn MemoryStore> = Arc::new(FileMemoryStore::new(config2));
 
-        let save2 = SaveMemoryTool::new(config2.clone());
-        let list2 = ListMemoryTool::new(config2);
+        let save1 = SaveMemoryTool::new(store1.clone());
+        let list1 = ListMemoryTool::new(store1);
 
-        // Save to session 1
+        let save2 = SaveMemoryTool::new(store2.clone());
+        let list2 = ListMemoryTool::new(store2);
+
         save1
             .execute(json!({
                 "title": "Session 1 Memory",
@@ -879,7 +860,6 @@ mod tests {
             .await
             .unwrap();
 
-        // Save to session 2
         save2
             .execute(json!({
                 "title": "Session 2 Memory",
@@ -888,7 +868,6 @@ mod tests {
             .await
             .unwrap();
 
-        // Each session should only see its own memories
         let list1_result = list1.execute(json!({})).await.unwrap();
         let list2_result = list2.execute(json!({})).await.unwrap();
 
