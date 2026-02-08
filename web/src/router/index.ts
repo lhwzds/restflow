@@ -10,7 +10,7 @@ const router = createRouter({
     {
       path: '/workspace',
       name: 'workspace',
-      component: () => import('../views/SkillWorkspace.vue'),
+      component: () => import('../views/Workspace.vue'),
       meta: { title: 'RestFlow' },
     },
   ],
