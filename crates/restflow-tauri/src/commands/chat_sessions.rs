@@ -5,7 +5,7 @@
 
 use crate::agent::{
     SubagentDeps, ToolRegistry, UnifiedAgent, UnifiedAgentConfig, effective_main_agent_tool_names,
-    registry_from_allowlist, secret_resolver_from_storage,
+    registry_from_allowlist,
 };
 use crate::chat::ChatStreamState;
 use crate::state::AppState;
@@ -428,11 +428,8 @@ async fn execute_agent_for_session(
 
     // Build tool registry
     let subagent_deps = state.subagent_deps(llm.clone());
-    let secret_resolver = state
-        .core
-        .as_ref()
-        .map(|core| secret_resolver_from_storage(&core.storage));
-    let tool_storage = state.core.as_ref().map(|core| core.storage.as_ref());
+    let secret_resolver = state.secret_resolver();
+    let tool_storage = None;
     let effective_tools = effective_main_agent_tool_names(agent_node.tools.as_deref());
     let tools = Arc::new(registry_from_allowlist(
         Some(&effective_tools),
@@ -569,11 +566,8 @@ pub async fn send_chat_message_stream(
     let subagent_tracker = state.subagent_tracker.clone();
     let subagent_definitions = state.subagent_definitions.clone();
     let subagent_config = state.subagent_config.clone();
-    let secret_resolver = state
-        .core
-        .as_ref()
-        .map(|core| secret_resolver_from_storage(&core.storage));
-    let tool_storage = state.core.as_ref().map(|core| core.storage.clone());
+    let secret_resolver = state.secret_resolver();
+    let tool_storage = None;
 
     // Spawn background task for assistant response generation
     tokio::spawn(async move {
@@ -671,7 +665,7 @@ pub async fn send_chat_message_stream(
             Some(&effective_tools),
             Some(&subagent_deps),
             secret_resolver.clone(),
-            tool_storage.as_deref(),
+            tool_storage,
             Some(&session.agent_id),
         ));
 

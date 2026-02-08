@@ -290,14 +290,6 @@ pub async fn get_background_agent_events(
 pub async fn get_runnable_background_agents(
     state: State<'_, AppState>,
 ) -> Result<Vec<BackgroundAgent>, String> {
-    if let Some(core) = state.core.as_ref() {
-        return core
-            .storage
-            .agent_tasks
-            .list_runnable_tasks(chrono::Utc::now().timestamp_millis())
-            .map_err(|e| e.to_string());
-    }
-
     state
         .executor()
         .list_runnable_background_agents(Some(chrono::Utc::now().timestamp_millis()))
@@ -397,20 +389,12 @@ pub async fn run_background_agent_streaming(
     id: String,
 ) -> Result<StreamingBackgroundAgentResponse, String> {
     // Check if task exists
-    let task = if let Some(core) = state.core.as_ref() {
-        core.storage
-            .agent_tasks
-            .get_task(&id)
-            .map_err(|e| e.to_string())?
-            .ok_or_else(|| format!("Background agent '{}' not found", id.clone()))?
-    } else {
-        state
-            .executor()
-            .get_background_agent(id.clone())
-            .await
-            .map_err(|e| e.to_string())?
-            .ok_or_else(|| format!("Background agent '{}' not found", id.clone()))?
-    };
+    let task = state
+        .executor()
+        .get_background_agent(id.clone())
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Background agent '{}' not found", id.clone()))?;
 
     // Check if already running
     let already_running =
