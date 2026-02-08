@@ -4,26 +4,17 @@
 //! ChatDispatcher processes it through an AI agent and returns the response.
 
 use anyhow::{Result, anyhow};
-use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{debug, error, info, warn};
 
 use crate::auth::AuthProfileManager;
 use crate::channel::{ChannelRouter, InboundMessage, OutboundMessage};
-use crate::models::{ApiKeyConfig, ChatMessage, ChatRole, ChatSession};
+use crate::models::{ChatMessage, ChatSession};
+use crate::process::ProcessRegistry;
+use crate::runtime::agent_task::{RealAgentExecutor, SessionInputMode};
 use crate::storage::Storage;
-use crate::{AIModel, Provider};
-use restflow_ai::llm::Message;
-use restflow_ai::{
-    CodexClient, DefaultLlmClientFactory, LlmClient, LlmClientFactory, LlmProvider, SwappableLlm,
-    SwitchModelTool,
-};
 
 use super::debounce::MessageDebouncer;
-use crate::runtime::agent::{
-    SubagentDeps, ToolRegistry, UnifiedAgent, UnifiedAgentConfig, build_agent_system_prompt,
-    effective_main_agent_tool_names, registry_from_allowlist, secret_resolver_from_storage,
-};
 use crate::runtime::subagent::{AgentDefinitionRegistry, SubagentConfig, SubagentTracker};
 
 /// Configuration for the ChatDispatcher.
@@ -306,125 +297,39 @@ impl ChatDispatcher {
         }
     }
 
-    /// Resolve API key for a model provider.
-    async fn resolve_api_key(
-        &self,
-        provider: Provider,
-        agent_api_key_config: Option<&ApiKeyConfig>,
-    ) -> Result<String> {
-        // First, check agent-level API key config
-        if let Some(config) = agent_api_key_config {
-            match config {
-                ApiKeyConfig::Direct(key) => {
-                    if !key.is_empty() {
-                        return Ok(key.clone());
-                    }
-                }
-                ApiKeyConfig::Secret(secret_name) => {
-                    if let Some(secret_value) = self.storage.secrets.get_secret(secret_name)? {
-                        return Ok(secret_value);
-                    }
-                    return Err(anyhow!("Secret '{}' not found", secret_name));
-                }
-            }
-        }
-
-        // Check auth profiles
-        if let Some(profile) = self.auth_manager.get_credential_for_model(provider).await {
-            return profile
-                .get_api_key(self.auth_manager.resolver())
-                .map_err(|e| anyhow!("{}", e));
-        }
-
-        // Fall back to well-known secret names
-        let secret_name = provider.api_key_env();
-
-        if let Some(secret_value) = self.storage.secrets.get_secret(secret_name)? {
-            return Ok(secret_value);
-        }
-
-        Err(anyhow!("No API key configured for provider {:?}", provider))
+    fn create_executor(&self) -> RealAgentExecutor {
+        RealAgentExecutor::new(
+            self.storage.clone(),
+            Arc::new(ProcessRegistry::new()),
+            self.auth_manager.clone(),
+            self.subagent_tracker.clone(),
+            self.subagent_definitions.clone(),
+            self.subagent_config.clone(),
+        )
     }
 
-    /// Resolve API key, avoiding mismatched agent-level keys for fallback providers.
-    async fn resolve_api_key_for_model(
-        &self,
-        provider: Provider,
-        agent_api_key_config: Option<&ApiKeyConfig>,
-        primary_provider: Provider,
-    ) -> Result<String> {
-        let config = if provider == primary_provider {
-            agent_api_key_config
-        } else {
-            None
-        };
-        self.resolve_api_key(provider, config).await
-    }
+    fn map_execution_error(error: &anyhow::Error) -> ChatError {
+        let msg = error.to_string();
+        let lower = msg.to_lowercase();
 
-    async fn build_api_keys(
-        &self,
-        agent_api_key_config: Option<&ApiKeyConfig>,
-        primary_provider: Provider,
-    ) -> HashMap<LlmProvider, String> {
-        let mut keys = HashMap::new();
-
-        for provider in Provider::all() {
-            if let Ok(key) = self
-                .resolve_api_key_for_model(*provider, agent_api_key_config, primary_provider)
-                .await
-            {
-                keys.insert(provider.as_llm_provider(), key);
-            }
+        if msg.contains("No AI agent configured") || msg.contains("No agents configured") {
+            return ChatError::NoDefaultAgent;
         }
 
-        keys
-    }
-
-    fn switch_model_enabled(tool_names: Option<&[String]>) -> bool {
-        tool_names
-            .map(|names| names.iter().any(|name| name == "switch_model"))
-            .unwrap_or(false)
-    }
-
-    fn create_llm_client(
-        factory: &dyn LlmClientFactory,
-        model: AIModel,
-        api_key: Option<&str>,
-        agent_node: &crate::models::AgentNode,
-    ) -> Result<Arc<dyn LlmClient>> {
-        if model.is_codex_cli() {
-            let mut client = CodexClient::new().with_model(model.as_serialized_str());
-            if let Some(effort) = agent_node
-                .codex_cli_reasoning_effort
-                .as_deref()
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-            {
-                client = client.with_reasoning_effort(effort);
-            }
-            return Ok(Arc::new(client));
+        if msg.contains("No API key configured for provider") {
+            return ChatError::NoApiKey {
+                provider: "unknown".to_string(),
+            };
         }
 
-        Ok(factory.create_client(model.as_serialized_str(), api_key)?)
-    }
-
-    fn build_subagent_deps(&self, llm_client: Arc<dyn LlmClient>) -> SubagentDeps {
-        SubagentDeps {
-            tracker: self.subagent_tracker.clone(),
-            definitions: self.subagent_definitions.clone(),
-            llm_client,
-            tool_registry: Arc::new(ToolRegistry::new()),
-            config: self.subagent_config.clone(),
+        if lower.contains("rate limit")
+            || lower.contains("429")
+            || lower.contains("too many requests")
+        {
+            return ChatError::RateLimited;
         }
-    }
 
-    /// Convert a stored chat message into an LLM message.
-    fn chat_message_to_llm_message(message: &ChatMessage) -> Message {
-        match message.role {
-            ChatRole::User => Message::user(message.content.clone()),
-            ChatRole::Assistant => Message::assistant(message.content.clone()),
-            ChatRole::System => Message::system(message.content.clone()),
-        }
+        ChatError::ExecutionFailed(msg)
     }
 
     /// Build the effective agent input from an inbound message.
@@ -498,201 +403,24 @@ impl ChatDispatcher {
             debug!("Typing indicator sent");
         }
 
-        // 4. Load agent and create UnifiedAgent
-        debug!("Loading agent: {}", session.agent_id);
-        let stored_agent = match self.storage.agents.get_agent(session.agent_id.clone()) {
-            Ok(Some(a)) => a,
-            Ok(None) => {
-                warn!(
-                    "Session {} references missing agent {}. Trying default agent fallback.",
-                    session.id, session.agent_id
-                );
-
-                let fallback_agent_id = match self.sessions.get_default_agent_id() {
-                    Ok(id) => id,
-                    Err(e) => {
-                        error!("Failed to resolve fallback default agent: {}", e);
-                        self.send_error_response(message, ChatError::NoDefaultAgent)
-                            .await?;
-                        return Ok(());
-                    }
-                };
-
-                let fallback_agent = match self.storage.agents.get_agent(fallback_agent_id.clone())
-                {
-                    Ok(Some(agent)) => agent,
-                    Ok(None) => {
-                        error!("Fallback agent '{}' not found", fallback_agent_id);
-                        self.send_error_response(message, ChatError::NoDefaultAgent)
-                            .await?;
-                        return Ok(());
-                    }
-                    Err(e) => {
-                        error!(
-                            "Failed to load fallback agent '{}': {}",
-                            fallback_agent_id, e
-                        );
-                        self.send_error_response(
-                            message,
-                            ChatError::ExecutionFailed(e.to_string()),
-                        )
-                        .await?;
-                        return Ok(());
-                    }
-                };
-
-                match self
-                    .sessions
-                    .rebind_session_agent(&session.id, &fallback_agent_id)
-                {
-                    Ok(updated) => {
-                        session = updated;
-                        info!(
-                            "Rebound session {} to fallback agent {}",
-                            session.id, fallback_agent_id
-                        );
-                    }
-                    Err(e) => {
-                        warn!(
-                            "Failed to persist fallback agent binding for session {}: {}",
-                            session.id, e
-                        );
-                        session.agent_id = fallback_agent_id;
-                    }
-                }
-
-                fallback_agent
-            }
-            Err(e) => {
-                error!("Failed to load agent: {}", e);
-                self.send_error_response(message, ChatError::ExecutionFailed(e.to_string()))
-                    .await?;
-                return Ok(());
-            }
-        };
-
-        let agent_node = &stored_agent.agent;
-        debug!("Getting model for agent");
-        let model = match agent_node.require_model() {
-            Ok(m) => m,
-            Err(e) => {
-                error!("Failed to get model: {}", e);
-                self.send_error_response(message, ChatError::ExecutionFailed(e.to_string()))
-                    .await?;
-                return Ok(());
-            }
-        };
-        debug!(
-            "Model: {} (provider: {:?})",
-            model.as_str(),
-            model.provider()
-        );
-
-        let primary_provider = model.provider();
-        let model_specs = AIModel::build_model_specs();
-        let api_keys = self
-            .build_api_keys(agent_node.api_key_config.as_ref(), primary_provider)
-            .await;
-        let factory: Arc<dyn LlmClientFactory> =
-            Arc::new(DefaultLlmClientFactory::new(api_keys, model_specs));
-
-        debug!("Resolving API key for initial model");
-        let api_key = if model.is_codex_cli() {
-            None
-        } else {
-            match self
-                .resolve_api_key_for_model(
-                    model.provider(),
-                    agent_node.api_key_config.as_ref(),
-                    primary_provider,
-                )
-                .await
-            {
-                Ok(key) => Some(key),
-                Err(e) => {
-                    error!("Failed to resolve API key: {}", e);
-                    self.send_error_response(
-                        message,
-                        ChatError::NoApiKey {
-                            provider: format!("{:?}", model.provider()),
-                        },
-                    )
-                    .await?;
-                    return Ok(());
-                }
-            }
-        };
-        if let Some(ref key) = api_key {
-            debug!(
-                "API key resolved (starts with: {}...)",
-                &key[..key.len().min(10)]
-            );
-        } else {
-            debug!("No API key required for initial model");
-        }
-
-        debug!("Creating swappable LLM client");
-        let llm_client = match Self::create_llm_client(
-            factory.as_ref(),
-            model,
-            api_key.as_deref(),
-            agent_node,
-        ) {
-            Ok(client) => client,
-            Err(e) => {
-                error!("Failed to create LLM client: {}", e);
-                self.send_error_response(message, ChatError::ExecutionFailed(e.to_string()))
-                    .await?;
-                return Ok(());
-            }
-        };
-        let swappable = Arc::new(SwappableLlm::new(llm_client));
-        let subagent_deps = self.build_subagent_deps(swappable.clone());
-        let secret_resolver = Some(secret_resolver_from_storage(&self.storage));
-        let effective_tools = effective_main_agent_tool_names(agent_node.tools.as_deref());
-        let mut tools = registry_from_allowlist(
-            Some(&effective_tools),
-            Some(&subagent_deps),
-            secret_resolver,
-            Some(self.storage.as_ref()),
-            Some(&session.agent_id),
-        );
-        if Self::switch_model_enabled(Some(&effective_tools)) {
-            tools.register(SwitchModelTool::new(swappable.clone(), factory));
-        }
-        let tools = Arc::new(tools);
-        let system_prompt = build_agent_system_prompt(self.storage.clone(), agent_node)
-            .map_err(|e| ChatError::ExecutionFailed(e.to_string()))?;
-
-        let mut config = UnifiedAgentConfig::default();
-        if model.supports_temperature()
-            && let Some(temp) = agent_node.temperature
-        {
-            config.temperature = temp as f32;
-        }
-
-        let mut agent = UnifiedAgent::new(swappable.clone(), tools, system_prompt, config);
-
-        // Add conversation history
-        let history = self.sessions.get_history(&session.id).unwrap_or_default();
-        let start = history
-            .len()
-            .saturating_sub(self.config.max_session_history);
-        for msg in &history[start..] {
-            agent.add_history_message(Self::chat_message_to_llm_message(msg));
-        }
-
-        // 5. Execute with timeout
-        let result = match tokio::time::timeout(
+        // 4. Execute via shared runtime executor.
+        let original_agent_id = session.agent_id.clone();
+        let executor = self.create_executor();
+        let exec_result = match tokio::time::timeout(
             tokio::time::Duration::from_secs(self.config.response_timeout_secs),
-            agent.execute(&input),
+            executor.execute_session_turn(
+                &mut session,
+                &input,
+                self.config.max_session_history,
+                SessionInputMode::EphemeralInput,
+            ),
         )
         .await
         {
             Ok(Ok(result)) => result,
-            Ok(Err(e)) => {
-                error!("Agent execution failed: {}", e);
-                self.send_error_response(message, ChatError::ExecutionFailed(e.to_string()))
+            Ok(Err(error)) => {
+                error!("Agent execution failed: {}", error);
+                self.send_error_response(message, Self::map_execution_error(&error))
                     .await?;
                 return Ok(());
             }
@@ -704,19 +432,33 @@ impl ChatDispatcher {
             }
         };
 
-        // 6. Save exchange to session
-        let active_model = swappable.current_model();
+        if session.agent_id != original_agent_id {
+            match self
+                .sessions
+                .rebind_session_agent(&session.id, &session.agent_id)
+            {
+                Ok(updated) => session = updated,
+                Err(error) => {
+                    warn!(
+                        "Failed to persist fallback agent binding for session {}: {}",
+                        session.id, error
+                    );
+                }
+            }
+        }
+
+        // 5. Save exchange to session
         if let Err(e) = self.sessions.append_exchange(
             &session.id,
             &message.content,
-            &result.output,
-            Some(&active_model),
+            &exec_result.output,
+            Some(&exec_result.active_model),
         ) {
             warn!("Failed to save exchange to session: {}", e);
         }
 
-        // 7. Send response (plain message without emoji prefix for AI chat)
-        let response = OutboundMessage::plain(&message.conversation_id, &result.output);
+        // 6. Send response (plain message without emoji prefix for AI chat)
+        let response = OutboundMessage::plain(&message.conversation_id, &exec_result.output);
         self.channel_router
             .send_to(message.channel_type, response)
             .await?;
@@ -724,7 +466,7 @@ impl ChatDispatcher {
         info!(
             "Chat response sent for session {} (output length: {} chars)",
             session.id,
-            result.output.len()
+            exec_result.output.len()
         );
 
         Ok(())
@@ -750,7 +492,9 @@ impl ChatDispatcher {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::AIModel;
     use crate::channel::ChannelType;
+    use crate::runtime::effective_main_agent_tool_names;
     use serde_json::json;
     use tempfile::tempdir;
     use tokio::time::Duration;
@@ -963,16 +707,6 @@ mod tests {
                 .iter()
                 .any(|spec| spec.name == "gpt-5.3-codex" && spec.is_codex_cli)
         );
-    }
-
-    #[test]
-    fn test_switch_model_enabled_detection() {
-        let enabled = vec!["bash".to_string(), "switch_model".to_string()];
-        let disabled = vec!["bash".to_string(), "http".to_string()];
-
-        assert!(ChatDispatcher::switch_model_enabled(Some(&enabled)));
-        assert!(!ChatDispatcher::switch_model_enabled(Some(&disabled)));
-        assert!(!ChatDispatcher::switch_model_enabled(None));
     }
 
     #[test]

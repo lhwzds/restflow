@@ -156,7 +156,7 @@ pub use events::{
     ChannelEventEmitter, ExecutionStats, NoopEventEmitter, StreamEventKind, TASK_STREAM_EVENT,
     TaskEventEmitter, TaskStreamEvent,
 };
-pub use executor::RealAgentExecutor;
+pub use executor::{RealAgentExecutor, SessionExecutionResult, SessionInputMode};
 pub use failover::{FailoverConfig, FailoverManager, ModelStatus, execute_with_failover};
 #[cfg(feature = "tauri-runtime")]
 pub use heartbeat::TauriHeartbeatEmitter;
