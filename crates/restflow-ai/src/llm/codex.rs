@@ -12,10 +12,12 @@ use crate::llm::client::{
 };
 
 const DEFAULT_MODEL: &str = "gpt-5.3-codex";
+const DEFAULT_REASONING_EFFORT: &str = "medium";
 
 /// Codex CLI client (auth via ~/.codex/auth.json)
 pub struct CodexClient {
     model: String,
+    reasoning_effort: Option<String>,
 }
 
 impl CodexClient {
@@ -23,6 +25,7 @@ impl CodexClient {
     pub fn new() -> Self {
         Self {
             model: DEFAULT_MODEL.to_string(),
+            reasoning_effort: Some(DEFAULT_REASONING_EFFORT.to_string()),
         }
     }
 }
@@ -38,6 +41,41 @@ impl CodexClient {
     pub fn with_model(mut self, model: impl Into<String>) -> Self {
         self.model = model.into();
         self
+    }
+
+    /// Set reasoning effort override for Codex CLI.
+    pub fn with_reasoning_effort(mut self, effort: impl Into<String>) -> Self {
+        let effort = effort.into();
+        let normalized = effort.trim();
+        if !normalized.is_empty() {
+            self.reasoning_effort = Some(normalized.to_string());
+        }
+        self
+    }
+
+    fn build_cli_args(&self, prompt: &str) -> Vec<String> {
+        let mut args = vec![
+            "exec".to_string(),
+            "--json".to_string(),
+            "--color".to_string(),
+            "never".to_string(),
+            "--full-auto".to_string(),
+            "--sandbox".to_string(),
+            "workspace-write".to_string(),
+            "--skip-git-repo-check".to_string(),
+        ];
+
+        if let Some(effort) = self.reasoning_effort.as_ref() {
+            let quoted_effort =
+                serde_json::to_string(effort).unwrap_or_else(|_| "\"medium\"".to_string());
+            args.push("-c".to_string());
+            args.push(format!("model_reasoning_effort={quoted_effort}"));
+        }
+
+        args.push("--model".to_string());
+        args.push(self.model.clone());
+        args.push(prompt.to_string());
+        args
     }
 
     fn build_prompt(messages: &[crate::llm::Message]) -> String {
@@ -132,19 +170,10 @@ impl LlmClient for CodexClient {
         info!("CodexClient: executing via CLI");
 
         let prompt = Self::build_prompt(&request.messages);
+        let args = self.build_cli_args(&prompt);
 
         let output = Command::new("codex")
-            .arg("exec")
-            .arg("--json")
-            .arg("--color")
-            .arg("never")
-            .arg("--full-auto")
-            .arg("--sandbox")
-            .arg("workspace-write")
-            .arg("--skip-git-repo-check")
-            .arg("--model")
-            .arg(&self.model)
-            .arg(&prompt)
+            .args(&args)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -233,5 +262,28 @@ mod tests {
         let (content, thread_id) = CodexClient::parse_jsonl_output(output).unwrap();
         assert_eq!(content, "Hello from Codex");
         assert_eq!(thread_id, Some("thread_abc".to_string()));
+    }
+
+    #[test]
+    fn test_build_cli_args_defaults_to_medium_reasoning_effort() {
+        let client = CodexClient::new().with_model("gpt-5.3-codex");
+        let args = client.build_cli_args("hello");
+
+        assert!(args.windows(2).any(|pair| {
+            pair[0] == "-c" && pair[1] == "model_reasoning_effort=\"medium\""
+        }));
+    }
+
+    #[test]
+    fn test_build_cli_args_with_reasoning_effort() {
+        let client = CodexClient::new()
+            .with_model("gpt-5.3-codex")
+            .with_reasoning_effort("xhigh");
+        let args = client.build_cli_args("hello");
+
+        assert!(
+            args.windows(2)
+                .any(|pair| { pair[0] == "-c" && pair[1] == "model_reasoning_effort=\"xhigh\"" })
+        );
     }
 }

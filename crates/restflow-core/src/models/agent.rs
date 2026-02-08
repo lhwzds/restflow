@@ -34,6 +34,10 @@ pub struct AgentNode {
     #[ts(optional)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub temperature: Option<f64>,
+    /// Optional reasoning effort override for Codex CLI models
+    #[ts(optional)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub codex_cli_reasoning_effort: Option<String>,
     /// API key configuration (direct or from secret)
     #[ts(optional)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -78,6 +82,16 @@ impl AgentNode {
         self
     }
 
+    /// Set the reasoning effort for Codex CLI models
+    pub fn with_codex_cli_reasoning_effort(mut self, effort: impl Into<String>) -> Self {
+        let effort = effort.into();
+        let normalized = effort.trim();
+        if !normalized.is_empty() {
+            self.codex_cli_reasoning_effort = Some(normalized.to_string());
+        }
+        self
+    }
+
     /// Set the API key configuration
     pub fn with_api_key(mut self, config: ApiKeyConfig) -> Self {
         self.api_key_config = Some(config);
@@ -111,5 +125,22 @@ impl AgentNode {
     /// Get the model or use a fallback default
     pub fn get_model_or(&self, default: AIModel) -> AIModel {
         self.model.unwrap_or(default)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn with_codex_cli_reasoning_effort_sets_trimmed_value() {
+        let node = AgentNode::new().with_codex_cli_reasoning_effort("  xhigh  ");
+        assert_eq!(node.codex_cli_reasoning_effort.as_deref(), Some("xhigh"));
+    }
+
+    #[test]
+    fn with_codex_cli_reasoning_effort_ignores_empty_input() {
+        let node = AgentNode::new().with_codex_cli_reasoning_effort("   ");
+        assert!(node.codex_cli_reasoning_effort.is_none());
     }
 }

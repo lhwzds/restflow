@@ -10,7 +10,7 @@ use tracing::{debug, error, info, warn};
 
 use restflow_ai::llm::Message;
 use restflow_ai::{
-    DefaultLlmClientFactory, LlmClient, LlmClientFactory, LlmProvider, SwappableLlm,
+    CodexClient, DefaultLlmClientFactory, LlmClient, LlmClientFactory, LlmProvider, SwappableLlm,
     SwitchModelTool,
 };
 use restflow_core::auth::AuthProfileManager;
@@ -369,6 +369,28 @@ impl ChatDispatcher {
             .unwrap_or(false)
     }
 
+    fn create_llm_client(
+        factory: &dyn LlmClientFactory,
+        model: AIModel,
+        api_key: Option<&str>,
+        agent_node: &restflow_core::models::AgentNode,
+    ) -> Result<Arc<dyn LlmClient>> {
+        if model.is_codex_cli() {
+            let mut client = CodexClient::new().with_model(model.as_serialized_str());
+            if let Some(effort) = agent_node
+                .codex_cli_reasoning_effort
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            {
+                client = client.with_reasoning_effort(effort);
+            }
+            return Ok(Arc::new(client));
+        }
+
+        Ok(factory.create_client(model.as_serialized_str(), api_key)?)
+    }
+
     fn build_subagent_deps(&self, llm_client: Arc<dyn LlmClient>) -> SubagentDeps {
         SubagentDeps {
             tracker: self.subagent_tracker.clone(),
@@ -538,8 +560,12 @@ impl ChatDispatcher {
         }
 
         debug!("Creating swappable LLM client");
-        let llm_client = match factory.create_client(model.as_serialized_str(), api_key.as_deref())
-        {
+        let llm_client = match Self::create_llm_client(
+            factory.as_ref(),
+            model,
+            api_key.as_deref(),
+            agent_node,
+        ) {
             Ok(client) => client,
             Err(e) => {
                 error!("Failed to create LLM client: {}", e);

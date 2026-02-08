@@ -18,8 +18,8 @@ use crate::{
     storage::Storage,
 };
 use restflow_ai::{
-    AiError, DefaultLlmClientFactory, LlmClient, LlmClientFactory, LlmProvider, SwappableLlm,
-    SwitchModelTool,
+    AiError, CodexClient, DefaultLlmClientFactory, LlmClient, LlmClientFactory, LlmProvider,
+    SwappableLlm, SwitchModelTool,
 };
 use tokio::sync::mpsc;
 use tokio::time::sleep;
@@ -157,6 +157,28 @@ impl RealAgentExecutor {
         keys
     }
 
+    fn create_llm_client(
+        factory: &dyn LlmClientFactory,
+        model: AIModel,
+        api_key: Option<&str>,
+        agent_node: &AgentNode,
+    ) -> Result<Arc<dyn LlmClient>> {
+        if model.is_codex_cli() {
+            let mut client = CodexClient::new().with_model(model.as_serialized_str());
+            if let Some(effort) = agent_node
+                .codex_cli_reasoning_effort
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            {
+                client = client.with_reasoning_effort(effort);
+            }
+            return Ok(Arc::new(client));
+        }
+
+        Ok(factory.create_client(model.as_serialized_str(), api_key)?)
+    }
+
     fn build_subagent_deps(&self, llm_client: Arc<dyn LlmClient>) -> SubagentDeps {
         SubagentDeps {
             tracker: self.subagent_tracker.clone(),
@@ -279,9 +301,12 @@ impl RealAgentExecutor {
             )
         };
 
-        let llm_client = factory.create_client(model.as_serialized_str(), api_key.as_deref())?;
-        self.execute_agent_with_client(agent_node, model, llm_client, input, steer_rx, factory, agent_id)
-            .await
+        let llm_client =
+            Self::create_llm_client(factory.as_ref(), model, api_key.as_deref(), agent_node)?;
+        self.execute_agent_with_client(
+            agent_node, model, llm_client, input, steer_rx, factory, agent_id,
+        )
+        .await
     }
 
     async fn execute_with_profiles(
@@ -293,9 +318,29 @@ impl RealAgentExecutor {
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
         agent_id: Option<&str>,
     ) -> Result<ExecutionResult> {
+        if model.is_codex_cli() {
+            return self
+                .execute_with_model(
+                    agent_node,
+                    model,
+                    input,
+                    primary_provider,
+                    steer_rx,
+                    agent_id,
+                )
+                .await;
+        }
+
         if agent_node.api_key_config.is_some() {
             return self
-                .execute_with_model(agent_node, model, input, primary_provider, steer_rx, agent_id)
+                .execute_with_model(
+                    agent_node,
+                    model,
+                    input,
+                    primary_provider,
+                    steer_rx,
+                    agent_id,
+                )
                 .await;
         }
 
@@ -306,7 +351,14 @@ impl RealAgentExecutor {
 
         if profiles.is_empty() {
             return self
-                .execute_with_model(agent_node, model, input, primary_provider, steer_rx, agent_id)
+                .execute_with_model(
+                    agent_node,
+                    model,
+                    input,
+                    primary_provider,
+                    steer_rx,
+                    agent_id,
+                )
                 .await;
         }
 
@@ -333,8 +385,12 @@ impl RealAgentExecutor {
                 .build_api_keys(agent_node.api_key_config.as_ref(), primary_provider)
                 .await;
             let factory = Arc::new(DefaultLlmClientFactory::new(api_keys, model_specs));
-            let llm_client =
-                factory.create_client(model.as_serialized_str(), Some(api_key.as_str()))?;
+            let llm_client = Self::create_llm_client(
+                factory.as_ref(),
+                model,
+                Some(api_key.as_str()),
+                agent_node,
+            )?;
 
             match self
                 .execute_agent_with_client(
@@ -465,8 +521,15 @@ impl AgentExecutor for RealAgentExecutor {
                 let node = agent_node_clone.clone();
                 let steer_rx = steer_rx.take();
                 async move {
-                    self.execute_with_profiles(&node, model, input_ref, primary_provider, steer_rx, Some(agent_id))
-                        .await
+                    self.execute_with_profiles(
+                        &node,
+                        model,
+                        input_ref,
+                        primary_provider,
+                        steer_rx,
+                        Some(agent_id),
+                    )
+                    .await
                 }
             })
             .await;
