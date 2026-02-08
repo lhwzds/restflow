@@ -216,6 +216,10 @@ pub enum IpcRequest {
         session_id: String,
         message: ChatMessage,
     },
+    ExecuteChatSession {
+        session_id: String,
+        user_input: Option<String>,
+    },
     GetSessionMessages {
         session_id: String,
         limit: Option<usize>,
@@ -546,6 +550,30 @@ mod tests {
             assert_eq!(session_id, "session-2");
             assert!(matches!(message.role, crate::models::ChatRole::User));
             assert_eq!(message.content, "Hello");
+        } else {
+            panic!("Wrong variant");
+        }
+    }
+
+    #[test]
+    fn test_execute_chat_session_serialization() {
+        let request = IpcRequest::ExecuteChatSession {
+            session_id: "session-3".to_string(),
+            user_input: Some("Please summarize the previous answer".to_string()),
+        };
+        let json = serde_json::to_string(&request).unwrap();
+        let parsed: IpcRequest = serde_json::from_str(&json).unwrap();
+
+        if let IpcRequest::ExecuteChatSession {
+            session_id,
+            user_input,
+        } = parsed
+        {
+            assert_eq!(session_id, "session-3");
+            assert_eq!(
+                user_input,
+                Some("Please summarize the previous answer".to_string())
+            );
         } else {
             panic!("Wrong variant");
         }

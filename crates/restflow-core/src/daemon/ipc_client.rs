@@ -1,5 +1,5 @@
 use super::ipc_protocol::{
-    IpcRequest, IpcResponse, MAX_MESSAGE_SIZE, ToolDefinition, ToolExecutionResult,
+    IpcRequest, IpcResponse, ToolDefinition, ToolExecutionResult, MAX_MESSAGE_SIZE,
 };
 use crate::auth::{AuthProfile, AuthProvider, Credential, CredentialSource, ProfileUpdate};
 use crate::memory::ExportResult;
@@ -10,7 +10,7 @@ use crate::models::{
     MemoryStats, Skill, TerminalSession,
 };
 use crate::storage::agent::StoredAgent;
-use anyhow::{Context, Result, bail};
+use anyhow::{bail, Context, Result};
 use serde::de::DeserializeOwned;
 use std::path::Path;
 
@@ -391,6 +391,18 @@ impl IpcClient {
         self.request_typed(IpcRequest::AppendMessage {
             session_id,
             message,
+        })
+        .await
+    }
+
+    pub async fn execute_chat_session(
+        &mut self,
+        session_id: String,
+        user_input: Option<String>,
+    ) -> Result<ChatSession> {
+        self.request_typed(IpcRequest::ExecuteChatSession {
+            session_id,
+            user_input,
         })
         .await
     }
@@ -898,6 +910,14 @@ impl IpcClient {
         &mut self,
         _session_id: String,
         _message: ChatMessage,
+    ) -> Result<ChatSession> {
+        self.request_typed(IpcRequest::Ping).await
+    }
+
+    pub async fn execute_chat_session(
+        &mut self,
+        _session_id: String,
+        _user_input: Option<String>,
     ) -> Result<ChatSession> {
         self.request_typed(IpcRequest::Ping).await
     }

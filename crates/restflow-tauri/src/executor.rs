@@ -483,6 +483,18 @@ impl TauriExecutor {
         .await
     }
 
+    pub async fn execute_chat_session(
+        &self,
+        session_id: String,
+        user_input: Option<String>,
+    ) -> Result<ChatSession> {
+        self.request(IpcRequest::ExecuteChatSession {
+            session_id,
+            user_input,
+        })
+        .await
+    }
+
     pub async fn get_session_messages(
         &self,
         session_id: String,

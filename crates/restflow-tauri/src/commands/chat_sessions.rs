@@ -3,24 +3,17 @@
 //! These commands enable the frontend to create, manage, and interact with
 //! chat sessions in the SkillWorkspace.
 
-use crate::agent::{
-    SubagentDeps, ToolRegistry, UnifiedAgent, UnifiedAgentConfig, effective_main_agent_tool_names,
-    registry_from_allowlist,
-};
 use crate::chat::ChatStreamState;
 use crate::state::AppState;
-use restflow_ai::llm::Message;
-use restflow_ai::{AnthropicClient, ClaudeCodeClient, LlmClient, OpenAIClient};
 use restflow_core::models::{
-    AgentNode, ApiKeyConfig, ChatMessage, ChatRole, ChatSession, ChatSessionSummary,
-    ChatSessionUpdate, MessageExecution,
+    ChatMessage, ChatRole, ChatSession, ChatSessionSummary, ChatSessionUpdate,
 };
-use restflow_core::{AIModel, Provider};
 use serde::Deserialize;
-use std::sync::Arc;
-use std::time::Instant;
 use tauri::{AppHandle, State};
 use uuid::Uuid;
+
+#[cfg(test)]
+use crate::agent::effective_main_agent_tool_names;
 
 /// Create a new chat session.
 ///
@@ -233,241 +226,13 @@ pub async fn clear_old_chat_sessions(
 // Agent Execution Commands
 // ============================================================================
 
-/// Convert a stored chat message into an LLM message.
-fn chat_message_to_llm_message(message: &ChatMessage) -> Message {
-    match message.role {
-        ChatRole::User => Message::user(message.content.clone()),
-        ChatRole::Assistant => Message::assistant(message.content.clone()),
-        ChatRole::System => Message::system(message.content.clone()),
-    }
-}
-
-/// Resolve session messages for context, respecting summary pointers.
-fn session_messages_for_context(session: &ChatSession) -> Vec<ChatMessage> {
-    if session.messages.is_empty() {
-        return Vec::new();
-    }
-
-    if let Some(summary_id) = session.summary_message_id.as_ref()
-        && let Some(idx) = session.messages.iter().position(|m| &m.id == summary_id)
-    {
-        let mut messages = session.messages[idx..].to_vec();
-        if let Some(summary) = messages.first_mut() {
-            summary.role = ChatRole::User;
-        }
-        return messages;
-    }
-
-    session.messages.clone()
-}
-
-/// Add recent session history to the unified agent.
-fn add_session_history(agent: &mut UnifiedAgent, session: &ChatSession, max_messages: usize) {
-    let mut messages = session_messages_for_context(session);
-    if messages.is_empty() {
-        return;
-    }
-
-    messages.pop();
-    let start = messages.len().saturating_sub(max_messages);
-    for message in &messages[start..] {
-        agent.add_history_message(chat_message_to_llm_message(message));
-    }
-}
-
-/// Resolve API key for a model provider.
-///
-/// Priority:
-/// 1. Agent-level api_key_config (direct or secret reference)
-/// 2. Well-known secret names (OPENAI_API_KEY, ANTHROPIC_API_KEY, etc.)
-async fn resolve_api_key(
-    state: &AppState,
-    provider: Provider,
-    agent_api_key_config: Option<&ApiKeyConfig>,
-) -> Result<String, String> {
-    // First, check agent-level API key config
-    if let Some(config) = agent_api_key_config {
-        match config {
-            ApiKeyConfig::Direct(key) => {
-                if !key.is_empty() {
-                    return Ok(key.clone());
-                }
-            }
-            ApiKeyConfig::Secret(secret_name) => {
-                if let Some(secret_value) = state
-                    .executor()
-                    .get_secret(secret_name.to_string())
-                    .await
-                    .map_err(|e| e.to_string())?
-                {
-                    return Ok(secret_value);
-                }
-                return Err(format!("Secret '{}' not found", secret_name));
-            }
-        }
-    }
-
-    // Fall back to well-known secret names for each provider
-    let secret_name = provider.api_key_env();
-
-    if let Some(secret_value) = state
-        .executor()
-        .get_secret(secret_name.to_string())
-        .await
-        .map_err(|e| e.to_string())?
-    {
-        return Ok(secret_value);
-    }
-
-    Err(format!(
-        "No API key configured for provider {:?}. Please add secret '{}' in Settings.",
-        provider, secret_name
-    ))
-}
-
-/// Create an LLM client for the given model.
-fn create_llm_client(model: AIModel, api_key: &str) -> Arc<dyn LlmClient> {
-    let model_str = model.as_str();
-    match model.provider() {
-        Provider::Anthropic => {
-            if api_key.starts_with("sk-ant-oat") {
-                Arc::new(ClaudeCodeClient::new(api_key).with_model(model_str))
-            } else {
-                Arc::new(AnthropicClient::new(api_key).with_model(model_str))
-            }
-        }
-        provider => {
-            let mut client = OpenAIClient::new(api_key).with_model(model_str);
-            match provider {
-                Provider::OpenAI => {}
-                Provider::DeepSeek => {
-                    client = client.with_base_url("https://api.deepseek.com/v1");
-                }
-                Provider::Google => {
-                    client = client
-                        .with_base_url("https://generativelanguage.googleapis.com/v1beta/openai");
-                }
-                Provider::Groq => {
-                    client = client.with_base_url("https://api.groq.com/openai/v1");
-                }
-                Provider::OpenRouter => {
-                    client = client.with_base_url("https://openrouter.ai/api/v1");
-                }
-                Provider::XAI => {
-                    client = client.with_base_url("https://api.x.ai/v1");
-                }
-                Provider::Qwen => {
-                    client =
-                        client.with_base_url("https://dashscope.aliyuncs.com/compatible-mode/v1");
-                }
-                Provider::Zhipu => {
-                    client = client.with_base_url("https://open.bigmodel.cn/api/paas/v4");
-                }
-                Provider::Moonshot => {
-                    client = client.with_base_url("https://api.moonshot.cn/v1");
-                }
-                Provider::Doubao => {
-                    client = client.with_base_url("https://ark.cn-beijing.volces.com/api/v3");
-                }
-                Provider::Yi => {
-                    client = client.with_base_url("https://api.lingyiwanwu.com/v1");
-                }
-                Provider::SiliconFlow => {
-                    client = client.with_base_url("https://api.siliconflow.cn/v1");
-                }
-                Provider::Anthropic => {}
-            }
-            Arc::new(client)
-        }
-    }
-}
-
-/// Build the unified agent configuration for a given model.
-fn build_agent_config(agent_node: &AgentNode, model: AIModel) -> UnifiedAgentConfig {
-    let mut config = UnifiedAgentConfig::default();
-    if model.supports_temperature()
-        && let Some(temp) = agent_node.temperature
-    {
-        config.temperature = temp as f32;
-    }
-    config
-}
-
-/// Execute agent for a chat session and return the response.
-///
-/// This internal function handles:
-/// 1. Loading the agent configuration
-/// 2. Building conversation context from session history
-/// 3. Resolving API keys
-/// 4. Creating LLM client and tool registry
-/// 5. Running the UnifiedAgent
-/// 6. Returning the response text and iteration count
-async fn execute_agent_for_session(
-    state: &AppState,
-    session: &ChatSession,
-    user_input: &str,
-) -> Result<(String, u32), String> {
-    // Load agent
-    let stored_agent = state
-        .executor()
-        .get_agent(session.agent_id.clone())
-        .await
-        .map_err(|e| e.to_string())?;
-
-    let agent_node = &stored_agent.agent;
-
-    // Get model
-    let model = agent_node.require_model().map_err(|e| e.to_string())?;
-
-    // Resolve API key
-    let api_key =
-        resolve_api_key(state, model.provider(), agent_node.api_key_config.as_ref()).await?;
-
-    // Create LLM client
-    let llm = create_llm_client(model, &api_key);
-
-    // Build tool registry
-    let subagent_deps = state.subagent_deps(llm.clone());
-    let secret_resolver = state.secret_resolver();
-    let tool_storage = None;
-    let effective_tools = effective_main_agent_tool_names(agent_node.tools.as_deref());
-    let tools = Arc::new(registry_from_allowlist(
-        Some(&effective_tools),
-        Some(&subagent_deps),
-        secret_resolver,
-        tool_storage,
-        Some(&session.agent_id),
-    ));
-
-    let system_prompt = state
-        .executor()
-        .build_agent_system_prompt(agent_node.clone())
-        .await
-        .map_err(|e| e.to_string())?;
-
-    // Build agent config
-    let config = build_agent_config(agent_node, model);
-
-    // Create UnifiedAgent with session history
-    let mut agent = UnifiedAgent::new(llm, tools, system_prompt, config);
-
-    // Add conversation history (excluding the last message which is the current input)
-    add_session_history(&mut agent, session, 20);
-
-    // Execute agent
-    let result = agent
-        .execute(user_input)
-        .await
-        .map_err(|e| format!("Agent execution failed: {}", e))?;
-
-    // Extract response
-    let response = if result.success {
-        result.output
-    } else {
-        format!("Error: {}", result.output)
-    };
-
-    Ok((response, result.iterations as u32))
+fn latest_assistant_content(session: &ChatSession) -> Option<String> {
+    session
+        .messages
+        .iter()
+        .rev()
+        .find(|message| message.role == ChatRole::Assistant)
+        .map(|message| message.content.clone())
 }
 
 /// Execute the agent for a chat session and save the response.
@@ -483,41 +248,11 @@ pub async fn execute_chat_session(
     state: State<'_, AppState>,
     session_id: String,
 ) -> Result<ChatSession, String> {
-    // Load session via IPC
-    let session = state
+    state
         .executor()
-        .get_session(session_id.clone())
+        .execute_chat_session(session_id, None)
         .await
-        .map_err(|e| e.to_string())?;
-
-    // Get last user message as input
-    let user_input = session
-        .messages
-        .iter()
-        .rev()
-        .find(|m| m.role == ChatRole::User)
-        .map(|m| m.content.clone())
-        .ok_or_else(|| "No user message found in session".to_string())?;
-
-    // Execute agent
-    let started_at = Instant::now();
-    let (response, tokens) = execute_agent_for_session(&state, &session, &user_input).await?;
-    let duration_ms = started_at.elapsed().as_millis() as u64;
-
-    // Create execution details
-    let execution = MessageExecution::new().complete(duration_ms, tokens);
-
-    // Add assistant response via IPC
-    let mut assistant_message = ChatMessage::assistant(&response);
-    assistant_message = assistant_message.with_execution(execution);
-
-    let updated_session = state
-        .executor()
-        .append_message(session_id, assistant_message)
-        .await
-        .map_err(|e| e.to_string())?;
-
-    Ok(updated_session)
+        .map_err(|e| e.to_string())
 }
 
 /// Send a chat message with streaming response.
@@ -563,136 +298,25 @@ pub async fn send_chat_message_stream(
     let message_id_clone = message_id.clone();
     let user_input = message.clone();
     let stream_manager = state.stream_manager.clone();
-    let subagent_tracker = state.subagent_tracker.clone();
-    let subagent_definitions = state.subagent_definitions.clone();
-    let subagent_config = state.subagent_config.clone();
-    let secret_resolver = state.secret_resolver();
-    let tool_storage = None;
 
     // Spawn background task for assistant response generation
     tokio::spawn(async move {
         let mut stream_state = stream_state;
+        let mut cancel_rx = stream_state.cancel_receiver();
 
         // Emit stream started
         stream_state.emit_started();
+        if cancel_rx.is_cancelled() {
+            stream_state.emit_cancelled();
+            stream_manager.remove(&message_id_clone);
+            return;
+        }
 
-        let started_at = Instant::now();
-
-        // Reload session to get latest state via IPC
-        let session = match executor.get_session(session_id_clone.clone()).await {
-            Ok(s) => s,
-            Err(e) => {
-                stream_state.emit_failed(&format!("Failed to load session: {}", e));
-                stream_manager.remove(&message_id_clone);
-                return;
-            }
-        };
-
-        // Load agent
-        let stored_agent = match executor.get_agent(session.agent_id.clone()).await {
-            Ok(a) => a,
-            Err(e) => {
-                stream_state.emit_failed(&format!("Failed to load agent: {}", e));
-                stream_manager.remove(&message_id_clone);
-                return;
-            }
-        };
-
-        let agent_node = &stored_agent.agent;
-
-        // Get model
-        let model = match agent_node.require_model() {
-            Ok(m) => m,
-            Err(e) => {
-                stream_state.emit_failed(e);
-                stream_manager.remove(&message_id_clone);
-                return;
-            }
-        };
-
-        // Resolve API key - simplified for background task
-        let api_key = match &agent_node.api_key_config {
-            Some(ApiKeyConfig::Direct(key)) if !key.is_empty() => key.clone(),
-            Some(ApiKeyConfig::Secret(secret_name)) => {
-                match executor.get_secret(secret_name.to_string()).await {
-                    Ok(Some(key)) => key,
-                    Ok(None) => {
-                        stream_state.emit_failed(&format!("Secret '{}' not found", secret_name));
-                        stream_manager.remove(&message_id_clone);
-                        return;
-                    }
-                    Err(e) => {
-                        stream_state.emit_failed(&format!("Failed to get secret: {}", e));
-                        stream_manager.remove(&message_id_clone);
-                        return;
-                    }
-                }
-            }
-            _ => {
-                let secret_name = model.provider().api_key_env();
-                match executor.get_secret(secret_name.to_string()).await {
-                    Ok(Some(key)) => key,
-                    Ok(None) => {
-                        stream_state.emit_failed(&format!(
-                            "No API key configured. Please add '{}' in Settings.",
-                            secret_name
-                        ));
-                        stream_manager.remove(&message_id_clone);
-                        return;
-                    }
-                    Err(e) => {
-                        stream_state.emit_failed(&format!("Failed to get secret: {}", e));
-                        stream_manager.remove(&message_id_clone);
-                        return;
-                    }
-                }
-            }
-        };
-
-        // Create LLM client
-        let llm = create_llm_client(model, &api_key);
-
-        // Build tool registry
-        let subagent_deps = SubagentDeps {
-            tracker: subagent_tracker,
-            definitions: subagent_definitions,
-            llm_client: llm.clone(),
-            tool_registry: Arc::new(ToolRegistry::new()),
-            config: subagent_config,
-        };
-        let effective_tools = effective_main_agent_tool_names(agent_node.tools.as_deref());
-        let tools = Arc::new(registry_from_allowlist(
-            Some(&effective_tools),
-            Some(&subagent_deps),
-            secret_resolver.clone(),
-            tool_storage,
-            Some(&session.agent_id),
-        ));
-
-        let system_prompt = match executor.build_agent_system_prompt(agent_node.clone()).await {
-            Ok(prompt) => prompt,
-            Err(e) => {
-                stream_state.emit_failed(&format!("Failed to build system prompt: {}", e));
-                stream_manager.remove(&message_id_clone);
-                return;
-            }
-        };
-
-        // Build agent config
-        let config = build_agent_config(agent_node, model);
-
-        // Create UnifiedAgent with session history
-        let mut agent = UnifiedAgent::new(llm, tools, system_prompt, config);
-
-        // Add conversation history (excluding the last message which is the current input)
-        add_session_history(&mut agent, &session, 20);
-
-        // Execute agent
-        let result = match agent
-            .execute_streaming(&user_input, &mut stream_state)
+        let updated_session = match executor
+            .execute_chat_session(session_id_clone, Some(user_input))
             .await
         {
-            Ok(r) => r,
+            Ok(session) => session,
             Err(e) => {
                 stream_state.emit_failed(&format!("Agent execution failed: {}", e));
                 stream_manager.remove(&message_id_clone);
@@ -700,26 +324,18 @@ pub async fn send_chat_message_stream(
             }
         };
 
-        let duration_ms = started_at.elapsed().as_millis() as u64;
-
-        // Extract response
-        let response = if result.success {
-            result.output
-        } else {
-            format!("Error: {}", result.output)
-        };
-
-        if !result.success {
-            stream_state.emit_failed(&response);
+        if cancel_rx.is_cancelled() {
+            stream_state.emit_cancelled();
+            stream_manager.remove(&message_id_clone);
+            return;
         }
 
-        // Save assistant response via IPC
-        let execution = MessageExecution::new().complete(duration_ms, result.iterations as u32);
-        let mut assistant_message = ChatMessage::assistant(&response);
-        assistant_message = assistant_message.with_execution(execution);
-        let _ = executor
-            .append_message(session_id_clone, assistant_message)
-            .await;
+        if let Some(content) = latest_assistant_content(&updated_session) {
+            stream_state.emit_token(&content);
+            stream_state.emit_completed();
+        } else {
+            stream_state.emit_failed("Assistant response missing after execution");
+        }
 
         // Remove from stream manager
         stream_manager.remove(&message_id_clone);

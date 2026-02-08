@@ -5,18 +5,19 @@
 //! It loads agent configuration from storage, builds the appropriate LLM
 //! client, and executes the agent with the configured tools.
 
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::{
-    AIModel, Provider,
     auth::AuthProfileManager,
-    models::{AgentNode, ApiKeyConfig, SteerMessage},
+    models::{AgentNode, ApiKeyConfig, ChatMessage, ChatRole, ChatSession, SteerMessage},
     process::ProcessRegistry,
     storage::Storage,
+    AIModel, Provider,
 };
+use restflow_ai::llm::Message;
 use restflow_ai::{
     AiError, CodexClient, DefaultLlmClientFactory, LlmClient, LlmClientFactory, LlmProvider,
     SwappableLlm, SwitchModelTool,
@@ -25,12 +26,12 @@ use tokio::sync::mpsc;
 use tokio::time::sleep;
 use tracing::{info, warn};
 
-use super::failover::{FailoverConfig, FailoverManager, execute_with_failover};
+use super::failover::{execute_with_failover, FailoverConfig, FailoverManager};
 use super::retry::{RetryConfig, RetryState};
 use super::runner::{AgentExecutor, ExecutionResult};
 use crate::runtime::agent::{
-    SubagentDeps, ToolRegistry, UnifiedAgent, UnifiedAgentConfig, build_agent_system_prompt,
-    registry_from_allowlist, secret_resolver_from_storage,
+    build_agent_system_prompt, effective_main_agent_tool_names, registry_from_allowlist,
+    secret_resolver_from_storage, SubagentDeps, ToolRegistry, UnifiedAgent, UnifiedAgentConfig,
 };
 use crate::runtime::subagent::{AgentDefinitionRegistry, SubagentConfig, SubagentTracker};
 
@@ -50,6 +51,14 @@ pub struct RealAgentExecutor {
     subagent_tracker: Arc<SubagentTracker>,
     subagent_definitions: Arc<AgentDefinitionRegistry>,
     subagent_config: SubagentConfig,
+}
+
+/// Result of executing a chat turn for a persisted chat session.
+#[derive(Debug, Clone)]
+pub struct SessionExecutionResult {
+    pub output: String,
+    pub iterations: u32,
+    pub active_model: String,
 }
 
 impl RealAgentExecutor {
@@ -220,6 +229,361 @@ impl RealAgentExecutor {
         }
 
         Arc::new(registry)
+    }
+
+    /// Resolve the stored agent referenced by a chat session.
+    ///
+    /// If the session references a missing agent, this method falls back to
+    /// the "default" agent (or the first available one) and updates the session.
+    fn resolve_stored_agent_for_session(
+        &self,
+        session: &mut ChatSession,
+    ) -> Result<crate::storage::agent::StoredAgent> {
+        if let Some(agent) = self.storage.agents.get_agent(session.agent_id.clone())? {
+            return Ok(agent);
+        }
+
+        let mut agents = self.storage.agents.list_agents()?;
+        let fallback = agents
+            .iter()
+            .find(|agent| agent.name.eq_ignore_ascii_case("default"))
+            .cloned()
+            .or_else(|| agents.first().cloned())
+            .ok_or_else(|| anyhow!("No AI agent configured"))?;
+
+        let fallback_model = fallback
+            .agent
+            .model
+            .map(|m| m.as_str().to_string())
+            .unwrap_or_else(|| "unknown".to_string());
+        session.agent_id = fallback.id.clone();
+        session.model = fallback_model.clone();
+        session.metadata.last_model = Some(fallback_model);
+
+        Ok(fallback)
+    }
+
+    fn chat_message_to_llm_message(message: &ChatMessage) -> Message {
+        match message.role {
+            ChatRole::User => Message::user(message.content.clone()),
+            ChatRole::Assistant => Message::assistant(message.content.clone()),
+            ChatRole::System => Message::system(message.content.clone()),
+        }
+    }
+
+    fn session_messages_for_context(session: &ChatSession) -> Vec<ChatMessage> {
+        if session.messages.is_empty() {
+            return Vec::new();
+        }
+
+        if let Some(summary_id) = session.summary_message_id.as_ref()
+            && let Some(idx) = session.messages.iter().position(|m| &m.id == summary_id)
+        {
+            let mut messages = session.messages[idx..].to_vec();
+            if let Some(summary) = messages.first_mut() {
+                summary.role = ChatRole::User;
+            }
+            return messages;
+        }
+
+        session.messages.clone()
+    }
+
+    fn add_session_history(agent: &mut UnifiedAgent, session: &ChatSession, max_messages: usize) {
+        let mut messages = Self::session_messages_for_context(session);
+        if messages.is_empty() {
+            return;
+        }
+
+        // Exclude the latest user input because it will be passed to execute().
+        messages.pop();
+        let start = messages.len().saturating_sub(max_messages);
+        for message in &messages[start..] {
+            agent.add_history_message(Self::chat_message_to_llm_message(message));
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn execute_session_with_client(
+        &self,
+        agent_node: &AgentNode,
+        model: AIModel,
+        llm_client: Arc<dyn LlmClient>,
+        session: &ChatSession,
+        user_input: &str,
+        max_history: usize,
+        factory: Arc<dyn LlmClientFactory>,
+        agent_id: Option<&str>,
+    ) -> Result<SessionExecutionResult> {
+        let swappable = Arc::new(SwappableLlm::new(llm_client));
+        let effective_tools = effective_main_agent_tool_names(agent_node.tools.as_deref());
+        let tools = self.build_tool_registry(
+            Some(&effective_tools),
+            swappable.clone(),
+            swappable.clone(),
+            factory,
+            agent_id,
+        );
+        let system_prompt = build_agent_system_prompt(self.storage.clone(), agent_node)?;
+
+        let mut config = UnifiedAgentConfig::default();
+        if model.supports_temperature()
+            && let Some(temp) = agent_node.temperature
+        {
+            config.temperature = temp as f32;
+        }
+
+        let mut agent = UnifiedAgent::new(swappable.clone(), tools, system_prompt, config);
+        Self::add_session_history(&mut agent, session, max_history);
+
+        let result = agent.execute(user_input).await?;
+        if !result.success {
+            return Err(anyhow!("Agent execution failed: {}", result.output));
+        }
+
+        Ok(SessionExecutionResult {
+            output: result.output,
+            iterations: result.iterations as u32,
+            active_model: swappable.current_model(),
+        })
+    }
+
+    async fn execute_session_with_model(
+        &self,
+        agent_node: &AgentNode,
+        model: AIModel,
+        session: &ChatSession,
+        user_input: &str,
+        primary_provider: Provider,
+        max_history: usize,
+        agent_id: Option<&str>,
+    ) -> Result<SessionExecutionResult> {
+        let model_specs = AIModel::build_model_specs();
+        let api_keys = self
+            .build_api_keys(agent_node.api_key_config.as_ref(), primary_provider)
+            .await;
+        let factory = Arc::new(DefaultLlmClientFactory::new(api_keys, model_specs));
+
+        let api_key = if model.is_codex_cli() {
+            None
+        } else if model.is_gemini_cli() {
+            self.resolve_api_key_for_model(
+                model.provider(),
+                agent_node.api_key_config.as_ref(),
+                primary_provider,
+            )
+            .await
+            .ok()
+        } else {
+            Some(
+                self.resolve_api_key_for_model(
+                    model.provider(),
+                    agent_node.api_key_config.as_ref(),
+                    primary_provider,
+                )
+                .await?,
+            )
+        };
+
+        let llm_client =
+            Self::create_llm_client(factory.as_ref(), model, api_key.as_deref(), agent_node)?;
+        self.execute_session_with_client(
+            agent_node,
+            model,
+            llm_client,
+            session,
+            user_input,
+            max_history,
+            factory,
+            agent_id,
+        )
+        .await
+    }
+
+    async fn execute_session_with_profiles(
+        &self,
+        agent_node: &AgentNode,
+        model: AIModel,
+        session: &ChatSession,
+        user_input: &str,
+        primary_provider: Provider,
+        max_history: usize,
+        agent_id: Option<&str>,
+    ) -> Result<SessionExecutionResult> {
+        if model.is_codex_cli() || agent_node.api_key_config.is_some() {
+            return self
+                .execute_session_with_model(
+                    agent_node,
+                    model,
+                    session,
+                    user_input,
+                    primary_provider,
+                    max_history,
+                    agent_id,
+                )
+                .await;
+        }
+
+        let profiles = self
+            .auth_manager
+            .get_compatible_profiles_for_model_provider(model.provider())
+            .await;
+        if profiles.is_empty() {
+            return self
+                .execute_session_with_model(
+                    agent_node,
+                    model,
+                    session,
+                    user_input,
+                    primary_provider,
+                    max_history,
+                    agent_id,
+                )
+                .await;
+        }
+
+        let mut last_error: Option<anyhow::Error> = None;
+        for profile in profiles {
+            let api_key = match profile.get_api_key(self.auth_manager.resolver()) {
+                Ok(key) => key,
+                Err(error) => {
+                    warn!(
+                        profile_id = %profile.id,
+                        profile_name = %profile.name,
+                        model = ?model,
+                        error = %error,
+                        "Skipping profile because credential resolution failed"
+                    );
+                    continue;
+                }
+            };
+
+            let model_specs = AIModel::build_model_specs();
+            let api_keys = self
+                .build_api_keys(agent_node.api_key_config.as_ref(), primary_provider)
+                .await;
+            let factory = Arc::new(DefaultLlmClientFactory::new(api_keys, model_specs));
+            let llm_client = Self::create_llm_client(
+                factory.as_ref(),
+                model,
+                Some(api_key.as_str()),
+                agent_node,
+            )?;
+
+            match self
+                .execute_session_with_client(
+                    agent_node,
+                    model,
+                    llm_client,
+                    session,
+                    user_input,
+                    max_history,
+                    factory,
+                    agent_id,
+                )
+                .await
+            {
+                Ok(result) => {
+                    if let Err(error) = self.auth_manager.mark_success(&profile.id).await {
+                        warn!(
+                            profile_id = %profile.id,
+                            profile_name = %profile.name,
+                            model = ?model,
+                            error = %error,
+                            "Failed to mark profile success"
+                        );
+                    }
+                    return Ok(result);
+                }
+                Err(error) => {
+                    if is_credential_error(&error) {
+                        if let Err(mark_error) = self.auth_manager.mark_failure(&profile.id).await {
+                            warn!(
+                                profile_id = %profile.id,
+                                profile_name = %profile.name,
+                                model = ?model,
+                                error = %mark_error,
+                                "Failed to mark profile failure"
+                            );
+                        }
+
+                        warn!(
+                            profile_id = %profile.id,
+                            profile_name = %profile.name,
+                            model = ?model,
+                            error = %error,
+                            "Profile failed with credential-related error, trying next profile"
+                        );
+                        last_error = Some(error);
+                        continue;
+                    }
+
+                    return Err(error);
+                }
+            }
+        }
+
+        Err(last_error.unwrap_or_else(|| {
+            anyhow!("All profiles exhausted for provider {:?}", model.provider())
+        }))
+    }
+
+    /// Execute a chat turn for an existing chat session.
+    ///
+    /// This method keeps chat execution in daemon-side runtime logic so UI
+    /// clients (Tauri/HTTP/MCP) can share the same execution behavior.
+    pub async fn execute_session_turn(
+        &self,
+        session: &mut ChatSession,
+        user_input: &str,
+        max_history: usize,
+    ) -> Result<SessionExecutionResult> {
+        let stored_agent = self.resolve_stored_agent_for_session(session)?;
+        let agent_node = stored_agent.agent.clone();
+        let primary_model = agent_node.require_model().map_err(anyhow::Error::msg)?;
+        let primary_provider = primary_model.provider();
+        let failover_manager = FailoverManager::new(FailoverConfig::with_primary(primary_model));
+        let retry_config = RetryConfig::default();
+        let mut retry_state = RetryState::new();
+        let session_snapshot = session.clone();
+        let agent_id = session.agent_id.clone();
+
+        loop {
+            let node = agent_node.clone();
+            let session_for_execution = session_snapshot.clone();
+            let result = execute_with_failover(&failover_manager, |model| {
+                let node = node.clone();
+                let session_for_execution = session_for_execution.clone();
+                let agent_id = agent_id.clone();
+                async move {
+                    self.execute_session_with_profiles(
+                        &node,
+                        model,
+                        &session_for_execution,
+                        user_input,
+                        primary_provider,
+                        max_history,
+                        Some(agent_id.as_str()),
+                    )
+                    .await
+                }
+            })
+            .await;
+
+            match result {
+                Ok((exec_result, _model)) => return Ok(exec_result),
+                Err(err) => {
+                    let error_msg = err.to_string();
+                    if retry_state.should_retry(&retry_config, &error_msg) {
+                        retry_state.record_failure(&error_msg, &retry_config);
+                        let delay = retry_state.calculate_delay(&retry_config);
+                        sleep(delay).await;
+                        continue;
+                    }
+                    return Err(err);
+                }
+            }
+        }
     }
 
     #[allow(clippy::too_many_arguments)]

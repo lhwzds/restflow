@@ -1,7 +1,6 @@
 use super::ipc_protocol::{
-    IpcRequest, IpcResponse, MAX_MESSAGE_SIZE, ToolDefinition, ToolExecutionResult,
+    IpcRequest, IpcResponse, ToolDefinition, ToolExecutionResult, MAX_MESSAGE_SIZE,
 };
-use crate::AppCore;
 use crate::auth::{AuthManagerConfig, AuthProfileManager};
 use crate::memory::{MemoryExporter, MemoryExporterBuilder, SearchEngineBuilder};
 use crate::models::{
@@ -9,17 +8,22 @@ use crate::models::{
     ChatSessionSummary, HookContext, HookEvent, MemoryChunk, MemorySearchQuery, MessageExecution,
     TerminalSession,
 };
+use crate::process::ProcessRegistry;
+use crate::runtime::agent_task::RealAgentExecutor;
+use crate::runtime::subagent::{AgentDefinitionRegistry, SubagentConfig, SubagentTracker};
 use crate::services::tool_registry::create_tool_registry;
 use crate::services::{
     agent as agent_service, config as config_service, secrets as secrets_service,
     skills as skills_service,
 };
+use crate::AppCore;
 use anyhow::Result;
 use chrono::Utc;
 use restflow_storage::AuthProfileStorage;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tokio::sync::broadcast;
+use std::time::Instant;
+use tokio::sync::{broadcast, mpsc};
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
@@ -683,6 +687,61 @@ impl IpcServer {
                     Err(err) => IpcResponse::error(500, err.to_string()),
                 }
             }
+            IpcRequest::ExecuteChatSession {
+                session_id,
+                user_input,
+            } => {
+                let mut session = match core.storage.chat_sessions.get(&session_id) {
+                    Ok(Some(session)) => session,
+                    Ok(None) => return IpcResponse::not_found("Session"),
+                    Err(err) => return IpcResponse::error(500, err.to_string()),
+                };
+
+                let input = match user_input {
+                    Some(input) if !input.trim().is_empty() => input,
+                    _ => match session
+                        .messages
+                        .iter()
+                        .rev()
+                        .find(|msg| msg.role == ChatRole::User)
+                        .map(|msg| msg.content.clone())
+                    {
+                        Some(input) => input,
+                        None => {
+                            return IpcResponse::error(400, "No user message found in session");
+                        }
+                    },
+                };
+
+                let auth_manager = match build_auth_manager(core).await {
+                    Ok(manager) => Arc::new(manager),
+                    Err(err) => return IpcResponse::error(500, err.to_string()),
+                };
+
+                let executor = create_chat_executor(core, auth_manager);
+                let started_at = Instant::now();
+                let exec_result = match executor
+                    .execute_session_turn(&mut session, &input, 20)
+                    .await
+                {
+                    Ok(result) => result,
+                    Err(err) => return IpcResponse::error(500, err.to_string()),
+                };
+                let duration_ms = started_at.elapsed().as_millis() as u64;
+
+                let execution =
+                    MessageExecution::new().complete(duration_ms, exec_result.iterations);
+                let assistant_message =
+                    ChatMessage::assistant(&exec_result.output).with_execution(execution);
+                session.add_message(assistant_message);
+                session.model = exec_result.active_model.clone();
+                session.metadata.last_model = Some(exec_result.active_model);
+
+                match core.storage.chat_sessions.update(&session) {
+                    Ok(()) => IpcResponse::success(session),
+                    Err(err) => IpcResponse::error(500, err.to_string()),
+                }
+            }
             IpcRequest::GetSessionMessages { session_id, limit } => {
                 let session = match core.storage.chat_sessions.get(&session_id) {
                     Ok(Some(session)) => session,
@@ -1095,6 +1154,25 @@ fn create_runtime_tool_registry(core: &Arc<AppCore>) -> restflow_ai::tools::Tool
         core.storage.terminal_sessions.clone(),
         None,
         None,
+    )
+}
+
+fn create_chat_executor(
+    core: &Arc<AppCore>,
+    auth_manager: Arc<AuthProfileManager>,
+) -> RealAgentExecutor {
+    let (completion_tx, completion_rx) = mpsc::channel(128);
+    let subagent_tracker = Arc::new(SubagentTracker::new(completion_tx, completion_rx));
+    let subagent_definitions = Arc::new(AgentDefinitionRegistry::with_builtins());
+    let subagent_config = SubagentConfig::default();
+
+    RealAgentExecutor::new(
+        core.storage.clone(),
+        Arc::new(ProcessRegistry::new()),
+        auth_manager,
+        subagent_tracker,
+        subagent_definitions,
+        subagent_config,
     )
 }
 
