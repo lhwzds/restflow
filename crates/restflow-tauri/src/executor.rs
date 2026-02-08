@@ -6,7 +6,7 @@ use restflow_core::memory::{ExportResult, RankedSearchResult};
 use restflow_core::models::{
     AgentNode, BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentEvent,
     BackgroundAgentPatch, BackgroundAgentSpec, BackgroundMessageSource, ChatMessage, ChatRole,
-    ChatSession, ChatSessionSummary, ChatSessionUpdate, MemoryChunk, MemorySearchResult,
+    ChatSession, ChatSessionSummary, ChatSessionUpdate, Hook, MemoryChunk, MemorySearchResult,
     MemorySession, MemoryStats, Skill, TerminalSession,
 };
 use restflow_core::storage::SystemConfig;
@@ -112,9 +112,43 @@ impl TauriExecutor {
             .await
     }
 
+    pub async fn list_runnable_background_agents(
+        &self,
+        current_time: Option<i64>,
+    ) -> Result<Vec<BackgroundAgent>> {
+        self.request(IpcRequest::ListRunnableBackgroundAgents { current_time })
+            .await
+    }
+
     pub async fn get_background_agent(&self, id: String) -> Result<Option<BackgroundAgent>> {
         self.request_optional(IpcRequest::GetBackgroundAgent { id })
             .await
+    }
+
+    pub async fn list_hooks(&self) -> Result<Vec<Hook>> {
+        self.request(IpcRequest::ListHooks).await
+    }
+
+    pub async fn create_hook(&self, hook: Hook) -> Result<Hook> {
+        self.request(IpcRequest::CreateHook { hook }).await
+    }
+
+    pub async fn update_hook(&self, id: String, hook: Hook) -> Result<Hook> {
+        self.request(IpcRequest::UpdateHook { id, hook }).await
+    }
+
+    pub async fn delete_hook(&self, id: String) -> Result<bool> {
+        #[derive(serde::Deserialize)]
+        struct DeleteResponse {
+            deleted: bool,
+        }
+        let response: DeleteResponse = self.request(IpcRequest::DeleteHook { id }).await?;
+        Ok(response.deleted)
+    }
+
+    pub async fn test_hook(&self, id: String) -> Result<()> {
+        let _: Value = self.request(IpcRequest::TestHook { id }).await?;
+        Ok(())
     }
 
     pub async fn create_background_agent(

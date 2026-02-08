@@ -9,14 +9,19 @@ use tauri::State;
 /// List all hooks.
 #[tauri::command]
 pub async fn list_hooks(state: State<'_, AppState>) -> Result<Vec<Hook>, String> {
-    let core = state.core.as_ref().ok_or("AppCore not available")?;
-    core.storage.hooks.list().map_err(|e| e.to_string())
+    if let Some(core) = state.core.as_ref() {
+        return core.storage.hooks.list().map_err(|e| e.to_string());
+    }
+    state
+        .executor()
+        .list_hooks()
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// Create a new hook.
 #[tauri::command]
 pub async fn create_hook(state: State<'_, AppState>, mut hook: Hook) -> Result<Hook, String> {
-    let core = state.core.as_ref().ok_or("AppCore not available")?;
     let now = chrono::Utc::now().timestamp_millis();
 
     if hook.id.trim().is_empty() {
@@ -27,11 +32,19 @@ pub async fn create_hook(state: State<'_, AppState>, mut hook: Hook) -> Result<H
     }
     hook.updated_at = now;
 
-    core.storage
-        .hooks
-        .create(&hook)
-        .map_err(|e| e.to_string())?;
-    Ok(hook)
+    if let Some(core) = state.core.as_ref() {
+        core.storage
+            .hooks
+            .create(&hook)
+            .map_err(|e| e.to_string())?;
+        return Ok(hook);
+    }
+
+    state
+        .executor()
+        .create_hook(hook)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// Update an existing hook.
@@ -41,38 +54,52 @@ pub async fn update_hook(
     id: String,
     mut hook: Hook,
 ) -> Result<Hook, String> {
-    let core = state.core.as_ref().ok_or("AppCore not available")?;
-
-    let existing = core
-        .storage
-        .hooks
-        .get(&id)
-        .map_err(|e| e.to_string())?
-        .ok_or_else(|| format!("Hook '{}' not found", id))?;
+    let existing = find_hook_by_id(&state, &id).await?;
 
     hook.id = id.clone();
     hook.created_at = existing.created_at;
     hook.updated_at = chrono::Utc::now().timestamp_millis();
 
-    core.storage
-        .hooks
-        .update(&id, &hook)
-        .map_err(|e| e.to_string())?;
+    if let Some(core) = state.core.as_ref() {
+        core.storage
+            .hooks
+            .update(&id, &hook)
+            .map_err(|e| e.to_string())?;
+        return Ok(hook);
+    }
 
-    Ok(hook)
+    state
+        .executor()
+        .update_hook(id, hook)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// Delete a hook.
 #[tauri::command]
 pub async fn delete_hook(state: State<'_, AppState>, id: String) -> Result<bool, String> {
-    let core = state.core.as_ref().ok_or("AppCore not available")?;
-    core.storage.hooks.delete(&id).map_err(|e| e.to_string())
+    if let Some(core) = state.core.as_ref() {
+        return core.storage.hooks.delete(&id).map_err(|e| e.to_string());
+    }
+    state
+        .executor()
+        .delete_hook(id)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// Execute a hook once with synthetic context for verification.
 #[tauri::command]
 pub async fn test_hook(state: State<'_, AppState>, id: String) -> Result<(), String> {
-    let core = state.core.as_ref().ok_or("AppCore not available")?;
+    if state.core.is_none() {
+        return state
+            .executor()
+            .test_hook(id)
+            .await
+            .map_err(|e| e.to_string());
+    }
+
+    let core = state.core.as_ref().expect("checked above");
 
     let hook = core
         .storage
@@ -93,6 +120,26 @@ pub async fn test_hook(state: State<'_, AppState>, id: String) -> Result<(), Str
         .execute_hook(&hook, &context)
         .await
         .map_err(|e| e.to_string())
+}
+
+async fn find_hook_by_id(state: &AppState, id: &str) -> Result<Hook, String> {
+    if let Some(core) = state.core.as_ref() {
+        return core
+            .storage
+            .hooks
+            .get(id)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| format!("Hook '{}' not found", id));
+    }
+
+    state
+        .executor()
+        .list_hooks()
+        .await
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .find(|hook| hook.id == id)
+        .ok_or_else(|| format!("Hook '{}' not found", id))
 }
 
 fn sample_context(event: &HookEvent) -> HookContext {

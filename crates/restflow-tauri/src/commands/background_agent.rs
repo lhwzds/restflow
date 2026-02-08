@@ -290,11 +290,18 @@ pub async fn get_background_agent_events(
 pub async fn get_runnable_background_agents(
     state: State<'_, AppState>,
 ) -> Result<Vec<BackgroundAgent>, String> {
-    let current_time = chrono::Utc::now().timestamp_millis();
-    let core = state.core.as_ref().ok_or("AppCore not available")?;
-    core.storage
-        .agent_tasks
-        .list_runnable_tasks(current_time)
+    if let Some(core) = state.core.as_ref() {
+        return core
+            .storage
+            .agent_tasks
+            .list_runnable_tasks(chrono::Utc::now().timestamp_millis())
+            .map_err(|e| e.to_string());
+    }
+
+    state
+        .executor()
+        .list_runnable_background_agents(Some(chrono::Utc::now().timestamp_millis()))
+        .await
         .map_err(|e| e.to_string())
 }
 
@@ -390,16 +397,24 @@ pub async fn run_background_agent_streaming(
     id: String,
 ) -> Result<StreamingBackgroundAgentResponse, String> {
     // Check if task exists
-    let core = state.core.as_ref().ok_or("AppCore not available")?;
-    let task = core
-        .storage
-        .agent_tasks
-        .get_task(&id)
-        .map_err(|e| e.to_string())?
-        .ok_or_else(|| format!("Background agent '{}' not found", id))?;
+    let task = if let Some(core) = state.core.as_ref() {
+        core.storage
+            .agent_tasks
+            .get_task(&id)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| format!("Background agent '{}' not found", id.clone()))?
+    } else {
+        state
+            .executor()
+            .get_background_agent(id.clone())
+            .await
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| format!("Background agent '{}' not found", id.clone()))?
+    };
 
     // Check if already running
-    let already_running = state.is_task_running(&id).await;
+    let already_running =
+        state.is_task_running(&id).await || task.status == BackgroundAgentStatus::Running;
     if already_running {
         return Ok(StreamingBackgroundAgentResponse {
             task_id: id,

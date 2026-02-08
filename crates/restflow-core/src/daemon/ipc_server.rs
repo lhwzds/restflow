@@ -6,7 +6,8 @@ use crate::auth::{AuthManagerConfig, AuthProfileManager};
 use crate::memory::{MemoryExporter, MemoryExporterBuilder, SearchEngineBuilder};
 use crate::models::{
     AgentNode, BackgroundAgentStatus, ChatExecutionStatus, ChatMessage, ChatRole,
-    ChatSessionSummary, MemoryChunk, MemorySearchQuery, MessageExecution, TerminalSession,
+    ChatSessionSummary, HookContext, HookEvent, MemoryChunk, MemorySearchQuery, MessageExecution,
+    TerminalSession,
 };
 use crate::services::tool_registry::create_tool_registry;
 use crate::services::{
@@ -188,11 +189,51 @@ impl IpcServer {
                     Err(err) => IpcResponse::error(500, err.to_string()),
                 }
             }
+            IpcRequest::ListRunnableBackgroundAgents { current_time } => {
+                let now = current_time.unwrap_or_else(|| chrono::Utc::now().timestamp_millis());
+                match core.storage.agent_tasks.list_runnable_tasks(now) {
+                    Ok(background_agents) => IpcResponse::success(background_agents),
+                    Err(err) => IpcResponse::error(500, err.to_string()),
+                }
+            }
             IpcRequest::GetBackgroundAgent { id } => match core.storage.agent_tasks.get_task(&id) {
                 Ok(Some(background_agent)) => IpcResponse::success(background_agent),
                 Ok(None) => IpcResponse::not_found("Background agent"),
                 Err(err) => IpcResponse::error(500, err.to_string()),
             },
+            IpcRequest::ListHooks => match core.storage.hooks.list() {
+                Ok(hooks) => IpcResponse::success(hooks),
+                Err(err) => IpcResponse::error(500, err.to_string()),
+            },
+            IpcRequest::CreateHook { hook } => match core.storage.hooks.create(&hook) {
+                Ok(()) => IpcResponse::success(hook),
+                Err(err) => IpcResponse::error(500, err.to_string()),
+            },
+            IpcRequest::UpdateHook { id, hook } => match core.storage.hooks.update(&id, &hook) {
+                Ok(()) => IpcResponse::success(hook),
+                Err(err) => IpcResponse::error(500, err.to_string()),
+            },
+            IpcRequest::DeleteHook { id } => match core.storage.hooks.delete(&id) {
+                Ok(deleted) => IpcResponse::success(serde_json::json!({ "deleted": deleted })),
+                Err(err) => IpcResponse::error(500, err.to_string()),
+            },
+            IpcRequest::TestHook { id } => {
+                let hook = match core.storage.hooks.get(&id) {
+                    Ok(Some(hook)) => hook,
+                    Ok(None) => return IpcResponse::not_found("Hook"),
+                    Err(err) => return IpcResponse::error(500, err.to_string()),
+                };
+                let scheduler = Arc::new(crate::hooks::AgentTaskHookScheduler::new(
+                    core.storage.agent_tasks.clone(),
+                ));
+                let executor = crate::hooks::HookExecutor::with_storage(core.storage.hooks.clone())
+                    .with_task_scheduler(scheduler);
+                let context = sample_hook_context(&hook.event);
+                match executor.execute_hook(&hook, &context).await {
+                    Ok(()) => IpcResponse::success(serde_json::json!({ "ok": true })),
+                    Err(err) => IpcResponse::error(500, err.to_string()),
+                }
+            }
             IpcRequest::ListSecrets => match secrets_service::list_secrets(core).await {
                 Ok(secrets) => IpcResponse::success(secrets),
                 Err(err) => IpcResponse::error(500, err.to_string()),
@@ -1072,6 +1113,34 @@ fn parse_background_agent_status(status: &str) -> Result<BackgroundAgentStatus> 
         "completed" => Ok(BackgroundAgentStatus::Completed),
         "failed" => Ok(BackgroundAgentStatus::Failed),
         _ => Err(anyhow::anyhow!("Unknown task status: {}", status)),
+    }
+}
+
+fn sample_hook_context(event: &HookEvent) -> HookContext {
+    let now = chrono::Utc::now().timestamp_millis();
+    match event {
+        HookEvent::TaskFailed | HookEvent::TaskCancelled => HookContext {
+            event: event.clone(),
+            task_id: "hook-test-task".to_string(),
+            task_name: "hook test task".to_string(),
+            agent_id: "hook-test-agent".to_string(),
+            success: Some(false),
+            output: None,
+            error: Some("Hook test error".to_string()),
+            duration_ms: Some(321),
+            timestamp: now,
+        },
+        _ => HookContext {
+            event: event.clone(),
+            task_id: "hook-test-task".to_string(),
+            task_name: "hook test task".to_string(),
+            agent_id: "hook-test-agent".to_string(),
+            success: Some(true),
+            output: Some("Hook test output".to_string()),
+            error: None,
+            duration_ms: Some(321),
+            timestamp: now,
+        },
     }
 }
 
