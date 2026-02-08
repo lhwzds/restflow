@@ -8,9 +8,9 @@ use crate::daemon::{IpcClient, IpcRequest, IpcResponse};
 use crate::models::{
     AIModel, BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentPatch,
     BackgroundAgentSchedule, BackgroundAgentSpec, BackgroundAgentStatus, BackgroundMessage,
-    BackgroundMessageSource, BackgroundProgress, ChatSession, ChatSessionSummary, MemoryChunk,
-    MemoryConfig, MemoryScope, MemorySearchQuery, MemorySearchResult, MemorySource, MemoryStats,
-    Provider, SearchMode, Skill,
+    BackgroundMessageSource, BackgroundProgress, ChatSession, ChatSessionSummary, Hook,
+    HookAction, HookEvent, HookFilter, MemoryChunk, MemoryConfig, MemoryScope, MemorySearchQuery,
+    MemorySearchResult, MemorySource, MemoryStats, Provider, SearchMode, Skill,
 };
 use crate::services::tool_registry::create_tool_registry;
 use crate::storage::SecretStorage;
@@ -117,6 +117,11 @@ pub trait McpBackend: Send + Sync {
         id: &str,
         limit: usize,
     ) -> Result<Vec<BackgroundMessage>, String>;
+
+    async fn list_hooks(&self) -> Result<Vec<Hook>, String>;
+    async fn create_hook(&self, hook: Hook) -> Result<Hook, String>;
+    async fn update_hook(&self, id: &str, hook: Hook) -> Result<Hook, String>;
+    async fn delete_hook(&self, id: &str) -> Result<bool, String>;
 
     async fn list_runtime_tools(&self) -> Result<Vec<RuntimeToolDefinition>, String>;
     async fn execute_runtime_tool(
@@ -374,6 +379,36 @@ impl McpBackend for CoreBackend {
             .storage
             .agent_tasks
             .list_background_agent_messages(id, limit)
+            .map_err(|e| e.to_string())
+    }
+
+    async fn list_hooks(&self) -> Result<Vec<Hook>, String> {
+        self.core.storage.hooks.list().map_err(|e| e.to_string())
+    }
+
+    async fn create_hook(&self, hook: Hook) -> Result<Hook, String> {
+        self.core
+            .storage
+            .hooks
+            .create(&hook)
+            .map_err(|e| e.to_string())?;
+        Ok(hook)
+    }
+
+    async fn update_hook(&self, id: &str, hook: Hook) -> Result<Hook, String> {
+        self.core
+            .storage
+            .hooks
+            .update(id, &hook)
+            .map_err(|e| e.to_string())?;
+        Ok(hook)
+    }
+
+    async fn delete_hook(&self, id: &str) -> Result<bool, String> {
+        self.core
+            .storage
+            .hooks
+            .delete(id)
             .map_err(|e| e.to_string())
     }
 
