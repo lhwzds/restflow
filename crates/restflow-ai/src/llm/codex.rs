@@ -60,8 +60,6 @@ impl CodexClient {
             "--color".to_string(),
             "never".to_string(),
             "--full-auto".to_string(),
-            "--sandbox".to_string(),
-            "workspace-write".to_string(),
             "--skip-git-repo-check".to_string(),
         ];
 
