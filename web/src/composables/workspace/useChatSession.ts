@@ -114,7 +114,7 @@ export function useChatSession(options: UseChatSessionOptions = {}) {
     const content = inputMessage.value.trim()
     inputMessage.value = ''
 
-    // Use sendMessageAndExecute to trigger agent response
+    // Use sendMessageAndExecute to trigger assistant response generation
     await store.sendMessageAndExecute(content)
   }
 

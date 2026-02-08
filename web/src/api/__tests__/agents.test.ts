@@ -3,6 +3,7 @@ import MockAdapter from 'axios-mock-adapter'
 import { apiClient } from '@/api/config'
 import * as agentsApi from '@/api/agents'
 import type { StoredAgent } from '@/types/generated/StoredAgent'
+import type { AgentNode } from '@/types/generated/AgentNode'
 import { API_ENDPOINTS } from '@/constants'
 
 describe('Agents API', () => {

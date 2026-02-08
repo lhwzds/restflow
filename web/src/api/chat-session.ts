@@ -141,7 +141,7 @@ export async function deleteChatSession(id: string): Promise<boolean> {
  * Add a message to a chat session.
  *
  * Use this for adding user messages. For full send + response flow,
- * use sendChatMessage or the streaming agent execution.
+ * use sendChatMessage or streaming response events.
  *
  * @param sessionId - Session ID
  * @param message - The message to add
@@ -165,7 +165,8 @@ export async function addChatMessage(
  * Send a chat message and trigger agent response.
  *
  * This is a convenience method that adds the user message and triggers
- * agent execution. For streaming responses, use addChatMessage + agent events.
+ * assistant response generation. For streaming responses, use
+ * addChatMessage + response events.
  *
  * @param sessionId - Session ID
  * @param content - Message content
@@ -246,10 +247,10 @@ export async function cleanupOldChatSessions(olderThanDays: number): Promise<num
 }
 
 /**
- * Execute the agent for a chat session.
+ * Trigger assistant response generation for a chat session.
  *
- * This triggers agent execution for the session using the latest user message
- * as input, and saves the assistant response to the session.
+ * This triggers response generation for the session using the latest user
+ * message as input, and saves the assistant response to the session.
  *
  * @param sessionId - Chat session ID
  * @returns The updated chat session with the assistant response
@@ -259,5 +260,5 @@ export async function executeChatSession(sessionId: string): Promise<ChatSession
     return tauriInvoke<ChatSession>('execute_chat_session', { sessionId })
   }
   // HTTP API fallback - not implemented yet
-  throw new Error('Agent execution not supported in web mode')
+  throw new Error('Assistant response generation is not supported in web mode')
 }

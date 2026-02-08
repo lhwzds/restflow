@@ -140,7 +140,7 @@ pub async fn delete_chat_session(state: State<'_, AppState>, id: String) -> Resu
 /// Add a message to a chat session.
 ///
 /// This adds a user message to the session. The assistant response should be
-/// handled separately via streaming or the agent execution flow.
+/// handled separately via streaming or the response generation flow.
 #[tauri::command]
 pub async fn add_chat_message(
     state: State<'_, AppState>,
@@ -158,11 +158,11 @@ pub async fn add_chat_message(
 ///
 /// This is a convenience command that:
 /// 1. Adds the user message to the session
-/// 2. Triggers agent execution
+/// 2. Triggers response generation
 /// 3. Adds the assistant response
 /// 4. Returns the updated session
 ///
-/// For streaming responses, use add_chat_message + agent execution events instead.
+/// For streaming responses, use add_chat_message + response events instead.
 #[tauri::command]
 pub async fn send_chat_message(
     state: State<'_, AppState>,
@@ -575,7 +575,7 @@ pub async fn send_chat_message_stream(
         .map(|core| secret_resolver_from_storage(&core.storage));
     let tool_storage = state.core.as_ref().map(|core| core.storage.clone());
 
-    // Spawn background task for agent execution
+    // Spawn background task for assistant response generation
     tokio::spawn(async move {
         let mut stream_state = stream_state;
 

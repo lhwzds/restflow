@@ -56,6 +56,19 @@ RestFlow is an **AI assistant that can execute workflows**. Unlike traditional w
 - **💻 Desktop App** - Native Tauri application with integrated terminal
 - **🔌 MCP Support** - Model Context Protocol for AI tool integration
 
+## Execution Model (Current)
+
+RestFlow currently exposes two user-facing execution paths:
+
+- **Workspace Chat (Main Agent)**: interactive chat where each user message triggers assistant response generation.
+- **Background Agents**: asynchronous or scheduled runs managed through `manage_background_agents` and `/api/background-agents`.
+
+Legacy command surfaces are removed:
+
+- `restflow task ...`
+- `restflow agent-task ...`
+- `restflow agent exec ...`
+
 ## Installation
 
 ### CLI (Recommended)

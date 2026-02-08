@@ -1,14 +1,7 @@
 import { apiClient, isTauri, tauriInvoke } from './config'
 import type { StoredAgent } from '@/types/generated/StoredAgent'
 import type { AgentNode } from '@/types/generated/AgentNode'
-import type { AgentExecuteResponse } from '@/types/generated/AgentExecuteResponse'
-import type { ExecutionDetails } from '@/types/generated/ExecutionDetails'
-import type { ExecutionStep } from '@/types/generated/ExecutionStep'
-import type { ToolCallInfo } from '@/types/generated/ToolCallInfo'
 import { API_ENDPOINTS } from '@/constants'
-
-// Re-export generated types for convenience
-export type { AgentExecuteResponse, ExecutionDetails, ExecutionStep, ToolCallInfo }
 
 export interface CreateAgentRequest {
   name: string

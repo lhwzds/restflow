@@ -339,7 +339,7 @@ export const useChatSessionStore = defineStore('chatSession', {
     },
 
     /**
-     * Send a message in the current session (without agent execution)
+     * Send a message in the current session without triggering assistant response generation.
      */
     async sendMessage(content: string): Promise<ChatSession | null> {
       if (!this.currentSessionId) {
@@ -372,11 +372,11 @@ export const useChatSessionStore = defineStore('chatSession', {
     },
 
     /**
-     * Send a message and execute the agent to get a response.
+     * Send a message and trigger assistant response generation.
      *
      * This method:
      * 1. Saves the user message to the session
-     * 2. Triggers agent execution
+     * 2. Triggers response generation for the session
      * 3. Returns the updated session with the assistant response
      */
     async sendMessageAndExecute(content: string): Promise<ChatSession | null> {
@@ -406,7 +406,7 @@ export const useChatSessionStore = defineStore('chatSession', {
         }
         this.version++
 
-        // Then trigger agent execution
+        // Then trigger assistant response generation
         const sessionAfterExecution = await executeChatSession(this.currentSessionId)
         this.sessions.set(sessionAfterExecution.id, sessionAfterExecution)
 
@@ -424,8 +424,8 @@ export const useChatSessionStore = defineStore('chatSession', {
 
         return sessionAfterExecution
       } catch (err) {
-        this.error = err instanceof Error ? err.message : 'Failed to execute agent'
-        console.error('Failed to send message and execute agent:', err)
+        this.error = err instanceof Error ? err.message : 'Failed to generate assistant response'
+        console.error('Failed to send message and generate assistant response:', err)
         return null
       } finally {
         this.isSending = false
