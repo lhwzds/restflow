@@ -502,11 +502,7 @@ pub enum DaemonCommands {
         #[arg(short, long)]
         port: Option<u16>,
 
-        /// Enable the MCP HTTP server
-        #[arg(long, default_value_t = true)]
-        mcp: bool,
-
-        /// MCP HTTP server port
+        /// MCP HTTP server port (default: 8787, MCP is always enabled)
         #[arg(long)]
         mcp_port: Option<u16>,
     },
@@ -531,11 +527,7 @@ pub enum DaemonCommands {
         #[arg(short, long)]
         port: Option<u16>,
 
-        /// Enable the MCP HTTP server
-        #[arg(long, default_value_t = true)]
-        mcp: bool,
-
-        /// MCP HTTP server port
+        /// MCP HTTP server port (default: 8787, MCP is always enabled)
         #[arg(long)]
         mcp_port: Option<u16>,
     },
