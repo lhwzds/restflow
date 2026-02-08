@@ -1,29 +1,29 @@
-//! Agent Task Tauri commands
+//! Background agent Tauri commands
 //!
 //! Provides IPC commands for managing scheduled agent tasks from the frontend.
 //!
 //! # Streaming Events
 //!
-//! The `run_background_agent_streaming` command executes a task immediately and streams
-//! real-time events to the frontend via Tauri's event system. Frontend should
-//! listen to the `background-agent:stream` event to receive `TaskStreamEvent` updates.
+//! The `run_background_agent_streaming` command currently triggers background-agent
+//! execution via daemon IPC and returns the event channel name for compatibility.
+//! Full daemon-backed event subscription is not implemented yet.
 //!
 //! ```typescript
 //! import { listen } from '@tauri-apps/api/event';
 //! import type { TaskStreamEvent } from './types/generated';
 //!
 //! const unlisten = await listen<TaskStreamEvent>('background-agent:stream', (event) => {
-//!   console.log('Task event:', event.payload);
+//!   console.log('Task event (if emitted):', event.payload);
 //! });
 //! ```
 
-use crate::background_agent::{TASK_STREAM_EVENT, TaskStreamEvent, TauriEventEmitter};
 use crate::state::AppState;
 use restflow_core::models::{
     BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentEvent, BackgroundAgentPatch,
     BackgroundAgentSchedule, BackgroundAgentSpec, BackgroundAgentStatus, ExecutionMode,
     MemoryConfig, MemoryScope, NotificationConfig, SteerMessage, SteerSource,
 };
+use restflow_core::runtime::agent_task::{HEARTBEAT_EVENT, TASK_STREAM_EVENT, TaskStreamEvent};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
 
@@ -330,11 +330,11 @@ pub struct StreamingBackgroundAgentResponse {
     pub already_running: bool,
 }
 
-/// Run an agent task immediately and stream events to the frontend.
+/// Run an agent task immediately.
 ///
-/// This command triggers immediate execution of a task and emits real-time
-/// events via Tauri's event system. The frontend should listen to the
-/// `background-agent:stream` event to receive `TaskStreamEvent` updates.
+/// This command currently triggers immediate execution via daemon IPC.
+/// It keeps returning an event channel for API compatibility, but does not
+/// guarantee full per-step stream delivery yet.
 ///
 /// # Arguments
 ///
@@ -343,17 +343,6 @@ pub struct StreamingBackgroundAgentResponse {
 /// # Returns
 ///
 /// Returns a `StreamingBackgroundAgentResponse` with the task ID and event channel name.
-///
-/// # Events
-///
-/// The following events are emitted on the `background-agent:stream` channel:
-/// - `started` - Task execution has begun
-/// - `output` - Output from the task (stdout/stderr)
-/// - `progress` - Progress updates for long-running tasks
-/// - `completed` - Task finished successfully
-/// - `failed` - Task failed with an error
-/// - `cancelled` - Task was cancelled (timeout or user request)
-/// - `heartbeat` - Periodic heartbeat while task is running
 ///
 /// # Example (Frontend)
 ///
@@ -385,7 +374,7 @@ pub struct StreamingBackgroundAgentResponse {
 #[tauri::command]
 pub async fn run_background_agent_streaming(
     state: State<'_, AppState>,
-    app_handle: AppHandle,
+    _app_handle: AppHandle,
     id: String,
 ) -> Result<StreamingBackgroundAgentResponse, String> {
     // Check if task exists
@@ -407,25 +396,14 @@ pub async fn run_background_agent_streaming(
         });
     }
 
-    // Emit started event (emitter stored for future use in enhanced streaming)
-    let _emitter = TauriEventEmitter::new(app_handle.clone());
-    let execution_mode_str = match &task.execution_mode {
-        ExecutionMode::Api => "api".to_string(),
-        ExecutionMode::Cli(cfg) => format!("cli:{}", cfg.binary),
-    };
-
-    let started_event =
-        TaskStreamEvent::started(&task.id, &task.name, &task.agent_id, &execution_mode_str);
-
-    if let Err(e) = app_handle.emit(TASK_STREAM_EVENT, &started_event) {
-        tracing::warn!("Failed to emit started event: {}", e);
-    }
-
-    // Trigger the task execution via runner (which will emit more events)
+    // NOTE:
+    // We intentionally avoid synthesizing local started/completed events here.
+    // Current architecture executes in daemon; adding fake local events can
+    // misrepresent actual daemon execution progress.
+    //
+    // TODO: When daemon IPC exposes background-agent event subscription,
+    // forward daemon events to this Tauri channel.
     if let Err(e) = state.run_task_now(id.clone()).await {
-        // Emit failed event
-        let failed_event = TaskStreamEvent::failed(&id, e.to_string(), 0, false);
-        let _ = app_handle.emit(TASK_STREAM_EVENT, &failed_event);
         return Err(e.to_string());
     }
 
@@ -476,10 +454,10 @@ pub async fn emit_test_background_agent_event(
         .map_err(|e| e.to_string())
 }
 
-/// Subscribe to task stream events
+/// Return the background-agent stream event name.
 ///
-/// This is a no-op command that documents the event subscription pattern.
-/// In Tauri v2, the frontend uses `listen()` to subscribe to events.
+/// Frontend can subscribe for compatibility. Event payloads are currently
+/// best-effort until daemon-side event subscription is implemented.
 ///
 /// # Usage
 ///
@@ -503,8 +481,6 @@ pub fn get_background_agent_stream_event_name() -> String {
 // ============================================================================
 // Heartbeat Commands
 // ============================================================================
-
-use crate::background_agent::HEARTBEAT_EVENT;
 
 /// Get the heartbeat event name for frontend subscription
 ///
