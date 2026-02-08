@@ -1,6 +1,6 @@
 //! Telegram/Channel Command Handler
 //!
-//! Handles command messages (/help, /tasks, /run, /status, /stop) from channels.
+//! Handles command messages (/help, /agents, /run, /status, /stop) from channels.
 
 use crate::channel::{ChannelRouter, InboundMessage, MessageLevel, OutboundMessage};
 use crate::models::AgentTaskStatus;
@@ -24,7 +24,7 @@ pub async fn handle_command(
 
     match command.as_str() {
         "/start" | "/help" => cmd_help(router, message).await,
-        "/tasks" | "/list" => cmd_list_tasks(router, trigger, message).await,
+        "/agents" | "/tasks" | "/list" => cmd_list_tasks(router, trigger, message).await,
         "/run" | "/start_task" => {
             let task_name = if parts.len() > 1 {
                 Some(parts[1..].join(" "))
@@ -44,13 +44,13 @@ async fn cmd_help(router: &ChannelRouter, message: &InboundMessage) -> Result<()
     let text = r#"🤖 *RestFlow Agent Bot*
 
 *Commands:*
-`/tasks` - List all configured tasks
-`/run <name>` - Run a task by name or ID
+`/agents` - List all configured background agents
+`/run <name>` - Run a background agent by name or ID
 `/status` - Show current status
-`/stop` - Stop running task
+`/stop` - Stop active background agent
 `/help` - Show this help
 
-*During Task Execution:*
+*During Background Agent Execution:*
 Send messages directly to interact with the agent."#;
 
     let response = OutboundMessage::new(&message.conversation_id, text);
@@ -65,10 +65,10 @@ async fn cmd_list_tasks(
 ) -> Result<()> {
     let tasks = trigger.list_tasks().await?;
 
-    let mut text = String::from("📋 *Tasks:*\n\n");
+    let mut text = String::from("📋 *Background Agents:*\n\n");
 
     if tasks.is_empty() {
-        text.push_str("_No tasks configured._\n\nCreate tasks in the RestFlow app.");
+        text.push_str("_No background agents configured._\n\nCreate one in the RestFlow app.");
     } else {
         for task in tasks.iter().take(10) {
             let status_emoji = match task.status {
@@ -101,7 +101,7 @@ async fn cmd_run_task(
         _ => {
             let response = OutboundMessage::new(
                 &message.conversation_id,
-                "⚠️ Usage: `/run <name>`\n\nUse `/tasks` to see available tasks.",
+                "⚠️ Usage: `/run <name>`\n\nUse `/agents` to see available background agents.",
             )
             .with_level(MessageLevel::Warning);
             return router.send_to(message.channel_type, response).await;
@@ -119,7 +119,7 @@ async fn cmd_run_task(
             let response = OutboundMessage::success(
                 &message.conversation_id,
                 format!(
-                    "🚀 Started: *{}*\n\nI'll send updates as the task progresses.",
+                    "🚀 Started: *{}*\n\nI'll send updates as the run progresses.",
                     task.name
                 ),
             );
@@ -128,7 +128,7 @@ async fn cmd_run_task(
         Err(e) => {
             let response = OutboundMessage::error(
                 &message.conversation_id,
-                format!("Failed to start task: {}", e),
+                format!("Failed to start background agent: {}", e),
             );
             router.send_to(message.channel_type, response).await
         }
@@ -147,8 +147,8 @@ async fn cmd_status(
         r#"📊 *System Status*
 
 Runner: {}
-Active Tasks: {}
-Pending Tasks: {}
+Active Background Agents: {}
+Pending Background Agents: {}
 Completed Today: {}"#,
         if status.runner_active {
             "✅ Active"
@@ -177,13 +177,14 @@ async fn cmd_stop(
         trigger.stop_task(&task_id).await?;
         router.clear_task(&message.conversation_id).await?;
 
-        let response = OutboundMessage::new(&message.conversation_id, "⏹️ Task stopped.");
+        let response =
+            OutboundMessage::new(&message.conversation_id, "⏹️ Background agent stopped.");
         return router.send_to(message.channel_type, response).await;
     }
 
     let response = OutboundMessage::new(
         &message.conversation_id,
-        "No active task in this conversation.",
+        "No active background agent in this conversation.",
     )
     .with_level(MessageLevel::Warning);
     router.send_to(message.channel_type, response).await
@@ -268,7 +269,7 @@ mod tests {
         let command = parts.first().map(|s| s.to_lowercase()).unwrap_or_default();
         assert!(!matches!(
             command.as_str(),
-            "/start" | "/help" | "/tasks" | "/list" | "/run" | "/status" | "/stop"
+            "/start" | "/help" | "/agents" | "/tasks" | "/list" | "/run" | "/status" | "/stop"
         ));
     }
 }

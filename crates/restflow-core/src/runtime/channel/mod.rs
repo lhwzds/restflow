@@ -4,10 +4,9 @@
 //! the task execution system. It handles:
 //!
 //! - Processing inbound messages from interactive channels (Telegram, etc.)
-//! - Routing commands (/help, /tasks, /run, /status, /stop)
-//! - Forwarding messages to running tasks
+//! - Routing commands (/help, /agents, /run, /status, /stop)
+//! - Forwarding messages to running background agents
 //! - Dispatching natural language messages to AI chat
-//! - Handling approval/rejection responses
 //!
 //! # Architecture
 //!

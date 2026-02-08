@@ -11,7 +11,7 @@ import { createAgentAndOpenEditor } from './helpers'
  * - Task status display
  *
  * Note: Tasks are accessed via the "Tasks" tab in the workspace view,
- * not a separate /agent-tasks route. Tests run against a fresh database,
+ * with backend APIs now served from /background-agents. Tests run against a fresh database,
  * so they create their own test data.
  *
  * Design Notes:

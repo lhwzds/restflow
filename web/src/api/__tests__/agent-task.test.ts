@@ -222,7 +222,7 @@ describe('Agent Task API', () => {
     it('should update task name', async () => {
       const mockResponse = createMockTask('task1', { name: 'Updated Name' })
 
-      mock.onPut(API_ENDPOINTS.AGENT_TASK.UPDATE('task1')).reply(200, {
+      mock.onPatch(API_ENDPOINTS.AGENT_TASK.UPDATE('task1')).reply(200, {
         success: true,
         data: mockResponse,
       })
@@ -235,7 +235,7 @@ describe('Agent Task API', () => {
       const newSchedule: TaskSchedule = { type: 'once', run_at: Date.now() + 86400000 }
       const mockResponse = createMockTask('task1', { schedule: newSchedule })
 
-      mock.onPut(API_ENDPOINTS.AGENT_TASK.UPDATE('task1')).reply(200, {
+      mock.onPatch(API_ENDPOINTS.AGENT_TASK.UPDATE('task1')).reply(200, {
         success: true,
         data: mockResponse,
       })
@@ -247,7 +247,7 @@ describe('Agent Task API', () => {
     it('should pass input_template and memory_scope on update', async () => {
       const mockResponse = createMockTask('task1')
 
-      mock.onPut(API_ENDPOINTS.AGENT_TASK.UPDATE('task1')).reply((config) => {
+      mock.onPatch(API_ENDPOINTS.AGENT_TASK.UPDATE('task1')).reply((config) => {
         const body = JSON.parse(config.data)
         expect(body.input_template).toBe('Updated {{task.name}}')
         expect(body.memory_scope).toBe('shared_agent')
@@ -283,9 +283,16 @@ describe('Agent Task API', () => {
     it('should pause task and return updated task', async () => {
       const mockResponse = createMockTask('task1', { status: 'paused' })
 
-      mock.onPost(API_ENDPOINTS.AGENT_TASK.PAUSE('task1')).reply(200, {
-        success: true,
-        data: mockResponse,
+      mock.onPost(API_ENDPOINTS.AGENT_TASK.CONTROL('task1')).reply((config) => {
+        const body = JSON.parse(config.data)
+        expect(body.action).toBe('pause')
+        return [
+          200,
+          {
+            success: true,
+            data: mockResponse,
+          },
+        ]
       })
 
       const result = await agentTaskApi.pauseAgentTask('task1')
@@ -297,9 +304,16 @@ describe('Agent Task API', () => {
     it('should resume task and return updated task', async () => {
       const mockResponse = createMockTask('task1', { status: 'active' })
 
-      mock.onPost(API_ENDPOINTS.AGENT_TASK.RESUME('task1')).reply(200, {
-        success: true,
-        data: mockResponse,
+      mock.onPost(API_ENDPOINTS.AGENT_TASK.CONTROL('task1')).reply((config) => {
+        const body = JSON.parse(config.data)
+        expect(body.action).toBe('resume')
+        return [
+          200,
+          {
+            success: true,
+            data: mockResponse,
+          },
+        ]
       })
 
       const result = await agentTaskApi.resumeAgentTask('task1')
@@ -314,9 +328,11 @@ describe('Agent Task API', () => {
         createMockEvent('event2', 'task1'),
       ]
 
-      mock.onGet(API_ENDPOINTS.AGENT_TASK.EVENTS('task1')).reply(200, {
+      mock.onGet(API_ENDPOINTS.AGENT_TASK.PROGRESS('task1')).reply(200, {
         success: true,
-        data: mockEvents,
+        data: {
+          recent_events: mockEvents,
+        },
       })
 
       const result = await agentTaskApi.getAgentTaskEvents('task1')
@@ -326,9 +342,11 @@ describe('Agent Task API', () => {
     it('should fetch limited events when limit is specified', async () => {
       const mockEvents = [createMockEvent('event1', 'task1')]
 
-      mock.onGet(`${API_ENDPOINTS.AGENT_TASK.EVENTS('task1')}?limit=1`).reply(200, {
+      mock.onGet(`${API_ENDPOINTS.AGENT_TASK.PROGRESS('task1')}?event_limit=1`).reply(200, {
         success: true,
-        data: mockEvents,
+        data: {
+          recent_events: mockEvents,
+        },
       })
 
       const result = await agentTaskApi.getAgentTaskEvents('task1', 1)
@@ -337,16 +355,21 @@ describe('Agent Task API', () => {
   })
 
   describe('getRunnableAgentTasks', () => {
-    it('should fetch runnable tasks', async () => {
-      const mockTasks = [createMockTask('task1')]
+    it('should fetch active tasks and filter by next_run_at', async () => {
+      const now = Date.now()
+      const mockTasks = [
+        createMockTask('task1', { status: 'active', next_run_at: now - 1000 }),
+        createMockTask('task2', { status: 'active', next_run_at: now + 100000 }),
+      ]
 
-      mock.onGet(API_ENDPOINTS.AGENT_TASK.RUNNABLE).reply(200, {
+      mock.onGet(API_ENDPOINTS.AGENT_TASK.LIST_BY_STATUS('active')).reply(200, {
         success: true,
         data: mockTasks,
       })
 
       const result = await agentTaskApi.getRunnableAgentTasks()
       expect(result).toHaveLength(1)
+      expect(result[0]?.id).toBe('task1')
     })
   })
 
@@ -486,7 +509,7 @@ describe('Agent Task API', () => {
     })
 
     it('should handle validation error on update', async () => {
-      mock.onPut(API_ENDPOINTS.AGENT_TASK.UPDATE('task1')).reply(400, {
+      mock.onPatch(API_ENDPOINTS.AGENT_TASK.UPDATE('task1')).reply(400, {
         success: false,
         message: 'Invalid schedule configuration',
       })

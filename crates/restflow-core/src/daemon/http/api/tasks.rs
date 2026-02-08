@@ -275,6 +275,10 @@ async fn list_background_messages(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::{
+        Json,
+        extract::{Extension, Path, Query},
+    };
     use tempfile::tempdir;
 
     async fn setup_core() -> (Arc<AppCore>, tempfile::TempDir) {
@@ -328,5 +332,62 @@ mod tests {
     fn test_parse_task_status_rejects_unknown_value() {
         let result = parse_task_status("not-a-status");
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_background_agent_message_roundtrip_via_http_api() {
+        let (core, _temp_dir) = setup_core().await;
+
+        let default_agent = core
+            .storage
+            .agents
+            .list_agents()
+            .expect("failed to list agents")
+            .into_iter()
+            .next()
+            .expect("default agent missing");
+
+        let Json(created) = create_background_agent(
+            Extension(core.clone()),
+            Json(CreateBackgroundAgentRequest {
+                name: "HTTP Message Roundtrip".to_string(),
+                agent_id: default_agent.id,
+                schedule: TaskSchedule::Interval {
+                    interval_ms: 3_600_000,
+                    start_at: None,
+                },
+                description: None,
+                input: Some("bootstrap".to_string()),
+                input_template: None,
+                notification: None,
+                memory: None,
+                memory_scope: None,
+            }),
+        )
+        .await
+        .expect("failed to create background agent");
+
+        let Json(_sent) = send_background_message(
+            Extension(core.clone()),
+            Path(created.id.clone()),
+            Json(SendBackgroundMessageRequest {
+                message: "hello from main channel".to_string(),
+                source: Some(BackgroundMessageSource::User),
+            }),
+        )
+        .await
+        .expect("failed to send background message");
+
+        let Json(messages) = list_background_messages(
+            Extension(core),
+            Path(created.id),
+            Query(ListBackgroundMessagesQuery { limit: 10 }),
+        )
+        .await
+        .expect("failed to list background messages");
+
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].message, "hello from main channel");
+        assert_eq!(messages[0].source, BackgroundMessageSource::User);
     }
 }

@@ -4,7 +4,7 @@ interface AgentTask {
   id: string
   name: string
   description: string
-  status: 'pending' | 'running' | 'paused' | 'completed' | 'failed'
+  status: 'active' | 'running' | 'paused' | 'completed' | 'failed'
   agent_id: string
   created_at: number
   updated_at: number
@@ -46,7 +46,7 @@ let agentTasks: AgentTask[] = [
     id: 'task-3',
     name: 'Data Backup',
     description: 'Backup critical data to cloud storage',
-    status: 'pending',
+    status: 'active',
     agent_id: 'demo-agent-1',
     created_at: BASE_DATE + 172800000,
     updated_at: BASE_DATE + 172800000,
@@ -58,7 +58,7 @@ let agentTasks: AgentTask[] = [
 
 export const agentTaskHandlers = [
   // List all tasks
-  http.get('/api/agent-tasks', ({ request }) => {
+  http.get('/api/background-agents', ({ request }) => {
     const url = new URL(request.url)
     const status = url.searchParams.get('status')
 
@@ -73,17 +73,8 @@ export const agentTaskHandlers = [
     })
   }),
 
-  // Get runnable tasks
-  http.get('/api/agent-tasks/runnable', () => {
-    const runnableTasks = agentTasks.filter((t) => t.status === 'pending')
-    return HttpResponse.json({
-      success: true,
-      data: runnableTasks,
-    })
-  }),
-
   // Get single task
-  http.get('/api/agent-tasks/:id', ({ params }) => {
+  http.get('/api/background-agents/:id', ({ params }) => {
     const task = agentTasks.find((t) => t.id === params.id)
     if (!task) {
       return HttpResponse.json(
@@ -101,7 +92,7 @@ export const agentTaskHandlers = [
   }),
 
   // Create task
-  http.post('/api/agent-tasks', async ({ request }) => {
+  http.post('/api/background-agents', async ({ request }) => {
     const body = (await request.json()) as Partial<AgentTask>
     const now = Date.now()
 
@@ -109,7 +100,7 @@ export const agentTaskHandlers = [
       id: 'task-' + now,
       name: body.name || 'Untitled Task',
       description: body.description || '',
-      status: 'pending',
+      status: 'active',
       agent_id: body.agent_id || 'demo-agent-1',
       created_at: now,
       updated_at: now,
@@ -129,7 +120,7 @@ export const agentTaskHandlers = [
   }),
 
   // Update task
-  http.put('/api/agent-tasks/:id', async ({ params, request }) => {
+  http.patch('/api/background-agents/:id', async ({ params, request }) => {
     const index = agentTasks.findIndex((t) => t.id === params.id)
     if (index === -1) {
       return HttpResponse.json(
@@ -167,7 +158,7 @@ export const agentTaskHandlers = [
   }),
 
   // Delete task
-  http.delete('/api/agent-tasks/:id', ({ params }) => {
+  http.delete('/api/background-agents/:id', ({ params }) => {
     const index = agentTasks.findIndex((t) => t.id === params.id)
     if (index === -1) {
       return HttpResponse.json(
@@ -184,8 +175,9 @@ export const agentTaskHandlers = [
     })
   }),
 
-  // Pause task
-  http.post('/api/agent-tasks/:id/pause', ({ params }) => {
+  // Control task (start/pause/resume/stop/run_now)
+  http.post('/api/background-agents/:id/control', async ({ params, request }) => {
+    const body = (await request.json()) as { action?: string }
     const task = agentTasks.find((t) => t.id === params.id)
     if (!task) {
       return HttpResponse.json(
@@ -197,17 +189,28 @@ export const agentTaskHandlers = [
       )
     }
 
-    if (task.status !== 'running') {
-      return HttpResponse.json(
-        {
-          success: false,
-          message: 'Task is not running',
-        },
-        { status: 400 },
-      )
+    switch (body.action) {
+      case 'pause':
+        task.status = 'paused'
+        break
+      case 'resume':
+      case 'start':
+      case 'run_now':
+        task.status = 'running'
+        break
+      case 'stop':
+        task.status = 'paused'
+        break
+      default:
+        return HttpResponse.json(
+          {
+            success: false,
+            message: 'Unsupported action',
+          },
+          { status: 400 },
+        )
     }
 
-    task.status = 'paused'
     task.updated_at = Date.now()
 
     return HttpResponse.json({
@@ -216,40 +219,8 @@ export const agentTaskHandlers = [
     })
   }),
 
-  // Resume task
-  http.post('/api/agent-tasks/:id/resume', ({ params }) => {
-    const task = agentTasks.find((t) => t.id === params.id)
-    if (!task) {
-      return HttpResponse.json(
-        {
-          success: false,
-          message: 'Task not found',
-        },
-        { status: 404 },
-      )
-    }
-
-    if (task.status !== 'paused') {
-      return HttpResponse.json(
-        {
-          success: false,
-          message: 'Task is not paused',
-        },
-        { status: 400 },
-      )
-    }
-
-    task.status = 'running'
-    task.updated_at = Date.now()
-
-    return HttpResponse.json({
-      success: true,
-      data: task,
-    })
-  }),
-
-  // Get task events
-  http.get('/api/agent-tasks/:id/events', ({ params }) => {
+  // Get aggregated task progress
+  http.get('/api/background-agents/:id/progress', ({ params }) => {
     const task = agentTasks.find((t) => t.id === params.id)
     if (!task) {
       return HttpResponse.json(
@@ -281,7 +252,70 @@ export const agentTaskHandlers = [
 
     return HttpResponse.json({
       success: true,
-      data: events,
+      data: {
+        background_agent_id: params.id,
+        status: task.status,
+        stage: events[events.length - 1]?.message ?? null,
+        recent_event: events[events.length - 1] ?? null,
+        recent_events: events,
+        last_run_at: task.started_at,
+        next_run_at: null,
+        total_tokens_used: 0,
+        total_cost_usd: 0,
+        success_count: task.status === 'completed' ? 1 : 0,
+        failure_count: task.status === 'failed' ? 1 : 0,
+        pending_message_count: 0,
+      },
+    })
+  }),
+
+  // Send a message to a background agent
+  http.post('/api/background-agents/:id/messages', async ({ params, request }) => {
+    const body = (await request.json()) as { message?: string, source?: string }
+    const task = agentTasks.find((t) => t.id === params.id)
+    if (!task) {
+      return HttpResponse.json(
+        {
+          success: false,
+          message: 'Task not found',
+        },
+        { status: 404 },
+      )
+    }
+
+    const now = Date.now()
+    return HttpResponse.json({
+      success: true,
+      data: {
+        id: `msg-${now}`,
+        background_agent_id: params.id,
+        source: body.source ?? 'user',
+        status: 'pending',
+        message: body.message ?? '',
+        created_at: now,
+        delivered_at: null,
+        consumed_at: null,
+        error: null,
+      },
+    })
+  }),
+
+  // List background agent messages
+  http.get('/api/background-agents/:id/messages', ({ params }) => {
+    const task = agentTasks.find((t) => t.id === params.id)
+    if (!task) {
+      return HttpResponse.json(
+        {
+          success: false,
+          message: 'Task not found',
+        },
+        { status: 404 },
+      )
+    }
+
+    return HttpResponse.json({
+      success: true,
+      data: [],
     })
   }),
 ]

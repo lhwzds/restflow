@@ -51,16 +51,16 @@ export const API_ENDPOINTS = {
   },
 
   AGENT_TASK: {
-    LIST: `${API_PREFIX}/agent-tasks`,
-    CREATE: `${API_PREFIX}/agent-tasks`,
-    GET: (id: string) => `${API_PREFIX}/agent-tasks/${id}` as const,
-    UPDATE: (id: string) => `${API_PREFIX}/agent-tasks/${id}` as const,
-    DELETE: (id: string) => `${API_PREFIX}/agent-tasks/${id}` as const,
-    PAUSE: (id: string) => `${API_PREFIX}/agent-tasks/${id}/pause` as const,
-    RESUME: (id: string) => `${API_PREFIX}/agent-tasks/${id}/resume` as const,
-    EVENTS: (id: string) => `${API_PREFIX}/agent-tasks/${id}/events` as const,
-    LIST_BY_STATUS: (status: string) => `${API_PREFIX}/agent-tasks?status=${status}` as const,
-    RUNNABLE: `${API_PREFIX}/agent-tasks/runnable`,
+    LIST: `${API_PREFIX}/background-agents`,
+    CREATE: `${API_PREFIX}/background-agents`,
+    GET: (id: string) => `${API_PREFIX}/background-agents/${id}` as const,
+    UPDATE: (id: string) => `${API_PREFIX}/background-agents/${id}` as const,
+    DELETE: (id: string) => `${API_PREFIX}/background-agents/${id}` as const,
+    CONTROL: (id: string) => `${API_PREFIX}/background-agents/${id}/control` as const,
+    PROGRESS: (id: string) => `${API_PREFIX}/background-agents/${id}/progress` as const,
+    MESSAGES: (id: string) => `${API_PREFIX}/background-agents/${id}/messages` as const,
+    LIST_BY_STATUS: (status: string) => `${API_PREFIX}/background-agents?status=${status}` as const,
+    RUNNABLE: `${API_PREFIX}/background-agents?status=active`,
   },
 
   HOOK: {

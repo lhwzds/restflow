@@ -77,7 +77,7 @@ Goal: Built-in HTTP server for Web UI and external services.
 Endpoints:
 - `/api/agents/*`
 - `/api/skills/*`
-- `/api/tasks/*`
+- `/api/background-agents/*`
 - `/api/memory/*`
 - `/api/sessions/*`
 - `/api/auth/*`
