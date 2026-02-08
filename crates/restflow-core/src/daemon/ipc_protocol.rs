@@ -1,8 +1,8 @@
 use crate::auth::{AuthProvider, Credential, CredentialSource, ProfileUpdate};
 use crate::models::{
     AgentNode, BackgroundAgentControlAction, BackgroundAgentPatch, BackgroundAgentSpec,
-    BackgroundMessageSource, ChatMessage, ChatRole, ChatSessionUpdate, MemoryChunk, MemorySession,
-    Skill, TerminalSession,
+    BackgroundMessageSource, ChatMessage, ChatRole, ChatSessionUpdate, Hook, MemoryChunk,
+    MemorySession, Skill, TerminalSession,
 };
 use crate::storage::SystemConfig;
 use serde::{Deserialize, Serialize};
@@ -67,7 +67,24 @@ pub enum IpcRequest {
     ListBackgroundAgents {
         status: Option<String>,
     },
+    ListRunnableBackgroundAgents {
+        current_time: Option<i64>,
+    },
     GetBackgroundAgent {
+        id: String,
+    },
+    ListHooks,
+    CreateHook {
+        hook: Hook,
+    },
+    UpdateHook {
+        id: String,
+        hook: Hook,
+    },
+    DeleteHook {
+        id: String,
+    },
+    TestHook {
         id: String,
     },
 
@@ -807,6 +824,47 @@ mod tests {
             IpcRequest::ExecuteTool { name, input } => {
                 assert_eq!(name, "manage_background_agents");
                 assert_eq!(input["operation"], "list");
+            }
+            _ => panic!("Wrong variant"),
+        }
+    }
+
+    #[test]
+    fn test_list_runnable_background_agents_serialization() {
+        let request = IpcRequest::ListRunnableBackgroundAgents {
+            current_time: Some(1_700_000_000_000),
+        };
+        let json = serde_json::to_string(&request).unwrap();
+        let parsed: IpcRequest = serde_json::from_str(&json).unwrap();
+
+        if let IpcRequest::ListRunnableBackgroundAgents { current_time } = parsed {
+            assert_eq!(current_time, Some(1_700_000_000_000));
+        } else {
+            panic!("Wrong variant");
+        }
+    }
+
+    #[test]
+    fn test_create_hook_serialization() {
+        let hook = crate::models::Hook::new(
+            "Test Hook".to_string(),
+            crate::models::HookEvent::TaskCompleted,
+            crate::models::HookAction::Webhook {
+                url: "https://example.com/hook".to_string(),
+                method: None,
+                headers: None,
+            },
+        );
+
+        let request = IpcRequest::CreateHook { hook: hook.clone() };
+        let json = serde_json::to_string(&request).unwrap();
+        let parsed: IpcRequest = serde_json::from_str(&json).unwrap();
+
+        match parsed {
+            IpcRequest::CreateHook { hook: decoded } => {
+                assert_eq!(decoded.name, hook.name);
+                assert_eq!(decoded.event, hook.event);
+                assert_eq!(decoded.action, hook.action);
             }
             _ => panic!("Wrong variant"),
         }

@@ -284,10 +284,35 @@ impl AppState {
     pub async fn trigger_task_check(&self) -> Result<()> {
         let guard = self.runner_handle.read().await;
         if let Some(handle) = guard.as_ref() {
-            handle.check_now().await
-        } else {
-            anyhow::bail!("No runner is active")
+            return handle.check_now().await;
         }
+        drop(guard);
+
+        if let Some(core) = self.core.as_ref() {
+            let now = chrono::Utc::now().timestamp_millis();
+            let runnable = core.storage.agent_tasks.list_runnable_tasks(now)?;
+            for task in runnable {
+                core.storage.agent_tasks.control_background_agent(
+                    &task.id,
+                    restflow_core::models::BackgroundAgentControlAction::RunNow,
+                )?;
+            }
+            return Ok(());
+        }
+
+        let runnable = self
+            .executor()
+            .list_runnable_background_agents(Some(chrono::Utc::now().timestamp_millis()))
+            .await?;
+        for task in runnable {
+            self.executor()
+                .control_background_agent(
+                    task.id,
+                    restflow_core::models::BackgroundAgentControlAction::RunNow,
+                )
+                .await?;
+        }
+        Ok(())
     }
 
     /// Run a specific task immediately, bypassing its schedule.
@@ -296,10 +321,25 @@ impl AppState {
     pub async fn run_task_now(&self, task_id: String) -> Result<()> {
         let guard = self.runner_handle.read().await;
         if let Some(handle) = guard.as_ref() {
-            handle.run_task_now(task_id).await
-        } else {
-            anyhow::bail!("No runner is active")
+            return handle.run_task_now(task_id).await;
         }
+        drop(guard);
+
+        if let Some(core) = self.core.as_ref() {
+            core.storage.agent_tasks.control_background_agent(
+                &task_id,
+                restflow_core::models::BackgroundAgentControlAction::RunNow,
+            )?;
+            return Ok(());
+        }
+
+        self.executor()
+            .control_background_agent(
+                task_id,
+                restflow_core::models::BackgroundAgentControlAction::RunNow,
+            )
+            .await?;
+        Ok(())
     }
 
     /// Cancel a running task.
@@ -308,10 +348,25 @@ impl AppState {
     pub async fn cancel_task(&self, task_id: String) -> Result<()> {
         let guard = self.runner_handle.read().await;
         if let Some(handle) = guard.as_ref() {
-            handle.cancel_task(task_id).await
-        } else {
-            anyhow::bail!("No runner is active")
+            return handle.cancel_task(task_id).await;
         }
+        drop(guard);
+
+        if let Some(core) = self.core.as_ref() {
+            core.storage.agent_tasks.control_background_agent(
+                &task_id,
+                restflow_core::models::BackgroundAgentControlAction::Stop,
+            )?;
+            return Ok(());
+        }
+
+        self.executor()
+            .control_background_agent(
+                task_id,
+                restflow_core::models::BackgroundAgentControlAction::Stop,
+            )
+            .await?;
+        Ok(())
     }
 
     // ========================================================================
@@ -338,14 +393,35 @@ impl AppState {
     /// Get list of all currently running tasks
     pub async fn get_active_tasks(&self) -> Result<Vec<ActiveBackgroundAgentInfo>> {
         let guard = self.running_tasks.read().await;
-        Ok(guard
-            .values()
-            .map(|state| ActiveBackgroundAgentInfo {
-                task_id: state.task_id.clone(),
-                task_name: state.task_name.clone(),
-                agent_id: state.agent_id.clone(),
-                started_at: state.started_at,
-                execution_mode: state.execution_mode.clone(),
+        if !guard.is_empty() {
+            return Ok(guard
+                .values()
+                .map(|state| ActiveBackgroundAgentInfo {
+                    task_id: state.task_id.clone(),
+                    task_name: state.task_name.clone(),
+                    agent_id: state.agent_id.clone(),
+                    started_at: state.started_at,
+                    execution_mode: state.execution_mode.clone(),
+                })
+                .collect());
+        }
+        drop(guard);
+
+        let running = self
+            .executor()
+            .list_background_agents(Some("running".to_string()))
+            .await?;
+        Ok(running
+            .into_iter()
+            .map(|task| ActiveBackgroundAgentInfo {
+                task_id: task.id,
+                task_name: task.name,
+                agent_id: task.agent_id,
+                started_at: task.last_run_at.unwrap_or(task.updated_at),
+                execution_mode: match task.execution_mode {
+                    restflow_core::models::ExecutionMode::Api => "api".to_string(),
+                    restflow_core::models::ExecutionMode::Cli(cfg) => format!("cli:{}", cfg.binary),
+                },
             })
             .collect())
     }
@@ -418,16 +494,12 @@ impl BackgroundAgentTrigger for AppBackgroundAgentTrigger {
     }
 
     async fn stop_background_agent(&self, task_id: &str) -> Result<()> {
-        let cancel_requested = if self.state.is_runner_active().await {
-            match self.state.cancel_task(task_id.to_string()).await {
-                Ok(()) => true,
-                Err(e) => {
-                    error!("Failed to request cancel for task {}: {}", task_id, e);
-                    false
-                }
+        let cancel_requested = match self.state.cancel_task(task_id.to_string()).await {
+            Ok(()) => true,
+            Err(e) => {
+                error!("Failed to request cancel for task {}: {}", task_id, e);
+                false
             }
-        } else {
-            false
         };
 
         // If the task isn't running (or cancel couldn't be requested), pause it directly.
@@ -455,11 +527,17 @@ impl BackgroundAgentTrigger for AppBackgroundAgentTrigger {
     }
 
     async fn get_status(&self) -> Result<SystemStatus> {
-        let runner_active = self.state.is_runner_active().await;
-        let active_count = self.state.running_task_count().await;
+        let tasks = self.state.executor().list_background_agents(None).await?;
+        let runner_active = self.state.is_runner_active().await
+            || tasks
+                .iter()
+                .any(|t| t.status == BackgroundAgentStatus::Running);
+        let active_count = tasks
+            .iter()
+            .filter(|t| t.status == BackgroundAgentStatus::Running)
+            .count();
 
         // Count pending (active but not running) tasks
-        let tasks = self.state.executor().list_background_agents(None).await?;
         let pending_count = tasks
             .iter()
             .filter(|t| t.status == BackgroundAgentStatus::Active)
@@ -511,6 +589,24 @@ impl BackgroundAgentTrigger for AppBackgroundAgentTrigger {
         task_id: &str,
         approved: bool,
     ) -> Result<bool> {
+        let approval_manager = self.state.security_checker().approval_manager();
+        let pending = approval_manager.get_for_task(task_id).await;
+        if let Some(approval) = pending.first() {
+            let resolved = if approved {
+                approval_manager.approve(&approval.id).await?
+            } else {
+                approval_manager
+                    .reject(
+                        &approval.id,
+                        Some("Rejected via background agent control command".to_string()),
+                    )
+                    .await?
+            };
+            if resolved.is_some() {
+                return Ok(true);
+            }
+        }
+
         let message = if approved {
             "User approved the pending action."
         } else {
@@ -534,6 +630,6 @@ impl BackgroundAgentTrigger for AppBackgroundAgentTrigger {
                 Some(BackgroundMessageSource::System),
             )
             .await?;
-        Ok(true)
+        Ok(false)
     }
 }
