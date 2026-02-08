@@ -11,9 +11,6 @@ use restflow_ai::LlmClient;
 pub use restflow_ai::tools::{
     SecretResolver, Tool, ToolOutput, ToolRegistry, TranscribeTool, VisionTool,
 };
-use restflow_ai::tools::{
-    DeleteMemoryTool, FileMemoryConfig, ListMemoryTool, ReadMemoryTool, SaveMemoryTool,
-};
 
 mod bash;
 mod email;
@@ -422,7 +419,8 @@ pub fn registry_from_allowlist(
         || enable_manage_memory
         || enable_manage_auth_profiles
         || enable_patch
-        || enable_diagnostics;
+        || enable_diagnostics
+        || enable_file_memory;
 
     if any_storage_tool {
         if let Some(storage) = storage {
@@ -438,6 +436,7 @@ pub fn registry_from_allowlist(
                 storage.triggers.clone(),
                 storage.terminal_sessions.clone(),
                 None,
+                agent_id.map(|s| s.to_string()),
             );
             let storage_backed_tools = [
                 ("manage_tasks", enable_manage_tasks),
@@ -456,6 +455,10 @@ pub fn registry_from_allowlist(
                 ("manage_auth_profiles", enable_manage_auth_profiles),
                 ("patch", enable_patch),
                 ("diagnostics", enable_diagnostics),
+                ("save_to_memory", enable_file_memory),
+                ("read_memory", enable_file_memory),
+                ("list_memories", enable_file_memory),
+                ("delete_memory", enable_file_memory),
             ];
             for (tool_name, enabled) in storage_backed_tools {
                 if !enabled {
@@ -488,6 +491,10 @@ pub fn registry_from_allowlist(
                 ("manage_auth_profiles", enable_manage_auth_profiles),
                 ("patch", enable_patch),
                 ("diagnostics", enable_diagnostics),
+                ("save_to_memory", enable_file_memory),
+                ("read_memory", enable_file_memory),
+                ("list_memories", enable_file_memory),
+                ("delete_memory", enable_file_memory),
             ];
             for (tool_name, enabled) in storage_backed_tools {
                 if enabled {
@@ -497,22 +504,6 @@ pub fn registry_from_allowlist(
                     );
                 }
             }
-        }
-    }
-
-    // Register file memory tools (require agent_id for path isolation)
-    if enable_file_memory {
-        if let Some(aid) = agent_id {
-            let base_path = dirs::data_dir()
-                .unwrap_or_else(|| std::path::PathBuf::from("."))
-                .join("restflow");
-            let config = FileMemoryConfig::new(base_path, aid);
-            builder.registry.register(SaveMemoryTool::new(config.clone()));
-            builder.registry.register(ReadMemoryTool::new(config.clone()));
-            builder.registry.register(ListMemoryTool::new(config.clone()));
-            builder.registry.register(DeleteMemoryTool::new(config));
-        } else {
-            warn!("File memory tools requested but agent_id not provided, skipping");
         }
     }
 

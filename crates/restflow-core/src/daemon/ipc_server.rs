@@ -1080,6 +1080,7 @@ fn create_runtime_tool_registry(core: &Arc<AppCore>) -> restflow_ai::tools::Tool
         core.storage.triggers.clone(),
         core.storage.terminal_sessions.clone(),
         None,
+        None,
     )
 }
 

@@ -22,12 +22,13 @@ use chrono::Utc;
 use restflow_ai::error::AiError;
 use restflow_ai::tools::{
     AgentCreateRequest, AgentCrudTool, AgentStore, AgentUpdateRequest, AuthProfileCreateRequest,
-    AuthProfileStore, AuthProfileTestRequest, AuthProfileTool, ConfigTool,
-    MemoryClearRequest, MemoryCompactRequest, MemoryExportRequest, MemoryManagementTool,
-    MemoryManager, SecretsTool, SessionCreateRequest, SessionListFilter, SessionSearchQuery,
-    SessionStore, SessionTool, TaskControlRequest, TaskCreateRequest, TaskMessageListRequest,
-    TaskMessageRequest, TaskProgressRequest, TaskStore, TaskTool, TaskUpdateRequest,
+    AuthProfileStore, AuthProfileTestRequest, AuthProfileTool, ConfigTool, MemoryClearRequest,
+    MemoryCompactRequest, MemoryExportRequest, MemoryManagementTool, MemoryManager, MemoryStore,
+    SecretsTool, SessionCreateRequest, SessionListFilter, SessionSearchQuery, SessionStore,
+    SessionTool, TaskControlRequest, TaskCreateRequest, TaskMessageListRequest, TaskMessageRequest,
+    TaskProgressRequest, TaskStore, TaskTool, TaskUpdateRequest,
 };
+use restflow_ai::tools::{DeleteMemoryTool, ListMemoryTool, ReadMemoryTool, SaveMemoryTool};
 use restflow_ai::{
     SecretResolver, SkillContent, SkillInfo, SkillProvider, SkillRecord, SkillTool, SkillUpdate,
     Tool, ToolOutput, ToolRegistry, TranscribeTool, VisionTool,
@@ -484,8 +485,7 @@ impl SessionStore for SessionStorageAdapter {
     }
 
     fn create_session(&self, request: SessionCreateRequest) -> restflow_ai::error::Result<Value> {
-        let mut session =
-            crate::models::ChatSession::new(request.agent_id, request.model);
+        let mut session = crate::models::ChatSession::new(request.agent_id, request.model);
         if let Some(name) = request.name {
             session = session.with_name(name);
         }
@@ -506,10 +506,7 @@ impl SessionStore for SessionStorageAdapter {
         Ok(json!({ "id": id, "deleted": deleted }))
     }
 
-    fn search_sessions(
-        &self,
-        query: SessionSearchQuery,
-    ) -> restflow_ai::error::Result<Value> {
+    fn search_sessions(&self, query: SessionSearchQuery) -> restflow_ai::error::Result<Value> {
         // Search by iterating sessions and filtering by query string
         let sessions = if let Some(agent_id) = &query.agent_id {
             self.storage
@@ -670,10 +667,7 @@ impl AuthProfileStore for AuthProfileStorageAdapter {
             .filter(|s| s.key.ends_with("_API_KEY") || s.key.ends_with("_TOKEN"))
             .map(|s| {
                 // list_secrets() clears values for security, use has_secret to check
-                let has_value = self
-                    .storage
-                    .has_secret(&s.key)
-                    .unwrap_or(false);
+                let has_value = self.storage.has_secret(&s.key).unwrap_or(false);
                 json!({
                     "id": s.key,
                     "name": s.key,
@@ -716,10 +710,7 @@ impl AuthProfileStore for AuthProfileStorageAdapter {
         }))
     }
 
-    fn add_profile(
-        &self,
-        request: AuthProfileCreateRequest,
-    ) -> restflow_ai::error::Result<Value> {
+    fn add_profile(&self, request: AuthProfileCreateRequest) -> restflow_ai::error::Result<Value> {
         let key_name = format!(
             "{}_API_KEY",
             request.provider.to_uppercase().replace('-', "_")
@@ -727,12 +718,14 @@ impl AuthProfileStore for AuthProfileStorageAdapter {
         let secret_value = match &request.credential {
             restflow_ai::tools::CredentialInput::ApiKey { key, .. } => key.clone(),
             restflow_ai::tools::CredentialInput::Token { token, .. } => token.clone(),
-            restflow_ai::tools::CredentialInput::OAuth { access_token, .. } => {
-                access_token.clone()
-            }
+            restflow_ai::tools::CredentialInput::OAuth { access_token, .. } => access_token.clone(),
         };
         self.storage
-            .set_secret(&key_name, &secret_value, Some(format!("Auth profile: {}", request.name)))
+            .set_secret(
+                &key_name,
+                &secret_value,
+                Some(format!("Auth profile: {}", request.name)),
+            )
             .map_err(|e| AiError::Tool(e.to_string()))?;
 
         Ok(json!({
@@ -750,10 +743,7 @@ impl AuthProfileStore for AuthProfileStorageAdapter {
         Ok(json!({ "id": id, "removed": true }))
     }
 
-    fn test_profile(
-        &self,
-        request: AuthProfileTestRequest,
-    ) -> restflow_ai::error::Result<Value> {
+    fn test_profile(&self, request: AuthProfileTestRequest) -> restflow_ai::error::Result<Value> {
         if let Some(id) = &request.id {
             let available = self
                 .storage
@@ -767,10 +757,7 @@ impl AuthProfileStore for AuthProfileStorageAdapter {
                 "available": available
             }))
         } else if let Some(provider) = &request.provider {
-            let key_name = format!(
-                "{}_API_KEY",
-                provider.to_uppercase().replace('-', "_")
-            );
+            let key_name = format!("{}_API_KEY", provider.to_uppercase().replace('-', "_"));
             let available = self
                 .storage
                 .get_secret(&key_name)
@@ -789,12 +776,240 @@ impl AuthProfileStore for AuthProfileStorageAdapter {
     }
 }
 
+// ============== DB Memory Store Adapter ==============
+
+/// Database-backed implementation of MemoryStore.
+///
+/// Stores memories as MemoryChunks in the redb database, enabling interoperability
+/// with memory_search and manage_memory tools. Title is stored as a `__title:{value}` tag.
+#[derive(Clone)]
+struct DbMemoryStoreAdapter {
+    storage: MemoryStorage,
+    agent_id: String,
+}
+
+impl DbMemoryStoreAdapter {
+    fn new(storage: MemoryStorage, agent_id: String) -> Self {
+        Self { storage, agent_id }
+    }
+
+    /// Extract title from tags (stored as `__title:{value}`)
+    fn extract_title(tags: &[String]) -> String {
+        tags.iter()
+            .find(|t| t.starts_with("__title:"))
+            .map(|t| t.trim_start_matches("__title:").to_string())
+            .unwrap_or_default()
+    }
+
+    /// Build tags list: prepend __title tag, then user tags
+    fn build_tags(title: &str, user_tags: &[String]) -> Vec<String> {
+        let mut tags = vec![format!("__title:{}", title)];
+        tags.extend(user_tags.iter().cloned());
+        tags
+    }
+
+    /// Filter out internal __title tags from user-visible output
+    fn user_tags(tags: &[String]) -> Vec<String> {
+        tags.iter()
+            .filter(|t| !t.starts_with("__title:"))
+            .cloned()
+            .collect()
+    }
+
+    /// Format a MemoryChunk as a memory entry JSON (matching file memory output)
+    fn chunk_to_entry_json(chunk: &crate::models::memory::MemoryChunk) -> Value {
+        let title = Self::extract_title(&chunk.tags);
+        let user_tags = Self::user_tags(&chunk.tags);
+        json!({
+            "id": chunk.id,
+            "title": title,
+            "content": chunk.content,
+            "tags": user_tags,
+            "created_at": chrono::DateTime::from_timestamp_millis(chunk.created_at)
+                .unwrap_or_default()
+                .to_rfc3339(),
+            "updated_at": chrono::DateTime::from_timestamp_millis(chunk.created_at)
+                .unwrap_or_default()
+                .to_rfc3339(),
+            "agent_id": chunk.agent_id,
+            "session_id": chunk.session_id,
+        })
+    }
+
+    /// Format a MemoryChunk as metadata-only JSON (for list operations)
+    fn chunk_to_meta_json(chunk: &crate::models::memory::MemoryChunk) -> Value {
+        let title = Self::extract_title(&chunk.tags);
+        let user_tags = Self::user_tags(&chunk.tags);
+        json!({
+            "id": chunk.id,
+            "title": title,
+            "tags": user_tags,
+            "created_at": chrono::DateTime::from_timestamp_millis(chunk.created_at)
+                .unwrap_or_default()
+                .to_rfc3339(),
+            "updated_at": chrono::DateTime::from_timestamp_millis(chunk.created_at)
+                .unwrap_or_default()
+                .to_rfc3339(),
+        })
+    }
+}
+
+impl MemoryStore for DbMemoryStoreAdapter {
+    fn save(
+        &self,
+        title: &str,
+        content: &str,
+        tags: &[String],
+    ) -> restflow_ai::error::Result<Value> {
+        use crate::models::memory::MemorySource;
+
+        let db_tags = Self::build_tags(title, tags);
+        let chunk =
+            crate::models::memory::MemoryChunk::new(self.agent_id.clone(), content.to_string())
+                .with_tags(db_tags)
+                .with_source(MemorySource::AgentGenerated {
+                    tool_name: "save_to_memory".to_string(),
+                });
+
+        let stored_id = self
+            .storage
+            .store_chunk(&chunk)
+            .map_err(|e| AiError::Tool(e.to_string()))?;
+
+        // If stored_id differs from chunk.id, content was a duplicate
+        let is_dedup = stored_id != chunk.id;
+        let message = if is_dedup {
+            "Duplicate content, returning existing memory"
+        } else {
+            "Memory saved successfully"
+        };
+
+        Ok(json!({
+            "success": true,
+            "id": stored_id,
+            "title": title,
+            "message": message
+        }))
+    }
+
+    fn read_by_id(&self, id: &str) -> restflow_ai::error::Result<Option<Value>> {
+        let chunk = self
+            .storage
+            .get_chunk(id)
+            .map_err(|e| AiError::Tool(e.to_string()))?;
+
+        match chunk {
+            Some(c) => {
+                let entry = Self::chunk_to_entry_json(&c);
+                Ok(Some(json!({
+                    "found": true,
+                    "entry": entry
+                })))
+            }
+            None => Ok(None),
+        }
+    }
+
+    fn search(
+        &self,
+        tag: Option<&str>,
+        search: Option<&str>,
+        limit: usize,
+    ) -> restflow_ai::error::Result<Value> {
+        let mut chunks = self
+            .storage
+            .list_chunks(&self.agent_id)
+            .map_err(|e| AiError::Tool(e.to_string()))?;
+
+        // Filter by user tag (case-insensitive contains)
+        if let Some(tag_filter) = tag {
+            let tag_lower = tag_filter.to_lowercase();
+            chunks.retain(|c| {
+                Self::user_tags(&c.tags)
+                    .iter()
+                    .any(|t| t.to_lowercase().contains(&tag_lower))
+            });
+        }
+
+        // Filter by title keyword (case-insensitive contains)
+        if let Some(search_text) = search {
+            let search_lower = search_text.to_lowercase();
+            chunks.retain(|c| {
+                Self::extract_title(&c.tags)
+                    .to_lowercase()
+                    .contains(&search_lower)
+            });
+        }
+
+        // Already sorted by created_at desc from list_chunks
+        chunks.truncate(limit);
+
+        let results: Vec<Value> = chunks.iter().map(Self::chunk_to_meta_json).collect();
+
+        Ok(json!({
+            "count": results.len(),
+            "memories": results
+        }))
+    }
+
+    fn list(&self, tag: Option<&str>, limit: usize) -> restflow_ai::error::Result<Value> {
+        let chunks = self
+            .storage
+            .list_chunks(&self.agent_id)
+            .map_err(|e| AiError::Tool(e.to_string()))?;
+
+        let total = chunks.len();
+        let mut filtered = chunks;
+
+        // Filter by user tag (case-insensitive contains)
+        if let Some(tag_filter) = tag {
+            let tag_lower = tag_filter.to_lowercase();
+            filtered.retain(|c| {
+                Self::user_tags(&c.tags)
+                    .iter()
+                    .any(|t| t.to_lowercase().contains(&tag_lower))
+            });
+        }
+
+        filtered.truncate(limit);
+
+        let results: Vec<Value> = filtered.iter().map(Self::chunk_to_meta_json).collect();
+
+        Ok(json!({
+            "total": total,
+            "count": results.len(),
+            "memories": results
+        }))
+    }
+
+    fn delete(&self, id: &str) -> restflow_ai::error::Result<Value> {
+        let deleted = self
+            .storage
+            .delete_chunk(id)
+            .map_err(|e| AiError::Tool(e.to_string()))?;
+
+        if deleted {
+            Ok(json!({
+                "deleted": true,
+                "id": id,
+                "message": "Memory deleted successfully"
+            }))
+        } else {
+            Ok(json!({
+                "deleted": false,
+                "message": format!("No memory found with ID: {}", id)
+            }))
+        }
+    }
+}
+
 /// Create a tool registry with all available tools including storage-backed tools.
 ///
 /// This function creates a registry with:
 /// - Default tools from restflow-ai (http_request, run_python, send_email)
 /// - SkillTool that can access skills from storage
 /// - Memory search tool for unified memory and session search
+/// - Agent memory CRUD tools (save_to_memory, read_memory, etc.) when agent_id is provided
 #[allow(clippy::too_many_arguments)]
 pub fn create_tool_registry(
     skill_storage: SkillStorage,
@@ -808,6 +1023,7 @@ pub fn create_tool_registry(
     trigger_storage: TriggerStorage,
     terminal_storage: TerminalSessionStorage,
     accessor_id: Option<String>,
+    agent_id: Option<String>,
 ) -> ToolRegistry {
     let root = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
     let lsp_manager = Arc::new(LspManager::new(root));
@@ -832,6 +1048,16 @@ pub fn create_tool_registry(
     // Memory management tool (clone before move)
     let memory_manager = Arc::new(MemoryManagerAdapter::new(memory_storage.clone()));
     registry.register(MemoryManagementTool::new(memory_manager).with_write(true));
+
+    // Agent memory CRUD tools (save_to_memory, read_memory, list_memories, delete_memory)
+    if let Some(ref aid) = agent_id {
+        let mem_store: Arc<dyn MemoryStore> =
+            Arc::new(DbMemoryStoreAdapter::new(memory_storage.clone(), aid.clone()));
+        registry.register(SaveMemoryTool::new(mem_store.clone()));
+        registry.register(ReadMemoryTool::new(mem_store.clone()));
+        registry.register(ListMemoryTool::new(mem_store.clone()));
+        registry.register(DeleteMemoryTool::new(mem_store));
+    }
 
     // Add unified memory search tool
     let search_engine = UnifiedSearchEngine::new(memory_storage, chat_storage);
@@ -1910,6 +2136,7 @@ mod tests {
             trigger_storage,
             terminal_storage,
             None,
+            None,
         );
 
         // Should have default tools + skill tool
@@ -2018,6 +2245,7 @@ mod tests {
             model: Some(crate::models::AIModel::ClaudeSonnet4_5),
             prompt: Some("You are a testing assistant".to_string()),
             temperature: Some(0.3),
+            codex_cli_reasoning_effort: None,
             api_key_config: Some(crate::models::ApiKeyConfig::Direct("test-key".to_string())),
             tools: Some(vec!["manage_tasks".to_string()]),
             skills: Some(vec!["ops-skill".to_string()]),
@@ -2254,6 +2482,7 @@ mod tests {
             trigger_storage,
             terminal_storage,
             None,
+            None,
         );
 
         let listed = registry
@@ -2304,6 +2533,7 @@ mod tests {
             agent_task_storage,
             trigger_storage,
             terminal_storage,
+            None,
             None,
         );
 
@@ -2370,6 +2600,7 @@ mod tests {
             agent_task_storage,
             trigger_storage,
             terminal_storage,
+            None,
             None,
         );
 
@@ -2458,6 +2689,7 @@ mod tests {
             trigger_storage,
             terminal_storage,
             None,
+            None,
         );
 
         let summary = registry
@@ -2482,5 +2714,130 @@ mod tests {
             .unwrap();
         assert!(check.success);
         assert!(check.result.get("allowed").is_some());
+    }
+
+    #[tokio::test]
+    async fn test_db_memory_store_adapter_crud() {
+        let (
+            _skill_storage,
+            memory_storage,
+            _chat_storage,
+            _shared_space_storage,
+            _secret_storage,
+            _config_storage,
+            _agent_storage,
+            _agent_task_storage,
+            _trigger_storage,
+            _terminal_storage,
+            _temp_dir,
+        ) = setup_storage();
+
+        let store = DbMemoryStoreAdapter::new(memory_storage, "test-agent".to_string());
+
+        // Test save
+        let saved = store
+            .save("My Note", "Hello world content", &["tag1".into(), "tag2".into()])
+            .unwrap();
+        assert!(saved["success"].as_bool().unwrap());
+        let entry_id = saved["id"].as_str().unwrap().to_string();
+        assert_eq!(saved["title"].as_str().unwrap(), "My Note");
+
+        // Test read_by_id
+        let read = store.read_by_id(&entry_id).unwrap().unwrap();
+        assert!(read["found"].as_bool().unwrap());
+        assert_eq!(read["entry"]["title"].as_str().unwrap(), "My Note");
+        assert_eq!(
+            read["entry"]["content"].as_str().unwrap(),
+            "Hello world content"
+        );
+        let tags = read["entry"]["tags"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap())
+            .collect::<Vec<_>>();
+        assert!(tags.contains(&"tag1"));
+        assert!(tags.contains(&"tag2"));
+        // __title tag should NOT appear in user tags
+        assert!(!tags.iter().any(|t| t.starts_with("__title:")));
+
+        // Test list
+        let listed = store.list(None, 10).unwrap();
+        assert_eq!(listed["total"].as_u64().unwrap(), 1);
+        let memories = listed["memories"].as_array().unwrap();
+        assert_eq!(memories.len(), 1);
+        assert_eq!(memories[0]["title"].as_str().unwrap(), "My Note");
+
+        // Test list by tag
+        let listed = store.list(Some("tag1"), 10).unwrap();
+        assert_eq!(listed["count"].as_u64().unwrap(), 1);
+        let listed = store.list(Some("nonexistent"), 10).unwrap();
+        assert_eq!(listed["count"].as_u64().unwrap(), 0);
+
+        // Test search by title keyword
+        let found = store.search(None, Some("Note"), 10).unwrap();
+        assert!(found["count"].as_u64().unwrap() >= 1);
+        let found = store.search(None, Some("nonexistent"), 10).unwrap();
+        assert_eq!(found["count"].as_u64().unwrap(), 0);
+
+        // Test search by tag
+        let found = store.search(Some("tag2"), None, 10).unwrap();
+        assert!(found["count"].as_u64().unwrap() >= 1);
+
+        // Test dedup: saving same content again should not create a duplicate
+        let saved2 = store
+            .save("My Note", "Hello world content", &["tag1".into()])
+            .unwrap();
+        assert!(saved2["success"].as_bool().unwrap());
+        let listed = store.list(None, 10).unwrap();
+        assert_eq!(listed["total"].as_u64().unwrap(), 1);
+
+        // Test delete
+        let deleted = store.delete(&entry_id).unwrap();
+        assert!(deleted["deleted"].as_bool().unwrap());
+        let listed = store.list(None, 10).unwrap();
+        assert_eq!(listed["total"].as_u64().unwrap(), 0);
+
+        // Test read_by_id after delete
+        let read = store.read_by_id(&entry_id).unwrap();
+        assert!(read.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_create_tool_registry_with_agent_id_has_memory_tools() {
+        let (
+            skill_storage,
+            memory_storage,
+            chat_storage,
+            shared_space_storage,
+            secret_storage,
+            config_storage,
+            agent_storage,
+            agent_task_storage,
+            trigger_storage,
+            terminal_storage,
+            _temp_dir,
+        ) = setup_storage();
+
+        let registry = create_tool_registry(
+            skill_storage,
+            memory_storage,
+            chat_storage,
+            shared_space_storage,
+            secret_storage,
+            config_storage,
+            agent_storage,
+            agent_task_storage,
+            trigger_storage,
+            terminal_storage,
+            None,
+            Some("test-agent".to_string()),
+        );
+
+        // Memory tools should be registered when agent_id is provided
+        assert!(registry.has("save_to_memory"));
+        assert!(registry.has("read_memory"));
+        assert!(registry.has("list_memories"));
+        assert!(registry.has("delete_memory"));
     }
 }

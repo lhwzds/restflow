@@ -133,6 +133,7 @@ fn create_runtime_tool_registry_for_core(core: &Arc<AppCore>) -> restflow_ai::to
         core.storage.triggers.clone(),
         core.storage.terminal_sessions.clone(),
         None,
+        None,
     )
 }
 
@@ -1837,6 +1838,7 @@ mod tests {
             model: Some(AIModel::ClaudeSonnet4_5),
             prompt: Some(prompt.to_string()),
             temperature: Some(0.7),
+            codex_cli_reasoning_effort: None,
             api_key_config: Some(ApiKeyConfig::Direct("test_key".to_string())),
             tools: Some(vec!["add".to_string()]),
             skills: None,
@@ -2357,6 +2359,7 @@ mod tests {
                     model: Some(AIModel::ClaudeSonnet4_5),
                     prompt: Some("Mock prompt".to_string()),
                     temperature: Some(0.5),
+                    codex_cli_reasoning_effort: None,
                     api_key_config: Some(ApiKeyConfig::Direct("mock_key".to_string())),
                     tools: None,
                     skills: None,
