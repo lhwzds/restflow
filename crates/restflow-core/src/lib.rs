@@ -70,7 +70,8 @@ impl AppCore {
         let agents = storage.agents.list_agents()?;
         if agents.is_empty() {
             info!("Creating default agent...");
-            let agent_node = models::AgentNode::new().with_prompt(DEFAULT_AGENT_PROMPT);
+            let agent_node =
+                models::AgentNode::with_model(models::AIModel::CodexCli).with_prompt(DEFAULT_AGENT_PROMPT);
             storage
                 .agents
                 .create_agent(DEFAULT_AGENT_NAME.to_string(), agent_node)?;
