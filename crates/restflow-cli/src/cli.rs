@@ -44,9 +44,6 @@ pub enum Commands {
         shell: Shell,
     },
 
-    /// Run an agent directly
-    Run(RunArgs),
-
     /// Start RestFlow daemon
     Start(StartArgs),
 
@@ -150,24 +147,6 @@ pub struct MigrateArgs {
     /// Force migration even if target exists
     #[arg(long)]
     pub force: bool,
-}
-
-#[derive(Args)]
-pub struct RunArgs {
-    /// Agent ID to run
-    pub agent_id: String,
-
-    /// Input prompt
-    #[arg(short, long)]
-    pub input: Option<String>,
-
-    /// Run in background
-    #[arg(short, long)]
-    pub background: bool,
-
-    /// Stream output
-    #[arg(long)]
-    pub stream: bool,
 }
 
 #[derive(Args, Default, Clone, Copy)]
