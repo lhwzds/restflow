@@ -1,5 +1,5 @@
 use super::ipc_protocol::{
-    IpcRequest, IpcResponse, ToolDefinition, ToolExecutionResult, MAX_MESSAGE_SIZE,
+    IpcRequest, IpcResponse, StreamFrame, ToolDefinition, ToolExecutionResult, MAX_MESSAGE_SIZE,
 };
 use crate::auth::{AuthProfile, AuthProvider, Credential, CredentialSource, ProfileUpdate};
 use crate::memory::ExportResult;
@@ -33,13 +33,16 @@ impl IpcClient {
         Ok(Self { stream })
     }
 
-    pub async fn request(&mut self, req: IpcRequest) -> Result<IpcResponse> {
+    async fn send_request_frame(&mut self, req: &IpcRequest) -> Result<()> {
         let json = serde_json::to_vec(&req)?;
         self.stream
             .write_all(&(json.len() as u32).to_le_bytes())
             .await?;
         self.stream.write_all(&json).await?;
+        Ok(())
+    }
 
+    async fn read_raw_frame(&mut self) -> Result<Vec<u8>> {
         let mut len_buf = [0u8; 4];
         self.stream.read_exact(&mut len_buf).await?;
         let len = u32::from_le_bytes(len_buf) as usize;
@@ -49,6 +52,12 @@ impl IpcClient {
 
         let mut buf = vec![0u8; len];
         self.stream.read_exact(&mut buf).await?;
+        Ok(buf)
+    }
+
+    pub async fn request(&mut self, req: IpcRequest) -> Result<IpcResponse> {
+        self.send_request_frame(&req).await?;
+        let buf = self.read_raw_frame().await?;
         Ok(serde_json::from_slice(&buf)?)
     }
 
@@ -405,6 +414,65 @@ impl IpcClient {
             user_input,
         })
         .await
+    }
+
+    pub async fn execute_chat_session_stream<F>(
+        &mut self,
+        session_id: String,
+        user_input: Option<String>,
+        stream_id: String,
+        mut on_frame: F,
+    ) -> Result<()>
+    where
+        F: FnMut(StreamFrame) -> Result<()>,
+    {
+        self.send_request_frame(&IpcRequest::ExecuteChatSessionStream {
+            session_id,
+            user_input,
+            stream_id,
+        })
+        .await?;
+
+        loop {
+            let buf = self.read_raw_frame().await?;
+
+            if let Ok(frame) = serde_json::from_slice::<StreamFrame>(&buf) {
+                let terminal =
+                    matches!(frame, StreamFrame::Done { .. } | StreamFrame::Error { .. });
+                on_frame(frame)?;
+                if terminal {
+                    break;
+                }
+                continue;
+            }
+
+            let response: IpcResponse = serde_json::from_slice(&buf)
+                .context("Failed to deserialize streaming IPC frame")?;
+            match response {
+                IpcResponse::Error { code, message } => {
+                    bail!("IPC error {}: {}", code, message);
+                }
+                IpcResponse::Success(_) => {
+                    bail!("Unexpected success response while reading stream")
+                }
+                IpcResponse::Pong => {
+                    bail!("Unexpected Pong response while reading stream")
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    pub async fn cancel_chat_session_stream(&mut self, stream_id: String) -> Result<bool> {
+        #[derive(serde::Deserialize)]
+        struct CancelResponse {
+            canceled: bool,
+        }
+        let resp: CancelResponse = self
+            .request_typed(IpcRequest::CancelChatSessionStream { stream_id })
+            .await?;
+        Ok(resp.canceled)
     }
 
     pub async fn get_session_messages(
@@ -919,6 +987,23 @@ impl IpcClient {
         _session_id: String,
         _user_input: Option<String>,
     ) -> Result<ChatSession> {
+        self.request_typed(IpcRequest::Ping).await
+    }
+
+    pub async fn execute_chat_session_stream<F>(
+        &mut self,
+        _session_id: String,
+        _user_input: Option<String>,
+        _stream_id: String,
+        _on_frame: F,
+    ) -> Result<()>
+    where
+        F: FnMut(StreamFrame) -> Result<()>,
+    {
+        self.request_typed(IpcRequest::Ping).await
+    }
+
+    pub async fn cancel_chat_session_stream(&mut self, _stream_id: String) -> Result<bool> {
         self.request_typed(IpcRequest::Ping).await
     }
 
