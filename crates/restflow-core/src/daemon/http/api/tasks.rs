@@ -52,7 +52,7 @@ async fn get_background_agent(
 ) -> Result<Json<BackgroundAgent>, ApiError> {
     let task = core
         .storage
-        .agent_tasks
+        .background_agents
         .get_task(&id)?
         .ok_or_else(|| ApiError::not_found("Background agent"))?;
     Ok(Json(task))
@@ -75,9 +75,12 @@ fn list_tasks_by_optional_status(
 ) -> Result<Vec<BackgroundAgent>, ApiError> {
     if let Some(status_str) = status {
         let status = parse_task_status(&status_str)?;
-        Ok(core.storage.agent_tasks.list_tasks_by_status(status)?)
+        Ok(core
+            .storage
+            .background_agents
+            .list_tasks_by_status(status)?)
     } else {
-        Ok(core.storage.agent_tasks.list_tasks()?)
+        Ok(core.storage.background_agents.list_tasks()?)
     }
 }
 
@@ -106,7 +109,7 @@ async fn create_background_agent(
 ) -> Result<Json<BackgroundAgent>, ApiError> {
     let task = core
         .storage
-        .agent_tasks
+        .background_agents
         .create_background_agent(BackgroundAgentSpec {
             name: req.name,
             agent_id: req.agent_id,
@@ -148,7 +151,7 @@ async fn update_background_agent(
     Path(id): Path<String>,
     Json(req): Json<UpdateBackgroundAgentRequest>,
 ) -> Result<Json<BackgroundAgent>, ApiError> {
-    let task = core.storage.agent_tasks.update_background_agent(
+    let task = core.storage.background_agents.update_background_agent(
         &id,
         BackgroundAgentPatch {
             name: req.name,
@@ -187,7 +190,7 @@ async fn delete_background_agent(
     Extension(core): Extension<Arc<AppCore>>,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let deleted = core.storage.agent_tasks.delete_task(&id)?;
+    let deleted = core.storage.background_agents.delete_task(&id)?;
     Ok(Json(serde_json::json!({ "deleted": deleted, "id": id })))
 }
 
@@ -203,7 +206,7 @@ async fn control_background_agent(
 ) -> Result<Json<BackgroundAgent>, ApiError> {
     let task = core
         .storage
-        .agent_tasks
+        .background_agents
         .control_background_agent(&id, req.action)?;
     Ok(Json(task))
 }
@@ -225,7 +228,7 @@ async fn get_background_progress(
 ) -> Result<Json<BackgroundProgress>, ApiError> {
     let progress = core
         .storage
-        .agent_tasks
+        .background_agents
         .get_background_agent_progress(&id, query.event_limit)?;
     Ok(Json(progress))
 }
@@ -242,11 +245,14 @@ async fn send_background_message(
     Path(id): Path<String>,
     Json(req): Json<SendBackgroundMessageRequest>,
 ) -> Result<Json<BackgroundMessage>, ApiError> {
-    let message = core.storage.agent_tasks.send_background_agent_message(
-        &id,
-        req.message,
-        req.source.unwrap_or(BackgroundMessageSource::User),
-    )?;
+    let message = core
+        .storage
+        .background_agents
+        .send_background_agent_message(
+            &id,
+            req.message,
+            req.source.unwrap_or(BackgroundMessageSource::User),
+        )?;
     Ok(Json(message))
 }
 
@@ -267,7 +273,7 @@ async fn list_background_messages(
 ) -> Result<Json<Vec<BackgroundMessage>>, ApiError> {
     let messages = core
         .storage
-        .agent_tasks
+        .background_agents
         .list_background_agent_messages(&id, query.limit.max(1))?;
     Ok(Json(messages))
 }
@@ -303,7 +309,7 @@ mod tests {
             .expect("default agent missing");
 
         core.storage
-            .agent_tasks
+            .background_agents
             .create_background_agent(BackgroundAgentSpec {
                 name: "Background Agent Test".to_string(),
                 agent_id: default_agent.id,

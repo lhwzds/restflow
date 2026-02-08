@@ -294,7 +294,6 @@ impl BackgroundAgentStoreAdapter {
             Some(scope) if scope == "per_background_agent" => {
                 Ok(Some(MemoryScope::PerBackgroundAgent))
             }
-            Some(scope) if scope == "per_task" => Ok(Some(MemoryScope::PerBackgroundAgent)),
             Some(scope) => Err(AiError::Tool(format!("Unknown memory_scope: {}", scope))),
         }
     }

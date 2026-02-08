@@ -175,8 +175,8 @@ impl CoreAccess {
     ) -> Result<Vec<BackgroundAgent>> {
         match self {
             CoreAccess::Local(core) => match status {
-                Some(status) => core.storage.agent_tasks.list_tasks_by_status(status),
-                None => core.storage.agent_tasks.list_tasks(),
+                Some(status) => core.storage.background_agents.list_tasks_by_status(status),
+                None => core.storage.background_agents.list_tasks(),
             },
             CoreAccess::Remote(client) => {
                 let response = client
@@ -191,7 +191,7 @@ impl CoreAccess {
 
     pub async fn get_background_agent(&mut self, id: &str) -> Result<Option<BackgroundAgent>> {
         match self {
-            CoreAccess::Local(core) => core.storage.agent_tasks.get_task(id),
+            CoreAccess::Local(core) => core.storage.background_agents.get_task(id),
             CoreAccess::Remote(client) => {
                 let response = client
                     .request(IpcRequest::GetBackgroundAgent { id: id.to_string() })
@@ -211,7 +211,7 @@ impl CoreAccess {
         spec: BackgroundAgentSpec,
     ) -> Result<BackgroundAgent> {
         match self {
-            CoreAccess::Local(core) => core.storage.agent_tasks.create_background_agent(spec),
+            CoreAccess::Local(core) => core.storage.background_agents.create_background_agent(spec),
             CoreAccess::Remote(client) => {
                 let response = client
                     .request(IpcRequest::CreateBackgroundAgent { spec })

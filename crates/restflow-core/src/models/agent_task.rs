@@ -152,18 +152,18 @@ fn default_max_messages() -> usize {
     100
 }
 
-/// Scope for task memory persistence.
+/// Scope for background-agent memory persistence.
 ///
-/// Controls whether long-term memory is shared across all tasks of an agent
-/// or isolated per task.
+/// Controls whether long-term memory is shared across all background agents of
+/// an agent or isolated per background agent.
 #[derive(Debug, Clone, Default, Serialize, TS, PartialEq)]
 #[ts(export)]
 #[serde(rename_all = "snake_case")]
 pub enum MemoryScope {
-    /// Share long-term memory across tasks using the same agent_id.
+    /// Share long-term memory across background agents using the same agent_id.
     #[default]
     SharedAgent,
-    /// Isolate long-term memory by task.
+    /// Isolate long-term memory by background agent.
     #[serde(rename = "per_background_agent")]
     PerBackgroundAgent,
 }
@@ -176,10 +176,10 @@ impl<'de> Deserialize<'de> for MemoryScope {
         let value = String::deserialize(deserializer)?;
         match value.as_str() {
             "shared_agent" => Ok(Self::SharedAgent),
-            "per_background_agent" | "per_task" => Ok(Self::PerBackgroundAgent),
+            "per_background_agent" => Ok(Self::PerBackgroundAgent),
             other => Err(serde::de::Error::unknown_variant(
                 other,
-                &["shared_agent", "per_background_agent", "per_task"],
+                &["shared_agent", "per_background_agent"],
             )),
         }
     }
@@ -211,8 +211,8 @@ pub struct MemoryConfig {
     pub persist_on_complete: bool,
 
     /// Scope for long-term memory persistence.
-    /// Shared scope stores memory under the agent ID, while per-task scope
-    /// stores memory under a task-specific namespace.
+    /// Shared scope stores memory under the agent ID, while isolated scope
+    /// stores memory under a background-agent-specific namespace.
     #[serde(default = "default_memory_scope")]
     pub memory_scope: MemoryScope,
 }
@@ -1219,10 +1219,8 @@ mod tests {
     }
 
     #[test]
-    fn test_memory_scope_deserializes_legacy_per_task() {
-        let scope: MemoryScope = serde_json::from_str(r#""per_task""#).unwrap();
-        assert_eq!(scope, MemoryScope::PerBackgroundAgent);
-
+    fn test_memory_scope_serialization() {
+        let scope = MemoryScope::PerBackgroundAgent;
         let serialized = serde_json::to_string(&scope).unwrap();
         assert_eq!(serialized, r#""per_background_agent""#);
     }

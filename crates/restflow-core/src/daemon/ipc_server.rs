@@ -1,6 +1,7 @@
 use super::ipc_protocol::{
-    IpcRequest, IpcResponse, StreamFrame, ToolDefinition, ToolExecutionResult, MAX_MESSAGE_SIZE,
+    IpcRequest, IpcResponse, MAX_MESSAGE_SIZE, StreamFrame, ToolDefinition, ToolExecutionResult,
 };
+use crate::AppCore;
 use crate::auth::{AuthManagerConfig, AuthProfileManager};
 use crate::memory::{MemoryExporter, MemoryExporterBuilder, SearchEngineBuilder};
 use crate::models::{
@@ -16,7 +17,6 @@ use crate::services::{
     agent as agent_service, config as config_service, secrets as secrets_service,
     skills as skills_service,
 };
-use crate::AppCore;
 use anyhow::Result;
 use chrono::Utc;
 use restflow_storage::AuthProfileStorage;
@@ -25,7 +25,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::OnceLock;
 use std::time::Instant;
-use tokio::sync::{broadcast, mpsc, Mutex};
+use tokio::sync::{Mutex, broadcast, mpsc};
 use tokio::task::JoinHandle;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
@@ -315,10 +315,10 @@ impl IpcServer {
             IpcRequest::ListBackgroundAgents { status } => {
                 let result = match status {
                     Some(status) => match parse_background_agent_status(&status) {
-                        Ok(status) => core.storage.agent_tasks.list_tasks_by_status(status),
+                        Ok(status) => core.storage.background_agents.list_tasks_by_status(status),
                         Err(err) => return IpcResponse::error(400, err.to_string()),
                     },
-                    None => core.storage.agent_tasks.list_tasks(),
+                    None => core.storage.background_agents.list_tasks(),
                 };
 
                 match result {
@@ -328,16 +328,18 @@ impl IpcServer {
             }
             IpcRequest::ListRunnableBackgroundAgents { current_time } => {
                 let now = current_time.unwrap_or_else(|| chrono::Utc::now().timestamp_millis());
-                match core.storage.agent_tasks.list_runnable_tasks(now) {
+                match core.storage.background_agents.list_runnable_tasks(now) {
                     Ok(background_agents) => IpcResponse::success(background_agents),
                     Err(err) => IpcResponse::error(500, err.to_string()),
                 }
             }
-            IpcRequest::GetBackgroundAgent { id } => match core.storage.agent_tasks.get_task(&id) {
-                Ok(Some(background_agent)) => IpcResponse::success(background_agent),
-                Ok(None) => IpcResponse::not_found("Background agent"),
-                Err(err) => IpcResponse::error(500, err.to_string()),
-            },
+            IpcRequest::GetBackgroundAgent { id } => {
+                match core.storage.background_agents.get_task(&id) {
+                    Ok(Some(background_agent)) => IpcResponse::success(background_agent),
+                    Ok(None) => IpcResponse::not_found("Background agent"),
+                    Err(err) => IpcResponse::error(500, err.to_string()),
+                }
+            }
             IpcRequest::ListHooks => match core.storage.hooks.list() {
                 Ok(hooks) => IpcResponse::success(hooks),
                 Err(err) => IpcResponse::error(500, err.to_string()),
@@ -361,7 +363,7 @@ impl IpcServer {
                     Err(err) => return IpcResponse::error(500, err.to_string()),
                 };
                 let scheduler = Arc::new(crate::hooks::AgentTaskHookScheduler::new(
-                    core.storage.agent_tasks.clone(),
+                    core.storage.background_agents.clone(),
                 ));
                 let executor = crate::hooks::HookExecutor::with_storage(core.storage.hooks.clone())
                     .with_task_scheduler(scheduler);
@@ -1097,25 +1099,29 @@ impl IpcServer {
                 IpcResponse::success(serde_json::json!({ "ok": true }))
             }
             IpcRequest::GetBackgroundAgentHistory { id } => {
-                match core.storage.agent_tasks.list_events_for_task(&id) {
+                match core.storage.background_agents.list_events_for_task(&id) {
                     Ok(events) => IpcResponse::success(events),
                     Err(err) => IpcResponse::error(500, err.to_string()),
                 }
             }
             IpcRequest::CreateBackgroundAgent { spec } => {
-                match core.storage.agent_tasks.create_background_agent(spec) {
+                match core.storage.background_agents.create_background_agent(spec) {
                     Ok(task) => IpcResponse::success(task),
                     Err(err) => IpcResponse::error(500, err.to_string()),
                 }
             }
             IpcRequest::UpdateBackgroundAgent { id, patch } => {
-                match core.storage.agent_tasks.update_background_agent(&id, patch) {
+                match core
+                    .storage
+                    .background_agents
+                    .update_background_agent(&id, patch)
+                {
                     Ok(task) => IpcResponse::success(task),
                     Err(err) => IpcResponse::error(500, err.to_string()),
                 }
             }
             IpcRequest::DeleteBackgroundAgent { id } => {
-                match core.storage.agent_tasks.delete_task(&id) {
+                match core.storage.background_agents.delete_task(&id) {
                     Ok(deleted) => {
                         IpcResponse::success(serde_json::json!({ "deleted": deleted, "id": id }))
                     }
@@ -1125,7 +1131,7 @@ impl IpcServer {
             IpcRequest::ControlBackgroundAgent { id, action } => {
                 match core
                     .storage
-                    .agent_tasks
+                    .background_agents
                     .control_background_agent(&id, action)
                 {
                     Ok(task) => IpcResponse::success(task),
@@ -1135,7 +1141,7 @@ impl IpcServer {
             IpcRequest::GetBackgroundAgentProgress { id, event_limit } => {
                 match core
                     .storage
-                    .agent_tasks
+                    .background_agents
                     .get_background_agent_progress(&id, event_limit.unwrap_or(10))
                 {
                     Ok(progress) => IpcResponse::success(progress),
@@ -1146,11 +1152,14 @@ impl IpcServer {
                 id,
                 message,
                 source,
-            } => match core.storage.agent_tasks.send_background_agent_message(
-                &id,
-                message,
-                source.unwrap_or(crate::models::BackgroundMessageSource::User),
-            ) {
+            } => match core
+                .storage
+                .background_agents
+                .send_background_agent_message(
+                    &id,
+                    message,
+                    source.unwrap_or(crate::models::BackgroundMessageSource::User),
+                ) {
                 Ok(msg) => IpcResponse::success(msg),
                 Err(err) => IpcResponse::error(500, err.to_string()),
             },
@@ -1160,11 +1169,14 @@ impl IpcServer {
                 } else {
                     "User rejected the pending action."
                 };
-                match core.storage.agent_tasks.send_background_agent_message(
-                    &id,
-                    message.to_string(),
-                    crate::models::BackgroundMessageSource::System,
-                ) {
+                match core
+                    .storage
+                    .background_agents
+                    .send_background_agent_message(
+                        &id,
+                        message.to_string(),
+                        crate::models::BackgroundMessageSource::System,
+                    ) {
                     Ok(_) => {
                         // Simplified placeholder:
                         // approval is currently injected as a system message so running
@@ -1178,7 +1190,7 @@ impl IpcServer {
             IpcRequest::ListBackgroundAgentMessages { id, limit } => {
                 match core
                     .storage
-                    .agent_tasks
+                    .background_agents
                     .list_background_agent_messages(&id, limit.unwrap_or(50).max(1))
                 {
                     Ok(messages) => IpcResponse::success(messages),
@@ -1258,7 +1270,7 @@ fn create_runtime_tool_registry(core: &Arc<AppCore>) -> restflow_ai::tools::Tool
         core.storage.secrets.clone(),
         core.storage.config.clone(),
         core.storage.agents.clone(),
-        core.storage.agent_tasks.clone(),
+        core.storage.background_agents.clone(),
         core.storage.triggers.clone(),
         core.storage.terminal_sessions.clone(),
         None,
@@ -1380,7 +1392,10 @@ fn parse_background_agent_status(status: &str) -> Result<BackgroundAgentStatus> 
         "running" => Ok(BackgroundAgentStatus::Running),
         "completed" => Ok(BackgroundAgentStatus::Completed),
         "failed" => Ok(BackgroundAgentStatus::Failed),
-        _ => Err(anyhow::anyhow!("Unknown task status: {}", status)),
+        _ => Err(anyhow::anyhow!(
+            "Unknown background agent status: {}",
+            status
+        )),
     }
 }
 

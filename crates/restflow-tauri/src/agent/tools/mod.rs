@@ -455,7 +455,7 @@ pub fn registry_from_allowlist(
                 storage.secrets.clone(),
                 storage.config.clone(),
                 storage.agents.clone(),
-                storage.agent_tasks.clone(),
+                storage.background_agents.clone(),
                 storage.triggers.clone(),
                 storage.terminal_sessions.clone(),
                 None,
