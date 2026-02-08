@@ -1,29 +1,29 @@
 import { expect, Page } from '@playwright/test'
 
-export async function createSkillAndOpenEditor(page: Page) {
-  const newButton = page.locator('button', { hasText: 'New Skill' })
-  await newButton.click()
-  await expect(page.locator('textarea[placeholder*="Markdown"]')).toBeVisible()
+/**
+ * Navigate to the workspace and wait for it to load.
+ */
+export async function goToWorkspace(page: Page) {
+  await page.goto('/workspace')
+  await page.waitForLoadState('networkidle')
 }
 
-export async function createSkillInBrowser(page: Page) {
-  await createSkillAndOpenEditor(page)
-  await page.getByRole('button', { name: 'Skills' }).click()
-  const skillItem = page.locator('button', { hasText: /Untitled-\d+/ }).first()
-  await expect(skillItem).toBeVisible()
-  return skillItem
+/**
+ * Open the full-screen Settings panel by clicking the gear icon.
+ */
+export async function openSettings(page: Page) {
+  const settingsButton = page.locator('button').filter({ has: page.locator('svg.lucide-settings') })
+  await settingsButton.click()
+  // Wait for settings left nav to appear
+  await expect(page.locator('nav button', { hasText: 'Secrets' })).toBeVisible()
 }
 
-export async function createAgentAndOpenEditor(page: Page) {
-  const newButton = page.locator('button', { hasText: 'New Agent' })
-  await newButton.click()
-  await expect(page.locator('textarea[placeholder*="system prompt"]')).toBeVisible()
-}
-
-export async function createAgentInBrowser(page: Page) {
-  await createAgentAndOpenEditor(page)
-  await page.getByRole('button', { name: 'Agents' }).click()
-  const agentItem = page.locator('button', { hasText: /Untitled-\d+/ }).first()
-  await expect(agentItem).toBeVisible()
-  return agentItem
+/**
+ * Close Settings and return to the chat layout.
+ */
+export async function closeSettings(page: Page) {
+  const backButton = page.locator('nav button').filter({ has: page.locator('svg.lucide-arrow-left') })
+  await backButton.click()
+  // Wait for session list to appear
+  await expect(page.getByRole('button', { name: 'New Session' })).toBeVisible()
 }
