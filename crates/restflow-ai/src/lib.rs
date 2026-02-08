@@ -55,9 +55,10 @@ pub use tools::{
     AuthProfileStore, AuthProfileTestRequest, AuthProfileTool, CredentialInput,
     DiagnosticsProvider, DiagnosticsTool, EmailTool, HttpTool, MemoryClearRequest,
     MemoryCompactRequest, MemoryExportRequest, MemoryManagementTool, MemoryManager,
-    MemorySearchMatch, MemorySearchTool, MemoryStore, PythonTool, SecretResolver, SemanticMemory,
-    SessionCreateRequest, SessionListFilter, SessionSearchQuery, SessionStore, SessionTool,
-    SkillContent, SkillInfo, SkillProvider, SkillRecord, SkillTool, SkillUpdate, SwitchModelTool,
-    Tool, ToolOutput, ToolRegistry, ToolSchema, TranscribeTool, VisionTool,
+    MemorySearchMatch, MemorySearchTool, MemoryStore, PythonTool, ReplySender, ReplyTool,
+    SecretResolver, SemanticMemory, SessionCreateRequest, SessionListFilter, SessionSearchQuery,
+    SessionStore, SessionTool, SkillContent, SkillInfo, SkillProvider, SkillRecord, SkillTool,
+    SkillUpdate, SwitchModelTool, Tool, ToolOutput, ToolRegistry, ToolSchema, TranscribeTool,
+    VisionTool,
 };
 pub use workflow_def::WorkflowDef;

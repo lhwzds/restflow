@@ -299,8 +299,7 @@ impl ContextLoader {
             return String::new();
         }
 
-        let mut result = String::from("# Project-Specific Instructions\n\n");
-        result.push_str("Follow the instructions below for this project:\n\n");
+        let mut result = String::new();
 
         for (path, content) in contents {
             let relative = path.strip_prefix(&self.workdir).unwrap_or(path);

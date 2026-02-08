@@ -377,13 +377,39 @@ impl UnifiedAgent {
     }
 
     async fn build_system_prompt(&self) -> String {
-        let tool_section = self.build_tool_section();
-        let workspace_context = self.workspace_context_section().await;
+        let mut prompt = String::new();
 
-        format!(
-            "{}\n\n{}{}\n\n## Instructions\nYou are in a ReAct loop. For each step:\n1. Think about what to do\n2. Use a tool if needed\n3. Observe the result\n4. Provide final answer when done",
-            self.system_prompt, tool_section, workspace_context
-        )
+        // Section 1: Core system instructions (highest priority)
+        prompt.push_str("# Core Instructions (PRIMARY)\n\n");
+        prompt.push_str(
+            "These are your core instructions. They take the HIGHEST priority over any other context.\n\n",
+        );
+        prompt.push_str(&self.system_prompt);
+
+        // Section 2: Tools & capabilities (actionable)
+        let tool_section = self.build_tool_section();
+        if !tool_section.is_empty() {
+            prompt.push_str("\n\n---\n\n");
+            prompt.push_str(&tool_section);
+        }
+
+        // Section 3: Workspace reference context (supplementary)
+        let workspace_context = self.workspace_context_section().await;
+        if !workspace_context.is_empty() {
+            prompt.push_str("\n\n---\n\n");
+            prompt.push_str(&workspace_context);
+        }
+
+        // Section 4: Operating mode
+        prompt.push_str("\n\n---\n\n");
+        prompt.push_str("# Operating Mode\n\n");
+        prompt.push_str("You are in a ReAct loop. For each step:\n");
+        prompt.push_str("1. Think about what to do\n");
+        prompt.push_str("2. Use a tool if needed\n");
+        prompt.push_str("3. Observe the result\n");
+        prompt.push_str("4. Provide final answer when done");
+
+        prompt
     }
 
     fn build_tool_section(&self) -> String {
@@ -391,7 +417,8 @@ impl UnifiedAgent {
         if defs.is_empty() {
             return String::new();
         }
-        let mut section = "## Available Tools\n\n".to_string();
+        let mut section =
+            "# Tools & Capabilities\n\nUse these tools to accomplish your tasks.\n\n".to_string();
         for def in defs {
             section.push_str(&format!("### {}\n{}\n\n", def.name, def.description));
         }
@@ -414,7 +441,11 @@ impl UnifiedAgent {
             "Loaded workspace context"
         );
 
-        format!("\n\n{}", context.content)
+        let mut section = "# Reference Context (SUPPLEMENTARY)\n\n".to_string();
+        section.push_str("The following instructions are discovered from project workspace files (e.g., CLAUDE.md, AGENTS.md).\n");
+        section.push_str("Use them as reference. When they conflict with Core Instructions above, Core Instructions take priority.\n\n");
+        section.push_str(&context.content);
+        section
     }
 
     async fn execute_tool_calls(&mut self, tool_calls: &[ToolCall]) -> Result<()> {
