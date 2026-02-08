@@ -6,7 +6,7 @@
 //! # Usage
 //!
 //! ```ignore
-//! use restflow_tauri::agent_task::{HeartbeatEvent, RunnerStatus};
+//! use restflow_tauri::background_agent::{HeartbeatEvent, RunnerStatus};
 //! use tauri::Manager;
 //!
 //! // Emit status during poll cycle

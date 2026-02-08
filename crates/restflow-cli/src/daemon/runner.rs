@@ -21,7 +21,7 @@ use tracing::{error, info};
 
 use super::telegram;
 
-pub struct CliTaskRunner {
+pub struct CliBackgroundAgentRunner {
     core: Arc<AppCore>,
     handle: Arc<RwLock<Option<Arc<RunnerHandle>>>>,
     runner: Arc<RwLock<Option<Arc<AgentTaskRunner>>>>,
@@ -41,7 +41,7 @@ fn create_auth_manager(
     ))
 }
 
-impl CliTaskRunner {
+impl CliBackgroundAgentRunner {
     pub fn new(core: Arc<AppCore>) -> Self {
         Self {
             core,

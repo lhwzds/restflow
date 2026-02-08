@@ -1,7 +1,7 @@
 use crate::cli::DaemonCommands;
 use crate::commands::claude_mcp::try_sync_restflow_stdio_mcp;
 use crate::commands::codex_mcp::try_sync_codex_http_mcp;
-use crate::daemon::CliTaskRunner;
+use crate::daemon::CliBackgroundAgentRunner;
 use anyhow::Result;
 use restflow_core::AppCore;
 use restflow_core::daemon::{
@@ -179,7 +179,7 @@ async fn run_daemon(core: Arc<AppCore>, config: DaemonConfig) -> Result<()> {
         }
     });
 
-    let mut runner = CliTaskRunner::new(core);
+    let mut runner = CliBackgroundAgentRunner::new(core);
     if let Err(err) = runner.start().await {
         error!(error = %err, "Task runner failed to start; continuing without runner");
     }

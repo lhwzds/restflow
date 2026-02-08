@@ -25,7 +25,7 @@
 //! # Usage
 //!
 //! ```ignore
-//! use restflow_tauri::agent_task::{
+//! use restflow_tauri::background_agent::{
 //!     AgentTaskRunner, RunnerConfig, RealAgentExecutor,
 //!     TelegramNotifier, TaskStreamEvent, TauriHeartbeatEmitter,
 //!     RetryConfig, FailoverConfig, FailoverManager
@@ -62,7 +62,7 @@
 //! The events module provides real-time streaming to the frontend:
 //!
 //! ```ignore
-//! use restflow_tauri::agent_task::events::{TaskStreamEvent, TASK_STREAM_EVENT};
+//! use restflow_tauri::background_agent::events::{TaskStreamEvent, TASK_STREAM_EVENT};
 //! use tauri::Manager;
 //!
 //! // Emit task started event
@@ -86,7 +86,7 @@
 //! The runner emits heartbeat events inline during its poll cycle:
 //!
 //! ```ignore
-//! use restflow_tauri::agent_task::{HeartbeatEvent, HEARTBEAT_EVENT};
+//! use restflow_tauri::background_agent::{HeartbeatEvent, HEARTBEAT_EVENT};
 //! use tauri::Manager;
 //!
 //! // Frontend listens to heartbeat events
@@ -109,7 +109,7 @@
 //! # Retry Example
 //!
 //! ```ignore
-//! use restflow_tauri::agent_task::retry::{RetryConfig, RetryState};
+//! use restflow_tauri::background_agent::retry::{RetryConfig, RetryState};
 //!
 //! let config = RetryConfig::default();
 //! let mut state = RetryState::new();
@@ -124,7 +124,7 @@
 //! # Failover Example
 //!
 //! ```ignore
-//! use restflow_tauri::agent_task::failover::{FailoverConfig, FailoverManager};
+//! use restflow_tauri::background_agent::failover::{FailoverConfig, FailoverManager};
 //! use restflow_core::AIModel;
 //!
 //! let config = FailoverConfig::with_fallbacks(
