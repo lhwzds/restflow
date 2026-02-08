@@ -51,8 +51,7 @@ async fn cmd_help(router: &ChannelRouter, message: &InboundMessage) -> Result<()
 `/help` - Show this help
 
 *During Task Execution:*
-Send messages directly to interact with the agent.
-Reply with `approve` or `reject` for command approval."#;
+Send messages directly to interact with the agent."#;
 
     let response = OutboundMessage::new(&message.conversation_id, text);
     router.send_to(message.channel_type, response).await

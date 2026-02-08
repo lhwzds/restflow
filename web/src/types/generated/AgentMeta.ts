@@ -39,7 +39,7 @@ skills: Array<string> | null,
 /**
  * Variables available for skill prompt substitution
  */
-skill_variables: { [key in string]?: string } | null, 
+skill_variables: { [key in string]: string } | null, 
 /**
  * Type identifier for the agent
  */

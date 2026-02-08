@@ -14,7 +14,7 @@ pub fn router() -> Router {
     Router::new()
         .nest("/agents", agents::router())
         .nest("/skills", skills::router())
-        .nest("/tasks", tasks::router())
+        .nest("/background-agents", tasks::router())
         .nest("/memory", memory::router())
         .nest("/sessions", sessions::router())
         .nest("/secrets", secrets::router())

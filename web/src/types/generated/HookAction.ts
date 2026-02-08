@@ -3,4 +3,4 @@
 /**
  * Hook action definition.
  */
-export type HookAction = { "type": "webhook", url: string, method: string | null, headers: { [key in string]?: string } | null, } | { "type": "script", path: string, args: Array<string> | null, timeout_secs: bigint | null, } | { "type": "send_message", channel_type: string, message_template: string, } | { "type": "run_task", agent_id: string, input_template: string, };
+export type HookAction = { "type": "webhook", url: string, method: string | null, headers: { [key in string]: string } | null, } | { "type": "script", path: string, args: Array<string> | null, timeout_secs: bigint | null, } | { "type": "send_message", channel_type: string, message_template: string, } | { "type": "run_task", agent_id: string, input_template: string, };
