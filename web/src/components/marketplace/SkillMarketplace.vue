@@ -13,7 +13,6 @@ import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Badge } from '@/components/ui/badge'
-import { ScrollArea } from '@/components/ui/scroll-area'
 import { Search, RefreshCw, Filter, X } from 'lucide-vue-next'
 import SkillCard from './SkillCard.vue'
 import SkillDetailModal from './SkillDetailModal.vue'
@@ -148,9 +147,9 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="flex flex-col h-full">
+  <div class="flex flex-col">
     <!-- Header -->
-    <div class="border-b p-4 space-y-4">
+    <div class="pb-4 space-y-4 border-b border-border">
       <div class="flex items-center justify-between">
         <h1 class="text-2xl font-bold">Skill Marketplace</h1>
         <Button variant="outline" size="sm" @click="performSearch">
@@ -223,46 +222,44 @@ onMounted(async () => {
     </div>
 
     <!-- Results -->
-    <ScrollArea class="flex-1">
-      <div class="p-4">
-        <!-- Loading State -->
-        <div
-          v-if="loading"
-          class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4"
-        >
-          <div v-for="i in 8" :key="i" class="space-y-3">
-            <Skeleton class="h-[200px] w-full rounded-lg" />
-          </div>
-        </div>
-
-        <!-- Empty State -->
-        <div
-          v-else-if="results.length === 0"
-          class="flex flex-col items-center justify-center py-16"
-        >
-          <Filter class="w-12 h-12 text-muted-foreground mb-4" />
-          <h3 class="text-lg font-medium mb-2">No skills found</h3>
-          <p class="text-muted-foreground text-center max-w-md">
-            Try adjusting your search or filters to find what you're looking for.
-          </p>
-          <Button variant="outline" class="mt-4" @click="clearFilters"> Clear filters </Button>
-        </div>
-
-        <!-- Results Grid -->
-        <div v-else class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          <SkillCard
-            v-for="skill in results"
-            :key="skill.manifest.id"
-            :skill="skill"
-            :installed="installedSkillIds.has(skill.manifest.id)"
-            :installing="installingIds.has(skill.manifest.id)"
-            @install="handleInstall"
-            @uninstall="handleUninstall"
-            @view-details="handleViewDetails"
-          />
+    <div class="pt-4">
+      <!-- Loading State -->
+      <div
+        v-if="loading"
+        class="grid grid-cols-1 sm:grid-cols-2 gap-4"
+      >
+        <div v-for="i in 6" :key="i" class="space-y-3">
+          <Skeleton class="h-[200px] w-full rounded-lg" />
         </div>
       </div>
-    </ScrollArea>
+
+      <!-- Empty State -->
+      <div
+        v-else-if="results.length === 0"
+        class="flex flex-col items-center justify-center py-16"
+      >
+        <Filter class="w-12 h-12 text-muted-foreground mb-4" />
+        <h3 class="text-lg font-medium mb-2">No skills found</h3>
+        <p class="text-muted-foreground text-center max-w-[28rem]">
+          Try adjusting your search or filters to find what you're looking for.
+        </p>
+        <Button variant="outline" class="mt-4" @click="clearFilters"> Clear filters </Button>
+      </div>
+
+      <!-- Results Grid -->
+      <div v-else class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <SkillCard
+          v-for="skill in results"
+          :key="skill.manifest.id"
+          :skill="skill"
+          :installed="installedSkillIds.has(skill.manifest.id)"
+          :installing="installingIds.has(skill.manifest.id)"
+          @install="handleInstall"
+          @uninstall="handleUninstall"
+          @view-details="handleViewDetails"
+        />
+      </div>
+    </div>
 
     <!-- Detail Modal -->
     <SkillDetailModal
