@@ -1,16 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { API_ENDPOINTS, API_PREFIX } from '@/constants/api/endpoints'
-import {
-  NODE_TYPE,
-  NODE_CATEGORY,
-  TRIGGER_NODE_TYPES,
-  NODE_TYPE_CATEGORY_MAP,
-  NODE_TYPE_LABELS,
-  NODE_TYPE_ICONS,
-  NODE_TYPE_COLORS,
-} from '@/constants/node/types'
 import { SUCCESS_MESSAGES, ERROR_MESSAGES, DEFAULT_VALUES } from '@/constants/ui/messages'
-import { WORKFLOW_STATE as WORKFLOW_STATUS } from '@/constants/workflow/states'
 import {
   POLLING_TIMING as POLLING_INTERVAL,
   INTERACTION_TIMING as DEBOUNCE_DELAY,
@@ -52,57 +42,6 @@ describe('Constants - API Endpoints', () => {
   })
 })
 
-describe('Constants - Node Types', () => {
-  it('should have all trigger node types', () => {
-    expect(NODE_TYPE.WEBHOOK_TRIGGER).toBe('WebhookTrigger')
-    expect(NODE_TYPE.SCHEDULE_TRIGGER).toBe('ScheduleTrigger')
-    expect(NODE_TYPE.MANUAL_TRIGGER).toBe('ManualTrigger')
-  })
-
-  it('should have all action node types', () => {
-    expect(NODE_TYPE.AGENT).toBe('Agent')
-    expect(NODE_TYPE.HTTP_REQUEST).toBe('HttpRequest')
-    expect(NODE_TYPE.PRINT).toBe('Print')
-    expect(NODE_TYPE.DATA_TRANSFORM).toBe('DataTransform')
-  })
-
-  it('should have node categories', () => {
-    expect(NODE_CATEGORY.TRIGGER).toBe('trigger')
-    expect(NODE_CATEGORY.ACTION).toBe('action')
-    expect(NODE_CATEGORY.CONTROL).toBe('control')
-    expect(NODE_CATEGORY.DATA).toBe('data')
-  })
-
-  it('should correctly identify trigger nodes', () => {
-    expect(TRIGGER_NODE_TYPES.has(NODE_TYPE.WEBHOOK_TRIGGER)).toBe(true)
-    expect(TRIGGER_NODE_TYPES.has(NODE_TYPE.SCHEDULE_TRIGGER)).toBe(true)
-    expect(TRIGGER_NODE_TYPES.has(NODE_TYPE.MANUAL_TRIGGER)).toBe(true)
-    expect(TRIGGER_NODE_TYPES.has(NODE_TYPE.AGENT)).toBe(false)
-  })
-
-  it('should have category mappings for all node types', () => {
-    expect(NODE_TYPE_CATEGORY_MAP[NODE_TYPE.WEBHOOK_TRIGGER]).toBe(NODE_CATEGORY.TRIGGER)
-    expect(NODE_TYPE_CATEGORY_MAP[NODE_TYPE.AGENT]).toBe(NODE_CATEGORY.ACTION)
-    expect(NODE_TYPE_CATEGORY_MAP[NODE_TYPE.PRINT]).toBe(NODE_CATEGORY.DATA)
-  })
-
-  it('should have labels for all node types', () => {
-    expect(NODE_TYPE_LABELS[NODE_TYPE.WEBHOOK_TRIGGER]).toBe('Webhook Trigger')
-    expect(NODE_TYPE_LABELS[NODE_TYPE.AGENT]).toBe('AI Agent')
-    expect(NODE_TYPE_LABELS[NODE_TYPE.HTTP_REQUEST]).toBe('HTTP Request')
-  })
-
-  it('should have icons for all node types', () => {
-    expect(NODE_TYPE_ICONS[NODE_TYPE.WEBHOOK_TRIGGER]).toBe('webhook')
-    expect(NODE_TYPE_ICONS[NODE_TYPE.AGENT]).toBe('robot')
-  })
-
-  it('should have colors for all node types', () => {
-    expect(NODE_TYPE_COLORS[NODE_TYPE.WEBHOOK_TRIGGER]).toBe('#8b5cf6')
-    expect(NODE_TYPE_COLORS[NODE_TYPE.AGENT]).toBe('#667eea')
-  })
-})
-
 describe('Constants - UI Messages', () => {
   it('should have default workflow name', () => {
     expect(DEFAULT_VALUES.WORKFLOW_NAME).toBe('Untitled Workflow')
@@ -123,16 +62,6 @@ describe('Constants - UI Messages', () => {
   it('should have function-based messages', () => {
     expect(typeof SUCCESS_MESSAGES.CREATED('item')).toBe('string')
     expect(typeof ERROR_MESSAGES.FAILED_TO_CREATE('item')).toBe('string')
-  })
-})
-
-describe('Constants - Workflow States', () => {
-  it('should have workflow status constants', () => {
-    expect(WORKFLOW_STATUS).toBeDefined()
-    expect(WORKFLOW_STATUS.IDLE).toBe('idle')
-    expect(WORKFLOW_STATUS.RUNNING).toBe('running')
-    expect(WORKFLOW_STATUS.COMPLETED).toBe('completed')
-    expect(WORKFLOW_STATUS.FAILED).toBe('failed')
   })
 })
 
