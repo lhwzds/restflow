@@ -4,10 +4,10 @@ use restflow_core::auth::{AuthProfile, AuthProvider, Credential, CredentialSourc
 use restflow_core::daemon::{IpcRequest, IpcResponse};
 use restflow_core::memory::{ExportResult, RankedSearchResult};
 use restflow_core::models::{
-    AgentExecuteResponse, AgentNode, AgentTask, BackgroundAgentControlAction, BackgroundAgentPatch,
-    BackgroundAgentSpec, BackgroundMessageSource, ChatMessage, ChatRole, ChatSession,
-    ChatSessionSummary, ChatSessionUpdate, MemoryChunk, MemorySearchResult, MemorySession,
-    MemoryStats, Skill, TaskEvent, TerminalSession,
+    AgentNode, AgentTask, BackgroundAgentControlAction, BackgroundAgentPatch, BackgroundAgentSpec,
+    BackgroundMessageSource, ChatMessage, ChatRole, ChatSession, ChatSessionSummary,
+    ChatSessionUpdate, MemoryChunk, MemorySearchResult, MemorySession, MemoryStats, Skill,
+    TaskEvent, TerminalSession,
 };
 use restflow_core::storage::SystemConfig;
 use serde::de::DeserializeOwned;
@@ -636,20 +636,6 @@ impl TauriExecutor {
         }
         let response: InitResponse = self.request(IpcRequest::InitPython).await?;
         Ok(response.ready)
-    }
-
-    pub async fn execute_agent(
-        &self,
-        id: String,
-        input: String,
-        session_id: Option<String>,
-    ) -> Result<AgentExecuteResponse> {
-        self.request(IpcRequest::ExecuteAgent {
-            id,
-            input,
-            session_id,
-        })
-        .await
     }
 
     pub async fn build_agent_system_prompt(&self, agent_node: AgentNode) -> Result<String> {

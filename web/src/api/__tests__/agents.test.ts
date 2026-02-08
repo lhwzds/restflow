@@ -3,7 +3,6 @@ import MockAdapter from 'axios-mock-adapter'
 import { apiClient } from '@/api/config'
 import * as agentsApi from '@/api/agents'
 import type { StoredAgent } from '@/types/generated/StoredAgent'
-import type { AgentNode } from '@/types/generated/AgentNode'
 import { API_ENDPOINTS } from '@/constants'
 
 describe('Agents API', () => {
@@ -110,38 +109,6 @@ describe('Agents API', () => {
       })
 
       await expect(agentsApi.deleteAgent('agent1')).resolves.toBeUndefined()
-    })
-  })
-
-  describe('executeAgent', () => {
-    it('should execute agent with input', async () => {
-      mock.onPost(API_ENDPOINTS.AGENT.EXECUTE('agent1')).reply(200, {
-        success: true,
-        data: { response: 'Hello, world!', execution_details: null },
-      })
-
-      const result = await agentsApi.executeAgent('agent1', 'test input')
-      expect(result.response).toBe('Hello, world!')
-    })
-  })
-
-  describe('executeAgentInline', () => {
-    it('should execute agent inline', async () => {
-      const agent = {
-        model: 'claude-sonnet-4-5' as const,
-        prompt: 'Test',
-        temperature: undefined,
-        api_key_config: undefined,
-        tools: undefined,
-      }
-
-      mock.onPost(API_ENDPOINTS.AGENT.EXECUTE_INLINE).reply(200, {
-        success: true,
-        data: { response: 'Inline response', execution_details: null },
-      })
-
-      const result = await agentsApi.executeAgentInline(agent, 'test input')
-      expect(result.response).toBe('Inline response')
     })
   })
 

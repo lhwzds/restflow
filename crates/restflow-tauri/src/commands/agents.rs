@@ -1,7 +1,6 @@
 //! Agent-related Tauri commands
 
 use crate::state::AppState;
-use restflow_core::AgentExecuteResponse;
 use restflow_core::models::AgentNode;
 use restflow_core::storage::agent::StoredAgent;
 use serde::Deserialize;
@@ -76,57 +75,4 @@ pub async fn delete_agent(state: State<'_, AppState>, id: String) -> Result<(), 
         .delete_agent(id)
         .await
         .map_err(|e| e.to_string())
-}
-
-/// Agent execution request
-#[derive(Debug, Deserialize)]
-pub struct ExecuteAgentRequest {
-    pub prompt: String,
-    #[serde(default)]
-    pub tools: Option<Vec<String>>,
-}
-
-/// Execute an agent with a prompt
-/// Note: Full agent execution will be implemented when integrating with restflow-ai
-#[tauri::command]
-pub async fn execute_agent(
-    state: State<'_, AppState>,
-    id: String,
-    request: ExecuteAgentRequest,
-) -> Result<AgentExecuteResponse, String> {
-    let core = state.core.as_ref().ok_or("AppCore not available")?;
-    let _agent = core
-        .storage
-        .agents
-        .get_agent(id)
-        .map_err(|e| e.to_string())?
-        .ok_or_else(|| "Agent not found".to_string())?;
-
-    // TODO: Implement full agent execution using restflow-ai AgentExecutor
-    // For now, return a placeholder response
-    Ok(AgentExecuteResponse {
-        response: format!(
-            "Agent execution not yet implemented. Prompt: {}",
-            request.prompt
-        ),
-        execution_details: None,
-    })
-}
-
-/// Execute an inline agent (without saving)
-#[tauri::command]
-pub async fn execute_agent_inline(
-    _state: State<'_, AppState>,
-    _agent: AgentNode,
-    prompt: String,
-    _tools: Option<Vec<String>>,
-) -> Result<AgentExecuteResponse, String> {
-    // TODO: Implement full agent execution using restflow-ai AgentExecutor
-    Ok(AgentExecuteResponse {
-        response: format!(
-            "Inline agent execution not yet implemented. Prompt: {}",
-            prompt
-        ),
-        execution_details: None,
-    })
 }

@@ -9,8 +9,6 @@ export const API_ENDPOINTS = {
     GET: (id: string) => `${API_PREFIX}/agents/${id}` as const,
     UPDATE: (id: string) => `${API_PREFIX}/agents/${id}` as const,
     DELETE: (id: string) => `${API_PREFIX}/agents/${id}` as const,
-    EXECUTE: (id: string) => `${API_PREFIX}/agents/${id}/execute` as const,
-    EXECUTE_INLINE: `${API_PREFIX}/agents/execute-inline`,
   },
 
   SECRET: {

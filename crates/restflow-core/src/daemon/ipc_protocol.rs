@@ -303,20 +303,6 @@ pub enum IpcRequest {
         background_agent_id: String,
     },
 
-    ExecuteAgent {
-        id: String,
-        input: String,
-        session_id: Option<String>,
-    },
-    ExecuteAgentStream {
-        id: String,
-        input: String,
-        session_id: Option<String>,
-    },
-    CancelExecution {
-        execution_id: String,
-    },
-
     GetSystemInfo,
     InitPython,
     GetAvailableModels,
@@ -785,30 +771,6 @@ mod tests {
 
         if let IpcRequest::GetApiKeyForProfile { id } = parsed {
             assert_eq!(id, "profile-1");
-        } else {
-            panic!("Wrong variant");
-        }
-    }
-
-    #[test]
-    fn test_execute_agent_serialization() {
-        let request = IpcRequest::ExecuteAgent {
-            id: "agent-1".to_string(),
-            input: "Hello".to_string(),
-            session_id: Some("session-1".to_string()),
-        };
-        let json = serde_json::to_string(&request).unwrap();
-        let parsed: IpcRequest = serde_json::from_str(&json).unwrap();
-
-        if let IpcRequest::ExecuteAgent {
-            id,
-            input,
-            session_id,
-        } = parsed
-        {
-            assert_eq!(id, "agent-1");
-            assert_eq!(input, "Hello");
-            assert_eq!(session_id, Some("session-1".to_string()));
         } else {
             panic!("Wrong variant");
         }

@@ -966,15 +966,6 @@ impl IpcServer {
             IpcRequest::SubscribeBackgroundAgentEvents {
                 background_agent_id: _,
             } => IpcResponse::error(-3, "Background agent event streaming not available via IPC"),
-            IpcRequest::ExecuteAgent { .. } => {
-                IpcResponse::error(-3, "Agent execution not available via IPC")
-            }
-            IpcRequest::ExecuteAgentStream { .. } => {
-                IpcResponse::error(-3, "Agent execution not available via IPC")
-            }
-            IpcRequest::CancelExecution { .. } => {
-                IpcResponse::error(-3, "Agent execution not available via IPC")
-            }
             IpcRequest::GetSystemInfo => IpcResponse::success(serde_json::json!({
                 "pid": std::process::id(),
                 "python_ready": core.is_python_ready(),

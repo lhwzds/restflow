@@ -3,9 +3,8 @@ import {
   createAgent as apiCreateAgent,
   updateAgent as apiUpdateAgent,
   deleteAgent as apiDeleteAgent,
-  executeAgentInline as apiExecuteAgentInline,
 } from '@/api/agents'
-import type { CreateAgentRequest, UpdateAgentRequest, AgentExecuteResponse } from '@/api/agents'
+import type { CreateAgentRequest, UpdateAgentRequest } from '@/api/agents'
 import type { AgentNode } from '@/types/generated/AgentNode'
 import { SUCCESS_MESSAGES, ERROR_MESSAGES } from '@/constants'
 
@@ -52,22 +51,9 @@ export function useAgentOperations() {
     }
   }
 
-  async function executeAgentInline(
-    agent: AgentNode,
-    input: string,
-  ): Promise<AgentExecuteResponse> {
-    try {
-      return await apiExecuteAgentInline(agent, input)
-    } catch (error: unknown) {
-      toast.error(getErrorMessage(error, 'Failed to execute agent'))
-      throw error
-    }
-  }
-
   return {
     createAgent,
     updateAgent,
     deleteAgent,
-    executeAgentInline,
   }
 }

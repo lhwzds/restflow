@@ -3,14 +3,13 @@ use axum::{Extension, Router, routing::get};
 use std::{path::Path, sync::Arc};
 use tower_http::services::{ServeDir, ServeFile};
 
-use super::{HttpConfig, api, middleware, ws};
+use super::{HttpConfig, api, middleware};
 
 pub fn build_router(core: Arc<AppCore>, config: &HttpConfig) -> Router {
     let cors = middleware::cors::build_cors_layer(config);
 
     let mut app = Router::new()
         .route("/health", get(health_check))
-        .route("/api/execute", get(ws::execute_handler))
         .nest("/api", api::router())
         .layer(cors)
         .layer(Extension(core));
