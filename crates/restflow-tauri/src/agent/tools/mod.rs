@@ -71,7 +71,7 @@ pub fn main_agent_default_tool_names() -> Vec<String> {
         "wait_agents",
         "list_agents",
         "use_skill",
-        "manage_tasks",
+        "manage_background_agents",
         "manage_agents",
         "manage_marketplace",
         "manage_triggers",
@@ -240,7 +240,7 @@ pub fn registry_from_allowlist(
     let mut builder = ToolRegistryBuilder::new();
     let mut allow_file = false;
     let mut allow_file_write = false;
-    let mut enable_manage_tasks = false;
+    let mut enable_manage_background_agents = false;
     let mut enable_manage_agents = false;
     let mut enable_manage_marketplace = false;
     let mut enable_manage_triggers = false;
@@ -339,8 +339,8 @@ pub fn registry_from_allowlist(
                     );
                 }
             }
-            "manage_tasks" => {
-                enable_manage_tasks = true;
+            "manage_background_agents" => {
+                enable_manage_background_agents = true;
             }
             "manage_agents" => {
                 enable_manage_agents = true;
@@ -427,7 +427,7 @@ pub fn registry_from_allowlist(
         builder = builder.with_file(config);
     }
 
-    let any_storage_tool = enable_manage_tasks
+    let any_storage_tool = enable_manage_background_agents
         || enable_manage_agents
         || enable_manage_marketplace
         || enable_manage_triggers
@@ -462,7 +462,7 @@ pub fn registry_from_allowlist(
                 agent_id.map(|s| s.to_string()),
             );
             let storage_backed_tools = [
-                ("manage_tasks", enable_manage_tasks),
+                ("manage_background_agents", enable_manage_background_agents),
                 ("manage_agents", enable_manage_agents),
                 ("manage_marketplace", enable_manage_marketplace),
                 ("manage_triggers", enable_manage_triggers),
@@ -498,7 +498,7 @@ pub fn registry_from_allowlist(
             }
         } else {
             let storage_backed_tools = [
-                ("manage_tasks", enable_manage_tasks),
+                ("manage_background_agents", enable_manage_background_agents),
                 ("manage_agents", enable_manage_agents),
                 ("manage_marketplace", enable_manage_marketplace),
                 ("manage_triggers", enable_manage_triggers),
@@ -554,23 +554,29 @@ mod tests {
     use tempfile::tempdir;
 
     #[test]
-    fn test_manage_tasks_tool_registered_with_storage() {
+    fn test_manage_background_agents_tool_registered_with_storage() {
         let dir = tempdir().expect("temp dir should be created");
         let db_path = dir.path().join("registry-tools.db");
         let storage = Storage::new(db_path.to_str().expect("db path should be valid"))
             .expect("storage should be created");
-        let names = vec!["manage_tasks".to_string(), "manage_agents".to_string()];
+        let names = vec![
+            "manage_background_agents".to_string(),
+            "manage_agents".to_string(),
+        ];
 
         let registry = registry_from_allowlist(Some(&names), None, None, Some(&storage), None);
-        assert!(registry.has("manage_tasks"));
+        assert!(registry.has("manage_background_agents"));
         assert!(registry.has("manage_agents"));
     }
 
     #[test]
-    fn test_manage_tasks_tool_skipped_without_storage() {
-        let names = vec!["manage_tasks".to_string(), "manage_agents".to_string()];
+    fn test_manage_background_agents_tool_skipped_without_storage() {
+        let names = vec![
+            "manage_background_agents".to_string(),
+            "manage_agents".to_string(),
+        ];
         let registry = registry_from_allowlist(Some(&names), None, None, None, None);
-        assert!(!registry.has("manage_tasks"));
+        assert!(!registry.has("manage_background_agents"));
         assert!(!registry.has("manage_agents"));
     }
 

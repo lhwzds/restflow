@@ -77,10 +77,10 @@ async fn trigger_task(
     let task = match state.storage.get_task(&task_id) {
         Ok(Some(task)) => task,
         Ok(None) => {
-            warn!(task_id = %task_id, "Task not found");
+            warn!(task_id = %task_id, "Background agent not found");
             return Err((
                 StatusCode::NOT_FOUND,
-                Json(WebhookResponse::error("Task not found")),
+                Json(WebhookResponse::error("Background agent not found")),
             ));
         }
         Err(e) => {

@@ -801,9 +801,9 @@ pub struct ChatSessionGetParams {
     pub session_id: String,
 }
 
-/// Parameters for manage_tasks tool
+/// Parameters for manage_background_agents tool
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
-pub struct ManageTasksParams {
+pub struct ManageBackgroundAgentsParams {
     /// Operation to perform
     pub operation: String,
     /// Task/background agent ID
@@ -1322,7 +1322,10 @@ impl RestFlowMcpServer {
             .map_err(|e| format!("Failed to serialize session: {}", e))
     }
 
-    async fn handle_manage_tasks(&self, params: ManageTasksParams) -> Result<String, String> {
+    async fn handle_manage_background_agents(
+        &self,
+        params: ManageBackgroundAgentsParams,
+    ) -> Result<String, String> {
         let operation = params.operation.trim().to_lowercase();
 
         let value = match operation.as_str() {
@@ -1507,7 +1510,7 @@ impl ServerHandler for RestFlowMcpServer {
                 "RestFlow MCP Server - Manage skills, agents, memory, and chat sessions. \
                 Use list_skills/get_skill to access skills, list_agents/get_agent for agents, \
                 memory_search/memory_store for memory, chat_session_list/chat_session_get for sessions, \
-                and manage_tasks for background task operations."
+                and manage_background_agents for background agent lifecycle, progress, and messaging operations."
                     .to_string(),
             ),
         }
@@ -1585,9 +1588,9 @@ impl ServerHandler for RestFlowMcpServer {
                 schema_for_type::<ChatSessionGetParams>(),
             ),
             Tool::new(
-                "manage_tasks",
-                "Manage background agent tasks: create/update/delete/list/control/progress/message operations.",
-                schema_for_type::<ManageTasksParams>(),
+                "manage_background_agents",
+                "Manage background agents with explicit operations: create, update, delete, list, control, progress, send_message, list_messages, pause, resume, cancel, and run.",
+                schema_for_type::<ManageBackgroundAgentsParams>(),
             ),
         ];
 
@@ -1752,13 +1755,13 @@ impl ServerHandler for RestFlowMcpServer {
                         })?;
                 self.handle_chat_session_get(params).await
             }
-            "manage_tasks" => {
-                let params: ManageTasksParams =
+            "manage_background_agents" => {
+                let params: ManageBackgroundAgentsParams =
                     serde_json::from_value(Value::Object(request.arguments.unwrap_or_default()))
                         .map_err(|e| {
                             McpError::invalid_params(format!("Invalid parameters: {}", e), None)
                         })?;
-                self.handle_manage_tasks(params).await
+                self.handle_manage_background_agents(params).await
             }
             "switch_model" => {
                 self.handle_switch_model_for_mcp(Value::Object(
@@ -2191,7 +2194,7 @@ mod tests {
             "skill_execute",
             "chat_session_list",
             "chat_session_get",
-            "manage_tasks",
+            "manage_background_agents",
         ];
 
         // Verify we have definitions for all expected tools
@@ -2559,9 +2562,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_manage_tasks_list_operation() {
+    async fn test_manage_background_agents_list_operation() {
         let server = RestFlowMcpServer::with_backend(Arc::new(MockBackend::new()));
-        let params = ManageTasksParams {
+        let params = ManageBackgroundAgentsParams {
             operation: "list".to_string(),
             id: None,
             name: None,
@@ -2582,7 +2585,10 @@ mod tests {
             limit: None,
         };
 
-        let json = server.handle_manage_tasks(params).await.unwrap();
+        let json = server
+            .handle_manage_background_agents(params)
+            .await
+            .unwrap();
         let tasks: Vec<serde_json::Value> = serde_json::from_str(&json).unwrap();
         assert!(tasks.is_empty());
     }

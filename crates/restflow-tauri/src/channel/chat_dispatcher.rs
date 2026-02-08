@@ -1010,7 +1010,7 @@ mod tests {
         let tools = crate::agent::main_agent_default_tool_names();
 
         assert!(tools.iter().any(|name| name == "switch_model"));
-        assert!(tools.iter().any(|name| name == "manage_tasks"));
+        assert!(tools.iter().any(|name| name == "manage_background_agents"));
         assert!(tools.iter().any(|name| name == "bash"));
     }
 
@@ -1020,7 +1020,7 @@ mod tests {
         let merged = effective_main_agent_tool_names(Some(&extra));
 
         assert!(merged.iter().any(|name| name == "switch_model"));
-        assert!(merged.iter().any(|name| name == "manage_tasks"));
+        assert!(merged.iter().any(|name| name == "manage_background_agents"));
         assert!(merged.iter().any(|name| name == "custom_tool"));
         assert_eq!(
             merged.iter().filter(|name| name.as_str() == "bash").count(),

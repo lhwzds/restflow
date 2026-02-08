@@ -16,20 +16,20 @@
 //! use restflow_tauri::agent_task::events::{TaskStreamEvent, StreamEventKind};
 //!
 //! // In the runner, emit events to the frontend
-//! app_handle.emit("agent-task:stream", TaskStreamEvent::started(task_id));
+//! app_handle.emit("background-agent:stream", TaskStreamEvent::started(task_id));
 //!
 //! // Stream output as it arrives
-//! app_handle.emit("agent-task:stream", TaskStreamEvent::output(task_id, "Processing...", false));
+//! app_handle.emit("background-agent:stream", TaskStreamEvent::output(task_id, "Processing...", false));
 //!
 //! // On completion
-//! app_handle.emit("agent-task:stream", TaskStreamEvent::completed(task_id, result, duration_ms));
+//! app_handle.emit("background-agent:stream", TaskStreamEvent::completed(task_id, result, duration_ms));
 //! ```
 
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 /// Event name constant for Tauri event emission
-pub const TASK_STREAM_EVENT: &str = "agent-task:stream";
+pub const TASK_STREAM_EVENT: &str = "background-agent:stream";
 
 /// Real-time streaming event for task execution
 ///
@@ -366,7 +366,7 @@ impl TaskEventEmitter for ChannelEventEmitter {
 /// Tauri-based event emitter that uses AppHandle to emit events to the frontend
 ///
 /// This emitter integrates with Tauri's event system to stream real-time
-/// task execution updates to the frontend via the `agent-task:stream` event.
+/// task execution updates to the frontend via the `background-agent:stream` event.
 ///
 /// # Example
 ///
@@ -653,7 +653,7 @@ mod tests {
     #[test]
     fn test_task_stream_event_constant() {
         // Verify the event name constant for frontend usage
-        assert_eq!(TASK_STREAM_EVENT, "agent-task:stream");
+        assert_eq!(TASK_STREAM_EVENT, "background-agent:stream");
     }
 
     #[test]
