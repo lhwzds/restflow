@@ -29,8 +29,8 @@ pub use agent_task::{
     RunnerStatus, TauriHeartbeatEmitter, TelegramNotifier,
 };
 pub use channel::{
-    ChatDispatcher, ChatDispatcherConfig, ChatSessionManager, MessageDebouncer,
-    MessageHandlerConfig, MessageRouter, RouteDecision, SystemStatus, TaskTrigger,
+    BackgroundAgentTrigger, ChatDispatcher, ChatDispatcherConfig, ChatSessionManager,
+    MessageDebouncer, MessageHandlerConfig, MessageRouter, RouteDecision, SystemStatus,
     start_message_handler, start_message_handler_with_chat,
 };
 pub use chat::{
@@ -41,7 +41,7 @@ pub use daemon_manager::DaemonManager;
 pub use error::TauriError;
 pub use executor::TauriExecutor;
 pub use mcp::RestFlowMcpServer;
-pub use state::{AppState, AppTaskTrigger};
+pub use state::{AppBackgroundAgentTrigger, AppState};
 pub use subagent::{
     AgentDefinition, AgentDefinitionRegistry, SpawnHandle, SpawnPriority, SpawnRequest,
     SubagentCompletion, SubagentConfig, SubagentResult, SubagentState, SubagentStatus,

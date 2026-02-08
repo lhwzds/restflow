@@ -23,7 +23,7 @@ import type { BackgroundMessage } from '@/types/generated/BackgroundMessage'
 import type { BackgroundMessageSource } from '@/types/generated/BackgroundMessageSource'
 import { API_ENDPOINTS } from '@/constants'
 
-export interface ActiveTaskInfo {
+export interface ActiveBackgroundAgentInfo {
   task_id: string
   task_name: string
   agent_id: string
@@ -50,14 +50,14 @@ export type {
 }
 
 /**
- * Event name for task stream events (matches Rust constant TASK_STREAM_EVENT)
+ * Event name for task stream events (matches Rust constant BACKGROUND_AGENT_STREAM_EVENT)
  */
-export const TASK_STREAM_EVENT = 'background-agent:stream'
+export const BACKGROUND_AGENT_STREAM_EVENT = 'background-agent:stream'
 
 /**
  * Request to create a new agent task
  */
-export interface CreateAgentTaskRequest {
+export interface CreateBackgroundAgentRequest {
   /** Display name of the task */
   name: string
   /** ID of the agent to execute */
@@ -83,7 +83,7 @@ export interface CreateAgentTaskRequest {
 /**
  * Request to update an existing agent task
  */
-export interface UpdateAgentTaskRequest {
+export interface UpdateBackgroundAgentRequest {
   /** New display name (optional) */
   name?: string
   /** New description (optional) */
@@ -116,90 +116,98 @@ interface SendBackgroundMessageRequest {
 /**
  * List all agent tasks
  */
-export async function listAgentTasks(): Promise<AgentTask[]> {
+export async function listBackgroundAgents(): Promise<AgentTask[]> {
   if (isTauri()) {
-    return tauriInvoke<AgentTask[]>('list_agent_tasks')
+    return tauriInvoke<AgentTask[]>('list_background_agents')
   }
-  const response = await apiClient.get<AgentTask[]>(API_ENDPOINTS.AGENT_TASK.LIST)
+  const response = await apiClient.get<AgentTask[]>(API_ENDPOINTS.BACKGROUND_AGENT.LIST)
   return response.data
 }
 
 /**
  * List agent tasks filtered by status
  */
-export async function listAgentTasksByStatus(status: AgentTaskStatus): Promise<AgentTask[]> {
+export async function listBackgroundAgentsByStatus(status: AgentTaskStatus): Promise<AgentTask[]> {
   if (isTauri()) {
-    return tauriInvoke<AgentTask[]>('list_agent_tasks_by_status', { status })
+    return tauriInvoke<AgentTask[]>('list_background_agents_by_status', { status })
   }
-  const response = await apiClient.get<AgentTask[]>(API_ENDPOINTS.AGENT_TASK.LIST_BY_STATUS(status))
+  const response = await apiClient.get<AgentTask[]>(
+    API_ENDPOINTS.BACKGROUND_AGENT.LIST_BY_STATUS(status),
+  )
   return response.data
 }
 
 /**
  * Get an agent task by ID
  */
-export async function getAgentTask(id: string): Promise<AgentTask> {
+export async function getBackgroundAgent(id: string): Promise<AgentTask> {
   if (isTauri()) {
-    return tauriInvoke<AgentTask>('get_agent_task', { id })
+    return tauriInvoke<AgentTask>('get_background_agent', { id })
   }
-  const response = await apiClient.get<AgentTask>(API_ENDPOINTS.AGENT_TASK.GET(id))
+  const response = await apiClient.get<AgentTask>(API_ENDPOINTS.BACKGROUND_AGENT.GET(id))
   return response.data
 }
 
 /**
  * Create a new agent task
  */
-export async function createAgentTask(request: CreateAgentTaskRequest): Promise<AgentTask> {
+export async function createBackgroundAgent(request: CreateBackgroundAgentRequest): Promise<AgentTask> {
   if (isTauri()) {
-    return tauriInvoke<AgentTask>('create_agent_task', { request })
+    return tauriInvoke<AgentTask>('create_background_agent', { request })
   }
-  const response = await apiClient.post<AgentTask>(API_ENDPOINTS.AGENT_TASK.CREATE, request)
+  const response = await apiClient.post<AgentTask>(API_ENDPOINTS.BACKGROUND_AGENT.CREATE, request)
   return response.data
 }
 
 /**
  * Update an existing agent task
  */
-export async function updateAgentTask(id: string, request: UpdateAgentTaskRequest): Promise<AgentTask> {
+export async function updateBackgroundAgent(
+  id: string,
+  request: UpdateBackgroundAgentRequest,
+): Promise<AgentTask> {
   if (isTauri()) {
-    return tauriInvoke<AgentTask>('update_agent_task', { id, request })
+    return tauriInvoke<AgentTask>('update_background_agent', { id, request })
   }
-  const response = await apiClient.patch<AgentTask>(API_ENDPOINTS.AGENT_TASK.UPDATE(id), request)
+  const response = await apiClient.patch<AgentTask>(
+    API_ENDPOINTS.BACKGROUND_AGENT.UPDATE(id),
+    request,
+  )
   return response.data
 }
 
 /**
  * Delete an agent task
  */
-export async function deleteAgentTask(id: string): Promise<boolean> {
+export async function deleteBackgroundAgent(id: string): Promise<boolean> {
   if (isTauri()) {
-    return tauriInvoke<boolean>('delete_agent_task', { id })
+    return tauriInvoke<boolean>('delete_background_agent', { id })
   }
-  const response = await apiClient.delete<boolean>(API_ENDPOINTS.AGENT_TASK.DELETE(id))
+  const response = await apiClient.delete<boolean>(API_ENDPOINTS.BACKGROUND_AGENT.DELETE(id))
   return response.data
 }
 
 /**
  * Pause an agent task
  */
-export async function pauseAgentTask(id: string): Promise<AgentTask> {
+export async function pauseBackgroundAgent(id: string): Promise<AgentTask> {
   if (isTauri()) {
-    return tauriInvoke<AgentTask>('pause_agent_task', { id })
+    return tauriInvoke<AgentTask>('pause_background_agent', { id })
   }
   const body: ControlBackgroundAgentRequest = { action: 'pause' }
-  const response = await apiClient.post<AgentTask>(API_ENDPOINTS.AGENT_TASK.CONTROL(id), body)
+  const response = await apiClient.post<AgentTask>(API_ENDPOINTS.BACKGROUND_AGENT.CONTROL(id), body)
   return response.data
 }
 
 /**
  * Resume a paused agent task
  */
-export async function resumeAgentTask(id: string): Promise<AgentTask> {
+export async function resumeBackgroundAgent(id: string): Promise<AgentTask> {
   if (isTauri()) {
-    return tauriInvoke<AgentTask>('resume_agent_task', { id })
+    return tauriInvoke<AgentTask>('resume_background_agent', { id })
   }
   const body: ControlBackgroundAgentRequest = { action: 'resume' }
-  const response = await apiClient.post<AgentTask>(API_ENDPOINTS.AGENT_TASK.CONTROL(id), body)
+  const response = await apiClient.post<AgentTask>(API_ENDPOINTS.BACKGROUND_AGENT.CONTROL(id), body)
   return response.data
 }
 
@@ -208,13 +216,16 @@ export async function resumeAgentTask(id: string): Promise<AgentTask> {
  * @param taskId - The task ID
  * @param limit - Optional maximum number of events to return
  */
-export async function getAgentTaskEvents(taskId: string, limit?: number): Promise<TaskEvent[]> {
+export async function getBackgroundAgentEvents(taskId: string, limit?: number): Promise<TaskEvent[]> {
   if (isTauri()) {
-    return tauriInvoke<TaskEvent[]>('get_agent_task_events', { taskId, limit })
+    return tauriInvoke<TaskEvent[]>('get_background_agent_events', {
+      taskId,
+      limit,
+    })
   }
   const url = limit
-    ? `${API_ENDPOINTS.AGENT_TASK.PROGRESS(taskId)}?event_limit=${limit}`
-    : API_ENDPOINTS.AGENT_TASK.PROGRESS(taskId)
+    ? `${API_ENDPOINTS.BACKGROUND_AGENT.PROGRESS(taskId)}?event_limit=${limit}`
+    : API_ENDPOINTS.BACKGROUND_AGENT.PROGRESS(taskId)
   const response = await apiClient.get<BackgroundProgress>(url)
   return response.data.recent_events
 }
@@ -222,16 +233,16 @@ export async function getAgentTaskEvents(taskId: string, limit?: number): Promis
 /**
  * Get tasks that are ready to run (based on their schedule)
  */
-export async function getRunnableAgentTasks(): Promise<AgentTask[]> {
+export async function getRunnableBackgroundAgents(): Promise<AgentTask[]> {
   if (isTauri()) {
-    return tauriInvoke<AgentTask[]>('get_runnable_agent_tasks')
+    return tauriInvoke<AgentTask[]>('get_runnable_background_agents')
   }
-  const response = await apiClient.get<AgentTask[]>(API_ENDPOINTS.AGENT_TASK.LIST_BY_STATUS('active'))
+  const response = await apiClient.get<AgentTask[]>(
+    API_ENDPOINTS.BACKGROUND_AGENT.LIST_BY_STATUS('active'),
+  )
   const now = Date.now()
   return response.data.filter(
-    task =>
-      task.status === 'active'
-      && (task.next_run_at === null || task.next_run_at <= now),
+    (task) => task.status === 'active' && (task.next_run_at === null || task.next_run_at <= now),
   )
 }
 
@@ -242,7 +253,10 @@ export async function sendBackgroundAgentMessage(
   id: string,
   request: SendBackgroundMessageRequest,
 ): Promise<BackgroundMessage> {
-  const response = await apiClient.post<BackgroundMessage>(API_ENDPOINTS.AGENT_TASK.MESSAGES(id), request)
+  const response = await apiClient.post<BackgroundMessage>(
+    API_ENDPOINTS.BACKGROUND_AGENT.MESSAGES(id),
+    request,
+  )
   return response.data
 }
 
@@ -254,7 +268,7 @@ export async function listBackgroundAgentMessages(
   limit = 50,
 ): Promise<BackgroundMessage[]> {
   const response = await apiClient.get<BackgroundMessage[]>(
-    `${API_ENDPOINTS.AGENT_TASK.MESSAGES(id)}?limit=${limit}`,
+    `${API_ENDPOINTS.BACKGROUND_AGENT.MESSAGES(id)}?limit=${limit}`,
   )
   return response.data
 }
@@ -337,7 +351,7 @@ export function formatSchedule(schedule: TaskSchedule): string {
 /**
  * Format task status for display
  */
-export function formatTaskStatus(status: AgentTaskStatus): string {
+export function formatBackgroundAgentStatus(status: AgentTaskStatus): string {
   const statusMap: Record<AgentTaskStatus, string> = {
     active: 'Active',
     paused: 'Paused',
@@ -375,7 +389,7 @@ export function getStatusColor(status: AgentTaskStatus): string {
  * @param callback - Function to call with each event
  * @returns Unlisten function to stop listening
  */
-export async function onTaskStreamEvent(
+export async function onBackgroundAgentStreamEvent(
   callback: (event: TaskStreamEvent) => void,
 ): Promise<UnlistenFn> {
   if (!isTauri()) {
@@ -384,7 +398,7 @@ export async function onTaskStreamEvent(
     return () => {}
   }
 
-  return listen<TaskStreamEvent>(TASK_STREAM_EVENT, (event) => {
+  return listen<TaskStreamEvent>(BACKGROUND_AGENT_STREAM_EVENT, (event) => {
     callback(event.payload)
   })
 }
@@ -399,7 +413,7 @@ export async function onTaskStreamEvent(
  * @param callback - Function to call with each matching event
  * @returns Unlisten function to stop listening
  */
-export async function onTaskStreamEventForTask(
+export async function onBackgroundAgentStreamEventForAgent(
   taskId: string,
   callback: (event: TaskStreamEvent) => void,
 ): Promise<UnlistenFn> {
@@ -408,7 +422,7 @@ export async function onTaskStreamEventForTask(
     return () => {}
   }
 
-  return listen<TaskStreamEvent>(TASK_STREAM_EVENT, (event) => {
+  return listen<TaskStreamEvent>(BACKGROUND_AGENT_STREAM_EVENT, (event) => {
     if (event.payload.task_id === taskId) {
       callback(event.payload)
     }
@@ -434,11 +448,11 @@ export function isEventKind<T extends StreamEventKind['type']>(
  * @param taskId - ID of the task to run
  * @returns Promise that resolves when the task starts (not when it completes)
  */
-export async function runAgentTaskStreaming(taskId: string): Promise<void> {
+export async function runBackgroundAgentStreaming(taskId: string): Promise<void> {
   if (!isTauri()) {
     throw new Error('Streaming task execution is only available in Tauri desktop app')
   }
-  return tauriInvoke<void>('run_agent_task_streaming', { id: taskId })
+  return tauriInvoke<void>('run_background_agent_streaming', { id: taskId })
 }
 
 /**
@@ -446,11 +460,11 @@ export async function runAgentTaskStreaming(taskId: string): Promise<void> {
  *
  * @returns Array of task IDs that are currently running
  */
-export async function getActiveAgentTasks(): Promise<ActiveTaskInfo[]> {
+export async function getActiveBackgroundAgents(): Promise<ActiveBackgroundAgentInfo[]> {
   if (!isTauri()) {
     return []
   }
-  return tauriInvoke<ActiveTaskInfo[]>('get_active_agent_tasks')
+  return tauriInvoke<ActiveBackgroundAgentInfo[]>('get_active_background_agents')
 }
 
 /**
@@ -459,9 +473,9 @@ export async function getActiveAgentTasks(): Promise<ActiveTaskInfo[]> {
  * @param taskId - ID of the task to cancel
  * @returns true if cancellation was requested successfully
  */
-export async function cancelAgentTask(taskId: string): Promise<boolean> {
+export async function cancelBackgroundAgent(taskId: string): Promise<boolean> {
   if (!isTauri()) {
     throw new Error('Task cancellation is only available in Tauri desktop app')
   }
-  return tauriInvoke<boolean>('cancel_agent_task', { taskId })
+  return tauriInvoke<boolean>('cancel_background_agent', { taskId })
 }

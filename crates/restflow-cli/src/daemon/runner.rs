@@ -7,10 +7,10 @@ use restflow_core::models::{AgentTask, AgentTaskStatus, BackgroundMessageSource}
 use restflow_core::paths;
 use restflow_core::process::ProcessRegistry;
 use restflow_core::runtime::{
-    AgentDefinitionRegistry, AgentTaskRunner, ChatDispatcher, ChatDispatcherConfig,
-    ChatSessionManager, MessageDebouncer, MessageHandlerConfig, RealAgentExecutor, RunnerConfig,
-    RunnerHandle, SubagentConfig, SubagentTracker, SystemStatus, TaskTrigger, TelegramNotifier,
-    start_message_handler_with_chat,
+    AgentDefinitionRegistry, AgentTaskRunner, BackgroundAgentTrigger, ChatDispatcher,
+    ChatDispatcherConfig, ChatSessionManager, MessageDebouncer, MessageHandlerConfig,
+    RealAgentExecutor, RunnerConfig, RunnerHandle, SubagentConfig, SubagentTracker, SystemStatus,
+    TelegramNotifier, start_message_handler_with_chat,
 };
 use restflow_core::steer::SteerRegistry;
 use restflow_core::storage::SecretStorage;
@@ -112,7 +112,7 @@ impl CliTaskRunner {
         }
 
         if let Some(router) = telegram::setup_telegram_channel(&self.core.storage.secrets)? {
-            let trigger = Arc::new(CliTaskTrigger::new(
+            let trigger = Arc::new(CliBackgroundAgentTrigger::new(
                 self.core.clone(),
                 self.handle.clone(),
                 self.runner.clone(),
@@ -179,13 +179,13 @@ impl CliTaskRunner {
     }
 }
 
-struct CliTaskTrigger {
+struct CliBackgroundAgentTrigger {
     core: Arc<AppCore>,
     handle: Arc<RwLock<Option<Arc<RunnerHandle>>>>,
     runner: Arc<RwLock<Option<Arc<AgentTaskRunner>>>>,
 }
 
-impl CliTaskTrigger {
+impl CliBackgroundAgentTrigger {
     fn new(
         core: Arc<AppCore>,
         handle: Arc<RwLock<Option<Arc<RunnerHandle>>>>,
@@ -216,12 +216,12 @@ impl CliTaskTrigger {
 }
 
 #[async_trait]
-impl TaskTrigger for CliTaskTrigger {
-    async fn list_tasks(&self) -> Result<Vec<AgentTask>> {
+impl BackgroundAgentTrigger for CliBackgroundAgentTrigger {
+    async fn list_background_agents(&self) -> Result<Vec<AgentTask>> {
         self.core.storage.agent_tasks.list_tasks()
     }
 
-    async fn find_and_run_task(&self, name_or_id: &str) -> Result<AgentTask> {
+    async fn find_and_run_background_agent(&self, name_or_id: &str) -> Result<AgentTask> {
         if let Ok(Some(task)) = self.core.storage.agent_tasks.get_task(name_or_id) {
             self.runner_handle()
                 .await?
@@ -243,7 +243,7 @@ impl TaskTrigger for CliTaskTrigger {
         Ok(task)
     }
 
-    async fn stop_task(&self, task_id: &str) -> Result<()> {
+    async fn stop_background_agent(&self, task_id: &str) -> Result<()> {
         let cancel_requested = match self.handle.read().await.as_ref() {
             Some(handle) => match handle.cancel_task(task_id.to_string()).await {
                 Ok(()) => true,
@@ -293,7 +293,7 @@ impl TaskTrigger for CliTaskTrigger {
         })
     }
 
-    async fn send_input_to_task(&self, task_id: &str, input: &str) -> Result<()> {
+    async fn send_message_to_background_agent(&self, task_id: &str, input: &str) -> Result<()> {
         self.core
             .storage
             .agent_tasks
@@ -305,7 +305,11 @@ impl TaskTrigger for CliTaskTrigger {
         Ok(())
     }
 
-    async fn handle_approval(&self, task_id: &str, approved: bool) -> Result<bool> {
+    async fn handle_background_agent_approval(
+        &self,
+        task_id: &str,
+        approved: bool,
+    ) -> Result<bool> {
         let message = if approved {
             "User approved the pending action."
         } else {
@@ -331,8 +335,12 @@ mod tests {
     };
     use tempfile::tempdir;
 
-    async fn setup_trigger_with_background_agent()
-    -> (Arc<AppCore>, CliTaskTrigger, AgentTask, tempfile::TempDir) {
+    async fn setup_trigger_with_background_agent() -> (
+        Arc<AppCore>,
+        CliBackgroundAgentTrigger,
+        AgentTask,
+        tempfile::TempDir,
+    ) {
         let temp_dir = tempdir().expect("failed to create temp dir");
         let db_path = temp_dir.path().join("runner-test.db");
         let core = Arc::new(
@@ -366,7 +374,7 @@ mod tests {
             })
             .expect("failed to create background agent");
 
-        let trigger = CliTaskTrigger::new(
+        let trigger = CliBackgroundAgentTrigger::new(
             core.clone(),
             Arc::new(RwLock::new(None)),
             Arc::new(RwLock::new(None)),
@@ -380,7 +388,7 @@ mod tests {
         let (core, trigger, task, _temp_dir) = setup_trigger_with_background_agent().await;
 
         trigger
-            .send_input_to_task(&task.id, "hello from main agent")
+            .send_message_to_background_agent(&task.id, "hello from main agent")
             .await
             .expect("failed to send input");
 
@@ -400,7 +408,7 @@ mod tests {
         let (core, trigger, task, _temp_dir) = setup_trigger_with_background_agent().await;
 
         let handled = trigger
-            .handle_approval(&task.id, true)
+            .handle_background_agent_approval(&task.id, true)
             .await
             .expect("approval handling failed");
         assert!(handled);

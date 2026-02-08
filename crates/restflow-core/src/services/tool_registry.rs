@@ -22,11 +22,12 @@ use chrono::Utc;
 use restflow_ai::error::AiError;
 use restflow_ai::tools::{
     AgentCreateRequest, AgentCrudTool, AgentStore, AgentUpdateRequest, AuthProfileCreateRequest,
-    AuthProfileStore, AuthProfileTestRequest, AuthProfileTool, ConfigTool, MemoryClearRequest,
-    MemoryCompactRequest, MemoryExportRequest, MemoryManagementTool, MemoryManager, MemoryStore,
-    SecretsTool, SessionCreateRequest, SessionListFilter, SessionSearchQuery, SessionStore,
-    SessionTool, TaskControlRequest, TaskCreateRequest, TaskMessageListRequest, TaskMessageRequest,
-    TaskProgressRequest, TaskStore, TaskTool, TaskUpdateRequest,
+    AuthProfileStore, AuthProfileTestRequest, AuthProfileTool, BackgroundAgentControlRequest,
+    BackgroundAgentCreateRequest, BackgroundAgentMessageListRequest, BackgroundAgentMessageRequest,
+    BackgroundAgentProgressRequest, BackgroundAgentStore, BackgroundAgentTool,
+    BackgroundAgentUpdateRequest, ConfigTool, MemoryClearRequest, MemoryCompactRequest,
+    MemoryExportRequest, MemoryManagementTool, MemoryManager, MemoryStore, SecretsTool,
+    SessionCreateRequest, SessionListFilter, SessionSearchQuery, SessionStore, SessionTool,
 };
 use restflow_ai::tools::{DeleteMemoryTool, ListMemoryTool, ReadMemoryTool, SaveMemoryTool};
 use restflow_ai::{
@@ -231,11 +232,11 @@ impl AgentStore for AgentStoreAdapter {
 }
 
 #[derive(Clone)]
-struct TaskStoreAdapter {
+struct BackgroundAgentStoreAdapter {
     storage: AgentTaskStorage,
 }
 
-impl TaskStoreAdapter {
+impl BackgroundAgentStoreAdapter {
     fn new(storage: AgentTaskStorage) -> Self {
         Self { storage }
     }
@@ -290,7 +291,10 @@ impl TaskStoreAdapter {
             None => Ok(None),
             Some(scope) if scope.is_empty() => Ok(None),
             Some(scope) if scope == "shared_agent" => Ok(Some(MemoryScope::SharedAgent)),
-            Some(scope) if scope == "per_task" => Ok(Some(MemoryScope::PerTask)),
+            Some(scope) if scope == "per_background_agent" => {
+                Ok(Some(MemoryScope::PerBackgroundAgent))
+            }
+            Some(scope) if scope == "per_task" => Ok(Some(MemoryScope::PerBackgroundAgent)),
             Some(scope) => Err(AiError::Tool(format!("Unknown memory_scope: {}", scope))),
         }
     }
@@ -315,10 +319,10 @@ impl TaskStoreAdapter {
     }
 }
 
-impl TaskStore for TaskStoreAdapter {
-    fn create_task(
+impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
+    fn create_background_agent(
         &self,
-        request: TaskCreateRequest,
+        request: BackgroundAgentCreateRequest,
     ) -> restflow_ai::error::Result<serde_json::Value> {
         let schedule = Self::parse_optional_value::<TaskSchedule>("schedule", request.schedule)?
             .unwrap_or_default();
@@ -340,9 +344,9 @@ impl TaskStore for TaskStoreAdapter {
         serde_json::to_value(task).map_err(AiError::from)
     }
 
-    fn update_task(
+    fn update_background_agent(
         &self,
-        request: TaskUpdateRequest,
+        request: BackgroundAgentUpdateRequest,
     ) -> restflow_ai::error::Result<serde_json::Value> {
         let memory = Self::parse_optional_value("memory", request.memory)?;
         let memory = Self::merge_memory_scope(memory, request.memory_scope)?;
@@ -365,7 +369,7 @@ impl TaskStore for TaskStoreAdapter {
         serde_json::to_value(task).map_err(AiError::from)
     }
 
-    fn delete_task(&self, id: &str) -> restflow_ai::error::Result<serde_json::Value> {
+    fn delete_background_agent(&self, id: &str) -> restflow_ai::error::Result<serde_json::Value> {
         let deleted = self
             .storage
             .delete_task(id)
@@ -373,7 +377,10 @@ impl TaskStore for TaskStoreAdapter {
         Ok(json!({ "id": id, "deleted": deleted }))
     }
 
-    fn list_tasks(&self, status: Option<String>) -> restflow_ai::error::Result<serde_json::Value> {
+    fn list_background_agents(
+        &self,
+        status: Option<String>,
+    ) -> restflow_ai::error::Result<serde_json::Value> {
         let tasks = if let Some(status) = status {
             let status = Self::parse_status(&status)?;
             self.storage
@@ -388,9 +395,9 @@ impl TaskStore for TaskStoreAdapter {
         serde_json::to_value(tasks).map_err(AiError::from)
     }
 
-    fn control_task(
+    fn control_background_agent(
         &self,
-        request: TaskControlRequest,
+        request: BackgroundAgentControlRequest,
     ) -> restflow_ai::error::Result<serde_json::Value> {
         let action = Self::parse_control_action(&request.action)?;
         let task = self
@@ -400,9 +407,9 @@ impl TaskStore for TaskStoreAdapter {
         serde_json::to_value(task).map_err(AiError::from)
     }
 
-    fn get_progress(
+    fn get_background_agent_progress(
         &self,
-        request: TaskProgressRequest,
+        request: BackgroundAgentProgressRequest,
     ) -> restflow_ai::error::Result<serde_json::Value> {
         let progress = self
             .storage
@@ -411,9 +418,9 @@ impl TaskStore for TaskStoreAdapter {
         serde_json::to_value(progress).map_err(AiError::from)
     }
 
-    fn send_message(
+    fn send_background_agent_message(
         &self,
-        request: TaskMessageRequest,
+        request: BackgroundAgentMessageRequest,
     ) -> restflow_ai::error::Result<serde_json::Value> {
         let source = Self::parse_message_source(request.source.as_deref())?;
         let message = self
@@ -423,9 +430,9 @@ impl TaskStore for TaskStoreAdapter {
         serde_json::to_value(message).map_err(AiError::from)
     }
 
-    fn list_messages(
+    fn list_background_agent_messages(
         &self,
-        request: TaskMessageListRequest,
+        request: BackgroundAgentMessageListRequest,
     ) -> restflow_ai::error::Result<serde_json::Value> {
         let messages = self
             .storage
@@ -1080,8 +1087,8 @@ pub fn create_tool_registry(
     registry.register(ConfigTool::new(Arc::new(config_storage)));
     let agent_store = Arc::new(AgentStoreAdapter::new(agent_storage));
     registry.register(AgentCrudTool::new(agent_store).with_write(true));
-    let task_store = Arc::new(TaskStoreAdapter::new(agent_task_storage));
-    registry.register(TaskTool::new(task_store).with_write(true));
+    let background_agent_store = Arc::new(BackgroundAgentStoreAdapter::new(agent_task_storage));
+    registry.register(BackgroundAgentTool::new(background_agent_store).with_write(true));
     registry.register(MarketplaceTool::new(skill_storage));
     registry.register(TriggerTool::new(trigger_storage));
     registry.register(TerminalTool::new(terminal_storage));
@@ -2329,17 +2336,17 @@ mod tests {
             _temp_dir,
         ) = setup_storage();
 
-        let adapter = TaskStoreAdapter::new(agent_task_storage);
+        let adapter = BackgroundAgentStoreAdapter::new(agent_task_storage);
 
-        let created = TaskStore::create_task(
+        let created = BackgroundAgentStore::create_background_agent(
             &adapter,
-            TaskCreateRequest {
+            BackgroundAgentCreateRequest {
                 name: "Background Agent".to_string(),
                 agent_id: "agent-001".to_string(),
                 schedule: None,
                 input: Some("Run periodic checks".to_string()),
                 input_template: Some("Template {{task.id}}".to_string()),
-                memory_scope: Some("per_task".to_string()),
+                memory_scope: Some("per_background_agent".to_string()),
             },
         )
         .unwrap();
@@ -2354,7 +2361,7 @@ mod tests {
                 .get("memory")
                 .and_then(|value| value.get("memory_scope"))
                 .and_then(|value| value.as_str()),
-            Some("per_task")
+            Some("per_background_agent")
         );
         let task_id = created
             .get("id")
@@ -2362,9 +2369,9 @@ mod tests {
             .unwrap()
             .to_string();
 
-        let updated = TaskStore::update_task(
+        let updated = BackgroundAgentStore::update_background_agent(
             &adapter,
-            TaskUpdateRequest {
+            BackgroundAgentUpdateRequest {
                 id: task_id.clone(),
                 name: Some("Background Agent Updated".to_string()),
                 description: Some("Updated description".to_string()),
@@ -2391,9 +2398,9 @@ mod tests {
             Some("shared_agent")
         );
 
-        let controlled = TaskStore::control_task(
+        let controlled = BackgroundAgentStore::control_background_agent(
             &adapter,
-            TaskControlRequest {
+            BackgroundAgentControlRequest {
                 id: task_id.clone(),
                 action: "run_now".to_string(),
             },
@@ -2404,9 +2411,9 @@ mod tests {
             Some("active")
         );
 
-        let message = TaskStore::send_message(
+        let message = BackgroundAgentStore::send_background_agent_message(
             &adapter,
-            TaskMessageRequest {
+            BackgroundAgentMessageRequest {
                 id: task_id.clone(),
                 message: "Also check deployment logs".to_string(),
                 source: Some("user".to_string()),
@@ -2418,9 +2425,9 @@ mod tests {
             Some("queued")
         );
 
-        let progress = TaskStore::get_progress(
+        let progress = BackgroundAgentStore::get_background_agent_progress(
             &adapter,
-            TaskProgressRequest {
+            BackgroundAgentProgressRequest {
                 id: task_id.clone(),
                 event_limit: Some(5),
             },
@@ -2433,9 +2440,9 @@ mod tests {
             Some(task_id.as_str())
         );
 
-        let messages = TaskStore::list_messages(
+        let messages = BackgroundAgentStore::list_background_agent_messages(
             &adapter,
-            TaskMessageListRequest {
+            BackgroundAgentMessageListRequest {
                 id: task_id.clone(),
                 limit: Some(10),
             },
@@ -2443,7 +2450,7 @@ mod tests {
         .unwrap();
         assert_eq!(messages.as_array().map(|items| items.len()), Some(1));
 
-        let deleted = TaskStore::delete_task(&adapter, &task_id).unwrap();
+        let deleted = BackgroundAgentStore::delete_background_agent(&adapter, &task_id).unwrap();
         assert_eq!(
             deleted.get("deleted").and_then(|value| value.as_bool()),
             Some(true)

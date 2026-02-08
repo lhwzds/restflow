@@ -1034,7 +1034,7 @@ mod tests {
                     max_messages: 120,
                     enable_file_memory: true,
                     persist_on_complete: true,
-                    memory_scope: MemoryScope::PerTask,
+                    memory_scope: MemoryScope::PerBackgroundAgent,
                 }),
             })
             .unwrap();
@@ -1043,7 +1043,7 @@ mod tests {
             created.input_template.as_deref(),
             Some("Run task {{task.id}}")
         );
-        assert_eq!(created.memory.memory_scope, MemoryScope::PerTask);
+        assert_eq!(created.memory.memory_scope, MemoryScope::PerBackgroundAgent);
     }
 
     #[test]
@@ -1074,7 +1074,7 @@ mod tests {
                         max_messages: 80,
                         enable_file_memory: false,
                         persist_on_complete: true,
-                        memory_scope: MemoryScope::PerTask,
+                        memory_scope: MemoryScope::PerBackgroundAgent,
                     }),
                     ..Default::default()
                 },
@@ -1085,6 +1085,6 @@ mod tests {
             updated.input_template.as_deref(),
             Some("Template {{task.name}}")
         );
-        assert_eq!(updated.memory.memory_scope, MemoryScope::PerTask);
+        assert_eq!(updated.memory.memory_scope, MemoryScope::PerBackgroundAgent);
     }
 }

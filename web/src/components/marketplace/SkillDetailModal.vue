@@ -1,6 +1,12 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -9,7 +15,12 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Download, ExternalLink, Github, Package, AlertTriangle, Check, X } from 'lucide-vue-next'
 import type { SkillManifest, SkillVersion, GatingCheckResult } from '@/types/generated'
-import { getSkillContent, getSkillVersions, checkSkillGating, installSkill } from '@/api/marketplace'
+import {
+  getSkillContent,
+  getSkillVersions,
+  checkSkillGating,
+  installSkill,
+} from '@/api/marketplace'
 import { useToast } from '@/components/ui/toast/use-toast'
 import { formatSkillVersion } from '@/utils/skillVersion'
 
@@ -42,39 +53,42 @@ const versionString = computed(() => {
   return formatSkillVersion(props.skill.version)
 })
 
-watch(() => props.open, async (isOpen) => {
-  if (isOpen && props.skill) {
-    loading.value = true
-    try {
-      // Fetch content, versions, and gating in parallel
-      const [contentResult, versionsResult, gatingResultData] = await Promise.allSettled([
-        getSkillContent(props.skill.id, undefined, props.source),
-        getSkillVersions(props.skill.id, props.source),
-        checkSkillGating(props.skill.id, props.source),
-      ])
+watch(
+  () => props.open,
+  async (isOpen) => {
+    if (isOpen && props.skill) {
+      loading.value = true
+      try {
+        // Fetch content, versions, and gating in parallel
+        const [contentResult, versionsResult, gatingResultData] = await Promise.allSettled([
+          getSkillContent(props.skill.id, undefined, props.source),
+          getSkillVersions(props.skill.id, props.source),
+          checkSkillGating(props.skill.id, props.source),
+        ])
 
-      if (contentResult.status === 'fulfilled') {
-        content.value = contentResult.value
-      }
-      if (versionsResult.status === 'fulfilled') {
-        versions.value = versionsResult.value
-        if (versions.value.length > 0 && !selectedVersion.value) {
-          const v = versions.value[0]
-          if (v) {
-            selectedVersion.value = versionKey(v)
+        if (contentResult.status === 'fulfilled') {
+          content.value = contentResult.value
+        }
+        if (versionsResult.status === 'fulfilled') {
+          versions.value = versionsResult.value
+          if (versions.value.length > 0 && !selectedVersion.value) {
+            const v = versions.value[0]
+            if (v) {
+              selectedVersion.value = versionKey(v)
+            }
           }
         }
+        if (gatingResultData.status === 'fulfilled') {
+          gatingResult.value = gatingResultData.value
+        }
+      } catch (error) {
+        console.error('Failed to load skill details:', error)
+      } finally {
+        loading.value = false
       }
-      if (gatingResultData.status === 'fulfilled') {
-        gatingResult.value = gatingResultData.value
-      }
-    } catch (error) {
-      console.error('Failed to load skill details:', error)
-    } finally {
-      loading.value = false
     }
-  }
-})
+  },
+)
 
 function handleClose() {
   emit('update:open', false)
@@ -82,7 +96,7 @@ function handleClose() {
 
 async function handleInstall() {
   if (!props.skill) return
-  
+
   installing.value = true
   try {
     await installSkill(props.skill.id, selectedVersion.value || undefined, props.source)
@@ -153,9 +167,7 @@ function openHomepage() {
             <div v-else-if="content" class="prose prose-sm dark:prose-invert max-w-none">
               <pre class="whitespace-pre-wrap font-sans text-sm">{{ content }}</pre>
             </div>
-            <p v-else class="text-muted-foreground text-center py-8">
-              No documentation available
-            </p>
+            <p v-else class="text-muted-foreground text-center py-8">No documentation available</p>
           </ScrollArea>
         </TabsContent>
 
@@ -167,14 +179,20 @@ function openHomepage() {
             <div v-else-if="gatingResult" class="space-y-4">
               <Alert :variant="gatingResult.passed ? 'default' : 'destructive'">
                 <component :is="gatingResult.passed ? Check : AlertTriangle" class="h-4 w-4" />
-                <AlertTitle>{{ gatingResult.passed ? 'Ready to install' : 'Requirements not met' }}</AlertTitle>
+                <AlertTitle>{{
+                  gatingResult.passed ? 'Ready to install' : 'Requirements not met'
+                }}</AlertTitle>
                 <AlertDescription>{{ gatingResult.summary }}</AlertDescription>
               </Alert>
 
               <div v-if="gatingResult.missing_binaries?.length" class="space-y-2">
                 <h4 class="font-medium text-sm">Missing Binaries</h4>
                 <div class="flex flex-wrap gap-2">
-                  <Badge v-for="bin in gatingResult.missing_binaries" :key="bin" variant="destructive">
+                  <Badge
+                    v-for="bin in gatingResult.missing_binaries"
+                    :key="bin"
+                    variant="destructive"
+                  >
                     <X class="w-3 h-3 mr-1" />
                     {{ bin }}
                   </Badge>
@@ -184,7 +202,11 @@ function openHomepage() {
               <div v-if="gatingResult.missing_env_vars?.length" class="space-y-2">
                 <h4 class="font-medium text-sm">Missing Environment Variables</h4>
                 <div class="flex flex-wrap gap-2">
-                  <Badge v-for="env in gatingResult.missing_env_vars" :key="env" variant="destructive">
+                  <Badge
+                    v-for="env in gatingResult.missing_env_vars"
+                    :key="env"
+                    variant="destructive"
+                  >
                     <X class="w-3 h-3 mr-1" />
                     {{ env }}
                   </Badge>
@@ -234,38 +256,24 @@ function openHomepage() {
                 :class="{ 'bg-muted': selectedVersion === versionKey(version) }"
                 @click="selectedVersion = versionKey(version)"
               >
-                <span class="font-mono">
-                  v{{ versionKey(version) }}
-                </span>
+                <span class="font-mono"> v{{ versionKey(version) }} </span>
                 <Badge v-if="selectedVersion === versionKey(version)" variant="default">
                   Selected
                 </Badge>
               </div>
             </div>
-            <p v-else class="text-muted-foreground text-center py-8">
-              No versions available
-            </p>
+            <p v-else class="text-muted-foreground text-center py-8">No versions available</p>
           </ScrollArea>
         </TabsContent>
       </Tabs>
 
       <div class="flex items-center justify-between pt-4 border-t">
         <div class="flex items-center gap-2">
-          <Button
-            v-if="skill?.repository"
-            variant="outline"
-            size="sm"
-            @click="openRepository"
-          >
+          <Button v-if="skill?.repository" variant="outline" size="sm" @click="openRepository">
             <ExternalLink class="w-4 h-4 mr-1" />
             Repository
           </Button>
-          <Button
-            v-if="skill?.homepage"
-            variant="outline"
-            size="sm"
-            @click="openHomepage"
-          >
+          <Button v-if="skill?.homepage" variant="outline" size="sm" @click="openHomepage">
             <ExternalLink class="w-4 h-4 mr-1" />
             Homepage
           </Button>

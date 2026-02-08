@@ -16,10 +16,12 @@ const forwardedProps = useForwardProps(delegatedProps)
 <template>
   <TabsContent
     v-bind="forwardedProps"
-    :class="cn(
-      'mt-2 ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
-      props.class
-    )"
+    :class="
+      cn(
+        'mt-2 ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
+        props.class,
+      )
+    "
   >
     <slot />
   </TabsContent>

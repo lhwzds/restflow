@@ -164,7 +164,7 @@ export const executionHandlers = [
       return HttpResponse.json(
         {
           success: false,
-          message: 'Task not found',
+          message: 'Background agent not found',
         },
         { status: 404 },
       )

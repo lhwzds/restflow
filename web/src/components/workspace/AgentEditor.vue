@@ -225,94 +225,88 @@ onMounted(async () => {
       <div class="absolute top-3 right-6 z-20">
         <Popover v-model:open="settingsOpen">
           <PopoverTrigger as-child>
-            <Button
-              variant="outline"
-              size="icon"
-              class="h-8 w-8 bg-background/80 backdrop-blur-sm"
-            >
+            <Button variant="outline" size="icon" class="h-8 w-8 bg-background/80 backdrop-blur-sm">
               <Settings :size="16" />
             </Button>
           </PopoverTrigger>
           <PopoverContent class="w-80" align="end">
-          <div class="space-y-4">
-            <!-- Model Select -->
-            <div class="space-y-2">
-              <Label>Model</Label>
-              <Select :model-value="model" @update:model-value="onModelChange">
-                <SelectTrigger class="w-full">
-                  <SelectValue placeholder="Select a model" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem v-for="m in models" :key="m.value" :value="m.value">
-                    {{ m.label }}
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <!-- Temperature Slider -->
-            <div v-if="showTemperature" class="space-y-2">
-              <Label>Temperature: {{ temperature.toFixed(1) }}</Label>
-              <Slider
-                :model-value="[temperature]"
-                :min="0"
-                :max="2"
-                :step="0.1"
-                class="w-full"
-                @update:model-value="onTemperatureChange"
-              />
-              <p class="text-xs text-muted-foreground">
-                Lower = focused, Higher = creative
-              </p>
-            </div>
-
-            <!-- Tools -->
-            <div class="space-y-2">
-              <Label>Tools</Label>
-              <div class="flex flex-wrap gap-1.5 mb-2">
-                <Badge
-                  v-for="tool in tools"
-                  :key="tool"
-                  variant="secondary"
-                  class="text-xs gap-1 pr-1"
-                >
-                  {{ getToolLabel(tool) }}
-                  <button type="button" class="hover:text-destructive" @click="removeTool(tool)">
-                    <X :size="12" />
-                  </button>
-                </Badge>
-                <span v-if="tools.length === 0" class="text-xs text-muted-foreground">
-                  No tools selected
-                </span>
-              </div>
-              <div class="flex gap-2">
-                <Select v-model="selectedToolValue">
-                  <SelectTrigger class="flex-1 h-8">
-                    <SelectValue placeholder="Add a tool..." />
+            <div class="space-y-4">
+              <!-- Model Select -->
+              <div class="space-y-2">
+                <Label>Model</Label>
+                <Select :model-value="model" @update:model-value="onModelChange">
+                  <SelectTrigger class="w-full">
+                    <SelectValue placeholder="Select a model" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem
-                      v-for="tool in getAvailableTools()"
-                      :key="tool.value"
-                      :value="tool.value"
-                    >
-                      {{ tool.label }}
+                    <SelectItem v-for="m in models" :key="m.value" :value="m.value">
+                      {{ m.label }}
                     </SelectItem>
                   </SelectContent>
                 </Select>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="icon"
-                  class="h-8 w-8"
-                  :disabled="!selectedToolValue || isLoadingTools"
-                  @click="addTool"
-                >
-                  <Plus :size="14" />
-                </Button>
+              </div>
+
+              <!-- Temperature Slider -->
+              <div v-if="showTemperature" class="space-y-2">
+                <Label>Temperature: {{ temperature.toFixed(1) }}</Label>
+                <Slider
+                  :model-value="[temperature]"
+                  :min="0"
+                  :max="2"
+                  :step="0.1"
+                  class="w-full"
+                  @update:model-value="onTemperatureChange"
+                />
+                <p class="text-xs text-muted-foreground">Lower = focused, Higher = creative</p>
+              </div>
+
+              <!-- Tools -->
+              <div class="space-y-2">
+                <Label>Tools</Label>
+                <div class="flex flex-wrap gap-1.5 mb-2">
+                  <Badge
+                    v-for="tool in tools"
+                    :key="tool"
+                    variant="secondary"
+                    class="text-xs gap-1 pr-1"
+                  >
+                    {{ getToolLabel(tool) }}
+                    <button type="button" class="hover:text-destructive" @click="removeTool(tool)">
+                      <X :size="12" />
+                    </button>
+                  </Badge>
+                  <span v-if="tools.length === 0" class="text-xs text-muted-foreground">
+                    No tools selected
+                  </span>
+                </div>
+                <div class="flex gap-2">
+                  <Select v-model="selectedToolValue">
+                    <SelectTrigger class="flex-1 h-8">
+                      <SelectValue placeholder="Add a tool..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem
+                        v-for="tool in getAvailableTools()"
+                        :key="tool.value"
+                        :value="tool.value"
+                      >
+                        {{ tool.label }}
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    class="h-8 w-8"
+                    :disabled="!selectedToolValue || isLoadingTools"
+                    @click="addTool"
+                  >
+                    <Plus :size="14" />
+                  </Button>
+                </div>
               </div>
             </div>
-          </div>
           </PopoverContent>
         </Popover>
       </div>

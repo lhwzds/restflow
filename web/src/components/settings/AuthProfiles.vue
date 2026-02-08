@@ -1,20 +1,26 @@
 <script setup lang="ts">
 /**
  * Auth Profiles Management Component
- * 
+ *
  * Manages authentication profiles for LLM providers with:
  * - Auto-discovery from Claude Code, environment, keychain
  * - Manual profile creation
  * - Health tracking and status display
  */
 
-import { ref, computed, onMounted } from 'vue';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { ref, computed, onMounted } from 'vue'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Badge } from '@/components/ui/badge'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import {
   Dialog,
   DialogContent,
@@ -23,7 +29,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
-} from '@/components/ui/dialog';
+} from '@/components/ui/dialog'
 import {
   authInitialize,
   authListProfiles,
@@ -35,15 +41,15 @@ import {
   authGetSummary,
   type ManagerSummary,
   type AddProfileRequest,
-} from '@/api/auth';
-import type { AuthProfile, AuthProvider, Credential } from '@/types/generated';
+} from '@/api/auth'
+import type { AuthProfile, AuthProvider, Credential } from '@/types/generated'
 
 // State
-const profiles = ref<AuthProfile[]>([]);
-const summary = ref<ManagerSummary | null>(null);
-const loading = ref(false);
-const error = ref<string | null>(null);
-const showAddDialog = ref(false);
+const profiles = ref<AuthProfile[]>([])
+const summary = ref<ManagerSummary | null>(null)
+const loading = ref(false)
+const error = ref<string | null>(null)
+const showAddDialog = ref(false)
 
 // New profile form
 const newProfile = ref<AddProfileRequest>({
@@ -52,155 +58,157 @@ const newProfile = ref<AddProfileRequest>({
   provider: 'anthropic' as AuthProvider,
   email: undefined,
   priority: 0,
-});
+})
 
 // Computed
 const groupedProfiles = computed(() => {
-  const grouped: Record<string, AuthProfile[]> = {};
+  const grouped: Record<string, AuthProfile[]> = {}
   for (const profile of profiles.value) {
-    const provider = profile.provider;
+    const provider = profile.provider
     if (!grouped[provider]) {
-      grouped[provider] = [];
+      grouped[provider] = []
     }
-    grouped[provider].push(profile);
+    grouped[provider].push(profile)
   }
-  return grouped;
-});
+  return grouped
+})
 
 // Methods
 async function loadProfiles() {
-  loading.value = true;
-  error.value = null;
+  loading.value = true
+  error.value = null
   try {
     // Initialize if needed
-    await authInitialize();
-    profiles.value = await authListProfiles();
-    summary.value = await authGetSummary();
+    await authInitialize()
+    profiles.value = await authListProfiles()
+    summary.value = await authGetSummary()
   } catch (e) {
-    error.value = e instanceof Error ? e.message : String(e);
+    error.value = e instanceof Error ? e.message : String(e)
   } finally {
-    loading.value = false;
+    loading.value = false
   }
 }
 
 async function runDiscovery() {
-  loading.value = true;
-  error.value = null;
+  loading.value = true
+  error.value = null
   try {
-    await authDiscover();
-    await loadProfiles();
+    await authDiscover()
+    await loadProfiles()
   } catch (e) {
-    error.value = e instanceof Error ? e.message : String(e);
+    error.value = e instanceof Error ? e.message : String(e)
   } finally {
-    loading.value = false;
+    loading.value = false
   }
 }
 
 async function addProfile() {
   if (!newProfile.value.name || !newProfile.value.api_key) {
-    error.value = 'Name and API key are required';
-    return;
+    error.value = 'Name and API key are required'
+    return
   }
 
-  loading.value = true;
-  error.value = null;
+  loading.value = true
+  error.value = null
   try {
-    const response = await authAddProfile(newProfile.value);
+    const response = await authAddProfile(newProfile.value)
     if (!response.success) {
-      error.value = response.error || 'Failed to add profile';
-      return;
+      error.value = response.error || 'Failed to add profile'
+      return
     }
-    showAddDialog.value = false;
+    showAddDialog.value = false
     newProfile.value = {
       name: '',
       api_key: '',
       provider: 'anthropic' as AuthProvider,
       email: undefined,
       priority: 0,
-    };
-    await loadProfiles();
+    }
+    await loadProfiles()
   } catch (e) {
-    error.value = e instanceof Error ? e.message : String(e);
+    error.value = e instanceof Error ? e.message : String(e)
   } finally {
-    loading.value = false;
+    loading.value = false
   }
 }
 
 async function removeProfile(profileId: string) {
-  if (!confirm('Are you sure you want to remove this profile?')) return;
-  
-  loading.value = true;
-  error.value = null;
+  if (!confirm('Are you sure you want to remove this profile?')) return
+
+  loading.value = true
+  error.value = null
   try {
-    const response = await authRemoveProfile(profileId);
+    const response = await authRemoveProfile(profileId)
     if (!response.success) {
-      error.value = response.error || 'Failed to remove profile';
-      return;
+      error.value = response.error || 'Failed to remove profile'
+      return
     }
-    await loadProfiles();
+    await loadProfiles()
   } catch (e) {
-    error.value = e instanceof Error ? e.message : String(e);
+    error.value = e instanceof Error ? e.message : String(e)
   } finally {
-    loading.value = false;
+    loading.value = false
   }
 }
 
 async function toggleProfile(profile: AuthProfile) {
-  loading.value = true;
-  error.value = null;
+  loading.value = true
+  error.value = null
   try {
     if (profile.enabled) {
-      const response = await authDisableProfile(profile.id, 'User disabled');
+      const response = await authDisableProfile(profile.id, 'User disabled')
       if (!response.success) {
-        error.value = response.error || 'Failed to disable profile';
-        return;
+        error.value = response.error || 'Failed to disable profile'
+        return
       }
     } else {
-      const response = await authEnableProfile(profile.id);
+      const response = await authEnableProfile(profile.id)
       if (!response.success) {
-        error.value = response.error || 'Failed to enable profile';
-        return;
+        error.value = response.error || 'Failed to enable profile'
+        return
       }
     }
-    await loadProfiles();
+    await loadProfiles()
   } catch (e) {
-    error.value = e instanceof Error ? e.message : String(e);
+    error.value = e instanceof Error ? e.message : String(e)
   } finally {
-    loading.value = false;
+    loading.value = false
   }
 }
 
-function getHealthBadgeVariant(health: string): 'default' | 'secondary' | 'destructive' | 'outline' {
+function getHealthBadgeVariant(
+  health: string,
+): 'default' | 'secondary' | 'destructive' | 'outline' {
   switch (health) {
     case 'healthy':
-      return 'default';
+      return 'default'
     case 'cooldown':
-      return 'secondary';
+      return 'secondary'
     case 'disabled':
-      return 'destructive';
+      return 'destructive'
     default:
-      return 'outline';
+      return 'outline'
   }
 }
 
 function getSourceIcon(source: string): string {
   switch (source) {
     case 'claude_code':
-      return '🤖';
+      return '🤖'
     case 'keychain':
-      return '🔐';
+      return '🔐'
     case 'environment':
-      return '🌍';
+      return '🌍'
     case 'manual':
-      return '✏️';
+      return '✏️'
     default:
-      return '❓';
+      return '❓'
   }
 }
 
 function maskApiKey(key: string): string {
-  if (key.length <= 8) return '*'.repeat(key.length);
-  return `${key.slice(0, 4)}...${key.slice(-4)}`;
+  if (key.length <= 8) return '*'.repeat(key.length)
+  return `${key.slice(0, 4)}...${key.slice(-4)}`
 }
 
 /**
@@ -209,18 +217,18 @@ function maskApiKey(key: string): string {
 function getCredentialDisplayValue(credential: Credential): string {
   switch (credential.type) {
     case 'api_key':
-      return credential.key;
+      return credential.key
     case 'token':
-      return credential.token;
+      return credential.token
     case 'o_auth':
-      return credential.access_token;
+      return credential.access_token
     default:
-      return '';
+      return ''
   }
 }
 
 // Lifecycle
-onMounted(loadProfiles);
+onMounted(loadProfiles)
 </script>
 
 <template>
@@ -229,14 +237,10 @@ onMounted(loadProfiles);
     <div class="flex items-center justify-between">
       <div>
         <h2 class="text-2xl font-bold tracking-tight">Auth Profiles</h2>
-        <p class="text-muted-foreground">
-          Manage authentication credentials for LLM providers
-        </p>
+        <p class="text-muted-foreground">Manage authentication credentials for LLM providers</p>
       </div>
       <div class="flex gap-2">
-        <Button variant="outline" @click="runDiscovery" :disabled="loading">
-          🔍 Discover
-        </Button>
+        <Button variant="outline" @click="runDiscovery" :disabled="loading"> 🔍 Discover </Button>
         <Dialog v-model:open="showAddDialog">
           <DialogTrigger as-child>
             <Button>➕ Add Profile</Button>
@@ -244,18 +248,12 @@ onMounted(loadProfiles);
           <DialogContent>
             <DialogHeader>
               <DialogTitle>Add Auth Profile</DialogTitle>
-              <DialogDescription>
-                Add a manual API key for an LLM provider
-              </DialogDescription>
+              <DialogDescription> Add a manual API key for an LLM provider </DialogDescription>
             </DialogHeader>
             <div class="grid gap-4 py-4">
               <div class="grid gap-2">
                 <Label for="name">Name</Label>
-                <Input
-                  id="name"
-                  v-model="newProfile.name"
-                  placeholder="My Anthropic Key"
-                />
+                <Input id="name" v-model="newProfile.name" placeholder="My Anthropic Key" />
               </div>
               <div class="grid gap-2">
                 <Label for="provider">Provider</Label>
@@ -291,12 +289,8 @@ onMounted(loadProfiles);
               </div>
             </div>
             <DialogFooter>
-              <Button variant="outline" @click="showAddDialog = false">
-                Cancel
-              </Button>
-              <Button @click="addProfile" :disabled="loading">
-                Add Profile
-              </Button>
+              <Button variant="outline" @click="showAddDialog = false"> Cancel </Button>
+              <Button @click="addProfile" :disabled="loading"> Add Profile </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
@@ -393,11 +387,7 @@ onMounted(loadProfiles);
                   </span>
                 </div>
                 <div class="flex gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    @click="toggleProfile(profile)"
-                  >
+                  <Button variant="outline" size="sm" @click="toggleProfile(profile)">
                     {{ profile.enabled ? '⏸️ Disable' : '▶️ Enable' }}
                   </Button>
                   <Button
@@ -416,10 +406,7 @@ onMounted(loadProfiles);
       </div>
 
       <!-- Empty State -->
-      <div
-        v-if="profiles.length === 0"
-        class="text-center py-12 text-muted-foreground"
-      >
+      <div v-if="profiles.length === 0" class="text-center py-12 text-muted-foreground">
         <p class="text-lg mb-2">No auth profiles found</p>
         <p class="text-sm">
           Click "Discover" to find credentials or "Add Profile" to add one manually

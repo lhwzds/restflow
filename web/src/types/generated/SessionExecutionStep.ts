@@ -3,24 +3,25 @@
 /**
  * A step in the execution process
  */
-export type SessionExecutionStep = { 
-/**
- * Step type (e.g., "thinking", "tool_call", "subagent_spawn")
- */
-step_type: string, 
-/**
- * Step name or description
- */
-name: string, 
-/**
- * Step status
- */
-status: string, 
-/**
- * Duration in milliseconds
- */
-duration_ms: bigint | null, 
-/**
- * Additional data
- */
-data: any | null, };
+export type SessionExecutionStep = {
+  /**
+   * Step type (e.g., "thinking", "tool_call", "subagent_spawn")
+   */
+  step_type: string
+  /**
+   * Step name or description
+   */
+  name: string
+  /**
+   * Step status
+   */
+  status: string
+  /**
+   * Duration in milliseconds
+   */
+  duration_ms: bigint | null
+  /**
+   * Additional data
+   */
+  data: any | null
+}

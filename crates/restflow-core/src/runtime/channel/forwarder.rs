@@ -6,12 +6,12 @@ use crate::channel::{ChannelRouter, InboundMessage, OutboundMessage};
 use anyhow::Result;
 use tracing::debug;
 
-use super::trigger::TaskTrigger;
+use super::trigger::BackgroundAgentTrigger;
 
 /// Forward a user message to a running task
-pub async fn forward_to_task(
+pub async fn forward_to_background_agent(
     router: &ChannelRouter,
-    trigger: &dyn TaskTrigger,
+    trigger: &dyn BackgroundAgentTrigger,
     task_id: &str,
     message: &InboundMessage,
 ) -> Result<()> {
@@ -21,7 +21,10 @@ pub async fn forward_to_task(
     );
 
     // Forward message to task input
-    match trigger.send_input_to_task(task_id, &message.content).await {
+    match trigger
+        .send_message_to_background_agent(task_id, &message.content)
+        .await
+    {
         Ok(()) => {
             // Acknowledge receipt
             let response =
@@ -41,12 +44,15 @@ pub async fn forward_to_task(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::runtime::channel::trigger::mock::MockTaskTrigger;
+    use crate::runtime::channel::trigger::mock::MockBackgroundAgentTrigger;
 
     #[tokio::test]
     async fn test_mock_trigger_input_tracking() {
-        let trigger = MockTaskTrigger::new();
-        trigger.send_input_to_task("task-1", "hello").await.unwrap();
+        let trigger = MockBackgroundAgentTrigger::new();
+        trigger
+            .send_message_to_background_agent("task-1", "hello")
+            .await
+            .unwrap();
 
         let last_input = trigger.last_input.lock().await;
         assert!(last_input.is_some());

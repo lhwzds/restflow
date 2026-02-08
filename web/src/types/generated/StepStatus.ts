@@ -3,4 +3,4 @@
 /**
  * Status of an execution step
  */
-export type StepStatus = "pending" | "running" | "completed" | "failed";
+export type StepStatus = 'pending' | 'running' | 'completed' | 'failed'

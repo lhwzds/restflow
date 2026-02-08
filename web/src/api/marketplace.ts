@@ -34,7 +34,7 @@ export interface MarketplaceSearchResult {
  * Search the marketplace for skills
  */
 export async function searchMarketplace(
-  request: MarketplaceSearchRequest
+  request: MarketplaceSearchRequest,
 ): Promise<MarketplaceSearchResult[]> {
   return invoke('marketplace_search', { request })
 }
@@ -42,20 +42,14 @@ export async function searchMarketplace(
 /**
  * Get skill details from marketplace
  */
-export async function getMarketplaceSkill(
-  id: string,
-  source?: string
-): Promise<SkillManifest> {
+export async function getMarketplaceSkill(id: string, source?: string): Promise<SkillManifest> {
   return invoke('marketplace_get_skill', { id, source })
 }
 
 /**
  * Get available versions for a skill
  */
-export async function getSkillVersions(
-  id: string,
-  source?: string
-): Promise<SkillVersion[]> {
+export async function getSkillVersions(id: string, source?: string): Promise<SkillVersion[]> {
   return invoke('marketplace_get_versions', { id, source })
 }
 
@@ -65,7 +59,7 @@ export async function getSkillVersions(
 export async function getSkillContent(
   id: string,
   version?: string,
-  source?: string
+  source?: string,
 ): Promise<string> {
   return invoke('marketplace_get_content', { id, version, source })
 }
@@ -73,21 +67,14 @@ export async function getSkillContent(
 /**
  * Check gating requirements for a skill
  */
-export async function checkSkillGating(
-  id: string,
-  source?: string
-): Promise<GatingCheckResult> {
+export async function checkSkillGating(id: string, source?: string): Promise<GatingCheckResult> {
   return invoke('marketplace_check_gating', { id, source })
 }
 
 /**
  * Install a skill from marketplace
  */
-export async function installSkill(
-  id: string,
-  version?: string,
-  source?: string
-): Promise<void> {
+export async function installSkill(id: string, version?: string, source?: string): Promise<void> {
   return invoke('marketplace_install_skill', { id, version, source })
 }
 

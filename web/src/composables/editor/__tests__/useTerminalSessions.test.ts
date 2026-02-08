@@ -53,7 +53,10 @@ describe('useTerminalSessions', () => {
 
   describe('loadSessions', () => {
     it('should load sessions from API', async () => {
-      const mockSessions = [createMockSession({ id: 'session-1' }), createMockSession({ id: 'session-2' })]
+      const mockSessions = [
+        createMockSession({ id: 'session-1' }),
+        createMockSession({ id: 'session-2' }),
+      ]
       const terminalApi = await import('@/api/terminal-sessions')
       vi.mocked(terminalApi.listTerminalSessions).mockResolvedValue(mockSessions)
 
@@ -206,7 +209,10 @@ describe('useTerminalSessions', () => {
       const runningSession = createMockSession({ id: 'running', status: 'running' })
       const stoppedSession = createMockSession({ id: 'stopped', status: 'stopped' })
       const terminalApi = await import('@/api/terminal-sessions')
-      vi.mocked(terminalApi.listTerminalSessions).mockResolvedValue([runningSession, stoppedSession])
+      vi.mocked(terminalApi.listTerminalSessions).mockResolvedValue([
+        runningSession,
+        stoppedSession,
+      ])
 
       const { useTerminalSessions } = await import('../useTerminalSessions')
       const { runningSessions, refreshSessions } = useTerminalSessions()
@@ -221,7 +227,10 @@ describe('useTerminalSessions', () => {
       const runningSession = createMockSession({ id: 'running', status: 'running' })
       const stoppedSession = createMockSession({ id: 'stopped', status: 'stopped' })
       const terminalApi = await import('@/api/terminal-sessions')
-      vi.mocked(terminalApi.listTerminalSessions).mockResolvedValue([runningSession, stoppedSession])
+      vi.mocked(terminalApi.listTerminalSessions).mockResolvedValue([
+        runningSession,
+        stoppedSession,
+      ])
 
       const { useTerminalSessions } = await import('../useTerminalSessions')
       const { stoppedSessions, refreshSessions } = useTerminalSessions()

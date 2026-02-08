@@ -75,7 +75,8 @@ describe('SkillDetailModal', () => {
   })
 
   it('installs the selected prerelease version', async () => {
-    const { getSkillContent, getSkillVersions, checkSkillGating, installSkill } = await import('@/api/marketplace')
+    const { getSkillContent, getSkillVersions, checkSkillGating, installSkill } =
+      await import('@/api/marketplace')
 
     const versions: SkillVersion[] = [
       { major: 1, minor: 2, patch: 3, prerelease: 'beta.1' },

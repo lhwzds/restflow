@@ -156,7 +156,7 @@ fn default_max_messages() -> usize {
 ///
 /// Controls whether long-term memory is shared across all tasks of an agent
 /// or isolated per task.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, TS, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, TS, PartialEq)]
 #[ts(export)]
 #[serde(rename_all = "snake_case")]
 pub enum MemoryScope {
@@ -164,7 +164,25 @@ pub enum MemoryScope {
     #[default]
     SharedAgent,
     /// Isolate long-term memory by task.
-    PerTask,
+    #[serde(rename = "per_background_agent")]
+    PerBackgroundAgent,
+}
+
+impl<'de> Deserialize<'de> for MemoryScope {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        match value.as_str() {
+            "shared_agent" => Ok(Self::SharedAgent),
+            "per_background_agent" | "per_task" => Ok(Self::PerBackgroundAgent),
+            other => Err(serde::de::Error::unknown_variant(
+                other,
+                &["shared_agent", "per_background_agent", "per_task"],
+            )),
+        }
+    }
 }
 
 fn default_memory_scope() -> MemoryScope {
@@ -1130,13 +1148,13 @@ mod tests {
             max_messages: 50,
             enable_file_memory: false,
             persist_on_complete: true,
-            memory_scope: MemoryScope::PerTask,
+            memory_scope: MemoryScope::PerBackgroundAgent,
         };
 
         assert_eq!(config.max_messages, 50);
         assert!(!config.enable_file_memory);
         assert!(config.persist_on_complete);
-        assert_eq!(config.memory_scope, MemoryScope::PerTask);
+        assert_eq!(config.memory_scope, MemoryScope::PerBackgroundAgent);
     }
 
     #[test]
@@ -1161,7 +1179,7 @@ mod tests {
             max_messages: 75,
             enable_file_memory: true,
             persist_on_complete: false,
-            memory_scope: MemoryScope::PerTask,
+            memory_scope: MemoryScope::PerBackgroundAgent,
         };
 
         let json = serde_json::to_string(&config).unwrap();
@@ -1170,7 +1188,7 @@ mod tests {
         assert_eq!(deserialized.max_messages, 75);
         assert!(deserialized.enable_file_memory);
         assert!(!deserialized.persist_on_complete);
-        assert_eq!(deserialized.memory_scope, MemoryScope::PerTask);
+        assert_eq!(deserialized.memory_scope, MemoryScope::PerBackgroundAgent);
     }
 
     #[test]
@@ -1183,6 +1201,15 @@ mod tests {
         assert!(config.enable_file_memory);
         assert!(config.persist_on_complete);
         assert_eq!(config.memory_scope, MemoryScope::SharedAgent);
+    }
+
+    #[test]
+    fn test_memory_scope_deserializes_legacy_per_task() {
+        let scope: MemoryScope = serde_json::from_str(r#""per_task""#).unwrap();
+        assert_eq!(scope, MemoryScope::PerBackgroundAgent);
+
+        let serialized = serde_json::to_string(&scope).unwrap();
+        assert_eq!(serialized, r#""per_background_agent""#);
     }
 
     #[test]

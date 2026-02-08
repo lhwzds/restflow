@@ -6,4 +6,4 @@
  * Controls whether long-term memory is shared across all tasks of an agent
  * or isolated per task.
  */
-export type MemoryScope = "shared_agent" | "per_task";
+export type MemoryScope = "shared_agent" | "per_background_agent";

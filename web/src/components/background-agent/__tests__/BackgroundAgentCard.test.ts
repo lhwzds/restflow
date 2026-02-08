@@ -1,10 +1,10 @@
 /**
- * TaskCard Component Tests
+ * BackgroundAgentCard Component Tests
  */
 
 import { describe, it, expect, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
-import TaskCard from '../TaskCard.vue'
+import BackgroundAgentCard from '../BackgroundAgentCard.vue'
 import type { AgentTask } from '@/types/generated/AgentTask'
 
 // Mock lucide-vue-next icons
@@ -58,10 +58,10 @@ const createMockTask = (overrides: Partial<AgentTask> = {}): AgentTask => ({
   ...overrides,
 })
 
-describe('TaskCard', () => {
+describe('BackgroundAgentCard', () => {
   it('renders task name and description', () => {
     const task = createMockTask()
-    const wrapper = mount(TaskCard, {
+    const wrapper = mount(BackgroundAgentCard, {
       props: { task },
       global: {
         stubs: {
@@ -79,7 +79,7 @@ describe('TaskCard', () => {
 
   it('displays "No description" when description is null', () => {
     const task = createMockTask({ description: null })
-    const wrapper = mount(TaskCard, {
+    const wrapper = mount(BackgroundAgentCard, {
       props: { task },
       global: {
         stubs: {
@@ -96,7 +96,7 @@ describe('TaskCard', () => {
 
   it('shows schedule information', () => {
     const task = createMockTask()
-    const wrapper = mount(TaskCard, {
+    const wrapper = mount(BackgroundAgentCard, {
       props: { task },
       global: {
         stubs: {
@@ -114,7 +114,7 @@ describe('TaskCard', () => {
 
   it('displays success and failure counts', () => {
     const task = createMockTask({ success_count: 10, failure_count: 2 })
-    const wrapper = mount(TaskCard, {
+    const wrapper = mount(BackgroundAgentCard, {
       props: { task },
       global: {
         stubs: {
@@ -132,7 +132,7 @@ describe('TaskCard', () => {
 
   it('shows error message when present', () => {
     const task = createMockTask({ last_error: 'Connection timeout' })
-    const wrapper = mount(TaskCard, {
+    const wrapper = mount(BackgroundAgentCard, {
       props: { task },
       global: {
         stubs: {
@@ -149,7 +149,7 @@ describe('TaskCard', () => {
 
   it('emits click event when card is clicked', async () => {
     const task = createMockTask()
-    const wrapper = mount(TaskCard, {
+    const wrapper = mount(BackgroundAgentCard, {
       props: { task },
       global: {
         stubs: {
@@ -168,7 +168,7 @@ describe('TaskCard', () => {
 
   it('emits pause event for active task', async () => {
     const task = createMockTask({ status: 'active' })
-    const wrapper = mount(TaskCard, {
+    const wrapper = mount(BackgroundAgentCard, {
       props: { task },
       global: {
         stubs: {
@@ -195,7 +195,7 @@ describe('TaskCard', () => {
 
   it('emits resume event for paused task', async () => {
     const task = createMockTask({ status: 'paused' })
-    const wrapper = mount(TaskCard, {
+    const wrapper = mount(BackgroundAgentCard, {
       props: { task },
       global: {
         stubs: {
@@ -222,7 +222,7 @@ describe('TaskCard', () => {
 
   it('shows loading state when isLoading is true', () => {
     const task = createMockTask()
-    const wrapper = mount(TaskCard, {
+    const wrapper = mount(BackgroundAgentCard, {
       props: { task, isLoading: true },
       global: {
         stubs: {
@@ -250,7 +250,7 @@ describe('TaskCard', () => {
         include_output: true,
       },
     })
-    const wrapper = mount(TaskCard, {
+    const wrapper = mount(BackgroundAgentCard, {
       props: { task },
       global: {
         stubs: {
@@ -270,7 +270,7 @@ describe('TaskCard', () => {
 
     statuses.forEach((status) => {
       const task = createMockTask({ status })
-      const wrapper = mount(TaskCard, {
+      const wrapper = mount(BackgroundAgentCard, {
         props: { task },
         global: {
           stubs: {
@@ -296,7 +296,7 @@ describe('TaskCard', () => {
         timezone: 'America/Los_Angeles',
       },
     })
-    const wrapper = mount(TaskCard, {
+    const wrapper = mount(BackgroundAgentCard, {
       props: { task },
       global: {
         stubs: {
@@ -316,7 +316,7 @@ describe('TaskCard', () => {
     const task = createMockTask({
       schedule: { type: 'once', run_at: runAt },
     })
-    const wrapper = mount(TaskCard, {
+    const wrapper = mount(BackgroundAgentCard, {
       props: { task },
       global: {
         stubs: {

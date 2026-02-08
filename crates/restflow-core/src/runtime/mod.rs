@@ -16,8 +16,8 @@ pub use agent_task::{
     TelegramNotifier,
 };
 pub use channel::{
-    ChatDispatcher, ChatDispatcherConfig, ChatError, ChatSessionManager, MessageDebouncer,
-    MessageHandlerConfig, MessageRouter, RouteDecision, SystemStatus, TaskTrigger,
+    BackgroundAgentTrigger, ChatDispatcher, ChatDispatcherConfig, ChatError, ChatSessionManager,
+    MessageDebouncer, MessageHandlerConfig, MessageRouter, RouteDecision, SystemStatus,
     start_message_handler, start_message_handler_with_chat,
 };
 pub use subagent::{

@@ -3,4 +3,4 @@
 /**
  * Execution status
  */
-export type SessionExecutionStatus = "Running" | "Completed" | "Failed";
+export type SessionExecutionStatus = 'Running' | 'Completed' | 'Failed'

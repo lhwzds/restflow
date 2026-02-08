@@ -54,11 +54,11 @@ function isExpired(approval: PendingApproval): boolean {
 }
 
 const pendingApprovals = computed(() =>
-  props.approvals.filter((a) => a.status === 'pending' && !isExpired(a))
+  props.approvals.filter((a) => a.status === 'pending' && !isExpired(a)),
 )
 
 const resolvedApprovals = computed(() =>
-  props.approvals.filter((a) => a.status !== 'pending' || isExpired(a))
+  props.approvals.filter((a) => a.status !== 'pending' || isExpired(a)),
 )
 </script>
 
@@ -139,9 +139,7 @@ const resolvedApprovals = computed(() =>
     <Card v-if="resolvedApprovals.length > 0">
       <CardHeader class="pb-3">
         <CardTitle class="text-lg">Recent History</CardTitle>
-        <CardDescription>
-          {{ resolvedApprovals.length }} resolved approval(s)
-        </CardDescription>
+        <CardDescription> {{ resolvedApprovals.length }} resolved approval(s) </CardDescription>
       </CardHeader>
       <CardContent>
         <div class="space-y-2">

@@ -1,7 +1,14 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Download, Star, ExternalLink, Github, Package } from 'lucide-vue-next'
 import type { MarketplaceSearchResult } from '@/api/marketplace'
@@ -66,7 +73,10 @@ function openRepository() {
 </script>
 
 <template>
-  <Card class="flex flex-col h-full hover:shadow-lg transition-shadow cursor-pointer" @click="handleViewDetails">
+  <Card
+    class="flex flex-col h-full hover:shadow-lg transition-shadow cursor-pointer"
+    @click="handleViewDetails"
+  >
     <CardHeader class="pb-2">
       <div class="flex items-start justify-between">
         <div class="flex-1 min-w-0">
@@ -96,11 +106,7 @@ function openRepository() {
         >
           {{ keyword }}
         </Badge>
-        <Badge
-          v-if="(skill.manifest.keywords?.length || 0) > 3"
-          variant="outline"
-          class="text-xs"
-        >
+        <Badge v-if="(skill.manifest.keywords?.length || 0) > 3" variant="outline" class="text-xs">
           +{{ skill.manifest.keywords!.length - 3 }}
         </Badge>
       </div>
@@ -115,7 +121,9 @@ function openRepository() {
           {{ skill.rating.toFixed(1) }}
         </div>
         <div class="flex items-center gap-1">
-          v{{ skill.manifest.version?.major || 0 }}.{{ skill.manifest.version?.minor || 0 }}.{{ skill.manifest.version?.patch || 0 }}
+          v{{ skill.manifest.version?.major || 0 }}.{{ skill.manifest.version?.minor || 0 }}.{{
+            skill.manifest.version?.patch || 0
+          }}
         </div>
       </div>
     </CardContent>
@@ -131,13 +139,7 @@ function openRepository() {
         >
           Uninstall
         </Button>
-        <Button
-          v-else
-          size="sm"
-          class="flex-1"
-          :disabled="installing"
-          @click="handleInstall"
-        >
+        <Button v-else size="sm" class="flex-1" :disabled="installing" @click="handleInstall">
           <Download class="w-4 h-4 mr-1" />
           {{ installing ? 'Installing...' : 'Install' }}
         </Button>

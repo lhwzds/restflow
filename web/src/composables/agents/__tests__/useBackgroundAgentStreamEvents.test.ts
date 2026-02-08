@@ -8,12 +8,12 @@ vi.mock('@tauri-apps/api/event', () => ({
   listen: vi.fn(),
 }))
 
-vi.mock('@/api/agent-task', () => ({
-  onTaskStreamEvent: vi.fn(),
-  onTaskStreamEventForTask: vi.fn(),
-  runAgentTaskStreaming: vi.fn(),
-  cancelAgentTask: vi.fn(),
-  getActiveAgentTasks: vi.fn(),
+vi.mock('@/api/background-agent', () => ({
+  onBackgroundAgentStreamEvent: vi.fn(),
+  onBackgroundAgentStreamEventForAgent: vi.fn(),
+  runBackgroundAgentStreaming: vi.fn(),
+  cancelBackgroundAgent: vi.fn(),
+  getActiveBackgroundAgents: vi.fn(),
   isEventKind: vi.fn((event, type) => event.kind.type === type),
 }))
 
@@ -44,7 +44,11 @@ function createOutputEvent(taskId: string, text: string, isStderr = false): Task
   })
 }
 
-function createProgressEvent(taskId: string, phase: string, percent: number | null): TaskStreamEvent {
+function createProgressEvent(
+  taskId: string,
+  phase: string,
+  percent: number | null,
+): TaskStreamEvent {
   return createEvent(taskId, {
     type: 'progress',
     phase,
@@ -87,7 +91,7 @@ function createHeartbeatEvent(taskId: string, elapsedMs: number): TaskStreamEven
   })
 }
 
-describe('useTaskStreamEvents', () => {
+describe('useBackgroundAgentStreamEvents', () => {
   let mockEventCallback: ((event: TaskStreamEvent) => void) | null = null
   let mockUnlisten: ReturnType<typeof vi.fn>
 
@@ -96,12 +100,12 @@ describe('useTaskStreamEvents', () => {
     mockEventCallback = null
     mockUnlisten = vi.fn()
 
-    const { onTaskStreamEventForTask, getActiveAgentTasks } = await import('@/api/agent-task')
-    vi.mocked(onTaskStreamEventForTask).mockImplementation(async (_taskId, callback) => {
+    const { onBackgroundAgentStreamEventForAgent, getActiveBackgroundAgents } = await import('@/api/background-agent')
+    vi.mocked(onBackgroundAgentStreamEventForAgent).mockImplementation(async (_taskId, callback) => {
       mockEventCallback = callback
       return mockUnlisten as unknown as () => void
     })
-    vi.mocked(getActiveAgentTasks).mockResolvedValue([])
+    vi.mocked(getActiveBackgroundAgents).mockResolvedValue([])
   })
 
   afterEach(() => {
@@ -110,18 +114,18 @@ describe('useTaskStreamEvents', () => {
 
   describe('initial state', () => {
     it('should start with null state', async () => {
-      const { useTaskStreamEvents } = await import('../useTaskStreamEvents')
+      const { useBackgroundAgentStreamEvents } = await import('../useBackgroundAgentStreamEvents')
       const taskId = ref<string | null>('task-1')
-      const { state, isListening } = useTaskStreamEvents(taskId)
+      const { state, isListening } = useBackgroundAgentStreamEvents(taskId)
 
       expect(state.value).toBeNull()
       expect(isListening.value).toBe(false)
     })
 
     it('should not start listening automatically', async () => {
-      const { useTaskStreamEvents } = await import('../useTaskStreamEvents')
+      const { useBackgroundAgentStreamEvents } = await import('../useBackgroundAgentStreamEvents')
       const taskId = ref<string | null>('task-1')
-      const { isListening } = useTaskStreamEvents(taskId)
+      const { isListening } = useBackgroundAgentStreamEvents(taskId)
 
       expect(isListening.value).toBe(false)
     })
@@ -129,9 +133,9 @@ describe('useTaskStreamEvents', () => {
 
   describe('startListening', () => {
     it('should start listening and initialize state', async () => {
-      const { useTaskStreamEvents } = await import('../useTaskStreamEvents')
+      const { useBackgroundAgentStreamEvents } = await import('../useBackgroundAgentStreamEvents')
       const taskId = ref<string | null>('task-1')
-      const { state, isListening, startListening } = useTaskStreamEvents(taskId)
+      const { state, isListening, startListening } = useBackgroundAgentStreamEvents(taskId)
 
       await startListening()
 
@@ -142,9 +146,9 @@ describe('useTaskStreamEvents', () => {
     })
 
     it('should not start if taskId is null', async () => {
-      const { useTaskStreamEvents } = await import('../useTaskStreamEvents')
+      const { useBackgroundAgentStreamEvents } = await import('../useBackgroundAgentStreamEvents')
       const taskId = ref<string | null>(null)
-      const { isListening, startListening } = useTaskStreamEvents(taskId)
+      const { isListening, startListening } = useBackgroundAgentStreamEvents(taskId)
 
       await startListening()
 
@@ -152,23 +156,23 @@ describe('useTaskStreamEvents', () => {
     })
 
     it('should not start twice', async () => {
-      const { onTaskStreamEventForTask } = await import('@/api/agent-task')
-      const { useTaskStreamEvents } = await import('../useTaskStreamEvents')
+      const { onBackgroundAgentStreamEventForAgent } = await import('@/api/background-agent')
+      const { useBackgroundAgentStreamEvents } = await import('../useBackgroundAgentStreamEvents')
       const taskId = ref<string | null>('task-1')
-      const { startListening } = useTaskStreamEvents(taskId)
+      const { startListening } = useBackgroundAgentStreamEvents(taskId)
 
       await startListening()
       await startListening()
 
-      expect(onTaskStreamEventForTask).toHaveBeenCalledTimes(1)
+      expect(onBackgroundAgentStreamEventForAgent).toHaveBeenCalledTimes(1)
     })
   })
 
   describe('event handling', () => {
     it('should handle started event', async () => {
-      const { useTaskStreamEvents } = await import('../useTaskStreamEvents')
+      const { useBackgroundAgentStreamEvents } = await import('../useBackgroundAgentStreamEvents')
       const taskId = ref<string | null>('task-1')
-      const { state, startListening } = useTaskStreamEvents(taskId)
+      const { state, startListening } = useBackgroundAgentStreamEvents(taskId)
 
       await startListening()
       mockEventCallback?.(createStartedEvent('task-1'))
@@ -181,9 +185,9 @@ describe('useTaskStreamEvents', () => {
     })
 
     it('should handle output event', async () => {
-      const { useTaskStreamEvents } = await import('../useTaskStreamEvents')
+      const { useBackgroundAgentStreamEvents } = await import('../useBackgroundAgentStreamEvents')
       const taskId = ref<string | null>('task-1')
-      const { state, startListening } = useTaskStreamEvents(taskId)
+      const { state, startListening } = useBackgroundAgentStreamEvents(taskId)
 
       await startListening()
       mockEventCallback?.(createStartedEvent('task-1'))
@@ -197,9 +201,9 @@ describe('useTaskStreamEvents', () => {
     })
 
     it('should handle stderr output', async () => {
-      const { useTaskStreamEvents } = await import('../useTaskStreamEvents')
+      const { useBackgroundAgentStreamEvents } = await import('../useBackgroundAgentStreamEvents')
       const taskId = ref<string | null>('task-1')
-      const { state, startListening } = useTaskStreamEvents(taskId)
+      const { state, startListening } = useBackgroundAgentStreamEvents(taskId)
 
       await startListening()
       mockEventCallback?.(createStartedEvent('task-1'))
@@ -211,9 +215,9 @@ describe('useTaskStreamEvents', () => {
     })
 
     it('should handle progress event', async () => {
-      const { useTaskStreamEvents } = await import('../useTaskStreamEvents')
+      const { useBackgroundAgentStreamEvents } = await import('../useBackgroundAgentStreamEvents')
       const taskId = ref<string | null>('task-1')
-      const { state, startListening } = useTaskStreamEvents(taskId)
+      const { state, startListening } = useBackgroundAgentStreamEvents(taskId)
 
       await startListening()
       mockEventCallback?.(createStartedEvent('task-1'))
@@ -225,9 +229,9 @@ describe('useTaskStreamEvents', () => {
     })
 
     it('should handle completed event', async () => {
-      const { useTaskStreamEvents } = await import('../useTaskStreamEvents')
+      const { useBackgroundAgentStreamEvents } = await import('../useBackgroundAgentStreamEvents')
       const taskId = ref<string | null>('task-1')
-      const { state, isCompleted, isFinished, startListening } = useTaskStreamEvents(taskId)
+      const { state, isCompleted, isFinished, startListening } = useBackgroundAgentStreamEvents(taskId)
 
       await startListening()
       mockEventCallback?.(createStartedEvent('task-1'))
@@ -242,9 +246,9 @@ describe('useTaskStreamEvents', () => {
     })
 
     it('should handle failed event', async () => {
-      const { useTaskStreamEvents } = await import('../useTaskStreamEvents')
+      const { useBackgroundAgentStreamEvents } = await import('../useBackgroundAgentStreamEvents')
       const taskId = ref<string | null>('task-1')
-      const { state, isFailed, isFinished, startListening } = useTaskStreamEvents(taskId)
+      const { state, isFailed, isFinished, startListening } = useBackgroundAgentStreamEvents(taskId)
 
       await startListening()
       mockEventCallback?.(createStartedEvent('task-1'))
@@ -259,9 +263,9 @@ describe('useTaskStreamEvents', () => {
     })
 
     it('should handle cancelled event', async () => {
-      const { useTaskStreamEvents } = await import('../useTaskStreamEvents')
+      const { useBackgroundAgentStreamEvents } = await import('../useBackgroundAgentStreamEvents')
       const taskId = ref<string | null>('task-1')
-      const { state, isCancelled, isFinished, startListening } = useTaskStreamEvents(taskId)
+      const { state, isCancelled, isFinished, startListening } = useBackgroundAgentStreamEvents(taskId)
 
       await startListening()
       mockEventCallback?.(createStartedEvent('task-1'))
@@ -275,9 +279,9 @@ describe('useTaskStreamEvents', () => {
     })
 
     it('should handle heartbeat event', async () => {
-      const { useTaskStreamEvents } = await import('../useTaskStreamEvents')
+      const { useBackgroundAgentStreamEvents } = await import('../useBackgroundAgentStreamEvents')
       const taskId = ref<string | null>('task-1')
-      const { state, startListening } = useTaskStreamEvents(taskId)
+      const { state, startListening } = useBackgroundAgentStreamEvents(taskId)
 
       await startListening()
       mockEventCallback?.(createStartedEvent('task-1'))
@@ -291,9 +295,9 @@ describe('useTaskStreamEvents', () => {
 
   describe('stopListening', () => {
     it('should call unlisten function', async () => {
-      const { useTaskStreamEvents } = await import('../useTaskStreamEvents')
+      const { useBackgroundAgentStreamEvents } = await import('../useBackgroundAgentStreamEvents')
       const taskId = ref<string | null>('task-1')
-      const { startListening, stopListening, isListening } = useTaskStreamEvents(taskId)
+      const { startListening, stopListening, isListening } = useBackgroundAgentStreamEvents(taskId)
 
       await startListening()
       expect(isListening.value).toBe(true)
@@ -306,9 +310,9 @@ describe('useTaskStreamEvents', () => {
 
   describe('reset', () => {
     it('should clear state and stop listening', async () => {
-      const { useTaskStreamEvents } = await import('../useTaskStreamEvents')
+      const { useBackgroundAgentStreamEvents } = await import('../useBackgroundAgentStreamEvents')
       const taskId = ref<string | null>('task-1')
-      const { state, startListening, reset, isListening } = useTaskStreamEvents(taskId)
+      const { state, startListening, reset, isListening } = useBackgroundAgentStreamEvents(taskId)
 
       await startListening()
       mockEventCallback?.(createStartedEvent('task-1'))
@@ -325,9 +329,9 @@ describe('useTaskStreamEvents', () => {
 
   describe('combinedOutput', () => {
     it('should combine all output lines', async () => {
-      const { useTaskStreamEvents } = await import('../useTaskStreamEvents')
+      const { useBackgroundAgentStreamEvents } = await import('../useBackgroundAgentStreamEvents')
       const taskId = ref<string | null>('task-1')
-      const { combinedOutput, startListening } = useTaskStreamEvents(taskId)
+      const { combinedOutput, startListening } = useBackgroundAgentStreamEvents(taskId)
 
       await startListening()
       mockEventCallback?.(createStartedEvent('task-1'))
@@ -342,9 +346,9 @@ describe('useTaskStreamEvents', () => {
 
   describe('output line limiting', () => {
     it('should limit output lines to maxOutputLines', async () => {
-      const { useTaskStreamEvents } = await import('../useTaskStreamEvents')
+      const { useBackgroundAgentStreamEvents } = await import('../useBackgroundAgentStreamEvents')
       const taskId = ref<string | null>('task-1')
-      const { state, startListening } = useTaskStreamEvents(taskId, { maxOutputLines: 5 })
+      const { state, startListening } = useBackgroundAgentStreamEvents(taskId, { maxOutputLines: 5 })
 
       await startListening()
       mockEventCallback?.(createStartedEvent('task-1'))
@@ -363,9 +367,9 @@ describe('useTaskStreamEvents', () => {
 
   describe('event history limiting', () => {
     it('should limit events to maxEvents', async () => {
-      const { useTaskStreamEvents } = await import('../useTaskStreamEvents')
+      const { useBackgroundAgentStreamEvents } = await import('../useBackgroundAgentStreamEvents')
       const taskId = ref<string | null>('task-1')
-      const { state, startListening } = useTaskStreamEvents(taskId, { maxEvents: 5 })
+      const { state, startListening } = useBackgroundAgentStreamEvents(taskId, { maxEvents: 5 })
 
       await startListening()
       mockEventCallback?.(createStartedEvent('task-1'))
@@ -381,7 +385,7 @@ describe('useTaskStreamEvents', () => {
   })
 })
 
-describe('useMultiTaskStreamEvents', () => {
+describe('useMultiBackgroundAgentStreamEvents', () => {
   let mockEventCallback: ((event: TaskStreamEvent) => void) | null = null
   let mockUnlisten: ReturnType<typeof vi.fn>
 
@@ -390,12 +394,12 @@ describe('useMultiTaskStreamEvents', () => {
     mockEventCallback = null
     mockUnlisten = vi.fn()
 
-    const { onTaskStreamEvent, getActiveAgentTasks } = await import('@/api/agent-task')
-    vi.mocked(onTaskStreamEvent).mockImplementation(async (callback) => {
+    const { onBackgroundAgentStreamEvent, getActiveBackgroundAgents } = await import('@/api/background-agent')
+    vi.mocked(onBackgroundAgentStreamEvent).mockImplementation(async (callback) => {
       mockEventCallback = callback
       return mockUnlisten as unknown as () => void
     })
-    vi.mocked(getActiveAgentTasks).mockResolvedValue([])
+    vi.mocked(getActiveBackgroundAgents).mockResolvedValue([])
   })
 
   afterEach(() => {
@@ -404,8 +408,8 @@ describe('useMultiTaskStreamEvents', () => {
 
   describe('initial state', () => {
     it('should start with empty tasks map', async () => {
-      const { useMultiTaskStreamEvents } = await import('../useTaskStreamEvents')
-      const { tasks, taskCount, isListening } = useMultiTaskStreamEvents()
+      const { useMultiBackgroundAgentStreamEvents } = await import('../useBackgroundAgentStreamEvents')
+      const { tasks, taskCount, isListening } = useMultiBackgroundAgentStreamEvents()
 
       expect(tasks.value.size).toBe(0)
       expect(taskCount.value).toBe(0)
@@ -415,19 +419,19 @@ describe('useMultiTaskStreamEvents', () => {
 
   describe('startListening', () => {
     it('should start listening for all events', async () => {
-      const { onTaskStreamEvent } = await import('@/api/agent-task')
-      const { useMultiTaskStreamEvents } = await import('../useTaskStreamEvents')
-      const { isListening, startListening } = useMultiTaskStreamEvents()
+      const { onBackgroundAgentStreamEvent } = await import('@/api/background-agent')
+      const { useMultiBackgroundAgentStreamEvents } = await import('../useBackgroundAgentStreamEvents')
+      const { isListening, startListening } = useMultiBackgroundAgentStreamEvents()
 
       await startListening()
 
       expect(isListening.value).toBe(true)
-      expect(onTaskStreamEvent).toHaveBeenCalled()
+      expect(onBackgroundAgentStreamEvent).toHaveBeenCalled()
     })
 
     it('should load active tasks on start', async () => {
-      const { getActiveAgentTasks } = await import('@/api/agent-task')
-      vi.mocked(getActiveAgentTasks).mockResolvedValue([
+      const { getActiveBackgroundAgents } = await import('@/api/background-agent')
+      vi.mocked(getActiveBackgroundAgents).mockResolvedValue([
         {
           task_id: 'task-1',
           task_name: 'Task One',
@@ -444,8 +448,8 @@ describe('useMultiTaskStreamEvents', () => {
         },
       ])
 
-      const { useMultiTaskStreamEvents } = await import('../useTaskStreamEvents')
-      const { tasks, startListening } = useMultiTaskStreamEvents()
+      const { useMultiBackgroundAgentStreamEvents } = await import('../useBackgroundAgentStreamEvents')
+      const { tasks, startListening } = useMultiBackgroundAgentStreamEvents()
 
       await startListening()
 
@@ -457,8 +461,8 @@ describe('useMultiTaskStreamEvents', () => {
 
   describe('multi-task event handling', () => {
     it('should track events for multiple tasks', async () => {
-      const { useMultiTaskStreamEvents } = await import('../useTaskStreamEvents')
-      const { tasks, runningCount, startListening } = useMultiTaskStreamEvents()
+      const { useMultiBackgroundAgentStreamEvents } = await import('../useBackgroundAgentStreamEvents')
+      const { tasks, runningCount, startListening } = useMultiBackgroundAgentStreamEvents()
 
       await startListening()
       mockEventCallback?.(createStartedEvent('task-1'))
@@ -472,8 +476,8 @@ describe('useMultiTaskStreamEvents', () => {
     })
 
     it('should track finished tasks separately', async () => {
-      const { useMultiTaskStreamEvents } = await import('../useTaskStreamEvents')
-      const { runningTasks, finishedTasks, startListening } = useMultiTaskStreamEvents()
+      const { useMultiBackgroundAgentStreamEvents } = await import('../useBackgroundAgentStreamEvents')
+      const { runningTasks, finishedTasks, startListening } = useMultiBackgroundAgentStreamEvents()
 
       await startListening()
       mockEventCallback?.(createStartedEvent('task-1'))
@@ -490,8 +494,8 @@ describe('useMultiTaskStreamEvents', () => {
 
   describe('getTaskState', () => {
     it('should return state for specific task', async () => {
-      const { useMultiTaskStreamEvents } = await import('../useTaskStreamEvents')
-      const { getTaskState, startListening } = useMultiTaskStreamEvents()
+      const { useMultiBackgroundAgentStreamEvents } = await import('../useBackgroundAgentStreamEvents')
+      const { getTaskState, startListening } = useMultiBackgroundAgentStreamEvents()
 
       await startListening()
       mockEventCallback?.(createStartedEvent('task-1'))
@@ -503,8 +507,8 @@ describe('useMultiTaskStreamEvents', () => {
     })
 
     it('should return undefined for unknown task', async () => {
-      const { useMultiTaskStreamEvents } = await import('../useTaskStreamEvents')
-      const { getTaskState, startListening } = useMultiTaskStreamEvents()
+      const { useMultiBackgroundAgentStreamEvents } = await import('../useBackgroundAgentStreamEvents')
+      const { getTaskState, startListening } = useMultiBackgroundAgentStreamEvents()
 
       await startListening()
       const state = getTaskState('unknown')
@@ -514,8 +518,8 @@ describe('useMultiTaskStreamEvents', () => {
 
   describe('removeTask', () => {
     it('should remove task from tracking', async () => {
-      const { useMultiTaskStreamEvents } = await import('../useTaskStreamEvents')
-      const { tasks, removeTask, startListening } = useMultiTaskStreamEvents()
+      const { useMultiBackgroundAgentStreamEvents } = await import('../useBackgroundAgentStreamEvents')
+      const { tasks, removeTask, startListening } = useMultiBackgroundAgentStreamEvents()
 
       await startListening()
       mockEventCallback?.(createStartedEvent('task-1'))
@@ -532,8 +536,8 @@ describe('useMultiTaskStreamEvents', () => {
 
   describe('clearFinished', () => {
     it('should clear all finished tasks', async () => {
-      const { useMultiTaskStreamEvents } = await import('../useTaskStreamEvents')
-      const { tasks, clearFinished, startListening } = useMultiTaskStreamEvents()
+      const { useMultiBackgroundAgentStreamEvents } = await import('../useBackgroundAgentStreamEvents')
+      const { tasks, clearFinished, startListening } = useMultiBackgroundAgentStreamEvents()
 
       await startListening()
       mockEventCallback?.(createStartedEvent('task-1'))

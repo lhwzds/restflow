@@ -14,9 +14,9 @@ use crate::channel::{ChannelRouter, InboundMessage};
 
 use super::chat_dispatcher::ChatDispatcher;
 use super::commands::{handle_command, send_help};
-use super::forwarder::forward_to_task;
+use super::forwarder::forward_to_background_agent;
 use super::router::{MessageRouter, RouteDecision};
-use super::trigger::TaskTrigger;
+use super::trigger::BackgroundAgentTrigger;
 
 #[cfg(test)]
 const STREAM_RECONNECT_DELAY: Duration = Duration::from_millis(20);
@@ -45,7 +45,7 @@ impl Default for MessageHandlerConfig {
 ///
 /// This spawns background tasks to listen for messages on all interactive channels
 /// and routes them appropriately. Natural language messages will show a help message.
-pub fn start_message_handler<T: TaskTrigger + 'static>(
+pub fn start_message_handler<T: BackgroundAgentTrigger + 'static>(
     router: Arc<ChannelRouter>,
     task_trigger: Arc<T>,
     config: MessageHandlerConfig,
@@ -58,7 +58,7 @@ pub fn start_message_handler<T: TaskTrigger + 'static>(
 /// This spawns background tasks to listen for messages on all interactive channels
 /// and routes them appropriately. Natural language messages are dispatched to
 /// the AI chat dispatcher.
-pub fn start_message_handler_with_chat<T: TaskTrigger + 'static>(
+pub fn start_message_handler_with_chat<T: BackgroundAgentTrigger + 'static>(
     router: Arc<ChannelRouter>,
     task_trigger: Arc<T>,
     chat_dispatcher: Arc<ChatDispatcher>,
@@ -68,7 +68,7 @@ pub fn start_message_handler_with_chat<T: TaskTrigger + 'static>(
 }
 
 /// Internal implementation of message handler startup
-fn start_message_handler_internal<T: TaskTrigger + 'static>(
+fn start_message_handler_internal<T: BackgroundAgentTrigger + 'static>(
     router: Arc<ChannelRouter>,
     task_trigger: Arc<T>,
     chat_dispatcher: Option<Arc<ChatDispatcher>>,
@@ -168,7 +168,7 @@ fn start_message_handler_internal<T: TaskTrigger + 'static>(
 async fn handle_message_routed(
     router: &ChannelRouter,
     msg_router: &MessageRouter,
-    trigger: &dyn TaskTrigger,
+    trigger: &dyn BackgroundAgentTrigger,
     chat_dispatcher: Option<&ChatDispatcher>,
     message: &InboundMessage,
     config: &MessageHandlerConfig,
@@ -185,9 +185,11 @@ async fn handle_message_routed(
     let decision = msg_router.route(message).await;
 
     match decision {
-        RouteDecision::ForwardToTask { task_id } => {
+        RouteDecision::ForwardToBackgroundAgent {
+            background_agent_id: task_id,
+        } => {
             debug!("Routing to task: {}", task_id);
-            forward_to_task(router, trigger, &task_id, message).await
+            forward_to_background_agent(router, trigger, &task_id, message).await
         }
 
         RouteDecision::HandleCommand { command, args } => {
@@ -219,7 +221,7 @@ async fn handle_message_routed(
 mod tests {
     use super::*;
     use crate::channel::{Channel, ChannelType, OutboundMessage};
-    use crate::runtime::channel::trigger::mock::MockTaskTrigger;
+    use crate::runtime::channel::trigger::mock::MockBackgroundAgentTrigger;
     use anyhow::Result as AnyhowResult;
     use async_trait::async_trait;
     use std::collections::VecDeque;
@@ -327,11 +329,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_mock_trigger_forwarding() {
-        let trigger = MockTaskTrigger::new();
+        let trigger = MockBackgroundAgentTrigger::new();
 
         // Simulate forwarding a message
         trigger
-            .send_input_to_task("task-1", "continue")
+            .send_message_to_background_agent("task-1", "continue")
             .await
             .unwrap();
 
@@ -373,7 +375,7 @@ mod tests {
         let decision = msg_router.route(&cmd_msg).await;
         assert!(matches!(
             decision,
-            RouteDecision::ForwardToTask { task_id } if task_id == "task-123"
+            RouteDecision::ForwardToBackgroundAgent { background_agent_id: task_id } if task_id == "task-123"
         ));
 
         // Natural language should also forward to task
@@ -381,7 +383,7 @@ mod tests {
         let decision = msg_router.route(&chat_msg).await;
         assert!(matches!(
             decision,
-            RouteDecision::ForwardToTask { task_id } if task_id == "task-123"
+            RouteDecision::ForwardToBackgroundAgent { background_agent_id: task_id } if task_id == "task-123"
         ));
     }
 
@@ -399,7 +401,7 @@ mod tests {
         let mut router = ChannelRouter::new();
         router.register(test_channel);
         let router = Arc::new(router);
-        let trigger = Arc::new(MockTaskTrigger::new());
+        let trigger = Arc::new(MockBackgroundAgentTrigger::new());
 
         start_message_handler(router, trigger, MessageHandlerConfig::default());
 

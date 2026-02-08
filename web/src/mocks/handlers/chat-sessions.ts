@@ -6,10 +6,10 @@ import demoChatSessions from '../data/chat-sessions.json'
 
 // Demo AI responses for simulation
 const demoResponses = [
-  "I understand your request. Let me help you with that. In RestFlow, you can create automated workflows that run in the background while you focus on other tasks.",
+  'I understand your request. Let me help you with that. In RestFlow, you can create automated workflows that run in the background while you focus on other tasks.',
   "That's a great question! RestFlow allows you to set up parallel AI agent workflows. Each agent can work independently on different tasks.",
   "I can help you with that. Here's what I found: RestFlow supports multiple AI providers including OpenAI, Anthropic, and DeepSeek. You can configure your preferred model in the settings.",
-  "Based on your request, I recommend creating a workflow with the following steps: 1) HTTP request to fetch data, 2) Python script to process it, 3) Telegram notification to alert you when done.",
+  'Based on your request, I recommend creating a workflow with the following steps: 1) HTTP request to fetch data, 2) Python script to process it, 3) Telegram notification to alert you when done.',
   "I've analyzed your input. RestFlow is designed to let AI agents work autonomously so you can rest. You can monitor their progress from the dashboard.",
 ]
 

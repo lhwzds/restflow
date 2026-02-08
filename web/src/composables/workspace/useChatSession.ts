@@ -60,10 +60,8 @@ export function useChatSession(options: UseChatSessionOptions = {}) {
   // Local computed
   const hasSession = computed(() => store.hasActiveSession)
   const hasMessages = computed(() => messages.value.length > 0)
-  const canSend = computed(() => 
-    inputMessage.value.trim().length > 0 && 
-    !isSending.value && 
-    hasSession.value
+  const canSend = computed(
+    () => inputMessage.value.trim().length > 0 && !isSending.value && hasSession.value,
   )
 
   // Actions
@@ -86,7 +84,7 @@ export function useChatSession(options: UseChatSessionOptions = {}) {
   async function createSession(
     agentId: string,
     model: string,
-    name?: string
+    name?: string,
   ): Promise<ChatSession | null> {
     const session = await store.createSession(agentId, model, name, options.skillId)
     if (session) {
@@ -147,7 +145,7 @@ export function useChatSession(options: UseChatSessionOptions = {}) {
         store.setAgentFilter(newAgentId)
         loadSessions()
       }
-    }
+    },
   )
 
   watch(
@@ -157,7 +155,7 @@ export function useChatSession(options: UseChatSessionOptions = {}) {
         store.setSkillFilter(newSkillId)
         loadSessions()
       }
-    }
+    },
   )
 
   return {

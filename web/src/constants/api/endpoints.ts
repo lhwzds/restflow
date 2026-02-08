@@ -50,7 +50,7 @@ export const API_ENDPOINTS = {
     LIST: `${API_PREFIX}/tools`,
   },
 
-  AGENT_TASK: {
+  BACKGROUND_AGENT: {
     LIST: `${API_PREFIX}/background-agents`,
     CREATE: `${API_PREFIX}/background-agents`,
     GET: (id: string) => `${API_PREFIX}/background-agents/${id}` as const,
@@ -78,5 +78,5 @@ export type AgentEndpoints = typeof API_ENDPOINTS.AGENT
 export type SecretEndpoints = typeof API_ENDPOINTS.SECRET
 export type ModelEndpoints = typeof API_ENDPOINTS.MODEL
 export type SkillEndpoints = typeof API_ENDPOINTS.SKILL
-export type AgentTaskEndpoints = typeof API_ENDPOINTS.AGENT_TASK
+export type BackgroundAgentEndpoints = typeof API_ENDPOINTS.BACKGROUND_AGENT
 export type HookEndpoints = typeof API_ENDPOINTS.HOOK

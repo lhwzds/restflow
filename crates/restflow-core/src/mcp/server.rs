@@ -516,13 +516,10 @@ impl McpBackend for IpcBackend {
 
     async fn list_tasks(&self, status: Option<AgentTaskStatus>) -> Result<Vec<AgentTask>, String> {
         let mut client = self.client.lock().await;
-        match status {
-            Some(status) => client
-                .list_tasks_by_status(status.as_str().to_string())
-                .await
-                .map_err(|e| e.to_string()),
-            None => client.list_tasks().await.map_err(|e| e.to_string()),
-        }
+        client
+            .list_background_agents(status.map(|value| value.as_str().to_string()))
+            .await
+            .map_err(|e| e.to_string())
     }
 
     async fn create_background_agent(
@@ -951,7 +948,8 @@ impl RestFlowMcpServer {
             None => Ok(None),
             Some(s) if s.is_empty() => Ok(None),
             Some(s) if s == "shared_agent" => Ok(Some(MemoryScope::SharedAgent)),
-            Some(s) if s == "per_task" => Ok(Some(MemoryScope::PerTask)),
+            Some(s) if s == "per_background_agent" => Ok(Some(MemoryScope::PerBackgroundAgent)),
+            Some(s) if s == "per_task" => Ok(Some(MemoryScope::PerBackgroundAgent)),
             Some(s) => Err(format!("Unknown memory_scope: {}", s)),
         }
     }

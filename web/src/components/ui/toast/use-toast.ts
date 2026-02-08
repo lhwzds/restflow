@@ -46,24 +46,18 @@ function addToast(props: ToastProps) {
 }
 
 function updateToast(id: string, props: Partial<ToastProps>) {
-  toasts.value = toasts.value.map((t) =>
-    t.id === id ? { ...t, ...props } : t
-  )
+  toasts.value = toasts.value.map((t) => (t.id === id ? { ...t, ...props } : t))
 }
 
 function dismissToast(id?: string) {
   if (id) {
-    toasts.value = toasts.value.map((t) =>
-      t.id === id ? { ...t, open: false } : t
-    )
+    toasts.value = toasts.value.map((t) => (t.id === id ? { ...t, open: false } : t))
   } else {
     toasts.value = toasts.value.map((t) => ({ ...t, open: false }))
   }
 
   setTimeout(() => {
-    toasts.value = id
-      ? toasts.value.filter((t) => t.id !== id)
-      : []
+    toasts.value = id ? toasts.value.filter((t) => t.id !== id) : []
   }, TOAST_REMOVE_DELAY)
 }
 

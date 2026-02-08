@@ -83,11 +83,7 @@ const formatTime = (timestamp: number) => {
               :size="14"
               class="animate-spin text-primary"
             />
-            <Check
-              v-else-if="session.status === 'completed'"
-              :size="14"
-              class="text-green-500"
-            />
+            <Check v-else-if="session.status === 'completed'" :size="14" class="text-green-500" />
             <MessageSquare v-else :size="14" class="text-muted-foreground" />
           </div>
 
@@ -105,10 +101,7 @@ const formatTime = (timestamp: number) => {
       </button>
 
       <!-- Empty State -->
-      <div
-        v-if="sessions.length === 0"
-        class="px-3 py-8 text-center text-sm text-muted-foreground"
-      >
+      <div v-if="sessions.length === 0" class="px-3 py-8 text-center text-sm text-muted-foreground">
         No sessions yet
       </div>
     </div>

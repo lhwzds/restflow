@@ -1,8 +1,8 @@
 use crate::auth::{AuthProvider, Credential, CredentialSource, ProfileUpdate};
 use crate::models::{
-    AgentNode, AgentTask, BackgroundAgentControlAction, BackgroundAgentPatch, BackgroundAgentSpec,
+    AgentNode, BackgroundAgentControlAction, BackgroundAgentPatch, BackgroundAgentSpec,
     BackgroundMessageSource, ChatMessage, ChatRole, ChatSessionUpdate, MemoryChunk, MemorySession,
-    Skill, TaskSchedule, TerminalSession,
+    Skill, TerminalSession,
 };
 use crate::storage::SystemConfig;
 use serde::{Deserialize, Serialize};
@@ -64,25 +64,10 @@ pub enum IpcRequest {
         id: String,
     },
 
-    ListTasks,
-    GetTask {
-        id: String,
+    ListBackgroundAgents {
+        status: Option<String>,
     },
-    CreateTask {
-        name: String,
-        agent_id: String,
-        schedule: TaskSchedule,
-    },
-    UpdateTask {
-        task: AgentTask,
-    },
-    DeleteTask {
-        id: String,
-    },
-    RunTask {
-        id: String,
-    },
-    StopTask {
+    GetBackgroundAgent {
         id: String,
     },
 
@@ -284,16 +269,7 @@ pub enum IpcRequest {
     },
     ClearAuthProfiles,
 
-    PauseTask {
-        id: String,
-    },
-    ResumeTask {
-        id: String,
-    },
-    ListTasksByStatus {
-        status: String,
-    },
-    GetTaskHistory {
+    GetBackgroundAgentHistory {
         id: String,
     },
     CreateBackgroundAgent {
@@ -323,8 +299,8 @@ pub enum IpcRequest {
         id: String,
         limit: Option<usize>,
     },
-    SubscribeTaskEvents {
-        task_id: String,
+    SubscribeBackgroundAgentEvents {
+        background_agent_id: String,
     },
 
     ExecuteAgent {
@@ -569,15 +545,15 @@ mod tests {
     }
 
     #[test]
-    fn test_pause_task_serialization() {
-        let request = IpcRequest::PauseTask {
-            id: "task-1".to_string(),
+    fn test_get_background_agent_serialization() {
+        let request = IpcRequest::GetBackgroundAgent {
+            id: "agent-1".to_string(),
         };
         let json = serde_json::to_string(&request).unwrap();
         let parsed: IpcRequest = serde_json::from_str(&json).unwrap();
 
-        if let IpcRequest::PauseTask { id } = parsed {
-            assert_eq!(id, "task-1");
+        if let IpcRequest::GetBackgroundAgent { id } = parsed {
+            assert_eq!(id, "agent-1");
         } else {
             panic!("Wrong variant");
         }
@@ -657,15 +633,15 @@ mod tests {
     }
 
     #[test]
-    fn test_list_tasks_by_status_serialization() {
-        let request = IpcRequest::ListTasksByStatus {
-            status: "active".to_string(),
+    fn test_list_background_agents_serialization() {
+        let request = IpcRequest::ListBackgroundAgents {
+            status: Some("active".to_string()),
         };
         let json = serde_json::to_string(&request).unwrap();
         let parsed: IpcRequest = serde_json::from_str(&json).unwrap();
 
-        if let IpcRequest::ListTasksByStatus { status } = parsed {
-            assert_eq!(status, "active");
+        if let IpcRequest::ListBackgroundAgents { status } = parsed {
+            assert_eq!(status, Some("active".to_string()));
         } else {
             panic!("Wrong variant");
         }

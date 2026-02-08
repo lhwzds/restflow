@@ -3,4 +3,9 @@
 /**
  * Source of a message
  */
-export type MessageSource = { "type": "user" } | { "type": "main_agent" } | { "type": "subagent_result", agent_id: string, agent_name: string, } | { "type": "system" } | { "type": "skill_injection", skill_id: string, };
+export type MessageSource =
+  | { type: 'user' }
+  | { type: 'main_agent' }
+  | { type: 'subagent_result'; agent_id: string; agent_name: string }
+  | { type: 'system' }
+  | { type: 'skill_injection'; skill_id: string }

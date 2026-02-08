@@ -2,7 +2,7 @@ use super::ipc_client::IpcClient;
 use super::ipc_protocol::{IpcRequest, IpcResponse};
 use super::launcher::ensure_daemon_running;
 use crate::AppCore;
-use crate::models::{AgentNode, Skill, TaskSchedule};
+use crate::models::{AgentNode, AgentTaskStatus, BackgroundAgentSpec, Skill};
 use crate::paths;
 use crate::services::{
     agent as agent_service, config as config_service, secrets as secrets_service,
@@ -167,22 +167,35 @@ impl CoreAccess {
         }
     }
 
-    pub async fn list_tasks(&mut self) -> Result<Vec<crate::models::AgentTask>> {
+    pub async fn list_background_agents(
+        &mut self,
+        status: Option<AgentTaskStatus>,
+    ) -> Result<Vec<crate::models::AgentTask>> {
         match self {
-            CoreAccess::Local(core) => core.storage.agent_tasks.list_tasks(),
+            CoreAccess::Local(core) => match status {
+                Some(status) => core.storage.agent_tasks.list_tasks_by_status(status),
+                None => core.storage.agent_tasks.list_tasks(),
+            },
             CoreAccess::Remote(client) => {
-                let response = client.request(IpcRequest::ListTasks).await?;
+                let response = client
+                    .request(IpcRequest::ListBackgroundAgents {
+                        status: status.map(|value| value.as_str().to_string()),
+                    })
+                    .await?;
                 decode_response(response)
             }
         }
     }
 
-    pub async fn get_task(&mut self, id: &str) -> Result<Option<crate::models::AgentTask>> {
+    pub async fn get_background_agent(
+        &mut self,
+        id: &str,
+    ) -> Result<Option<crate::models::AgentTask>> {
         match self {
             CoreAccess::Local(core) => core.storage.agent_tasks.get_task(id),
             CoreAccess::Remote(client) => {
                 let response = client
-                    .request(IpcRequest::GetTask { id: id.to_string() })
+                    .request(IpcRequest::GetBackgroundAgent { id: id.to_string() })
                     .await?;
                 match response {
                     IpcResponse::Success(value) => Ok(Some(serde_json::from_value(value)?)),
@@ -194,24 +207,15 @@ impl CoreAccess {
         }
     }
 
-    pub async fn create_task(
+    pub async fn create_background_agent(
         &mut self,
-        name: String,
-        agent_id: String,
-        schedule: TaskSchedule,
+        spec: BackgroundAgentSpec,
     ) -> Result<crate::models::AgentTask> {
         match self {
-            CoreAccess::Local(core) => core
-                .storage
-                .agent_tasks
-                .create_task(name, agent_id, schedule),
+            CoreAccess::Local(core) => core.storage.agent_tasks.create_background_agent(spec),
             CoreAccess::Remote(client) => {
                 let response = client
-                    .request(IpcRequest::CreateTask {
-                        name,
-                        agent_id,
-                        schedule,
-                    })
+                    .request(IpcRequest::CreateBackgroundAgent { spec })
                     .await?;
                 decode_response(response)
             }

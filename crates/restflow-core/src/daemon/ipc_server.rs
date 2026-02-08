@@ -174,43 +174,25 @@ impl IpcServer {
                 Ok(()) => IpcResponse::success(serde_json::json!({ "ok": true })),
                 Err(err) => IpcResponse::error(500, err.to_string()),
             },
-            IpcRequest::ListTasks => match core.storage.agent_tasks.list_tasks() {
-                Ok(tasks) => IpcResponse::success(tasks),
-                Err(err) => IpcResponse::error(500, err.to_string()),
-            },
-            IpcRequest::GetTask { id } => match core.storage.agent_tasks.get_task(&id) {
-                Ok(Some(task)) => IpcResponse::success(task),
-                Ok(None) => IpcResponse::not_found("Task"),
-                Err(err) => IpcResponse::error(500, err.to_string()),
-            },
-            IpcRequest::CreateTask {
-                name,
-                agent_id,
-                schedule,
-            } => {
-                match core
-                    .storage
-                    .agent_tasks
-                    .create_task(name, agent_id, schedule)
-                {
-                    Ok(task) => IpcResponse::success(task),
+            IpcRequest::ListBackgroundAgents { status } => {
+                let result = match status {
+                    Some(status) => match parse_background_agent_status(&status) {
+                        Ok(status) => core.storage.agent_tasks.list_tasks_by_status(status),
+                        Err(err) => return IpcResponse::error(400, err.to_string()),
+                    },
+                    None => core.storage.agent_tasks.list_tasks(),
+                };
+
+                match result {
+                    Ok(background_agents) => IpcResponse::success(background_agents),
                     Err(err) => IpcResponse::error(500, err.to_string()),
                 }
             }
-            IpcRequest::UpdateTask { task } => match core.storage.agent_tasks.update_task(&task) {
-                Ok(()) => IpcResponse::success(task),
+            IpcRequest::GetBackgroundAgent { id } => match core.storage.agent_tasks.get_task(&id) {
+                Ok(Some(background_agent)) => IpcResponse::success(background_agent),
+                Ok(None) => IpcResponse::not_found("Background agent"),
                 Err(err) => IpcResponse::error(500, err.to_string()),
             },
-            IpcRequest::DeleteTask { id } => match core.storage.agent_tasks.delete_task(&id) {
-                Ok(deleted) => IpcResponse::success(serde_json::json!({ "deleted": deleted })),
-                Err(err) => IpcResponse::error(500, err.to_string()),
-            },
-            IpcRequest::RunTask { id: _ } => {
-                IpcResponse::error(-3, "Task execution not available via IPC")
-            }
-            IpcRequest::StopTask { id: _ } => {
-                IpcResponse::error(-3, "Task execution not available via IPC")
-            }
             IpcRequest::ListSecrets => match secrets_service::list_secrets(core).await {
                 Ok(secrets) => IpcResponse::success(secrets),
                 Err(err) => IpcResponse::error(500, err.to_string()),
@@ -913,25 +895,7 @@ impl IpcServer {
                 manager.clear().await;
                 IpcResponse::success(serde_json::json!({ "ok": true }))
             }
-            IpcRequest::PauseTask { id } => match core.storage.agent_tasks.pause_task(&id) {
-                Ok(task) => IpcResponse::success(task),
-                Err(err) => IpcResponse::error(500, err.to_string()),
-            },
-            IpcRequest::ResumeTask { id } => match core.storage.agent_tasks.resume_task(&id) {
-                Ok(task) => IpcResponse::success(task),
-                Err(err) => IpcResponse::error(500, err.to_string()),
-            },
-            IpcRequest::ListTasksByStatus { status } => {
-                let status = match parse_task_status(&status) {
-                    Ok(status) => status,
-                    Err(err) => return IpcResponse::error(400, err.to_string()),
-                };
-                match core.storage.agent_tasks.list_tasks_by_status(status) {
-                    Ok(tasks) => IpcResponse::success(tasks),
-                    Err(err) => IpcResponse::error(500, err.to_string()),
-                }
-            }
-            IpcRequest::GetTaskHistory { id } => {
+            IpcRequest::GetBackgroundAgentHistory { id } => {
                 match core.storage.agent_tasks.list_events_for_task(&id) {
                     Ok(events) => IpcResponse::success(events),
                     Err(err) => IpcResponse::error(500, err.to_string()),
@@ -999,9 +963,9 @@ impl IpcServer {
                     Err(err) => IpcResponse::error(500, err.to_string()),
                 }
             }
-            IpcRequest::SubscribeTaskEvents { task_id: _ } => {
-                IpcResponse::error(-3, "Task event streaming not available via IPC")
-            }
+            IpcRequest::SubscribeBackgroundAgentEvents {
+                background_agent_id: _,
+            } => IpcResponse::error(-3, "Background agent event streaming not available via IPC"),
             IpcRequest::ExecuteAgent { .. } => {
                 IpcResponse::error(-3, "Agent execution not available via IPC")
             }
@@ -1109,7 +1073,7 @@ async fn build_auth_manager(core: &Arc<AppCore>) -> Result<AuthProfileManager> {
     Ok(manager)
 }
 
-fn parse_task_status(status: &str) -> Result<AgentTaskStatus> {
+fn parse_background_agent_status(status: &str) -> Result<AgentTaskStatus> {
     match status.to_lowercase().as_str() {
         "active" => Ok(AgentTaskStatus::Active),
         "paused" => Ok(AgentTaskStatus::Paused),

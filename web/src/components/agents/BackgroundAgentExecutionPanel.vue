@@ -23,7 +23,7 @@ import {
   FileText,
   Zap,
 } from 'lucide-vue-next'
-import { useTaskStreamEvents } from '@/composables/agents/useTaskStreamEvents'
+import { useBackgroundAgentStreamEvents } from '@/composables/agents/useBackgroundAgentStreamEvents'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
@@ -75,7 +75,7 @@ const {
   stopListening,
   runTask,
   cancel,
-} = useTaskStreamEvents(taskIdRef)
+} = useBackgroundAgentStreamEvents(taskIdRef)
 
 // Local state
 const outputRef = ref<HTMLElement | null>(null)
@@ -101,23 +101,25 @@ const statusIcon = computed(() => {
   }
 })
 
-const statusBadgeVariant = computed((): 'default' | 'success' | 'destructive' | 'warning' | 'info' => {
-  if (!state.value) return 'default'
-  switch (state.value.status) {
-    case 'pending':
-      return 'default'
-    case 'running':
-      return 'info'
-    case 'completed':
-      return 'success'
-    case 'failed':
-      return 'destructive'
-    case 'cancelled':
-      return 'warning'
-    default:
-      return 'default'
-  }
-})
+const statusBadgeVariant = computed(
+  (): 'default' | 'success' | 'destructive' | 'warning' | 'info' => {
+    if (!state.value) return 'default'
+    switch (state.value.status) {
+      case 'pending':
+        return 'default'
+      case 'running':
+        return 'info'
+      case 'completed':
+        return 'success'
+      case 'failed':
+        return 'destructive'
+      case 'cancelled':
+        return 'warning'
+      default:
+        return 'default'
+    }
+  },
+)
 
 const statusText = computed(() => {
   if (!state.value) return 'Pending'
@@ -268,12 +270,7 @@ defineExpose({
             <Play :size="14" />
             Run
           </Button>
-          <Button
-            v-if="isRunning"
-            size="sm"
-            variant="destructive"
-            @click="handleCancel"
-          >
+          <Button v-if="isRunning" size="sm" variant="destructive" @click="handleCancel">
             <Square :size="14" />
             Cancel
           </Button>
@@ -307,10 +304,7 @@ defineExpose({
       <!-- Progress bar -->
       <div v-if="hasProgress" class="progress-section">
         <div class="progress-bar">
-          <div
-            class="progress-fill"
-            :style="{ width: `${state?.progressPercent ?? 0}%` }"
-          />
+          <div class="progress-fill" :style="{ width: `${state?.progressPercent ?? 0}%` }" />
         </div>
         <span class="progress-text">
           <span v-if="state?.progressPhase">{{ state.progressPhase }} - </span>
@@ -333,11 +327,7 @@ defineExpose({
 
     <component :is="compact ? 'div' : CardContent" v-if="isOutputExpanded" class="panel-content">
       <!-- Output terminal -->
-      <div
-        ref="outputRef"
-        class="output-terminal"
-        :style="{ maxHeight: maxHeight }"
-      >
+      <div ref="outputRef" class="output-terminal" :style="{ maxHeight: maxHeight }">
         <div v-if="!hasOutput && !isRunning" class="output-placeholder">
           <Terminal :size="24" />
           <span>Output will appear here when task runs...</span>
@@ -346,7 +336,10 @@ defineExpose({
           <Loader2 :size="24" class="spinning" />
           <span>Waiting for output...</span>
         </div>
-        <pre v-else class="output-content"><template v-for="(line, idx) in state?.outputLines" :key="idx"><span :class="{ stderr: line.isStderr }">{{ line.text }}</span></template></pre>
+        <pre
+          v-else
+          class="output-content"
+        ><template v-for="(line, idx) in state?.outputLines" :key="idx"><span :class="{ stderr: line.isStderr }">{{ line.text }}</span></template></pre>
       </div>
 
       <!-- Result / Error display -->

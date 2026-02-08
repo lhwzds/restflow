@@ -158,7 +158,9 @@ describe('useTerminalAutoSave', () => {
       startAutoSave() // Second call should be ignored
 
       // Should only log once
-      expect(consoleSpy.mock.calls.filter((c) => c[0] === 'Terminal auto-save started')).toHaveLength(1)
+      expect(
+        consoleSpy.mock.calls.filter((c) => c[0] === 'Terminal auto-save started'),
+      ).toHaveLength(1)
 
       // Cleanup
       stopAutoSave()

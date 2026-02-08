@@ -24,7 +24,7 @@ use tracing::warn;
 use ts_rs::TS;
 
 /// Tauri event name for heartbeat/status events
-pub const HEARTBEAT_EVENT: &str = "agent-task:heartbeat";
+pub const HEARTBEAT_EVENT: &str = "background-agent:heartbeat";
 
 /// Heartbeat event sent to the frontend
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]

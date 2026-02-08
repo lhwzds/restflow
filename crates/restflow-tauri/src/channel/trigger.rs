@@ -1,6 +1,6 @@
 //! Task trigger interface for channel handlers
 //!
-//! This module defines the TaskTrigger trait that bridges the channel message
+//! This module defines the BackgroundAgentTrigger trait that bridges the channel message
 //! handlers with the task execution system.
 
 use anyhow::Result;
@@ -28,26 +28,27 @@ pub struct SystemStatus {
 /// This trait is implemented by the application state to allow the channel
 /// handlers to interact with the task execution system without tight coupling.
 #[async_trait]
-pub trait TaskTrigger: Send + Sync {
+pub trait BackgroundAgentTrigger: Send + Sync {
     /// List all tasks
-    async fn list_tasks(&self) -> Result<Vec<AgentTask>>;
+    async fn list_background_agents(&self) -> Result<Vec<AgentTask>>;
 
     /// Find task by name or ID and run it
-    async fn find_and_run_task(&self, name_or_id: &str) -> Result<AgentTask>;
+    async fn find_and_run_background_agent(&self, name_or_id: &str) -> Result<AgentTask>;
 
     /// Stop a running task
-    async fn stop_task(&self, task_id: &str) -> Result<()>;
+    async fn stop_background_agent(&self, task_id: &str) -> Result<()>;
 
     /// Get system status
     async fn get_status(&self) -> Result<SystemStatus>;
 
     /// Send input to a running task
-    async fn send_input_to_task(&self, task_id: &str, input: &str) -> Result<()>;
+    async fn send_message_to_background_agent(&self, task_id: &str, input: &str) -> Result<()>;
 
     /// Handle approval response for a task
     ///
     /// Returns true if there was a pending approval to handle
-    async fn handle_approval(&self, task_id: &str, approved: bool) -> Result<bool>;
+    async fn handle_background_agent_approval(&self, task_id: &str, approved: bool)
+    -> Result<bool>;
 }
 
 #[cfg(test)]
@@ -58,7 +59,7 @@ pub mod mock {
     use tokio::sync::Mutex;
 
     /// Mock task trigger for testing
-    pub struct MockTaskTrigger {
+    pub struct MockBackgroundAgentTrigger {
         tasks: Arc<Mutex<Vec<AgentTask>>>,
         runner_active: AtomicBool,
         active_count: AtomicUsize,
@@ -68,7 +69,7 @@ pub mod mock {
         pub last_approval: Arc<Mutex<Option<(String, bool)>>>,
     }
 
-    impl MockTaskTrigger {
+    impl MockBackgroundAgentTrigger {
         pub fn new() -> Self {
             Self {
                 tasks: Arc::new(Mutex::new(Vec::new())),
@@ -94,19 +95,19 @@ pub mod mock {
         }
     }
 
-    impl Default for MockTaskTrigger {
+    impl Default for MockBackgroundAgentTrigger {
         fn default() -> Self {
             Self::new()
         }
     }
 
     #[async_trait]
-    impl TaskTrigger for MockTaskTrigger {
-        async fn list_tasks(&self) -> Result<Vec<AgentTask>> {
+    impl BackgroundAgentTrigger for MockBackgroundAgentTrigger {
+        async fn list_background_agents(&self) -> Result<Vec<AgentTask>> {
             Ok(self.tasks.lock().await.clone())
         }
 
-        async fn find_and_run_task(&self, name_or_id: &str) -> Result<AgentTask> {
+        async fn find_and_run_background_agent(&self, name_or_id: &str) -> Result<AgentTask> {
             let tasks = self.tasks.lock().await;
             tasks
                 .iter()
@@ -115,7 +116,7 @@ pub mod mock {
                 .ok_or_else(|| anyhow::anyhow!("Background agent not found: {}", name_or_id))
         }
 
-        async fn stop_task(&self, _task_id: &str) -> Result<()> {
+        async fn stop_background_agent(&self, _task_id: &str) -> Result<()> {
             Ok(())
         }
 
@@ -128,12 +129,16 @@ pub mod mock {
             })
         }
 
-        async fn send_input_to_task(&self, task_id: &str, input: &str) -> Result<()> {
+        async fn send_message_to_background_agent(&self, task_id: &str, input: &str) -> Result<()> {
             *self.last_input.lock().await = Some((task_id.to_string(), input.to_string()));
             Ok(())
         }
 
-        async fn handle_approval(&self, task_id: &str, approved: bool) -> Result<bool> {
+        async fn handle_background_agent_approval(
+            &self,
+            task_id: &str,
+            approved: bool,
+        ) -> Result<bool> {
             *self.last_approval.lock().await = Some((task_id.to_string(), approved));
             Ok(true)
         }

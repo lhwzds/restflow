@@ -79,7 +79,7 @@ export async function setDefaultSecurityAction(action: SecurityAction): Promise<
  */
 export async function addAllowlistPattern(
   pattern: string,
-  description?: string
+  description?: string,
 ): Promise<SecurityPolicy> {
   if (isTauri()) {
     const request: AddPatternRequest = { pattern, description: description ?? null }
@@ -93,7 +93,7 @@ export async function addAllowlistPattern(
  */
 export async function addBlocklistPattern(
   pattern: string,
-  description?: string
+  description?: string,
 ): Promise<SecurityPolicy> {
   if (isTauri()) {
     const request: AddPatternRequest = { pattern, description: description ?? null }
@@ -107,7 +107,7 @@ export async function addBlocklistPattern(
  */
 export async function addApprovalRequiredPattern(
   pattern: string,
-  description?: string
+  description?: string,
 ): Promise<SecurityPolicy> {
   if (isTauri()) {
     const request: AddPatternRequest = { pattern, description: description ?? null }
@@ -288,7 +288,7 @@ export function formatApprovalStatus(status: ApprovalStatus): string {
  * Get color variant for security action
  */
 export function getSecurityActionVariant(
-  action: SecurityAction
+  action: SecurityAction,
 ): 'success' | 'destructive' | 'warning' {
   const variantMap: Record<SecurityAction, 'success' | 'destructive' | 'warning'> = {
     allow: 'success',
@@ -302,7 +302,7 @@ export function getSecurityActionVariant(
  * Get color variant for approval status
  */
 export function getApprovalStatusVariant(
-  status: ApprovalStatus
+  status: ApprovalStatus,
 ): 'default' | 'success' | 'destructive' | 'secondary' {
   const variantMap: Record<ApprovalStatus, 'default' | 'success' | 'destructive' | 'secondary'> = {
     pending: 'default',

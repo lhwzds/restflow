@@ -10,7 +10,7 @@ use std::sync::Arc;
 #[derive(Debug, Clone, PartialEq)]
 pub enum RouteDecision {
     /// Forward the message to a linked task.
-    ForwardToTask { task_id: String },
+    ForwardToBackgroundAgent { background_agent_id: String },
     /// Handle as a command (e.g., /help, /run).
     HandleCommand { command: String, args: Vec<String> },
     /// Dispatch to AI chat for natural language processing.
@@ -48,7 +48,9 @@ impl MessageRouter {
             .await
             && let Some(task_id) = ctx.task_id
         {
-            return RouteDecision::ForwardToTask { task_id };
+            return RouteDecision::ForwardToBackgroundAgent {
+                background_agent_id: task_id,
+            };
         }
 
         // 2. Check for commands
@@ -145,7 +147,7 @@ mod tests {
 
         assert!(matches!(
             decision,
-            RouteDecision::ForwardToTask { task_id } if task_id == "task-1"
+            RouteDecision::ForwardToBackgroundAgent { background_agent_id: task_id } if task_id == "task-1"
         ));
     }
 

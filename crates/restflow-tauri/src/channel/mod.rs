@@ -33,7 +33,7 @@
 //!                     │
 //!                     ▼
 //! ┌─────────────────────────────────────────┐
-//! │          TaskTrigger Trait              │
+//! │          BackgroundAgentTrigger Trait              │
 //! │   (trigger.rs - task operations)        │
 //! └─────────────────────────────────────────┘
 //!                     │
@@ -53,7 +53,7 @@
 //!
 //! // Basic setup (commands + task forwarding only):
 //! let router: Arc<ChannelRouter> = /* from state */;
-//! let task_trigger: Arc<dyn TaskTrigger> = /* your implementation */;
+//! let task_trigger: Arc<dyn BackgroundAgentTrigger> = /* your implementation */;
 //! start_message_handler(router, task_trigger, MessageHandlerConfig::default());
 //!
 //! // With AI chat support:
@@ -73,11 +73,11 @@ pub use chat_dispatcher::{ChatDispatcher, ChatDispatcherConfig, ChatError, ChatS
 pub use debounce::MessageDebouncer;
 pub use handler::{MessageHandlerConfig, start_message_handler, start_message_handler_with_chat};
 pub use router::{MessageRouter, RouteDecision};
-pub use trigger::{SystemStatus, TaskTrigger};
+pub use trigger::{BackgroundAgentTrigger, SystemStatus};
 
 // Re-export for convenience
 pub use commands::handle_command;
-pub use forwarder::forward_to_task;
+pub use forwarder::forward_to_background_agent;
 
 #[cfg(test)]
 pub use trigger::mock;

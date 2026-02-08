@@ -61,9 +61,17 @@ async function saveConfig() {
     // Save bot token if provided
     if (botToken.value) {
       if (hasExistingToken.value) {
-        await updateSecret(TELEGRAM_BOT_TOKEN_KEY, botToken.value, 'Telegram bot token for agent task notifications')
+        await updateSecret(
+          TELEGRAM_BOT_TOKEN_KEY,
+          botToken.value,
+          'Telegram bot token for agent task notifications',
+        )
       } else {
-        await createSecret(TELEGRAM_BOT_TOKEN_KEY, botToken.value, 'Telegram bot token for agent task notifications')
+        await createSecret(
+          TELEGRAM_BOT_TOKEN_KEY,
+          botToken.value,
+          'Telegram bot token for agent task notifications',
+        )
       }
       hasExistingToken.value = true
       botToken.value = '' // Clear after save
@@ -72,9 +80,17 @@ async function saveConfig() {
     // Save chat ID if provided
     if (chatId.value) {
       if (hasExistingChatId.value) {
-        await updateSecret(TELEGRAM_CHAT_ID_KEY, chatId.value, 'Default Telegram chat ID for agent task notifications')
+        await updateSecret(
+          TELEGRAM_CHAT_ID_KEY,
+          chatId.value,
+          'Default Telegram chat ID for agent task notifications',
+        )
       } else {
-        await createSecret(TELEGRAM_CHAT_ID_KEY, chatId.value, 'Default Telegram chat ID for agent task notifications')
+        await createSecret(
+          TELEGRAM_CHAT_ID_KEY,
+          chatId.value,
+          'Default Telegram chat ID for agent task notifications',
+        )
       }
       hasExistingChatId.value = true
       chatId.value = '' // Clear after save
@@ -130,9 +146,13 @@ async function testConnection() {
 
     <p class="text-xs text-muted-foreground">
       Configure Telegram to receive agent task notifications. Get your bot token from
-      <a href="https://t.me/BotFather" target="_blank" class="text-primary hover:underline">@BotFather</a>
+      <a href="https://t.me/BotFather" target="_blank" class="text-primary hover:underline"
+        >@BotFather</a
+      >
       and your chat ID by messaging
-      <a href="https://t.me/userinfobot" target="_blank" class="text-primary hover:underline">@userinfobot</a>.
+      <a href="https://t.me/userinfobot" target="_blank" class="text-primary hover:underline"
+        >@userinfobot</a
+      >.
     </p>
 
     <div v-if="isLoading" class="flex items-center justify-center py-4">
@@ -197,7 +217,9 @@ async function testConnection() {
           variant="outline"
           size="sm"
           class="h-7 text-xs"
-          :disabled="(!hasExistingToken && !botToken) || (!hasExistingChatId && !chatId) || isTesting"
+          :disabled="
+            (!hasExistingToken && !botToken) || (!hasExistingChatId && !chatId) || isTesting
+          "
           @click="testConnection"
         >
           <Loader2 v-if="isTesting" :size="12" class="mr-1 animate-spin" />

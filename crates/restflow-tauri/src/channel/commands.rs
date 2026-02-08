@@ -7,14 +7,14 @@ use restflow_core::channel::{ChannelRouter, InboundMessage, MessageLevel, Outbou
 use restflow_core::models::AgentTaskStatus;
 use tracing::debug;
 
-use super::trigger::TaskTrigger;
+use super::trigger::BackgroundAgentTrigger;
 
 /// Handle command messages
 ///
 /// Parses the command and executes the appropriate action.
 pub async fn handle_command(
     router: &ChannelRouter,
-    trigger: &dyn TaskTrigger,
+    trigger: &dyn BackgroundAgentTrigger,
     message: &InboundMessage,
 ) -> Result<()> {
     let parts: Vec<&str> = message.content.split_whitespace().collect();
@@ -60,10 +60,10 @@ Send messages directly to interact with the agent."#;
 /// List all tasks
 async fn cmd_list_tasks(
     router: &ChannelRouter,
-    trigger: &dyn TaskTrigger,
+    trigger: &dyn BackgroundAgentTrigger,
     message: &InboundMessage,
 ) -> Result<()> {
-    let tasks = trigger.list_tasks().await?;
+    let tasks = trigger.list_background_agents().await?;
 
     let mut text = String::from("📋 *Background Agents:*\n\n");
 
@@ -92,7 +92,7 @@ async fn cmd_list_tasks(
 /// Run a task
 async fn cmd_run_task(
     router: &ChannelRouter,
-    trigger: &dyn TaskTrigger,
+    trigger: &dyn BackgroundAgentTrigger,
     message: &InboundMessage,
     task_name: Option<String>,
 ) -> Result<()> {
@@ -109,7 +109,7 @@ async fn cmd_run_task(
     };
 
     // Find and run task
-    match trigger.find_and_run_task(&task_name).await {
+    match trigger.find_and_run_background_agent(&task_name).await {
         Ok(task) => {
             // Link conversation to task
             router
@@ -138,7 +138,7 @@ async fn cmd_run_task(
 /// Show system status
 async fn cmd_status(
     router: &ChannelRouter,
-    trigger: &dyn TaskTrigger,
+    trigger: &dyn BackgroundAgentTrigger,
     message: &InboundMessage,
 ) -> Result<()> {
     let status = trigger.get_status().await?;
@@ -167,14 +167,14 @@ Completed Today: {}"#,
 /// Stop a task
 async fn cmd_stop(
     router: &ChannelRouter,
-    trigger: &dyn TaskTrigger,
+    trigger: &dyn BackgroundAgentTrigger,
     message: &InboundMessage,
 ) -> Result<()> {
     // Check if this conversation has an active task
     if let Some(context) = router.get_conversation(&message.conversation_id).await
         && let Some(task_id) = context.task_id
     {
-        trigger.stop_task(&task_id).await?;
+        trigger.stop_background_agent(&task_id).await?;
         router.clear_task(&message.conversation_id).await?;
 
         let response =
@@ -217,7 +217,7 @@ pub async fn send_help(router: &ChannelRouter, message: &InboundMessage) -> Resu
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::channel::trigger::mock::MockTaskTrigger;
+    use crate::channel::trigger::mock::MockBackgroundAgentTrigger;
     use restflow_core::channel::ChannelType;
 
     fn create_message(content: &str) -> InboundMessage {
@@ -227,7 +227,7 @@ mod tests {
     #[tokio::test]
     async fn test_help_command() {
         // Test that help command parsing works (router not needed for parse test)
-        let _trigger = MockTaskTrigger::new();
+        let _trigger = MockBackgroundAgentTrigger::new();
         let message = create_message("/help");
 
         let parts: Vec<&str> = message.content.split_whitespace().collect();
@@ -253,7 +253,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_status_uses_trigger() {
-        let trigger = MockTaskTrigger::new();
+        let trigger = MockBackgroundAgentTrigger::new();
         trigger.set_active_count(2);
         trigger.set_runner_active(true);
 

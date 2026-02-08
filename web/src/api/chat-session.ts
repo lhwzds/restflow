@@ -35,9 +35,7 @@ export interface UpdateChatSessionRequest {
  * @param request - Session creation parameters
  * @returns The created chat session
  */
-export async function createChatSession(
-  request: CreateChatSessionRequest
-): Promise<ChatSession> {
+export async function createChatSession(request: CreateChatSessionRequest): Promise<ChatSession> {
   if (isTauri()) {
     // Tauri v2 uses camelCase for parameter names by default
     return tauriInvoke<ChatSession>('create_chat_session', {
@@ -101,7 +99,7 @@ export async function getChatSession(id: string): Promise<ChatSession> {
  */
 export async function updateChatSession(
   id: string,
-  updates: UpdateChatSessionRequest
+  updates: UpdateChatSessionRequest,
 ): Promise<ChatSession> {
   if (isTauri()) {
     return tauriInvoke<ChatSession>('update_chat_session', { sessionId: id, updates })
@@ -151,14 +149,14 @@ export async function deleteChatSession(id: string): Promise<boolean> {
  */
 export async function addChatMessage(
   sessionId: string,
-  message: ChatMessage
+  message: ChatMessage,
 ): Promise<ChatSession> {
   if (isTauri()) {
     return tauriInvoke<ChatSession>('add_chat_message', { sessionId, message })
   }
   const response = await apiClient.post<ChatSession>(
     `/api/chat-sessions/${sessionId}/messages`,
-    message
+    message,
   )
   return response.data
 }
@@ -173,17 +171,13 @@ export async function addChatMessage(
  * @param content - Message content
  * @returns The updated chat session (may not include assistant response yet)
  */
-export async function sendChatMessage(
-  sessionId: string,
-  content: string
-): Promise<ChatSession> {
+export async function sendChatMessage(sessionId: string, content: string): Promise<ChatSession> {
   if (isTauri()) {
     return tauriInvoke<ChatSession>('send_chat_message', { sessionId, content })
   }
-  const response = await apiClient.post<ChatSession>(
-    `/api/chat-sessions/${sessionId}/send`,
-    { content }
-  )
+  const response = await apiClient.post<ChatSession>(`/api/chat-sessions/${sessionId}/send`, {
+    content,
+  })
   return response.data
 }
 
@@ -198,7 +192,7 @@ export async function listChatSessionsByAgent(agentId: string): Promise<ChatSess
     return tauriInvoke<ChatSession[]>('list_chat_sessions_by_agent', { agentId })
   }
   const response = await apiClient.get<ChatSession[]>(
-    `/api/chat-sessions?agent_id=${encodeURIComponent(agentId)}`
+    `/api/chat-sessions?agent_id=${encodeURIComponent(agentId)}`,
   )
   return response.data
 }
@@ -214,7 +208,7 @@ export async function listChatSessionsBySkill(skillId: string): Promise<ChatSess
     return tauriInvoke<ChatSession[]>('list_chat_sessions_by_skill', { skillId })
   }
   const response = await apiClient.get<ChatSession[]>(
-    `/api/chat-sessions?skill_id=${encodeURIComponent(skillId)}`
+    `/api/chat-sessions?skill_id=${encodeURIComponent(skillId)}`,
   )
   return response.data
 }
@@ -246,7 +240,7 @@ export async function cleanupOldChatSessions(olderThanDays: number): Promise<num
     })
   }
   const response = await apiClient.delete<{ deleted: number }>(
-    `/api/chat-sessions/cleanup?older_than_days=${olderThanDays}`
+    `/api/chat-sessions/cleanup?older_than_days=${olderThanDays}`,
   )
   return response.data.deleted
 }

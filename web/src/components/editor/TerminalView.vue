@@ -69,7 +69,8 @@ function initDemoTerminal() {
   term = new Terminal({
     cursorBlink: true,
     fontSize: 14,
-    fontFamily: '"SF Mono", Menlo, Monaco, "Cascadia Code", "Segoe UI Mono", "Roboto Mono", "Oxygen Mono", "Ubuntu Monospace", "Source Code Pro", "Fira Mono", "Droid Sans Mono", "Courier New", monospace',
+    fontFamily:
+      '"SF Mono", Menlo, Monaco, "Cascadia Code", "Segoe UI Mono", "Roboto Mono", "Oxygen Mono", "Ubuntu Monospace", "Source Code Pro", "Fira Mono", "Droid Sans Mono", "Courier New", monospace',
     theme: terminalTheme,
     disableStdin: true,
     letterSpacing: 0,
@@ -132,7 +133,8 @@ function initReadonlyTerminal() {
   term = new Terminal({
     cursorBlink: false,
     fontSize: 14,
-    fontFamily: '"SF Mono", Menlo, Monaco, "Cascadia Code", "Segoe UI Mono", "Roboto Mono", "Oxygen Mono", "Ubuntu Monospace", "Source Code Pro", "Fira Mono", "Droid Sans Mono", "Courier New", monospace',
+    fontFamily:
+      '"SF Mono", Menlo, Monaco, "Cascadia Code", "Segoe UI Mono", "Roboto Mono", "Oxygen Mono", "Ubuntu Monospace", "Source Code Pro", "Fira Mono", "Droid Sans Mono", "Courier New", monospace',
     theme: terminalTheme,
     disableStdin: true, // Disable input for readonly mode
     letterSpacing: 0,
@@ -185,7 +187,8 @@ async function initInteractiveTerminal() {
   term = new Terminal({
     cursorBlink: true,
     fontSize: 14,
-    fontFamily: '"SF Mono", Menlo, Monaco, "Cascadia Code", "Segoe UI Mono", "Roboto Mono", "Oxygen Mono", "Ubuntu Monospace", "Source Code Pro", "Fira Mono", "Droid Sans Mono", "Courier New", monospace',
+    fontFamily:
+      '"SF Mono", Menlo, Monaco, "Cascadia Code", "Segoe UI Mono", "Roboto Mono", "Oxygen Mono", "Ubuntu Monospace", "Source Code Pro", "Fira Mono", "Droid Sans Mono", "Courier New", monospace',
     theme: terminalTheme,
     letterSpacing: 0,
     lineHeight: 1.0,
