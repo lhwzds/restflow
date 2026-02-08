@@ -207,6 +207,23 @@ impl ChatSessionManager {
         Ok(session.messages)
     }
 
+    /// Rebind an existing session to another agent.
+    pub fn rebind_session_agent(&self, session_id: &str, agent_id: &str) -> Result<ChatSession> {
+        let mut session = self
+            .storage
+            .chat_sessions
+            .get(session_id)?
+            .ok_or_else(|| anyhow!("Session not found: {}", session_id))?;
+
+        let model = self.get_agent_model(agent_id)?;
+        session.agent_id = agent_id.to_string();
+        session.model = model.clone();
+        session.metadata.last_model = Some(model);
+
+        self.storage.chat_sessions.save(&session)?;
+        Ok(session)
+    }
+
     /// Get the default agent ID.
     fn get_default_agent_id(&self) -> Result<String> {
         if let Some(ref id) = self.default_agent_id {
@@ -454,7 +471,7 @@ impl ChatDispatcher {
         };
 
         // 2. Get or create session
-        let session = match self
+        let mut session = match self
             .sessions
             .get_or_create_session(&message.conversation_id, &message.sender_id)
         {
@@ -486,10 +503,65 @@ impl ChatDispatcher {
         let stored_agent = match self.storage.agents.get_agent(session.agent_id.clone()) {
             Ok(Some(a)) => a,
             Ok(None) => {
-                error!("Agent '{}' not found", session.agent_id);
-                self.send_error_response(message, ChatError::NoDefaultAgent)
-                    .await?;
-                return Ok(());
+                warn!(
+                    "Session {} references missing agent {}. Trying default agent fallback.",
+                    session.id, session.agent_id
+                );
+
+                let fallback_agent_id = match self.sessions.get_default_agent_id() {
+                    Ok(id) => id,
+                    Err(e) => {
+                        error!("Failed to resolve fallback default agent: {}", e);
+                        self.send_error_response(message, ChatError::NoDefaultAgent)
+                            .await?;
+                        return Ok(());
+                    }
+                };
+
+                let fallback_agent = match self.storage.agents.get_agent(fallback_agent_id.clone())
+                {
+                    Ok(Some(agent)) => agent,
+                    Ok(None) => {
+                        error!("Fallback agent '{}' not found", fallback_agent_id);
+                        self.send_error_response(message, ChatError::NoDefaultAgent)
+                            .await?;
+                        return Ok(());
+                    }
+                    Err(e) => {
+                        error!(
+                            "Failed to load fallback agent '{}': {}",
+                            fallback_agent_id, e
+                        );
+                        self.send_error_response(
+                            message,
+                            ChatError::ExecutionFailed(e.to_string()),
+                        )
+                        .await?;
+                        return Ok(());
+                    }
+                };
+
+                match self
+                    .sessions
+                    .rebind_session_agent(&session.id, &fallback_agent_id)
+                {
+                    Ok(updated) => {
+                        session = updated;
+                        info!(
+                            "Rebound session {} to fallback agent {}",
+                            session.id, fallback_agent_id
+                        );
+                    }
+                    Err(e) => {
+                        warn!(
+                            "Failed to persist fallback agent binding for session {}: {}",
+                            session.id, e
+                        );
+                        session.agent_id = fallback_agent_id;
+                    }
+                }
+
+                fallback_agent
             }
             Err(e) => {
                 error!("Failed to load agent: {}", e);
@@ -844,6 +916,41 @@ mod tests {
         assert_eq!(
             updated.metadata.last_model.as_deref(),
             Some("gpt-5.3-codex")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_session_manager_rebinds_agent() {
+        let (storage, _temp_dir) = create_test_storage();
+
+        use crate::models::AgentNode;
+        let stale = storage
+            .agents
+            .create_agent(
+                "Stale Agent".to_string(),
+                AgentNode::with_model(AIModel::ClaudeSonnet4_5),
+            )
+            .unwrap();
+        let fallback = storage
+            .agents
+            .create_agent(
+                "Fallback Agent".to_string(),
+                AgentNode::with_model(AIModel::CodexCli),
+            )
+            .unwrap();
+
+        let manager = ChatSessionManager::new(storage.clone(), 20).with_default_agent(stale.id);
+        let session = manager.get_or_create_session("conv-1", "user-1").unwrap();
+
+        let rebound = manager
+            .rebind_session_agent(&session.id, &fallback.id)
+            .expect("session should rebind");
+
+        assert_eq!(rebound.agent_id, fallback.id);
+        assert_eq!(rebound.model, AIModel::CodexCli.as_str());
+        assert_eq!(
+            rebound.metadata.last_model.as_deref(),
+            Some(AIModel::CodexCli.as_str())
         );
     }
 
