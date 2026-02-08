@@ -43,18 +43,25 @@ pub struct MemoryEntry {
 ///
 /// Implementations can use file storage or database storage.
 /// All methods are synchronous (matching other store traits in the codebase).
+/// Methods that scope by agent accept an `agent_id` parameter.
 pub trait MemoryStore: Send + Sync {
     /// Save a new memory entry. Returns JSON with `{success, id, title, message}`.
-    fn save(&self, title: &str, content: &str, tags: &[String]) -> Result<Value>;
+    fn save(&self, agent_id: &str, title: &str, content: &str, tags: &[String]) -> Result<Value>;
 
     /// Read a single memory by ID. Returns `Some(json)` with `{found, entry}` or `None`.
     fn read_by_id(&self, id: &str) -> Result<Option<Value>>;
 
     /// Search memories by tag and/or title keyword. Returns `{count, memories}`.
-    fn search(&self, tag: Option<&str>, search: Option<&str>, limit: usize) -> Result<Value>;
+    fn search(
+        &self,
+        agent_id: &str,
+        tag: Option<&str>,
+        search: Option<&str>,
+        limit: usize,
+    ) -> Result<Value>;
 
     /// List all memory metadata. Returns `{total, count, memories}`.
-    fn list(&self, tag: Option<&str>, limit: usize) -> Result<Value>;
+    fn list(&self, agent_id: &str, tag: Option<&str>, limit: usize) -> Result<Value>;
 
     /// Delete a memory by ID. Returns `{deleted, id, message}`.
     fn delete(&self, id: &str) -> Result<Value>;
@@ -161,7 +168,7 @@ impl FileMemoryStore {
 }
 
 impl MemoryStore for FileMemoryStore {
-    fn save(&self, title: &str, content: &str, tags: &[String]) -> Result<Value> {
+    fn save(&self, agent_id: &str, title: &str, content: &str, tags: &[String]) -> Result<Value> {
         let dir = self.config.memory_dir();
         std::fs::create_dir_all(&dir)?;
 
@@ -175,7 +182,7 @@ impl MemoryStore for FileMemoryStore {
                 tags: tags.to_vec(),
                 created_at: now,
                 updated_at: now,
-                agent_id: self.config.agent_id.clone(),
+                agent_id: agent_id.to_string(),
                 session_id: self.config.session_id.clone(),
             },
             content: content.to_string(),
@@ -209,7 +216,13 @@ impl MemoryStore for FileMemoryStore {
         }
     }
 
-    fn search(&self, tag: Option<&str>, search: Option<&str>, limit: usize) -> Result<Value> {
+    fn search(
+        &self,
+        _agent_id: &str,
+        tag: Option<&str>,
+        search: Option<&str>,
+        limit: usize,
+    ) -> Result<Value> {
         let index = self.load_index()?;
         let mut results: Vec<&MemoryEntryMeta> = index.iter().collect();
 
@@ -232,7 +245,7 @@ impl MemoryStore for FileMemoryStore {
         }))
     }
 
-    fn list(&self, tag: Option<&str>, limit: usize) -> Result<Value> {
+    fn list(&self, _agent_id: &str, tag: Option<&str>, limit: usize) -> Result<Value> {
         let index = self.load_index()?;
         let total = index.len();
         let mut results: Vec<&MemoryEntryMeta> = index.iter().collect();
@@ -299,6 +312,7 @@ impl SaveMemoryTool {
 
 #[derive(Debug, Deserialize)]
 struct SaveMemoryInput {
+    agent_id: String,
     title: String,
     content: String,
     #[serde(default)]
@@ -319,6 +333,10 @@ impl Tool for SaveMemoryTool {
         json!({
             "type": "object",
             "properties": {
+                "agent_id": {
+                    "type": "string",
+                    "description": "The agent ID to store this memory under"
+                },
                 "title": {
                     "type": "string",
                     "description": "A descriptive title for this memory entry"
@@ -333,7 +351,7 @@ impl Tool for SaveMemoryTool {
                     "description": "Optional tags for categorization and easier retrieval"
                 }
             },
-            "required": ["title", "content"]
+            "required": ["agent_id", "title", "content"]
         })
     }
 
@@ -343,10 +361,12 @@ impl Tool for SaveMemoryTool {
             Err(e) => return Ok(ToolOutput::error(format!("Invalid input: {}", e))),
         };
 
-        match self
-            .store
-            .save(&params.title, &params.content, &params.tags)
-        {
+        match self.store.save(
+            &params.agent_id,
+            &params.title,
+            &params.content,
+            &params.tags,
+        ) {
             Ok(result) => Ok(ToolOutput::success(result)),
             Err(e) => Ok(ToolOutput::error(format!("Failed to save memory: {}", e))),
         }
@@ -366,6 +386,7 @@ impl ReadMemoryTool {
 
 #[derive(Debug, Deserialize)]
 struct ReadMemoryInput {
+    agent_id: String,
     id: Option<String>,
     tag: Option<String>,
     search: Option<String>,
@@ -391,6 +412,10 @@ impl Tool for ReadMemoryTool {
         json!({
             "type": "object",
             "properties": {
+                "agent_id": {
+                    "type": "string",
+                    "description": "The agent ID to scope the memory search"
+                },
                 "id": {
                     "type": "string",
                     "description": "Specific memory ID to retrieve"
@@ -408,7 +433,8 @@ impl Tool for ReadMemoryTool {
                     "description": "Maximum number of results (default: 10)",
                     "default": 10
                 }
-            }
+            },
+            "required": ["agent_id"]
         })
     }
 
@@ -432,6 +458,7 @@ impl Tool for ReadMemoryTool {
 
         // Search/filter
         match self.store.search(
+            &params.agent_id,
             params.tag.as_deref(),
             params.search.as_deref(),
             params.limit,
@@ -458,6 +485,7 @@ impl ListMemoryTool {
 
 #[derive(Debug, Deserialize)]
 struct ListMemoryInput {
+    agent_id: String,
     tag: Option<String>,
     #[serde(default = "default_list_limit")]
     limit: usize,
@@ -481,6 +509,10 @@ impl Tool for ListMemoryTool {
         json!({
             "type": "object",
             "properties": {
+                "agent_id": {
+                    "type": "string",
+                    "description": "The agent ID to list memories for"
+                },
                 "tag": {
                     "type": "string",
                     "description": "Optional tag to filter by"
@@ -490,7 +522,8 @@ impl Tool for ListMemoryTool {
                     "description": "Maximum number of results (default: 50)",
                     "default": 50
                 }
-            }
+            },
+            "required": ["agent_id"]
         })
     }
 
@@ -500,7 +533,10 @@ impl Tool for ListMemoryTool {
             Err(e) => return Ok(ToolOutput::error(format!("Invalid input: {}", e))),
         };
 
-        match self.store.list(params.tag.as_deref(), params.limit) {
+        match self
+            .store
+            .list(&params.agent_id, params.tag.as_deref(), params.limit)
+        {
             Ok(result) => Ok(ToolOutput::success(result)),
             Err(e) => Ok(ToolOutput::error(format!("Failed to list memories: {}", e))),
         }
@@ -652,6 +688,7 @@ mod tests {
         // Save a memory
         let save_result = save_tool
             .execute(json!({
+                "agent_id": "test-agent",
                 "title": "Test Memory",
                 "content": "This is a test memory content",
                 "tags": ["test", "important"]
@@ -663,7 +700,10 @@ mod tests {
         let id = save_result.result["id"].as_str().unwrap().to_string();
 
         // Read it back by ID
-        let read_result = read_tool.execute(json!({ "id": id })).await.unwrap();
+        let read_result = read_tool
+            .execute(json!({ "agent_id": "test-agent", "id": id }))
+            .await
+            .unwrap();
 
         assert!(read_result.success);
         assert!(read_result.result["found"].as_bool().unwrap());
@@ -683,6 +723,7 @@ mod tests {
         // Save multiple memories
         save_tool
             .execute(json!({
+                "agent_id": "test-agent",
                 "title": "First Memory",
                 "content": "Content 1",
                 "tags": ["tag-a"]
@@ -692,6 +733,7 @@ mod tests {
 
         save_tool
             .execute(json!({
+                "agent_id": "test-agent",
                 "title": "Second Memory",
                 "content": "Content 2",
                 "tags": ["tag-b"]
@@ -700,7 +742,10 @@ mod tests {
             .unwrap();
 
         // List all
-        let list_result = list_tool.execute(json!({})).await.unwrap();
+        let list_result = list_tool
+            .execute(json!({"agent_id": "test-agent"}))
+            .await
+            .unwrap();
 
         assert!(list_result.success);
         assert_eq!(list_result.result["count"], 2);
@@ -717,6 +762,7 @@ mod tests {
 
         save_tool
             .execute(json!({
+                "agent_id": "test-agent",
                 "title": "Important Note",
                 "content": "Content",
                 "tags": ["important", "work"]
@@ -726,6 +772,7 @@ mod tests {
 
         save_tool
             .execute(json!({
+                "agent_id": "test-agent",
                 "title": "Personal Note",
                 "content": "Content",
                 "tags": ["personal"]
@@ -734,7 +781,7 @@ mod tests {
             .unwrap();
 
         let search_result = read_tool
-            .execute(json!({ "tag": "important" }))
+            .execute(json!({ "agent_id": "test-agent", "tag": "important" }))
             .await
             .unwrap();
 
@@ -752,6 +799,7 @@ mod tests {
 
         save_tool
             .execute(json!({
+                "agent_id": "test-agent",
                 "title": "Meeting Notes for Project Alpha",
                 "content": "Content"
             }))
@@ -760,6 +808,7 @@ mod tests {
 
         save_tool
             .execute(json!({
+                "agent_id": "test-agent",
                 "title": "Random Thought",
                 "content": "Content"
             }))
@@ -767,7 +816,7 @@ mod tests {
             .unwrap();
 
         let search_result = read_tool
-            .execute(json!({ "search": "project" }))
+            .execute(json!({ "agent_id": "test-agent", "search": "project" }))
             .await
             .unwrap();
 
@@ -786,6 +835,7 @@ mod tests {
 
         let save_result = save_tool
             .execute(json!({
+                "agent_id": "test-agent",
                 "title": "To Be Deleted",
                 "content": "Content"
             }))
@@ -794,7 +844,10 @@ mod tests {
 
         let id = save_result.result["id"].as_str().unwrap().to_string();
 
-        let list_before = list_tool.execute(json!({})).await.unwrap();
+        let list_before = list_tool
+            .execute(json!({"agent_id": "test-agent"}))
+            .await
+            .unwrap();
         assert_eq!(list_before.result["count"], 1);
 
         let delete_result = delete_tool.execute(json!({ "id": id })).await.unwrap();
@@ -802,7 +855,10 @@ mod tests {
         assert!(delete_result.success);
         assert!(delete_result.result["deleted"].as_bool().unwrap());
 
-        let list_after = list_tool.execute(json!({})).await.unwrap();
+        let list_after = list_tool
+            .execute(json!({"agent_id": "test-agent"}))
+            .await
+            .unwrap();
         assert_eq!(list_after.result["count"], 0);
     }
 
@@ -813,7 +869,7 @@ mod tests {
         let read_tool = ReadMemoryTool::new(store);
 
         let result = read_tool
-            .execute(json!({ "id": "nonexistent-id" }))
+            .execute(json!({ "agent_id": "test-agent", "id": "nonexistent-id" }))
             .await
             .unwrap();
 
@@ -854,6 +910,7 @@ mod tests {
 
         save1
             .execute(json!({
+                "agent_id": "agent",
                 "title": "Session 1 Memory",
                 "content": "Content"
             }))
@@ -862,14 +919,21 @@ mod tests {
 
         save2
             .execute(json!({
+                "agent_id": "agent",
                 "title": "Session 2 Memory",
                 "content": "Content"
             }))
             .await
             .unwrap();
 
-        let list1_result = list1.execute(json!({})).await.unwrap();
-        let list2_result = list2.execute(json!({})).await.unwrap();
+        let list1_result = list1
+            .execute(json!({"agent_id": "agent"}))
+            .await
+            .unwrap();
+        let list2_result = list2
+            .execute(json!({"agent_id": "agent"}))
+            .await
+            .unwrap();
 
         assert_eq!(list1_result.result["count"], 1);
         assert_eq!(list2_result.result["count"], 1);

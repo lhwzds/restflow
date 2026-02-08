@@ -793,12 +793,11 @@ impl AuthProfileStore for AuthProfileStorageAdapter {
 #[derive(Clone)]
 struct DbMemoryStoreAdapter {
     storage: MemoryStorage,
-    agent_id: String,
 }
 
 impl DbMemoryStoreAdapter {
-    fn new(storage: MemoryStorage, agent_id: String) -> Self {
-        Self { storage, agent_id }
+    fn new(storage: MemoryStorage) -> Self {
+        Self { storage }
     }
 
     /// Extract title from tags (stored as `__title:{value}`)
@@ -865,6 +864,7 @@ impl DbMemoryStoreAdapter {
 impl MemoryStore for DbMemoryStoreAdapter {
     fn save(
         &self,
+        agent_id: &str,
         title: &str,
         content: &str,
         tags: &[String],
@@ -873,7 +873,7 @@ impl MemoryStore for DbMemoryStoreAdapter {
 
         let db_tags = Self::build_tags(title, tags);
         let chunk =
-            crate::models::memory::MemoryChunk::new(self.agent_id.clone(), content.to_string())
+            crate::models::memory::MemoryChunk::new(agent_id.to_string(), content.to_string())
                 .with_tags(db_tags)
                 .with_source(MemorySource::AgentGenerated {
                     tool_name: "save_to_memory".to_string(),
@@ -920,13 +920,14 @@ impl MemoryStore for DbMemoryStoreAdapter {
 
     fn search(
         &self,
+        agent_id: &str,
         tag: Option<&str>,
         search: Option<&str>,
         limit: usize,
     ) -> restflow_ai::error::Result<Value> {
         let mut chunks = self
             .storage
-            .list_chunks(&self.agent_id)
+            .list_chunks(agent_id)
             .map_err(|e| AiError::Tool(e.to_string()))?;
 
         // Filter by user tag (case-insensitive contains)
@@ -960,10 +961,15 @@ impl MemoryStore for DbMemoryStoreAdapter {
         }))
     }
 
-    fn list(&self, tag: Option<&str>, limit: usize) -> restflow_ai::error::Result<Value> {
+    fn list(
+        &self,
+        agent_id: &str,
+        tag: Option<&str>,
+        limit: usize,
+    ) -> restflow_ai::error::Result<Value> {
         let chunks = self
             .storage
-            .list_chunks(&self.agent_id)
+            .list_chunks(agent_id)
             .map_err(|e| AiError::Tool(e.to_string()))?;
 
         let total = chunks.len();
@@ -1017,7 +1023,7 @@ impl MemoryStore for DbMemoryStoreAdapter {
 /// - Default tools from restflow-ai (http_request, run_python, send_email)
 /// - SkillTool that can access skills from storage
 /// - Memory search tool for unified memory and session search
-/// - Agent memory CRUD tools (save_to_memory, read_memory, etc.) when agent_id is provided
+/// - Agent memory CRUD tools (save_to_memory, read_memory, etc.) — always registered, agent_id is a tool input
 #[allow(clippy::too_many_arguments)]
 pub fn create_tool_registry(
     skill_storage: SkillStorage,
@@ -1031,7 +1037,7 @@ pub fn create_tool_registry(
     trigger_storage: TriggerStorage,
     terminal_storage: TerminalSessionStorage,
     accessor_id: Option<String>,
-    agent_id: Option<String>,
+    _agent_id: Option<String>,
 ) -> ToolRegistry {
     let root = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
     let lsp_manager = Arc::new(LspManager::new(root));
@@ -1061,11 +1067,10 @@ pub fn create_tool_registry(
     registry.register(MemoryManagementTool::new(memory_manager).with_write(true));
 
     // Agent memory CRUD tools (save_to_memory, read_memory, list_memories, delete_memory)
-    if let Some(ref aid) = agent_id {
-        let mem_store: Arc<dyn MemoryStore> = Arc::new(DbMemoryStoreAdapter::new(
-            memory_storage.clone(),
-            aid.clone(),
-        ));
+    // Always registered — agent_id is provided as a tool input parameter
+    {
+        let mem_store: Arc<dyn MemoryStore> =
+            Arc::new(DbMemoryStoreAdapter::new(memory_storage.clone()));
         registry.register(SaveMemoryTool::new(mem_store.clone()));
         registry.register(ReadMemoryTool::new(mem_store.clone()));
         registry.register(ListMemoryTool::new(mem_store.clone()));
@@ -2745,11 +2750,12 @@ mod tests {
             _temp_dir,
         ) = setup_storage();
 
-        let store = DbMemoryStoreAdapter::new(memory_storage, "test-agent".to_string());
+        let store = DbMemoryStoreAdapter::new(memory_storage);
 
         // Test save
         let saved = store
             .save(
+                "test-agent",
                 "My Note",
                 "Hello world content",
                 &["tag1".into(), "tag2".into()],
@@ -2779,40 +2785,47 @@ mod tests {
         assert!(!tags.iter().any(|t| t.starts_with("__title:")));
 
         // Test list
-        let listed = store.list(None, 10).unwrap();
+        let listed = store.list("test-agent", None, 10).unwrap();
         assert_eq!(listed["total"].as_u64().unwrap(), 1);
         let memories = listed["memories"].as_array().unwrap();
         assert_eq!(memories.len(), 1);
         assert_eq!(memories[0]["title"].as_str().unwrap(), "My Note");
 
         // Test list by tag
-        let listed = store.list(Some("tag1"), 10).unwrap();
+        let listed = store.list("test-agent", Some("tag1"), 10).unwrap();
         assert_eq!(listed["count"].as_u64().unwrap(), 1);
-        let listed = store.list(Some("nonexistent"), 10).unwrap();
+        let listed = store.list("test-agent", Some("nonexistent"), 10).unwrap();
         assert_eq!(listed["count"].as_u64().unwrap(), 0);
 
         // Test search by title keyword
-        let found = store.search(None, Some("Note"), 10).unwrap();
+        let found = store.search("test-agent", None, Some("Note"), 10).unwrap();
         assert!(found["count"].as_u64().unwrap() >= 1);
-        let found = store.search(None, Some("nonexistent"), 10).unwrap();
+        let found = store
+            .search("test-agent", None, Some("nonexistent"), 10)
+            .unwrap();
         assert_eq!(found["count"].as_u64().unwrap(), 0);
 
         // Test search by tag
-        let found = store.search(Some("tag2"), None, 10).unwrap();
+        let found = store.search("test-agent", Some("tag2"), None, 10).unwrap();
         assert!(found["count"].as_u64().unwrap() >= 1);
 
         // Test dedup: saving same content again should not create a duplicate
         let saved2 = store
-            .save("My Note", "Hello world content", &["tag1".into()])
+            .save(
+                "test-agent",
+                "My Note",
+                "Hello world content",
+                &["tag1".into()],
+            )
             .unwrap();
         assert!(saved2["success"].as_bool().unwrap());
-        let listed = store.list(None, 10).unwrap();
+        let listed = store.list("test-agent", None, 10).unwrap();
         assert_eq!(listed["total"].as_u64().unwrap(), 1);
 
         // Test delete
         let deleted = store.delete(&entry_id).unwrap();
         assert!(deleted["deleted"].as_bool().unwrap());
-        let listed = store.list(None, 10).unwrap();
+        let listed = store.list("test-agent", None, 10).unwrap();
         assert_eq!(listed["total"].as_u64().unwrap(), 0);
 
         // Test read_by_id after delete
@@ -2821,7 +2834,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_create_tool_registry_with_agent_id_has_memory_tools() {
+    async fn test_create_tool_registry_always_has_memory_tools() {
         let (
             skill_storage,
             memory_storage,
@@ -2836,6 +2849,7 @@ mod tests {
             _temp_dir,
         ) = setup_storage();
 
+        // Memory tools are always registered even without agent_id
         let registry = create_tool_registry(
             skill_storage,
             memory_storage,
@@ -2848,10 +2862,9 @@ mod tests {
             trigger_storage,
             terminal_storage,
             None,
-            Some("test-agent".to_string()),
+            None,
         );
 
-        // Memory tools should be registered when agent_id is provided
         assert!(registry.has("save_to_memory"));
         assert!(registry.has("read_memory"));
         assert!(registry.has("list_memories"));
