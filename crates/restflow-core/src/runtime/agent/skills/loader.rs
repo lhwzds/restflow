@@ -72,7 +72,7 @@ impl SkillLoader {
         }
 
         let mut prompt = base_prompt.to_string();
-        prompt.push_str("\n\n---\n\n# Available Skills\n\n");
+        prompt.push_str("\n\n---\n\n# Available Skills\n\nThese are skills you can use to accomplish tasks. Read the skill content with the `skill` tool before executing.\n\n");
         for skill in skills {
             prompt.push_str(&skill.format_for_prompt());
             prompt.push_str("\n\n");

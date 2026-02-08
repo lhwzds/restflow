@@ -23,6 +23,7 @@ mod patch;
 mod process;
 mod python;
 mod registry;
+mod reply;
 mod secrets;
 mod session;
 mod skill;
@@ -63,6 +64,7 @@ pub use patch::PatchTool;
 pub use process::{ProcessLog, ProcessManager, ProcessPollResult, ProcessSessionInfo, ProcessTool};
 pub use python::PythonTool;
 pub use registry::ToolRegistry;
+pub use reply::{ReplyTool, ReplySender};
 pub use secrets::SecretsTool;
 pub use session::{
     SessionCreateRequest, SessionListFilter, SessionSearchQuery, SessionStore, SessionTool,

@@ -10,8 +10,8 @@ use tracing::{debug, error, info, warn};
 
 use restflow_ai::llm::Message;
 use restflow_ai::{
-    CodexClient, DefaultLlmClientFactory, LlmClient, LlmClientFactory, LlmProvider, SwappableLlm,
-    SwitchModelTool,
+    CodexClient, DefaultLlmClientFactory, LlmClient, LlmClientFactory, LlmProvider, ReplyTool,
+    SwappableLlm, SwitchModelTool,
 };
 use restflow_core::auth::AuthProfileManager;
 use restflow_core::channel::{ChannelRouter, InboundMessage, OutboundMessage};
@@ -257,6 +257,29 @@ impl ChatSessionManager {
             .model
             .map(|m| m.as_str().to_string())
             .unwrap_or_else(|| "unknown".to_string()))
+    }
+}
+
+/// ReplySender implementation that sends messages through the ChannelRouter.
+struct ChannelReplySender {
+    router: Arc<ChannelRouter>,
+    channel_type: restflow_core::channel::ChannelType,
+    conversation_id: String,
+}
+
+impl restflow_ai::ReplySender for ChannelReplySender {
+    fn send(
+        &self,
+        message: String,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<()>> + Send>> {
+        let router = self.router.clone();
+        let channel_type = self.channel_type;
+        let conversation_id = self.conversation_id.clone();
+        Box::pin(async move {
+            let outbound = OutboundMessage::plain(&conversation_id, &message);
+            router.send_to(channel_type, outbound).await?;
+            Ok(())
+        })
     }
 }
 
@@ -660,6 +683,13 @@ impl ChatDispatcher {
         if Self::switch_model_enabled(Some(&effective_tools)) {
             tools.register(SwitchModelTool::new(swappable.clone(), factory));
         }
+        // Register reply tool so the agent can send intermediate messages
+        let reply_sender = Arc::new(ChannelReplySender {
+            router: self.channel_router.clone(),
+            channel_type: message.channel_type,
+            conversation_id: message.conversation_id.clone(),
+        });
+        tools.register(ReplyTool::new(reply_sender));
         let tools = Arc::new(tools);
         let system_prompt = build_agent_system_prompt(self.storage.clone(), agent_node)
             .map_err(|e| ChatError::ExecutionFailed(e.to_string()))?;

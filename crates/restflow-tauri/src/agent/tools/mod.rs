@@ -410,6 +410,9 @@ pub fn registry_from_allowlist(
             "switch_model" => {
                 // Registered by callers that provide SwappableLlm + LlmClientFactory.
             }
+            "reply" => {
+                // Registered by callers that provide a ReplySender (e.g., ChatDispatcher).
+            }
             unknown => {
                 warn!(tool_name = %unknown, "Configured tool not found in registry, skipping");
             }
