@@ -4,9 +4,9 @@ use restflow_core::auth::{AuthProfile, AuthProvider, Credential, CredentialSourc
 use restflow_core::daemon::{IpcRequest, IpcResponse};
 use restflow_core::memory::{ExportResult, RankedSearchResult};
 use restflow_core::models::{
-    AgentExecuteResponse, AgentNode, AgentTask, ChatMessage, ChatRole, ChatSession,
-    ChatSessionSummary, ChatSessionUpdate, MemoryChunk, MemorySearchResult, MemorySession,
-    MemoryStats, Skill, TaskEvent, TaskSchedule, TerminalSession,
+    AgentExecuteResponse, AgentNode, AgentTask, BackgroundMessageSource, ChatMessage, ChatRole,
+    ChatSession, ChatSessionSummary, ChatSessionUpdate, MemoryChunk, MemorySearchResult,
+    MemorySession, MemoryStats, Skill, TaskEvent, TaskSchedule, TerminalSession,
 };
 use restflow_core::storage::SystemConfig;
 use serde::de::DeserializeOwned;
@@ -152,6 +152,22 @@ impl TauriExecutor {
 
     pub async fn get_task_history(&self, id: String) -> Result<Vec<TaskEvent>> {
         self.request(IpcRequest::GetTaskHistory { id }).await
+    }
+
+    pub async fn send_background_agent_message(
+        &self,
+        id: String,
+        message: String,
+        source: Option<BackgroundMessageSource>,
+    ) -> Result<()> {
+        let _: Value = self
+            .request(IpcRequest::SendBackgroundAgentMessage {
+                id,
+                message,
+                source,
+            })
+            .await?;
+        Ok(())
     }
 
     pub async fn search_memory(

@@ -84,7 +84,10 @@ mod tests {
     }
 
     impl ReplySender for MockSender {
-        fn send(&self, message: String) -> Pin<Box<dyn Future<Output = anyhow::Result<()>> + Send>> {
+        fn send(
+            &self,
+            message: String,
+        ) -> Pin<Box<dyn Future<Output = anyhow::Result<()>> + Send>> {
             let messages = self.messages.clone();
             Box::pin(async move {
                 messages.lock().unwrap().push(message);

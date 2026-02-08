@@ -3,7 +3,7 @@ use async_trait::async_trait;
 use restflow_core::AppCore;
 use restflow_core::auth::{AuthManagerConfig, AuthProfileManager};
 use restflow_core::channel::ChannelRouter;
-use restflow_core::models::{AgentTask, AgentTaskStatus};
+use restflow_core::models::{AgentTask, AgentTaskStatus, BackgroundMessageSource};
 use restflow_core::paths;
 use restflow_core::process::ProcessRegistry;
 use restflow_core::runtime::{
@@ -294,18 +294,31 @@ impl TaskTrigger for CliTaskTrigger {
     }
 
     async fn send_input_to_task(&self, task_id: &str, input: &str) -> Result<()> {
-        info!(
-            "Task input forwarding not yet implemented: {} -> {}",
-            task_id, input
-        );
+        self.core
+            .storage
+            .agent_tasks
+            .send_background_agent_message(
+                task_id,
+                input.to_string(),
+                BackgroundMessageSource::User,
+            )?;
         Ok(())
     }
 
     async fn handle_approval(&self, task_id: &str, approved: bool) -> Result<bool> {
-        info!(
-            "Task approval handling not yet implemented: {} approved={}",
-            task_id, approved
-        );
-        Ok(false)
+        let message = if approved {
+            "User approved the pending action."
+        } else {
+            "User rejected the pending action."
+        };
+        self.core
+            .storage
+            .agent_tasks
+            .send_background_agent_message(
+                task_id,
+                message.to_string(),
+                BackgroundMessageSource::System,
+            )?;
+        Ok(true)
     }
 }

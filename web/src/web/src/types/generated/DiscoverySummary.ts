@@ -11,11 +11,11 @@ total: number,
 /**
  * Profiles by source
  */
-by_source: { [key in string]?: number }, 
+by_source: { [key in string]: number }, 
 /**
  * Profiles by provider
  */
-by_provider: { [key in string]?: number }, 
+by_provider: { [key in string]: number }, 
 /**
  * Profiles that are available for use
  */

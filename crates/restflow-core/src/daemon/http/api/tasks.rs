@@ -8,49 +8,45 @@ use crate::models::{
 use axum::{
     Json, Router,
     extract::{Extension, Path, Query},
-    routing::{get, patch, post, put},
+    routing::{get, post},
 };
 use serde::Deserialize;
 use std::sync::Arc;
 
 pub fn router() -> Router {
     Router::new()
-        .route("/", get(list_tasks).post(create_task))
-        .route("/{id}", get(get_task).delete(delete_task))
-        .route("/{id}/pause", put(pause_task))
-        .route("/{id}/resume", put(resume_task))
-        .route("/background", post(create_background_agent))
         .route(
-            "/background/{id}",
-            patch(update_background_agent).delete(delete_background_agent),
+            "/",
+            get(list_background_agents).post(create_background_agent),
         )
-        .route("/background/{id}/control", post(control_background_agent))
-        .route("/background/{id}/progress", get(get_background_progress))
         .route(
-            "/background/{id}/messages",
+            "/{id}",
+            get(get_background_agent)
+                .patch(update_background_agent)
+                .delete(delete_background_agent),
+        )
+        .route("/{id}/control", post(control_background_agent))
+        .route("/{id}/progress", get(get_background_progress))
+        .route(
+            "/{id}/messages",
             get(list_background_messages).post(send_background_message),
         )
 }
 
 #[derive(Debug, Deserialize)]
-struct ListTasksQuery {
+struct ListBackgroundAgentsQuery {
     status: Option<String>,
 }
 
-async fn list_tasks(
+async fn list_background_agents(
     Extension(core): Extension<Arc<AppCore>>,
-    Query(query): Query<ListTasksQuery>,
+    Query(query): Query<ListBackgroundAgentsQuery>,
 ) -> Result<Json<Vec<AgentTask>>, ApiError> {
-    let tasks = if let Some(status_str) = query.status {
-        let status = parse_task_status(&status_str)?;
-        core.storage.agent_tasks.list_tasks_by_status(status)?
-    } else {
-        core.storage.agent_tasks.list_tasks()?
-    };
+    let tasks = list_tasks_by_optional_status(&core, query.status)?;
     Ok(Json(tasks))
 }
 
-async fn get_task(
+async fn get_background_agent(
     Extension(core): Extension<Arc<AppCore>>,
     Path(id): Path<String>,
 ) -> Result<Json<AgentTask>, ApiError> {
@@ -58,77 +54,8 @@ async fn get_task(
         .storage
         .agent_tasks
         .get_task(&id)?
-        .ok_or_else(|| ApiError::not_found("Task"))?;
+        .ok_or_else(|| ApiError::not_found("Background agent"))?;
     Ok(Json(task))
-}
-
-#[derive(Debug, Deserialize)]
-struct CreateTaskRequest {
-    name: String,
-    agent_id: String,
-    input: Option<String>,
-    input_template: Option<String>,
-    memory_scope: Option<MemoryScope>,
-    cron: Option<String>,
-}
-
-async fn create_task(
-    Extension(core): Extension<Arc<AppCore>>,
-    Json(req): Json<CreateTaskRequest>,
-) -> Result<Json<AgentTask>, ApiError> {
-    let has_memory_scope = req.memory_scope.is_some();
-    let schedule = match req.cron {
-        Some(expression) => TaskSchedule::Cron {
-            expression,
-            timezone: None,
-        },
-        None => TaskSchedule::default(),
-    };
-
-    let mut task = core
-        .storage
-        .agent_tasks
-        .create_task(req.name, req.agent_id, schedule)?;
-
-    if let Some(input) = req.input {
-        task.input = Some(input);
-    }
-    if let Some(input_template) = req.input_template {
-        task.input_template = Some(input_template);
-    }
-    if let Some(memory_scope) = req.memory_scope {
-        task.memory.memory_scope = memory_scope;
-    }
-
-    if task.input.is_some() || task.input_template.is_some() || has_memory_scope {
-        core.storage.agent_tasks.update_task(&task)?;
-    }
-
-    Ok(Json(task))
-}
-
-async fn pause_task(
-    Extension(core): Extension<Arc<AppCore>>,
-    Path(id): Path<String>,
-) -> Result<Json<AgentTask>, ApiError> {
-    let task = core.storage.agent_tasks.pause_task(&id)?;
-    Ok(Json(task))
-}
-
-async fn resume_task(
-    Extension(core): Extension<Arc<AppCore>>,
-    Path(id): Path<String>,
-) -> Result<Json<AgentTask>, ApiError> {
-    let task = core.storage.agent_tasks.resume_task(&id)?;
-    Ok(Json(task))
-}
-
-async fn delete_task(
-    Extension(core): Extension<Arc<AppCore>>,
-    Path(id): Path<String>,
-) -> Result<Json<serde_json::Value>, ApiError> {
-    let deleted = core.storage.agent_tasks.delete_task(&id)?;
-    Ok(Json(serde_json::json!({ "deleted": deleted, "id": id })))
 }
 
 fn parse_task_status(input: &str) -> Result<AgentTaskStatus, ApiError> {
@@ -139,6 +66,18 @@ fn parse_task_status(input: &str) -> Result<AgentTaskStatus, ApiError> {
         "completed" => Ok(AgentTaskStatus::Completed),
         "failed" => Ok(AgentTaskStatus::Failed),
         _ => Err(ApiError::bad_request(format!("Unknown status: {}", input))),
+    }
+}
+
+fn list_tasks_by_optional_status(
+    core: &Arc<AppCore>,
+    status: Option<String>,
+) -> Result<Vec<AgentTask>, ApiError> {
+    if let Some(status_str) = status {
+        let status = parse_task_status(&status_str)?;
+        Ok(core.storage.agent_tasks.list_tasks_by_status(status)?)
+    } else {
+        Ok(core.storage.agent_tasks.list_tasks()?)
     }
 }
 
@@ -331,4 +270,63 @@ async fn list_background_messages(
         .agent_tasks
         .list_background_agent_messages(&id, query.limit.max(1))?;
     Ok(Json(messages))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    async fn setup_core() -> (Arc<AppCore>, tempfile::TempDir) {
+        let temp_dir = tempdir().expect("failed to create temp dir");
+        let db_path = temp_dir.path().join("test.db");
+        let core = Arc::new(
+            AppCore::new(db_path.to_str().expect("invalid db path"))
+                .await
+                .expect("failed to initialize app core"),
+        );
+        (core, temp_dir)
+    }
+
+    fn create_background_agent_for_test(core: &Arc<AppCore>) -> AgentTask {
+        let default_agent = core
+            .storage
+            .agents
+            .list_agents()
+            .expect("failed to list agents")
+            .into_iter()
+            .next()
+            .expect("default agent missing");
+
+        core.storage
+            .agent_tasks
+            .create_background_agent(BackgroundAgentSpec {
+                name: "Background Agent Test".to_string(),
+                agent_id: default_agent.id,
+                description: Some("test".to_string()),
+                input: Some("hello".to_string()),
+                input_template: None,
+                schedule: TaskSchedule::default(),
+                notification: None,
+                execution_mode: None,
+                memory: None,
+            })
+            .expect("failed to create background agent")
+    }
+
+    #[tokio::test]
+    async fn test_list_tasks_by_optional_status_filters_background_agents() {
+        let (core, _temp_dir) = setup_core().await;
+        let created = create_background_agent_for_test(&core);
+
+        let active_tasks =
+            list_tasks_by_optional_status(&core, Some("active".to_string())).expect("list failed");
+        assert!(active_tasks.iter().any(|task| task.id == created.id));
+    }
+
+    #[test]
+    fn test_parse_task_status_rejects_unknown_value() {
+        let result = parse_task_status("not-a-status");
+        assert!(result.is_err());
+    }
 }

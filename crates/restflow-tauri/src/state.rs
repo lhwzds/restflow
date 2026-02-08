@@ -18,7 +18,7 @@ use restflow_ai::{LlmClient, SecretResolver};
 use restflow_core::AppCore;
 use restflow_core::channel::ChannelRouter;
 use restflow_core::hooks::{AgentTaskHookScheduler, HookExecutor};
-use restflow_core::models::AgentTask;
+use restflow_core::models::{AgentTask, BackgroundMessageSource};
 use restflow_core::process::ProcessRegistry;
 use restflow_core::security::SecurityChecker;
 use restflow_core::steer::SteerRegistry;
@@ -476,24 +476,51 @@ impl TaskTrigger for AppTaskTrigger {
         })
     }
 
-    async fn send_input_to_task(&self, _task_id: &str, _input: &str) -> Result<()> {
-        // TODO: Implement task input forwarding once we have a task input channel
-        // For now, this is a placeholder that will be implemented when we add
-        // interactive task support
-        info!(
-            "Task input forwarding not yet implemented: {} -> {}",
-            _task_id, _input
-        );
+    async fn send_input_to_task(&self, task_id: &str, input: &str) -> Result<()> {
+        if let Some(core) = self.state.core.as_ref() {
+            core.storage.agent_tasks.send_background_agent_message(
+                task_id,
+                input.to_string(),
+                BackgroundMessageSource::User,
+            )?;
+            return Ok(());
+        }
+
+        self.state
+            .executor()
+            .send_background_agent_message(
+                task_id.to_string(),
+                input.to_string(),
+                Some(BackgroundMessageSource::User),
+            )
+            .await?;
         Ok(())
     }
 
-    async fn handle_approval(&self, _task_id: &str, _approved: bool) -> Result<bool> {
-        // TODO: Implement approval handling once we have the approval queue
-        // For now, this is a placeholder
-        info!(
-            "Task approval handling not yet implemented: {} approved={}",
-            _task_id, _approved
-        );
-        Ok(false)
+    async fn handle_approval(&self, task_id: &str, approved: bool) -> Result<bool> {
+        let message = if approved {
+            "User approved the pending action."
+        } else {
+            "User rejected the pending action."
+        };
+
+        if let Some(core) = self.state.core.as_ref() {
+            core.storage.agent_tasks.send_background_agent_message(
+                task_id,
+                message.to_string(),
+                BackgroundMessageSource::System,
+            )?;
+            return Ok(true);
+        }
+
+        self.state
+            .executor()
+            .send_background_agent_message(
+                task_id.to_string(),
+                message.to_string(),
+                Some(BackgroundMessageSource::System),
+            )
+            .await?;
+        Ok(true)
     }
 }

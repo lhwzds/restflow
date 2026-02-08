@@ -19,6 +19,10 @@ prompt?: string,
  */
 temperature?: number, 
 /**
+ * Optional reasoning effort override for Codex CLI models
+ */
+codex_cli_reasoning_effort?: string, 
+/**
  * API key configuration (direct or from secret)
  */
 api_key_config?: ApiKeyConfig, 
@@ -33,4 +37,4 @@ skills?: Array<string>,
 /**
  * Variables available for skill prompt substitution
  */
-skill_variables?: { [key in string]?: string }, };
+skill_variables?: { [key in string]: string }, };
