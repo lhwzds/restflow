@@ -218,8 +218,8 @@ async fn handle_message_routed(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::runtime::channel::trigger::mock::MockTaskTrigger;
     use crate::channel::{Channel, ChannelType, OutboundMessage};
+    use crate::runtime::channel::trigger::mock::MockTaskTrigger;
     use anyhow::Result as AnyhowResult;
     use async_trait::async_trait;
     use std::collections::VecDeque;

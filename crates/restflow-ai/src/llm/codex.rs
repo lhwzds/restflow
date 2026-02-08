@@ -267,9 +267,10 @@ mod tests {
         let client = CodexClient::new().with_model("gpt-5.3-codex");
         let args = client.build_cli_args("hello");
 
-        assert!(args.windows(2).any(|pair| {
-            pair[0] == "-c" && pair[1] == "model_reasoning_effort=\"medium\""
-        }));
+        assert!(
+            args.windows(2)
+                .any(|pair| { pair[0] == "-c" && pair[1] == "model_reasoning_effort=\"medium\"" })
+        );
     }
 
     #[test]
