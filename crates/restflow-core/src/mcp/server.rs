@@ -2818,6 +2818,68 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_manage_hooks_list_operation() {
+        let server = RestFlowMcpServer::with_backend(Arc::new(MockBackend::new()));
+        let params = ManageHooksParams {
+            operation: "list".to_string(),
+            id: None,
+            name: None,
+            description: None,
+            event: None,
+            action: None,
+            filter: None,
+            enabled: None,
+        };
+
+        let json = server.handle_manage_hooks(params).await.unwrap();
+        let hooks: Vec<serde_json::Value> = serde_json::from_str(&json).unwrap();
+        assert!(hooks.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_manage_hooks_create_operation() {
+        let server = RestFlowMcpServer::with_backend(Arc::new(MockBackend::new()));
+        let params = ManageHooksParams {
+            operation: "create".to_string(),
+            id: None,
+            name: Some("Test Hook".to_string()),
+            description: Some("A test hook".to_string()),
+            event: Some("task_completed".to_string()),
+            action: Some(serde_json::json!({
+                "type": "webhook",
+                "url": "https://example.com/hook"
+            })),
+            filter: None,
+            enabled: None,
+        };
+
+        let json = server.handle_manage_hooks(params).await.unwrap();
+        let hook: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(hook["name"], "Test Hook");
+        assert_eq!(hook["event"], "task_completed");
+        assert_eq!(hook["enabled"], true);
+    }
+
+    #[tokio::test]
+    async fn test_manage_hooks_invalid_operation() {
+        let server = RestFlowMcpServer::with_backend(Arc::new(MockBackend::new()));
+        let params = ManageHooksParams {
+            operation: "invalid".to_string(),
+            id: None,
+            name: None,
+            description: None,
+            event: None,
+            action: None,
+            filter: None,
+            enabled: None,
+        };
+
+        let result = server.handle_manage_hooks(params).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Unknown operation"));
+    }
+
+    #[tokio::test]
     async fn test_runtime_tool_fallback() {
         let server = RestFlowMcpServer::with_backend(Arc::new(MockBackend::new()));
         let json = server
