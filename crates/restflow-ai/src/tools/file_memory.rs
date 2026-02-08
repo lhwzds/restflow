@@ -926,14 +926,8 @@ mod tests {
             .await
             .unwrap();
 
-        let list1_result = list1
-            .execute(json!({"agent_id": "agent"}))
-            .await
-            .unwrap();
-        let list2_result = list2
-            .execute(json!({"agent_id": "agent"}))
-            .await
-            .unwrap();
+        let list1_result = list1.execute(json!({"agent_id": "agent"})).await.unwrap();
+        let list2_result = list2.execute(json!({"agent_id": "agent"})).await.unwrap();
 
         assert_eq!(list1_result.result["count"], 1);
         assert_eq!(list2_result.result["count"], 1);
