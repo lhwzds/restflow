@@ -859,7 +859,7 @@ mod tests {
     #[test]
     fn test_execute_tool_serialization() {
         let request = IpcRequest::ExecuteTool {
-            name: "manage_tasks".to_string(),
+            name: "manage_background_agents".to_string(),
             input: serde_json::json!({ "operation": "list" }),
         };
         let json = serde_json::to_string(&request).unwrap();
@@ -867,7 +867,7 @@ mod tests {
 
         match parsed {
             IpcRequest::ExecuteTool { name, input } => {
-                assert_eq!(name, "manage_tasks");
+                assert_eq!(name, "manage_background_agents");
                 assert_eq!(input["operation"], "list");
             }
             _ => panic!("Wrong variant"),

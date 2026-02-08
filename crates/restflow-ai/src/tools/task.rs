@@ -198,11 +198,11 @@ enum TaskAction {
 #[async_trait]
 impl Tool for TaskTool {
     fn name(&self) -> &str {
-        "manage_tasks"
+        "manage_background_agents"
     }
 
     fn description(&self) -> &str {
-        "Create, update, control, inspect progress, message, list, and delete background agent tasks."
+        "Manage background agents with explicit operations: create, update, delete, list, control, progress, send_message, list_messages, pause, resume, cancel, and run."
     }
 
     fn parameters_schema(&self) -> Value {
@@ -225,14 +225,14 @@ impl Tool for TaskTool {
                         "cancel",
                         "run"
                     ],
-                    "description": "Task operation to perform"
+                    "description": "Background agent operation to perform"
                 },
                 "id": {
                     "type": "string"
                 },
                 "name": {
                     "type": "string",
-                    "description": "Task name (for create/update)"
+                    "description": "Background agent name (for create/update)"
                 },
                 "agent_id": {
                     "type": "string",
@@ -240,11 +240,11 @@ impl Tool for TaskTool {
                 },
                 "description": {
                     "type": "string",
-                    "description": "Task description (for update)"
+                    "description": "Background agent description (for update)"
                 },
                 "schedule": {
                     "type": "object",
-                    "description": "Task schedule object (for create/update)"
+                    "description": "Background agent schedule object (for create/update)"
                 },
                 "notification": {
                     "type": "object",
@@ -260,11 +260,11 @@ impl Tool for TaskTool {
                 },
                 "input": {
                     "type": "string",
-                    "description": "Optional input for the task (for create/update)"
+                    "description": "Optional input for the background agent (for create/update)"
                 },
                 "input_template": {
                     "type": "string",
-                    "description": "Optional runtime template for task input (for create/update)"
+                    "description": "Optional runtime template for background agent input (for create/update)"
                 },
                 "memory_scope": {
                     "type": "string",

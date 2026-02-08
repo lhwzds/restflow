@@ -112,7 +112,7 @@ pub mod mock {
                 .iter()
                 .find(|t| t.id == name_or_id || t.name == name_or_id)
                 .cloned()
-                .ok_or_else(|| anyhow::anyhow!("Task not found: {}", name_or_id))
+                .ok_or_else(|| anyhow::anyhow!("Background agent not found: {}", name_or_id))
         }
 
         async fn stop_task(&self, _task_id: &str) -> Result<()> {

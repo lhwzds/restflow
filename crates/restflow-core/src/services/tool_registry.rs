@@ -2155,7 +2155,7 @@ mod tests {
         assert!(registry.has("manage_secrets"));
         assert!(registry.has("manage_config"));
         assert!(registry.has("manage_agents"));
-        assert!(registry.has("manage_tasks"));
+        assert!(registry.has("manage_background_agents"));
         assert!(registry.has("manage_marketplace"));
         assert!(registry.has("manage_triggers"));
         assert!(registry.has("manage_terminal"));
@@ -2252,7 +2252,7 @@ mod tests {
             temperature: Some(0.3),
             codex_cli_reasoning_effort: None,
             api_key_config: Some(crate::models::ApiKeyConfig::Direct("test-key".to_string())),
-            tools: Some(vec!["manage_tasks".to_string()]),
+            tools: Some(vec!["manage_background_agents".to_string()]),
             skills: Some(vec!["ops-skill".to_string()]),
             skill_variables: None,
         };
@@ -2288,7 +2288,7 @@ mod tests {
                 agent: Some(serde_json::json!({
                     "model": "gpt-5-mini",
                     "prompt": "Updated prompt",
-                    "tools": ["manage_tasks", "manage_agents"],
+                    "tools": ["manage_background_agents", "manage_agents"],
                     "skills": ["ops-skill", "audit-skill"]
                 })),
             },

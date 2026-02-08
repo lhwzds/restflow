@@ -405,7 +405,7 @@ impl TaskTrigger for AppTaskTrigger {
         let task = tasks
             .into_iter()
             .find(|t| t.name.to_lowercase() == name_or_id.to_lowercase())
-            .ok_or_else(|| anyhow::anyhow!("Task not found: {}", name_or_id))?;
+            .ok_or_else(|| anyhow::anyhow!("Background agent not found: {}", name_or_id))?;
 
         // Trigger the task to run
         self.state.run_task_now(task.id.clone()).await?;

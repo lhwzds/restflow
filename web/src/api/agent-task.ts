@@ -52,7 +52,7 @@ export type {
 /**
  * Event name for task stream events (matches Rust constant TASK_STREAM_EVENT)
  */
-export const TASK_STREAM_EVENT = 'agent-task:stream'
+export const TASK_STREAM_EVENT = 'background-agent:stream'
 
 /**
  * Request to create a new agent task

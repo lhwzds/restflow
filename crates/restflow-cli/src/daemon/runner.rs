@@ -234,7 +234,7 @@ impl TaskTrigger for CliTaskTrigger {
         let task = tasks
             .into_iter()
             .find(|t| t.name.eq_ignore_ascii_case(name_or_id))
-            .ok_or_else(|| anyhow::anyhow!("Task not found: {}", name_or_id))?;
+            .ok_or_else(|| anyhow::anyhow!("Background agent not found: {}", name_or_id))?;
 
         self.runner_handle()
             .await?

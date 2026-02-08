@@ -6,13 +6,13 @@
 //!
 //! The `run_agent_task_streaming` command executes a task immediately and streams
 //! real-time events to the frontend via Tauri's event system. Frontend should
-//! listen to the `agent-task:stream` event to receive `TaskStreamEvent` updates.
+//! listen to the `background-agent:stream` event to receive `TaskStreamEvent` updates.
 //!
 //! ```typescript
 //! import { listen } from '@tauri-apps/api/event';
 //! import type { TaskStreamEvent } from './types/generated';
 //!
-//! const unlisten = await listen<TaskStreamEvent>('agent-task:stream', (event) => {
+//! const unlisten = await listen<TaskStreamEvent>('background-agent:stream', (event) => {
 //!   console.log('Task event:', event.payload);
 //! });
 //! ```
@@ -128,7 +128,7 @@ pub async fn get_agent_task(state: State<'_, AppState>, id: String) -> Result<Ag
         .get_task(id.clone())
         .await
         .map_err(|e| e.to_string())?
-        .ok_or_else(|| format!("Agent task '{}' not found", id))
+        .ok_or_else(|| format!("Background agent '{}' not found", id))
 }
 
 /// Create a new agent task
@@ -201,7 +201,7 @@ pub async fn update_agent_task(
         .get_task(id.clone())
         .await
         .map_err(|e| e.to_string())?
-        .ok_or_else(|| format!("Agent task '{}' not found", id))?;
+        .ok_or_else(|| format!("Background agent '{}' not found", id))?;
 
     // Apply updates
     if let Some(name) = request.name {
@@ -391,7 +391,7 @@ pub struct StreamingTaskResponse {
 ///
 /// This command triggers immediate execution of a task and emits real-time
 /// events via Tauri's event system. The frontend should listen to the
-/// `agent-task:stream` event to receive `TaskStreamEvent` updates.
+/// `background-agent:stream` event to receive `TaskStreamEvent` updates.
 ///
 /// # Arguments
 ///
@@ -403,7 +403,7 @@ pub struct StreamingTaskResponse {
 ///
 /// # Events
 ///
-/// The following events are emitted on the `agent-task:stream` channel:
+/// The following events are emitted on the `background-agent:stream` channel:
 /// - `started` - Task execution has begun
 /// - `output` - Output from the task (stdout/stderr)
 /// - `progress` - Progress updates for long-running tasks
@@ -419,7 +419,7 @@ pub struct StreamingTaskResponse {
 /// import { listen } from '@tauri-apps/api/event';
 ///
 /// // Start listening before invoking
-/// const unlisten = await listen<TaskStreamEvent>('agent-task:stream', (event) => {
+/// const unlisten = await listen<TaskStreamEvent>('background-agent:stream', (event) => {
 ///   if (event.payload.task_id === taskId) {
 ///     switch (event.payload.kind.type) {
 ///       case 'started':
@@ -452,7 +452,7 @@ pub async fn run_agent_task_streaming(
         .agent_tasks
         .get_task(&id)
         .map_err(|e| e.to_string())?
-        .ok_or_else(|| format!("Agent task '{}' not found", id))?;
+        .ok_or_else(|| format!("Background agent '{}' not found", id))?;
 
     // Check if already running
     let already_running = state.is_task_running(&id).await;
@@ -545,7 +545,7 @@ pub async fn emit_test_task_event(
 /// import type { TaskStreamEvent } from './types/generated';
 ///
 /// // Subscribe to all task events
-/// const unlisten = await listen<TaskStreamEvent>('agent-task:stream', (event) => {
+/// const unlisten = await listen<TaskStreamEvent>('background-agent:stream', (event) => {
 ///   console.log('Received event:', event.payload);
 /// });
 ///
