@@ -99,10 +99,17 @@ onMounted(() => {
 
 <template>
   <div class="h-screen flex bg-background">
-    <!-- Left: Session List or Settings -->
-    <div class="w-56 border-r border-border shrink-0 flex flex-col">
-      <!-- Main content: SessionList or Settings -->
-      <template v-if="!showSettings">
+    <!-- Full-screen Settings (replaces entire layout) -->
+    <SettingsPanel
+      v-if="showSettings"
+      class="flex-1"
+      @back="showSettings = false"
+    />
+
+    <!-- Normal chat layout -->
+    <template v-else>
+      <!-- Left: Session List -->
+      <div class="w-56 border-r border-border shrink-0 flex flex-col">
         <SessionList
           :sessions="sessions"
           :current-session-id="currentSessionId"
@@ -113,39 +120,38 @@ onMounted(() => {
           @new-session="onNewSession"
           @update-agent-filter="onUpdateAgentFilter"
         />
-      </template>
-      <SettingsPanel v-else class="flex-1" @back="showSettings = false" />
 
-      <!-- Bottom bar: Settings + Theme -->
-      <div class="p-2 border-t border-border flex items-center gap-1 shrink-0">
-        <Button
-          variant="ghost"
-          size="icon"
-          class="h-7 w-7"
-          @click="showSettings = !showSettings"
-        >
-          <Settings :size="14" />
-        </Button>
-        <Button variant="ghost" size="icon" class="h-7 w-7" @click="toggleDark()">
-          <Sun v-if="isDark" :size="14" />
-          <Moon v-else :size="14" />
-        </Button>
+        <!-- Bottom bar: Settings + Theme -->
+        <div class="p-2 border-t border-border flex items-center gap-1 shrink-0">
+          <Button
+            variant="ghost"
+            size="icon"
+            class="h-7 w-7"
+            @click="showSettings = true"
+          >
+            <Settings :size="14" />
+          </Button>
+          <Button variant="ghost" size="icon" class="h-7 w-7" @click="toggleDark()">
+            <Sun v-if="isDark" :size="14" />
+            <Moon v-else :size="14" />
+          </Button>
+        </div>
       </div>
-    </div>
 
-    <!-- Center: Chat -->
-    <ChatPanel
-      class="flex-1 min-w-0"
-      @show-panel="onShowPanel"
-    />
+      <!-- Center: Chat -->
+      <ChatPanel
+        class="flex-1 min-w-0"
+        @show-panel="onShowPanel"
+      />
 
-    <!-- Right: AI Canvas -->
-    <CanvasPanel
-      v-if="canvas.visible.value"
-      :title="canvas.title.value"
-      :content="canvas.content.value"
-      :content-type="canvas.contentType.value"
-      @close="canvas.closeCanvas()"
-    />
+      <!-- Right: AI Canvas -->
+      <CanvasPanel
+        v-if="canvas.visible.value"
+        :title="canvas.title.value"
+        :content="canvas.content.value"
+        :content-type="canvas.contentType.value"
+        @close="canvas.closeCanvas()"
+      />
+    </template>
   </div>
 </template>

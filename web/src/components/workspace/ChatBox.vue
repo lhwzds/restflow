@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, watch, nextTick } from 'vue'
-import { Send, X, Loader2, Cpu } from 'lucide-vue-next'
+import { Send, X, Cpu } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import {
@@ -34,14 +34,14 @@ const inputMessage = ref('')
 
 const handleSend = () => {
   const message = inputMessage.value.trim()
-  if (message && !props.isExecuting) {
+  if (message) {
     emit('send', message)
     inputMessage.value = ''
   }
 }
 
 const handleKeydown = (e: KeyboardEvent) => {
-  if (e.key === 'Enter' && !e.shiftKey) {
+  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
     e.preventDefault()
     handleSend()
   }
@@ -90,7 +90,6 @@ watch(inputMessage, async (newVal) => {
         v-model="inputMessage"
         placeholder="Ask the agent to do something..."
         class="chat-textarea min-h-[40px] max-h-[120px] resize-none border-0 bg-transparent p-0 text-sm shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
-        :disabled="isExecuting"
         @keydown="handleKeydown"
         @input="handleInput"
       />
@@ -128,11 +127,10 @@ watch(inputMessage, async (newVal) => {
         <Button
           size="sm"
           class="h-8 px-4"
-          :disabled="!inputMessage.trim() || isExecuting"
+          :disabled="!inputMessage.trim()"
           @click="handleSend"
         >
-          <Loader2 v-if="isExecuting" :size="14" class="animate-spin mr-1" />
-          <Send v-else :size="14" class="mr-1" />
+          <Send :size="14" class="mr-1" />
           Send
         </Button>
       </div>

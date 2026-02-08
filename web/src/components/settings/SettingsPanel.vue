@@ -2,12 +2,13 @@
 /**
  * SettingsPanel Component
  *
- * Inline settings panel that replaces SessionList in the left sidebar.
- * Provides tabbed access to Secrets, Auth, Security, and Marketplace.
+ * Full-screen settings view with left navigation and right content area.
+ * Replaces the entire chat layout when active.
  */
 import { ref } from 'vue'
 import { ArrowLeft, Key, Shield, Store, KeyRound } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
 import SecretsSection from './SecretsSection.vue'
 import AuthProfiles from './AuthProfiles.vue'
 import SecurityPanel from '@/components/security/SecurityPanel.vue'
@@ -17,52 +18,57 @@ const emit = defineEmits<{
   back: []
 }>()
 
-type SettingsTab = 'secrets' | 'auth' | 'security' | 'marketplace'
+type SettingsSection = 'secrets' | 'auth' | 'security' | 'marketplace'
 
-const activeTab = ref<SettingsTab>('secrets')
+const activeSection = ref<SettingsSection>('secrets')
 
-const tabs: { id: SettingsTab; label: string; icon: typeof Key }[] = [
+const navItems: { id: SettingsSection; label: string; icon: typeof Key }[] = [
   { id: 'secrets', label: 'Secrets', icon: Key },
-  { id: 'auth', label: 'Auth', icon: KeyRound },
+  { id: 'auth', label: 'Auth Profiles', icon: KeyRound },
   { id: 'security', label: 'Security', icon: Shield },
-  { id: 'marketplace', label: 'Market', icon: Store },
+  { id: 'marketplace', label: 'Marketplace', icon: Store },
 ]
 </script>
 
 <template>
-  <div class="h-full flex flex-col bg-muted/30">
-    <!-- Header with back button -->
-    <div class="flex items-center gap-2 px-3 py-2 border-b border-border shrink-0">
-      <Button variant="ghost" size="icon" class="h-7 w-7 shrink-0" @click="emit('back')">
-        <ArrowLeft :size="14" />
-      </Button>
-      <span class="text-sm font-medium">Settings</span>
-    </div>
+  <div class="h-screen flex bg-background">
+    <!-- Left nav -->
+    <nav class="w-56 border-r border-border shrink-0 flex flex-col bg-muted/30">
+      <div class="flex-1 pt-8 pb-2 space-y-0.5">
+        <button
+          v-for="item in navItems"
+          :key="item.id"
+          :class="
+            cn(
+              'w-full flex items-center gap-2 px-4 py-2 text-sm transition-colors',
+              activeSection === item.id
+                ? 'bg-muted text-foreground font-medium'
+                : 'text-muted-foreground hover:text-foreground hover:bg-muted/50',
+            )
+          "
+          @click="activeSection = item.id"
+        >
+          <component :is="item.icon" :size="14" class="shrink-0" />
+          {{ item.label }}
+        </button>
+      </div>
 
-    <!-- Tab Navigation -->
-    <div class="flex border-b border-border shrink-0">
-      <button
-        v-for="tab in tabs"
-        :key="tab.id"
-        :class="[
-          'flex-1 flex items-center justify-center gap-1 px-2 py-1.5 text-xs transition-colors',
-          activeTab === tab.id
-            ? 'text-primary border-b-2 border-primary font-medium'
-            : 'text-muted-foreground hover:text-foreground',
-        ]"
-        @click="activeTab = tab.id"
-      >
-        <component :is="tab.icon" :size="12" />
-        {{ tab.label }}
-      </button>
-    </div>
+      <!-- Back button at bottom -->
+      <div class="p-2 border-t border-border flex items-center gap-1 shrink-0">
+        <Button variant="ghost" size="icon" class="h-7 w-7" @click="emit('back')">
+          <ArrowLeft :size="14" />
+        </Button>
+      </div>
+    </nav>
 
-    <!-- Tab Content -->
-    <div class="flex-1 overflow-auto">
-      <SecretsSection v-if="activeTab === 'secrets'" />
-      <AuthProfiles v-else-if="activeTab === 'auth'" />
-      <SecurityPanel v-else-if="activeTab === 'security'" />
-      <SkillMarketplace v-else-if="activeTab === 'marketplace'" />
+    <!-- Right content -->
+    <div class="flex-1 overflow-auto p-6">
+      <div class="max-w-[48rem]">
+        <SecretsSection v-if="activeSection === 'secrets'" />
+        <AuthProfiles v-else-if="activeSection === 'auth'" />
+        <SecurityPanel v-else-if="activeSection === 'security'" />
+        <SkillMarketplace v-else-if="activeSection === 'marketplace'" />
+      </div>
     </div>
   </div>
 </template>
