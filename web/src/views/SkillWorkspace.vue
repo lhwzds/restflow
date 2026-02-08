@@ -9,6 +9,7 @@ import SessionList from '@/components/workspace/SessionList.vue'
 import FileBrowser from '@/components/workspace/FileBrowser.vue'
 import TerminalBrowser from '@/components/workspace/TerminalBrowser.vue'
 import ChatBox from '@/components/workspace/ChatBox.vue'
+import StreamingMarkdown from '@/components/shared/StreamingMarkdown.vue'
 import ExecutionPanel from '@/components/workspace/ExecutionPanel.vue'
 import SettingsDialog from '@/components/workspace/SettingsDialog.vue'
 import EditorPanel from '@/components/editor/EditorPanel.vue'
@@ -729,7 +730,10 @@ const onCloseChat = () => {
                               : 'System'
                         }}
                       </div>
-                      <div class="whitespace-pre-wrap break-words">{{ msg.content }}</div>
+                      <StreamingMarkdown
+                        :content="msg.content || ''"
+                        :is-streaming="isExecuting && idx === messages.length - 1 && msg.role === 'assistant'"
+                      />
                     </div>
                     <div v-if="isExecuting" class="flex items-center gap-2 text-muted-foreground">
                       <div
