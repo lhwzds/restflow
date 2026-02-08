@@ -68,12 +68,6 @@ pub enum Commands {
         command: AgentCommands,
     },
 
-    /// Task management
-    Task {
-        #[command(subcommand)]
-        command: TaskCommands,
-    },
-
     /// Hook management
     Hook {
         #[command(subcommand)]
@@ -246,6 +240,14 @@ mod tests {
             })
         ));
     }
+
+    #[test]
+    fn rejects_task_commands() {
+        let cli = Cli::try_parse_from(["restflow", "task", "list"]);
+        assert!(cli.is_err());
+        let cli = Cli::try_parse_from(["restflow", "agent-task", "list"]);
+        assert!(cli.is_err());
+    }
 }
 
 #[derive(Subcommand)]
@@ -292,147 +294,6 @@ pub enum AgentCommands {
         /// Optional chat session ID for message mirroring
         #[arg(long)]
         session: Option<String>,
-    },
-}
-
-#[derive(Subcommand)]
-pub enum TaskCommands {
-    /// List tasks
-    List {
-        #[arg(short, long)]
-        status: Option<String>,
-    },
-
-    /// Show task details
-    Show { id: String },
-
-    /// Create task
-    Create {
-        #[arg(long)]
-        agent: String,
-
-        #[arg(long)]
-        name: String,
-
-        #[arg(long)]
-        input: Option<String>,
-
-        /// Override task prompt (alias of --input)
-        #[arg(long)]
-        prompt: Option<String>,
-
-        /// Runtime template used to build task input
-        #[arg(long)]
-        input_template: Option<String>,
-
-        #[arg(long)]
-        description: Option<String>,
-
-        /// Memory scope: shared_agent or per_task
-        #[arg(long)]
-        memory_scope: Option<String>,
-
-        #[arg(long)]
-        cron: Option<String>,
-
-        #[arg(long)]
-        timezone: Option<String>,
-    },
-
-    /// Update background task definition
-    Update {
-        id: String,
-
-        #[arg(long)]
-        name: Option<String>,
-
-        #[arg(long)]
-        agent: Option<String>,
-
-        #[arg(long)]
-        description: Option<String>,
-
-        #[arg(long)]
-        input: Option<String>,
-
-        /// Override task prompt (alias of --input)
-        #[arg(long)]
-        prompt: Option<String>,
-
-        /// Runtime template used to build task input
-        #[arg(long)]
-        input_template: Option<String>,
-
-        /// Memory scope: shared_agent or per_task
-        #[arg(long)]
-        memory_scope: Option<String>,
-
-        #[arg(long)]
-        cron: Option<String>,
-
-        #[arg(long)]
-        timezone: Option<String>,
-    },
-
-    /// Control background task execution state
-    Control {
-        id: String,
-
-        /// One of: start, pause, resume, stop, run_now
-        #[arg(long)]
-        action: String,
-    },
-
-    /// Show aggregated progress of a background task
-    Progress {
-        id: String,
-
-        #[arg(long, default_value_t = 10)]
-        event_limit: usize,
-    },
-
-    /// Send/list messages for a background task
-    Message {
-        #[command(subcommand)]
-        command: TaskMessageCommands,
-    },
-
-    /// Pause task
-    Pause { id: String },
-
-    /// Resume task
-    Resume { id: String },
-
-    /// Cancel task
-    Cancel { id: String },
-
-    /// Watch task events
-    Watch { id: String },
-
-    /// Run task immediately
-    Run { id: String },
-}
-
-#[derive(Subcommand)]
-pub enum TaskMessageCommands {
-    /// Send a message to a running/scheduled background task
-    Send {
-        id: String,
-
-        #[arg(long)]
-        message: String,
-
-        /// One of: user, agent, system
-        #[arg(long, default_value = "user")]
-        source: String,
-    },
-
-    /// List recent messages of a background task
-    List {
-        id: String,
-
-        #[arg(long, default_value_t = 20)]
-        limit: usize,
     },
 }
 

@@ -20,12 +20,6 @@ pub fn handle_error(err: anyhow::Error) -> ! {
         eprintln!("  {} restflow agent list", "$".dimmed());
     }
 
-    if msg.contains("task not found") {
-        eprintln!("\n{}", "Suggestion:".yellow().bold());
-        eprintln!("  List available tasks with:");
-        eprintln!("  {} restflow task list", "$".dimmed());
-    }
-
     if msg.contains("connection refused") || msg.contains("network") {
         eprintln!("\n{}", "Suggestion:".yellow().bold());
         eprintln!("  Check your internet connection and try again.");

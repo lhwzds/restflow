@@ -3,17 +3,12 @@ use async_trait::async_trait;
 use std::path::Path;
 use tokio::sync::Mutex;
 
-use crate::executor::{
-    BackgroundProgressInput, CommandExecutor, ControlBackgroundAgentInput,
-    CreateBackgroundAgentInput, ListBackgroundMessageInput, SendBackgroundMessageInput,
-    UpdateBackgroundAgentInput,
-};
+use crate::executor::CommandExecutor;
 use restflow_core::daemon::{IpcClient, IpcRequest, IpcResponse};
 use restflow_core::memory::ExportResult;
 use restflow_core::models::{
-    AgentExecuteResponse, AgentNode, AgentTask, AgentTaskStatus, BackgroundMessage,
-    BackgroundProgress, ChatSession, ChatSessionSummary, MemoryChunk, MemorySearchResult,
-    MemoryStats, Secret, Skill, TaskEvent,
+    AgentExecuteResponse, AgentNode, ChatSession, ChatSessionSummary, MemoryChunk,
+    MemorySearchResult, MemoryStats, Secret, Skill,
 };
 use restflow_core::storage::SystemConfig;
 use restflow_core::storage::agent::StoredAgent;
@@ -152,129 +147,6 @@ impl CommandExecutor for IpcExecutor {
             .await?;
         self.decode_response::<serde_json::Value>(response)
             .map(|_| ())
-    }
-
-    async fn list_tasks(&self) -> Result<Vec<AgentTask>> {
-        let response = self.request(IpcRequest::ListTasks).await?;
-        self.decode_response(response)
-    }
-
-    async fn list_tasks_by_status(&self, status: AgentTaskStatus) -> Result<Vec<AgentTask>> {
-        let status_str = match status {
-            AgentTaskStatus::Active => "active",
-            AgentTaskStatus::Paused => "paused",
-            AgentTaskStatus::Running => "running",
-            AgentTaskStatus::Completed => "completed",
-            AgentTaskStatus::Failed => "failed",
-        };
-        let response = self
-            .request(IpcRequest::ListTasksByStatus {
-                status: status_str.to_string(),
-            })
-            .await?;
-        self.decode_response(response)
-    }
-
-    async fn get_task(&self, id: &str) -> Result<Option<AgentTask>> {
-        let response = self
-            .request(IpcRequest::GetTask { id: id.to_string() })
-            .await?;
-        self.decode_response_optional(response)
-    }
-
-    async fn get_task_history(&self, id: &str) -> Result<Vec<TaskEvent>> {
-        let response = self
-            .request(IpcRequest::GetTaskHistory { id: id.to_string() })
-            .await?;
-        self.decode_response(response)
-    }
-
-    async fn create_background_agent(
-        &self,
-        input: CreateBackgroundAgentInput,
-    ) -> Result<AgentTask> {
-        let response = self
-            .request(IpcRequest::CreateBackgroundAgent { spec: input.spec })
-            .await?;
-        self.decode_response(response)
-    }
-
-    async fn update_background_agent(
-        &self,
-        input: UpdateBackgroundAgentInput,
-    ) -> Result<AgentTask> {
-        let response = self
-            .request(IpcRequest::UpdateBackgroundAgent {
-                id: input.id,
-                patch: input.patch,
-            })
-            .await?;
-        self.decode_response(response)
-    }
-
-    async fn delete_background_agent(&self, id: &str) -> Result<bool> {
-        let response = self
-            .request(IpcRequest::DeleteBackgroundAgent { id: id.to_string() })
-            .await?;
-        #[derive(serde::Deserialize)]
-        struct DeleteResponse {
-            deleted: bool,
-        }
-        let value: DeleteResponse = self.decode_response(response)?;
-        Ok(value.deleted)
-    }
-
-    async fn control_background_agent(
-        &self,
-        input: ControlBackgroundAgentInput,
-    ) -> Result<AgentTask> {
-        let response = self
-            .request(IpcRequest::ControlBackgroundAgent {
-                id: input.id,
-                action: input.action,
-            })
-            .await?;
-        self.decode_response(response)
-    }
-
-    async fn get_background_progress(
-        &self,
-        input: BackgroundProgressInput,
-    ) -> Result<BackgroundProgress> {
-        let response = self
-            .request(IpcRequest::GetBackgroundAgentProgress {
-                id: input.id,
-                event_limit: input.event_limit,
-            })
-            .await?;
-        self.decode_response(response)
-    }
-
-    async fn send_background_message(
-        &self,
-        input: SendBackgroundMessageInput,
-    ) -> Result<BackgroundMessage> {
-        let response = self
-            .request(IpcRequest::SendBackgroundAgentMessage {
-                id: input.id,
-                message: input.message,
-                source: input.source,
-            })
-            .await?;
-        self.decode_response(response)
-    }
-
-    async fn list_background_messages(
-        &self,
-        input: ListBackgroundMessageInput,
-    ) -> Result<Vec<BackgroundMessage>> {
-        let response = self
-            .request(IpcRequest::ListBackgroundAgentMessages {
-                id: input.id,
-                limit: input.limit,
-            })
-            .await?;
-        self.decode_response(response)
     }
 
     async fn search_memory(

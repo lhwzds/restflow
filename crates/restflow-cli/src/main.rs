@@ -206,9 +206,6 @@ async fn main() -> Result<()> {
             Some(Commands::Agent { command }) => {
                 commands::agent::run(exec, command, cli.format).await
             }
-            Some(Commands::Task { command }) => {
-                commands::task::run(exec, command, cli.format).await
-            }
             Some(Commands::Skill { command }) => {
                 commands::skill::run(exec, command, cli.format).await
             }
