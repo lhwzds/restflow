@@ -13,7 +13,7 @@ use std::sync::Arc;
 use tokio::time::{Duration, sleep};
 use tracing::error;
 
-async fn sync_mcp_configs(mcp_port: Option<u16>) {
+pub async fn sync_mcp_configs(mcp_port: Option<u16>) {
     if let Err(err) = try_sync_restflow_stdio_mcp().await {
         eprintln!("Warning: failed to auto-configure Claude MCP: {err}");
     }
@@ -28,16 +28,14 @@ pub async fn run(core: Arc<AppCore>, command: DaemonCommands) -> Result<()> {
             foreground,
             http,
             port,
-            mcp,
             mcp_port,
-        } => start(core, foreground, http, port, mcp, mcp_port).await,
+        } => start(core, foreground, http, port, mcp_port).await,
         DaemonCommands::Restart {
             foreground,
             http,
             port,
-            mcp,
             mcp_port,
-        } => restart(core, foreground, http, port, mcp, mcp_port).await,
+        } => restart(core, foreground, http, port, mcp_port).await,
         DaemonCommands::Stop => stop().await,
         DaemonCommands::Status => status().await,
     }
@@ -48,13 +46,12 @@ async fn start(
     foreground: bool,
     http: bool,
     port: Option<u16>,
-    mcp: bool,
     mcp_port: Option<u16>,
 ) -> Result<()> {
     let config = DaemonConfig {
         http,
         http_port: port,
-        mcp,
+        mcp: true,
         mcp_port,
     };
 
@@ -82,13 +79,12 @@ async fn restart(
     foreground: bool,
     http: bool,
     port: Option<u16>,
-    mcp: bool,
     mcp_port: Option<u16>,
 ) -> Result<()> {
     let config = DaemonConfig {
         http,
         http_port: port,
-        mcp,
+        mcp: true,
         mcp_port,
     };
 
@@ -171,20 +167,17 @@ async fn run_daemon(core: Arc<AppCore>, config: DaemonConfig) -> Result<()> {
         None
     };
 
-    let mcp_handle = if config.mcp {
-        let addr = std::net::SocketAddr::from(([127, 0, 0, 1], config.mcp_port.unwrap_or(8787)));
-        let mcp_shutdown = shutdown_tx.subscribe();
-        let mcp_core = core.clone();
-        Some(tokio::spawn(async move {
-            if let Err(err) =
-                restflow_core::daemon::run_mcp_http_server(mcp_core, addr, mcp_shutdown).await
-            {
-                error!(error = %err, "MCP server stopped unexpectedly");
-            }
-        }))
-    } else {
-        None
-    };
+    // MCP server is always enabled
+    let addr = std::net::SocketAddr::from(([127, 0, 0, 1], config.mcp_port.unwrap_or(8787)));
+    let mcp_shutdown = shutdown_tx.subscribe();
+    let mcp_core = core.clone();
+    let mcp_handle = tokio::spawn(async move {
+        if let Err(err) =
+            restflow_core::daemon::run_mcp_http_server(mcp_core, addr, mcp_shutdown).await
+        {
+            error!(error = %err, "MCP server stopped unexpectedly");
+        }
+    });
 
     let mut runner = CliTaskRunner::new(core);
     if let Err(err) = runner.start().await {
@@ -202,9 +195,7 @@ async fn run_daemon(core: Arc<AppCore>, config: DaemonConfig) -> Result<()> {
     if let Some(handle) = http_handle {
         let _ = handle.await;
     }
-    if let Some(handle) = mcp_handle {
-        let _ = handle.await;
-    }
+    let _ = mcp_handle.await;
 
     println!("Daemon stopped");
     Ok(())

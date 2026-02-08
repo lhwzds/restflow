@@ -11,7 +11,7 @@ use anyhow::Result;
 use clap::{CommandFactory, Parser};
 use clap_complete::generate;
 use cli::{Cli, Commands, DaemonCommands};
-use commands::claude_mcp::try_sync_restflow_stdio_mcp;
+use commands::daemon::sync_mcp_configs;
 use restflow_core::daemon::{
     DaemonConfig, DaemonStatus, check_daemon_status, start_daemon_with_config, stop_daemon,
 };
@@ -85,7 +85,6 @@ async fn main() -> Result<()> {
                 foreground: false,
                 http,
                 port,
-                mcp,
                 mcp_port,
             } => {
                 match check_daemon_status()? {
@@ -96,14 +95,12 @@ async fn main() -> Result<()> {
                         let config = DaemonConfig {
                             http: *http,
                             http_port: *port,
-                            mcp: *mcp,
+                            mcp: true,
                             mcp_port: *mcp_port,
                         };
                         let pid = start_daemon_with_config(config)?;
                         println!("Daemon started (PID: {})", pid);
-                        if *mcp && let Err(err) = try_sync_restflow_stdio_mcp().await {
-                            eprintln!("Warning: failed to auto-configure Claude MCP: {err}");
-                        }
+                        sync_mcp_configs(*mcp_port).await;
                     }
                 }
                 return Ok(());
@@ -134,7 +131,6 @@ async fn main() -> Result<()> {
                 foreground: false,
                 http,
                 port,
-                mcp,
                 mcp_port,
             } => {
                 let was_running = stop_daemon()?;
@@ -146,7 +142,7 @@ async fn main() -> Result<()> {
                 let config = DaemonConfig {
                     http: *http,
                     http_port: *port,
-                    mcp: *mcp,
+                    mcp: true,
                     mcp_port: *mcp_port,
                 };
                 let pid = start_daemon_with_config(config)?;
@@ -155,9 +151,7 @@ async fn main() -> Result<()> {
                 } else {
                     println!("Daemon started (PID: {})", pid);
                 }
-                if *mcp && let Err(err) = try_sync_restflow_stdio_mcp().await {
-                    eprintln!("Warning: failed to auto-configure Claude MCP: {err}");
-                }
+                sync_mcp_configs(*mcp_port).await;
                 return Ok(());
             }
             DaemonCommands::Start {
