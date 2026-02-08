@@ -66,15 +66,9 @@ reqwest = { version = "0.13", features = ["json"] }
 axum = "0.8"
 tower-http = { version = "0.6", features = ["cors", "trace"] }
 
-# MCP (Model Context Protocol) server
-rmcp = { version = "0.14", features = ["server"] }
-schemars = "1.2"
-
 # CLI argument parsing
 clap = { version = "4", features = ["derive"] }
 
-# Directory utilities for MCP mode
-dirs = "6"
 tauri-plugin-decorum = "1.1.1"
 redb = "3.1"
 
