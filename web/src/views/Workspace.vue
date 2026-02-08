@@ -7,8 +7,7 @@
  * - Center: Chat panel (messages + input)
  * - Right: AI-controlled Canvas panel (hideable)
  */
-import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { getCurrentWindow } from '@tauri-apps/api/window'
+import { ref, computed, onMounted } from 'vue'
 import { Settings, Moon, Sun } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import SessionList from '@/components/workspace/SessionList.vue'
@@ -21,34 +20,12 @@ import { useChatStream } from '@/composables/workspace/useChatStream'
 import { useTheme } from '@/composables/useTheme'
 import { listAgents } from '@/api/agents'
 import { useToast } from '@/composables/useToast'
-import { isTauri } from '@/api/tauri-client'
 import type { AgentFile, SessionItem } from '@/types/workspace'
 import type { ChatSessionSummary } from '@/types/generated/ChatSessionSummary'
 
 const toast = useToast()
 const chatSessionStore = useChatSessionStore()
 const { isDark, toggleDark } = useTheme()
-
-// Tauri-specific state
-const isTauriApp = isTauri()
-const isFullscreen = ref(false)
-let unlistenFullscreen: (() => void) | null = null
-
-onMounted(async () => {
-  if (!isTauriApp) return
-
-  const appWindow = getCurrentWindow()
-  isFullscreen.value = await appWindow.isFullscreen()
-  unlistenFullscreen = await appWindow.onResized(async () => {
-    isFullscreen.value = await appWindow.isFullscreen()
-  })
-})
-
-onUnmounted(() => {
-  if (unlistenFullscreen) {
-    unlistenFullscreen()
-  }
-})
 
 // Settings panel toggle
 const showSettings = ref(false)
@@ -124,23 +101,6 @@ onMounted(() => {
   <div class="h-screen flex bg-background">
     <!-- Left: Session List or Settings -->
     <div class="w-56 border-r border-border shrink-0 flex flex-col">
-      <!-- Traffic light spacer for macOS -->
-      <div
-        v-if="isTauriApp && !isFullscreen"
-        class="h-8 shrink-0 relative"
-        data-tauri-drag-region
-      >
-        <div
-          class="absolute left-[13px] top-[10px] w-[12px] h-[12px] rounded-full bg-orange-400 dark:bg-orange-500"
-        />
-        <div
-          class="absolute left-[33px] top-[10px] w-[12px] h-[12px] rounded-full bg-orange-400 dark:bg-orange-500"
-        />
-        <div
-          class="absolute left-[53px] top-[10px] w-[12px] h-[12px] rounded-full bg-orange-400 dark:bg-orange-500"
-        />
-      </div>
-
       <!-- Main content: SessionList or Settings -->
       <template v-if="!showSettings">
         <SessionList
@@ -189,10 +149,3 @@ onMounted(() => {
     />
   </div>
 </template>
-
-<style scoped>
-/* macOS traffic light area should be draggable */
-[data-tauri-drag-region] {
-  -webkit-app-region: drag;
-}
-</style>
