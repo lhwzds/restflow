@@ -212,6 +212,21 @@ impl TauriExecutor {
         Ok(())
     }
 
+    pub async fn handle_background_agent_approval(
+        &self,
+        id: String,
+        approved: bool,
+    ) -> Result<bool> {
+        #[derive(serde::Deserialize)]
+        struct ApprovalResponse {
+            handled: bool,
+        }
+        let response: ApprovalResponse = self
+            .request(IpcRequest::HandleBackgroundAgentApproval { id, approved })
+            .await?;
+        Ok(response.handled)
+    }
+
     pub async fn search_memory(
         &self,
         query: String,

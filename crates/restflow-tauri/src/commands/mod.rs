@@ -13,7 +13,6 @@ pub mod marketplace;
 pub mod memory;
 pub mod pty;
 pub mod secrets;
-pub mod security;
 pub mod skills;
 pub mod terminal_sessions;
 
@@ -28,6 +27,5 @@ pub use marketplace::*;
 pub use memory::*;
 pub use pty::*;
 pub use secrets::*;
-pub use security::*;
 pub use skills::*;
 pub use terminal_sessions::*;

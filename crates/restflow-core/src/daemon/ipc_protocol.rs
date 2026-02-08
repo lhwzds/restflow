@@ -312,6 +312,10 @@ pub enum IpcRequest {
         message: String,
         source: Option<BackgroundMessageSource>,
     },
+    HandleBackgroundAgentApproval {
+        id: String,
+        approved: bool,
+    },
     ListBackgroundAgentMessages {
         id: String,
         limit: Option<usize>,
@@ -867,6 +871,23 @@ mod tests {
                 assert_eq!(decoded.action, hook.action);
             }
             _ => panic!("Wrong variant"),
+        }
+    }
+
+    #[test]
+    fn test_handle_background_agent_approval_serialization() {
+        let request = IpcRequest::HandleBackgroundAgentApproval {
+            id: "task-1".to_string(),
+            approved: true,
+        };
+        let json = serde_json::to_string(&request).unwrap();
+        let parsed: IpcRequest = serde_json::from_str(&json).unwrap();
+
+        if let IpcRequest::HandleBackgroundAgentApproval { id, approved } = parsed {
+            assert_eq!(id, "task-1");
+            assert!(approved);
+        } else {
+            panic!("Wrong variant");
         }
     }
 }
