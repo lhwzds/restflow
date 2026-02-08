@@ -47,6 +47,10 @@ export interface StreamStep {
   type: string
   name: string
   status: StepStatus
+  /** Tool call ID for correlating start/end events */
+  toolId?: string
+  /** Tool call result JSON (populated on tool_call_end) */
+  result?: string
 }
 
 /**
@@ -132,15 +136,22 @@ export function useChatStream(sessionId: () => string | null) {
               type: 'tool_call',
               name: kind.tool_name,
               status: 'running',
+              toolId: kind.tool_id,
             })
           }
           break
 
         case 'tool_call_end':
           if ('tool_id' in kind) {
-            const step = state.value.steps.find((s) => s.status === 'running')
+            // Find step by tool_id for accurate correlation, fallback to first running
+            const step =
+              state.value.steps.find((s) => s.toolId === kind.tool_id) ||
+              state.value.steps.find((s) => s.status === 'running')
             if (step && 'success' in kind) {
               step.status = kind.success ? 'completed' : 'failed'
+              if ('result' in kind) {
+                step.result = kind.result
+              }
             }
           }
           break
