@@ -42,7 +42,7 @@ pub struct Storage {
     pub config: ConfigStorage,
     pub triggers: TriggerStorage,
     pub agents: AgentStorage,
-    pub agent_tasks: AgentTaskStorage,
+    pub background_agents: AgentTaskStorage,
     pub secrets: SecretStorage,
     pub skills: SkillStorage,
     pub shared_space: SharedSpaceStorage,
@@ -66,7 +66,7 @@ impl Storage {
         let config = ConfigStorage::new(db.clone())?;
         let triggers = TriggerStorage::new(db.clone())?;
         let agents = AgentStorage::new(db.clone())?;
-        let agent_tasks = AgentTaskStorage::new(db.clone())?;
+        let background_agents = AgentTaskStorage::new(db.clone())?;
         let secrets = SecretStorage::with_config(db.clone(), secret_config)?;
         let skills = SkillStorage::new(db.clone())?;
         let shared_space_raw = restflow_storage::SharedSpaceStorage::new(db.clone())?;
@@ -81,7 +81,7 @@ impl Storage {
             config,
             triggers,
             agents,
-            agent_tasks,
+            background_agents,
             secrets,
             skills,
             shared_space,

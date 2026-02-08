@@ -107,7 +107,7 @@ async fn test_hook(core: Arc<AppCore>, id: &str, format: OutputFormat) -> Result
         .ok_or_else(|| anyhow::anyhow!("Hook not found: {}", id))?;
 
     let scheduler = Arc::new(AgentTaskHookScheduler::new(
-        core.storage.agent_tasks.clone(),
+        core.storage.background_agents.clone(),
     ));
     let executor = HookExecutor::new(Vec::new()).with_task_scheduler(scheduler);
 

@@ -88,7 +88,7 @@ impl CliBackgroundAgentRunner {
         let steer_registry = Arc::new(SteerRegistry::new());
 
         let runner = Arc::new(AgentTaskRunner::new(
-            Arc::new(storage.agent_tasks.clone()),
+            Arc::new(storage.background_agents.clone()),
             Arc::new(executor),
             Arc::new(notifier),
             RunnerConfig {
@@ -218,11 +218,11 @@ impl CliBackgroundAgentTrigger {
 #[async_trait]
 impl BackgroundAgentTrigger for CliBackgroundAgentTrigger {
     async fn list_background_agents(&self) -> Result<Vec<AgentTask>> {
-        self.core.storage.agent_tasks.list_tasks()
+        self.core.storage.background_agents.list_tasks()
     }
 
     async fn find_and_run_background_agent(&self, name_or_id: &str) -> Result<AgentTask> {
-        if let Ok(Some(task)) = self.core.storage.agent_tasks.get_task(name_or_id) {
+        if let Ok(Some(task)) = self.core.storage.background_agents.get_task(name_or_id) {
             self.runner_handle()
                 .await?
                 .run_task_now(task.id.clone())
@@ -230,7 +230,7 @@ impl BackgroundAgentTrigger for CliBackgroundAgentTrigger {
             return Ok(task);
         }
 
-        let tasks = self.core.storage.agent_tasks.list_tasks()?;
+        let tasks = self.core.storage.background_agents.list_tasks()?;
         let task = tasks
             .into_iter()
             .find(|t| t.name.eq_ignore_ascii_case(name_or_id))
@@ -255,10 +255,10 @@ impl BackgroundAgentTrigger for CliBackgroundAgentTrigger {
             None => false,
         };
 
-        if let Ok(Some(task)) = self.core.storage.agent_tasks.get_task(task_id)
+        if let Ok(Some(task)) = self.core.storage.background_agents.get_task(task_id)
             && (task.status != AgentTaskStatus::Running || !cancel_requested)
         {
-            self.core.storage.agent_tasks.pause_task(task_id)?;
+            self.core.storage.background_agents.pause_task(task_id)?;
         }
 
         Ok(())
@@ -268,7 +268,7 @@ impl BackgroundAgentTrigger for CliBackgroundAgentTrigger {
         let runner_active = self.handle.read().await.is_some();
         let active_count = self.running_task_count().await;
 
-        let tasks = self.core.storage.agent_tasks.list_tasks()?;
+        let tasks = self.core.storage.background_agents.list_tasks()?;
         let pending_count = tasks
             .iter()
             .filter(|t| t.status == AgentTaskStatus::Active)
@@ -296,7 +296,7 @@ impl BackgroundAgentTrigger for CliBackgroundAgentTrigger {
     async fn send_message_to_background_agent(&self, task_id: &str, input: &str) -> Result<()> {
         self.core
             .storage
-            .agent_tasks
+            .background_agents
             .send_background_agent_message(
                 task_id,
                 input.to_string(),
@@ -317,7 +317,7 @@ impl BackgroundAgentTrigger for CliBackgroundAgentTrigger {
         };
         self.core
             .storage
-            .agent_tasks
+            .background_agents
             .send_background_agent_message(
                 task_id,
                 message.to_string(),
@@ -360,7 +360,7 @@ mod tests {
 
         let task = core
             .storage
-            .agent_tasks
+            .background_agents
             .create_background_agent(BackgroundAgentSpec {
                 name: "Background Agent Test".to_string(),
                 agent_id: default_agent.id,
@@ -394,7 +394,7 @@ mod tests {
 
         let messages = core
             .storage
-            .agent_tasks
+            .background_agents
             .list_background_agent_messages(&task.id, 10)
             .expect("failed to list background messages");
 
@@ -415,7 +415,7 @@ mod tests {
 
         let messages = core
             .storage
-            .agent_tasks
+            .background_agents
             .list_background_agent_messages(&task.id, 10)
             .expect("failed to list background messages");
 

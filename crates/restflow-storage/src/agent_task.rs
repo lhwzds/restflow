@@ -9,14 +9,16 @@ use std::sync::Arc;
 
 use crate::range_utils::prefix_range;
 
-const AGENT_TASK_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("agent_tasks");
-const TASK_EVENT_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("task_events");
+const BACKGROUND_AGENT_TABLE: TableDefinition<&str, &[u8]> =
+    TableDefinition::new("background_agents");
+const BACKGROUND_AGENT_EVENT_TABLE: TableDefinition<&str, &[u8]> =
+    TableDefinition::new("background_agent_events");
 /// Index table: task_id -> event_id (for listing events by task)
-const TASK_EVENT_INDEX_TABLE: TableDefinition<&str, &str> =
-    TableDefinition::new("task_event_index");
+const BACKGROUND_AGENT_EVENT_INDEX_TABLE: TableDefinition<&str, &str> =
+    TableDefinition::new("background_agent_event_index");
 /// Index table: status:task_id -> task_id (for listing tasks by status)
-const TASK_STATUS_INDEX_TABLE: TableDefinition<&str, &str> =
-    TableDefinition::new("agent_task_status_index");
+const BACKGROUND_AGENT_STATUS_INDEX_TABLE: TableDefinition<&str, &str> =
+    TableDefinition::new("background_agent_status_index");
 /// Background message payload table
 const BACKGROUND_MESSAGE_TABLE: TableDefinition<&str, &[u8]> =
     TableDefinition::new("background_messages");
@@ -38,10 +40,10 @@ impl AgentTaskStorage {
     pub fn new(db: Arc<Database>) -> Result<Self> {
         // Initialize all tables
         let write_txn = db.begin_write()?;
-        write_txn.open_table(AGENT_TASK_TABLE)?;
-        write_txn.open_table(TASK_EVENT_TABLE)?;
-        write_txn.open_table(TASK_EVENT_INDEX_TABLE)?;
-        write_txn.open_table(TASK_STATUS_INDEX_TABLE)?;
+        write_txn.open_table(BACKGROUND_AGENT_TABLE)?;
+        write_txn.open_table(BACKGROUND_AGENT_EVENT_TABLE)?;
+        write_txn.open_table(BACKGROUND_AGENT_EVENT_INDEX_TABLE)?;
+        write_txn.open_table(BACKGROUND_AGENT_STATUS_INDEX_TABLE)?;
         write_txn.open_table(BACKGROUND_MESSAGE_TABLE)?;
         write_txn.open_table(BACKGROUND_MESSAGE_TASK_INDEX_TABLE)?;
         write_txn.open_table(BACKGROUND_MESSAGE_STATUS_INDEX_TABLE)?;
@@ -56,7 +58,7 @@ impl AgentTaskStorage {
     pub fn put_task_raw(&self, id: &str, data: &[u8]) -> Result<()> {
         let write_txn = self.db.begin_write()?;
         {
-            let mut table = write_txn.open_table(AGENT_TASK_TABLE)?;
+            let mut table = write_txn.open_table(BACKGROUND_AGENT_TABLE)?;
             table.insert(id, data)?;
         }
         write_txn.commit()?;
@@ -67,10 +69,10 @@ impl AgentTaskStorage {
     pub fn put_task_raw_with_status(&self, id: &str, status: &str, data: &[u8]) -> Result<()> {
         let write_txn = self.db.begin_write()?;
         {
-            let mut table = write_txn.open_table(AGENT_TASK_TABLE)?;
+            let mut table = write_txn.open_table(BACKGROUND_AGENT_TABLE)?;
             table.insert(id, data)?;
 
-            let mut status_index = write_txn.open_table(TASK_STATUS_INDEX_TABLE)?;
+            let mut status_index = write_txn.open_table(BACKGROUND_AGENT_STATUS_INDEX_TABLE)?;
             let status_key = format!("{}:{}", status, id);
             status_index.insert(status_key.as_str(), id)?;
         }
@@ -88,10 +90,10 @@ impl AgentTaskStorage {
     ) -> Result<()> {
         let write_txn = self.db.begin_write()?;
         {
-            let mut table = write_txn.open_table(AGENT_TASK_TABLE)?;
+            let mut table = write_txn.open_table(BACKGROUND_AGENT_TABLE)?;
             table.insert(id, data)?;
 
-            let mut status_index = write_txn.open_table(TASK_STATUS_INDEX_TABLE)?;
+            let mut status_index = write_txn.open_table(BACKGROUND_AGENT_STATUS_INDEX_TABLE)?;
             if old_status != new_status {
                 let old_key = format!("{}:{}", old_status, id);
                 status_index.remove(old_key.as_str())?;
@@ -107,7 +109,7 @@ impl AgentTaskStorage {
     /// Get raw agent task data by ID
     pub fn get_task_raw(&self, id: &str) -> Result<Option<Vec<u8>>> {
         let read_txn = self.db.begin_read()?;
-        let table = read_txn.open_table(AGENT_TASK_TABLE)?;
+        let table = read_txn.open_table(BACKGROUND_AGENT_TABLE)?;
 
         if let Some(value) = table.get(id)? {
             Ok(Some(value.value().to_vec()))
@@ -119,7 +121,7 @@ impl AgentTaskStorage {
     /// List all raw agent task data
     pub fn list_tasks_raw(&self) -> Result<Vec<(String, Vec<u8>)>> {
         let read_txn = self.db.begin_read()?;
-        let table = read_txn.open_table(AGENT_TASK_TABLE)?;
+        let table = read_txn.open_table(BACKGROUND_AGENT_TABLE)?;
 
         let mut tasks = Vec::new();
         for item in table.iter()? {
@@ -133,8 +135,8 @@ impl AgentTaskStorage {
     /// List tasks by status using the status index
     pub fn list_tasks_by_status_indexed(&self, status: &str) -> Result<Vec<(String, Vec<u8>)>> {
         let read_txn = self.db.begin_read()?;
-        let status_index = read_txn.open_table(TASK_STATUS_INDEX_TABLE)?;
-        let task_table = read_txn.open_table(AGENT_TASK_TABLE)?;
+        let status_index = read_txn.open_table(BACKGROUND_AGENT_STATUS_INDEX_TABLE)?;
+        let task_table = read_txn.open_table(BACKGROUND_AGENT_TABLE)?;
 
         let prefix = format!("{}:", status);
         let (start, end) = prefix_range(&prefix);
@@ -155,7 +157,7 @@ impl AgentTaskStorage {
     pub fn delete_task(&self, id: &str) -> Result<bool> {
         let write_txn = self.db.begin_write()?;
         let existed = {
-            let mut table = write_txn.open_table(AGENT_TASK_TABLE)?;
+            let mut table = write_txn.open_table(BACKGROUND_AGENT_TABLE)?;
             table.remove(id)?.is_some()
         };
         write_txn.commit()?;
@@ -166,10 +168,10 @@ impl AgentTaskStorage {
     pub fn delete_task_with_status(&self, id: &str, status: &str) -> Result<bool> {
         let write_txn = self.db.begin_write()?;
         let existed = {
-            let mut table = write_txn.open_table(AGENT_TASK_TABLE)?;
+            let mut table = write_txn.open_table(BACKGROUND_AGENT_TABLE)?;
             let existed = table.remove(id)?.is_some();
 
-            let mut status_index = write_txn.open_table(TASK_STATUS_INDEX_TABLE)?;
+            let mut status_index = write_txn.open_table(BACKGROUND_AGENT_STATUS_INDEX_TABLE)?;
             let status_key = format!("{}:{}", status, id);
             status_index.remove(status_key.as_str())?;
 
@@ -359,11 +361,11 @@ impl AgentTaskStorage {
     pub fn put_event_raw(&self, event_id: &str, task_id: &str, data: &[u8]) -> Result<()> {
         let write_txn = self.db.begin_write()?;
         {
-            let mut event_table = write_txn.open_table(TASK_EVENT_TABLE)?;
+            let mut event_table = write_txn.open_table(BACKGROUND_AGENT_EVENT_TABLE)?;
             event_table.insert(event_id, data)?;
 
             // Create composite index key: task_id:timestamp:event_id for ordered retrieval
-            let mut index_table = write_txn.open_table(TASK_EVENT_INDEX_TABLE)?;
+            let mut index_table = write_txn.open_table(BACKGROUND_AGENT_EVENT_INDEX_TABLE)?;
             let index_key = format!("{}:{}", task_id, event_id);
             index_table.insert(index_key.as_str(), event_id)?;
         }
@@ -374,7 +376,7 @@ impl AgentTaskStorage {
     /// Get raw task event data by ID
     pub fn get_event_raw(&self, event_id: &str) -> Result<Option<Vec<u8>>> {
         let read_txn = self.db.begin_read()?;
-        let table = read_txn.open_table(TASK_EVENT_TABLE)?;
+        let table = read_txn.open_table(BACKGROUND_AGENT_EVENT_TABLE)?;
 
         if let Some(value) = table.get(event_id)? {
             Ok(Some(value.value().to_vec()))
@@ -386,8 +388,8 @@ impl AgentTaskStorage {
     /// List all events for a specific task
     pub fn list_events_for_task_raw(&self, task_id: &str) -> Result<Vec<(String, Vec<u8>)>> {
         let read_txn = self.db.begin_read()?;
-        let index_table = read_txn.open_table(TASK_EVENT_INDEX_TABLE)?;
-        let event_table = read_txn.open_table(TASK_EVENT_TABLE)?;
+        let index_table = read_txn.open_table(BACKGROUND_AGENT_EVENT_INDEX_TABLE)?;
+        let event_table = read_txn.open_table(BACKGROUND_AGENT_EVENT_TABLE)?;
 
         let prefix = format!("{}:", task_id);
         let (start, end) = prefix_range(&prefix);
@@ -408,11 +410,11 @@ impl AgentTaskStorage {
     pub fn delete_event(&self, event_id: &str, task_id: &str) -> Result<bool> {
         let write_txn = self.db.begin_write()?;
         let existed = {
-            let mut event_table = write_txn.open_table(TASK_EVENT_TABLE)?;
+            let mut event_table = write_txn.open_table(BACKGROUND_AGENT_EVENT_TABLE)?;
             let existed = event_table.remove(event_id)?.is_some();
 
             // Remove from index
-            let mut index_table = write_txn.open_table(TASK_EVENT_INDEX_TABLE)?;
+            let mut index_table = write_txn.open_table(BACKGROUND_AGENT_EVENT_INDEX_TABLE)?;
             let index_key = format!("{}:{}", task_id, event_id);
             index_table.remove(index_key.as_str())?;
 
@@ -434,8 +436,8 @@ impl AgentTaskStorage {
 
         let write_txn = self.db.begin_write()?;
         {
-            let mut event_table = write_txn.open_table(TASK_EVENT_TABLE)?;
-            let mut index_table = write_txn.open_table(TASK_EVENT_INDEX_TABLE)?;
+            let mut event_table = write_txn.open_table(BACKGROUND_AGENT_EVENT_TABLE)?;
+            let mut index_table = write_txn.open_table(BACKGROUND_AGENT_EVENT_INDEX_TABLE)?;
 
             for (event_id, _) in &events {
                 event_table.remove(event_id.as_str())?;

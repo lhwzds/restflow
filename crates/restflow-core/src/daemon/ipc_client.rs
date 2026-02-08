@@ -1,5 +1,5 @@
 use super::ipc_protocol::{
-    IpcRequest, IpcResponse, StreamFrame, ToolDefinition, ToolExecutionResult, MAX_MESSAGE_SIZE,
+    IpcRequest, IpcResponse, MAX_MESSAGE_SIZE, StreamFrame, ToolDefinition, ToolExecutionResult,
 };
 use crate::auth::{AuthProfile, AuthProvider, Credential, CredentialSource, ProfileUpdate};
 use crate::memory::ExportResult;
@@ -10,7 +10,7 @@ use crate::models::{
     MemoryStats, Skill, TerminalSession,
 };
 use crate::storage::agent::StoredAgent;
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use serde::de::DeserializeOwned;
 use std::path::Path;
 

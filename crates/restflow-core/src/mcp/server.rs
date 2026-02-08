@@ -8,8 +8,8 @@ use crate::daemon::{IpcClient, IpcRequest, IpcResponse};
 use crate::models::{
     AIModel, BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentPatch,
     BackgroundAgentSchedule, BackgroundAgentSpec, BackgroundAgentStatus, BackgroundMessage,
-    BackgroundMessageSource, BackgroundProgress, ChatSession, ChatSessionSummary, Hook,
-    HookAction, HookEvent, HookFilter, MemoryChunk, MemoryConfig, MemoryScope, MemorySearchQuery,
+    BackgroundMessageSource, BackgroundProgress, ChatSession, ChatSessionSummary, Hook, HookAction,
+    HookEvent, HookFilter, MemoryChunk, MemoryConfig, MemoryScope, MemorySearchQuery,
     MemorySearchResult, MemorySource, MemoryStats, Provider, SearchMode, Skill,
 };
 use crate::services::tool_registry::create_tool_registry;
@@ -140,7 +140,7 @@ fn create_runtime_tool_registry_for_core(core: &Arc<AppCore>) -> restflow_ai::to
         core.storage.secrets.clone(),
         core.storage.config.clone(),
         core.storage.agents.clone(),
-        core.storage.agent_tasks.clone(),
+        core.storage.background_agents.clone(),
         core.storage.triggers.clone(),
         core.storage.terminal_sessions.clone(),
         None,
@@ -290,13 +290,13 @@ impl McpBackend for CoreBackend {
             Some(status) => self
                 .core
                 .storage
-                .agent_tasks
+                .background_agents
                 .list_tasks_by_status(status)
                 .map_err(|e| e.to_string()),
             None => self
                 .core
                 .storage
-                .agent_tasks
+                .background_agents
                 .list_tasks()
                 .map_err(|e| e.to_string()),
         }
@@ -308,7 +308,7 @@ impl McpBackend for CoreBackend {
     ) -> Result<BackgroundAgent, String> {
         self.core
             .storage
-            .agent_tasks
+            .background_agents
             .create_background_agent(spec)
             .map_err(|e| e.to_string())
     }
@@ -320,7 +320,7 @@ impl McpBackend for CoreBackend {
     ) -> Result<BackgroundAgent, String> {
         self.core
             .storage
-            .agent_tasks
+            .background_agents
             .update_background_agent(id, patch)
             .map_err(|e| e.to_string())
     }
@@ -328,7 +328,7 @@ impl McpBackend for CoreBackend {
     async fn delete_background_agent(&self, id: &str) -> Result<bool, String> {
         self.core
             .storage
-            .agent_tasks
+            .background_agents
             .delete_task(id)
             .map_err(|e| e.to_string())
     }
@@ -340,7 +340,7 @@ impl McpBackend for CoreBackend {
     ) -> Result<BackgroundAgent, String> {
         self.core
             .storage
-            .agent_tasks
+            .background_agents
             .control_background_agent(id, action)
             .map_err(|e| e.to_string())
     }
@@ -352,7 +352,7 @@ impl McpBackend for CoreBackend {
     ) -> Result<BackgroundProgress, String> {
         self.core
             .storage
-            .agent_tasks
+            .background_agents
             .get_background_agent_progress(id, event_limit)
             .map_err(|e| e.to_string())
     }
@@ -365,7 +365,7 @@ impl McpBackend for CoreBackend {
     ) -> Result<BackgroundMessage, String> {
         self.core
             .storage
-            .agent_tasks
+            .background_agents
             .send_background_agent_message(id, message, source)
             .map_err(|e| e.to_string())
     }
@@ -377,7 +377,7 @@ impl McpBackend for CoreBackend {
     ) -> Result<Vec<BackgroundMessage>, String> {
         self.core
             .storage
-            .agent_tasks
+            .background_agents
             .list_background_agent_messages(id, limit)
             .map_err(|e| e.to_string())
     }
@@ -673,9 +673,7 @@ impl McpBackend for IpcBackend {
             deleted: bool,
         }
         let response: DeleteResponse = self
-            .request_typed(IpcRequest::DeleteHook {
-                id: id.to_string(),
-            })
+            .request_typed(IpcRequest::DeleteHook { id: id.to_string() })
             .await?;
         Ok(response.deleted)
     }
@@ -1053,7 +1051,6 @@ impl RestFlowMcpServer {
             Some(s) if s.is_empty() => Ok(None),
             Some(s) if s == "shared_agent" => Ok(Some(MemoryScope::SharedAgent)),
             Some(s) if s == "per_background_agent" => Ok(Some(MemoryScope::PerBackgroundAgent)),
-            Some(s) if s == "per_task" => Ok(Some(MemoryScope::PerBackgroundAgent)),
             Some(s) => Err(format!("Unknown memory_scope: {}", s)),
         }
     }
@@ -1588,13 +1585,9 @@ impl RestFlowMcpServer {
                         event_str
                     )
                 })?;
-                let action_value = params
-                    .action
-                    .ok_or("Missing required field: action")?;
-                let action: HookAction =
-                    serde_json::from_value(action_value).map_err(|e| {
-                        format!("Invalid action: {}", e)
-                    })?;
+                let action_value = params.action.ok_or("Missing required field: action")?;
+                let action: HookAction = serde_json::from_value(action_value)
+                    .map_err(|e| format!("Invalid action: {}", e))?;
                 let mut hook = Hook::new(name, event, action);
                 hook.description = params.description;
                 if let Some(filter_value) = params.filter {

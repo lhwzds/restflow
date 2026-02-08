@@ -5,17 +5,17 @@
 //! It loads agent configuration from storage, builds the appropriate LLM
 //! client, and executes the agent with the configured tools.
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::{
+    AIModel, Provider,
     auth::AuthProfileManager,
     models::{AgentNode, ApiKeyConfig, ChatMessage, ChatRole, ChatSession, SteerMessage},
     process::ProcessRegistry,
     storage::Storage,
-    AIModel, Provider,
 };
 use restflow_ai::llm::Message;
 use restflow_ai::{
@@ -26,12 +26,12 @@ use tokio::sync::mpsc;
 use tokio::time::sleep;
 use tracing::{info, warn};
 
-use super::failover::{execute_with_failover, FailoverConfig, FailoverManager};
+use super::failover::{FailoverConfig, FailoverManager, execute_with_failover};
 use super::retry::{RetryConfig, RetryState};
 use super::runner::{AgentExecutor, ExecutionResult};
 use crate::runtime::agent::{
-    build_agent_system_prompt, effective_main_agent_tool_names, registry_from_allowlist,
-    secret_resolver_from_storage, SubagentDeps, ToolRegistry, UnifiedAgent, UnifiedAgentConfig,
+    SubagentDeps, ToolRegistry, UnifiedAgent, UnifiedAgentConfig, build_agent_system_prompt,
+    effective_main_agent_tool_names, registry_from_allowlist, secret_resolver_from_storage,
 };
 use crate::runtime::subagent::{AgentDefinitionRegistry, SubagentConfig, SubagentTracker};
 
