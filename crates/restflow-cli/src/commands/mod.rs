@@ -11,7 +11,7 @@ pub mod mcp;
 pub mod memory;
 pub mod migrate;
 pub mod restart;
-pub mod run;
+
 pub mod secret;
 pub mod security;
 pub mod session;

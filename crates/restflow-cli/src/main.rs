@@ -22,7 +22,7 @@ use tokio::time::{Duration, sleep};
 fn command_needs_direct_core(command: &Option<Commands>) -> bool {
     matches!(
         command,
-        Some(Commands::Daemon { .. }) | Some(Commands::Run(_)) | Some(Commands::Hook { .. })
+        Some(Commands::Daemon { .. }) | Some(Commands::Hook { .. })
     )
 }
 
@@ -191,7 +191,6 @@ async fn main() -> Result<()> {
         let core = setup::prepare_core(Some(db_path)).await?;
 
         match cli.command {
-            Some(Commands::Run(args)) => commands::run::run(core, args, cli.format).await,
             Some(Commands::Daemon { command }) => commands::daemon::run(core, command).await,
             Some(Commands::Hook { command }) => {
                 commands::hook::run(core, command, cli.format).await
@@ -254,23 +253,12 @@ async fn wait_for_daemon_exit() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::command_needs_direct_core;
-    use crate::cli::{Commands, HookCommands, RunArgs, StartArgs};
+    use crate::cli::{Commands, HookCommands, StartArgs};
 
     #[test]
     fn start_does_not_need_direct_core() {
         let command = Some(Commands::Start(StartArgs::default()));
         assert!(!command_needs_direct_core(&command));
-    }
-
-    #[test]
-    fn run_needs_direct_core() {
-        let command = Some(Commands::Run(RunArgs {
-            agent_id: "agent-1".to_string(),
-            input: None,
-            background: false,
-            stream: false,
-        }));
-        assert!(command_needs_direct_core(&command));
     }
 
     #[test]
