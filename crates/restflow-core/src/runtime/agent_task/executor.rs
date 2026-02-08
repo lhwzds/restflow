@@ -61,6 +61,16 @@ pub struct SessionExecutionResult {
     pub active_model: String,
 }
 
+/// Controls whether the latest user input has already been persisted
+/// to the chat session before execution.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SessionInputMode {
+    /// Latest user input is already stored as the newest session message.
+    PersistedInSession,
+    /// Latest user input is provided only as runtime input for this turn.
+    EphemeralInput,
+}
+
 impl RealAgentExecutor {
     /// Create a new RealAgentExecutor with access to storage.
     pub fn new(
@@ -289,14 +299,25 @@ impl RealAgentExecutor {
         session.messages.clone()
     }
 
-    fn add_session_history(agent: &mut UnifiedAgent, session: &ChatSession, max_messages: usize) {
+    fn add_session_history(
+        agent: &mut UnifiedAgent,
+        session: &ChatSession,
+        max_messages: usize,
+        input_mode: SessionInputMode,
+    ) {
         let mut messages = Self::session_messages_for_context(session);
         if messages.is_empty() {
             return;
         }
 
-        // Exclude the latest user input because it will be passed to execute().
-        messages.pop();
+        // Exclude the latest user input because it will be passed to execute()
+        // separately for persisted-input flows.
+        if input_mode == SessionInputMode::PersistedInSession
+            && matches!(messages.last().map(|m| &m.role), Some(ChatRole::User))
+        {
+            messages.pop();
+        }
+
         let start = messages.len().saturating_sub(max_messages);
         for message in &messages[start..] {
             agent.add_history_message(Self::chat_message_to_llm_message(message));
@@ -312,6 +333,7 @@ impl RealAgentExecutor {
         session: &ChatSession,
         user_input: &str,
         max_history: usize,
+        input_mode: SessionInputMode,
         factory: Arc<dyn LlmClientFactory>,
         agent_id: Option<&str>,
     ) -> Result<SessionExecutionResult> {
@@ -334,7 +356,7 @@ impl RealAgentExecutor {
         }
 
         let mut agent = UnifiedAgent::new(swappable.clone(), tools, system_prompt, config);
-        Self::add_session_history(&mut agent, session, max_history);
+        Self::add_session_history(&mut agent, session, max_history, input_mode);
 
         let result = agent.execute(user_input).await?;
         if !result.success {
@@ -357,6 +379,7 @@ impl RealAgentExecutor {
         user_input: &str,
         primary_provider: Provider,
         max_history: usize,
+        input_mode: SessionInputMode,
         agent_id: Option<&str>,
     ) -> Result<SessionExecutionResult> {
         let model_specs = AIModel::build_model_specs();
@@ -395,6 +418,7 @@ impl RealAgentExecutor {
             session,
             user_input,
             max_history,
+            input_mode,
             factory,
             agent_id,
         )
@@ -410,6 +434,7 @@ impl RealAgentExecutor {
         user_input: &str,
         primary_provider: Provider,
         max_history: usize,
+        input_mode: SessionInputMode,
         agent_id: Option<&str>,
     ) -> Result<SessionExecutionResult> {
         if model.is_codex_cli() || agent_node.api_key_config.is_some() {
@@ -421,6 +446,7 @@ impl RealAgentExecutor {
                     user_input,
                     primary_provider,
                     max_history,
+                    input_mode,
                     agent_id,
                 )
                 .await;
@@ -439,6 +465,7 @@ impl RealAgentExecutor {
                     user_input,
                     primary_provider,
                     max_history,
+                    input_mode,
                     agent_id,
                 )
                 .await;
@@ -480,6 +507,7 @@ impl RealAgentExecutor {
                     session,
                     user_input,
                     max_history,
+                    input_mode,
                     factory,
                     agent_id,
                 )
@@ -539,6 +567,7 @@ impl RealAgentExecutor {
         session: &mut ChatSession,
         user_input: &str,
         max_history: usize,
+        input_mode: SessionInputMode,
     ) -> Result<SessionExecutionResult> {
         let stored_agent = self.resolve_stored_agent_for_session(session)?;
         let agent_node = stored_agent.agent.clone();
@@ -565,6 +594,7 @@ impl RealAgentExecutor {
                         user_input,
                         primary_provider,
                         max_history,
+                        input_mode,
                         Some(agent_id.as_str()),
                     )
                     .await

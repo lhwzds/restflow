@@ -61,23 +61,12 @@
 //! start_message_handler_with_chat(router, task_trigger, chat_dispatcher, config);
 //! ```
 
-mod chat_dispatcher;
-mod commands;
-mod debounce;
-mod forwarder;
-mod handler;
-mod router;
-mod trigger;
-
-pub use chat_dispatcher::{ChatDispatcher, ChatDispatcherConfig, ChatError, ChatSessionManager};
-pub use debounce::MessageDebouncer;
-pub use handler::{MessageHandlerConfig, start_message_handler, start_message_handler_with_chat};
-pub use router::{MessageRouter, RouteDecision};
-pub use trigger::{BackgroundAgentTrigger, SystemStatus};
-
-// Re-export for convenience
-pub use commands::handle_command;
-pub use forwarder::forward_to_background_agent;
+pub use restflow_core::runtime::channel::{
+    BackgroundAgentTrigger, ChatDispatcher, ChatDispatcherConfig, ChatError, ChatSessionManager,
+    MessageDebouncer, MessageHandlerConfig, MessageRouter, RouteDecision, SystemStatus,
+    forward_to_background_agent, handle_command, start_message_handler,
+    start_message_handler_with_chat,
+};
 
 #[cfg(test)]
-pub use trigger::mock;
+pub use restflow_core::runtime::channel::mock;

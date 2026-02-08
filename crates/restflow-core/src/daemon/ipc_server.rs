@@ -10,7 +10,7 @@ use crate::models::{
     TerminalSession,
 };
 use crate::process::ProcessRegistry;
-use crate::runtime::agent_task::RealAgentExecutor;
+use crate::runtime::agent_task::{RealAgentExecutor, SessionInputMode};
 use crate::runtime::subagent::{AgentDefinitionRegistry, SubagentConfig, SubagentTracker};
 use crate::services::tool_registry::create_tool_registry;
 use crate::services::{
@@ -1346,7 +1346,12 @@ async fn execute_chat_session(
     let executor = create_chat_executor(core, auth_manager);
     let started_at = Instant::now();
     let exec_result = executor
-        .execute_session_turn(&mut session, &input, 20)
+        .execute_session_turn(
+            &mut session,
+            &input,
+            20,
+            SessionInputMode::PersistedInSession,
+        )
         .await?;
     let duration_ms = started_at.elapsed().as_millis() as u64;
 

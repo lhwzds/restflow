@@ -12,8 +12,8 @@ pub use agent::{
 };
 pub use agent_task::{
     AgentExecutor, AgentTaskRunner, ExecutionResult, NoopNotificationSender, NotificationSender,
-    RealAgentExecutor, RunnerConfig, RunnerHandle, TaskEventEmitter, TaskStreamEvent,
-    TelegramNotifier,
+    RealAgentExecutor, RunnerConfig, RunnerHandle, SessionExecutionResult, SessionInputMode,
+    TaskEventEmitter, TaskStreamEvent, TelegramNotifier,
 };
 pub use channel::{
     BackgroundAgentTrigger, ChatDispatcher, ChatDispatcherConfig, ChatError, ChatSessionManager,
