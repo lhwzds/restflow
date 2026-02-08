@@ -1,7 +1,6 @@
 use anyhow::{Result, bail};
 use chrono::{DateTime, Local, TimeZone};
 use restflow_core::models::AIModel;
-use std::io::{self, Read};
 
 pub fn format_timestamp(timestamp: Option<i64>) -> String {
     let Some(ts) = timestamp else {
@@ -14,12 +13,6 @@ pub fn format_timestamp(timestamp: Option<i64>) -> String {
     };
 
     datetime.format("%Y-%m-%d %H:%M:%S").to_string()
-}
-
-pub fn read_stdin_to_string() -> Result<String> {
-    let mut buffer = String::new();
-    io::stdin().read_to_string(&mut buffer)?;
-    Ok(buffer.trim().to_string())
 }
 
 pub fn parse_model(input: &str) -> Result<AIModel> {

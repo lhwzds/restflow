@@ -3,8 +3,8 @@ use async_trait::async_trait;
 use restflow_core::daemon::is_daemon_available;
 use restflow_core::memory::ExportResult;
 use restflow_core::models::{
-    AgentExecuteResponse, AgentNode, ChatSession, ChatSessionSummary, MemoryChunk,
-    MemorySearchResult, MemoryStats, Secret, Skill,
+    AgentNode, ChatSession, ChatSessionSummary, MemoryChunk, MemorySearchResult, MemoryStats,
+    Secret, Skill,
 };
 use restflow_core::paths;
 use restflow_core::storage::SystemConfig;
@@ -26,12 +26,6 @@ pub trait CommandExecutor: Send + Sync {
         agent: Option<AgentNode>,
     ) -> Result<StoredAgent>;
     async fn delete_agent(&self, id: &str) -> Result<()>;
-    async fn execute_agent(
-        &self,
-        id: &str,
-        input: String,
-        session_id: Option<String>,
-    ) -> Result<AgentExecuteResponse>;
 
     async fn list_skills(&self) -> Result<Vec<Skill>>;
     async fn get_skill(&self, id: &str) -> Result<Option<Skill>>;

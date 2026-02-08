@@ -7,8 +7,8 @@ use crate::executor::CommandExecutor;
 use restflow_core::daemon::{IpcClient, IpcRequest, IpcResponse};
 use restflow_core::memory::ExportResult;
 use restflow_core::models::{
-    AgentExecuteResponse, AgentNode, ChatSession, ChatSessionSummary, MemoryChunk,
-    MemorySearchResult, MemoryStats, Secret, Skill,
+    AgentNode, ChatSession, ChatSessionSummary, MemoryChunk, MemorySearchResult, MemoryStats,
+    Secret, Skill,
 };
 use restflow_core::storage::SystemConfig;
 use restflow_core::storage::agent::StoredAgent;
@@ -94,22 +94,6 @@ impl CommandExecutor for IpcExecutor {
             .await?;
         self.decode_response::<serde_json::Value>(response)
             .map(|_| ())
-    }
-
-    async fn execute_agent(
-        &self,
-        id: &str,
-        input: String,
-        session_id: Option<String>,
-    ) -> Result<AgentExecuteResponse> {
-        let response = self
-            .request(IpcRequest::ExecuteAgent {
-                id: id.to_string(),
-                input,
-                session_id,
-            })
-            .await?;
-        self.decode_response(response)
     }
 
     async fn list_skills(&self) -> Result<Vec<Skill>> {
