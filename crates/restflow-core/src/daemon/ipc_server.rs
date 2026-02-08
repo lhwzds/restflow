@@ -1166,7 +1166,10 @@ impl IpcServer {
                     crate::models::BackgroundMessageSource::System,
                 ) {
                     Ok(_) => {
-                        // Placeholder behavior: inject approval intent as a system message.
+                        // Simplified placeholder:
+                        // approval is currently injected as a system message so running
+                        // background agents can continue without a dedicated approval queue.
+                        // Keep handled=false to make this fallback explicit to callers.
                         IpcResponse::success(serde_json::json!({ "handled": false }))
                     }
                     Err(err) => IpcResponse::error(500, err.to_string()),
@@ -1184,7 +1187,12 @@ impl IpcServer {
             }
             IpcRequest::SubscribeBackgroundAgentEvents {
                 background_agent_id: _,
-            } => IpcResponse::error(-3, "Background agent event streaming not available via IPC"),
+            } => {
+                // Not implemented yet:
+                // daemon IPC does not expose a background-agent event subscription stream.
+                // Use polling/history APIs for now.
+                IpcResponse::error(-3, "Background agent event streaming not available via IPC")
+            }
             IpcRequest::GetSystemInfo => IpcResponse::success(serde_json::json!({
                 "pid": std::process::id(),
                 "python_ready": core.is_python_ready(),

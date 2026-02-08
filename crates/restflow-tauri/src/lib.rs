@@ -4,7 +4,6 @@
 //! exposing the workflow engine functionality through Tauri commands.
 
 pub mod agent;
-pub mod background_agent;
 pub mod channel;
 pub mod chat;
 pub mod commands;
@@ -21,11 +20,6 @@ pub use agent::{
     TelegramTool, Tool, ToolRegistry, ToolRegistryBuilder, ToolResult, UnifiedAgent,
     UnifiedAgentConfig, UseSkillTool, WaitAgentsTool, build_agent_system_prompt, default_registry,
     effective_main_agent_tool_names, main_agent_default_tool_names, registry_from_allowlist,
-};
-pub use background_agent::{
-    AgentExecutor, AgentTaskRunner, HEARTBEAT_EVENT, HeartbeatEmitter, HeartbeatEvent,
-    HeartbeatPulse, NoopHeartbeatEmitter, RealAgentExecutor, RunnerConfig, RunnerHandle,
-    RunnerStatus, TauriHeartbeatEmitter, TelegramNotifier,
 };
 pub use channel::{
     BackgroundAgentTrigger, ChatDispatcher, ChatDispatcherConfig, ChatSessionManager,
