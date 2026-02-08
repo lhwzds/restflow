@@ -1,10 +1,10 @@
 use super::ipc_protocol::{
-    IpcRequest, IpcResponse, ToolDefinition, ToolExecutionResult, MAX_MESSAGE_SIZE,
+    IpcRequest, IpcResponse, StreamFrame, ToolDefinition, ToolExecutionResult, MAX_MESSAGE_SIZE,
 };
 use crate::auth::{AuthManagerConfig, AuthProfileManager};
 use crate::memory::{MemoryExporter, MemoryExporterBuilder, SearchEngineBuilder};
 use crate::models::{
-    AgentNode, BackgroundAgentStatus, ChatExecutionStatus, ChatMessage, ChatRole,
+    AgentNode, BackgroundAgentStatus, ChatExecutionStatus, ChatMessage, ChatRole, ChatSession,
     ChatSessionSummary, HookContext, HookEvent, MemoryChunk, MemorySearchQuery, MessageExecution,
     TerminalSession,
 };
@@ -20,10 +20,13 @@ use crate::AppCore;
 use anyhow::Result;
 use chrono::Utc;
 use restflow_storage::AuthProfileStorage;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::OnceLock;
 use std::time::Instant;
-use tokio::sync::{broadcast, mpsc};
+use tokio::sync::{broadcast, mpsc, Mutex};
+use tokio::task::JoinHandle;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
@@ -35,6 +38,11 @@ use tokio::net::{UnixListener, UnixStream};
 pub struct IpcServer {
     core: Arc<AppCore>,
     socket_path: PathBuf,
+}
+
+fn active_chat_streams() -> &'static Mutex<HashMap<String, JoinHandle<()>>> {
+    static STREAMS: OnceLock<Mutex<HashMap<String, JoinHandle<()>>>> = OnceLock::new();
+    STREAMS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
 impl IpcServer {
@@ -104,12 +112,37 @@ impl IpcServer {
             let mut buf = vec![0u8; len];
             stream.read_exact(&mut buf).await?;
 
-            let response = match serde_json::from_slice::<IpcRequest>(&buf) {
-                Ok(req) => Self::process(&core, req).await,
-                Err(err) => IpcResponse::error(-2, format!("Invalid request: {}", err)),
-            };
-
-            Self::send(&mut stream, &response).await?;
+            match serde_json::from_slice::<IpcRequest>(&buf) {
+                Ok(IpcRequest::ExecuteChatSessionStream {
+                    session_id,
+                    user_input,
+                    stream_id,
+                }) => {
+                    if let Err(err) = Self::handle_execute_chat_session_stream(
+                        &mut stream,
+                        core.clone(),
+                        session_id,
+                        user_input,
+                        stream_id,
+                    )
+                    .await
+                    {
+                        let frame = StreamFrame::Error {
+                            code: 500,
+                            message: err.to_string(),
+                        };
+                        let _ = Self::send_stream_frame(&mut stream, &frame).await;
+                    }
+                }
+                Ok(req) => {
+                    let response = Self::process(&core, req).await;
+                    Self::send(&mut stream, &response).await?;
+                }
+                Err(err) => {
+                    let response = IpcResponse::error(-2, format!("Invalid request: {}", err));
+                    Self::send(&mut stream, &response).await?;
+                }
+            }
         }
         Ok(())
     }
@@ -119,6 +152,106 @@ impl IpcServer {
         let json = serde_json::to_vec(response)?;
         stream.write_all(&(json.len() as u32).to_le_bytes()).await?;
         stream.write_all(&json).await?;
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    async fn send_stream_frame(stream: &mut UnixStream, frame: &StreamFrame) -> Result<()> {
+        let json = serde_json::to_vec(frame)?;
+        stream.write_all(&(json.len() as u32).to_le_bytes()).await?;
+        stream.write_all(&json).await?;
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    async fn handle_execute_chat_session_stream(
+        stream: &mut UnixStream,
+        core: Arc<AppCore>,
+        session_id: String,
+        user_input: Option<String>,
+        stream_id: String,
+    ) -> Result<()> {
+        let stream_id = if stream_id.trim().is_empty() {
+            Uuid::new_v4().to_string()
+        } else {
+            stream_id
+        };
+
+        // Abort an existing stream with the same ID to avoid duplicate workers.
+        if let Some(existing) = active_chat_streams().lock().await.remove(&stream_id) {
+            existing.abort();
+        }
+
+        Self::send_stream_frame(
+            stream,
+            &StreamFrame::Start {
+                stream_id: stream_id.clone(),
+            },
+        )
+        .await?;
+
+        let (tx, mut rx) = mpsc::unbounded_channel::<StreamFrame>();
+        let worker_stream_id = stream_id.clone();
+        let handle = tokio::spawn(async move {
+            let result = execute_chat_session(&core, session_id, user_input).await;
+
+            match result {
+                Ok(session) => {
+                    if let Some((content, total_tokens)) = latest_assistant_payload(&session) {
+                        let _ = tx.send(StreamFrame::Data { content });
+                        let _ = tx.send(StreamFrame::Done { total_tokens });
+                    } else {
+                        let _ = tx.send(StreamFrame::Error {
+                            code: 500,
+                            message: "Assistant response missing after execution".to_string(),
+                        });
+                    }
+                }
+                Err(err) => {
+                    let _ = tx.send(StreamFrame::Error {
+                        code: 500,
+                        message: err.to_string(),
+                    });
+                }
+            }
+
+            let mut streams = active_chat_streams().lock().await;
+            streams.remove(&worker_stream_id);
+        });
+
+        active_chat_streams()
+            .lock()
+            .await
+            .insert(stream_id.clone(), handle);
+
+        let mut reached_terminal = false;
+        while let Some(frame) = rx.recv().await {
+            reached_terminal =
+                matches!(frame, StreamFrame::Done { .. } | StreamFrame::Error { .. });
+            Self::send_stream_frame(stream, &frame).await?;
+            if reached_terminal {
+                break;
+            }
+        }
+
+        if !reached_terminal {
+            // Worker stopped unexpectedly (usually canceled).
+            let _ = Self::send_stream_frame(
+                stream,
+                &StreamFrame::Error {
+                    code: 499,
+                    message: "Chat stream cancelled".to_string(),
+                },
+            )
+            .await;
+        }
+
+        if let Some(handle) = active_chat_streams().lock().await.remove(&stream_id)
+            && !handle.is_finished()
+        {
+            handle.abort();
+        }
+
         Ok(())
     }
 
@@ -690,57 +823,25 @@ impl IpcServer {
             IpcRequest::ExecuteChatSession {
                 session_id,
                 user_input,
-            } => {
-                let mut session = match core.storage.chat_sessions.get(&session_id) {
-                    Ok(Some(session)) => session,
-                    Ok(None) => return IpcResponse::not_found("Session"),
-                    Err(err) => return IpcResponse::error(500, err.to_string()),
-                };
-
-                let input = match user_input {
-                    Some(input) if !input.trim().is_empty() => input,
-                    _ => match session
-                        .messages
-                        .iter()
-                        .rev()
-                        .find(|msg| msg.role == ChatRole::User)
-                        .map(|msg| msg.content.clone())
-                    {
-                        Some(input) => input,
-                        None => {
-                            return IpcResponse::error(400, "No user message found in session");
-                        }
-                    },
-                };
-
-                let auth_manager = match build_auth_manager(core).await {
-                    Ok(manager) => Arc::new(manager),
-                    Err(err) => return IpcResponse::error(500, err.to_string()),
-                };
-
-                let executor = create_chat_executor(core, auth_manager);
-                let started_at = Instant::now();
-                let exec_result = match executor
-                    .execute_session_turn(&mut session, &input, 20)
-                    .await
-                {
-                    Ok(result) => result,
-                    Err(err) => return IpcResponse::error(500, err.to_string()),
-                };
-                let duration_ms = started_at.elapsed().as_millis() as u64;
-
-                let execution =
-                    MessageExecution::new().complete(duration_ms, exec_result.iterations);
-                let assistant_message =
-                    ChatMessage::assistant(&exec_result.output).with_execution(execution);
-                session.add_message(assistant_message);
-                session.model = exec_result.active_model.clone();
-                session.metadata.last_model = Some(exec_result.active_model);
-
-                match core.storage.chat_sessions.update(&session) {
-                    Ok(()) => IpcResponse::success(session),
-                    Err(err) => IpcResponse::error(500, err.to_string()),
+            } => match execute_chat_session(core, session_id, user_input).await {
+                Ok(session) => IpcResponse::success(session),
+                Err(err) => {
+                    let message = err.to_string();
+                    if message.contains("Session not found") {
+                        IpcResponse::not_found("Session")
+                    } else if message.contains("No user message found") {
+                        IpcResponse::error(400, message)
+                    } else {
+                        IpcResponse::error(500, message)
+                    }
                 }
+            },
+            IpcRequest::ExecuteChatSessionStream { .. } => {
+                IpcResponse::error(-3, "Chat session streaming requires direct stream handler")
+            }
+            IpcRequest::CancelChatSessionStream { stream_id } => {
+                let canceled = cancel_chat_stream(&stream_id).await;
+                IpcResponse::success(serde_json::json!({ "canceled": canceled }))
             }
             IpcRequest::GetSessionMessages { session_id, limit } => {
                 let session = match core.storage.chat_sessions.get(&session_id) {
@@ -1174,6 +1275,69 @@ fn create_chat_executor(
         subagent_definitions,
         subagent_config,
     )
+}
+
+async fn cancel_chat_stream(stream_id: &str) -> bool {
+    if let Some(handle) = active_chat_streams().lock().await.remove(stream_id) {
+        handle.abort();
+        true
+    } else {
+        false
+    }
+}
+
+fn latest_assistant_payload(session: &ChatSession) -> Option<(String, Option<u32>)> {
+    session
+        .messages
+        .iter()
+        .rev()
+        .find(|message| message.role == ChatRole::Assistant)
+        .map(|message| {
+            (
+                message.content.clone(),
+                message.execution.as_ref().map(|exec| exec.tokens_used),
+            )
+        })
+}
+
+async fn execute_chat_session(
+    core: &Arc<AppCore>,
+    session_id: String,
+    user_input: Option<String>,
+) -> Result<ChatSession> {
+    let mut session = core
+        .storage
+        .chat_sessions
+        .get(&session_id)?
+        .ok_or_else(|| anyhow::anyhow!("Session not found"))?;
+
+    let input = match user_input {
+        Some(input) if !input.trim().is_empty() => input,
+        _ => session
+            .messages
+            .iter()
+            .rev()
+            .find(|msg| msg.role == ChatRole::User)
+            .map(|msg| msg.content.clone())
+            .ok_or_else(|| anyhow::anyhow!("No user message found in session"))?,
+    };
+
+    let auth_manager = Arc::new(build_auth_manager(core).await?);
+    let executor = create_chat_executor(core, auth_manager);
+    let started_at = Instant::now();
+    let exec_result = executor
+        .execute_session_turn(&mut session, &input, 20)
+        .await?;
+    let duration_ms = started_at.elapsed().as_millis() as u64;
+
+    let execution = MessageExecution::new().complete(duration_ms, exec_result.iterations);
+    let assistant_message = ChatMessage::assistant(&exec_result.output).with_execution(execution);
+    session.add_message(assistant_message);
+    session.model = exec_result.active_model.clone();
+    session.metadata.last_model = Some(exec_result.active_model);
+
+    core.storage.chat_sessions.update(&session)?;
+    Ok(session)
 }
 
 fn resolve_agent_id(core: &Arc<AppCore>, agent_id: Option<String>) -> Result<String> {

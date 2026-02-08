@@ -5,6 +5,7 @@
 
 use crate::chat::ChatStreamState;
 use crate::state::AppState;
+use restflow_core::daemon::StreamFrame;
 use restflow_core::models::{
     ChatMessage, ChatRole, ChatSession, ChatSessionSummary, ChatSessionUpdate,
 };
@@ -226,15 +227,6 @@ pub async fn clear_old_chat_sessions(
 // Agent Execution Commands
 // ============================================================================
 
-fn latest_assistant_content(session: &ChatSession) -> Option<String> {
-    session
-        .messages
-        .iter()
-        .rev()
-        .find(|message| message.role == ChatRole::Assistant)
-        .map(|message| message.content.clone())
-}
-
 /// Execute the agent for a chat session and save the response.
 ///
 /// This command:
@@ -302,39 +294,43 @@ pub async fn send_chat_message_stream(
     // Spawn background task for assistant response generation
     tokio::spawn(async move {
         let mut stream_state = stream_state;
-        let mut cancel_rx = stream_state.cancel_receiver();
 
         // Emit stream started
         stream_state.emit_started();
-        if cancel_rx.is_cancelled() {
-            stream_state.emit_cancelled();
-            stream_manager.remove(&message_id_clone);
-            return;
-        }
 
-        let updated_session = match executor
-            .execute_chat_session(session_id_clone, Some(user_input))
-            .await
-        {
-            Ok(session) => session,
-            Err(e) => {
-                stream_state.emit_failed(&format!("Agent execution failed: {}", e));
-                stream_manager.remove(&message_id_clone);
-                return;
-            }
-        };
+        let result = executor
+            .execute_chat_session_stream(
+                session_id_clone,
+                Some(user_input),
+                message_id_clone.clone(),
+                |frame| {
+                    match frame {
+                        StreamFrame::Start { .. } => {}
+                        StreamFrame::Data { content } => stream_state.emit_token(&content),
+                        StreamFrame::ToolCall {
+                            id,
+                            name,
+                            arguments,
+                        } => stream_state.emit_tool_call_start(&id, &name, &arguments.to_string()),
+                        StreamFrame::ToolResult { id, result } => {
+                            stream_state.emit_tool_call_end(&id, &result, true)
+                        }
+                        StreamFrame::Done { .. } => stream_state.emit_completed(),
+                        StreamFrame::Error { code, message } => {
+                            if code == 499 {
+                                stream_state.emit_cancelled();
+                            } else {
+                                stream_state.emit_failed(&message);
+                            }
+                        }
+                    }
+                    Ok(())
+                },
+            )
+            .await;
 
-        if cancel_rx.is_cancelled() {
-            stream_state.emit_cancelled();
-            stream_manager.remove(&message_id_clone);
-            return;
-        }
-
-        if let Some(content) = latest_assistant_content(&updated_session) {
-            stream_state.emit_token(&content);
-            stream_state.emit_completed();
-        } else {
-            stream_state.emit_failed("Assistant response missing after execution");
+        if let Err(e) = result {
+            stream_state.emit_failed(&format!("Agent execution failed: {}", e));
         }
 
         // Remove from stream manager
@@ -351,7 +347,22 @@ pub async fn cancel_chat_stream(
     _session_id: String,
     message_id: String,
 ) -> Result<bool, String> {
-    Ok(state.stream_manager.cancel(&message_id))
+    let local_cancelled = state.stream_manager.cancel(&message_id);
+    match state
+        .executor()
+        .cancel_chat_session_stream(message_id)
+        .await
+        .map_err(|e| e.to_string())
+    {
+        Ok(remote_cancelled) => Ok(local_cancelled || remote_cancelled),
+        Err(err) => {
+            if local_cancelled {
+                Ok(true)
+            } else {
+                Err(err)
+            }
+        }
+    }
 }
 
 #[cfg(test)]

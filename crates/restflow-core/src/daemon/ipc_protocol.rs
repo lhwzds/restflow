@@ -220,6 +220,14 @@ pub enum IpcRequest {
         session_id: String,
         user_input: Option<String>,
     },
+    ExecuteChatSessionStream {
+        session_id: String,
+        user_input: Option<String>,
+        stream_id: String,
+    },
+    CancelChatSessionStream {
+        stream_id: String,
+    },
     GetSessionMessages {
         session_id: String,
         limit: Option<usize>,
@@ -574,6 +582,45 @@ mod tests {
                 user_input,
                 Some("Please summarize the previous answer".to_string())
             );
+        } else {
+            panic!("Wrong variant");
+        }
+    }
+
+    #[test]
+    fn test_execute_chat_session_stream_serialization() {
+        let request = IpcRequest::ExecuteChatSessionStream {
+            session_id: "session-4".to_string(),
+            user_input: Some("stream this response".to_string()),
+            stream_id: "stream-123".to_string(),
+        };
+        let json = serde_json::to_string(&request).unwrap();
+        let parsed: IpcRequest = serde_json::from_str(&json).unwrap();
+
+        if let IpcRequest::ExecuteChatSessionStream {
+            session_id,
+            user_input,
+            stream_id,
+        } = parsed
+        {
+            assert_eq!(session_id, "session-4");
+            assert_eq!(user_input, Some("stream this response".to_string()));
+            assert_eq!(stream_id, "stream-123");
+        } else {
+            panic!("Wrong variant");
+        }
+    }
+
+    #[test]
+    fn test_cancel_chat_session_stream_serialization() {
+        let request = IpcRequest::CancelChatSessionStream {
+            stream_id: "stream-456".to_string(),
+        };
+        let json = serde_json::to_string(&request).unwrap();
+        let parsed: IpcRequest = serde_json::from_str(&json).unwrap();
+
+        if let IpcRequest::CancelChatSessionStream { stream_id } = parsed {
+            assert_eq!(stream_id, "stream-456");
         } else {
             panic!("Wrong variant");
         }

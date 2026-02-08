@@ -1,7 +1,7 @@
 use crate::daemon_manager::DaemonManager;
 use anyhow::Result;
 use restflow_core::auth::{AuthProfile, AuthProvider, Credential, CredentialSource, ProfileUpdate};
-use restflow_core::daemon::{IpcRequest, IpcResponse};
+use restflow_core::daemon::{IpcClient, IpcRequest, IpcResponse, StreamFrame};
 use restflow_core::memory::{ExportResult, RankedSearchResult};
 use restflow_core::models::{
     AgentNode, BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentEvent,
@@ -9,6 +9,7 @@ use restflow_core::models::{
     ChatSession, ChatSessionSummary, ChatSessionUpdate, Hook, MemoryChunk, MemorySearchResult,
     MemorySession, MemoryStats, Skill, TerminalSession,
 };
+use restflow_core::paths;
 use restflow_core::storage::SystemConfig;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
@@ -493,6 +494,41 @@ impl TauriExecutor {
             user_input,
         })
         .await
+    }
+
+    pub async fn execute_chat_session_stream<F>(
+        &self,
+        session_id: String,
+        user_input: Option<String>,
+        stream_id: String,
+        on_frame: F,
+    ) -> Result<()>
+    where
+        F: FnMut(StreamFrame) -> Result<()>,
+    {
+        // Ensure daemon is running before opening a dedicated streaming client.
+        {
+            let mut daemon = self.daemon.lock().await;
+            let _ = daemon.ensure_connected().await?;
+        }
+
+        let socket_path = paths::socket_path()?;
+        let mut client = IpcClient::connect(&socket_path).await?;
+        client
+            .execute_chat_session_stream(session_id, user_input, stream_id, on_frame)
+            .await
+    }
+
+    pub async fn cancel_chat_session_stream(&self, stream_id: String) -> Result<bool> {
+        #[derive(serde::Deserialize)]
+        struct CancelResponse {
+            canceled: bool,
+        }
+
+        let response: CancelResponse = self
+            .request(IpcRequest::CancelChatSessionStream { stream_id })
+            .await?;
+        Ok(response.canceled)
     }
 
     pub async fn get_session_messages(
