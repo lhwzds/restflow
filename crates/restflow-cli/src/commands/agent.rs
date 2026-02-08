@@ -1,10 +1,9 @@
-use anyhow::{Result, bail};
+use anyhow::Result;
 use comfy_table::{Cell, Table};
 use std::sync::Arc;
-use std::time::Instant;
 
 use crate::cli::AgentCommands;
-use crate::commands::utils::{format_timestamp, parse_model, read_stdin_to_string};
+use crate::commands::utils::{format_timestamp, parse_model};
 use crate::executor::CommandExecutor;
 use crate::output::{OutputFormat, json::print_json};
 use restflow_core::models::AgentNode;
@@ -26,9 +25,6 @@ pub async fn run(
             update_agent(executor, &id, name, model, format).await
         }
         AgentCommands::Delete { id } => delete_agent(executor, &id, format).await,
-        AgentCommands::Exec { id, input, session } => {
-            exec_agent(executor, &id, input, session, format).await
-        }
     }
 }
 
@@ -152,35 +148,6 @@ async fn delete_agent(
     }
 
     println!("Agent deleted: {id}");
-    Ok(())
-}
-
-async fn exec_agent(
-    executor: Arc<dyn CommandExecutor>,
-    id: &str,
-    input: Option<String>,
-    session: Option<String>,
-    format: OutputFormat,
-) -> Result<()> {
-    let input = match input {
-        Some(value) => value,
-        None => read_stdin_to_string()?,
-    };
-
-    if input.is_empty() {
-        bail!("Input is required to execute an agent");
-    }
-
-    let started = Instant::now();
-    let response = executor.execute_agent(id, input, session).await?;
-    let duration_ms = started.elapsed().as_millis() as i64;
-
-    if format.is_json() {
-        return print_json(&response);
-    }
-
-    println!("{}", response.response);
-    println!("\nDuration: {} ms", duration_ms);
     Ok(())
 }
 

@@ -248,6 +248,12 @@ mod tests {
         let cli = Cli::try_parse_from(["restflow", "agent-task", "list"]);
         assert!(cli.is_err());
     }
+
+    #[test]
+    fn rejects_agent_exec_command() {
+        let cli = Cli::try_parse_from(["restflow", "agent", "exec", "agent-1"]);
+        assert!(cli.is_err());
+    }
 }
 
 #[derive(Subcommand)]
@@ -283,18 +289,6 @@ pub enum AgentCommands {
 
     /// Delete agent
     Delete { id: String },
-
-    /// Execute agent
-    Exec {
-        id: String,
-
-        #[arg(short, long)]
-        input: Option<String>,
-
-        /// Optional chat session ID for message mirroring
-        #[arg(long)]
-        session: Option<String>,
-    },
 }
 
 #[derive(Subcommand)]
