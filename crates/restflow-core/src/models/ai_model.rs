@@ -676,6 +676,11 @@ impl AIModel {
         matches!(self, Self::GeminiCli)
     }
 
+    /// Check if this model is any CLI-based model (manages its own auth)
+    pub fn is_cli_model(&self) -> bool {
+        self.is_codex_cli() || self.is_opencode_cli() || self.is_gemini_cli() || self.is_claude_code()
+    }
+
     /// Get all available models as a slice
     pub fn all() -> &'static [AIModel] {
         &[
