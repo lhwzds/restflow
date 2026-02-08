@@ -14,6 +14,7 @@ import {
   X,
   Loader2,
   PanelRight,
+  MessageSquarePlus,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import StreamingMarkdown from '@/components/shared/StreamingMarkdown.vue'
@@ -186,6 +187,15 @@ onMounted(() => {
           class="animate-spin h-4 w-4 border-2 border-primary border-t-transparent rounded-full"
         />
         <span class="text-sm">Processing...</span>
+      </div>
+
+      <!-- Empty state -->
+      <div
+        v-if="messages.length === 0 && !isStreaming && !streamContent"
+        class="flex flex-col items-center justify-center py-20 text-muted-foreground"
+      >
+        <MessageSquarePlus :size="32" class="mb-3 opacity-50" />
+        <p class="text-sm">Start a new conversation</p>
       </div>
     </div>
   </div>

@@ -39,7 +39,7 @@ const formatTime = (timestamp: number) => {
 <template>
   <div class="h-full flex flex-col bg-muted/30">
     <!-- Header -->
-    <div class="px-3 py-3 space-y-2">
+    <div class="px-3 pt-8 pb-3 space-y-2">
       <Button variant="outline" size="sm" class="w-full gap-2" @click="emit('newSession')">
         <Plus :size="16" />
         <span>New Session</span>

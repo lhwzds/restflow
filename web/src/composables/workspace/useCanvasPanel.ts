@@ -50,10 +50,8 @@ export function useCanvasPanel(streamState: Ref<StreamState>) {
       // Check new steps for show_panel tool calls
       for (let i = lastProcessedStepCount; i < steps.length; i++) {
         const step = steps[i]
-        if (step.type === 'tool_call' && step.name === 'show_panel' && step.status === 'completed') {
-          // The actual content comes from the tool_call_end event result.
-          // We need to parse it from the stream events. Since the step only
-          // has name/status, we handle the content via the dedicated watcher below.
+        if (step && step.type === 'tool_call' && step.name === 'show_panel' && step.status === 'completed') {
+          // Content is handled via handleShowPanelResult() called from parent
         }
       }
 

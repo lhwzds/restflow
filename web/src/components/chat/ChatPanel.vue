@@ -94,8 +94,10 @@ watch(
   { deep: true },
 )
 
-// Sync agent/model from current session
+// Sync agent/model from current session and reset stream on session change
 watch(currentSession, (session) => {
+  chatStream.reset()
+  processedShowPanelIds.value.clear()
   if (session) {
     selectedAgent.value = session.agent_id
     selectedModel.value = session.model
@@ -240,6 +242,7 @@ defineExpose({
     <!-- Input Area -->
     <div class="shrink-0 px-4 pb-4">
       <ChatBox
+        :key="`chatbox-${availableAgents.length}-${availableModels.length}`"
         :is-expanded="true"
         :is-executing="isExecuting"
         :selected-agent="selectedAgent"
