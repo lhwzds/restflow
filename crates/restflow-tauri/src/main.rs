@@ -194,8 +194,6 @@ fn main() {
             commands::get_available_tools,
             commands::check_python_status,
             commands::init_python,
-            // Shell
-            commands::execute_shell,
             // PTY
             commands::spawn_pty,
             commands::write_pty,
