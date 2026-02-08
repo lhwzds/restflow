@@ -1035,7 +1035,9 @@ pub fn create_tool_registry(
     };
 
     registry.register(TranscribeTool::new(secret_resolver.clone()));
-    registry.register(VisionTool::new(secret_resolver));
+    registry.register(VisionTool::new(secret_resolver.clone()));
+    // Re-register WebSearchTool with secret resolver so Brave/Tavily API keys are available
+    registry.register(restflow_ai::tools::WebSearchTool::new().with_secret_resolver(secret_resolver));
 
     // Add SkillTool with storage access
     let skill_provider = Arc::new(SkillStorageProvider::new(skill_storage.clone()));
