@@ -50,11 +50,11 @@ impl ProcessManager {
                 cmd.args(["--port", &port.to_string()]);
             }
         }
-        if config.mcp {
-            cmd.arg("--mcp");
-            if let Some(port) = config.mcp_port {
-                cmd.args(["--mcp-port", &port.to_string()]);
-            }
+        // MCP server is enabled by default; only pass an explicit port override.
+        if config.mcp
+            && let Some(port) = config.mcp_port
+        {
+            cmd.args(["--mcp-port", &port.to_string()]);
         }
 
         std::fs::create_dir_all(&self.log_dir)?;
