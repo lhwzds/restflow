@@ -129,7 +129,7 @@ impl SecurityChecker {
             config = config.merge_with(agent_config);
         }
 
-        if analysis.has_chain {
+        if analysis.has_chain && !config.allow_chain {
             return Ok(SecurityCheckResult::blocked(
                 "Command chaining not allowed".to_string(),
                 None,

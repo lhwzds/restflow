@@ -171,6 +171,10 @@ pub struct AgentSecurityConfig {
     #[serde(default)]
     pub allow_redirect: bool,
 
+    /// Allow command chaining (&&, ||, ;)
+    #[serde(default)]
+    pub allow_chain: bool,
+
     /// Allowed working directories
     #[serde(default)]
     pub allowed_paths: Vec<String>,
@@ -192,6 +196,7 @@ impl AgentSecurityConfig {
             approval_required: policy.approval_required,
             allow_pipeline: false,
             allow_redirect: false,
+            allow_chain: false,
             allowed_paths: Vec::new(),
         }
     }
@@ -225,6 +230,7 @@ impl AgentSecurityConfig {
         self.ask = overrides.ask;
         self.allow_pipeline = overrides.allow_pipeline;
         self.allow_redirect = overrides.allow_redirect;
+        self.allow_chain = overrides.allow_chain;
         self.allowed_paths = overrides.allowed_paths;
         self
     }
