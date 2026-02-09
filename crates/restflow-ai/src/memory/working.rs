@@ -79,6 +79,7 @@ impl WorkingMemory {
     /// assert_eq!(memory.max_messages(), 50);
     /// ```
     pub fn new(max_messages: usize) -> Self {
+        let max_messages = max_messages.max(1);
         Self {
             messages: VecDeque::with_capacity(max_messages),
             max_messages,
@@ -435,6 +436,20 @@ mod tests {
 
         // Token count should include tool call info
         assert!(memory.token_count() > 5);
+    }
+
+    #[test]
+    fn test_zero_capacity_clamped_to_one() {
+        let mut memory = WorkingMemory::new(0);
+        assert_eq!(memory.max_messages(), 1);
+
+        memory.add(Message::user("Hello"));
+        assert_eq!(memory.len(), 1);
+
+        // Adding another message evicts the first
+        memory.add(Message::user("World"));
+        assert_eq!(memory.len(), 1);
+        assert_eq!(memory.get_messages()[0].content, "World");
     }
 
     #[test]
