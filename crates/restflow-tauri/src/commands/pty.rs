@@ -334,6 +334,7 @@ mod tests {
     #[test]
     fn test_expand_tilde_home() {
         let original_home = std::env::var("HOME").ok();
+        // SAFETY: sync #[test], no tokio worker threads to race with.
         unsafe {
             std::env::set_var("HOME", "/Users/test");
         }

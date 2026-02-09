@@ -735,10 +735,10 @@ mod tests {
         assert!(result.errors[0].contains("Failed to parse"));
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "current_thread")]
     async fn test_env_var_discoverer() {
         // Set a test environment variable
-        // SAFETY: Test only, single-threaded test environment
+        // SAFETY: env vars modified under current_thread runtime, no worker threads race
         unsafe {
             std::env::set_var("TEST_ANTHROPIC_API_KEY", "test-key-123");
         }
@@ -766,9 +766,9 @@ mod tests {
         }
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "current_thread")]
     async fn test_env_var_discoverer_empty_value() {
-        // SAFETY: Test only, single-threaded test environment
+        // SAFETY: env vars modified under current_thread runtime, no worker threads race
         unsafe {
             std::env::set_var("TEST_EMPTY_KEY", "");
         }
@@ -798,9 +798,9 @@ mod tests {
         assert_eq!(summary.available, 0);
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "current_thread")]
     async fn test_composite_discoverer_with_env() {
-        // SAFETY: Test only, single-threaded test environment
+        // SAFETY: env vars modified under current_thread runtime, no worker threads race
         unsafe {
             std::env::set_var("TEST_COMPOSITE_KEY", "composite-test-key");
         }
