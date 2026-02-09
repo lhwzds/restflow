@@ -36,6 +36,10 @@ allow_pipeline: boolean,
  */
 allow_redirect: boolean, 
 /**
+ * Allow command chaining (&&, ||, ;)
+ */
+allow_chain: boolean, 
+/**
  * Allowed working directories
  */
 allowed_paths: Array<string>, };
