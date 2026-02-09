@@ -95,7 +95,17 @@ fn parse_arguments(json: &str) -> Value {
     if json.trim().is_empty() {
         return Value::Null;
     }
-    serde_json::from_str(json).unwrap_or(Value::Null)
+    match serde_json::from_str(json) {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::warn!(
+                json_len = json.len(),
+                error = %e,
+                "Failed to parse tool call arguments, passing empty object"
+            );
+            Value::Object(serde_json::Map::new())
+        }
+    }
 }
 
 #[cfg(test)]
