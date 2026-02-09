@@ -339,6 +339,28 @@ export const useChatSessionStore = defineStore('chatSession', {
     },
 
     /**
+     * Update a chat session's model
+     */
+    async updateSessionModel(sessionId: string, model: string): Promise<ChatSession | null> {
+      this.error = null
+      try {
+        const session = await chatSessionApi.updateChatSession(sessionId, { model })
+        this.sessions.set(sessionId, session)
+        const summaryIndex = this.summaries.findIndex((s) => s.id === sessionId)
+        const summary = this.summaries[summaryIndex]
+        if (summary) {
+          summary.updated_at = session.updated_at
+        }
+        this.version++
+        return session
+      } catch (err) {
+        this.error = err instanceof Error ? err.message : 'Failed to update session model'
+        console.error('Failed to update chat session model:', err)
+        return null
+      }
+    },
+
+    /**
      * Send a message in the current session without triggering assistant response generation.
      */
     async sendMessage(content: string): Promise<ChatSession | null> {
@@ -388,15 +410,15 @@ export const useChatSessionStore = defineStore('chatSession', {
       this.isSending = true
       this.error = null
 
+      // Step 1: Save user message
+      let sessionAfterUserMsg: ChatSession
       try {
-        // First, save the user message
-        const sessionAfterUserMsg = await chatSessionApi.sendChatMessage(
+        sessionAfterUserMsg = await chatSessionApi.sendChatMessage(
           this.currentSessionId,
           content,
         )
         this.sessions.set(sessionAfterUserMsg.id, sessionAfterUserMsg)
 
-        // Update summary with user message
         const summaryIndex = this.summaries.findIndex((s) => s.id === sessionAfterUserMsg.id)
         const summary = this.summaries[summaryIndex]
         if (summary) {
@@ -405,12 +427,20 @@ export const useChatSessionStore = defineStore('chatSession', {
           summary.last_message_preview = content.slice(0, 100)
         }
         this.version++
+      } catch (err) {
+        this.error = err instanceof Error ? err.message : 'Failed to send message'
+        console.error('Failed to send chat message:', err)
+        this.isSending = false
+        return null
+      }
 
-        // Then trigger assistant response generation
+      // Step 2: Trigger assistant response generation
+      try {
         const sessionAfterExecution = await executeChatSession(this.currentSessionId)
         this.sessions.set(sessionAfterExecution.id, sessionAfterExecution)
 
-        // Update summary with assistant response
+        const summaryIndex = this.summaries.findIndex((s) => s.id === sessionAfterExecution.id)
+        const summary = this.summaries[summaryIndex]
         if (summary) {
           summary.message_count = sessionAfterExecution.messages.length
           summary.updated_at = sessionAfterExecution.updated_at
@@ -424,9 +454,9 @@ export const useChatSessionStore = defineStore('chatSession', {
 
         return sessionAfterExecution
       } catch (err) {
-        this.error = err instanceof Error ? err.message : 'Failed to generate assistant response'
-        console.error('Failed to send message and generate assistant response:', err)
-        return null
+        this.error = err instanceof Error ? err.message : 'AI response generation failed'
+        console.error('Failed to generate assistant response:', err)
+        return sessionAfterUserMsg
       } finally {
         this.isSending = false
       }
