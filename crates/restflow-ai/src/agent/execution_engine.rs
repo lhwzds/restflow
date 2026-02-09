@@ -124,7 +124,7 @@ impl AgentExecutionEngine {
     pub async fn execute(&mut self, input: &str) -> Result<ExecutionResult> {
         info!(
             "AgentExecutionEngine executing: {}...",
-            &input[..input.len().min(50)]
+            log_preview(input, 50)
         );
 
         // Prepend system prompt at the beginning to ensure correct order:
@@ -206,7 +206,7 @@ impl AgentExecutionEngine {
     ) -> Result<ExecutionResult> {
         info!(
             "AgentExecutionEngine streaming execute: {}...",
-            &input[..input.len().min(50)]
+            log_preview(input, 50)
         );
 
         let system_prompt = self.build_system_prompt().await;
@@ -485,5 +485,27 @@ fn format_tool_result(result: &ToolOutput) -> Result<String> {
                 .clone()
                 .unwrap_or_else(|| "Unknown tool error".to_string()),
         ))
+    }
+}
+
+fn log_preview(input: &str, max_chars: usize) -> String {
+    input.chars().take(max_chars).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::log_preview;
+
+    #[test]
+    fn log_preview_handles_multibyte_input_without_panic() {
+        let input = "请帮我把今天和昨天的会议内容整理成三点行动项，并在最后补充风险提醒和下一步计划。";
+        let preview = log_preview(input, 50);
+        assert!(preview.chars().count() <= 50);
+        assert!(!preview.is_empty());
+    }
+
+    #[test]
+    fn log_preview_keeps_short_input() {
+        assert_eq!(log_preview("hello", 50), "hello");
     }
 }
