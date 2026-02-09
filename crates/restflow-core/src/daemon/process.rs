@@ -1,6 +1,7 @@
 use crate::paths;
 use anyhow::Result;
-use std::fs::File;
+use std::fs::{File, OpenOptions};
+use std::io::Write;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
@@ -41,6 +42,34 @@ impl ProcessManager {
             return Ok(pid);
         }
 
+        // Clean up stale PID file (process no longer alive) before attempting
+        // exclusive creation. get_running_pid already removes stale files, but
+        // a race between two callers could leave a leftover file.
+        let _ = std::fs::remove_file(&self.pid_file);
+
+        // Atomically create the PID file; if another process raced us, this
+        // will fail with AlreadyExists.
+        let mut pid_file = match OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&self.pid_file)
+        {
+            Ok(f) => f,
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                // Another process won the race — check if it's still alive.
+                if let Some(pid) = self.get_running_pid()? {
+                    return Ok(pid);
+                }
+                // Stale file from lost race; retry once.
+                let _ = std::fs::remove_file(&self.pid_file);
+                OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .open(&self.pid_file)?
+            }
+            Err(e) => return Err(e.into()),
+        };
+
         let exe = std::env::current_exe()?;
         let mut cmd = Command::new(exe);
         cmd.args(["daemon", "start", "--foreground"]);
@@ -78,7 +107,7 @@ impl ProcessManager {
 
         let child = cmd.spawn()?;
         let pid = child.id();
-        std::fs::write(&self.pid_file, pid.to_string())?;
+        write!(pid_file, "{}", pid)?;
         Ok(pid)
     }
 
