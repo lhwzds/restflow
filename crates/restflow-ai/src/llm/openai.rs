@@ -536,6 +536,38 @@ impl LlmClient for OpenAIClient {
                     }
                 }
             }
+
+            // Process any remaining data in the buffer after the stream ends.
+            // This handles the case where the last SSE event lacks a trailing \n\n
+            // (e.g., due to a network interruption).
+            let remaining = buffer.trim();
+            if !remaining.is_empty() {
+                for line in remaining.lines() {
+                    if let Some(data) = line.strip_prefix("data: ") {
+                        if data.trim() == "[DONE]" || data.trim().is_empty() {
+                            continue;
+                        }
+                        // Best effort: try to parse final event
+                        if let Ok(parsed) = serde_json::from_str::<OpenAIStreamResponse>(data) {
+                            if let Some(usage) = parsed.usage {
+                                yield Ok(StreamChunk::final_chunk(
+                                    FinishReason::Stop,
+                                    Some(TokenUsage {
+                                        prompt_tokens: usage.prompt_tokens,
+                                        completion_tokens: usage.completion_tokens,
+                                        total_tokens: usage.total_tokens,
+                                        cost_usd: calculate_cost(
+                                            &model,
+                                            usage.prompt_tokens,
+                                            usage.completion_tokens,
+                                        ),
+                                    }),
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
         })
     }
 }
