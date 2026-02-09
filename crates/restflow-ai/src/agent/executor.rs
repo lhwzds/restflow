@@ -297,6 +297,14 @@ impl AgentExecutor {
                         break;
                     }
                     _ => {
+                        // If the response is empty and we haven't done any work yet,
+                        // this is likely an anomalous API response — retry the loop
+                        // instead of reporting an empty completion.
+                        if answer.trim().is_empty() && state.iteration == 0 {
+                            tracing::warn!("Empty LLM response on first iteration, retrying");
+                            state.iteration += 1;
+                            continue;
+                        }
                         state.complete(&answer);
                         break;
                     }
