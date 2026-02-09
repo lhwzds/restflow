@@ -229,7 +229,14 @@ impl HookExecutor {
         }
     }
 
+    /// Maximum length for user-controlled template values (output, error).
+    /// Prevents DoS from extremely large agent outputs.
+    const MAX_TEMPLATE_VALUE_LEN: usize = 4096;
+
     fn render_template(&self, template: &str, context: &HookContext) -> String {
+        let output = Self::sanitize_template_value(context.output.as_deref().unwrap_or(""));
+        let error = Self::sanitize_template_value(context.error.as_deref().unwrap_or(""));
+
         let replacements = [
             ("{{event}}", context.event.as_str()),
             ("{{task_id}}", context.task_id.as_str()),
@@ -243,8 +250,8 @@ impl HookExecutor {
                     "false"
                 },
             ),
-            ("{{output}}", context.output.as_deref().unwrap_or("")),
-            ("{{error}}", context.error.as_deref().unwrap_or("")),
+            ("{{output}}", &output),
+            ("{{error}}", &error),
         ];
 
         let mut rendered = template.to_string();
@@ -260,6 +267,27 @@ impl HookExecutor {
         }
 
         rendered
+    }
+
+    /// Truncate and strip control characters from user-controlled values.
+    fn sanitize_template_value(value: &str) -> String {
+        let truncated = if value.len() > Self::MAX_TEMPLATE_VALUE_LEN {
+            // Find a valid char boundary before the limit
+            let end = value
+                .char_indices()
+                .take_while(|(i, _)| *i < Self::MAX_TEMPLATE_VALUE_LEN)
+                .last()
+                .map(|(i, c)| i + c.len_utf8())
+                .unwrap_or(0);
+            format!("{}... [truncated]", &value[..end])
+        } else {
+            value.to_string()
+        };
+        // Strip control chars except newline, tab, carriage return
+        truncated
+            .chars()
+            .filter(|c| !c.is_control() || *c == '\n' || *c == '\t' || *c == '\r')
+            .collect()
     }
 
     fn context_env(&self, context: &HookContext) -> HashMap<&'static str, String> {
@@ -414,6 +442,37 @@ mod tests {
         );
 
         assert_eq!(rendered, "Task daily-report done in 1200ms with summary");
+    }
+
+    #[test]
+    fn test_render_template_truncates_long_output() {
+        let executor = HookExecutor::new(Vec::new());
+        let mut context = sample_context();
+        context.output = Some("x".repeat(10_000));
+
+        let rendered = executor.render_template("out={{output}}", &context);
+        assert!(rendered.len() < 5000);
+        assert!(rendered.contains("... [truncated]"));
+    }
+
+    #[test]
+    fn test_render_template_strips_control_chars() {
+        let executor = HookExecutor::new(Vec::new());
+        let mut context = sample_context();
+        context.output = Some("hello\x00world\x07\nline2".to_string());
+
+        let rendered = executor.render_template("{{output}}", &context);
+        assert_eq!(rendered, "helloworld\nline2");
+    }
+
+    #[test]
+    fn test_sanitize_preserves_multibyte_chars() {
+        let value = "你好世界".repeat(2000);
+        let sanitized = HookExecutor::sanitize_template_value(&value);
+        assert!(sanitized.len() <= HookExecutor::MAX_TEMPLATE_VALUE_LEN + 100);
+        assert!(sanitized.ends_with("... [truncated]"));
+        // Ensure no broken UTF-8
+        let _ = sanitized.as_bytes();
     }
 
     #[tokio::test]
