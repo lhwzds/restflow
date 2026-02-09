@@ -42,6 +42,13 @@ impl JinaReaderTool {
     }
 }
 
+fn truncate_content(content: &mut String) {
+    if content.len() > MAX_CONTENT_LENGTH {
+        content.truncate(MAX_CONTENT_LENGTH);
+        content.push_str("\n\n[Content truncated]");
+    }
+}
+
 #[async_trait]
 impl Tool for JinaReaderTool {
     fn name(&self) -> &str {
@@ -107,11 +114,7 @@ impl Tool for JinaReaderTool {
             }
         };
 
-        // Truncate if too long
-        if content.len() > MAX_CONTENT_LENGTH {
-            content.truncate(MAX_CONTENT_LENGTH);
-            content.push_str("\n\n[Content truncated]");
-        }
+        truncate_content(&mut content);
 
         if content.trim().is_empty() {
             Ok(ToolOutput::success(json!({
@@ -141,5 +144,20 @@ mod tests {
 
         let schema = tool.parameters_schema();
         assert_eq!(schema["required"][0], "url");
+    }
+
+    #[test]
+    fn test_truncate_content_short_text_unchanged() {
+        let mut content = "short content".to_string();
+        truncate_content(&mut content);
+        assert_eq!(content, "short content");
+    }
+
+    #[test]
+    fn test_truncate_content_long_text() {
+        let mut content = "A".repeat(MAX_CONTENT_LENGTH + 64);
+        truncate_content(&mut content);
+        assert!(content.starts_with(&"A".repeat(MAX_CONTENT_LENGTH)));
+        assert!(content.ends_with("[Content truncated]"));
     }
 }

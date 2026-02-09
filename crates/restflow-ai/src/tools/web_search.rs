@@ -192,6 +192,7 @@ fn parse_duckduckgo_html(html: &str, max_results: usize) -> Vec<Value> {
             .and_then(|el| el.value().attr("href"))
             .unwrap_or("")
             .to_string();
+        let normalized_url = normalize_duckduckgo_url(&url);
 
         let snippet = element
             .select(&snippet_sel)
@@ -201,16 +202,36 @@ fn parse_duckduckgo_html(html: &str, max_results: usize) -> Vec<Value> {
             .trim()
             .to_string();
 
-        if !title.is_empty() && !url.is_empty() {
+        if !title.is_empty() && !normalized_url.is_empty() {
             results.push(json!({
                 "title": title,
-                "url": url,
+                "url": normalized_url,
                 "snippet": snippet
             }));
         }
     }
 
     results
+}
+
+/// Normalize DuckDuckGo tracking links to the destination URL.
+///
+/// DDG HTML results often return links like:
+/// https://duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com
+fn normalize_duckduckgo_url(raw_url: &str) -> String {
+    let Ok(parsed) = url::Url::parse(raw_url) else {
+        return raw_url.to_string();
+    };
+
+    if parsed.domain() == Some("duckduckgo.com") && parsed.path().starts_with("/l/") {
+        for (key, value) in parsed.query_pairs() {
+            if key == "uddg" {
+                return value.into_owned();
+            }
+        }
+    }
+
+    raw_url.to_string()
 }
 
 #[async_trait]
@@ -339,5 +360,21 @@ mod tests {
         "#;
         let results = parse_duckduckgo_html(html, 2);
         assert_eq!(results.len(), 2);
+    }
+
+    #[test]
+    fn test_parse_duckduckgo_html_decodes_redirect_url() {
+        let html = r#"
+        <html><body>
+            <div class="result">
+                <a class="result__a" href="https://duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Fpost">Example</a>
+                <a class="result__snippet">Snippet</a>
+            </div>
+        </body></html>
+        "#;
+
+        let results = parse_duckduckgo_html(html, 1);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0]["url"], "https://example.com/post");
     }
 }
