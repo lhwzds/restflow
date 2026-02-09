@@ -25,6 +25,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::sync::{RwLock, mpsc, oneshot};
 use tokio::time::{Duration, Instant, interval};
+use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
 use super::events::{NoopEventEmitter, TaskEventEmitter, TaskStreamEvent};
@@ -812,18 +813,23 @@ impl BackgroundAgentRunner {
 
         // Start a lightweight message pump so queued background messages can be
         // injected into the running agent loop.
+        let pump_cancel = CancellationToken::new();
         let mut message_pump = if matches!(task.execution_mode, ExecutionMode::Api) {
             self.forward_pending_messages(task_id).await;
 
             let storage = self.storage.clone();
             let steer_registry = self.steer_registry.clone();
             let task_id = task_id.to_string();
+            let cancel = pump_cancel.clone();
 
             Some(tokio::spawn(async move {
                 let mut ticker = interval(Duration::from_millis(500));
 
                 loop {
-                    ticker.tick().await;
+                    tokio::select! {
+                        _ = cancel.cancelled() => break,
+                        _ = ticker.tick() => {}
+                    }
 
                     let pending_messages =
                         match storage.list_pending_background_messages(&task_id, 32) {
@@ -923,8 +929,8 @@ impl BackgroundAgentRunner {
                     "Task '{}' cancelled by user (duration={}ms)",
                     task.name, duration_ms
                 );
+                pump_cancel.cancel();
                 if let Some(pump) = message_pump.take() {
-                    pump.abort();
                     let _ = pump.await;
                 }
                 self.event_emitter
@@ -949,8 +955,8 @@ impl BackgroundAgentRunner {
             result = exec_future => result,
         };
 
+        pump_cancel.cancel();
         if let Some(pump) = message_pump.take() {
-            pump.abort();
             let _ = pump.await;
         }
 
