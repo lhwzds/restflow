@@ -498,7 +498,8 @@ mod tests {
 
     #[test]
     fn log_preview_handles_multibyte_input_without_panic() {
-        let input = "请帮我把今天和昨天的会议内容整理成三点行动项，并在最后补充风险提醒和下一步计划。";
+        let input =
+            "请帮我把今天和昨天的会议内容整理成三点行动项，并在最后补充风险提醒和下一步计划。";
         let preview = log_preview(input, 50);
         assert!(preview.chars().count() <= 50);
         assert!(!preview.is_empty());
