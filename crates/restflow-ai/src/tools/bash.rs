@@ -150,10 +150,7 @@ impl BashTool {
         let text = String::from_utf8_lossy(slice).to_string();
         if truncated {
             (
-                format!(
-                    "{}...\n[Output truncated, {} bytes total]",
-                    text, total_len,
-                ),
+                format!("{}...\n[Output truncated, {} bytes total]", text, total_len,),
                 true,
             )
         } else {
