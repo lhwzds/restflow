@@ -139,11 +139,21 @@ impl Tool for HttpTool {
             }
         };
 
-        // Add headers
+        // Add headers (block sensitive headers that could leak credentials)
+        const BLOCKED_HEADERS: &[&str] = &[
+            "authorization",
+            "proxy-authorization",
+            "cookie",
+            "set-cookie",
+        ];
         if let Some(headers) = params.headers
             && let Some(obj) = headers.as_object()
         {
             for (key, value) in obj {
+                if BLOCKED_HEADERS.contains(&key.to_ascii_lowercase().as_str()) {
+                    tracing::warn!(header = %key, "Blocked sensitive header in HTTP tool");
+                    continue;
+                }
                 if let Some(v) = value.as_str() {
                     request = request.header(key, v);
                 }
