@@ -18,6 +18,46 @@ use restflow_core::daemon::{
 use restflow_core::paths;
 use std::io;
 use tokio::time::{Duration, sleep};
+use tracing_appender::non_blocking::WorkerGuard;
+
+fn init_logging(verbose: bool) -> Option<WorkerGuard> {
+    let level = if verbose { "debug" } else { "info" };
+
+    if let Ok(base_dir) = paths::ensure_restflow_dir() {
+        let log_dir = base_dir.join("logs");
+        if std::fs::create_dir_all(&log_dir).is_ok() {
+            let probe_path = log_dir.join(".write-probe");
+            let probe_result = std::fs::OpenOptions::new()
+                .create(true)
+                .write(true)
+                .truncate(true)
+                .open(&probe_path);
+
+            if probe_result.is_ok() {
+                let _ = std::fs::remove_file(&probe_path);
+                let file_appender = tracing_appender::rolling::daily(log_dir, "restflow.log");
+                let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
+                tracing_subscriber::fmt()
+                    .with_writer(non_blocking)
+                    .with_ansi(false)
+                    .with_target(false)
+                    .with_level(true)
+                    .with_env_filter(level)
+                    .init();
+                return Some(guard);
+            }
+        }
+    }
+
+    tracing_subscriber::fmt()
+        .with_writer(std::io::stderr)
+        .with_ansi(false)
+        .with_target(false)
+        .with_level(true)
+        .with_env_filter(level)
+        .init();
+    None
+}
 
 fn command_needs_direct_core(command: &Option<Commands>) -> bool {
     matches!(
@@ -30,22 +70,7 @@ fn command_needs_direct_core(command: &Option<Commands>) -> bool {
 async fn main() -> Result<()> {
     let cli = Cli::parse();
     let _config = config::CliConfig::load();
-
-    // Configure logging: always write to file
-    let log_dir = paths::ensure_restflow_dir()?.join("logs");
-    std::fs::create_dir_all(&log_dir).ok();
-
-    let file_appender = tracing_appender::rolling::daily(log_dir, "restflow.log");
-    let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
-
-    let level = if cli.verbose { "debug" } else { "info" };
-    tracing_subscriber::fmt()
-        .with_writer(non_blocking)
-        .with_ansi(false)
-        .with_target(false)
-        .with_level(true)
-        .with_env_filter(level)
-        .init();
+    let _log_guard = init_logging(cli.verbose);
 
     if let Some(Commands::Completions { shell }) = cli.command {
         let mut cmd = Cli::command();

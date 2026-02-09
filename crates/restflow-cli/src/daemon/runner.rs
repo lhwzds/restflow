@@ -3,6 +3,7 @@ use async_trait::async_trait;
 use restflow_core::AppCore;
 use restflow_core::auth::{AuthManagerConfig, AuthProfileManager};
 use restflow_core::channel::ChannelRouter;
+use restflow_core::daemon::publish_background_event;
 use restflow_core::models::{BackgroundAgent, BackgroundAgentStatus, BackgroundMessageSource};
 use restflow_core::paths;
 use restflow_core::process::ProcessRegistry;
@@ -12,6 +13,7 @@ use restflow_core::runtime::{
     MessageHandlerConfig, RunnerConfig, RunnerHandle, SubagentConfig, SubagentTracker,
     SystemStatus, TelegramNotifier, start_message_handler_with_chat,
 };
+use restflow_core::runtime::{TaskEventEmitter, TaskStreamEvent};
 use restflow_core::steer::SteerRegistry;
 use restflow_core::storage::SecretStorage;
 use restflow_storage::AuthProfileStorage;
@@ -20,6 +22,15 @@ use tokio::sync::RwLock;
 use tracing::{error, info};
 
 use super::telegram;
+
+struct DaemonIpcEventEmitter;
+
+#[async_trait]
+impl TaskEventEmitter for DaemonIpcEventEmitter {
+    async fn emit(&self, event: TaskStreamEvent) {
+        publish_background_event(event);
+    }
+}
 
 pub struct CliBackgroundAgentRunner {
     core: Arc<AppCore>,
@@ -87,17 +98,20 @@ impl CliBackgroundAgentRunner {
         let notifier = TelegramNotifier::new(secrets);
         let steer_registry = Arc::new(SteerRegistry::new());
 
-        let runner = Arc::new(BackgroundAgentRunner::new(
-            Arc::new(storage.background_agents.clone()),
-            Arc::new(executor),
-            Arc::new(notifier),
-            RunnerConfig {
-                poll_interval_ms: 30_000,
-                max_concurrent_tasks: 5,
-                task_timeout_secs: 3600,
-            },
-            steer_registry,
-        ));
+        let runner = Arc::new(
+            BackgroundAgentRunner::new(
+                Arc::new(storage.background_agents.clone()),
+                Arc::new(executor),
+                Arc::new(notifier),
+                RunnerConfig {
+                    poll_interval_ms: 30_000,
+                    max_concurrent_tasks: 5,
+                    task_timeout_secs: 3600,
+                },
+                steer_registry,
+            )
+            .with_event_emitter(Arc::new(DaemonIpcEventEmitter)),
+        );
 
         let handle = runner.clone().start();
 

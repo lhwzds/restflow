@@ -67,6 +67,3 @@ pub use restflow_core::runtime::channel::{
     forward_to_background_agent, handle_command, start_message_handler,
     start_message_handler_with_chat,
 };
-
-#[cfg(test)]
-pub use restflow_core::runtime::channel::mock;

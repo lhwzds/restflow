@@ -4,9 +4,8 @@
 //!
 //! # Streaming Events
 //!
-//! The `run_background_agent_streaming` command currently triggers background-agent
-//! execution via daemon IPC and returns the event channel name for compatibility.
-//! Full daemon-backed event subscription is not implemented yet.
+//! The `run_background_agent_streaming` command ensures a daemon-backed
+//! subscription bridge is active, then triggers background-agent execution.
 //!
 //! ```typescript
 //! import { listen } from '@tauri-apps/api/event';
@@ -18,6 +17,7 @@
 //! ```
 
 use crate::state::AppState;
+use anyhow::Result as AnyResult;
 use restflow_core::models::{
     BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentEvent, BackgroundAgentPatch,
     BackgroundAgentSchedule, BackgroundAgentSpec, BackgroundAgentStatus, ExecutionMode,
@@ -27,7 +27,74 @@ use restflow_core::runtime::background_agent::{
     HEARTBEAT_EVENT, TASK_STREAM_EVENT, TaskStreamEvent,
 };
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::sync::OnceLock;
 use tauri::{AppHandle, Emitter, State};
+use tokio::sync::Mutex;
+use tokio::task::JoinHandle;
+use tracing::{debug, warn};
+
+fn active_background_stream_bridges() -> &'static Mutex<HashMap<String, JoinHandle<()>>> {
+    static BRIDGES: OnceLock<Mutex<HashMap<String, JoinHandle<()>>>> = OnceLock::new();
+    BRIDGES.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+async fn ensure_background_stream_bridge(
+    state: &AppState,
+    app_handle: AppHandle,
+    background_agent_id: String,
+) -> Result<(), String> {
+    let mut bridges = active_background_stream_bridges().lock().await;
+    if let Some(handle) = bridges.get(&background_agent_id)
+        && !handle.is_finished()
+    {
+        return Ok(());
+    }
+    if let Some(old) = bridges.remove(&background_agent_id) {
+        old.abort();
+    }
+
+    let bridge_key = background_agent_id.clone();
+    let map_key = bridge_key.clone();
+    let subscribe_target = if background_agent_id.trim().is_empty() {
+        "*".to_string()
+    } else {
+        background_agent_id
+    };
+    let executor = state.executor();
+    let emitter = app_handle.clone();
+
+    let handle = tokio::spawn(async move {
+        let result = executor
+            .subscribe_background_agent_events(
+                subscribe_target.clone(),
+                |event: TaskStreamEvent| -> AnyResult<()> {
+                    emitter.emit(TASK_STREAM_EVENT, &event)?;
+                    Ok(())
+                },
+            )
+            .await;
+
+        match result {
+            Ok(()) => {
+                debug!(target = %subscribe_target, "Background stream bridge finished");
+            }
+            Err(err) => {
+                warn!(
+                    target = %subscribe_target,
+                    error = %err,
+                    "Background stream bridge terminated"
+                );
+            }
+        }
+
+        let mut guard = active_background_stream_bridges().lock().await;
+        guard.remove(&bridge_key);
+    });
+
+    bridges.insert(map_key, handle);
+    Ok(())
+}
 
 /// Request to create a new agent task
 #[derive(Debug, Deserialize)]
@@ -376,9 +443,11 @@ pub struct StreamingBackgroundAgentResponse {
 #[tauri::command]
 pub async fn run_background_agent_streaming(
     state: State<'_, AppState>,
-    _app_handle: AppHandle,
+    app_handle: AppHandle,
     id: String,
 ) -> Result<StreamingBackgroundAgentResponse, String> {
+    ensure_background_stream_bridge(&state, app_handle, "*".to_string()).await?;
+
     // Check if task exists
     let task = state
         .executor()
@@ -398,13 +467,6 @@ pub async fn run_background_agent_streaming(
         });
     }
 
-    // NOTE:
-    // We intentionally avoid synthesizing local started/completed events here.
-    // Current architecture executes in daemon; adding fake local events can
-    // misrepresent actual daemon execution progress.
-    //
-    // TODO: When daemon IPC exposes background-agent event subscription,
-    // forward daemon events to this Tauri channel.
     if let Err(e) = state.run_task_now(id.clone()).await {
         return Err(e.to_string());
     }
@@ -458,8 +520,8 @@ pub async fn emit_test_background_agent_event(
 
 /// Return the background-agent stream event name.
 ///
-/// Frontend can subscribe for compatibility. Event payloads are currently
-/// best-effort until daemon-side event subscription is implemented.
+/// Frontend can subscribe to this event and receive daemon-backed
+/// background-agent stream payloads.
 ///
 /// # Usage
 ///
@@ -476,8 +538,12 @@ pub async fn emit_test_background_agent_event(
 /// unlisten();
 /// ```
 #[tauri::command]
-pub fn get_background_agent_stream_event_name() -> String {
-    TASK_STREAM_EVENT.to_string()
+pub async fn get_background_agent_stream_event_name(
+    state: State<'_, AppState>,
+    app_handle: AppHandle,
+) -> Result<String, String> {
+    ensure_background_stream_bridge(&state, app_handle, "*".to_string()).await?;
+    Ok(TASK_STREAM_EVENT.to_string())
 }
 
 // ============================================================================

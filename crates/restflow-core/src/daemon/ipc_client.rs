@@ -9,6 +9,7 @@ use crate::models::{
     ChatSessionSummary, ChatSessionUpdate, MemoryChunk, MemorySearchResult, MemorySession,
     MemoryStats, Skill, TerminalSession,
 };
+use crate::runtime::TaskStreamEvent;
 use crate::storage::agent::StoredAgent;
 use anyhow::{Context, Result, bail};
 use serde::de::DeserializeOwned;
@@ -714,6 +715,52 @@ impl IpcClient {
             .await
     }
 
+    pub async fn subscribe_background_agent_events<F>(
+        &mut self,
+        background_agent_id: String,
+        mut on_event: F,
+    ) -> Result<()>
+    where
+        F: FnMut(TaskStreamEvent) -> Result<()>,
+    {
+        self.send_request_frame(&IpcRequest::SubscribeBackgroundAgentEvents {
+            background_agent_id,
+        })
+        .await?;
+
+        loop {
+            let buf = self.read_raw_frame().await?;
+
+            if let Ok(frame) = serde_json::from_slice::<StreamFrame>(&buf) {
+                match frame {
+                    StreamFrame::Start { .. } => {}
+                    StreamFrame::BackgroundAgentEvent { event } => {
+                        on_event(event)?;
+                    }
+                    StreamFrame::Error { code, message } => {
+                        bail!("Background event stream error {}: {}", code, message);
+                    }
+                    _ => {}
+                }
+                continue;
+            }
+
+            let response: IpcResponse = serde_json::from_slice(&buf)
+                .context("Failed to deserialize background stream frame")?;
+            match response {
+                IpcResponse::Error { code, message } => {
+                    bail!("IPC error {}: {}", code, message);
+                }
+                IpcResponse::Success(_) => {
+                    bail!("Unexpected success response while reading background stream")
+                }
+                IpcResponse::Pong => {
+                    bail!("Unexpected Pong response while reading background stream")
+                }
+            }
+        }
+    }
+
     pub async fn build_agent_system_prompt(&mut self, agent_node: AgentNode) -> Result<String> {
         #[derive(serde::Deserialize)]
         struct PromptResponse {
@@ -1168,6 +1215,17 @@ impl IpcClient {
         &mut self,
         _id: String,
     ) -> Result<Vec<BackgroundAgentEvent>> {
+        self.request_typed(IpcRequest::Ping).await
+    }
+
+    pub async fn subscribe_background_agent_events<F>(
+        &mut self,
+        _background_agent_id: String,
+        _on_event: F,
+    ) -> Result<()>
+    where
+        F: FnMut(TaskStreamEvent) -> Result<()>,
+    {
         self.request_typed(IpcRequest::Ping).await
     }
 

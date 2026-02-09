@@ -1,6 +1,7 @@
 use super::ipc_protocol::{
     IpcRequest, IpcResponse, MAX_MESSAGE_SIZE, StreamFrame, ToolDefinition, ToolExecutionResult,
 };
+use super::subscribe_background_events;
 use crate::AppCore;
 use crate::auth::{AuthManagerConfig, AuthProfileManager};
 use crate::memory::{MemoryExporter, MemoryExporterBuilder, SearchEngineBuilder};
@@ -134,6 +135,22 @@ impl IpcServer {
                         let _ = Self::send_stream_frame(&mut stream, &frame).await;
                     }
                 }
+                Ok(IpcRequest::SubscribeBackgroundAgentEvents {
+                    background_agent_id,
+                }) => {
+                    if let Err(err) = Self::handle_subscribe_background_agent_events(
+                        &mut stream,
+                        background_agent_id,
+                    )
+                    .await
+                    {
+                        let frame = StreamFrame::Error {
+                            code: 500,
+                            message: err.to_string(),
+                        };
+                        let _ = Self::send_stream_frame(&mut stream, &frame).await;
+                    }
+                }
                 Ok(req) => {
                     let response = Self::process(&core, req).await;
                     Self::send(&mut stream, &response).await?;
@@ -252,6 +269,62 @@ impl IpcServer {
             handle.abort();
         }
 
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    async fn handle_subscribe_background_agent_events(
+        stream: &mut UnixStream,
+        background_agent_id: String,
+    ) -> Result<()> {
+        let stream_id = format!("background-agent-{}", Uuid::new_v4());
+        Self::send_stream_frame(
+            stream,
+            &StreamFrame::Start {
+                stream_id: stream_id.clone(),
+            },
+        )
+        .await?;
+
+        let include_all = background_agent_id.trim().is_empty() || background_agent_id == "*";
+        let mut receiver = subscribe_background_events();
+
+        loop {
+            let event = match receiver.recv().await {
+                Ok(event) => event,
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
+                    warn!(
+                        skipped,
+                        background_agent_id = %background_agent_id,
+                        "Background event stream lagged; dropping oldest events"
+                    );
+                    continue;
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                    let _ = Self::send_stream_frame(
+                        stream,
+                        &StreamFrame::Error {
+                            code: 500,
+                            message: "Background event stream closed".to_string(),
+                        },
+                    )
+                    .await;
+                    break;
+                }
+            };
+
+            if !include_all && event.task_id != background_agent_id {
+                continue;
+            }
+
+            let frame = StreamFrame::BackgroundAgentEvent { event };
+            if let Err(err) = Self::send_stream_frame(stream, &frame).await {
+                debug!(error = %err, "Background event subscriber disconnected");
+                break;
+            }
+        }
+
+        debug!(stream_id = %stream_id, "Background event subscription ended");
         Ok(())
     }
 
@@ -1200,10 +1273,10 @@ impl IpcServer {
             IpcRequest::SubscribeBackgroundAgentEvents {
                 background_agent_id: _,
             } => {
-                // Not implemented yet:
-                // daemon IPC does not expose a background-agent event subscription stream.
-                // Use polling/history APIs for now.
-                IpcResponse::error(-3, "Background agent event streaming not available via IPC")
+                // Stream requests are handled in `handle_client` before dispatching
+                // into `process`, so this branch should only be reached if the
+                // request is routed through the non-stream path by mistake.
+                IpcResponse::error(-3, "Background agent event streaming requires stream mode")
             }
             IpcRequest::GetSystemInfo => IpcResponse::success(serde_json::json!({
                 "pid": std::process::id(),
