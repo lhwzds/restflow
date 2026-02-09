@@ -725,6 +725,25 @@ impl LlmClient for AnthropicClient {
                     }
                 }
             }
+
+            // Process any remaining data in the buffer after the stream ends.
+            // This handles the case where the last SSE event lacks a trailing \n\n
+            // (e.g., due to a network interruption).
+            let remaining = buffer.trim();
+            if !remaining.is_empty() {
+                for line in remaining.lines() {
+                    if let Some(data) = line.strip_prefix("data: ") {
+                        if data.trim().is_empty() {
+                            continue;
+                        }
+                        if let Ok(event) = serde_json::from_str::<AnthropicStreamEvent>(data) {
+                            if let AnthropicStreamEvent::Error { error } = event {
+                                yield Err(AiError::Llm(format!("Stream error: {}", error.message)));
+                            }
+                        }
+                    }
+                }
+            }
         })
     }
 }
