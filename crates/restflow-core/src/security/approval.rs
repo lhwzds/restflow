@@ -77,6 +77,9 @@ impl ApprovalManager {
 
     /// Create a new approval request for a command.
     ///
+    /// If an identical pending approval already exists for the same task and
+    /// command, returns its ID instead of creating a duplicate.
+    ///
     /// Returns the approval ID that can be used to check status or resolve the request.
     pub async fn create_approval(
         &self,
@@ -85,6 +88,22 @@ impl ApprovalManager {
         agent_id: impl Into<String>,
         workdir: Option<String>,
     ) -> anyhow::Result<String> {
+        let command = command.into();
+        let task_id = task_id.into();
+
+        // Check for existing pending approval with same task+command to avoid duplicates.
+        {
+            let pending = self.pending.read().await;
+            for existing in pending.values() {
+                if existing.task_id == task_id
+                    && existing.command == command
+                    && existing.status == ApprovalStatus::Pending
+                {
+                    return Ok(existing.id.clone());
+                }
+            }
+        }
+
         let mut approval =
             PendingApproval::new(command, task_id, agent_id, self.default_timeout_secs);
 
