@@ -3,7 +3,7 @@
 //! Routes messages to appropriate channels and tracks conversation context.
 
 use anyhow::{Result, anyhow};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{debug, info};
@@ -72,6 +72,11 @@ impl ChannelRouter {
         self.default_conversations
             .insert(channel_type, default_conversation.into());
         self.register(channel);
+    }
+
+    /// Check whether a channel has a configured default conversation ID.
+    pub fn has_default_conversation(&self, channel_type: ChannelType) -> bool {
+        self.default_conversations.contains_key(&channel_type)
     }
 
     /// Get a channel by type
@@ -184,16 +189,32 @@ impl ChannelRouter {
                 continue;
             }
 
-            // Try to get default conversation ID
-            if let Some(default_conv) = self.default_conversations.get(channel_type) {
-                let message = OutboundMessage::new(default_conv, content).with_level(level);
-                let result = channel.send(message).await;
-                results.push((*channel_type, result));
-            } else {
+            let target_conversations =
+                if let Some(default_conv) = self.default_conversations.get(channel_type) {
+                    vec![default_conv.clone()]
+                } else {
+                    let conversations = self.conversations.read().await;
+                    let mut targets = HashSet::new();
+                    for (conversation_id, context) in conversations.iter() {
+                        if context.channel_type == *channel_type {
+                            targets.insert(conversation_id.clone());
+                        }
+                    }
+                    targets.into_iter().collect::<Vec<_>>()
+                };
+
+            if target_conversations.is_empty() {
                 debug!(
-                    "Skipping broadcast to {:?} - no default conversation configured",
+                    "Skipping broadcast to {:?} - no default or known conversations",
                     channel_type
                 );
+                continue;
+            }
+
+            for conversation_id in target_conversations {
+                let message = OutboundMessage::new(&conversation_id, content).with_level(level);
+                let result = channel.send(message).await;
+                results.push((*channel_type, result));
             }
         }
 
@@ -496,6 +517,23 @@ mod tests {
         let results = router.broadcast("Announcement", MessageLevel::Info).await;
         assert_eq!(results.len(), 1);
         assert!(results[0].1.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_broadcast_without_default_uses_recorded_conversations() {
+        let mut router = ChannelRouter::new();
+        router.register(MockChannel::new(ChannelType::Telegram));
+
+        let inbound_a =
+            InboundMessage::new("msg-1", ChannelType::Telegram, "user-1", "chat-1", "Hello");
+        let inbound_b =
+            InboundMessage::new("msg-2", ChannelType::Telegram, "user-2", "chat-2", "Hi");
+        router.record_conversation(&inbound_a, None).await;
+        router.record_conversation(&inbound_b, None).await;
+
+        let results = router.broadcast("Announcement", MessageLevel::Info).await;
+        assert_eq!(results.len(), 2);
+        assert!(results.iter().all(|(_, result)| result.is_ok()));
     }
 
     #[tokio::test]

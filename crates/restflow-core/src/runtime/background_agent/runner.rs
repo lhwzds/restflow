@@ -1184,43 +1184,17 @@ impl BackgroundAgentRunner {
 
     /// Format a notification message for broadcasting.
     fn format_notification(task: &BackgroundAgent, success: bool, message: &str) -> String {
-        let status_text = if success { "Completed" } else { "Failed" };
-
-        let mut formatted = format!("*Task {}*: {}\n\n", status_text, task.name);
-        formatted.push_str(&format!("Agent: `{}`\n", task.agent_id));
-
-        if let Some(ref input) = task.input {
-            let input_preview = if input.len() > 100 {
-                format!("{}...", &input[..100])
-            } else {
-                input.clone()
-            };
-            formatted.push_str(&format!("Input: {}\n", input_preview));
-        }
-
-        formatted.push('\n');
-
-        if message.is_empty() {
-            if success {
-                formatted.push_str("Task completed successfully.");
-            } else {
-                formatted.push_str("Task failed with unknown error.");
-            }
-        } else {
-            let message_preview = if message.len() > 2000 {
-                format!("{}...\n\n_(truncated)_", &message[..2000])
+        if success {
+            if message.trim().is_empty() {
+                "Task completed successfully".to_string()
             } else {
                 message.to_string()
-            };
-
-            if success {
-                formatted.push_str(&format!("*Result:*\n```\n{}\n```", message_preview));
-            } else {
-                formatted.push_str(&format!("*Error:*\n```\n{}\n```", message_preview));
             }
+        } else if message.trim().is_empty() {
+            format!("Background agent '{}' failed.", task.name)
+        } else {
+            format!("Background agent '{}' failed:\n{}", task.name, message)
         }
-
-        formatted
     }
 
     /// Send notification for task completion/failure.
@@ -2124,6 +2098,40 @@ mod tests {
 
         // Should NOT have sent notification (success with notify_on_failure_only)
         assert_eq!(notifier.notification_count().await, 0);
+    }
+
+    #[test]
+    fn test_format_notification_success_returns_raw_message() {
+        let task = BackgroundAgent::new(
+            "task-1".to_string(),
+            "Demo Task".to_string(),
+            "agent-1".to_string(),
+            TaskSchedule::Interval {
+                interval_ms: 60_000,
+                start_at: None,
+            },
+        );
+
+        let output = "hello\nworld";
+        let formatted = BackgroundAgentRunner::format_notification(&task, true, output);
+        assert_eq!(formatted, output);
+    }
+
+    #[test]
+    fn test_format_notification_failure_keeps_context() {
+        let task = BackgroundAgent::new(
+            "task-1".to_string(),
+            "Demo Task".to_string(),
+            "agent-1".to_string(),
+            TaskSchedule::Interval {
+                interval_ms: 60_000,
+                start_at: None,
+            },
+        );
+
+        let formatted = BackgroundAgentRunner::format_notification(&task, false, "boom");
+        assert!(formatted.contains("Demo Task"));
+        assert!(formatted.contains("boom"));
     }
 
     #[tokio::test]
