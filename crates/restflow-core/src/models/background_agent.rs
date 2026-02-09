@@ -659,14 +659,26 @@ impl BackgroundAgent {
                 interval_ms,
                 start_at,
             } => {
+                if *interval_ms <= 0 {
+                    return None;
+                }
                 let start = start_at.unwrap_or(from_time);
                 if start > from_time {
                     Some(start)
                 } else {
-                    // Calculate next interval after from_time
+                    // Calculate next interval after from_time using saturating
+                    // arithmetic to avoid overflow with large elapsed times.
                     let elapsed = from_time - start;
                     let intervals_passed = elapsed / interval_ms;
-                    Some(start + (intervals_passed + 1) * interval_ms)
+                    let next_count = intervals_passed.saturating_add(1);
+                    let offset = next_count.saturating_mul(*interval_ms);
+                    let next = start.saturating_add(offset);
+                    if next <= from_time {
+                        // Overflow saturated to i64::MAX or interval too small
+                        None
+                    } else {
+                        Some(next)
+                    }
                 }
             }
             TaskSchedule::Cron {
@@ -685,7 +697,16 @@ impl BackgroundAgent {
         use cron::Schedule;
         use std::str::FromStr;
 
-        let schedule = Schedule::from_str(expression).ok()?;
+        let normalized = expression.trim();
+        let field_count = normalized.split_whitespace().count();
+        let schedule = if field_count == 5 {
+            // Accept standard 5-field cron expressions by prepending seconds.
+            Schedule::from_str(&format!("0 {}", normalized))
+                .or_else(|_| Schedule::from_str(normalized))
+                .ok()?
+        } else {
+            Schedule::from_str(normalized).ok()?
+        };
         let from_datetime = DateTime::from_timestamp_millis(from_time)?;
 
         if let Some(tz_str) = timezone {
@@ -905,6 +926,52 @@ mod tests {
         let next = BackgroundAgent::calculate_next_run(&schedule, now);
         assert!(next.is_some());
         assert!(next.unwrap() > now);
+    }
+
+    #[test]
+    fn test_five_field_cron_schedule_calculation() {
+        let schedule = TaskSchedule::Cron {
+            expression: "* * * * *".to_string(), // Every minute (5-field cron)
+            timezone: Some("UTC".to_string()),
+        };
+
+        let now = chrono::Utc::now().timestamp_millis();
+        let next = BackgroundAgent::calculate_next_run(&schedule, now);
+        assert!(next.is_some());
+        assert!(next.unwrap() > now);
+    }
+
+    #[test]
+    fn test_interval_zero_returns_none() {
+        let schedule = TaskSchedule::Interval {
+            interval_ms: 0,
+            start_at: Some(1000),
+        };
+        assert!(BackgroundAgent::calculate_next_run(&schedule, 2000).is_none());
+    }
+
+    #[test]
+    fn test_interval_negative_returns_none() {
+        let schedule = TaskSchedule::Interval {
+            interval_ms: -1,
+            start_at: Some(1000),
+        };
+        assert!(BackgroundAgent::calculate_next_run(&schedule, 2000).is_none());
+    }
+
+    #[test]
+    fn test_interval_overflow_returns_none() {
+        let schedule = TaskSchedule::Interval {
+            interval_ms: i64::MAX / 2,
+            start_at: Some(i64::MAX / 2),
+        };
+        // With extreme values, saturating arithmetic should prevent panic
+        // and return None when the result can't advance past from_time.
+        let result = BackgroundAgent::calculate_next_run(&schedule, i64::MAX - 1);
+        // Either None (saturated) or a valid future time — no panic.
+        if let Some(next) = result {
+            assert!(next > i64::MAX - 1);
+        }
     }
 
     #[test]

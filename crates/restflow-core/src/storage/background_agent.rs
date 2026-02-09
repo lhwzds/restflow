@@ -11,6 +11,7 @@ use crate::models::{
 use anyhow::Result;
 use redb::Database;
 use std::sync::Arc;
+use tracing::warn;
 use uuid::Uuid;
 
 /// Typed agent task storage wrapper around restflow-storage::BackgroundAgentStorage.
@@ -97,19 +98,39 @@ impl BackgroundAgentStorage {
     /// List tasks that are ready to run
     pub fn list_runnable_tasks(&self, current_time: i64) -> Result<Vec<BackgroundAgent>> {
         let tasks = self.list_tasks()?;
-        Ok(tasks
-            .into_iter()
-            .filter(|t| t.should_run(current_time))
-            .collect())
+        let mut runnable = Vec::new();
+
+        for mut task in tasks {
+            // Self-heal old tasks that have a cron/interval schedule but no
+            // computed next run time (e.g., created before cron normalization).
+            if task.status == BackgroundAgentStatus::Active && task.next_run_at.is_none() {
+                task.update_next_run();
+                if task.next_run_at.is_some()
+                    && let Err(err) = self.update_task(&task)
+                {
+                    warn!(
+                        "Failed to persist repaired next_run_at for task {}: {}",
+                        task.id, err
+                    );
+                }
+            }
+
+            if task.should_run(current_time) {
+                runnable.push(task);
+            }
+        }
+
+        Ok(runnable)
     }
 
-    /// Update an existing agent task
+    /// Update an existing agent task.
+    /// Returns an error if the task does not exist.
     pub fn update_task(&self, task: &BackgroundAgent) -> Result<()> {
         let json_bytes = serde_json::to_vec(task)?;
         let previous_status = self
             .get_task(&task.id)?
             .map(|existing| existing.status)
-            .unwrap_or_else(|| task.status.clone());
+            .ok_or_else(|| anyhow::anyhow!("Task {} not found", task.id))?;
         self.inner.update_task_raw_with_status(
             &task.id,
             previous_status.as_str(),
@@ -918,11 +939,61 @@ mod tests {
     }
 
     #[test]
+    fn test_list_runnable_tasks_repairs_missing_next_run_for_cron() {
+        let storage = create_test_storage();
+
+        let created = storage
+            .create_background_agent(BackgroundAgentSpec {
+                name: "Cron Task".to_string(),
+                agent_id: "agent-001".to_string(),
+                description: None,
+                input: Some("hello".to_string()),
+                input_template: None,
+                schedule: BackgroundAgentSchedule::Cron {
+                    expression: "* * * * *".to_string(),
+                    timezone: None,
+                },
+                notification: None,
+                execution_mode: None,
+                memory: None,
+            })
+            .unwrap();
+
+        // Simulate legacy data where next_run_at was not computed.
+        let mut broken = created.clone();
+        broken.next_run_at = None;
+        storage.update_task(&broken).unwrap();
+
+        let now = chrono::Utc::now().timestamp_millis();
+        let _ = storage.list_runnable_tasks(now).unwrap();
+
+        let repaired = storage.get_task(&created.id).unwrap().unwrap();
+        assert!(repaired.next_run_at.is_some());
+    }
+
+    #[test]
     fn test_get_nonexistent_task() {
         let storage = create_test_storage();
 
         let result = storage.get_task("nonexistent").unwrap();
         assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_update_nonexistent_task_returns_error() {
+        use crate::models::TaskSchedule;
+        let storage = create_test_storage();
+        let task = BackgroundAgent::new(
+            "nonexistent".to_string(),
+            "Ghost".to_string(),
+            "agent-000".to_string(),
+            TaskSchedule::Once {
+                run_at: chrono::Utc::now().timestamp_millis() + 60_000,
+            },
+        );
+        let result = storage.update_task(&task);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("not found"));
     }
 
     #[test]
