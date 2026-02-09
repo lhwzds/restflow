@@ -4,6 +4,7 @@ use crate::models::{
     BackgroundMessageSource, ChatMessage, ChatRole, ChatSessionUpdate, Hook, MemoryChunk,
     MemorySession, Skill, TerminalSession,
 };
+use crate::runtime::TaskStreamEvent;
 use crate::storage::SystemConfig;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -378,6 +379,9 @@ pub enum StreamFrame {
         id: String,
         result: String,
     },
+    BackgroundAgentEvent {
+        event: TaskStreamEvent,
+    },
     Done {
         total_tokens: Option<u32>,
     },
@@ -726,6 +730,48 @@ mod tests {
             assert_eq!(status, Some("active".to_string()));
         } else {
             panic!("Wrong variant");
+        }
+    }
+
+    #[test]
+    fn test_subscribe_background_agent_events_serialization() {
+        let request = IpcRequest::SubscribeBackgroundAgentEvents {
+            background_agent_id: "agent-42".to_string(),
+        };
+        let json = serde_json::to_string(&request).unwrap();
+        let parsed: IpcRequest = serde_json::from_str(&json).unwrap();
+
+        if let IpcRequest::SubscribeBackgroundAgentEvents {
+            background_agent_id,
+        } = parsed
+        {
+            assert_eq!(background_agent_id, "agent-42");
+        } else {
+            panic!("Wrong variant");
+        }
+    }
+
+    #[test]
+    fn test_background_agent_stream_frame_serialization() {
+        let event = TaskStreamEvent::progress(
+            "agent-42",
+            "notification",
+            Some(100),
+            Some("done".to_string()),
+        );
+        let frame = StreamFrame::BackgroundAgentEvent {
+            event: event.clone(),
+        };
+        let json = serde_json::to_string(&frame).unwrap();
+        let parsed: StreamFrame = serde_json::from_str(&json).unwrap();
+
+        match parsed {
+            StreamFrame::BackgroundAgentEvent {
+                event: parsed_event,
+            } => {
+                assert_eq!(parsed_event.task_id, event.task_id);
+            }
+            _ => panic!("Wrong variant"),
         }
     }
 

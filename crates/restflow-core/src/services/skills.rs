@@ -62,21 +62,41 @@ pub fn import_skill_from_markdown(id: &str, markdown: &str) -> Result<Skill> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Mutex, OnceLock};
     use tempfile::tempdir;
 
+    const MASTER_KEY_ENV: &str = "RESTFLOW_MASTER_KEY";
+    const RESTFLOW_DIR_ENV: &str = "RESTFLOW_DIR";
+
+    fn env_lock() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(())).lock().unwrap()
+    }
+
     async fn create_test_core() -> Arc<AppCore> {
+        let _env_lock = env_lock();
         let temp_dir = tempdir().unwrap();
         let db_path = temp_dir.path().join("test.db");
-        let previous_master_key = std::env::var_os("RESTFLOW_MASTER_KEY");
+        let state_dir = temp_dir.path().join("state");
+        std::fs::create_dir_all(&state_dir).unwrap();
+
+        let previous_master_key = std::env::var_os(MASTER_KEY_ENV);
+        let previous_restflow_dir = std::env::var_os(RESTFLOW_DIR_ENV);
         unsafe {
-            std::env::remove_var("RESTFLOW_MASTER_KEY");
+            std::env::set_var(RESTFLOW_DIR_ENV, &state_dir);
+            std::env::remove_var(MASTER_KEY_ENV);
         }
         let core = Arc::new(AppCore::new(db_path.to_str().unwrap()).await.unwrap());
         unsafe {
-            if let Some(value) = previous_master_key {
-                std::env::set_var("RESTFLOW_MASTER_KEY", value);
+            if let Some(value) = previous_restflow_dir {
+                std::env::set_var(RESTFLOW_DIR_ENV, value);
             } else {
-                std::env::remove_var("RESTFLOW_MASTER_KEY");
+                std::env::remove_var(RESTFLOW_DIR_ENV);
+            }
+            if let Some(value) = previous_master_key {
+                std::env::set_var(MASTER_KEY_ENV, value);
+            } else {
+                std::env::remove_var(MASTER_KEY_ENV);
             }
         }
         core

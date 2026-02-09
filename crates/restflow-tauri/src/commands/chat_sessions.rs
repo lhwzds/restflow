@@ -315,6 +315,7 @@ pub async fn send_chat_message_stream(
                         StreamFrame::ToolResult { id, result } => {
                             stream_state.emit_tool_call_end(&id, &result, true)
                         }
+                        StreamFrame::BackgroundAgentEvent { .. } => {}
                         StreamFrame::Done { .. } => stream_state.emit_completed(),
                         StreamFrame::Error { code, message } => {
                             if code == 499 {

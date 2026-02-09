@@ -10,6 +10,7 @@ use restflow_core::models::{
     MemorySession, MemoryStats, Skill, TerminalSession,
 };
 use restflow_core::paths;
+use restflow_core::runtime::TaskStreamEvent;
 use restflow_core::storage::SystemConfig;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
@@ -194,6 +195,27 @@ impl TauriExecutor {
         id: String,
     ) -> Result<Vec<BackgroundAgentEvent>> {
         self.request(IpcRequest::GetBackgroundAgentHistory { id })
+            .await
+    }
+
+    pub async fn subscribe_background_agent_events<F>(
+        &self,
+        background_agent_id: String,
+        on_event: F,
+    ) -> Result<()>
+    where
+        F: FnMut(TaskStreamEvent) -> Result<()>,
+    {
+        // Ensure daemon is running before opening a dedicated streaming client.
+        {
+            let mut daemon = self.daemon.lock().await;
+            let _ = daemon.ensure_connected().await?;
+        }
+
+        let socket_path = paths::socket_path()?;
+        let mut client = IpcClient::connect(&socket_path).await?;
+        client
+            .subscribe_background_agent_events(background_agent_id, on_event)
             .await
     }
 

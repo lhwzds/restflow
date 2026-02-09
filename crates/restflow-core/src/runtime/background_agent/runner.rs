@@ -170,6 +170,112 @@ pub trait NotificationSender: Send + Sync {
     ) -> Result<()>;
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NotificationDispatchStatus {
+    Sent,
+    Skipped,
+}
+
+#[async_trait::async_trait]
+trait NotificationSink: Send + Sync {
+    fn name(&self) -> &'static str;
+
+    async fn send(
+        &self,
+        task: &BackgroundAgent,
+        success: bool,
+        message: &str,
+    ) -> Result<NotificationDispatchStatus>;
+}
+
+struct ChannelRouterNotificationSink {
+    router: Arc<RwLock<Option<Arc<ChannelRouter>>>>,
+}
+
+#[async_trait::async_trait]
+impl NotificationSink for ChannelRouterNotificationSink {
+    fn name(&self) -> &'static str {
+        "channel_router"
+    }
+
+    async fn send(
+        &self,
+        task: &BackgroundAgent,
+        success: bool,
+        message: &str,
+    ) -> Result<NotificationDispatchStatus> {
+        let Some(router) = self.router.read().await.as_ref().cloned() else {
+            return Ok(NotificationDispatchStatus::Skipped);
+        };
+
+        let formatted = BackgroundAgentRunner::format_notification(task, success, message);
+        let level = if success {
+            MessageLevel::Success
+        } else {
+            MessageLevel::Error
+        };
+
+        let mut any_sent = false;
+        let mut failures: Vec<String> = Vec::new();
+        for (channel_type, result) in router.broadcast(&formatted, level).await {
+            match result {
+                Ok(()) => {
+                    any_sent = true;
+                    info!(
+                        "Notification sent via {:?} for task '{}'",
+                        channel_type, task.name
+                    );
+                }
+                Err(err) => {
+                    warn!(
+                        "Failed to send notification via {:?} for task '{}': {}",
+                        channel_type, task.name, err
+                    );
+                    failures.push(format!("{:?}: {}", channel_type, err));
+                }
+            }
+        }
+
+        if any_sent {
+            Ok(NotificationDispatchStatus::Sent)
+        } else if !failures.is_empty() {
+            Err(anyhow!(
+                "Channel router did not deliver notification: {}",
+                failures.join(" | ")
+            ))
+        } else {
+            Ok(NotificationDispatchStatus::Skipped)
+        }
+    }
+}
+
+struct TelegramNotificationSink {
+    notifier: Arc<dyn NotificationSender>,
+}
+
+#[async_trait::async_trait]
+impl NotificationSink for TelegramNotificationSink {
+    fn name(&self) -> &'static str {
+        "telegram"
+    }
+
+    async fn send(
+        &self,
+        task: &BackgroundAgent,
+        success: bool,
+        message: &str,
+    ) -> Result<NotificationDispatchStatus> {
+        if !task.notification.telegram_enabled {
+            return Ok(NotificationDispatchStatus::Skipped);
+        }
+
+        self.notifier
+            .send(&task.notification, task, success, message)
+            .await?;
+        Ok(NotificationDispatchStatus::Sent)
+    }
+}
+
 /// The main BackgroundAgentRunner that schedules and executes agent tasks
 pub struct BackgroundAgentRunner {
     storage: Arc<BackgroundAgentStorage>,
@@ -1119,9 +1225,9 @@ impl BackgroundAgentRunner {
 
     /// Send notification for task completion/failure.
     ///
-    /// Prefers broadcasting through ChannelRouter when available (uses
-    /// credentials already configured on the channel). Falls back to
-    /// the dedicated NotificationSender when no router is set.
+    /// Prefers broadcasting through ChannelRouter when available. Falls
+    /// back to the dedicated Telegram sender only when router delivery
+    /// does not succeed, avoiding duplicate notifications.
     async fn send_notification(&self, task: &BackgroundAgent, success: bool, message: &str) {
         // Check if we should only notify on failure
         if success && task.notification.notify_on_failure_only {
@@ -1136,83 +1242,102 @@ impl BackgroundAgentRunner {
             "Task failed".to_string()
         };
 
-        // Try channel router first (it already has all channel credentials)
-        if let Some(router) = self.channel_router.read().await.as_ref() {
-            let formatted = Self::format_notification(task, success, &notification_message);
-            let level = if success {
-                MessageLevel::Success
-            } else {
-                MessageLevel::Error
-            };
+        let mut sent_via: Vec<&'static str> = Vec::new();
+        let mut failures: Vec<String> = Vec::new();
 
-            let results = router.broadcast(&formatted, level).await;
-
-            let mut any_sent = false;
-            for (channel_type, result) in &results {
-                match result {
-                    Ok(()) => {
-                        any_sent = true;
-                        info!(
-                            "Notification sent via {:?} for task '{}'",
-                            channel_type, task.name
-                        );
-                    }
-                    Err(e) => {
-                        warn!(
-                            "Failed to send notification via {:?} for task '{}': {}",
-                            channel_type, task.name, e
-                        );
-                    }
-                }
+        let router_sink = ChannelRouterNotificationSink {
+            router: self.channel_router.clone(),
+        };
+        match router_sink.send(task, success, &notification_message).await {
+            Ok(NotificationDispatchStatus::Sent) => sent_via.push(router_sink.name()),
+            Ok(NotificationDispatchStatus::Skipped) => {}
+            Err(err) => {
+                let detail = format!("{}: {}", router_sink.name(), err);
+                error!(
+                    task_id = %task.id,
+                    sink = router_sink.name(),
+                    error = %err,
+                    "Failed to dispatch notification"
+                );
+                failures.push(detail);
             }
-
-            if any_sent {
-                if let Err(e) = self.storage.record_notification_sent(
-                    &task.id,
-                    format!(
-                        "Broadcast notification: {}",
-                        if success { "success" } else { "failure" }
-                    ),
-                ) {
-                    warn!("Failed to record notification sent event: {}", e);
-                }
-                return;
-            }
-
-            // If broadcast found no channels, fall through to notifier
         }
 
-        // Fall back to dedicated notifier (requires per-task telegram config)
-        if !task.notification.telegram_enabled {
+        // Avoid duplicate sends: only try direct Telegram fallback when no
+        // router delivery has succeeded.
+        if sent_via.is_empty() {
+            let telegram_sink = TelegramNotificationSink {
+                notifier: self.notifier.clone(),
+            };
+            match telegram_sink
+                .send(task, success, &notification_message)
+                .await
+            {
+                Ok(NotificationDispatchStatus::Sent) => sent_via.push(telegram_sink.name()),
+                Ok(NotificationDispatchStatus::Skipped) => {}
+                Err(err) => {
+                    let detail = format!("{}: {}", telegram_sink.name(), err);
+                    error!(
+                        task_id = %task.id,
+                        sink = telegram_sink.name(),
+                        error = %err,
+                        "Failed to dispatch notification"
+                    );
+                    failures.push(detail);
+                }
+            }
+        }
+
+        if !sent_via.is_empty() {
+            let summary = format!(
+                "Notification sent via [{}]: {}",
+                sent_via.join(","),
+                if success { "success" } else { "failure" }
+            );
+            if let Err(err) = self
+                .storage
+                .record_notification_sent(&task.id, summary.clone())
+            {
+                warn!("Failed to record notification sent event: {}", err);
+            }
+            self.event_emitter
+                .emit(TaskStreamEvent::progress(
+                    &task.id,
+                    "notification",
+                    None,
+                    Some(summary),
+                ))
+                .await;
             return;
         }
 
-        match self
-            .notifier
-            .send(&task.notification, task, success, &notification_message)
-            .await
-        {
-            Ok(()) => {
-                if let Err(e) = self.storage.record_notification_sent(
+        if !failures.is_empty() {
+            let detail = failures.join(" | ");
+            if let Err(err) = self
+                .storage
+                .record_notification_failed(&task.id, detail.clone())
+            {
+                warn!("Failed to record notification failure event: {}", err);
+            }
+            self.event_emitter
+                .emit(TaskStreamEvent::progress(
                     &task.id,
-                    format!(
-                        "Notification sent: {}",
-                        if success { "success" } else { "failure" }
-                    ),
-                ) {
-                    warn!("Failed to record notification sent event: {}", e);
-                }
-            }
-            Err(e) => {
-                error!("Failed to send notification for task {}: {}", task.id, e);
-                if let Err(e) = self
-                    .storage
-                    .record_notification_failed(&task.id, e.to_string())
-                {
-                    warn!("Failed to record notification failure event: {}", e);
-                }
-            }
+                    "notification_failed",
+                    None,
+                    Some(detail),
+                ))
+                .await;
+            return;
         }
+
+        self.event_emitter
+            .emit(TaskStreamEvent::progress(
+                &task.id,
+                "notification_skipped",
+                None,
+                Some("No enabled notification sinks".to_string()),
+            ))
+            .await;
     }
 
     /// Get the number of currently running tasks

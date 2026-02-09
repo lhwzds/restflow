@@ -1,3 +1,4 @@
+mod background_events;
 mod core_access;
 mod health;
 mod http;
@@ -10,6 +11,7 @@ mod mcp;
 mod process;
 mod supervisor;
 
+pub use background_events::{publish_background_event, subscribe_background_events};
 pub use core_access::CoreAccess;
 pub use health::{HealthChecker, HealthStatus, check_health};
 pub use http::{HttpConfig, HttpServer};
