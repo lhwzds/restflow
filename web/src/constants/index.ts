@@ -14,8 +14,6 @@ export {
   type AgentEndpoints,
   type SecretEndpoints,
   type SkillEndpoints,
-  type BackgroundAgentEndpoints,
-  type HookEndpoints,
 } from './api/endpoints'
 
 // ===== Model Helpers =====
