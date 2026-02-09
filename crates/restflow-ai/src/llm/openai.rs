@@ -548,22 +548,22 @@ impl LlmClient for OpenAIClient {
                             continue;
                         }
                         // Best effort: try to parse final event
-                        if let Ok(parsed) = serde_json::from_str::<OpenAIStreamResponse>(data) {
-                            if let Some(usage) = parsed.usage {
-                                yield Ok(StreamChunk::final_chunk(
-                                    FinishReason::Stop,
-                                    Some(TokenUsage {
-                                        prompt_tokens: usage.prompt_tokens,
-                                        completion_tokens: usage.completion_tokens,
-                                        total_tokens: usage.total_tokens,
-                                        cost_usd: calculate_cost(
-                                            &model,
-                                            usage.prompt_tokens,
-                                            usage.completion_tokens,
-                                        ),
-                                    }),
-                                ));
-                            }
+                        if let Ok(parsed) = serde_json::from_str::<OpenAIStreamResponse>(data)
+                            && let Some(usage) = parsed.usage
+                        {
+                            yield Ok(StreamChunk::final_chunk(
+                                FinishReason::Stop,
+                                Some(TokenUsage {
+                                    prompt_tokens: usage.prompt_tokens,
+                                    completion_tokens: usage.completion_tokens,
+                                    total_tokens: usage.total_tokens,
+                                    cost_usd: calculate_cost(
+                                        &model,
+                                        usage.prompt_tokens,
+                                        usage.completion_tokens,
+                                    ),
+                                }),
+                            ));
                         }
                     }
                 }

@@ -736,10 +736,8 @@ impl LlmClient for AnthropicClient {
                         if data.trim().is_empty() {
                             continue;
                         }
-                        if let Ok(event) = serde_json::from_str::<AnthropicStreamEvent>(data) {
-                            if let AnthropicStreamEvent::Error { error } = event {
-                                yield Err(AiError::Llm(format!("Stream error: {}", error.message)));
-                            }
+                        if let Ok(AnthropicStreamEvent::Error { error }) = serde_json::from_str::<AnthropicStreamEvent>(data) {
+                            yield Err(AiError::Llm(format!("Stream error: {}", error.message)));
                         }
                     }
                 }
