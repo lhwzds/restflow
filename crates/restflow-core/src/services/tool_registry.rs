@@ -2081,6 +2081,9 @@ mod tests {
         let state_dir = temp_dir.path().join("state");
         std::fs::create_dir_all(&state_dir).unwrap();
         let previous_master_key = std::env::var_os("RESTFLOW_MASTER_KEY");
+        // SAFETY: env vars are modified in a narrow scope and callers use
+        // #[tokio::test(flavor = "current_thread")] so no worker threads
+        // can race on reads.
         unsafe {
             std::env::set_var("RESTFLOW_DIR", &state_dir);
             std::env::remove_var("RESTFLOW_MASTER_KEY");
@@ -2463,7 +2466,7 @@ mod tests {
         );
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "current_thread")]
     async fn test_marketplace_tool_list_and_uninstall() {
         let (
             skill_storage,
@@ -2524,7 +2527,7 @@ mod tests {
         assert_eq!(deleted.result["deleted"].as_bool(), Some(true));
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "current_thread")]
     async fn test_trigger_tool_create_list_disable() {
         let (
             skill_storage,
@@ -2591,7 +2594,7 @@ mod tests {
         assert!(disabled.success);
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "current_thread")]
     async fn test_terminal_tool_create_send_read_close() {
         let (
             skill_storage,
@@ -2679,7 +2682,7 @@ mod tests {
         assert!(closed.success);
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "current_thread")]
     async fn test_security_query_tool_show_policy_and_check_permission() {
         let (
             skill_storage,
@@ -2734,7 +2737,7 @@ mod tests {
         assert!(check.result.get("allowed").is_some());
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "current_thread")]
     async fn test_db_memory_store_adapter_crud() {
         let (
             _skill_storage,
@@ -2833,7 +2836,7 @@ mod tests {
         assert!(read.is_none());
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "current_thread")]
     async fn test_create_tool_registry_always_has_memory_tools() {
         let (
             skill_storage,

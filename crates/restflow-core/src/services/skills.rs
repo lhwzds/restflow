@@ -82,6 +82,9 @@ mod tests {
 
         let previous_master_key = std::env::var_os(MASTER_KEY_ENV);
         let previous_restflow_dir = std::env::var_os(RESTFLOW_DIR_ENV);
+        // SAFETY: env vars are modified under env_lock() and callers use
+        // #[tokio::test(flavor = "current_thread")] so no worker threads
+        // can race on reads.
         unsafe {
             std::env::set_var(RESTFLOW_DIR_ENV, &state_dir);
             std::env::remove_var(MASTER_KEY_ENV);
@@ -112,14 +115,14 @@ mod tests {
         )
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "current_thread")]
     async fn test_list_skills_empty() {
         let core = create_test_core().await;
         let skills = list_skills(&core).await.unwrap();
         assert!(skills.is_empty());
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "current_thread")]
     async fn test_create_and_get_skill() {
         let core = create_test_core().await;
 
@@ -138,7 +141,7 @@ mod tests {
         );
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "current_thread")]
     async fn test_list_skills_multiple() {
         let core = create_test_core().await;
 
@@ -152,7 +155,7 @@ mod tests {
         assert_eq!(skills.len(), 2);
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "current_thread")]
     async fn test_update_skill() {
         let core = create_test_core().await;
 
@@ -177,7 +180,7 @@ mod tests {
         assert_eq!(retrieved.content, "# Updated content");
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "current_thread")]
     async fn test_delete_skill() {
         let core = create_test_core().await;
 
@@ -192,7 +195,7 @@ mod tests {
         assert!(get_skill(&core, "test-skill").await.unwrap().is_none());
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "current_thread")]
     async fn test_skill_exists() {
         let core = create_test_core().await;
 
@@ -204,7 +207,7 @@ mod tests {
         assert!(skill_exists(&core, "test-skill").await.unwrap());
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "current_thread")]
     async fn test_get_nonexistent_skill() {
         let core = create_test_core().await;
 

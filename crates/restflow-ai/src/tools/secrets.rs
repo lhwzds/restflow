@@ -181,6 +181,8 @@ mod tests {
 
         let state_dir = temp_dir.path().join("state");
         std::fs::create_dir_all(&state_dir).unwrap();
+        // SAFETY: env var modified under ENV_LOCK and callers use
+        // #[tokio::test(flavor = "current_thread")] so no worker threads race.
         unsafe {
             std::env::set_var("RESTFLOW_DIR", &state_dir);
         }
@@ -197,7 +199,7 @@ mod tests {
         (Arc::new(storage), temp_dir)
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "current_thread")]
     async fn test_list_and_get_secret() {
         let (storage, _temp_dir) = setup_storage();
         storage
@@ -218,7 +220,7 @@ mod tests {
         assert_eq!(list_output.result["count"], 1);
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "current_thread")]
     async fn test_write_guard() {
         let (storage, _temp_dir) = setup_storage();
         let tool = SecretsTool::new(storage);
