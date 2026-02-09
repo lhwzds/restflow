@@ -60,19 +60,24 @@ impl TelegramNotifier {
     }
 
     /// Format the notification message for Telegram.
-    ///
-    /// Uses Markdown formatting for better readability.
     fn format_message(&self, task: &BackgroundAgent, success: bool, message: &str) -> String {
-        let status_emoji = if success { "✅" } else { "❌" };
-        let status_text = if success { "Completed" } else { "Failed" };
+        if success {
+            if message.is_empty() {
+                return "Task completed successfully.".to_string();
+            }
 
-        let mut formatted = format!("{} *Task {}*: {}\n\n", status_emoji, status_text, task.name);
+            // Keep success notification text as close as possible to the agent output.
+            return if message.len() > 3500 {
+                format!("{}...\n\n(truncated)", &message[..3500])
+            } else {
+                message.to_string()
+            };
+        }
 
-        // Add task details
+        let mut formatted = format!("❌ *Task Failed*: {}\n\n", task.name);
         formatted.push_str(&format!("🤖 Agent: `{}`\n", task.agent_id));
 
         if let Some(ref input) = task.input {
-            // Truncate long inputs
             let input_preview = if input.len() > 100 {
                 format!("{}...", &input[..100])
             } else {
@@ -83,26 +88,15 @@ impl TelegramNotifier {
 
         formatted.push('\n');
 
-        // Add result/error message
         if message.is_empty() {
-            if success {
-                formatted.push_str("Task completed successfully.");
-            } else {
-                formatted.push_str("Task failed with unknown error.");
-            }
+            formatted.push_str("Task failed with unknown error.");
         } else {
-            // Truncate very long messages
             let message_preview = if message.len() > 2000 {
                 format!("{}...\n\n_(truncated)_", &message[..2000])
             } else {
                 message.to_string()
             };
-
-            if success {
-                formatted.push_str(&format!("📤 *Result:*\n```\n{}\n```", message_preview));
-            } else {
-                formatted.push_str(&format!("⚠️ *Error:*\n```\n{}\n```", message_preview));
-            }
+            formatted.push_str(&format!("⚠️ *Error:*\n```\n{}\n```", message_preview));
         }
 
         formatted
@@ -138,8 +132,11 @@ impl NotificationSender for TelegramNotifier {
         // Format the message
         let formatted_message = self.format_message(task, success, message);
 
+        // Success payloads are plain agent output; avoid Markdown parse issues.
+        let parse_mode = if success { None } else { Some("Markdown") };
+
         // Send via Telegram API
-        send_telegram_notification(&bot_token, chat_id, &formatted_message, Some("Markdown"))
+        send_telegram_notification(&bot_token, chat_id, &formatted_message, parse_mode)
             .await
             .map_err(|e| anyhow!("Failed to send Telegram notification: {}", e))
     }
@@ -272,11 +269,8 @@ mod tests {
         let task = create_test_task();
         let message = notifier.format_message(&task, true, "Task output here");
 
-        assert!(message.contains("✅"));
-        assert!(message.contains("Completed"));
-        assert!(message.contains("Test Task"));
-        assert!(message.contains("agent-001"));
-        assert!(message.contains("Task output here"));
+        assert_eq!(message, "Task output here");
+        assert!(!message.contains("✅"));
     }
 
     #[test]
@@ -301,7 +295,7 @@ mod tests {
         let mut task = create_test_task();
         task.input = Some("Process this data".to_string());
 
-        let message = notifier.format_message(&task, true, "Done");
+        let message = notifier.format_message(&task, false, "Done");
 
         assert!(message.contains("Process this data"));
     }
@@ -314,7 +308,7 @@ mod tests {
         let mut task = create_test_task();
         task.input = Some("x".repeat(200));
 
-        let message = notifier.format_message(&task, true, "Done");
+        let message = notifier.format_message(&task, false, "Done");
 
         // Should contain truncated input with ellipsis
         assert!(message.contains("..."));
@@ -328,13 +322,13 @@ mod tests {
         let notifier = TelegramNotifier::new(secrets);
 
         let task = create_test_task();
-        let long_output = "y".repeat(3000);
+        let long_output = "y".repeat(5000);
         let message = notifier.format_message(&task, true, &long_output);
 
         // Should contain truncation indicator
         assert!(message.contains("truncated"));
-        // Should not contain the full 3000 y's
-        assert!(!message.contains(&"y".repeat(2500)));
+        // Should not contain the full 5000 y's
+        assert!(!message.contains(&"y".repeat(4000)));
     }
 
     #[test]
