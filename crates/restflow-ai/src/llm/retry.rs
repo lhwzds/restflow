@@ -50,10 +50,18 @@ pub async fn response_to_error(response: Response, provider: &str) -> AiError {
     let retry_after = parse_retry_after(&response);
     let body = response.text().await.unwrap_or_default();
 
+    // Truncate error body to prevent leaking large or sensitive responses.
+    const MAX_ERROR_BODY: usize = 512;
+    let message = if body.len() > MAX_ERROR_BODY {
+        format!("{}... [truncated]", &body[..MAX_ERROR_BODY])
+    } else {
+        body
+    };
+
     AiError::LlmHttp {
         provider: provider.to_string(),
         status,
-        message: body,
+        message,
         retry_after_secs: retry_after,
     }
 }
