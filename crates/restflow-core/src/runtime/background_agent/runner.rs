@@ -211,7 +211,7 @@ impl NotificationSink for ChannelRouterNotificationSink {
 
         let formatted = BackgroundAgentRunner::format_notification(task, success, message);
         let level = if success {
-            MessageLevel::Success
+            MessageLevel::Plain
         } else {
             MessageLevel::Error
         };
@@ -1214,10 +1214,20 @@ impl BackgroundAgentRunner {
             return;
         }
 
-        let notification_message = if task.notification.include_output {
-            message.to_string()
-        } else if success {
-            "Task completed successfully".to_string()
+        // Success notifications should always deliver the agent's actual reply.
+        // Keep include_output as a failure-detail toggle for backward compatibility.
+        let notification_message = if success {
+            if message.trim().is_empty() {
+                "Task completed successfully".to_string()
+            } else {
+                message.to_string()
+            }
+        } else if task.notification.include_output {
+            if message.trim().is_empty() {
+                "Task failed".to_string()
+            } else {
+                message.to_string()
+            }
         } else {
             "Task failed".to_string()
         };
@@ -1433,7 +1443,7 @@ mod tests {
 
     /// Mock notifier for testing
     struct MockNotifier {
-        notifications: Arc<RwLock<Vec<(String, bool)>>>,
+        notifications: Arc<RwLock<Vec<(String, bool, String)>>>,
     }
 
     impl MockNotifier {
@@ -1446,6 +1456,14 @@ mod tests {
         async fn notification_count(&self) -> usize {
             self.notifications.read().await.len()
         }
+
+        async fn last_message(&self) -> Option<String> {
+            self.notifications
+                .read()
+                .await
+                .last()
+                .map(|(_, _, message)| message.clone())
+        }
     }
 
     #[async_trait::async_trait]
@@ -1455,12 +1473,12 @@ mod tests {
             _config: &NotificationConfig,
             task: &BackgroundAgent,
             success: bool,
-            _message: &str,
+            message: &str,
         ) -> Result<()> {
             self.notifications
                 .write()
                 .await
-                .push((task.id.clone(), success));
+                .push((task.id.clone(), success, message.to_string()));
             Ok(())
         }
     }
@@ -2104,6 +2122,53 @@ mod tests {
 
         // Should NOT have sent notification (success with notify_on_failure_only)
         assert_eq!(notifier.notification_count().await, 0);
+    }
+
+    #[tokio::test]
+    async fn test_runner_success_notification_uses_agent_output_even_when_include_output_disabled()
+    {
+        let (storage, _temp_dir) = create_test_storage();
+        let executor = Arc::new(MockExecutor::new());
+        let notifier = Arc::new(MockNotifier::new());
+
+        let past_time = chrono::Utc::now().timestamp_millis() - 1000;
+        let mut task = storage
+            .create_task(
+                "Success Output".to_string(),
+                "agent-001".to_string(),
+                TaskSchedule::Once { run_at: past_time },
+            )
+            .unwrap();
+        task.next_run_at = Some(past_time);
+        task.notification.telegram_enabled = true;
+        task.notification.telegram_chat_id = Some("123456".to_string());
+        task.notification.include_output = false;
+        storage.update_task(&task).unwrap();
+
+        let config = RunnerConfig {
+            poll_interval_ms: 100,
+            ..Default::default()
+        };
+
+        let steer_registry = Arc::new(SteerRegistry::new());
+        let runner = Arc::new(BackgroundAgentRunner::new(
+            storage,
+            executor,
+            notifier.clone(),
+            config,
+            steer_registry,
+        ));
+
+        let handle = runner.clone().start();
+
+        tokio::time::sleep(Duration::from_millis(500)).await;
+
+        handle.stop().await.unwrap();
+
+        assert_eq!(notifier.notification_count().await, 1);
+        let message = notifier.last_message().await.unwrap_or_default();
+        assert!(message.contains("Executed agent agent-001"));
+        assert!(!message.contains("Task completed successfully"));
     }
 
     #[test]
