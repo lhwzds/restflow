@@ -32,6 +32,15 @@ const emit = defineEmits<{
 
 const inputMessage = ref('')
 
+// Track IME composition state manually (WebKit's e.isComposing is unreliable)
+const composing = ref(false)
+
+// Delay clearing composing flag so keydown fires while still composing.
+// WebKit fires compositionend BEFORE the Enter keydown, unlike Chrome.
+const onCompositionEnd = () => {
+  window.setTimeout(() => { composing.value = false }, 0)
+}
+
 const handleSend = () => {
   const message = inputMessage.value.trim()
   if (message) {
@@ -41,7 +50,7 @@ const handleSend = () => {
 }
 
 const handleKeydown = (e: KeyboardEvent) => {
-  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+  if (e.key === 'Enter' && !e.shiftKey && !composing.value) {
     e.preventDefault()
     handleSend()
   }
@@ -92,6 +101,8 @@ watch(inputMessage, async (newVal) => {
         class="chat-textarea min-h-[40px] max-h-[120px] resize-none border-0 bg-transparent p-0 text-sm shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
         @keydown="handleKeydown"
         @input="handleInput"
+        @compositionstart="composing = true"
+        @compositionend="onCompositionEnd"
       />
 
       <!-- Bottom Row: Agent | Model | Send -->

@@ -106,11 +106,9 @@ function handleViewDetails(id: string) {
   }
 }
 
-async function handleInstall(id: string) {
-  installingIds.value.add(id)
-  // Install will be handled by the detail modal
+function handleInstall(id: string) {
+  // Install is handled by the detail modal
   handleViewDetails(id)
-  installingIds.value.delete(id)
 }
 
 async function handleUninstall(id: string) {

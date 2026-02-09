@@ -15,6 +15,7 @@ import { useChatStream, type StreamStep } from '@/composables/workspace/useChatS
 import { useChatSessionStore } from '@/stores/chatSessionStore'
 import { useModelsStore } from '@/stores/modelsStore'
 import { listAgents } from '@/api/agents'
+import { sendChatMessage as sendChatMessageApi } from '@/api/chat-session'
 import { useToast } from '@/composables/useToast'
 import type { AgentFile, ModelOption } from '@/types/workspace'
 import type { ChatMessage } from '@/types/generated/ChatMessage'
@@ -74,24 +75,24 @@ const modelName = computed(() => {
 // Track processed show_panel steps to avoid duplicate emits
 const processedShowPanelIds = ref<Set<string>>(new Set())
 
-// Watch for show_panel tool completions
+// Completed show_panel steps (computed avoids deep-watching entire steps array)
+const completedShowPanelSteps = computed(() =>
+  chatStream.state.value.steps.filter(
+    (s) => s.name === 'show_panel' && s.status === 'completed' && s.result && s.toolId,
+  ),
+)
+
+// Watch only when new show_panel steps complete (by length change)
 watch(
-  () => chatStream.state.value.steps,
-  (steps) => {
-    for (const step of steps) {
-      if (
-        step.name === 'show_panel' &&
-        step.status === 'completed' &&
-        step.result &&
-        step.toolId &&
-        !processedShowPanelIds.value.has(step.toolId)
-      ) {
-        processedShowPanelIds.value.add(step.toolId)
-        emit('showPanel', step.result)
+  () => completedShowPanelSteps.value.length,
+  () => {
+    for (const step of completedShowPanelSteps.value) {
+      if (!processedShowPanelIds.value.has(step.toolId!)) {
+        processedShowPanelIds.value.add(step.toolId!)
+        emit('showPanel', step.result!)
       }
     }
   },
-  { deep: true },
 )
 
 // Sync agent/model from current session and reset stream on session change
@@ -167,7 +168,21 @@ async function onSendMessage(message: string) {
   const canSend = await ensureChatSession()
   if (!canSend) return
 
-  // Reset stream state and processed IDs for new message
+  if (isExecuting.value) {
+    // Steering: save user message without resetting stream or triggering new execution
+    const sessionId = chatSessionStore.currentSessionId
+    if (sessionId) {
+      try {
+        const session = await sendChatMessageApi(sessionId, message)
+        chatSessionStore.updateSessionLocally(session)
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : 'Failed to send message')
+      }
+    }
+    return
+  }
+
+  // Normal send: reset stream and trigger execution
   chatStream.reset()
   processedShowPanelIds.value.clear()
 
@@ -180,6 +195,7 @@ async function onSendMessage(message: string) {
 }
 
 async function onUpdateSelectedAgent(agentId: string | null) {
+  const oldAgent = selectedAgent.value
   selectedAgent.value = agentId
 
   if (!agentId) return
@@ -189,11 +205,29 @@ async function onUpdateSelectedAgent(agentId: string | null) {
 
   const updated = await chatSessionStore.updateSessionAgent(session.id, agentId)
   if (!updated) {
+    selectedAgent.value = oldAgent
     toast.error('Failed to update session agent')
     return
   }
 
   selectedAgent.value = updated.agent_id
+}
+
+async function onUpdateSelectedModel(model: string) {
+  const oldModel = selectedModel.value
+  selectedModel.value = model
+
+  const session = currentSession.value
+  if (!session || session.model === model) return
+
+  const updated = await chatSessionStore.updateSessionModel(session.id, model)
+  if (!updated) {
+    selectedModel.value = oldModel
+    toast.error('Failed to update session model')
+    return
+  }
+
+  selectedModel.value = updated.model
 }
 
 function onViewInCanvas(step: StreamStep) {
@@ -252,7 +286,7 @@ defineExpose({
         @send="onSendMessage"
         @close="() => {}"
         @update:selected-agent="onUpdateSelectedAgent"
-        @update:selected-model="selectedModel = $event"
+        @update:selected-model="onUpdateSelectedModel"
       />
     </div>
   </div>

@@ -62,7 +62,9 @@ import {
   formatSecurityAction,
   getSecurityActionVariant,
 } from '@/api/security'
-import { toast } from 'vue-sonner'
+import { useToast } from '@/composables/useToast'
+
+const toast = useToast()
 
 // ============================================================================
 // State
