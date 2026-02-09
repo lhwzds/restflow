@@ -131,22 +131,28 @@ impl BashTool {
         ))
     }
 
-    /// Truncate output if it exceeds max size
+    /// Truncate output if it exceeds max size.
+    /// Finds a valid UTF-8 boundary to avoid splitting multi-byte characters.
     fn truncate_output(&self, bytes: &[u8]) -> (String, bool) {
-        let truncated = bytes.len() > self.max_output_bytes;
-        let bytes = if truncated {
-            &bytes[..self.max_output_bytes]
+        let total_len = bytes.len();
+        let truncated = total_len > self.max_output_bytes;
+        let slice = if truncated {
+            // Walk backwards from the cut point to find a valid UTF-8 boundary.
+            let mut end = self.max_output_bytes;
+            while end > 0 && (bytes[end] & 0xC0) == 0x80 {
+                end -= 1;
+            }
+            &bytes[..end]
         } else {
             bytes
         };
 
-        let text = String::from_utf8_lossy(bytes).to_string();
+        let text = String::from_utf8_lossy(slice).to_string();
         if truncated {
             (
                 format!(
                     "{}...\n[Output truncated, {} bytes total]",
-                    text,
-                    bytes.len()
+                    text, total_len,
                 ),
                 true,
             )
@@ -387,6 +393,19 @@ mod tests {
         let (text, truncated) = tool.truncate_output(data);
         assert!(truncated);
         assert!(text.contains("[Output truncated"));
+    }
+
+    #[test]
+    fn test_truncate_output_multibyte_boundary() {
+        // "你好" is 6 bytes (3 per char). Setting max to 4 should cut before
+        // the second character, not in the middle of its 3-byte sequence.
+        let tool = BashTool::new().with_max_output(4);
+        let data = "你好世界".as_bytes(); // 12 bytes
+        let (text, truncated) = tool.truncate_output(data);
+        assert!(truncated);
+        // Should contain only the first full character "你" (3 bytes)
+        assert!(text.starts_with("你"));
+        assert!(!text.contains('�'));
     }
 
     #[test]
