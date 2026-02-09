@@ -1,5 +1,4 @@
 use anyhow::{Result, anyhow};
-use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -12,6 +11,7 @@ use std::time::Duration;
 use tokio::fs;
 use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
+use tokio::sync::OnceCell;
 use tracing::{error, info};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -58,26 +58,26 @@ impl PythonManager {
     }
 
     async fn ensure_initialized(&self) -> Result<()> {
-        if self.initialized.get().is_some() {
-            return Ok(());
-        }
-
-        fs::create_dir_all(&self.python_dir).await?;
-        fs::create_dir_all(&self.scripts_dir).await?;
-        fs::create_dir_all(&self.templates_dir).await?;
-        fs::create_dir_all(self.uv_binary.parent().unwrap()).await?;
-
-        if !self.uv_binary.exists() {
-            self.download_uv().await?;
-        }
-
-        if !self.venv_dir.exists() || !self.python_dir.join("pyproject.toml").exists() {
-            self.setup_environment().await?;
-        }
-
         self.initialized
-            .set(())
-            .map_err(|_| anyhow!("Failed to mark as initialized"))?;
+            .get_or_try_init(|| async {
+                fs::create_dir_all(&self.python_dir).await?;
+                fs::create_dir_all(&self.scripts_dir).await?;
+                fs::create_dir_all(&self.templates_dir).await?;
+                if let Some(parent) = self.uv_binary.parent() {
+                    fs::create_dir_all(parent).await?;
+                }
+
+                if !self.uv_binary.exists() {
+                    self.download_uv().await?;
+                }
+
+                if !self.venv_dir.exists() || !self.python_dir.join("pyproject.toml").exists() {
+                    self.setup_environment().await?;
+                }
+
+                Ok::<(), anyhow::Error>(())
+            })
+            .await?;
         Ok(())
     }
 
