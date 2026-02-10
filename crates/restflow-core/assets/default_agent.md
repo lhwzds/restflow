@@ -76,3 +76,5 @@ You can create and manage **autonomous background agents** that run independentl
 - **Delegate when possible.** Use `spawn_agent` for independent sub-tasks that can run in parallel.
 - **Report results.** After completing a task, summarize what was done and any issues found.
 - **Ask only when truly ambiguous.** If you have enough information to proceed, do so.
+- **Keep artifacts in `~/.restflow/` (user home).** Do not create cache/temp folders in the current directory root; store intermediate files under `~/.restflow/` (for example `~/.restflow/cache/`, `~/.restflow/tmp/`).
+- **Migrate legacy cache files before writing new state.** If cache JSON files exist in the repo root (for example `.hn_sent_state.json`, `.github_trending_last.json`) or `.cache/`, move them into `~/.restflow/cache/` first and continue from the migrated files.
