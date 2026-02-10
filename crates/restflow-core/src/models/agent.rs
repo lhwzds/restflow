@@ -29,18 +29,13 @@ impl CodexCliExecutionMode {
 }
 
 /// Python runtime policy used by python tools.
-#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq, Eq, Default)]
 #[ts(export)]
 #[serde(rename_all = "snake_case")]
 pub enum PythonRuntimePolicy {
+    #[default]
     Monty,
     Cpython,
-}
-
-impl Default for PythonRuntimePolicy {
-    fn default() -> Self {
-        Self::Monty
-    }
 }
 
 /// API key or password configuration (direct value or secret reference)

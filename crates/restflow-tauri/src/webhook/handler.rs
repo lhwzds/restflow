@@ -215,7 +215,7 @@ mod tests {
     async fn test_trigger_task_success() {
         let (storage, _tmp) = create_test_storage();
         let task = create_test_task("task-1", true, "secret-token");
-        storage.update_task(&task).unwrap();
+        storage.save_task(&task).unwrap();
 
         let state = create_test_state(storage);
         let app = webhook_router(state);
@@ -269,7 +269,7 @@ mod tests {
     async fn test_trigger_task_unauthorized() {
         let (storage, _tmp) = create_test_storage();
         let task = create_test_task("task-1", true, "secret-token");
-        storage.update_task(&task).unwrap();
+        storage.save_task(&task).unwrap();
 
         let state = create_test_state(storage);
         let app = webhook_router(state);
@@ -294,7 +294,7 @@ mod tests {
     async fn test_trigger_task_webhook_disabled() {
         let (storage, _tmp) = create_test_storage();
         let task = create_test_task("task-1", false, "secret-token");
-        storage.update_task(&task).unwrap();
+        storage.save_task(&task).unwrap();
 
         let state = create_test_state(storage);
         let app = webhook_router(state);
@@ -320,7 +320,7 @@ mod tests {
         let (storage, _tmp) = create_test_storage();
         let mut task = create_test_task("task-1", true, "secret-token");
         task.webhook.as_mut().unwrap().rate_limit = Some(1);
-        storage.update_task(&task).unwrap();
+        storage.save_task(&task).unwrap();
 
         let state = create_test_state(Arc::clone(&storage));
         let app = webhook_router(state);
