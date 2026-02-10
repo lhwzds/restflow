@@ -109,8 +109,8 @@ Goal: Single entry points for starting daemon and full stack.
 
 Commands:
 - `restflow daemon start`
-- `restflow daemon start --http`
-- `restflow start` (daemon + HTTP + open browser)
+- `restflow daemon start --mcp-port 9000`
+- `restflow start` (daemon + open browser)
 
 ## Dependencies
 

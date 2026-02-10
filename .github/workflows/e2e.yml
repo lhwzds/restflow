@@ -26,8 +26,12 @@ jobs:
         run: |
           echo "Waiting for RestFlow to start..."
           for i in {1..30}; do
-            if curl -f http://localhost:3000/health 2>/dev/null; then
-              echo "✅ RestFlow is running!"
+            if curl -sf -X POST http://localhost:8787/mcp \
+              -H "Content-Type: application/json" \
+              -H "Accept: application/json, text/event-stream" \
+              -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"e2e-check","version":"0.1.0"}}}' \
+              >/dev/null 2>&1; then
+              echo "✅ RestFlow MCP server is running!"
               exit 0
             fi
             echo "Attempt $i/30..."
@@ -60,7 +64,7 @@ jobs:
 
       - name: Run E2E tests
         env:
-          BASE_URL: http://localhost:3000
+          BASE_URL: http://localhost:5173
         run: |
           cd e2e-tests
           npm test

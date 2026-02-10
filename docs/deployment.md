@@ -11,8 +11,7 @@ restflow start
 Options:
 
 - `--no-browser` to skip opening the UI.
-- `--port <PORT>` to override the default HTTP port (3000).
-- `--http/--no-http` to enable or disable the HTTP API.
+- `--mcp-port <PORT>` to override the default MCP HTTP port (8787).
 
 ## Daemon Management
 
@@ -65,10 +64,14 @@ scripts/install.sh --systemd
 scripts/install.sh --launchd
 ```
 
-## Health Check
+## MCP HTTP Server
 
-If the HTTP API is enabled, the health endpoint is:
+The daemon exposes an MCP (Model Context Protocol) HTTP server on port 8787 by default. This provides full API access via JSON-RPC over Streamable HTTP.
 
-```text
-http://localhost:3000/health
+```bash
+# Test with curl
+curl -X POST http://localhost:8787/mcp \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"test","version":"0.1.0"}}}'
 ```

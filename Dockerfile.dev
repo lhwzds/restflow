@@ -12,4 +12,4 @@ RUN apt-get update && \
 WORKDIR /app
 
 # Default command: watch and rebuild on changes
-CMD ["cargo", "watch", "-x", "run --bin restflow -- start --http --no-browser"]
+CMD ["cargo", "watch", "-x", "run --package restflow-cli -- daemon start --foreground"]
