@@ -13,7 +13,7 @@ mod config;
 mod diagnostics;
 mod email;
 mod file;
-mod file_memory;
+mod memory_store;
 mod file_tracker;
 mod http;
 mod jina_reader;
@@ -53,9 +53,8 @@ pub use config::ConfigTool;
 pub use diagnostics::{DiagnosticsProvider, DiagnosticsTool};
 pub use email::EmailTool;
 pub use file::{FileAction, FileTool};
-pub use file_memory::{
-    DeleteMemoryTool, FileMemoryConfig, FileMemoryStore, ListMemoryTool, MemoryEntry,
-    MemoryEntryMeta, MemoryStore, ReadMemoryTool, SaveMemoryTool,
+pub use memory_store::{
+    DeleteMemoryTool, ListMemoryTool, MemoryStore, ReadMemoryTool, SaveMemoryTool,
 };
 pub use http::HttpTool;
 pub use jina_reader::JinaReaderTool;
