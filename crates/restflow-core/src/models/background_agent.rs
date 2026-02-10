@@ -127,15 +127,6 @@ impl Default for TaskSchedule {
 #[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
 #[ts(export)]
 pub struct NotificationConfig {
-    /// Enable Telegram notifications
-    #[serde(default)]
-    pub telegram_enabled: bool,
-    /// Telegram bot token (optional, uses system config if not set)
-    #[serde(default)]
-    pub telegram_bot_token: Option<String>,
-    /// Telegram chat ID to send notifications to
-    #[serde(default)]
-    pub telegram_chat_id: Option<String>,
     /// Only notify on failure
     #[serde(default)]
     pub notify_on_failure_only: bool,
@@ -231,9 +222,6 @@ impl Default for MemoryConfig {
 impl Default for NotificationConfig {
     fn default() -> Self {
         Self {
-            telegram_enabled: false,
-            telegram_bot_token: None,
-            telegram_chat_id: None,
             notify_on_failure_only: false,
             include_output: true, // Default to true for include_output
         }
@@ -1086,9 +1074,6 @@ mod tests {
     fn test_notification_config_defaults() {
         let config = NotificationConfig::default();
 
-        assert!(!config.telegram_enabled);
-        assert!(config.telegram_bot_token.is_none());
-        assert!(config.telegram_chat_id.is_none());
         assert!(!config.notify_on_failure_only);
         assert!(config.include_output);
     }

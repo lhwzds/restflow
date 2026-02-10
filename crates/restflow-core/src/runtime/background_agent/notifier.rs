@@ -18,11 +18,15 @@ use super::runner::NotificationSender;
 
 /// Well-known secret name for system-level Telegram bot token.
 const TELEGRAM_BOT_TOKEN_SECRET: &str = "TELEGRAM_BOT_TOKEN";
+/// Well-known secret names for default Telegram destination.
+const TELEGRAM_CHAT_ID_SECRET: &str = "TELEGRAM_CHAT_ID";
+const TELEGRAM_DEFAULT_CHAT_ID_SECRET: &str = "TELEGRAM_DEFAULT_CHAT_ID";
 
 /// Telegram notification sender for agent task results.
 ///
 /// This sender:
-/// - Resolves bot token from task config or system secrets
+/// - Resolves bot token from system secrets
+/// - Resolves destination chat from system secrets
 /// - Formats task result as a Telegram message
 /// - Sends notification via Telegram Bot API
 pub struct TelegramNotifier {
@@ -35,27 +39,41 @@ impl TelegramNotifier {
         Self { secrets }
     }
 
-    /// Resolve the bot token from config or secrets.
-    ///
-    /// Priority:
-    /// 1. Task-level `telegram_bot_token` in NotificationConfig
-    /// 2. System-level secret `TELEGRAM_BOT_TOKEN`
-    fn resolve_bot_token(&self, config: &NotificationConfig) -> Result<String> {
-        // First, check task-level bot token
-        if let Some(ref token) = config.telegram_bot_token
-            && !token.is_empty()
-        {
-            return Ok(token.clone());
-        }
-
-        // Fall back to system-level secret
+    /// Resolve bot token from system-level secret.
+    fn resolve_bot_token(&self) -> Result<String> {
         if let Some(token) = self.secrets.get_secret(TELEGRAM_BOT_TOKEN_SECRET)? {
             return Ok(token);
         }
 
         Err(anyhow!(
-            "No Telegram bot token configured. Please add '{}' in Settings or configure it per-task.",
+            "No Telegram bot token configured. Please add '{}' in Settings.",
             TELEGRAM_BOT_TOKEN_SECRET
+        ))
+    }
+
+    fn resolve_chat_id(&self) -> Result<String> {
+        let primary = self
+            .secrets
+            .get_secret(TELEGRAM_CHAT_ID_SECRET)?
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+        if let Some(chat_id) = primary {
+            return Ok(chat_id);
+        }
+
+        let legacy = self
+            .secrets
+            .get_secret(TELEGRAM_DEFAULT_CHAT_ID_SECRET)?
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+        if let Some(chat_id) = legacy {
+            return Ok(chat_id);
+        }
+
+        Err(anyhow!(
+            "No default Telegram chat id configured. Please set '{}' or '{}'.",
+            TELEGRAM_CHAT_ID_SECRET,
+            TELEGRAM_DEFAULT_CHAT_ID_SECRET
         ))
     }
 
@@ -108,26 +126,14 @@ impl NotificationSender for TelegramNotifier {
     /// Send a notification for task completion/failure.
     async fn send(
         &self,
-        config: &NotificationConfig,
+        _config: &NotificationConfig,
         task: &BackgroundAgent,
         success: bool,
         message: &str,
     ) -> Result<()> {
         // Resolve bot token
-        let bot_token = self.resolve_bot_token(config)?;
-
-        // Get chat ID (required)
-        let chat_id = config
-            .telegram_chat_id
-            .as_ref()
-            .ok_or_else(|| anyhow!("Telegram chat ID not configured for task '{}'", task.name))?;
-
-        if chat_id.is_empty() {
-            return Err(anyhow!(
-                "Telegram chat ID is empty for task '{}'",
-                task.name
-            ));
-        }
+        let bot_token = self.resolve_bot_token()?;
+        let chat_id = self.resolve_chat_id()?;
 
         // Format the message
         let formatted_message = self.format_message(task, success, message);
@@ -136,7 +142,7 @@ impl NotificationSender for TelegramNotifier {
         let parse_mode = if success { None } else { Some("Markdown") };
 
         // Send via Telegram API
-        send_telegram_notification(&bot_token, chat_id, &formatted_message, parse_mode)
+        send_telegram_notification(&bot_token, &chat_id, &formatted_message, parse_mode)
             .await
             .map_err(|e| anyhow!("Failed to send Telegram notification: {}", e))
     }
@@ -173,20 +179,6 @@ mod tests {
     }
 
     #[test]
-    fn test_resolve_bot_token_from_config() {
-        let (secrets, _temp_dir) = create_test_secrets();
-        let notifier = TelegramNotifier::new(secrets);
-
-        let config = NotificationConfig {
-            telegram_bot_token: Some("config-token-123".to_string()),
-            ..Default::default()
-        };
-
-        let token = notifier.resolve_bot_token(&config).unwrap();
-        assert_eq!(token, "config-token-123");
-    }
-
-    #[test]
     fn test_resolve_bot_token_from_secrets() {
         let (secrets, _temp_dir) = create_test_secrets();
 
@@ -197,50 +189,7 @@ mod tests {
 
         let notifier = TelegramNotifier::new(secrets);
 
-        // Config without token should fall back to secrets
-        let config = NotificationConfig::default();
-        let token = notifier.resolve_bot_token(&config).unwrap();
-        assert_eq!(token, "secret-token-456");
-    }
-
-    #[test]
-    fn test_resolve_bot_token_config_priority() {
-        let (secrets, _temp_dir) = create_test_secrets();
-
-        // Store a system-level token
-        secrets
-            .set_secret(TELEGRAM_BOT_TOKEN_SECRET, "secret-token-456", None)
-            .unwrap();
-
-        let notifier = TelegramNotifier::new(secrets);
-
-        // Config token should take priority
-        let config = NotificationConfig {
-            telegram_bot_token: Some("config-token-123".to_string()),
-            ..Default::default()
-        };
-
-        let token = notifier.resolve_bot_token(&config).unwrap();
-        assert_eq!(token, "config-token-123");
-    }
-
-    #[test]
-    fn test_resolve_bot_token_empty_config_falls_back() {
-        let (secrets, _temp_dir) = create_test_secrets();
-
-        secrets
-            .set_secret(TELEGRAM_BOT_TOKEN_SECRET, "secret-token-456", None)
-            .unwrap();
-
-        let notifier = TelegramNotifier::new(secrets);
-
-        // Empty config token should fall back to secrets
-        let config = NotificationConfig {
-            telegram_bot_token: Some("".to_string()),
-            ..Default::default()
-        };
-
-        let token = notifier.resolve_bot_token(&config).unwrap();
+        let token = notifier.resolve_bot_token().unwrap();
         assert_eq!(token, "secret-token-456");
     }
 
@@ -249,8 +198,7 @@ mod tests {
         let (secrets, _temp_dir) = create_test_secrets();
         let notifier = TelegramNotifier::new(secrets);
 
-        let config = NotificationConfig::default();
-        let result = notifier.resolve_bot_token(&config);
+        let result = notifier.resolve_bot_token();
 
         assert!(result.is_err());
         assert!(
@@ -258,6 +206,61 @@ mod tests {
                 .unwrap_err()
                 .to_string()
                 .contains("No Telegram bot token")
+        );
+    }
+
+    #[test]
+    fn test_resolve_chat_id_from_primary_secret() {
+        let (secrets, _temp_dir) = create_test_secrets();
+        secrets
+            .set_secret(TELEGRAM_CHAT_ID_SECRET, "12345678", None)
+            .unwrap();
+
+        let notifier = TelegramNotifier::new(secrets);
+        let chat_id = notifier.resolve_chat_id().unwrap();
+        assert_eq!(chat_id, "12345678");
+    }
+
+    #[test]
+    fn test_resolve_chat_id_from_legacy_secret() {
+        let (secrets, _temp_dir) = create_test_secrets();
+        secrets
+            .set_secret(TELEGRAM_DEFAULT_CHAT_ID_SECRET, "87654321", None)
+            .unwrap();
+
+        let notifier = TelegramNotifier::new(secrets);
+        let chat_id = notifier.resolve_chat_id().unwrap();
+        assert_eq!(chat_id, "87654321");
+    }
+
+    #[test]
+    fn test_resolve_chat_id_prefers_primary_secret() {
+        let (secrets, _temp_dir) = create_test_secrets();
+        secrets
+            .set_secret(TELEGRAM_CHAT_ID_SECRET, "12345678", None)
+            .unwrap();
+        secrets
+            .set_secret(TELEGRAM_DEFAULT_CHAT_ID_SECRET, "87654321", None)
+            .unwrap();
+
+        let notifier = TelegramNotifier::new(secrets);
+        let chat_id = notifier.resolve_chat_id().unwrap();
+        assert_eq!(chat_id, "12345678");
+    }
+
+    #[test]
+    fn test_resolve_chat_id_missing() {
+        let (secrets, _temp_dir) = create_test_secrets();
+        let notifier = TelegramNotifier::new(secrets);
+
+        let result = notifier.resolve_chat_id();
+
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("No default Telegram chat id")
         );
     }
 
@@ -360,7 +363,7 @@ mod tests {
 
         let result = notifier.send(&config, &task, true, "output").await;
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("chat ID"));
+        assert!(result.unwrap_err().to_string().contains("chat id"));
     }
 
     #[tokio::test]
@@ -369,17 +372,17 @@ mod tests {
         secrets
             .set_secret(TELEGRAM_BOT_TOKEN_SECRET, "test-token", None)
             .unwrap();
+        secrets
+            .set_secret(TELEGRAM_CHAT_ID_SECRET, "   ", None)
+            .unwrap();
 
         let notifier = TelegramNotifier::new(secrets);
         let task = create_test_task();
 
-        let config = NotificationConfig {
-            telegram_chat_id: Some("".to_string()),
-            ..Default::default()
-        };
+        let config = NotificationConfig::default();
 
         let result = notifier.send(&config, &task, true, "output").await;
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("empty"));
+        assert!(result.unwrap_err().to_string().contains("chat id"));
     }
 }

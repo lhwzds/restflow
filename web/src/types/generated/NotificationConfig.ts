@@ -5,18 +5,6 @@
  */
 export type NotificationConfig = { 
 /**
- * Enable Telegram notifications
- */
-telegram_enabled: boolean, 
-/**
- * Telegram bot token (optional, uses system config if not set)
- */
-telegram_bot_token: string | null, 
-/**
- * Telegram chat ID to send notifications to
- */
-telegram_chat_id: string | null, 
-/**
  * Only notify on failure
  */
 notify_on_failure_only: boolean, 
