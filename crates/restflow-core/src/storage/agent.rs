@@ -53,8 +53,7 @@ impl AgentStorage {
             updated_at: Some(now),
         };
 
-        let json_bytes = serde_json::to_vec(&stored_agent)?;
-        self.inner.put_raw(&stored_agent.id, &json_bytes)?;
+        self.persist_without_prompt(&stored_agent)?;
 
         self.hydrate_prompt_from_file(stored_agent)
     }
@@ -106,8 +105,7 @@ impl AgentStorage {
         let now = time_utils::now_ms();
         existing_agent.updated_at = Some(now);
 
-        let json_bytes = serde_json::to_vec(&existing_agent)?;
-        self.inner.put_raw(&existing_agent.id, &json_bytes)?;
+        self.persist_without_prompt(&existing_agent)?;
 
         self.hydrate_prompt_from_file(existing_agent)
     }
@@ -147,6 +145,14 @@ impl AgentStorage {
     fn hydrate_prompt_from_file(&self, mut stored: StoredAgent) -> Result<StoredAgent> {
         stored.agent.prompt = prompt_files::load_agent_prompt(&stored.id)?;
         Ok(stored)
+    }
+
+    fn persist_without_prompt(&self, stored: &StoredAgent) -> Result<()> {
+        let mut scrubbed = stored.clone();
+        scrubbed.agent.prompt = None;
+        let json_bytes = serde_json::to_vec(&scrubbed)?;
+        self.inner.put_raw(&scrubbed.id, &json_bytes)?;
+        Ok(())
     }
 }
 
@@ -267,6 +273,33 @@ mod tests {
 
         assert_eq!(updated2.name, "Updated Name");
         assert_eq!(updated2.agent.temperature, Some(0.9));
+        unsafe { std::env::remove_var(AGENTS_DIR_ENV) };
+    }
+
+    #[test]
+    fn test_update_name_does_not_rehydrate_prompt_into_db() {
+        let _lock = env_lock();
+        let temp_dir = tempdir().unwrap();
+        let prompts_dir = temp_dir.path().join("agents");
+        unsafe { std::env::set_var(AGENTS_DIR_ENV, &prompts_dir) };
+        let db_path = temp_dir.path().join("test.db");
+        let db = Arc::new(Database::create(db_path).unwrap());
+        let storage = AgentStorage::new(db).unwrap();
+
+        let stored = storage
+            .create_agent("Original Name".to_string(), create_test_agent_node())
+            .unwrap();
+        let updated = storage
+            .update_agent(stored.id.clone(), Some("Updated Name".to_string()), None)
+            .unwrap();
+
+        assert_eq!(updated.name, "Updated Name");
+        assert!(updated.agent.prompt.is_some());
+
+        let raw = storage.inner.get_raw(&stored.id).unwrap().unwrap();
+        let persisted: StoredAgent = serde_json::from_slice(&raw).unwrap();
+        assert!(persisted.agent.prompt.is_none());
+
         unsafe { std::env::remove_var(AGENTS_DIR_ENV) };
     }
 
