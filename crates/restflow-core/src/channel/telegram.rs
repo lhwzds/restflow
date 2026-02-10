@@ -71,6 +71,8 @@ pub struct TelegramChannel {
     polling_active: Arc<AtomicBool>,
     /// Last update ID for long-polling
     last_update_id: Arc<AtomicI64>,
+    /// Persist Telegram offset when it changes.
+    offset_persister: Option<Arc<dyn Fn(i64) + Send + Sync>>,
 }
 
 impl TelegramChannel {
@@ -81,6 +83,7 @@ impl TelegramChannel {
             client: Client::new(),
             polling_active: Arc::new(AtomicBool::new(false)),
             last_update_id: Arc::new(AtomicI64::new(0)),
+            offset_persister: None,
         }
     }
 
@@ -93,6 +96,23 @@ impl TelegramChannel {
     pub fn with_default_chat(mut self, chat_id: impl Into<String>) -> Self {
         self.config.default_chat_id = Some(chat_id.into());
         self
+    }
+
+    /// Restore the last processed Telegram update ID.
+    pub fn with_last_update_id(self, update_id: i64) -> Self {
+        self.last_update_id.store(update_id, Ordering::SeqCst);
+        self
+    }
+
+    /// Persist offset after each successful polling batch.
+    pub fn with_offset_persister(mut self, persister: Arc<dyn Fn(i64) + Send + Sync>) -> Self {
+        self.offset_persister = Some(persister);
+        self
+    }
+
+    /// Return current last processed update ID.
+    pub fn last_update_id(&self) -> i64 {
+        self.last_update_id.load(Ordering::SeqCst)
     }
 
     /// Get the API URL for a method
@@ -191,6 +211,9 @@ impl TelegramChannel {
         // Update last_update_id
         if let Some(last) = updates.last() {
             self.last_update_id.store(last.update_id, Ordering::SeqCst);
+            if let Some(persister) = &self.offset_persister {
+                persister(last.update_id);
+            }
         }
 
         Ok(updates)
@@ -490,6 +513,7 @@ impl Channel for TelegramChannel {
         let (tx, rx) = mpsc::unbounded_channel();
         let polling_active = self.polling_active.clone();
         let last_update_id = self.last_update_id.clone();
+        let offset_persister = self.offset_persister.clone();
         let config = self.config.clone();
         let client = self.client.clone();
 
@@ -503,6 +527,7 @@ impl Channel for TelegramChannel {
                 client,
                 polling_active: polling_active.clone(),
                 last_update_id,
+                offset_persister,
             };
 
             while polling_active.load(Ordering::SeqCst) {
@@ -700,6 +725,8 @@ struct TelegramMessageResponse {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicI64, Ordering as AtomicOrdering};
 
     #[test]
     fn test_telegram_config_builder() {
@@ -726,6 +753,30 @@ mod tests {
         let channel = TelegramChannel::with_token("test");
         assert_eq!(channel.channel_type(), ChannelType::Telegram);
         assert!(channel.supports_interaction());
+    }
+
+    #[test]
+    fn test_telegram_channel_restore_last_update_id() {
+        let channel = TelegramChannel::with_token("test").with_last_update_id(123);
+        assert_eq!(channel.last_update_id(), 123);
+    }
+
+    #[test]
+    fn test_telegram_channel_offset_persister_callback() {
+        let observed = Arc::new(AtomicI64::new(0));
+        let observer = observed.clone();
+        let persister: Arc<dyn Fn(i64) + Send + Sync> =
+            Arc::new(move |value| observer.store(value, AtomicOrdering::SeqCst));
+
+        let channel = TelegramChannel::with_token("test")
+            .with_offset_persister(persister)
+            .with_last_update_id(88);
+
+        assert_eq!(channel.last_update_id(), 88);
+        if let Some(callback) = &channel.offset_persister {
+            callback(321);
+        }
+        assert_eq!(observed.load(AtomicOrdering::SeqCst), 321);
     }
 
     #[test]
