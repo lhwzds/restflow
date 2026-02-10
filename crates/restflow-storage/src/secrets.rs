@@ -4,7 +4,7 @@ use crate::encryption::SecretEncryptor;
 use crate::paths;
 use anyhow::{Context, Result};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
-use rand::TryRngCore;
+use rand::Rng;
 use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
 use serde::{Deserialize, Serialize};
 use std::env;
@@ -260,8 +260,7 @@ fn load_master_key(config: &SecretStorageConfig) -> Result<[u8; 32]> {
 
     // SECURITY: Buffer initialized to zero, immediately filled with cryptographically secure random bytes.
     let mut key = [0u8; 32];
-    let mut rng = rand::rngs::OsRng;
-    rng.try_fill_bytes(&mut key)?;
+    rand::rng().fill_bytes(&mut key);
     match write_master_key(&key) {
         Ok(_) => Ok(key),
         Err(err) => {
