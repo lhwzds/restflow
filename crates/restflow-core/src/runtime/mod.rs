@@ -13,8 +13,8 @@ pub use agent::{
 };
 pub use background_agent::{
     AgentExecutor, AgentRuntimeExecutor, BackgroundAgentRunner, ExecutionResult,
-    NoopNotificationSender, NotificationSender, RunnerConfig, RunnerHandle, SessionExecutionResult,
-    SessionInputMode, TaskEventEmitter, TaskStreamEvent, TelegramNotifier,
+    NoopHeartbeatEmitter, NoopNotificationSender, NotificationSender, RunnerConfig, RunnerHandle,
+    SessionExecutionResult, SessionInputMode, TaskEventEmitter, TaskStreamEvent, TelegramNotifier,
 };
 pub use channel::{
     BackgroundAgentTrigger, ChatDispatcher, ChatDispatcherConfig, ChatError, ChatSessionManager,
