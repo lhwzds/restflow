@@ -95,6 +95,7 @@ pub fn main_agent_default_tool_names() -> Vec<String> {
         "jina_reader",
         "show_panel",
         "reply",
+        "process",
     ]
     .into_iter()
     .map(str::to_string)
@@ -419,6 +420,9 @@ pub fn registry_from_allowlist(
             }
             "reply" => {
                 // Registered by callers that provide a ReplySender (e.g., ChatDispatcher).
+            }
+            "process" => {
+                // Registered by callers that provide a ProcessRegistry.
             }
             unknown => {
                 warn!(tool_name = %unknown, "Configured tool not found in registry, skipping");
