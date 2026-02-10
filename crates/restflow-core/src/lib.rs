@@ -11,6 +11,7 @@ pub mod models;
 pub mod paths;
 pub mod performance;
 pub mod process;
+pub mod prompt_files;
 pub mod python;
 pub mod registry;
 pub mod runtime;
@@ -41,13 +42,13 @@ pub struct AppCore {
     pub mcp_tool_cache: Arc<McpToolCache>,
 }
 
-/// Default agent prompt embedded at compile time
-const DEFAULT_AGENT_PROMPT: &str = include_str!("../assets/default_agent.md");
 const DEFAULT_AGENT_NAME: &str = "Default Assistant";
 
 impl AppCore {
     pub async fn new(db_path: &str) -> anyhow::Result<Self> {
         let storage = Arc::new(Storage::new(db_path)?);
+        prompt_files::ensure_prompt_templates()?;
+        storage.agents.migrate_prompts_to_files()?;
 
         // Ensure default agent exists on first run
         Self::ensure_default_agent(&storage)?;
@@ -68,11 +69,11 @@ impl AppCore {
         let agents = storage.agents.list_agents()?;
         if agents.is_empty() {
             info!("Creating default agent...");
-            let agent_node = models::AgentNode::with_model(models::AIModel::CodexCli)
-                .with_prompt(DEFAULT_AGENT_PROMPT);
-            storage
+            let agent_node = models::AgentNode::with_model(models::AIModel::CodexCli);
+            let created = storage
                 .agents
                 .create_agent(DEFAULT_AGENT_NAME.to_string(), agent_node)?;
+            prompt_files::ensure_agent_prompt_file(&created.id, None)?;
             info!("Default agent created: {}", DEFAULT_AGENT_NAME);
         }
         Ok(())

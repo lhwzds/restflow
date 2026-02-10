@@ -7,6 +7,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::models::AgentNode;
+use crate::prompt_files;
 use crate::storage::Storage;
 
 pub use restflow_ai::agent::{AgentExecutionEngine, AgentExecutionEngineConfig, ExecutionResult};
@@ -22,10 +23,17 @@ pub use tools::{
 pub fn build_agent_system_prompt(
     storage: Arc<Storage>,
     agent_node: &AgentNode,
+    agent_id: Option<&str>,
 ) -> Result<String, anyhow::Error> {
-    let base = agent_node
-        .prompt
-        .clone()
+    let base = agent_id
+        .and_then(|id| prompt_files::load_agent_prompt(id).ok().flatten())
+        .or_else(|| {
+            agent_node
+                .prompt
+                .clone()
+                .filter(|prompt| !prompt.trim().is_empty())
+        })
+        .or_else(|| prompt_files::load_default_main_agent_prompt().ok())
         .unwrap_or_else(|| "You are a helpful AI assistant.".to_string());
     let skill_ids = agent_node.skills.clone().unwrap_or_default();
     let skill_vars: Option<HashMap<String, String>> = agent_node.skill_variables.clone();

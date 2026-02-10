@@ -153,6 +153,7 @@ pub trait AgentExecutor: Send + Sync {
     async fn execute(
         &self,
         agent_id: &str,
+        background_task_id: Option<&str>,
         input: Option<&str>,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
     ) -> Result<ExecutionResult>;
@@ -884,8 +885,12 @@ impl BackgroundAgentRunner {
                     let timeout = Duration::from_secs(self.config.task_timeout_secs);
                     tokio::time::timeout(
                         timeout,
-                        self.executor
-                            .execute(&task.agent_id, resolved_input.as_deref(), steer_rx),
+                        self.executor.execute(
+                            &task.agent_id,
+                            Some(&task.id),
+                            resolved_input.as_deref(),
+                            steer_rx,
+                        ),
                     )
                     .await
                 }
@@ -1123,9 +1128,10 @@ impl BackgroundAgentRunner {
 
     fn resolve_task_input(&self, task: &BackgroundAgent) -> Option<String> {
         if let Some(template) = task.input_template.as_deref() {
-            return Some(Self::render_input_template(task, template));
+            Some(Self::render_input_template(task, template))
+        } else {
+            task.input.clone()
         }
-        task.input.clone()
     }
 
     fn render_input_template(task: &BackgroundAgent, template: &str) -> String {
@@ -1215,21 +1221,18 @@ impl BackgroundAgentRunner {
         }
 
         // Success notifications should always deliver the agent's actual reply.
-        // Keep include_output as a failure-detail toggle for backward compatibility.
+        // Failure notifications must include at least the execution error summary so
+        // operators can diagnose issues from the notification alone.
         let notification_message = if success {
             if message.trim().is_empty() {
                 "Task completed successfully".to_string()
             } else {
                 message.to_string()
             }
-        } else if task.notification.include_output {
-            if message.trim().is_empty() {
-                "Task failed".to_string()
-            } else {
-                message.to_string()
-            }
-        } else {
+        } else if message.trim().is_empty() {
             "Task failed".to_string()
+        } else {
+            message.to_string()
         };
 
         let mut sent_via: Vec<&'static str> = Vec::new();
@@ -1422,6 +1425,7 @@ mod tests {
         async fn execute(
             &self,
             agent_id: &str,
+            _background_task_id: Option<&str>,
             input: Option<&str>,
             _steer_rx: Option<mpsc::Receiver<SteerMessage>>,
         ) -> Result<ExecutionResult> {
@@ -2035,6 +2039,80 @@ mod tests {
         );
     }
 
+    #[test]
+    fn test_resolve_task_input_keeps_plain_input_unchanged() {
+        let (storage, _temp_dir) = create_test_storage();
+        let mut task = BackgroundAgent::new(
+            "task-plain".to_string(),
+            "Plain Input Task".to_string(),
+            "agent-456".to_string(),
+            TaskSchedule::default(),
+        );
+        task.input = Some("Collect latest news.".to_string());
+
+        let runner = BackgroundAgentRunner::new(
+            storage,
+            Arc::new(MockExecutor::new()),
+            Arc::new(NoopNotificationSender),
+            RunnerConfig::default(),
+            Arc::new(SteerRegistry::new()),
+        );
+
+        let resolved = runner
+            .resolve_task_input(&task)
+            .expect("resolved input should exist");
+
+        assert_eq!(resolved, "Collect latest news.");
+    }
+
+    #[test]
+    fn test_resolve_task_input_renders_template_without_injection() {
+        let (storage, _temp_dir) = create_test_storage();
+        let mut task = BackgroundAgent::new(
+            "task-template".to_string(),
+            "Template Input Task".to_string(),
+            "agent-789".to_string(),
+            TaskSchedule::default(),
+        );
+        task.input = Some("fallback".to_string());
+        task.input_template = Some("Template for {{task.name}}".to_string());
+
+        let runner = BackgroundAgentRunner::new(
+            storage,
+            Arc::new(MockExecutor::new()),
+            Arc::new(NoopNotificationSender),
+            RunnerConfig::default(),
+            Arc::new(SteerRegistry::new()),
+        );
+
+        let resolved = runner
+            .resolve_task_input(&task)
+            .expect("resolved input should exist");
+
+        assert_eq!(resolved, "Template for Template Input Task");
+    }
+
+    #[test]
+    fn test_resolve_task_input_returns_none_when_no_input_or_template() {
+        let (storage, _temp_dir) = create_test_storage();
+        let task = BackgroundAgent::new(
+            "task-empty".to_string(),
+            "Empty Input Task".to_string(),
+            "agent-000".to_string(),
+            TaskSchedule::default(),
+        );
+
+        let runner = BackgroundAgentRunner::new(
+            storage,
+            Arc::new(MockExecutor::new()),
+            Arc::new(NoopNotificationSender),
+            RunnerConfig::default(),
+            Arc::new(SteerRegistry::new()),
+        );
+
+        assert!(runner.resolve_task_input(&task).is_none());
+    }
+
     #[tokio::test]
     async fn test_runner_sends_notifications() {
         let (storage, _temp_dir) = create_test_storage();
@@ -2169,6 +2247,50 @@ mod tests {
         let message = notifier.last_message().await.unwrap_or_default();
         assert!(message.contains("Executed agent agent-001"));
         assert!(!message.contains("Task completed successfully"));
+    }
+
+    #[tokio::test]
+    async fn test_runner_failure_notification_includes_error_when_include_output_disabled() {
+        let (storage, _temp_dir) = create_test_storage();
+        let executor = Arc::new(MockExecutor::with_failure());
+        let notifier = Arc::new(MockNotifier::new());
+
+        let past_time = chrono::Utc::now().timestamp_millis() - 1000;
+        let mut task = storage
+            .create_task(
+                "Failure Output".to_string(),
+                "agent-001".to_string(),
+                TaskSchedule::Once { run_at: past_time },
+            )
+            .unwrap();
+        task.next_run_at = Some(past_time);
+        task.notification.telegram_enabled = true;
+        task.notification.telegram_chat_id = Some("123456".to_string());
+        task.notification.include_output = false;
+        storage.update_task(&task).unwrap();
+
+        let config = RunnerConfig {
+            poll_interval_ms: 100,
+            ..Default::default()
+        };
+
+        let steer_registry = Arc::new(SteerRegistry::new());
+        let runner = Arc::new(BackgroundAgentRunner::new(
+            storage,
+            executor,
+            notifier.clone(),
+            config,
+            steer_registry,
+        ));
+
+        let handle = runner.clone().start();
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        handle.stop().await.unwrap();
+
+        assert_eq!(notifier.notification_count().await, 1);
+        let message = notifier.last_message().await.unwrap_or_default();
+        assert!(message.contains("Execution error: Mock execution failure"));
+        assert_ne!(message, "Task failed");
     }
 
     #[test]
