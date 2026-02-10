@@ -47,7 +47,7 @@ pub use steer::{SteerMessage, SteerSource};
 pub use tools::{
     AgentCreateRequest, AgentCrudTool, AgentStore, AgentUpdateRequest, AuthProfileCreateRequest,
     AuthProfileStore, AuthProfileTestRequest, AuthProfileTool, CredentialInput,
-    DiagnosticsProvider, DiagnosticsTool, EmailTool, HttpTool, MemoryClearRequest,
+    DiagnosticsProvider, DiagnosticsTool, EmailTool, HttpTool, ProcessManager, ProcessTool, MemoryClearRequest,
     MemoryCompactRequest, MemoryExportRequest, MemoryManagementTool, MemoryManager,
     MemorySearchMatch, MemorySearchTool, MemoryStore, PythonTool, ReplySender, ReplyTool,
     SecretResolver, SemanticMemory, SessionCreateRequest, SessionListFilter, SessionSearchQuery,

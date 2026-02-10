@@ -88,11 +88,13 @@
 //! }
 //! ```
 
+mod reply_sender;
 mod router;
 pub mod telegram;
 mod traits;
 mod types;
 
+pub use reply_sender::ChannelReplySender;
 pub use router::ChannelRouter;
 pub use telegram::{TelegramChannel, TelegramConfig};
 pub use traits::{Channel, StreamReceiver, WebhookReceiver};

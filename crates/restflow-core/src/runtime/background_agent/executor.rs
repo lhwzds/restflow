@@ -20,7 +20,7 @@ use crate::{
 use restflow_ai::llm::Message;
 use restflow_ai::{
     AiError, CodexClient, DefaultLlmClientFactory, LlmClient, LlmClientFactory, LlmProvider,
-    SwappableLlm, SwitchModelTool,
+    ProcessTool, ReplySender, ReplyTool, SwappableLlm, SwitchModelTool,
 };
 use tokio::sync::mpsc;
 use tokio::time::sleep;
@@ -46,12 +46,12 @@ use crate::runtime::subagent::{AgentDefinitionRegistry, SubagentConfig, Subagent
 /// - Executes the agent via the ReAct loop
 pub struct AgentRuntimeExecutor {
     storage: Arc<Storage>,
-    #[allow(dead_code)]
     process_registry: Arc<ProcessRegistry>,
     auth_manager: Arc<AuthProfileManager>,
     subagent_tracker: Arc<SubagentTracker>,
     subagent_definitions: Arc<AgentDefinitionRegistry>,
     subagent_config: SubagentConfig,
+    reply_sender: Option<Arc<dyn ReplySender>>,
 }
 
 /// Result of executing a chat turn for a persisted chat session.
@@ -89,7 +89,14 @@ impl AgentRuntimeExecutor {
             subagent_tracker,
             subagent_definitions,
             subagent_config,
+            reply_sender: None,
         }
+    }
+
+    /// Set a reply sender so the agent can send intermediate messages.
+    pub fn with_reply_sender(mut self, sender: Arc<dyn ReplySender>) -> Self {
+        self.reply_sender = Some(sender);
+        self
     }
 
     /// Get the API key for a model, resolving from config or secrets.
@@ -193,6 +200,9 @@ impl AgentRuntimeExecutor {
             {
                 client = client.with_reasoning_effort(effort);
             }
+            if let Some(mode) = agent_node.codex_cli_execution_mode.as_ref() {
+                client = client.with_execution_mode(mode.as_str());
+            }
             return Ok(Arc::new(client));
         }
 
@@ -231,12 +241,24 @@ impl AgentRuntimeExecutor {
             agent_id,
         );
 
-        let enable_switch = tool_names
-            .map(|names| names.iter().any(|name| name == "switch_model"))
-            .unwrap_or(false);
+        let requested = |name: &str| {
+            tool_names
+                .map(|names| names.iter().any(|n| n == name))
+                .unwrap_or(false)
+        };
 
-        if enable_switch {
+        if requested("switch_model") {
             registry.register(SwitchModelTool::new(swappable, factory));
+        }
+
+        if requested("process") {
+            registry.register(ProcessTool::new(self.process_registry.clone()));
+        }
+
+        if requested("reply")
+            && let Some(sender) = &self.reply_sender
+        {
+            registry.register(ReplyTool::new(sender.clone()));
         }
 
         Arc::new(registry)
