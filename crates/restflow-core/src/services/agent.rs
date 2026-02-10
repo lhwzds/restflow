@@ -53,6 +53,7 @@ pub async fn delete_agent(core: &Arc<AppCore>, id: &str) -> Result<()> {
 }
 
 #[cfg(test)]
+#[allow(clippy::await_holding_lock)]
 mod tests {
     use super::*;
     use crate::models::{AIModel, ApiKeyConfig};
