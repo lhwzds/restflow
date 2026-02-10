@@ -20,7 +20,7 @@ edition = "2024"
 restflow-storage = { path = "crates/restflow-storage" }
 restflow-core = { path = "crates/restflow-core" }
 restflow-ai = { path = "crates/restflow-ai" }
-anyhow = "1.0.100"
+anyhow = "1.0.101"
 async-trait = "0.1.89"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.142"
