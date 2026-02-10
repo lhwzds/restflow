@@ -335,7 +335,7 @@ async fn install_from_dirs(
         return Err(anyhow::anyhow!("No skills found in source: {}", source));
     }
 
-    let target_base = resolve_scope_dir(scope)?;
+    let (target_base, effective_scope) = resolve_scope_dir(scope)?;
     let loader = SkillFolderLoader::new(PathBuf::new());
 
     let mut installed_ids = Vec::new();
@@ -354,7 +354,7 @@ async fn install_from_dirs(
     if format.is_json() {
         return print_json(&json!({
             "source": source,
-            "scope": scope,
+            "scope": effective_scope,
             "installed": installed_ids,
         }));
     }
@@ -363,7 +363,7 @@ async fn install_from_dirs(
         "Installed {} skill(s) from {} into {} scope",
         installed_ids.len(),
         source,
-        scope
+        effective_scope
     );
     Ok(())
 }
@@ -381,10 +381,12 @@ async fn upsert_skill(executor: &Arc<dyn CommandExecutor>, mut skill: Skill) -> 
     Ok(())
 }
 
-fn resolve_scope_dir(scope: &str) -> Result<PathBuf> {
+fn resolve_scope_dir(scope: &str) -> Result<(PathBuf, &'static str)> {
     match scope {
-        "user" => paths::user_skills_dir(),
-        "workspace" => paths::workspace_skills_dir(),
+        "user" => Ok((paths::user_skills_dir()?, "user")),
+        // Workspace scope is kept as a compatibility alias and now maps
+        // to the same user-level directory.
+        "workspace" => Ok((paths::user_skills_dir()?, "user")),
         _ => Err(anyhow::anyhow!("Invalid scope: {}", scope)),
     }
 }
@@ -428,7 +430,13 @@ fn copy_skill_dir(source: &Path, target: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Mutex, OnceLock};
     use tempfile::tempdir;
+
+    fn env_lock() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(())).lock().unwrap()
+    }
 
     #[test]
     fn test_git_source_detection() {
@@ -466,5 +474,20 @@ mod tests {
         );
 
         Ok(())
+    }
+
+    #[test]
+    fn test_resolve_scope_dir_workspace_aliases_to_user() {
+        let _lock = env_lock();
+        let temp = tempdir().unwrap();
+        unsafe { std::env::set_var("RESTFLOW_DIR", temp.path()) };
+
+        let (user_dir, user_scope) = resolve_scope_dir("user").unwrap();
+        let (workspace_dir, workspace_scope) = resolve_scope_dir("workspace").unwrap();
+        assert_eq!(user_scope, "user");
+        assert_eq!(workspace_scope, "user");
+        assert_eq!(user_dir, workspace_dir);
+
+        unsafe { std::env::remove_var("RESTFLOW_DIR") };
     }
 }

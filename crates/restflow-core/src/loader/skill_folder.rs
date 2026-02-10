@@ -86,11 +86,6 @@ impl SkillFolderLoader {
             skills.extend(loader.scan()?);
         }
 
-        if let Ok(workspace_dir) = paths::workspace_skills_dir() {
-            let loader = SkillFolderLoader::new(workspace_dir);
-            skills.extend(loader.scan()?);
-        }
-
         Ok(skills)
     }
 

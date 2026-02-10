@@ -5,8 +5,8 @@ use crate::daemon::CliBackgroundAgentRunner;
 use anyhow::Result;
 use restflow_core::AppCore;
 use restflow_core::daemon::{
-    DaemonConfig, DaemonStatus, HttpConfig, HttpServer, IpcServer, check_daemon_status,
-    start_daemon_with_config, stop_daemon,
+    DaemonConfig, DaemonStatus, IpcServer, check_daemon_status, start_daemon_with_config,
+    stop_daemon,
 };
 use restflow_core::paths;
 use std::sync::Arc;
@@ -26,31 +26,19 @@ pub async fn run(core: Arc<AppCore>, command: DaemonCommands) -> Result<()> {
     match command {
         DaemonCommands::Start {
             foreground,
-            http,
-            port,
             mcp_port,
-        } => start(core, foreground, http, port, mcp_port).await,
+        } => start(core, foreground, mcp_port).await,
         DaemonCommands::Restart {
             foreground,
-            http,
-            port,
             mcp_port,
-        } => restart(core, foreground, http, port, mcp_port).await,
+        } => restart(core, foreground, mcp_port).await,
         DaemonCommands::Stop => stop().await,
         DaemonCommands::Status => status().await,
     }
 }
 
-async fn start(
-    core: Arc<AppCore>,
-    foreground: bool,
-    http: bool,
-    port: Option<u16>,
-    mcp_port: Option<u16>,
-) -> Result<()> {
+async fn start(core: Arc<AppCore>, foreground: bool, mcp_port: Option<u16>) -> Result<()> {
     let config = DaemonConfig {
-        http,
-        http_port: port,
         mcp: true,
         mcp_port,
     };
@@ -74,16 +62,8 @@ async fn start(
     }
 }
 
-async fn restart(
-    core: Arc<AppCore>,
-    foreground: bool,
-    http: bool,
-    port: Option<u16>,
-    mcp_port: Option<u16>,
-) -> Result<()> {
+async fn restart(core: Arc<AppCore>, foreground: bool, mcp_port: Option<u16>) -> Result<()> {
     let config = DaemonConfig {
-        http,
-        http_port: port,
         mcp: true,
         mcp_port,
     };
@@ -151,22 +131,6 @@ async fn run_daemon(core: Arc<AppCore>, config: DaemonConfig) -> Result<()> {
         }
     });
 
-    let http_handle = if config.http {
-        let http_config = HttpConfig {
-            port: config.http_port.unwrap_or(3000),
-            ..HttpConfig::default()
-        };
-        let http_server = HttpServer::new(http_config, core.clone());
-        let http_shutdown = shutdown_tx.subscribe();
-        Some(tokio::spawn(async move {
-            if let Err(err) = http_server.run(http_shutdown).await {
-                error!(error = %err, "HTTP server stopped unexpectedly");
-            }
-        }))
-    } else {
-        None
-    };
-
     // MCP server is always enabled
     let addr = std::net::SocketAddr::from(([127, 0, 0, 1], config.mcp_port.unwrap_or(8787)));
     let mcp_shutdown = shutdown_tx.subscribe();
@@ -192,9 +156,6 @@ async fn run_daemon(core: Arc<AppCore>, config: DaemonConfig) -> Result<()> {
     runner.stop().await?;
     let _ = std::fs::remove_file(&pid_path);
     let _ = ipc_handle.await;
-    if let Some(handle) = http_handle {
-        let _ = handle.await;
-    }
     let _ = mcp_handle.await;
 
     println!("Daemon stopped");

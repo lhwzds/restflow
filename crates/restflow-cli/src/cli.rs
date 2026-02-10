@@ -364,14 +364,6 @@ pub enum DaemonCommands {
         #[arg(long)]
         foreground: bool,
 
-        /// Enable the HTTP API
-        #[arg(long)]
-        http: bool,
-
-        /// HTTP port for the API
-        #[arg(short, long)]
-        port: Option<u16>,
-
         /// MCP HTTP server port (default: 8787, MCP is always enabled)
         #[arg(long)]
         mcp_port: Option<u16>,
@@ -388,14 +380,6 @@ pub enum DaemonCommands {
         /// Run in foreground
         #[arg(long)]
         foreground: bool,
-
-        /// Enable the HTTP API
-        #[arg(long)]
-        http: bool,
-
-        /// HTTP port for the API
-        #[arg(short, long)]
-        port: Option<u16>,
 
         /// MCP HTTP server port (default: 8787, MCP is always enabled)
         #[arg(long)]
@@ -443,7 +427,7 @@ pub enum SkillCommands {
         #[arg(long)]
         path: Option<String>,
 
-        /// Install scope: user (default) or workspace
+        /// Install scope (user-only; `workspace` is treated as `user` for compatibility)
         #[arg(long, default_value = "user")]
         scope: String,
     },

@@ -41,7 +41,7 @@ impl AgentStorage {
         let now = time_utils::now_ms();
         let id = Uuid::new_v4().to_string();
 
-        // Prompt content is file-backed under ./agents/{id}.md, not stored in DB.
+        // Prompt content is file-backed under ~/.restflow/agents/{id}.md, not stored in DB.
         let prompt_override = agent.prompt.take();
         prompt_files::ensure_agent_prompt_file(&id, prompt_override.as_deref())?;
 
