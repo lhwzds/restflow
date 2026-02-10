@@ -62,19 +62,20 @@ pub fn import_skill_from_markdown(id: &str, markdown: &str) -> Result<Skill> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::{Mutex, OnceLock};
+    use std::sync::OnceLock;
     use tempfile::tempdir;
+    use tokio::sync::Mutex;
 
     const MASTER_KEY_ENV: &str = "RESTFLOW_MASTER_KEY";
     const RESTFLOW_DIR_ENV: &str = "RESTFLOW_DIR";
 
-    fn env_lock() -> std::sync::MutexGuard<'static, ()> {
+    fn env_lock() -> &'static Mutex<()> {
         static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(())).lock().unwrap()
+        LOCK.get_or_init(|| Mutex::new(()))
     }
 
     async fn create_test_core() -> Arc<AppCore> {
-        let _env_lock = env_lock();
+        let _env_lock = env_lock().lock().await;
         let temp_dir = tempdir().unwrap();
         let db_path = temp_dir.path().join("test.db");
         let state_dir = temp_dir.path().join("state");
