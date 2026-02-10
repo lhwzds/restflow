@@ -763,7 +763,7 @@ impl BackgroundAgentRunner {
     async fn execute_task(
         &self,
         task_id: &str,
-        mut cancel_rx: oneshot::Receiver<()>,
+        mut cancel_rx: Option<oneshot::Receiver<()>>,
     ) -> Result<bool> {
         let start_time = chrono::Utc::now().timestamp_millis();
 
@@ -923,8 +923,21 @@ impl BackgroundAgentRunner {
             }
         };
 
+        if cancel_rx.is_none() {
+            warn!(
+                "No cancel receiver found for task '{}'. Task will run without cancellation support.",
+                task_id
+            );
+        }
+
         let result = tokio::select! {
-            _ = &mut cancel_rx => {
+            _ = async {
+                if let Some(rx) = &mut cancel_rx {
+                    let _ = rx.await;
+                } else {
+                    std::future::pending::<()>().await;
+                }
+            } => {
                 let duration_ms = chrono::Utc::now().timestamp_millis() - start_time;
                 info!(
                     "Task '{}' cancelled by user (duration={}ms)",
@@ -1072,13 +1085,8 @@ impl BackgroundAgentRunner {
         self.steer_registry.unregister(task_id).await;
     }
 
-    async fn take_cancel_receiver(&self, task_id: &str) -> oneshot::Receiver<()> {
-        if let Some(receiver) = self.pending_cancel_receivers.write().await.remove(task_id) {
-            return receiver;
-        }
-
-        let (_tx, rx) = oneshot::channel();
-        rx
+    async fn take_cancel_receiver(&self, task_id: &str) -> Option<oneshot::Receiver<()>> {
+        self.pending_cancel_receivers.write().await.remove(task_id)
     }
 
     /// Persist conversation messages to long-term memory.
@@ -1515,6 +1523,53 @@ mod tests {
         let db_path = temp_dir.path().join("test.db");
         let db = Arc::new(redb::Database::create(db_path).unwrap());
         (Arc::new(BackgroundAgentStorage::new(db).unwrap()), temp_dir)
+    }
+
+    #[tokio::test]
+    async fn test_take_cancel_receiver_returns_none_when_missing() {
+        let (storage, _temp_dir) = create_test_storage();
+        let runner = BackgroundAgentRunner::new(
+            storage,
+            Arc::new(MockExecutor::new()),
+            Arc::new(NoopNotificationSender),
+            RunnerConfig::default(),
+            Arc::new(SteerRegistry::new()),
+        );
+
+        let result = runner.take_cancel_receiver("nonexistent-task").await;
+        assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_take_cancel_receiver_returns_receiver_when_present() {
+        let (storage, _temp_dir) = create_test_storage();
+        let runner = BackgroundAgentRunner::new(
+            storage,
+            Arc::new(MockExecutor::new()),
+            Arc::new(NoopNotificationSender),
+            RunnerConfig::default(),
+            Arc::new(SteerRegistry::new()),
+        );
+
+        let (tx, rx) = oneshot::channel();
+        runner
+            .pending_cancel_receivers
+            .write()
+            .await
+            .insert("task-1".to_string(), rx);
+
+        let mut result = runner.take_cancel_receiver("task-1").await;
+        assert!(result.is_some());
+        assert!(
+            !runner
+                .pending_cancel_receivers
+                .read()
+                .await
+                .contains_key("task-1")
+        );
+
+        tx.send(()).unwrap();
+        assert!(result.as_mut().unwrap().await.is_ok());
     }
 
     #[tokio::test]
