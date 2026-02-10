@@ -1120,80 +1120,30 @@ impl RestFlowMcpServer {
     }
 
     fn session_scoped_runtime_tools() -> Vec<RuntimeToolDefinition> {
-        vec![
-            RuntimeToolDefinition {
-                name: "spawn_agent".to_string(),
-                description: "Spawn a specialized agent to work on a task in parallel. Requires active main-agent runtime context.".to_string(),
-                parameters: serde_json::json!({
-                    "type": "object",
-                    "properties": {
-                        "agent": {
-                            "type": "string",
-                            "enum": ["researcher", "coder", "reviewer", "writer", "analyst"],
-                            "description": "The specialized agent to spawn"
-                        },
-                        "task": {
-                            "type": "string",
-                            "description": "Detailed task description for the agent"
-                        },
-                        "wait": {
-                            "type": "boolean",
-                            "default": false,
-                            "description": "If true, wait for completion. If false, run in background."
-                        },
-                        "timeout_secs": {
-                            "type": "integer",
-                            "default": 300,
-                            "description": "Timeout in seconds"
-                        }
+        vec![RuntimeToolDefinition {
+            name: "switch_model".to_string(),
+            description: "Switch the active LLM model for the current MCP server session."
+                .to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "description": "Both 'provider' and 'model' are required.",
+                "properties": {
+                    "provider": {
+                        "type": "string",
+                        "description": "Provider selector (e.g. openai, anthropic, claude-code, openai-codex, gemini-cli)"
                     },
-                    "required": ["agent", "task"]
-                }),
-            },
-            RuntimeToolDefinition {
-                name: "wait_agents".to_string(),
-                description: "Wait for one or more sub-agents to finish. Requires active main-agent runtime context.".to_string(),
-                parameters: serde_json::json!({
-                    "type": "object",
-                    "properties": {
-                        "task_ids": {
-                            "type": "array",
-                            "items": { "type": "string" },
-                            "description": "List of sub-agent task IDs to wait for"
-                        },
-                        "timeout_secs": {
-                            "type": "integer",
-                            "default": 300,
-                            "description": "Timeout in seconds"
-                        }
+                    "model": {
+                        "type": "string",
+                        "description": "Model name to switch to. Supports provider-qualified format like openai-codex:gpt-5.3-codex."
                     },
-                    "required": ["task_ids"]
-                }),
-            },
-            RuntimeToolDefinition {
-                name: "switch_model".to_string(),
-                description: "Switch the active LLM model for the current MCP server session.".to_string(),
-                parameters: serde_json::json!({
-                    "type": "object",
-                    "description": "Both 'provider' and 'model' are required.",
-                    "properties": {
-                        "provider": {
-                            "type": "string",
-                            "description": "Provider selector (e.g. openai, anthropic, claude-code, openai-codex, gemini-cli)"
-                        },
-                        "model": {
-                            "type": "string",
-                            "description": "Model name to switch to. Supports provider-qualified format like openai-codex:gpt-5.3-codex."
-                        },
-                        "reason": {
-                            "type": "string",
-                            "description": "Optional reason for switching models"
-                        }
-                    },
-                    "required": ["provider", "model"]
-                }),
-            },
-        ]
+                    "reason": {
+                        "type": "string",
+                        "description": "Optional reason for switching models"
+                    }
+                },
+                "required": ["provider", "model"]
+            }),
+        }]
     }
 
     async fn handle_list_skills(&self) -> Result<String, String> {
@@ -1968,10 +1918,6 @@ impl ServerHandler for RestFlowMcpServer {
                 ))
                 .await
             }
-            "spawn_agent" | "wait_agents" => Err(format!(
-                "Tool '{}' requires active main-agent runtime context and is not executable from standalone MCP yet.",
-                request.name
-            )),
             "use_skill" => {
                 let converted = Self::convert_use_skill_input(Value::Object(
                     request.arguments.unwrap_or_default(),
@@ -2972,8 +2918,8 @@ mod tests {
     fn test_session_scoped_runtime_tools_include_switch_model() {
         let tools = RestFlowMcpServer::session_scoped_runtime_tools();
         assert!(tools.iter().any(|tool| tool.name == "switch_model"));
-        assert!(tools.iter().any(|tool| tool.name == "spawn_agent"));
-        assert!(tools.iter().any(|tool| tool.name == "wait_agents"));
+        assert!(!tools.iter().any(|tool| tool.name == "spawn_agent"));
+        assert!(!tools.iter().any(|tool| tool.name == "wait_agents"));
 
         let switch_model = tools
             .iter()
@@ -3006,5 +2952,28 @@ mod tests {
         assert_eq!(value["switched"], true);
         assert_eq!(value["to"]["model"], "gpt-5.3-codex");
         assert_eq!(value["to"]["provider"], "codex-cli");
+    }
+
+    #[tokio::test]
+    async fn test_standalone_runtime_tools_do_not_expose_subagent_tools() {
+        let (server, _core, _temp_dir) = create_test_server().await;
+        let runtime_tools = server.backend.list_runtime_tools().await.unwrap();
+
+        assert!(!runtime_tools.iter().any(|tool| tool.name == "spawn_agent"));
+        assert!(!runtime_tools.iter().any(|tool| tool.name == "wait_agents"));
+    }
+
+    #[tokio::test]
+    async fn test_standalone_runtime_spawn_agent_is_not_callable() {
+        let (server, _core, _temp_dir) = create_test_server().await;
+        let error = server
+            .handle_runtime_tool(
+                "spawn_agent",
+                serde_json::json!({"agent": "coder", "task": "do work"}),
+            )
+            .await
+            .unwrap_err();
+
+        assert!(error.contains("not found") || error.contains("Unknown"));
     }
 }
