@@ -1089,7 +1089,6 @@ impl RestFlowMcpServer {
     fn runtime_alias_target(name: &str) -> Option<&'static str> {
         match name {
             "http" => Some("http_request"),
-            "python" => Some("run_python"),
             "email" => Some("send_email"),
             "telegram" => Some("telegram_send"),
             "use_skill" => Some("skill"),
@@ -1809,7 +1808,6 @@ impl ServerHandler for RestFlowMcpServer {
 
             for (alias_name, target_name) in [
                 ("http", "http_request"),
-                ("python", "run_python"),
                 ("email", "send_email"),
                 ("telegram", "telegram_send"),
                 ("use_skill", "skill"),

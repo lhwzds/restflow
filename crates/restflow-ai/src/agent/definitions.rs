@@ -117,7 +117,6 @@ pub fn builtin_agents() -> Vec<AgentDefinition> {
             allowed_tools: vec![
                 "file".to_string(),
                 "bash".to_string(),
-                "run_python".to_string(),
                 "http_request".to_string(),
             ],
             model: None,
@@ -158,7 +157,7 @@ pub fn builtin_agents() -> Vec<AgentDefinition> {
                          Use for data analysis and interpretation tasks."
                 .to_string(),
             system_prompt: ANALYST_PROMPT.to_string(),
-            allowed_tools: vec!["file".to_string(), "run_python".to_string()],
+            allowed_tools: vec!["file".to_string(), "bash".to_string()],
             model: None,
             max_iterations: Some(15),
             callable: true,

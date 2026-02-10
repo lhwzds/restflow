@@ -17,7 +17,6 @@ mod email;
 mod file;
 mod http;
 mod list_agents;
-mod python;
 mod show_panel;
 mod spawn;
 mod spawn_agent;
@@ -30,7 +29,6 @@ pub use email::EmailTool;
 pub use file::{FileConfig, FileTool};
 pub use http::HttpTool;
 pub use list_agents::ListAgentsTool;
-pub use python::PythonTool;
 pub use show_panel::ShowPanelTool;
 pub use spawn::{SpawnTool, SubagentSpawner};
 pub use spawn_agent::SpawnAgentTool;
@@ -64,7 +62,6 @@ pub fn main_agent_default_tool_names() -> Vec<String> {
         "bash",
         "file",
         "http",
-        "python",
         "email",
         "telegram",
         "transcribe",
@@ -151,12 +148,6 @@ impl ToolRegistryBuilder {
         self
     }
 
-    /// Add Python tool.
-    pub fn with_python(mut self) -> Self {
-        self.registry.register(PythonTool::new());
-        self
-    }
-
     /// Add email tool.
     pub fn with_email(mut self) -> Self {
         self.registry.register(EmailTool::new());
@@ -222,7 +213,6 @@ impl ToolRegistryBuilder {
 /// When `tool_names` is `None` or empty, returns an empty registry (secure default).
 ///
 /// Supported aliases:
-/// - `python` -> `run_python`
 /// - `email` -> `send_email`
 /// - `telegram` -> `telegram_send`
 /// - `http_request` -> `http`
@@ -277,9 +267,6 @@ pub fn registry_from_allowlist(
             }
             "http" | "http_request" => {
                 builder = builder.with_http();
-            }
-            "run_python" | "python" => {
-                builder = builder.with_python();
             }
             "send_email" | "email" => {
                 builder = builder.with_email();
@@ -550,7 +537,6 @@ pub fn default_registry() -> ToolRegistry {
         .with_bash(BashConfig::default())
         .with_file(FileConfig::default())
         .with_http()
-        .with_python()
         .with_email()
         .with_telegram()
         .build()
