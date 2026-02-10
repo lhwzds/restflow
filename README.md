@@ -61,7 +61,7 @@ RestFlow is an **AI assistant that can execute workflows**. Unlike traditional w
 RestFlow currently exposes two user-facing execution paths:
 
 - **Workspace Chat (Main Agent)**: interactive chat where each user message triggers assistant response generation.
-- **Background Agents**: asynchronous or scheduled runs managed through `manage_background_agents` and `/api/background-agents`.
+- **Background Agents**: asynchronous or scheduled runs managed through `manage_background_agents`.
 
 Legacy command surfaces are removed:
 
@@ -105,13 +105,13 @@ cd restflow
 cargo tauri dev
 ```
 
-### Docker (Web Server Mode)
+### Docker
 
 ```bash
 docker compose up -d --build
 ```
 
-Access at http://localhost:3000
+MCP HTTP server available at `http://localhost:8787/mcp`
 
 ## Quick Start
 

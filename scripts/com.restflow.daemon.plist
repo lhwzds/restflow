@@ -10,7 +10,6 @@
       <string>daemon</string>
       <string>start</string>
       <string>--foreground</string>
-      <string>--http</string>
     </array>
     <key>RunAtLoad</key>
     <true/>

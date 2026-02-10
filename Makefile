@@ -26,9 +26,9 @@ clean: down
 	docker volume rm restflow_cargo-cache restflow_target-cache restflow_node-modules 2>/dev/null || true
 	docker rmi restflow-backend restflow-restflow 2>/dev/null || true
 
-# Run backend locally (no docker)
+# Run daemon locally (no docker)
 run:
-	cargo run --bin restflow -- start --http --no-browser
+	cargo run --bin restflow -- daemon start --foreground
 
 # Run frontend locally (no docker)
 web:
@@ -36,8 +36,8 @@ web:
 
 # Run both locally in background
 local:
-	@echo "Starting backend..."
-	@cargo run --bin restflow -- start --http --no-browser &
+	@echo "Starting daemon..."
+	@cargo run --bin restflow -- daemon start --foreground &
 	@echo "Starting frontend..."
 	@cd web && npm run dev
 
