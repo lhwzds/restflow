@@ -19,7 +19,7 @@ use std::sync::Arc;
 
 // Re-export types that are self-contained in restflow-storage
 pub use restflow_storage::{
-    ConfigStorage, Secret, SecretStorage, SecretStorageConfig, SystemConfig,
+    ConfigStorage, DaemonStateStorage, Secret, SecretStorage, SecretStorageConfig, SystemConfig,
 };
 
 pub use agent::AgentStorage;
@@ -43,6 +43,7 @@ pub struct Storage {
     pub agents: AgentStorage,
     pub background_agents: BackgroundAgentStorage,
     pub secrets: SecretStorage,
+    pub daemon_state: DaemonStateStorage,
     pub skills: SkillStorage,
     pub shared_space: SharedSpaceStorage,
     pub terminal_sessions: TerminalSessionStorage,
@@ -67,6 +68,7 @@ impl Storage {
         let agents = AgentStorage::new(db.clone())?;
         let background_agents = BackgroundAgentStorage::new(db.clone())?;
         let secrets = SecretStorage::with_config(db.clone(), secret_config)?;
+        let daemon_state = DaemonStateStorage::new(db.clone())?;
         let skills = SkillStorage::new(db.clone())?;
         let shared_space_raw = restflow_storage::SharedSpaceStorage::new(db.clone())?;
         let shared_space = SharedSpaceStorage::new(shared_space_raw);
@@ -82,6 +84,7 @@ impl Storage {
             agents,
             background_agents,
             secrets,
+            daemon_state,
             skills,
             shared_space,
             terminal_sessions,
