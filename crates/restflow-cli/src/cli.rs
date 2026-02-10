@@ -427,7 +427,7 @@ pub enum SkillCommands {
         #[arg(long)]
         path: Option<String>,
 
-        /// Install scope (user-only; `workspace` is treated as `user` for compatibility)
+        /// Install scope (must be `user`)
         #[arg(long, default_value = "user")]
         scope: String,
     },
