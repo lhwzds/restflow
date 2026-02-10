@@ -17,7 +17,7 @@ export function isTauri(): boolean {
 
 /**
  * Type-safe wrapper for Tauri invoke
- * Automatically converts errors to Error objects for consistency with REST API
+ * Automatically converts errors to Error objects for consistent error handling
  */
 export async function tauriInvoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   try {

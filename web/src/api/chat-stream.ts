@@ -5,7 +5,7 @@
  * Enables real-time token-by-token AI response streaming.
  */
 
-import { isTauri, tauriInvoke } from './config'
+import { tauriInvoke } from './tauri-client'
 
 /**
  * Send a chat message with streaming response.
@@ -18,14 +18,10 @@ import { isTauri, tauriInvoke } from './config'
  * @returns Message ID for the generated response
  */
 export async function sendChatMessageStream(sessionId: string, message: string): Promise<string> {
-  if (isTauri()) {
-    return tauriInvoke<string>('send_chat_message_stream', {
-      sessionId,
-      message,
-    })
-  }
-  // Web API fallback - not implemented for streaming yet
-  throw new Error('Streaming not supported in web mode')
+  return tauriInvoke<string>('send_chat_message_stream', {
+    sessionId,
+    message,
+  })
 }
 
 /**
@@ -35,11 +31,8 @@ export async function sendChatMessageStream(sessionId: string, message: string):
  * @param messageId - Message ID being generated
  */
 export async function cancelChatStream(sessionId: string, messageId: string): Promise<void> {
-  if (isTauri()) {
-    return tauriInvoke<void>('cancel_chat_stream', {
-      sessionId,
-      messageId,
-    })
-  }
-  throw new Error('Streaming not supported in web mode')
+  return tauriInvoke<void>('cancel_chat_stream', {
+    sessionId,
+    messageId,
+  })
 }
