@@ -89,6 +89,7 @@ pub fn main_agent_default_tool_names() -> Vec<String> {
         "patch",
         "diagnostics",
         "reply",
+        "process",
     ]
     .into_iter()
     .map(str::to_string)
@@ -390,6 +391,9 @@ pub fn registry_from_allowlist(
             }
             "switch_model" => {
                 // Registered by callers that provide SwappableLlm + LlmClientFactory.
+            }
+            "process" => {
+                // Registered by callers that provide a ProcessRegistry.
             }
             unknown => {
                 warn!(tool_name = %unknown, "Configured tool not found in registry, skipping");
