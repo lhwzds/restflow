@@ -968,6 +968,49 @@ impl BackgroundAgentRunner {
                 self.cleanup_task_tracking(task_id).await;
                 return Ok(false);
             }
+            // Pause branch: if control API sets task status to Paused while this
+            // execution is running, stop current run immediately.
+            _ = async {
+                loop {
+                    tokio::time::sleep(Duration::from_millis(250)).await;
+                    match self.storage.get_task(task_id) {
+                        Ok(Some(stored_task)) if stored_task.status == BackgroundAgentStatus::Paused => break,
+                        Ok(Some(_)) => {}
+                        Ok(None) => break,
+                        Err(err) => {
+                            warn!("Failed to read task {} while waiting for pause signal: {}", task_id, err);
+                        }
+                    }
+                }
+            } => {
+                let duration_ms = chrono::Utc::now().timestamp_millis() - start_time;
+                info!(
+                    "Task '{}' interrupted by pause request (duration={}ms)",
+                    task.name, duration_ms
+                );
+                pump_cancel.cancel();
+                if let Some(pump) = message_pump.take() {
+                    let _ = pump.await;
+                }
+                self.event_emitter
+                    .emit(TaskStreamEvent::cancelled(
+                        task_id,
+                        "Paused by user",
+                        duration_ms,
+                    ))
+                    .await;
+                self.fire_hooks(&HookContext::from_cancelled(
+                    &task,
+                    "Paused by user",
+                    duration_ms,
+                ))
+                .await;
+                if let Err(e) = self.storage.pause_task(task_id) {
+                    error!("Failed to keep task {} paused: {}", task_id, e);
+                }
+                self.cleanup_task_tracking(task_id).await;
+                return Ok(false);
+            }
             result = exec_future => result,
         };
 
@@ -2478,6 +2521,56 @@ mod tests {
 
         // Should no longer be running
         assert_eq!(runner.running_task_count().await, 0);
+
+        handle.stop().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_runner_interrupts_running_task_when_paused() {
+        let (storage, _temp_dir) = create_test_storage();
+        let executor = Arc::new(MockExecutor::with_delay(3_000));
+        let notifier = Arc::new(NoopNotificationSender);
+
+        let past_time = chrono::Utc::now().timestamp_millis() - 1000;
+        let mut task = storage
+            .create_task(
+                "Pause Interrupt Task".to_string(),
+                "agent-001".to_string(),
+                TaskSchedule::Once { run_at: past_time },
+            )
+            .unwrap();
+        task.next_run_at = Some(past_time);
+        storage.update_task(&task).unwrap();
+
+        let config = RunnerConfig {
+            poll_interval_ms: 100,
+            ..Default::default()
+        };
+
+        let steer_registry = Arc::new(SteerRegistry::new());
+        let runner = Arc::new(BackgroundAgentRunner::new(
+            storage.clone(),
+            executor,
+            notifier,
+            config,
+            steer_registry,
+        ));
+
+        let handle = runner.clone().start();
+
+        // Wait for task to start running
+        tokio::time::sleep(Duration::from_millis(400)).await;
+        assert_eq!(runner.running_task_count().await, 1);
+
+        // Simulate pause control while the task is running
+        storage.pause_task(&task.id).unwrap();
+
+        // Runner should notice pause and stop execution early
+        tokio::time::sleep(Duration::from_millis(700)).await;
+        assert_eq!(runner.running_task_count().await, 0);
+
+        let updated_task = storage.get_task(&task.id).unwrap().unwrap();
+        assert_eq!(updated_task.status, BackgroundAgentStatus::Paused);
 
         handle.stop().await.unwrap();
     }
