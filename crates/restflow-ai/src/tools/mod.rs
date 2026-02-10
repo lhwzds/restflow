@@ -22,7 +22,6 @@ mod memory_mgmt;
 mod memory_search;
 mod patch;
 mod process;
-mod python;
 mod registry;
 mod reply;
 mod secrets;
@@ -66,7 +65,6 @@ pub use memory_mgmt::{
 pub use memory_search::{MemorySearchMatch, MemorySearchTool, SemanticMemory};
 pub use patch::PatchTool;
 pub use process::{ProcessLog, ProcessManager, ProcessPollResult, ProcessSessionInfo, ProcessTool};
-pub use python::PythonTool;
 pub use registry::ToolRegistry;
 pub use reply::{ReplySender, ReplyTool};
 pub use secrets::SecretsTool;
@@ -94,7 +92,6 @@ pub fn default_registry() -> ToolRegistry {
     registry.register(FileTool::with_tracker(tracker.clone()));
     registry.register(PatchTool::new(tracker));
     registry.register(HttpTool::new());
-    registry.register(PythonTool::new());
     registry.register(EmailTool::new());
     registry.register(TelegramTool::new());
     registry.register(WebSearchTool::new());
@@ -114,7 +111,6 @@ pub fn default_registry_with_diagnostics(provider: Arc<dyn DiagnosticsProvider>)
     );
     registry.register(PatchTool::new(tracker));
     registry.register(HttpTool::new());
-    registry.register(PythonTool::new());
     registry.register(EmailTool::new());
     registry.register(TelegramTool::new());
     registry.register(DiagnosticsTool::new(provider));

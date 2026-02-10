@@ -62,37 +62,19 @@ async fn test_agent_with_anthropic() {
 
 #[tokio::test]
 async fn test_tool_registry() {
-    use restflow_ai::{EmailTool, PythonTool};
+    use restflow_ai::EmailTool;
 
     disable_system_proxy_for_tests();
     let mut registry = ToolRegistry::new();
     registry.register(HttpTool::new());
-    registry.register(PythonTool::new());
     registry.register(EmailTool::new());
 
     assert!(registry.has("http_request"));
-    assert!(registry.has("run_python"));
     assert!(registry.has("send_email"));
     assert!(!registry.has("unknown"));
 
     let schemas = registry.schemas();
-    assert_eq!(schemas.len(), 3);
-}
-
-#[tokio::test]
-async fn test_python_tool_execution() {
-    use restflow_ai::PythonTool;
-    use restflow_ai::Tool;
-    use serde_json::json;
-
-    let tool = PythonTool::new();
-    let input = json!({
-        "code": "print(2 + 2)"
-    });
-
-    let result = tool.execute(input).await.unwrap();
-    assert!(result.success);
-    assert_eq!(result.result["stdout"], "4");
+    assert_eq!(schemas.len(), 2);
 }
 
 #[tokio::test]

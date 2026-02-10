@@ -1019,7 +1019,7 @@ impl MemoryStore for DbMemoryStoreAdapter {
 /// Create a tool registry with all available tools including storage-backed tools.
 ///
 /// This function creates a registry with:
-/// - Default tools from restflow-ai (http_request, run_python, send_email)
+/// - Default tools from restflow-ai (http_request, send_email)
 /// - SkillTool that can access skills from storage
 /// - Memory search tool for unified memory and session search
 /// - Agent memory CRUD tools (save_to_memory, read_memory, etc.) — always registered, agent_id is a tool input
@@ -2162,7 +2162,6 @@ mod tests {
 
         // Should have default tools + skill tool
         assert!(registry.has("http_request"));
-        assert!(registry.has("run_python"));
         assert!(registry.has("send_email"));
         assert!(registry.has("skill"));
         assert!(registry.has("memory_search"));
