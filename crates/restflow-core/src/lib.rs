@@ -49,6 +49,17 @@ impl AppCore {
         let storage = Arc::new(Storage::new(db_path)?);
         prompt_files::ensure_prompt_templates()?;
         storage.agents.migrate_prompts_to_files()?;
+        let skill_migration = paths::migrate_legacy_workspace_skills_to_user()?;
+        let updated_skill_records = storage.skills.migrate_folder_paths_to_user(
+            &skill_migration.user_dir,
+            &skill_migration.legacy_dirs,
+        )?;
+        if skill_migration.copied_skill_dirs > 0 || updated_skill_records > 0 {
+            info!(
+                copied_skill_dirs = skill_migration.copied_skill_dirs,
+                updated_skill_records, "Migrated legacy workspace skill directories to user scope"
+            );
+        }
 
         // Ensure default agent exists on first run
         Self::ensure_default_agent(&storage)?;

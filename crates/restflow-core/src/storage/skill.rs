@@ -4,6 +4,8 @@ use crate::models::Skill;
 use anyhow::Result;
 use redb::Database;
 use restflow_storage::SimpleStorage;
+use restflow_storage::time_utils;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 /// Typed skill storage wrapper around restflow-storage::SkillStorage.
@@ -90,11 +92,65 @@ impl SkillStorage {
     pub fn exists(&self, id: &str) -> Result<bool> {
         self.inner.exists(id)
     }
+
+    /// Rewrite skill folder paths from legacy workspace directories into
+    /// the user-global skills directory.
+    pub fn migrate_folder_paths_to_user(
+        &self,
+        user_skills_dir: &Path,
+        legacy_skill_dirs: &[PathBuf],
+    ) -> Result<usize> {
+        if legacy_skill_dirs.is_empty() {
+            return Ok(0);
+        }
+
+        let mut migrated = 0usize;
+        let skills = self.list()?;
+        for mut skill in skills {
+            let Some(folder_path) = skill.folder_path.clone() else {
+                continue;
+            };
+            let folder_path_buf = PathBuf::from(folder_path);
+
+            let mut rewritten_path = None;
+            for legacy_dir in legacy_skill_dirs {
+                if !folder_path_buf.starts_with(legacy_dir) {
+                    continue;
+                }
+                let Ok(relative_path) = folder_path_buf.strip_prefix(legacy_dir) else {
+                    continue;
+                };
+                let candidate = user_skills_dir.join(relative_path);
+                if candidate.exists() {
+                    rewritten_path = Some(candidate);
+                    break;
+                }
+            }
+
+            let Some(new_path) = rewritten_path else {
+                continue;
+            };
+
+            let normalized = new_path.to_string_lossy().to_string();
+            if skill.folder_path.as_deref() == Some(normalized.as_str()) {
+                continue;
+            }
+
+            skill.folder_path = Some(normalized);
+            skill.updated_at = time_utils::now_ms();
+            self.update(&skill.id, &skill)?;
+            migrated += 1;
+        }
+
+        Ok(migrated)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::StorageMode;
+    use std::path::PathBuf;
     use tempfile::tempdir;
 
     fn setup() -> (SkillStorage, tempfile::TempDir) {
@@ -229,5 +285,43 @@ mod tests {
 
         let result = storage.update("nonexistent", &skill);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_migrate_folder_paths_to_user_updates_legacy_workspace_paths() {
+        let (storage, temp_dir) = setup();
+
+        let legacy_base = temp_dir
+            .path()
+            .join("workspace")
+            .join(".restflow")
+            .join("skills");
+        let user_base = temp_dir.path().join("user").join("skills");
+        let legacy_folder = legacy_base.join("legacy-skill");
+        let user_folder = user_base.join("legacy-skill");
+        std::fs::create_dir_all(&legacy_folder).unwrap();
+        std::fs::create_dir_all(&user_folder).unwrap();
+
+        let mut skill = Skill::new(
+            "legacy-skill".to_string(),
+            "Legacy Skill".to_string(),
+            None,
+            None,
+            "# Legacy".to_string(),
+        );
+        skill.storage_mode = StorageMode::FileSystemOnly;
+        skill.folder_path = Some(legacy_folder.to_string_lossy().to_string());
+        storage.create(&skill).unwrap();
+
+        let migrated = storage
+            .migrate_folder_paths_to_user(&user_base, &[PathBuf::from(&legacy_base)])
+            .unwrap();
+        assert_eq!(migrated, 1);
+
+        let updated = storage.get("legacy-skill").unwrap().unwrap();
+        assert_eq!(
+            updated.folder_path.as_deref(),
+            Some(user_folder.to_string_lossy().as_ref())
+        );
     }
 }
