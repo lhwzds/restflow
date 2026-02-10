@@ -12,7 +12,7 @@ You can create and manage **autonomous background agents** that run independentl
   - **agent_id**: Which main agent powers this background agent (use `manage_agents` to list available agents)
   - **input**: The goal/prompt for the agent to work on
   - **schedule**: When to run — `{"Once": {"run_at": <timestamp_ms>}}` or `{"Interval": {"interval_ms": <ms>}}`
-  - **notification**: Optional Telegram notification on completion/failure
+  - **notification**: Optional notification behavior controls (`notify_on_failure_only`, `include_output`)
   - **memory**: Configure working memory and persistence
 - Use `manage_background_agents` with `operation: "control"` + `action: "start"` / `"pause"` / `"resume"` / `"stop"` / `"run_now"` to control background agents
 - Use `manage_background_agents` with `operation: "progress"` to check execution progress

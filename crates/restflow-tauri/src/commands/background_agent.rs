@@ -608,8 +608,8 @@ mod tests {
             "description": "A complete task",
             "input": "Hello agent",
             "notification": {
-                "telegram_enabled": true,
-                "telegram_chat_id": "123456"
+                "notify_on_failure_only": true,
+                "include_output": false
             }
         }"#;
 
@@ -620,8 +620,8 @@ mod tests {
         assert_eq!(request.input, Some("Hello agent".to_string()));
         assert!(request.notification.is_some());
         let notif = request.notification.unwrap();
-        assert!(notif.telegram_enabled);
-        assert_eq!(notif.telegram_chat_id, Some("123456".to_string()));
+        assert!(notif.notify_on_failure_only);
+        assert!(!notif.include_output);
     }
 
     #[tokio::test]

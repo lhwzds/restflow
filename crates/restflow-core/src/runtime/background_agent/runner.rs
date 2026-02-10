@@ -267,10 +267,6 @@ impl NotificationSink for TelegramNotificationSink {
         success: bool,
         message: &str,
     ) -> Result<NotificationDispatchStatus> {
-        if !task.notification.telegram_enabled {
-            return Ok(NotificationDispatchStatus::Skipped);
-        }
-
         self.notifier
             .send(&task.notification, task, success, message)
             .await?;
@@ -2129,8 +2125,6 @@ mod tests {
             )
             .unwrap();
         task.next_run_at = Some(past_time);
-        task.notification.telegram_enabled = true;
-        task.notification.telegram_chat_id = Some("123456".to_string());
         storage.update_task(&task).unwrap();
 
         let config = RunnerConfig {
@@ -2173,8 +2167,6 @@ mod tests {
             )
             .unwrap();
         task.next_run_at = Some(past_time);
-        task.notification.telegram_enabled = true;
-        task.notification.telegram_chat_id = Some("123456".to_string());
         task.notification.notify_on_failure_only = true;
         storage.update_task(&task).unwrap();
 
@@ -2218,8 +2210,6 @@ mod tests {
             )
             .unwrap();
         task.next_run_at = Some(past_time);
-        task.notification.telegram_enabled = true;
-        task.notification.telegram_chat_id = Some("123456".to_string());
         task.notification.include_output = false;
         storage.update_task(&task).unwrap();
 
@@ -2264,8 +2254,6 @@ mod tests {
             )
             .unwrap();
         task.next_run_at = Some(past_time);
-        task.notification.telegram_enabled = true;
-        task.notification.telegram_chat_id = Some("123456".to_string());
         task.notification.include_output = false;
         storage.update_task(&task).unwrap();
 
