@@ -11,18 +11,6 @@ export default defineConfig({
       '@': path.resolve(__dirname, 'src')
     }
   },
-  server: {
-    proxy: {
-      '/api': {
-        target: process.env.VITE_API_TARGET || 'http://localhost:3000',
-        changeOrigin: true
-      },
-      '/health': {
-        target: process.env.VITE_API_TARGET || 'http://localhost:3000',
-        changeOrigin: true
-      }
-    }
-  },
   test: {
     globals: true,
     environment: 'happy-dom',

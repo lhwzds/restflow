@@ -20,7 +20,6 @@ restflow-storage = { path = "../restflow-storage" }
 
 # External dependencies
 anyhow = "1.0.100"
-axum = { version = "0.8", features = ["ws"] }
 async-trait = "0.1.89"
 base64 = "0.22.1"
 chrono = "0.4.42"
@@ -59,7 +58,6 @@ tempfile = "3.23.0"
 thiserror = "2.0.17"
 tokio = { version = "1.47.1", features = ["full"] }
 tokio-util = "0.7"
-tower-http = { version = "0.6", features = ["cors", "trace", "fs"] }
 toml = "0.9"
 tokio-cron-scheduler = "0.15.1"
 tokio-stream = "0.1"

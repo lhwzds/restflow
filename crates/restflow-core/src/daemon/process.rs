@@ -7,8 +7,6 @@ use std::process::{Command, Stdio};
 
 #[derive(Debug, Clone)]
 pub struct DaemonConfig {
-    pub http: bool,
-    pub http_port: Option<u16>,
     pub mcp: bool,
     pub mcp_port: Option<u16>,
 }
@@ -16,8 +14,6 @@ pub struct DaemonConfig {
 impl Default for DaemonConfig {
     fn default() -> Self {
         Self {
-            http: false,
-            http_port: None,
             mcp: true,
             mcp_port: Some(8787),
         }
@@ -73,12 +69,6 @@ impl ProcessManager {
         let exe = std::env::current_exe()?;
         let mut cmd = Command::new(exe);
         cmd.args(["daemon", "start", "--foreground"]);
-        if config.http {
-            cmd.arg("--http");
-            if let Some(port) = config.http_port {
-                cmd.args(["--port", &port.to_string()]);
-            }
-        }
         // MCP server is enabled by default; only pass an explicit port override.
         if config.mcp
             && let Some(port) = config.mcp_port

@@ -46,9 +46,7 @@ RUN apt-get update && \
 COPY --from=backend-builder /app/target/release/restflow /usr/local/bin/restflow
 COPY --from=frontend-builder /app/web/dist /app/web/dist
 
-EXPOSE 3000
+EXPOSE 8787
 
-ENV RESTFLOW_HTTP_HOST=0.0.0.0
-
-# Run the application
-CMD ["restflow", "daemon", "start", "--foreground", "--http"]
+# Run the daemon with MCP HTTP server
+CMD ["restflow", "daemon", "start", "--foreground"]

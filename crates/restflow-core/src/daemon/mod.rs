@@ -1,7 +1,6 @@
 mod background_events;
 mod core_access;
 mod health;
-mod http;
 mod ipc_client;
 mod ipc_protocol;
 mod ipc_server;
@@ -14,7 +13,6 @@ mod supervisor;
 pub use background_events::{publish_background_event, subscribe_background_events};
 pub use core_access::CoreAccess;
 pub use health::{HealthChecker, HealthStatus, check_health};
-pub use http::{HttpConfig, HttpServer};
 pub use ipc_client::{IpcClient, is_daemon_available};
 pub use ipc_protocol::{
     IpcRequest, IpcResponse, MAX_MESSAGE_SIZE, StreamFrame, ToolDefinition, ToolExecutionResult,

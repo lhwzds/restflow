@@ -7,7 +7,7 @@ services:
       context: .
       dockerfile: Dockerfile.dev
     ports:
-      - "3000:3000"
+      - "8787:8787"
     volumes:
       - ./crates:/app/crates:cached
       - ./Cargo.toml:/app/Cargo.toml:ro
@@ -30,8 +30,6 @@ services:
     command: sh -c "npm install && npm run dev -- --host"
     environment:
       - NODE_ENV=development
-      - VITE_API_TARGET=http://backend:3000
-      - VITE_API_URL=http://localhost:3000
     depends_on:
       - backend
 

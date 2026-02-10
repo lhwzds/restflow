@@ -2,8 +2,7 @@ import { defineStore } from 'pinia'
 import type { ModelMetadataDTO } from '@/types/generated/ModelMetadataDTO'
 import type { AIModel } from '@/types/generated/AIModel'
 import type { Provider } from '@/types/generated/Provider'
-import { API_ENDPOINTS } from '@/constants/api/endpoints'
-import { isTauri, tauriInvoke } from '@/api/config'
+import { tauriInvoke } from '@/api/config'
 
 interface ModelsState {
   models: ModelMetadataDTO[]
@@ -64,27 +63,8 @@ export const useModelsStore = defineStore('models', {
       this.error = null
 
       try {
-        if (isTauri()) {
-          // Use Tauri invoke for desktop app
-          this.models = await tauriInvoke<ModelMetadataDTO[]>('get_available_models')
-          this.loaded = true
-        } else {
-          // Use REST API for web
-          const response = await fetch(API_ENDPOINTS.MODEL.LIST)
-
-          if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`)
-          }
-
-          const result = await response.json()
-
-          if (result.success && result.data) {
-            this.models = result.data
-            this.loaded = true
-          } else {
-            throw new Error(result.message || 'Invalid response format')
-          }
-        }
+        this.models = await tauriInvoke<ModelMetadataDTO[]>('get_available_models')
+        this.loaded = true
       } catch (error) {
         this.error = error instanceof Error ? error.message : 'Unknown error'
         console.error('[ModelsStore] Failed to load models:', error)
