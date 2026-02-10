@@ -136,7 +136,15 @@ fn agent_prompt_path(agent_id: &str) -> Result<PathBuf> {
             id
         );
     }
-    Ok(ensure_agents_dir()?.join(format!("{id}.md")))
+
+    let agents_dir = ensure_agents_dir()?;
+    let path = agents_dir.join(format!("{id}.md"));
+
+    if !path.starts_with(&agents_dir) {
+        anyhow::bail!("Resolved prompt path escapes agents directory");
+    }
+
+    Ok(path)
 }
 
 /// Shared lock for tests that mutate the RESTFLOW_AGENTS_DIR env var.
@@ -235,4 +243,5 @@ mod tests {
         let actual = resolve_agents_dir().unwrap();
         assert_eq!(actual, expected);
     }
+
 }
