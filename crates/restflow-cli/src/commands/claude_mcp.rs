@@ -2,6 +2,7 @@ use anyhow::{Result, bail};
 use tokio::process::Command;
 
 const CLAUDE_MCP_SERVER_NAME: &str = "restflow";
+const LEGACY_STDIO_SERVER_NAME: &str = "restflow-stdio";
 const LEGACY_HTTP_SERVER_NAME: &str = "restflow-http";
 
 async fn is_claude_available() -> bool {
@@ -11,7 +12,7 @@ async fn is_claude_available() -> bool {
     }
 }
 
-async fn is_already_configured(command: &str) -> Result<bool> {
+async fn is_already_configured(port: u16) -> Result<bool> {
     let output = Command::new("claude")
         .args(["mcp", "get", CLAUDE_MCP_SERVER_NAME])
         .output()
@@ -22,9 +23,8 @@ async fn is_already_configured(command: &str) -> Result<bool> {
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    Ok(stdout.contains("Type: stdio")
-        && stdout.contains("Args: mcp serve")
-        && stdout.contains(command))
+    let expected_url = format!("http://127.0.0.1:{port}");
+    Ok(stdout.contains("Type: http") && stdout.contains(&expected_url))
 }
 
 async fn remove_server(scope: &str, name: &str) {
@@ -34,37 +34,38 @@ async fn remove_server(scope: &str, name: &str) {
         .await;
 }
 
-pub async fn try_sync_restflow_stdio_mcp() -> Result<()> {
+/// Auto-configure Claude to use RestFlow MCP over HTTP transport.
+///
+/// Registers (or updates) the `restflow` MCP entry pointing to
+/// `http://127.0.0.1:{port}` with `--transport http`.
+/// Silently skips if Claude CLI is not installed.
+pub async fn try_sync_claude_http_mcp(port: u16) -> Result<()> {
     if !is_claude_available().await {
         return Ok(());
     }
 
-    remove_server("user", LEGACY_HTTP_SERVER_NAME).await;
-    remove_server("local", LEGACY_HTTP_SERVER_NAME).await;
-
-    let command = std::env::current_exe()
-        .ok()
-        .and_then(|path| path.into_os_string().into_string().ok())
-        .unwrap_or_else(|| "restflow".to_string());
-
-    if is_already_configured(&command).await? {
+    if is_already_configured(port).await? {
         return Ok(());
     }
 
+    remove_server("user", LEGACY_STDIO_SERVER_NAME).await;
+    remove_server("local", LEGACY_STDIO_SERVER_NAME).await;
+    remove_server("user", LEGACY_HTTP_SERVER_NAME).await;
+    remove_server("local", LEGACY_HTTP_SERVER_NAME).await;
     remove_server("user", CLAUDE_MCP_SERVER_NAME).await;
     remove_server("local", CLAUDE_MCP_SERVER_NAME).await;
 
+    let url = format!("http://127.0.0.1:{port}");
     let output = Command::new("claude")
         .args([
             "mcp",
             "add",
             "--scope",
             "user",
+            "--transport",
+            "http",
             CLAUDE_MCP_SERVER_NAME,
-            "--",
-            &command,
-            "mcp",
-            "serve",
+            &url,
         ])
         .output()
         .await?;
