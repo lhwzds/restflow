@@ -931,6 +931,8 @@ impl BackgroundAgentRunner {
         }
 
         let result = tokio::select! {
+            // Cancel branch: resolves when user sends cancel signal.
+            // If no receiver exists, pending() never resolves — task runs to completion.
             _ = async {
                 if let Some(rx) = &mut cancel_rx {
                     let _ = rx.await;
@@ -1085,6 +1087,8 @@ impl BackgroundAgentRunner {
         self.steer_registry.unregister(task_id).await;
     }
 
+    /// Take the cancel receiver for a task, returning None if not found.
+    /// When None, the task runs without cancellation support (uses `pending()` in select).
     async fn take_cancel_receiver(&self, task_id: &str) -> Option<oneshot::Receiver<()>> {
         self.pending_cancel_receivers.write().await.remove(task_id)
     }
@@ -1140,6 +1144,8 @@ impl BackgroundAgentRunner {
 
     fn render_input_template(task: &BackgroundAgent, template: &str) -> String {
         let now = chrono::Utc::now();
+        // NOTE: Input templates must use `{{task.input}}`.
+        // We intentionally do not support the legacy alias `{{input}}`.
         let replacements = vec![
             ("{{task.id}}".to_string(), task.id.clone()),
             ("{{task.name}}".to_string(), task.name.clone()),
@@ -2066,6 +2072,25 @@ mod tests {
         assert!(rendered.contains("DESC=description"));
         assert!(rendered.contains("INPUT=input"));
         assert!(!rendered.contains("{{now.unix_ms}}"));
+    }
+
+    #[test]
+    fn test_render_input_template_requires_task_input_placeholder() {
+        let mut task = BackgroundAgent::new(
+            "task-123".to_string(),
+            "Template Unit Test".to_string(),
+            "agent-456".to_string(),
+            TaskSchedule::default(),
+        );
+        task.input = Some("input".to_string());
+
+        let rendered = BackgroundAgentRunner::render_input_template(
+            &task,
+            "ALIAS={{input}}, REQUIRED={{task.input}}",
+        );
+
+        assert!(rendered.contains("ALIAS={{input}}"));
+        assert!(rendered.contains("REQUIRED=input"));
     }
 
     #[test]

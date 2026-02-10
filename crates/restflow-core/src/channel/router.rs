@@ -212,7 +212,10 @@ impl ChannelRouter {
             }
 
             for conversation_id in target_conversations {
-                let message = OutboundMessage::new(&conversation_id, content).with_level(level);
+                let mut message = OutboundMessage::new(&conversation_id, content).with_level(level);
+                // Broadcast payloads often contain raw agent output; disable parse mode
+                // to avoid Telegram entity parsing failures that drop notifications.
+                message.parse_mode = None;
                 let result = channel.send(message).await;
                 results.push((*channel_type, result));
             }
@@ -341,7 +344,43 @@ impl Default for ChannelRouter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use async_trait::async_trait;
+    use futures::Stream;
     use crate::channel::traits::mock::MockChannel;
+    use std::pin::Pin;
+    use std::sync::Arc;
+    use tokio::sync::Mutex;
+
+    struct CaptureChannel {
+        channel_type: ChannelType,
+        sent: Arc<Mutex<Vec<OutboundMessage>>>,
+    }
+
+    impl CaptureChannel {
+        fn new(channel_type: ChannelType, sent: Arc<Mutex<Vec<OutboundMessage>>>) -> Self {
+            Self { channel_type, sent }
+        }
+    }
+
+    #[async_trait]
+    impl Channel for CaptureChannel {
+        fn channel_type(&self) -> ChannelType {
+            self.channel_type
+        }
+
+        fn is_configured(&self) -> bool {
+            true
+        }
+
+        async fn send(&self, message: OutboundMessage) -> Result<()> {
+            self.sent.lock().await.push(message);
+            Ok(())
+        }
+
+        fn start_receiving(&self) -> Option<Pin<Box<dyn Stream<Item = InboundMessage> + Send>>> {
+            None
+        }
+    }
 
     #[tokio::test]
     async fn test_router_registration() {
@@ -534,6 +573,24 @@ mod tests {
         let results = router.broadcast("Announcement", MessageLevel::Info).await;
         assert_eq!(results.len(), 2);
         assert!(results.iter().all(|(_, result)| result.is_ok()));
+    }
+
+    #[tokio::test]
+    async fn test_broadcast_uses_plain_parse_mode() {
+        let mut router = ChannelRouter::new();
+        let sent = Arc::new(Mutex::new(Vec::new()));
+        router.register_with_default(
+            CaptureChannel::new(ChannelType::Telegram, Arc::clone(&sent)),
+            "default-chat",
+        );
+
+        let results = router.broadcast("Output with `raw` markdown *chars*", MessageLevel::Plain).await;
+        assert_eq!(results.len(), 1);
+        assert!(results[0].1.is_ok());
+
+        let captured = sent.lock().await;
+        assert_eq!(captured.len(), 1);
+        assert!(captured[0].parse_mode.is_none());
     }
 
     #[tokio::test]

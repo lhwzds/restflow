@@ -1119,6 +1119,8 @@ impl RestFlowMcpServer {
         serde_json::json!({ "action": "list" })
     }
 
+    /// Runtime tools only available during active agent sessions (not exposed to standalone MCP clients).
+    /// Subagent tools (spawn_agent, wait_agents) are excluded because they require a conversation context.
     fn session_scoped_runtime_tools() -> Vec<RuntimeToolDefinition> {
         vec![RuntimeToolDefinition {
             name: "switch_model".to_string(),
@@ -1778,6 +1780,8 @@ impl ServerHandler for RestFlowMcpServer {
                 }
             }
 
+            // Append session-scoped tools (e.g. switch_model) only when running inside
+            // an active agent session, NOT in standalone MCP mode.
             for runtime_tool in Self::session_scoped_runtime_tools() {
                 if known_names.insert(runtime_tool.name.clone()) {
                     let parameters = match runtime_tool.parameters {
