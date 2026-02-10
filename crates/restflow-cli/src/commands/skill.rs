@@ -335,7 +335,7 @@ async fn install_from_dirs(
         return Err(anyhow::anyhow!("No skills found in source: {}", source));
     }
 
-    let (target_base, effective_scope) = resolve_scope_dir(scope)?;
+    let target_base = resolve_scope_dir(scope)?;
     let loader = SkillFolderLoader::new(PathBuf::new());
 
     let mut installed_ids = Vec::new();
@@ -354,7 +354,7 @@ async fn install_from_dirs(
     if format.is_json() {
         return print_json(&json!({
             "source": source,
-            "scope": effective_scope,
+            "scope": scope,
             "installed": installed_ids,
         }));
     }
@@ -363,7 +363,7 @@ async fn install_from_dirs(
         "Installed {} skill(s) from {} into {} scope",
         installed_ids.len(),
         source,
-        effective_scope
+        scope
     );
     Ok(())
 }
@@ -381,12 +381,9 @@ async fn upsert_skill(executor: &Arc<dyn CommandExecutor>, mut skill: Skill) -> 
     Ok(())
 }
 
-fn resolve_scope_dir(scope: &str) -> Result<(PathBuf, &'static str)> {
+fn resolve_scope_dir(scope: &str) -> Result<PathBuf> {
     match scope {
-        "user" => Ok((paths::user_skills_dir()?, "user")),
-        // Workspace scope is kept as a compatibility alias and now maps
-        // to the same user-level directory.
-        "workspace" => Ok((paths::user_skills_dir()?, "user")),
+        "user" => paths::user_skills_dir(),
         _ => Err(anyhow::anyhow!("Invalid scope: {}", scope)),
     }
 }
@@ -477,16 +474,16 @@ mod tests {
     }
 
     #[test]
-    fn test_resolve_scope_dir_workspace_aliases_to_user() {
+    fn test_resolve_scope_dir_rejects_workspace_scope() {
         let _lock = env_lock();
         let temp = tempdir().unwrap();
         unsafe { std::env::set_var("RESTFLOW_DIR", temp.path()) };
 
-        let (user_dir, user_scope) = resolve_scope_dir("user").unwrap();
-        let (workspace_dir, workspace_scope) = resolve_scope_dir("workspace").unwrap();
-        assert_eq!(user_scope, "user");
-        assert_eq!(workspace_scope, "user");
-        assert_eq!(user_dir, workspace_dir);
+        let user_dir = resolve_scope_dir("user").unwrap();
+        assert!(user_dir.ends_with("skills"));
+
+        let workspace_err = resolve_scope_dir("workspace").unwrap_err();
+        assert!(workspace_err.to_string().contains("Invalid scope"));
 
         unsafe { std::env::remove_var("RESTFLOW_DIR") };
     }

@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 const AGENTS_DIR: &str = "agents";
 const DEFAULT_AGENT_PROMPT_FILE: &str = "default_agent.md";
@@ -98,82 +98,11 @@ fn resolve_agents_dir() -> Result<PathBuf> {
     Ok(crate::paths::ensure_restflow_dir()?.join(AGENTS_DIR))
 }
 
-fn resolve_repo_root_from(start: PathBuf) -> PathBuf {
-    let fallback = start.clone();
-    let mut current = start;
-    loop {
-        if current.join(".git").exists() {
-            return current;
-        }
-        if !current.pop() {
-            break;
-        }
-    }
-    fallback
-}
-
 fn ensure_agents_dir() -> Result<PathBuf> {
     let dir = resolve_agents_dir()?;
     fs::create_dir_all(&dir)
         .with_context(|| format!("Failed to create agents directory: {}", dir.display()))?;
-    migrate_legacy_repo_agents(&dir)?;
     Ok(dir)
-}
-
-fn migrate_legacy_repo_agents(target_dir: &Path) -> Result<()> {
-    // Skip migration when tests or explicit overrides define a custom agents dir.
-    if std::env::var(AGENTS_DIR_ENV).ok().is_some() {
-        return Ok(());
-    }
-
-    let Some(repo_root) = find_repo_root() else {
-        return Ok(());
-    };
-    let legacy_dir = repo_root.join(AGENTS_DIR);
-    if !legacy_dir.exists() || legacy_dir == target_dir {
-        return Ok(());
-    }
-
-    for entry in fs::read_dir(&legacy_dir).with_context(|| {
-        format!(
-            "Failed to read legacy agents directory: {}",
-            legacy_dir.display()
-        )
-    })? {
-        let entry = entry?;
-        let path = entry.path();
-        if !path.is_file() {
-            continue;
-        }
-        if path.extension().and_then(|s| s.to_str()) != Some("md") {
-            continue;
-        }
-
-        let file_name = entry.file_name();
-        let target = target_dir.join(file_name);
-        if target.exists() {
-            continue;
-        }
-        fs::copy(&path, &target).with_context(|| {
-            format!(
-                "Failed to migrate legacy agent prompt '{}' to '{}'",
-                path.display(),
-                target.display()
-            )
-        })?;
-    }
-
-    Ok(())
-}
-
-fn find_repo_root() -> Option<PathBuf> {
-    let cwd = std::env::current_dir().ok()?;
-    let root = resolve_repo_root_from(cwd);
-    if root.join(".git").exists() {
-        Some(root)
-    } else {
-        None
-    }
 }
 
 fn ensure_prompt_template_file(file_name: &str, default_content: &str) -> Result<PathBuf> {

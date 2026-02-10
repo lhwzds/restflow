@@ -61,7 +61,7 @@ impl AgentStorage {
     pub fn get_agent(&self, id: String) -> Result<Option<StoredAgent>> {
         if let Some(bytes) = self.inner.get_raw(&id)? {
             let agent: StoredAgent = serde_json::from_slice(&bytes)?;
-            Ok(Some(self.migrate_legacy_prompt(agent)?))
+            Ok(Some(self.hydrate_prompt_from_file(agent)?))
         } else {
             Ok(None)
         }
@@ -72,7 +72,7 @@ impl AgentStorage {
         let mut result = Vec::new();
         for (_, bytes) in agents {
             let agent: StoredAgent = serde_json::from_slice(&bytes)?;
-            result.push(self.migrate_legacy_prompt(agent)?);
+            result.push(self.hydrate_prompt_from_file(agent)?);
         }
         Ok(result)
     }
@@ -116,30 +116,6 @@ impl AgentStorage {
         }
         let _ = prompt_files::delete_agent_prompt_file(&id);
         Ok(())
-    }
-
-    pub fn migrate_prompts_to_files(&self) -> Result<()> {
-        let agents = self.inner.list_raw()?;
-        for (_, bytes) in agents {
-            let mut stored: StoredAgent = serde_json::from_slice(&bytes)?;
-            let legacy_prompt = stored.agent.prompt.take();
-            prompt_files::ensure_agent_prompt_file(&stored.id, legacy_prompt.as_deref())?;
-            if legacy_prompt.is_some() {
-                let scrubbed = serde_json::to_vec(&stored)?;
-                self.inner.put_raw(&stored.id, &scrubbed)?;
-            }
-        }
-        Ok(())
-    }
-
-    fn migrate_legacy_prompt(&self, mut stored: StoredAgent) -> Result<StoredAgent> {
-        let legacy_prompt = stored.agent.prompt.take();
-        prompt_files::ensure_agent_prompt_file(&stored.id, legacy_prompt.as_deref())?;
-        if legacy_prompt.is_some() {
-            let scrubbed = serde_json::to_vec(&stored)?;
-            self.inner.put_raw(&stored.id, &scrubbed)?;
-        }
-        self.hydrate_prompt_from_file(stored)
     }
 
     fn hydrate_prompt_from_file(&self, mut stored: StoredAgent) -> Result<StoredAgent> {
