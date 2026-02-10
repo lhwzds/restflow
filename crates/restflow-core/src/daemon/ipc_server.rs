@@ -1280,12 +1280,7 @@ impl IpcServer {
             }
             IpcRequest::GetSystemInfo => IpcResponse::success(serde_json::json!({
                 "pid": std::process::id(),
-                "python_ready": core.is_python_ready(),
             })),
-            IpcRequest::InitPython => match core.get_python_manager().await {
-                Ok(_) => IpcResponse::success(serde_json::json!({ "ready": true })),
-                Err(err) => IpcResponse::error(500, err.to_string()),
-            },
             IpcRequest::GetAvailableModels => IpcResponse::success(Vec::<String>::new()),
             IpcRequest::GetAvailableTools => {
                 let registry = create_runtime_tool_registry(core);

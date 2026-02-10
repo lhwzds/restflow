@@ -338,7 +338,6 @@ pub enum IpcRequest {
     },
 
     GetSystemInfo,
-    InitPython,
     GetAvailableModels,
     GetAvailableTools,
     GetAvailableToolDefinitions,

@@ -757,15 +757,6 @@ impl TauriExecutor {
         self.request(IpcRequest::GetAvailableTools).await
     }
 
-    pub async fn init_python(&self) -> Result<bool> {
-        #[derive(serde::Deserialize)]
-        struct InitResponse {
-            ready: bool,
-        }
-        let response: InitResponse = self.request(IpcRequest::InitPython).await?;
-        Ok(response.ready)
-    }
-
     pub async fn build_agent_system_prompt(&self, agent_node: AgentNode) -> Result<String> {
         #[derive(serde::Deserialize)]
         struct PromptResponse {

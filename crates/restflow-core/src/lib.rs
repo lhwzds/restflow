@@ -12,7 +12,6 @@ pub mod paths;
 pub mod performance;
 pub mod process;
 pub mod prompt_files;
-pub mod python;
 pub mod registry;
 pub mod runtime;
 pub mod security;
@@ -23,7 +22,6 @@ pub mod storage;
 pub use models::*;
 pub use steer::SteerRegistry;
 
-use once_cell::sync::OnceCell;
 use std::sync::Arc;
 use std::time::Duration;
 use storage::Storage;
@@ -35,10 +33,9 @@ use crate::mcp::McpToolCache;
 ///
 /// After AgentFlow refactor, this struct focuses on:
 /// - Storage access for Agent, Skill, Trigger, and Secrets
-/// - Python runtime management for PythonTool
+/// - MCP tool cache management
 pub struct AppCore {
     pub storage: Arc<Storage>,
-    pub python_manager: OnceCell<Arc<python::PythonManager>>,
     pub mcp_tool_cache: Arc<McpToolCache>,
 }
 
@@ -58,7 +55,6 @@ impl AppCore {
 
         Ok(Self {
             storage,
-            python_manager: OnceCell::new(),
             mcp_tool_cache,
         })
     }
@@ -78,21 +74,4 @@ impl AppCore {
         Ok(())
     }
 
-    pub async fn get_python_manager(&self) -> anyhow::Result<Arc<python::PythonManager>> {
-        if let Some(manager) = self.python_manager.get() {
-            return Ok(manager.clone());
-        }
-
-        let manager = python::PythonManager::new().await?;
-        let _ = self.python_manager.set(manager.clone());
-
-        Ok(self.python_manager.get().unwrap().clone())
-    }
-
-    pub fn is_python_ready(&self) -> bool {
-        self.python_manager
-            .get()
-            .map(|m| m.is_ready())
-            .unwrap_or(false)
-    }
 }

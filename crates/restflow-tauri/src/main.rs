@@ -164,8 +164,6 @@ fn main() {
             commands::update_config,
             commands::get_available_models,
             commands::get_available_tools,
-            commands::check_python_status,
-            commands::init_python,
             // PTY
             commands::spawn_pty,
             commands::write_pty,
