@@ -1149,6 +1149,8 @@ impl BackgroundAgentRunner {
         use std::collections::HashMap;
 
         let now = chrono::Utc::now();
+        // NOTE: Background agent templates must use `{{task.input}}`.
+        // The legacy alias `{{input}}` is intentionally not substituted.
         let replacements: HashMap<&str, String> = HashMap::from([
             ("{{task.id}}", task.id.clone()),
             ("{{task.name}}", task.name.clone()),
