@@ -94,6 +94,7 @@ pub fn main_agent_default_tool_names() -> Vec<String> {
         "web_fetch",
         "jina_reader",
         "show_panel",
+        "reply",
     ]
     .into_iter()
     .map(str::to_string)
@@ -687,14 +688,22 @@ mod tests {
     }
 
     #[test]
-    fn test_file_memory_tools_skipped_without_agent_id() {
+    fn test_file_memory_tools_registered_without_agent_id() {
         let dir = tempdir().expect("temp dir should be created");
         let db_path = dir.path().join("memory-tools-no-agent.db");
         let storage = Storage::new(db_path.to_str().expect("db path should be valid"))
             .expect("storage should be created");
-        let names = vec!["save_to_memory".to_string()];
+        let names = vec![
+            "save_to_memory".to_string(),
+            "read_memory".to_string(),
+            "list_memories".to_string(),
+            "delete_memory".to_string(),
+        ];
         let registry = registry_from_allowlist(Some(&names), None, None, Some(&storage), None);
-        assert!(!registry.has("save_to_memory"));
+        assert!(registry.has("save_to_memory"));
+        assert!(registry.has("read_memory"));
+        assert!(registry.has("list_memories"));
+        assert!(registry.has("delete_memory"));
     }
 
     #[test]

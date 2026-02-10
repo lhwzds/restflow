@@ -8,7 +8,7 @@ use std::sync::Arc;
 use tracing::{debug, error, info, warn};
 
 use crate::auth::AuthProfileManager;
-use crate::channel::{ChannelRouter, InboundMessage, OutboundMessage};
+use crate::channel::{ChannelReplySender, ChannelRouter, InboundMessage, OutboundMessage};
 use crate::models::{ChatMessage, ChatSession};
 use crate::process::ProcessRegistry;
 use crate::runtime::background_agent::{AgentRuntimeExecutor, SessionInputMode};
@@ -58,6 +58,32 @@ pub enum ChatError {
     Timeout,
 }
 
+const MAX_USER_ERROR_DETAIL_CHARS: usize = 280;
+
+fn summarize_error_detail(detail: &str) -> String {
+    let first_line = detail
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .unwrap_or(detail.trim());
+    let collapsed = first_line.split_whitespace().collect::<Vec<_>>().join(" ");
+
+    if collapsed.is_empty() {
+        return "unknown error".to_string();
+    }
+
+    let char_count = collapsed.chars().count();
+    if char_count <= MAX_USER_ERROR_DETAIL_CHARS {
+        return collapsed;
+    }
+
+    let truncated = collapsed
+        .chars()
+        .take(MAX_USER_ERROR_DETAIL_CHARS)
+        .collect::<String>();
+    format!("{}...", truncated)
+}
+
 impl ChatError {
     /// Get a user-friendly error message.
     pub fn user_message(&self) -> &str {
@@ -71,6 +97,19 @@ impl ChatError {
             Self::ExecutionFailed(_) | Self::SessionError(_) => {
                 "An error occurred while processing your message. Please try again."
             }
+        }
+    }
+
+    /// Get a user-facing message that includes concise execution details when available.
+    pub fn user_message_with_details(&self) -> String {
+        match self {
+            Self::ExecutionFailed(detail) => {
+                format!("Agent execution failed: {}", summarize_error_detail(detail))
+            }
+            Self::SessionError(detail) => {
+                format!("Session error: {}", summarize_error_detail(detail))
+            }
+            _ => self.user_message().to_string(),
         }
     }
 }
@@ -405,7 +444,12 @@ impl ChatDispatcher {
 
         // 4. Execute via shared runtime executor.
         let original_agent_id = session.agent_id.clone();
-        let executor = self.create_executor();
+        let reply_sender = Arc::new(ChannelReplySender::new(
+            self.channel_router.clone(),
+            &message.conversation_id,
+            message.channel_type,
+        ));
+        let executor = self.create_executor().with_reply_sender(reply_sender);
         let exec_result = match tokio::time::timeout(
             tokio::time::Duration::from_secs(self.config.response_timeout_secs),
             executor.execute_session_turn(
@@ -481,8 +525,11 @@ impl ChatDispatcher {
 
     /// Send an error response to the user.
     async fn send_error_response(&self, message: &InboundMessage, error: ChatError) -> Result<()> {
-        let error_text = format!("⚠️ {}", error.user_message());
-        let response = OutboundMessage::new(&message.conversation_id, &error_text);
+        let error_text = error.user_message_with_details();
+        let mut response = OutboundMessage::warning(&message.conversation_id, &error_text);
+        // Error details can include arbitrary characters from provider/tool errors.
+        // Use plain text mode to avoid markdown parse failures in channel adapters.
+        response.parse_mode = None;
         self.channel_router
             .send_to(message.channel_type, response)
             .await
@@ -566,6 +613,17 @@ mod tests {
                 .user_message()
                 .is_empty()
         );
+    }
+
+    #[test]
+    fn test_chat_error_user_message_with_details() {
+        let message = ChatError::ExecutionFailed(
+            "tool call failed: invalid argument\nstacktrace: omitted".to_string(),
+        )
+        .user_message_with_details();
+        assert!(message.contains("Agent execution failed:"));
+        assert!(message.contains("tool call failed: invalid argument"));
+        assert!(!message.contains("stacktrace"));
     }
 
     #[tokio::test]

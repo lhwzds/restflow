@@ -88,6 +88,7 @@ pub fn main_agent_default_tool_names() -> Vec<String> {
         "manage_auth_profiles",
         "patch",
         "diagnostics",
+        "reply",
     ]
     .into_iter()
     .map(str::to_string)
