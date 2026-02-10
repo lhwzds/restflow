@@ -4,10 +4,10 @@ use restflow_core::AppCore;
 use restflow_core::auth::{AuthManagerConfig, AuthProfileManager};
 use restflow_core::channel::ChannelRouter;
 use restflow_core::daemon::publish_background_event;
+use restflow_core::hooks::HookExecutor;
 use restflow_core::models::{BackgroundAgent, BackgroundAgentStatus, BackgroundMessageSource};
 use restflow_core::paths;
 use restflow_core::process::ProcessRegistry;
-use restflow_core::hooks::HookExecutor;
 use restflow_core::runtime::{
     AgentDefinitionRegistry, AgentRuntimeExecutor, BackgroundAgentRunner, BackgroundAgentTrigger,
     ChatDispatcher, ChatDispatcherConfig, ChatSessionManager, MessageDebouncer,

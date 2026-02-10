@@ -3,6 +3,7 @@ mod commands;
 mod completions;
 mod config;
 mod daemon;
+mod error;
 mod executor;
 mod output;
 mod setup;
@@ -67,7 +68,13 @@ fn command_needs_direct_core(command: &Option<Commands>) -> bool {
 }
 
 #[tokio::main]
-async fn main() -> Result<()> {
+async fn main() {
+    if let Err(err) = run().await {
+        error::handle_error(err);
+    }
+}
+
+async fn run() -> Result<()> {
     let cli = Cli::parse();
     let _config = config::CliConfig::load();
     let _log_guard = init_logging(cli.verbose);
