@@ -1,5 +1,5 @@
 use crate::cli::DaemonCommands;
-use crate::commands::claude_mcp::try_sync_restflow_stdio_mcp;
+use crate::commands::claude_mcp::try_sync_claude_http_mcp;
 use crate::commands::codex_mcp::try_sync_codex_http_mcp;
 use crate::daemon::CliBackgroundAgentRunner;
 use anyhow::Result;
@@ -14,7 +14,7 @@ use tokio::time::{Duration, sleep};
 use tracing::error;
 
 pub async fn sync_mcp_configs(mcp_port: Option<u16>) {
-    if let Err(err) = try_sync_restflow_stdio_mcp().await {
+    if let Err(err) = try_sync_claude_http_mcp(mcp_port.unwrap_or(8787)).await {
         eprintln!("Warning: failed to auto-configure Claude MCP: {err}");
     }
     if let Err(err) = try_sync_codex_http_mcp(mcp_port.unwrap_or(8787)).await {

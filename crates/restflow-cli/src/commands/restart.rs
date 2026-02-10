@@ -1,5 +1,6 @@
 use crate::cli::RestartArgs;
-use crate::commands::claude_mcp::try_sync_restflow_stdio_mcp;
+use crate::commands::claude_mcp::try_sync_claude_http_mcp;
+use crate::commands::codex_mcp::try_sync_codex_http_mcp;
 use anyhow::{Result, bail};
 use restflow_core::daemon::{DaemonStatus, check_daemon_status, start_daemon, stop_daemon};
 use tokio::time::{Duration, sleep};
@@ -18,8 +19,11 @@ pub async fn run(args: RestartArgs) -> Result<()> {
     } else {
         println!("RestFlow daemon started (PID: {pid})");
     }
-    if let Err(err) = try_sync_restflow_stdio_mcp().await {
+    if let Err(err) = try_sync_claude_http_mcp(8787).await {
         eprintln!("Warning: failed to auto-configure Claude MCP: {err}");
+    }
+    if let Err(err) = try_sync_codex_http_mcp(8787).await {
+        eprintln!("Warning: failed to auto-configure Codex MCP: {err}");
     }
 
     Ok(())
