@@ -2246,6 +2246,11 @@ mod tests {
 
     #[test]
     fn test_agent_store_adapter_crud_flow() {
+        // Acquire the shared env lock to avoid racing with prompt_files tests
+        let _env_lock = crate::prompt_files::agents_dir_env_lock();
+        let agents_temp = tempdir().unwrap();
+        unsafe { std::env::set_var(crate::prompt_files::AGENTS_DIR_ENV, agents_temp.path()) };
+
         let (
             _skill_storage,
             _memory_storage,

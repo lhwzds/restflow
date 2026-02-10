@@ -1142,41 +1142,58 @@ impl BackgroundAgentRunner {
         }
     }
 
+    /// Single-pass template renderer that prevents double-substitution.
+    /// Scans for `{{...}}` placeholders left-to-right; replacement values are
+    /// emitted verbatim so any `{{` inside a value will NOT be re-expanded.
     fn render_input_template(task: &BackgroundAgent, template: &str) -> String {
+        use std::collections::HashMap;
+
         let now = chrono::Utc::now();
-        // NOTE: Input templates must use `{{task.input}}`.
-        // We intentionally do not support the legacy alias `{{input}}`.
-        let replacements = vec![
-            ("{{task.id}}".to_string(), task.id.clone()),
-            ("{{task.name}}".to_string(), task.name.clone()),
-            ("{{task.agent_id}}".to_string(), task.agent_id.clone()),
+        let replacements: HashMap<&str, String> = HashMap::from([
+            ("{{task.id}}", task.id.clone()),
+            ("{{task.name}}", task.name.clone()),
+            ("{{task.agent_id}}", task.agent_id.clone()),
             (
-                "{{task.description}}".to_string(),
+                "{{task.description}}",
                 task.description.clone().unwrap_or_default(),
             ),
             (
-                "{{task.input}}".to_string(),
+                "{{task.input}}",
                 task.input.clone().unwrap_or_default(),
             ),
             (
-                "{{task.last_run_at}}".to_string(),
+                "{{task.last_run_at}}",
                 Self::format_optional_timestamp(task.last_run_at),
             ),
             (
-                "{{task.next_run_at}}".to_string(),
+                "{{task.next_run_at}}",
                 Self::format_optional_timestamp(task.next_run_at),
             ),
-            ("{{now.iso}}".to_string(), now.to_rfc3339()),
-            (
-                "{{now.unix_ms}}".to_string(),
-                now.timestamp_millis().to_string(),
-            ),
-        ];
+            ("{{now.iso}}", now.to_rfc3339()),
+            ("{{now.unix_ms}}", now.timestamp_millis().to_string()),
+        ]);
 
-        let mut rendered = template.to_string();
-        for (pattern, replacement) in replacements {
-            rendered = rendered.replace(&pattern, &replacement);
+        let mut rendered = String::with_capacity(template.len());
+        let mut rest = template;
+
+        while let Some(start) = rest.find("{{") {
+            rendered.push_str(&rest[..start]);
+            if let Some(end_offset) = rest[start..].find("}}") {
+                let key = &rest[start..start + end_offset + 2];
+                if let Some(value) = replacements.get(key) {
+                    rendered.push_str(value);
+                } else {
+                    // Unknown placeholder — keep as-is
+                    rendered.push_str(key);
+                }
+                rest = &rest[start + end_offset + 2..];
+            } else {
+                // No closing }} — emit rest as-is
+                rendered.push_str(&rest[start..]);
+                rest = "";
+            }
         }
+        rendered.push_str(rest);
         rendered
     }
 
@@ -2091,6 +2108,24 @@ mod tests {
 
         assert!(rendered.contains("ALIAS={{input}}"));
         assert!(rendered.contains("REQUIRED=input"));
+    }
+
+    #[test]
+    fn test_render_input_template_no_double_substitution() {
+        let task = BackgroundAgent::new(
+            "task-123".to_string(),
+            "Process {{task.id}}".to_string(), // name contains a placeholder
+            "agent-456".to_string(),
+            TaskSchedule::default(),
+        );
+
+        let rendered = BackgroundAgentRunner::render_input_template(
+            &task,
+            "Name: {{task.name}}, ID: {{task.id}}",
+        );
+
+        // Name should be literal "Process {{task.id}}", NOT "Process task-123"
+        assert_eq!(rendered, "Name: Process {{task.id}}, ID: task-123");
     }
 
     #[test]

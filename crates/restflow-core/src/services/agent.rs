@@ -56,13 +56,26 @@ pub async fn delete_agent(core: &Arc<AppCore>, id: &str) -> Result<()> {
 mod tests {
     use super::*;
     use crate::models::{AIModel, ApiKeyConfig};
+    use crate::prompt_files;
     use restflow_storage::time_utils;
     use tempfile::tempdir;
 
-    async fn create_test_core() -> Arc<AppCore> {
-        let temp_dir = tempdir().unwrap();
-        let db_path = temp_dir.path().join("test.db");
-        Arc::new(AppCore::new(db_path.to_str().unwrap()).await.unwrap())
+    /// Create a test AppCore with an isolated agents directory.
+    /// Returns (core, _temp_db_dir, _temp_agents_dir, _env_lock_guard).
+    /// All returned values must be held alive for the test duration.
+    async fn create_test_core_isolated() -> (
+        Arc<AppCore>,
+        tempfile::TempDir,
+        tempfile::TempDir,
+        std::sync::MutexGuard<'static, ()>,
+    ) {
+        let lock = prompt_files::agents_dir_env_lock();
+        let temp_db = tempdir().unwrap();
+        let temp_agents = tempdir().unwrap();
+        unsafe { std::env::set_var(prompt_files::AGENTS_DIR_ENV, temp_agents.path()) };
+        let db_path = temp_db.path().join("test.db");
+        let core = Arc::new(AppCore::new(db_path.to_str().unwrap()).await.unwrap());
+        (core, temp_db, temp_agents, lock)
     }
 
     fn create_test_agent_node(prompt: &str) -> AgentNode {
@@ -82,7 +95,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_list_agents_empty() {
-        let core = create_test_core().await;
+        let (core, _db, _agents, _lock) = create_test_core_isolated().await;
         let agents = list_agents(&core).await.unwrap();
         assert_eq!(agents.len(), 1);
         assert_eq!(agents[0].name, "Default Assistant");
@@ -90,7 +103,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_create_and_get_agent() {
-        let core = create_test_core().await;
+        let (core, _db, _agents, _lock) = create_test_core_isolated().await;
 
         let agent_node = create_test_agent_node("You are a helpful assistant");
         let created = create_agent(&core, "Test Agent".to_string(), agent_node)
@@ -111,7 +124,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_list_agents_multiple() {
-        let core = create_test_core().await;
+        let (core, _db, _agents, _lock) = create_test_core_isolated().await;
 
         let agent1 = create_test_agent_node("Agent 1 prompt");
         let agent2 = create_test_agent_node("Agent 2 prompt");
@@ -139,7 +152,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_update_agent_name() {
-        let core = create_test_core().await;
+        let (core, _db, _agents, _lock) = create_test_core_isolated().await;
 
         let agent_node = create_test_agent_node("Test prompt");
         let created = create_agent(&core, "Original Name".to_string(), agent_node)
@@ -156,7 +169,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_update_agent_config() {
-        let core = create_test_core().await;
+        let (core, _db, _agents, _lock) = create_test_core_isolated().await;
 
         let agent_node = create_test_agent_node("Original prompt");
         let created = create_agent(&core, "Test Agent".to_string(), agent_node)
@@ -179,7 +192,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_delete_agent() {
-        let core = create_test_core().await;
+        let (core, _db, _agents, _lock) = create_test_core_isolated().await;
 
         let agent_node = create_test_agent_node("Test prompt");
         let created = create_agent(&core, "To Delete".to_string(), agent_node)
@@ -200,7 +213,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_nonexistent_agent_fails() {
-        let core = create_test_core().await;
+        let (core, _db, _agents, _lock) = create_test_core_isolated().await;
 
         let result = get_agent(&core, "nonexistent-id").await;
         assert!(result.is_err());
@@ -209,7 +222,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_create_agent_generates_uuid() {
-        let core = create_test_core().await;
+        let (core, _db, _agents, _lock) = create_test_core_isolated().await;
 
         let agent_node = create_test_agent_node("Test prompt");
         let created = create_agent(&core, "Test Agent".to_string(), agent_node)
@@ -224,7 +237,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_create_agent_sets_timestamps() {
-        let core = create_test_core().await;
+        let (core, _db, _agents, _lock) = create_test_core_isolated().await;
 
         let before = time_utils::now_ms();
 
@@ -249,7 +262,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_update_agent_updates_timestamp() {
-        let core = create_test_core().await;
+        let (core, _db, _agents, _lock) = create_test_core_isolated().await;
 
         let agent_node = create_test_agent_node("Test prompt");
         let created = create_agent(&core, "Test Agent".to_string(), agent_node)

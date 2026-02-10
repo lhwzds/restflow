@@ -5,7 +5,8 @@ use std::path::PathBuf;
 const AGENTS_DIR: &str = "agents";
 const DEFAULT_AGENT_PROMPT_FILE: &str = "default_agent.md";
 const BACKGROUND_AGENT_POLICY_FILE: &str = "background_agent_policy.md";
-const AGENTS_DIR_ENV: &str = "RESTFLOW_AGENTS_DIR";
+/// Environment variable to override the agents directory path (used in tests).
+pub const AGENTS_DIR_ENV: &str = "RESTFLOW_AGENTS_DIR";
 
 const DEFAULT_AGENT_PROMPT_ASSET: &str = include_str!("../assets/default_agent.md");
 const BACKGROUND_AGENT_POLICY_ASSET: &str = include_str!("../assets/background_agent_policy.md");
@@ -124,17 +125,36 @@ fn agent_prompt_path(agent_id: &str) -> Result<PathBuf> {
     if id.is_empty() {
         anyhow::bail!("Agent ID is empty; cannot resolve prompt file path");
     }
+    // Reject path traversal characters to prevent directory escape
+    if id.contains('/')
+        || id.contains('\\')
+        || id.contains("..")
+        || id.contains('\0')
+    {
+        anyhow::bail!(
+            "Agent ID '{}' contains invalid characters (path separators or '..' sequences)",
+            id
+        );
+    }
     Ok(ensure_agents_dir()?.join(format!("{id}.md")))
+}
+
+/// Shared lock for tests that mutate the RESTFLOW_AGENTS_DIR env var.
+/// All tests that set/remove this env var MUST acquire this lock first
+/// to avoid cross-module race conditions.
+#[cfg(test)]
+pub fn agents_dir_env_lock() -> std::sync::MutexGuard<'static, ()> {
+    use std::sync::{Mutex, OnceLock};
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(())).lock().unwrap()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::{Mutex, OnceLock};
 
     fn env_lock() -> std::sync::MutexGuard<'static, ()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(())).lock().unwrap()
+        agents_dir_env_lock()
     }
 
     #[test]
@@ -188,6 +208,23 @@ mod tests {
         assert_eq!(loaded.as_deref(), Some("Custom prompt"));
 
         unsafe { std::env::remove_var(AGENTS_DIR_ENV) };
+    }
+
+    #[test]
+    fn test_agent_prompt_path_rejects_path_traversal() {
+        assert!(agent_prompt_path("../etc/passwd").is_err());
+        assert!(agent_prompt_path("foo/bar").is_err());
+        assert!(agent_prompt_path("foo\\bar").is_err());
+        assert!(agent_prompt_path("foo..bar").is_err());
+        assert!(agent_prompt_path("foo\0bar").is_err());
+    }
+
+    #[test]
+    fn test_agent_prompt_path_accepts_valid_ids() {
+        assert!(agent_prompt_path("my-agent").is_ok());
+        assert!(agent_prompt_path("agent_1").is_ok());
+        assert!(agent_prompt_path("default").is_ok());
+        assert!(agent_prompt_path("550e8400-e29b-41d4-a716-446655440000").is_ok());
     }
 
     #[test]
