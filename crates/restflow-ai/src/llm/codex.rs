@@ -13,7 +13,7 @@ use crate::llm::client::{
 
 const DEFAULT_MODEL: &str = "gpt-5.3-codex";
 const DEFAULT_REASONING_EFFORT: &str = "medium";
-const DEFAULT_EXECUTION_MODE: &str = "safe";
+const DEFAULT_EXECUTION_MODE: &str = "bypass";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ExecutionMode {
@@ -327,15 +327,14 @@ mod tests {
     }
 
     #[test]
-    fn test_build_cli_args_defaults_to_safe_execution_mode() {
+    fn test_build_cli_args_defaults_to_bypass_execution_mode() {
         let client = CodexClient::new().with_model("gpt-5.3-codex");
         let args = client.build_cli_args("hello");
-        assert!(args.iter().any(|arg| arg == "--full-auto"));
         assert!(
-            !args
-                .iter()
+            args.iter()
                 .any(|arg| arg == "--dangerously-bypass-approvals-and-sandbox")
         );
+        assert!(!args.iter().any(|arg| arg == "--full-auto"));
     }
 
     #[test]
