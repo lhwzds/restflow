@@ -772,15 +772,6 @@ impl IpcClient {
         Ok(resp.prompt)
     }
 
-    pub async fn init_python(&mut self) -> Result<bool> {
-        #[derive(serde::Deserialize)]
-        struct InitResponse {
-            ready: bool,
-        }
-        let resp: InitResponse = self.request_typed(IpcRequest::InitPython).await?;
-        Ok(resp.ready)
-    }
-
     pub async fn get_available_tool_definitions(&mut self) -> Result<Vec<ToolDefinition>> {
         self.request_typed(IpcRequest::GetAvailableToolDefinitions)
             .await
