@@ -123,6 +123,15 @@ impl BackgroundAgentStorage {
         Ok(runnable)
     }
 
+    /// Save an agent task (insert or replace).
+    /// Unlike `update_task`, this does not require the task to already exist.
+    pub fn save_task(&self, task: &BackgroundAgent) -> Result<()> {
+        let json_bytes = serde_json::to_vec(task)?;
+        self.inner
+            .put_task_raw_with_status(&task.id, task.status.as_str(), &json_bytes)?;
+        Ok(())
+    }
+
     /// Update an existing agent task.
     /// Returns an error if the task does not exist.
     pub fn update_task(&self, task: &BackgroundAgent) -> Result<()> {
