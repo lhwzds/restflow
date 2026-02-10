@@ -7,11 +7,12 @@ use restflow_core::daemon::publish_background_event;
 use restflow_core::models::{BackgroundAgent, BackgroundAgentStatus, BackgroundMessageSource};
 use restflow_core::paths;
 use restflow_core::process::ProcessRegistry;
+use restflow_core::hooks::HookExecutor;
 use restflow_core::runtime::{
     AgentDefinitionRegistry, AgentRuntimeExecutor, BackgroundAgentRunner, BackgroundAgentTrigger,
     ChatDispatcher, ChatDispatcherConfig, ChatSessionManager, MessageDebouncer,
-    MessageHandlerConfig, RunnerConfig, RunnerHandle, SubagentConfig, SubagentTracker,
-    SystemStatus, TelegramNotifier, start_message_handler_with_chat,
+    MessageHandlerConfig, NoopHeartbeatEmitter, RunnerConfig, RunnerHandle, SubagentConfig,
+    SubagentTracker, SystemStatus, TelegramNotifier, start_message_handler_with_chat,
 };
 use restflow_core::runtime::{TaskEventEmitter, TaskStreamEvent};
 use restflow_core::steer::SteerRegistry;
@@ -98,8 +99,10 @@ impl CliBackgroundAgentRunner {
         let notifier = TelegramNotifier::new(secrets);
         let steer_registry = Arc::new(SteerRegistry::new());
 
+        let hook_executor = Arc::new(HookExecutor::with_storage(storage.hooks.clone()));
+
         let runner = Arc::new(
-            BackgroundAgentRunner::new(
+            BackgroundAgentRunner::with_memory_persistence(
                 Arc::new(storage.background_agents.clone()),
                 Arc::new(executor),
                 Arc::new(notifier),
@@ -108,9 +111,12 @@ impl CliBackgroundAgentRunner {
                     max_concurrent_tasks: 5,
                     task_timeout_secs: 3600,
                 },
+                Arc::new(NoopHeartbeatEmitter),
+                storage.memory.clone(),
                 steer_registry,
             )
-            .with_event_emitter(Arc::new(DaemonIpcEventEmitter)),
+            .with_event_emitter(Arc::new(DaemonIpcEventEmitter))
+            .with_hook_executor(hook_executor),
         );
 
         let handle = runner.clone().start();
