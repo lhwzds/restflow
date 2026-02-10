@@ -212,12 +212,16 @@ impl AgentRuntimeExecutor {
         Ok(factory.create_client(model.as_serialized_str(), api_key)?)
     }
 
-    fn build_subagent_deps(&self, llm_client: Arc<dyn LlmClient>) -> SubagentDeps {
+    fn build_subagent_deps(
+        &self,
+        llm_client: Arc<dyn LlmClient>,
+        tool_registry: Arc<ToolRegistry>,
+    ) -> SubagentDeps {
         SubagentDeps {
             tracker: self.subagent_tracker.clone(),
             definitions: self.subagent_definitions.clone(),
             llm_client,
-            tool_registry: Arc::new(ToolRegistry::new()),
+            tool_registry,
             config: self.subagent_config.clone(),
         }
     }
@@ -256,8 +260,15 @@ impl AgentRuntimeExecutor {
         agent_id: Option<&str>,
         python_runtime: PythonRuntime,
     ) -> Arc<ToolRegistry> {
-        let subagent_deps = self.build_subagent_deps(llm_client);
         let secret_resolver = Some(secret_resolver_from_storage(&self.storage));
+        let subagent_tool_registry = Arc::new(registry_from_allowlist(
+            tool_names,
+            None,
+            secret_resolver.clone(),
+            Some(self.storage.as_ref()),
+            agent_id,
+        ));
+        let subagent_deps = self.build_subagent_deps(llm_client, subagent_tool_registry);
         let mut registry = registry_from_allowlist(
             tool_names,
             Some(&subagent_deps),
@@ -687,10 +698,11 @@ impl AgentRuntimeExecutor {
         agent_id: Option<&str>,
     ) -> Result<ExecutionResult> {
         let swappable = Arc::new(SwappableLlm::new(llm_client));
+        let effective_tools = effective_main_agent_tool_names(agent_node.tools.as_deref());
         let python_runtime =
             Self::resolve_python_runtime_policy(agent_node.python_runtime_policy.as_ref());
         let tools = self.build_tool_registry(
-            agent_node.tools.as_deref(),
+            Some(&effective_tools),
             swappable.clone(),
             swappable.clone(),
             factory,
