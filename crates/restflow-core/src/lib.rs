@@ -73,5 +73,4 @@ impl AppCore {
         }
         Ok(())
     }
-
 }

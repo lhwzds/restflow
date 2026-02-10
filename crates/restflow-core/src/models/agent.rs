@@ -28,6 +28,21 @@ impl CodexCliExecutionMode {
     }
 }
 
+/// Python runtime policy used by python tools.
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq, Eq)]
+#[ts(export)]
+#[serde(rename_all = "snake_case")]
+pub enum PythonRuntimePolicy {
+    Monty,
+    Cpython,
+}
+
+impl Default for PythonRuntimePolicy {
+    fn default() -> Self {
+        Self::Monty
+    }
+}
+
 /// API key or password configuration (direct value or secret reference)
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
@@ -79,6 +94,10 @@ pub struct AgentNode {
     #[ts(optional)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub skill_variables: Option<HashMap<String, String>>,
+    /// Python runtime policy for python tools.
+    #[ts(optional)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub python_runtime_policy: Option<PythonRuntimePolicy>,
 }
 
 impl AgentNode {
@@ -147,6 +166,12 @@ impl AgentNode {
         self
     }
 
+    /// Set python runtime policy.
+    pub fn with_python_runtime_policy(mut self, policy: PythonRuntimePolicy) -> Self {
+        self.python_runtime_policy = Some(policy);
+        self
+    }
+
     /// Get the model, returning an error if not specified
     pub fn require_model(&self) -> Result<AIModel, &'static str> {
         self.model
@@ -190,5 +215,11 @@ mod tests {
             node.codex_cli_execution_mode,
             Some(CodexCliExecutionMode::Bypass)
         );
+    }
+
+    #[test]
+    fn with_python_runtime_policy_sets_value() {
+        let node = AgentNode::new().with_python_runtime_policy(PythonRuntimePolicy::Monty);
+        assert_eq!(node.python_runtime_policy, Some(PythonRuntimePolicy::Monty));
     }
 }

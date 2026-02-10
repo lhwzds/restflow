@@ -2,6 +2,7 @@
 import type { AIModel } from "./AIModel";
 import type { ApiKeyConfig } from "./ApiKeyConfig";
 import type { CodexCliExecutionMode } from "./CodexCliExecutionMode";
+import type { PythonRuntimePolicy } from "./PythonRuntimePolicy";
 
 /**
  * Agent configuration for AI-powered execution
@@ -42,4 +43,8 @@ skills?: Array<string>,
 /**
  * Variables available for skill prompt substitution
  */
-skill_variables?: { [key in string]: string }, };
+skill_variables?: { [key in string]: string }, 
+/**
+ * Python runtime policy for python tools.
+ */
+python_runtime_policy?: PythonRuntimePolicy, };
