@@ -64,6 +64,7 @@ mod tests {
     /// Create a test AppCore with an isolated agents directory.
     /// Returns (core, _temp_db_dir, _temp_agents_dir, _env_lock_guard).
     /// All returned values must be held alive for the test duration.
+    #[allow(clippy::await_holding_lock)]
     async fn create_test_core_isolated() -> (
         Arc<AppCore>,
         tempfile::TempDir,
