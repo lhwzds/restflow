@@ -70,11 +70,12 @@ pub fn user_skills_dir() -> Result<PathBuf> {
     Ok(dir)
 }
 
-/// Workspace-local skills directory: .restflow/skills/
+/// Legacy workspace-local skills directory alias.
+///
+/// Workspace-level skills are no longer supported. This function now maps to
+/// the user-global path `~/.restflow/skills/` for backward compatibility.
 pub fn workspace_skills_dir() -> Result<PathBuf> {
-    let dir = PathBuf::from(RESTFLOW_DIR).join(SKILLS_DIR);
-    std::fs::create_dir_all(&dir)?;
-    Ok(dir)
+    user_skills_dir()
 }
 
 /// IPC socket path: ~/.restflow/restflow.sock
