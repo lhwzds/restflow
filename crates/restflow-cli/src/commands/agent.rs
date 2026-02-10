@@ -2,11 +2,11 @@ use anyhow::Result;
 use comfy_table::{Cell, Table};
 use std::sync::Arc;
 
-use crate::cli::AgentCommands;
+use crate::cli::{AgentCommands, CodexExecutionModeArg};
 use crate::commands::utils::{format_timestamp, parse_model};
 use crate::executor::CommandExecutor;
 use crate::output::{OutputFormat, json::print_json};
-use restflow_core::models::AgentNode;
+use restflow_core::models::{AgentNode, CodexCliExecutionMode};
 
 pub async fn run(
     executor: Arc<dyn CommandExecutor>,
@@ -20,10 +20,14 @@ pub async fn run(
             name,
             model,
             prompt,
-        } => create_agent(executor, &name, model, prompt, format).await,
-        AgentCommands::Update { id, name, model } => {
-            update_agent(executor, &id, name, model, format).await
-        }
+            codex_execution_mode,
+        } => create_agent(executor, &name, model, prompt, codex_execution_mode, format).await,
+        AgentCommands::Update {
+            id,
+            name,
+            model,
+            codex_execution_mode,
+        } => update_agent(executor, &id, name, model, codex_execution_mode, format).await,
         AgentCommands::Delete { id } => delete_agent(executor, &id, format).await,
     }
 }
@@ -78,6 +82,9 @@ async fn show_agent(
     println!("Created:     {}", format_timestamp(agent.created_at));
     println!("Updated:     {}", format_timestamp(agent.updated_at));
     println!("Tools:       {}", format_tools(&agent.agent.tools));
+    if let Some(mode) = agent.agent.codex_cli_execution_mode {
+        println!("Codex Mode:  {}", mode.as_str());
+    }
 
     if let Some(prompt) = agent.agent.prompt {
         println!("\nSystem Prompt:\n{prompt}");
@@ -91,6 +98,7 @@ async fn create_agent(
     name: &str,
     model: Option<String>,
     prompt: Option<String>,
+    codex_execution_mode: Option<CodexExecutionModeArg>,
     format: OutputFormat,
 ) -> Result<()> {
     let mut agent_node = match model {
@@ -99,6 +107,9 @@ async fn create_agent(
     };
     if let Some(prompt) = prompt {
         agent_node = agent_node.with_prompt(prompt);
+    }
+    if let Some(mode) = codex_execution_mode {
+        agent_node = agent_node.with_codex_cli_execution_mode(to_codex_mode(mode));
     }
 
     let created = executor.create_agent(name.to_string(), agent_node).await?;
@@ -116,12 +127,16 @@ async fn update_agent(
     id: &str,
     name: Option<String>,
     model: Option<String>,
+    codex_execution_mode: Option<CodexExecutionModeArg>,
     format: OutputFormat,
 ) -> Result<()> {
     let mut existing = executor.get_agent(id).await?;
 
     if let Some(model) = model {
         existing.agent.model = Some(parse_model(&model)?);
+    }
+    if let Some(mode) = codex_execution_mode {
+        existing.agent.codex_cli_execution_mode = Some(to_codex_mode(mode));
     }
 
     let updated = executor
@@ -159,5 +174,12 @@ fn format_tools(tools: &Option<Vec<String>>) -> String {
     match tools {
         Some(tool_list) if !tool_list.is_empty() => tool_list.join(", "),
         _ => "-".to_string(),
+    }
+}
+
+fn to_codex_mode(mode: CodexExecutionModeArg) -> CodexCliExecutionMode {
+    match mode {
+        CodexExecutionModeArg::Safe => CodexCliExecutionMode::Safe,
+        CodexExecutionModeArg::Bypass => CodexCliExecutionMode::Bypass,
     }
 }

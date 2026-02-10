@@ -7,6 +7,27 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use ts_rs::TS;
 
+/// Codex CLI execution mode.
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq, Eq)]
+#[ts(export)]
+#[serde(rename_all = "snake_case")]
+pub enum CodexCliExecutionMode {
+    /// Safe mode: codex runs with `--full-auto`.
+    Safe,
+    /// Bypass mode: codex runs with
+    /// `--dangerously-bypass-approvals-and-sandbox`.
+    Bypass,
+}
+
+impl CodexCliExecutionMode {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Safe => "safe",
+            Self::Bypass => "bypass",
+        }
+    }
+}
+
 /// API key or password configuration (direct value or secret reference)
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
@@ -38,6 +59,10 @@ pub struct AgentNode {
     #[ts(optional)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub codex_cli_reasoning_effort: Option<String>,
+    /// Optional execution mode override for Codex CLI models (`safe` | `bypass`)
+    #[ts(optional)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub codex_cli_execution_mode: Option<CodexCliExecutionMode>,
     /// API key configuration (direct or from secret)
     #[ts(optional)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -92,6 +117,12 @@ impl AgentNode {
         self
     }
 
+    /// Set the execution mode for Codex CLI models
+    pub fn with_codex_cli_execution_mode(mut self, mode: CodexCliExecutionMode) -> Self {
+        self.codex_cli_execution_mode = Some(mode);
+        self
+    }
+
     /// Set the API key configuration
     pub fn with_api_key(mut self, config: ApiKeyConfig) -> Self {
         self.api_key_config = Some(config);
@@ -142,5 +173,22 @@ mod tests {
     fn with_codex_cli_reasoning_effort_ignores_empty_input() {
         let node = AgentNode::new().with_codex_cli_reasoning_effort("   ");
         assert!(node.codex_cli_reasoning_effort.is_none());
+    }
+
+    #[test]
+    fn codex_cli_execution_mode_serializes_to_snake_case() {
+        let safe = serde_json::to_string(&CodexCliExecutionMode::Safe).unwrap();
+        let bypass = serde_json::to_string(&CodexCliExecutionMode::Bypass).unwrap();
+        assert_eq!(safe, "\"safe\"");
+        assert_eq!(bypass, "\"bypass\"");
+    }
+
+    #[test]
+    fn with_codex_cli_execution_mode_sets_value() {
+        let node = AgentNode::new().with_codex_cli_execution_mode(CodexCliExecutionMode::Bypass);
+        assert_eq!(
+            node.codex_cli_execution_mode,
+            Some(CodexCliExecutionMode::Bypass)
+        );
     }
 }

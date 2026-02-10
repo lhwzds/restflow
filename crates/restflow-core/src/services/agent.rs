@@ -71,6 +71,7 @@ mod tests {
             prompt: Some(prompt.to_string()),
             temperature: Some(0.7),
             codex_cli_reasoning_effort: None,
+            codex_cli_execution_mode: None,
             api_key_config: Some(ApiKeyConfig::Direct("test_key".to_string())),
             tools: Some(vec!["add".to_string()]),
             skills: None,

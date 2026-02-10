@@ -19,7 +19,7 @@ pub mod terminal_session;
 pub mod trigger;
 pub mod webhook;
 
-pub use agent::{AgentNode, ApiKeyConfig};
+pub use agent::{AgentNode, ApiKeyConfig, CodexCliExecutionMode};
 pub use agent_execution::{AgentExecuteResponse, ExecutionDetails, ExecutionStep, ToolCallInfo};
 pub use agent_meta::{AgentMeta, AgentType};
 pub use ai_model::{AIModel, ModelMetadataDTO, Provider};
