@@ -13,12 +13,16 @@ use std::sync::Arc;
 use crate::{
     AIModel, Provider,
     auth::AuthProfileManager,
-    models::{AgentNode, ApiKeyConfig, ChatMessage, ChatRole, ChatSession, SteerMessage},
+    models::{
+        AgentNode, ApiKeyConfig, ChatMessage, ChatRole, ChatSession, SteerMessage,
+    },
     process::ProcessRegistry,
     prompt_files,
     storage::Storage,
 };
+use crate::models::agent::PythonRuntimePolicy;
 use restflow_ai::llm::Message;
+use restflow_ai::tools::{PythonRuntime, PythonTool, RunPythonTool};
 use restflow_ai::{
     AiError, CodexClient, DefaultLlmClientFactory, LlmClient, LlmClientFactory, LlmProvider,
     ProcessTool, ReplySender, ReplyTool, SwappableLlm, SwitchModelTool,
@@ -220,6 +224,13 @@ impl AgentRuntimeExecutor {
         }
     }
 
+    fn resolve_python_runtime_policy(policy: Option<&PythonRuntimePolicy>) -> PythonRuntime {
+        match policy {
+            Some(PythonRuntimePolicy::Cpython) => PythonRuntime::Cpython,
+            Some(PythonRuntimePolicy::Monty) | None => PythonRuntime::Monty,
+        }
+    }
+
     fn build_background_system_prompt(
         &self,
         agent_node: &AgentNode,
@@ -245,6 +256,7 @@ impl AgentRuntimeExecutor {
         swappable: Arc<SwappableLlm>,
         factory: Arc<dyn LlmClientFactory>,
         agent_id: Option<&str>,
+        python_runtime: PythonRuntime,
     ) -> Arc<ToolRegistry> {
         let subagent_deps = self.build_subagent_deps(llm_client);
         let secret_resolver = Some(secret_resolver_from_storage(&self.storage));
@@ -268,6 +280,11 @@ impl AgentRuntimeExecutor {
 
         if requested("process") {
             registry.register(ProcessTool::new(self.process_registry.clone()));
+        }
+
+        if requested("python") || requested("run_python") {
+            registry.register(RunPythonTool::new().with_default_runtime(python_runtime.clone()));
+            registry.register(PythonTool::new().with_default_runtime(python_runtime));
         }
 
         if requested("reply")
@@ -377,12 +394,15 @@ impl AgentRuntimeExecutor {
     ) -> Result<SessionExecutionResult> {
         let swappable = Arc::new(SwappableLlm::new(llm_client));
         let effective_tools = effective_main_agent_tool_names(agent_node.tools.as_deref());
+        let python_runtime =
+            Self::resolve_python_runtime_policy(agent_node.python_runtime_policy.as_ref());
         let tools = self.build_tool_registry(
             Some(&effective_tools),
             swappable.clone(),
             swappable.clone(),
             factory,
             agent_id,
+            python_runtime,
         );
         let system_prompt = build_agent_system_prompt(self.storage.clone(), agent_node, agent_id)?;
 
@@ -669,12 +689,15 @@ impl AgentRuntimeExecutor {
         agent_id: Option<&str>,
     ) -> Result<ExecutionResult> {
         let swappable = Arc::new(SwappableLlm::new(llm_client));
+        let python_runtime =
+            Self::resolve_python_runtime_policy(agent_node.python_runtime_policy.as_ref());
         let tools = self.build_tool_registry(
             agent_node.tools.as_deref(),
             swappable.clone(),
             swappable.clone(),
             factory,
             agent_id,
+            python_runtime,
         );
         let system_prompt =
             self.build_background_system_prompt(agent_node, agent_id, background_task_id)?;

@@ -33,6 +33,13 @@ struct PythonExecutor {
     cpython_backend: Arc<dyn PythonExecutionBackend>,
 }
 
+fn should_auto_fallback_to_cpython(error: &str) -> bool {
+    let lower = error.to_ascii_lowercase();
+    lower.contains("no such file")
+        || lower.contains("not found")
+        || lower.contains("cannot find the file")
+}
+
 impl PythonExecutor {
     fn new(
         monty_backend: Arc<dyn PythonExecutionBackend>,
@@ -68,7 +75,9 @@ impl PythonExecutor {
                 error: None,
             },
             Err(primary_error) => {
-                if requested_runtime == PythonRuntime::Monty && input.fallback {
+                let allow_fallback =
+                    input.fallback || should_auto_fallback_to_cpython(&primary_error);
+                if requested_runtime == PythonRuntime::Monty && allow_fallback {
                     let mut fallback_request = request.clone();
                     fallback_request.runtime = PythonRuntime::Cpython;
                     match self.cpython_backend.execute(fallback_request).await {
@@ -97,6 +106,7 @@ impl PythonExecutor {
 struct MontyPythonTool {
     name: &'static str,
     executor: PythonExecutor,
+    default_runtime: PythonRuntime,
     security_gate: Option<Arc<dyn SecurityGate>>,
     agent_id: Option<String>,
     task_id: Option<String>,
@@ -110,6 +120,7 @@ impl MontyPythonTool {
                 Arc::new(ProcessPythonBackend::monty()),
                 Arc::new(ProcessPythonBackend::cpython()),
             ),
+            default_runtime: PythonRuntime::Monty,
             security_gate: None,
             agent_id: None,
             task_id: None,
@@ -136,6 +147,11 @@ impl MontyPythonTool {
         self.task_id = Some(task_id.into());
         self
     }
+
+    fn with_default_runtime(mut self, runtime: PythonRuntime) -> Self {
+        self.default_runtime = runtime;
+        self
+    }
 }
 
 #[derive(Clone)]
@@ -153,6 +169,12 @@ impl RunPythonTool {
     pub fn new() -> Self {
         Self {
             inner: MontyPythonTool::new("run_python"),
+        }
+    }
+
+    pub fn with_default_runtime(self, runtime: PythonRuntime) -> Self {
+        Self {
+            inner: self.inner.with_default_runtime(runtime),
         }
     }
 
@@ -186,6 +208,12 @@ impl PythonTool {
         }
     }
 
+    pub fn with_default_runtime(self, runtime: PythonRuntime) -> Self {
+        Self {
+            inner: self.inner.with_default_runtime(runtime),
+        }
+    }
+
     pub fn with_security(
         self,
         security_gate: Arc<dyn SecurityGate>,
@@ -200,32 +228,32 @@ impl PythonTool {
 
 fn python_parameters_schema() -> Value {
     json!({
-        "type": "object",
-        "properties": {
-            "code": {
-                "type": "string",
-                "description": "Python code to execute"
-            },
-            "timeout_seconds": {
-                "type": "integer",
-                "description": "Execution timeout in seconds (default: 30)"
-            },
+    "type": "object",
+    "properties": {
+        "code": {
+            "type": "string",
+            "description": "Python code to execute"
+        },
+        "timeout_seconds": {
+            "type": "integer",
+            "description": "Execution timeout in seconds (default: 30)"
+        },
             "runtime": {
                 "type": "string",
                 "enum": ["monty", "cpython"],
-                "description": "Runtime backend policy (default: monty)"
+                "description": "Runtime backend policy (defaults to tool policy)"
             },
             "limits": {
                 "type": "object",
                 "properties": {
-                    "max_time_ms": { "type": "integer" },
-                    "max_memory_mb": { "type": "integer" },
-                    "max_steps": { "type": "integer" }
+                    "max_time_ms": { "type": "integer", "description": "Maximum runtime in milliseconds (enforced)" },
+                    "max_memory_mb": { "type": "integer", "description": "Reserved for future support; currently rejected by process backend" },
+                    "max_steps": { "type": "integer", "description": "Reserved for future support; currently rejected by process backend" }
                 }
             },
             "fallback": {
                 "type": "boolean",
-                "description": "Fallback to cpython when monty backend fails"
+                "description": "Fallback to cpython when monty backend fails (also auto-fallbacks if monty binary is unavailable)"
             }
         },
         "required": ["code"]
@@ -251,17 +279,17 @@ impl Tool for RunPythonTool {
     }
 
     async fn execute(&self, input: Value) -> Result<ToolOutput> {
-        let parsed: RunPythonInput = serde_json::from_value(input)?;
+        let mut parsed: RunPythonInput = serde_json::from_value(input)?;
+        let effective_runtime = parsed
+            .runtime
+            .clone()
+            .unwrap_or_else(|| self.inner.default_runtime.clone());
+        parsed.runtime = Some(effective_runtime.clone());
         if let Some(security_gate) = self.inner.security_gate.as_deref() {
             let action = ToolAction {
                 tool_name: self.name().to_string(),
                 operation: "execute".to_string(),
-                target: parsed
-                    .runtime
-                    .clone()
-                    .unwrap_or_default()
-                    .as_str()
-                    .to_string(),
+                target: effective_runtime.as_str().to_string(),
                 summary: "Execute Python code".to_string(),
             };
             if let Some(message) = check_security(
@@ -298,17 +326,17 @@ impl Tool for PythonTool {
     }
 
     async fn execute(&self, input: Value) -> Result<ToolOutput> {
-        let parsed: RunPythonInput = serde_json::from_value(input)?;
+        let mut parsed: RunPythonInput = serde_json::from_value(input)?;
+        let effective_runtime = parsed
+            .runtime
+            .clone()
+            .unwrap_or_else(|| self.inner.default_runtime.clone());
+        parsed.runtime = Some(effective_runtime.clone());
         if let Some(security_gate) = self.inner.security_gate.as_deref() {
             let action = ToolAction {
                 tool_name: self.name().to_string(),
                 operation: "execute".to_string(),
-                target: parsed
-                    .runtime
-                    .clone()
-                    .unwrap_or_default()
-                    .as_str()
-                    .to_string(),
+                target: effective_runtime.as_str().to_string(),
                 summary: "Execute Python code".to_string(),
             };
             if let Some(message) = check_security(
@@ -364,7 +392,8 @@ mod tests {
         let output = tool
             .execute(json!({
                 "code": "print('ok')",
-                "timeout_seconds": 2
+                "timeout_seconds": 2,
+                "runtime": "cpython"
             }))
             .await
             .expect("tool execute should succeed");
@@ -377,7 +406,8 @@ mod tests {
         let output = tool
             .execute(json!({
                 "code": "def broken(:\n pass",
-                "timeout_seconds": 2
+                "timeout_seconds": 2,
+                "runtime": "cpython"
             }))
             .await
             .expect("tool execute should return output");
@@ -390,7 +420,8 @@ mod tests {
         let output = tool
             .execute(json!({
                 "code": "while True:\n  pass",
-                "timeout_seconds": 1
+                "timeout_seconds": 1,
+                "runtime": "cpython"
             }))
             .await
             .expect("tool execute should return output");
@@ -433,5 +464,55 @@ mod tests {
                 .and_then(|value| value.as_str()),
             Some("cpython")
         );
+    }
+
+    #[tokio::test]
+    async fn uses_tool_default_runtime_when_input_runtime_missing() {
+        let monty = Arc::new(MockBackend {
+            fail: false,
+            runtime: PythonRuntime::Monty,
+        });
+        let cpython = Arc::new(MockBackend {
+            fail: false,
+            runtime: PythonRuntime::Cpython,
+        });
+
+        let tool = RunPythonTool {
+            inner: MontyPythonTool::new("run_python")
+                .with_backends(monty, cpython)
+                .with_default_runtime(PythonRuntime::Cpython),
+        };
+
+        let output = tool
+            .execute(json!({
+                "code": "print('default-runtime')"
+            }))
+            .await
+            .expect("tool execute should return output");
+        assert_eq!(
+            output
+                .result
+                .get("runtime")
+                .and_then(|value| value.as_str()),
+            Some("cpython")
+        );
+    }
+
+    #[tokio::test]
+    async fn rejects_unsupported_limits() {
+        let tool = RunPythonTool::new();
+        let output = tool
+            .execute(json!({
+                "code": "print('x')",
+                "runtime": "cpython",
+                "limits": {
+                    "max_memory_mb": 128
+                }
+            }))
+            .await
+            .expect("tool execute should return output");
+        assert!(!output.success);
+        let error = output.error.unwrap_or_default();
+        assert!(error.contains("max_memory_mb"));
     }
 }
