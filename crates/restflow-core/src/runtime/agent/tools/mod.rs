@@ -9,7 +9,8 @@ use crate::storage::Storage;
 use restflow_ai::LlmClient;
 
 pub use restflow_ai::tools::{
-    SecretResolver, Tool, ToolOutput, ToolRegistry, TranscribeTool, VisionTool,
+    PythonTool, RunPythonTool, SecretResolver, Tool, ToolOutput, ToolRegistry, TranscribeTool,
+    VisionTool,
 };
 
 mod bash;
@@ -62,6 +63,7 @@ pub fn main_agent_default_tool_names() -> Vec<String> {
         "http",
         "email",
         "telegram",
+        "run_python",
         "transcribe",
         "vision",
         "spawn_agent",
@@ -154,6 +156,13 @@ impl ToolRegistryBuilder {
         self
     }
 
+    /// Add monty-backed python tools.
+    pub fn with_python(mut self) -> Self {
+        self.registry.register(RunPythonTool::new());
+        self.registry.register(PythonTool::new());
+        self
+    }
+
     /// Add transcription tool.
     pub fn with_transcribe(mut self, resolver: SecretResolver) -> Self {
         self.registry.register(TranscribeTool::new(resolver));
@@ -211,6 +220,7 @@ impl ToolRegistryBuilder {
 /// - `telegram` -> `telegram_send`
 /// - `http_request` -> `http`
 /// - `read`/`write` -> `file` (write enables file writes)
+/// - `python` <-> `run_python`
 pub fn registry_from_allowlist(
     tool_names: Option<&[String]>,
     subagent_deps: Option<&SubagentDeps>,
@@ -267,6 +277,9 @@ pub fn registry_from_allowlist(
             }
             "telegram_send" | "telegram" => {
                 builder = builder.with_telegram();
+            }
+            "python" | "run_python" => {
+                builder = builder.with_python();
             }
             "transcribe" => {
                 if let Some(resolver) = secret_resolver.clone() {
@@ -510,6 +523,7 @@ pub fn default_registry() -> ToolRegistry {
         .with_http()
         .with_email()
         .with_telegram()
+        .with_python()
         .build()
 }
 
@@ -571,6 +585,7 @@ mod tests {
     #[test]
     fn test_main_agent_default_tools_include_transcribe_and_switch_model() {
         let tools = main_agent_default_tool_names();
+        assert!(tools.iter().any(|name| name == "run_python"));
         assert!(tools.iter().any(|name| name == "transcribe"));
         assert!(tools.iter().any(|name| name == "vision"));
         assert!(tools.iter().any(|name| name == "switch_model"));
@@ -579,6 +594,14 @@ mod tests {
         assert!(tools.iter().any(|name| name == "manage_triggers"));
         assert!(tools.iter().any(|name| name == "manage_terminal"));
         assert!(tools.iter().any(|name| name == "security_query"));
+    }
+
+    #[test]
+    fn test_python_alias_and_run_python_are_both_registered() {
+        let names = vec!["python".to_string()];
+        let registry = registry_from_allowlist(Some(&names), None, None, None, None);
+        assert!(registry.has("python"));
+        assert!(registry.has("run_python"));
     }
 
     #[test]

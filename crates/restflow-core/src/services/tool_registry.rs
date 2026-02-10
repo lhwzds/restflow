@@ -2271,6 +2271,7 @@ mod tests {
             tools: Some(vec!["manage_background_agents".to_string()]),
             skills: Some(vec!["ops-skill".to_string()]),
             skill_variables: None,
+            python_runtime_policy: None,
         };
 
         let created = AgentStore::create_agent(
