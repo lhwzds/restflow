@@ -1164,6 +1164,10 @@ impl BackgroundAgentRunner {
                 task.input.clone().unwrap_or_default(),
             ),
             (
+                "{{input}}",
+                task.input.clone().unwrap_or_default(),
+            ),
+            (
                 "{{task.last_run_at}}",
                 Self::format_optional_timestamp(task.last_run_at),
             ),
@@ -2094,7 +2098,22 @@ mod tests {
     }
 
     #[test]
-    fn test_render_input_template_requires_task_input_placeholder() {
+    fn test_render_input_template_supports_input_alias() {
+        let mut task = BackgroundAgent::new(
+            "task-123".to_string(),
+            "Template Alias Test".to_string(),
+            "agent-456".to_string(),
+            TaskSchedule::default(),
+        );
+        task.input = Some("alias-input".to_string());
+
+        let rendered = BackgroundAgentRunner::render_input_template(&task, "INPUT={{input}}");
+
+        assert_eq!(rendered, "INPUT=alias-input");
+    }
+
+    #[test]
+    fn test_render_input_template_input_alias_matches_task_input() {
         let mut task = BackgroundAgent::new(
             "task-123".to_string(),
             "Template Unit Test".to_string(),
@@ -2108,7 +2127,8 @@ mod tests {
             "ALIAS={{input}}, REQUIRED={{task.input}}",
         );
 
-        assert!(rendered.contains("ALIAS={{input}}"));
+        // Both {{input}} and {{task.input}} should resolve to the same value
+        assert!(rendered.contains("ALIAS=input"));
         assert!(rendered.contains("REQUIRED=input"));
     }
 
