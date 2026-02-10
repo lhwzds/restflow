@@ -1,7 +1,6 @@
-import { apiClient, isTauri, tauriInvoke } from './config'
+import { tauriInvoke } from './tauri-client'
 import type { StoredAgent } from '@/types/generated/StoredAgent'
 import type { AgentNode } from '@/types/generated/AgentNode'
-import { API_ENDPOINTS } from '@/constants'
 
 export interface CreateAgentRequest {
   name: string
@@ -14,40 +13,21 @@ export interface UpdateAgentRequest {
 }
 
 export async function listAgents(): Promise<StoredAgent[]> {
-  if (isTauri()) {
-    return tauriInvoke<StoredAgent[]>('list_agents')
-  }
-  const response = await apiClient.get<StoredAgent[]>(API_ENDPOINTS.AGENT.LIST)
-  return response.data
+  return tauriInvoke<StoredAgent[]>('list_agents')
 }
 
 export async function getAgent(id: string): Promise<StoredAgent> {
-  if (isTauri()) {
-    return tauriInvoke<StoredAgent>('get_agent', { id })
-  }
-  const response = await apiClient.get<StoredAgent>(API_ENDPOINTS.AGENT.GET(id))
-  return response.data
+  return tauriInvoke<StoredAgent>('get_agent', { id })
 }
 
 export async function createAgent(data: CreateAgentRequest): Promise<StoredAgent> {
-  if (isTauri()) {
-    return tauriInvoke<StoredAgent>('create_agent', { request: data })
-  }
-  const response = await apiClient.post<StoredAgent>(API_ENDPOINTS.AGENT.CREATE, data)
-  return response.data
+  return tauriInvoke<StoredAgent>('create_agent', { request: data })
 }
 
 export async function updateAgent(id: string, data: UpdateAgentRequest): Promise<StoredAgent> {
-  if (isTauri()) {
-    return tauriInvoke<StoredAgent>('update_agent', { id, request: data })
-  }
-  const response = await apiClient.put<StoredAgent>(API_ENDPOINTS.AGENT.UPDATE(id), data)
-  return response.data
+  return tauriInvoke<StoredAgent>('update_agent', { id, request: data })
 }
 
 export async function deleteAgent(id: string): Promise<void> {
-  if (isTauri()) {
-    return tauriInvoke<void>('delete_agent', { id })
-  }
-  await apiClient.delete(API_ENDPOINTS.AGENT.DELETE(id))
+  return tauriInvoke<void>('delete_agent', { id })
 }

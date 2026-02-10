@@ -115,8 +115,6 @@ async fn run() -> Result<()> {
         match command {
             DaemonCommands::Start {
                 foreground: false,
-                http,
-                port,
                 mcp_port,
             } => {
                 match check_daemon_status()? {
@@ -125,8 +123,6 @@ async fn run() -> Result<()> {
                     }
                     _ => {
                         let config = DaemonConfig {
-                            http: *http,
-                            http_port: *port,
                             mcp: true,
                             mcp_port: *mcp_port,
                         };
@@ -161,8 +157,6 @@ async fn run() -> Result<()> {
             }
             DaemonCommands::Restart {
                 foreground: false,
-                http,
-                port,
                 mcp_port,
             } => {
                 let was_running = stop_daemon()?;
@@ -172,8 +166,6 @@ async fn run() -> Result<()> {
                 }
 
                 let config = DaemonConfig {
-                    http: *http,
-                    http_port: *port,
                     mcp: true,
                     mcp_port: *mcp_port,
                 };

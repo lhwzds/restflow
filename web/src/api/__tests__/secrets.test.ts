@@ -1,132 +1,107 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import MockAdapter from 'axios-mock-adapter'
-import { apiClient } from '@/api/config'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import * as secretsApi from '@/api/secrets'
-import type { Secret } from '@/types/generated/Secret'
-import { API_ENDPOINTS } from '@/constants'
+import { tauriInvoke } from '../tauri-client'
+
+vi.mock('../tauri-client', () => ({
+  isTauri: vi.fn(() => true),
+  tauriInvoke: vi.fn(),
+}))
+
+const mockedTauriInvoke = vi.mocked(tauriInvoke)
 
 describe('Secrets API', () => {
-  let mock: MockAdapter
-
   beforeEach(() => {
-    mock = new MockAdapter(apiClient)
-  })
-
-  afterEach(() => {
-    mock.reset()
-  })
-
-  const createMockSecret = (key: string): Secret => ({
-    key,
-    value: '',
-    description: `Description for ${key}`,
-    created_at: Date.now(),
-    updated_at: Date.now(),
+    vi.clearAllMocks()
   })
 
   describe('listSecrets', () => {
-    it('should fetch and return secrets list', async () => {
-      const mockSecrets = [createMockSecret('API_KEY_1'), createMockSecret('API_KEY_2')]
-
-      mock.onGet(API_ENDPOINTS.SECRET.LIST).reply(200, {
-        success: true,
-        data: mockSecrets,
-      })
+    it('should invoke list_secrets and convert response', async () => {
+      const tauriResponse = [
+        { key: 'API_KEY_1', description: 'Key 1', created_at: 1000, updated_at: 2000 },
+        { key: 'API_KEY_2', description: null, created_at: 3000, updated_at: 4000 },
+      ]
+      mockedTauriInvoke.mockResolvedValue(tauriResponse)
 
       const result = await secretsApi.listSecrets()
-      expect(result).toEqual(mockSecrets)
+
+      expect(mockedTauriInvoke).toHaveBeenCalledWith('list_secrets')
+      expect(result).toEqual([
+        { key: 'API_KEY_1', value: '', description: 'Key 1', created_at: 1000, updated_at: 2000 },
+        { key: 'API_KEY_2', value: '', description: null, created_at: 3000, updated_at: 4000 },
+      ])
     })
   })
 
   describe('createSecret', () => {
-    it('should create secret and return it', async () => {
-      const mockSecret = createMockSecret('NEW_API_KEY')
-
-      mock.onPost(API_ENDPOINTS.SECRET.CREATE).reply(200, {
-        success: true,
-        data: mockSecret,
+    it('should invoke create_secret with request', async () => {
+      mockedTauriInvoke.mockResolvedValue({
+        key: 'NEW_KEY',
+        description: 'Test description',
+        created_at: 1000,
+        updated_at: 1000,
       })
 
-      const result = await secretsApi.createSecret(
-        'NEW_API_KEY',
-        'secret-value',
-        'Test description',
-      )
-      expect(result).toEqual(mockSecret)
+      const result = await secretsApi.createSecret('NEW_KEY', 'secret-value', 'Test description')
+
+      expect(mockedTauriInvoke).toHaveBeenCalledWith('create_secret', {
+        request: { key: 'NEW_KEY', value: 'secret-value', description: 'Test description' },
+      })
+      expect(result.key).toBe('NEW_KEY')
+      expect(result.value).toBe('')
     })
 
-    it('should create secret without description', async () => {
-      const mockSecret = createMockSecret('SIMPLE_KEY')
-
-      mock.onPost(API_ENDPOINTS.SECRET.CREATE).reply(200, {
-        success: true,
-        data: mockSecret,
+    it('should handle missing description', async () => {
+      mockedTauriInvoke.mockResolvedValue({
+        key: 'SIMPLE_KEY',
+        description: null,
+        created_at: 1000,
+        updated_at: 1000,
       })
 
       const result = await secretsApi.createSecret('SIMPLE_KEY', 'value')
+
+      expect(mockedTauriInvoke).toHaveBeenCalledWith('create_secret', {
+        request: { key: 'SIMPLE_KEY', value: 'value', description: null },
+      })
       expect(result.key).toBe('SIMPLE_KEY')
     })
   })
 
   describe('updateSecret', () => {
-    it('should update secret', async () => {
-      mock.onPut(API_ENDPOINTS.SECRET.UPDATE('EXISTING_KEY')).reply(200, {
-        success: true,
+    it('should invoke update_secret', async () => {
+      mockedTauriInvoke.mockResolvedValue({
+        key: 'EXISTING_KEY',
+        description: 'Updated',
+        created_at: 1000,
+        updated_at: 2000,
       })
 
-      await expect(
-        secretsApi.updateSecret('EXISTING_KEY', 'new-value', 'Updated desc'),
-      ).resolves.toBeUndefined()
-    })
+      await secretsApi.updateSecret('EXISTING_KEY', 'new-value', 'Updated')
 
-    it('should update secret without description', async () => {
-      mock.onPut(API_ENDPOINTS.SECRET.UPDATE('EXISTING_KEY')).reply(200, {
-        success: true,
+      expect(mockedTauriInvoke).toHaveBeenCalledWith('update_secret', {
+        key: 'EXISTING_KEY',
+        request: { value: 'new-value', description: 'Updated' },
       })
-
-      await expect(secretsApi.updateSecret('EXISTING_KEY', 'new-value')).resolves.toBeUndefined()
     })
   })
 
   describe('deleteSecret', () => {
-    it('should delete secret', async () => {
-      mock.onDelete(API_ENDPOINTS.SECRET.DELETE('OLD_KEY')).reply(200, {
-        success: true,
-      })
+    it('should invoke delete_secret', async () => {
+      mockedTauriInvoke.mockResolvedValue(undefined)
 
-      await expect(secretsApi.deleteSecret('OLD_KEY')).resolves.toBeUndefined()
+      await secretsApi.deleteSecret('OLD_KEY')
+
+      expect(mockedTauriInvoke).toHaveBeenCalledWith('delete_secret', { key: 'OLD_KEY' })
     })
   })
 
   describe('Error Handling', () => {
-    it('should handle network timeout', async () => {
-      mock.onGet(API_ENDPOINTS.SECRET.LIST).timeout()
-      await expect(secretsApi.listSecrets()).rejects.toThrow()
-    })
+    it('should propagate errors from tauriInvoke', async () => {
+      mockedTauriInvoke.mockRejectedValue(new Error('Secret not found'))
 
-    it('should handle 404 secret not found', async () => {
-      mock.onPut(API_ENDPOINTS.SECRET.UPDATE('MISSING_KEY')).reply(404, {
-        success: false,
-        message: 'Secret not found',
-      })
       await expect(secretsApi.updateSecret('MISSING_KEY', 'value')).rejects.toThrow(
         'Secret not found',
       )
-    })
-
-    it('should handle duplicate secret key', async () => {
-      mock.onPost(API_ENDPOINTS.SECRET.CREATE).reply(200, {
-        success: false,
-        message: 'Secret already exists',
-      })
-      await expect(secretsApi.createSecret('DUPLICATE_KEY', 'value')).rejects.toThrow(
-        'Secret already exists',
-      )
-    })
-
-    it('should handle network error', async () => {
-      mock.onGet(API_ENDPOINTS.SECRET.LIST).networkError()
-      await expect(secretsApi.listSecrets()).rejects.toThrow()
     })
   })
 })

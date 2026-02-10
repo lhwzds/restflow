@@ -3,9 +3,8 @@ services:
     build: .
     container_name: restflow
     ports:
-      - "3000:3000"
+      - "8787:8787"
     restart: unless-stopped
     environment:
       - RUST_LOG=info
       - RESTFLOW_MASTER_KEY=0000000000000000000000000000000000000000000000000000000000000000
-      - RESTFLOW_HTTP_HOST=0.0.0.0

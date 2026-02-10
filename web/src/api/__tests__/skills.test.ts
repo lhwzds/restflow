@@ -1,26 +1,13 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type { Skill } from '@/types/generated/Skill'
+import { tauriInvoke } from '../tauri-client'
 
-// Mock modules before importing the module under test
 vi.mock('../tauri-client', () => ({
-  isTauri: vi.fn(),
+  isTauri: vi.fn(() => true),
   tauriInvoke: vi.fn(),
 }))
 
-vi.mock('../config', async () => {
-  const actual = await vi.importActual('../config')
-  return {
-    ...actual,
-    isTauri: vi.fn(),
-    tauriInvoke: vi.fn(),
-    apiClient: {
-      get: vi.fn(),
-      post: vi.fn(),
-      put: vi.fn(),
-      delete: vi.fn(),
-    },
-  }
-})
+const mockedTauriInvoke = vi.mocked(tauriInvoke)
 
 describe('skills API', () => {
   const mockSkill: Skill = {
@@ -45,69 +32,33 @@ describe('skills API', () => {
     vi.clearAllMocks()
   })
 
-  afterEach(() => {
-    vi.resetModules()
-  })
-
   describe('listSkills', () => {
-    it('should use Tauri invoke when in Tauri mode', async () => {
-      const { isTauri, tauriInvoke } = await import('../config')
-      vi.mocked(isTauri).mockReturnValue(true)
-      vi.mocked(tauriInvoke).mockResolvedValue([mockSkill])
+    it('should invoke list_skills', async () => {
+      mockedTauriInvoke.mockResolvedValue([mockSkill])
 
       const { listSkills } = await import('../skills')
       const result = await listSkills()
 
-      expect(isTauri).toHaveBeenCalled()
-      expect(tauriInvoke).toHaveBeenCalledWith('list_skills')
-      expect(result).toEqual([mockSkill])
-    })
-
-    it('should use REST API when not in Tauri mode', async () => {
-      const { isTauri, apiClient } = await import('../config')
-      vi.mocked(isTauri).mockReturnValue(false)
-      vi.mocked(apiClient.get).mockResolvedValue({ data: [mockSkill] })
-
-      const { listSkills } = await import('../skills')
-      const result = await listSkills()
-
-      expect(isTauri).toHaveBeenCalled()
-      expect(apiClient.get).toHaveBeenCalled()
+      expect(mockedTauriInvoke).toHaveBeenCalledWith('list_skills')
       expect(result).toEqual([mockSkill])
     })
   })
 
   describe('getSkill', () => {
-    it('should use Tauri invoke when in Tauri mode', async () => {
-      const { isTauri, tauriInvoke } = await import('../config')
-      vi.mocked(isTauri).mockReturnValue(true)
-      vi.mocked(tauriInvoke).mockResolvedValue(mockSkill)
+    it('should invoke get_skill with id', async () => {
+      mockedTauriInvoke.mockResolvedValue(mockSkill)
 
       const { getSkill } = await import('../skills')
       const result = await getSkill('skill-1')
 
-      expect(tauriInvoke).toHaveBeenCalledWith('get_skill', { id: 'skill-1' })
-      expect(result).toEqual(mockSkill)
-    })
-
-    it('should use REST API when not in Tauri mode', async () => {
-      const { isTauri, apiClient } = await import('../config')
-      vi.mocked(isTauri).mockReturnValue(false)
-      vi.mocked(apiClient.get).mockResolvedValue({ data: mockSkill })
-
-      const { getSkill } = await import('../skills')
-      const result = await getSkill('skill-1')
-
-      expect(apiClient.get).toHaveBeenCalled()
+      expect(mockedTauriInvoke).toHaveBeenCalledWith('get_skill', { id: 'skill-1' })
       expect(result).toEqual(mockSkill)
     })
   })
 
   describe('createSkill', () => {
-    it('should use Tauri invoke when in Tauri mode', async () => {
-      const { isTauri, tauriInvoke } = await import('../config')
-      vi.mocked(isTauri).mockReturnValue(true)
-      vi.mocked(tauriInvoke).mockResolvedValue(mockSkill)
+    it('should invoke create_skill with skill data', async () => {
+      mockedTauriInvoke.mockResolvedValue(mockSkill)
 
       const { createSkill } = await import('../skills')
       const result = await createSkill({
@@ -115,7 +66,7 @@ describe('skills API', () => {
         content: '# Test Content',
       })
 
-      expect(tauriInvoke).toHaveBeenCalledWith(
+      expect(mockedTauriInvoke).toHaveBeenCalledWith(
         'create_skill',
         expect.objectContaining({
           skill: expect.objectContaining({
@@ -126,44 +77,16 @@ describe('skills API', () => {
       )
       expect(result).toEqual(mockSkill)
     })
-
-    it('should use REST API when not in Tauri mode', async () => {
-      const { isTauri, apiClient } = await import('../config')
-      vi.mocked(isTauri).mockReturnValue(false)
-      vi.mocked(apiClient.post).mockResolvedValue({ data: mockSkill })
-
-      const { createSkill } = await import('../skills')
-      const result = await createSkill({
-        name: 'Test Skill',
-        content: '# Test Content',
-      })
-
-      expect(apiClient.post).toHaveBeenCalled()
-      expect(result).toEqual(mockSkill)
-    })
   })
 
   describe('deleteSkill', () => {
-    it('should use Tauri invoke when in Tauri mode', async () => {
-      const { isTauri, tauriInvoke } = await import('../config')
-      vi.mocked(isTauri).mockReturnValue(true)
-      vi.mocked(tauriInvoke).mockResolvedValue(undefined)
+    it('should invoke delete_skill with id', async () => {
+      mockedTauriInvoke.mockResolvedValue(undefined)
 
       const { deleteSkill } = await import('../skills')
       await deleteSkill('skill-1')
 
-      expect(tauriInvoke).toHaveBeenCalledWith('delete_skill', { id: 'skill-1' })
-    })
-
-    it('should use REST API when not in Tauri mode', async () => {
-      const { isTauri, apiClient } = await import('../config')
-      vi.mocked(isTauri).mockReturnValue(false)
-      vi.mocked(apiClient.delete).mockResolvedValue({})
-
-      const { deleteSkill } = await import('../skills')
-      await deleteSkill('skill-1')
-
-      expect(apiClient.delete).toHaveBeenCalled()
+      expect(mockedTauriInvoke).toHaveBeenCalledWith('delete_skill', { id: 'skill-1' })
     })
   })
 })
