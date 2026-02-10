@@ -67,4 +67,3 @@ pub async fn get_available_tools(state: State<'_, AppState>) -> Result<Vec<ToolI
         })
         .collect())
 }
-

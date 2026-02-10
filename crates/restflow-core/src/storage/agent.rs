@@ -159,6 +159,7 @@ mod tests {
             tools: Some(vec!["add".to_string()]),
             skills: None,
             skill_variables: None,
+            python_runtime_policy: None,
         }
     }
 

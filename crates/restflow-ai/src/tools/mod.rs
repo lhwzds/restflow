@@ -13,15 +13,17 @@ mod config;
 mod diagnostics;
 mod email;
 mod file;
-mod memory_store;
 mod file_tracker;
 mod http;
 mod jina_reader;
 mod mcp_cache;
 mod memory_mgmt;
 mod memory_search;
+mod memory_store;
+mod monty_python;
 mod patch;
 mod process;
+mod python_backend;
 mod registry;
 mod reply;
 mod secrets;
@@ -52,9 +54,6 @@ pub use config::ConfigTool;
 pub use diagnostics::{DiagnosticsProvider, DiagnosticsTool};
 pub use email::EmailTool;
 pub use file::{FileAction, FileTool};
-pub use memory_store::{
-    DeleteMemoryTool, ListMemoryTool, MemoryStore, ReadMemoryTool, SaveMemoryTool,
-};
 pub use http::HttpTool;
 pub use jina_reader::JinaReaderTool;
 pub use mcp_cache::{McpServerConfig, get_mcp_tools, invalidate_mcp_cache};
@@ -63,8 +62,13 @@ pub use memory_mgmt::{
     MemoryManager,
 };
 pub use memory_search::{MemorySearchMatch, MemorySearchTool, SemanticMemory};
+pub use memory_store::{
+    DeleteMemoryTool, ListMemoryTool, MemoryStore, ReadMemoryTool, SaveMemoryTool,
+};
+pub use monty_python::{PythonTool, RunPythonTool};
 pub use patch::PatchTool;
 pub use process::{ProcessLog, ProcessManager, ProcessPollResult, ProcessSessionInfo, ProcessTool};
+pub use python_backend::{PythonExecutionBackend, PythonExecutionLimits, PythonRuntime};
 pub use registry::ToolRegistry;
 pub use reply::{ReplySender, ReplyTool};
 pub use secrets::SecretsTool;
@@ -97,6 +101,8 @@ pub fn default_registry() -> ToolRegistry {
     registry.register(WebSearchTool::new());
     registry.register(WebFetchTool::new());
     registry.register(JinaReaderTool::new());
+    registry.register(RunPythonTool::new());
+    registry.register(PythonTool::new());
     registry
 }
 
@@ -117,5 +123,7 @@ pub fn default_registry_with_diagnostics(provider: Arc<dyn DiagnosticsProvider>)
     registry.register(WebSearchTool::new());
     registry.register(WebFetchTool::new());
     registry.register(JinaReaderTool::new());
+    registry.register(RunPythonTool::new());
+    registry.register(PythonTool::new());
     registry
 }
