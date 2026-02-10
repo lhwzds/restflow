@@ -13,11 +13,29 @@ use crate::llm::client::{
 
 const DEFAULT_MODEL: &str = "gpt-5.3-codex";
 const DEFAULT_REASONING_EFFORT: &str = "medium";
+const DEFAULT_EXECUTION_MODE: &str = "safe";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ExecutionMode {
+    Safe,
+    Bypass,
+}
+
+impl ExecutionMode {
+    fn from_str(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "safe" => Some(Self::Safe),
+            "bypass" => Some(Self::Bypass),
+            _ => None,
+        }
+    }
+}
 
 /// Codex CLI client (auth via ~/.codex/auth.json)
 pub struct CodexClient {
     model: String,
     reasoning_effort: Option<String>,
+    execution_mode: ExecutionMode,
 }
 
 impl CodexClient {
@@ -26,6 +44,8 @@ impl CodexClient {
         Self {
             model: DEFAULT_MODEL.to_string(),
             reasoning_effort: Some(DEFAULT_REASONING_EFFORT.to_string()),
+            execution_mode: ExecutionMode::from_str(DEFAULT_EXECUTION_MODE)
+                .unwrap_or(ExecutionMode::Safe),
         }
     }
 }
@@ -53,15 +73,33 @@ impl CodexClient {
         self
     }
 
+    /// Set execution mode override for Codex CLI.
+    ///
+    /// Supported values:
+    /// - `safe`: use `--full-auto`
+    /// - `bypass`: use `--dangerously-bypass-approvals-and-sandbox`
+    pub fn with_execution_mode(mut self, mode: impl AsRef<str>) -> Self {
+        if let Some(parsed) = ExecutionMode::from_str(mode.as_ref()) {
+            self.execution_mode = parsed;
+        }
+        self
+    }
+
     fn build_cli_args(&self, prompt: &str) -> Vec<String> {
         let mut args = vec![
             "exec".to_string(),
             "--json".to_string(),
             "--color".to_string(),
             "never".to_string(),
-            "--full-auto".to_string(),
             "--skip-git-repo-check".to_string(),
         ];
+
+        match self.execution_mode {
+            ExecutionMode::Safe => args.push("--full-auto".to_string()),
+            ExecutionMode::Bypass => {
+                args.push("--dangerously-bypass-approvals-and-sandbox".to_string())
+            }
+        }
 
         if let Some(effort) = self.reasoning_effort.as_ref() {
             let quoted_effort =
@@ -72,6 +110,8 @@ impl CodexClient {
 
         args.push("--model".to_string());
         args.push(self.model.clone());
+        // Ensure prompt content that starts with '-' is not parsed as CLI flags.
+        args.push("--".to_string());
         args.push(prompt.to_string());
         args
     }
@@ -284,5 +324,43 @@ mod tests {
             args.windows(2)
                 .any(|pair| { pair[0] == "-c" && pair[1] == "model_reasoning_effort=\"xhigh\"" })
         );
+    }
+
+    #[test]
+    fn test_build_cli_args_defaults_to_safe_execution_mode() {
+        let client = CodexClient::new().with_model("gpt-5.3-codex");
+        let args = client.build_cli_args("hello");
+        assert!(args.iter().any(|arg| arg == "--full-auto"));
+        assert!(
+            !args
+                .iter()
+                .any(|arg| arg == "--dangerously-bypass-approvals-and-sandbox")
+        );
+    }
+
+    #[test]
+    fn test_build_cli_args_with_bypass_execution_mode() {
+        let client = CodexClient::new()
+            .with_model("gpt-5.3-codex")
+            .with_execution_mode("bypass");
+        let args = client.build_cli_args("hello");
+        assert!(
+            args.iter()
+                .any(|arg| arg == "--dangerously-bypass-approvals-and-sandbox")
+        );
+        assert!(!args.iter().any(|arg| arg == "--full-auto"));
+    }
+
+    #[test]
+    fn test_build_cli_args_inserts_double_dash_before_prompt() {
+        let client = CodexClient::new().with_model("gpt-5.3-codex");
+        let prompt = "- starts-with-dash";
+        let args = client.build_cli_args(prompt);
+
+        let separator_index = args
+            .iter()
+            .position(|arg| arg == "--")
+            .expect("args should include option separator");
+        assert_eq!(args.get(separator_index + 1), Some(&prompt.to_string()));
     }
 }

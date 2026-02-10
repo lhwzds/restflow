@@ -2267,6 +2267,7 @@ mod tests {
             prompt: Some("You are a testing assistant".to_string()),
             temperature: Some(0.3),
             codex_cli_reasoning_effort: None,
+            codex_cli_execution_mode: None,
             api_key_config: Some(crate::models::ApiKeyConfig::Direct("test-key".to_string())),
             tools: Some(vec!["manage_background_agents".to_string()]),
             skills: Some(vec!["ops-skill".to_string()]),

@@ -9,6 +9,12 @@ pub enum OutputFormat {
     Json,
 }
 
+#[derive(ValueEnum, Clone, Copy, Debug)]
+pub enum CodexExecutionModeArg {
+    Safe,
+    Bypass,
+}
+
 impl OutputFormat {
     #[allow(dead_code)]
     pub fn is_json(self) -> bool {
@@ -233,6 +239,30 @@ mod tests {
         let cli = Cli::try_parse_from(["restflow", "agent", "exec", "agent-1"]);
         assert!(cli.is_err());
     }
+
+    #[test]
+    fn parses_agent_codex_execution_mode() {
+        let cli = Cli::try_parse_from([
+            "restflow",
+            "agent",
+            "create",
+            "--name",
+            "agent-1",
+            "--codex-execution-mode",
+            "bypass",
+        ])
+        .expect("parse agent codex execution mode");
+
+        assert!(matches!(
+            cli.command,
+            Some(super::Commands::Agent {
+                command: super::AgentCommands::Create {
+                    codex_execution_mode: Some(super::CodexExecutionModeArg::Bypass),
+                    ..
+                }
+            })
+        ));
+    }
 }
 
 #[derive(Subcommand)]
@@ -253,6 +283,9 @@ pub enum AgentCommands {
 
         #[arg(long)]
         prompt: Option<String>,
+
+        #[arg(long, value_enum)]
+        codex_execution_mode: Option<CodexExecutionModeArg>,
     },
 
     /// Update agent
@@ -264,6 +297,9 @@ pub enum AgentCommands {
 
         #[arg(short, long)]
         model: Option<String>,
+
+        #[arg(long, value_enum)]
+        codex_execution_mode: Option<CodexExecutionModeArg>,
     },
 
     /// Delete agent
