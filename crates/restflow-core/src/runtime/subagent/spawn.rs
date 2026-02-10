@@ -2,10 +2,11 @@
 
 use super::definition::{AgentDefinition, AgentDefinitionRegistry};
 use super::tracker::{SubagentResult, SubagentTracker};
+use crate::runtime::agent::{AgentExecutionEngine, AgentExecutionEngineConfig, ToolRegistry};
 use anyhow::{Result, anyhow};
-use restflow_ai::llm::CompletionRequest;
-use restflow_ai::{LlmClient, Message};
+use restflow_ai::LlmClient;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::sync::oneshot;
 use tokio::time::{Duration, timeout};
@@ -73,6 +74,7 @@ pub fn spawn_subagent(
     tracker: Arc<SubagentTracker>,
     definitions: Arc<AgentDefinitionRegistry>,
     llm_client: Arc<dyn LlmClient>,
+    tool_registry: Arc<ToolRegistry>,
     config: SubagentConfig,
     request: SpawnRequest,
 ) -> Result<SpawnHandle> {
@@ -111,7 +113,13 @@ pub fn spawn_subagent(
 
         let result = timeout(
             Duration::from_secs(timeout_secs),
-            execute_subagent(llm_client, agent_def, task.clone()),
+            execute_subagent(
+                llm_client,
+                tool_registry,
+                agent_def,
+                task.clone(),
+                config.clone(),
+            ),
         )
         .await;
 
@@ -184,28 +192,103 @@ pub fn spawn_subagent(
 
 async fn execute_subagent(
     llm_client: Arc<dyn LlmClient>,
+    tool_registry: Arc<ToolRegistry>,
     agent_def: AgentDefinition,
     task: String,
+    config: SubagentConfig,
 ) -> Result<String> {
-    let system_prompt = format!(
-        "{}\n\n## Your Task\n{}\n\n## Important\
-         You are a sub-agent focused on this specific task. \
-         Complete it thoroughly and return your results.",
-        agent_def.system_prompt, task
+    let registry = Arc::new(build_registry_for_agent(
+        &tool_registry,
+        &agent_def.allowed_tools,
+    ));
+
+    let mut engine_config = AgentExecutionEngineConfig::default();
+    engine_config.react.max_iterations = agent_def
+        .max_iterations
+        .map(|value| value as usize)
+        .unwrap_or(config.max_parallel_agents.max(10));
+    let mut engine = AgentExecutionEngine::new(
+        llm_client,
+        registry,
+        agent_def.system_prompt.clone(),
+        engine_config,
     );
 
-    let messages = vec![Message::system(system_prompt), Message::user(task)];
+    let result = engine.execute(&task).await?;
+    if result.success {
+        Ok(result.output)
+    } else {
+        Err(anyhow!("Sub-agent execution failed: {}", result.output))
+    }
+}
 
-    let request = CompletionRequest::new(messages).with_max_tokens(4096);
+fn build_registry_for_agent(parent: &Arc<ToolRegistry>, allowed_tools: &[String]) -> ToolRegistry {
+    let mut registry = ToolRegistry::new();
+    let mut selected = HashSet::new();
 
-    let response = llm_client.complete(request).await?;
+    if allowed_tools.is_empty() {
+        for name in parent.list() {
+            selected.insert(name.to_string());
+        }
+    } else {
+        for raw in allowed_tools {
+            selected.insert(normalize_tool_name(raw));
+        }
+    }
 
-    Ok(response.content.unwrap_or_default())
+    for name in selected {
+        if let Some(tool) = parent.get(&name) {
+            registry.register_arc(tool);
+        }
+    }
+
+    registry
+}
+
+fn normalize_tool_name(name: &str) -> String {
+    match name {
+        "http_request" => "http".to_string(),
+        "send_email" => "email".to_string(),
+        "telegram_send" => "telegram".to_string(),
+        "read" | "write" => "file".to_string(),
+        "grep" => "bash".to_string(),
+        other => other.to_string(),
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use async_trait::async_trait;
+    use restflow_ai::error::Result as AiResult;
+    use restflow_ai::tools::ToolOutput;
+    use serde_json::Value;
+
+    struct TestTool {
+        name: &'static str,
+    }
+
+    #[async_trait]
+    impl restflow_ai::tools::Tool for TestTool {
+        fn name(&self) -> &str {
+            self.name
+        }
+
+        fn description(&self) -> &str {
+            "test tool"
+        }
+
+        fn parameters_schema(&self) -> Value {
+            serde_json::json!({
+                "type": "object",
+                "properties": {}
+            })
+        }
+
+        async fn execute(&self, _input: Value) -> AiResult<ToolOutput> {
+            Ok(ToolOutput::success(serde_json::json!({"ok": true})))
+        }
+    }
 
     #[test]
     fn test_spawn_request_serialization() {
@@ -232,5 +315,40 @@ mod tests {
 
         let json = serde_json::to_string(&handle).unwrap();
         assert!(json.contains("task-123"));
+    }
+
+    #[test]
+    fn test_normalize_tool_name_aliases() {
+        assert_eq!(normalize_tool_name("http_request"), "http");
+        assert_eq!(normalize_tool_name("send_email"), "email");
+        assert_eq!(normalize_tool_name("telegram_send"), "telegram");
+        assert_eq!(normalize_tool_name("read"), "file");
+        assert_eq!(normalize_tool_name("write"), "file");
+        assert_eq!(normalize_tool_name("grep"), "bash");
+        assert_eq!(normalize_tool_name("python"), "python");
+    }
+
+    #[test]
+    fn test_build_registry_for_agent_with_aliases() {
+        let mut parent = ToolRegistry::new();
+        parent.register(TestTool { name: "file" });
+        parent.register(TestTool { name: "bash" });
+        parent.register(TestTool { name: "http" });
+        let parent = Arc::new(parent);
+
+        let registry = build_registry_for_agent(
+            &parent,
+            &[
+                "read".to_string(),
+                "write".to_string(),
+                "grep".to_string(),
+                "http_request".to_string(),
+            ],
+        );
+
+        assert!(registry.has("file"));
+        assert!(registry.has("bash"));
+        assert!(registry.has("http"));
+        assert_eq!(registry.list().len(), 3);
     }
 }

@@ -93,6 +93,7 @@ impl Tool for SpawnAgentTool {
             self.deps.tracker.clone(),
             self.deps.definitions.clone(),
             self.deps.llm_client.clone(),
+            self.deps.tool_registry.clone(),
             self.deps.config.clone(),
             request,
         )
