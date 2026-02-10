@@ -20,6 +20,7 @@ __pycache__/
 *$py.class
 
 .playwright-mcp
+.restflow/
 
 # Claude Code
 .claude/
