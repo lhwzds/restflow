@@ -1509,6 +1509,8 @@ fn build_agent_system_prompt(core: &Arc<AppCore>, agent_node: AgentNode) -> Resu
     let base = agent_node
         .prompt
         .clone()
+        .filter(|prompt| !prompt.trim().is_empty())
+        .or_else(|| crate::prompt_files::load_default_main_agent_prompt().ok())
         .unwrap_or_else(|| "You are a helpful AI assistant.".to_string());
     let skill_ids = agent_node.skills.unwrap_or_default();
     let skill_vars = agent_node.skill_variables.unwrap_or_default();

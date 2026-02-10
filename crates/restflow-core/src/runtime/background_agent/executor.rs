@@ -15,6 +15,7 @@ use crate::{
     auth::AuthProfileManager,
     models::{AgentNode, ApiKeyConfig, ChatMessage, ChatRole, ChatSession, SteerMessage},
     process::ProcessRegistry,
+    prompt_files,
     storage::Storage,
 };
 use restflow_ai::llm::Message;
@@ -219,6 +220,20 @@ impl AgentRuntimeExecutor {
         }
     }
 
+    fn build_background_system_prompt(
+        &self,
+        agent_node: &AgentNode,
+        agent_id: Option<&str>,
+        background_task_id: Option<&str>,
+    ) -> Result<String> {
+        let base_prompt = build_agent_system_prompt(self.storage.clone(), agent_node, agent_id)?;
+        let policy_prompt = prompt_files::load_background_agent_policy(background_task_id)?;
+        if policy_prompt.trim().is_empty() {
+            return Ok(base_prompt);
+        }
+        Ok(format!("{base_prompt}\n\n{policy_prompt}"))
+    }
+
     /// Build the tool registry for an agent.
     ///
     /// If the agent has specific tools configured, only those tools are registered.
@@ -369,7 +384,7 @@ impl AgentRuntimeExecutor {
             factory,
             agent_id,
         );
-        let system_prompt = build_agent_system_prompt(self.storage.clone(), agent_node)?;
+        let system_prompt = build_agent_system_prompt(self.storage.clone(), agent_node, agent_id)?;
 
         let mut config = AgentExecutionEngineConfig::default();
         if model.supports_temperature()
@@ -647,6 +662,7 @@ impl AgentRuntimeExecutor {
         agent_node: &AgentNode,
         model: AIModel,
         llm_client: Arc<dyn LlmClient>,
+        background_task_id: Option<&str>,
         input: Option<&str>,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
         factory: Arc<dyn LlmClientFactory>,
@@ -660,7 +676,8 @@ impl AgentRuntimeExecutor {
             factory,
             agent_id,
         );
-        let system_prompt = build_agent_system_prompt(self.storage.clone(), agent_node)?;
+        let system_prompt =
+            self.build_background_system_prompt(agent_node, agent_id, background_task_id)?;
 
         let mut config = AgentExecutionEngineConfig::default();
         if model.supports_temperature()
@@ -684,10 +701,12 @@ impl AgentRuntimeExecutor {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn execute_with_model(
         &self,
         agent_node: &AgentNode,
         model: AIModel,
+        background_task_id: Option<&str>,
         input: Option<&str>,
         primary_provider: Provider,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
@@ -723,15 +742,24 @@ impl AgentRuntimeExecutor {
         let llm_client =
             Self::create_llm_client(factory.as_ref(), model, api_key.as_deref(), agent_node)?;
         self.execute_agent_with_client(
-            agent_node, model, llm_client, input, steer_rx, factory, agent_id,
+            agent_node,
+            model,
+            llm_client,
+            background_task_id,
+            input,
+            steer_rx,
+            factory,
+            agent_id,
         )
         .await
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn execute_with_profiles(
         &self,
         agent_node: &AgentNode,
         model: AIModel,
+        background_task_id: Option<&str>,
         input: Option<&str>,
         primary_provider: Provider,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
@@ -742,6 +770,7 @@ impl AgentRuntimeExecutor {
                 .execute_with_model(
                     agent_node,
                     model,
+                    background_task_id,
                     input,
                     primary_provider,
                     steer_rx,
@@ -755,6 +784,7 @@ impl AgentRuntimeExecutor {
                 .execute_with_model(
                     agent_node,
                     model,
+                    background_task_id,
                     input,
                     primary_provider,
                     steer_rx,
@@ -773,6 +803,7 @@ impl AgentRuntimeExecutor {
                 .execute_with_model(
                     agent_node,
                     model,
+                    background_task_id,
                     input,
                     primary_provider,
                     steer_rx,
@@ -816,6 +847,7 @@ impl AgentRuntimeExecutor {
                     agent_node,
                     model,
                     llm_client,
+                    background_task_id,
                     input,
                     steer_rx.take(),
                     factory,
@@ -912,6 +944,7 @@ impl AgentExecutor for AgentRuntimeExecutor {
     async fn execute(
         &self,
         agent_id: &str,
+        background_task_id: Option<&str>,
         input: Option<&str>,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
     ) -> Result<ExecutionResult> {
@@ -943,6 +976,7 @@ impl AgentExecutor for AgentRuntimeExecutor {
                     self.execute_with_profiles(
                         &node,
                         model,
+                        background_task_id,
                         input_ref,
                         primary_provider,
                         steer_rx,
@@ -1014,7 +1048,9 @@ mod tests {
         let (storage, _temp_dir) = create_test_storage();
         let executor = create_test_executor(storage);
 
-        let result = executor.execute("nonexistent-agent", None, None).await;
+        let result = executor
+            .execute("nonexistent-agent", None, None, None)
+            .await;
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("not found"));
     }
@@ -1034,7 +1070,9 @@ mod tests {
         let agent_id = &agents[0].id;
 
         let executor = create_test_executor(storage);
-        let result = executor.execute(agent_id, Some("test input"), None).await;
+        let result = executor
+            .execute(agent_id, None, Some("test input"), None)
+            .await;
 
         // Should fail due to missing API key (no ANTHROPIC_API_KEY secret configured)
         assert!(result.is_err());

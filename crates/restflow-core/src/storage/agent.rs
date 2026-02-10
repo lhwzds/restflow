@@ -1,6 +1,7 @@
 //! Typed agent storage wrapper.
 
 use crate::models::AgentNode;
+use crate::prompt_files;
 use anyhow::Result;
 use redb::Database;
 use restflow_storage::SimpleStorage;
@@ -36,11 +37,16 @@ impl AgentStorage {
         })
     }
 
-    pub fn create_agent(&self, name: String, agent: AgentNode) -> Result<StoredAgent> {
+    pub fn create_agent(&self, name: String, mut agent: AgentNode) -> Result<StoredAgent> {
         let now = time_utils::now_ms();
+        let id = Uuid::new_v4().to_string();
+
+        // Prompt content is file-backed under ./agents/{id}.md, not stored in DB.
+        let prompt_override = agent.prompt.take();
+        prompt_files::ensure_agent_prompt_file(&id, prompt_override.as_deref())?;
 
         let stored_agent = StoredAgent {
-            id: Uuid::new_v4().to_string(),
+            id,
             name,
             agent,
             created_at: Some(now),
@@ -50,13 +56,13 @@ impl AgentStorage {
         let json_bytes = serde_json::to_vec(&stored_agent)?;
         self.inner.put_raw(&stored_agent.id, &json_bytes)?;
 
-        Ok(stored_agent)
+        self.hydrate_prompt_from_file(stored_agent)
     }
 
     pub fn get_agent(&self, id: String) -> Result<Option<StoredAgent>> {
         if let Some(bytes) = self.inner.get_raw(&id)? {
             let agent: StoredAgent = serde_json::from_slice(&bytes)?;
-            Ok(Some(agent))
+            Ok(Some(self.migrate_legacy_prompt(agent)?))
         } else {
             Ok(None)
         }
@@ -67,7 +73,7 @@ impl AgentStorage {
         let mut result = Vec::new();
         for (_, bytes) in agents {
             let agent: StoredAgent = serde_json::from_slice(&bytes)?;
-            result.push(agent);
+            result.push(self.migrate_legacy_prompt(agent)?);
         }
         Ok(result)
     }
@@ -86,7 +92,14 @@ impl AgentStorage {
             existing_agent.name = new_name;
         }
 
-        if let Some(new_agent) = agent {
+        if let Some(mut new_agent) = agent {
+            let prompt_override = new_agent.prompt.take();
+            if prompt_override.is_some() {
+                prompt_files::ensure_agent_prompt_file(
+                    &existing_agent.id,
+                    prompt_override.as_deref(),
+                )?;
+            }
             existing_agent.agent = new_agent;
         }
 
@@ -96,14 +109,44 @@ impl AgentStorage {
         let json_bytes = serde_json::to_vec(&existing_agent)?;
         self.inner.put_raw(&existing_agent.id, &json_bytes)?;
 
-        Ok(existing_agent)
+        self.hydrate_prompt_from_file(existing_agent)
     }
 
     pub fn delete_agent(&self, id: String) -> Result<()> {
         if !self.inner.delete(&id)? {
             return Err(anyhow::anyhow!("Agent {} not found", id));
         }
+        let _ = prompt_files::delete_agent_prompt_file(&id);
         Ok(())
+    }
+
+    pub fn migrate_prompts_to_files(&self) -> Result<()> {
+        let agents = self.inner.list_raw()?;
+        for (_, bytes) in agents {
+            let mut stored: StoredAgent = serde_json::from_slice(&bytes)?;
+            let legacy_prompt = stored.agent.prompt.take();
+            prompt_files::ensure_agent_prompt_file(&stored.id, legacy_prompt.as_deref())?;
+            if legacy_prompt.is_some() {
+                let scrubbed = serde_json::to_vec(&stored)?;
+                self.inner.put_raw(&stored.id, &scrubbed)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn migrate_legacy_prompt(&self, mut stored: StoredAgent) -> Result<StoredAgent> {
+        let legacy_prompt = stored.agent.prompt.take();
+        prompt_files::ensure_agent_prompt_file(&stored.id, legacy_prompt.as_deref())?;
+        if legacy_prompt.is_some() {
+            let scrubbed = serde_json::to_vec(&stored)?;
+            self.inner.put_raw(&stored.id, &scrubbed)?;
+        }
+        self.hydrate_prompt_from_file(stored)
+    }
+
+    fn hydrate_prompt_from_file(&self, mut stored: StoredAgent) -> Result<StoredAgent> {
+        stored.agent.prompt = prompt_files::load_agent_prompt(&stored.id)?;
+        Ok(stored)
     }
 }
 
@@ -111,7 +154,15 @@ impl AgentStorage {
 mod tests {
     use super::*;
     use crate::models::AIModel;
+    use std::sync::{Mutex, OnceLock};
     use tempfile::tempdir;
+
+    const AGENTS_DIR_ENV: &str = "RESTFLOW_AGENTS_DIR";
+
+    fn env_lock() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(())).lock().unwrap()
+    }
 
     fn create_test_agent_node() -> AgentNode {
         use crate::models::ApiKeyConfig;
@@ -121,6 +172,7 @@ mod tests {
             prompt: Some("You are a helpful assistant".to_string()),
             temperature: Some(0.7),
             codex_cli_reasoning_effort: None,
+            codex_cli_execution_mode: None,
             api_key_config: Some(ApiKeyConfig::Direct("test_key".to_string())),
             tools: Some(vec!["add".to_string()]),
             skills: None,
@@ -130,7 +182,10 @@ mod tests {
 
     #[test]
     fn test_insert_and_get_agent() {
+        let _lock = env_lock();
         let temp_dir = tempdir().unwrap();
+        let prompts_dir = temp_dir.path().join("agents");
+        unsafe { std::env::set_var(AGENTS_DIR_ENV, &prompts_dir) };
         let db_path = temp_dir.path().join("test.db");
         let db = Arc::new(Database::create(db_path).unwrap());
         let storage = AgentStorage::new(db).unwrap();
@@ -149,11 +204,16 @@ mod tests {
         let agent = retrieved.unwrap();
         assert_eq!(agent.name, "Test Agent");
         assert_eq!(agent.agent.model, Some(AIModel::ClaudeSonnet4_5));
+        assert!(prompts_dir.join(format!("{}.md", stored.id)).exists());
+        unsafe { std::env::remove_var(AGENTS_DIR_ENV) };
     }
 
     #[test]
     fn test_list_agents() {
+        let _lock = env_lock();
         let temp_dir = tempdir().unwrap();
+        let prompts_dir = temp_dir.path().join("agents");
+        unsafe { std::env::set_var(AGENTS_DIR_ENV, &prompts_dir) };
         let db_path = temp_dir.path().join("test.db");
         let db = Arc::new(Database::create(db_path).unwrap());
         let storage = AgentStorage::new(db).unwrap();
@@ -175,11 +235,15 @@ mod tests {
         assert!(names.contains(&"Agent 1".to_string()));
         assert!(names.contains(&"Agent 2".to_string()));
         assert!(names.contains(&"Agent 3".to_string()));
+        unsafe { std::env::remove_var(AGENTS_DIR_ENV) };
     }
 
     #[test]
     fn test_update_agent() {
+        let _lock = env_lock();
         let temp_dir = tempdir().unwrap();
+        let prompts_dir = temp_dir.path().join("agents");
+        unsafe { std::env::set_var(AGENTS_DIR_ENV, &prompts_dir) };
         let db_path = temp_dir.path().join("test.db");
         let db = Arc::new(Database::create(db_path).unwrap());
         let storage = AgentStorage::new(db).unwrap();
@@ -203,11 +267,15 @@ mod tests {
 
         assert_eq!(updated2.name, "Updated Name");
         assert_eq!(updated2.agent.temperature, Some(0.9));
+        unsafe { std::env::remove_var(AGENTS_DIR_ENV) };
     }
 
     #[test]
     fn test_delete_agent() {
+        let _lock = env_lock();
         let temp_dir = tempdir().unwrap();
+        let prompts_dir = temp_dir.path().join("agents");
+        unsafe { std::env::set_var(AGENTS_DIR_ENV, &prompts_dir) };
         let db_path = temp_dir.path().join("test.db");
         let db = Arc::new(Database::create(db_path).unwrap());
         let storage = AgentStorage::new(db).unwrap();
@@ -223,22 +291,30 @@ mod tests {
         let deleted_again = storage.delete_agent(stored.id);
         assert!(deleted_again.is_err());
         assert!(deleted_again.unwrap_err().to_string().contains("not found"));
+        unsafe { std::env::remove_var(AGENTS_DIR_ENV) };
     }
 
     #[test]
     fn test_get_nonexistent_agent() {
+        let _lock = env_lock();
         let temp_dir = tempdir().unwrap();
+        let prompts_dir = temp_dir.path().join("agents");
+        unsafe { std::env::set_var(AGENTS_DIR_ENV, &prompts_dir) };
         let db_path = temp_dir.path().join("test.db");
         let db = Arc::new(Database::create(db_path).unwrap());
         let storage = AgentStorage::new(db).unwrap();
 
         let result = storage.get_agent("nonexistent".to_string()).unwrap();
         assert!(result.is_none());
+        unsafe { std::env::remove_var(AGENTS_DIR_ENV) };
     }
 
     #[test]
     fn test_update_nonexistent_agent() {
+        let _lock = env_lock();
         let temp_dir = tempdir().unwrap();
+        let prompts_dir = temp_dir.path().join("agents");
+        unsafe { std::env::set_var(AGENTS_DIR_ENV, &prompts_dir) };
         let db_path = temp_dir.path().join("test.db");
         let db = Arc::new(Database::create(db_path).unwrap());
         let storage = AgentStorage::new(db).unwrap();
@@ -251,5 +327,6 @@ mod tests {
 
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("not found"));
+        unsafe { std::env::remove_var(AGENTS_DIR_ENV) };
     }
 }
