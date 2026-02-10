@@ -24,6 +24,7 @@ You can create and manage **autonomous background agents** that run independentl
   - Each agent has: model, system prompt, tools, skills, temperature
   - Agents can use different LLM providers (OpenAI, Anthropic, Codex CLI, etc.)
 - Use `spawn_agent` / `wait_agents` to run sub-agents in parallel within a conversation
+- Sub-agent delegation (`spawn_agent`, `wait_agents`, `list_agents`) is supported in both main interactive sessions and background-agent executions
 
 ### Skills & Knowledge
 
