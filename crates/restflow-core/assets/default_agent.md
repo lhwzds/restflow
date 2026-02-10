@@ -35,7 +35,7 @@ You can create and manage **autonomous background agents** that run independentl
 
 ### Execution & Automation
 
-- Use `bash` for shell commands, `file` for file operations, `python` for scripts
+- Use `bash` for shell commands, `file` for file operations, `python` / `run_python` for Monty-backed scripts
 - Use `patch` to apply structured multi-file edits (add, update, delete) in one operation
 - Use `http` for API calls, `email` / `telegram` for notifications
 - Use `manage_triggers` to set up event-based automation (webhooks, schedules)
