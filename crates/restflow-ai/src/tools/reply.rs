@@ -69,7 +69,9 @@ impl Tool for ReplyTool {
             Ok(()) => Ok(ToolOutput::success(
                 json!({"status": "sent", "message": parsed.message}),
             )),
-            Err(e) => Ok(ToolOutput::error(format!("Failed to send reply: {e}"))),
+            Err(e) => Ok(ToolOutput::error(format!(
+                "Failed to send reply: {e}. The reply channel may have closed. Check if the conversation is still active."
+            ))),
         }
     }
 }
@@ -83,6 +85,8 @@ mod tests {
         messages: Arc<Mutex<Vec<String>>>,
     }
 
+    struct FailingSender;
+
     impl ReplySender for MockSender {
         fn send(
             &self,
@@ -93,6 +97,15 @@ mod tests {
                 messages.lock().unwrap().push(message);
                 Ok(())
             })
+        }
+    }
+
+    impl ReplySender for FailingSender {
+        fn send(
+            &self,
+            _message: String,
+        ) -> Pin<Box<dyn Future<Output = anyhow::Result<()>> + Send>> {
+            Box::pin(async move { anyhow::bail!("channel closed") })
         }
     }
 
@@ -123,5 +136,19 @@ mod tests {
 
         let result = tool.execute(json!({"message": "  "})).await.unwrap();
         assert!(!result.success);
+    }
+
+    #[tokio::test]
+    async fn test_reply_tool_error_guidance() {
+        let tool = ReplyTool::new(Arc::new(FailingSender));
+        let result = tool.execute(json!({"message": "ping"})).await.unwrap();
+
+        assert!(!result.success);
+        assert!(
+            result
+                .error
+                .expect("expected error")
+                .contains("Check if the conversation is still active")
+        );
     }
 }

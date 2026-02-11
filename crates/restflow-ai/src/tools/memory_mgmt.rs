@@ -66,7 +66,7 @@ impl MemoryManagementTool {
             Ok(())
         } else {
             Err(AiError::Tool(
-                "Write access to memory is disabled for this tool".to_string(),
+                "Write access to memory is disabled. Available read-only operations: list, search. To modify memory, the user must grant write permissions.".to_string(),
             ))
         }
     }
@@ -240,6 +240,10 @@ mod tests {
         let result = tool
             .execute(json!({"operation": "clear", "agent_id": "agent"}))
             .await;
-        assert!(result.is_err());
+        let err = result.err().expect("expected write-guard error");
+        assert!(
+            err.to_string()
+                .contains("Available read-only operations: list, search")
+        );
     }
 }
