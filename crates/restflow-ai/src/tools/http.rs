@@ -106,7 +106,15 @@ impl Tool for HttpTool {
     }
 
     async fn execute(&self, input: Value) -> Result<ToolOutput> {
-        let params: HttpInput = serde_json::from_value(input)?;
+        let params: HttpInput = match serde_json::from_value(input) {
+            Ok(params) => params,
+            Err(e) => {
+                return Ok(ToolOutput::error(format!(
+                    "Invalid input: {}. Required fields: url (string), method (GET|POST|PUT|DELETE|PATCH|HEAD), optional: headers, body, timeout_seconds.",
+                    e
+                )));
+            }
+        };
 
         let action = ToolAction {
             tool_name: "http".to_string(),
@@ -180,7 +188,10 @@ impl Tool for HttpTool {
                     "body": result
                 })))
             }
-            Err(e) => Ok(ToolOutput::error(e.to_string())),
+            Err(e) => Ok(ToolOutput::error(format!(
+                "HTTP request failed: {}. Check that the URL is correct and the server is reachable. For HTTPS issues, verify the certificate is valid.",
+                e
+            ))),
         }
     }
 }
@@ -197,5 +208,17 @@ mod tests {
 
         let schema = tool.parameters_schema();
         assert!(schema.get("properties").is_some());
+    }
+
+    #[tokio::test]
+    async fn test_http_tool_invalid_input_returns_actionable_error() {
+        let tool = HttpTool::new();
+        let output = tool.execute(json!({"method": "GET"})).await.unwrap();
+
+        assert!(!output.success);
+        assert!(output
+            .error
+            .unwrap_or_default()
+            .contains("Required fields: url (string), method (GET|POST|PUT|DELETE|PATCH|HEAD), optional: headers, body, timeout_seconds."));
     }
 }
