@@ -158,8 +158,9 @@ impl TextChunker {
         let mut start = 0;
 
         while start < text.len() {
-            // Calculate end position
+            // Calculate end position, ensuring it lands on a char boundary
             let mut end = (start + self.chunk_size).min(text.len());
+            end = Self::floor_char_boundary(text, end);
 
             // If not at the end, find word boundary
             if end < text.len() {
@@ -181,17 +182,22 @@ impl TextChunker {
 
             // Move start position with overlap
             let step = self.chunk_size.saturating_sub(self.overlap);
-            start = if step > 0 {
+            let mut next_start = if step > 0 {
                 start + step
             } else {
                 // Safety: avoid infinite loop if overlap >= chunk_size
                 start + self.chunk_size
             };
 
+            // Ensure start is on a char boundary
+            next_start = Self::ceil_char_boundary(text, next_start);
+
             // Find word boundary for start position too
-            if start < text.len() && start > 0 {
-                start = self.find_word_boundary_forward(text, start);
+            if next_start < text.len() && next_start > 0 {
+                next_start = self.find_word_boundary_forward(text, next_start);
             }
+
+            start = next_start;
         }
 
         chunks
@@ -232,17 +238,48 @@ impl TextChunker {
             .join("\n\n")
     }
 
+    /// Round a byte index down to the nearest char boundary.
+    fn floor_char_boundary(text: &str, index: usize) -> usize {
+        if index >= text.len() {
+            return text.len();
+        }
+        // Walk backward until we hit a char boundary
+        let mut i = index;
+        while i > 0 && !text.is_char_boundary(i) {
+            i -= 1;
+        }
+        i
+    }
+
+    /// Round a byte index up to the nearest char boundary.
+    fn ceil_char_boundary(text: &str, index: usize) -> usize {
+        if index >= text.len() {
+            return text.len();
+        }
+        let mut i = index;
+        while i < text.len() && !text.is_char_boundary(i) {
+            i += 1;
+        }
+        i
+    }
+
     /// Find the nearest word boundary before or at the given position.
     ///
     /// Searches backward from `pos` to find a space or newline character.
+    /// All indices are guaranteed to be on char boundaries.
     fn find_word_boundary(&self, text: &str, pos: usize) -> usize {
+        let pos = Self::floor_char_boundary(text, pos);
         // Search backward for space or newline
-        let search_start = pos.saturating_sub(100); // Don't search too far back
+        let search_start = Self::floor_char_boundary(text, pos.saturating_sub(100));
         let slice = &text[search_start..pos];
 
         // Find last whitespace in the slice
         if let Some(last_ws) = slice.rfind(|c: char| c.is_whitespace()) {
-            return search_start + last_ws + 1; // Position after whitespace
+            // last_ws is a byte offset within slice, which is char-boundary-safe
+            // because rfind returns the start byte of the matched char
+            let boundary = search_start + last_ws;
+            // Advance past the whitespace character
+            return boundary + text[boundary..].chars().next().map_or(0, |c| c.len_utf8());
         }
 
         // No whitespace found, use original position
@@ -252,14 +289,25 @@ impl TextChunker {
     /// Find the nearest word boundary at or after the given position.
     ///
     /// Searches forward from `pos` to find a space or newline character.
+    /// All indices are guaranteed to be on char boundaries.
     fn find_word_boundary_forward(&self, text: &str, pos: usize) -> usize {
+        let pos = Self::ceil_char_boundary(text, pos);
         // Search forward for space or newline
-        let search_end = (pos + 100).min(text.len());
+        let search_end = Self::floor_char_boundary(text, (pos + 100).min(text.len()));
+        let search_end = if search_end <= pos {
+            text.len().min(pos + 100)
+        } else {
+            search_end
+        };
+        let search_end = Self::ceil_char_boundary(text, search_end);
         let slice = &text[pos..search_end];
 
         // Find first whitespace in the slice
         if let Some(first_ws) = slice.find(|c: char| c.is_whitespace()) {
-            return pos + first_ws + 1; // Position after whitespace
+            // first_ws is byte offset within slice, char-boundary-safe from find()
+            let boundary = pos + first_ws;
+            // Advance past the whitespace character
+            return boundary + text[boundary..].chars().next().map_or(0, |c| c.len_utf8());
         }
 
         // No whitespace found, use original position
@@ -583,5 +631,81 @@ mod tests {
         // 100 chars = 25 tokens
         let hundred_chars = "a".repeat(100);
         assert_eq!(chunker.estimate_tokens(&hundred_chars), 25);
+    }
+
+    #[test]
+    fn test_chinese_text_single_chunk() {
+        let chunker = TextChunker::default();
+        let text = "你好世界，这是一个测试。";
+        let chunks = chunker.chunk(text, "agent-1", None, MemorySource::ManualNote);
+        assert_eq!(chunks.len(), 1);
+        assert_eq!(chunks[0].content, text);
+    }
+
+    #[test]
+    fn test_chinese_text_multiple_chunks() {
+        let chunker = TextChunker::new()
+            .with_chunk_size(100)
+            .with_overlap(20)
+            .with_min_chunk_size(10);
+
+        // Chinese chars are 3 bytes each in UTF-8, so 100 bytes ~ 33 chars
+        // Create text with spaces so word boundary can work
+        let text = "你好世界 这是测试 中文内容 分块处理 ".repeat(20);
+        let chunks = chunker.chunk(&text, "agent-1", None, MemorySource::ManualNote);
+
+        assert!(chunks.len() > 1, "Expected multiple chunks for Chinese text");
+        // Verify all chunks contain valid UTF-8 (no panics)
+        for chunk in &chunks {
+            assert!(!chunk.content.is_empty());
+            // This would panic if content is invalid UTF-8
+            let _ = chunk.content.chars().count();
+        }
+    }
+
+    #[test]
+    fn test_mixed_cjk_and_ascii_chunking() {
+        let chunker = TextChunker::new()
+            .with_chunk_size(150)
+            .with_overlap(30)
+            .with_min_chunk_size(10);
+
+        let text = "Hello 你好 World 世界 Test 测试 Content 内容 ".repeat(30);
+        let chunks = chunker.chunk(&text, "agent-1", None, MemorySource::ManualNote);
+
+        assert!(chunks.len() > 1);
+        for chunk in &chunks {
+            assert!(!chunk.content.is_empty());
+            let _ = chunk.content.chars().count();
+        }
+    }
+
+    #[test]
+    fn test_chunk_messages_with_chinese() {
+        let chunker = TextChunker::new()
+            .with_chunk_size(200)
+            .with_overlap(40)
+            .with_min_chunk_size(10);
+
+        let messages = vec![
+            ("User", "每15分钟执行一次。你只负责 main CI 失败自动修复并提 PR。"),
+            ("Assistant", "好的，我会每15分钟检查 CI 状态并自动修复失败的构建。"),
+            ("User", "仓库规则：固定仓库 /Users/test/restflow，开始先执行 git fetch。"),
+        ];
+
+        let chunks = chunker.chunk_messages(
+            &messages,
+            "agent-1",
+            Some("session-1"),
+            MemorySource::Conversation {
+                session_id: "session-1".to_string(),
+            },
+        );
+
+        assert!(!chunks.is_empty());
+        for chunk in &chunks {
+            assert!(!chunk.content.is_empty());
+            let _ = chunk.content.chars().count();
+        }
     }
 }
