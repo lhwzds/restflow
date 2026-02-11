@@ -18,7 +18,7 @@ use crate::models::memory::{
 use anyhow::{Result, anyhow};
 use redb::Database;
 use regex::Regex;
-use restflow_storage::{VectorConfig, VectorStorage};
+use restflow_storage::{IndexableChunk, MemoryIndex, PutChunkResult, VectorConfig, VectorStorage};
 use std::sync::Arc;
 
 /// Typed memory storage wrapper around restflow-storage::MemoryStorage.
@@ -26,28 +26,43 @@ use std::sync::Arc;
 pub struct MemoryStorage {
     inner: restflow_storage::MemoryStorage,
     vectors: Option<Arc<VectorStorage>>,
+    index: Option<Arc<MemoryIndex>>,
 }
 
 impl MemoryStorage {
     /// Create a new MemoryStorage instance
     pub fn new(db: Arc<Database>) -> Result<Self> {
+        let index = Some(Arc::new(MemoryIndex::in_memory()?));
+        Self::with_index(db, index)
+    }
+
+    /// Create a MemoryStorage instance with a custom text index
+    pub fn with_index(db: Arc<Database>, index: Option<Arc<MemoryIndex>>) -> Result<Self> {
         Ok(Self {
             inner: restflow_storage::MemoryStorage::new(db)?,
             vectors: None,
+            index,
         })
     }
 
     /// Create a MemoryStorage instance with vector search enabled
     pub fn with_vectors(db: Arc<Database>, config: VectorConfig) -> Result<Self> {
+        let index = Some(Arc::new(MemoryIndex::in_memory()?));
         Ok(Self {
             inner: restflow_storage::MemoryStorage::new(db.clone())?,
             vectors: Some(Arc::new(VectorStorage::new(db, config)?)),
+            index,
         })
     }
 
     /// Check if vector search is enabled
     pub fn has_vector_search(&self) -> bool {
         self.vectors.is_some()
+    }
+
+    /// Check if text index is enabled
+    pub fn has_text_index(&self) -> bool {
+        self.index.is_some()
     }
 
     // ============== Chunk Operations ==============
@@ -67,15 +82,20 @@ impl MemoryStorage {
             &json_bytes,
         )?;
 
-        // Add to vector storage if enabled
-        if let (Some(vectors), Some(embedding)) = (&self.vectors, &chunk.embedding) {
-            vectors.add(&chunk.id, embedding)?;
-        }
+        match result {
+            PutChunkResult::Created(id) => {
+                if let (Some(vectors), Some(embedding)) = (&self.vectors, &chunk.embedding) {
+                    vectors.add(&chunk.id, embedding)?;
+                }
 
-        Ok(match result {
-            restflow_storage::PutChunkResult::Created(id) => id,
-            restflow_storage::PutChunkResult::Existing(id) => id,
-        })
+                if let Some(index) = &self.index {
+                    index.index_chunk(&Self::to_indexable_chunk(chunk))?;
+                }
+
+                Ok(id)
+            }
+            PutChunkResult::Existing(id) => Ok(id),
+        }
     }
 
     /// Store a memory chunk with embedding support
@@ -146,6 +166,10 @@ impl MemoryStorage {
                 vectors.delete(chunk_id)?;
             }
 
+            if let Some(index) = &self.index {
+                index.remove_chunk(chunk_id)?;
+            }
+
             self.inner.delete_chunk(
                 chunk_id,
                 &chunk.agent_id,
@@ -178,8 +202,17 @@ impl MemoryStorage {
             })
             .collect();
 
-        self.inner
-            .delete_all_chunks_for_agent_with_metadata(agent_id, &metadata)
+        let deleted = self
+            .inner
+            .delete_all_chunks_for_agent_with_metadata(agent_id, &metadata)?;
+
+        if let Some(index) = &self.index {
+            for chunk in chunks {
+                index.remove_chunk(&chunk.id)?;
+            }
+        }
+
+        Ok(deleted)
     }
 
     // ============== Session Operations ==============
@@ -260,6 +293,12 @@ impl MemoryStorage {
 
     /// Search memory chunks based on a query
     pub fn search(&self, query: &MemorySearchQuery) -> Result<MemorySearchResult> {
+        if let (Some(index), Some(search_text)) = (&self.index, &query.query)
+            && query.search_mode == SearchMode::Keyword
+        {
+            return self.search_indexed(index, query, search_text);
+        }
+
         // Get all chunks for the agent
         let mut chunks = self.list_chunks(&query.agent_id)?;
 
@@ -285,6 +324,35 @@ impl MemoryStorage {
             total_count,
             has_more,
         })
+    }
+
+    /// Rebuild full-text index from persisted chunks.
+    pub fn rebuild_text_index(&self) -> Result<usize> {
+        let Some(index) = &self.index else {
+            return Ok(0);
+        };
+
+        let chunks = self.inner.list_all_chunks_raw()?;
+        let mut docs = Vec::with_capacity(chunks.len());
+        for (_, bytes) in chunks {
+            let chunk: MemoryChunk = serde_json::from_slice(&bytes)?;
+            docs.push(Self::to_indexable_chunk(&chunk));
+        }
+
+        index.rebuild(docs)
+    }
+
+    /// Rebuild full-text index only when the index is empty.
+    pub fn rebuild_text_index_if_empty(&self) -> Result<usize> {
+        let Some(index) = &self.index else {
+            return Ok(0);
+        };
+
+        if index.doc_count()? > 0 {
+            return Ok(0);
+        }
+
+        self.rebuild_text_index()
     }
 
     /// Semantic vector search
@@ -434,6 +502,56 @@ impl MemoryStorage {
                     .filter(|c| regex.is_match(&c.content))
                     .collect())
             }
+        }
+    }
+
+    fn search_indexed(
+        &self,
+        index: &MemoryIndex,
+        query: &MemorySearchQuery,
+        search_text: &str,
+    ) -> Result<MemorySearchResult> {
+        let requested = (query.offset + query.limit) as usize;
+        let candidate_limit = requested.max(100).saturating_mul(5).min(5_000);
+        let hits = index.search(search_text, &query.agent_id, candidate_limit)?;
+
+        if hits.is_empty() {
+            return Ok(MemorySearchResult {
+                chunks: Vec::new(),
+                total_count: 0,
+                has_more: false,
+            });
+        }
+
+        let mut chunks = Vec::with_capacity(hits.len());
+        for hit in hits {
+            if let Some(chunk) = self.get_chunk(&hit.chunk_id)? {
+                chunks.push(chunk);
+            }
+        }
+
+        chunks = self.apply_filters(chunks, query)?;
+
+        let total_count = chunks.len() as u32;
+        let has_more = total_count > query.offset + query.limit;
+        let offset = query.offset as usize;
+        let limit = query.limit as usize;
+        let paginated: Vec<_> = chunks.into_iter().skip(offset).take(limit).collect();
+
+        Ok(MemorySearchResult {
+            chunks: paginated,
+            total_count,
+            has_more,
+        })
+    }
+
+    fn to_indexable_chunk(chunk: &MemoryChunk) -> IndexableChunk {
+        IndexableChunk {
+            id: chunk.id.clone(),
+            agent_id: chunk.agent_id.clone(),
+            content: chunk.content.clone(),
+            tags: chunk.tags.clone(),
+            created_at: chunk.created_at,
         }
     }
 
@@ -694,6 +812,44 @@ mod tests {
         let results = storage.search(&query).unwrap();
         assert_eq!(results.chunks.len(), 2);
         assert_eq!(results.total_count, 2);
+    }
+
+    #[test]
+    fn test_indexed_search_respects_deletion() {
+        let storage = create_test_storage();
+        assert!(storage.has_text_index());
+
+        let chunk = MemoryChunk::new("agent-001".to_string(), "Rust tokio runtime".to_string());
+        storage.store_chunk(&chunk).unwrap();
+
+        let query = MemorySearchQuery::new("agent-001".to_string())
+            .with_query("rust tokio".to_string())
+            .with_mode(SearchMode::Keyword);
+        let before_delete = storage.search(&query).unwrap();
+        assert_eq!(before_delete.total_count, 1);
+
+        storage.delete_chunk(&chunk.id).unwrap();
+        let after_delete = storage.search(&query).unwrap();
+        assert_eq!(after_delete.total_count, 0);
+    }
+
+    #[test]
+    fn test_rebuild_text_index_if_empty() {
+        let storage = create_test_storage();
+        let chunk = MemoryChunk::new("agent-001".to_string(), "index rebuild content".to_string());
+        storage.store_chunk(&chunk).unwrap();
+
+        let rebuilt = storage.rebuild_text_index_if_empty().unwrap();
+        assert_eq!(rebuilt, 0);
+
+        let rebuilt_force = storage.rebuild_text_index().unwrap();
+        assert_eq!(rebuilt_force, 1);
+
+        let query = MemorySearchQuery::new("agent-001".to_string())
+            .with_query("rebuild".to_string())
+            .with_mode(SearchMode::Keyword);
+        let result = storage.search(&query).unwrap();
+        assert_eq!(result.total_count, 1);
     }
 
     #[test]
