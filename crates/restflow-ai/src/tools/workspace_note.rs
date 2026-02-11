@@ -399,7 +399,7 @@ mod tests {
 
         let out = tool.execute(json!({ "operation": "list" })).await.unwrap();
         assert!(out.success);
-        assert!(out.result["notes"].as_array().unwrap().len() >= 1);
+        assert!(!out.result["notes"].as_array().unwrap().is_empty());
     }
 
     #[tokio::test]
