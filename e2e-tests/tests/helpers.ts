@@ -12,7 +12,7 @@ export async function goToWorkspace(page: Page) {
  * Open the full-screen Settings panel by clicking the gear icon.
  */
 export async function openSettings(page: Page) {
-  const settingsButton = page.locator('button').filter({ has: page.locator('svg.lucide-settings') })
+  const settingsButton = page.getByRole('button', { name: 'Open settings' })
   await settingsButton.click()
   // Wait for settings left nav to appear
   await expect(page.locator('nav button', { hasText: 'Secrets' })).toBeVisible()
@@ -22,7 +22,7 @@ export async function openSettings(page: Page) {
  * Close Settings and return to the chat layout.
  */
 export async function closeSettings(page: Page) {
-  const backButton = page.locator('nav button').filter({ has: page.locator('svg.lucide-arrow-left') })
+  const backButton = page.getByRole('button', { name: 'Back to workspace' })
   await backButton.click()
   // Wait for session list to appear
   await expect(page.getByRole('button', { name: 'New Session' })).toBeVisible()

@@ -22,7 +22,7 @@ test.describe('Workspace Layout', () => {
     await expect(page.locator('textarea[placeholder*="Ask the agent"]')).toBeVisible()
 
     // Bottom bar with settings gear
-    const settingsButton = page.locator('button').filter({ has: page.locator('svg.lucide-settings') })
+    const settingsButton = page.getByRole('button', { name: 'Open settings' })
     await expect(settingsButton).toBeVisible()
   })
 
@@ -72,6 +72,11 @@ test.describe('Workspace Layout', () => {
   })
 
   test('keyboard hints are shown below input', async ({ page }) => {
+    const collapseButton = page.getByRole('button', { name: 'Collapse chat input' })
+    if (await collapseButton.isVisible()) {
+      await collapseButton.click()
+    }
+
     await expect(page.locator('text=Enter')).toBeVisible()
     await expect(page.locator('text=Shift+Enter')).toBeVisible()
   })
