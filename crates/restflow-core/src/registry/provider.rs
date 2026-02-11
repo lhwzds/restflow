@@ -171,6 +171,16 @@ pub struct LocalSkillProvider {
     cache: tokio::sync::RwLock<HashMap<String, SkillManifest>>,
 }
 
+fn validate_skill_id(id: &str) -> Result<(), SkillProviderError> {
+    if id.contains('/') || id.contains('\\') || id.contains("..") || id.contains('\0') {
+        return Err(SkillProviderError::NotFound(format!(
+            "Invalid skill ID '{}': contains path separator or traversal characters",
+            id
+        )));
+    }
+    Ok(())
+}
+
 impl LocalSkillProvider {
     /// Create a new local provider
     pub fn new(base_dir: PathBuf) -> Self {
@@ -309,6 +319,8 @@ impl SkillProvider for LocalSkillProvider {
     }
 
     async fn get_manifest(&self, id: &str) -> Result<SkillManifest, SkillProviderError> {
+        validate_skill_id(id)?;
+
         // Check cache first
         {
             let cache = self.cache.read().await;
@@ -332,6 +344,7 @@ impl SkillProvider for LocalSkillProvider {
         id: &str,
         _version: &SkillVersion,
     ) -> Result<String, SkillProviderError> {
+        validate_skill_id(id)?;
         let skill_dir = self.base_dir.join(id);
         let content_path = skill_dir.join("skill.md");
 
@@ -476,5 +489,48 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(content, "# Test Content");
+    }
+
+    #[test]
+    fn test_validate_skill_id_rejects_traversal() {
+        let invalid_ids = vec!["../etc", "foo/bar", r"foo\bar", "foo..bar", "foo\0bar"];
+
+        for id in invalid_ids {
+            let err = validate_skill_id(id).unwrap_err();
+            match err {
+                SkillProviderError::NotFound(message) => {
+                    assert!(message.contains("Invalid skill ID"));
+                }
+                other => panic!("unexpected error: {}", other),
+            }
+        }
+    }
+
+    #[test]
+    fn test_validate_skill_id_accepts_valid() {
+        let valid_ids = vec![
+            "my-skill",
+            "skill_1",
+            "123e4567-e89b-12d3-a456-426614174000",
+        ];
+
+        for id in valid_ids {
+            assert!(validate_skill_id(id).is_ok());
+        }
+    }
+
+    #[tokio::test]
+    async fn test_local_provider_rejects_traversal_in_manifest_and_content() {
+        let base_dir = std::env::temp_dir().join(format!("restflow-test-{}", uuid::Uuid::new_v4()));
+        let provider = LocalSkillProvider::new(base_dir);
+
+        let manifest_err = provider.get_manifest("../etc").await.unwrap_err();
+        assert!(matches!(manifest_err, SkillProviderError::NotFound(_)));
+
+        let content_err = provider
+            .get_content("foo/bar", &SkillVersion::new(1, 0, 0))
+            .await
+            .unwrap_err();
+        assert!(matches!(content_err, SkillProviderError::NotFound(_)));
     }
 }
