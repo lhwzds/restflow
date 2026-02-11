@@ -10,6 +10,11 @@ import {
 } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
 import type { AgentFile, SessionItem } from '@/types/workspace'
+import {
+  ALL_AGENTS_FILTER_VALUE,
+  decodeAgentFilterValue,
+  encodeAgentFilterValue,
+} from './sessionListFilter'
 
 defineProps<{
   sessions: SessionItem[]
@@ -46,15 +51,15 @@ const formatTime = (timestamp: number) => {
       </Button>
 
       <Select
-        :model-value="agentFilter || ''"
-        @update:model-value="emit('updateAgentFilter', $event || null)"
+        :model-value="encodeAgentFilterValue(agentFilter)"
+        @update:model-value="emit('updateAgentFilter', decodeAgentFilterValue($event))"
       >
         <SelectTrigger class="w-full h-8 text-xs">
           <Bot :size="14" class="mr-1 text-muted-foreground shrink-0" />
           <SelectValue placeholder="All agents" />
         </SelectTrigger>
         <SelectContent>
-          <SelectItem value="">All agents</SelectItem>
+          <SelectItem :value="ALL_AGENTS_FILTER_VALUE">All agents</SelectItem>
           <SelectItem v-for="agent in availableAgents" :key="agent.id" :value="agent.id">
             {{ agent.name }}
           </SelectItem>

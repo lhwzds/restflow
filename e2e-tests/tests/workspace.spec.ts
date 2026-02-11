@@ -71,14 +71,21 @@ test.describe('Workspace Layout', () => {
     await expect(page.locator('text=Start a new conversation')).toBeVisible()
   })
 
-  test('keyboard hints are shown below input', async ({ page }) => {
+  test('keyboard hints visibility follows input mode', async ({ page }) => {
     const collapseButton = page.getByRole('button', { name: 'Collapse chat input' })
+    const enterHint = page.locator('text=Enter')
+    const shiftEnterHint = page.locator('text=Shift+Enter')
+
     if (await collapseButton.isVisible()) {
-      await collapseButton.click()
+      // Expanded mode keeps hints hidden.
+      await expect(enterHint).not.toBeVisible()
+      await expect(shiftEnterHint).not.toBeVisible()
+      return
     }
 
-    await expect(page.locator('text=Enter')).toBeVisible()
-    await expect(page.locator('text=Shift+Enter')).toBeVisible()
+    // Collapsed mode shows keyboard hints.
+    await expect(enterHint).toBeVisible()
+    await expect(shiftEnterHint).toBeVisible()
   })
 })
 
