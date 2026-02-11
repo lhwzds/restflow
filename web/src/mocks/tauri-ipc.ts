@@ -52,9 +52,13 @@ const skills: Skill[] = demoSkillsJson.map((s) => ({
   is_synced: false,
 })) as Skill[]
 
+function toMsBigInt(value: number | string): bigint {
+  return BigInt(typeof value === 'string' ? parseInt(value, 10) : value)
+}
+
 const chatSessionSummaries: ChatSessionSummary[] = demoChatSessionsJson.map((s) => ({
   ...s,
-  updated_at: s.updated_at,
+  updated_at: toMsBigInt(s.updated_at),
 }))
 
 const chatSessions: ChatSession[] = demoChatSessionsJson.map((s) => ({
@@ -64,11 +68,11 @@ const chatSessions: ChatSession[] = demoChatSessionsJson.map((s) => ({
   model: s.model,
   skill_id: s.skill_id,
   messages: [],
-  created_at: s.updated_at - 3600000,
-  updated_at: s.updated_at,
+  created_at: toMsBigInt(s.updated_at - 3600000),
+  updated_at: toMsBigInt(s.updated_at),
   summary_message_id: null,
-  prompt_tokens: 0,
-  completion_tokens: 0,
+  prompt_tokens: 0n,
+  completion_tokens: 0n,
   cost: 0,
   metadata: {
     total_tokens: s.message_count * 150,
@@ -244,11 +248,11 @@ function handleCommand(cmd: string, args?: InvokeArgs): unknown {
         model: a.model as string,
         skill_id: (a.skillId as string) || null,
         messages: [],
-        created_at: now,
-        updated_at: now,
+        created_at: BigInt(now),
+        updated_at: BigInt(now),
         summary_message_id: null,
-        prompt_tokens: 0,
-        completion_tokens: 0,
+        prompt_tokens: 0n,
+        completion_tokens: 0n,
         cost: 0,
         metadata: { total_tokens: 0, message_count: 0, last_model: null },
       }
@@ -260,7 +264,7 @@ function handleCommand(cmd: string, args?: InvokeArgs): unknown {
       const session = chatSessions.find((s) => s.id === a.id)
       if (!session) throw `Chat session not found: ${a.id}`
       session.name = a.name as string
-      session.updated_at = Date.now()
+      session.updated_at = BigInt(Date.now())
       return session
     }
 
@@ -271,7 +275,7 @@ function handleCommand(cmd: string, args?: InvokeArgs): unknown {
       if (updates.name) session.name = updates.name
       if (updates.agentId) session.agent_id = updates.agentId
       if (updates.model) session.model = updates.model
-      session.updated_at = Date.now()
+      session.updated_at = BigInt(Date.now())
       return session
     }
 
@@ -286,7 +290,7 @@ function handleCommand(cmd: string, args?: InvokeArgs): unknown {
       const session = chatSessions.find((s) => s.id === a.sessionId)
       if (!session) throw `Chat session not found: ${a.sessionId}`
       session.messages.push(a.message as ChatMessage)
-      session.updated_at = Date.now()
+      session.updated_at = BigInt(Date.now())
       return session
     }
 
@@ -298,17 +302,17 @@ function handleCommand(cmd: string, args?: InvokeArgs): unknown {
         id: createId(),
         role: 'user',
         content: a.content as string,
-        timestamp: now,
+        timestamp: BigInt(now),
         execution: null,
       })
       session.messages.push({
         id: createId(),
         role: 'assistant',
         content: '[Demo] This is a mock AI response.',
-        timestamp: now + 1000,
+        timestamp: BigInt(now + 1000),
         execution: null,
       })
-      session.updated_at = now + 1000
+      session.updated_at = BigInt(now + 1000)
       return session
     }
 

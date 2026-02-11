@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use std::path::PathBuf;
+use std::path::Path;
 
 use crate::paths;
 
@@ -21,7 +21,7 @@ pub fn ensure_default_skill_files() -> Result<()> {
     Ok(())
 }
 
-fn ensure_skill_file(skills_root: &PathBuf, skill_id: &str, content: &str) -> Result<()> {
+fn ensure_skill_file(skills_root: &Path, skill_id: &str, content: &str) -> Result<()> {
     let skill_dir = skills_root.join(skill_id);
     std::fs::create_dir_all(&skill_dir).with_context(|| {
         format!(
