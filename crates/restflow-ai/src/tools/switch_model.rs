@@ -142,7 +142,11 @@ impl SwitchModelTool {
 
         let model = self
             .find_model_by_name(&available, &model_candidate)
-            .ok_or_else(|| AiError::Tool(format!("Unknown model: {model_candidate}")))?;
+            .ok_or_else(|| {
+                AiError::Tool(format!(
+                    "Unknown model: '{model_candidate}'. Use manage_agents tool to list available models, or check the provider's documentation."
+                ))
+            })?;
         if !self.model_matches_provider(model, provider) {
             return Err(AiError::Tool(format!(
                 "Model '{model_raw}' does not belong to provider '{}'",
@@ -239,8 +243,8 @@ impl Tool for SwitchModelTool {
         } else {
             Some(self.factory.resolve_api_key(provider).ok_or_else(|| {
                 AiError::Tool(format!(
-                    "No API key available for provider {}",
-                    provider.as_str()
+                    "No API key for provider '{}'. Set the key via manage_secrets tool (e.g., ANTHROPIC_API_KEY, OPENAI_API_KEY).",
+                    provider.as_str(),
                 ))
             })?)
         };
@@ -569,6 +573,55 @@ mod tests {
                 .contains("both 'provider' and 'model' are required"),
             "unexpected error: {error}"
         );
+    }
+
+    #[tokio::test]
+    async fn execute_reports_unknown_model_with_actionable_guidance() {
+        let factory = Arc::new(MockFactory::new(
+            vec!["gpt-5.3-codex", "claude-sonnet-4-5"],
+            vec![
+                ("claude-sonnet-4-5", LlmProvider::Anthropic),
+                ("gpt-5.3-codex", LlmProvider::OpenAI),
+            ],
+            vec![],
+            vec!["gpt-5.3-codex"],
+        ));
+        let (tool, _) = build_tool(factory);
+
+        let error = tool
+            .execute(json!({
+                "provider": "openai-codex",
+                "model": "missing-model"
+            }))
+            .await
+            .expect_err("switch should fail for unknown model");
+        let message = error.to_string();
+
+        assert!(message.contains("Unknown model: 'missing-model'"));
+        assert!(message.contains("Use manage_agents tool to list available models"));
+    }
+
+    #[tokio::test]
+    async fn execute_reports_missing_api_key_with_manage_secrets_guidance() {
+        let factory = Arc::new(MockFactory::new(
+            vec!["claude-sonnet-4-5"],
+            vec![("claude-sonnet-4-5", LlmProvider::Anthropic)],
+            vec![],
+            vec![],
+        ));
+        let (tool, _) = build_tool(factory);
+
+        let error = tool
+            .execute(json!({
+                "provider": "anthropic",
+                "model": "claude-sonnet-4-5"
+            }))
+            .await
+            .expect_err("switch should fail without provider key");
+        let message = error.to_string();
+
+        assert!(message.contains("No API key for provider 'anthropic'"));
+        assert!(message.contains("Set the key via manage_secrets tool"));
     }
 
     #[tokio::test]

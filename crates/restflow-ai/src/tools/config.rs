@@ -3,6 +3,7 @@
 use async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::{Value, json};
+use std::fmt::Display;
 use std::sync::Arc;
 
 use restflow_storage::{ConfigStorage, SystemConfig};
@@ -29,6 +30,12 @@ impl ConfigTool {
         self
     }
 
+    fn storage_error(error: impl Display) -> AiError {
+        AiError::Tool(format!(
+            "Config storage error: {error}. The database may be locked or corrupted. Retry the operation."
+        ))
+    }
+
     fn write_guard(&self) -> Result<()> {
         if self.allow_write {
             Ok(())
@@ -42,8 +49,13 @@ impl ConfigTool {
     fn get_config(&self) -> Result<SystemConfig> {
         self.storage
             .get_config()
-            .map_err(|e| AiError::Tool(e.to_string()))?
-            .ok_or_else(|| AiError::Tool("Config not initialized".to_string()))
+            .map_err(Self::storage_error)?
+            .ok_or_else(|| {
+                AiError::Tool(
+                    "Config not initialized. Use 'reset' operation to create default configuration."
+                        .to_string(),
+                )
+            })
     }
 
     fn apply_update(&self, key: &str, value: &Value) -> Result<SystemConfig> {
@@ -74,7 +86,11 @@ impl ConfigTool {
                     .ok_or_else(|| AiError::Tool("max_retries must be a number".to_string()))?;
                 config.max_retries = retries as u32;
             }
-            _ => return Err(AiError::Tool(format!("Unknown config field: {}", key))),
+            _ => {
+                return Err(AiError::Tool(format!(
+                    "Unknown config field: '{key}'. Valid fields: worker_count, task_timeout_seconds, stall_timeout_seconds, max_retries."
+                )));
+            }
         }
 
         Ok(config)
@@ -145,7 +161,7 @@ impl Tool for ConfigTool {
                 let config = SystemConfig::default();
                 self.storage
                     .update_config(config.clone())
-                    .map_err(|e| AiError::Tool(e.to_string()))?;
+                    .map_err(Self::storage_error)?;
                 ToolOutput::success(serde_json::to_value(config)?)
             }
             ConfigAction::Set { config, key, value } => {
@@ -162,7 +178,7 @@ impl Tool for ConfigTool {
 
                 self.storage
                     .update_config(updated.clone())
-                    .map_err(|e| AiError::Tool(e.to_string()))?;
+                    .map_err(Self::storage_error)?;
                 ToolOutput::success(serde_json::to_value(updated)?)
             }
         };
@@ -210,5 +226,26 @@ mod tests {
             err.to_string()
                 .contains("Available read-only operations: get, list")
         );
+    }
+
+    #[tokio::test]
+    async fn test_set_rejects_unknown_field_with_valid_fields_hint() {
+        let storage = setup_storage();
+        let tool = ConfigTool::new(storage).with_write(true);
+
+        let result = tool
+            .execute(json!({
+                "operation": "set",
+                "key": "invalid_field",
+                "value": 8
+            }))
+            .await;
+        let err = result.err().expect("expected unknown field error");
+        let message = err.to_string();
+
+        assert!(message.contains("Unknown config field: 'invalid_field'"));
+        assert!(message.contains(
+            "Valid fields: worker_count, task_timeout_seconds, stall_timeout_seconds, max_retries"
+        ));
     }
 }
