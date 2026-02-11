@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use sha2::{Digest, Sha256};
+use tracing::warn;
 use walkdir::WalkDir;
 
 use crate::models::{Skill, SkillScript, StorageMode};
@@ -47,10 +48,11 @@ impl SkillFolderLoader {
         }
     }
 
-    pub fn scan(&self) -> Result<Vec<Skill>> {
+    pub fn scan(&self) -> Result<(Vec<Skill>, usize)> {
         let mut skills = Vec::new();
+        let mut failed = 0usize;
         if !self.base_dir.exists() {
-            return Ok(skills);
+            return Ok((skills, failed));
         }
 
         for entry in WalkDir::new(&self.base_dir)
@@ -69,13 +71,23 @@ impl SkillFolderLoader {
                 continue;
             }
 
-            let skill = self
+            match self
                 .load_skill_folder(folder_path)
-                .with_context(|| format!("Failed to load skill folder at {:?}", folder_path))?;
-            skills.push(skill);
+                .with_context(|| format!("Failed to load skill folder at {:?}", folder_path))
+            {
+                Ok(skill) => skills.push(skill),
+                Err(err) => {
+                    failed += 1;
+                    warn!(
+                        path = ?folder_path,
+                        error = %err,
+                        "Skipping invalid skill folder"
+                    );
+                }
+            }
         }
 
-        Ok(skills)
+        Ok((skills, failed))
     }
 
     pub fn scan_all() -> Result<Vec<Skill>> {
@@ -83,7 +95,8 @@ impl SkillFolderLoader {
 
         if let Ok(user_dir) = paths::user_skills_dir() {
             let loader = SkillFolderLoader::new(user_dir);
-            skills.extend(loader.scan()?);
+            let (loaded, _) = loader.scan()?;
+            skills.extend(loaded);
         }
 
         Ok(skills)
@@ -185,7 +198,7 @@ impl SkillFolderLoader {
 
 #[cfg(test)]
 mod tests {
-    use super::discover_skill_dirs;
+    use super::{SkillFolderLoader, discover_skill_dirs};
 
     #[test]
     fn test_discover_skill_dirs_root() {
@@ -211,5 +224,40 @@ mod tests {
         let found = discover_skill_dirs(temp.path()).unwrap();
         assert_eq!(found.len(), 1);
         assert_eq!(found[0], skill_dir);
+    }
+
+    #[test]
+    fn test_scan_empty_folder_returns_no_skills_or_failures() {
+        let temp = tempfile::tempdir().unwrap();
+        let loader = SkillFolderLoader::new(temp.path());
+
+        let (skills, failed) = loader.scan().unwrap();
+        assert!(skills.is_empty());
+        assert_eq!(failed, 0);
+    }
+
+    #[test]
+    fn test_scan_skips_invalid_skill_and_continues_loading_valid_skills() {
+        let temp = tempfile::tempdir().unwrap();
+        let valid_a = temp.path().join("valid-a");
+        let invalid = temp.path().join("invalid");
+        let valid_b = temp.path().join("valid-b");
+
+        std::fs::create_dir_all(&valid_a).unwrap();
+        std::fs::create_dir_all(&invalid).unwrap();
+        std::fs::create_dir_all(&valid_b).unwrap();
+
+        std::fs::write(valid_a.join("SKILL.md"), "---\nname: Valid A\n---\n\n# A").unwrap();
+        std::fs::write(invalid.join("SKILL.md"), "this is not valid frontmatter").unwrap();
+        std::fs::write(valid_b.join("SKILL.md"), "---\nname: Valid B\n---\n\n# B").unwrap();
+
+        let loader = SkillFolderLoader::new(temp.path());
+        let (skills, failed) = loader.scan().unwrap();
+
+        let mut ids: Vec<String> = skills.into_iter().map(|skill| skill.id).collect();
+        ids.sort();
+
+        assert_eq!(failed, 1);
+        assert_eq!(ids, vec!["valid-a".to_string(), "valid-b".to_string()]);
     }
 }

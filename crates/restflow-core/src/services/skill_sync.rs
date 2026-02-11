@@ -11,14 +11,16 @@ pub struct SkillSyncReport {
     pub created: usize,
     pub updated: usize,
     pub skipped: usize,
+    pub failed: usize,
 }
 
 pub async fn sync_all(core: &AppCore, base_dir: impl AsRef<Path>) -> Result<SkillSyncReport> {
     let loader = SkillFolderLoader::new(base_dir.as_ref());
-    let skills = loader.scan()?;
+    let (skills, failed) = loader.scan()?;
 
     let mut report = SkillSyncReport {
         scanned: skills.len(),
+        failed,
         ..Default::default()
     };
 
