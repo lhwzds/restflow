@@ -29,7 +29,7 @@ pub use steer::SteerRegistry;
 use std::sync::Arc;
 use std::time::Duration;
 use storage::Storage;
-use tracing::info;
+use tracing::{info, warn};
 
 use crate::mcp::McpToolCache;
 
@@ -71,8 +71,15 @@ impl AppCore {
                 created = report.created,
                 updated = report.updated,
                 skipped = report.skipped,
+                failed = report.failed,
                 "Default skills synchronized"
             );
+            if report.failed > 0 {
+                warn!(
+                    failed = report.failed,
+                    "Some skill files could not be loaded; check skill folder contents"
+                );
+            }
         }
 
         Ok(core)

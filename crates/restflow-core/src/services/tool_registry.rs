@@ -2724,6 +2724,15 @@ mod tests {
 
     #[test]
     fn test_agent_store_adapter_crud_flow() {
+        struct AgentsDirEnvCleanup;
+        impl Drop for AgentsDirEnvCleanup {
+            fn drop(&mut self) {
+                unsafe { std::env::remove_var(crate::prompt_files::AGENTS_DIR_ENV) };
+            }
+        }
+
+        let _cleanup = AgentsDirEnvCleanup;
+
         // Acquire the shared env lock to avoid racing with prompt_files tests
         let _env_lock = crate::prompt_files::agents_dir_env_lock();
         let agents_temp = tempdir().unwrap();
