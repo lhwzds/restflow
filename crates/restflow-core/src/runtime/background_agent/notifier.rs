@@ -6,7 +6,8 @@
 
 use anyhow::{Result, anyhow};
 use async_trait::async_trait;
-use std::sync::Arc;
+use std::{future::Future, sync::Arc};
+use tracing::warn;
 
 use crate::{
     models::{BackgroundAgent, NotificationConfig},
@@ -92,8 +93,8 @@ impl TelegramNotifier {
             };
         }
 
-        let mut formatted = format!("❌ *Task Failed*: {}\n\n", task.name);
-        formatted.push_str(&format!("🤖 Agent: `{}`\n", task.agent_id));
+        let mut formatted = format!("Task Failed: {}\n\n", task.name);
+        formatted.push_str(&format!("Agent: {}\n", task.agent_id));
 
         if let Some(ref input) = task.input {
             let input_preview = if input.len() > 100 {
@@ -101,7 +102,7 @@ impl TelegramNotifier {
             } else {
                 input.clone()
             };
-            formatted.push_str(&format!("📥 Input: {}\n", input_preview));
+            formatted.push_str(&format!("Input: {}\n", input_preview));
         }
 
         formatted.push('\n');
@@ -110,14 +111,21 @@ impl TelegramNotifier {
             formatted.push_str("Task failed with unknown error.");
         } else {
             let message_preview = if message.len() > 2000 {
-                format!("{}...\n\n_(truncated)_", &message[..2000])
+                format!("{}...\n\n(truncated)", &message[..2000])
             } else {
                 message.to_string()
             };
-            formatted.push_str(&format!("⚠️ *Error:*\n```\n{}\n```", message_preview));
+            formatted.push_str(&format!("Error:\n{}", message_preview));
         }
 
         formatted
+    }
+
+    pub async fn send_raw(&self, message: &str) -> Result<()> {
+        let bot_token = self.resolve_bot_token()?;
+        let chat_id = self.resolve_chat_id()?;
+
+        send_telegram_message_with_retry(&bot_token, &chat_id, message, 2).await
     }
 }
 
@@ -131,21 +139,87 @@ impl NotificationSender for TelegramNotifier {
         success: bool,
         message: &str,
     ) -> Result<()> {
-        // Resolve bot token
-        let bot_token = self.resolve_bot_token()?;
-        let chat_id = self.resolve_chat_id()?;
-
-        // Format the message
         let formatted_message = self.format_message(task, success, message);
-
-        // Success payloads are plain agent output; avoid Markdown parse issues.
-        let parse_mode = if success { None } else { Some("Markdown") };
-
-        // Send via Telegram API
-        send_telegram_notification(&bot_token, &chat_id, &formatted_message, parse_mode)
-            .await
-            .map_err(|e| anyhow!("Failed to send Telegram notification: {}", e))
+        self.send_raw(&formatted_message).await
     }
+
+    async fn send_formatted(&self, message: &str) -> Result<()> {
+        self.send_raw(message).await
+    }
+}
+
+fn retry_delay_ms(attempt: u32) -> u64 {
+    match attempt {
+        1 => 1_000,
+        2 => 3_000,
+        _ => 5_000,
+    }
+}
+
+async fn send_with_retry<F, Fut>(max_retries: u32, mut send_attempt: F) -> Result<()>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = std::result::Result<(), String>>,
+{
+    send_with_retry_with_sleep(max_retries, &mut send_attempt, |attempt| async move {
+        tokio::time::sleep(tokio::time::Duration::from_millis(retry_delay_ms(attempt))).await;
+    })
+    .await
+}
+
+async fn send_with_retry_with_sleep<F, Fut, S, SFut>(
+    max_retries: u32,
+    send_attempt: &mut F,
+    mut sleep_fn: S,
+) -> Result<()>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = std::result::Result<(), String>>,
+    S: FnMut(u32) -> SFut,
+    SFut: Future<Output = ()>,
+{
+    let mut last_error = String::new();
+
+    for attempt in 0..=max_retries {
+        if attempt > 0 {
+            sleep_fn(attempt).await;
+        }
+
+        match send_attempt().await {
+            Ok(()) => return Ok(()),
+            Err(err) => {
+                warn!(
+                    attempt = attempt + 1,
+                    max_retries = max_retries,
+                    error = %err,
+                    "Telegram notification delivery failed, will retry"
+                );
+                last_error = err;
+            }
+        }
+    }
+
+    Err(anyhow!(
+        "Telegram notification failed after {} attempts: {}",
+        max_retries + 1,
+        if last_error.is_empty() {
+            "unknown".to_string()
+        } else {
+            last_error
+        }
+    ))
+}
+
+async fn send_telegram_message_with_retry(
+    bot_token: &str,
+    chat_id: &str,
+    message: &str,
+    max_retries: u32,
+) -> Result<()> {
+    send_with_retry(max_retries, || async {
+        send_telegram_notification(bot_token, chat_id, message, None).await
+    })
+    .await
 }
 
 #[cfg(test)]
@@ -284,10 +358,11 @@ mod tests {
         let task = create_test_task();
         let message = notifier.format_message(&task, false, "Connection timeout");
 
-        assert!(message.contains("❌"));
         assert!(message.contains("Failed"));
         assert!(message.contains("Test Task"));
         assert!(message.contains("Connection timeout"));
+        assert!(!message.contains('*'));
+        assert!(!message.contains('`'));
     }
 
     #[test]
@@ -384,5 +459,51 @@ mod tests {
         let result = notifier.send(&config, &task, true, "output").await;
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("chat id"));
+    }
+
+    #[tokio::test]
+    async fn test_send_with_retry_succeeds_on_second_attempt() {
+        let mut attempts = 0_u32;
+        let result = send_with_retry_with_sleep(
+            2,
+            &mut || {
+                attempts += 1;
+                async move {
+                    if attempts == 1 {
+                        Err("transient".to_string())
+                    } else {
+                        Ok(())
+                    }
+                }
+            },
+            |_| async {},
+        )
+        .await;
+
+        assert!(result.is_ok());
+        assert_eq!(attempts, 2);
+    }
+
+    #[tokio::test]
+    async fn test_send_with_retry_exhausted_returns_error() {
+        let mut attempts = 0_u32;
+        let result = send_with_retry_with_sleep(
+            2,
+            &mut || {
+                attempts += 1;
+                async { Err("always fails".to_string()) }
+            },
+            |_| async {},
+        )
+        .await;
+
+        assert!(result.is_err());
+        assert_eq!(attempts, 3);
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("failed after 3 attempts")
+        );
     }
 }
