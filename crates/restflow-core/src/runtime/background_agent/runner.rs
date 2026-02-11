@@ -170,6 +170,9 @@ pub trait NotificationSender: Send + Sync {
         success: bool,
         message: &str,
     ) -> Result<()>;
+
+    /// Send a notification message that is already fully formatted.
+    async fn send_formatted(&self, message: &str) -> Result<()>;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -185,7 +188,7 @@ trait NotificationSink: Send + Sync {
     async fn send(
         &self,
         task: &BackgroundAgent,
-        success: bool,
+        level: MessageLevel,
         message: &str,
     ) -> Result<NotificationDispatchStatus>;
 }
@@ -203,23 +206,16 @@ impl NotificationSink for ChannelRouterNotificationSink {
     async fn send(
         &self,
         task: &BackgroundAgent,
-        success: bool,
+        level: MessageLevel,
         message: &str,
     ) -> Result<NotificationDispatchStatus> {
         let Some(router) = self.router.read().await.as_ref().cloned() else {
             return Ok(NotificationDispatchStatus::Skipped);
         };
 
-        let formatted = BackgroundAgentRunner::format_notification(task, success, message);
-        let level = if success {
-            MessageLevel::Plain
-        } else {
-            MessageLevel::Error
-        };
-
         let mut any_sent = false;
         let mut failures: Vec<String> = Vec::new();
-        for (channel_type, result) in router.broadcast(&formatted, level).await {
+        for (channel_type, result) in router.broadcast(message, level).await {
             match result {
                 Ok(()) => {
                     any_sent = true;
@@ -263,13 +259,11 @@ impl NotificationSink for TelegramNotificationSink {
 
     async fn send(
         &self,
-        task: &BackgroundAgent,
-        success: bool,
+        _task: &BackgroundAgent,
+        _level: MessageLevel,
         message: &str,
     ) -> Result<NotificationDispatchStatus> {
-        self.notifier
-            .send(&task.notification, task, success, message)
-            .await?;
+        self.notifier.send_formatted(message).await?;
         Ok(NotificationDispatchStatus::Sent)
     }
 }
@@ -1290,19 +1284,11 @@ impl BackgroundAgentRunner {
             return;
         }
 
-        // Success notifications should always deliver the agent's actual reply.
-        // Failure notifications must include at least the execution error summary so
-        // operators can diagnose issues from the notification alone.
-        let notification_message = if success {
-            if message.trim().is_empty() {
-                "Task completed successfully".to_string()
-            } else {
-                message.to_string()
-            }
-        } else if message.trim().is_empty() {
-            "Task failed".to_string()
+        let notification_message = Self::format_notification(task, success, message);
+        let level = if success {
+            MessageLevel::Plain
         } else {
-            message.to_string()
+            MessageLevel::Error
         };
 
         let mut sent_via: Vec<&'static str> = Vec::new();
@@ -1311,7 +1297,7 @@ impl BackgroundAgentRunner {
         let router_sink = ChannelRouterNotificationSink {
             router: self.channel_router.clone(),
         };
-        match router_sink.send(task, success, &notification_message).await {
+        match router_sink.send(task, level, &notification_message).await {
             Ok(NotificationDispatchStatus::Sent) => sent_via.push(router_sink.name()),
             Ok(NotificationDispatchStatus::Skipped) => {}
             Err(err) => {
@@ -1332,10 +1318,7 @@ impl BackgroundAgentRunner {
             let telegram_sink = TelegramNotificationSink {
                 notifier: self.notifier.clone(),
             };
-            match telegram_sink
-                .send(task, success, &notification_message)
-                .await
-            {
+            match telegram_sink.send(task, level, &notification_message).await {
                 Ok(NotificationDispatchStatus::Sent) => sent_via.push(telegram_sink.name()),
                 Ok(NotificationDispatchStatus::Skipped) => {}
                 Err(err) => {
@@ -1427,6 +1410,10 @@ impl NotificationSender for NoopNotificationSender {
         _message: &str,
     ) -> Result<()> {
         // No-op: notifications are handled elsewhere or disabled
+        Ok(())
+    }
+
+    async fn send_formatted(&self, _message: &str) -> Result<()> {
         Ok(())
     }
 }
@@ -1553,6 +1540,15 @@ mod tests {
                 .write()
                 .await
                 .push((task.id.clone(), success, message.to_string()));
+            Ok(())
+        }
+
+        async fn send_formatted(&self, message: &str) -> Result<()> {
+            self.notifications.write().await.push((
+                "formatted".to_string(),
+                true,
+                message.to_string(),
+            ));
             Ok(())
         }
     }

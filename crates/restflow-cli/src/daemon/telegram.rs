@@ -44,6 +44,10 @@ pub fn setup_telegram_channel(
     if let Some(chat_id) = default_chat_id {
         router.register_with_default(channel, chat_id);
     } else {
+        warn!(
+            "Telegram channel registered without default chat ID. Notifications will only work \
+if a user interacts with the bot first. Set TELEGRAM_CHAT_ID for reliable notifications."
+        );
         router.register(channel);
     }
 
