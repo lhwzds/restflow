@@ -173,26 +173,42 @@ impl FileTool {
             if resolved.exists() {
                 let canonical = resolved.canonicalize().map_err(|e| e.to_string())?;
                 if !canonical.starts_with(&canonical_base) {
-                    return Err("Path escapes base directory".to_string());
+                    return Err(format!(
+                        "Path '{}' escapes allowed base directory '{}'. All file operations must be within this directory.",
+                        canonical.display(),
+                        canonical_base.display()
+                    ));
                 }
                 return Ok(canonical);
             }
 
             if base.exists() {
                 let Some((ancestor, suffix)) = find_existing_ancestor(&resolved) else {
-                    return Err("Path escapes base directory".to_string());
+                    return Err(format!(
+                        "Path '{}' escapes allowed base directory '{}'. All file operations must be within this directory.",
+                        resolved.display(),
+                        canonical_base.display()
+                    ));
                 };
                 let canonical_parent = ancestor.canonicalize().map_err(|e| e.to_string())?;
                 let candidate = normalize_path(&canonical_parent.join(suffix));
                 if !candidate.starts_with(&canonical_base) {
-                    return Err("Path escapes base directory".to_string());
+                    return Err(format!(
+                        "Path '{}' escapes allowed base directory '{}'. All file operations must be within this directory.",
+                        candidate.display(),
+                        canonical_base.display()
+                    ));
                 }
                 return Ok(candidate);
             }
 
             let normalized = normalize_path(&resolved);
             if !normalized.starts_with(&canonical_base) {
-                return Err("Path escapes base directory".to_string());
+                return Err(format!(
+                    "Path '{}' escapes allowed base directory '{}'. All file operations must be within this directory.",
+                    normalized.display(),
+                    canonical_base.display()
+                ));
             }
 
             Ok(normalized)
@@ -965,7 +981,7 @@ impl FileTool {
                 path: resolved.display().to_string(),
                 success: false,
                 content: None,
-                error: Some("File not found".to_string()),
+                error: Some(format!("File not found: {}", resolved.display())),
                 line_count: None,
                 truncated: false,
             };
@@ -976,7 +992,7 @@ impl FileTool {
                 path: resolved.display().to_string(),
                 success: false,
                 content: None,
-                error: Some("Not a file".to_string()),
+                error: Some(format!("Not a file: {}", resolved.display())),
                 line_count: None,
                 truncated: false,
             };
@@ -1002,7 +1018,7 @@ impl FileTool {
                 success: false,
                 content: None,
                 error: Some(format!(
-                    "File too large: {} bytes (max: {})",
+                    "File too large: {} bytes (max: {} bytes). Use offset and limit parameters for partial reads.",
                     metadata.len(),
                     params.max_file_size
                 )),
@@ -2279,7 +2295,7 @@ mod tests {
                 .error
                 .as_ref()
                 .unwrap()
-                .contains("escapes base directory")
+                .contains("escapes allowed base directory")
         );
     }
 
@@ -2310,7 +2326,7 @@ mod tests {
                 .error
                 .as_ref()
                 .unwrap()
-                .contains("escapes base directory")
+                .contains("escapes allowed base directory")
         );
     }
 
@@ -2410,6 +2426,49 @@ mod tests {
         assert_eq!(output.result["total"].as_u64().unwrap(), 2);
         assert_eq!(output.result["successful"].as_u64().unwrap(), 1);
         assert_eq!(output.result["failed"].as_u64().unwrap(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_batch_read_missing_file_error_includes_path() {
+        let temp_dir = TempDir::new().unwrap();
+        let tool = FileTool::new();
+        let missing_path = temp_dir.path().join("missing.txt");
+
+        let output = tool
+            .execute(serde_json::json!({
+                "action": "batch_read",
+                "paths": [missing_path.display().to_string()],
+                "continue_on_error": true
+            }))
+            .await
+            .unwrap();
+
+        assert!(output.success);
+        let error = output.result["results"][0]["error"].as_str().unwrap();
+        assert!(error.contains("File not found:"));
+        assert!(error.contains(missing_path.display().to_string().as_str()));
+    }
+
+    #[tokio::test]
+    async fn test_batch_read_large_file_error_has_partial_read_hint() {
+        let temp_dir = TempDir::new().unwrap();
+        let tool = FileTool::new();
+        let large_file = temp_dir.path().join("large.txt");
+        fs::write(&large_file, "0123456789").await.unwrap();
+
+        let output = tool
+            .execute(serde_json::json!({
+                "action": "batch_read",
+                "paths": [large_file.display().to_string()],
+                "max_file_size": 5,
+                "continue_on_error": true
+            }))
+            .await
+            .unwrap();
+
+        assert!(output.success);
+        let error = output.result["results"][0]["error"].as_str().unwrap();
+        assert!(error.contains("Use offset and limit parameters for partial reads."));
     }
 
     #[tokio::test]
