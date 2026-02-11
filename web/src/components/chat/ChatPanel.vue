@@ -22,6 +22,7 @@ import type { ChatMessage } from '@/types/generated/ChatMessage'
 
 const emit = defineEmits<{
   showPanel: [resultJson: string]
+  toolResult: [step: StreamStep]
 }>()
 
 const toast = useToast()
@@ -72,24 +73,27 @@ const modelName = computed(() => {
   return availableModels.value.find((m) => m.id === selectedModel.value)?.name
 })
 
-// Track processed show_panel steps to avoid duplicate emits
-const processedShowPanelIds = ref<Set<string>>(new Set())
+// Track processed tool call IDs to avoid duplicate emits
+const processedToolIds = ref<Set<string>>(new Set())
 
-// Completed show_panel steps (computed avoids deep-watching entire steps array)
-const completedShowPanelSteps = computed(() =>
+// Completed tool steps (computed avoids deep-watching entire steps array)
+const completedToolSteps = computed(() =>
   chatStream.state.value.steps.filter(
-    (s) => s.name === 'show_panel' && s.status === 'completed' && s.result && s.toolId,
+    (s) => s.type === 'tool_call' && s.status === 'completed' && s.result && s.toolId,
   ),
 )
 
-// Watch only when new show_panel steps complete (by length change)
+// Watch only when new tool steps complete (by length change)
 watch(
-  () => completedShowPanelSteps.value.length,
+  () => completedToolSteps.value.length,
   () => {
-    for (const step of completedShowPanelSteps.value) {
-      if (!processedShowPanelIds.value.has(step.toolId!)) {
-        processedShowPanelIds.value.add(step.toolId!)
-        emit('showPanel', step.result!)
+    for (const step of completedToolSteps.value) {
+      if (!processedToolIds.value.has(step.toolId!)) {
+        processedToolIds.value.add(step.toolId!)
+        emit('toolResult', step)
+        if (step.name === 'show_panel') {
+          emit('showPanel', step.result!)
+        }
       }
     }
   },
@@ -98,7 +102,7 @@ watch(
 // Sync agent/model from current session and reset stream on session change
 watch(currentSession, (session) => {
   chatStream.reset()
-  processedShowPanelIds.value.clear()
+  processedToolIds.value.clear()
   if (session) {
     selectedAgent.value = session.agent_id
     selectedModel.value = session.model
@@ -184,7 +188,7 @@ async function onSendMessage(message: string) {
 
   // Normal send: reset stream and trigger execution
   chatStream.reset()
-  processedShowPanelIds.value.clear()
+  processedToolIds.value.clear()
 
   inputMessage.value = message
   await sendChatMessage()
@@ -230,9 +234,12 @@ async function onUpdateSelectedModel(model: string) {
   selectedModel.value = updated.model
 }
 
-function onViewInCanvas(step: StreamStep) {
+function onViewToolResult(step: StreamStep) {
   if (step.result) {
-    emit('showPanel', step.result)
+    emit('toolResult', step)
+    if (step.name === 'show_panel') {
+      emit('showPanel', step.result)
+    }
   }
 }
 
@@ -270,7 +277,7 @@ defineExpose({
       :stream-content="streamContent"
       :stream-thinking="streamThinking"
       :steps="streamSteps"
-      @view-in-canvas="onViewInCanvas"
+      @view-tool-result="onViewToolResult"
     />
 
     <!-- Input Area -->
