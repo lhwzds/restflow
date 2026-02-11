@@ -1557,10 +1557,18 @@ fn build_agent_system_prompt(core: &Arc<AppCore>, agent_node: AgentNode) -> Resu
             Some(skill) => {
                 let mut content = skill.content.clone();
                 if !skill_vars.is_empty() {
-                    for (name, value) in &skill_vars {
-                        let pattern = format!("{{{{{}}}}}", name);
-                        content = content.replace(&pattern, value);
-                    }
+                    let pattern_map: HashMap<String, &str> = skill_vars
+                        .iter()
+                        .map(|(name, value)| (format!("{{{{{}}}}}", name), value.as_str()))
+                        .collect();
+                    let replacements: HashMap<&str, &str> = pattern_map
+                        .iter()
+                        .map(|(pattern, value)| (pattern.as_str(), *value))
+                        .collect();
+                    content = crate::utils::template::render_template_single_pass(
+                        &content,
+                        &replacements,
+                    );
                 }
                 skills.push((skill.name.clone(), content));
             }
@@ -1615,5 +1623,34 @@ mod tests {
         assert!(prompt.contains("Base prompt"));
         assert!(prompt.contains("## Skill: Test Skill"));
         assert!(prompt.contains("Hello World"));
+    }
+
+    #[tokio::test]
+    async fn build_agent_system_prompt_prevents_double_substitution() {
+        let temp = tempdir().expect("tempdir");
+        let db_path = temp.path().join("ipc-server-double-sub.db");
+        let core = Arc::new(AppCore::new(db_path.to_str().unwrap()).await.unwrap());
+
+        let skill = Skill::new(
+            "skill-2".to_string(),
+            "Test Skill 2".to_string(),
+            None,
+            None,
+            "Result: {{output}}".to_string(),
+        );
+        core.storage.skills.create(&skill).unwrap();
+
+        let mut variables = std::collections::HashMap::new();
+        variables.insert("output".to_string(), "raw {{task_id}}".to_string());
+        variables.insert("task_id".to_string(), "real-task-id".to_string());
+
+        let agent_node = AgentNode::new()
+            .with_prompt("Base prompt")
+            .with_skills(vec![skill.id.clone()])
+            .with_skill_variables(variables);
+
+        let prompt = build_agent_system_prompt(&core, agent_node).unwrap();
+        assert!(prompt.contains("Result: raw {{task_id}}"));
+        assert!(!prompt.contains("Result: raw real-task-id"));
     }
 }
