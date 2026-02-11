@@ -2,7 +2,7 @@ use crate::auth::{AuthProvider, Credential, CredentialSource, ProfileUpdate};
 use crate::models::{
     AgentNode, BackgroundAgentControlAction, BackgroundAgentPatch, BackgroundAgentSpec,
     BackgroundMessageSource, ChatMessage, ChatRole, ChatSessionUpdate, Hook, MemoryChunk,
-    MemorySession, Skill, TerminalSession,
+    MemorySession, NoteQuery, Skill, TerminalSession, WorkspaceNotePatch, WorkspaceNoteSpec,
 };
 use crate::runtime::TaskStreamEvent;
 use crate::storage::SystemConfig;
@@ -62,6 +62,23 @@ pub enum IpcRequest {
         skill: Skill,
     },
     DeleteSkill {
+        id: String,
+    },
+    ListWorkspaceNotes {
+        query: NoteQuery,
+    },
+    ListWorkspaceNoteFolders,
+    GetWorkspaceNote {
+        id: String,
+    },
+    CreateWorkspaceNote {
+        spec: WorkspaceNoteSpec,
+    },
+    UpdateWorkspaceNote {
+        id: String,
+        patch: WorkspaceNotePatch,
+    },
+    DeleteWorkspaceNote {
         id: String,
     },
 

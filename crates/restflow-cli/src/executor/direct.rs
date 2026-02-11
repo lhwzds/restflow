@@ -15,8 +15,8 @@ use restflow_core::storage::agent::StoredAgent;
 use restflow_core::{
     AppCore,
     models::{
-        ChatSession, ChatSessionSummary, MemoryChunk, MemorySearchResult, MemoryStats, Secret,
-        Skill,
+        ChatSession, ChatSessionSummary, MemoryChunk, MemorySearchResult, MemoryStats, NoteQuery,
+        Secret, Skill, WorkspaceNote, WorkspaceNotePatch, WorkspaceNoteSpec,
     },
 };
 
@@ -167,6 +167,30 @@ impl CommandExecutor for DirectExecutor {
             .map(|session| ChatSessionSummary::from(&session))
             .collect();
         Ok(matches)
+    }
+
+    async fn list_notes(&self, query: NoteQuery) -> Result<Vec<WorkspaceNote>> {
+        self.core.storage.workspace_notes.list_notes(query)
+    }
+
+    async fn get_note(&self, id: &str) -> Result<Option<WorkspaceNote>> {
+        self.core.storage.workspace_notes.get_note(id)
+    }
+
+    async fn create_note(&self, spec: WorkspaceNoteSpec) -> Result<WorkspaceNote> {
+        self.core.storage.workspace_notes.create_note(spec)
+    }
+
+    async fn update_note(&self, id: &str, patch: WorkspaceNotePatch) -> Result<WorkspaceNote> {
+        self.core.storage.workspace_notes.update_note(id, patch)
+    }
+
+    async fn delete_note(&self, id: &str) -> Result<()> {
+        self.core.storage.workspace_notes.delete_note(id)
+    }
+
+    async fn list_note_folders(&self) -> Result<Vec<String>> {
+        self.core.storage.workspace_notes.list_folders()
     }
 
     async fn list_secrets(&self) -> Result<Vec<Secret>> {

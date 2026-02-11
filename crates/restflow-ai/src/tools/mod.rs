@@ -36,6 +36,7 @@ mod transcribe;
 mod vision;
 mod web_fetch;
 mod web_search;
+mod workspace_note;
 
 use file_tracker::FileTracker;
 
@@ -86,6 +87,10 @@ pub use transcribe::TranscribeTool;
 pub use vision::VisionTool;
 pub use web_fetch::WebFetchTool;
 pub use web_search::WebSearchTool;
+pub use workspace_note::{
+    WorkspaceNotePatch, WorkspaceNoteProvider, WorkspaceNoteQuery, WorkspaceNoteRecord,
+    WorkspaceNoteSpec, WorkspaceNoteStatus, WorkspaceNoteTool,
+};
 
 /// Create a registry with default tools
 pub fn default_registry() -> ToolRegistry {
