@@ -8,7 +8,7 @@ use restflow_core::daemon::{IpcClient, IpcRequest, IpcResponse};
 use restflow_core::memory::ExportResult;
 use restflow_core::models::{
     AgentNode, ChatSession, ChatSessionSummary, MemoryChunk, MemorySearchResult, MemoryStats,
-    Secret, Skill,
+    NoteQuery, Secret, Skill, WorkspaceNote, WorkspaceNotePatch, WorkspaceNoteSpec,
 };
 use restflow_core::storage::SystemConfig;
 use restflow_core::storage::agent::StoredAgent;
@@ -207,6 +207,50 @@ impl CommandExecutor for IpcExecutor {
     async fn search_sessions(&self, query: String) -> Result<Vec<ChatSessionSummary>> {
         let mut client = self.client.lock().await;
         client.search_sessions(query).await
+    }
+
+    async fn list_notes(&self, query: NoteQuery) -> Result<Vec<WorkspaceNote>> {
+        let response = self
+            .request(IpcRequest::ListWorkspaceNotes { query })
+            .await?;
+        self.decode_response(response)
+    }
+
+    async fn get_note(&self, id: &str) -> Result<Option<WorkspaceNote>> {
+        let response = self
+            .request(IpcRequest::GetWorkspaceNote { id: id.to_string() })
+            .await?;
+        self.decode_response_optional(response)
+    }
+
+    async fn create_note(&self, spec: WorkspaceNoteSpec) -> Result<WorkspaceNote> {
+        let response = self
+            .request(IpcRequest::CreateWorkspaceNote { spec })
+            .await?;
+        self.decode_response(response)
+    }
+
+    async fn update_note(&self, id: &str, patch: WorkspaceNotePatch) -> Result<WorkspaceNote> {
+        let response = self
+            .request(IpcRequest::UpdateWorkspaceNote {
+                id: id.to_string(),
+                patch,
+            })
+            .await?;
+        self.decode_response(response)
+    }
+
+    async fn delete_note(&self, id: &str) -> Result<()> {
+        let response = self
+            .request(IpcRequest::DeleteWorkspaceNote { id: id.to_string() })
+            .await?;
+        self.decode_response::<serde_json::Value>(response)
+            .map(|_| ())
+    }
+
+    async fn list_note_folders(&self) -> Result<Vec<String>> {
+        let response = self.request(IpcRequest::ListWorkspaceNoteFolders).await?;
+        self.decode_response(response)
     }
 
     async fn list_secrets(&self) -> Result<Vec<Secret>> {

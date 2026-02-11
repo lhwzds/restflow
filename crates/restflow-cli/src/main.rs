@@ -244,6 +244,9 @@ async fn run() -> Result<()> {
             Some(Commands::Session { command }) => {
                 commands::session::run(exec, command, cli.format).await
             }
+            Some(Commands::Note { command }) => {
+                commands::note::run(exec, command, cli.format).await
+            }
             Some(Commands::Security { command }) => {
                 commands::security::run(command, cli.format).await
             }

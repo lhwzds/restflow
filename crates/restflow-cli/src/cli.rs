@@ -142,6 +142,12 @@ pub enum Commands {
         #[command(subcommand)]
         command: SessionCommands,
     },
+
+    /// Workspace notes management
+    Note {
+        #[command(subcommand)]
+        command: NoteCommands,
+    },
 }
 
 #[derive(Args)]
@@ -260,6 +266,18 @@ mod tests {
                     codex_execution_mode: Some(super::CodexExecutionModeArg::Bypass),
                     ..
                 }
+            })
+        ));
+    }
+
+    #[test]
+    fn parses_note_list_command() {
+        let cli = Cli::try_parse_from(["restflow", "note", "list", "--folder", "feature"])
+            .expect("parse note list");
+        assert!(matches!(
+            cli.command,
+            Some(super::Commands::Note {
+                command: super::NoteCommands::List { .. }
             })
         ));
     }
@@ -669,4 +687,64 @@ pub enum SessionCommands {
         #[arg(long)]
         agent: Option<String>,
     },
+}
+
+#[derive(Subcommand)]
+pub enum NoteCommands {
+    /// List workspace notes
+    List {
+        #[arg(long)]
+        folder: Option<String>,
+        #[arg(long)]
+        status: Option<String>,
+        #[arg(long)]
+        priority: Option<String>,
+        #[arg(long)]
+        tag: Option<String>,
+        #[arg(long)]
+        assignee: Option<String>,
+        #[arg(long)]
+        search: Option<String>,
+    },
+    /// List distinct note folders
+    Folders,
+    /// Show note detail
+    Show { id: String },
+    /// Create a note
+    Create {
+        #[arg(long)]
+        folder: String,
+        #[arg(long)]
+        title: String,
+        #[arg(long)]
+        file: Option<String>,
+        #[arg(long)]
+        content: Option<String>,
+        #[arg(long)]
+        priority: Option<String>,
+        #[arg(long, num_args = 0..)]
+        tags: Vec<String>,
+    },
+    /// Update a note
+    Update {
+        id: String,
+        #[arg(long)]
+        title: Option<String>,
+        #[arg(long)]
+        status: Option<String>,
+        #[arg(long)]
+        priority: Option<String>,
+        #[arg(long)]
+        assignee: Option<String>,
+        #[arg(long)]
+        folder: Option<String>,
+        #[arg(long)]
+        file: Option<String>,
+        #[arg(long)]
+        content: Option<String>,
+        #[arg(long, num_args = 0..)]
+        tags: Option<Vec<String>>,
+    },
+    /// Delete a note
+    Delete { id: String },
 }

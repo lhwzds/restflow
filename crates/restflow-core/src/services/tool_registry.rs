@@ -5,8 +5,9 @@ use crate::memory::{MemoryExporter, UnifiedSearchEngine};
 use crate::models::{
     BackgroundAgentControlAction, BackgroundAgentPatch, BackgroundAgentSchedule,
     BackgroundAgentSpec, BackgroundAgentStatus, BackgroundMessageSource, MemoryConfig, MemoryScope,
-    MemorySearchQuery, SearchMode, SharedEntry, Skill, TerminalSession, ToolAction, TriggerConfig,
-    UnifiedSearchQuery, Visibility,
+    MemorySearchQuery, NoteQuery, NoteStatus, SearchMode, SharedEntry, Skill, TerminalSession,
+    ToolAction, TriggerConfig, UnifiedSearchQuery, Visibility, WorkspaceNote,
+    WorkspaceNotePatch as CoreWorkspaceNotePatch, WorkspaceNoteSpec as CoreWorkspaceNoteSpec,
 };
 use crate::registry::{
     GitHubProvider, MarketplaceProvider, SkillProvider as MarketplaceSkillProvider,
@@ -17,6 +18,7 @@ use crate::storage::skill::SkillStorage;
 use crate::storage::{
     AgentStorage, BackgroundAgentStorage, ChatSessionStorage, ConfigStorage, MemoryStorage,
     SecretStorage, SharedSpaceStorage, TerminalSessionStorage, TriggerStorage,
+    WorkspaceNoteStorage,
 };
 use chrono::Utc;
 use restflow_ai::error::AiError;
@@ -28,6 +30,8 @@ use restflow_ai::tools::{
     BackgroundAgentUpdateRequest, ConfigTool, MemoryClearRequest, MemoryCompactRequest,
     MemoryExportRequest, MemoryManagementTool, MemoryManager, MemoryStore, SecretsTool,
     SessionCreateRequest, SessionListFilter, SessionSearchQuery, SessionStore, SessionTool,
+    WorkspaceNotePatch, WorkspaceNoteProvider, WorkspaceNoteQuery, WorkspaceNoteRecord,
+    WorkspaceNoteSpec, WorkspaceNoteStatus, WorkspaceNoteTool,
 };
 use restflow_ai::tools::{DeleteMemoryTool, ListMemoryTool, ReadMemoryTool, SaveMemoryTool};
 use restflow_ai::{
@@ -783,6 +787,127 @@ impl AuthProfileStore for AuthProfileStorageAdapter {
     }
 }
 
+#[derive(Clone)]
+struct DbWorkspaceNoteAdapter {
+    storage: WorkspaceNoteStorage,
+}
+
+impl DbWorkspaceNoteAdapter {
+    fn new(storage: WorkspaceNoteStorage) -> Self {
+        Self { storage }
+    }
+}
+
+fn to_tool_note_status(status: NoteStatus) -> WorkspaceNoteStatus {
+    match status {
+        NoteStatus::Open => WorkspaceNoteStatus::Open,
+        NoteStatus::InProgress => WorkspaceNoteStatus::InProgress,
+        NoteStatus::Done => WorkspaceNoteStatus::Done,
+        NoteStatus::Archived => WorkspaceNoteStatus::Archived,
+    }
+}
+
+fn to_core_note_status(status: WorkspaceNoteStatus) -> NoteStatus {
+    match status {
+        WorkspaceNoteStatus::Open => NoteStatus::Open,
+        WorkspaceNoteStatus::InProgress => NoteStatus::InProgress,
+        WorkspaceNoteStatus::Done => NoteStatus::Done,
+        WorkspaceNoteStatus::Archived => NoteStatus::Archived,
+    }
+}
+
+fn to_tool_note(note: WorkspaceNote) -> WorkspaceNoteRecord {
+    WorkspaceNoteRecord {
+        id: note.id,
+        folder: note.folder,
+        title: note.title,
+        content: note.content,
+        priority: note.priority,
+        status: to_tool_note_status(note.status),
+        tags: note.tags,
+        assignee: note.assignee,
+        created_at: note.created_at,
+        updated_at: note.updated_at,
+    }
+}
+
+impl WorkspaceNoteProvider for DbWorkspaceNoteAdapter {
+    fn create(&self, spec: WorkspaceNoteSpec) -> std::result::Result<WorkspaceNoteRecord, String> {
+        self.storage
+            .create_note(CoreWorkspaceNoteSpec {
+                folder: spec.folder,
+                title: spec.title,
+                content: spec.content,
+                priority: spec.priority,
+                tags: spec.tags,
+            })
+            .map(to_tool_note)
+            .map_err(|e| e.to_string())
+    }
+
+    fn get(&self, id: &str) -> std::result::Result<Option<WorkspaceNoteRecord>, String> {
+        self.storage
+            .get_note(id)
+            .map(|note| note.map(to_tool_note))
+            .map_err(|e| e.to_string())
+    }
+
+    fn update(
+        &self,
+        id: &str,
+        patch: WorkspaceNotePatch,
+    ) -> std::result::Result<WorkspaceNoteRecord, String> {
+        self.storage
+            .update_note(
+                id,
+                CoreWorkspaceNotePatch {
+                    title: patch.title,
+                    content: patch.content,
+                    priority: patch.priority,
+                    status: patch.status.map(to_core_note_status),
+                    tags: patch.tags,
+                    assignee: patch.assignee,
+                    folder: patch.folder,
+                },
+            )
+            .map(to_tool_note)
+            .map_err(|e| e.to_string())
+    }
+
+    fn delete(&self, id: &str) -> std::result::Result<bool, String> {
+        match self.storage.get_note(id) {
+            Ok(None) => Ok(false),
+            Ok(Some(_)) => self
+                .storage
+                .delete_note(id)
+                .map(|_| true)
+                .map_err(|e| e.to_string()),
+            Err(err) => Err(err.to_string()),
+        }
+    }
+
+    fn list(
+        &self,
+        query: WorkspaceNoteQuery,
+    ) -> std::result::Result<Vec<WorkspaceNoteRecord>, String> {
+        self.storage
+            .list_notes(NoteQuery {
+                folder: query.folder,
+                status: query.status.map(to_core_note_status),
+                priority: query.priority,
+                tag: query.tag,
+                assignee: query.assignee,
+                search: query.search,
+            })
+            .map(|notes| notes.into_iter().map(to_tool_note).collect())
+            .map_err(|e| e.to_string())
+    }
+
+    fn list_folders(&self) -> std::result::Result<Vec<String>, String> {
+        self.storage.list_folders().map_err(|e| e.to_string())
+    }
+}
+
 // ============== DB Memory Store Adapter ==============
 
 /// Database-backed implementation of MemoryStore.
@@ -1029,6 +1154,7 @@ pub fn create_tool_registry(
     memory_storage: MemoryStorage,
     chat_storage: ChatSessionStorage,
     shared_space_storage: SharedSpaceStorage,
+    workspace_note_storage: WorkspaceNoteStorage,
     secret_storage: SecretStorage,
     config_storage: ConfigStorage,
     agent_storage: AgentStorage,
@@ -1082,6 +1208,10 @@ pub fn create_tool_registry(
 
     // Add shared space tool
     registry.register(SharedSpaceTool::new(shared_space_storage, accessor_id));
+
+    // Add workspace note tool
+    let workspace_note_provider = Arc::new(DbWorkspaceNoteAdapter::new(workspace_note_storage));
+    registry.register(WorkspaceNoteTool::new(workspace_note_provider).with_write(true));
 
     // Auth profile management tool (clone before move)
     let auth_store = Arc::new(AuthProfileStorageAdapter::new(secret_storage.clone()));
@@ -2066,6 +2196,7 @@ mod tests {
         MemoryStorage,
         ChatSessionStorage,
         SharedSpaceStorage,
+        WorkspaceNoteStorage,
         SecretStorage,
         ConfigStorage,
         AgentStorage,
@@ -2094,6 +2225,7 @@ mod tests {
         let chat_storage = ChatSessionStorage::new(db.clone()).unwrap();
         let shared_space_storage =
             SharedSpaceStorage::new(restflow_storage::SharedSpaceStorage::new(db.clone()).unwrap());
+        let workspace_note_storage = WorkspaceNoteStorage::new(db.clone()).unwrap();
         let secret_storage = SecretStorage::with_config(
             db.clone(),
             restflow_storage::SecretStorageConfig {
@@ -2120,6 +2252,7 @@ mod tests {
             memory_storage,
             chat_storage,
             shared_space_storage,
+            workspace_note_storage,
             secret_storage,
             config_storage,
             agent_storage,
@@ -2137,6 +2270,7 @@ mod tests {
             memory_storage,
             chat_storage,
             shared_space_storage,
+            workspace_note_storage,
             secret_storage,
             config_storage,
             agent_storage,
@@ -2150,6 +2284,7 @@ mod tests {
             memory_storage,
             chat_storage,
             shared_space_storage,
+            workspace_note_storage,
             secret_storage,
             config_storage,
             agent_storage,
@@ -2188,6 +2323,7 @@ mod tests {
             _memory_storage,
             _chat_storage,
             _shared_space_storage,
+            _workspace_note_storage,
             _secret_storage,
             _config_storage,
             _agent_storage,
@@ -2209,6 +2345,7 @@ mod tests {
             _memory_storage,
             _chat_storage,
             _shared_space_storage,
+            _workspace_note_storage,
             _secret_storage,
             _config_storage,
             _agent_storage,
@@ -2256,6 +2393,7 @@ mod tests {
             _memory_storage,
             _chat_storage,
             _shared_space_storage,
+            _workspace_note_storage,
             _secret_storage,
             _config_storage,
             agent_storage,
@@ -2342,6 +2480,7 @@ mod tests {
             _memory_storage,
             _chat_storage,
             _shared_space_storage,
+            _workspace_note_storage,
             _secret_storage,
             _config_storage,
             _agent_storage,
@@ -2479,6 +2618,7 @@ mod tests {
             memory_storage,
             chat_storage,
             shared_space_storage,
+            workspace_note_storage,
             secret_storage,
             config_storage,
             agent_storage,
@@ -2502,6 +2642,7 @@ mod tests {
             memory_storage,
             chat_storage,
             shared_space_storage,
+            workspace_note_storage,
             secret_storage,
             config_storage,
             agent_storage,
@@ -2540,6 +2681,7 @@ mod tests {
             memory_storage,
             chat_storage,
             shared_space_storage,
+            workspace_note_storage,
             secret_storage,
             config_storage,
             agent_storage,
@@ -2554,6 +2696,7 @@ mod tests {
             memory_storage,
             chat_storage,
             shared_space_storage,
+            workspace_note_storage,
             secret_storage,
             config_storage,
             agent_storage,
@@ -2607,6 +2750,7 @@ mod tests {
             memory_storage,
             chat_storage,
             shared_space_storage,
+            workspace_note_storage,
             secret_storage,
             config_storage,
             agent_storage,
@@ -2621,6 +2765,7 @@ mod tests {
             memory_storage,
             chat_storage,
             shared_space_storage,
+            workspace_note_storage,
             secret_storage,
             config_storage,
             agent_storage,
@@ -2695,6 +2840,7 @@ mod tests {
             memory_storage,
             chat_storage,
             shared_space_storage,
+            workspace_note_storage,
             secret_storage,
             config_storage,
             agent_storage,
@@ -2709,6 +2855,7 @@ mod tests {
             memory_storage,
             chat_storage,
             shared_space_storage,
+            workspace_note_storage,
             secret_storage,
             config_storage,
             agent_storage,
@@ -2750,6 +2897,7 @@ mod tests {
             memory_storage,
             _chat_storage,
             _shared_space_storage,
+            _workspace_note_storage,
             _secret_storage,
             _config_storage,
             _agent_storage,
@@ -2849,6 +2997,7 @@ mod tests {
             memory_storage,
             chat_storage,
             shared_space_storage,
+            workspace_note_storage,
             secret_storage,
             config_storage,
             agent_storage,
@@ -2864,6 +3013,7 @@ mod tests {
             memory_storage,
             chat_storage,
             shared_space_storage,
+            workspace_note_storage,
             secret_storage,
             config_storage,
             agent_storage,
