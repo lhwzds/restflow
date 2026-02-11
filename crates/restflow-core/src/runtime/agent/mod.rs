@@ -17,7 +17,7 @@ pub use tools::{
     SpawnAgentTool, SpawnTool, SubagentDeps, SubagentSpawner, TelegramTool, Tool, ToolRegistry,
     ToolRegistryBuilder, ToolResult, UseSkillTool, WaitAgentsTool, default_registry,
     effective_main_agent_tool_names, main_agent_default_tool_names, registry_from_allowlist,
-    secret_resolver_from_storage,
+    resolve_python_runtime_policy, secret_resolver_from_storage,
 };
 
 pub fn build_agent_system_prompt(
