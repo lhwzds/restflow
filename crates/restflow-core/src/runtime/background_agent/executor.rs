@@ -20,6 +20,7 @@ use crate::{
     prompt_files,
     storage::Storage,
 };
+use restflow_ai::agent::StreamEmitter;
 use restflow_ai::llm::Message;
 use restflow_ai::tools::PythonRuntime;
 use restflow_ai::{
@@ -812,6 +813,7 @@ impl AgentRuntimeExecutor {
         input: Option<&str>,
         memory_config: &MemoryConfig,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
+        emitter: Option<Box<dyn StreamEmitter>>,
         factory: Arc<dyn LlmClientFactory>,
         agent_id: Option<&str>,
     ) -> Result<ExecutionResult> {
@@ -848,7 +850,11 @@ impl AgentRuntimeExecutor {
             agent = agent.with_steer_channel(rx);
         }
 
-        let result = agent.run(config).await?;
+        let result = if let Some(mut emitter) = emitter {
+            agent.execute_streaming(config, emitter.as_mut()).await?
+        } else {
+            agent.run(config).await?
+        };
         if result.success {
             let compaction = result.compaction_results.iter().fold(
                 super::runner::CompactionMetrics::default(),
@@ -887,6 +893,7 @@ impl AgentRuntimeExecutor {
         memory_config: &MemoryConfig,
         primary_provider: Provider,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
+        emitter: Option<Box<dyn StreamEmitter>>,
         agent_id: Option<&str>,
     ) -> Result<ExecutionResult> {
         let model_specs = AIModel::build_model_specs();
@@ -926,6 +933,7 @@ impl AgentRuntimeExecutor {
             input,
             memory_config,
             steer_rx,
+            emitter,
             factory,
             agent_id,
         )
@@ -942,6 +950,7 @@ impl AgentRuntimeExecutor {
         memory_config: &MemoryConfig,
         primary_provider: Provider,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
+        emitter: Option<Box<dyn StreamEmitter>>,
         agent_id: Option<&str>,
     ) -> Result<ExecutionResult> {
         if model.is_codex_cli() {
@@ -954,6 +963,7 @@ impl AgentRuntimeExecutor {
                     memory_config,
                     primary_provider,
                     steer_rx,
+                    emitter,
                     agent_id,
                 )
                 .await;
@@ -969,6 +979,7 @@ impl AgentRuntimeExecutor {
                     memory_config,
                     primary_provider,
                     steer_rx,
+                    emitter,
                     agent_id,
                 )
                 .await;
@@ -989,6 +1000,7 @@ impl AgentRuntimeExecutor {
                     memory_config,
                     primary_provider,
                     steer_rx,
+                    emitter,
                     agent_id,
                 )
                 .await;
@@ -996,6 +1008,7 @@ impl AgentRuntimeExecutor {
 
         let mut last_error: Option<anyhow::Error> = None;
         let mut steer_rx = steer_rx;
+        let mut emitter = emitter;
 
         for profile in profiles {
             let api_key = match profile.get_api_key(self.auth_manager.resolver()) {
@@ -1033,6 +1046,7 @@ impl AgentRuntimeExecutor {
                     input,
                     memory_config,
                     steer_rx.take(),
+                    emitter.take(),
                     factory,
                     agent_id,
                 )
@@ -1132,6 +1146,48 @@ impl AgentExecutor for AgentRuntimeExecutor {
         memory_config: &MemoryConfig,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
     ) -> Result<ExecutionResult> {
+        self.execute_internal(
+            agent_id,
+            background_task_id,
+            input,
+            memory_config,
+            steer_rx,
+            None,
+        )
+        .await
+    }
+
+    async fn execute_with_emitter(
+        &self,
+        agent_id: &str,
+        background_task_id: Option<&str>,
+        input: Option<&str>,
+        memory_config: &MemoryConfig,
+        steer_rx: Option<mpsc::Receiver<SteerMessage>>,
+        emitter: Option<Box<dyn StreamEmitter>>,
+    ) -> Result<ExecutionResult> {
+        self.execute_internal(
+            agent_id,
+            background_task_id,
+            input,
+            memory_config,
+            steer_rx,
+            emitter,
+        )
+        .await
+    }
+}
+
+impl AgentRuntimeExecutor {
+    async fn execute_internal(
+        &self,
+        agent_id: &str,
+        background_task_id: Option<&str>,
+        input: Option<&str>,
+        memory_config: &MemoryConfig,
+        steer_rx: Option<mpsc::Receiver<SteerMessage>>,
+        emitter: Option<Box<dyn StreamEmitter>>,
+    ) -> Result<ExecutionResult> {
         let stored_agent = self
             .storage
             .agents
@@ -1147,6 +1203,7 @@ impl AgentExecutor for AgentRuntimeExecutor {
         let mut retry_state = RetryState::new();
         let input_owned = input.map(|value| value.to_string());
         let mut steer_rx = steer_rx;
+        let mut emitter = emitter;
 
         loop {
             let input_ref = input_owned.as_deref();
@@ -1156,6 +1213,7 @@ impl AgentExecutor for AgentRuntimeExecutor {
             let result = execute_with_failover(&failover_manager, |model| {
                 let node = agent_node_clone.clone();
                 let steer_rx = steer_rx.take();
+                let emitter = emitter.take();
                 async move {
                     self.execute_with_profiles(
                         &node,
@@ -1165,6 +1223,7 @@ impl AgentExecutor for AgentRuntimeExecutor {
                         memory_config,
                         primary_provider,
                         steer_rx,
+                        emitter,
                         Some(agent_id),
                     )
                     .await
