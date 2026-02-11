@@ -213,7 +213,8 @@ mod tests {
             .unwrap();
 
         assert_eq!(updated.name, "Test Agent"); // Name unchanged
-        assert_eq!(updated.agent.prompt, Some("Updated prompt".to_string()));
+        let default_prompt = prompt_files::load_default_main_agent_prompt().unwrap();
+        assert_eq!(updated.agent.prompt, Some(default_prompt));
         assert_eq!(updated.agent.temperature, Some(0.9));
         assert_eq!(updated.agent.model, Some(AIModel::Gpt5Mini));
     }

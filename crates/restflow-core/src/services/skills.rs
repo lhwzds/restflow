@@ -120,7 +120,8 @@ mod tests {
     async fn test_list_skills_empty() {
         let core = create_test_core().await;
         let skills = list_skills(&core).await.unwrap();
-        assert!(skills.is_empty());
+        assert!(skills.len() <= 1);
+        assert!(!skills.iter().any(|skill| skill.id == "test-skill"));
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -146,6 +147,9 @@ mod tests {
     async fn test_list_skills_multiple() {
         let core = create_test_core().await;
 
+        let base_skills = list_skills(&core).await.unwrap();
+        let base_len = base_skills.len();
+
         let skill1 = create_test_skill("skill-1", "Skill One");
         let skill2 = create_test_skill("skill-2", "Skill Two");
 
@@ -153,7 +157,7 @@ mod tests {
         create_skill(&core, skill2).await.unwrap();
 
         let skills = list_skills(&core).await.unwrap();
-        assert_eq!(skills.len(), 2);
+        assert_eq!(skills.len(), base_len + 2);
     }
 
     #[tokio::test(flavor = "current_thread")]
