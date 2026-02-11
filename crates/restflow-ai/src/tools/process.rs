@@ -5,12 +5,18 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::sync::Arc;
 
-use crate::error::{AiError, Result};
+use crate::error::Result;
 use crate::tools::traits::{Tool, ToolOutput};
 
-/// Convert anyhow::Error to AiError::Tool
-fn to_tool_error(e: anyhow::Error) -> AiError {
-    AiError::Tool(e.to_string())
+fn missing_session_message(session_id: &str) -> String {
+    format!(
+        "Session '{}' not found. Use action 'list' to see active sessions.",
+        session_id
+    )
+}
+
+fn invalid_session_state_message() -> &'static str {
+    "Process session is in an invalid state. The session may have crashed. Use 'list' to check status."
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -122,31 +128,73 @@ impl Tool for ProcessTool {
     }
 
     async fn execute(&self, input: Value) -> Result<ToolOutput> {
-        let action: ProcessAction = serde_json::from_value(input)?;
+        let action: ProcessAction = match serde_json::from_value(input) {
+            Ok(action) => action,
+            Err(e) => {
+                return Ok(ToolOutput::error(format!(
+                    "Invalid input: {}. Required: action (spawn|poll|write|kill|list|log).",
+                    e
+                )));
+            }
+        };
 
         match action {
-            ProcessAction::Spawn { command, cwd, .. } => {
-                let session_id = self.manager.spawn(command, cwd).map_err(to_tool_error)?;
-                Ok(ToolOutput::success(json!({"session_id": session_id})))
-            }
-            ProcessAction::Poll { session_id } => {
-                let result = self.manager.poll(&session_id).map_err(to_tool_error)?;
-                Ok(ToolOutput::success(serde_json::to_value(result)?))
-            }
+            ProcessAction::Spawn { command, cwd, .. } => match self.manager.spawn(command, cwd) {
+                Ok(session_id) => Ok(ToolOutput::success(json!({"session_id": session_id}))),
+                Err(e) => Ok(ToolOutput::error(format!(
+                    "Failed to spawn process: {}. Check that the command exists and the working directory is valid.",
+                    e
+                ))),
+            },
+            ProcessAction::Poll { session_id } => match self.manager.poll(&session_id) {
+                Ok(result) => Ok(ToolOutput::success(serde_json::to_value(result)?)),
+                Err(e) => {
+                    if e.to_string().contains("Session not found") {
+                        return Ok(ToolOutput::error(missing_session_message(&session_id)));
+                    }
+                    Ok(ToolOutput::error(format!(
+                        "Failed to poll process session '{}': {}",
+                        session_id, e
+                    )))
+                }
+            },
             ProcessAction::Write { session_id, data } => {
-                self.manager
-                    .write(&session_id, &data)
-                    .map_err(to_tool_error)?;
-                Ok(ToolOutput::success(json!({"session_id": session_id})))
+                match self.manager.write(&session_id, &data) {
+                    Ok(()) => Ok(ToolOutput::success(json!({"session_id": session_id}))),
+                    Err(e) => {
+                        let error_message = e.to_string();
+                        if error_message.contains("Session not found") {
+                            return Ok(ToolOutput::error(missing_session_message(&session_id)));
+                        }
+                        if error_message.contains("lock poisoned") {
+                            return Ok(ToolOutput::error(invalid_session_state_message()));
+                        }
+                        Ok(ToolOutput::error(format!(
+                            "Failed to write to process session '{}': {}",
+                            session_id, e
+                        )))
+                    }
+                }
             }
-            ProcessAction::Kill { session_id } => {
-                self.manager.kill(&session_id).map_err(to_tool_error)?;
-                Ok(ToolOutput::success(json!({"session_id": session_id})))
-            }
-            ProcessAction::List => {
-                let sessions = self.manager.list().map_err(to_tool_error)?;
-                Ok(ToolOutput::success(serde_json::to_value(sessions)?))
-            }
+            ProcessAction::Kill { session_id } => match self.manager.kill(&session_id) {
+                Ok(()) => Ok(ToolOutput::success(json!({"session_id": session_id}))),
+                Err(e) => {
+                    if e.to_string().contains("Session not found") {
+                        return Ok(ToolOutput::error(missing_session_message(&session_id)));
+                    }
+                    Ok(ToolOutput::error(format!(
+                        "Failed to kill process session '{}': {}",
+                        session_id, e
+                    )))
+                }
+            },
+            ProcessAction::List => match self.manager.list() {
+                Ok(sessions) => Ok(ToolOutput::success(serde_json::to_value(sessions)?)),
+                Err(e) => Ok(ToolOutput::error(format!(
+                    "Failed to list process sessions: {}",
+                    e
+                ))),
+            },
             ProcessAction::Log {
                 session_id,
                 offset,
@@ -154,12 +202,88 @@ impl Tool for ProcessTool {
             } => {
                 let offset = offset.unwrap_or(0);
                 let limit = limit.unwrap_or(10_000);
-                let log = self
-                    .manager
-                    .log(&session_id, offset, limit)
-                    .map_err(to_tool_error)?;
-                Ok(ToolOutput::success(serde_json::to_value(log)?))
+                match self.manager.log(&session_id, offset, limit) {
+                    Ok(log) => Ok(ToolOutput::success(serde_json::to_value(log)?)),
+                    Err(e) => {
+                        if e.to_string().contains("Session not found") {
+                            return Ok(ToolOutput::error(missing_session_message(&session_id)));
+                        }
+                        Ok(ToolOutput::error(format!(
+                            "Failed to read process logs for session '{}': {}",
+                            session_id, e
+                        )))
+                    }
+                }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use anyhow::anyhow;
+    use serde_json::json;
+
+    struct MockProcessManager;
+
+    impl ProcessManager for MockProcessManager {
+        fn spawn(&self, _command: String, _cwd: Option<String>) -> anyhow::Result<String> {
+            Ok("session-1".to_string())
+        }
+
+        fn poll(&self, _session_id: &str) -> anyhow::Result<ProcessPollResult> {
+            Err(anyhow!("Session not found: session-404"))
+        }
+
+        fn write(&self, _session_id: &str, _data: &str) -> anyhow::Result<()> {
+            Ok(())
+        }
+
+        fn kill(&self, _session_id: &str) -> anyhow::Result<()> {
+            Ok(())
+        }
+
+        fn list(&self) -> anyhow::Result<Vec<ProcessSessionInfo>> {
+            Ok(vec![])
+        }
+
+        fn log(
+            &self,
+            _session_id: &str,
+            _offset: usize,
+            _limit: usize,
+        ) -> anyhow::Result<ProcessLog> {
+            Err(anyhow!("Session not found: session-404"))
+        }
+    }
+
+    #[tokio::test]
+    async fn process_tool_returns_actionable_error_for_invalid_input() {
+        let tool = ProcessTool::new(Arc::new(MockProcessManager));
+        let output = tool.execute(json!({"command": "echo test"})).await.unwrap();
+
+        assert!(!output.success);
+        assert!(
+            output
+                .error
+                .unwrap_or_default()
+                .contains("Required: action (spawn|poll|write|kill|list|log).")
+        );
+    }
+
+    #[tokio::test]
+    async fn process_tool_returns_actionable_error_for_missing_session() {
+        let tool = ProcessTool::new(Arc::new(MockProcessManager));
+        let output = tool
+            .execute(json!({"action": "poll", "session_id": "session-404"}))
+            .await
+            .unwrap();
+
+        assert!(!output.success);
+        assert_eq!(
+            output.error.unwrap_or_default(),
+            "Session 'session-404' not found. Use action 'list' to see active sessions."
+        );
     }
 }
