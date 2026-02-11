@@ -264,7 +264,15 @@ impl Tool for WebSearchTool {
     }
 
     async fn execute(&self, input: Value) -> Result<ToolOutput> {
-        let params: WebSearchInput = serde_json::from_value(input)?;
+        let params: WebSearchInput = match serde_json::from_value(input) {
+            Ok(params) => params,
+            Err(e) => {
+                return Ok(ToolOutput::error(format!(
+                    "Invalid input: {}. Required fields: query (string), optional: num_results (integer, max 10).",
+                    e
+                )));
+            }
+        };
         let num = params.num_results.unwrap_or(5).min(10);
 
         // Auto-select provider: Brave -> Tavily -> DuckDuckGo
@@ -289,7 +297,7 @@ impl Tool for WebSearchTool {
         match self.duckduckgo_search(&params.query, num).await {
             Ok(results) => Ok(ToolOutput::success(results)),
             Err(e) => Ok(ToolOutput::error(format!(
-                "All search providers failed. Last error: {}",
+                "All search providers failed. Brave/Tavily require API keys (BRAVE_API_KEY or TAVILY_API_KEY) - set them via manage_secrets tool for better reliability. DuckDuckGo fallback error: {}",
                 e
             ))),
         }
@@ -375,5 +383,18 @@ mod tests {
         let results = parse_duckduckgo_html(html, 1);
         assert_eq!(results.len(), 1);
         assert_eq!(results[0]["url"], "https://example.com/post");
+    }
+
+    #[tokio::test]
+    async fn test_web_search_invalid_input_returns_actionable_error() {
+        let tool = WebSearchTool::new();
+        let output = tool.execute(json!({"num_results": 2})).await.unwrap();
+
+        assert!(!output.success);
+        assert!(
+            output.error.unwrap_or_default().contains(
+                "Required fields: query (string), optional: num_results (integer, max 10)."
+            )
+        );
     }
 }
