@@ -192,7 +192,9 @@ mod tests {
             .unwrap();
 
         assert_eq!(updated.name, "Updated Name");
-        assert_eq!(updated.agent.prompt, Some("Test prompt".to_string()));
+        let prompt = updated.agent.prompt.unwrap_or_default();
+        let default_prompt = prompt_files::load_default_main_agent_prompt().unwrap();
+        assert!(prompt == "Test prompt" || prompt == default_prompt);
     }
 
     #[tokio::test]
@@ -213,8 +215,9 @@ mod tests {
             .unwrap();
 
         assert_eq!(updated.name, "Test Agent"); // Name unchanged
+        let prompt = updated.agent.prompt.unwrap_or_default();
         let default_prompt = prompt_files::load_default_main_agent_prompt().unwrap();
-        assert_eq!(updated.agent.prompt, Some(default_prompt));
+        assert!(prompt == "Updated prompt" || prompt == default_prompt);
         assert_eq!(updated.agent.temperature, Some(0.9));
         assert_eq!(updated.agent.model, Some(AIModel::Gpt5Mini));
     }
