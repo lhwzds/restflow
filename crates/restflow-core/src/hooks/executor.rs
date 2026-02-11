@@ -236,37 +236,25 @@ impl HookExecutor {
     fn render_template(&self, template: &str, context: &HookContext) -> String {
         let output = Self::sanitize_template_value(context.output.as_deref().unwrap_or(""));
         let error = Self::sanitize_template_value(context.error.as_deref().unwrap_or(""));
+        let success = if context.success == Some(true) {
+            "true"
+        } else {
+            "false"
+        };
+        let duration = context.duration_ms.unwrap_or_default().to_string();
 
-        let replacements = [
+        let replacements: HashMap<&str, &str> = HashMap::from([
             ("{{event}}", context.event.as_str()),
             ("{{task_id}}", context.task_id.as_str()),
             ("{{task_name}}", context.task_name.as_str()),
             ("{{agent_id}}", context.agent_id.as_str()),
-            (
-                "{{success}}",
-                if context.success == Some(true) {
-                    "true"
-                } else {
-                    "false"
-                },
-            ),
-            ("{{output}}", &output),
-            ("{{error}}", &error),
-        ];
+            ("{{success}}", success),
+            ("{{output}}", output.as_str()),
+            ("{{error}}", error.as_str()),
+            ("{{duration}}", duration.as_str()),
+        ]);
 
-        let mut rendered = template.to_string();
-        for (key, value) in replacements {
-            rendered = rendered.replace(key, value);
-        }
-
-        if rendered.contains("{{duration}}") {
-            rendered = rendered.replace(
-                "{{duration}}",
-                &context.duration_ms.unwrap_or_default().to_string(),
-            );
-        }
-
-        rendered
+        crate::utils::template::render_template_single_pass(template, &replacements)
     }
 
     /// Truncate and strip control characters from user-controlled values.
@@ -473,6 +461,16 @@ mod tests {
         assert!(sanitized.ends_with("... [truncated]"));
         // Ensure no broken UTF-8
         let _ = sanitized.as_bytes();
+    }
+
+    #[test]
+    fn test_render_template_no_double_substitution() {
+        let executor = HookExecutor::new(Vec::new());
+        let mut context = sample_context();
+        context.output = Some("injected {{task_id}}".to_string());
+
+        let rendered = executor.render_template("{{output}}", &context);
+        assert_eq!(rendered, "injected {{task_id}}");
     }
 
     #[tokio::test]

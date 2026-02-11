@@ -42,13 +42,27 @@ impl SkillLoader {
     ) -> Result<Vec<ProcessedSkill>> {
         let mut skills = self.load_skills(skill_ids)?;
         for skill in &mut skills {
+            skill.content = Self::apply_variables(&skill.content, variables);
             for (name, value) in variables {
-                let pattern = format!("{{{{{}}}}}", name);
-                skill.content = skill.content.replace(&pattern, value);
                 skill.variables.push((name.clone(), value.clone()));
             }
         }
         Ok(skills)
+    }
+
+    fn apply_variables(content: &str, variables: &HashMap<String, String>) -> String {
+        if variables.is_empty() {
+            return content.to_string();
+        }
+        let pattern_map: HashMap<String, &str> = variables
+            .iter()
+            .map(|(name, value)| (format!("{{{{{}}}}}", name), value.as_str()))
+            .collect();
+        let replacements: HashMap<&str, &str> = pattern_map
+            .iter()
+            .map(|(pattern, value)| (pattern.as_str(), *value))
+            .collect();
+        restflow_core::utils::template::render_template_single_pass(content, &replacements)
     }
 
     /// Build system prompt with skills injected
@@ -78,5 +92,21 @@ impl SkillLoader {
             prompt.push_str("\n\n");
         }
         Ok(prompt)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SkillLoader;
+    use std::collections::HashMap;
+
+    #[test]
+    fn apply_variables_prevents_double_substitution() {
+        let vars = HashMap::from([
+            ("output".to_string(), "raw {{task_id}}".to_string()),
+            ("task_id".to_string(), "task-1".to_string()),
+        ]);
+        let rendered = SkillLoader::apply_variables("Result: {{output}}", &vars);
+        assert_eq!(rendered, "Result: raw {{task_id}}");
     }
 }

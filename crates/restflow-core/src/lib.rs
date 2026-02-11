@@ -18,6 +18,7 @@ pub mod security;
 pub mod services;
 pub mod steer;
 pub mod storage;
+pub mod utils;
 
 pub use models::*;
 pub use steer::SteerRegistry;
