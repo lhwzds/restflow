@@ -6,7 +6,7 @@ use anyhow::{Result, anyhow};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 use super::traits::Channel;
 use super::types::{
@@ -204,7 +204,7 @@ impl ChannelRouter {
                 };
 
             if target_conversations.is_empty() {
-                debug!(
+                warn!(
                     "Skipping broadcast to {:?} - no default or known conversations",
                     channel_type
                 );
