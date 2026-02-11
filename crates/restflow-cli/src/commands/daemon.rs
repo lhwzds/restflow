@@ -9,9 +9,12 @@ use restflow_core::daemon::{
     stop_daemon,
 };
 use restflow_core::paths;
+use std::net::{IpAddr, Ipv4Addr};
 use std::sync::Arc;
 use tokio::time::{Duration, sleep};
-use tracing::error;
+use tracing::{error, warn};
+
+const MCP_BIND_ADDR_ENV: &str = "RESTFLOW_MCP_BIND_ADDR";
 
 pub async fn sync_mcp_configs(mcp_port: Option<u16>) {
     if let Err(err) = try_sync_claude_http_mcp(mcp_port.unwrap_or(8787)).await {
@@ -132,7 +135,8 @@ async fn run_daemon(core: Arc<AppCore>, config: DaemonConfig) -> Result<()> {
     });
 
     // MCP server is always enabled
-    let addr = std::net::SocketAddr::from(([127, 0, 0, 1], config.mcp_port.unwrap_or(8787)));
+    let mcp_bind_addr = resolve_mcp_bind_addr();
+    let addr = std::net::SocketAddr::new(mcp_bind_addr, config.mcp_port.unwrap_or(8787));
     let mcp_shutdown = shutdown_tx.subscribe();
     let mcp_core = core.clone();
     let mcp_handle = tokio::spawn(async move {
@@ -195,4 +199,46 @@ async fn wait_for_daemon_exit() -> Result<()> {
     }
 
     anyhow::bail!("Daemon did not stop within timeout")
+}
+
+fn resolve_mcp_bind_addr() -> IpAddr {
+    match std::env::var(MCP_BIND_ADDR_ENV) {
+        Ok(value) => parse_mcp_bind_addr(Some(&value)).unwrap_or_else(|| {
+            warn!(
+                env = MCP_BIND_ADDR_ENV,
+                value = %value,
+                "Invalid MCP bind address, falling back to 127.0.0.1"
+            );
+            IpAddr::V4(Ipv4Addr::LOCALHOST)
+        }),
+        Err(_) => IpAddr::V4(Ipv4Addr::LOCALHOST),
+    }
+}
+
+fn parse_mcp_bind_addr(value: Option<&str>) -> Option<IpAddr> {
+    value.and_then(|v| v.parse().ok())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_mcp_bind_addr;
+    use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+
+    #[test]
+    fn parse_mcp_bind_addr_accepts_ipv4() {
+        let ip = parse_mcp_bind_addr(Some("0.0.0.0"));
+        assert_eq!(ip, Some(IpAddr::V4(Ipv4Addr::UNSPECIFIED)));
+    }
+
+    #[test]
+    fn parse_mcp_bind_addr_accepts_ipv6() {
+        let ip = parse_mcp_bind_addr(Some("::1"));
+        assert_eq!(ip, Some(IpAddr::V6(Ipv6Addr::LOCALHOST)));
+    }
+
+    #[test]
+    fn parse_mcp_bind_addr_rejects_invalid_value() {
+        let ip = parse_mcp_bind_addr(Some("not-an-ip"));
+        assert_eq!(ip, None);
+    }
 }
