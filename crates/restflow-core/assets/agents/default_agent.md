@@ -79,3 +79,7 @@ You can create and manage **autonomous background agents** that run independentl
 - **Ask only when truly ambiguous.** If you have enough information to proceed, do so.
 - **Keep artifacts in `~/.restflow/` (user home).** Do not create cache/temp folders in the current directory root; store intermediate files under `~/.restflow/` (for example `~/.restflow/cache/`, `~/.restflow/tmp/`).
 - **Migrate legacy cache files before writing new state.** If cache JSON files exist in the repo root (for example `.hn_sent_state.json`, `.github_trending_last.json`) or `.cache/`, move them into `~/.restflow/cache/` first and continue from the migrated files.
+- **Always structure final outputs with three sections.** Use exactly these headings in order:
+  - `### Evidence`: concrete facts, identifiers, logs, command outcomes, or observed data.
+  - `### Operation`: exact actions taken (tools, files, commands, API calls).
+  - `### Verification`: validation result, remaining risk, and follow-up checks when needed.

@@ -79,46 +79,22 @@ impl TelegramNotifier {
     }
 
     /// Format the notification message for Telegram.
-    fn format_message(&self, task: &BackgroundAgent, success: bool, message: &str) -> String {
-        if success {
-            if message.is_empty() {
-                return "Task completed successfully.".to_string();
+    fn format_message(&self, _task: &BackgroundAgent, success: bool, message: &str) -> String {
+        let content = if message.trim().is_empty() {
+            if success {
+                "Task completed successfully."
+            } else {
+                "Task failed without additional details."
             }
-
-            // Keep success notification text as close as possible to the agent output.
-            return if message.len() > 3500 {
-                format!("{}...\n\n(truncated)", &message[..3500])
-            } else {
-                message.to_string()
-            };
-        }
-
-        let mut formatted = format!("Task Failed: {}\n\n", task.name);
-        formatted.push_str(&format!("Agent: {}\n", task.agent_id));
-
-        if let Some(ref input) = task.input {
-            let input_preview = if input.len() > 100 {
-                format!("{}...", &input[..100])
-            } else {
-                input.clone()
-            };
-            formatted.push_str(&format!("Input: {}\n", input_preview));
-        }
-
-        formatted.push('\n');
-
-        if message.is_empty() {
-            formatted.push_str("Task failed with unknown error.");
         } else {
-            let message_preview = if message.len() > 2000 {
-                format!("{}...\n\n(truncated)", &message[..2000])
-            } else {
-                message.to_string()
-            };
-            formatted.push_str(&format!("Error:\n{}", message_preview));
-        }
+            message.trim()
+        };
 
-        formatted
+        if content.len() > 3500 {
+            format!("{}...\n\n(truncated)", &content[..3500])
+        } else {
+            content.to_string()
+        }
     }
 
     pub async fn send_raw(&self, message: &str) -> Result<()> {
@@ -358,11 +334,7 @@ mod tests {
         let task = create_test_task();
         let message = notifier.format_message(&task, false, "Connection timeout");
 
-        assert!(message.contains("Failed"));
-        assert!(message.contains("Test Task"));
-        assert!(message.contains("Connection timeout"));
-        assert!(!message.contains('*'));
-        assert!(!message.contains('`'));
+        assert_eq!(message, "Connection timeout");
     }
 
     #[test]
@@ -375,7 +347,7 @@ mod tests {
 
         let message = notifier.format_message(&task, false, "Done");
 
-        assert!(message.contains("Process this data"));
+        assert_eq!(message, "Done");
     }
 
     #[test]
@@ -388,10 +360,7 @@ mod tests {
 
         let message = notifier.format_message(&task, false, "Done");
 
-        // Should contain truncated input with ellipsis
-        assert!(message.contains("..."));
-        // Should not contain the full 200 x's
-        assert!(!message.contains(&"x".repeat(150)));
+        assert_eq!(message, "Done");
     }
 
     #[test]
@@ -420,7 +389,7 @@ mod tests {
         assert!(success_msg.contains("completed successfully"));
 
         let failure_msg = notifier.format_message(&task, false, "");
-        assert!(failure_msg.contains("unknown error"));
+        assert!(failure_msg.contains("without additional details"));
     }
 
     #[tokio::test]
