@@ -12,6 +12,7 @@ pub mod shared_space;
 pub mod skill;
 pub mod terminal_session;
 pub mod trigger;
+pub mod workspace_note;
 
 use anyhow::Result;
 use redb::Database;
@@ -31,6 +32,7 @@ pub use shared_space::SharedSpaceStorage;
 pub use skill::SkillStorage;
 pub use terminal_session::TerminalSessionStorage;
 pub use trigger::TriggerStorage;
+pub use workspace_note::WorkspaceNoteStorage;
 
 /// Central storage manager that initializes all storage subsystems.
 ///
@@ -50,6 +52,7 @@ pub struct Storage {
     pub memory: MemoryStorage,
     pub chat_sessions: ChatSessionStorage,
     pub hooks: HookStorage,
+    pub workspace_notes: WorkspaceNoteStorage,
 }
 
 impl Storage {
@@ -76,6 +79,7 @@ impl Storage {
         let memory = MemoryStorage::new(db.clone())?;
         let chat_sessions = ChatSessionStorage::new(db.clone())?;
         let hooks = HookStorage::new(db.clone())?;
+        let workspace_notes = WorkspaceNoteStorage::new(db.clone())?;
 
         Ok(Self {
             db,
@@ -91,6 +95,7 @@ impl Storage {
             memory,
             chat_sessions,
             hooks,
+            workspace_notes,
         })
     }
 

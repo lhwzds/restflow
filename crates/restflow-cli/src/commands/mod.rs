@@ -10,6 +10,7 @@ pub mod key;
 pub mod mcp;
 pub mod memory;
 pub mod migrate;
+pub mod note;
 pub mod restart;
 
 pub mod secret;

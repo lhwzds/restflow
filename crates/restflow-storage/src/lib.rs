@@ -25,6 +25,7 @@ pub mod skill;
 pub mod terminal_session;
 pub mod trigger;
 pub mod vector;
+pub mod workspace_note;
 
 mod encryption;
 mod simple_storage;
@@ -48,6 +49,7 @@ pub use skill::SkillStorage;
 pub use terminal_session::TerminalSessionStorage;
 pub use trigger::TriggerStorage;
 pub use vector::{VectorConfig, VectorStorage};
+pub use workspace_note::WorkspaceNoteStorage;
 /// Central storage manager that initializes all storage subsystems
 pub struct Storage {
     db: Arc<Database>,
@@ -61,6 +63,7 @@ pub struct Storage {
     pub terminal_sessions: TerminalSessionStorage,
     pub memory: MemoryStorage,
     pub chat_sessions: ChatSessionStorage,
+    pub workspace_notes: WorkspaceNoteStorage,
 }
 
 impl Storage {
@@ -81,6 +84,7 @@ impl Storage {
         let terminal_sessions = TerminalSessionStorage::new(db.clone())?;
         let memory = MemoryStorage::new(db.clone())?;
         let chat_sessions = ChatSessionStorage::new(db.clone())?;
+        let workspace_notes = WorkspaceNoteStorage::new(db.clone())?;
 
         Ok(Self {
             db,
@@ -94,6 +98,7 @@ impl Storage {
             terminal_sessions,
             memory,
             chat_sessions,
+            workspace_notes,
         })
     }
 

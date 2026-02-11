@@ -4,7 +4,7 @@ use restflow_core::daemon::is_daemon_available;
 use restflow_core::memory::ExportResult;
 use restflow_core::models::{
     AgentNode, ChatSession, ChatSessionSummary, MemoryChunk, MemorySearchResult, MemoryStats,
-    Secret, Skill,
+    NoteQuery, Secret, Skill, WorkspaceNote, WorkspaceNotePatch, WorkspaceNoteSpec,
 };
 use restflow_core::paths;
 use restflow_core::storage::SystemConfig;
@@ -53,6 +53,13 @@ pub trait CommandExecutor: Send + Sync {
     async fn create_session(&self, agent_id: String, model: String) -> Result<ChatSession>;
     async fn delete_session(&self, id: &str) -> Result<bool>;
     async fn search_sessions(&self, query: String) -> Result<Vec<ChatSessionSummary>>;
+
+    async fn list_notes(&self, query: NoteQuery) -> Result<Vec<WorkspaceNote>>;
+    async fn get_note(&self, id: &str) -> Result<Option<WorkspaceNote>>;
+    async fn create_note(&self, spec: WorkspaceNoteSpec) -> Result<WorkspaceNote>;
+    async fn update_note(&self, id: &str, patch: WorkspaceNotePatch) -> Result<WorkspaceNote>;
+    async fn delete_note(&self, id: &str) -> Result<()>;
+    async fn list_note_folders(&self) -> Result<Vec<String>>;
 
     async fn list_secrets(&self) -> Result<Vec<Secret>>;
     async fn set_secret(&self, key: &str, value: &str, description: Option<String>) -> Result<()>;

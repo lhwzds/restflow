@@ -84,6 +84,7 @@ pub fn main_agent_default_tool_names() -> Vec<String> {
         "skill",
         "memory_search",
         "shared_space",
+        "workspace_notes",
         "manage_secrets",
         "manage_config",
         "manage_sessions",
@@ -267,6 +268,7 @@ pub fn registry_from_allowlist(
     let mut enable_skill = false;
     let mut enable_memory_search = false;
     let mut enable_shared_space = false;
+    let mut enable_workspace_notes = false;
     let mut enable_manage_secrets = false;
     let mut enable_manage_config = false;
     let mut enable_manage_sessions = false;
@@ -384,6 +386,9 @@ pub fn registry_from_allowlist(
             "shared_space" => {
                 enable_shared_space = true;
             }
+            "workspace_notes" => {
+                enable_workspace_notes = true;
+            }
             "manage_secrets" | "secrets" => {
                 enable_manage_secrets = true;
             }
@@ -460,6 +465,7 @@ pub fn registry_from_allowlist(
         || enable_skill
         || enable_memory_search
         || enable_shared_space
+        || enable_workspace_notes
         || enable_manage_secrets
         || enable_manage_config
         || enable_manage_sessions
@@ -476,6 +482,7 @@ pub fn registry_from_allowlist(
                 storage.memory.clone(),
                 storage.chat_sessions.clone(),
                 storage.shared_space.clone(),
+                storage.workspace_notes.clone(),
                 storage.secrets.clone(),
                 storage.config.clone(),
                 storage.agents.clone(),
@@ -495,6 +502,7 @@ pub fn registry_from_allowlist(
                 ("skill", enable_skill),
                 ("memory_search", enable_memory_search),
                 ("shared_space", enable_shared_space),
+                ("workspace_notes", enable_workspace_notes),
                 ("manage_secrets", enable_manage_secrets),
                 ("manage_config", enable_manage_config),
                 ("manage_sessions", enable_manage_sessions),
@@ -531,6 +539,7 @@ pub fn registry_from_allowlist(
                 ("skill", enable_skill),
                 ("memory_search", enable_memory_search),
                 ("shared_space", enable_shared_space),
+                ("workspace_notes", enable_workspace_notes),
                 ("manage_secrets", enable_manage_secrets),
                 ("manage_config", enable_manage_config),
                 ("manage_sessions", enable_manage_sessions),
