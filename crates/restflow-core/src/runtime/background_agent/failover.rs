@@ -81,6 +81,8 @@ impl FailoverConfig {
     pub fn with_primary(primary: AIModel) -> Self {
         let fallbacks = if primary.is_cli_model() {
             vec![]
+        } else if primary == AIModel::ClaudeOpus4_6 {
+            vec![AIModel::ClaudeSonnet4_5]
         } else {
             Self::default().fallbacks
         };
@@ -719,5 +721,12 @@ mod tests {
             .await;
 
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_with_primary_claude_opus_uses_sonnet_fallback() {
+        let config = FailoverConfig::with_primary(AIModel::ClaudeOpus4_6);
+        assert_eq!(config.primary, AIModel::ClaudeOpus4_6);
+        assert_eq!(config.fallbacks, vec![AIModel::ClaudeSonnet4_5]);
     }
 }
