@@ -62,6 +62,31 @@ jobs:
           npm ci
           npx playwright install --with-deps chromium
 
+      - name: Install frontend dependencies
+        run: |
+          cd web
+          npm ci
+
+      - name: Start frontend server
+        run: |
+          cd web
+          npm run dev -- --host 0.0.0.0 --port 5173 > /tmp/restflow-web.log 2>&1 &
+          echo "WEB_PID=$!" >> "$GITHUB_ENV"
+
+      - name: Wait for frontend to be ready
+        run: |
+          for i in {1..60}; do
+            if curl -sf http://localhost:5173/workspace >/dev/null 2>&1; then
+              echo "✅ Frontend server is running!"
+              exit 0
+            fi
+            echo "Waiting for frontend ($i/60)..."
+            sleep 2
+          done
+          echo "❌ Frontend failed to start"
+          cat /tmp/restflow-web.log || true
+          exit 1
+
       - name: Run E2E tests
         env:
           BASE_URL: http://localhost:5173
@@ -88,3 +113,14 @@ jobs:
       - name: Show Docker logs on failure
         if: failure()
         run: docker compose logs
+
+      - name: Show frontend logs on failure
+        if: failure()
+        run: cat /tmp/restflow-web.log || true
+
+      - name: Stop frontend server
+        if: always()
+        run: |
+          if [ -n "${WEB_PID:-}" ]; then
+            kill "$WEB_PID" || true
+          fi
