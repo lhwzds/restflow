@@ -633,7 +633,7 @@ mod tests {
                 "agent_id": "agent-1"
             }))
             .await;
-        let err = result.err().expect("expected write-guard error");
+        let err = result.expect_err("expected write-guard error");
         assert!(
             err.to_string()
                 .contains("Available read-only operations: list, get, progress")
@@ -662,7 +662,7 @@ mod tests {
     async fn test_list_store_error_is_wrapped() {
         let tool = BackgroundAgentTool::new(Arc::new(FailingListStore));
         let result = tool.execute(json!({ "operation": "list" })).await;
-        let err = result.err().expect("expected wrapped store error");
+        let err = result.expect_err("expected wrapped store error");
         let err_text = err.to_string();
         assert!(err_text.contains("Failed to list background agent"));
         assert!(err_text.contains("store offline"));
