@@ -16,6 +16,7 @@ pub mod registry;
 pub mod runtime;
 pub mod security;
 pub mod services;
+pub mod skill_files;
 pub mod steer;
 pub mod storage;
 
@@ -45,6 +46,7 @@ impl AppCore {
     pub async fn new(db_path: &str) -> anyhow::Result<Self> {
         let storage = Arc::new(Storage::new(db_path)?);
         prompt_files::ensure_prompt_templates()?;
+        skill_files::ensure_default_skill_files()?;
 
         // Ensure default agent exists on first run
         Self::ensure_default_agent(&storage)?;
@@ -53,10 +55,24 @@ impl AppCore {
 
         let mcp_tool_cache = Arc::new(McpToolCache::new(Duration::from_secs(3600)));
 
-        Ok(Self {
+        let core = Self {
             storage,
             mcp_tool_cache,
-        })
+        };
+
+        // Sync filesystem-backed default skills into database records.
+        if let Ok(user_skills_dir) = paths::user_skills_dir() {
+            let report = services::skill_sync::sync_all(&core, &user_skills_dir).await?;
+            info!(
+                scanned = report.scanned,
+                created = report.created,
+                updated = report.updated,
+                skipped = report.skipped,
+                "Default skills synchronized"
+            );
+        }
+
+        Ok(core)
     }
 
     /// Create default agent if no agents exist

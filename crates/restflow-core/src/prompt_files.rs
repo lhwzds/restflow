@@ -8,8 +8,9 @@ const BACKGROUND_AGENT_POLICY_FILE: &str = "background_agent_policy.md";
 /// Environment variable to override the agents directory path (used in tests).
 pub const AGENTS_DIR_ENV: &str = "RESTFLOW_AGENTS_DIR";
 
-const DEFAULT_AGENT_PROMPT_ASSET: &str = include_str!("../assets/default_agent.md");
-const BACKGROUND_AGENT_POLICY_ASSET: &str = include_str!("../assets/background_agent_policy.md");
+const DEFAULT_AGENT_PROMPT_ASSET: &str = include_str!("../assets/agents/default_agent.md");
+const BACKGROUND_AGENT_POLICY_ASSET: &str =
+    include_str!("../assets/agents/background_agent_policy.md");
 
 pub fn ensure_prompt_templates() -> Result<()> {
     ensure_prompt_template_file(DEFAULT_AGENT_PROMPT_FILE, DEFAULT_AGENT_PROMPT_ASSET)?;
