@@ -13,7 +13,7 @@ use std::sync::Arc;
 use crate::models::agent::PythonRuntimePolicy;
 use crate::{
     AIModel, Provider,
-    auth::AuthProfileManager,
+    auth::{AuthProfileManager, AuthProvider},
     models::{AgentNode, ApiKeyConfig, ChatMessage, ChatRole, ChatSession, SteerMessage},
     process::ProcessRegistry,
     prompt_files,
@@ -166,6 +166,91 @@ impl AgentRuntimeExecutor {
             None
         };
         self.resolve_api_key(provider, config).await
+    }
+
+    fn default_model_for_provider(provider: Provider) -> AIModel {
+        match provider {
+            Provider::OpenAI => AIModel::Gpt5,
+            Provider::Anthropic => AIModel::ClaudeSonnet4_5,
+            Provider::DeepSeek => AIModel::DeepseekChat,
+            Provider::Google => AIModel::Gemini25Pro,
+            Provider::Groq => AIModel::GroqLlama4Maverick,
+            Provider::OpenRouter => AIModel::OpenRouterAuto,
+            Provider::XAI => AIModel::Grok4,
+            Provider::Qwen => AIModel::Qwen3Max,
+            Provider::Zhipu => AIModel::Glm4_7,
+            Provider::Moonshot => AIModel::KimiK2_5,
+            Provider::Doubao => AIModel::DoubaoPro,
+            Provider::Yi => AIModel::YiLightning,
+            Provider::SiliconFlow => AIModel::SiliconFlowAuto,
+        }
+    }
+
+    fn has_non_empty_secret(&self, name: &str) -> Result<bool> {
+        Ok(self
+            .storage
+            .secrets
+            .get_secret(name)?
+            .as_deref()
+            .map(str::trim)
+            .is_some_and(|value| !value.is_empty()))
+    }
+
+    async fn resolve_model_from_stored_credentials(&self) -> Result<Option<AIModel>> {
+        // Prefer Codex CLI model only when a dedicated OpenAI Codex profile exists.
+        if self
+            .auth_manager
+            .get_available_profile(AuthProvider::OpenAICodex)
+            .await
+            .is_some()
+        {
+            return Ok(Some(AIModel::CodexCli));
+        }
+
+        // Then try provider-specific auth profiles.
+        let profile_order = [
+            (AuthProvider::ClaudeCode, AIModel::ClaudeSonnet4_5),
+            (AuthProvider::Anthropic, AIModel::ClaudeSonnet4_5),
+            (AuthProvider::OpenAI, AIModel::Gpt5),
+            (AuthProvider::Google, AIModel::Gemini25Pro),
+        ];
+        for (provider, model) in profile_order {
+            if self
+                .auth_manager
+                .get_available_profile(provider)
+                .await
+                .is_some()
+            {
+                return Ok(Some(model));
+            }
+        }
+
+        // Finally, fall back to explicit provider secrets in storage.
+        for provider in Provider::all() {
+            if self.has_non_empty_secret(provider.api_key_env())? {
+                return Ok(Some(Self::default_model_for_provider(*provider)));
+            }
+        }
+
+        Ok(None)
+    }
+
+    async fn resolve_primary_model(&self, agent_node: &AgentNode) -> Result<AIModel> {
+        if let Some(model) = agent_node.model {
+            return Ok(model);
+        }
+
+        if let Some(model) = self.resolve_model_from_stored_credentials().await? {
+            info!(
+                selected_model = %model.as_str(),
+                "Resolved model from stored credentials for agent without explicit model"
+            );
+            return Ok(model);
+        }
+
+        Err(anyhow!(
+            "Model not specified. Please set a model for this agent or configure a compatible API secret/auth profile."
+        ))
     }
 
     async fn build_api_keys(
@@ -638,7 +723,7 @@ impl AgentRuntimeExecutor {
     ) -> Result<SessionExecutionResult> {
         let stored_agent = self.resolve_stored_agent_for_session(session)?;
         let agent_node = stored_agent.agent.clone();
-        let primary_model = agent_node.require_model().map_err(anyhow::Error::msg)?;
+        let primary_model = self.resolve_primary_model(&agent_node).await?;
         let primary_provider = primary_model.provider();
         let failover_manager = FailoverManager::new(FailoverConfig::with_primary(primary_model));
         let retry_config = RetryConfig::default();
@@ -988,7 +1073,7 @@ impl AgentExecutor for AgentRuntimeExecutor {
             .ok_or_else(|| anyhow!("Agent '{}' not found", agent_id))?;
 
         let agent_node = stored_agent.agent.clone();
-        let primary_model = agent_node.require_model().map_err(|e| anyhow!(e))?;
+        let primary_model = self.resolve_primary_model(&agent_node).await?;
         let primary_provider = primary_model.provider();
 
         let failover_manager = FailoverManager::new(FailoverConfig::with_primary(primary_model));
@@ -1074,6 +1159,30 @@ mod tests {
         let executor = create_test_executor(storage);
         // Executor should be created successfully
         assert!(Arc::strong_count(&executor.storage) >= 1);
+    }
+
+    #[tokio::test]
+    async fn test_resolve_primary_model_prefers_explicit_model() {
+        let (storage, _temp_dir) = create_test_storage();
+        let executor = create_test_executor(storage);
+        let node = AgentNode::with_model(AIModel::ClaudeSonnet4_5);
+
+        let resolved = executor.resolve_primary_model(&node).await.unwrap();
+        assert_eq!(resolved, AIModel::ClaudeSonnet4_5);
+    }
+
+    #[tokio::test]
+    async fn test_resolve_primary_model_uses_openai_secret_when_model_missing() {
+        let (storage, _temp_dir) = create_test_storage();
+        storage
+            .secrets
+            .set_secret("OPENAI_API_KEY", "test-openai-key", None)
+            .unwrap();
+        let executor = create_test_executor(storage);
+        let node = AgentNode::new();
+
+        let resolved = executor.resolve_primary_model(&node).await.unwrap();
+        assert_eq!(resolved, AIModel::Gpt5);
     }
 
     #[tokio::test]
