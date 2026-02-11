@@ -71,14 +71,14 @@ test.describe('Workspace Layout', () => {
     await expect(page.locator('text=Start a new conversation')).toBeVisible()
   })
 
-  test('keyboard hints are shown below input', async ({ page }) => {
-    const collapseButton = page.getByRole('button', { name: 'Collapse chat input' })
-    if (await collapseButton.isVisible()) {
-      await collapseButton.click()
-    }
+  test('keyboard hints are hidden in expanded chat mode', async ({ page }) => {
+    // In workspace layout, chat is always expanded (isExpanded=true),
+    // so keyboard hints (Enter/Shift+Enter) are not shown
+    const textarea = page.locator('textarea[placeholder*="Ask the agent"]')
+    await expect(textarea).toBeVisible()
 
-    await expect(page.locator('text=Enter')).toBeVisible()
-    await expect(page.locator('text=Shift+Enter')).toBeVisible()
+    // Hints should NOT be visible in expanded mode
+    await expect(page.locator('text=Shift+Enter')).not.toBeVisible()
   })
 })
 
@@ -87,9 +87,10 @@ test.describe('Session List', () => {
     await goToWorkspace(page)
   })
 
-  test('shows "No sessions yet" when empty', async ({ page }) => {
-    // On a fresh database, no sessions exist
-    await expect(page.locator('text=No sessions yet')).toBeVisible()
+  test('shows session list with mock data', async ({ page }) => {
+    // Mock data provides demo sessions for E2E testing
+    await expect(page.locator('text=Translation Help')).toBeVisible()
+    await expect(page.locator('text=Code Review Session')).toBeVisible()
   })
 
   test('New Session button clears current session', async ({ page }) => {
