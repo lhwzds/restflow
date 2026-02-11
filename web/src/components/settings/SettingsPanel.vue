@@ -55,7 +55,13 @@ const navItems: { id: SettingsSection; label: string; icon: typeof Key }[] = [
 
       <!-- Back button at bottom -->
       <div class="p-2 border-t border-border flex items-center gap-1 shrink-0">
-        <Button variant="ghost" size="icon" class="h-7 w-7" @click="emit('back')">
+        <Button
+          variant="ghost"
+          size="icon"
+          class="h-7 w-7"
+          aria-label="Back to workspace"
+          @click="emit('back')"
+        >
           <ArrowLeft :size="14" />
         </Button>
       </div>
