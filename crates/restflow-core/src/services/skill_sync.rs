@@ -1,7 +1,5 @@
-use std::path::Path;
-use std::sync::Arc;
-
 use anyhow::Result;
+use std::path::Path;
 
 use crate::AppCore;
 use crate::loader::skill_folder::SkillFolderLoader;
@@ -15,7 +13,7 @@ pub struct SkillSyncReport {
     pub skipped: usize,
 }
 
-pub async fn sync_all(core: &Arc<AppCore>, base_dir: impl AsRef<Path>) -> Result<SkillSyncReport> {
+pub async fn sync_all(core: &AppCore, base_dir: impl AsRef<Path>) -> Result<SkillSyncReport> {
     let loader = SkillFolderLoader::new(base_dir.as_ref());
     let skills = loader.scan()?;
 
