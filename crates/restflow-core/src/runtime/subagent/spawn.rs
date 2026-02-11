@@ -12,6 +12,8 @@ use tokio::sync::oneshot;
 use tokio::time::{Duration, timeout};
 use ts_rs::TS;
 
+const DEFAULT_SUBAGENT_MAX_ITERATIONS: usize = 10;
+
 /// Configuration for sub-agent execution.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
@@ -113,13 +115,7 @@ pub fn spawn_subagent(
 
         let result = timeout(
             Duration::from_secs(timeout_secs),
-            execute_subagent(
-                llm_client,
-                tool_registry,
-                agent_def,
-                task.clone(),
-                config.clone(),
-            ),
+            execute_subagent(llm_client, tool_registry, agent_def, task.clone()),
         )
         .await;
 
@@ -195,7 +191,6 @@ async fn execute_subagent(
     tool_registry: Arc<ToolRegistry>,
     agent_def: AgentDefinition,
     task: String,
-    config: SubagentConfig,
 ) -> Result<String> {
     let registry = Arc::new(build_registry_for_agent(
         &tool_registry,
@@ -203,10 +198,7 @@ async fn execute_subagent(
     ));
 
     let mut engine_config = AgentExecutionEngineConfig::default();
-    engine_config.react.max_iterations = agent_def
-        .max_iterations
-        .map(|value| value as usize)
-        .unwrap_or(config.max_parallel_agents.max(10));
+    engine_config.react.max_iterations = resolve_max_iterations(&agent_def);
     let mut engine = AgentExecutionEngine::new(
         llm_client,
         registry,
@@ -220,6 +212,13 @@ async fn execute_subagent(
     } else {
         Err(anyhow!("Sub-agent execution failed: {}", result.output))
     }
+}
+
+fn resolve_max_iterations(agent_def: &AgentDefinition) -> usize {
+    agent_def
+        .max_iterations
+        .map(|value| value as usize)
+        .unwrap_or(DEFAULT_SUBAGENT_MAX_ITERATIONS)
 }
 
 fn build_registry_for_agent(parent: &Arc<ToolRegistry>, allowed_tools: &[String]) -> ToolRegistry {
@@ -350,5 +349,34 @@ mod tests {
         assert!(registry.has("bash"));
         assert!(registry.has("http"));
         assert_eq!(registry.list().len(), 3);
+    }
+
+    fn test_agent_definition(max_iterations: Option<u32>) -> AgentDefinition {
+        AgentDefinition {
+            id: "test".to_string(),
+            name: "Test".to_string(),
+            description: "Test agent".to_string(),
+            system_prompt: "You are a test agent".to_string(),
+            allowed_tools: vec![],
+            model: None,
+            max_iterations,
+            callable: true,
+            tags: vec![],
+        }
+    }
+
+    #[test]
+    fn test_resolve_max_iterations_uses_agent_override() {
+        let definition = test_agent_definition(Some(42));
+        assert_eq!(resolve_max_iterations(&definition), 42);
+    }
+
+    #[test]
+    fn test_resolve_max_iterations_uses_default_when_missing() {
+        let definition = test_agent_definition(None);
+        assert_eq!(
+            resolve_max_iterations(&definition),
+            DEFAULT_SUBAGENT_MAX_ITERATIONS
+        );
     }
 }
