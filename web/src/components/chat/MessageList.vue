@@ -30,7 +30,7 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  viewInCanvas: [step: StreamStep]
+  viewToolResult: [step: StreamStep]
 }>()
 
 const scrollContainer = ref<HTMLElement | null>(null)
@@ -44,8 +44,8 @@ function toggleToolCall(index: number) {
   }
 }
 
-function isShowPanelStep(step: StreamStep): boolean {
-  return step.name === 'show_panel' && step.status === 'completed' && !!step.result
+function canViewStep(step: StreamStep): boolean {
+  return step.type === 'tool_call' && step.status === 'completed' && !!step.result
 }
 
 function scrollToBottom() {
@@ -142,16 +142,16 @@ onMounted(() => {
               <Wrench :size="12" class="text-muted-foreground shrink-0" />
               <span class="font-mono truncate flex-1 text-left">{{ step.name }}</span>
 
-              <!-- View in Canvas button for show_panel -->
+              <!-- View button for completed tool results -->
               <Button
-                v-if="isShowPanelStep(step)"
+                v-if="canViewStep(step)"
                 variant="ghost"
                 size="sm"
                 class="h-5 px-1.5 text-[10px] gap-1"
-                @click.stop="emit('viewInCanvas', step)"
+                @click.stop="emit('viewToolResult', step)"
               >
                 <PanelRight :size="10" />
-                Canvas
+                View
               </Button>
 
               <!-- Expand chevron -->
