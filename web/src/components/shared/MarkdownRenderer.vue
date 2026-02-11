@@ -1,12 +1,17 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
+import { highlightCode, normalizeLanguage } from '@/utils/codeHighlight'
 
 const props = defineProps<{
   content: string
   inline?: boolean
 }>()
+
+const rootRef = ref<HTMLElement | null>(null)
+const copyHandlers = new WeakMap<HTMLButtonElement, EventListener>()
+let renderVersion = 0
 
 marked.use({
   gfm: true,
@@ -31,10 +36,122 @@ const html = computed(() => {
     FORCE_BODY: true,
   })
 })
+
+function cleanupCopyHandlers() {
+  const root = rootRef.value
+  if (!root) return
+
+  const buttons = root.querySelectorAll<HTMLButtonElement>('.rf-code-copy-btn')
+  for (const button of buttons) {
+    const handler = copyHandlers.get(button)
+    if (handler) {
+      button.removeEventListener('click', handler)
+      copyHandlers.delete(button)
+    }
+  }
+}
+
+function extractCodeLanguage(codeElement: HTMLElement): string {
+  const languageMatch = codeElement.className.match(/language-([a-z0-9+-]+)/i)
+  return normalizeLanguage(languageMatch?.[1] || 'text')
+}
+
+function setCopyButtonState(button: HTMLButtonElement, text: string) {
+  button.textContent = text
+}
+
+function attachCopyHandler(button: HTMLButtonElement, code: string) {
+  const handler = async () => {
+    try {
+      await navigator.clipboard.writeText(code)
+      setCopyButtonState(button, 'Copied')
+      window.setTimeout(() => setCopyButtonState(button, 'Copy'), 2000)
+    } catch {
+      setCopyButtonState(button, 'Failed')
+      window.setTimeout(() => setCopyButtonState(button, 'Copy'), 2000)
+    }
+  }
+
+  button.addEventListener('click', handler)
+  copyHandlers.set(button, handler)
+}
+
+function createCodeBlockWrapper(code: string, language: string, originalPre: HTMLElement) {
+  const wrapper = document.createElement('div')
+  wrapper.className = 'rf-code-block'
+  wrapper.dataset.lang = language
+
+  const header = document.createElement('div')
+  header.className = 'rf-code-header'
+
+  const langBadge = document.createElement('span')
+  langBadge.className = 'rf-code-lang'
+  langBadge.textContent = language
+
+  const copyButton = document.createElement('button')
+  copyButton.type = 'button'
+  copyButton.className = 'rf-code-copy-btn'
+  copyButton.textContent = 'Copy'
+  copyButton.setAttribute('aria-label', 'Copy code')
+  attachCopyHandler(copyButton, code)
+
+  header.append(langBadge, copyButton)
+
+  const content = document.createElement('div')
+  content.className = 'rf-code-content'
+  content.appendChild(originalPre.cloneNode(true))
+
+  wrapper.append(header, content)
+  return { wrapper, content }
+}
+
+async function enhanceCodeBlocks(version: number) {
+  if (props.inline) return
+
+  const root = rootRef.value
+  if (!root) return
+
+  cleanupCopyHandlers()
+  const codeBlocks = Array.from(root.querySelectorAll<HTMLElement>('pre > code'))
+
+  for (const codeElement of codeBlocks) {
+    if (version !== renderVersion) return
+
+    const preElement = codeElement.parentElement as HTMLElement | null
+    if (!preElement) continue
+
+    const language = extractCodeLanguage(codeElement)
+    const sourceCode = codeElement.textContent || ''
+    const { wrapper, content } = createCodeBlockWrapper(sourceCode, language, preElement)
+    preElement.replaceWith(wrapper)
+
+    try {
+      const highlightedHtml = await highlightCode(sourceCode, language)
+      if (version !== renderVersion) return
+      content.innerHTML = highlightedHtml
+    } catch {
+      // Keep existing fallback pre/code content
+    }
+  }
+}
+
+watch(
+  html,
+  async () => {
+    const nextVersion = ++renderVersion
+    await nextTick()
+    await enhanceCodeBlocks(nextVersion)
+  },
+  { immediate: true },
+)
+
+onBeforeUnmount(() => {
+  cleanupCopyHandlers()
+})
 </script>
 
 <template>
-  <div class="markdown-renderer" :class="{ inline: inline }" v-html="html" />
+  <div ref="rootRef" class="markdown-renderer" :class="{ inline: inline }" v-html="html" />
 </template>
 
 <style lang="scss">
@@ -140,6 +257,67 @@ const html = computed(() => {
       font-size: var(--rf-font-size-sm);
       line-height: var(--rf-line-height-base);
     }
+  }
+
+  .rf-code-block {
+    margin: var(--rf-spacing-md) 0;
+    border: 1px solid var(--rf-color-border-light);
+    border-radius: var(--rf-radius-base);
+    overflow: hidden;
+    background: var(--rf-color-bg-secondary);
+  }
+
+  .rf-code-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--rf-spacing-sm);
+    padding: var(--rf-spacing-xs) var(--rf-spacing-sm);
+    border-bottom: 1px solid var(--rf-color-border-light);
+    background: color-mix(in srgb, var(--rf-color-bg-secondary) 90%, black 10%);
+  }
+
+  .rf-code-lang {
+    font-size: var(--rf-font-size-xs);
+    text-transform: uppercase;
+    color: var(--rf-color-text-secondary);
+  }
+
+  .rf-code-copy-btn {
+    border: none;
+    background: transparent;
+    color: var(--rf-color-text-secondary);
+    font-size: var(--rf-font-size-xs);
+    cursor: pointer;
+    padding: var(--rf-spacing-3xs) var(--rf-spacing-xs);
+    border-radius: var(--rf-radius-small);
+  }
+
+  .rf-code-copy-btn:hover {
+    background: color-mix(in srgb, var(--rf-color-primary) 12%, transparent);
+    color: var(--rf-color-text-primary);
+  }
+
+  .rf-code-content {
+    overflow-x: auto;
+  }
+
+  .rf-code-fallback {
+    margin: 0;
+    padding: var(--rf-spacing-md);
+  }
+
+  :deep(.shiki) {
+    margin: 0;
+    padding: var(--rf-spacing-md);
+    overflow-x: auto;
+    background: var(--rf-color-bg-secondary);
+  }
+
+  :deep(.shiki code) {
+    font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+    font-size: var(--rf-font-size-sm);
+    line-height: var(--rf-line-height-base);
   }
 
   blockquote {
