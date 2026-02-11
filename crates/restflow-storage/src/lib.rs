@@ -14,6 +14,7 @@ pub mod auth_profiles;
 pub mod background_agent;
 pub mod chat_session;
 pub mod config;
+pub mod daemon_state;
 pub mod keychain;
 pub mod memory;
 mod paths;
@@ -38,6 +39,7 @@ pub use auth_profiles::AuthProfileStorage;
 pub use background_agent::BackgroundAgentStorage;
 pub use chat_session::ChatSessionStorage;
 pub use config::{ConfigStorage, SystemConfig};
+pub use daemon_state::DaemonStateStorage;
 pub use memory::{MemoryStorage, PutChunkResult};
 pub use secrets::{Secret, SecretStorage, SecretStorageConfig};
 pub use shared_space::SharedSpaceStorage;
@@ -54,6 +56,7 @@ pub struct Storage {
     pub agents: AgentStorage,
     pub background_agents: BackgroundAgentStorage,
     pub secrets: SecretStorage,
+    pub daemon_state: DaemonStateStorage,
     pub skills: SkillStorage,
     pub terminal_sessions: TerminalSessionStorage,
     pub memory: MemoryStorage,
@@ -73,6 +76,7 @@ impl Storage {
         let agents = AgentStorage::new(db.clone())?;
         let background_agents = BackgroundAgentStorage::new(db.clone())?;
         let secrets = SecretStorage::new(db.clone())?;
+        let daemon_state = DaemonStateStorage::new(db.clone())?;
         let skills = SkillStorage::new(db.clone())?;
         let terminal_sessions = TerminalSessionStorage::new(db.clone())?;
         let memory = MemoryStorage::new(db.clone())?;
@@ -85,6 +89,7 @@ impl Storage {
             agents,
             background_agents,
             secrets,
+            daemon_state,
             skills,
             terminal_sessions,
             memory,
