@@ -221,7 +221,7 @@ mod tests {
                 "value": 8
             }))
             .await;
-        let err = result.err().expect("expected write-guard error");
+        let err = result.expect_err("expected write-guard error");
         assert!(
             err.to_string()
                 .contains("Available read-only operations: get, list")
@@ -240,7 +240,7 @@ mod tests {
                 "value": 8
             }))
             .await;
-        let err = result.err().expect("expected unknown field error");
+        let err = result.expect_err("expected unknown field error");
         let message = err.to_string();
 
         assert!(message.contains("Unknown config field: 'invalid_field'"));

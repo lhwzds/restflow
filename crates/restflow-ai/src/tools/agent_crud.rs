@@ -207,7 +207,7 @@ mod tests {
         let result = tool
             .execute(json!({"operation": "create", "name": "Agent", "agent": {}}))
             .await;
-        let err = result.err().expect("expected write-guard error");
+        let err = result.expect_err("expected write-guard error");
         assert!(
             err.to_string()
                 .contains("Available read-only operations: list, get")

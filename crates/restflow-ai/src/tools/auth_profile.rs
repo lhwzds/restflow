@@ -279,7 +279,7 @@ mod tests {
                 "credential": {"type": "api_key", "key": "secret"}
             }))
             .await;
-        let err = result.err().expect("expected write-guard error");
+        let err = result.expect_err("expected write-guard error");
         assert!(
             err.to_string()
                 .contains("Available read-only operations: list, get")

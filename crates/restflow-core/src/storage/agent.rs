@@ -136,14 +136,13 @@ impl AgentStorage {
 mod tests {
     use super::*;
     use crate::models::AIModel;
-    use std::sync::{Mutex, OnceLock};
+    use crate::prompt_files;
     use tempfile::tempdir;
 
     const AGENTS_DIR_ENV: &str = "RESTFLOW_AGENTS_DIR";
 
     fn env_lock() -> std::sync::MutexGuard<'static, ()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(())).lock().unwrap()
+        prompt_files::agents_dir_env_lock()
     }
 
     fn create_test_agent_node() -> AgentNode {
