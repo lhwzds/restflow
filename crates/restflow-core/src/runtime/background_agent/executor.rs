@@ -170,7 +170,7 @@ impl AgentRuntimeExecutor {
     fn default_model_for_provider(provider: Provider) -> AIModel {
         match provider {
             Provider::OpenAI => AIModel::Gpt5,
-            Provider::Anthropic => AIModel::ClaudeSonnet4_5,
+            Provider::Anthropic => AIModel::ClaudeOpus4_6,
             Provider::DeepSeek => AIModel::DeepseekChat,
             Provider::Google => AIModel::Gemini25Pro,
             Provider::Groq => AIModel::GroqLlama4Maverick,
@@ -208,8 +208,8 @@ impl AgentRuntimeExecutor {
 
         // Then try provider-specific auth profiles.
         let profile_order = [
-            (AuthProvider::ClaudeCode, AIModel::ClaudeSonnet4_5),
-            (AuthProvider::Anthropic, AIModel::ClaudeSonnet4_5),
+            (AuthProvider::ClaudeCode, AIModel::ClaudeCodeOpus),
+            (AuthProvider::Anthropic, AIModel::ClaudeOpus4_6),
             (AuthProvider::OpenAI, AIModel::Gpt5),
             (AuthProvider::Google, AIModel::Gemini25Pro),
         ];
@@ -1114,6 +1114,7 @@ impl AgentExecutor for AgentRuntimeExecutor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::auth::{AuthProvider, Credential, CredentialSource};
     use crate::models::AgentNode;
     use crate::runtime::subagent::{AgentDefinitionRegistry, SubagentConfig, SubagentTracker};
     use tempfile::tempdir;
@@ -1172,6 +1173,37 @@ mod tests {
 
         let resolved = executor.resolve_primary_model(&node).await.unwrap();
         assert_eq!(resolved, AIModel::Gpt5);
+    }
+
+    #[tokio::test]
+    async fn test_resolve_primary_model_uses_anthropic_opus_when_model_missing() {
+        let (storage, _temp_dir) = create_test_storage();
+        let executor = create_test_executor(storage);
+        executor
+            .auth_manager
+            .add_profile_from_credential(
+                "anthropic-test",
+                Credential::ApiKey {
+                    key: "test-anthropic-key".to_string(),
+                    email: None,
+                },
+                CredentialSource::Manual,
+                AuthProvider::Anthropic,
+            )
+            .await
+            .unwrap();
+        let node = AgentNode::new();
+
+        let resolved = executor.resolve_primary_model(&node).await.unwrap();
+        assert_eq!(resolved, AIModel::ClaudeOpus4_6);
+    }
+
+    #[test]
+    fn test_default_model_for_provider_uses_anthropic_opus() {
+        assert_eq!(
+            AgentRuntimeExecutor::default_model_for_provider(Provider::Anthropic),
+            AIModel::ClaudeOpus4_6
+        );
     }
 
     #[tokio::test]
