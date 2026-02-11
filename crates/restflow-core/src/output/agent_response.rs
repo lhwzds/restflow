@@ -1,41 +1,31 @@
-const EVIDENCE_HEADER: &str = "### Evidence";
-const OPERATION_HEADER: &str = "### Operation";
-const VERIFICATION_HEADER: &str = "### Verification";
-
-fn normalize_section_content(content: &str, fallback: &str) -> String {
+pub fn ensure_success_output(content: &str, operation: &str, _verification: &str) -> String {
     let trimmed = content.trim();
-    if trimmed.is_empty() {
-        fallback.to_string()
-    } else {
-        trimmed.to_string()
-    }
-}
-
-fn has_contract_sections(content: &str) -> bool {
-    let lower = content.to_ascii_lowercase();
-    lower.contains("evidence") && lower.contains("operation") && lower.contains("verification")
-}
-
-fn format_contract(evidence: &str, operation: &str, verification: &str) -> String {
-    format!(
-        "{EVIDENCE_HEADER}\n{}\n\n{OPERATION_HEADER}\n{}\n\n{VERIFICATION_HEADER}\n{}",
-        normalize_section_content(evidence, "No concrete evidence available."),
-        normalize_section_content(operation, "Operation details are unavailable."),
-        normalize_section_content(verification, "Verification details are unavailable.")
-    )
-}
-
-pub fn ensure_success_output(content: &str, operation: &str, verification: &str) -> String {
-    let trimmed = content.trim();
-    if has_contract_sections(trimmed) {
+    if !trimmed.is_empty() {
         return trimmed.to_string();
     }
 
-    format_contract(trimmed, operation, verification)
+    let operation = operation.trim();
+    if operation.is_empty() {
+        "Done.".to_string()
+    } else {
+        operation.to_string()
+    }
 }
 
 pub fn format_error_output(error_detail: &str, operation: &str, verification: &str) -> String {
-    format_contract(error_detail, operation, verification)
+    let detail = error_detail.trim();
+    if !detail.is_empty() {
+        return detail.to_string();
+    }
+
+    let operation = operation.trim();
+    let verification = verification.trim();
+    match (operation.is_empty(), verification.is_empty()) {
+        (false, false) => format!("Execution failed. {operation} {verification}"),
+        (false, true) => format!("Execution failed. {operation}"),
+        (true, false) => format!("Execution failed. {verification}"),
+        (true, true) => "Execution failed.".to_string(),
+    }
 }
 
 #[cfg(test)]
@@ -43,39 +33,50 @@ mod tests {
     use super::{ensure_success_output, format_error_output};
 
     #[test]
-    fn ensure_success_output_wraps_plain_text() {
+    fn ensure_success_output_keeps_plain_text() {
         let rendered = ensure_success_output(
             "Final answer payload",
             "Executed the requested agent workflow.",
             "Checked for execution-time failures.",
         );
 
-        assert!(rendered.contains("### Evidence"));
-        assert!(rendered.contains("### Operation"));
-        assert!(rendered.contains("### Verification"));
-        assert!(rendered.contains("Final answer payload"));
+        assert_eq!(rendered, "Final answer payload");
     }
 
     #[test]
-    fn ensure_success_output_keeps_existing_contract() {
-        let existing = "### Evidence\nA\n\n### Operation\nB\n\n### Verification\nC";
-        let rendered =
-            ensure_success_output(existing, "Operation fallback", "Verification fallback");
-
-        assert_eq!(rendered, existing);
+    fn ensure_success_output_uses_operation_when_content_empty() {
+        let rendered = ensure_success_output("", "Operation fallback", "Verification fallback");
+        assert_eq!(rendered, "Operation fallback");
     }
 
     #[test]
-    fn format_error_output_renders_contract_sections() {
+    fn ensure_success_output_uses_default_when_all_empty() {
+        let rendered = ensure_success_output("", "", "");
+        assert_eq!(rendered, "Done.");
+    }
+
+    #[test]
+    fn format_error_output_keeps_detail() {
         let rendered = format_error_output(
             "Tool call failed: timeout",
             "Tried to execute the task with configured tools.",
             "Failure confirmed from runtime error path.",
         );
 
-        assert!(rendered.contains("Tool call failed: timeout"));
-        assert!(rendered.contains("### Evidence"));
-        assert!(rendered.contains("### Operation"));
-        assert!(rendered.contains("### Verification"));
+        assert_eq!(rendered, "Tool call failed: timeout");
+    }
+
+    #[test]
+    fn format_error_output_builds_fallback_message() {
+        let rendered = format_error_output(
+            "",
+            "Attempted to process request.",
+            "Please retry after fixing configuration.",
+        );
+
+        assert_eq!(
+            rendered,
+            "Execution failed. Attempted to process request. Please retry after fixing configuration."
+        );
     }
 }
