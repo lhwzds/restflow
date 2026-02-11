@@ -1247,12 +1247,9 @@ impl BackgroundAgentRunner {
     /// Scans for `{{...}}` placeholders left-to-right; replacement values are
     /// emitted verbatim so any `{{` inside a value will NOT be re-expanded.
     fn render_input_template(task: &BackgroundAgent, template: &str) -> String {
-        use std::collections::HashMap;
-
         let now = chrono::Utc::now();
-        // NOTE: Background agent templates must use `{{task.input}}`.
-        // The legacy alias `{{input}}` is intentionally not substituted.
-        let replacements: HashMap<&str, String> = HashMap::from([
+        // NOTE: `{{task.input}}` is preferred. `{{input}}` is kept for compatibility.
+        let replacement_strings = std::collections::HashMap::from([
             ("{{task.id}}", task.id.clone()),
             ("{{task.name}}", task.name.clone()),
             ("{{task.agent_id}}", task.agent_id.clone()),
@@ -1273,29 +1270,11 @@ impl BackgroundAgentRunner {
             ("{{now.iso}}", now.to_rfc3339()),
             ("{{now.unix_ms}}", now.timestamp_millis().to_string()),
         ]);
-
-        let mut rendered = String::with_capacity(template.len());
-        let mut rest = template;
-
-        while let Some(start) = rest.find("{{") {
-            rendered.push_str(&rest[..start]);
-            if let Some(end_offset) = rest[start..].find("}}") {
-                let key = &rest[start..start + end_offset + 2];
-                if let Some(value) = replacements.get(key) {
-                    rendered.push_str(value);
-                } else {
-                    // Unknown placeholder — keep as-is
-                    rendered.push_str(key);
-                }
-                rest = &rest[start + end_offset + 2..];
-            } else {
-                // No closing }} — emit rest as-is
-                rendered.push_str(&rest[start..]);
-                rest = "";
-            }
-        }
-        rendered.push_str(rest);
-        rendered
+        let replacements: std::collections::HashMap<&str, &str> = replacement_strings
+            .iter()
+            .map(|(key, value)| (*key, value.as_str()))
+            .collect();
+        crate::utils::template::render_template_single_pass(template, &replacements)
     }
 
     fn format_optional_timestamp(timestamp: Option<i64>) -> String {
