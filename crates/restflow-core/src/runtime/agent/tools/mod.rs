@@ -77,6 +77,7 @@ pub fn main_agent_default_tool_names() -> Vec<String> {
         "manage_marketplace",
         "manage_triggers",
         "manage_terminal",
+        "manage_ops",
         "security_query",
         "switch_model",
         "skill",
@@ -258,6 +259,7 @@ pub fn registry_from_allowlist(
     let mut enable_manage_marketplace = false;
     let mut enable_manage_triggers = false;
     let mut enable_manage_terminal = false;
+    let mut enable_manage_ops = false;
     let mut enable_security_query = false;
     let mut enable_skill = false;
     let mut enable_memory_search = false;
@@ -368,6 +370,9 @@ pub fn registry_from_allowlist(
             "manage_terminal" => {
                 enable_manage_terminal = true;
             }
+            "manage_ops" => {
+                enable_manage_ops = true;
+            }
             "security_query" => {
                 enable_security_query = true;
             }
@@ -432,6 +437,7 @@ pub fn registry_from_allowlist(
         || enable_manage_marketplace
         || enable_manage_triggers
         || enable_manage_terminal
+        || enable_manage_ops
         || enable_security_query
         || enable_skill
         || enable_memory_search
@@ -469,6 +475,7 @@ pub fn registry_from_allowlist(
                 ("manage_marketplace", enable_manage_marketplace),
                 ("manage_triggers", enable_manage_triggers),
                 ("manage_terminal", enable_manage_terminal),
+                ("manage_ops", enable_manage_ops),
                 ("security_query", enable_security_query),
                 ("skill", enable_skill),
                 ("memory_search", enable_memory_search),
@@ -506,6 +513,7 @@ pub fn registry_from_allowlist(
                 ("manage_marketplace", enable_manage_marketplace),
                 ("manage_triggers", enable_manage_triggers),
                 ("manage_terminal", enable_manage_terminal),
+                ("manage_ops", enable_manage_ops),
                 ("security_query", enable_security_query),
                 ("skill", enable_skill),
                 ("memory_search", enable_memory_search),
@@ -599,6 +607,7 @@ mod tests {
             "manage_marketplace".to_string(),
             "manage_triggers".to_string(),
             "manage_terminal".to_string(),
+            "manage_ops".to_string(),
             "security_query".to_string(),
         ];
 
@@ -607,6 +616,7 @@ mod tests {
         assert!(registry.has("manage_marketplace"));
         assert!(registry.has("manage_triggers"));
         assert!(registry.has("manage_terminal"));
+        assert!(registry.has("manage_ops"));
         assert!(registry.has("security_query"));
     }
 
@@ -621,6 +631,7 @@ mod tests {
         assert!(tools.iter().any(|name| name == "manage_marketplace"));
         assert!(tools.iter().any(|name| name == "manage_triggers"));
         assert!(tools.iter().any(|name| name == "manage_terminal"));
+        assert!(tools.iter().any(|name| name == "manage_ops"));
         assert!(tools.iter().any(|name| name == "security_query"));
     }
 
