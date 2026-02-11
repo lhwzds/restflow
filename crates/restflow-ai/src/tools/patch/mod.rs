@@ -52,20 +52,32 @@ impl PatchTool {
                     normalize_path(base)
                 };
                 if !canonical.starts_with(&canonical_base) {
-                    return Err("Path escapes base directory".to_string());
+                    return Err(format!(
+                        "Path '{}' escapes allowed base directory '{}'. All file operations must be within this directory.",
+                        canonical.display(),
+                        canonical_base.display()
+                    ));
                 }
                 return Ok(canonical);
             }
 
             if base.exists() {
                 let Some((ancestor, suffix)) = find_existing_ancestor(&resolved) else {
-                    return Err("Path escapes base directory".to_string());
+                    return Err(format!(
+                        "Path '{}' escapes allowed base directory '{}'. All file operations must be within this directory.",
+                        resolved.display(),
+                        base.display()
+                    ));
                 };
                 let canonical_parent = ancestor.canonicalize().map_err(|e| e.to_string())?;
                 let candidate = normalize_path(&canonical_parent.join(suffix));
                 let canonical_base = base.canonicalize().map_err(|e| e.to_string())?;
                 if !candidate.starts_with(&canonical_base) {
-                    return Err("Path escapes base directory".to_string());
+                    return Err(format!(
+                        "Path '{}' escapes allowed base directory '{}'. All file operations must be within this directory.",
+                        candidate.display(),
+                        canonical_base.display()
+                    ));
                 }
                 return Ok(candidate);
             }
@@ -73,7 +85,11 @@ impl PatchTool {
             let canonical_base = normalize_path(base);
             let normalized = normalize_path(&resolved);
             if !normalized.starts_with(&canonical_base) {
-                return Err("Path escapes base directory".to_string());
+                return Err(format!(
+                    "Path '{}' escapes allowed base directory '{}'. All file operations must be within this directory.",
+                    normalized.display(),
+                    canonical_base.display()
+                ));
             }
 
             Ok(normalized)
@@ -334,6 +350,7 @@ fn find_existing_ancestor(path: &Path) -> Option<(PathBuf, PathBuf)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tools::traits::Tool;
 
     #[tokio::test]
     async fn apply_operations_add_update_delete() {
@@ -348,5 +365,24 @@ mod tests {
         let operations = parse_patch(patch).unwrap();
         let result = tool.apply_operations(&operations).await;
         assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn patch_escape_error_includes_path_and_base_dir() {
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let tracker = Arc::new(FileTracker::new());
+        let tool = PatchTool::new(tracker).with_base_dir(temp_dir.path());
+
+        let output = tool
+            .execute(serde_json::json!({
+                "patch": "*** Add File: ../outside.txt\n+blocked"
+            }))
+            .await
+            .unwrap();
+
+        assert!(!output.success);
+        let error = output.error.unwrap();
+        assert!(error.contains("escapes allowed base directory"));
+        assert!(error.contains(temp_dir.path().display().to_string().as_str()));
     }
 }
