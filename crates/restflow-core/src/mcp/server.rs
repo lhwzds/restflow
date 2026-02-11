@@ -2045,12 +2045,17 @@ mod tests {
         assert!(result.is_ok());
         let json = result.unwrap();
         let skills: Vec<SkillSummary> = serde_json::from_str(&json).unwrap();
-        assert!(skills.is_empty());
+        assert_eq!(skills.len(), 1);
+        assert_eq!(skills[0].id, "self-heal-ops");
     }
 
     #[tokio::test]
     async fn test_list_skills_multiple() {
         let (server, core, _temp_dir) = create_test_server().await;
+
+        let base_json = server.handle_list_skills().await.unwrap();
+        let base_skills: Vec<SkillSummary> = serde_json::from_str(&base_json).unwrap();
+        let base_len = base_skills.len();
 
         // Create skills using the service layer
         let skill1 = create_test_skill("skill-1", "Skill One");
@@ -2068,7 +2073,7 @@ mod tests {
         assert!(result.is_ok());
         let json = result.unwrap();
         let skills: Vec<SkillSummary> = serde_json::from_str(&json).unwrap();
-        assert_eq!(skills.len(), 2);
+        assert_eq!(skills.len(), base_len + 2);
     }
 
     #[tokio::test]
@@ -2111,6 +2116,10 @@ mod tests {
     async fn test_create_skill_success() {
         let (server, _core, _temp_dir) = create_test_server().await;
 
+        let base_json = server.handle_list_skills().await.unwrap();
+        let base_skills: Vec<SkillSummary> = serde_json::from_str(&base_json).unwrap();
+        let base_len = base_skills.len();
+
         let params = CreateSkillParams {
             name: "New Skill".to_string(),
             description: Some("A new skill".to_string()),
@@ -2126,8 +2135,8 @@ mod tests {
         // Verify it was persisted
         let skills = server.handle_list_skills().await.unwrap();
         let skill_list: Vec<SkillSummary> = serde_json::from_str(&skills).unwrap();
-        assert_eq!(skill_list.len(), 1);
-        assert_eq!(skill_list[0].name, "New Skill");
+        assert_eq!(skill_list.len(), base_len + 1);
+        assert!(skill_list.iter().any(|s| s.name == "New Skill"));
     }
 
     #[tokio::test]
@@ -2388,6 +2397,10 @@ mod tests {
     async fn test_skill_crud_workflow() {
         let (server, _core, _temp_dir) = create_test_server().await;
 
+        let base_json = server.handle_list_skills().await.unwrap();
+        let base_skills: Vec<SkillSummary> = serde_json::from_str(&base_json).unwrap();
+        let base_len = base_skills.len();
+
         // 1. Create
         let create_params = CreateSkillParams {
             name: "Workflow Skill".to_string(),
@@ -2401,8 +2414,13 @@ mod tests {
         // 2. List to get ID
         let list_json = server.handle_list_skills().await.unwrap();
         let skills: Vec<SkillSummary> = serde_json::from_str(&list_json).unwrap();
-        assert_eq!(skills.len(), 1);
-        let skill_id = skills[0].id.clone();
+        assert_eq!(skills.len(), base_len + 1);
+        let skill_id = skills
+            .iter()
+            .find(|skill| skill.name == "Workflow Skill")
+            .unwrap()
+            .id
+            .clone();
 
         // 3. Get
         let get_params = GetSkillParams {
@@ -2440,7 +2458,7 @@ mod tests {
         // 7. Verify deletion
         let final_list = server.handle_list_skills().await.unwrap();
         let final_skills: Vec<SkillSummary> = serde_json::from_str(&final_list).unwrap();
-        assert!(final_skills.is_empty());
+        assert_eq!(final_skills.len(), base_len);
     }
 
     #[cfg(unix)]
@@ -2515,6 +2533,10 @@ mod tests {
         });
         let mcp_server = RestFlowMcpServer::with_ipc(client);
 
+        let base_json = mcp_server.handle_list_skills().await.unwrap();
+        let base_skills: Vec<SkillSummary> = serde_json::from_str(&base_json).unwrap();
+        let base_len = base_skills.len();
+
         let skill = create_test_skill("ipc-skill", "IPC Skill");
         crate::services::skills::create_skill(&core, skill)
             .await
@@ -2522,8 +2544,8 @@ mod tests {
 
         let json = mcp_server.handle_list_skills().await.unwrap();
         let skills: Vec<SkillSummary> = serde_json::from_str(&json).unwrap();
-        assert_eq!(skills.len(), 1);
-        assert_eq!(skills[0].name, "IPC Skill");
+        assert_eq!(skills.len(), base_len + 1);
+        assert!(skills.iter().any(|s| s.name == "IPC Skill"));
 
         let _ = shutdown_tx.send(());
         if let Some(handle) = server_handle.take() {
