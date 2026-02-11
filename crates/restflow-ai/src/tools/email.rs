@@ -143,7 +143,7 @@ impl Tool for EmailTool {
             // TODO: Implement actual SMTP sending
             // For now, return error indicating not configured
             Ok(ToolOutput::error(
-                "SMTP not configured. Set dry_run=false only when SMTP is configured.",
+                "SMTP is not configured. Email sending unavailable. Use telegram_send as an alternative notification method, or ask the user to configure SMTP settings.",
             ))
         }
     }
@@ -175,5 +175,24 @@ mod tests {
         let result = tool.execute(input).await.unwrap();
         assert!(result.success);
         assert_eq!(result.result["dry_run"], true);
+    }
+
+    #[tokio::test]
+    async fn test_email_tool_reports_missing_smtp_config() {
+        let tool = EmailTool::with_dry_run(false);
+        let input = json!({
+            "to": "test@example.com",
+            "subject": "Test",
+            "body": "Hello"
+        });
+
+        let result = tool.execute(input).await.unwrap();
+        assert!(!result.success);
+        assert!(
+            result
+                .error
+                .unwrap_or_default()
+                .contains("SMTP is not configured")
+        );
     }
 }
