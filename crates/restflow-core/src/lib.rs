@@ -8,6 +8,7 @@ pub mod lsp;
 pub mod mcp;
 pub mod memory;
 pub mod models;
+pub mod output;
 pub mod paths;
 pub mod performance;
 pub mod process;

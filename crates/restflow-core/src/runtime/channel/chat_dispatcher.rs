@@ -10,6 +10,7 @@ use tracing::{debug, error, info, warn};
 use crate::auth::AuthProfileManager;
 use crate::channel::{ChannelReplySender, ChannelRouter, InboundMessage, OutboundMessage};
 use crate::models::{ChatMessage, ChatSession};
+use crate::output::{ensure_success_output, format_error_output};
 use crate::process::ProcessRegistry;
 use crate::runtime::background_agent::{AgentRuntimeExecutor, SessionInputMode};
 use crate::storage::Storage;
@@ -487,18 +488,28 @@ impl ChatDispatcher {
             }
         }
 
+        let verification = format!(
+            "Response is ready for channel {:?} in session {}.",
+            message.channel_type, session.id
+        );
+        let structured_output = ensure_success_output(
+            &exec_result.output,
+            "Processed the inbound message using the active agent, available tools, and session context.",
+            &verification,
+        );
+
         // 5. Save exchange to session
         if let Err(e) = self.sessions.append_exchange(
             &session.id,
             &message.content,
-            &exec_result.output,
+            &structured_output,
             Some(&exec_result.active_model),
         ) {
             warn!("Failed to save exchange to session: {}", e);
         }
 
         // 6. Send response (plain message without emoji prefix for AI chat)
-        let response = OutboundMessage::plain(&message.conversation_id, &exec_result.output);
+        let response = OutboundMessage::plain(&message.conversation_id, &structured_output);
         self.channel_router
             .send_to(message.channel_type, response)
             .await?;
@@ -506,7 +517,7 @@ impl ChatDispatcher {
         info!(
             "Chat response sent for session {} (output length: {} chars)",
             session.id,
-            exec_result.output.len()
+            structured_output.len()
         );
 
         Ok(())
@@ -522,7 +533,11 @@ impl ChatDispatcher {
     /// Send an error response to the user.
     async fn send_error_response(&self, message: &InboundMessage, error: ChatError) -> Result<()> {
         let error_text = error.user_message_with_details();
-        let mut response = OutboundMessage::warning(&message.conversation_id, &error_text);
+        let operation = "Attempted to process the incoming message through chat session resolution and agent execution.";
+        let verification =
+            "Execution failed. Review the evidence above, adjust configuration/input, and retry.";
+        let structured_error = format_error_output(&error_text, operation, verification);
+        let mut response = OutboundMessage::warning(&message.conversation_id, &structured_error);
         // Error details can include arbitrary characters from provider/tool errors.
         // Use plain text mode to avoid markdown parse failures in channel adapters.
         response.parse_mode = None;
