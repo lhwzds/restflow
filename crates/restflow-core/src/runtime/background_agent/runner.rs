@@ -20,7 +20,7 @@ use crate::performance::{
 use crate::steer::SteerRegistry;
 use crate::storage::{BackgroundAgentStorage, MemoryStorage};
 use anyhow::{Result, anyhow};
-use restflow_ai::llm::Message;
+use restflow_ai::{agent::StreamEmitter, llm::Message};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -29,6 +29,7 @@ use tokio::time::{Duration, Instant, interval};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
+use super::broadcast_emitter::BroadcastStreamEmitter;
 use super::events::{NoopEventEmitter, TaskEventEmitter, TaskStreamEvent};
 use super::persist::MemoryPersister;
 
@@ -186,6 +187,24 @@ pub trait AgentExecutor: Send + Sync {
         memory_config: &MemoryConfig,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
     ) -> Result<ExecutionResult>;
+
+    /// Execute an agent with an optional streaming emitter for per-step updates.
+    ///
+    /// Default implementation keeps backward compatibility by delegating to
+    /// `execute` and ignoring the emitter.
+    async fn execute_with_emitter(
+        &self,
+        agent_id: &str,
+        background_task_id: Option<&str>,
+        input: Option<&str>,
+        memory_config: &MemoryConfig,
+        steer_rx: Option<mpsc::Receiver<SteerMessage>>,
+        emitter: Option<Box<dyn StreamEmitter>>,
+    ) -> Result<ExecutionResult> {
+        let _ = emitter;
+        self.execute(agent_id, background_task_id, input, memory_config, steer_rx)
+            .await
+    }
 }
 
 /// Notification sender trait for dependency injection
@@ -895,6 +914,21 @@ impl BackgroundAgentRunner {
         };
 
         let resolved_input = self.resolve_task_input(&task);
+        let step_emitter = if matches!(task.execution_mode, ExecutionMode::Api)
+            && task.notification.broadcast_steps
+        {
+            self.channel_router
+                .read()
+                .await
+                .as_ref()
+                .cloned()
+                .map(|router| {
+                    Box::new(BroadcastStreamEmitter::new(task.name.clone(), router))
+                        as Box<dyn StreamEmitter>
+                })
+        } else {
+            None
+        };
 
         let exec_future = async {
             match &task.execution_mode {
@@ -904,12 +938,13 @@ impl BackgroundAgentRunner {
                     let timeout = Duration::from_secs(self.config.task_timeout_secs);
                     tokio::time::timeout(
                         timeout,
-                        self.executor.execute(
+                        self.executor.execute_with_emitter(
                             &task.agent_id,
                             Some(&task.id),
                             resolved_input.as_deref(),
                             &task.memory,
                             steer_rx,
+                            step_emitter,
                         ),
                     )
                     .await
@@ -1479,7 +1514,7 @@ mod tests {
     use crate::hooks::{HookExecutor, HookTaskScheduler};
     use crate::models::{Hook, HookAction, HookEvent, MemoryScope, TaskEventType, TaskSchedule};
     use crate::runtime::background_agent::{ChannelEventEmitter, StreamEventKind};
-    use std::sync::atomic::{AtomicU32, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
     use std::time::Instant;
     use tempfile::tempdir;
 
@@ -1488,6 +1523,7 @@ mod tests {
         call_count: AtomicU32,
         should_fail: bool,
         delay_ms: u64,
+        saw_emitter: AtomicBool,
     }
 
     impl MockExecutor {
@@ -1496,6 +1532,7 @@ mod tests {
                 call_count: AtomicU32::new(0),
                 should_fail: false,
                 delay_ms: 0,
+                saw_emitter: AtomicBool::new(false),
             }
         }
 
@@ -1504,6 +1541,7 @@ mod tests {
                 call_count: AtomicU32::new(0),
                 should_fail: true,
                 delay_ms: 0,
+                saw_emitter: AtomicBool::new(false),
             }
         }
 
@@ -1512,11 +1550,16 @@ mod tests {
                 call_count: AtomicU32::new(0),
                 should_fail: false,
                 delay_ms,
+                saw_emitter: AtomicBool::new(false),
             }
         }
 
         fn call_count(&self) -> u32 {
             self.call_count.load(Ordering::SeqCst)
+        }
+
+        fn saw_emitter(&self) -> bool {
+            self.saw_emitter.load(Ordering::SeqCst)
         }
     }
 
@@ -1543,6 +1586,22 @@ mod tests {
                 // Return empty messages for mock - real executor would return actual conversation
                 Ok(ExecutionResult::success(output, Vec::new()))
             }
+        }
+
+        async fn execute_with_emitter(
+            &self,
+            agent_id: &str,
+            background_task_id: Option<&str>,
+            input: Option<&str>,
+            memory_config: &MemoryConfig,
+            steer_rx: Option<mpsc::Receiver<SteerMessage>>,
+            emitter: Option<Box<dyn StreamEmitter>>,
+        ) -> Result<ExecutionResult> {
+            if emitter.is_some() {
+                self.saw_emitter.store(true, Ordering::SeqCst);
+            }
+            self.execute(agent_id, background_task_id, input, memory_config, steer_rx)
+                .await
         }
     }
 
@@ -1594,6 +1653,25 @@ mod tests {
                 message.to_string(),
             ));
             Ok(())
+        }
+    }
+
+    struct DefaultDelegatingExecutor {
+        call_count: AtomicU32,
+    }
+
+    #[async_trait::async_trait]
+    impl AgentExecutor for DefaultDelegatingExecutor {
+        async fn execute(
+            &self,
+            _agent_id: &str,
+            _background_task_id: Option<&str>,
+            _input: Option<&str>,
+            _memory_config: &MemoryConfig,
+            _steer_rx: Option<mpsc::Receiver<SteerMessage>>,
+        ) -> Result<ExecutionResult> {
+            self.call_count.fetch_add(1, Ordering::SeqCst);
+            Ok(ExecutionResult::success("ok".to_string(), Vec::new()))
         }
     }
 
@@ -2406,6 +2484,70 @@ mod tests {
 
         // Should NOT have sent notification (success with notify_on_failure_only)
         assert_eq!(notifier.notification_count().await, 0);
+    }
+
+    #[tokio::test]
+    async fn test_agent_executor_default_execute_with_emitter_delegates_to_execute() {
+        let executor = DefaultDelegatingExecutor {
+            call_count: AtomicU32::new(0),
+        };
+        let result = executor
+            .execute_with_emitter(
+                "agent-001",
+                None,
+                Some("hello"),
+                &MemoryConfig::default(),
+                None,
+                Some(Box::new(restflow_ai::agent::NullEmitter)),
+            )
+            .await
+            .expect("execution should succeed");
+
+        assert!(result.success);
+        assert_eq!(executor.call_count.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn test_runner_enables_step_emitter_when_broadcast_steps_is_true() {
+        let (storage, _temp_dir) = create_test_storage();
+        let executor = Arc::new(MockExecutor::new());
+        let notifier = Arc::new(NoopNotificationSender);
+
+        let past_time = chrono::Utc::now().timestamp_millis() - 1000;
+        let mut task = storage
+            .create_task(
+                "Step Broadcast".to_string(),
+                "agent-001".to_string(),
+                TaskSchedule::Once { run_at: past_time },
+            )
+            .unwrap();
+        task.next_run_at = Some(past_time);
+        task.notification.broadcast_steps = true;
+        storage.update_task(&task).unwrap();
+
+        let config = RunnerConfig {
+            poll_interval_ms: 100,
+            ..Default::default()
+        };
+
+        let steer_registry = Arc::new(SteerRegistry::new());
+        let runner = Arc::new(BackgroundAgentRunner::new(
+            storage,
+            executor.clone(),
+            notifier,
+            config,
+            steer_registry,
+        ));
+        runner
+            .set_channel_router(Arc::new(ChannelRouter::new()))
+            .await;
+
+        let handle = runner.clone().start();
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        handle.stop().await.unwrap();
+
+        assert_eq!(executor.call_count(), 1);
+        assert!(executor.saw_emitter());
     }
 
     #[tokio::test]
