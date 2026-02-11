@@ -15,9 +15,12 @@ import {
   Loader2,
   PanelRight,
   MessageSquarePlus,
+  Copy,
+  RefreshCw,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import StreamingMarkdown from '@/components/shared/StreamingMarkdown.vue'
+import { useToast } from '@/composables/useToast'
 import type { ChatMessage } from '@/types/generated/ChatMessage'
 import type { StreamStep } from '@/composables/workspace/useChatStream'
 
@@ -31,7 +34,10 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   viewToolResult: [step: StreamStep]
+  regenerate: []
 }>()
+
+const toast = useToast()
 
 const scrollContainer = ref<HTMLElement | null>(null)
 const expandedToolCalls = ref<Set<number>>(new Set())
@@ -46,6 +52,24 @@ function toggleToolCall(index: number) {
 
 function canViewStep(step: StreamStep): boolean {
   return step.type === 'tool_call' && step.status === 'completed' && !!step.result
+}
+
+function isLastAssistantMessage(idx: number): boolean {
+  for (let i = props.messages.length - 1; i >= 0; i--) {
+    if (props.messages[i]?.role === 'assistant') {
+      return i === idx
+    }
+  }
+  return false
+}
+
+async function copyMessage(content: string) {
+  try {
+    await navigator.clipboard.writeText(content)
+    toast.success('Copied to clipboard')
+  } catch {
+    toast.error('Failed to copy')
+  }
 }
 
 function scrollToBottom() {
@@ -75,17 +99,49 @@ onMounted(() => {
       <div
         v-for="(msg, idx) in messages"
         :key="msg.id || idx"
-        :class="[
-          'p-4 rounded-lg',
-          msg.role === 'user'
-            ? 'bg-primary/10 ml-auto max-w-[80%]'
-            : 'bg-muted mr-auto max-w-[90%]',
-        ]"
+        class="group relative"
       >
-        <div class="text-xs text-muted-foreground mb-1">
-          {{ msg.role === 'user' ? 'You' : msg.role === 'assistant' ? 'Assistant' : 'System' }}
+        <div
+          :class="[
+            'p-4 rounded-lg',
+            msg.role === 'user'
+              ? 'bg-primary/10 ml-auto max-w-[80%]'
+              : 'bg-muted mr-auto max-w-[90%]',
+          ]"
+        >
+          <div class="text-xs text-muted-foreground mb-1">
+            {{ msg.role === 'user' ? 'You' : msg.role === 'assistant' ? 'Assistant' : 'System' }}
+          </div>
+          <StreamingMarkdown :content="msg.content || ''" />
         </div>
-        <StreamingMarkdown :content="msg.content || ''" />
+        <!-- Hover action buttons -->
+        <div
+          :class="[
+            'absolute -bottom-2 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 z-10',
+            msg.role === 'user' ? 'right-2' : 'left-2',
+          ]"
+        >
+          <Button
+            v-if="msg.content"
+            variant="outline"
+            size="sm"
+            class="h-6 px-2 text-[10px] bg-background"
+            @click="copyMessage(msg.content)"
+          >
+            <Copy :size="10" class="mr-1" />
+            Copy
+          </Button>
+          <Button
+            v-if="isLastAssistantMessage(idx) && !isStreaming"
+            variant="outline"
+            size="sm"
+            class="h-6 px-2 text-[10px] bg-background"
+            @click="emit('regenerate')"
+          >
+            <RefreshCw :size="10" class="mr-1" />
+            Retry
+          </Button>
+        </div>
       </div>
 
       <!-- Streaming Response (in-progress) -->
