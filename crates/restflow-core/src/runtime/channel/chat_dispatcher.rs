@@ -211,16 +211,12 @@ impl ChatSessionManager {
             session.metadata.last_model = Some(model.to_string());
         }
 
-        // Trim history if needed
-        if session.messages.len() > self.max_history * 2 {
-            let keep_from = session.messages.len() - self.max_history * 2;
-            session.messages = session.messages[keep_from..].to_vec();
-            debug!(
-                "Trimmed session {} history to {} messages",
-                session_id,
-                session.messages.len()
-            );
-        }
+        debug!(
+            "Persisted full history for session {} (stored messages: {}, runtime window: {})",
+            session_id,
+            session.messages.len(),
+            self.max_history
+        );
 
         self.storage.chat_sessions.save(&session)?;
         Ok(())
@@ -719,6 +715,37 @@ mod tests {
             updated.metadata.last_model.as_deref(),
             Some("gpt-5.3-codex")
         );
+    }
+
+    #[tokio::test]
+    async fn test_session_manager_does_not_truncate_stored_history() {
+        let (storage, _temp_dir) = create_test_storage();
+
+        use crate::models::AgentNode;
+        storage
+            .agents
+            .create_agent("Test Agent".to_string(), AgentNode::new())
+            .unwrap();
+        let agents = storage.agents.list_agents().unwrap();
+        let agent_id = agents[0].id.clone();
+
+        let manager = ChatSessionManager::new(storage.clone(), 2).with_default_agent(agent_id);
+        let session = manager.get_or_create_session("conv-1", "user-1").unwrap();
+
+        manager
+            .append_exchange(&session.id, "u1", "a1", None)
+            .unwrap();
+        manager
+            .append_exchange(&session.id, "u2", "a2", None)
+            .unwrap();
+        manager
+            .append_exchange(&session.id, "u3", "a3", None)
+            .unwrap();
+
+        let history = manager.get_history(&session.id).unwrap();
+        assert_eq!(history.len(), 6);
+        assert_eq!(history[0].content, "u1");
+        assert_eq!(history[5].content, "a3");
     }
 
     #[tokio::test]
