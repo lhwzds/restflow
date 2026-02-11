@@ -11,4 +11,8 @@ notify_on_failure_only: boolean,
 /**
  * Include full output in notification
  */
-include_output: boolean, };
+include_output: boolean, 
+/**
+ * Broadcast per-step tool execution updates to configured channels
+ */
+broadcast_steps: boolean, };

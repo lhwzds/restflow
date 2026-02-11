@@ -133,6 +133,9 @@ pub struct NotificationConfig {
     /// Include full output in notification
     #[serde(default = "default_true")]
     pub include_output: bool,
+    /// Broadcast per-step tool execution updates to configured channels
+    #[serde(default)]
+    pub broadcast_steps: bool,
 }
 
 fn default_true() -> bool {
@@ -251,6 +254,7 @@ impl Default for NotificationConfig {
         Self {
             notify_on_failure_only: false,
             include_output: true, // Default to true for include_output
+            broadcast_steps: false,
         }
     }
 }
@@ -1103,6 +1107,19 @@ mod tests {
 
         assert!(!config.notify_on_failure_only);
         assert!(config.include_output);
+        assert!(!config.broadcast_steps);
+    }
+
+    #[test]
+    fn test_notification_config_deserialization_defaults_broadcast_steps_to_false() {
+        let json = serde_json::json!({
+            "notify_on_failure_only": true,
+            "include_output": false
+        });
+
+        let config: NotificationConfig =
+            serde_json::from_value(json).expect("config should deserialize");
+        assert!(!config.broadcast_steps);
     }
 
     #[test]

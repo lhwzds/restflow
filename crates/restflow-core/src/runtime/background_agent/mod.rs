@@ -139,6 +139,7 @@
 //! }
 //! ```
 
+pub mod broadcast_emitter;
 pub mod cli_executor;
 pub mod events;
 pub mod executor;
