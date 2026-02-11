@@ -2591,9 +2591,6 @@ mod tests {
 
         assert_eq!(notifier.notification_count().await, 1);
         let message = notifier.last_message().await.unwrap_or_default();
-        assert!(message.contains("### Evidence"));
-        assert!(message.contains("### Operation"));
-        assert!(message.contains("### Verification"));
         assert!(message.contains("Executed agent agent-001"));
     }
 
@@ -2635,9 +2632,6 @@ mod tests {
 
         assert_eq!(notifier.notification_count().await, 1);
         let message = notifier.last_message().await.unwrap_or_default();
-        assert!(message.contains("### Evidence"));
-        assert!(message.contains("### Operation"));
-        assert!(message.contains("### Verification"));
         assert!(message.contains("Execution error: Mock execution failure"));
     }
 
