@@ -106,8 +106,8 @@ onMounted(() => {
       @back="showSettings = false"
     />
 
-    <!-- Normal chat layout -->
-    <template v-else>
+    <!-- Normal chat layout (v-show avoids unmount/remount of complex component tree) -->
+    <div v-show="!showSettings" class="flex flex-1 min-w-0">
       <!-- Left: Session List -->
       <div class="w-56 border-r border-border shrink-0 flex flex-col">
         <SessionList
@@ -159,6 +159,6 @@ onMounted(() => {
         :content-type="canvas.contentType.value"
         @close="canvas.closeCanvas()"
       />
-    </template>
+    </div>
   </div>
 </template>
