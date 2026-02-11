@@ -220,7 +220,12 @@ impl Tool for WebFetchTool {
 
         let response = match response {
             Ok(r) => r,
-            Err(e) => return Ok(ToolOutput::error(format!("Failed to fetch URL: {}", e))),
+            Err(e) => {
+                return Ok(ToolOutput::error(format!(
+                    "Failed to fetch URL: {}. If the page requires JavaScript, try jina_reader instead. For connection errors, verify the URL is correct.",
+                    e
+                )));
+            }
         };
 
         if !response.status().is_success() {

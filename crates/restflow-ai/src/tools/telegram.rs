@@ -2,6 +2,7 @@
 
 use async_trait::async_trait;
 use reqwest::Client;
+use reqwest::StatusCode;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -59,6 +60,16 @@ impl TelegramTool {
         format!("{}/bot{}/{}", TELEGRAM_API_BASE, bot_token, method)
     }
 
+    fn format_api_error(status: StatusCode, body: &Value) -> String {
+        if let Some(error_desc) = body.get("description").and_then(|v| v.as_str()) {
+            return format!("Telegram API error: {}", error_desc);
+        }
+        format!(
+            "Telegram API returned HTTP {} with no error description. The bot token may be invalid or the chat_id incorrect. Verify with manage_secrets.",
+            status
+        )
+    }
+
     /// Send a message via Telegram Bot API
     async fn send_message(&self, input: &TelegramInput) -> Result<Value> {
         let url = Self::api_url(&input.bot_token, "sendMessage");
@@ -90,13 +101,8 @@ impl TelegramTool {
         if status.is_success() && body.get("ok").and_then(|v| v.as_bool()).unwrap_or(false) {
             Ok(body)
         } else {
-            let error_desc = body
-                .get("description")
-                .and_then(|v| v.as_str())
-                .unwrap_or("Unknown error");
-            Err(crate::error::AiError::Tool(format!(
-                "Telegram API error: {}",
-                error_desc
+            Err(crate::error::AiError::Tool(Self::format_api_error(
+                status, &body,
             )))
         }
     }
@@ -214,6 +220,7 @@ pub async fn send_telegram_notification(
         .send()
         .await
         .map_err(|e| format!("Failed to send Telegram message: {}", e))?;
+    let status = response.status();
 
     let body: Value = response
         .json()
@@ -223,11 +230,7 @@ pub async fn send_telegram_notification(
     if body.get("ok").and_then(|v| v.as_bool()).unwrap_or(false) {
         Ok(())
     } else {
-        let error_desc = body
-            .get("description")
-            .and_then(|v| v.as_str())
-            .unwrap_or("Unknown error");
-        Err(format!("Telegram API error: {}", error_desc))
+        Err(TelegramTool::format_api_error(status, &body))
     }
 }
 
@@ -256,6 +259,22 @@ mod tests {
     fn test_api_url_construction() {
         let url = TelegramTool::api_url("123:ABC", "sendMessage");
         assert_eq!(url, "https://api.telegram.org/bot123:ABC/sendMessage");
+    }
+
+    #[test]
+    fn test_format_api_error_with_description() {
+        let message = TelegramTool::format_api_error(
+            StatusCode::BAD_REQUEST,
+            &json!({"description": "chat not found"}),
+        );
+        assert_eq!(message, "Telegram API error: chat not found");
+    }
+
+    #[test]
+    fn test_format_api_error_without_description() {
+        let message = TelegramTool::format_api_error(StatusCode::UNAUTHORIZED, &json!({}));
+        assert!(message.contains("Telegram API returned HTTP 401"));
+        assert!(message.contains("bot token may be invalid"));
     }
 
     #[tokio::test]

@@ -6,6 +6,7 @@
 
 use async_trait::async_trait;
 use reqwest::Client;
+use reqwest::StatusCode;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -38,6 +39,22 @@ impl JinaReaderTool {
     pub fn new() -> Self {
         Self {
             client: build_http_client(),
+        }
+    }
+
+    fn format_http_error(status: StatusCode, url: &str) -> String {
+        match status {
+            StatusCode::TOO_MANY_REQUESTS => {
+                "Jina Reader rate limited. Wait a moment and retry, or use web_fetch instead."
+                    .to_string()
+            }
+            StatusCode::FORBIDDEN => {
+                "Jina Reader blocked for this URL. Try web_fetch instead.".to_string()
+            }
+            _ => format!(
+                "Jina Reader returned HTTP {} for {}. Try web_fetch as an alternative.",
+                status, url
+            ),
         }
     }
 }
@@ -83,17 +100,16 @@ impl Tool for JinaReaderTool {
             Ok(r) => r,
             Err(e) => {
                 return Ok(ToolOutput::error(format!(
-                    "Failed to connect to Jina Reader: {}",
+                    "Jina Reader service unavailable: {}. Try web_fetch for static pages, or retry later.",
                     e
                 )));
             }
         };
 
         if !response.status().is_success() {
-            return Ok(ToolOutput::error(format!(
-                "Jina Reader returned HTTP {} for {}",
+            return Ok(ToolOutput::error(Self::format_http_error(
                 response.status(),
-                params.url
+                &params.url,
             )));
         }
 
@@ -101,7 +117,7 @@ impl Tool for JinaReaderTool {
             Ok(t) => t,
             Err(e) => {
                 return Ok(ToolOutput::error(format!(
-                    "Failed to read Jina Reader response: {}",
+                    "Failed to read Jina Reader response: {}. Try web_fetch instead.",
                     e
                 )));
             }
@@ -141,5 +157,18 @@ mod tests {
 
         let schema = tool.parameters_schema();
         assert_eq!(schema["required"][0], "url");
+    }
+
+    #[test]
+    fn test_jina_reader_http_error_mapping() {
+        let rate_limit =
+            JinaReaderTool::format_http_error(StatusCode::TOO_MANY_REQUESTS, "https://a.com");
+        assert!(rate_limit.contains("rate limited"));
+
+        let forbidden = JinaReaderTool::format_http_error(StatusCode::FORBIDDEN, "https://a.com");
+        assert!(forbidden.contains("blocked"));
+
+        let generic = JinaReaderTool::format_http_error(StatusCode::BAD_GATEWAY, "https://a.com");
+        assert!(generic.contains("Try web_fetch as an alternative"));
     }
 }
