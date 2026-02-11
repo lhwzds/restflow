@@ -121,7 +121,7 @@ impl BackgroundAgentTool {
             Ok(())
         } else {
             Err(AiError::Tool(
-                "Write access to background agents is disabled for this tool".to_string(),
+                "Write access to background agents is disabled. Available read-only operations: list, get, progress. To modify background agents, the user must grant write permissions.".to_string(),
             ))
         }
     }
@@ -316,11 +316,21 @@ impl Tool for BackgroundAgentTool {
     }
 
     async fn execute(&self, input: Value) -> Result<ToolOutput> {
-        let action: BackgroundAgentAction = serde_json::from_value(input)?;
+        let action: BackgroundAgentAction = match serde_json::from_value(input) {
+            Ok(action) => action,
+            Err(e) => {
+                return Ok(ToolOutput::error(format!(
+                    "Invalid input: {e}. Required: operation (create|list|get|update|delete|progress)."
+                )));
+            }
+        };
 
         let output = match action {
             BackgroundAgentAction::List { status } => {
-                let result = self.store.list_background_agents(status)?;
+                let result = self
+                    .store
+                    .list_background_agents(status)
+                    .map_err(|e| AiError::Tool(format!("Failed to list background agent: {e}.")))?;
                 ToolOutput::success(result)
             }
             BackgroundAgentAction::Create {
@@ -343,6 +353,9 @@ impl Tool for BackgroundAgentTool {
                         input_template,
                         memory,
                         memory_scope,
+                    })
+                    .map_err(|e| {
+                        AiError::Tool(format!("Failed to create background agent: {e}."))
                     })?;
                 ToolOutput::success(result)
             }
@@ -374,75 +387,106 @@ impl Tool for BackgroundAgentTool {
                         execution_mode,
                         memory,
                         memory_scope,
+                    })
+                    .map_err(|e| {
+                        AiError::Tool(format!("Failed to update background agent: {e}."))
                     })?;
                 ToolOutput::success(result)
             }
             BackgroundAgentAction::Delete { id } => {
                 self.write_guard()?;
-                ToolOutput::success(self.store.delete_background_agent(&id)?)
+                ToolOutput::success(self.store.delete_background_agent(&id).map_err(|e| {
+                    AiError::Tool(format!("Failed to delete background agent: {e}."))
+                })?)
             }
             BackgroundAgentAction::Pause { id } => {
                 self.write_guard()?;
-                ToolOutput::success(self.store.control_background_agent(
-                    BackgroundAgentControlRequest {
-                        id,
-                        action: "pause".to_string(),
-                    },
-                )?)
+                ToolOutput::success(
+                    self.store
+                        .control_background_agent(BackgroundAgentControlRequest {
+                            id,
+                            action: "pause".to_string(),
+                        })
+                        .map_err(|e| {
+                            AiError::Tool(format!("Failed to pause background agent: {e}."))
+                        })?,
+                )
             }
             BackgroundAgentAction::Resume { id } => {
                 self.write_guard()?;
-                ToolOutput::success(self.store.control_background_agent(
-                    BackgroundAgentControlRequest {
-                        id,
-                        action: "resume".to_string(),
-                    },
-                )?)
+                ToolOutput::success(
+                    self.store
+                        .control_background_agent(BackgroundAgentControlRequest {
+                            id,
+                            action: "resume".to_string(),
+                        })
+                        .map_err(|e| {
+                            AiError::Tool(format!("Failed to resume background agent: {e}."))
+                        })?,
+                )
             }
             BackgroundAgentAction::Cancel { id } => {
                 self.write_guard()?;
-                ToolOutput::success(self.store.delete_background_agent(&id)?)
+                ToolOutput::success(self.store.delete_background_agent(&id).map_err(|e| {
+                    AiError::Tool(format!("Failed to cancel background agent: {e}."))
+                })?)
             }
             BackgroundAgentAction::Run { id } => {
                 self.write_guard()?;
-                ToolOutput::success(self.store.control_background_agent(
-                    BackgroundAgentControlRequest {
-                        id,
-                        action: "run_now".to_string(),
-                    },
-                )?)
+                ToolOutput::success(
+                    self.store
+                        .control_background_agent(BackgroundAgentControlRequest {
+                            id,
+                            action: "run_now".to_string(),
+                        })
+                        .map_err(|e| {
+                            AiError::Tool(format!("Failed to run background agent: {e}."))
+                        })?,
+                )
             }
             BackgroundAgentAction::Control { id, action } => {
                 self.write_guard()?;
                 ToolOutput::success(
                     self.store
-                        .control_background_agent(BackgroundAgentControlRequest { id, action })?,
+                        .control_background_agent(BackgroundAgentControlRequest { id, action })
+                        .map_err(|e| {
+                            AiError::Tool(format!("Failed to control background agent: {e}."))
+                        })?,
                 )
             }
-            BackgroundAgentAction::Progress { id, event_limit } => {
-                ToolOutput::success(self.store.get_background_agent_progress(
-                    BackgroundAgentProgressRequest { id, event_limit },
-                )?)
-            }
+            BackgroundAgentAction::Progress { id, event_limit } => ToolOutput::success(
+                self.store
+                    .get_background_agent_progress(BackgroundAgentProgressRequest {
+                        id,
+                        event_limit,
+                    })
+                    .map_err(|e| AiError::Tool(format!("Failed to get background agent: {e}.")))?,
+            ),
             BackgroundAgentAction::SendMessage {
                 id,
                 message,
                 source,
             } => {
                 self.write_guard()?;
-                ToolOutput::success(self.store.send_background_agent_message(
-                    BackgroundAgentMessageRequest {
-                        id,
-                        message,
-                        source,
-                    },
-                )?)
+                ToolOutput::success(
+                    self.store
+                        .send_background_agent_message(BackgroundAgentMessageRequest {
+                            id,
+                            message,
+                            source,
+                        })
+                        .map_err(|e| {
+                            AiError::Tool(format!("Failed to send message background agent: {e}."))
+                        })?,
+                )
             }
-            BackgroundAgentAction::ListMessages { id, limit } => {
-                ToolOutput::success(self.store.list_background_agent_messages(
-                    BackgroundAgentMessageListRequest { id, limit },
-                )?)
-            }
+            BackgroundAgentAction::ListMessages { id, limit } => ToolOutput::success(
+                self.store
+                    .list_background_agent_messages(BackgroundAgentMessageListRequest { id, limit })
+                    .map_err(|e| {
+                        AiError::Tool(format!("Failed to list messages background agent: {e}."))
+                    })?,
+            ),
         };
 
         Ok(output)
@@ -454,6 +498,7 @@ mod tests {
     use super::*;
 
     struct MockStore;
+    struct FailingListStore;
 
     impl BackgroundAgentStore for MockStore {
         fn create_background_agent(&self, _request: BackgroundAgentCreateRequest) -> Result<Value> {
@@ -470,6 +515,64 @@ mod tests {
 
         fn list_background_agents(&self, _status: Option<String>) -> Result<Value> {
             Ok(json!([{"id": "task-1"}]))
+        }
+
+        fn control_background_agent(
+            &self,
+            request: BackgroundAgentControlRequest,
+        ) -> Result<Value> {
+            Ok(json!({ "id": request.id, "action": request.action }))
+        }
+
+        fn get_background_agent_progress(
+            &self,
+            request: BackgroundAgentProgressRequest,
+        ) -> Result<Value> {
+            Ok(json!({
+                "id": request.id,
+                "event_limit": request.event_limit.unwrap_or(10),
+                "status": "active"
+            }))
+        }
+
+        fn send_background_agent_message(
+            &self,
+            request: BackgroundAgentMessageRequest,
+        ) -> Result<Value> {
+            Ok(json!({
+                "id": request.id,
+                "message": request.message,
+                "source": request.source.unwrap_or_else(|| "user".to_string())
+            }))
+        }
+
+        fn list_background_agent_messages(
+            &self,
+            request: BackgroundAgentMessageListRequest,
+        ) -> Result<Value> {
+            Ok(json!([{
+                "id": "msg-1",
+                "task_id": request.id,
+                "limit": request.limit.unwrap_or(50)
+            }]))
+        }
+    }
+
+    impl BackgroundAgentStore for FailingListStore {
+        fn create_background_agent(&self, _request: BackgroundAgentCreateRequest) -> Result<Value> {
+            Ok(json!({ "id": "task-1" }))
+        }
+
+        fn update_background_agent(&self, _request: BackgroundAgentUpdateRequest) -> Result<Value> {
+            Ok(json!({ "id": "task-1", "updated": true }))
+        }
+
+        fn delete_background_agent(&self, _id: &str) -> Result<Value> {
+            Ok(json!({ "deleted": true }))
+        }
+
+        fn list_background_agents(&self, _status: Option<String>) -> Result<Value> {
+            Err(AiError::Tool("store offline".to_string()))
         }
 
         fn control_background_agent(
@@ -530,7 +633,39 @@ mod tests {
                 "agent_id": "agent-1"
             }))
             .await;
-        assert!(result.is_err());
+        let err = result.err().expect("expected write-guard error");
+        assert!(
+            err.to_string()
+                .contains("Available read-only operations: list, get, progress")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_invalid_input_message() {
+        let tool = BackgroundAgentTool::new(Arc::new(MockStore));
+        let output = tool
+            .execute(json!({
+                "id": "task-1"
+            }))
+            .await
+            .expect("tool should return error output");
+        assert!(!output.success);
+        assert!(
+            output
+                .error
+                .expect("expected error")
+                .contains("Required: operation (create|list|get|update|delete|progress)")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_list_store_error_is_wrapped() {
+        let tool = BackgroundAgentTool::new(Arc::new(FailingListStore));
+        let result = tool.execute(json!({ "operation": "list" })).await;
+        let err = result.err().expect("expected wrapped store error");
+        let err_text = err.to_string();
+        assert!(err_text.contains("Failed to list background agent"));
+        assert!(err_text.contains("store offline"));
     }
 
     #[tokio::test]

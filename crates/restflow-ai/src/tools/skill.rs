@@ -75,7 +75,7 @@ impl SkillTool {
             Ok(())
         } else {
             Err(AiError::Tool(
-                "Write access to skills is disabled for this tool".to_string(),
+                "Write access to skills is disabled. Available read-only operations: list, get, search. To modify skills, the user must grant write permissions.".to_string(),
             ))
         }
     }
@@ -176,7 +176,7 @@ impl Tool for SkillTool {
                 let record = Self::to_record(id, name, description, tags, content);
                 match self.provider.create_skill(record) {
                     Ok(created) => Ok(ToolOutput::success(json!(created))),
-                    Err(err) => Ok(ToolOutput::error(err)),
+                    Err(err) => Ok(ToolOutput::error(format!("Skill operation failed: {err}"))),
                 }
             }
             SkillInput::Update {
@@ -195,7 +195,7 @@ impl Tool for SkillTool {
                 };
                 match self.provider.update_skill(&id, update) {
                     Ok(updated) => Ok(ToolOutput::success(json!(updated))),
-                    Err(err) => Ok(ToolOutput::error(err)),
+                    Err(err) => Ok(ToolOutput::error(format!("Skill operation failed: {err}"))),
                 }
             }
             SkillInput::Delete { id } => {
@@ -205,7 +205,7 @@ impl Tool for SkillTool {
                         "id": id,
                         "deleted": deleted
                     }))),
-                    Err(err) => Ok(ToolOutput::error(err)),
+                    Err(err) => Ok(ToolOutput::error(format!("Skill operation failed: {err}"))),
                 }
             }
             SkillInput::Export { id } => match self.provider.export_skill(&id) {
@@ -213,7 +213,7 @@ impl Tool for SkillTool {
                     "id": id,
                     "markdown": markdown
                 }))),
-                Err(err) => Ok(ToolOutput::error(err)),
+                Err(err) => Ok(ToolOutput::error(format!("Skill operation failed: {err}"))),
             },
             SkillInput::Import {
                 id,
@@ -224,7 +224,7 @@ impl Tool for SkillTool {
                 let overwrite = overwrite.unwrap_or(false);
                 match self.provider.import_skill(&id, &markdown, overwrite) {
                     Ok(imported) => Ok(ToolOutput::success(json!(imported))),
-                    Err(err) => Ok(ToolOutput::error(err)),
+                    Err(err) => Ok(ToolOutput::error(format!("Skill operation failed: {err}"))),
                 }
             }
         }
@@ -402,6 +402,10 @@ mod tests {
             }))
             .await;
 
-        assert!(result.is_err());
+        let err = result.err().expect("expected write-guard error");
+        assert!(
+            err.to_string()
+                .contains("Available read-only operations: list, get, search")
+        );
     }
 }

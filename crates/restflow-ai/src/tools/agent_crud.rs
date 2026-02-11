@@ -55,7 +55,7 @@ impl AgentCrudTool {
             Ok(())
         } else {
             Err(AiError::Tool(
-                "Write access to agents is disabled for this tool".to_string(),
+                "Write access to agents is disabled. Available read-only operations: list, get. To modify agents, the user must grant write permissions.".to_string(),
             ))
         }
     }
@@ -124,21 +124,41 @@ impl Tool for AgentCrudTool {
         let action: AgentAction = serde_json::from_value(input)?;
 
         let output = match action {
-            AgentAction::List => ToolOutput::success(self.store.list_agents()?),
-            AgentAction::Show { id } => ToolOutput::success(self.store.get_agent(&id)?),
+            AgentAction::List => ToolOutput::success(
+                self.store
+                    .list_agents()
+                    .map_err(|e| AiError::Tool(format!("Failed to list agent: {e}")))?,
+            ),
+            AgentAction::Show { id } => ToolOutput::success(
+                self.store
+                    .get_agent(&id)
+                    .map_err(|e| AiError::Tool(format!("Failed to get agent: {e}")))?,
+            ),
             AgentAction::Create { name, agent } => {
                 self.write_guard()?;
                 let request = AgentCreateRequest { name, agent };
-                ToolOutput::success(self.store.create_agent(request)?)
+                ToolOutput::success(
+                    self.store
+                        .create_agent(request)
+                        .map_err(|e| AiError::Tool(format!("Failed to create agent: {e}")))?,
+                )
             }
             AgentAction::Update { id, name, agent } => {
                 self.write_guard()?;
                 let request = AgentUpdateRequest { id, name, agent };
-                ToolOutput::success(self.store.update_agent(request)?)
+                ToolOutput::success(
+                    self.store
+                        .update_agent(request)
+                        .map_err(|e| AiError::Tool(format!("Failed to update agent: {e}")))?,
+                )
             }
             AgentAction::Delete { id } => {
                 self.write_guard()?;
-                ToolOutput::success(self.store.delete_agent(&id)?)
+                ToolOutput::success(
+                    self.store
+                        .delete_agent(&id)
+                        .map_err(|e| AiError::Tool(format!("Failed to delete agent: {e}")))?,
+                )
             }
         };
 
@@ -187,6 +207,10 @@ mod tests {
         let result = tool
             .execute(json!({"operation": "create", "name": "Agent", "agent": {}}))
             .await;
-        assert!(result.is_err());
+        let err = result.err().expect("expected write-guard error");
+        assert!(
+            err.to_string()
+                .contains("Available read-only operations: list, get")
+        );
     }
 }
