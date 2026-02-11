@@ -11,7 +11,7 @@ use crate::agent::state::{AgentState, AgentStatus};
 use crate::agent::stream::{StreamEmitter, ToolCallAccumulator};
 use crate::error::{AiError, Result};
 use crate::llm::{CompletionRequest, FinishReason, LlmClient, Message, ToolCall};
-use crate::memory::{CompactionConfig, DEFAULT_MAX_MESSAGES, WorkingMemory};
+use crate::memory::{CompactionConfig, CompactionResult, DEFAULT_MAX_MESSAGES, WorkingMemory};
 use crate::steer::SteerMessage;
 use crate::tools::ToolRegistry;
 use futures::StreamExt;
@@ -150,6 +150,8 @@ pub struct AgentResult {
     pub total_tokens: u32,
     pub total_cost_usd: f64,
     pub state: AgentState,
+    /// Compaction operations performed during the run.
+    pub compaction_results: Vec<CompactionResult>,
 }
 
 /// Agent executor implementing Swarm-style ReAct loop
@@ -231,6 +233,7 @@ impl AgentExecutor {
         state.context = config.context.clone();
         let mut total_tokens: u32 = 0;
         let mut total_cost_usd: f64 = 0.0;
+        let mut compaction_results = Vec::new();
 
         // Initialize working memory for context window management
         let mut memory = WorkingMemory::new(config.max_memory_messages);
@@ -252,11 +255,12 @@ impl AgentExecutor {
         // Core loop (Swarm-inspired simplicity)
         while state.iteration < state.max_iterations && !state.is_terminal() {
             let summarizer = self.summarizer.as_deref().unwrap_or(self.llm.as_ref());
-            if let Some(_result) = memory
+            if let Some(result) = memory
                 .auto_compact_if_needed(summarizer, config.context_window)
                 .await?
             {
                 // Compaction affects working memory only; full state history remains intact.
+                compaction_results.push(result);
             }
 
             self.apply_steer_messages(&mut state, &mut memory).await;
@@ -384,6 +388,7 @@ impl AgentExecutor {
             total_tokens,
             total_cost_usd,
             state,
+            compaction_results,
         })
     }
 
@@ -397,6 +402,7 @@ impl AgentExecutor {
         state.context = config.context.clone();
         let mut total_tokens: u32 = 0;
         let mut total_cost_usd: f64 = 0.0;
+        let mut compaction_results = Vec::new();
 
         let mut memory = WorkingMemory::new(config.max_memory_messages);
         if let Some(compaction_config) = config.compaction_config.clone() {
@@ -414,11 +420,12 @@ impl AgentExecutor {
 
         while state.iteration < state.max_iterations && !state.is_terminal() {
             let summarizer = self.summarizer.as_deref().unwrap_or(self.llm.as_ref());
-            if let Some(_result) = memory
+            if let Some(result) = memory
                 .auto_compact_if_needed(summarizer, config.context_window)
                 .await?
             {
                 // Compaction affects working memory only; full state history remains intact.
+                compaction_results.push(result);
             }
 
             self.apply_steer_messages(&mut state, &mut memory).await;
@@ -510,6 +517,7 @@ impl AgentExecutor {
             total_tokens,
             total_cost_usd,
             state,
+            compaction_results,
         })
     }
 
