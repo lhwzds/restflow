@@ -16,6 +16,8 @@ pub mod workspace_note;
 
 use anyhow::Result;
 use redb::Database;
+use restflow_storage::MemoryIndex;
+use std::path::Path;
 use std::sync::Arc;
 
 // Re-export types that are self-contained in restflow-storage
@@ -76,7 +78,20 @@ impl Storage {
         let shared_space_raw = restflow_storage::SharedSpaceStorage::new(db.clone())?;
         let shared_space = SharedSpaceStorage::new(shared_space_raw);
         let terminal_sessions = TerminalSessionStorage::new(db.clone())?;
-        let memory = MemoryStorage::new(db.clone())?;
+        let index = if path == ":memory:" {
+            Some(Arc::new(MemoryIndex::in_memory()?))
+        } else {
+            let db_path = Path::new(path);
+            let parent = db_path.parent().unwrap_or_else(|| Path::new("."));
+            let stem = db_path
+                .file_stem()
+                .and_then(|v| v.to_str())
+                .unwrap_or("restflow");
+            let index_path = parent.join(format!("{stem}.memory-index"));
+            Some(Arc::new(MemoryIndex::open(&index_path)?))
+        };
+        let memory = MemoryStorage::with_index(db.clone(), index)?;
+        memory.rebuild_text_index_if_empty()?;
         let chat_sessions = ChatSessionStorage::new(db.clone())?;
         let hooks = HookStorage::new(db.clone())?;
         let workspace_notes = WorkspaceNoteStorage::new(db.clone())?;

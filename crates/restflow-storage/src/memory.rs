@@ -198,6 +198,20 @@ impl MemoryStorage {
         Ok(chunks)
     }
 
+    /// List all chunks across agents.
+    pub fn list_all_chunks_raw(&self) -> Result<Vec<(String, Vec<u8>)>> {
+        let read_txn = self.db.begin_read()?;
+        let chunk_table = read_txn.open_table(MEMORY_CHUNK_TABLE)?;
+        let mut chunks = Vec::new();
+
+        for item in chunk_table.iter()? {
+            let (key, value) = item?;
+            chunks.push((key.value().to_string(), value.value().to_vec()));
+        }
+
+        Ok(chunks)
+    }
+
     /// List all chunks for a session
     pub fn list_chunks_by_session_raw(&self, session_id: &str) -> Result<Vec<(String, Vec<u8>)>> {
         let read_txn = self.db.begin_read()?;
@@ -608,6 +622,24 @@ mod tests {
 
         let chunks_agent3 = storage.list_chunks_by_agent_raw("agent-003").unwrap();
         assert_eq!(chunks_agent3.len(), 0);
+    }
+
+    #[test]
+    fn test_list_all_chunks_raw() {
+        let storage = create_test_storage();
+
+        storage
+            .put_chunk_raw("chunk-001", "agent-001", None, "hash1", &[], b"data1")
+            .unwrap();
+        storage
+            .put_chunk_raw("chunk-002", "agent-002", None, "hash2", &[], b"data2")
+            .unwrap();
+
+        let mut chunks = storage.list_all_chunks_raw().unwrap();
+        chunks.sort_by(|a, b| a.0.cmp(&b.0));
+        assert_eq!(chunks.len(), 2);
+        assert_eq!(chunks[0].0, "chunk-001");
+        assert_eq!(chunks[1].0, "chunk-002");
     }
 
     #[test]
