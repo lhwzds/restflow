@@ -49,6 +49,11 @@ async fn start(core: Arc<AppCore>, foreground: bool, mcp_port: Option<u16>) -> R
     sync_mcp_configs(mcp_port).await;
 
     if foreground {
+        // In foreground mode, clean stale artifacts before binding.
+        let report = restflow_core::daemon::recovery::recover().await?;
+        if !report.is_clean() {
+            println!("{}", report);
+        }
         run_daemon(core, config).await
     } else {
         match check_daemon_status()? {
@@ -57,6 +62,11 @@ async fn start(core: Arc<AppCore>, foreground: bool, mcp_port: Option<u16>) -> R
                 Ok(())
             }
             _ => {
+                // Clean stale artifacts (e.g. leftover socket) before spawning.
+                let report = restflow_core::daemon::recovery::recover().await?;
+                if !report.is_clean() {
+                    println!("{}", report);
+                }
                 let pid = start_daemon_with_config(config)?;
                 println!("Daemon started (PID: {})", pid);
                 Ok(())
@@ -75,6 +85,12 @@ async fn restart(core: Arc<AppCore>, foreground: bool, mcp_port: Option<u16>) ->
     if was_running {
         println!("Sent stop signal to daemon");
         wait_for_daemon_exit().await?;
+    }
+
+    // Clean stale artifacts that may remain after an unclean shutdown.
+    let report = restflow_core::daemon::recovery::recover().await?;
+    if !report.is_clean() {
+        println!("{}", report);
     }
 
     sync_mcp_configs(mcp_port).await;
@@ -176,15 +192,30 @@ async fn stop() -> Result<()> {
 }
 
 async fn status() -> Result<()> {
+    let pid_path = paths::daemon_pid_path()?;
+    let socket_path = paths::socket_path()?;
+    let stale_state = restflow_core::daemon::recovery::inspect(&pid_path, &socket_path).await?;
+
     match check_daemon_status()? {
         DaemonStatus::Running { pid } => {
             println!("Daemon running (PID: {})", pid);
         }
         DaemonStatus::NotRunning => {
             println!("Daemon not running");
+            if stale_state == restflow_core::daemon::recovery::StaleState::StaleSocket {
+                println!("  Note: stale socket detected (run `daemon start` to auto-clean)");
+            }
         }
         DaemonStatus::Stale { pid } => {
             println!("Daemon not running (stale PID: {})", pid);
+            if matches!(
+                stale_state,
+                restflow_core::daemon::recovery::StaleState::Both
+                    | restflow_core::daemon::recovery::StaleState::StaleSocket
+            ) {
+                println!("  Note: stale socket also detected");
+            }
+            println!("  Hint: run `daemon start` or `daemon restart` to auto-clean");
         }
     }
     Ok(())
