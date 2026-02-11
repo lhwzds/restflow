@@ -101,7 +101,11 @@ pub fn builtin_agents() -> Vec<AgentDefinition> {
                          Use for tasks requiring information gathering and analysis."
                 .to_string(),
             system_prompt: RESEARCHER_PROMPT.to_string(),
-            allowed_tools: vec!["http_request".to_string(), "file".to_string()],
+            allowed_tools: vec![
+                "http_request".to_string(),
+                "file".to_string(),
+                "workspace_notes".to_string(),
+            ],
             model: None,
             max_iterations: Some(15),
             callable: true,
@@ -144,7 +148,7 @@ pub fn builtin_agents() -> Vec<AgentDefinition> {
                          Use for content creation and documentation tasks."
                 .to_string(),
             system_prompt: WRITER_PROMPT.to_string(),
-            allowed_tools: vec!["file".to_string()],
+            allowed_tools: vec!["file".to_string(), "workspace_notes".to_string()],
             model: None,
             max_iterations: Some(10),
             callable: true,
@@ -157,7 +161,11 @@ pub fn builtin_agents() -> Vec<AgentDefinition> {
                          Use for data analysis and interpretation tasks."
                 .to_string(),
             system_prompt: ANALYST_PROMPT.to_string(),
-            allowed_tools: vec!["file".to_string(), "bash".to_string()],
+            allowed_tools: vec![
+                "file".to_string(),
+                "bash".to_string(),
+                "workspace_notes".to_string(),
+            ],
             model: None,
             max_iterations: Some(15),
             callable: true,

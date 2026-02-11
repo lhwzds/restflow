@@ -137,6 +137,7 @@ fn create_runtime_tool_registry_for_core(core: &Arc<AppCore>) -> restflow_ai::to
         core.storage.memory.clone(),
         core.storage.chat_sessions.clone(),
         core.storage.shared_space.clone(),
+        core.storage.workspace_notes.clone(),
         core.storage.secrets.clone(),
         core.storage.config.clone(),
         core.storage.agents.clone(),
