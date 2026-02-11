@@ -4,8 +4,11 @@ use super::definition::{AgentDefinition, AgentDefinitionRegistry};
 use super::tracker::{SubagentResult, SubagentTracker};
 use crate::runtime::agent::{AgentExecutionEngine, AgentExecutionEngineConfig, ToolRegistry};
 use anyhow::{Result, anyhow};
+use async_trait::async_trait;
 use restflow_ai::LlmClient;
+use restflow_ai::tools::{Tool, ToolOutput};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::sync::oneshot;
@@ -224,6 +227,8 @@ fn resolve_max_iterations(agent_def: &AgentDefinition) -> usize {
 fn build_registry_for_agent(parent: &Arc<ToolRegistry>, allowed_tools: &[String]) -> ToolRegistry {
     let mut registry = ToolRegistry::new();
     let mut selected = HashSet::new();
+    let mut restricted_file_actions = HashSet::new();
+    let mut full_file_access = false;
 
     if allowed_tools.is_empty() {
         for name in parent.list() {
@@ -231,8 +236,33 @@ fn build_registry_for_agent(parent: &Arc<ToolRegistry>, allowed_tools: &[String]
         }
     } else {
         for raw in allowed_tools {
-            selected.insert(normalize_tool_name(raw));
+            match raw.as_str() {
+                "read" => {
+                    restricted_file_actions.insert("read".to_string());
+                }
+                "write" => {
+                    restricted_file_actions.insert("write".to_string());
+                    restricted_file_actions.insert("list".to_string());
+                    restricted_file_actions.insert("search".to_string());
+                    restricted_file_actions.insert("exists".to_string());
+                    restricted_file_actions.insert("delete".to_string());
+                }
+                "file" => {
+                    full_file_access = true;
+                    selected.insert("file".to_string());
+                }
+                other => {
+                    selected.insert(normalize_tool_name(other));
+                }
+            }
         }
+    }
+
+    if !full_file_access
+        && !restricted_file_actions.is_empty()
+        && let Some(file_tool) = parent.get("file")
+    {
+        registry.register(RestrictedFileTool::new(file_tool, restricted_file_actions));
     }
 
     for name in selected {
@@ -249,19 +279,86 @@ fn normalize_tool_name(name: &str) -> String {
         "http_request" => "http".to_string(),
         "send_email" => "email".to_string(),
         "telegram_send" => "telegram".to_string(),
-        "read" | "write" => "file".to_string(),
         "grep" => "bash".to_string(),
         other => other.to_string(),
+    }
+}
+
+#[derive(Clone)]
+struct RestrictedFileTool {
+    inner: Arc<dyn Tool>,
+    allowed_actions: HashSet<String>,
+}
+
+impl RestrictedFileTool {
+    fn new(inner: Arc<dyn Tool>, allowed_actions: HashSet<String>) -> Self {
+        Self {
+            inner,
+            allowed_actions,
+        }
+    }
+
+    fn allowed_actions_sorted(&self) -> Vec<String> {
+        let mut actions: Vec<String> = self.allowed_actions.iter().cloned().collect();
+        actions.sort();
+        actions
+    }
+}
+
+#[async_trait]
+impl Tool for RestrictedFileTool {
+    fn name(&self) -> &str {
+        "file"
+    }
+
+    fn description(&self) -> &str {
+        self.inner.description()
+    }
+
+    fn parameters_schema(&self) -> Value {
+        let mut schema = self.inner.parameters_schema();
+        if let Some(action_values) = schema
+            .pointer_mut("/properties/action/enum")
+            .and_then(Value::as_array_mut)
+        {
+            action_values.retain(|value| {
+                value
+                    .as_str()
+                    .map(|action| self.allowed_actions.contains(action))
+                    .unwrap_or(false)
+            });
+        }
+        schema
+    }
+
+    async fn execute(&self, input: Value) -> Result<ToolOutput, restflow_ai::error::AiError> {
+        if let Some(action) = input.get("action").and_then(Value::as_str)
+            && !self.allowed_actions.contains(action)
+        {
+            let allowed = self.allowed_actions_sorted().join(", ");
+            return Ok(ToolOutput::error(format!(
+                "Action '{}' is not allowed for this agent. Allowed actions: [{}]",
+                action, allowed
+            )));
+        }
+        self.inner.execute(input).await
+    }
+
+    fn supports_parallel(&self) -> bool {
+        self.inner.supports_parallel()
+    }
+
+    fn supports_parallel_for(&self, input: &Value) -> bool {
+        self.inner.supports_parallel_for(input)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use async_trait::async_trait;
     use restflow_ai::error::Result as AiResult;
     use restflow_ai::tools::ToolOutput;
-    use serde_json::Value;
+    use serde_json::{Value, json};
 
     struct TestTool {
         name: &'static str,
@@ -321,8 +418,8 @@ mod tests {
         assert_eq!(normalize_tool_name("http_request"), "http");
         assert_eq!(normalize_tool_name("send_email"), "email");
         assert_eq!(normalize_tool_name("telegram_send"), "telegram");
-        assert_eq!(normalize_tool_name("read"), "file");
-        assert_eq!(normalize_tool_name("write"), "file");
+        assert_eq!(normalize_tool_name("read"), "read");
+        assert_eq!(normalize_tool_name("write"), "write");
         assert_eq!(normalize_tool_name("grep"), "bash");
         assert_eq!(normalize_tool_name("python"), "python");
     }
@@ -378,5 +475,133 @@ mod tests {
             resolve_max_iterations(&definition),
             DEFAULT_SUBAGENT_MAX_ITERATIONS
         );
+    }
+
+    struct MockFileTool;
+
+    #[async_trait]
+    impl Tool for MockFileTool {
+        fn name(&self) -> &str {
+            "file"
+        }
+
+        fn description(&self) -> &str {
+            "mock file tool"
+        }
+
+        fn parameters_schema(&self) -> Value {
+            json!({
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": ["read", "write", "list", "search", "exists", "delete"]
+                    }
+                },
+                "required": ["action"]
+            })
+        }
+
+        async fn execute(&self, input: Value) -> AiResult<ToolOutput> {
+            let action = input
+                .get("action")
+                .and_then(Value::as_str)
+                .unwrap_or("unknown");
+            Ok(ToolOutput::success(json!({ "action": action })))
+        }
+    }
+
+    #[tokio::test]
+    async fn test_restricted_file_tool_blocks_disallowed_actions() {
+        let mut allowed_actions = HashSet::new();
+        allowed_actions.insert("read".to_string());
+        let tool = RestrictedFileTool::new(Arc::new(MockFileTool), allowed_actions);
+
+        let output = tool.execute(json!({ "action": "write" })).await.unwrap();
+        assert!(!output.success);
+        let error = output.error.unwrap();
+        assert!(error.contains("Action 'write' is not allowed"));
+    }
+
+    #[tokio::test]
+    async fn test_restricted_file_tool_allows_permitted_actions() {
+        let mut allowed_actions = HashSet::new();
+        allowed_actions.insert("read".to_string());
+        let tool = RestrictedFileTool::new(Arc::new(MockFileTool), allowed_actions);
+
+        let output = tool.execute(json!({ "action": "read" })).await.unwrap();
+        assert!(output.success);
+        assert_eq!(output.result["action"], "read");
+    }
+
+    #[test]
+    fn test_restricted_file_tool_schema_is_filtered() {
+        let mut allowed_actions = HashSet::new();
+        allowed_actions.insert("read".to_string());
+        allowed_actions.insert("exists".to_string());
+        let tool = RestrictedFileTool::new(Arc::new(MockFileTool), allowed_actions);
+
+        let schema = tool.parameters_schema();
+        let action_enum = schema["properties"]["action"]["enum"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(Value::as_str)
+            .collect::<Vec<_>>();
+        assert_eq!(action_enum, vec!["read", "exists"]);
+    }
+
+    #[tokio::test]
+    async fn test_researcher_cannot_write_files() {
+        let mut parent = ToolRegistry::new();
+        parent.register(MockFileTool);
+        let parent = Arc::new(parent);
+
+        let registry = build_registry_for_agent(&parent, &["read".to_string()]);
+        let output = registry
+            .execute("file", json!({ "action": "write" }))
+            .await
+            .unwrap();
+
+        assert!(!output.success);
+        let error = output.error.unwrap();
+        assert!(error.contains("not allowed"));
+    }
+
+    #[tokio::test]
+    async fn test_coder_can_read_and_write() {
+        let mut parent = ToolRegistry::new();
+        parent.register(MockFileTool);
+        let parent = Arc::new(parent);
+
+        let registry =
+            build_registry_for_agent(&parent, &["read".to_string(), "write".to_string()]);
+        let read_output = registry
+            .execute("file", json!({ "action": "read" }))
+            .await
+            .unwrap();
+        let write_output = registry
+            .execute("file", json!({ "action": "write" }))
+            .await
+            .unwrap();
+
+        assert!(read_output.success);
+        assert!(write_output.success);
+    }
+
+    #[tokio::test]
+    async fn test_full_file_access_is_unrestricted() {
+        let mut parent = ToolRegistry::new();
+        parent.register(MockFileTool);
+        let parent = Arc::new(parent);
+
+        let registry = build_registry_for_agent(&parent, &["file".to_string()]);
+        let output = registry
+            .execute("file", json!({ "action": "delete" }))
+            .await
+            .unwrap();
+
+        assert!(output.success);
+        assert_eq!(output.result["action"], "delete");
     }
 }
