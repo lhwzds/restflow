@@ -344,9 +344,9 @@ impl Default for ChannelRouter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::channel::traits::mock::MockChannel;
     use async_trait::async_trait;
     use futures::Stream;
-    use crate::channel::traits::mock::MockChannel;
     use std::pin::Pin;
     use std::sync::Arc;
     use tokio::sync::Mutex;
@@ -584,7 +584,9 @@ mod tests {
             "default-chat",
         );
 
-        let results = router.broadcast("Output with `raw` markdown *chars*", MessageLevel::Plain).await;
+        let results = router
+            .broadcast("Output with `raw` markdown *chars*", MessageLevel::Plain)
+            .await;
         assert_eq!(results.len(), 1);
         assert!(results[0].1.is_ok());
 
