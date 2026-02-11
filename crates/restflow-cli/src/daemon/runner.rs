@@ -131,7 +131,10 @@ impl CliBackgroundAgentRunner {
             *runner_guard = Some(runner);
         }
 
-        if let Some(router) = telegram::setup_telegram_channel(&self.core.storage.secrets)? {
+        if let Some(router) = telegram::setup_telegram_channel(
+            &self.core.storage.secrets,
+            &self.core.storage.daemon_state,
+        )? {
             let trigger = Arc::new(CliBackgroundAgentTrigger::new(
                 self.core.clone(),
                 self.handle.clone(),
