@@ -10,7 +10,6 @@ use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::models::agent::PythonRuntimePolicy;
 use crate::{
     AIModel, Provider,
     auth::{AuthProfileManager, AuthProvider},
@@ -20,7 +19,7 @@ use crate::{
     storage::Storage,
 };
 use restflow_ai::llm::Message;
-use restflow_ai::tools::{PythonRuntime, PythonTool, RunPythonTool};
+use restflow_ai::tools::PythonRuntime;
 use restflow_ai::{
     AiError, CodexClient, DefaultLlmClientFactory, LlmClient, LlmClientFactory, LlmProvider,
     ProcessTool, ReplySender, ReplyTool, SwappableLlm, SwitchModelTool,
@@ -35,7 +34,7 @@ use super::runner::{AgentExecutor, ExecutionResult};
 use crate::runtime::agent::{
     AgentExecutionEngine, AgentExecutionEngineConfig, SubagentDeps, ToolRegistry,
     build_agent_system_prompt, effective_main_agent_tool_names, registry_from_allowlist,
-    secret_resolver_from_storage,
+    resolve_python_runtime_policy, secret_resolver_from_storage,
 };
 use crate::runtime::subagent::{AgentDefinitionRegistry, SubagentConfig, SubagentTracker};
 
@@ -311,13 +310,6 @@ impl AgentRuntimeExecutor {
         }
     }
 
-    fn resolve_python_runtime_policy(policy: Option<&PythonRuntimePolicy>) -> PythonRuntime {
-        match policy {
-            Some(PythonRuntimePolicy::Cpython) => PythonRuntime::Cpython,
-            Some(PythonRuntimePolicy::Monty) | None => PythonRuntime::Monty,
-        }
-    }
-
     fn build_background_system_prompt(
         &self,
         agent_node: &AgentNode,
@@ -352,6 +344,7 @@ impl AgentRuntimeExecutor {
             secret_resolver.clone(),
             Some(self.storage.as_ref()),
             agent_id,
+            Some(python_runtime.clone()),
         ));
         let subagent_deps = self.build_subagent_deps(llm_client, subagent_tool_registry);
         let mut registry = registry_from_allowlist(
@@ -360,6 +353,7 @@ impl AgentRuntimeExecutor {
             secret_resolver,
             Some(self.storage.as_ref()),
             agent_id,
+            Some(python_runtime),
         );
 
         let requested = |name: &str| {
@@ -374,11 +368,6 @@ impl AgentRuntimeExecutor {
 
         if requested("process") {
             registry.register(ProcessTool::new(self.process_registry.clone()));
-        }
-
-        if requested("python") || requested("run_python") {
-            registry.register(RunPythonTool::new().with_default_runtime(python_runtime.clone()));
-            registry.register(PythonTool::new().with_default_runtime(python_runtime));
         }
 
         if requested("reply")
@@ -489,7 +478,7 @@ impl AgentRuntimeExecutor {
         let swappable = Arc::new(SwappableLlm::new(llm_client));
         let effective_tools = effective_main_agent_tool_names(agent_node.tools.as_deref());
         let python_runtime =
-            Self::resolve_python_runtime_policy(agent_node.python_runtime_policy.as_ref());
+            resolve_python_runtime_policy(agent_node.python_runtime_policy.as_ref());
         let tools = self.build_tool_registry(
             Some(&effective_tools),
             swappable.clone(),
@@ -785,7 +774,7 @@ impl AgentRuntimeExecutor {
         let swappable = Arc::new(SwappableLlm::new(llm_client));
         let effective_tools = effective_main_agent_tool_names(agent_node.tools.as_deref());
         let python_runtime =
-            Self::resolve_python_runtime_policy(agent_node.python_runtime_policy.as_ref());
+            resolve_python_runtime_policy(agent_node.python_runtime_policy.as_ref());
         let tools = self.build_tool_registry(
             Some(&effective_tools),
             swappable.clone(),
