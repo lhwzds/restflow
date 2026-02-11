@@ -143,6 +143,18 @@ fn default_max_messages() -> usize {
     100
 }
 
+fn default_compaction_enabled() -> bool {
+    true
+}
+
+fn default_compaction_threshold_ratio() -> f32 {
+    0.80
+}
+
+fn default_max_summary_tokens() -> usize {
+    2_000
+}
+
 /// Scope for background-agent memory persistence.
 ///
 /// Controls whether long-term memory is shared across all background agents of
@@ -206,6 +218,18 @@ pub struct MemoryConfig {
     /// stores memory under a background-agent-specific namespace.
     #[serde(default = "default_memory_scope")]
     pub memory_scope: MemoryScope,
+
+    /// Enable working memory compaction for long-running tasks.
+    #[serde(default = "default_compaction_enabled")]
+    pub enable_compaction: bool,
+
+    /// Token ratio threshold to trigger compaction against model context window.
+    #[serde(default = "default_compaction_threshold_ratio")]
+    pub compaction_threshold_ratio: f32,
+
+    /// Upper bound for generated summary tokens during compaction.
+    #[serde(default = "default_max_summary_tokens")]
+    pub max_summary_tokens: usize,
 }
 
 impl Default for MemoryConfig {
@@ -215,6 +239,9 @@ impl Default for MemoryConfig {
             enable_file_memory: true,
             persist_on_complete: true,
             memory_scope: MemoryScope::SharedAgent,
+            enable_compaction: default_compaction_enabled(),
+            compaction_threshold_ratio: default_compaction_threshold_ratio(),
+            max_summary_tokens: default_max_summary_tokens(),
         }
     }
 }
@@ -1204,6 +1231,9 @@ mod tests {
         assert!(config.enable_file_memory);
         assert!(config.persist_on_complete);
         assert_eq!(config.memory_scope, MemoryScope::SharedAgent);
+        assert!(config.enable_compaction);
+        assert_eq!(config.compaction_threshold_ratio, 0.80);
+        assert_eq!(config.max_summary_tokens, 2_000);
     }
 
     #[test]
@@ -1213,12 +1243,18 @@ mod tests {
             enable_file_memory: false,
             persist_on_complete: true,
             memory_scope: MemoryScope::PerBackgroundAgent,
+            enable_compaction: true,
+            compaction_threshold_ratio: 0.75,
+            max_summary_tokens: 1_024,
         };
 
         assert_eq!(config.max_messages, 50);
         assert!(!config.enable_file_memory);
         assert!(config.persist_on_complete);
         assert_eq!(config.memory_scope, MemoryScope::PerBackgroundAgent);
+        assert!(config.enable_compaction);
+        assert_eq!(config.compaction_threshold_ratio, 0.75);
+        assert_eq!(config.max_summary_tokens, 1_024);
     }
 
     #[test]
@@ -1235,6 +1271,9 @@ mod tests {
         assert!(task.memory.enable_file_memory);
         assert!(task.memory.persist_on_complete);
         assert_eq!(task.memory.memory_scope, MemoryScope::SharedAgent);
+        assert!(task.memory.enable_compaction);
+        assert_eq!(task.memory.compaction_threshold_ratio, 0.80);
+        assert_eq!(task.memory.max_summary_tokens, 2_000);
     }
 
     #[test]
@@ -1244,6 +1283,9 @@ mod tests {
             enable_file_memory: true,
             persist_on_complete: false,
             memory_scope: MemoryScope::PerBackgroundAgent,
+            enable_compaction: false,
+            compaction_threshold_ratio: 0.65,
+            max_summary_tokens: 1_500,
         };
 
         let json = serde_json::to_string(&config).unwrap();
@@ -1253,6 +1295,9 @@ mod tests {
         assert!(deserialized.enable_file_memory);
         assert!(!deserialized.persist_on_complete);
         assert_eq!(deserialized.memory_scope, MemoryScope::PerBackgroundAgent);
+        assert!(!deserialized.enable_compaction);
+        assert_eq!(deserialized.compaction_threshold_ratio, 0.65);
+        assert_eq!(deserialized.max_summary_tokens, 1_500);
     }
 
     #[test]
@@ -1265,6 +1310,9 @@ mod tests {
         assert!(config.enable_file_memory);
         assert!(config.persist_on_complete);
         assert_eq!(config.memory_scope, MemoryScope::SharedAgent);
+        assert!(config.enable_compaction);
+        assert_eq!(config.compaction_threshold_ratio, 0.80);
+        assert_eq!(config.max_summary_tokens, 2_000);
     }
 
     #[test]

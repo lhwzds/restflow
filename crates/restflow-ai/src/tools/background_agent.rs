@@ -19,6 +19,8 @@ pub struct BackgroundAgentCreateRequest {
     #[serde(default)]
     pub input_template: Option<String>,
     #[serde(default)]
+    pub memory: Option<Value>,
+    #[serde(default)]
     pub memory_scope: Option<String>,
 }
 
@@ -137,6 +139,8 @@ enum BackgroundAgentAction {
         input: Option<String>,
         #[serde(default)]
         input_template: Option<String>,
+        #[serde(default)]
+        memory: Option<Value>,
         #[serde(default)]
         memory_scope: Option<String>,
     },
@@ -265,7 +269,7 @@ impl Tool for BackgroundAgentTool {
                 },
                 "memory": {
                     "type": "object",
-                    "description": "Memory configuration payload (for update)"
+                    "description": "Memory configuration payload (for create/update)"
                 },
                 "input": {
                     "type": "string",
@@ -325,6 +329,7 @@ impl Tool for BackgroundAgentTool {
                 schedule,
                 input,
                 input_template,
+                memory,
                 memory_scope,
             } => {
                 self.write_guard()?;
@@ -336,6 +341,7 @@ impl Tool for BackgroundAgentTool {
                         schedule,
                         input,
                         input_template,
+                        memory,
                         memory_scope,
                     })?;
                 ToolOutput::success(result)
