@@ -28,7 +28,7 @@ pub struct CompactionConfig {
 impl Default for CompactionConfig {
     fn default() -> Self {
         Self {
-            threshold_ratio: 0.95,
+            threshold_ratio: 0.80,
             keep_recent_user_tokens: 20_000,
             max_summary_tokens: 2_000,
             auto_compact: true,

@@ -11,7 +11,7 @@ use crate::channel::{ChannelRouter, MessageLevel};
 use crate::hooks::HookExecutor;
 use crate::models::{
     BackgroundAgent, BackgroundAgentStatus, BackgroundMessageSource, ExecutionMode, HookContext,
-    MemoryScope, NotificationConfig, SteerMessage, SteerSource,
+    MemoryConfig, MemoryScope, NotificationConfig, SteerMessage, SteerSource,
 };
 use crate::performance::{
     TaskExecutor, TaskPriority, TaskQueue, TaskQueueConfig, WorkerPool, WorkerPoolConfig,
@@ -48,6 +48,17 @@ pub struct ExecutionResult {
     pub messages: Vec<Message>,
     /// Whether the execution was successful
     pub success: bool,
+    /// Aggregated memory compaction metrics from this execution, if any.
+    pub compaction: Option<CompactionMetrics>,
+}
+
+/// Aggregated working-memory compaction metrics.
+#[derive(Debug, Clone, Default)]
+pub struct CompactionMetrics {
+    pub event_count: u32,
+    pub tokens_before: usize,
+    pub tokens_after: usize,
+    pub messages_compacted: usize,
 }
 
 impl ExecutionResult {
@@ -57,6 +68,21 @@ impl ExecutionResult {
             output,
             messages,
             success: true,
+            compaction: None,
+        }
+    }
+
+    /// Create a successful execution result with compaction metrics.
+    pub fn success_with_compaction(
+        output: String,
+        messages: Vec<Message>,
+        compaction: CompactionMetrics,
+    ) -> Self {
+        Self {
+            output,
+            messages,
+            success: true,
+            compaction: Some(compaction),
         }
     }
 
@@ -66,6 +92,7 @@ impl ExecutionResult {
             output: error,
             messages: Vec::new(),
             success: false,
+            compaction: None,
         }
     }
 }
@@ -155,6 +182,7 @@ pub trait AgentExecutor: Send + Sync {
         agent_id: &str,
         background_task_id: Option<&str>,
         input: Option<&str>,
+        memory_config: &MemoryConfig,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
     ) -> Result<ExecutionResult>;
 }
@@ -885,6 +913,7 @@ impl BackgroundAgentRunner {
                             &task.agent_id,
                             Some(&task.id),
                             resolved_input.as_deref(),
+                            &task.memory,
                             steer_rx,
                         ),
                     )
@@ -1051,6 +1080,35 @@ impl BackgroundAgentRunner {
                     duration_ms,
                 ) {
                     error!("Failed to record task completion: {}", e);
+                }
+
+                if let Some(compaction) = exec_result.compaction.as_ref() {
+                    let compaction_message = format!(
+                        "Compacted {} messages ({} -> {} tokens) across {} event(s)",
+                        compaction.messages_compacted,
+                        compaction.tokens_before,
+                        compaction.tokens_after,
+                        compaction.event_count
+                    );
+                    let event = crate::models::BackgroundAgentEvent::new(
+                        task.id.clone(),
+                        crate::models::BackgroundAgentEventType::Compaction,
+                    )
+                    .with_message(compaction_message.clone());
+                    if let Err(err) = self.storage.add_event(&event) {
+                        warn!(
+                            "Failed to record compaction event for '{}': {}",
+                            task.id, err
+                        );
+                    }
+                    self.event_emitter
+                        .emit(TaskStreamEvent::progress(
+                            &task.id,
+                            "compaction",
+                            None,
+                            Some(compaction_message),
+                        ))
+                        .await;
                 }
 
                 // Persist conversation to long-term memory if enabled
@@ -1497,6 +1555,7 @@ mod tests {
             agent_id: &str,
             _background_task_id: Option<&str>,
             input: Option<&str>,
+            _memory_config: &MemoryConfig,
             _steer_rx: Option<mpsc::Receiver<SteerMessage>>,
         ) -> Result<ExecutionResult> {
             self.call_count.fetch_add(1, Ordering::SeqCst);

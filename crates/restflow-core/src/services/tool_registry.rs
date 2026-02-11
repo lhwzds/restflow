@@ -330,7 +330,8 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
         let schedule =
             Self::parse_optional_value::<BackgroundAgentSchedule>("schedule", request.schedule)?
                 .unwrap_or_default();
-        let memory = Self::merge_memory_scope(None, request.memory_scope)?;
+        let memory = Self::parse_optional_value("memory", request.memory)?;
+        let memory = Self::merge_memory_scope(memory, request.memory_scope)?;
         let task = self
             .storage
             .create_background_agent(BackgroundAgentSpec {
@@ -2500,6 +2501,7 @@ mod tests {
                 schedule: None,
                 input: Some("Run periodic checks".to_string()),
                 input_template: Some("Template {{task.id}}".to_string()),
+                memory: None,
                 memory_scope: Some("per_background_agent".to_string()),
             },
         )

@@ -27,4 +27,16 @@ persist_on_complete: boolean,
  * Shared scope stores memory under the agent ID, while isolated scope
  * stores memory under a background-agent-specific namespace.
  */
-memory_scope: MemoryScope, };
+memory_scope: MemoryScope, 
+/**
+ * Enable working memory compaction for long-running tasks.
+ */
+enable_compaction: boolean, 
+/**
+ * Token ratio threshold to trigger compaction against model context window.
+ */
+compaction_threshold_ratio: number, 
+/**
+ * Upper bound for generated summary tokens during compaction.
+ */
+max_summary_tokens: number, };

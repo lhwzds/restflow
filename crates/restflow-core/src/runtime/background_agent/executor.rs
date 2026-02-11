@@ -13,7 +13,9 @@ use std::sync::Arc;
 use crate::{
     AIModel, Provider,
     auth::{AuthProfileManager, AuthProvider},
-    models::{AgentNode, ApiKeyConfig, ChatMessage, ChatRole, ChatSession, SteerMessage},
+    models::{
+        AgentNode, ApiKeyConfig, ChatMessage, ChatRole, ChatSession, MemoryConfig, SteerMessage,
+    },
     process::ProcessRegistry,
     prompt_files,
     storage::Storage,
@@ -21,7 +23,8 @@ use crate::{
 use restflow_ai::llm::Message;
 use restflow_ai::tools::PythonRuntime;
 use restflow_ai::{
-    AiError, CodexClient, DefaultLlmClientFactory, LlmClient, LlmClientFactory, LlmProvider,
+    AgentConfig as ReActAgentConfig, AgentExecutor as ReActAgentExecutor, AiError, CodexClient,
+    CompactionConfig, DefaultLlmClientFactory, LlmClient, LlmClientFactory, LlmProvider,
     ProcessTool, ReplySender, ReplyTool, SwappableLlm, SwitchModelTool,
 };
 use tokio::sync::mpsc;
@@ -183,6 +186,46 @@ impl AgentRuntimeExecutor {
             Provider::Yi => AIModel::YiLightning,
             Provider::SiliconFlow => AIModel::SiliconFlowAuto,
         }
+    }
+
+    fn context_window_for_model(model: AIModel) -> usize {
+        match model {
+            AIModel::ClaudeOpus4_6
+            | AIModel::ClaudeSonnet4_5
+            | AIModel::ClaudeHaiku4_5
+            | AIModel::ClaudeCodeOpus
+            | AIModel::ClaudeCodeSonnet
+            | AIModel::ClaudeCodeHaiku => 200_000,
+            AIModel::Gpt5
+            | AIModel::Gpt5Mini
+            | AIModel::Gpt5Nano
+            | AIModel::Gpt5Pro
+            | AIModel::Gpt5_1
+            | AIModel::Gpt5_2
+            | AIModel::Gpt5Codex
+            | AIModel::Gpt5_1Codex
+            | AIModel::Gpt5_2Codex
+            | AIModel::CodexCli => 128_000,
+            AIModel::DeepseekChat | AIModel::DeepseekReasoner => 64_000,
+            AIModel::Gemini25Pro
+            | AIModel::Gemini25Flash
+            | AIModel::Gemini3Pro
+            | AIModel::Gemini3Flash
+            | AIModel::GeminiCli => 1_000_000,
+            _ => 128_000,
+        }
+    }
+
+    fn build_compaction_config(memory: &MemoryConfig) -> Option<CompactionConfig> {
+        if !memory.enable_compaction {
+            return None;
+        }
+
+        Some(CompactionConfig {
+            threshold_ratio: memory.compaction_threshold_ratio,
+            max_summary_tokens: memory.max_summary_tokens,
+            ..CompactionConfig::default()
+        })
     }
 
     fn has_non_empty_secret(&self, name: &str) -> Result<bool> {
@@ -767,6 +810,7 @@ impl AgentRuntimeExecutor {
         llm_client: Arc<dyn LlmClient>,
         background_task_id: Option<&str>,
         input: Option<&str>,
+        memory_config: &MemoryConfig,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
         factory: Arc<dyn LlmClientFactory>,
         agent_id: Option<&str>,
@@ -785,26 +829,51 @@ impl AgentRuntimeExecutor {
         );
         let system_prompt =
             self.build_background_system_prompt(agent_node, agent_id, background_task_id)?;
-
-        let mut config = AgentExecutionEngineConfig::default();
+        let goal = input.unwrap_or("Execute the agent task");
+        let mut config = ReActAgentConfig::new(goal.to_string())
+            .with_system_prompt(system_prompt)
+            .with_max_memory_messages(memory_config.max_messages)
+            .with_context_window(Self::context_window_for_model(model));
+        if let Some(compaction) = Self::build_compaction_config(memory_config) {
+            config = config.with_compaction_config(compaction);
+        }
         if model.supports_temperature()
             && let Some(temp) = agent_node.temperature
         {
-            config.temperature = temp as f32;
+            config = config.with_temperature(temp as f32);
         }
 
-        let mut agent = AgentExecutionEngine::new(swappable, tools, system_prompt, config);
+        let mut agent = ReActAgentExecutor::new(swappable, tools);
         if let Some(rx) = steer_rx {
             agent = agent.with_steer_channel(rx);
         }
 
-        let goal = input.unwrap_or("Execute the agent task");
-        let result = agent.execute(goal).await?;
-
+        let result = agent.run(config).await?;
         if result.success {
-            Ok(ExecutionResult::success(result.output, result.messages))
+            let compaction = result.compaction_results.iter().fold(
+                super::runner::CompactionMetrics::default(),
+                |mut acc, item| {
+                    acc.event_count += 1;
+                    acc.tokens_before += item.tokens_before;
+                    acc.tokens_after += item.tokens_after;
+                    acc.messages_compacted += item.compacted_count;
+                    acc
+                },
+            );
+            let messages = result.state.messages;
+            let output = result.answer.unwrap_or_default();
+            if compaction.event_count > 0 {
+                Ok(ExecutionResult::success_with_compaction(
+                    output, messages, compaction,
+                ))
+            } else {
+                Ok(ExecutionResult::success(output, messages))
+            }
         } else {
-            Err(anyhow!("Agent execution failed: {}", result.output))
+            Err(anyhow!(
+                "Agent execution failed: {}",
+                result.error.unwrap_or_else(|| "unknown error".to_string())
+            ))
         }
     }
 
@@ -815,6 +884,7 @@ impl AgentRuntimeExecutor {
         model: AIModel,
         background_task_id: Option<&str>,
         input: Option<&str>,
+        memory_config: &MemoryConfig,
         primary_provider: Provider,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
         agent_id: Option<&str>,
@@ -854,6 +924,7 @@ impl AgentRuntimeExecutor {
             llm_client,
             background_task_id,
             input,
+            memory_config,
             steer_rx,
             factory,
             agent_id,
@@ -868,6 +939,7 @@ impl AgentRuntimeExecutor {
         model: AIModel,
         background_task_id: Option<&str>,
         input: Option<&str>,
+        memory_config: &MemoryConfig,
         primary_provider: Provider,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
         agent_id: Option<&str>,
@@ -879,6 +951,7 @@ impl AgentRuntimeExecutor {
                     model,
                     background_task_id,
                     input,
+                    memory_config,
                     primary_provider,
                     steer_rx,
                     agent_id,
@@ -893,6 +966,7 @@ impl AgentRuntimeExecutor {
                     model,
                     background_task_id,
                     input,
+                    memory_config,
                     primary_provider,
                     steer_rx,
                     agent_id,
@@ -912,6 +986,7 @@ impl AgentRuntimeExecutor {
                     model,
                     background_task_id,
                     input,
+                    memory_config,
                     primary_provider,
                     steer_rx,
                     agent_id,
@@ -956,6 +1031,7 @@ impl AgentRuntimeExecutor {
                     llm_client,
                     background_task_id,
                     input,
+                    memory_config,
                     steer_rx.take(),
                     factory,
                     agent_id,
@@ -1053,6 +1129,7 @@ impl AgentExecutor for AgentRuntimeExecutor {
         agent_id: &str,
         background_task_id: Option<&str>,
         input: Option<&str>,
+        memory_config: &MemoryConfig,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
     ) -> Result<ExecutionResult> {
         let stored_agent = self
@@ -1085,6 +1162,7 @@ impl AgentExecutor for AgentRuntimeExecutor {
                         model,
                         background_task_id,
                         input_ref,
+                        memory_config,
                         primary_provider,
                         steer_rx,
                         Some(agent_id),
@@ -1115,7 +1193,7 @@ impl AgentExecutor for AgentRuntimeExecutor {
 mod tests {
     use super::*;
     use crate::auth::{AuthProvider, Credential, CredentialSource};
-    use crate::models::AgentNode;
+    use crate::models::{AgentNode, MemoryConfig};
     use crate::runtime::subagent::{AgentDefinitionRegistry, SubagentConfig, SubagentTracker};
     use tempfile::tempdir;
     use tokio::sync::mpsc;
@@ -1149,6 +1227,42 @@ mod tests {
         let executor = create_test_executor(storage);
         // Executor should be created successfully
         assert!(Arc::strong_count(&executor.storage) >= 1);
+    }
+
+    #[test]
+    fn test_context_window_for_model() {
+        assert_eq!(
+            AgentRuntimeExecutor::context_window_for_model(AIModel::ClaudeSonnet4_5),
+            200_000
+        );
+        assert_eq!(
+            AgentRuntimeExecutor::context_window_for_model(AIModel::Gpt5),
+            128_000
+        );
+        assert_eq!(
+            AgentRuntimeExecutor::context_window_for_model(AIModel::DeepseekChat),
+            64_000
+        );
+        assert_eq!(
+            AgentRuntimeExecutor::context_window_for_model(AIModel::Gemini25Pro),
+            1_000_000
+        );
+    }
+
+    #[test]
+    fn test_build_compaction_config_from_memory_config() {
+        let enabled = MemoryConfig::default();
+        let config = AgentRuntimeExecutor::build_compaction_config(&enabled)
+            .expect("compaction should be enabled by default");
+        assert_eq!(config.threshold_ratio, 0.80);
+        assert_eq!(config.max_summary_tokens, 2_000);
+        assert!(config.auto_compact);
+
+        let disabled = MemoryConfig {
+            enable_compaction: false,
+            ..MemoryConfig::default()
+        };
+        assert!(AgentRuntimeExecutor::build_compaction_config(&disabled).is_none());
     }
 
     #[tokio::test]
@@ -1212,7 +1326,13 @@ mod tests {
         let executor = create_test_executor(storage);
 
         let result = executor
-            .execute("nonexistent-agent", None, None, None)
+            .execute(
+                "nonexistent-agent",
+                None,
+                None,
+                &MemoryConfig::default(),
+                None,
+            )
             .await;
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("not found"));
@@ -1221,28 +1341,20 @@ mod tests {
     #[tokio::test]
     async fn test_executor_no_api_key() {
         let (storage, _temp_dir) = create_test_storage();
-
-        // Create an agent without API key
-        let agent_node = AgentNode::with_model(AIModel::ClaudeSonnet4_5);
-        storage
-            .agents
-            .create_agent("Test Agent".to_string(), agent_node)
-            .unwrap();
-
-        let agents = storage.agents.list_agents().unwrap();
-        let agent_id = &agents[0].id;
-
         let executor = create_test_executor(storage);
         let result = executor
-            .execute(agent_id, None, Some("test input"), None)
+            .resolve_api_key_for_model(
+                Provider::Anthropic,
+                Some(&ApiKeyConfig::Secret("MISSING_TEST_SECRET".to_string())),
+                Provider::Anthropic,
+            )
             .await;
 
-        // Should fail due to missing API key (no ANTHROPIC_API_KEY secret configured)
         assert!(result.is_err());
         let err_msg = result.unwrap_err().to_string();
         assert!(
-            err_msg.contains("API key") || err_msg.contains("ANTHROPIC_API_KEY"),
-            "Error should mention API key: {}",
+            err_msg.contains("MISSING_TEST_SECRET"),
+            "Error should mention missing secret: {}",
             err_msg
         );
     }
