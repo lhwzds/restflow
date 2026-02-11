@@ -7,21 +7,21 @@
  * - Center: Chat panel (messages + input)
  * - Right: AI-controlled Canvas panel (hideable)
  */
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { Settings, Moon, Sun } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import SessionList from '@/components/workspace/SessionList.vue'
 import SettingsPanel from '@/components/settings/SettingsPanel.vue'
 import ChatPanel from '@/components/chat/ChatPanel.vue'
-import CanvasPanel from '@/components/canvas/CanvasPanel.vue'
+import ToolPanel from '@/components/tool-panel/ToolPanel.vue'
 import { useChatSessionStore } from '@/stores/chatSessionStore'
-import { useCanvasPanel } from '@/composables/workspace/useCanvasPanel'
-import { useChatStream } from '@/composables/workspace/useChatStream'
+import { useToolPanel } from '@/composables/workspace/useToolPanel'
 import { useTheme } from '@/composables/useTheme'
 import { listAgents } from '@/api/agents'
 import { useToast } from '@/composables/useToast'
 import type { AgentFile, SessionItem } from '@/types/workspace'
 import type { ChatSessionSummary } from '@/types/generated/ChatSessionSummary'
+import type { StreamStep } from '@/composables/workspace/useChatStream'
 
 const toast = useToast()
 const chatSessionStore = useChatSessionStore()
@@ -37,11 +37,8 @@ const currentSessionId = computed(() => chatSessionStore.currentSessionId)
 const agentFilter = computed(() => chatSessionStore.agentFilter)
 const isSending = computed(() => chatSessionStore.isSending)
 
-// Chat stream for Canvas panel integration
-const chatStream = useChatStream(() => chatSessionStore.currentSessionId)
-
-// Canvas panel
-const canvas = useCanvasPanel(chatStream.state)
+// Tool panel
+const toolPanel = useToolPanel()
 
 // Build session list from store
 const sessions = computed<SessionItem[]>(() => {
@@ -89,11 +86,19 @@ function onUpdateAgentFilter(agentId: string | null) {
 }
 
 function onShowPanel(resultJson: string) {
-  canvas.handleShowPanelResult(resultJson)
+  toolPanel.handleShowPanelResult(resultJson)
+}
+
+function onToolResult(step: StreamStep) {
+  toolPanel.handleToolResult(step)
 }
 
 onMounted(() => {
   loadAgents()
+})
+
+watch(currentSessionId, () => {
+  toolPanel.clearHistory()
 })
 </script>
 
@@ -149,15 +154,20 @@ onMounted(() => {
       <ChatPanel
         class="flex-1 min-w-0"
         @show-panel="onShowPanel"
+        @tool-result="onToolResult"
       />
 
-      <!-- Right: AI Canvas -->
-      <CanvasPanel
-        v-if="canvas.visible.value"
-        :title="canvas.title.value"
-        :content="canvas.content.value"
-        :content-type="canvas.contentType.value"
-        @close="canvas.closeCanvas()"
+      <!-- Right: Tool Panel -->
+      <ToolPanel
+        v-if="toolPanel.visible.value && toolPanel.activeEntry.value"
+        :panel-type="toolPanel.state.value.panelType"
+        :title="toolPanel.state.value.title"
+        :tool-name="toolPanel.state.value.toolName"
+        :data="toolPanel.state.value.data"
+        :can-navigate-prev="toolPanel.canNavigatePrev.value"
+        :can-navigate-next="toolPanel.canNavigateNext.value"
+        @navigate="toolPanel.navigateHistory"
+        @close="toolPanel.closePanel()"
       />
     </div>
   </div>
