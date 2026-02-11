@@ -19,6 +19,7 @@ pub mod services;
 pub mod skill_files;
 pub mod steer;
 pub mod storage;
+pub mod utils;
 
 pub use models::*;
 pub use steer::SteerRegistry;
