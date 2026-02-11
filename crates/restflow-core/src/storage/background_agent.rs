@@ -1126,6 +1126,9 @@ mod tests {
                     enable_file_memory: true,
                     persist_on_complete: true,
                     memory_scope: MemoryScope::PerBackgroundAgent,
+                    enable_compaction: true,
+                    compaction_threshold_ratio: 0.80,
+                    max_summary_tokens: 2_000,
                 }),
             })
             .unwrap();
@@ -1166,6 +1169,9 @@ mod tests {
                         enable_file_memory: false,
                         persist_on_complete: true,
                         memory_scope: MemoryScope::PerBackgroundAgent,
+                        enable_compaction: true,
+                        compaction_threshold_ratio: 0.80,
+                        max_summary_tokens: 2_000,
                     }),
                     ..Default::default()
                 },
