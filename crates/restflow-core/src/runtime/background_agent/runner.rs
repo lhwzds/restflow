@@ -1202,14 +1202,8 @@ impl BackgroundAgentRunner {
                 "{{task.description}}",
                 task.description.clone().unwrap_or_default(),
             ),
-            (
-                "{{task.input}}",
-                task.input.clone().unwrap_or_default(),
-            ),
-            (
-                "{{input}}",
-                task.input.clone().unwrap_or_default(),
-            ),
+            ("{{task.input}}", task.input.clone().unwrap_or_default()),
+            ("{{input}}", task.input.clone().unwrap_or_default()),
             (
                 "{{task.last_run_at}}",
                 Self::format_optional_timestamp(task.last_run_at),

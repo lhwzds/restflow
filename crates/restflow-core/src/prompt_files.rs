@@ -126,11 +126,7 @@ fn agent_prompt_path(agent_id: &str) -> Result<PathBuf> {
         anyhow::bail!("Agent ID is empty; cannot resolve prompt file path");
     }
     // Reject path traversal characters to prevent directory escape
-    if id.contains('/')
-        || id.contains('\\')
-        || id.contains("..")
-        || id.contains('\0')
-    {
+    if id.contains('/') || id.contains('\\') || id.contains("..") || id.contains('\0') {
         anyhow::bail!(
             "Agent ID '{}' contains invalid characters (path separators or '..' sequences)",
             id
@@ -243,5 +239,4 @@ mod tests {
         let actual = resolve_agents_dir().unwrap();
         assert_eq!(actual, expected);
     }
-
 }
