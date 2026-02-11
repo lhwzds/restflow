@@ -8,6 +8,7 @@ mod launcher;
 mod logging;
 mod mcp;
 mod process;
+pub mod recovery;
 mod supervisor;
 
 pub use background_events::{publish_background_event, subscribe_background_events};
