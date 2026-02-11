@@ -1,5 +1,6 @@
 //! Tool registry service for creating tool registries with storage access.
 
+use crate::daemon::{DaemonStatus, check_daemon_status, check_health};
 use crate::lsp::LspManager;
 use crate::memory::{MemoryExporter, UnifiedSearchEngine};
 use crate::models::{
@@ -20,6 +21,7 @@ use crate::storage::{
     SecretStorage, SharedSpaceStorage, TerminalSessionStorage, TriggerStorage,
     WorkspaceNoteStorage,
 };
+use crate::tools::ops::{ManageOpsOperation, build_response, parse_operation};
 use chrono::Utc;
 use restflow_ai::error::AiError;
 use restflow_ai::tools::{
@@ -40,6 +42,8 @@ use restflow_ai::{
 };
 use serde::{Deserialize, de::DeserializeOwned};
 use serde_json::{Value, json};
+use std::collections::BTreeMap;
+use std::path::Path;
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -1204,8 +1208,12 @@ pub fn create_tool_registry(
     }
 
     // Add unified memory search tool
-    let search_engine = UnifiedSearchEngine::new(memory_storage, chat_storage);
+    let search_engine = UnifiedSearchEngine::new(memory_storage, chat_storage.clone());
     registry.register(MemorySearchTool::new(search_engine));
+    registry.register(ManageOpsTool::new(
+        background_agent_storage.clone(),
+        chat_storage.clone(),
+    ));
 
     // Add shared space tool
     registry.register(SharedSpaceTool::new(shared_space_storage, accessor_id));
@@ -1325,6 +1333,286 @@ impl Tool for MemorySearchTool {
             .map_err(|e| AiError::Tool(e.to_string()))?;
 
         Ok(ToolOutput::success(serde_json::to_value(results)?))
+    }
+}
+
+#[derive(Clone)]
+struct ManageOpsTool {
+    background_storage: BackgroundAgentStorage,
+    chat_storage: ChatSessionStorage,
+}
+
+impl ManageOpsTool {
+    fn new(background_storage: BackgroundAgentStorage, chat_storage: ChatSessionStorage) -> Self {
+        Self {
+            background_storage,
+            chat_storage,
+        }
+    }
+
+    fn parse_status_filter(
+        input: &Value,
+    ) -> restflow_ai::error::Result<Option<BackgroundAgentStatus>> {
+        let Some(status) = input.get("status").and_then(Value::as_str) else {
+            return Ok(None);
+        };
+        let parsed = match status.trim().to_ascii_lowercase().as_str() {
+            "active" => BackgroundAgentStatus::Active,
+            "paused" => BackgroundAgentStatus::Paused,
+            "running" => BackgroundAgentStatus::Running,
+            "completed" => BackgroundAgentStatus::Completed,
+            "failed" => BackgroundAgentStatus::Failed,
+            value => {
+                return Err(AiError::Tool(format!(
+                    "Unknown status: {}. Supported: active, paused, running, completed, failed",
+                    value
+                )));
+            }
+        };
+        Ok(Some(parsed))
+    }
+
+    fn parse_limit(input: &Value, key: &str, default: usize, max: usize) -> usize {
+        input
+            .get(key)
+            .and_then(Value::as_u64)
+            .map(|value| value as usize)
+            .unwrap_or(default)
+            .clamp(1, max)
+    }
+
+    fn read_log_tail(path: &Path, lines: usize) -> anyhow::Result<(Vec<String>, bool)> {
+        let content = std::fs::read_to_string(path)?;
+        let all_lines: Vec<String> = content.lines().map(str::to_string).collect();
+        let total = all_lines.len();
+        let start = total.saturating_sub(lines);
+        let truncated = total > lines;
+        Ok((all_lines[start..].to_vec(), truncated))
+    }
+
+    fn daemon_status_payload() -> anyhow::Result<Value> {
+        let status = check_daemon_status()?;
+        let payload = match status {
+            DaemonStatus::Running { pid } => json!({
+                "status": "running",
+                "pid": pid
+            }),
+            DaemonStatus::NotRunning => json!({
+                "status": "not_running"
+            }),
+            DaemonStatus::Stale { pid } => json!({
+                "status": "stale",
+                "pid": pid
+            }),
+        };
+        Ok(payload)
+    }
+
+    fn background_summary_payload(
+        &self,
+        input: &Value,
+    ) -> restflow_ai::error::Result<(Value, Value)> {
+        let status_filter = Self::parse_status_filter(input)?;
+        let tasks = match status_filter.clone() {
+            Some(status) => self
+                .background_storage
+                .list_tasks_by_status(status)
+                .map_err(|e| AiError::Tool(e.to_string()))?,
+            None => self
+                .background_storage
+                .list_tasks()
+                .map_err(|e| AiError::Tool(e.to_string()))?,
+        };
+        let limit = Self::parse_limit(input, "limit", 5, 100);
+        let mut by_status: BTreeMap<String, usize> = BTreeMap::new();
+        for task in &tasks {
+            *by_status
+                .entry(task.status.as_str().to_string())
+                .or_default() += 1;
+        }
+        let sample: Vec<Value> = tasks
+            .iter()
+            .take(limit)
+            .map(|task| {
+                json!({
+                    "id": task.id,
+                    "name": task.name,
+                    "agent_id": task.agent_id,
+                    "status": task.status.as_str(),
+                    "updated_at": task.updated_at
+                })
+            })
+            .collect();
+        let evidence = json!({
+            "total": tasks.len(),
+            "by_status": by_status,
+            "sample": sample
+        });
+        let verification = json!({
+            "status_filter": status_filter.as_ref().map(|status| status.as_str()),
+            "sample_limit": limit,
+            "derived_from": "background_agent_storage"
+        });
+        Ok((evidence, verification))
+    }
+
+    fn session_summary_payload(&self, input: &Value) -> restflow_ai::error::Result<(Value, Value)> {
+        let limit = Self::parse_limit(input, "limit", 10, 100);
+        let summaries = self
+            .chat_storage
+            .list_summaries()
+            .map_err(|e| AiError::Tool(e.to_string()))?;
+        let recent: Vec<Value> = summaries
+            .iter()
+            .take(limit)
+            .map(|session| {
+                json!({
+                    "id": session.id,
+                    "name": session.name,
+                    "agent_id": session.agent_id,
+                    "model": session.model,
+                    "message_count": session.message_count,
+                    "updated_at": session.updated_at,
+                    "last_message_preview": session.last_message_preview
+                })
+            })
+            .collect();
+        let evidence = json!({
+            "total": summaries.len(),
+            "recent": recent
+        });
+        let verification = json!({
+            "sorted_by": "updated_at_desc",
+            "sample_limit": limit,
+            "derived_from": "chat_session_storage"
+        });
+        Ok((evidence, verification))
+    }
+
+    fn log_tail_payload(input: &Value) -> restflow_ai::error::Result<(Value, Value)> {
+        let lines = Self::parse_limit(input, "lines", 100, 1000);
+        let path = if let Some(raw_path) = input.get("path").and_then(Value::as_str) {
+            std::path::PathBuf::from(raw_path)
+        } else {
+            crate::paths::daemon_log_path().map_err(|e| AiError::Tool(e.to_string()))?
+        };
+        if !path.exists() {
+            let evidence = json!({
+                "path": path.to_string_lossy(),
+                "lines": [],
+                "line_count": 0
+            });
+            let verification = json!({
+                "path_exists": false,
+                "requested_lines": lines
+            });
+            return Ok((evidence, verification));
+        }
+
+        let (tail, truncated) =
+            Self::read_log_tail(&path, lines).map_err(|e| AiError::Tool(e.to_string()))?;
+        let evidence = json!({
+            "path": path.to_string_lossy(),
+            "lines": tail,
+            "line_count": tail.len()
+        });
+        let verification = json!({
+            "path_exists": true,
+            "requested_lines": lines,
+            "truncated": truncated
+        });
+        Ok((evidence, verification))
+    }
+}
+
+#[async_trait::async_trait]
+impl Tool for ManageOpsTool {
+    fn name(&self) -> &str {
+        "manage_ops"
+    }
+
+    fn description(&self) -> &str {
+        "Unified operational diagnostics and control entry for daemon status, health snapshot, background-agent summary, session summary, and log tail."
+    }
+
+    fn parameters_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "operation": {
+                    "type": "string",
+                    "enum": ["daemon_status", "daemon_health", "background_summary", "session_summary", "log_tail"],
+                    "description": "Operation to execute."
+                },
+                "status": {
+                    "type": "string",
+                    "description": "Optional status filter for background_summary."
+                },
+                "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "Optional row limit for summary operations."
+                },
+                "lines": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "Number of lines for log_tail."
+                },
+                "path": {
+                    "type": "string",
+                    "description": "Optional custom log file path for log_tail."
+                }
+            },
+            "required": ["operation"]
+        })
+    }
+
+    async fn execute(&self, input: Value) -> restflow_ai::error::Result<ToolOutput> {
+        let operation_raw = input
+            .get("operation")
+            .and_then(Value::as_str)
+            .ok_or_else(|| AiError::Tool("Missing operation parameter".to_string()))?;
+        let operation = parse_operation(operation_raw).map_err(|e| AiError::Tool(e.to_string()))?;
+
+        let payload = match operation {
+            ManageOpsOperation::DaemonStatus => {
+                let evidence =
+                    Self::daemon_status_payload().map_err(|e| AiError::Tool(e.to_string()))?;
+                let verification = json!({
+                    "source": "daemon_pid_file",
+                    "checked_at": Utc::now().timestamp_millis()
+                });
+                build_response(operation, evidence, verification)
+            }
+            ManageOpsOperation::DaemonHealth => {
+                let socket =
+                    crate::paths::socket_path().map_err(|e| AiError::Tool(e.to_string()))?;
+                let health = check_health(socket, None)
+                    .await
+                    .map_err(|e| AiError::Tool(e.to_string()))?;
+                let evidence = serde_json::to_value(health).map_err(AiError::from)?;
+                let verification = json!({
+                    "healthy": evidence["healthy"],
+                    "ipc_checked": true,
+                    "http_checked": false
+                });
+                build_response(operation, evidence, verification)
+            }
+            ManageOpsOperation::BackgroundSummary => {
+                let (evidence, verification) = self.background_summary_payload(&input)?;
+                build_response(operation, evidence, verification)
+            }
+            ManageOpsOperation::SessionSummary => {
+                let (evidence, verification) = self.session_summary_payload(&input)?;
+                build_response(operation, evidence, verification)
+            }
+            ManageOpsOperation::LogTail => {
+                let (evidence, verification) = Self::log_tail_payload(&input)?;
+                build_response(operation, evidence, verification)
+            }
+        };
+
+        Ok(ToolOutput::success(payload))
     }
 }
 
@@ -2310,11 +2598,63 @@ mod tests {
         assert!(registry.has("manage_marketplace"));
         assert!(registry.has("manage_triggers"));
         assert!(registry.has("manage_terminal"));
+        assert!(registry.has("manage_ops"));
         assert!(registry.has("security_query"));
         // Session, memory management, and auth profile tools
         assert!(registry.has("manage_sessions"));
         assert!(registry.has("manage_memory"));
         assert!(registry.has("manage_auth_profiles"));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_manage_ops_session_summary_response_schema() {
+        let (
+            skill_storage,
+            memory_storage,
+            chat_storage,
+            shared_space_storage,
+            workspace_note_storage,
+            secret_storage,
+            config_storage,
+            agent_storage,
+            background_agent_storage,
+            trigger_storage,
+            terminal_storage,
+            _temp_dir,
+        ) = setup_storage();
+
+        let session =
+            crate::models::ChatSession::new("agent-test".to_string(), "gpt-5-mini".to_string())
+                .with_name("Ops Session");
+        chat_storage.create(&session).unwrap();
+
+        let registry = create_tool_registry(
+            skill_storage,
+            memory_storage,
+            chat_storage,
+            shared_space_storage,
+            workspace_note_storage,
+            secret_storage,
+            config_storage,
+            agent_storage,
+            background_agent_storage,
+            trigger_storage,
+            terminal_storage,
+            None,
+            None,
+        );
+
+        let output = registry
+            .execute_safe(
+                "manage_ops",
+                json!({ "operation": "session_summary", "limit": 5 }),
+            )
+            .await
+            .unwrap();
+        assert!(output.success);
+        assert_eq!(output.result["operation"], "session_summary");
+        assert!(output.result.get("evidence").is_some());
+        assert!(output.result.get("verification").is_some());
     }
 
     #[test]

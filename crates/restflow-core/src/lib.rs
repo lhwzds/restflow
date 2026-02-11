@@ -20,6 +20,7 @@ pub mod services;
 pub mod skill_files;
 pub mod steer;
 pub mod storage;
+pub mod tools;
 pub mod utils;
 
 pub use models::*;

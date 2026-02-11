@@ -2918,6 +2918,7 @@ mod tests {
                 .iter()
                 .any(|tool| tool.name == "manage_agents")
         );
+        assert!(runtime_tools.iter().any(|tool| tool.name == "manage_ops"));
     }
 
     #[tokio::test]
@@ -2929,6 +2930,22 @@ mod tests {
             .unwrap();
         let agents: Vec<serde_json::Value> = serde_json::from_str(&json).unwrap();
         assert!(!agents.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_manage_ops_runtime_tool_routes_and_returns_normalized_json() {
+        let (server, _core, _temp_dir) = create_test_server().await;
+        let json = server
+            .handle_runtime_tool(
+                "manage_ops",
+                serde_json::json!({ "operation": "daemon_status" }),
+            )
+            .await
+            .unwrap();
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(value["operation"], "daemon_status");
+        assert!(value.get("evidence").is_some());
+        assert!(value.get("verification").is_some());
     }
 
     #[test]

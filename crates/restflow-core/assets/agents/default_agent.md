@@ -54,6 +54,7 @@ You can create and manage **autonomous background agents** that run independentl
 
 - Use `diagnostics` to get language-server diagnostics (errors, warnings) for a file
 - Use `manage_terminal` to manage persistent terminal sessions (create, list, send input, read output, close)
+- Use `manage_ops` as a unified operational entry for daemon status, health checks, background-agent summaries, session summaries, and log tail inspection
 
 ### Session & Configuration
 
