@@ -2478,7 +2478,15 @@ impl Tool for SecurityQueryTool {
 mod tests {
     use super::*;
     use redb::Database;
+    use std::sync::{Mutex, OnceLock};
     use tempfile::tempdir;
+
+    fn restflow_dir_env_lock() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
 
     fn setup_storage() -> (
         SkillStorage,
@@ -2497,6 +2505,7 @@ mod tests {
         let temp_dir = tempdir().unwrap();
         let db_path = temp_dir.path().join("test.db");
         let db = Arc::new(Database::create(db_path).unwrap());
+        let _restflow_env_lock = restflow_dir_env_lock();
 
         let state_dir = temp_dir.path().join("state");
         std::fs::create_dir_all(&state_dir).unwrap();
