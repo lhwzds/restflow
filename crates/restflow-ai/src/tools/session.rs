@@ -71,7 +71,7 @@ impl SessionTool {
             Ok(())
         } else {
             Err(AiError::Tool(
-                "Write access to sessions is disabled for this tool".to_string(),
+                "Write access to sessions is disabled. Available read-only operations: list, get, history. To modify sessions, the user must grant write permissions.".to_string(),
             ))
         }
     }
@@ -185,9 +185,17 @@ impl Tool for SessionTool {
                     skill_id,
                     include_messages,
                 };
-                ToolOutput::success(self.store.list_sessions(filter)?)
+                ToolOutput::success(
+                    self.store
+                        .list_sessions(filter)
+                        .map_err(|e| AiError::Tool(format!("Failed to list session: {e}")))?,
+                )
             }
-            SessionAction::Get { id } => ToolOutput::success(self.store.get_session(&id)?),
+            SessionAction::Get { id } => ToolOutput::success(
+                self.store
+                    .get_session(&id)
+                    .map_err(|e| AiError::Tool(format!("Failed to get session: {e}")))?,
+            ),
             SessionAction::Create {
                 agent_id,
                 model,
@@ -201,11 +209,19 @@ impl Tool for SessionTool {
                     name,
                     skill_id,
                 };
-                ToolOutput::success(self.store.create_session(request)?)
+                ToolOutput::success(
+                    self.store
+                        .create_session(request)
+                        .map_err(|e| AiError::Tool(format!("Failed to create session: {e}")))?,
+                )
             }
             SessionAction::Delete { id } => {
                 self.write_guard()?;
-                ToolOutput::success(self.store.delete_session(&id)?)
+                ToolOutput::success(
+                    self.store
+                        .delete_session(&id)
+                        .map_err(|e| AiError::Tool(format!("Failed to delete session: {e}")))?,
+                )
             }
             SessionAction::Search {
                 query,
@@ -219,7 +235,11 @@ impl Tool for SessionTool {
                     skill_id,
                     limit,
                 };
-                ToolOutput::success(self.store.search_sessions(request)?)
+                ToolOutput::success(
+                    self.store
+                        .search_sessions(request)
+                        .map_err(|e| AiError::Tool(format!("Failed to search session: {e}")))?,
+                )
             }
         };
 
@@ -268,6 +288,10 @@ mod tests {
         let result = tool
             .execute(json!({"operation": "create", "agent_id": "agent", "model": "gpt"}))
             .await;
-        assert!(result.is_err());
+        let err = result.err().expect("expected write-guard error");
+        assert!(
+            err.to_string()
+                .contains("Available read-only operations: list, get, history")
+        );
     }
 }

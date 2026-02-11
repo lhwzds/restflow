@@ -114,7 +114,9 @@ impl Tool for SaveMemoryTool {
             &params.tags,
         ) {
             Ok(result) => Ok(ToolOutput::success(result)),
-            Err(e) => Ok(ToolOutput::error(format!("Failed to save memory: {}", e))),
+            Err(e) => Ok(ToolOutput::error(format!(
+                "Failed to save memory: {e}. The storage may be full or temporarily unavailable. Retry the operation."
+            ))),
         }
     }
 }
@@ -198,7 +200,9 @@ impl Tool for ReadMemoryTool {
                     "found": false,
                     "message": format!("No memory found with ID: {}", id)
                 }))),
-                Err(e) => Ok(ToolOutput::error(format!("Failed to read memory: {}", e))),
+                Err(e) => Ok(ToolOutput::error(format!(
+                    "Memory not found or read error: {e}. Use list_memories to check available entries."
+                ))),
             };
         }
 
@@ -211,8 +215,7 @@ impl Tool for ReadMemoryTool {
         ) {
             Ok(result) => Ok(ToolOutput::success(result)),
             Err(e) => Ok(ToolOutput::error(format!(
-                "Failed to search memories: {}",
-                e
+                "Memory search failed: {e}. Try with different search terms or use list_memories instead."
             ))),
         }
     }
@@ -284,7 +287,9 @@ impl Tool for ListMemoryTool {
             .list(&params.agent_id, params.tag.as_deref(), params.limit)
         {
             Ok(result) => Ok(ToolOutput::success(result)),
-            Err(e) => Ok(ToolOutput::error(format!("Failed to list memories: {}", e))),
+            Err(e) => Ok(ToolOutput::error(format!(
+                "Failed to list memories: {e}. Storage may be temporarily unavailable."
+            ))),
         }
     }
 }
@@ -336,7 +341,108 @@ impl Tool for DeleteMemoryTool {
 
         match self.store.delete(&params.id) {
             Ok(result) => Ok(ToolOutput::success(result)),
-            Err(e) => Ok(ToolOutput::error(format!("Failed to delete memory: {}", e))),
+            Err(e) => Ok(ToolOutput::error(format!(
+                "Failed to delete memory: {e}. Verify the memory key exists using read_memory first."
+            ))),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::error::AiError;
+
+    struct FailingMemoryStore;
+
+    impl MemoryStore for FailingMemoryStore {
+        fn save(
+            &self,
+            _agent_id: &str,
+            _title: &str,
+            _content: &str,
+            _tags: &[String],
+        ) -> Result<Value> {
+            Err(AiError::Tool("db down".to_string()))
+        }
+
+        fn read_by_id(&self, _id: &str) -> Result<Option<Value>> {
+            Err(AiError::Tool("db down".to_string()))
+        }
+
+        fn search(
+            &self,
+            _agent_id: &str,
+            _tag: Option<&str>,
+            _search: Option<&str>,
+            _limit: usize,
+        ) -> Result<Value> {
+            Err(AiError::Tool("db down".to_string()))
+        }
+
+        fn list(&self, _agent_id: &str, _tag: Option<&str>, _limit: usize) -> Result<Value> {
+            Err(AiError::Tool("db down".to_string()))
+        }
+
+        fn delete(&self, _id: &str) -> Result<Value> {
+            Err(AiError::Tool("db down".to_string()))
+        }
+    }
+
+    #[tokio::test]
+    async fn test_save_memory_error_message() {
+        let tool = SaveMemoryTool::new(Arc::new(FailingMemoryStore));
+        let output = tool
+            .execute(json!({
+                "agent_id": "agent-1",
+                "title": "title",
+                "content": "content"
+            }))
+            .await
+            .expect("tool should return error output");
+        assert!(!output.success);
+        assert!(
+            output
+                .error
+                .expect("expected error")
+                .contains("The storage may be full or temporarily unavailable")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_read_memory_error_message() {
+        let tool = ReadMemoryTool::new(Arc::new(FailingMemoryStore));
+        let output = tool
+            .execute(json!({
+                "agent_id": "agent-1",
+                "id": "memory-1"
+            }))
+            .await
+            .expect("tool should return error output");
+        assert!(!output.success);
+        assert!(
+            output
+                .error
+                .expect("expected error")
+                .contains("Use list_memories to check available entries")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_list_memory_error_message() {
+        let tool = ListMemoryTool::new(Arc::new(FailingMemoryStore));
+        let output = tool
+            .execute(json!({
+                "agent_id": "agent-1"
+            }))
+            .await
+            .expect("tool should return error output");
+        assert!(!output.success);
+        assert!(
+            output
+                .error
+                .expect("expected error")
+                .contains("Storage may be temporarily unavailable")
+        );
     }
 }

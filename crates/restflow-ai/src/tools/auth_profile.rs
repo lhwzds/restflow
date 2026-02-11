@@ -84,7 +84,7 @@ impl AuthProfileTool {
             Ok(())
         } else {
             Err(AiError::Tool(
-                "Write access to auth profiles is disabled for this tool".to_string(),
+                "Write access to auth profiles is disabled. Available read-only operations: list, get. To modify auth profiles, the user must grant write permissions.".to_string(),
             ))
         }
     }
@@ -160,33 +160,52 @@ impl Tool for AuthProfileTool {
     async fn execute(&self, input: Value) -> Result<ToolOutput> {
         let action: AuthProfileAction = serde_json::from_value(input)?;
 
-        let output = match action {
-            AuthProfileAction::List => ToolOutput::success(self.store.list_profiles()?),
-            AuthProfileAction::Discover => ToolOutput::success(self.store.discover_profiles()?),
-            AuthProfileAction::Add {
-                name,
-                provider,
-                source,
-                credential,
-            } => {
-                self.write_guard()?;
-                let request = AuthProfileCreateRequest {
+        let output =
+            match action {
+                AuthProfileAction::List => ToolOutput::success(
+                    self.store
+                        .list_profiles()
+                        .map_err(|e| AiError::Tool(format!("Failed to list auth profile: {e}")))?,
+                ),
+                AuthProfileAction::Discover => {
+                    ToolOutput::success(self.store.discover_profiles().map_err(|e| {
+                        AiError::Tool(format!("Failed to discover auth profile: {e}"))
+                    })?)
+                }
+                AuthProfileAction::Add {
                     name,
                     provider,
                     source,
                     credential,
-                };
-                ToolOutput::success(self.store.add_profile(request)?)
-            }
-            AuthProfileAction::Remove { id } => {
-                self.write_guard()?;
-                ToolOutput::success(self.store.remove_profile(&id)?)
-            }
-            AuthProfileAction::Test { id, provider } => {
-                let request = AuthProfileTestRequest { id, provider };
-                ToolOutput::success(self.store.test_profile(request)?)
-            }
-        };
+                } => {
+                    self.write_guard()?;
+                    let request = AuthProfileCreateRequest {
+                        name,
+                        provider,
+                        source,
+                        credential,
+                    };
+                    ToolOutput::success(
+                        self.store.add_profile(request).map_err(|e| {
+                            AiError::Tool(format!("Failed to add auth profile: {e}"))
+                        })?,
+                    )
+                }
+                AuthProfileAction::Remove { id } => {
+                    self.write_guard()?;
+                    ToolOutput::success(self.store.remove_profile(&id).map_err(|e| {
+                        AiError::Tool(format!("Failed to remove auth profile: {e}"))
+                    })?)
+                }
+                AuthProfileAction::Test { id, provider } => {
+                    let request = AuthProfileTestRequest { id, provider };
+                    ToolOutput::success(
+                        self.store.test_profile(request).map_err(|e| {
+                            AiError::Tool(format!("Failed to test auth profile: {e}"))
+                        })?,
+                    )
+                }
+            };
 
         Ok(output)
     }
@@ -260,6 +279,10 @@ mod tests {
                 "credential": {"type": "api_key", "key": "secret"}
             }))
             .await;
-        assert!(result.is_err());
+        let err = result.err().expect("expected write-guard error");
+        assert!(
+            err.to_string()
+                .contains("Available read-only operations: list, get")
+        );
     }
 }

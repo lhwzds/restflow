@@ -34,7 +34,7 @@ impl ConfigTool {
             Ok(())
         } else {
             Err(AiError::Tool(
-                "Write access to config is disabled for this tool".to_string(),
+                "Write access to config is disabled. Available read-only operations: get, list. To modify config, the user must grant write permissions.".to_string(),
             ))
         }
     }
@@ -205,6 +205,10 @@ mod tests {
                 "value": 8
             }))
             .await;
-        assert!(result.is_err());
+        let err = result.err().expect("expected write-guard error");
+        assert!(
+            err.to_string()
+                .contains("Available read-only operations: get, list")
+        );
     }
 }

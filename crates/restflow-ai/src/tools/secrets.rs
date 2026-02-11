@@ -34,7 +34,7 @@ impl SecretsTool {
             Ok(())
         } else {
             Err(AiError::Tool(
-                "Write access to secrets is disabled for this tool".to_string(),
+                "Write access to secrets is disabled. Available read-only operations: list, has. To modify secrets, the user must grant write permissions.".to_string(),
             ))
         }
     }
@@ -105,14 +105,14 @@ impl Tool for SecretsTool {
                 let secrets: Vec<Secret> = self
                     .storage
                     .list_secrets()
-                    .map_err(|e| AiError::Tool(e.to_string()))?;
+                    .map_err(|e| AiError::Tool(format!("Failed to list secret: {e}")))?;
                 ToolOutput::success(json!({ "count": secrets.len(), "secrets": secrets }))
             }
             SecretsAction::Get { key } => {
                 let value = self
                     .storage
                     .get_secret(&key)
-                    .map_err(|e| AiError::Tool(e.to_string()))?;
+                    .map_err(|e| AiError::Tool(format!("Failed to get secret: {e}")))?;
                 ToolOutput::success(json!({
                     "key": key,
                     "found": value.is_some(),
@@ -128,10 +128,10 @@ impl Tool for SecretsTool {
                 let existed = self
                     .storage
                     .has_secret(&key)
-                    .map_err(|e| AiError::Tool(e.to_string()))?;
+                    .map_err(|e| AiError::Tool(format!("Failed to set secret: {e}")))?;
                 self.storage
                     .set_secret(&key, &value, description)
-                    .map_err(|e| AiError::Tool(e.to_string()))?;
+                    .map_err(|e| AiError::Tool(format!("Failed to set secret: {e}")))?;
                 ToolOutput::success(json!({
                     "key": key,
                     "updated": existed,
@@ -143,11 +143,11 @@ impl Tool for SecretsTool {
                 let existed = self
                     .storage
                     .has_secret(&key)
-                    .map_err(|e| AiError::Tool(e.to_string()))?;
+                    .map_err(|e| AiError::Tool(format!("Failed to delete secret: {e}")))?;
                 if existed {
                     self.storage
                         .delete_secret(&key)
-                        .map_err(|e| AiError::Tool(e.to_string()))?;
+                        .map_err(|e| AiError::Tool(format!("Failed to delete secret: {e}")))?;
                 }
                 ToolOutput::success(json!({ "key": key, "deleted": existed }))
             }
@@ -155,7 +155,7 @@ impl Tool for SecretsTool {
                 let exists = self
                     .storage
                     .has_secret(&key)
-                    .map_err(|e| AiError::Tool(e.to_string()))?;
+                    .map_err(|e| AiError::Tool(format!("Failed to check secret: {e}")))?;
                 ToolOutput::success(json!({ "key": key, "exists": exists }))
             }
         };
@@ -227,6 +227,10 @@ mod tests {
         let result = tool
             .execute(json!({ "operation": "set", "key": "A", "value": "B" }))
             .await;
-        assert!(result.is_err());
+        let err = result.err().expect("expected write-guard error");
+        assert!(
+            err.to_string()
+                .contains("Available read-only operations: list, has")
+        );
     }
 }

@@ -4,7 +4,7 @@ use serde_json::{Value, json};
 use std::sync::Arc;
 
 use crate::embedding::EmbeddingProvider;
-use crate::error::{AiError, Result};
+use crate::error::Result;
 use crate::tools::traits::{Tool, ToolOutput};
 
 pub struct MemorySearchTool {
@@ -86,16 +86,27 @@ impl Tool for MemorySearchTool {
             Err(e) => return Ok(ToolOutput::error(format!("Invalid input: {}", e))),
         };
 
-        let query_embedding = self
-            .embedding
-            .embed(&params.query)
-            .await
-            .map_err(|e| AiError::Tool(e.to_string()))?;
+        let query_embedding = match self.embedding.embed(&params.query).await {
+            Ok(embedding) => embedding,
+            Err(e) => {
+                return Ok(ToolOutput::error(format!(
+                    "Failed to generate embedding: {e}. This requires a configured embedding provider. Check that OPENAI_API_KEY is set via manage_secrets."
+                )));
+            }
+        };
         let agent_id = "default";
-        let mut results = self
-            .memory
-            .semantic_search(agent_id, &query_embedding, params.top_k)
-            .map_err(|e| AiError::Tool(e.to_string()))?;
+        let mut results = match self.memory.semantic_search(
+            agent_id,
+            &query_embedding,
+            params.top_k,
+        ) {
+            Ok(results) => results,
+            Err(e) => {
+                return Ok(ToolOutput::error(format!(
+                    "Memory search failed: {e}. Try using list_memories with tag filters as an alternative."
+                )));
+            }
+        };
 
         if !params.tags.is_empty() {
             results.retain(|m| params.tags.iter().all(|tag| m.tags.contains(tag)));
@@ -119,5 +130,111 @@ impl Tool for MemorySearchTool {
         }
 
         Ok(ToolOutput::success(json!(output)))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use anyhow::anyhow;
+    use async_trait::async_trait;
+
+    struct FailingEmbeddingProvider;
+
+    #[async_trait]
+    impl EmbeddingProvider for FailingEmbeddingProvider {
+        async fn embed(&self, _text: &str) -> anyhow::Result<Vec<f32>> {
+            Err(anyhow!("missing api key"))
+        }
+
+        async fn embed_batch(&self, _texts: &[String]) -> anyhow::Result<Vec<Vec<f32>>> {
+            Ok(vec![])
+        }
+
+        fn dimension(&self) -> usize {
+            1536
+        }
+
+        fn model_name(&self) -> &str {
+            "mock"
+        }
+    }
+
+    struct OkEmbeddingProvider;
+
+    #[async_trait]
+    impl EmbeddingProvider for OkEmbeddingProvider {
+        async fn embed(&self, _text: &str) -> anyhow::Result<Vec<f32>> {
+            Ok(vec![0.1, 0.2, 0.3])
+        }
+
+        async fn embed_batch(&self, _texts: &[String]) -> anyhow::Result<Vec<Vec<f32>>> {
+            Ok(vec![])
+        }
+
+        fn dimension(&self) -> usize {
+            3
+        }
+
+        fn model_name(&self) -> &str {
+            "mock"
+        }
+    }
+
+    struct FailingMemory;
+
+    impl SemanticMemory for FailingMemory {
+        fn semantic_search(
+            &self,
+            _agent_id: &str,
+            _query_embedding: &[f32],
+            _top_k: usize,
+        ) -> anyhow::Result<Vec<MemorySearchMatch>> {
+            Err(anyhow!("index unavailable"))
+        }
+    }
+
+    struct EmptyMemory;
+
+    impl SemanticMemory for EmptyMemory {
+        fn semantic_search(
+            &self,
+            _agent_id: &str,
+            _query_embedding: &[f32],
+            _top_k: usize,
+        ) -> anyhow::Result<Vec<MemorySearchMatch>> {
+            Ok(vec![])
+        }
+    }
+
+    #[tokio::test]
+    async fn test_embedding_error_message() {
+        let tool = MemorySearchTool::new(Arc::new(EmptyMemory), Arc::new(FailingEmbeddingProvider));
+
+        let output = tool
+            .execute(json!({"query": "test query"}))
+            .await
+            .expect("tool execution should not fail");
+
+        assert!(!output.success);
+        let error = output.error.expect("expected tool error");
+        assert!(error.contains("Failed to generate embedding"));
+        assert!(error.contains("OPENAI_API_KEY"));
+        assert!(error.contains("manage_secrets"));
+    }
+
+    #[tokio::test]
+    async fn test_search_error_message() {
+        let tool = MemorySearchTool::new(Arc::new(FailingMemory), Arc::new(OkEmbeddingProvider));
+
+        let output = tool
+            .execute(json!({"query": "test query"}))
+            .await
+            .expect("tool execution should not fail");
+
+        assert!(!output.success);
+        let error = output.error.expect("expected tool error");
+        assert!(error.contains("Memory search failed"));
+        assert!(error.contains("list_memories"));
     }
 }
