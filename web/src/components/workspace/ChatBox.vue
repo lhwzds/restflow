@@ -80,7 +80,13 @@ watch(inputMessage, async (newVal) => {
   <div class="transition-all duration-300">
     <!-- Close button when expanded -->
     <div v-if="isExpanded" class="flex justify-end pb-2">
-      <Button variant="ghost" size="icon" class="h-7 w-7" @click="emit('close')">
+      <Button
+        variant="ghost"
+        size="icon"
+        class="h-7 w-7"
+        aria-label="Collapse chat input"
+        @click="emit('close')"
+      >
         <X :size="16" />
       </Button>
     </div>

@@ -127,11 +127,18 @@ onMounted(() => {
             variant="ghost"
             size="icon"
             class="h-7 w-7"
+            aria-label="Open settings"
             @click="showSettings = true"
           >
             <Settings :size="14" />
           </Button>
-          <Button variant="ghost" size="icon" class="h-7 w-7" @click="toggleDark()">
+          <Button
+            variant="ghost"
+            size="icon"
+            class="h-7 w-7"
+            aria-label="Toggle theme"
+            @click="toggleDark()"
+          >
             <Sun v-if="isDark" :size="14" />
             <Moon v-else :size="14" />
           </Button>
