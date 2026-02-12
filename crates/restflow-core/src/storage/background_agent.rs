@@ -101,17 +101,30 @@ impl BackgroundAgentStorage {
         let mut runnable = Vec::new();
 
         for mut task in tasks {
-            // Self-heal old tasks that have a cron/interval schedule but no
-            // computed next run time (e.g., created before cron normalization).
-            if task.status == BackgroundAgentStatus::Active && task.next_run_at.is_none() {
-                task.update_next_run();
-                if task.next_run_at.is_some()
-                    && let Err(err) = self.update_task(&task)
+            if task.status == BackgroundAgentStatus::Active {
+                let needs_repair = if task.next_run_at.is_none() {
+                    // Self-heal old tasks that have a cron/interval schedule but no
+                    // computed next run time (e.g., created before cron normalization).
+                    true
+                } else if let (Some(next_run), Some(last_run)) =
+                    (task.next_run_at, task.last_run_at)
                 {
-                    warn!(
-                        "Failed to persist repaired next_run_at for task {}: {}",
-                        task.id, err
-                    );
+                    // Self-heal tasks where next_run_at is stale (before last_run_at).
+                    // This can happen if the daemon was restarted mid-execution and
+                    // the completion handler didn't persist the updated schedule.
+                    next_run < last_run
+                } else {
+                    false
+                };
+
+                if needs_repair {
+                    task.update_next_run();
+                    if let Err(err) = self.update_task(&task) {
+                        warn!(
+                            "Failed to persist repaired next_run_at for task {}: {}",
+                            task.id, err
+                        );
+                    }
                 }
             }
 
@@ -978,6 +991,50 @@ mod tests {
 
         let repaired = storage.get_task(&created.id).unwrap().unwrap();
         assert!(repaired.next_run_at.is_some());
+    }
+
+    #[test]
+    fn test_list_runnable_tasks_repairs_stale_next_run() {
+        let storage = create_test_storage();
+
+        let created = storage
+            .create_background_agent(BackgroundAgentSpec {
+                name: "Stale Task".to_string(),
+                agent_id: "agent-001".to_string(),
+                description: None,
+                input: Some("hello".to_string()),
+                input_template: None,
+                schedule: BackgroundAgentSchedule::Interval {
+                    interval_ms: 900_000,
+                    start_at: None,
+                },
+                notification: None,
+                execution_mode: None,
+                memory: None,
+            })
+            .unwrap();
+
+        // Simulate stale state: next_run_at is before last_run_at.
+        // This happens when the daemon restarts mid-execution and
+        // the completion handler doesn't persist the updated schedule.
+        let now = chrono::Utc::now().timestamp_millis();
+        let mut broken = created.clone();
+        broken.next_run_at = Some(now - 3600_000); // 1 hour ago
+        broken.last_run_at = Some(now - 1800_000); // 30 min ago (more recent)
+        storage.update_task(&broken).unwrap();
+
+        // Verify the stale condition
+        let before = storage.get_task(&created.id).unwrap().unwrap();
+        assert!(before.next_run_at.unwrap() < before.last_run_at.unwrap());
+
+        // list_runnable_tasks should repair this
+        let _ = storage.list_runnable_tasks(now).unwrap();
+
+        let repaired = storage.get_task(&created.id).unwrap().unwrap();
+        assert!(
+            repaired.next_run_at.unwrap() > now,
+            "next_run_at should be in the future after repair"
+        );
     }
 
     #[test]

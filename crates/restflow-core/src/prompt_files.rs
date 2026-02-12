@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use std::fs;
 use std::path::PathBuf;
+use tracing::warn;
 use uuid::Uuid;
 
 const AGENTS_DIR: &str = "agents";
@@ -57,6 +58,93 @@ pub fn load_agent_prompt(agent_id: &str) -> Result<Option<String>> {
     } else {
         Ok(Some(parsed.body))
     }
+}
+
+pub fn load_all_agent_prompts() -> Result<std::collections::HashMap<String, String>> {
+    let agents_dir = ensure_agents_dir()?;
+    let mut selected: std::collections::HashMap<String, PromptSelection> =
+        std::collections::HashMap::new();
+
+    for entry in fs::read_dir(&agents_dir)
+        .with_context(|| format!("Failed to read agents directory: {}", agents_dir.display()))?
+    {
+        let Ok(entry) = entry else {
+            warn!("Skipping unreadable entry in agents directory");
+            continue;
+        };
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        if path.extension().and_then(|ext| ext.to_str()) != Some("md") {
+            continue;
+        }
+        let Some(stem) = path
+            .file_stem()
+            .and_then(|value| value.to_str())
+            .map(|value| value.to_string())
+        else {
+            continue;
+        };
+        if stem == DEFAULT_AGENT_PROMPT_FILE.trim_end_matches(".md")
+            || stem == BACKGROUND_AGENT_POLICY_FILE.trim_end_matches(".md")
+        {
+            continue;
+        }
+
+        let content = match fs::read_to_string(&path) {
+            Ok(content) => content,
+            Err(err) => {
+                warn!(
+                    path = %path.display(),
+                    error = %err,
+                    "Skipping unreadable agent prompt file"
+                );
+                continue;
+            }
+        };
+        let parsed = parse_prompt_file_content(&content);
+        let Some(owner_id) = owner_id_for_prompt(&parsed, &stem) else {
+            continue;
+        };
+        let rank = selection_rank(&owner_id, &parsed, &stem);
+        let body = parsed.body;
+        let path_key = path.to_string_lossy().to_string();
+
+        match selected.get_mut(&owner_id) {
+            Some(existing) => {
+                if (rank, path_key.as_str()) < (existing.rank, existing.path_key.as_str()) {
+                    warn!(
+                        agent_id = %owner_id,
+                        old = %existing.path_key,
+                        new = %path_key,
+                        "Multiple prompt files found for agent; selecting deterministic candidate"
+                    );
+                    *existing = PromptSelection {
+                        rank,
+                        path_key,
+                        body,
+                    };
+                }
+            }
+            None => {
+                selected.insert(
+                    owner_id,
+                    PromptSelection {
+                        rank,
+                        path_key,
+                        body,
+                    },
+                );
+            }
+        }
+    }
+
+    let mut prompts = std::collections::HashMap::new();
+    for (agent_id, selection) in selected {
+        prompts.insert(agent_id, selection.body);
+    }
+    Ok(prompts)
 }
 
 pub fn ensure_agent_prompt_file(
@@ -138,8 +226,17 @@ pub fn cleanup_orphan_agent_prompt_files(active_agent_ids: &[String]) -> Result<
         {
             continue;
         }
-        let file_content = fs::read_to_string(&path)
-            .with_context(|| format!("Failed to read prompt file: {}", path.display()))?;
+        let file_content = match fs::read_to_string(&path) {
+            Ok(content) => content,
+            Err(err) => {
+                warn!(
+                    path = %path.display(),
+                    error = %err,
+                    "Skipping unreadable prompt file during orphan cleanup"
+                );
+                continue;
+            }
+        };
         let parsed = parse_prompt_file_content(&file_content);
 
         let should_delete = if let Some(owner_id) = parsed.agent_id.as_deref() {
@@ -153,10 +250,18 @@ pub fn cleanup_orphan_agent_prompt_files(active_agent_ids: &[String]) -> Result<
         };
 
         if should_delete {
-            fs::remove_file(&path).with_context(|| {
-                format!("Failed to remove orphan prompt file: {}", path.display())
-            })?;
-            deleted += 1;
+            match fs::remove_file(&path) {
+                Ok(_) => {
+                    deleted += 1;
+                }
+                Err(err) => {
+                    warn!(
+                        path = %path.display(),
+                        error = %err,
+                        "Failed to remove orphan prompt file; skipping"
+                    );
+                }
+            }
         }
     }
 
@@ -218,15 +323,23 @@ fn validate_agent_id(agent_id: &str) -> Result<&str> {
 
 fn find_agent_prompt_path_by_id(agent_id: &str) -> Result<Option<PathBuf>> {
     let agents_dir = ensure_agents_dir()?;
+    let mut candidates: Vec<(u8, String, PathBuf)> = Vec::new();
     let legacy_path = agents_dir.join(format!("{agent_id}.md"));
     if legacy_path.exists() {
-        return Ok(Some(legacy_path));
+        candidates.push((
+            2,
+            legacy_path.to_string_lossy().to_string(),
+            legacy_path.clone(),
+        ));
     }
 
     for entry in fs::read_dir(&agents_dir)
         .with_context(|| format!("Failed to read agents directory: {}", agents_dir.display()))?
     {
-        let entry = entry?;
+        let Ok(entry) = entry else {
+            warn!("Skipping unreadable entry in agents directory");
+            continue;
+        };
         let path = entry.path();
         if !path.is_file() {
             continue;
@@ -242,15 +355,36 @@ fn find_agent_prompt_path_by_id(agent_id: &str) -> Result<Option<PathBuf>> {
         {
             continue;
         }
-        let content = fs::read_to_string(&path)
-            .with_context(|| format!("Failed to read prompt file: {}", path.display()))?;
+        let content = match fs::read_to_string(&path) {
+            Ok(content) => content,
+            Err(err) => {
+                warn!(
+                    path = %path.display(),
+                    error = %err,
+                    "Skipping unreadable prompt file while resolving agent prompt path"
+                );
+                continue;
+            }
+        };
         let parsed = parse_prompt_file_content(&content);
         if parsed.agent_id.as_deref() == Some(agent_id) {
-            return Ok(Some(path));
+            let rank = selection_rank(agent_id, &parsed, stem);
+            candidates.push((rank, path.to_string_lossy().to_string(), path));
         }
     }
 
-    Ok(None)
+    if candidates.is_empty() {
+        return Ok(None);
+    }
+    candidates.sort_by(|a, b| (a.0, a.1.as_str()).cmp(&(b.0, b.1.as_str())));
+    if candidates.len() > 1 {
+        warn!(
+            agent_id = %agent_id,
+            count = candidates.len(),
+            "Multiple prompt files match this agent; selecting deterministic candidate"
+        );
+    }
+    Ok(candidates.into_iter().next().map(|(_, _, path)| path))
 }
 
 fn resolve_prompt_path_for_write(agent_id: &str, agent_name: &str) -> Result<PathBuf> {
@@ -415,6 +549,31 @@ struct ParsedPromptFileContent {
     body: String,
 }
 
+struct PromptSelection {
+    rank: u8,
+    path_key: String,
+    body: String,
+}
+
+fn owner_id_for_prompt(parsed: &ParsedPromptFileContent, stem: &str) -> Option<String> {
+    if let Some(agent_id) = parsed.agent_id.as_deref() {
+        return Some(agent_id.to_string());
+    }
+    if Uuid::parse_str(stem).is_ok() {
+        return Some(stem.to_string());
+    }
+    None
+}
+
+fn selection_rank(agent_id: &str, parsed: &ParsedPromptFileContent, stem: &str) -> u8 {
+    let is_uuid_stem = Uuid::parse_str(stem).is_ok();
+    if parsed.agent_id.as_deref() == Some(agent_id) {
+        if is_uuid_stem { 1 } else { 0 }
+    } else {
+        2
+    }
+}
+
 fn parse_prompt_file_content(content: &str) -> ParsedPromptFileContent {
     let mut lines = content.lines();
     let first = lines.next();
@@ -517,6 +676,52 @@ mod tests {
         ensure_agent_prompt_file(id, "My Custom Agent", Some("Custom prompt")).unwrap();
         let loaded = load_agent_prompt(id).unwrap();
         assert_eq!(loaded.as_deref(), Some("Custom prompt"));
+
+        unsafe { std::env::remove_var(AGENTS_DIR_ENV) };
+    }
+
+    #[test]
+    fn test_load_agent_prompt_prefers_named_metadata_file_over_legacy_id_file() {
+        let _lock = env_lock();
+        let temp = tempfile::tempdir().unwrap();
+        unsafe { std::env::set_var(AGENTS_DIR_ENV, temp.path()) };
+
+        let id = "f7e39ba8-f1ed-4e6c-a4f4-1983f671b1d5";
+        fs::write(temp.path().join(format!("{id}.md")), "legacy content").unwrap();
+        fs::write(
+            temp.path().join("my-agent.md"),
+            format!("{AGENT_ID_METADATA_PREFIX}{id}{METADATA_SUFFIX}\n\nnew content"),
+        )
+        .unwrap();
+
+        let loaded = load_agent_prompt(id).unwrap();
+        assert_eq!(loaded.as_deref(), Some("new content"));
+
+        unsafe { std::env::remove_var(AGENTS_DIR_ENV) };
+    }
+
+    #[test]
+    fn test_load_all_agent_prompts_uses_deterministic_best_candidate() {
+        let _lock = env_lock();
+        let temp = tempfile::tempdir().unwrap();
+        unsafe { std::env::set_var(AGENTS_DIR_ENV, temp.path()) };
+
+        let id = "f7e39ba8-f1ed-4e6c-a4f4-1983f671b1d5";
+        fs::write(temp.path().join(format!("{id}.md")), "legacy content").unwrap();
+        fs::write(
+            temp.path().join("agent-a.md"),
+            format!("{AGENT_ID_METADATA_PREFIX}{id}{METADATA_SUFFIX}\n\ncontent a"),
+        )
+        .unwrap();
+        fs::write(
+            temp.path().join("agent-b.md"),
+            format!("{AGENT_ID_METADATA_PREFIX}{id}{METADATA_SUFFIX}\n\ncontent b"),
+        )
+        .unwrap();
+
+        let prompts = load_all_agent_prompts().unwrap();
+        // agent-a.md is lexicographically smaller than agent-b.md, so it wins deterministically.
+        assert_eq!(prompts.get(id).map(String::as_str), Some("content a"));
 
         unsafe { std::env::remove_var(AGENTS_DIR_ENV) };
     }
