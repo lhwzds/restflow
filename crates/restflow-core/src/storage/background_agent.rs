@@ -4,9 +4,10 @@
 //! APIs from restflow-storage with Rust types from our models.
 
 use crate::models::{
-    BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentEvent, BackgroundAgentEventType,
-    BackgroundAgentPatch, BackgroundAgentSchedule, BackgroundAgentSpec, BackgroundAgentStatus,
-    BackgroundMessage, BackgroundMessageSource, BackgroundMessageStatus, BackgroundProgress,
+    AgentCheckpoint, BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentEvent,
+    BackgroundAgentEventType, BackgroundAgentPatch, BackgroundAgentSchedule, BackgroundAgentSpec,
+    BackgroundAgentStatus, BackgroundMessage, BackgroundMessageSource, BackgroundMessageStatus,
+    BackgroundProgress,
 };
 use anyhow::Result;
 use redb::Database;
@@ -14,17 +15,22 @@ use std::sync::Arc;
 use tracing::warn;
 use uuid::Uuid;
 
+use super::CheckpointStorage;
+
 /// Typed agent task storage wrapper around restflow-storage::BackgroundAgentStorage.
 #[derive(Clone)]
 pub struct BackgroundAgentStorage {
     inner: restflow_storage::BackgroundAgentStorage,
+    checkpoints: CheckpointStorage,
 }
 
 impl BackgroundAgentStorage {
     /// Create a new BackgroundAgentStorage instance
     pub fn new(db: Arc<Database>) -> Result<Self> {
+        let checkpoints = CheckpointStorage::new(db.clone())?;
         Ok(Self {
             inner: restflow_storage::BackgroundAgentStorage::new(db)?,
+            checkpoints,
         })
     }
 
@@ -581,6 +587,7 @@ impl BackgroundAgentStorage {
             BackgroundAgentEventType::NotificationSent => "notification_sent",
             BackgroundAgentEventType::NotificationFailed => "notification_failed",
             BackgroundAgentEventType::Compaction => "compaction",
+            BackgroundAgentEventType::Interrupted => "interrupted",
         }
         .to_string()
     }
@@ -647,6 +654,23 @@ impl BackgroundAgentStorage {
         )
         .with_message(error);
         self.add_event(&event)
+    }
+
+    // ============== Checkpoint Operations ==============
+
+    /// Save an agent checkpoint.
+    pub fn save_checkpoint(&self, checkpoint: &AgentCheckpoint) -> Result<()> {
+        self.checkpoints.save(checkpoint)
+    }
+
+    /// Load a checkpoint by task ID.
+    pub fn load_checkpoint_by_task_id(&self, task_id: &str) -> Result<Option<AgentCheckpoint>> {
+        self.checkpoints.load_by_task_id(task_id)
+    }
+
+    /// Delete expired checkpoints.
+    pub fn cleanup_expired_checkpoints(&self) -> Result<usize> {
+        self.checkpoints.cleanup_expired()
     }
 }
 

@@ -1017,6 +1017,7 @@ impl RestFlowMcpServer {
             Some(s) if s == "running" => Ok(Some(BackgroundAgentStatus::Running)),
             Some(s) if s == "completed" => Ok(Some(BackgroundAgentStatus::Completed)),
             Some(s) if s == "failed" => Ok(Some(BackgroundAgentStatus::Failed)),
+            Some(s) if s == "interrupted" => Ok(Some(BackgroundAgentStatus::Interrupted)),
             Some(s) => Err(format!("Unknown status: {}", s)),
         }
     }

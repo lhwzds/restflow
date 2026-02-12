@@ -8,13 +8,15 @@ use serde_json::Value;
 
 use crate::llm::Message;
 
-/// Agent execution status (simplified from 6 states to 4)
+/// Agent execution status
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum AgentStatus {
     Running,
     Completed,
     Failed { error: String },
     MaxIterations,
+    /// Execution paused, awaiting external input before resuming.
+    Interrupted { reason: String },
 }
 
 /// Complete agent state - simplified Swarm-style design
@@ -94,6 +96,20 @@ impl AgentState {
         self.version += 1;
     }
 
+    /// Interrupt execution (for checkpoint/resume).
+    pub fn interrupt(&mut self, reason: impl Into<String>) {
+        self.status = AgentStatus::Interrupted {
+            reason: reason.into(),
+        };
+        self.ended_at = Some(Utc::now());
+        self.version += 1;
+    }
+
+    /// Check if the agent is interrupted.
+    pub fn is_interrupted(&self) -> bool {
+        matches!(self.status, AgentStatus::Interrupted { .. })
+    }
+
     /// Check if terminal state
     pub fn is_terminal(&self) -> bool {
         !matches!(self.status, AgentStatus::Running)
@@ -145,6 +161,28 @@ mod tests {
 
         assert!(matches!(state.status, AgentStatus::Failed { .. }));
         assert!(state.is_terminal());
+    }
+
+    #[test]
+    fn test_agent_state_interrupted() {
+        let mut state = AgentState::new("test-id".to_string(), 10);
+        state.interrupt("security approval needed");
+
+        assert!(matches!(
+            state.status,
+            AgentStatus::Interrupted { ref reason } if reason == "security approval needed"
+        ));
+        assert!(state.is_terminal());
+        assert!(state.is_interrupted());
+        assert!(state.ended_at.is_some());
+    }
+
+    #[test]
+    fn test_interrupt_increments_version() {
+        let mut state = AgentState::new("test-id".to_string(), 10);
+        let v_before = state.version;
+        state.interrupt("test");
+        assert_eq!(state.version, v_before + 1);
     }
 
     #[test]
