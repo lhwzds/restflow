@@ -17,6 +17,7 @@ pub enum AgentStatus {
     MaxIterations,
     /// Execution paused, awaiting external input before resuming.
     Interrupted { reason: String },
+    ResourceExhausted { error: String },
 }
 
 /// Complete agent state - simplified Swarm-style design
@@ -100,6 +101,15 @@ impl AgentState {
     pub fn interrupt(&mut self, reason: impl Into<String>) {
         self.status = AgentStatus::Interrupted {
             reason: reason.into(),
+        };
+        self.ended_at = Some(Utc::now());
+        self.version += 1;
+    }
+
+    /// Mark as resource exhausted
+    pub fn resource_exhaust(&mut self, error: impl Into<String>) {
+        self.status = AgentStatus::ResourceExhausted {
+            error: error.into(),
         };
         self.ended_at = Some(Utc::now());
         self.version += 1;
@@ -194,5 +204,18 @@ mod tests {
 
         assert_eq!(state.status, AgentStatus::MaxIterations);
         assert!(state.is_terminal());
+    }
+
+    #[test]
+    fn test_agent_state_resource_exhausted() {
+        let mut state = AgentState::new("test-id".to_string(), 10);
+        state.resource_exhaust("Exceeded tool call limit: 201 calls (limit: 200)");
+
+        assert!(matches!(
+            state.status,
+            AgentStatus::ResourceExhausted { .. }
+        ));
+        assert!(state.is_terminal());
+        assert!(state.ended_at.is_some());
     }
 }
