@@ -76,11 +76,16 @@ impl AgentStorage {
     }
 
     pub fn list_agents(&self) -> Result<Vec<StoredAgent>> {
+        let prompt_map = prompt_files::load_all_agent_prompts()?;
         let agents = self.inner.list_raw()?;
         let mut result = Vec::new();
         for (_, bytes) in agents {
-            let agent: StoredAgent = serde_json::from_slice(&bytes)?;
-            result.push(self.hydrate_prompt_from_file(agent)?);
+            let mut agent: StoredAgent = serde_json::from_slice(&bytes)?;
+            agent.agent.prompt = prompt_map
+                .get(&agent.id)
+                .cloned()
+                .filter(|prompt| !prompt.trim().is_empty());
+            result.push(agent);
         }
         Ok(result)
     }

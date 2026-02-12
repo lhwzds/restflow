@@ -500,6 +500,11 @@ impl BackgroundAgentRunner {
         self.emit_status(RunnerStatus::Running, Some("Runner started".to_string()))
             .await;
 
+        // Recover tasks stuck in Running status from a previous daemon session.
+        // When the daemon restarts, in-flight tasks lose their runtime context
+        // but remain marked as Running in the database, preventing rescheduling.
+        self.recover_stale_running_tasks();
+
         let executor = Arc::new(RunnerTaskExecutor {
             runner: self.clone(),
         });
@@ -594,6 +599,50 @@ impl BackgroundAgentRunner {
                 message,
             }))
             .await;
+    }
+
+    /// Recover tasks stuck in Running status from a previous daemon session.
+    ///
+    /// On startup, no tasks should be Running (this daemon instance hasn't
+    /// started any yet). Any Running tasks are leftovers from a previous
+    /// daemon that was killed mid-execution. Reset them to Active so they
+    /// can be rescheduled.
+    fn recover_stale_running_tasks(&self) {
+        let tasks = match self.storage.list_tasks() {
+            Ok(t) => t,
+            Err(e) => {
+                error!("Failed to list tasks for startup recovery: {}", e);
+                return;
+            }
+        };
+
+        let mut recovered = 0;
+        for task in tasks {
+            if task.status == BackgroundAgentStatus::Running {
+                match self.storage.resume_task(&task.id) {
+                    Ok(_) => {
+                        info!(
+                            "Recovered stale Running task '{}' ({}) → Active",
+                            task.name, task.id
+                        );
+                        recovered += 1;
+                    }
+                    Err(e) => {
+                        error!(
+                            "Failed to recover stale Running task '{}': {}",
+                            task.name, e
+                        );
+                    }
+                }
+            }
+        }
+
+        if recovered > 0 {
+            info!(
+                "Startup recovery: {} task(s) reset from Running to Active",
+                recovered
+            );
+        }
     }
 
     /// Check for runnable tasks and execute them

@@ -5,6 +5,7 @@ pub mod tools;
 
 use std::collections::HashMap;
 use std::sync::Arc;
+use tracing::warn;
 
 use crate::models::AgentNode;
 use crate::prompt_files;
@@ -26,7 +27,17 @@ pub fn build_agent_system_prompt(
     agent_id: Option<&str>,
 ) -> Result<String, anyhow::Error> {
     let base = agent_id
-        .and_then(|id| prompt_files::load_agent_prompt(id).ok().flatten())
+        .and_then(|id| match prompt_files::load_agent_prompt(id) {
+            Ok(prompt) => prompt,
+            Err(err) => {
+                warn!(
+                    agent_id = %id,
+                    error = %err,
+                    "Failed to load agent prompt from file; falling back"
+                );
+                None
+            }
+        })
         .or_else(|| {
             agent_node
                 .prompt
