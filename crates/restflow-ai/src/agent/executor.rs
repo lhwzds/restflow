@@ -7,6 +7,7 @@ use std::time::Duration;
 use serde_json::Value;
 
 use crate::agent::context::{AgentContext, ContextDiscoveryConfig, WorkspaceContextCache};
+use crate::agent::resource::{ResourceLimits, ResourceTracker, ResourceUsage};
 use crate::agent::state::{AgentState, AgentStatus};
 use crate::agent::stream::{StreamEmitter, ToolCallAccumulator};
 use crate::error::{AiError, Result};
@@ -52,6 +53,8 @@ pub struct AgentConfig {
     pub agent_context: Option<AgentContext>,
     /// Agent type for context injection rules.
     pub agent_type: AgentType,
+    /// Resource limits for guardrails (tool calls, wall-clock, depth).
+    pub resource_limits: ResourceLimits,
 }
 
 impl AgentConfig {
@@ -70,6 +73,7 @@ impl AgentConfig {
             compaction_config: None,
             agent_context: None,
             agent_type: AgentType::default(),
+            resource_limits: ResourceLimits::default(),
         }
     }
 
@@ -138,6 +142,12 @@ impl AgentConfig {
         self.agent_type = agent_type;
         self
     }
+
+    /// Set resource limits for guardrails.
+    pub fn with_resource_limits(mut self, limits: ResourceLimits) -> Self {
+        self.resource_limits = limits;
+        self
+    }
 }
 
 /// Result of agent execution
@@ -152,6 +162,8 @@ pub struct AgentResult {
     pub state: AgentState,
     /// Compaction operations performed during the run.
     pub compaction_results: Vec<CompactionResult>,
+    /// Resource usage snapshot at end of run.
+    pub resource_usage: ResourceUsage,
 }
 
 /// Agent executor implementing Swarm-style ReAct loop
@@ -246,6 +258,7 @@ impl AgentExecutor {
         let mut total_tokens: u32 = 0;
         let mut total_cost_usd: f64 = 0.0;
         let mut compaction_results = Vec::new();
+        let tracker = ResourceTracker::new(config.resource_limits.clone());
 
         // Initialize working memory for context window management
         let mut memory = WorkingMemory::new(config.max_memory_messages);
@@ -276,6 +289,12 @@ impl AgentExecutor {
             }
 
             self.apply_steer_messages(&mut state, &mut memory).await;
+
+            // Check wall-clock before LLM call
+            if let Err(e) = tracker.check_wall_clock() {
+                state.resource_exhaust(e.to_string());
+                break;
+            }
 
             // 1. LLM call - use working memory for context (handles overflow)
             let mut request =
@@ -336,6 +355,12 @@ impl AgentExecutor {
             state.add_message(tool_call_msg.clone());
             memory.add(tool_call_msg);
 
+            // Check all resource limits before tool execution
+            if let Err(e) = tracker.check() {
+                state.resource_exhaust(e.to_string());
+                break;
+            }
+
             // 3. Execute tools in parallel with timeout (Rig-inspired)
             let tool_futures: Vec<_> = response
                 .tool_calls
@@ -359,6 +384,7 @@ impl AgentExecutor {
                 .collect();
 
             let results = futures::future::join_all(tool_futures).await;
+            tracker.record_tool_calls(results.len());
 
             for (tool_call_id, _tool_name, result) in results {
                 let mut result_str = match result {
@@ -388,6 +414,7 @@ impl AgentExecutor {
         }
 
         // Build result
+        let resource_usage = tracker.usage_snapshot();
         Ok(AgentResult {
             success: matches!(state.status, AgentStatus::Completed),
             answer: state.final_answer.clone(),
@@ -397,6 +424,7 @@ impl AgentExecutor {
                 AgentStatus::Interrupted { reason } => {
                     Some(format!("Interrupted: {}", reason))
                 }
+                AgentStatus::ResourceExhausted { error } => Some(error.clone()),
                 _ => None,
             },
             iterations: state.iteration,
@@ -404,6 +432,7 @@ impl AgentExecutor {
             total_cost_usd,
             state,
             compaction_results,
+            resource_usage,
         })
     }
 
@@ -418,6 +447,7 @@ impl AgentExecutor {
         let mut total_tokens: u32 = 0;
         let mut total_cost_usd: f64 = 0.0;
         let mut compaction_results = Vec::new();
+        let tracker = ResourceTracker::new(config.resource_limits.clone());
 
         let mut memory = WorkingMemory::new(config.max_memory_messages);
         if let Some(compaction_config) = config.compaction_config.clone() {
@@ -444,6 +474,12 @@ impl AgentExecutor {
             }
 
             self.apply_steer_messages(&mut state, &mut memory).await;
+
+            // Check wall-clock before LLM call
+            if let Err(e) = tracker.check_wall_clock() {
+                state.resource_exhaust(e.to_string());
+                break;
+            }
 
             let mut request =
                 CompletionRequest::new(memory.get_messages()).with_tools(self.tools.schemas());
@@ -491,9 +527,16 @@ impl AgentExecutor {
             state.add_message(tool_call_msg.clone());
             memory.add(tool_call_msg);
 
+            // Check all resource limits before tool execution
+            if let Err(e) = tracker.check() {
+                state.resource_exhaust(e.to_string());
+                break;
+            }
+
             let results = self
                 .execute_tools_with_events(&response.tool_calls, emitter, config.tool_timeout)
                 .await;
+            tracker.record_tool_calls(results.len());
 
             for (tool_call_id, result) in results {
                 let mut result_str = match result {
@@ -520,6 +563,7 @@ impl AgentExecutor {
             state.increment_iteration();
         }
 
+        let resource_usage = tracker.usage_snapshot();
         Ok(AgentResult {
             success: matches!(state.status, AgentStatus::Completed),
             answer: state.final_answer.clone(),
@@ -529,6 +573,7 @@ impl AgentExecutor {
                 AgentStatus::Interrupted { reason } => {
                     Some(format!("Interrupted: {}", reason))
                 }
+                AgentStatus::ResourceExhausted { error } => Some(error.clone()),
                 _ => None,
             },
             iterations: state.iteration,
@@ -536,6 +581,7 @@ impl AgentExecutor {
             total_cost_usd,
             state,
             compaction_results,
+            resource_usage,
         })
     }
 

@@ -1,6 +1,7 @@
 //! Agent execution engine used by all triggers.
 
 use super::react::{AgentAction, AgentState, ConversationHistory, ReActConfig, ResponseParser};
+use super::resource::{ResourceLimits, ResourceTracker, ResourceUsage};
 use crate::LlmClient;
 use crate::agent::context::{ContextDiscoveryConfig, WorkspaceContextCache};
 use crate::agent::stream::{StreamEmitter, ToolCallAccumulator};
@@ -20,6 +21,7 @@ pub struct AgentExecutionEngineConfig {
     pub max_tokens: u32,
     pub temperature: f32,
     pub max_history: usize,
+    pub resource_limits: ResourceLimits,
 }
 
 impl Default for AgentExecutionEngineConfig {
@@ -29,6 +31,7 @@ impl Default for AgentExecutionEngineConfig {
             max_tokens: 4096,
             temperature: 0.7,
             max_history: 20,
+            resource_limits: ResourceLimits::default(),
         }
     }
 }
@@ -40,6 +43,7 @@ pub struct ExecutionResult {
     pub messages: Vec<Message>,
     pub success: bool,
     pub iterations: usize,
+    pub resource_usage: ResourceUsage,
 }
 
 /// The shared agent engine implementation used across triggers.
@@ -134,6 +138,7 @@ impl AgentExecutionEngine {
         self.history.add(Message::user(input.to_string()));
 
         let mut iterations = 0;
+        let tracker = ResourceTracker::new(self.config.resource_limits.clone());
         self.state = AgentState::Thinking;
 
         loop {
@@ -148,11 +153,25 @@ impl AgentExecutionEngine {
                     messages: self.history.clone().into_messages(),
                     success: false,
                     iterations,
+                    resource_usage: tracker.usage_snapshot(),
                 });
             }
 
             debug!("ReAct iteration {}", iterations);
             self.drain_steer_messages();
+
+            // Check wall-clock before LLM call
+            if let Err(e) = tracker.check_wall_clock() {
+                let msg = e.to_string();
+                warn!("Resource exhausted: {}", msg);
+                return Ok(ExecutionResult {
+                    output: msg,
+                    messages: self.history.clone().into_messages(),
+                    success: false,
+                    iterations,
+                    resource_usage: tracker.usage_snapshot(),
+                });
+            }
 
             let response = self.get_completion().await?;
             let action = ResponseParser::parse(
@@ -162,6 +181,19 @@ impl AgentExecutionEngine {
 
             match action {
                 AgentAction::ToolCall { .. } => {
+                    // Check all resource limits before tool execution
+                    if let Err(e) = tracker.check() {
+                        let msg = e.to_string();
+                        warn!("Resource exhausted: {}", msg);
+                        return Ok(ExecutionResult {
+                            output: msg,
+                            messages: self.history.clone().into_messages(),
+                            success: false,
+                            iterations,
+                            resource_usage: tracker.usage_snapshot(),
+                        });
+                    }
+
                     self.state = AgentState::Acting {
                         tool: response
                             .tool_calls
@@ -176,6 +208,7 @@ impl AgentExecutionEngine {
                     ));
 
                     self.execute_tool_calls(&response.tool_calls).await?;
+                    tracker.record_tool_calls(response.tool_calls.len());
                     self.state = AgentState::Observing;
                 }
                 AgentAction::FinalAnswer { content } => {
@@ -188,6 +221,7 @@ impl AgentExecutionEngine {
                         messages: self.history.clone().into_messages(),
                         success: true,
                         iterations,
+                        resource_usage: tracker.usage_snapshot(),
                     });
                 }
                 AgentAction::Continue => {
@@ -214,6 +248,7 @@ impl AgentExecutionEngine {
         self.history.add(Message::user(input.to_string()));
 
         let mut iterations = 0;
+        let tracker = ResourceTracker::new(self.config.resource_limits.clone());
         self.state = AgentState::Thinking;
 
         loop {
@@ -228,11 +263,25 @@ impl AgentExecutionEngine {
                     messages: self.history.clone().into_messages(),
                     success: false,
                     iterations,
+                    resource_usage: tracker.usage_snapshot(),
                 });
             }
 
             debug!("ReAct iteration {}", iterations);
             self.drain_steer_messages();
+
+            // Check wall-clock before LLM call
+            if let Err(e) = tracker.check_wall_clock() {
+                let msg = e.to_string();
+                warn!("Resource exhausted: {}", msg);
+                return Ok(ExecutionResult {
+                    output: msg,
+                    messages: self.history.clone().into_messages(),
+                    success: false,
+                    iterations,
+                    resource_usage: tracker.usage_snapshot(),
+                });
+            }
 
             let response = self.get_streaming_completion(emitter).await?;
             let action = ResponseParser::parse(
@@ -242,6 +291,19 @@ impl AgentExecutionEngine {
 
             match action {
                 AgentAction::ToolCall { .. } => {
+                    // Check all resource limits before tool execution
+                    if let Err(e) = tracker.check() {
+                        let msg = e.to_string();
+                        warn!("Resource exhausted: {}", msg);
+                        return Ok(ExecutionResult {
+                            output: msg,
+                            messages: self.history.clone().into_messages(),
+                            success: false,
+                            iterations,
+                            resource_usage: tracker.usage_snapshot(),
+                        });
+                    }
+
                     self.state = AgentState::Acting {
                         tool: response
                             .tool_calls
@@ -257,6 +319,7 @@ impl AgentExecutionEngine {
 
                     self.execute_tool_calls_with_events(&response.tool_calls, emitter)
                         .await?;
+                    tracker.record_tool_calls(response.tool_calls.len());
                     self.state = AgentState::Observing;
                 }
                 AgentAction::FinalAnswer { content } => {
@@ -270,6 +333,7 @@ impl AgentExecutionEngine {
                         messages: self.history.clone().into_messages(),
                         success: true,
                         iterations,
+                        resource_usage: tracker.usage_snapshot(),
                     });
                 }
                 AgentAction::Continue => {
