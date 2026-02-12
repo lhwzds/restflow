@@ -184,6 +184,7 @@ pub async fn list_background_agents_by_status(
         BackgroundAgentStatus::Running => "running",
         BackgroundAgentStatus::Completed => "completed",
         BackgroundAgentStatus::Failed => "failed",
+        BackgroundAgentStatus::Interrupted => "interrupted",
     };
     state
         .executor()
