@@ -11,7 +11,7 @@ use crate::agent::ExecutionStep;
 use crate::agent::context::{AgentContext, ContextDiscoveryConfig, WorkspaceContextCache};
 use crate::agent::resource::{ResourceLimits, ResourceTracker, ResourceUsage};
 use crate::agent::state::{AgentState, AgentStatus};
-use crate::agent::stream::{ChannelEmitter, StreamEmitter, ToolCallAccumulator};
+use crate::agent::stream::{ChannelEmitter, NullEmitter, StreamEmitter, ToolCallAccumulator};
 use crate::agent::stuck::{StuckAction, StuckDetector, StuckDetectorConfig};
 use crate::error::{AiError, Result};
 use crate::llm::{CompletionRequest, FinishReason, LlmClient, Message, ToolCall};
@@ -272,6 +272,25 @@ impl AgentExecutor {
 
     /// Execute agent - simplified Swarm-style loop
     pub async fn run(&self, config: AgentConfig) -> Result<AgentResult> {
+        let mut emitter = NullEmitter;
+        self.execute_with_mode(config, &mut emitter, false).await
+    }
+
+    #[deprecated(note = "Use run() or stream-based execution APIs")]
+    pub async fn execute_streaming(
+        &self,
+        config: AgentConfig,
+        emitter: &mut dyn StreamEmitter,
+    ) -> Result<AgentResult> {
+        self.execute_with_mode(config, emitter, true).await
+    }
+
+    async fn execute_with_mode(
+        &self,
+        config: AgentConfig,
+        emitter: &mut dyn StreamEmitter,
+        stream_llm: bool,
+    ) -> Result<AgentResult> {
         let execution_id = uuid::Uuid::new_v4().to_string();
         let mut state = AgentState::new(execution_id, config.max_iterations);
         state.context = config.context.clone();
@@ -328,7 +347,11 @@ impl AgentExecutor {
                 request = request.with_temperature(temp);
             }
 
-            let response = self.llm.complete(request).await?;
+            let response = if stream_llm {
+                self.get_streaming_completion(request, emitter).await?
+            } else {
+                self.llm.complete(request).await?
+            };
 
             // Track token usage
             if let Some(usage) = &response.usage {
@@ -355,14 +378,12 @@ impl AgentExecutor {
                         break;
                     }
                     _ => {
-                        // If the response is empty and we haven't done any work yet,
-                        // this is likely an anomalous API response — retry the loop
-                        // instead of reporting an empty completion.
                         if answer.trim().is_empty() && state.iteration == 0 {
                             tracing::warn!("Empty LLM response on first iteration, retrying");
                             state.iteration += 1;
                             continue;
                         }
+                        emitter.emit_complete().await;
                         state.complete(&answer);
                         break;
                     }
@@ -384,32 +405,13 @@ impl AgentExecutor {
                 break;
             }
 
-            // 3. Execute tools in parallel with timeout (Rig-inspired)
-            let tool_futures: Vec<_> = response
-                .tool_calls
-                .iter()
-                .map(|tc| {
-                    let name = tc.name.clone();
-                    let args = tc.arguments.clone();
-                    let tools = Arc::clone(&self.tools);
-                    let timeout = config.tool_timeout;
-                    async move {
-                        // Tool timeout
-                        let result =
-                            tokio::time::timeout(timeout, tools.execute_safe(&name, args)).await;
-                        let result = match result {
-                            Ok(r) => r,
-                            Err(_) => Err(AiError::Tool(format!("Tool {} timed out", name))),
-                        };
-                        (tc.id.clone(), name, result)
-                    }
-                })
-                .collect();
-
-            let results = futures::future::join_all(tool_futures).await;
+            // 3. Execute tools with timeout and optional stream events.
+            let results = self
+                .execute_tools_with_events(&response.tool_calls, emitter, config.tool_timeout)
+                .await;
             tracker.record_tool_calls(results.len());
 
-            for (tool_call_id, tool_name, result) in results {
+            for (tool_call_id, result) in results {
                 let mut result_str = match result {
                     Ok(output) if output.success => {
                         serde_json::to_string(&output.result).unwrap_or_default()
@@ -442,7 +444,13 @@ impl AgentExecutor {
                         .find(|tc| tc.id == tool_call_id)
                         .map(|tc| serde_json::to_string(&tc.arguments).unwrap_or_default())
                         .unwrap_or_default();
-                    detector.record(&tool_name, &args_json);
+                    let tool_name = response
+                        .tool_calls
+                        .iter()
+                        .find(|tc| tc.id == tool_call_id)
+                        .map(|tc| tc.name.as_str())
+                        .unwrap_or("unknown");
+                    detector.record(tool_name, &args_json);
                 }
 
                 // Add tool result to both state and working memory
@@ -485,203 +493,6 @@ impl AgentExecutor {
         }
 
         // Build result
-        let resource_usage = tracker.usage_snapshot();
-        Ok(AgentResult {
-            success: matches!(state.status, AgentStatus::Completed),
-            answer: state.final_answer.clone(),
-            error: match &state.status {
-                AgentStatus::Failed { error } => Some(error.clone()),
-                AgentStatus::MaxIterations => Some("Max iterations reached".to_string()),
-                AgentStatus::Interrupted { reason } => Some(format!("Interrupted: {}", reason)),
-                AgentStatus::ResourceExhausted { error } => Some(error.clone()),
-                _ => None,
-            },
-            iterations: state.iteration,
-            total_tokens,
-            total_cost_usd,
-            state,
-            compaction_results,
-            resource_usage,
-        })
-    }
-
-    pub async fn execute_streaming(
-        &self,
-        config: AgentConfig,
-        emitter: &mut dyn StreamEmitter,
-    ) -> Result<AgentResult> {
-        let execution_id = uuid::Uuid::new_v4().to_string();
-        let mut state = AgentState::new(execution_id, config.max_iterations);
-        state.context = config.context.clone();
-        let mut total_tokens: u32 = 0;
-        let mut total_cost_usd: f64 = 0.0;
-        let mut compaction_results = Vec::new();
-        let tracker = ResourceTracker::new(config.resource_limits.clone());
-
-        let mut memory = WorkingMemory::new(config.max_memory_messages);
-        if let Some(compaction_config) = config.compaction_config.clone() {
-            memory.enable_compaction(compaction_config);
-        }
-
-        let mut stuck_detector = config.stuck_detection.clone().map(StuckDetector::new);
-
-        let system_prompt = self.build_system_prompt(&config).await;
-        let system_msg = Message::system(&system_prompt);
-        let user_msg = Message::user(&config.goal);
-
-        state.add_message(system_msg.clone());
-        state.add_message(user_msg.clone());
-        memory.add(system_msg);
-        memory.add(user_msg);
-
-        while state.iteration < state.max_iterations && !state.is_terminal() {
-            let summarizer = self.summarizer.as_deref().unwrap_or(self.llm.as_ref());
-            if let Some(result) = memory
-                .auto_compact_if_needed(summarizer, config.context_window)
-                .await?
-            {
-                // Compaction affects working memory only; full state history remains intact.
-                compaction_results.push(result);
-            }
-
-            self.apply_steer_messages(&mut state, &mut memory).await;
-
-            // Check wall-clock before LLM call
-            if let Err(e) = tracker.check_wall_clock() {
-                state.resource_exhaust(e.to_string());
-                break;
-            }
-
-            let mut request =
-                CompletionRequest::new(memory.get_messages()).with_tools(self.tools.schemas());
-
-            if let Some(temp) = config.temperature {
-                request = request.with_temperature(temp);
-            }
-
-            let response = self.get_streaming_completion(request, emitter).await?;
-
-            if let Some(usage) = &response.usage {
-                total_tokens += usage.total_tokens;
-                if let Some(cost) = usage.cost_usd {
-                    total_cost_usd += cost;
-                }
-            }
-
-            if response.tool_calls.is_empty() {
-                let answer = response.content.unwrap_or_default();
-                let assistant_msg = Message::assistant(&answer);
-                state.add_message(assistant_msg.clone());
-                memory.add(assistant_msg);
-
-                match response.finish_reason {
-                    FinishReason::MaxTokens => {
-                        state.fail("Response truncated due to max token limit");
-                        break;
-                    }
-                    FinishReason::Error => {
-                        state.fail("LLM returned an error");
-                        break;
-                    }
-                    _ => {
-                        emitter.emit_complete().await;
-                        state.complete(&answer);
-                        break;
-                    }
-                }
-            }
-
-            let tool_call_msg = Message::assistant_with_tool_calls(
-                response.content.clone(),
-                response.tool_calls.clone(),
-            );
-            state.add_message(tool_call_msg.clone());
-            memory.add(tool_call_msg);
-
-            // Check all resource limits before tool execution
-            if let Err(e) = tracker.check() {
-                state.resource_exhaust(e.to_string());
-                break;
-            }
-
-            let results = self
-                .execute_tools_with_events(&response.tool_calls, emitter, config.tool_timeout)
-                .await;
-            tracker.record_tool_calls(results.len());
-
-            for (tool_call_id, result) in results {
-                let mut result_str = match result {
-                    Ok(output) if output.success => {
-                        serde_json::to_string(&output.result).unwrap_or_default()
-                    }
-                    Ok(output) => format!("Error: {}", output.error.unwrap_or_default()),
-                    Err(e) => format!("Error: {}", e),
-                };
-
-                if result_str.len() > config.max_tool_result_length {
-                    result_str = format!(
-                        "{}...[truncated, {} chars total]",
-                        &result_str[..config.max_tool_result_length],
-                        result_str.len()
-                    );
-                }
-
-                // Record tool call for stuck detection
-                if let Some(ref mut detector) = stuck_detector {
-                    let args_json = response
-                        .tool_calls
-                        .iter()
-                        .find(|tc| tc.id == tool_call_id)
-                        .map(|tc| serde_json::to_string(&tc.arguments).unwrap_or_default())
-                        .unwrap_or_default();
-                    // tool_call_id format is unique per call, find tool name from response
-                    let tool_name = response
-                        .tool_calls
-                        .iter()
-                        .find(|tc| tc.id == tool_call_id)
-                        .map(|tc| tc.name.as_str())
-                        .unwrap_or("unknown");
-                    detector.record(tool_name, &args_json);
-                }
-
-                let tool_result_msg = Message::tool_result(tool_call_id.clone(), result_str);
-                state.add_message(tool_result_msg.clone());
-                memory.add(tool_result_msg);
-            }
-
-            // Check for stuck agent after tool execution
-            if let Some(ref detector) = stuck_detector
-                && let Some(stuck_info) = detector.is_stuck()
-            {
-                match detector.config().action {
-                    StuckAction::Nudge => {
-                        tracing::warn!(
-                            tool = %stuck_info.repeated_tool,
-                            count = stuck_info.repeat_count,
-                            "Agent stuck detected, injecting nudge message"
-                        );
-                        let nudge_msg = Message::system(stuck_info.message);
-                        state.add_message(nudge_msg.clone());
-                        memory.add(nudge_msg);
-                    }
-                    StuckAction::Stop => {
-                        tracing::warn!(
-                            tool = %stuck_info.repeated_tool,
-                            count = stuck_info.repeat_count,
-                            "Agent stuck detected, stopping execution"
-                        );
-                        state.fail(format!(
-                            "Agent stuck: repeated '{}' {} times",
-                            stuck_info.repeated_tool, stuck_info.repeat_count
-                        ));
-                        break;
-                    }
-                }
-            }
-
-            state.increment_iteration();
-        }
-
         let resource_usage = tracker.usage_snapshot();
         Ok(AgentResult {
             success: matches!(state.status, AgentStatus::Completed),
@@ -976,6 +787,7 @@ mod tests {
     use futures::stream;
     use std::sync::Mutex;
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use tokio::sync::Mutex as AsyncMutex;
 
     /// Mock LLM client for testing
     struct MockLlmClient {
@@ -1092,6 +904,44 @@ mod tests {
 
         async fn execute(&self, input: Value) -> Result<ToolOutput> {
             Ok(ToolOutput::success(input))
+        }
+    }
+
+    struct CapturingEmitter {
+        text: Arc<AsyncMutex<Vec<String>>>,
+        completed: Arc<AtomicUsize>,
+    }
+
+    impl CapturingEmitter {
+        fn new() -> Self {
+            Self {
+                text: Arc::new(AsyncMutex::new(Vec::new())),
+                completed: Arc::new(AtomicUsize::new(0)),
+            }
+        }
+    }
+
+    #[async_trait]
+    impl StreamEmitter for CapturingEmitter {
+        async fn emit_text_delta(&mut self, text: &str) {
+            self.text.lock().await.push(text.to_string());
+        }
+
+        async fn emit_thinking_delta(&mut self, _text: &str) {}
+
+        async fn emit_tool_call_start(&mut self, _id: &str, _name: &str, _arguments: &str) {}
+
+        async fn emit_tool_call_result(
+            &mut self,
+            _id: &str,
+            _name: &str,
+            _result: &str,
+            _success: bool,
+        ) {
+        }
+
+        async fn emit_complete(&mut self) {
+            self.completed.fetch_add(1, Ordering::SeqCst);
         }
     }
 
@@ -1375,5 +1225,60 @@ mod tests {
         let result = executor.run(config).await;
         assert!(result.is_ok(), "Should handle Chinese characters safely");
         assert!(result.unwrap().success);
+    }
+
+    #[tokio::test]
+    #[allow(deprecated)]
+    async fn test_run_via_stream_matches_run_direct() {
+        let response = CompletionResponse {
+            content: Some("Unified path".to_string()),
+            tool_calls: vec![],
+            finish_reason: FinishReason::Stop,
+            usage: None,
+        };
+
+        let direct_llm = Arc::new(MockLlmClient::new(vec![response.clone()]));
+        let streaming_llm = Arc::new(MockLlmClient::new(vec![response]));
+        let tools = Arc::new(ToolRegistry::new());
+
+        let direct_executor = AgentExecutor::new(direct_llm, tools.clone());
+        let streaming_executor = AgentExecutor::new(streaming_llm, tools);
+        let config = AgentConfig::new("match");
+
+        let direct = direct_executor.run(config.clone()).await.unwrap();
+        let mut emitter = CapturingEmitter::new();
+        let streamed = streaming_executor
+            .execute_streaming(config, &mut emitter)
+            .await
+            .unwrap();
+
+        assert_eq!(direct.success, streamed.success);
+        assert_eq!(direct.answer, streamed.answer);
+        assert_eq!(direct.error, streamed.error);
+        assert_eq!(direct.iterations, streamed.iterations);
+    }
+
+    #[tokio::test]
+    #[allow(deprecated)]
+    async fn test_backward_compat_execute_streaming_emits_complete() {
+        let response = CompletionResponse {
+            content: Some("done".to_string()),
+            tool_calls: vec![],
+            finish_reason: FinishReason::Stop,
+            usage: None,
+        };
+
+        let llm = Arc::new(MockLlmClient::new(vec![response]));
+        let tools = Arc::new(ToolRegistry::new());
+        let executor = AgentExecutor::new(llm, tools);
+        let mut emitter = CapturingEmitter::new();
+
+        let result = executor
+            .execute_streaming(AgentConfig::new("compat"), &mut emitter)
+            .await
+            .unwrap();
+
+        assert!(result.success);
+        assert_eq!(emitter.completed.load(Ordering::SeqCst), 1);
     }
 }
