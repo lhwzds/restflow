@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, watch, nextTick } from 'vue'
-import { Send, X, Cpu } from 'lucide-vue-next'
+import { Send, Square, X, Cpu } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import {
@@ -25,6 +25,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   send: [message: string]
+  cancel: []
   close: []
   'update:selectedAgent': [value: string | null]
   'update:selectedModel': [value: string]
@@ -140,8 +141,21 @@ watch(inputMessage, async (newVal) => {
         <!-- Spacer -->
         <div class="flex-1" />
 
+        <!-- Stop Button (during execution) -->
+        <Button
+          v-if="isExecuting"
+          size="sm"
+          variant="destructive"
+          class="h-8 px-4"
+          @click="emit('cancel')"
+        >
+          <Square :size="14" class="mr-1" />
+          Stop
+        </Button>
+
         <!-- Send Button -->
         <Button
+          v-else
           size="sm"
           class="h-8 px-4"
           :disabled="!inputMessage.trim()"
