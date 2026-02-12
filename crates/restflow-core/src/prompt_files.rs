@@ -65,8 +65,9 @@ fn read_prompt_file_if_exists(path: &Path) -> Result<Option<String>> {
     match fs::read_to_string(path) {
         Ok(content) => Ok(Some(content)),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(error) => Err(error)
-            .with_context(|| format!("Failed to read agent prompt: {}", path.display())),
+        Err(error) => {
+            Err(error).with_context(|| format!("Failed to read agent prompt: {}", path.display()))
+        }
     }
 }
 

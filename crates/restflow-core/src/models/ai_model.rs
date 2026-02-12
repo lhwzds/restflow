@@ -1191,10 +1191,7 @@ mod tests {
             AIModel::ClaudeOpus4_6.openrouter_equivalent(),
             Some(AIModel::OrClaudeOpus4_6)
         );
-        assert_eq!(
-            AIModel::Gpt5.openrouter_equivalent(),
-            Some(AIModel::OrGpt5)
-        );
+        assert_eq!(AIModel::Gpt5.openrouter_equivalent(), Some(AIModel::OrGpt5));
         assert_eq!(
             AIModel::DeepseekChat.openrouter_equivalent(),
             Some(AIModel::OrDeepseekV3_2)
@@ -1211,7 +1208,10 @@ mod tests {
 
     #[test]
     fn test_flagship_model() {
-        assert_eq!(Provider::Anthropic.flagship_model(), AIModel::ClaudeSonnet4_5);
+        assert_eq!(
+            Provider::Anthropic.flagship_model(),
+            AIModel::ClaudeSonnet4_5
+        );
         assert_eq!(Provider::OpenAI.flagship_model(), AIModel::Gpt5);
         assert_eq!(Provider::DeepSeek.flagship_model(), AIModel::DeepseekChat);
         assert_eq!(Provider::Google.flagship_model(), AIModel::Gemini3Pro);

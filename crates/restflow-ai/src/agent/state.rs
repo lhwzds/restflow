@@ -13,11 +13,17 @@ use crate::llm::Message;
 pub enum AgentStatus {
     Running,
     Completed,
-    Failed { error: String },
+    Failed {
+        error: String,
+    },
     MaxIterations,
     /// Execution paused, awaiting external input before resuming.
-    Interrupted { reason: String },
-    ResourceExhausted { error: String },
+    Interrupted {
+        reason: String,
+    },
+    ResourceExhausted {
+        error: String,
+    },
 }
 
 /// Complete agent state - simplified Swarm-style design

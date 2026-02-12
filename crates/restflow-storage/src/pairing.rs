@@ -6,8 +6,7 @@ use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
 use std::sync::Arc;
 
 /// Allowed peers table: peer_id -> JSON AllowedPeer
-const ALLOWED_PEERS_TABLE: TableDefinition<&str, &[u8]> =
-    TableDefinition::new("allowed_peers");
+const ALLOWED_PEERS_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("allowed_peers");
 /// Pairing requests table: code -> JSON PairingRequest
 const PAIRING_REQUESTS_TABLE: TableDefinition<&str, &[u8]> =
     TableDefinition::new("pairing_requests");
@@ -15,8 +14,7 @@ const PAIRING_REQUESTS_TABLE: TableDefinition<&str, &[u8]> =
 const PAIRING_PEER_INDEX_TABLE: TableDefinition<&str, &str> =
     TableDefinition::new("pairing_peer_index");
 /// Route bindings table: id -> JSON RouteBinding
-const ROUTE_BINDINGS_TABLE: TableDefinition<&str, &[u8]> =
-    TableDefinition::new("route_bindings");
+const ROUTE_BINDINGS_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("route_bindings");
 /// Index: "{type}:{target_id}" -> id
 const ROUTE_BINDING_TARGET_INDEX_TABLE: TableDefinition<&str, &str> =
     TableDefinition::new("route_binding_target_index");
@@ -466,7 +464,12 @@ mod tests {
             .unwrap();
 
         // Peer binding should resolve
-        assert!(storage.resolve_route_by_key("peer:12345").unwrap().is_some());
+        assert!(
+            storage
+                .resolve_route_by_key("peer:12345")
+                .unwrap()
+                .is_some()
+        );
         // Group binding should resolve
         assert!(
             storage
@@ -527,7 +530,12 @@ mod tests {
             .unwrap();
 
         assert!(storage.remove_route_binding("rb-1").unwrap());
-        assert!(storage.resolve_route_by_key("peer:12345").unwrap().is_none());
+        assert!(
+            storage
+                .resolve_route_by_key("peer:12345")
+                .unwrap()
+                .is_none()
+        );
         assert!(!storage.remove_route_binding("rb-1").unwrap());
     }
 }
