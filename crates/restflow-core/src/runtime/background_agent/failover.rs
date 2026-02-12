@@ -37,10 +37,10 @@
 //! manager.record_success(AIModel::Gpt5).await;
 //! ```
 
-use crate::AIModel;
+use crate::{AIModel, Provider};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
@@ -95,6 +95,77 @@ impl FailoverConfig {
 
     /// Create a config with custom fallbacks
     pub fn with_fallbacks(primary: AIModel, fallbacks: Vec<AIModel>) -> Self {
+        Self {
+            primary,
+            fallbacks,
+            ..Default::default()
+        }
+    }
+
+    /// Build a failover chain that only includes models with available credentials.
+    ///
+    /// Priority order:
+    /// 1. Same-provider downgrade (e.g., Opus -> Sonnet)
+    /// 2. OpenRouter equivalent (if OR key available)
+    /// 3. Flagship models from other available providers (by quality tier)
+    pub fn build_smart(primary: AIModel, available_providers: &HashSet<Provider>) -> Self {
+        if primary.is_cli_model() {
+            return Self {
+                primary,
+                fallbacks: vec![],
+                ..Default::default()
+            };
+        }
+
+        let primary_provider = primary.provider();
+        let mut fallbacks = Vec::new();
+        let mut seen = HashSet::new();
+        seen.insert(primary);
+
+        // 1. Same-provider downgrade chain
+        let mut current = primary;
+        while let Some(fallback) = current.same_provider_fallback() {
+            if seen.insert(fallback) {
+                fallbacks.push(fallback);
+            }
+            current = fallback;
+        }
+
+        // 2. OpenRouter equivalent (if OR key available and primary is not already OR)
+        if primary_provider != Provider::OpenRouter
+            && available_providers.contains(&Provider::OpenRouter)
+            && let Some(or_equiv) = primary.openrouter_equivalent()
+            && seen.insert(or_equiv)
+        {
+            fallbacks.push(or_equiv);
+        }
+
+        // 3. Flagship models from other available providers (quality tier order)
+        let tier_order = [
+            Provider::Anthropic,
+            Provider::OpenAI,
+            Provider::Google,
+            Provider::DeepSeek,
+            Provider::OpenRouter,
+            Provider::Zhipu,
+            Provider::Qwen,
+            Provider::Moonshot,
+            Provider::XAI,
+            Provider::Groq,
+        ];
+
+        for provider in tier_order {
+            if provider == primary_provider {
+                continue;
+            }
+            if available_providers.contains(&provider) {
+                let model = provider.flagship_model();
+                if seen.insert(model) {
+                    fallbacks.push(model);
+                }
+            }
+        }
+
         Self {
             primary,
             fallbacks,
@@ -418,10 +489,26 @@ impl FailoverManager {
     }
 }
 
+/// Check if an error is an authentication/credential error (non-retryable for this model).
+fn is_auth_error(error: &str) -> bool {
+    let lower = error.to_lowercase();
+    lower.contains("api key")
+        || lower.contains("api_key")
+        || lower.contains("unauthorized")
+        || lower.contains("authentication")
+        || lower.contains("no api key configured")
+        || (lower.contains("secret") && lower.contains("not found"))
+        || lower.contains("401")
+        || lower.contains("403")
+}
+
 /// Execute a task with automatic failover
 ///
 /// Tries the primary model first, then falls back to alternates on failure.
 /// Returns the result from the first successful model or the last error.
+///
+/// Auth errors (missing API key, 401, 403) immediately skip to the next model
+/// without counting toward the failure threshold.
 pub async fn execute_with_failover<F, Fut, T>(
     manager: &FailoverManager,
     mut execute_fn: F,
@@ -450,10 +537,19 @@ where
             }
             Err(e) => {
                 let error_str = e.to_string();
-                warn!("Model {:?} failed: {}", model, error_str);
-                manager
-                    .record_failure_with_error(model, Some(&error_str))
-                    .await;
+                if is_auth_error(&error_str) {
+                    // Auth errors: immediately put in cooldown, don't count toward threshold
+                    warn!(
+                        "Model {:?} auth error (skipping): {}",
+                        model, error_str
+                    );
+                    manager.force_cooldown(model).await;
+                } else {
+                    warn!("Model {:?} failed: {}", model, error_str);
+                    manager
+                        .record_failure_with_error(model, Some(&error_str))
+                        .await;
+                }
                 last_error = Some(e);
             }
         }
@@ -728,5 +824,136 @@ mod tests {
         let config = FailoverConfig::with_primary(AIModel::ClaudeOpus4_6);
         assert_eq!(config.primary, AIModel::ClaudeOpus4_6);
         assert_eq!(config.fallbacks, vec![AIModel::ClaudeSonnet4_5]);
+    }
+
+    #[test]
+    fn test_build_smart_single_provider() {
+        let mut providers = HashSet::new();
+        providers.insert(Provider::Anthropic);
+
+        let config = FailoverConfig::build_smart(AIModel::ClaudeOpus4_6, &providers);
+        assert_eq!(config.primary, AIModel::ClaudeOpus4_6);
+        // Should include same-provider downgrades only
+        assert!(config.fallbacks.contains(&AIModel::ClaudeSonnet4_5));
+        assert!(config.fallbacks.contains(&AIModel::ClaudeHaiku4_5));
+        // Should NOT include models from providers we don't have keys for
+        assert!(!config.fallbacks.contains(&AIModel::Gpt5));
+        assert!(!config.fallbacks.contains(&AIModel::DeepseekChat));
+    }
+
+    #[test]
+    fn test_build_smart_with_openrouter() {
+        let mut providers = HashSet::new();
+        providers.insert(Provider::Anthropic);
+        providers.insert(Provider::OpenRouter);
+
+        let config = FailoverConfig::build_smart(AIModel::ClaudeSonnet4_5, &providers);
+        assert_eq!(config.primary, AIModel::ClaudeSonnet4_5);
+        // Should include same-provider downgrade
+        assert!(config.fallbacks.contains(&AIModel::ClaudeHaiku4_5));
+        // Should include OpenRouter equivalent
+        assert!(config.fallbacks.contains(&AIModel::OrClaudeOpus4_6));
+    }
+
+    #[test]
+    fn test_build_smart_multiple_providers() {
+        let mut providers = HashSet::new();
+        providers.insert(Provider::Anthropic);
+        providers.insert(Provider::Zhipu);
+        providers.insert(Provider::OpenRouter);
+
+        let config = FailoverConfig::build_smart(AIModel::ClaudeSonnet4_5, &providers);
+        assert_eq!(config.primary, AIModel::ClaudeSonnet4_5);
+        // Same-provider downgrade
+        assert!(config.fallbacks.contains(&AIModel::ClaudeHaiku4_5));
+        // OR equivalent
+        assert!(config.fallbacks.contains(&AIModel::OrClaudeOpus4_6));
+        // Zhipu flagship
+        assert!(config.fallbacks.contains(&AIModel::Glm5));
+    }
+
+    #[test]
+    fn test_build_smart_cli_model_no_fallbacks() {
+        let mut providers = HashSet::new();
+        providers.insert(Provider::Anthropic);
+        providers.insert(Provider::OpenAI);
+
+        let config = FailoverConfig::build_smart(AIModel::CodexCli, &providers);
+        assert_eq!(config.primary, AIModel::CodexCli);
+        assert!(config.fallbacks.is_empty());
+    }
+
+    #[test]
+    fn test_build_smart_no_duplicates() {
+        let mut providers = HashSet::new();
+        providers.insert(Provider::Anthropic);
+        providers.insert(Provider::OpenAI);
+        providers.insert(Provider::OpenRouter);
+        providers.insert(Provider::DeepSeek);
+
+        let config = FailoverConfig::build_smart(AIModel::ClaudeOpus4_6, &providers);
+        let mut seen = HashSet::new();
+        seen.insert(config.primary);
+        for model in &config.fallbacks {
+            assert!(
+                seen.insert(*model),
+                "Duplicate model {:?} in fallback chain",
+                model
+            );
+        }
+    }
+
+    #[test]
+    fn test_is_auth_error_detection() {
+        assert!(is_auth_error("No API key configured for provider"));
+        assert!(is_auth_error("api_key is missing"));
+        assert!(is_auth_error("Unauthorized access"));
+        assert!(is_auth_error("authentication failed"));
+        assert!(is_auth_error("Secret 'OPENAI_API_KEY' not found"));
+        assert!(is_auth_error("HTTP 401 error"));
+        assert!(is_auth_error("HTTP 403 forbidden"));
+    }
+
+    #[test]
+    fn test_is_auth_error_false_for_transient() {
+        assert!(!is_auth_error("connection timeout"));
+        assert!(!is_auth_error("rate limit exceeded"));
+        assert!(!is_auth_error("internal server error"));
+        assert!(!is_auth_error("context window exceeded"));
+        assert!(!is_auth_error("model overloaded"));
+    }
+
+    #[tokio::test]
+    async fn test_execute_with_failover_auth_error_skips() {
+        let config = FailoverConfig {
+            primary: AIModel::ClaudeSonnet4_5,
+            fallbacks: vec![AIModel::Gpt5, AIModel::DeepseekChat],
+            cooldown_secs: 60,
+            failure_threshold: 3,
+            auto_recover: true,
+        };
+        let manager = FailoverManager::new(config);
+
+        let result = execute_with_failover(&manager, |model| async move {
+            if model == AIModel::ClaudeSonnet4_5 {
+                Err(anyhow::anyhow!("No API key configured for provider"))
+            } else if model == AIModel::Gpt5 {
+                Err(anyhow::anyhow!("Unauthorized"))
+            } else {
+                Ok("success from deepseek")
+            }
+        })
+        .await;
+
+        assert!(result.is_ok());
+        let (value, model) = result.unwrap();
+        assert_eq!(value, "success from deepseek");
+        assert_eq!(model, AIModel::DeepseekChat);
+
+        // Auth-failed models should be in cooldown (not just failure-counted)
+        let status = manager.get_status(AIModel::ClaudeSonnet4_5).await;
+        assert!(!status.available);
+        let status = manager.get_status(AIModel::Gpt5).await;
+        assert!(!status.available);
     }
 }

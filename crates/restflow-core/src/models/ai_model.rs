@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 /// AI model provider
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
 #[ts(export)]
 #[serde(rename_all = "lowercase")]
 pub enum Provider {
@@ -75,6 +75,25 @@ impl Provider {
             Self::Doubao => LlmProvider::Doubao,
             Self::Yi => LlmProvider::Yi,
             Self::SiliconFlow => LlmProvider::SiliconFlow,
+        }
+    }
+
+    /// Get the best available model for this provider.
+    pub fn flagship_model(&self) -> AIModel {
+        match self {
+            Self::OpenAI => AIModel::Gpt5,
+            Self::Anthropic => AIModel::ClaudeSonnet4_5,
+            Self::DeepSeek => AIModel::DeepseekChat,
+            Self::Google => AIModel::Gemini3Pro,
+            Self::Groq => AIModel::GroqLlama4Maverick,
+            Self::OpenRouter => AIModel::OrClaudeOpus4_6,
+            Self::XAI => AIModel::Grok4,
+            Self::Qwen => AIModel::Qwen3Max,
+            Self::Zhipu => AIModel::Glm5,
+            Self::Moonshot => AIModel::KimiK2_5,
+            Self::Doubao => AIModel::DoubaoPro,
+            Self::Yi => AIModel::YiLightning,
+            Self::SiliconFlow => AIModel::SiliconFlowAuto,
         }
     }
 }
@@ -803,6 +822,46 @@ impl AIModel {
             || self.is_claude_code()
     }
 
+    /// Get a same-provider fallback model (cheaper tier).
+    /// Returns None if this is already the cheapest or no fallback exists.
+    pub fn same_provider_fallback(&self) -> Option<Self> {
+        match self {
+            // Anthropic: Opus -> Sonnet -> Haiku
+            Self::ClaudeOpus4_6 => Some(Self::ClaudeSonnet4_5),
+            Self::ClaudeSonnet4_5 => Some(Self::ClaudeHaiku4_5),
+            // OpenAI: Pro -> Gpt5 -> Mini -> Nano
+            Self::Gpt5Pro => Some(Self::Gpt5),
+            Self::Gpt5 => Some(Self::Gpt5Mini),
+            Self::Gpt5Mini => Some(Self::Gpt5Nano),
+            // DeepSeek: Reasoner -> Chat
+            Self::DeepseekReasoner => Some(Self::DeepseekChat),
+            // Gemini: Pro -> Flash (both generations)
+            Self::Gemini3Pro => Some(Self::Gemini3Flash),
+            Self::Gemini25Pro => Some(Self::Gemini25Flash),
+            // GLM: 5 -> 5Code -> 4.7
+            Self::Glm5 => Some(Self::Glm5Code),
+            Self::Glm5Code => Some(Self::Glm4_7),
+            // X.AI: Grok4 -> Grok3Mini
+            Self::Grok4 => Some(Self::Grok3Mini),
+            _ => None,
+        }
+    }
+
+    /// Get the OpenRouter equivalent of this model (if one exists).
+    pub fn openrouter_equivalent(&self) -> Option<Self> {
+        match self {
+            Self::ClaudeOpus4_6 | Self::ClaudeSonnet4_5 => Some(Self::OrClaudeOpus4_6),
+            Self::Gpt5 | Self::Gpt5Mini | Self::Gpt5Pro => Some(Self::OrGpt5),
+            Self::Gemini3Pro | Self::Gemini25Pro => Some(Self::OrGemini3Pro),
+            Self::DeepseekChat | Self::DeepseekReasoner => Some(Self::OrDeepseekV3_2),
+            Self::Grok4 | Self::Grok3Mini => Some(Self::OrGrok4),
+            Self::Glm5 | Self::Glm5Code | Self::Glm4_7 => Some(Self::OrGlm4_7),
+            Self::KimiK2_5 => Some(Self::OrKimiK2_5),
+            Self::Qwen3Max | Self::Qwen3Plus => Some(Self::OrQwen3Coder),
+            _ => None,
+        }
+    }
+
     /// Get all available models as a slice
     pub fn all() -> &'static [AIModel] {
         &[
@@ -1085,5 +1144,81 @@ mod tests {
         assert_eq!(Provider::Google.api_key_env(), "GEMINI_API_KEY");
         assert_eq!(Provider::Groq.api_key_env(), "GROQ_API_KEY");
         assert_eq!(Provider::Qwen.api_key_env(), "DASHSCOPE_API_KEY");
+    }
+
+    #[test]
+    fn test_same_provider_fallback() {
+        // Anthropic chain
+        assert_eq!(
+            AIModel::ClaudeOpus4_6.same_provider_fallback(),
+            Some(AIModel::ClaudeSonnet4_5)
+        );
+        assert_eq!(
+            AIModel::ClaudeSonnet4_5.same_provider_fallback(),
+            Some(AIModel::ClaudeHaiku4_5)
+        );
+        assert_eq!(AIModel::ClaudeHaiku4_5.same_provider_fallback(), None);
+
+        // OpenAI chain
+        assert_eq!(
+            AIModel::Gpt5Pro.same_provider_fallback(),
+            Some(AIModel::Gpt5)
+        );
+        assert_eq!(
+            AIModel::Gpt5.same_provider_fallback(),
+            Some(AIModel::Gpt5Mini)
+        );
+        assert_eq!(
+            AIModel::Gpt5Mini.same_provider_fallback(),
+            Some(AIModel::Gpt5Nano)
+        );
+        assert_eq!(AIModel::Gpt5Nano.same_provider_fallback(), None);
+
+        // DeepSeek chain
+        assert_eq!(
+            AIModel::DeepseekReasoner.same_provider_fallback(),
+            Some(AIModel::DeepseekChat)
+        );
+        assert_eq!(AIModel::DeepseekChat.same_provider_fallback(), None);
+
+        // CLI models have no fallback
+        assert_eq!(AIModel::CodexCli.same_provider_fallback(), None);
+    }
+
+    #[test]
+    fn test_openrouter_equivalent() {
+        assert_eq!(
+            AIModel::ClaudeOpus4_6.openrouter_equivalent(),
+            Some(AIModel::OrClaudeOpus4_6)
+        );
+        assert_eq!(
+            AIModel::Gpt5.openrouter_equivalent(),
+            Some(AIModel::OrGpt5)
+        );
+        assert_eq!(
+            AIModel::DeepseekChat.openrouter_equivalent(),
+            Some(AIModel::OrDeepseekV3_2)
+        );
+        assert_eq!(
+            AIModel::KimiK2_5.openrouter_equivalent(),
+            Some(AIModel::OrKimiK2_5)
+        );
+        // OR models themselves have no OR equivalent
+        assert_eq!(AIModel::OrClaudeOpus4_6.openrouter_equivalent(), None);
+        // CLI models have no OR equivalent
+        assert_eq!(AIModel::CodexCli.openrouter_equivalent(), None);
+    }
+
+    #[test]
+    fn test_flagship_model() {
+        assert_eq!(Provider::Anthropic.flagship_model(), AIModel::ClaudeSonnet4_5);
+        assert_eq!(Provider::OpenAI.flagship_model(), AIModel::Gpt5);
+        assert_eq!(Provider::DeepSeek.flagship_model(), AIModel::DeepseekChat);
+        assert_eq!(Provider::Google.flagship_model(), AIModel::Gemini3Pro);
+        assert_eq!(Provider::Zhipu.flagship_model(), AIModel::Glm5);
+        assert_eq!(
+            Provider::OpenRouter.flagship_model(),
+            AIModel::OrClaudeOpus4_6
+        );
     }
 }

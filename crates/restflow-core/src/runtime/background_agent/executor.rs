@@ -7,7 +7,7 @@
 
 use anyhow::{Result, anyhow};
 use async_trait::async_trait;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use crate::{
@@ -352,6 +352,39 @@ impl AgentRuntimeExecutor {
             tool_registry,
             config: self.subagent_config.clone(),
         }
+    }
+
+    /// Build a credential-aware failover config for the given primary model.
+    async fn build_failover_config(
+        &self,
+        primary: AIModel,
+        agent_api_key_config: Option<&ApiKeyConfig>,
+    ) -> FailoverConfig {
+        let primary_provider = primary.provider();
+        let api_keys = self
+            .build_api_keys(agent_api_key_config, primary_provider)
+            .await;
+
+        let available_providers: HashSet<Provider> = api_keys
+            .keys()
+            .filter_map(|llm_provider| {
+                Provider::all()
+                    .iter()
+                    .find(|p| p.as_llm_provider() == *llm_provider)
+                    .copied()
+            })
+            .collect();
+
+        let config = FailoverConfig::build_smart(primary, &available_providers);
+
+        info!(
+            primary = %primary.as_str(),
+            fallbacks = ?config.fallbacks.iter().map(|m| m.as_str()).collect::<Vec<_>>(),
+            "Built failover chain with {} available fallbacks",
+            config.fallbacks.len()
+        );
+
+        config
     }
 
     fn build_background_system_prompt(
@@ -758,7 +791,10 @@ impl AgentRuntimeExecutor {
         let agent_node = stored_agent.agent.clone();
         let primary_model = self.resolve_primary_model(&agent_node).await?;
         let primary_provider = primary_model.provider();
-        let failover_manager = FailoverManager::new(FailoverConfig::with_primary(primary_model));
+        let failover_config = self
+            .build_failover_config(primary_model, agent_node.api_key_config.as_ref())
+            .await;
+        let failover_manager = FailoverManager::new(failover_config);
         let retry_config = RetryConfig::default();
         let mut retry_state = RetryState::new();
         let session_snapshot = session.clone();
@@ -1198,7 +1234,10 @@ impl AgentRuntimeExecutor {
         let primary_model = self.resolve_primary_model(&agent_node).await?;
         let primary_provider = primary_model.provider();
 
-        let failover_manager = FailoverManager::new(FailoverConfig::with_primary(primary_model));
+        let failover_config = self
+            .build_failover_config(primary_model, agent_node.api_key_config.as_ref())
+            .await;
+        let failover_manager = FailoverManager::new(failover_config);
         let retry_config = RetryConfig::default();
         let mut retry_state = RetryState::new();
         let input_owned = input.map(|value| value.to_string());
