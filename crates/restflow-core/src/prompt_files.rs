@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tracing::warn;
 use uuid::Uuid;
 
@@ -50,13 +50,23 @@ pub fn load_agent_prompt(agent_id: &str) -> Result<Option<String>> {
         return Ok(None);
     };
 
-    let content = fs::read_to_string(&path)
-        .with_context(|| format!("Failed to read agent prompt: {}", path.display()))?;
+    let Some(content) = read_prompt_file_if_exists(&path)? else {
+        return Ok(None);
+    };
     let parsed = parse_prompt_file_content(&content);
     if parsed.body.trim().is_empty() {
         Ok(None)
     } else {
         Ok(Some(parsed.body))
+    }
+}
+
+fn read_prompt_file_if_exists(path: &Path) -> Result<Option<String>> {
+    match fs::read_to_string(path) {
+        Ok(content) => Ok(Some(content)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error)
+            .with_context(|| format!("Failed to read agent prompt: {}", path.display())),
     }
 }
 
@@ -755,6 +765,18 @@ mod tests {
         assert!(!temp.path().join(format!("{missing}.md")).exists());
 
         unsafe { std::env::remove_var(AGENTS_DIR_ENV) };
+    }
+
+    #[test]
+    fn test_read_prompt_file_if_exists_returns_none_for_deleted_file() {
+        let _lock = env_lock();
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("deleted.md");
+        fs::write(&path, "temp").unwrap();
+        fs::remove_file(&path).unwrap();
+
+        let loaded = read_prompt_file_if_exists(&path).unwrap();
+        assert!(loaded.is_none());
     }
 
     #[test]
