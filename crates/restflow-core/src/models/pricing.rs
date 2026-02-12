@@ -62,6 +62,16 @@ impl AIModel {
                 cost_per_1m_output: 2.19,
             }),
 
+            // Zhipu
+            Self::Glm5 => Some(ModelPricing {
+                cost_per_1m_input: 1.0,
+                cost_per_1m_output: 3.2,
+            }),
+            Self::Glm5Code => Some(ModelPricing {
+                cost_per_1m_input: 1.2,
+                cost_per_1m_output: 5.0,
+            }),
+
             // Other providers (pricing varies by provider)
             Self::Gemini25Pro
             | Self::Gemini25Flash

@@ -60,6 +60,8 @@ pub fn parse_model(input: &str) -> Result<AIModel> {
         "qwen3-max" | "qwen-max" | "qwen" => AIModel::Qwen3Max,
         "qwen3-plus" | "qwen-plus" => AIModel::Qwen3Plus,
         // Zhipu
+        "glm-5" | "glm5" => AIModel::Glm5,
+        "glm-5-code" | "glm5-code" => AIModel::Glm5Code,
         "glm-4.7" | "glm-4-7" | "glm" => AIModel::Glm4_7,
         // Moonshot
         "kimi-k2.5" | "kimi-k2-5" | "kimi" | "moonshot" => AIModel::KimiK2_5,
