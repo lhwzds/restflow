@@ -2,6 +2,7 @@ use portable_pty::{Child, ChildKiller, ExitStatus, MasterPty, PtySize};
 use std::io::Write;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ProcessSessionSource {
@@ -97,6 +98,32 @@ impl ProcessSession {
             .map_err(|_| anyhow::anyhow!("Process session lock poisoned"))?;
         killer.kill()?;
         Ok(())
+    }
+
+    /// Wait for process exit status to become available.
+    pub fn wait_for_exit(&self, timeout: Duration) -> anyhow::Result<Option<ExitStatus>> {
+        if let Some(status) = self.exit_status() {
+            return Ok(Some(status));
+        }
+
+        let deadline = Instant::now() + timeout;
+        loop {
+            if let Some(status) = self.try_update_exit_status()? {
+                return Ok(Some(status));
+            }
+
+            if Instant::now() >= deadline {
+                return Ok(None);
+            }
+
+            std::thread::sleep(Duration::from_millis(25));
+        }
+    }
+
+    /// Terminate process and best-effort reap child status.
+    pub fn terminate_and_reap(&self, timeout: Duration) -> anyhow::Result<Option<ExitStatus>> {
+        self.kill()?;
+        self.wait_for_exit(timeout)
     }
 
     pub fn resize(&self, size: PtySize) -> anyhow::Result<()> {

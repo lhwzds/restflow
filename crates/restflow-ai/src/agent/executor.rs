@@ -68,7 +68,7 @@ impl AgentConfig {
         Self {
             goal: goal.into(),
             system_prompt: None,
-            max_iterations: 10,
+            max_iterations: 25,
             temperature: None, // None = use model default
             context: HashMap::new(),
             tool_timeout: Duration::from_secs(30),
@@ -483,9 +483,7 @@ impl AgentExecutor {
             error: match &state.status {
                 AgentStatus::Failed { error } => Some(error.clone()),
                 AgentStatus::MaxIterations => Some("Max iterations reached".to_string()),
-                AgentStatus::Interrupted { reason } => {
-                    Some(format!("Interrupted: {}", reason))
-                }
+                AgentStatus::Interrupted { reason } => Some(format!("Interrupted: {}", reason)),
                 AgentStatus::ResourceExhausted { error } => Some(error.clone()),
                 _ => None,
             },
@@ -682,9 +680,7 @@ impl AgentExecutor {
             error: match &state.status {
                 AgentStatus::Failed { error } => Some(error.clone()),
                 AgentStatus::MaxIterations => Some("Max iterations reached".to_string()),
-                AgentStatus::Interrupted { reason } => {
-                    Some(format!("Interrupted: {}", reason))
-                }
+                AgentStatus::Interrupted { reason } => Some(format!("Interrupted: {}", reason)),
                 AgentStatus::ResourceExhausted { error } => Some(error.clone()),
                 _ => None,
             },

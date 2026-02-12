@@ -30,7 +30,7 @@ impl Default for SubagentConfig {
         Self {
             max_parallel_agents: 5,
             subagent_timeout_secs: 300,
-            max_iterations: 10,
+            max_iterations: 20,
             max_depth: 1,
         }
     }

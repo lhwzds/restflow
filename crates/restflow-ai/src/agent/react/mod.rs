@@ -35,7 +35,7 @@ pub struct ReActConfig {
 impl Default for ReActConfig {
     fn default() -> Self {
         Self {
-            max_iterations: 10,
+            max_iterations: 25,
             include_reasoning: false,
         }
     }
