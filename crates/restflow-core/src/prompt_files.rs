@@ -68,19 +68,36 @@ pub fn ensure_agent_prompt_file(
     let id = validate_agent_id(agent_id)?;
     let path = resolve_prompt_path_for_write(id, agent_name)?;
 
-    let prompt_body = if let Some(prompt) = prompt_override {
-        prompt.to_string()
-    } else if path.exists() {
+    if let Some(prompt) = prompt_override {
+        let serialized = serialize_prompt_file(id, prompt);
+        fs::write(&path, serialized)
+            .with_context(|| format!("Failed to write agent prompt: {}", path.display()))?;
+        return Ok(path);
+    }
+
+    if path.exists() {
         let existing = fs::read_to_string(&path)
             .with_context(|| format!("Failed to read existing agent prompt: {}", path.display()))?;
-        parse_prompt_file_content(&existing).body
-    } else {
-        load_default_main_agent_prompt()?
-    };
+        let parsed = parse_prompt_file_content(&existing);
+        let stem = path
+            .file_stem()
+            .and_then(|value| value.to_str())
+            .unwrap_or_default();
+        if parsed.agent_id.as_deref() == Some(id) || stem == id {
+            // Keep existing file bytes unchanged to avoid noisy rewrites on startup.
+            return Ok(path);
+        }
+        let serialized = serialize_prompt_file(id, &parsed.body);
+        fs::write(&path, serialized).with_context(|| {
+            format!("Failed to repair agent prompt metadata: {}", path.display())
+        })?;
+        return Ok(path);
+    }
 
-    let serialized = serialize_prompt_file(id, &prompt_body);
+    let default_prompt = load_default_main_agent_prompt()?;
+    let serialized = serialize_prompt_file(id, &default_prompt);
     fs::write(&path, serialized)
-        .with_context(|| format!("Failed to write agent prompt: {}", path.display()))?;
+        .with_context(|| format!("Failed to initialize agent prompt: {}", path.display()))?;
     Ok(path)
 }
 
@@ -348,15 +365,49 @@ fn sanitize_agent_file_stem(name: &str) -> String {
     }
 
     let normalized = stem.trim_matches(['-', '_', '.']).to_string();
-    if normalized.is_empty() {
+    let candidate = if normalized.is_empty() {
         "agent".to_string()
     } else {
         normalized
+    };
+    if is_windows_reserved_stem(&candidate) {
+        format!("{candidate}-agent")
+    } else {
+        candidate
     }
 }
 
 fn serialize_prompt_file(agent_id: &str, prompt_body: &str) -> String {
     format!("{AGENT_ID_METADATA_PREFIX}{agent_id}{METADATA_SUFFIX}\n\n{prompt_body}")
+}
+
+fn is_windows_reserved_stem(stem: &str) -> bool {
+    let lower = stem.to_ascii_lowercase();
+    matches!(
+        lower.as_str(),
+        "con"
+            | "prn"
+            | "aux"
+            | "nul"
+            | "com1"
+            | "com2"
+            | "com3"
+            | "com4"
+            | "com5"
+            | "com6"
+            | "com7"
+            | "com8"
+            | "com9"
+            | "lpt1"
+            | "lpt2"
+            | "lpt3"
+            | "lpt4"
+            | "lpt5"
+            | "lpt6"
+            | "lpt7"
+            | "lpt8"
+            | "lpt9"
+    )
 }
 
 struct ParsedPromptFileContent {
@@ -374,7 +425,8 @@ fn parse_prompt_file_content(content: &str) -> ParsedPromptFileContent {
             .and_then(|value| value.strip_suffix(METADATA_SUFFIX))
     {
         let mut remaining: Vec<&str> = lines.collect();
-        while matches!(remaining.first(), Some(line) if line.trim().is_empty()) {
+        if matches!(remaining.first(), Some(line) if line.trim().is_empty()) {
+            // Remove only the first separator line after metadata and preserve user formatting.
             remaining.remove(0);
         }
         return ParsedPromptFileContent {
@@ -470,6 +522,22 @@ mod tests {
     }
 
     #[test]
+    fn test_ensure_agent_prompt_file_keeps_existing_metadata_file_bytes() {
+        let _lock = env_lock();
+        let temp = tempfile::tempdir().unwrap();
+        unsafe { std::env::set_var(AGENTS_DIR_ENV, temp.path()) };
+
+        let id = "d95c9423-42d7-4a13-ad80-ff94e16f8f8a";
+        let path = ensure_agent_prompt_file(id, "No Rewrite", Some("\nLine A\nLine B")).unwrap();
+        let before = fs::read_to_string(&path).unwrap();
+        let _ = ensure_agent_prompt_file(id, "No Rewrite", None).unwrap();
+        let after = fs::read_to_string(&path).unwrap();
+        assert_eq!(before, after);
+
+        unsafe { std::env::remove_var(AGENTS_DIR_ENV) };
+    }
+
+    #[test]
     fn test_load_agent_prompt_missing_does_not_create_file() {
         let _lock = env_lock();
         let temp = tempfile::tempdir().unwrap();
@@ -540,10 +608,20 @@ mod tests {
             migrated.file_name().and_then(|v| v.to_str()),
             Some("renamed-agent.md")
         );
+        let migrated_raw = fs::read_to_string(&migrated).unwrap();
+        assert!(migrated_raw.contains(&format!("{AGENT_ID_METADATA_PREFIX}{id}{METADATA_SUFFIX}")));
         let loaded = load_agent_prompt(id).unwrap();
         assert_eq!(loaded.as_deref(), Some("legacy content"));
 
         unsafe { std::env::remove_var(AGENTS_DIR_ENV) };
+    }
+
+    #[test]
+    fn test_sanitize_agent_file_stem_avoids_windows_reserved_names() {
+        assert_eq!(sanitize_agent_file_stem("CON"), "con-agent");
+        assert_eq!(sanitize_agent_file_stem("aux"), "aux-agent");
+        assert_eq!(sanitize_agent_file_stem("Lpt1"), "lpt1-agent");
+        assert_eq!(sanitize_agent_file_stem("Normal Name"), "normal-name");
     }
 
     #[test]
