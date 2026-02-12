@@ -5,6 +5,7 @@ use super::resource::{ResourceLimits, ResourceTracker, ResourceUsage};
 use crate::LlmClient;
 use crate::agent::context::{ContextDiscoveryConfig, WorkspaceContextCache};
 use crate::agent::stream::{StreamEmitter, ToolCallAccumulator};
+use crate::agent::stuck::{StuckAction, StuckDetector, StuckDetectorConfig};
 use crate::error::{AiError, Result};
 use crate::llm::{CompletionRequest, FinishReason, Message, ToolCall};
 use crate::steer::SteerMessage;
@@ -22,6 +23,8 @@ pub struct AgentExecutionEngineConfig {
     pub temperature: f32,
     pub max_history: usize,
     pub resource_limits: ResourceLimits,
+    /// Optional stuck detection configuration.
+    pub stuck_detection: Option<StuckDetectorConfig>,
 }
 
 impl Default for AgentExecutionEngineConfig {
@@ -32,6 +35,7 @@ impl Default for AgentExecutionEngineConfig {
             temperature: 0.7,
             max_history: 20,
             resource_limits: ResourceLimits::default(),
+            stuck_detection: Some(StuckDetectorConfig::default()),
         }
     }
 }
@@ -56,6 +60,7 @@ pub struct AgentExecutionEngine {
     state: AgentState,
     context_cache: Option<WorkspaceContextCache>,
     steer_rx: Option<mpsc::Receiver<SteerMessage>>,
+    stuck_detector: Option<StuckDetector>,
 }
 
 impl AgentExecutionEngine {
@@ -69,6 +74,8 @@ impl AgentExecutionEngine {
             .ok()
             .map(|workdir| WorkspaceContextCache::new(ContextDiscoveryConfig::default(), workdir));
 
+        let stuck_detector = config.stuck_detection.clone().map(StuckDetector::new);
+
         Self {
             llm_client,
             tool_registry,
@@ -78,6 +85,7 @@ impl AgentExecutionEngine {
             state: AgentState::Ready,
             context_cache,
             steer_rx: None,
+            stuck_detector,
         }
     }
 
@@ -207,8 +215,51 @@ impl AgentExecutionEngine {
                         response.tool_calls.clone(),
                     ));
 
+                    // Record tool calls for stuck detection
+                    if let Some(ref mut detector) = self.stuck_detector {
+                        for tc in &response.tool_calls {
+                            let args_json =
+                                serde_json::to_string(&tc.arguments).unwrap_or_default();
+                            detector.record(&tc.name, &args_json);
+                        }
+                    }
+
                     self.execute_tool_calls(&response.tool_calls).await?;
                     tracker.record_tool_calls(response.tool_calls.len());
+
+                    // Check for stuck agent
+                    if let Some(ref detector) = self.stuck_detector
+                        && let Some(stuck_info) = detector.is_stuck()
+                    {
+                        match detector.config().action {
+                            StuckAction::Nudge => {
+                                warn!(
+                                    tool = %stuck_info.repeated_tool,
+                                    count = stuck_info.repeat_count,
+                                    "Agent stuck detected, injecting nudge message"
+                                );
+                                self.history.add(Message::system(stuck_info.message));
+                            }
+                            StuckAction::Stop => {
+                                warn!(
+                                    tool = %stuck_info.repeated_tool,
+                                    count = stuck_info.repeat_count,
+                                    "Agent stuck detected, stopping execution"
+                                );
+                                return Ok(ExecutionResult {
+                                    output: format!(
+                                        "Agent stuck: repeated '{}' {} times",
+                                        stuck_info.repeated_tool, stuck_info.repeat_count
+                                    ),
+                                    messages: self.history.clone().into_messages(),
+                                    success: false,
+                                    iterations,
+                                    resource_usage: tracker.usage_snapshot(),
+                                });
+                            }
+                        }
+                    }
+
                     self.state = AgentState::Observing;
                 }
                 AgentAction::FinalAnswer { content } => {
@@ -317,9 +368,52 @@ impl AgentExecutionEngine {
                         response.tool_calls.clone(),
                     ));
 
+                    // Record tool calls for stuck detection
+                    if let Some(ref mut detector) = self.stuck_detector {
+                        for tc in &response.tool_calls {
+                            let args_json =
+                                serde_json::to_string(&tc.arguments).unwrap_or_default();
+                            detector.record(&tc.name, &args_json);
+                        }
+                    }
+
                     self.execute_tool_calls_with_events(&response.tool_calls, emitter)
                         .await?;
                     tracker.record_tool_calls(response.tool_calls.len());
+
+                    // Check for stuck agent
+                    if let Some(ref detector) = self.stuck_detector
+                        && let Some(stuck_info) = detector.is_stuck()
+                    {
+                        match detector.config().action {
+                            StuckAction::Nudge => {
+                                warn!(
+                                    tool = %stuck_info.repeated_tool,
+                                    count = stuck_info.repeat_count,
+                                    "Agent stuck detected, injecting nudge message"
+                                );
+                                self.history.add(Message::system(stuck_info.message));
+                            }
+                            StuckAction::Stop => {
+                                warn!(
+                                    tool = %stuck_info.repeated_tool,
+                                    count = stuck_info.repeat_count,
+                                    "Agent stuck detected, stopping execution"
+                                );
+                                return Ok(ExecutionResult {
+                                    output: format!(
+                                        "Agent stuck: repeated '{}' {} times",
+                                        stuck_info.repeated_tool, stuck_info.repeat_count
+                                    ),
+                                    messages: self.history.clone().into_messages(),
+                                    success: false,
+                                    iterations,
+                                    resource_usage: tracker.usage_snapshot(),
+                                });
+                            }
+                        }
+                    }
+
                     self.state = AgentState::Observing;
                 }
                 AgentAction::FinalAnswer { content } => {
