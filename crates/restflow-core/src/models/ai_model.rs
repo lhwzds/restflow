@@ -171,6 +171,10 @@ pub enum AIModel {
     Qwen3Plus,
 
     // Zhipu
+    #[serde(rename = "glm-5")]
+    Glm5,
+    #[serde(rename = "glm-5-code")]
+    Glm5Code,
     #[serde(rename = "glm-4-7")]
     Glm4_7,
 
@@ -387,6 +391,16 @@ impl AIModel {
             },
 
             // Zhipu
+            Self::Glm5 => ModelMetadata {
+                provider: Provider::Zhipu,
+                supports_temperature: true,
+                name: "GLM-5",
+            },
+            Self::Glm5Code => ModelMetadata {
+                provider: Provider::Zhipu,
+                supports_temperature: true,
+                name: "GLM-5 Code",
+            },
             Self::Glm4_7 => ModelMetadata {
                 provider: Provider::Zhipu,
                 supports_temperature: true,
@@ -516,6 +530,8 @@ impl AIModel {
             Self::Qwen3Plus => "qwen3-plus",
 
             // Zhipu
+            Self::Glm5 => "glm-5",
+            Self::Glm5Code => "glm-5-code",
             Self::Glm4_7 => "glm-4.7",
 
             // Moonshot
@@ -622,6 +638,8 @@ impl AIModel {
             Self::Qwen3Plus => "qwen3-plus",
 
             // Zhipu
+            Self::Glm5 => "glm-5",
+            Self::Glm5Code => "glm-5-code",
             Self::Glm4_7 => "glm-4-7",
 
             // Moonshot
@@ -722,6 +740,8 @@ impl AIModel {
             Self::Qwen3Max,
             Self::Qwen3Plus,
             // Zhipu
+            Self::Glm5,
+            Self::Glm5Code,
             Self::Glm4_7,
             // Moonshot
             Self::KimiK2_5,
@@ -876,7 +896,7 @@ mod tests {
     #[test]
     fn test_all_models() {
         let models = AIModel::all();
-        assert_eq!(models.len(), 36);
+        assert_eq!(models.len(), 38);
         assert!(models.contains(&AIModel::Gpt5));
         assert!(models.contains(&AIModel::Gpt5_1));
         assert!(models.contains(&AIModel::ClaudeOpus4_6));
