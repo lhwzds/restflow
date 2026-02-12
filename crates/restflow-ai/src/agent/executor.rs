@@ -215,14 +215,26 @@ impl AgentExecutor {
         }
 
         for steer in messages {
-            tracing::info!(
-                instruction = %steer.instruction,
-                source = ?steer.source,
-                "Received steer message, injecting into conversation"
-            );
-            let msg = Message::user(format!("[User Update]: {}", steer.instruction));
-            state.add_message(msg.clone());
-            memory.add(msg);
+            match &steer.command {
+                crate::steer::SteerCommand::Message { instruction } => {
+                    tracing::info!(
+                        instruction = %instruction,
+                        source = ?steer.source,
+                        "Received steer message, injecting into conversation"
+                    );
+                    let msg = Message::user(format!("[User Update]: {}", instruction));
+                    state.add_message(msg.clone());
+                    memory.add(msg);
+                }
+                crate::steer::SteerCommand::Interrupt { reason, .. } => {
+                    tracing::info!(
+                        reason = %reason,
+                        source = ?steer.source,
+                        "Received interrupt command"
+                    );
+                    state.interrupt(reason);
+                }
+            }
         }
     }
 
@@ -382,6 +394,9 @@ impl AgentExecutor {
             error: match &state.status {
                 AgentStatus::Failed { error } => Some(error.clone()),
                 AgentStatus::MaxIterations => Some("Max iterations reached".to_string()),
+                AgentStatus::Interrupted { reason } => {
+                    Some(format!("Interrupted: {}", reason))
+                }
                 _ => None,
             },
             iterations: state.iteration,
@@ -511,6 +526,9 @@ impl AgentExecutor {
             error: match &state.status {
                 AgentStatus::Failed { error } => Some(error.clone()),
                 AgentStatus::MaxIterations => Some("Max iterations reached".to_string()),
+                AgentStatus::Interrupted { reason } => {
+                    Some(format!("Interrupted: {}", reason))
+                }
                 _ => None,
             },
             iterations: state.iteration,

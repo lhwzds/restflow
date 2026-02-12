@@ -3,6 +3,7 @@ pub mod agent_execution;
 pub mod agent_meta;
 pub mod ai_model;
 pub mod background_agent;
+pub mod checkpoint;
 pub mod chat_session;
 pub mod hook;
 pub mod memory;
@@ -37,6 +38,7 @@ pub use memory::{
     SearchMode, SourceTypeFilter, UnifiedSearchQuery,
 };
 pub use pricing::{ModelPricing, calculate_cost};
+pub use checkpoint::{AgentCheckpoint, ResumePayload};
 pub use steer::{SteerMessage, SteerSource};
 pub use webhook::{WebhookConfig, WebhookRateLimiter, WebhookRequest, WebhookResponse};
 pub use workspace_note::{

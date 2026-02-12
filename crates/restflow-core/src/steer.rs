@@ -55,6 +55,7 @@ impl Default for SteerRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::SteerSource;
 
     #[tokio::test]
     async fn test_steer_registry_register_unregister() {
@@ -71,25 +72,17 @@ mod tests {
         let registry = SteerRegistry::new();
         let mut rx = registry.register("task-1").await;
 
-        let msg = SteerMessage {
-            instruction: "check ETH too".into(),
-            source: crate::models::SteerSource::User,
-            timestamp: 0,
-        };
+        let msg = SteerMessage::message("check ETH too", SteerSource::User);
         assert!(registry.steer("task-1", msg).await);
 
         let received = rx.recv().await.unwrap();
-        assert_eq!(received.instruction, "check ETH too");
+        assert_eq!(received.instruction(), "check ETH too");
     }
 
     #[tokio::test]
     async fn test_steer_nonexistent_task() {
         let registry = SteerRegistry::new();
-        let msg = SteerMessage {
-            instruction: "test".into(),
-            source: crate::models::SteerSource::User,
-            timestamp: 0,
-        };
+        let msg = SteerMessage::message("test", SteerSource::User);
         assert!(!registry.steer("no-such-task", msg).await);
     }
 
@@ -103,11 +96,7 @@ mod tests {
             registry
                 .steer(
                     "task-1",
-                    SteerMessage {
-                        instruction: format!("msg-{i}"),
-                        source: crate::models::SteerSource::User,
-                        timestamp: 0,
-                    },
+                    SteerMessage::message(format!("msg-{i}"), SteerSource::User),
                 )
                 .await;
         }

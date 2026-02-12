@@ -70,6 +70,8 @@ pub enum BackgroundAgentStatus {
     Completed,
     /// Task failed on last execution
     Failed,
+    /// Task execution interrupted, waiting for external input to resume.
+    Interrupted,
 }
 
 impl BackgroundAgentStatus {
@@ -80,6 +82,7 @@ impl BackgroundAgentStatus {
             BackgroundAgentStatus::Running => "running",
             BackgroundAgentStatus::Completed => "completed",
             BackgroundAgentStatus::Failed => "failed",
+            BackgroundAgentStatus::Interrupted => "interrupted",
         }
     }
 }
@@ -547,6 +550,8 @@ pub enum TaskEventType {
     NotificationFailed,
     /// Context compaction occurred during execution
     Compaction,
+    /// Execution was interrupted (checkpoint created)
+    Interrupted,
 }
 
 /// An agent task represents a scheduled execution of an agent
@@ -786,6 +791,17 @@ impl BackgroundAgent {
         self.status = BackgroundAgentStatus::Failed;
         self.updated_at = chrono::Utc::now().timestamp_millis();
         self.update_next_run(); // Still schedule next run
+    }
+
+    /// Mark the task as interrupted (awaiting external input).
+    pub fn set_interrupted(&mut self) {
+        self.status = BackgroundAgentStatus::Interrupted;
+        self.updated_at = chrono::Utc::now().timestamp_millis();
+    }
+
+    /// Check if the task is interrupted.
+    pub fn is_interrupted(&self) -> bool {
+        self.status == BackgroundAgentStatus::Interrupted
     }
 
     /// Pause the task

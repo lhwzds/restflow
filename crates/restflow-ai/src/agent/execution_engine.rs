@@ -105,13 +105,13 @@ impl AgentExecutionEngine {
             match rx.try_recv() {
                 Ok(steer) => {
                     info!(
-                        instruction = %steer.instruction,
+                        instruction = %steer.instruction(),
                         source = ?steer.source,
                         "Received steer message, injecting into conversation"
                     );
                     self.history.add(Message::user(format!(
                         "[User Update]: {}",
-                        steer.instruction
+                        steer.instruction()
                     )));
                 }
                 Err(tokio::sync::mpsc::error::TryRecvError::Empty) => break,

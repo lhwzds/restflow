@@ -6,6 +6,7 @@
 pub mod agent;
 pub mod background_agent;
 pub mod chat_session;
+pub mod checkpoint;
 pub mod hook;
 pub mod memory;
 pub mod shared_space;
@@ -28,6 +29,7 @@ pub use restflow_storage::{
 pub use agent::AgentStorage;
 pub use background_agent::BackgroundAgentStorage;
 pub use chat_session::ChatSessionStorage;
+pub use checkpoint::CheckpointStorage;
 pub use hook::HookStorage;
 pub use memory::MemoryStorage;
 pub use shared_space::SharedSpaceStorage;
@@ -55,6 +57,7 @@ pub struct Storage {
     pub chat_sessions: ChatSessionStorage,
     pub hooks: HookStorage,
     pub workspace_notes: WorkspaceNoteStorage,
+    pub checkpoints: CheckpointStorage,
 }
 
 impl Storage {
@@ -95,6 +98,7 @@ impl Storage {
         let chat_sessions = ChatSessionStorage::new(db.clone())?;
         let hooks = HookStorage::new(db.clone())?;
         let workspace_notes = WorkspaceNoteStorage::new(db.clone())?;
+        let checkpoints = CheckpointStorage::new(db.clone())?;
 
         Ok(Self {
             db,
@@ -111,6 +115,7 @@ impl Storage {
             chat_sessions,
             hooks,
             workspace_notes,
+            checkpoints,
         })
     }
 
