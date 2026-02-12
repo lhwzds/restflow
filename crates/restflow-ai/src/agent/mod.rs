@@ -38,6 +38,7 @@ mod definitions;
 mod execution_engine;
 mod executor;
 pub mod react;
+mod resource;
 mod state;
 pub mod strategy;
 mod stream;
@@ -51,6 +52,7 @@ pub use context::{
 pub use definitions::{AgentDefinition, AgentDefinitionRegistry, builtin_agents};
 pub use execution_engine::{AgentExecutionEngine, AgentExecutionEngineConfig, ExecutionResult};
 pub use executor::{AgentConfig, AgentExecutor, AgentResult};
+pub use resource::{ResourceError, ResourceLimits, ResourceTracker, ResourceUsage};
 pub use state::{AgentState, AgentStatus};
 pub use stream::{NullEmitter, StreamEmitter, ToolCallAccumulator};
 pub use sub_agent::{
