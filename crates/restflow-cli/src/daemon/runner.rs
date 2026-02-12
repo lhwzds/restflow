@@ -2,17 +2,18 @@ use anyhow::Result;
 use async_trait::async_trait;
 use restflow_core::AppCore;
 use restflow_core::auth::{AuthManagerConfig, AuthProfileManager};
-use restflow_core::channel::ChannelRouter;
+use restflow_core::channel::{ChannelRouter, PairingManager};
 use restflow_core::daemon::publish_background_event;
 use restflow_core::hooks::HookExecutor;
 use restflow_core::models::{BackgroundAgent, BackgroundAgentStatus, BackgroundMessageSource};
 use restflow_core::paths;
 use restflow_core::process::ProcessRegistry;
+use restflow_core::runtime::channel::start_message_handler_with_pairing;
 use restflow_core::runtime::{
     AgentDefinitionRegistry, AgentRuntimeExecutor, BackgroundAgentRunner, BackgroundAgentTrigger,
     ChatDispatcher, ChatDispatcherConfig, ChatSessionManager, MessageDebouncer,
     MessageHandlerConfig, NoopHeartbeatEmitter, RunnerConfig, RunnerHandle, SubagentConfig,
-    SubagentTracker, SystemStatus, TelegramNotifier, start_message_handler_with_chat,
+    SubagentTracker, SystemStatus, TelegramNotifier,
 };
 use restflow_core::runtime::{TaskEventEmitter, TaskStreamEvent};
 use restflow_core::steer::SteerRegistry;
@@ -159,11 +160,18 @@ impl CliBackgroundAgentRunner {
                 subagent_config.clone(),
             ));
 
-            start_message_handler_with_chat(
+            let pairing_manager = Arc::new(PairingManager::new(Arc::new(storage.pairing.clone())));
+            bootstrap_default_chat_pairing(&storage.secrets, pairing_manager.as_ref())?;
+
+            start_message_handler_with_pairing(
                 router.clone(),
                 trigger,
-                chat_dispatcher,
-                MessageHandlerConfig::default(),
+                Some(chat_dispatcher),
+                pairing_manager,
+                MessageHandlerConfig {
+                    pairing_enabled: true,
+                    ..MessageHandlerConfig::default()
+                },
             );
 
             // Pass channel router to task runner so notifications are broadcast
@@ -174,7 +182,7 @@ impl CliBackgroundAgentRunner {
 
             let mut router_guard = self.router.write().await;
             *router_guard = Some(router);
-            info!("Telegram channel enabled for CLI daemon with AI chat support");
+            info!("Telegram channel enabled for CLI daemon with AI chat support and forced pairing access control");
         }
 
         info!("Task runner started");
@@ -200,6 +208,42 @@ impl CliBackgroundAgentRunner {
     pub async fn is_running(&self) -> bool {
         self.handle.read().await.is_some()
     }
+}
+
+fn non_empty_secret(secrets: &SecretStorage, key: &str) -> Result<Option<String>> {
+    Ok(secrets
+        .get_secret(key)?
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty()))
+}
+
+fn bootstrap_default_chat_pairing(
+    secrets: &SecretStorage,
+    pairing_manager: &PairingManager,
+) -> Result<()> {
+    let default_chat_id = non_empty_secret(secrets, "TELEGRAM_CHAT_ID")?
+        .or(non_empty_secret(secrets, "TELEGRAM_DEFAULT_CHAT_ID")?);
+
+    let Some(chat_id) = default_chat_id else {
+        return Ok(());
+    };
+
+    if pairing_manager.is_allowed(&chat_id)? {
+        return Ok(());
+    }
+
+    // Add default chat as allowed to avoid locking out existing owner
+    // when pairing is force-enabled.
+    pairing_manager.allow_peer(
+        &chat_id,
+        Some("bootstrap-default-chat"),
+        "daemon-bootstrap",
+    )?;
+    info!(
+        "Bootstrap pairing: auto-approved TELEGRAM_CHAT_ID as allowed peer ({})",
+        chat_id
+    );
+    Ok(())
 }
 
 struct CliBackgroundAgentTrigger {
