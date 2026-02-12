@@ -10,7 +10,7 @@ use tokio::time::sleep;
 use tokio_stream::StreamExt;
 use tracing::{debug, error, info, warn};
 
-use crate::channel::{ChannelRouter, InboundMessage};
+use crate::channel::{ChannelRouter, ChannelType, InboundMessage, OutboundMessage, PairingManager};
 
 use super::chat_dispatcher::ChatDispatcher;
 use super::commands::{handle_command, send_help};
@@ -30,6 +30,8 @@ pub struct MessageHandlerConfig {
     pub command_prefix: String,
     /// Whether to auto-acknowledge unknown messages (when chat is disabled)
     pub auto_acknowledge: bool,
+    /// Whether to enable pairing access control
+    pub pairing_enabled: bool,
 }
 
 impl Default for MessageHandlerConfig {
@@ -37,6 +39,7 @@ impl Default for MessageHandlerConfig {
         Self {
             command_prefix: "/".to_string(),
             auto_acknowledge: true,
+            pairing_enabled: false,
         }
     }
 }
@@ -50,7 +53,7 @@ pub fn start_message_handler<T: BackgroundAgentTrigger + 'static>(
     task_trigger: Arc<T>,
     config: MessageHandlerConfig,
 ) {
-    start_message_handler_internal(router, task_trigger, None, config);
+    start_message_handler_internal(router, task_trigger, None, None, config);
 }
 
 /// Start the message handler loop with AI chat support
@@ -64,7 +67,24 @@ pub fn start_message_handler_with_chat<T: BackgroundAgentTrigger + 'static>(
     chat_dispatcher: Arc<ChatDispatcher>,
     config: MessageHandlerConfig,
 ) {
-    start_message_handler_internal(router, task_trigger, Some(chat_dispatcher), config);
+    start_message_handler_internal(router, task_trigger, Some(chat_dispatcher), None, config);
+}
+
+/// Start the message handler loop with AI chat support and pairing access control
+pub fn start_message_handler_with_pairing<T: BackgroundAgentTrigger + 'static>(
+    router: Arc<ChannelRouter>,
+    task_trigger: Arc<T>,
+    chat_dispatcher: Option<Arc<ChatDispatcher>>,
+    pairing_manager: Arc<PairingManager>,
+    config: MessageHandlerConfig,
+) {
+    start_message_handler_internal(
+        router,
+        task_trigger,
+        chat_dispatcher,
+        Some(pairing_manager),
+        config,
+    );
 }
 
 /// Internal implementation of message handler startup
@@ -72,6 +92,7 @@ fn start_message_handler_internal<T: BackgroundAgentTrigger + 'static>(
     router: Arc<ChannelRouter>,
     task_trigger: Arc<T>,
     chat_dispatcher: Option<Arc<ChatDispatcher>>,
+    pairing_manager: Option<Arc<PairingManager>>,
     config: MessageHandlerConfig,
 ) {
     let chat_enabled = chat_dispatcher.is_some();
@@ -99,6 +120,7 @@ fn start_message_handler_internal<T: BackgroundAgentTrigger + 'static>(
         let trigger = task_trigger.clone();
         let msg_router = msg_router.clone();
         let chat_dispatcher = chat_dispatcher.clone();
+        let pairing_manager = pairing_manager.clone();
         let config = config.clone();
 
         tokio::spawn(async move {
@@ -138,6 +160,7 @@ fn start_message_handler_internal<T: BackgroundAgentTrigger + 'static>(
                         &msg_router,
                         trigger.as_ref(),
                         chat_dispatcher.as_ref().map(|d| d.as_ref()),
+                        pairing_manager.as_deref(),
                         &message,
                         &config,
                     )
@@ -170,6 +193,7 @@ async fn handle_message_routed(
     msg_router: &MessageRouter,
     trigger: &dyn BackgroundAgentTrigger,
     chat_dispatcher: Option<&ChatDispatcher>,
+    pairing_manager: Option<&PairingManager>,
     message: &InboundMessage,
     config: &MessageHandlerConfig,
 ) -> Result<()> {
@@ -177,6 +201,36 @@ async fn handle_message_routed(
         "Received: {:?} from {} in {}",
         message.channel_type, message.sender_id, message.conversation_id
     );
+
+    // Access control: check if the sender is allowed (for interactive channels)
+    if config.pairing_enabled
+        && let Some(pm) = pairing_manager
+        && message.channel_type == ChannelType::Telegram
+        && !pm.is_allowed(&message.sender_id)?
+    {
+        if !pm.has_pending_request(&message.sender_id)? {
+            match pm.create_request(
+                &message.sender_id,
+                message.sender_name.as_deref(),
+                &message.conversation_id,
+            ) {
+                Ok(code) => {
+                    let text = format!(
+                        "🔐 Access required. Your pairing code: `{}`\n\n\
+                         Ask the admin to approve: `restflow pairing approve {}`\n\n\
+                         This code expires in 1 hour.",
+                        code, code
+                    );
+                    let response = OutboundMessage::new(&message.conversation_id, text);
+                    router.send_to(message.channel_type, response).await?;
+                }
+                Err(e) => {
+                    warn!("Failed to create pairing request: {}", e);
+                }
+            }
+        }
+        return Ok(());
+    }
 
     // Record conversation context (preserves existing task link if any)
     router.record_conversation(message, None).await;

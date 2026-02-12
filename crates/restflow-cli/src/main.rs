@@ -63,7 +63,10 @@ fn init_logging(verbose: bool) -> Option<WorkerGuard> {
 fn command_needs_direct_core(command: &Option<Commands>) -> bool {
     matches!(
         command,
-        Some(Commands::Daemon { .. }) | Some(Commands::Hook { .. })
+        Some(Commands::Daemon { .. })
+            | Some(Commands::Hook { .. })
+            | Some(Commands::Pairing { .. })
+            | Some(Commands::Route { .. })
     )
 }
 
@@ -218,6 +221,12 @@ async fn run() -> Result<()> {
             Some(Commands::Daemon { command }) => commands::daemon::run(core, command).await,
             Some(Commands::Hook { command }) => {
                 commands::hook::run(core, command, cli.format).await
+            }
+            Some(Commands::Pairing { command }) => {
+                commands::pairing::run(core, command, cli.format).await
+            }
+            Some(Commands::Route { command }) => {
+                commands::pairing::run_route(core, command, cli.format).await
             }
             _ => unreachable!(),
         }

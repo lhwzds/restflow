@@ -11,6 +11,7 @@ pub mod mcp;
 pub mod memory;
 pub mod migrate;
 pub mod note;
+pub mod pairing;
 pub mod restart;
 
 pub mod secret;
