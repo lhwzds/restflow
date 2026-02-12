@@ -25,6 +25,35 @@ pub async fn sync_mcp_configs(mcp_port: Option<u16>) {
     }
 }
 
+pub async fn restart_background(mcp_port: Option<u16>) -> Result<()> {
+    let config = DaemonConfig {
+        mcp: true,
+        mcp_port,
+    };
+
+    let was_running = stop_daemon()?;
+    if was_running {
+        println!("Sent stop signal to daemon");
+        wait_for_daemon_exit().await?;
+    }
+
+    // Clean stale artifacts that may remain after an unclean shutdown.
+    let report = restflow_core::daemon::recovery::recover().await?;
+    if !report.is_clean() {
+        println!("{}", report);
+    }
+
+    sync_mcp_configs(mcp_port).await;
+
+    let pid = start_daemon_with_config(config)?;
+    if was_running {
+        println!("Daemon restarted (PID: {})", pid);
+    } else {
+        println!("Daemon started (PID: {})", pid);
+    }
+    Ok(())
+}
+
 pub async fn run(core: Arc<AppCore>, command: DaemonCommands) -> Result<()> {
     match command {
         DaemonCommands::Start {
@@ -76,35 +105,25 @@ async fn start(core: Arc<AppCore>, foreground: bool, mcp_port: Option<u16>) -> R
 }
 
 async fn restart(core: Arc<AppCore>, foreground: bool, mcp_port: Option<u16>) -> Result<()> {
-    let config = DaemonConfig {
-        mcp: true,
-        mcp_port,
-    };
-
-    let was_running = stop_daemon()?;
-    if was_running {
-        println!("Sent stop signal to daemon");
-        wait_for_daemon_exit().await?;
-    }
-
-    // Clean stale artifacts that may remain after an unclean shutdown.
-    let report = restflow_core::daemon::recovery::recover().await?;
-    if !report.is_clean() {
-        println!("{}", report);
-    }
-
-    sync_mcp_configs(mcp_port).await;
-
     if foreground {
+        let config = DaemonConfig {
+            mcp: true,
+            mcp_port,
+        };
+        let was_running = stop_daemon()?;
+        if was_running {
+            println!("Sent stop signal to daemon");
+            wait_for_daemon_exit().await?;
+        }
+        // Clean stale artifacts that may remain after an unclean shutdown.
+        let report = restflow_core::daemon::recovery::recover().await?;
+        if !report.is_clean() {
+            println!("{}", report);
+        }
+        sync_mcp_configs(mcp_port).await;
         run_daemon(core, config).await
     } else {
-        let pid = start_daemon_with_config(config)?;
-        if was_running {
-            println!("Daemon restarted (PID: {})", pid);
-        } else {
-            println!("Daemon started (PID: {})", pid);
-        }
-        Ok(())
+        restart_background(mcp_port).await
     }
 }
 
