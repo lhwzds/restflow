@@ -1,0 +1,29 @@
+.ie \n(.g .ds Aq \(aq
+.el .ds Aq '
+.TH pairing 1  "pairing " 
+.SH NAME
+pairing \- Telegram pairing / access control
+.SH SYNOPSIS
+\fBpairing\fR [\fB\-h\fR|\fB\-\-help\fR] <\fIsubcommands\fR>
+.SH DESCRIPTION
+Telegram pairing / access control
+.SH OPTIONS
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Print help
+.SH SUBCOMMANDS
+.TP
+pairing\-list(1)
+List pending requests and allowed peers
+.TP
+pairing\-approve(1)
+Approve a pairing request by code
+.TP
+pairing\-deny(1)
+Deny a pairing request by code
+.TP
+pairing\-revoke(1)
+Revoke an allowed peer
+.TP
+pairing\-help(1)
+Print this message or the help of the given subcommand(s)

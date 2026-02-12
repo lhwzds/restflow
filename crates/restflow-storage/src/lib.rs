@@ -19,6 +19,7 @@ pub mod daemon_state;
 pub mod keychain;
 pub mod memory;
 pub mod memory_index;
+pub mod pairing;
 mod paths;
 pub mod range_utils;
 pub mod secrets;
@@ -53,6 +54,7 @@ pub use skill::SkillStorage;
 pub use terminal_session::TerminalSessionStorage;
 pub use trigger::TriggerStorage;
 pub use vector::{VectorConfig, VectorStorage};
+pub use pairing::PairingStorage;
 pub use workspace_note::WorkspaceNoteStorage;
 /// Central storage manager that initializes all storage subsystems
 pub struct Storage {
@@ -69,6 +71,7 @@ pub struct Storage {
     pub chat_sessions: ChatSessionStorage,
     pub workspace_notes: WorkspaceNoteStorage,
     pub checkpoints: CheckpointStorage,
+    pub pairing: PairingStorage,
 }
 
 impl Storage {
@@ -91,6 +94,7 @@ impl Storage {
         let chat_sessions = ChatSessionStorage::new(db.clone())?;
         let workspace_notes = WorkspaceNoteStorage::new(db.clone())?;
         let checkpoints = CheckpointStorage::new(db.clone())?;
+        let pairing = PairingStorage::new(db.clone())?;
 
         Ok(Self {
             db,
@@ -106,6 +110,7 @@ impl Storage {
             chat_sessions,
             workspace_notes,
             checkpoints,
+            pairing,
         })
     }
 
