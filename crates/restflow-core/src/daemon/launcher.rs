@@ -89,6 +89,11 @@ pub async fn ensure_daemon_running_with_config(config: DaemonConfig) -> Result<(
             warn!("Daemon running but socket unavailable");
         }
         DaemonStatus::NotRunning | DaemonStatus::Stale { .. } => {
+            // Clean up any stale artifacts before attempting to start.
+            let report = super::recovery::recover().await?;
+            if !report.is_clean() {
+                info!("Recovered stale daemon state before auto-start: {}", report);
+            }
             info!("Starting daemon automatically");
             start_daemon_with_config(config)?;
             for _ in 0..600 {
