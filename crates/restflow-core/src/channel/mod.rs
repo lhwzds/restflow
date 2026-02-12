@@ -88,13 +88,17 @@
 //! }
 //! ```
 
+pub mod pairing;
 mod reply_sender;
+pub mod route_binding;
 mod router;
 pub mod telegram;
 mod traits;
 mod types;
 
+pub use pairing::{AllowedPeer, PairingManager, PairingRequest};
 pub use reply_sender::ChannelReplySender;
+pub use route_binding::{RouteBinding, RouteBindingType, RouteResolver};
 pub use router::ChannelRouter;
 pub use telegram::{TelegramChannel, TelegramConfig};
 pub use traits::{Channel, StreamReceiver, WebhookReceiver};

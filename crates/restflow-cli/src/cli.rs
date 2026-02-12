@@ -148,6 +148,18 @@ pub enum Commands {
         #[command(subcommand)]
         command: NoteCommands,
     },
+
+    /// Telegram pairing / access control
+    Pairing {
+        #[command(subcommand)]
+        command: PairingCommands,
+    },
+
+    /// Route binding (agent routing)
+    Route {
+        #[command(subcommand)]
+        command: RouteCommands,
+    },
 }
 
 #[derive(Args)]
@@ -747,4 +759,59 @@ pub enum NoteCommands {
     },
     /// Delete a note
     Delete { id: String },
+}
+
+#[derive(Subcommand)]
+pub enum PairingCommands {
+    /// List pending requests and allowed peers
+    List,
+
+    /// Approve a pairing request by code
+    Approve {
+        /// The 8-character pairing code
+        code: String,
+    },
+
+    /// Deny a pairing request by code
+    Deny {
+        /// The 8-character pairing code
+        code: String,
+    },
+
+    /// Revoke an allowed peer
+    Revoke {
+        /// The peer ID to revoke
+        peer_id: String,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum RouteCommands {
+    /// List all route bindings
+    List,
+
+    /// Bind a target to an agent
+    Bind {
+        /// Binding type: peer, group, or default
+        #[arg(long)]
+        peer: Option<String>,
+
+        /// Group/chat ID
+        #[arg(long)]
+        group: Option<String>,
+
+        /// Set as default agent
+        #[arg(long)]
+        default: bool,
+
+        /// Agent ID to route to
+        #[arg(long)]
+        agent: String,
+    },
+
+    /// Remove a route binding
+    Unbind {
+        /// Binding ID
+        id: String,
+    },
 }

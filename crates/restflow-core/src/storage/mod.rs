@@ -23,7 +23,8 @@ use std::sync::Arc;
 
 // Re-export types that are self-contained in restflow-storage
 pub use restflow_storage::{
-    ConfigStorage, DaemonStateStorage, Secret, SecretStorage, SecretStorageConfig, SystemConfig,
+    ConfigStorage, DaemonStateStorage, PairingStorage, Secret, SecretStorage, SecretStorageConfig,
+    SystemConfig,
 };
 
 pub use agent::AgentStorage;
@@ -58,6 +59,7 @@ pub struct Storage {
     pub hooks: HookStorage,
     pub workspace_notes: WorkspaceNoteStorage,
     pub checkpoints: CheckpointStorage,
+    pub pairing: PairingStorage,
 }
 
 impl Storage {
@@ -99,6 +101,7 @@ impl Storage {
         let hooks = HookStorage::new(db.clone())?;
         let workspace_notes = WorkspaceNoteStorage::new(db.clone())?;
         let checkpoints = CheckpointStorage::new(db.clone())?;
+        let pairing = PairingStorage::new(db.clone())?;
 
         Ok(Self {
             db,
@@ -116,6 +119,7 @@ impl Storage {
             hooks,
             workspace_notes,
             checkpoints,
+            pairing,
         })
     }
 
