@@ -40,6 +40,7 @@ mod executor;
 pub mod react;
 mod resource;
 mod state;
+mod step;
 pub mod strategy;
 mod stream;
 pub mod stuck;
@@ -55,10 +56,11 @@ pub use execution_engine::{AgentExecutionEngine, AgentExecutionEngineConfig, Exe
 pub use executor::{AgentConfig, AgentExecutor, AgentResult};
 pub use resource::{ResourceError, ResourceLimits, ResourceTracker, ResourceUsage};
 pub use state::{AgentState, AgentStatus};
-pub use stream::{NullEmitter, StreamEmitter, ToolCallAccumulator};
+pub use step::ExecutionStep;
+pub use stream::{ChannelEmitter, NullEmitter, StreamEmitter, ToolCallAccumulator};
+pub use stuck::{StuckAction, StuckDetector, StuckDetectorConfig, StuckInfo};
 pub use sub_agent::{
     SpawnHandle, SpawnPriority, SpawnRequest, SubAgentManager, SubagentCompletion, SubagentConfig,
     SubagentResult, SubagentState, SubagentStatus, SubagentTracker, spawn_subagent,
 };
-pub use stuck::{StuckAction, StuckDetector, StuckDetectorConfig, StuckInfo};
 pub use trace::TraceEvent;
