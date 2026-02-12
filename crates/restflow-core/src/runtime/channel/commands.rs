@@ -77,6 +77,7 @@ async fn cmd_list_tasks(
                 BackgroundAgentStatus::Completed => "✅",
                 BackgroundAgentStatus::Failed => "❌",
                 BackgroundAgentStatus::Paused => "⏸️",
+                BackgroundAgentStatus::Interrupted => "⏸️",
             };
             text.push_str(&format!("{} `{}` - {}\n", status_emoji, task.id, task.name));
         }

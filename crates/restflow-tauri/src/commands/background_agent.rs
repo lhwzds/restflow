@@ -323,11 +323,7 @@ pub async fn steer_task(
     task_id: String,
     instruction: String,
 ) -> Result<bool, String> {
-    let message = SteerMessage {
-        instruction,
-        source: SteerSource::User,
-        timestamp: chrono::Utc::now().timestamp_millis(),
-    };
+    let message = SteerMessage::message(instruction, SteerSource::User);
 
     let sent = state.steer_registry.steer(&task_id, message).await;
     Ok(sent)

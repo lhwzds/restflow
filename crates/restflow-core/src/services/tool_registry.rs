@@ -260,6 +260,7 @@ impl BackgroundAgentStoreAdapter {
             "running" => Ok(BackgroundAgentStatus::Running),
             "completed" => Ok(BackgroundAgentStatus::Completed),
             "failed" => Ok(BackgroundAgentStatus::Failed),
+            "interrupted" => Ok(BackgroundAgentStatus::Interrupted),
             _ => Err(AiError::Tool(format!("Unknown status: {}", status))),
         }
     }
@@ -1391,9 +1392,10 @@ impl ManageOpsTool {
             "running" => BackgroundAgentStatus::Running,
             "completed" => BackgroundAgentStatus::Completed,
             "failed" => BackgroundAgentStatus::Failed,
+            "interrupted" => BackgroundAgentStatus::Interrupted,
             value => {
                 return Err(AiError::Tool(format!(
-                    "Unknown status: {}. Supported: active, paused, running, completed, failed",
+                    "Unknown status: {}. Supported: active, paused, running, completed, failed, interrupted",
                     value
                 )));
             }

@@ -110,6 +110,11 @@ pub enum RunnerCommand {
     RunTaskNow(String),
     /// Cancel a running task
     CancelTask(String),
+    /// Resume a task from a checkpoint
+    ResumeTask {
+        task_id: String,
+        payload: crate::models::ResumePayload,
+    },
 }
 
 /// Configuration for the BackgroundAgentRunner
@@ -169,6 +174,18 @@ impl RunnerHandle {
             .send(RunnerCommand::CancelTask(task_id))
             .await
             .map_err(|e| anyhow!("Failed to send cancel task command: {}", e))
+    }
+
+    /// Resume a task from a checkpoint
+    pub async fn resume_task(
+        &self,
+        task_id: String,
+        payload: crate::models::ResumePayload,
+    ) -> Result<()> {
+        self.command_tx
+            .send(RunnerCommand::ResumeTask { task_id, payload })
+            .await
+            .map_err(|e| anyhow!("Failed to send resume task command: {}", e))
     }
 }
 
@@ -545,6 +562,10 @@ impl BackgroundAgentRunner {
                             debug!("Cancel requested for task: {}", task_id);
                             self.cancel_task(&task_id).await;
                         }
+                        Some(RunnerCommand::ResumeTask { task_id, payload }) => {
+                            info!(task_id = %task_id, "Resume from checkpoint requested");
+                            self.resume_from_checkpoint(&task_id, payload).await;
+                        }
                         None => {
                             info!("Command channel closed, stopping runner");
                             worker_pool.stop().await;
@@ -808,6 +829,70 @@ impl BackgroundAgentRunner {
         }
     }
 
+    async fn resume_from_checkpoint(
+        &self,
+        task_id: &str,
+        payload: crate::models::ResumePayload,
+    ) {
+        // Load checkpoint from storage
+        let checkpoint = match self.storage.load_checkpoint_by_task_id(task_id) {
+            Ok(Some(cp)) => cp,
+            Ok(None) => {
+                warn!("No checkpoint found for task {}", task_id);
+                return;
+            }
+            Err(e) => {
+                error!("Failed to load checkpoint for task {}: {}", task_id, e);
+                return;
+            }
+        };
+
+        // Mark checkpoint as resumed
+        let mut cp = checkpoint;
+        cp.mark_resumed();
+        if let Err(e) = self.storage.save_checkpoint(&cp) {
+            warn!("Failed to mark checkpoint as resumed: {}", e);
+        }
+
+        // Transition task status back to Running
+        if let Ok(Some(mut task)) = self.storage.get_task(task_id) {
+            task.status = BackgroundAgentStatus::Running;
+            task.updated_at = chrono::Utc::now().timestamp_millis();
+            if let Err(e) = self.storage.save_task(&task) {
+                error!("Failed to update task status to running: {}", e);
+                return;
+            }
+        }
+
+        // Emit event
+        {
+            let detail = format!(
+                "Resumed from checkpoint {}: {}",
+                cp.id,
+                if payload.approved { "approved" } else { "denied" }
+            );
+            self.event_emitter
+                .emit(TaskStreamEvent::progress(
+                    task_id,
+                    "resumed",
+                    None,
+                    Some(detail),
+                ))
+                .await;
+        }
+
+        // Run the task normally (the agent will start fresh since we don't
+        // have the full in-memory executor state persisted yet; the checkpoint
+        // stores the serialized AgentState for future full resume support).
+        info!(
+            task_id = %task_id,
+            checkpoint_id = %cp.id,
+            approved = payload.approved,
+            "Resuming task from checkpoint"
+        );
+        self.run_task_immediate(task_id).await;
+    }
+
     fn to_steer_source(source: &BackgroundMessageSource) -> SteerSource {
         match source {
             BackgroundMessageSource::User => SteerSource::User,
@@ -833,11 +918,10 @@ impl BackgroundAgentRunner {
         }
 
         for queued in pending_messages {
-            let steer_message = SteerMessage {
-                instruction: queued.message.clone(),
-                source: Self::to_steer_source(&queued.source),
-                timestamp: chrono::Utc::now().timestamp_millis(),
-            };
+            let steer_message = SteerMessage::message(
+                queued.message.clone(),
+                Self::to_steer_source(&queued.source),
+            );
 
             let sent = self.steer_registry.steer(task_id, steer_message).await;
             if sent && let Err(e) = self.storage.mark_background_message_consumed(&queued.id) {
@@ -941,11 +1025,10 @@ impl BackgroundAgentRunner {
                             BackgroundMessageSource::Agent => SteerSource::Api,
                             BackgroundMessageSource::System => SteerSource::Hook,
                         };
-                        let steer_message = SteerMessage {
-                            instruction: queued.message.clone(),
+                        let steer_message = SteerMessage::message(
+                            queued.message.clone(),
                             source,
-                            timestamp: chrono::Utc::now().timestamp_millis(),
-                        };
+                        );
 
                         let sent = steer_registry.steer(&task_id, steer_message).await;
                         if sent && let Err(e) = storage.mark_background_message_consumed(&queued.id)

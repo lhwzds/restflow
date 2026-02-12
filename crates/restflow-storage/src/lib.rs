@@ -13,6 +13,7 @@ pub mod agent;
 pub mod auth_profiles;
 pub mod background_agent;
 pub mod chat_session;
+pub mod checkpoint;
 pub mod config;
 pub mod daemon_state;
 pub mod keychain;
@@ -39,6 +40,7 @@ use std::sync::Arc;
 pub use agent::AgentStorage;
 pub use auth_profiles::AuthProfileStorage;
 pub use background_agent::BackgroundAgentStorage;
+pub use checkpoint::CheckpointStorage;
 pub use chat_session::ChatSessionStorage;
 pub use config::{ConfigStorage, SystemConfig};
 pub use daemon_state::DaemonStateStorage;
@@ -66,6 +68,7 @@ pub struct Storage {
     pub memory: MemoryStorage,
     pub chat_sessions: ChatSessionStorage,
     pub workspace_notes: WorkspaceNoteStorage,
+    pub checkpoints: CheckpointStorage,
 }
 
 impl Storage {
@@ -87,6 +90,7 @@ impl Storage {
         let memory = MemoryStorage::new(db.clone())?;
         let chat_sessions = ChatSessionStorage::new(db.clone())?;
         let workspace_notes = WorkspaceNoteStorage::new(db.clone())?;
+        let checkpoints = CheckpointStorage::new(db.clone())?;
 
         Ok(Self {
             db,
@@ -101,6 +105,7 @@ impl Storage {
             memory,
             chat_sessions,
             workspace_notes,
+            checkpoints,
         })
     }
 

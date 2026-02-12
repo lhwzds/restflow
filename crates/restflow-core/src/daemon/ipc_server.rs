@@ -1507,6 +1507,7 @@ fn parse_background_agent_status(status: &str) -> Result<BackgroundAgentStatus> 
         "running" => Ok(BackgroundAgentStatus::Running),
         "completed" => Ok(BackgroundAgentStatus::Completed),
         "failed" => Ok(BackgroundAgentStatus::Failed),
+        "interrupted" => Ok(BackgroundAgentStatus::Interrupted),
         _ => Err(anyhow::anyhow!(
             "Unknown background agent status: {}",
             status
