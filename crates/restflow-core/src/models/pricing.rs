@@ -90,6 +90,19 @@ impl AIModel {
             | Self::YiLightning
             | Self::SiliconFlowAuto => None,
 
+            // OpenRouter (pricing varies, tracked by OpenRouter)
+            Self::OrClaudeOpus4_6
+            | Self::OrGpt5
+            | Self::OrGemini3Pro
+            | Self::OrDeepseekV3_2
+            | Self::OrGrok4
+            | Self::OrLlama4Maverick
+            | Self::OrQwen3Coder
+            | Self::OrDevstral2
+            | Self::OrGlm4_7
+            | Self::OrKimiK2_5
+            | Self::OrMinimaxM2_1 => None,
+
             // CLI-based (cost tracked externally)
             Self::ClaudeCodeOpus
             | Self::ClaudeCodeSonnet
