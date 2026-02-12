@@ -53,6 +53,7 @@ impl AppCore {
 
         // Ensure default agent exists on first run
         Self::ensure_default_agent(&storage)?;
+        storage.agents.reconcile_prompt_file_names()?;
         let cleaned = storage.agents.cleanup_orphan_prompt_files()?;
         if cleaned > 0 {
             info!(cleaned, "Cleaned orphan agent prompt files");
@@ -95,10 +96,9 @@ impl AppCore {
         if agents.is_empty() {
             info!("Creating default agent...");
             let agent_node = models::AgentNode::with_model(models::AIModel::CodexCli);
-            let created = storage
+            let _created = storage
                 .agents
                 .create_agent(DEFAULT_AGENT_NAME.to_string(), agent_node)?;
-            prompt_files::ensure_agent_prompt_file(&created.id, None)?;
             info!("Default agent created: {}", DEFAULT_AGENT_NAME);
         }
         Ok(())
