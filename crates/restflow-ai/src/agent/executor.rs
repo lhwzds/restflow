@@ -1,22 +1,24 @@
 //! Agent executor with ReAct loop
 
 use std::collections::HashMap;
+use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 
 use serde_json::Value;
 
+use crate::agent::ExecutionStep;
 use crate::agent::context::{AgentContext, ContextDiscoveryConfig, WorkspaceContextCache};
 use crate::agent::resource::{ResourceLimits, ResourceTracker, ResourceUsage};
 use crate::agent::state::{AgentState, AgentStatus};
-use crate::agent::stream::{StreamEmitter, ToolCallAccumulator};
+use crate::agent::stream::{ChannelEmitter, StreamEmitter, ToolCallAccumulator};
 use crate::agent::stuck::{StuckAction, StuckDetector, StuckDetectorConfig};
 use crate::error::{AiError, Result};
 use crate::llm::{CompletionRequest, FinishReason, LlmClient, Message, ToolCall};
 use crate::memory::{CompactionConfig, CompactionResult, DEFAULT_MAX_MESSAGES, WorkingMemory};
 use crate::steer::SteerMessage;
 use crate::tools::ToolRegistry;
-use futures::StreamExt;
+use futures::{Stream, StreamExt};
 use tokio::sync::{Mutex, mpsc};
 use tracing::debug;
 
@@ -483,9 +485,7 @@ impl AgentExecutor {
             error: match &state.status {
                 AgentStatus::Failed { error } => Some(error.clone()),
                 AgentStatus::MaxIterations => Some("Max iterations reached".to_string()),
-                AgentStatus::Interrupted { reason } => {
-                    Some(format!("Interrupted: {}", reason))
-                }
+                AgentStatus::Interrupted { reason } => Some(format!("Interrupted: {}", reason)),
                 AgentStatus::ResourceExhausted { error } => Some(error.clone()),
                 _ => None,
             },
@@ -682,9 +682,7 @@ impl AgentExecutor {
             error: match &state.status {
                 AgentStatus::Failed { error } => Some(error.clone()),
                 AgentStatus::MaxIterations => Some("Max iterations reached".to_string()),
-                AgentStatus::Interrupted { reason } => {
-                    Some(format!("Interrupted: {}", reason))
-                }
+                AgentStatus::Interrupted { reason } => Some(format!("Interrupted: {}", reason)),
                 AgentStatus::ResourceExhausted { error } => Some(error.clone()),
                 _ => None,
             },
@@ -694,6 +692,49 @@ impl AgentExecutor {
             state,
             compaction_results,
             resource_usage,
+        })
+    }
+
+    /// Execute agent and return execution steps as an async stream.
+    pub fn run_stream(
+        self: Arc<Self>,
+        config: AgentConfig,
+    ) -> Pin<Box<dyn Stream<Item = ExecutionStep> + Send>> {
+        let (tx, mut rx) = mpsc::channel::<ExecutionStep>(128);
+        let executor = Arc::clone(&self);
+
+        tokio::spawn(async move {
+            let started_execution_id = uuid::Uuid::new_v4().to_string();
+            let _ = tx
+                .send(ExecutionStep::Started {
+                    execution_id: started_execution_id,
+                })
+                .await;
+
+            let mut emitter = ChannelEmitter::new(tx.clone());
+            let result = executor.execute_streaming(config, &mut emitter).await;
+            match result {
+                Ok(result) => {
+                    let _ = tx
+                        .send(ExecutionStep::Completed {
+                            result: Box::new(result),
+                        })
+                        .await;
+                }
+                Err(error) => {
+                    let _ = tx
+                        .send(ExecutionStep::Failed {
+                            error: error.to_string(),
+                        })
+                        .await;
+                }
+            }
+        });
+
+        Box::pin(async_stream::stream! {
+            while let Some(step) = rx.recv().await {
+                yield step;
+            }
         })
     }
 
@@ -923,6 +964,7 @@ mod tests {
     use crate::llm::{
         CompletionResponse, FinishReason, Role, StreamChunk, StreamResult, TokenUsage, ToolCall,
     };
+    use crate::tools::{Tool, ToolOutput};
     use async_trait::async_trait;
     use futures::stream;
     use std::sync::Mutex;
@@ -932,15 +974,21 @@ mod tests {
     struct MockLlmClient {
         responses: Mutex<Vec<CompletionResponse>>,
         call_count: AtomicUsize,
+        supports_streaming: bool,
         /// Captured requests for verification
         captured_requests: Mutex<Vec<Vec<Message>>>,
     }
 
     impl MockLlmClient {
         fn new(responses: Vec<CompletionResponse>) -> Self {
+            Self::with_streaming(responses, true)
+        }
+
+        fn with_streaming(responses: Vec<CompletionResponse>, supports_streaming: bool) -> Self {
             Self {
                 responses: Mutex::new(responses),
                 call_count: AtomicUsize::new(0),
+                supports_streaming,
                 captured_requests: Mutex::new(Vec::new()),
             }
         }
@@ -1007,6 +1055,36 @@ mod tests {
                 }
                 Err(e) => Box::pin(stream::once(async move { Err(e) })),
             }
+        }
+
+        fn supports_streaming(&self) -> bool {
+            self.supports_streaming
+        }
+    }
+
+    struct EchoTool;
+
+    #[async_trait]
+    impl Tool for EchoTool {
+        fn name(&self) -> &str {
+            "echo"
+        }
+
+        fn description(&self) -> &str {
+            "Echo the input payload"
+        }
+
+        fn parameters_schema(&self) -> Value {
+            serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "message": { "type": "string" }
+                }
+            })
+        }
+
+        async fn execute(&self, input: Value) -> Result<ToolOutput> {
+            Ok(ToolOutput::success(input))
         }
     }
 
@@ -1155,5 +1233,101 @@ mod tests {
         // State should have full history
         // system + user + assistant(tool_call) + tool_result + assistant(final)
         assert_eq!(result.state.messages.len(), 5);
+    }
+
+    #[tokio::test]
+    async fn test_run_stream_basic() {
+        let response = CompletionResponse {
+            content: Some("stream-finished".to_string()),
+            tool_calls: vec![],
+            finish_reason: FinishReason::Stop,
+            usage: None,
+        };
+
+        let mock_llm = Arc::new(MockLlmClient::new(vec![response]));
+        let tools = Arc::new(ToolRegistry::new());
+        let executor = Arc::new(AgentExecutor::new(mock_llm, tools));
+
+        let mut stream = executor.run_stream(AgentConfig::new("Say hello"));
+        let mut saw_text_delta = false;
+        let mut saw_completed = false;
+
+        while let Some(step) = stream.next().await {
+            match step {
+                ExecutionStep::TextDelta { content } => {
+                    saw_text_delta = true;
+                    assert_eq!(content, "stream-finished");
+                }
+                ExecutionStep::Completed { result } => {
+                    assert!(result.success);
+                    saw_completed = true;
+                    break;
+                }
+                ExecutionStep::Failed { error } => panic!("unexpected failure: {error}"),
+                _ => {}
+            }
+        }
+
+        assert!(saw_text_delta);
+        assert!(saw_completed);
+    }
+
+    #[tokio::test]
+    async fn test_run_stream_with_tools() {
+        let responses = vec![
+            CompletionResponse {
+                content: Some("Calling tool".to_string()),
+                tool_calls: vec![ToolCall {
+                    id: "call_1".to_string(),
+                    name: "echo".to_string(),
+                    arguments: serde_json::json!({ "message": "hello" }),
+                }],
+                finish_reason: FinishReason::ToolCalls,
+                usage: None,
+            },
+            CompletionResponse {
+                content: Some("done".to_string()),
+                tool_calls: vec![],
+                finish_reason: FinishReason::Stop,
+                usage: None,
+            },
+        ];
+
+        let mock_llm = Arc::new(MockLlmClient::with_streaming(responses, false));
+        let mut registry = ToolRegistry::new();
+        registry.register(EchoTool);
+        let executor = Arc::new(AgentExecutor::new(mock_llm, Arc::new(registry)));
+
+        let mut stream = executor.run_stream(AgentConfig::new("Run echo"));
+        let mut saw_tool_start = false;
+        let mut saw_tool_result = false;
+        let mut saw_completed = false;
+
+        while let Some(step) = stream.next().await {
+            match step {
+                ExecutionStep::ToolCallStart { name, .. } => {
+                    if name == "echo" {
+                        saw_tool_start = true;
+                    }
+                }
+                ExecutionStep::ToolCallResult { name, success, .. } => {
+                    if name == "echo" {
+                        saw_tool_result = true;
+                        assert!(success);
+                    }
+                }
+                ExecutionStep::Completed { result } => {
+                    saw_completed = true;
+                    assert!(result.success);
+                    break;
+                }
+                ExecutionStep::Failed { error } => panic!("unexpected failure: {error}"),
+                _ => {}
+            }
+        }
+
+        assert!(saw_tool_start);
+        assert!(saw_tool_result);
+        assert!(saw_completed);
     }
 }
