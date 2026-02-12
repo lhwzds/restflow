@@ -39,6 +39,10 @@ pub async fn create_agent(
     state: State<'_, AppState>,
     request: CreateAgentRequest,
 ) -> Result<StoredAgent, String> {
+    request
+        .agent
+        .validate()
+        .map_err(restflow_core::models::encode_validation_error)?;
     state
         .executor()
         .create_agent(request.name, request.agent)
@@ -60,6 +64,11 @@ pub async fn update_agent(
     id: String,
     request: UpdateAgentRequest,
 ) -> Result<StoredAgent, String> {
+    if let Some(agent) = request.agent.as_ref() {
+        agent
+            .validate()
+            .map_err(restflow_core::models::encode_validation_error)?;
+    }
     state
         .executor()
         .update_agent(id, request.name, request.agent)

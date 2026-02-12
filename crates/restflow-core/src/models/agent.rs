@@ -3,8 +3,10 @@
 //! These models define the configuration structure for AI agents.
 
 use crate::models::AIModel;
+use crate::{AppCore, models::ValidationError};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::Arc;
 use ts_rs::TS;
 
 /// Codex CLI execution mode.
@@ -177,6 +179,148 @@ impl AgentNode {
     pub fn get_model_or(&self, default: AIModel) -> AIModel {
         self.model.unwrap_or(default)
     }
+
+    /// Validate fields that do not depend on storage or runtime state.
+    pub fn validate(&self) -> Result<(), Vec<ValidationError>> {
+        let mut errors = Vec::new();
+
+        if let Some(temperature) = self.temperature
+            && !(0.0..=2.0).contains(&temperature)
+        {
+            errors.push(ValidationError::new(
+                "temperature",
+                "must be between 0.0 and 2.0",
+            ));
+        }
+
+        if let Some(effort) = &self.codex_cli_reasoning_effort {
+            let normalized = effort.trim().to_lowercase();
+            let valid = matches!(normalized.as_str(), "low" | "medium" | "high" | "xhigh");
+            if !valid {
+                errors.push(ValidationError::new(
+                    "codex_cli_reasoning_effort",
+                    "must be one of: low, medium, high, xhigh",
+                ));
+            }
+        }
+
+        if let Some(prompt) = &self.prompt
+            && prompt.trim().is_empty()
+        {
+            errors.push(ValidationError::new(
+                "prompt",
+                "must not be empty or whitespace-only",
+            ));
+        }
+
+        if let Some(api_key_config) = &self.api_key_config {
+            match api_key_config {
+                ApiKeyConfig::Direct(value) => {
+                    if value.trim().is_empty() {
+                        errors.push(ValidationError::new(
+                            "api_key_config",
+                            "direct key must not be empty",
+                        ));
+                    }
+                }
+                ApiKeyConfig::Secret(secret_name) => {
+                    if secret_name.trim().is_empty() {
+                        errors.push(ValidationError::new(
+                            "api_key_config",
+                            "secret reference must not be empty",
+                        ));
+                    }
+                }
+            }
+        }
+
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors)
+        }
+    }
+
+    /// Validate fields that require runtime/storage lookups.
+    pub async fn validate_async(&self, core: &Arc<AppCore>) -> Result<(), Vec<ValidationError>> {
+        let mut errors = Vec::new();
+
+        let tool_registry = crate::services::tool_registry::create_tool_registry(
+            core.storage.skills.clone(),
+            core.storage.memory.clone(),
+            core.storage.chat_sessions.clone(),
+            core.storage.shared_space.clone(),
+            core.storage.workspace_notes.clone(),
+            core.storage.secrets.clone(),
+            core.storage.config.clone(),
+            core.storage.agents.clone(),
+            core.storage.background_agents.clone(),
+            core.storage.triggers.clone(),
+            core.storage.terminal_sessions.clone(),
+            None,
+            None,
+        );
+
+        if let Some(tools) = &self.tools {
+            for tool_name in tools {
+                let normalized = tool_name.trim();
+                if normalized.is_empty() {
+                    errors.push(ValidationError::new("tools", "tool name must not be empty"));
+                    continue;
+                }
+                if !tool_registry.has(normalized) {
+                    errors.push(ValidationError::new(
+                        "tools",
+                        format!("unknown tool: {}", normalized),
+                    ));
+                }
+            }
+        }
+
+        if let Some(skills) = &self.skills {
+            for skill_id in skills {
+                let normalized = skill_id.trim();
+                if normalized.is_empty() {
+                    errors.push(ValidationError::new("skills", "skill ID must not be empty"));
+                    continue;
+                }
+                match core.storage.skills.exists(normalized) {
+                    Ok(true) => {}
+                    Ok(false) => errors.push(ValidationError::new(
+                        "skills",
+                        format!("unknown skill: {}", normalized),
+                    )),
+                    Err(err) => errors.push(ValidationError::new(
+                        "skills",
+                        format!("failed to verify skill '{}': {}", normalized, err),
+                    )),
+                }
+            }
+        }
+
+        if let Some(ApiKeyConfig::Secret(secret_name)) = &self.api_key_config {
+            let normalized = secret_name.trim();
+            if !normalized.is_empty() {
+                match core.storage.secrets.has_secret(normalized) {
+                    Ok(true) => {}
+                    Ok(false) => errors.push(ValidationError::new(
+                        "api_key_config",
+                        format!("secret not found: {}", normalized),
+                    )),
+                    Err(err) => errors.push(ValidationError::new(
+                        "api_key_config",
+                        format!("failed to verify secret '{}': {}", normalized, err),
+                    )),
+                }
+            }
+        }
+
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors)
+        }
+    }
 }
 
 #[cfg(test)]
@@ -216,5 +360,55 @@ mod tests {
     fn with_python_runtime_policy_sets_value() {
         let node = AgentNode::new().with_python_runtime_policy(PythonRuntimePolicy::Monty);
         assert_eq!(node.python_runtime_policy, Some(PythonRuntimePolicy::Monty));
+    }
+
+    #[test]
+    fn validate_accepts_valid_values() {
+        let node = AgentNode::new()
+            .with_temperature(0.7)
+            .with_prompt("You are helpful")
+            .with_codex_cli_reasoning_effort("HIGH")
+            .with_api_key(ApiKeyConfig::Direct("test-key".to_string()));
+        assert!(node.validate().is_ok());
+    }
+
+    #[test]
+    fn validate_rejects_out_of_range_temperature() {
+        let node = AgentNode::new().with_temperature(2.1);
+        let errors = node.validate().expect_err("expected validation error");
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.field == "temperature" && error.message.contains("0.0 and 2.0"))
+        );
+    }
+
+    #[test]
+    fn validate_rejects_empty_prompt() {
+        let node = AgentNode::new().with_prompt("   ");
+        let errors = node.validate().expect_err("expected validation error");
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.field == "prompt" && error.message.contains("must not be empty"))
+        );
+    }
+
+    #[test]
+    fn validate_rejects_invalid_reasoning_effort() {
+        let node = AgentNode::new().with_codex_cli_reasoning_effort("ultra");
+        let errors = node.validate().expect_err("expected validation error");
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.field == "codex_cli_reasoning_effort")
+        );
+    }
+
+    #[test]
+    fn validate_rejects_empty_direct_api_key() {
+        let node = AgentNode::new().with_api_key(ApiKeyConfig::Direct("  ".to_string()));
+        let errors = node.validate().expect_err("expected validation error");
+        assert!(errors.iter().any(|error| error.field == "api_key_config"));
     }
 }
