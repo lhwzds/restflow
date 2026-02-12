@@ -51,6 +51,25 @@ impl PairingManager {
         self.storage.is_peer_allowed(peer_id)
     }
 
+    /// Directly allow a peer without pairing-code approval flow.
+    /// Intended for bootstrap and admin-controlled setup.
+    pub fn allow_peer(
+        &self,
+        peer_id: &str,
+        peer_name: Option<&str>,
+        approved_by: &str,
+    ) -> Result<AllowedPeer> {
+        let peer = AllowedPeer {
+            peer_id: peer_id.to_string(),
+            peer_name: peer_name.map(|s| s.to_string()),
+            approved_at: chrono::Utc::now().timestamp_millis(),
+            approved_by: approved_by.to_string(),
+        };
+        let peer_data = serde_json::to_vec(&peer)?;
+        self.storage.add_peer(peer_id, &peer_data)?;
+        Ok(peer)
+    }
+
     /// Check if a peer has a pending pairing request.
     pub fn has_pending_request(&self, peer_id: &str) -> Result<bool> {
         let code = self.storage.get_pairing_request_by_peer(peer_id)?;
@@ -262,5 +281,17 @@ mod tests {
 
         assert!(mgr.revoke("12345").unwrap());
         assert!(!mgr.is_allowed("12345").unwrap());
+    }
+
+    #[test]
+    fn test_allow_peer_directly() {
+        let mgr = create_test_manager();
+        assert!(!mgr.is_allowed("999").unwrap());
+
+        let peer = mgr.allow_peer("999", Some("Bootstrap"), "system").unwrap();
+        assert_eq!(peer.peer_id, "999");
+        assert_eq!(peer.peer_name, Some("Bootstrap".to_string()));
+        assert_eq!(peer.approved_by, "system");
+        assert!(mgr.is_allowed("999").unwrap());
     }
 }
