@@ -164,6 +164,30 @@ pub enum AIModel {
     #[serde(rename = "openrouter")]
     OpenRouterAuto,
 
+    // OpenRouter flagship models (via openrouter.ai/api/v1)
+    #[serde(rename = "or-claude-opus-4-6")]
+    OrClaudeOpus4_6,
+    #[serde(rename = "or-gpt-5")]
+    OrGpt5,
+    #[serde(rename = "or-gemini-3-pro")]
+    OrGemini3Pro,
+    #[serde(rename = "or-deepseek-v3-2")]
+    OrDeepseekV3_2,
+    #[serde(rename = "or-grok-4")]
+    OrGrok4,
+    #[serde(rename = "or-llama-4-maverick")]
+    OrLlama4Maverick,
+    #[serde(rename = "or-qwen3-coder")]
+    OrQwen3Coder,
+    #[serde(rename = "or-devstral-2")]
+    OrDevstral2,
+    #[serde(rename = "or-glm-4-7")]
+    OrGlm4_7,
+    #[serde(rename = "or-kimi-k2-5")]
+    OrKimiK2_5,
+    #[serde(rename = "or-minimax-m2-1")]
+    OrMinimaxM2_1,
+
     // Qwen
     #[serde(rename = "qwen3-max")]
     Qwen3Max,
@@ -377,6 +401,61 @@ impl AIModel {
                 supports_temperature: true,
                 name: "OpenRouter Auto",
             },
+            Self::OrClaudeOpus4_6 => ModelMetadata {
+                provider: Provider::OpenRouter,
+                supports_temperature: true,
+                name: "OR Claude Opus 4.6",
+            },
+            Self::OrGpt5 => ModelMetadata {
+                provider: Provider::OpenRouter,
+                supports_temperature: false,
+                name: "OR GPT-5",
+            },
+            Self::OrGemini3Pro => ModelMetadata {
+                provider: Provider::OpenRouter,
+                supports_temperature: true,
+                name: "OR Gemini 3 Pro",
+            },
+            Self::OrDeepseekV3_2 => ModelMetadata {
+                provider: Provider::OpenRouter,
+                supports_temperature: true,
+                name: "OR DeepSeek V3.2",
+            },
+            Self::OrGrok4 => ModelMetadata {
+                provider: Provider::OpenRouter,
+                supports_temperature: true,
+                name: "OR Grok 4",
+            },
+            Self::OrLlama4Maverick => ModelMetadata {
+                provider: Provider::OpenRouter,
+                supports_temperature: true,
+                name: "OR Llama 4 Maverick",
+            },
+            Self::OrQwen3Coder => ModelMetadata {
+                provider: Provider::OpenRouter,
+                supports_temperature: true,
+                name: "OR Qwen3 Coder",
+            },
+            Self::OrDevstral2 => ModelMetadata {
+                provider: Provider::OpenRouter,
+                supports_temperature: true,
+                name: "OR Devstral 2",
+            },
+            Self::OrGlm4_7 => ModelMetadata {
+                provider: Provider::OpenRouter,
+                supports_temperature: true,
+                name: "OR GLM-4.7",
+            },
+            Self::OrKimiK2_5 => ModelMetadata {
+                provider: Provider::OpenRouter,
+                supports_temperature: true,
+                name: "OR Kimi K2.5",
+            },
+            Self::OrMinimaxM2_1 => ModelMetadata {
+                provider: Provider::OpenRouter,
+                supports_temperature: true,
+                name: "OR MiniMax M2.1",
+            },
 
             // Qwen
             Self::Qwen3Max => ModelMetadata {
@@ -524,6 +603,17 @@ impl AIModel {
 
             // OpenRouter
             Self::OpenRouterAuto => "openrouter/auto",
+            Self::OrClaudeOpus4_6 => "anthropic/claude-opus-4.6",
+            Self::OrGpt5 => "openai/gpt-5",
+            Self::OrGemini3Pro => "google/gemini-3-pro-preview",
+            Self::OrDeepseekV3_2 => "deepseek/deepseek-v3.2",
+            Self::OrGrok4 => "x-ai/grok-4",
+            Self::OrLlama4Maverick => "meta-llama/llama-4-maverick",
+            Self::OrQwen3Coder => "qwen/qwen3-coder",
+            Self::OrDevstral2 => "mistralai/devstral-2-2512",
+            Self::OrGlm4_7 => "z-ai/glm-4.7",
+            Self::OrKimiK2_5 => "moonshotai/kimi-k2.5",
+            Self::OrMinimaxM2_1 => "minimax/minimax-m2.1",
 
             // Qwen
             Self::Qwen3Max => "qwen3-max",
@@ -632,6 +722,17 @@ impl AIModel {
 
             // OpenRouter
             Self::OpenRouterAuto => "openrouter",
+            Self::OrClaudeOpus4_6 => "or-claude-opus-4-6",
+            Self::OrGpt5 => "or-gpt-5",
+            Self::OrGemini3Pro => "or-gemini-3-pro",
+            Self::OrDeepseekV3_2 => "or-deepseek-v3-2",
+            Self::OrGrok4 => "or-grok-4",
+            Self::OrLlama4Maverick => "or-llama-4-maverick",
+            Self::OrQwen3Coder => "or-qwen3-coder",
+            Self::OrDevstral2 => "or-devstral-2",
+            Self::OrGlm4_7 => "or-glm-4-7",
+            Self::OrKimiK2_5 => "or-kimi-k2-5",
+            Self::OrMinimaxM2_1 => "or-minimax-m2-1",
 
             // Qwen
             Self::Qwen3Max => "qwen3-max",
@@ -736,6 +837,17 @@ impl AIModel {
             Self::Grok3Mini,
             // OpenRouter
             Self::OpenRouterAuto,
+            Self::OrClaudeOpus4_6,
+            Self::OrGpt5,
+            Self::OrGemini3Pro,
+            Self::OrDeepseekV3_2,
+            Self::OrGrok4,
+            Self::OrLlama4Maverick,
+            Self::OrQwen3Coder,
+            Self::OrDevstral2,
+            Self::OrGlm4_7,
+            Self::OrKimiK2_5,
+            Self::OrMinimaxM2_1,
             // Qwen
             Self::Qwen3Max,
             Self::Qwen3Plus,
@@ -896,7 +1008,7 @@ mod tests {
     #[test]
     fn test_all_models() {
         let models = AIModel::all();
-        assert_eq!(models.len(), 38);
+        assert_eq!(models.len(), 49);
         assert!(models.contains(&AIModel::Gpt5));
         assert!(models.contains(&AIModel::Gpt5_1));
         assert!(models.contains(&AIModel::ClaudeOpus4_6));
