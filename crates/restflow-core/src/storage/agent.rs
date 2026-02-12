@@ -63,7 +63,15 @@ impl AgentStorage {
             let agent: StoredAgent = serde_json::from_slice(&bytes)?;
             Ok(Some(self.hydrate_prompt_from_file(agent)?))
         } else {
-            Ok(None)
+            let Some(resolved_id) = self.resolve_agent_id_candidate(&id)? else {
+                return Ok(None);
+            };
+            if let Some(bytes) = self.inner.get_raw(&resolved_id)? {
+                let agent: StoredAgent = serde_json::from_slice(&bytes)?;
+                Ok(Some(self.hydrate_prompt_from_file(agent)?))
+            } else {
+                Ok(None)
+            }
         }
     }
 
@@ -111,11 +119,39 @@ impl AgentStorage {
     }
 
     pub fn delete_agent(&self, id: String) -> Result<()> {
-        if !self.inner.delete(&id)? {
+        let resolved_id = self
+            .resolve_existing_agent_id(&id)
+            .map_err(|_| anyhow::anyhow!("Agent {} not found", id))?;
+        if !self.inner.delete(&resolved_id)? {
             return Err(anyhow::anyhow!("Agent {} not found", id));
         }
-        let _ = prompt_files::delete_agent_prompt_file(&id);
+        let _ = prompt_files::delete_agent_prompt_file(&resolved_id);
         Ok(())
+    }
+
+    pub fn resolve_existing_agent_id(&self, id_or_prefix: &str) -> Result<String> {
+        let id = id_or_prefix.trim();
+        if id.is_empty() {
+            anyhow::bail!("Agent ID is empty");
+        }
+
+        if self.inner.get_raw(id)?.is_some() {
+            return Ok(id.to_string());
+        }
+
+        match self.resolve_agent_id_candidate(id)? {
+            Some(resolved) => Ok(resolved),
+            None => anyhow::bail!("Agent {} not found", id),
+        }
+    }
+
+    pub fn cleanup_orphan_prompt_files(&self) -> Result<usize> {
+        let active_ids: Vec<String> = self
+            .list_agents()?
+            .into_iter()
+            .map(|agent| agent.id)
+            .collect();
+        prompt_files::cleanup_orphan_agent_prompt_files(&active_ids)
     }
 
     fn hydrate_prompt_from_file(&self, mut stored: StoredAgent) -> Result<StoredAgent> {
@@ -129,6 +165,40 @@ impl AgentStorage {
         let json_bytes = serde_json::to_vec(&scrubbed)?;
         self.inner.put_raw(&scrubbed.id, &json_bytes)?;
         Ok(())
+    }
+
+    fn resolve_agent_id_candidate(&self, id_or_prefix: &str) -> Result<Option<String>> {
+        let prefix = id_or_prefix.trim();
+        if prefix.is_empty() {
+            return Ok(None);
+        }
+
+        let matches: Vec<String> = self
+            .inner
+            .list_raw()?
+            .into_iter()
+            .map(|(key, _)| key)
+            .filter(|key| key.starts_with(prefix))
+            .collect();
+
+        match matches.len() {
+            0 => Ok(None),
+            1 => Ok(matches.into_iter().next()),
+            _ => {
+                let preview = matches
+                    .iter()
+                    .take(5)
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                anyhow::bail!(
+                    "Agent ID prefix '{}' is ambiguous ({} matches: {})",
+                    prefix,
+                    matches.len(),
+                    preview
+                )
+            }
+        }
     }
 }
 
@@ -275,6 +345,55 @@ mod tests {
         let raw = storage.inner.get_raw(&stored.id).unwrap().unwrap();
         let persisted: StoredAgent = serde_json::from_slice(&raw).unwrap();
         assert!(persisted.agent.prompt.is_none());
+
+        unsafe { std::env::remove_var(AGENTS_DIR_ENV) };
+    }
+
+    #[test]
+    fn test_get_agent_supports_unique_prefix() {
+        let _lock = env_lock();
+        let temp_dir = tempdir().unwrap();
+        let prompts_dir = temp_dir.path().join("agents");
+        unsafe { std::env::set_var(AGENTS_DIR_ENV, &prompts_dir) };
+        let db_path = temp_dir.path().join("test.db");
+        let db = Arc::new(Database::create(db_path).unwrap());
+        let storage = AgentStorage::new(db).unwrap();
+
+        let stored = storage
+            .create_agent("Prefix Test".to_string(), create_test_agent_node())
+            .unwrap();
+        let short = stored.id.chars().take(8).collect::<String>();
+        let resolved = storage
+            .get_agent(short)
+            .unwrap()
+            .expect("agent should resolve");
+        assert_eq!(resolved.id, stored.id);
+
+        unsafe { std::env::remove_var(AGENTS_DIR_ENV) };
+    }
+
+    #[test]
+    fn test_cleanup_orphan_prompt_files_only_deletes_removed_agents() {
+        let _lock = env_lock();
+        let temp_dir = tempdir().unwrap();
+        let prompts_dir = temp_dir.path().join("agents");
+        unsafe { std::env::set_var(AGENTS_DIR_ENV, &prompts_dir) };
+        let db_path = temp_dir.path().join("test.db");
+        let db = Arc::new(Database::create(db_path).unwrap());
+        let storage = AgentStorage::new(db).unwrap();
+
+        let stored = storage
+            .create_agent("To Remove".to_string(), create_test_agent_node())
+            .unwrap();
+        assert!(prompts_dir.join(format!("{}.md", stored.id)).exists());
+        storage.delete_agent(stored.id.clone()).unwrap();
+
+        // Recreate orphan file to emulate historical residue.
+        std::fs::write(prompts_dir.join(format!("{}.md", stored.id)), "orphan").unwrap();
+        assert!(prompts_dir.join(format!("{}.md", stored.id)).exists());
+        let deleted = storage.cleanup_orphan_prompt_files().unwrap();
+        assert_eq!(deleted, 1);
+        assert!(!prompts_dir.join(format!("{}.md", stored.id)).exists());
 
         unsafe { std::env::remove_var(AGENTS_DIR_ENV) };
     }

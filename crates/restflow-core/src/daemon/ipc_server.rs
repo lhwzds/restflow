@@ -805,7 +805,12 @@ impl IpcServer {
                 let mut name_updated = false;
 
                 if let Some(agent_id) = updates.agent_id {
-                    session.agent_id = agent_id;
+                    let resolved_agent_id =
+                        match core.storage.agents.resolve_existing_agent_id(&agent_id) {
+                            Ok(resolved) => resolved,
+                            Err(err) => return IpcResponse::error(400, err.to_string()),
+                        };
+                    session.agent_id = resolved_agent_id;
                     updated = true;
                 }
 
@@ -1472,7 +1477,7 @@ async fn execute_chat_session(
 
 fn resolve_agent_id(core: &Arc<AppCore>, agent_id: Option<String>) -> Result<String> {
     if let Some(agent_id) = agent_id {
-        return Ok(agent_id);
+        return core.storage.agents.resolve_existing_agent_id(&agent_id);
     }
 
     let agents = core.storage.agents.list_agents()?;
