@@ -46,7 +46,7 @@ impl Default for StrategyConfig {
         Self {
             goal: String::new(),
             system_prompt: None,
-            max_iterations: 10,
+            max_iterations: 25,
             tool_timeout: Duration::from_secs(30),
             context: HashMap::new(),
             options: StrategyOptions::default(),
@@ -237,7 +237,7 @@ impl Default for RecommendedSettings {
     fn default() -> Self {
         Self {
             min_iterations: 1,
-            max_iterations: 10,
+            max_iterations: 25,
             recommended_model: "claude-sonnet",
             estimated_cost_multiplier: 1.0,
             best_for: vec!["general tasks"],

@@ -12,7 +12,10 @@ use restflow_core::paths;
 use std::net::{IpAddr, Ipv4Addr};
 use std::sync::Arc;
 use tokio::time::{Duration, sleep};
-use tracing::{error, warn};
+use tracing::{error, info, warn};
+
+#[cfg(unix)]
+use nix::libc;
 
 const MCP_BIND_ADDR_ENV: &str = "RESTFLOW_MCP_BIND_ADDR";
 
@@ -128,6 +131,9 @@ async fn restart(core: Arc<AppCore>, foreground: bool, mcp_port: Option<u16>) ->
 }
 
 async fn run_daemon(core: Arc<AppCore>, config: DaemonConfig) -> Result<()> {
+    #[cfg(unix)]
+    configure_nofile_limit();
+
     let pid_path = paths::daemon_pid_path()?;
     std::fs::write(&pid_path, std::process::id().to_string())?;
 
@@ -199,6 +205,60 @@ async fn run_daemon(core: Arc<AppCore>, config: DaemonConfig) -> Result<()> {
 
     println!("Daemon stopped");
     Ok(())
+}
+
+#[cfg(unix)]
+fn configure_nofile_limit() {
+    const TARGET_NOFILE: libc::rlim_t = 8192;
+
+    let mut limits = libc::rlimit {
+        rlim_cur: 0,
+        rlim_max: 0,
+    };
+
+    // SAFETY: `limits` points to initialized writable memory and `RLIMIT_NOFILE`
+    // is a valid resource kind on Unix.
+    let got_limits = unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut limits) };
+    if got_limits != 0 {
+        warn!(
+            errno = std::io::Error::last_os_error().to_string(),
+            "Failed to read RLIMIT_NOFILE"
+        );
+        return;
+    }
+
+    let hard_cap = if limits.rlim_max == libc::RLIM_INFINITY {
+        TARGET_NOFILE
+    } else {
+        limits.rlim_max.min(TARGET_NOFILE)
+    };
+
+    if limits.rlim_cur >= hard_cap {
+        return;
+    }
+
+    let desired = libc::rlimit {
+        rlim_cur: hard_cap,
+        rlim_max: limits.rlim_max,
+    };
+
+    // SAFETY: `desired` contains valid values derived from current rlimit.
+    let set_limits = unsafe { libc::setrlimit(libc::RLIMIT_NOFILE, &desired) };
+    if set_limits == 0 {
+        info!(
+            previous_soft = limits.rlim_cur,
+            new_soft = hard_cap,
+            hard = limits.rlim_max,
+            "Raised RLIMIT_NOFILE soft limit for daemon process"
+        );
+    } else {
+        warn!(
+            errno = std::io::Error::last_os_error().to_string(),
+            requested_soft = hard_cap,
+            hard = limits.rlim_max,
+            "Failed to raise RLIMIT_NOFILE soft limit"
+        );
+    }
 }
 
 async fn stop() -> Result<()> {

@@ -19,6 +19,8 @@ pub use session::{
 
 const DEFAULT_MAX_OUTPUT_BYTES: usize = 1_000_000;
 const DEFAULT_TTL_SECONDS: u64 = 30 * 60;
+const CLEANUP_INTERVAL_SECONDS: u64 = 60;
+const SESSION_REAP_TIMEOUT: Duration = Duration::from_secs(2);
 const DEFAULT_PTY_SIZE: PtySize = PtySize {
     rows: 24,
     cols: 80,
@@ -93,12 +95,40 @@ impl ProcessRegistry {
     }
 
     fn spawn_cleanup_task(&self) {
+        let sessions = self.sessions.clone();
         let finished = self.finished.clone();
         let ttl = self.ttl;
         if let Ok(handle) = tokio::runtime::Handle::try_current() {
             handle.spawn(async move {
                 loop {
-                    tokio::time::sleep(Duration::from_secs(60)).await;
+                    tokio::time::sleep(Duration::from_secs(CLEANUP_INTERVAL_SECONDS)).await;
+                    let completed: Vec<(Arc<ProcessSession>, Option<i32>)> = sessions
+                        .iter()
+                        .filter_map(|entry| {
+                            let session = entry.value().clone();
+                            match session.try_update_exit_status() {
+                                Ok(Some(status)) => {
+                                    Some((session, Some(status.exit_code() as i32)))
+                                }
+                                Ok(None) => None,
+                                Err(error) => {
+                                    tracing::warn!(
+                                        session_id = %entry.key(),
+                                        error = %error,
+                                        "Failed to poll process exit status during cleanup"
+                                    );
+                                    None
+                                }
+                            }
+                        })
+                        .collect();
+
+                    for (session, exit_code) in completed {
+                        // Background cleanup must finalize finished sessions even when no consumer
+                        // is actively polling, otherwise stale PTY/process handles can accumulate.
+                        Self::finalize_session_maps(&sessions, &finished, session, exit_code);
+                    }
+
                     let now = current_timestamp_ms();
                     let expired: Vec<String> = finished
                         .iter()
@@ -185,12 +215,21 @@ impl ProcessRegistry {
     }
 
     fn finalize_session(&self, session: Arc<ProcessSession>, exit_code: Option<i32>) {
+        Self::finalize_session_maps(&self.sessions, &self.finished, session, exit_code);
+    }
+
+    fn finalize_session_maps(
+        sessions: &DashMap<String, Arc<ProcessSession>>,
+        finished: &DashMap<String, FinishedSession>,
+        session: Arc<ProcessSession>,
+        exit_code: Option<i32>,
+    ) {
         let output = session
             .output
             .lock()
             .map(|o| o.aggregated.clone())
             .unwrap_or_default();
-        let finished = FinishedSession {
+        let finished_record = FinishedSession {
             id: session.id.clone(),
             command: session.command.clone(),
             cwd: session.cwd.clone(),
@@ -199,8 +238,8 @@ impl ProcessRegistry {
             exit_code,
             output,
         };
-        self.sessions.remove(&session.id);
-        self.finished.insert(session.id.clone(), finished);
+        sessions.remove(&session.id);
+        finished.insert(session.id.clone(), finished_record);
     }
 
     fn create_reader_thread(
@@ -411,8 +450,25 @@ impl ProcessRegistry {
         let session = self
             .sessions
             .get(session_id)
-            .ok_or_else(|| anyhow::anyhow!("Session not found: {}", session_id))?;
-        session.kill()?;
+            .ok_or_else(|| anyhow::anyhow!("Session not found: {}", session_id))?
+            .value()
+            .clone();
+
+        if let Err(error) = session.terminate_and_reap(SESSION_REAP_TIMEOUT) {
+            let reaped =
+                session.try_update_exit_status()?.is_some() || session.exit_status().is_some();
+            if !reaped {
+                return Err(error);
+            }
+        }
+
+        let exit_code = session
+            .exit_status()
+            .map(|status| status.exit_code() as i32);
+        if exit_code.is_some() && session.read_closed() {
+            self.finalize_session(session, exit_code);
+        }
+
         Ok(())
     }
 
@@ -424,8 +480,19 @@ impl ProcessRegistry {
 
     pub fn remove_session(&self, session_id: &str) -> Option<String> {
         if let Some((_, session)) = self.sessions.remove(session_id) {
-            let _ = session.kill();
-            return session.output.lock().ok().map(|o| o.aggregated.clone());
+            let _ = session.terminate_and_reap(SESSION_REAP_TIMEOUT);
+            let _ = session.try_update_exit_status();
+            let output = session
+                .output
+                .lock()
+                .ok()
+                .map(|o| o.aggregated.clone())
+                .unwrap_or_default();
+            let exit_code = session
+                .exit_status()
+                .map(|status| status.exit_code() as i32);
+            Self::finalize_session_maps(&self.sessions, &self.finished, session, exit_code);
+            return Some(output);
         }
 
         if let Some((_, finished)) = self.finished.remove(session_id) {

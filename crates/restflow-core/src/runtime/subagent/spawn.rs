@@ -15,7 +15,7 @@ use tokio::sync::oneshot;
 use tokio::time::{Duration, timeout};
 use ts_rs::TS;
 
-const DEFAULT_SUBAGENT_MAX_ITERATIONS: usize = 10;
+const DEFAULT_SUBAGENT_MAX_ITERATIONS: usize = 20;
 
 /// Configuration for sub-agent execution.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
