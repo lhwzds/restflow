@@ -17,6 +17,7 @@ use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
+use super::chunk::chunk_markdown;
 use super::traits::{Channel, StreamReceiver};
 use super::types::{ChannelType, InboundMessage, OutboundMessage};
 
@@ -490,13 +491,16 @@ impl Channel for TelegramChannel {
         let formatted = self.format_message(&message);
         let parse_mode = message.parse_mode.as_deref();
 
-        self.send_message(
-            &message.conversation_id,
-            &formatted,
-            parse_mode,
-            message.reply_to.as_deref(),
-        )
-        .await?;
+        let chunks = chunk_markdown(&formatted, None);
+        for chunk in &chunks {
+            self.send_message(
+                &message.conversation_id,
+                chunk,
+                parse_mode,
+                message.reply_to.as_deref(),
+            )
+            .await?;
+        }
 
         Ok(())
     }
