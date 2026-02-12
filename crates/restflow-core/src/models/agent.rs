@@ -181,27 +181,74 @@ impl AgentNode {
     }
 
     /// Validate fields that do not depend on storage or runtime state.
+    ///
+    /// Cross-field validation notes:
+    /// - Temperature: validated against model's `supports_temperature()` when model is set.
+    ///   Range 0.0..=2.0 is the outer bound across all providers (OpenAI uses 0.0-2.0,
+    ///   Anthropic 0.0-1.0, others vary). We use the widest range here to avoid
+    ///   false rejections; providers clamp or ignore out-of-range values.
+    /// - codex_cli_reasoning_effort / codex_cli_execution_mode: only meaningful for
+    ///   Codex CLI models. Setting them on other models is rejected since the values
+    ///   would be silently ignored at runtime.
     pub fn validate(&self) -> Result<(), Vec<ValidationError>> {
         let mut errors = Vec::new();
 
-        if let Some(temperature) = self.temperature
-            && !(0.0..=2.0).contains(&temperature)
-        {
-            errors.push(ValidationError::new(
-                "temperature",
-                "must be between 0.0 and 2.0",
-            ));
+        // Temperature: reject if model explicitly doesn't support it (GPT-5, Codex CLI, etc.)
+        if let Some(temperature) = self.temperature {
+            if let Some(model) = &self.model
+                && !model.supports_temperature()
+            {
+                errors.push(ValidationError::new(
+                    "temperature",
+                    format!(
+                        "model {} does not support temperature parameter",
+                        model.metadata().name
+                    ),
+                ));
+            }
+            // Outer bound across all providers (OpenAI 0-2, Anthropic 0-1, etc.)
+            if !(0.0..=2.0).contains(&temperature) {
+                errors.push(ValidationError::new(
+                    "temperature",
+                    "must be between 0.0 and 2.0",
+                ));
+            }
         }
 
+        // codex_cli_reasoning_effort: only applies to Codex CLI models
         if let Some(effort) = &self.codex_cli_reasoning_effort {
+            if let Some(model) = &self.model
+                && !model.is_codex_cli()
+            {
+                errors.push(ValidationError::new(
+                    "codex_cli_reasoning_effort",
+                    format!(
+                        "only applies to Codex CLI models, not {}",
+                        model.metadata().name
+                    ),
+                ));
+            }
             let normalized = effort.trim().to_lowercase();
-            let valid = matches!(normalized.as_str(), "low" | "medium" | "high" | "xhigh");
-            if !valid {
+            if !matches!(normalized.as_str(), "low" | "medium" | "high" | "xhigh") {
                 errors.push(ValidationError::new(
                     "codex_cli_reasoning_effort",
                     "must be one of: low, medium, high, xhigh",
                 ));
             }
+        }
+
+        // codex_cli_execution_mode: only applies to Codex CLI models
+        if self.codex_cli_execution_mode.is_some()
+            && let Some(model) = &self.model
+            && !model.is_codex_cli()
+        {
+            errors.push(ValidationError::new(
+                "codex_cli_execution_mode",
+                format!(
+                    "only applies to Codex CLI models, not {}",
+                    model.metadata().name
+                ),
+            ));
         }
 
         if let Some(prompt) = &self.prompt
@@ -363,13 +410,44 @@ mod tests {
     }
 
     #[test]
-    fn validate_accepts_valid_values() {
-        let node = AgentNode::new()
-            .with_temperature(0.7)
-            .with_prompt("You are helpful")
-            .with_codex_cli_reasoning_effort("HIGH")
-            .with_api_key(ApiKeyConfig::Direct("test-key".to_string()));
+    fn validate_accepts_valid_codex_config() {
+        let node = AgentNode {
+            model: Some(AIModel::CodexCli),
+            ..AgentNode::new()
+                .with_prompt("You are helpful")
+                .with_codex_cli_reasoning_effort("HIGH")
+                .with_api_key(ApiKeyConfig::Direct("test-key".to_string()))
+        };
         assert!(node.validate().is_ok());
+    }
+
+    #[test]
+    fn validate_accepts_temperature_on_supported_model() {
+        let node = AgentNode {
+            model: Some(AIModel::ClaudeSonnet4_5),
+            ..AgentNode::new().with_temperature(0.7)
+        };
+        assert!(node.validate().is_ok());
+    }
+
+    #[test]
+    fn validate_accepts_temperature_without_model() {
+        // When model is None (auto-select), allow temperature since we cannot
+        // know which model will be resolved at runtime.
+        let node = AgentNode::new().with_temperature(1.0);
+        assert!(node.validate().is_ok());
+    }
+
+    #[test]
+    fn validate_rejects_temperature_on_unsupported_model() {
+        let node = AgentNode {
+            model: Some(AIModel::Gpt5),
+            ..AgentNode::new().with_temperature(0.5)
+        };
+        let errors = node.validate().expect_err("expected validation error");
+        assert!(errors
+            .iter()
+            .any(|e| e.field == "temperature" && e.message.contains("does not support")));
     }
 
     #[test]
@@ -396,13 +474,47 @@ mod tests {
 
     #[test]
     fn validate_rejects_invalid_reasoning_effort() {
-        let node = AgentNode::new().with_codex_cli_reasoning_effort("ultra");
+        let node = AgentNode {
+            model: Some(AIModel::CodexCli),
+            ..AgentNode::new().with_codex_cli_reasoning_effort("ultra")
+        };
         let errors = node.validate().expect_err("expected validation error");
         assert!(
             errors
                 .iter()
                 .any(|error| error.field == "codex_cli_reasoning_effort")
         );
+    }
+
+    #[test]
+    fn validate_rejects_reasoning_effort_on_non_codex_model() {
+        let node = AgentNode {
+            model: Some(AIModel::ClaudeSonnet4_5),
+            ..AgentNode::new().with_codex_cli_reasoning_effort("high")
+        };
+        let errors = node.validate().expect_err("expected validation error");
+        assert!(errors.iter().any(|e| e.field == "codex_cli_reasoning_effort"
+            && e.message.contains("only applies to Codex CLI")));
+    }
+
+    #[test]
+    fn validate_rejects_execution_mode_on_non_codex_model() {
+        let node = AgentNode {
+            model: Some(AIModel::DeepseekChat),
+            ..AgentNode::new().with_codex_cli_execution_mode(CodexCliExecutionMode::Bypass)
+        };
+        let errors = node.validate().expect_err("expected validation error");
+        assert!(errors.iter().any(|e| e.field == "codex_cli_execution_mode"
+            && e.message.contains("only applies to Codex CLI")));
+    }
+
+    #[test]
+    fn validate_accepts_execution_mode_on_codex_model() {
+        let node = AgentNode {
+            model: Some(AIModel::Gpt5Codex),
+            ..AgentNode::new().with_codex_cli_execution_mode(CodexCliExecutionMode::Safe)
+        };
+        assert!(node.validate().is_ok());
     }
 
     #[test]

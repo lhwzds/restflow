@@ -224,9 +224,10 @@ mod tests {
             .await
             .unwrap();
 
+        // Use DeepseekChat which supports temperature (unlike Gpt5Mini)
         let mut new_agent_node = create_test_agent_node("Updated prompt");
         new_agent_node.temperature = Some(0.9);
-        new_agent_node.model = Some(AIModel::Gpt5Mini);
+        new_agent_node.model = Some(AIModel::DeepseekChat);
 
         let updated = update_agent(&core, &created.id, None, Some(new_agent_node))
             .await
@@ -237,7 +238,7 @@ mod tests {
         let default_prompt = prompt_files::load_default_main_agent_prompt().unwrap();
         assert!(prompt == "Updated prompt" || prompt == default_prompt);
         assert_eq!(updated.agent.temperature, Some(0.9));
-        assert_eq!(updated.agent.model, Some(AIModel::Gpt5Mini));
+        assert_eq!(updated.agent.model, Some(AIModel::DeepseekChat));
     }
 
     #[tokio::test]
@@ -345,6 +346,43 @@ mod tests {
             .expect("validation error payload should be JSON");
         assert_eq!(payload.error_type, "validation_error");
         assert!(payload.errors.iter().any(|e| e.field == "temperature"));
+    }
+
+    #[tokio::test]
+    async fn test_create_agent_rejects_temperature_on_unsupported_model() {
+        let (core, _db, _agents, _guard) = create_test_core_isolated().await;
+        let mut node = create_test_agent_node("test");
+        node.model = Some(AIModel::Gpt5);
+        node.temperature = Some(0.5);
+
+        let err = create_agent(&core, "Bad Temp Agent".to_string(), node)
+            .await
+            .expect_err("expected validation error");
+        let payload: ValidationErrorResponse = serde_json::from_str(&err.to_string())
+            .expect("validation error payload should be JSON");
+        assert!(payload
+            .errors
+            .iter()
+            .any(|e| e.field == "temperature" && e.message.contains("does not support")));
+    }
+
+    #[tokio::test]
+    async fn test_create_agent_rejects_reasoning_effort_on_non_codex() {
+        let (core, _db, _agents, _guard) = create_test_core_isolated().await;
+        let mut node = create_test_agent_node("test");
+        // ClaudeSonnet4_5 is not a Codex model
+        node.codex_cli_reasoning_effort = Some("high".to_string());
+
+        let err = create_agent(&core, "Bad Effort Agent".to_string(), node)
+            .await
+            .expect_err("expected validation error");
+        let payload: ValidationErrorResponse = serde_json::from_str(&err.to_string())
+            .expect("validation error payload should be JSON");
+        assert!(payload
+            .errors
+            .iter()
+            .any(|e| e.field == "codex_cli_reasoning_effort"
+                && e.message.contains("only applies to Codex CLI")));
     }
 
     #[tokio::test]

@@ -2032,7 +2032,7 @@ mod tests {
             codex_cli_reasoning_effort: None,
             codex_cli_execution_mode: None,
             api_key_config: Some(ApiKeyConfig::Direct("test_key".to_string())),
-            tools: Some(vec!["add".to_string()]),
+            tools: Some(vec!["http_request".to_string()]),
             skills: None,
             skill_variables: None,
             python_runtime_policy: None,
