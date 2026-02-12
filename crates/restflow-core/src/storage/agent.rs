@@ -41,9 +41,9 @@ impl AgentStorage {
         let now = time_utils::now_ms();
         let id = Uuid::new_v4().to_string();
 
-        // Prompt content is file-backed under ~/.restflow/agents/{id}.md, not stored in DB.
+        // Prompt content is file-backed under ~/.restflow/agents/{agent-name}.md, not stored in DB.
         let prompt_override = agent.prompt.take();
-        prompt_files::ensure_agent_prompt_file(&id, prompt_override.as_deref())?;
+        prompt_files::ensure_agent_prompt_file(&id, &name, prompt_override.as_deref())?;
 
         let stored_agent = StoredAgent {
             id,
@@ -99,16 +99,17 @@ impl AgentStorage {
             existing_agent.name = new_name;
         }
 
+        let mut prompt_override: Option<String> = None;
         if let Some(mut new_agent) = agent {
-            let prompt_override = new_agent.prompt.take();
-            if prompt_override.is_some() {
-                prompt_files::ensure_agent_prompt_file(
-                    &existing_agent.id,
-                    prompt_override.as_deref(),
-                )?;
-            }
+            prompt_override = new_agent.prompt.take();
             existing_agent.agent = new_agent;
         }
+
+        prompt_files::ensure_agent_prompt_file(
+            &existing_agent.id,
+            &existing_agent.name,
+            prompt_override.as_deref(),
+        )?;
 
         let now = time_utils::now_ms();
         existing_agent.updated_at = Some(now);
@@ -152,6 +153,14 @@ impl AgentStorage {
             .map(|agent| agent.id)
             .collect();
         prompt_files::cleanup_orphan_agent_prompt_files(&active_ids)
+    }
+
+    pub fn reconcile_prompt_file_names(&self) -> Result<()> {
+        let agents = self.list_agents()?;
+        for agent in agents {
+            prompt_files::ensure_agent_prompt_file(&agent.id, &agent.name, None)?;
+        }
+        Ok(())
     }
 
     fn hydrate_prompt_from_file(&self, mut stored: StoredAgent) -> Result<StoredAgent> {
@@ -256,7 +265,7 @@ mod tests {
         let agent = retrieved.unwrap();
         assert_eq!(agent.name, "Test Agent");
         assert_eq!(agent.agent.model, Some(AIModel::ClaudeSonnet4_5));
-        assert!(prompts_dir.join(format!("{}.md", stored.id)).exists());
+        assert!(prompts_dir.join("test-agent.md").exists());
         unsafe { std::env::remove_var(AGENTS_DIR_ENV) };
     }
 
@@ -350,6 +359,37 @@ mod tests {
     }
 
     #[test]
+    fn test_update_agent_renames_prompt_file_on_name_change() {
+        let _lock = env_lock();
+        let temp_dir = tempdir().unwrap();
+        let prompts_dir = temp_dir.path().join("agents");
+        unsafe { std::env::set_var(AGENTS_DIR_ENV, &prompts_dir) };
+        let db_path = temp_dir.path().join("test.db");
+        let db = Arc::new(Database::create(db_path).unwrap());
+        let storage = AgentStorage::new(db).unwrap();
+
+        let stored = storage
+            .create_agent("Original Name".to_string(), create_test_agent_node())
+            .unwrap();
+        assert!(prompts_dir.join("original-name.md").exists());
+
+        storage
+            .update_agent(stored.id.clone(), Some("Renamed Agent".to_string()), None)
+            .unwrap();
+
+        assert!(!prompts_dir.join("original-name.md").exists());
+        assert!(prompts_dir.join("renamed-agent.md").exists());
+        assert_eq!(
+            prompt_files::load_agent_prompt(&stored.id)
+                .unwrap()
+                .as_deref(),
+            Some("You are a helpful assistant")
+        );
+
+        unsafe { std::env::remove_var(AGENTS_DIR_ENV) };
+    }
+
+    #[test]
     fn test_get_agent_supports_unique_prefix() {
         let _lock = env_lock();
         let temp_dir = tempdir().unwrap();
@@ -385,7 +425,7 @@ mod tests {
         let stored = storage
             .create_agent("To Remove".to_string(), create_test_agent_node())
             .unwrap();
-        assert!(prompts_dir.join(format!("{}.md", stored.id)).exists());
+        assert!(prompts_dir.join("to-remove.md").exists());
         storage.delete_agent(stored.id.clone()).unwrap();
 
         // Recreate orphan file to emulate historical residue.
