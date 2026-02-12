@@ -654,7 +654,10 @@ mod tests {
         let text = "你好世界 这是测试 中文内容 分块处理 ".repeat(20);
         let chunks = chunker.chunk(&text, "agent-1", None, MemorySource::ManualNote);
 
-        assert!(chunks.len() > 1, "Expected multiple chunks for Chinese text");
+        assert!(
+            chunks.len() > 1,
+            "Expected multiple chunks for Chinese text"
+        );
         // Verify all chunks contain valid UTF-8 (no panics)
         for chunk in &chunks {
             assert!(!chunk.content.is_empty());
@@ -688,9 +691,18 @@ mod tests {
             .with_min_chunk_size(10);
 
         let messages = vec![
-            ("User", "每15分钟执行一次。你只负责 main CI 失败自动修复并提 PR。"),
-            ("Assistant", "好的，我会每15分钟检查 CI 状态并自动修复失败的构建。"),
-            ("User", "仓库规则：固定仓库 /Users/test/restflow，开始先执行 git fetch。"),
+            (
+                "User",
+                "每15分钟执行一次。你只负责 main CI 失败自动修复并提 PR。",
+            ),
+            (
+                "Assistant",
+                "好的，我会每15分钟检查 CI 状态并自动修复失败的构建。",
+            ),
+            (
+                "User",
+                "仓库规则：固定仓库 /Users/test/restflow，开始先执行 git fetch。",
+            ),
         ];
 
         let chunks = chunker.chunk_messages(
