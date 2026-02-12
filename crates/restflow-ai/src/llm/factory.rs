@@ -277,6 +277,9 @@ mod tests {
 
     #[test]
     fn zhipu_uses_api_z_ai_endpoint() {
-        assert_eq!(LlmProvider::Zhipu.base_url(), "https://api.z.ai/api/paas/v4");
+        assert_eq!(
+            LlmProvider::Zhipu.base_url(),
+            "https://api.z.ai/api/paas/v4"
+        );
     }
 }

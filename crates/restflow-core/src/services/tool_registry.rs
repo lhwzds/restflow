@@ -242,11 +242,15 @@ impl AgentStore for AgentStoreAdapter {
 #[derive(Clone)]
 struct BackgroundAgentStoreAdapter {
     storage: BackgroundAgentStorage,
+    agent_storage: AgentStorage,
 }
 
 impl BackgroundAgentStoreAdapter {
-    fn new(storage: BackgroundAgentStorage) -> Self {
-        Self { storage }
+    fn new(storage: BackgroundAgentStorage, agent_storage: AgentStorage) -> Self {
+        Self {
+            storage,
+            agent_storage,
+        }
     }
 
     fn parse_status(status: &str) -> Result<BackgroundAgentStatus, AiError> {
@@ -324,6 +328,12 @@ impl BackgroundAgentStoreAdapter {
             (None, None) => Ok(None),
         }
     }
+
+    fn resolve_agent_id(&self, id_or_prefix: &str) -> Result<String, AiError> {
+        self.agent_storage
+            .resolve_existing_agent_id(id_or_prefix)
+            .map_err(|e| AiError::Tool(e.to_string()))
+    }
 }
 
 impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
@@ -331,6 +341,7 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
         &self,
         request: BackgroundAgentCreateRequest,
     ) -> restflow_ai::error::Result<serde_json::Value> {
+        let resolved_agent_id = self.resolve_agent_id(&request.agent_id)?;
         let schedule =
             Self::parse_optional_value::<BackgroundAgentSchedule>("schedule", request.schedule)?
                 .unwrap_or_default();
@@ -340,7 +351,7 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
             .storage
             .create_background_agent(BackgroundAgentSpec {
                 name: request.name,
-                agent_id: request.agent_id,
+                agent_id: resolved_agent_id,
                 description: None,
                 input: request.input,
                 input_template: request.input_template,
@@ -357,12 +368,17 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
         &self,
         request: BackgroundAgentUpdateRequest,
     ) -> restflow_ai::error::Result<serde_json::Value> {
+        let resolved_agent_id = request
+            .agent_id
+            .as_deref()
+            .map(|id| self.resolve_agent_id(id))
+            .transpose()?;
         let memory = Self::parse_optional_value("memory", request.memory)?;
         let memory = Self::merge_memory_scope(memory, request.memory_scope)?;
         let patch = BackgroundAgentPatch {
             name: request.name,
             description: request.description,
-            agent_id: request.agent_id,
+            agent_id: resolved_agent_id,
             input: request.input,
             input_template: request.input_template,
             schedule: Self::parse_optional_value("schedule", request.schedule)?,
@@ -456,11 +472,15 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
 #[derive(Clone)]
 struct SessionStorageAdapter {
     storage: ChatSessionStorage,
+    agent_storage: AgentStorage,
 }
 
 impl SessionStorageAdapter {
-    fn new(storage: ChatSessionStorage) -> Self {
-        Self { storage }
+    fn new(storage: ChatSessionStorage, agent_storage: AgentStorage) -> Self {
+        Self {
+            storage,
+            agent_storage,
+        }
     }
 }
 
@@ -501,7 +521,11 @@ impl SessionStore for SessionStorageAdapter {
     }
 
     fn create_session(&self, request: SessionCreateRequest) -> restflow_ai::error::Result<Value> {
-        let mut session = crate::models::ChatSession::new(request.agent_id, request.model);
+        let resolved_agent_id = self
+            .agent_storage
+            .resolve_existing_agent_id(&request.agent_id)
+            .map_err(|e| AiError::Tool(e.to_string()))?;
+        let mut session = crate::models::ChatSession::new(resolved_agent_id, request.model);
         if let Some(name) = request.name {
             session = session.with_name(name);
         }
@@ -1189,7 +1213,10 @@ pub fn create_tool_registry(
     registry.register(SkillTool::new(skill_provider));
 
     // Session management tool (clone before move)
-    let session_store = Arc::new(SessionStorageAdapter::new(chat_storage.clone()));
+    let session_store = Arc::new(SessionStorageAdapter::new(
+        chat_storage.clone(),
+        agent_storage.clone(),
+    ));
     registry.register(SessionTool::new(session_store).with_write(true));
 
     // Memory management tool (clone before move)
@@ -1229,10 +1256,12 @@ pub fn create_tool_registry(
     // Add system management tools (read-only by default)
     registry.register(SecretsTool::new(Arc::new(secret_storage)));
     registry.register(ConfigTool::new(Arc::new(config_storage)));
-    let agent_store = Arc::new(AgentStoreAdapter::new(agent_storage));
+    let agent_store = Arc::new(AgentStoreAdapter::new(agent_storage.clone()));
     registry.register(AgentCrudTool::new(agent_store).with_write(true));
-    let background_agent_store =
-        Arc::new(BackgroundAgentStoreAdapter::new(background_agent_storage));
+    let background_agent_store = Arc::new(BackgroundAgentStoreAdapter::new(
+        background_agent_storage,
+        agent_storage,
+    ));
     registry.register(BackgroundAgentTool::new(background_agent_store).with_write(true));
     registry.register(MarketplaceTool::new(skill_storage));
     registry.register(TriggerTool::new(trigger_storage));
@@ -2834,6 +2863,17 @@ mod tests {
 
     #[test]
     fn test_task_store_adapter_background_agent_flow() {
+        struct AgentsDirEnvCleanup;
+        impl Drop for AgentsDirEnvCleanup {
+            fn drop(&mut self) {
+                unsafe { std::env::remove_var(crate::prompt_files::AGENTS_DIR_ENV) };
+            }
+        }
+        let _cleanup = AgentsDirEnvCleanup;
+        let _env_lock = crate::prompt_files::agents_dir_env_lock();
+        let agents_temp = tempdir().unwrap();
+        unsafe { std::env::set_var(crate::prompt_files::AGENTS_DIR_ENV, agents_temp.path()) };
+
         let (
             _skill_storage,
             _memory_storage,
@@ -2842,20 +2882,26 @@ mod tests {
             _workspace_note_storage,
             _secret_storage,
             _config_storage,
-            _agent_storage,
+            agent_storage,
             background_agent_storage,
             _trigger_storage,
             _terminal_storage,
             _temp_dir,
         ) = setup_storage();
 
-        let adapter = BackgroundAgentStoreAdapter::new(background_agent_storage);
+        let created_agent = agent_storage
+            .create_agent(
+                "Background Owner".to_string(),
+                crate::models::AgentNode::new(),
+            )
+            .unwrap();
+        let adapter = BackgroundAgentStoreAdapter::new(background_agent_storage, agent_storage);
 
         let created = BackgroundAgentStore::create_background_agent(
             &adapter,
             BackgroundAgentCreateRequest {
                 name: "Background Agent".to_string(),
-                agent_id: "agent-001".to_string(),
+                agent_id: created_agent.id,
                 schedule: None,
                 input: Some("Run periodic checks".to_string()),
                 input_template: Some("Template {{task.id}}".to_string()),

@@ -53,6 +53,10 @@ impl AppCore {
 
         // Ensure default agent exists on first run
         Self::ensure_default_agent(&storage)?;
+        let cleaned = storage.agents.cleanup_orphan_prompt_files()?;
+        if cleaned > 0 {
+            info!(cleaned, "Cleaned orphan agent prompt files");
+        }
 
         info!("Initializing RestFlow (Agent-centric mode)");
 

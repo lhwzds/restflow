@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use std::fs;
 use std::path::PathBuf;
+use uuid::Uuid;
 
 const AGENTS_DIR: &str = "agents";
 const DEFAULT_AGENT_PROMPT_FILE: &str = "default_agent.md";
@@ -41,7 +42,6 @@ pub fn load_background_agent_policy(background_task_id: Option<&str>) -> Result<
 }
 
 pub fn load_agent_prompt(agent_id: &str) -> Result<Option<String>> {
-    ensure_agent_prompt_file(agent_id, None)?;
     let path = agent_prompt_path(agent_id)?;
     if !path.exists() {
         return Ok(None);
@@ -81,6 +81,50 @@ pub fn delete_agent_prompt_file(agent_id: &str) -> Result<()> {
             .with_context(|| format!("Failed to remove agent prompt file: {}", path.display()))?;
     }
     Ok(())
+}
+
+pub fn cleanup_orphan_agent_prompt_files(active_agent_ids: &[String]) -> Result<usize> {
+    let active_ids: std::collections::HashSet<&str> =
+        active_agent_ids.iter().map(String::as_str).collect();
+    let agents_dir = ensure_agents_dir()?;
+    let mut deleted = 0usize;
+
+    for entry in fs::read_dir(&agents_dir)
+        .with_context(|| format!("Failed to read agents directory: {}", agents_dir.display()))?
+    {
+        let entry = entry?;
+        let path = entry.path();
+
+        if !path.is_file() {
+            continue;
+        }
+        if path.extension().and_then(|ext| ext.to_str()) != Some("md") {
+            continue;
+        }
+
+        let Some(stem) = path.file_stem().and_then(|value| value.to_str()) else {
+            continue;
+        };
+
+        if stem == DEFAULT_AGENT_PROMPT_FILE.trim_end_matches(".md")
+            || stem == BACKGROUND_AGENT_POLICY_FILE.trim_end_matches(".md")
+        {
+            continue;
+        }
+        if Uuid::parse_str(stem).is_err() {
+            // Preserve non-agent Markdown files in the folder.
+            continue;
+        }
+        if active_ids.contains(stem) {
+            continue;
+        }
+
+        fs::remove_file(&path)
+            .with_context(|| format!("Failed to remove orphan prompt file: {}", path.display()))?;
+        deleted += 1;
+    }
+
+    Ok(deleted)
 }
 
 fn apply_task_id_placeholder(content: &str, background_task_id: Option<&str>) -> String {
@@ -213,6 +257,44 @@ mod tests {
         ensure_agent_prompt_file("agent-2", Some("Custom prompt")).unwrap();
         let loaded = load_agent_prompt("agent-2").unwrap();
         assert_eq!(loaded.as_deref(), Some("Custom prompt"));
+
+        unsafe { std::env::remove_var(AGENTS_DIR_ENV) };
+    }
+
+    #[test]
+    fn test_load_agent_prompt_missing_does_not_create_file() {
+        let _lock = env_lock();
+        let temp = tempfile::tempdir().unwrap();
+        unsafe { std::env::set_var(AGENTS_DIR_ENV, temp.path()) };
+
+        ensure_prompt_templates().unwrap();
+        let missing = "750bf7ee";
+        let loaded = load_agent_prompt(missing).unwrap();
+        assert!(loaded.is_none());
+        assert!(!temp.path().join(format!("{missing}.md")).exists());
+
+        unsafe { std::env::remove_var(AGENTS_DIR_ENV) };
+    }
+
+    #[test]
+    fn test_cleanup_orphan_agent_prompt_files_removes_only_orphans() {
+        let _lock = env_lock();
+        let temp = tempfile::tempdir().unwrap();
+        unsafe { std::env::set_var(AGENTS_DIR_ENV, temp.path()) };
+
+        ensure_prompt_templates().unwrap();
+
+        let active = "750bf7ee-91fa-47b2-9498-25007fd99919".to_string();
+        let orphan = "016e8f2a-944d-4126-af6f-f19b0110d8d6".to_string();
+        fs::write(temp.path().join(format!("{active}.md")), "active").unwrap();
+        fs::write(temp.path().join(format!("{orphan}.md")), "orphan").unwrap();
+        fs::write(temp.path().join("custom-note.md"), "keep").unwrap();
+
+        let deleted = cleanup_orphan_agent_prompt_files(std::slice::from_ref(&active)).unwrap();
+        assert_eq!(deleted, 1);
+        assert!(temp.path().join(format!("{active}.md")).exists());
+        assert!(!temp.path().join(format!("{orphan}.md")).exists());
+        assert!(temp.path().join("custom-note.md").exists());
 
         unsafe { std::env::remove_var(AGENTS_DIR_ENV) };
     }
