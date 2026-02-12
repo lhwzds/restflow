@@ -42,6 +42,7 @@ mod resource;
 mod state;
 pub mod strategy;
 mod stream;
+pub mod stuck;
 mod sub_agent;
 mod trace;
 
@@ -59,4 +60,5 @@ pub use sub_agent::{
     SpawnHandle, SpawnPriority, SpawnRequest, SubAgentManager, SubagentCompletion, SubagentConfig,
     SubagentResult, SubagentState, SubagentStatus, SubagentTracker, spawn_subagent,
 };
+pub use stuck::{StuckAction, StuckDetector, StuckDetectorConfig, StuckInfo};
 pub use trace::TraceEvent;
