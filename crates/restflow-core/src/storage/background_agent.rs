@@ -1019,8 +1019,8 @@ mod tests {
         // the completion handler doesn't persist the updated schedule.
         let now = chrono::Utc::now().timestamp_millis();
         let mut broken = created.clone();
-        broken.next_run_at = Some(now - 3600_000); // 1 hour ago
-        broken.last_run_at = Some(now - 1800_000); // 30 min ago (more recent)
+        broken.next_run_at = Some(now - 3_600_000); // 1 hour ago
+        broken.last_run_at = Some(now - 1_800_000); // 30 min ago (more recent)
         storage.update_task(&broken).unwrap();
 
         // Verify the stale condition

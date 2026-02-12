@@ -1958,6 +1958,7 @@ mod tests {
     use super::*;
     use crate::daemon::{IpcClient, IpcServer};
     use crate::models::{AIModel, AgentNode, ApiKeyConfig, Skill};
+    use crate::prompt_files;
     use crate::storage::agent::StoredAgent;
     use tempfile::TempDir;
     use tokio::time::{Duration, sleep};
@@ -1966,12 +1967,48 @@ mod tests {
     // Test Utilities
     // =========================================================================
 
-    /// Create a test server with a temporary database
-    async fn create_test_server() -> (RestFlowMcpServer, Arc<AppCore>, TempDir) {
+    /// RAII guard that isolates the agents directory via env var.
+    struct AgentsDirEnvGuard {
+        _lock: std::sync::MutexGuard<'static, ()>,
+    }
+
+    impl AgentsDirEnvGuard {
+        fn new() -> Self {
+            Self {
+                _lock: prompt_files::agents_dir_env_lock(),
+            }
+        }
+    }
+
+    impl Drop for AgentsDirEnvGuard {
+        fn drop(&mut self) {
+            unsafe { std::env::remove_var(prompt_files::AGENTS_DIR_ENV) };
+        }
+    }
+
+    /// Create a test server with a temporary database and isolated agents directory.
+    /// All returned values must be held alive for the test duration.
+    #[allow(clippy::await_holding_lock)]
+    async fn create_test_server() -> (
+        RestFlowMcpServer,
+        Arc<AppCore>,
+        TempDir,
+        TempDir,
+        AgentsDirEnvGuard,
+    ) {
+        let env_guard = AgentsDirEnvGuard::new();
         let temp_dir = tempfile::tempdir().unwrap();
+        let temp_agents = tempfile::tempdir().unwrap();
+        unsafe { std::env::set_var(prompt_files::AGENTS_DIR_ENV, temp_agents.path()) };
         let db_path = temp_dir.path().join("test.db");
         let core = Arc::new(AppCore::new(db_path.to_str().unwrap()).await.unwrap());
-        (RestFlowMcpServer::new(core.clone()), core, temp_dir)
+        (
+            RestFlowMcpServer::new(core.clone()),
+            core,
+            temp_dir,
+            temp_agents,
+            env_guard,
+        )
     }
 
     /// Create a test skill with given id and name
@@ -2038,7 +2075,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_list_skills_empty() {
-        let (server, _core, _temp_dir) = create_test_server().await;
+        let (server, _core, _temp_dir, _temp_agents, _guard) = create_test_server().await;
 
         let result = server.handle_list_skills().await;
 
@@ -2051,7 +2088,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_list_skills_multiple() {
-        let (server, core, _temp_dir) = create_test_server().await;
+        let (server, core, _temp_dir, _temp_agents, _guard) = create_test_server().await;
 
         let base_json = server.handle_list_skills().await.unwrap();
         let base_skills: Vec<SkillSummary> = serde_json::from_str(&base_json).unwrap();
@@ -2078,7 +2115,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_skill_success() {
-        let (server, core, _temp_dir) = create_test_server().await;
+        let (server, core, _temp_dir, _temp_agents, _guard) = create_test_server().await;
 
         let skill = create_test_skill("test-skill", "Test Skill");
         crate::services::skills::create_skill(&core, skill.clone())
@@ -2100,7 +2137,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_skill_not_found() {
-        let (server, _core, _temp_dir) = create_test_server().await;
+        let (server, _core, _temp_dir, _temp_agents, _guard) = create_test_server().await;
 
         let params = GetSkillParams {
             id: "nonexistent".to_string(),
@@ -2114,7 +2151,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_create_skill_success() {
-        let (server, _core, _temp_dir) = create_test_server().await;
+        let (server, _core, _temp_dir, _temp_agents, _guard) = create_test_server().await;
 
         let base_json = server.handle_list_skills().await.unwrap();
         let base_skills: Vec<SkillSummary> = serde_json::from_str(&base_json).unwrap();
@@ -2141,7 +2178,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_update_skill_success() {
-        let (server, core, _temp_dir) = create_test_server().await;
+        let (server, core, _temp_dir, _temp_agents, _guard) = create_test_server().await;
 
         let skill = create_test_skill("test-skill", "Original Name");
         crate::services::skills::create_skill(&core, skill)
@@ -2172,7 +2209,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_update_skill_not_found() {
-        let (server, _core, _temp_dir) = create_test_server().await;
+        let (server, _core, _temp_dir, _temp_agents, _guard) = create_test_server().await;
 
         let params = UpdateSkillParams {
             id: "nonexistent".to_string(),
@@ -2189,7 +2226,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_update_skill_partial() {
-        let (server, core, _temp_dir) = create_test_server().await;
+        let (server, core, _temp_dir, _temp_agents, _guard) = create_test_server().await;
 
         let skill = create_test_skill("test-skill", "Original Name");
         crate::services::skills::create_skill(&core, skill)
@@ -2222,7 +2259,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_delete_skill_success() {
-        let (server, core, _temp_dir) = create_test_server().await;
+        let (server, core, _temp_dir, _temp_agents, _guard) = create_test_server().await;
 
         let skill = create_test_skill("test-skill", "Test Skill");
         crate::services::skills::create_skill(&core, skill)
@@ -2251,7 +2288,7 @@ mod tests {
     #[tokio::test]
     async fn test_list_agents_default() {
         // AppCore creates a default agent on initialization
-        let (server, _core, _temp_dir) = create_test_server().await;
+        let (server, _core, _temp_dir, _temp_agents, _guard) = create_test_server().await;
 
         let result = server.handle_list_agents().await;
 
@@ -2266,7 +2303,7 @@ mod tests {
     #[tokio::test]
     async fn test_list_agents_multiple() {
         // AppCore creates a default agent, so we start with 1
-        let (server, core, _temp_dir) = create_test_server().await;
+        let (server, core, _temp_dir, _temp_agents, _guard) = create_test_server().await;
 
         let agent1 = create_test_agent_node("Prompt 1");
         let agent2 = create_test_agent_node("Prompt 2");
@@ -2289,7 +2326,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_agent_success() {
-        let (server, core, _temp_dir) = create_test_server().await;
+        let (server, core, _temp_dir, _temp_agents, _guard) = create_test_server().await;
 
         let agent_node = create_test_agent_node("Test prompt");
         let stored =
@@ -2312,7 +2349,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_agent_not_found() {
-        let (server, _core, _temp_dir) = create_test_server().await;
+        let (server, _core, _temp_dir, _temp_agents, _guard) = create_test_server().await;
 
         let params = GetAgentParams {
             id: "nonexistent".to_string(),
@@ -2328,7 +2365,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_info() {
-        let (server, _core, _temp_dir) = create_test_server().await;
+        let (server, _core, _temp_dir, _temp_agents, _guard) = create_test_server().await;
 
         let info = server.get_info();
 
@@ -2364,7 +2401,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_handle_unknown_tool() {
-        let (server, _core, _temp_dir) = create_test_server().await;
+        let (server, _core, _temp_dir, _temp_agents, _guard) = create_test_server().await;
 
         // Test unknown tool handling by simulating what call_tool does internally
         let result = match "unknown_tool" {
@@ -2379,7 +2416,7 @@ mod tests {
     #[tokio::test]
     async fn test_handle_invalid_skill_params() {
         // Create test server to ensure setup works (also keeps pattern consistent)
-        let (_server, _core, _temp_dir) = create_test_server().await;
+        let (_server, _core, _temp_dir, _temp_agents, _guard) = create_test_server().await;
 
         // Test with invalid params - missing required id field
         let args = serde_json::json!({"wrong_field": "value"});
@@ -2395,7 +2432,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_skill_crud_workflow() {
-        let (server, _core, _temp_dir) = create_test_server().await;
+        let (server, _core, _temp_dir, _temp_agents, _guard) = create_test_server().await;
 
         let base_json = server.handle_list_skills().await.unwrap();
         let base_skills: Vec<SkillSummary> = serde_json::from_str(&base_json).unwrap();
@@ -2911,7 +2948,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_runtime_tools_include_manage_agents() {
-        let (server, _core, _temp_dir) = create_test_server().await;
+        let (server, _core, _temp_dir, _temp_agents, _guard) = create_test_server().await;
         let runtime_tools = server.backend.list_runtime_tools().await.unwrap();
         assert!(
             runtime_tools
@@ -2923,7 +2960,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_manage_agents_runtime_tool_list_operation() {
-        let (server, _core, _temp_dir) = create_test_server().await;
+        let (server, _core, _temp_dir, _temp_agents, _guard) = create_test_server().await;
         let json = server
             .handle_runtime_tool("manage_agents", serde_json::json!({ "operation": "list" }))
             .await
@@ -2934,7 +2971,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_manage_ops_runtime_tool_routes_and_returns_normalized_json() {
-        let (server, _core, _temp_dir) = create_test_server().await;
+        let (server, _core, _temp_dir, _temp_agents, _guard) = create_test_server().await;
         let json = server
             .handle_runtime_tool(
                 "manage_ops",
@@ -2980,7 +3017,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_switch_model_works_in_standalone_mcp_mode() {
-        let (server, _core, _temp_dir) = create_test_server().await;
+        let (server, _core, _temp_dir, _temp_agents, _guard) = create_test_server().await;
 
         let result = server
             .handle_switch_model_for_mcp(serde_json::json!({
@@ -3000,7 +3037,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_standalone_runtime_tools_do_not_expose_subagent_tools() {
-        let (server, _core, _temp_dir) = create_test_server().await;
+        let (server, _core, _temp_dir, _temp_agents, _guard) = create_test_server().await;
         let runtime_tools = server.backend.list_runtime_tools().await.unwrap();
 
         assert!(!runtime_tools.iter().any(|tool| tool.name == "spawn_agent"));
@@ -3009,7 +3046,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_standalone_runtime_spawn_agent_is_not_callable() {
-        let (server, _core, _temp_dir) = create_test_server().await;
+        let (server, _core, _temp_dir, _temp_agents, _guard) = create_test_server().await;
         let error = server
             .handle_runtime_tool(
                 "spawn_agent",
