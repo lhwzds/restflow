@@ -29,6 +29,9 @@ const toast = useToast()
 const chatSessionStore = useChatSessionStore()
 const modelsStore = useModelsStore()
 
+// Track last user message content for regeneration
+const lastUserContent = ref('')
+
 const {
   currentSession,
   messages: chatMessages,
@@ -190,6 +193,7 @@ async function onSendMessage(message: string) {
   chatStream.reset()
   processedToolIds.value.clear()
 
+  lastUserContent.value = message
   inputMessage.value = message
   await sendChatMessage()
 
@@ -232,6 +236,27 @@ async function onUpdateSelectedModel(model: string) {
   }
 
   selectedModel.value = updated.model
+}
+
+async function handleCancel() {
+  await chatStream.cancel()
+}
+
+async function handleRegenerate() {
+  if (!lastUserContent.value || isExecuting.value) return
+
+  const sessionId = chatSessionStore.currentSessionId
+  if (!sessionId) return
+
+  chatStream.reset()
+  processedToolIds.value.clear()
+
+  inputMessage.value = lastUserContent.value
+  await sendChatMessage()
+
+  if (chatSessionStore.error) {
+    toast.error(chatSessionStore.error)
+  }
 }
 
 function onViewToolResult(step: StreamStep) {
@@ -278,6 +303,7 @@ defineExpose({
       :stream-thinking="streamThinking"
       :steps="streamSteps"
       @view-tool-result="onViewToolResult"
+      @regenerate="handleRegenerate"
     />
 
     <!-- Input Area -->
@@ -291,6 +317,7 @@ defineExpose({
         :available-agents="availableAgents"
         :available-models="availableModels"
         @send="onSendMessage"
+        @cancel="handleCancel"
         @close="() => {}"
         @update:selected-agent="onUpdateSelectedAgent"
         @update:selected-model="onUpdateSelectedModel"
