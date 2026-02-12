@@ -88,6 +88,7 @@
 //! }
 //! ```
 
+pub mod chunk;
 pub mod pairing;
 mod reply_sender;
 pub mod route_binding;
