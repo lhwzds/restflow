@@ -1,7 +1,9 @@
 use async_trait::async_trait;
 use serde_json::Value;
 use std::collections::BTreeMap;
+use tokio::sync::mpsc;
 
+use crate::agent::ExecutionStep;
 use crate::llm::{ToolCall, ToolCallDelta};
 
 #[async_trait]
@@ -28,6 +30,62 @@ impl StreamEmitter for NullEmitter {
         _success: bool,
     ) {
     }
+    async fn emit_complete(&mut self) {}
+}
+
+pub struct ChannelEmitter {
+    tx: mpsc::Sender<ExecutionStep>,
+}
+
+impl ChannelEmitter {
+    pub fn new(tx: mpsc::Sender<ExecutionStep>) -> Self {
+        Self { tx }
+    }
+}
+
+#[async_trait]
+impl StreamEmitter for ChannelEmitter {
+    async fn emit_text_delta(&mut self, text: &str) {
+        let _ = self
+            .tx
+            .send(ExecutionStep::TextDelta {
+                content: text.to_string(),
+            })
+            .await;
+    }
+
+    async fn emit_thinking_delta(&mut self, text: &str) {
+        let _ = self
+            .tx
+            .send(ExecutionStep::ThinkingDelta {
+                content: text.to_string(),
+            })
+            .await;
+    }
+
+    async fn emit_tool_call_start(&mut self, id: &str, name: &str, arguments: &str) {
+        let _ = self
+            .tx
+            .send(ExecutionStep::ToolCallStart {
+                id: id.to_string(),
+                name: name.to_string(),
+                arguments: arguments.to_string(),
+            })
+            .await;
+    }
+
+    async fn emit_tool_call_result(&mut self, id: &str, name: &str, result: &str, success: bool) {
+        let _ = self
+            .tx
+            .send(ExecutionStep::ToolCallResult {
+                id: id.to_string(),
+                name: name.to_string(),
+                result: result.to_string(),
+                success,
+            })
+            .await;
+    }
+
     async fn emit_complete(&mut self) {}
 }
 
@@ -111,6 +169,7 @@ fn parse_arguments(json: &str) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tokio::sync::mpsc;
 
     #[test]
     fn test_tool_call_accumulator_single() {
@@ -188,5 +247,30 @@ mod tests {
             .emit_tool_call_result("id", "name", "ok", true)
             .await;
         emitter.emit_complete().await;
+    }
+
+    #[tokio::test]
+    async fn test_channel_emitter_sends_steps() {
+        let (tx, mut rx) = mpsc::channel(16);
+        let mut emitter = ChannelEmitter::new(tx);
+
+        emitter.emit_text_delta("hello").await;
+        emitter.emit_thinking_delta("plan").await;
+        emitter.emit_tool_call_start("call_1", "echo", "{}").await;
+        emitter
+            .emit_tool_call_result("call_1", "echo", "{\"ok\":true}", true)
+            .await;
+
+        let step = rx.recv().await.unwrap();
+        assert!(matches!(step, ExecutionStep::TextDelta { .. }));
+
+        let step = rx.recv().await.unwrap();
+        assert!(matches!(step, ExecutionStep::ThinkingDelta { .. }));
+
+        let step = rx.recv().await.unwrap();
+        assert!(matches!(step, ExecutionStep::ToolCallStart { .. }));
+
+        let step = rx.recv().await.unwrap();
+        assert!(matches!(step, ExecutionStep::ToolCallResult { .. }));
     }
 }
