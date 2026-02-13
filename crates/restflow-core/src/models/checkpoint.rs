@@ -149,15 +149,8 @@ mod tests {
 
     #[test]
     fn test_checkpoint_with_metadata() {
-        let cp = AgentCheckpoint::new(
-            "exec-1".into(),
-            None,
-            1,
-            0,
-            b"{}".to_vec(),
-            "test".into(),
-        )
-        .with_metadata(serde_json::json!({"tool_call_id": "call-1"}));
+        let cp = AgentCheckpoint::new("exec-1".into(), None, 1, 0, b"{}".to_vec(), "test".into())
+            .with_metadata(serde_json::json!({"tool_call_id": "call-1"}));
 
         assert_eq!(
             cp.interrupt_metadata,
@@ -167,14 +160,8 @@ mod tests {
 
     #[test]
     fn test_checkpoint_mark_resumed() {
-        let mut cp = AgentCheckpoint::new(
-            "exec-1".into(),
-            None,
-            1,
-            0,
-            b"{}".to_vec(),
-            "test".into(),
-        );
+        let mut cp =
+            AgentCheckpoint::new("exec-1".into(), None, 1, 0, b"{}".to_vec(), "test".into());
         assert!(!cp.is_resumed());
         cp.mark_resumed();
         assert!(cp.is_resumed());
@@ -183,14 +170,8 @@ mod tests {
 
     #[test]
     fn test_checkpoint_expired() {
-        let mut cp = AgentCheckpoint::new(
-            "exec-1".into(),
-            None,
-            1,
-            0,
-            b"{}".to_vec(),
-            "test".into(),
-        );
+        let mut cp =
+            AgentCheckpoint::new("exec-1".into(), None, 1, 0, b"{}".to_vec(), "test".into());
         let now = chrono::Utc::now().timestamp_millis();
         // Not expired yet
         assert!(!cp.is_expired(now));

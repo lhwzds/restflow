@@ -182,7 +182,9 @@ impl CliBackgroundAgentRunner {
 
             let mut router_guard = self.router.write().await;
             *router_guard = Some(router);
-            info!("Telegram channel enabled for CLI daemon with AI chat support and forced pairing access control");
+            info!(
+                "Telegram channel enabled for CLI daemon with AI chat support and forced pairing access control"
+            );
         }
 
         info!("Task runner started");
@@ -234,11 +236,7 @@ fn bootstrap_default_chat_pairing(
 
     // Add default chat as allowed to avoid locking out existing owner
     // when pairing is force-enabled.
-    pairing_manager.allow_peer(
-        &chat_id,
-        Some("bootstrap-default-chat"),
-        "daemon-bootstrap",
-    )?;
+    pairing_manager.allow_peer(&chat_id, Some("bootstrap-default-chat"), "daemon-bootstrap")?;
     info!(
         "Bootstrap pairing: auto-approved TELEGRAM_CHAT_ID as allowed peer ({})",
         chat_id

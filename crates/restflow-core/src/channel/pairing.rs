@@ -113,8 +113,7 @@ impl PairingManager {
         };
 
         let data = serde_json::to_vec(&request)?;
-        self.storage
-            .create_pairing_request(&code, peer_id, &data)?;
+        self.storage.create_pairing_request(&code, peer_id, &data)?;
 
         Ok(code)
     }
@@ -206,7 +205,9 @@ mod tests {
     #[test]
     fn test_pairing_code_format() {
         let mgr = create_test_manager();
-        let code = mgr.create_request("12345", Some("Alice"), "chat-1").unwrap();
+        let code = mgr
+            .create_request("12345", Some("Alice"), "chat-1")
+            .unwrap();
         assert_eq!(code.len(), 8);
         assert!(code.chars().all(|c| c.is_ascii_alphanumeric()));
     }
@@ -214,7 +215,9 @@ mod tests {
     #[test]
     fn test_approve_request() {
         let mgr = create_test_manager();
-        let code = mgr.create_request("12345", Some("Alice"), "chat-1").unwrap();
+        let code = mgr
+            .create_request("12345", Some("Alice"), "chat-1")
+            .unwrap();
 
         assert!(!mgr.is_allowed("12345").unwrap());
 
@@ -229,7 +232,9 @@ mod tests {
     #[test]
     fn test_deny_request() {
         let mgr = create_test_manager();
-        let code = mgr.create_request("12345", Some("Alice"), "chat-1").unwrap();
+        let code = mgr
+            .create_request("12345", Some("Alice"), "chat-1")
+            .unwrap();
 
         mgr.deny(&code).unwrap();
         assert!(!mgr.is_allowed("12345").unwrap());
@@ -241,9 +246,13 @@ mod tests {
     #[test]
     fn test_duplicate_request() {
         let mgr = create_test_manager();
-        let code1 = mgr.create_request("12345", Some("Alice"), "chat-1").unwrap();
+        let code1 = mgr
+            .create_request("12345", Some("Alice"), "chat-1")
+            .unwrap();
         // Creating another request for the same peer replaces the old one
-        let code2 = mgr.create_request("12345", Some("Alice"), "chat-1").unwrap();
+        let code2 = mgr
+            .create_request("12345", Some("Alice"), "chat-1")
+            .unwrap();
         assert_ne!(code1, code2);
 
         // Only the new code should work
@@ -256,7 +265,9 @@ mod tests {
         let mgr = create_test_manager();
         assert!(!mgr.has_pending_request("12345").unwrap());
 
-        let _code = mgr.create_request("12345", Some("Alice"), "chat-1").unwrap();
+        let _code = mgr
+            .create_request("12345", Some("Alice"), "chat-1")
+            .unwrap();
         assert!(mgr.has_pending_request("12345").unwrap());
     }
 
@@ -275,7 +286,9 @@ mod tests {
     #[test]
     fn test_revoke_peer() {
         let mgr = create_test_manager();
-        let code = mgr.create_request("12345", Some("Alice"), "chat-1").unwrap();
+        let code = mgr
+            .create_request("12345", Some("Alice"), "chat-1")
+            .unwrap();
         mgr.approve(&code, "cli").unwrap();
         assert!(mgr.is_allowed("12345").unwrap());
 

@@ -16,11 +16,7 @@ use crate::output::json::print_json;
 use serde_json::json;
 
 /// Run pairing commands
-pub async fn run(
-    core: Arc<AppCore>,
-    command: PairingCommands,
-    format: OutputFormat,
-) -> Result<()> {
+pub async fn run(core: Arc<AppCore>, command: PairingCommands, format: OutputFormat) -> Result<()> {
     let pairing_storage = Arc::new(PairingStorage::new(core.storage.get_db())?);
     let manager = PairingManager::new(pairing_storage);
 
@@ -56,9 +52,7 @@ pub async fn run_route(
             } else if default {
                 (RouteBindingType::Default, "*".to_string())
             } else {
-                return Err(anyhow!(
-                    "Must specify --peer, --group, or --default"
-                ));
+                return Err(anyhow!("Must specify --peer, --group, or --default"));
             };
             bind_route(&resolver, binding_type, &target_id, &agent, format)
         }

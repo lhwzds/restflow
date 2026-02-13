@@ -829,11 +829,7 @@ impl BackgroundAgentRunner {
         }
     }
 
-    async fn resume_from_checkpoint(
-        &self,
-        task_id: &str,
-        payload: crate::models::ResumePayload,
-    ) {
+    async fn resume_from_checkpoint(&self, task_id: &str, payload: crate::models::ResumePayload) {
         // Load checkpoint from storage
         let checkpoint = match self.storage.load_checkpoint_by_task_id(task_id) {
             Ok(Some(cp)) => cp,
@@ -869,7 +865,11 @@ impl BackgroundAgentRunner {
             let detail = format!(
                 "Resumed from checkpoint {}: {}",
                 cp.id,
-                if payload.approved { "approved" } else { "denied" }
+                if payload.approved {
+                    "approved"
+                } else {
+                    "denied"
+                }
             );
             self.event_emitter
                 .emit(TaskStreamEvent::progress(
@@ -1025,10 +1025,7 @@ impl BackgroundAgentRunner {
                             BackgroundMessageSource::Agent => SteerSource::Api,
                             BackgroundMessageSource::System => SteerSource::Hook,
                         };
-                        let steer_message = SteerMessage::message(
-                            queued.message.clone(),
-                            source,
-                        );
+                        let steer_message = SteerMessage::message(queued.message.clone(), source);
 
                         let sent = steer_registry.steer(&task_id, steer_message).await;
                         if sent && let Err(e) = storage.mark_background_message_consumed(&queued.id)

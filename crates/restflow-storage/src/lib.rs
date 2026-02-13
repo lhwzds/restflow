@@ -41,12 +41,13 @@ use std::sync::Arc;
 pub use agent::AgentStorage;
 pub use auth_profiles::AuthProfileStorage;
 pub use background_agent::BackgroundAgentStorage;
-pub use checkpoint::CheckpointStorage;
 pub use chat_session::ChatSessionStorage;
+pub use checkpoint::CheckpointStorage;
 pub use config::{ConfigStorage, SystemConfig};
 pub use daemon_state::DaemonStateStorage;
 pub use memory::{MemoryStorage, PutChunkResult};
 pub use memory_index::{IndexableChunk, MemoryIndex, SearchHit};
+pub use pairing::PairingStorage;
 pub use secrets::{Secret, SecretStorage, SecretStorageConfig};
 pub use shared_space::SharedSpaceStorage;
 pub use simple_storage::SimpleStorage;
@@ -54,7 +55,6 @@ pub use skill::SkillStorage;
 pub use terminal_session::TerminalSessionStorage;
 pub use trigger::TriggerStorage;
 pub use vector::{VectorConfig, VectorStorage};
-pub use pairing::PairingStorage;
 pub use workspace_note::WorkspaceNoteStorage;
 /// Central storage manager that initializes all storage subsystems
 pub struct Storage {

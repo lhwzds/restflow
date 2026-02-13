@@ -539,10 +539,7 @@ where
                 let error_str = e.to_string();
                 if is_auth_error(&error_str) {
                     // Auth errors: immediately put in cooldown, don't count toward threshold
-                    warn!(
-                        "Model {:?} auth error (skipping): {}",
-                        model, error_str
-                    );
+                    warn!("Model {:?} auth error (skipping): {}", model, error_str);
                     manager.force_cooldown(model).await;
                 } else {
                     warn!("Model {:?} failed: {}", model, error_str);

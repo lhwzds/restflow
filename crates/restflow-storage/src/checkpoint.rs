@@ -10,8 +10,7 @@ use std::sync::Arc;
 use crate::range_utils::prefix_range;
 
 /// Primary table: checkpoint_id -> serialized AgentCheckpoint JSON
-const CHECKPOINT_TABLE: TableDefinition<&str, &[u8]> =
-    TableDefinition::new("agent_checkpoints");
+const CHECKPOINT_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("agent_checkpoints");
 
 /// Index: execution_id:checkpoint_id -> checkpoint_id
 const CHECKPOINT_EXECUTION_INDEX: TableDefinition<&str, &str> =
@@ -184,7 +183,11 @@ mod tests {
     use super::*;
 
     fn setup_db() -> Arc<Database> {
-        Arc::new(Database::builder().create_with_backend(redb::backends::InMemoryBackend::new()).unwrap())
+        Arc::new(
+            Database::builder()
+                .create_with_backend(redb::backends::InMemoryBackend::new())
+                .unwrap(),
+        )
     }
 
     #[test]
@@ -193,7 +196,9 @@ mod tests {
         let storage = CheckpointStorage::new(db).unwrap();
 
         let data = br#"{"id":"cp-1","execution_id":"exec-1","version":5}"#;
-        storage.save("cp-1", "exec-1", Some("task-1"), data).unwrap();
+        storage
+            .save("cp-1", "exec-1", Some("task-1"), data)
+            .unwrap();
 
         let loaded = storage.load("cp-1").unwrap();
         assert!(loaded.is_some());
@@ -235,8 +240,12 @@ mod tests {
         let db = setup_db();
         let storage = CheckpointStorage::new(db).unwrap();
 
-        storage.save("cp-1", "exec-1", Some("task-1"), b"d1").unwrap();
-        storage.save("cp-2", "exec-2", Some("task-1"), b"d2").unwrap();
+        storage
+            .save("cp-1", "exec-1", Some("task-1"), b"d1")
+            .unwrap();
+        storage
+            .save("cp-2", "exec-2", Some("task-1"), b"d2")
+            .unwrap();
 
         let loaded = storage.load_by_task_id("task-1").unwrap();
         assert!(loaded.is_some());
@@ -251,7 +260,9 @@ mod tests {
         let db = setup_db();
         let storage = CheckpointStorage::new(db).unwrap();
 
-        storage.save("cp-1", "exec-1", Some("task-1"), b"data").unwrap();
+        storage
+            .save("cp-1", "exec-1", Some("task-1"), b"data")
+            .unwrap();
         assert!(storage.load("cp-1").unwrap().is_some());
 
         storage.delete("cp-1", "exec-1", Some("task-1")).unwrap();
