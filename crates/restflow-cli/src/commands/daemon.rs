@@ -2,7 +2,7 @@ use crate::cli::DaemonCommands;
 use crate::commands::claude_mcp::try_sync_claude_http_mcp;
 use crate::commands::codex_mcp::try_sync_codex_http_mcp;
 use crate::daemon::CliBackgroundAgentRunner;
-use anyhow::Result;
+use anyhow::{Context, Result};
 use restflow_core::AppCore;
 use restflow_core::daemon::{
     DaemonConfig, DaemonStatus, IpcServer, check_daemon_status, start_daemon_with_config,
@@ -472,39 +472,81 @@ impl Drop for PidFileGuard {
 
 struct DaemonLockGuard {
     path: PathBuf,
+    #[cfg(unix)]
+    _file: std::fs::File, // Keep file handle open for flock
 }
 
 impl DaemonLockGuard {
     fn acquire(path: PathBuf) -> Result<Self> {
         let current_pid = std::process::id();
-        let mut attempts = 0;
-        loop {
-            attempts += 1;
-
-            match std::fs::OpenOptions::new()
-                .create_new(true)
+        
+        #[cfg(unix)]
+        {
+            use std::fs::OpenOptions;
+            use std::io::Write;
+            use std::os::unix::io::AsRawFd;
+            
+            // Create or open the lock file
+            let file = OpenOptions::new()
+                .create(true)
                 .write(true)
+                .truncate(true)
                 .open(&path)
-            {
-                Ok(mut lock_file) => {
-                    use std::io::Write;
-                    write!(lock_file, "{}", current_pid)?;
-                    return Ok(Self { path });
+                .context("Failed to create daemon lock file")?;
+            
+            // Try to acquire exclusive lock (non-blocking)
+            let rc = unsafe { 
+                libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) 
+            };
+            
+            if rc != 0 {
+                let err = std::io::Error::last_os_error();
+                if err.raw_os_error() == Some(libc::EWOULDBLOCK) 
+                    || err.raw_os_error() == Some(libc::EAGAIN) 
+                {
+                    anyhow::bail!("Daemon already running (lock file held by another process)");
                 }
-                Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {
-                    if let Some(lock_pid) = read_lock_pid(&path)
-                        && is_process_alive(lock_pid)
-                    {
-                        anyhow::bail!("Daemon already running (lock held by PID {})", lock_pid);
+                anyhow::bail!("Failed to acquire daemon lock: {}", err);
+            }
+            
+            // Write PID to lock file
+            write!(&file, "{}", current_pid)?;
+            
+            Ok(Self { path, _file: file })
+        }
+        
+        #[cfg(not(unix))]
+        {
+            // Fallback for non-Unix platforms (still has TOCTOU but with reduced window)
+            let mut attempts = 0;
+            loop {
+                attempts += 1;
+
+                match std::fs::OpenOptions::new()
+                    .create_new(true)
+                    .write(true)
+                    .open(&path)
+                {
+                    Ok(mut lock_file) => {
+                        use std::io::Write;
+                        write!(lock_file, "{}", current_pid)?;
+                        return Ok(Self { path });
                     }
-                    let _ = std::fs::remove_file(&path);
-                    if attempts >= 2 {
-                        anyhow::bail!(
-                            "Failed to acquire daemon lock after removing stale lock file"
-                        );
+                    Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {
+                        if let Some(lock_pid) = read_lock_pid(&path)
+                            && is_process_alive(lock_pid)
+                        {
+                            anyhow::bail!("Daemon already running (lock held by PID {})", lock_pid);
+                        }
+                        let _ = std::fs::remove_file(&path);
+                        if attempts >= 2 {
+                            anyhow::bail!(
+                                "Failed to acquire daemon lock after removing stale lock file"
+                            );
+                        }
                     }
+                    Err(err) => return Err(err.into()),
                 }
-                Err(err) => return Err(err.into()),
             }
         }
     }
@@ -512,16 +554,13 @@ impl DaemonLockGuard {
 
 impl Drop for DaemonLockGuard {
     fn drop(&mut self) {
+        // Note: On Unix, the lock is automatically released when the file handle is dropped.
+        // We still remove the file for cleanup.
         let _ = std::fs::remove_file(&self.path);
     }
 }
 
-fn read_lock_pid(path: &std::path::Path) -> Option<u32> {
-    std::fs::read_to_string(path)
-        .ok()
-        .and_then(|raw| raw.trim().parse::<u32>().ok())
-}
-
+#[cfg(not(unix))]
 fn is_process_alive(pid: u32) -> bool {
     #[cfg(unix)]
     {
