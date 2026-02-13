@@ -561,6 +561,12 @@ impl Drop for DaemonLockGuard {
 }
 
 #[cfg(not(unix))]
+fn read_lock_pid(path: &std::path::Path) -> Option<u32> {
+    let content = std::fs::read_to_string(path).ok()?;
+    content.trim().parse::<u32>().ok()
+}
+
+#[cfg(not(unix))]
 fn is_process_alive(pid: u32) -> bool {
     #[cfg(unix)]
     {
