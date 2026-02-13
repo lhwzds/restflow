@@ -189,19 +189,25 @@ impl ChannelRouter {
                 continue;
             }
 
-            let target_conversations =
-                if let Some(default_conv) = self.default_conversations.get(channel_type) {
-                    vec![default_conv.clone()]
-                } else {
-                    let conversations = self.conversations.read().await;
-                    let mut targets = HashSet::new();
-                    for (conversation_id, context) in conversations.iter() {
-                        if context.channel_type == *channel_type {
-                            targets.insert(conversation_id.clone());
-                        }
+            let target_conversations = if let Some(default_conv) =
+                self.default_conversations.get(channel_type)
+            {
+                vec![default_conv.clone()]
+            } else if *channel_type == ChannelType::Telegram {
+                warn!(
+                    "Skipping Telegram broadcast - no default conversation configured (set TELEGRAM_CHAT_ID)"
+                );
+                Vec::new()
+            } else {
+                let conversations = self.conversations.read().await;
+                let mut targets = HashSet::new();
+                for (conversation_id, context) in conversations.iter() {
+                    if context.channel_type == *channel_type {
+                        targets.insert(conversation_id.clone());
                     }
-                    targets.into_iter().collect::<Vec<_>>()
-                };
+                }
+                targets.into_iter().collect::<Vec<_>>()
+            };
 
             if target_conversations.is_empty() {
                 warn!(
@@ -561,6 +567,23 @@ mod tests {
     #[tokio::test]
     async fn test_broadcast_without_default_uses_recorded_conversations() {
         let mut router = ChannelRouter::new();
+        router.register(MockChannel::new(ChannelType::Discord));
+
+        let inbound_a =
+            InboundMessage::new("msg-1", ChannelType::Discord, "user-1", "chat-1", "Hello");
+        let inbound_b =
+            InboundMessage::new("msg-2", ChannelType::Discord, "user-2", "chat-2", "Hi");
+        router.record_conversation(&inbound_a, None).await;
+        router.record_conversation(&inbound_b, None).await;
+
+        let results = router.broadcast("Announcement", MessageLevel::Info).await;
+        assert_eq!(results.len(), 2);
+        assert!(results.iter().all(|(_, result)| result.is_ok()));
+    }
+
+    #[tokio::test]
+    async fn test_broadcast_without_default_skips_telegram_recorded_conversations() {
+        let mut router = ChannelRouter::new();
         router.register(MockChannel::new(ChannelType::Telegram));
 
         let inbound_a =
@@ -571,8 +594,7 @@ mod tests {
         router.record_conversation(&inbound_b, None).await;
 
         let results = router.broadcast("Announcement", MessageLevel::Info).await;
-        assert_eq!(results.len(), 2);
-        assert!(results.iter().all(|(_, result)| result.is_ok()));
+        assert!(results.is_empty());
     }
 
     #[tokio::test]
