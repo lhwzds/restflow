@@ -420,9 +420,16 @@ impl AgentExecutor {
 
                 // Truncate long results to prevent context overflow
                 if result_str.len() > config.max_tool_result_length {
+                    // Find a safe UTF-8 character boundary
+                    let safe_len = result_str
+                        .char_indices()
+                        .map(|(i, _)| i)
+                        .take_while(|&i| i <= config.max_tool_result_length)
+                        .last()
+                        .unwrap_or(0);
                     result_str = format!(
                         "{}...[truncated, {} chars total]",
-                        &result_str[..config.max_tool_result_length],
+                        &result_str[..safe_len],
                         result_str.len()
                     );
                 }
@@ -1329,5 +1336,44 @@ mod tests {
         assert!(saw_tool_start);
         assert!(saw_tool_result);
         assert!(saw_completed);
+    }
+
+    #[tokio::test]
+    async fn test_utf8_truncation_chinese_chars() {
+        // Create a tool result containing Chinese characters at boundary
+        let chinese_text = "这是一个包含中文字符的测试）。".repeat(200); // ~4000 bytes
+
+        let response = CompletionResponse {
+            content: Some("Calling tool".to_string()),
+            tool_calls: vec![ToolCall {
+                id: "call_1".to_string(),
+                name: "test".to_string(),
+                arguments: serde_json::json!({"result": chinese_text}),
+            }],
+            finish_reason: FinishReason::ToolCalls,
+            usage: None,
+        };
+
+        let mock_llm = Arc::new(MockLlmClient::new(vec![
+            response,
+            CompletionResponse {
+                content: Some("Done".to_string()),
+                tool_calls: vec![],
+                finish_reason: FinishReason::Stop,
+                usage: None,
+            },
+        ]));
+
+        let tools = Arc::new(ToolRegistry::new());
+        let executor = AgentExecutor::new(mock_llm, tools);
+
+        // Set max_tool_result_length to a value that would split Chinese chars
+        let config = AgentConfig::new("Test UTF-8 safety")
+            .with_max_tool_result_length(4000);
+
+        // This should NOT panic even with Chinese characters at byte boundary
+        let result = executor.run(config).await;
+        assert!(result.is_ok(), "Should handle Chinese characters safely");
+        assert!(result.unwrap().success);
     }
 }

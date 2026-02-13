@@ -42,8 +42,15 @@ pub fn chunk_markdown(text: &str, max_len: Option<usize>) -> Vec<String> {
         }
 
         // Determine the best split point within `limit` chars.
-        let candidate = &remaining[..limit];
-        let split_at = find_split_point(candidate, limit, in_fence);
+        // Find a safe UTF-8 character boundary
+        let safe_limit = remaining
+            .char_indices()
+            .map(|(i, _)| i)
+            .take_while(|&i| i <= limit)
+            .last()
+            .unwrap_or(0);
+        let candidate = &remaining[..safe_limit];
+        let split_at = find_split_point(candidate, safe_limit, in_fence);
 
         let chunk_text = &remaining[..split_at];
 
@@ -289,5 +296,48 @@ mod tests {
         let text = "a".repeat(DEFAULT_MAX_LEN + 1);
         let chunks = chunk_markdown(&text, None);
         assert!(chunks.len() >= 2);
+    }
+
+    #[test]
+    fn test_utf8_chinese_char_boundary() {
+        // Test chunking with Chinese characters at potential split boundaries
+        // Chinese chars are 3 bytes each in UTF-8
+        let chinese = "这是一个包含中文字符的测试）。";
+        let text = chinese.repeat(100); // ~1500 bytes
+
+        // Set limit to a value that would split a multi-byte char if not handled correctly
+        let chunks = chunk_markdown(&text, Some(500));
+
+        // Should not panic and should produce valid UTF-8 chunks
+        assert!(!chunks.is_empty());
+        for chunk in &chunks {
+            // Verify each chunk is valid UTF-8
+            assert!(std::str::from_utf8(chunk.as_bytes()).is_ok());
+        }
+
+        // Verify content is preserved when joined
+        let rejoined = chunks.join("");
+        assert_eq!(rejoined.chars().count(), text.chars().count());
+    }
+
+    #[test]
+    fn test_utf8_mixed_content() {
+        // Mix English, Chinese, and emojis
+        let text = format!(
+            "English text {}中文内容{} emoji 🚀🎉 {}",
+            "x".repeat(200),
+            "测试".repeat(50),
+            "y".repeat(200)
+        );
+
+        let chunks = chunk_markdown(&text, Some(300));
+
+        // Should not panic
+        assert!(!chunks.is_empty());
+
+        // All chunks should be valid UTF-8
+        for chunk in &chunks {
+            assert!(std::str::from_utf8(chunk.as_bytes()).is_ok());
+        }
     }
 }
