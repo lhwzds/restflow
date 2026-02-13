@@ -13,13 +13,13 @@ permissions:
   contents: read
 
 jobs:
-  stress-mock-runtime:
+  smoke:
     runs-on: ubuntu-22.04
-    timeout-minutes: 90
+    timeout-minutes: 40
     env:
       CARGO_TERM_COLOR: always
       RESTFLOW_TEST_MODE: "1"
-      SOAK_MINUTES: "10"
+      SOAK_MINUTES: "6"
       LOG_DIR: ${{ github.workspace }}/target/stress-artifacts
 
     steps:
@@ -41,14 +41,11 @@ jobs:
             target
           key: ${{ runner.os }}-nightly-stress-${{ hashFiles('Cargo.lock') }}
 
-      - name: Run core stress integration test
+      - name: Run core stress integration test (smoke)
         run: cargo test -p restflow-core --test stress_mock_runtime -- --nocapture
 
-      - name: Run AI crate tests
-        run: cargo test -p restflow-ai --verbose
-
-      - name: Run mock soak script
-        run: bash scripts/stress/mock_daemon_soak.sh
+      - name: Run MCP background-agent stress path
+        run: cargo test -p restflow-core mcp::server::tests::test_mcp_manage_background_agents_stress_path_emits_latency_summary -- --nocapture
 
       - name: Validate stress summary threshold
         run: |
@@ -57,26 +54,172 @@ jobs:
           from pathlib import Path
 
           summary_path = Path("target/stress-artifacts/stress-summary.json")
+          mcp_summary_path = Path("target/stress-artifacts/mcp-background-agent-stress-summary.json")
+
           if not summary_path.exists():
               raise SystemExit("stress-summary.json not found")
+          if not mcp_summary_path.exists():
+              raise SystemExit("mcp-background-agent-stress-summary.json not found")
 
           summary = json.loads(summary_path.read_text(encoding="utf-8"))
+          mcp_summary = json.loads(mcp_summary_path.read_text(encoding="utf-8"))
           panic_count = int(summary.get("panic_count", 0))
           success_rate = float(summary.get("success_rate", 0.0))
+          p95 = int(mcp_summary.get("latency_ms", {}).get("p95", 0))
 
           if panic_count != 0:
               raise SystemExit(f"panic_count must be 0, got {panic_count}")
           if success_rate < 0.99:
               raise SystemExit(f"success_rate must be >= 0.99, got {success_rate:.4f}")
+          if p95 > 250:
+              raise SystemExit(f"mcp p95 must be <= 250ms, got {p95}ms")
 
-          print(f"Summary validated: panic_count={panic_count}, success_rate={success_rate:.4f}")
+          print(f"Summary validated: panic_count={panic_count}, success_rate={success_rate:.4f}, p95={p95}ms")
           PY
+
+      - name: Smoke summary
+        if: always()
+        run: |
+          {
+            echo "## Nightly Stress Smoke"
+            echo ""
+            echo "- stress_mock_runtime: executed"
+            echo "- mcp stress path: executed"
+            if [ -f target/stress-artifacts/stress-summary.json ]; then
+              echo "- stress-summary.json: available"
+            fi
+            if [ -f target/stress-artifacts/mcp-background-agent-stress-summary.json ]; then
+              echo "- mcp-background-agent-stress-summary.json: available"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload smoke artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-stress-smoke-artifacts
+          path: |
+            target/stress-artifacts/**
+          if-no-files-found: warn
+
+  stress:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    needs: smoke
+    env:
+      CARGO_TERM_COLOR: always
+      RESTFLOW_TEST_MODE: "1"
+      SOAK_MINUTES: "12"
+      LOG_DIR: ${{ github.workspace }}/target/stress-artifacts
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+          components: clippy
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-nightly-stress-${{ hashFiles('Cargo.lock') }}
+
+      - name: Run AI crate tests
+        run: cargo test -p restflow-ai --verbose
+
+      - name: Run mock soak script (stress profile)
+        run: bash scripts/stress/mock_daemon_soak.sh
+
+      - name: Stress summary
+        if: always()
+        run: |
+          {
+            echo "## Nightly Stress Medium"
+            echo ""
+            if [ -f target/stress-artifacts/stress-summary.json ]; then
+              python3 - <<'PY'
+              import json
+              from pathlib import Path
+              summary = json.loads(Path("target/stress-artifacts/stress-summary.json").read_text(encoding="utf-8"))
+              print(f"- total_runs: {summary.get('total_runs')}")
+              print(f"- success: {summary.get('success')}")
+              print(f"- failure: {summary.get('failure')}")
+              print(f"- warn_count: {summary.get('warn_count', 0)}")
+              print(f"- hard_limit_breaches: {summary.get('hard_limit_breaches', 0)}")
+              PY
+            else
+              echo "- stress-summary.json missing"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload stress artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: nightly-stress-artifacts
+          name: nightly-stress-medium-artifacts
+          path: |
+            target/stress-artifacts/**
+          if-no-files-found: warn
+
+  soak:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 360
+    needs: stress
+    env:
+      CARGO_TERM_COLOR: always
+      RESTFLOW_TEST_MODE: "1"
+      SOAK_MINUTES: "120"
+      METRIC_INTERVAL_SECONDS: "60"
+      LOG_DIR: ${{ github.workspace }}/target/stress-artifacts
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+          components: clippy
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-nightly-stress-${{ hashFiles('Cargo.lock') }}
+
+      - name: Run mock soak script (soak profile)
+        run: bash scripts/stress/mock_daemon_soak.sh
+
+      - name: Soak summary
+        if: always()
+        run: |
+          {
+            echo "## Nightly Stress Soak"
+            echo ""
+            if [ -f target/stress-artifacts/soak-summary.md ]; then
+              cat target/stress-artifacts/soak-summary.md
+            else
+              echo "- soak-summary.md missing"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload soak artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-stress-soak-artifacts
           path: |
             target/stress-artifacts/**
           if-no-files-found: warn
