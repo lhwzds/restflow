@@ -43,7 +43,7 @@ use restflow_ai::{
 use serde::{Deserialize, de::DeserializeOwned};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -1519,6 +1519,56 @@ impl ManageOpsTool {
             .clamp(1, max)
     }
 
+    fn canonical_existing_ancestor(path: &Path) -> anyhow::Result<PathBuf> {
+        let mut current = if path.exists() {
+            path.to_path_buf()
+        } else {
+            path.parent()
+                .map(Path::to_path_buf)
+                .unwrap_or_else(|| path.to_path_buf())
+        };
+
+        while !current.exists() {
+            if !current.pop() {
+                break;
+            }
+        }
+
+        if !current.exists() {
+            anyhow::bail!("No existing ancestor found for path: {}", path.display());
+        }
+
+        Ok(current.canonicalize()?)
+    }
+
+    fn resolve_log_tail_path(input: &Value) -> restflow_ai::error::Result<PathBuf> {
+        let logs_dir = crate::paths::logs_dir().map_err(|e| AiError::Tool(e.to_string()))?;
+        let path = match input
+            .get("path")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|raw| !raw.is_empty())
+            .map(PathBuf::from)
+        {
+            Some(custom_path) if custom_path.is_absolute() => custom_path,
+            Some(custom_path) => logs_dir.join(custom_path),
+            None => crate::paths::daemon_log_path().map_err(|e| AiError::Tool(e.to_string()))?,
+        };
+
+        let logs_root = Self::canonical_existing_ancestor(&logs_dir)
+            .map_err(|e| AiError::Tool(e.to_string()))?;
+        let path_root =
+            Self::canonical_existing_ancestor(&path).map_err(|e| AiError::Tool(e.to_string()))?;
+        if !path_root.starts_with(&logs_root) {
+            return Err(AiError::Tool(format!(
+                "log_tail path must stay under {}",
+                logs_dir.display()
+            )));
+        }
+
+        Ok(path)
+    }
+
     fn read_log_tail(path: &Path, lines: usize) -> anyhow::Result<(Vec<String>, bool)> {
         let content = std::fs::read_to_string(path)?;
         let all_lines: Vec<String> = content.lines().map(str::to_string).collect();
@@ -1629,11 +1679,7 @@ impl ManageOpsTool {
 
     fn log_tail_payload(input: &Value) -> restflow_ai::error::Result<(Value, Value)> {
         let lines = Self::parse_limit(input, "lines", 100, 1000);
-        let path = if let Some(raw_path) = input.get("path").and_then(Value::as_str) {
-            std::path::PathBuf::from(raw_path)
-        } else {
-            crate::paths::daemon_log_path().map_err(|e| AiError::Tool(e.to_string()))?
-        };
+        let path = Self::resolve_log_tail_path(input)?;
         if !path.exists() {
             let evidence = json!({
                 "path": path.to_string_lossy(),
@@ -1698,7 +1744,7 @@ impl Tool for ManageOpsTool {
                 },
                 "path": {
                     "type": "string",
-                    "description": "Optional custom log file path for log_tail."
+                    "description": "Optional log file path for log_tail. Must stay under ~/.restflow/logs."
                 }
             },
             "required": ["operation"]
@@ -2802,6 +2848,73 @@ mod tests {
         assert_eq!(output.result["operation"], "session_summary");
         assert!(output.result.get("evidence").is_some());
         assert!(output.result.get("verification").is_some());
+    }
+
+    #[test]
+    fn test_manage_ops_log_tail_rejects_path_outside_logs_dir() {
+        let _lock = restflow_dir_env_lock();
+        let temp_dir = tempdir().unwrap();
+        let state_dir = temp_dir.path().join("state");
+        std::fs::create_dir_all(&state_dir).unwrap();
+        let outside_log = temp_dir.path().join("outside.log");
+        std::fs::write(&outside_log, "line-1\nline-2\n").unwrap();
+
+        let previous_restflow_dir = std::env::var_os("RESTFLOW_DIR");
+        unsafe { std::env::set_var("RESTFLOW_DIR", &state_dir) };
+
+        let result = ManageOpsTool::log_tail_payload(&json!({
+            "path": outside_log.to_string_lossy(),
+            "lines": 10
+        }));
+
+        unsafe {
+            if let Some(value) = previous_restflow_dir {
+                std::env::set_var("RESTFLOW_DIR", value);
+            } else {
+                std::env::remove_var("RESTFLOW_DIR");
+            }
+        }
+
+        let err = result.expect_err("path outside ~/.restflow/logs should be rejected");
+        assert!(err.to_string().contains("log_tail path must stay under"));
+    }
+
+    #[test]
+    fn test_manage_ops_log_tail_allows_relative_path_in_logs_dir() {
+        let _lock = restflow_dir_env_lock();
+        let temp_dir = tempdir().unwrap();
+        let state_dir = temp_dir.path().join("state");
+        std::fs::create_dir_all(&state_dir).unwrap();
+
+        let previous_restflow_dir = std::env::var_os("RESTFLOW_DIR");
+        unsafe { std::env::set_var("RESTFLOW_DIR", &state_dir) };
+
+        let logs_dir = crate::paths::logs_dir().unwrap();
+        let custom_log = logs_dir.join("custom.log");
+        std::fs::write(&custom_log, "line-1\nline-2\nline-3\n").unwrap();
+
+        let result = ManageOpsTool::log_tail_payload(&json!({
+            "path": "custom.log",
+            "lines": 2
+        }));
+
+        unsafe {
+            if let Some(value) = previous_restflow_dir {
+                std::env::set_var("RESTFLOW_DIR", value);
+            } else {
+                std::env::remove_var("RESTFLOW_DIR");
+            }
+        }
+
+        let (evidence, verification) = result.expect("path under ~/.restflow/logs should pass");
+        let lines = evidence["lines"]
+            .as_array()
+            .expect("lines should be an array");
+        assert_eq!(evidence["line_count"], json!(2));
+        assert_eq!(verification["path_exists"], json!(true));
+        assert_eq!(lines.len(), 2);
+        assert_eq!(lines[0].as_str(), Some("line-2"));
+        assert_eq!(lines[1].as_str(), Some("line-3"));
     }
 
     #[test]
