@@ -14,7 +14,7 @@ use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
-use tracing::{error, info};
+use tracing::{debug, error, info, warn};
 
 pub async fn run_mcp_http_server(
     core: Arc<AppCore>,
@@ -47,7 +47,7 @@ pub async fn run_mcp_http_server(
             }
             accept = listener.accept() => {
                 match accept {
-                    Ok((stream, _)) => {
+                    Ok((stream, peer_addr)) => {
                         let io = TokioIo::new(stream);
                         let service = service.clone();
                         tokio::spawn(async move {
@@ -55,7 +55,20 @@ pub async fn run_mcp_http_server(
                                 .serve_connection(io, service)
                                 .await
                             {
-                                error!(error = %err, "MCP HTTP connection error");
+                                let err_text = err.to_string();
+                                if is_expected_connection_close(&err_text) {
+                                    debug!(
+                                        %peer_addr,
+                                        error = %err_text,
+                                        "MCP HTTP connection closed"
+                                    );
+                                } else {
+                                    warn!(
+                                        %peer_addr,
+                                        error = %err_text,
+                                        "MCP HTTP connection ended with error"
+                                    );
+                                }
                             }
                         });
                     }
@@ -68,4 +81,40 @@ pub async fn run_mcp_http_server(
     }
 
     Ok(())
+}
+
+fn is_expected_connection_close(error: &str) -> bool {
+    let normalized = error.to_ascii_lowercase();
+    [
+        "connection closed before message completed",
+        "connection error",
+        "connection reset by peer",
+        "broken pipe",
+        "operation canceled",
+        "cancelled",
+        "closed",
+        "eof",
+    ]
+    .iter()
+    .any(|pattern| normalized.contains(pattern))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_expected_connection_close;
+
+    #[test]
+    fn classify_expected_connection_shutdown_errors() {
+        assert!(is_expected_connection_close(
+            "connection closed before message completed"
+        ));
+        assert!(is_expected_connection_close("connection error"));
+        assert!(is_expected_connection_close("broken pipe"));
+    }
+
+    #[test]
+    fn classify_unexpected_connection_errors() {
+        assert!(!is_expected_connection_close("tls handshake failed"));
+        assert!(!is_expected_connection_close("http parse failure"));
+    }
 }
