@@ -10,6 +10,7 @@ use restflow_core::daemon::{
 };
 use restflow_core::paths;
 use std::net::{IpAddr, Ipv4Addr};
+use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::time::{Duration, sleep};
 use tracing::{error, info, warn};
@@ -70,6 +71,65 @@ pub async fn run(core: Arc<AppCore>, command: DaemonCommands) -> Result<()> {
         } => restart(core, foreground, mcp_port).await,
         DaemonCommands::Stop => stop().await,
         DaemonCommands::Status => status().await,
+    }
+}
+
+/// Run daemon commands that do not require opening AppCore.
+/// Returns true when the command is handled and the caller should return.
+pub async fn run_without_core(command: &DaemonCommands) -> Result<bool> {
+    match command {
+        DaemonCommands::Start {
+            foreground: false,
+            mcp_port,
+        } => {
+            start_background(*mcp_port).await?;
+            Ok(true)
+        }
+        DaemonCommands::Restart {
+            foreground: false,
+            mcp_port,
+        } => {
+            restart_background(*mcp_port).await?;
+            Ok(true)
+        }
+        DaemonCommands::Stop => {
+            stop().await?;
+            Ok(true)
+        }
+        DaemonCommands::Status => {
+            status().await?;
+            Ok(true)
+        }
+        DaemonCommands::Start {
+            foreground: true, ..
+        }
+        | DaemonCommands::Restart {
+            foreground: true, ..
+        } => Ok(false),
+    }
+}
+
+async fn start_background(mcp_port: Option<u16>) -> Result<()> {
+    let config = DaemonConfig {
+        mcp: true,
+        mcp_port,
+    };
+
+    match check_daemon_status()? {
+        DaemonStatus::Running { pid } => {
+            println!("Daemon already running (PID: {})", pid);
+            Ok(())
+        }
+        _ => {
+            let report = restflow_core::daemon::recovery::recover().await?;
+            if !report.is_clean() {
+                println!("{}", report);
+            }
+            let pid = start_daemon_with_config(config)?;
+            println!("Daemon started (PID: {})", pid);
+            sync_mcp_configs(mcp_port).await;
+            Ok(())
+        }
     }
 }
 
@@ -137,6 +197,7 @@ async fn run_daemon(core: Arc<AppCore>, config: DaemonConfig) -> Result<()> {
 
     let pid_path = paths::daemon_pid_path()?;
     std::fs::write(&pid_path, std::process::id().to_string())?;
+    let _pid_guard = PidFileGuard::new(pid_path.clone());
 
     let (shutdown_tx, _) = tokio::sync::broadcast::channel(1);
 
@@ -210,7 +271,6 @@ async fn run_daemon(core: Arc<AppCore>, config: DaemonConfig) -> Result<()> {
     let _ = shutdown_rx.recv().await;
 
     runner.stop().await?;
-    let _ = std::fs::remove_file(&pid_path);
     let _ = ipc_handle.await;
     let _ = mcp_handle.await;
     let _ = cleanup_handle.await;
@@ -312,14 +372,28 @@ async fn stop() -> Result<()> {
 async fn status() -> Result<()> {
     let pid_path = paths::daemon_pid_path()?;
     let socket_path = paths::socket_path()?;
+    let mut daemon_status = check_daemon_status()?;
+    let mut recovery_report = None;
+
+    if matches!(daemon_status, DaemonStatus::Stale { .. }) {
+        let report = restflow_core::daemon::recovery::recover().await?;
+        if !report.is_clean() {
+            recovery_report = Some(report);
+        }
+        daemon_status = check_daemon_status()?;
+    }
+
     let stale_state = restflow_core::daemon::recovery::inspect(&pid_path, &socket_path).await?;
 
-    match check_daemon_status()? {
+    match daemon_status {
         DaemonStatus::Running { pid } => {
             println!("Daemon running (PID: {})", pid);
         }
         DaemonStatus::NotRunning => {
             println!("Daemon not running");
+            if let Some(report) = recovery_report {
+                println!("  Auto-cleaned: {}", report);
+            }
             if stale_state == restflow_core::daemon::recovery::StaleState::StaleSocket {
                 println!("  Note: stale socket detected (run `daemon start` to auto-clean)");
             }
@@ -366,6 +440,22 @@ fn resolve_mcp_bind_addr() -> IpAddr {
 
 fn parse_mcp_bind_addr(value: Option<&str>) -> Option<IpAddr> {
     value.and_then(|v| v.parse().ok())
+}
+
+struct PidFileGuard {
+    path: PathBuf,
+}
+
+impl PidFileGuard {
+    fn new(path: PathBuf) -> Self {
+        Self { path }
+    }
+}
+
+impl Drop for PidFileGuard {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.path);
+    }
 }
 
 #[cfg(test)]

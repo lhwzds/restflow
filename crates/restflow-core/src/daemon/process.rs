@@ -4,6 +4,7 @@ use std::fs::{File, OpenOptions};
 use std::io::Write;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
+use std::time::Duration;
 
 #[derive(Debug, Clone)]
 pub struct DaemonConfig {
@@ -95,9 +96,17 @@ impl ProcessManager {
             }
         }
 
-        let child = cmd.spawn()?;
+        let mut child = cmd.spawn()?;
         let pid = child.id();
         write!(pid_file, "{}", pid)?;
+
+        // Detect immediate spawn failures to avoid leaving stale PID files.
+        std::thread::sleep(Duration::from_millis(150));
+        if let Some(status) = child.try_wait()? {
+            let _ = std::fs::remove_file(&self.pid_file);
+            anyhow::bail!("Daemon process exited early with status {}", status);
+        }
+
         Ok(pid)
     }
 
