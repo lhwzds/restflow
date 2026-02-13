@@ -1,0 +1,82 @@
+name: Nightly Mock Stress
+
+on:
+  schedule:
+    - cron: "30 3 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: nightly-stress-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  stress-mock-runtime:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    env:
+      CARGO_TERM_COLOR: always
+      RESTFLOW_TEST_MODE: "1"
+      SOAK_MINUTES: "10"
+      LOG_DIR: ${{ github.workspace }}/target/stress-artifacts
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+          components: clippy
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-nightly-stress-${{ hashFiles('Cargo.lock') }}
+
+      - name: Run core stress integration test
+        run: cargo test -p restflow-core --test stress_mock_runtime -- --nocapture
+
+      - name: Run AI crate tests
+        run: cargo test -p restflow-ai --verbose
+
+      - name: Run mock soak script
+        run: bash scripts/stress/mock_daemon_soak.sh
+
+      - name: Validate stress summary threshold
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          summary_path = Path("target/stress-artifacts/stress-summary.json")
+          if not summary_path.exists():
+              raise SystemExit("stress-summary.json not found")
+
+          summary = json.loads(summary_path.read_text(encoding="utf-8"))
+          panic_count = int(summary.get("panic_count", 0))
+          success_rate = float(summary.get("success_rate", 0.0))
+
+          if panic_count != 0:
+              raise SystemExit(f"panic_count must be 0, got {panic_count}")
+          if success_rate < 0.99:
+              raise SystemExit(f"success_rate must be >= 0.99, got {success_rate:.4f}")
+
+          print(f"Summary validated: panic_count={panic_count}, success_rate={success_rate:.4f}")
+          PY
+
+      - name: Upload stress artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-stress-artifacts
+          path: |
+            target/stress-artifacts/**
+          if-no-files-found: warn
