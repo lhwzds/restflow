@@ -22,6 +22,8 @@ pub struct BashConfig {
 
     /// Whether to allow sudo.
     pub allow_sudo: bool,
+    /// Maximum total bytes for stdout/stderr output payload.
+    pub max_output_bytes: usize,
 }
 
 impl Default for BashConfig {
@@ -35,6 +37,7 @@ impl Default for BashConfig {
                 "dd if=/dev".to_string(),
             ],
             allow_sudo: false,
+            max_output_bytes: 1_000_000,
         }
     }
 }
@@ -60,6 +63,17 @@ impl BashTool {
         }
 
         false
+    }
+
+    fn truncate_to_limit(&self, value: &str) -> String {
+        if value.len() <= self.config.max_output_bytes {
+            return value.to_string();
+        }
+        let mut end = self.config.max_output_bytes;
+        while end > 0 && !value.is_char_boundary(end) {
+            end -= 1;
+        }
+        format!("{}\n[Output truncated]", &value[..end])
     }
 }
 
@@ -125,15 +139,42 @@ impl Tool for BashTool {
 
         let stdout = String::from_utf8_lossy(&output.stdout);
         let stderr = String::from_utf8_lossy(&output.stderr);
+        let stdout = self.truncate_to_limit(&stdout);
+        let stderr = self.truncate_to_limit(&stderr);
 
         if output.status.success() {
-            Ok(ToolResult::success(json!(stdout.to_string())))
+            Ok(ToolResult::success(json!(stdout)))
         } else {
             Ok(ToolResult {
                 success: false,
-                result: json!(stdout.to_string()),
-                error: Some(stderr.to_string()),
+                result: json!(stdout),
+                error: Some(stderr),
             })
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_truncate_to_limit_when_output_exceeds_limit() {
+        let tool = BashTool::new(BashConfig {
+            max_output_bytes: 5,
+            ..BashConfig::default()
+        });
+        let truncated = tool.truncate_to_limit("123456789");
+        assert!(truncated.starts_with("12345"));
+        assert!(truncated.contains("[Output truncated]"));
+    }
+
+    #[test]
+    fn test_truncate_to_limit_keeps_short_output() {
+        let tool = BashTool::new(BashConfig {
+            max_output_bytes: 50,
+            ..BashConfig::default()
+        });
+        assert_eq!(tool.truncate_to_limit("short"), "short");
     }
 }

@@ -15,6 +15,8 @@ pub struct FileConfig {
     pub allowed_paths: Vec<PathBuf>,
     /// Whether write operations are allowed.
     pub allow_write: bool,
+    /// Maximum bytes allowed for a single file read.
+    pub max_read_bytes: usize,
 }
 
 impl Default for FileConfig {
@@ -22,6 +24,7 @@ impl Default for FileConfig {
         Self {
             allowed_paths: vec![std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))],
             allow_write: true,
+            max_read_bytes: 1_000_000,
         }
     }
 }
@@ -99,6 +102,15 @@ impl Tool for FileTool {
 
         match action {
             "read" => {
+                let metadata = fs::metadata(path)
+                    .map_err(|e| AiError::Tool(format!("Failed to read file metadata: {}", e)))?;
+                if metadata.len() as usize > self.config.max_read_bytes {
+                    return Ok(ToolResult::error(format!(
+                        "File too large ({} bytes), limit is {} bytes",
+                        metadata.len(),
+                        self.config.max_read_bytes
+                    )));
+                }
                 let content = fs::read_to_string(path)
                     .map_err(|e| AiError::Tool(format!("Failed to read file: {}", e)))?;
                 Ok(ToolResult::success(json!(content)))
@@ -123,5 +135,41 @@ impl Tool for FileTool {
             }
             _ => Ok(ToolResult::error(format!("Unknown action: {}", action))),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[tokio::test]
+    async fn test_read_rejects_file_larger_than_limit() {
+        let temp_dir = tempdir().unwrap();
+        let file_path = temp_dir.path().join("large.txt");
+        fs::write(&file_path, "1234567890").unwrap();
+
+        let tool = FileTool::new(FileConfig {
+            allowed_paths: vec![temp_dir.path().to_path_buf()],
+            allow_write: true,
+            max_read_bytes: 5,
+        });
+
+        let result = tool
+            .execute(json!({
+                "action": "read",
+                "path": file_path.to_string_lossy().to_string()
+            }))
+            .await
+            .unwrap();
+
+        assert!(!result.success);
+        let error = result.error.unwrap_or_default();
+        assert!(error.contains("File too large"));
+    }
+
+    #[test]
+    fn test_file_config_default_max_read_bytes() {
+        assert_eq!(FileConfig::default().max_read_bytes, 1_000_000);
     }
 }

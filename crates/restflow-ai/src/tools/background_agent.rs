@@ -24,6 +24,8 @@ pub struct BackgroundAgentCreateRequest {
     pub memory: Option<Value>,
     #[serde(default)]
     pub memory_scope: Option<String>,
+    #[serde(default)]
+    pub resource_limits: Option<Value>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -51,6 +53,8 @@ pub struct BackgroundAgentUpdateRequest {
     pub memory: Option<Value>,
     #[serde(default)]
     pub memory_scope: Option<String>,
+    #[serde(default)]
+    pub resource_limits: Option<Value>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -149,6 +153,8 @@ enum BackgroundAgentAction {
         memory: Option<Value>,
         #[serde(default)]
         memory_scope: Option<String>,
+        #[serde(default)]
+        resource_limits: Option<Value>,
     },
     Update {
         id: String,
@@ -174,6 +180,8 @@ enum BackgroundAgentAction {
         memory: Option<Value>,
         #[serde(default)]
         memory_scope: Option<String>,
+        #[serde(default)]
+        resource_limits: Option<Value>,
     },
     Delete {
         id: String,
@@ -297,6 +305,10 @@ impl Tool for BackgroundAgentTool {
                     "enum": ["shared_agent", "per_background_agent"],
                     "description": "Memory namespace scope (for create/update)"
                 },
+                "resource_limits": {
+                    "type": "object",
+                    "description": "Resource limits payload (for create/update)"
+                },
                 "status": {
                     "type": "string",
                     "description": "Filter list by status (for list)"
@@ -355,6 +367,7 @@ impl Tool for BackgroundAgentTool {
                 timeout_secs,
                 memory,
                 memory_scope,
+                resource_limits,
             } => {
                 self.write_guard()?;
                 let result = self
@@ -368,6 +381,7 @@ impl Tool for BackgroundAgentTool {
                         timeout_secs,
                         memory,
                         memory_scope,
+                        resource_limits,
                     })
                     .map_err(|e| {
                         AiError::Tool(format!("Failed to create background agent: {e}."))
@@ -387,6 +401,7 @@ impl Tool for BackgroundAgentTool {
                 timeout_secs,
                 memory,
                 memory_scope,
+                resource_limits,
             } => {
                 self.write_guard()?;
                 let result = self
@@ -404,6 +419,7 @@ impl Tool for BackgroundAgentTool {
                         timeout_secs,
                         memory,
                         memory_scope,
+                        resource_limits,
                     })
                     .map_err(|e| {
                         AiError::Tool(format!("Failed to update background agent: {e}."))

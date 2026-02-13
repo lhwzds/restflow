@@ -2,6 +2,7 @@
 import type { ExecutionMode } from "./ExecutionMode";
 import type { MemoryConfig } from "./MemoryConfig";
 import type { NotificationConfig } from "./NotificationConfig";
+import type { ResourceLimits } from "./ResourceLimits";
 import type { TaskSchedule } from "./TaskSchedule";
 
 /**
@@ -41,6 +42,14 @@ notification: NotificationConfig | null,
  */
 execution_mode: ExecutionMode | null, 
 /**
+ * Optional per-task timeout (seconds) for API execution mode
+ */
+timeout_secs: bigint | null, 
+/**
  * Optional memory configuration
  */
-memory: MemoryConfig | null, };
+memory: MemoryConfig | null, 
+/**
+ * Optional resource limits for this task
+ */
+resource_limits: ResourceLimits | null, };

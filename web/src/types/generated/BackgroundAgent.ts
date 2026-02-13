@@ -3,6 +3,7 @@ import type { BackgroundAgentStatus } from "./BackgroundAgentStatus";
 import type { ExecutionMode } from "./ExecutionMode";
 import type { MemoryConfig } from "./MemoryConfig";
 import type { NotificationConfig } from "./NotificationConfig";
+import type { ResourceLimits } from "./ResourceLimits";
 import type { TaskSchedule } from "./TaskSchedule";
 import type { WebhookConfig } from "./WebhookConfig";
 
@@ -43,6 +44,10 @@ schedule: TaskSchedule,
  */
 execution_mode: ExecutionMode, 
 /**
+ * Optional per-task timeout (seconds) for API execution mode
+ */
+timeout_secs: bigint | null, 
+/**
  * Notification configuration
  */
 notification: NotificationConfig, 
@@ -50,6 +55,10 @@ notification: NotificationConfig,
  * Memory configuration
  */
 memory: MemoryConfig, 
+/**
+ * Resource limits configuration
+ */
+resource_limits: ResourceLimits, 
 /**
  * Current status of the task
  */
