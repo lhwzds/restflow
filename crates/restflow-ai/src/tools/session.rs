@@ -16,6 +16,8 @@ pub struct SessionCreateRequest {
     pub name: Option<String>,
     #[serde(default)]
     pub skill_id: Option<String>,
+    #[serde(default)]
+    pub retention: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -45,6 +47,7 @@ pub trait SessionStore: Send + Sync {
     fn create_session(&self, request: SessionCreateRequest) -> Result<Value>;
     fn delete_session(&self, id: &str) -> Result<Value>;
     fn search_sessions(&self, query: SessionSearchQuery) -> Result<Value>;
+    fn cleanup_sessions(&self) -> Result<Value>;
 }
 
 #[derive(Clone)]
@@ -98,6 +101,8 @@ enum SessionAction {
         name: Option<String>,
         #[serde(default)]
         skill_id: Option<String>,
+        #[serde(default)]
+        retention: Option<String>,
     },
     Delete {
         id: String,
@@ -111,6 +116,7 @@ enum SessionAction {
         #[serde(default)]
         limit: Option<u32>,
     },
+    Cleanup,
 }
 
 #[async_trait]
@@ -129,7 +135,7 @@ impl Tool for SessionTool {
             "properties": {
                 "operation": {
                     "type": "string",
-                    "enum": ["list", "get", "create", "delete", "search"],
+                    "enum": ["list", "get", "create", "delete", "search", "cleanup"],
                     "description": "Session operation to perform"
                 },
                 "id": {
@@ -160,6 +166,10 @@ impl Tool for SessionTool {
                 "query": {
                     "type": "string",
                     "description": "Search query (for search)"
+                },
+                "retention": {
+                    "type": "string",
+                    "description": "Optional per-session retention policy for create (1h, 1d, 7d, 30d)"
                 },
                 "limit": {
                     "type": "integer",
@@ -201,6 +211,7 @@ impl Tool for SessionTool {
                 model,
                 name,
                 skill_id,
+                retention,
             } => {
                 self.write_guard()?;
                 let request = SessionCreateRequest {
@@ -208,6 +219,7 @@ impl Tool for SessionTool {
                     model,
                     name,
                     skill_id,
+                    retention,
                 };
                 ToolOutput::success(
                     self.store
@@ -239,6 +251,14 @@ impl Tool for SessionTool {
                     self.store
                         .search_sessions(request)
                         .map_err(|e| AiError::Tool(format!("Failed to search session: {e}")))?,
+                )
+            }
+            SessionAction::Cleanup => {
+                self.write_guard()?;
+                ToolOutput::success(
+                    self.store
+                        .cleanup_sessions()
+                        .map_err(|e| AiError::Tool(format!("Failed to cleanup sessions: {e}")))?,
                 )
             }
         };
@@ -273,6 +293,10 @@ mod tests {
         fn search_sessions(&self, _query: SessionSearchQuery) -> Result<Value> {
             Ok(json!([{"id": "session-1"}]))
         }
+
+        fn cleanup_sessions(&self) -> Result<Value> {
+            Ok(json!({"scanned": 1, "deleted": 1, "skipped": 0, "failed": 0, "bytes_freed": 100}))
+        }
     }
 
     #[tokio::test]
@@ -293,5 +317,20 @@ mod tests {
             err.to_string()
                 .contains("Available read-only operations: list, get, history")
         );
+    }
+
+    #[tokio::test]
+    async fn test_cleanup_requires_write() {
+        let tool = SessionTool::new(Arc::new(MockStore));
+        let result = tool.execute(json!({"operation": "cleanup"})).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_cleanup_with_write_enabled() {
+        let tool = SessionTool::new(Arc::new(MockStore)).with_write(true);
+        let output = tool.execute(json!({"operation": "cleanup"})).await.unwrap();
+        assert!(output.success);
+        assert_eq!(output.result["deleted"], 1);
     }
 }

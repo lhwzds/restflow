@@ -635,6 +635,9 @@ impl SessionStore for SessionStorageAdapter {
         if let Some(skill_id) = request.skill_id {
             session = session.with_skill(skill_id);
         }
+        if let Some(retention) = request.retention {
+            session = session.with_retention(retention);
+        }
         self.storage
             .create(&session)
             .map_err(|e| AiError::Tool(e.to_string()))?;
@@ -678,6 +681,15 @@ impl SessionStore for SessionStorageAdapter {
             .collect();
 
         serde_json::to_value(matched).map_err(AiError::from)
+    }
+
+    fn cleanup_sessions(&self) -> restflow_ai::error::Result<Value> {
+        let now_ms = chrono::Utc::now().timestamp_millis();
+        let stats = self
+            .storage
+            .cleanup_by_session_retention(now_ms)
+            .map_err(|e| AiError::Tool(e.to_string()))?;
+        serde_json::to_value(stats).map_err(AiError::from)
     }
 }
 

@@ -17,6 +17,26 @@ pub struct ChatSessionStorage {
     inner: restflow_storage::ChatSessionStorage,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize)]
+pub struct SessionRetentionCleanupStats {
+    pub scanned: usize,
+    pub deleted: usize,
+    pub skipped: usize,
+    pub failed: usize,
+    pub bytes_freed: u64,
+}
+
+fn parse_retention_to_ms(retention: &str) -> Option<i64> {
+    let normalized = retention.trim().to_ascii_lowercase();
+    match normalized.as_str() {
+        "1h" => Some(60 * 60 * 1000),
+        "1d" => Some(24 * 60 * 60 * 1000),
+        "7d" => Some(7 * 24 * 60 * 60 * 1000),
+        "30d" => Some(30 * 24 * 60 * 60 * 1000),
+        _ => None,
+    }
+}
+
 impl ChatSessionStorage {
     /// Create a new chat session storage instance.
     pub fn new(db: Arc<Database>) -> Result<Self> {
@@ -148,6 +168,47 @@ impl ChatSessionStorage {
 
         let cutoff = now_ms - (retention_days as i64) * 24 * 60 * 60 * 1000;
         self.delete_older_than(cutoff)
+    }
+
+    /// Delete sessions that exceed their own per-session retention policy.
+    ///
+    /// Supported values: `1h`, `1d`, `7d`, `30d`.
+    /// Missing policy means "keep forever".
+    pub fn cleanup_by_session_retention(
+        &self,
+        now_ms: i64,
+    ) -> Result<SessionRetentionCleanupStats> {
+        let sessions = self.list()?;
+        let mut stats = SessionRetentionCleanupStats {
+            scanned: sessions.len(),
+            ..SessionRetentionCleanupStats::default()
+        };
+
+        for session in sessions {
+            let Some(retention) = session.retention.as_deref() else {
+                stats.skipped += 1;
+                continue;
+            };
+
+            let Some(retention_ms) = parse_retention_to_ms(retention) else {
+                stats.failed += 1;
+                continue;
+            };
+
+            let expires_at = session.updated_at.saturating_add(retention_ms);
+            if now_ms >= expires_at {
+                let serialized_len = serde_json::to_vec(&session)
+                    .map(|bytes| bytes.len() as u64)
+                    .unwrap_or(0);
+                self.delete(&session.id)?;
+                stats.deleted += 1;
+                stats.bytes_freed += serialized_len;
+            } else {
+                stats.skipped += 1;
+            }
+        }
+
+        Ok(stats)
     }
 }
 
@@ -443,6 +504,47 @@ mod tests {
 
         let deleted = storage.cleanup_expired(30, now).unwrap();
         assert_eq!(deleted, 1);
+        assert!(!storage.exists(&expired.id).unwrap());
+        assert!(storage.exists(&recent.id).unwrap());
+    }
+
+    #[test]
+    fn test_parse_retention_to_ms() {
+        assert_eq!(parse_retention_to_ms("1h"), Some(60 * 60 * 1000));
+        assert_eq!(parse_retention_to_ms("1d"), Some(24 * 60 * 60 * 1000));
+        assert_eq!(parse_retention_to_ms("7d"), Some(7 * 24 * 60 * 60 * 1000));
+        assert_eq!(parse_retention_to_ms("30d"), Some(30 * 24 * 60 * 60 * 1000));
+        assert_eq!(parse_retention_to_ms("invalid"), None);
+    }
+
+    #[test]
+    fn test_cleanup_by_session_retention() {
+        let (storage, _temp_dir) = setup();
+        let now = chrono::Utc::now().timestamp_millis();
+
+        let mut expired = ChatSession::new("agent-1".to_string(), "claude-sonnet-4".to_string())
+            .with_retention("1d");
+        expired.updated_at = now - (2 * 24 * 60 * 60 * 1000);
+
+        let mut recent = ChatSession::new("agent-1".to_string(), "claude-sonnet-4".to_string())
+            .with_retention("7d");
+        recent.updated_at = now - (2 * 24 * 60 * 60 * 1000);
+
+        let invalid = ChatSession::new("agent-1".to_string(), "claude-sonnet-4".to_string())
+            .with_retention("2w");
+        let no_retention = ChatSession::new("agent-1".to_string(), "claude-sonnet-4".to_string());
+
+        storage.save(&expired).unwrap();
+        storage.save(&recent).unwrap();
+        storage.save(&invalid).unwrap();
+        storage.save(&no_retention).unwrap();
+
+        let stats = storage.cleanup_by_session_retention(now).unwrap();
+        assert_eq!(stats.scanned, 4);
+        assert_eq!(stats.deleted, 1);
+        assert_eq!(stats.failed, 1);
+        assert_eq!(stats.skipped, 2);
+        assert!(stats.bytes_freed > 0);
         assert!(!storage.exists(&expired.id).unwrap());
         assert!(storage.exists(&recent.id).unwrap());
     }
