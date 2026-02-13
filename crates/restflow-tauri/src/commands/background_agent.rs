@@ -21,7 +21,7 @@ use anyhow::Result as AnyResult;
 use restflow_core::models::{
     BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentEvent, BackgroundAgentPatch,
     BackgroundAgentSchedule, BackgroundAgentSpec, BackgroundAgentStatus, ExecutionMode,
-    MemoryConfig, MemoryScope, NotificationConfig, SteerMessage, SteerSource,
+    MemoryConfig, MemoryScope, NotificationConfig, ResourceLimits, SteerMessage, SteerSource,
 };
 use restflow_core::runtime::background_agent::{
     HEARTBEAT_EVENT, TASK_STREAM_EVENT, TaskStreamEvent,
@@ -129,6 +129,9 @@ pub struct CreateBackgroundAgentRequest {
     /// Optional memory scope override
     #[serde(default)]
     pub memory_scope: Option<MemoryScope>,
+    /// Optional resource limits
+    #[serde(default)]
+    pub resource_limits: Option<ResourceLimits>,
 }
 
 /// Request to update an existing agent task
@@ -164,6 +167,9 @@ pub struct UpdateBackgroundAgentRequest {
     /// New memory scope override (optional)
     #[serde(default)]
     pub memory_scope: Option<MemoryScope>,
+    /// New resource limits (optional)
+    #[serde(default)]
+    pub resource_limits: Option<ResourceLimits>,
 }
 
 /// List all agent tasks
@@ -230,6 +236,7 @@ pub async fn create_background_agent(
         execution_mode: request.execution_mode,
         timeout_secs: request.timeout_secs,
         memory: merge_memory_scope(request.memory, request.memory_scope),
+        resource_limits: request.resource_limits,
     };
 
     state
@@ -257,6 +264,7 @@ pub async fn update_background_agent(
         execution_mode: None,
         timeout_secs: request.timeout_secs,
         memory: merge_memory_scope(request.memory, request.memory_scope),
+        resource_limits: request.resource_limits,
     };
 
     state

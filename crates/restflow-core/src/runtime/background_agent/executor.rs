@@ -9,6 +9,7 @@ use anyhow::{Result, anyhow};
 use async_trait::async_trait;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use std::time::Duration;
 
 use crate::{
     AIModel, Provider,
@@ -26,7 +27,8 @@ use restflow_ai::tools::PythonRuntime;
 use restflow_ai::{
     AgentConfig as ReActAgentConfig, AgentExecutor as ReActAgentExecutor, AiError, CodexClient,
     CompactionConfig, DefaultLlmClientFactory, LlmClient, LlmClientFactory, LlmProvider,
-    ProcessTool, ReplySender, ReplyTool, SwappableLlm, SwitchModelTool,
+    ProcessTool, ReplySender, ReplyTool, ResourceLimits as AgentResourceLimits, SwappableLlm,
+    SwitchModelTool,
 };
 use tokio::sync::mpsc;
 use tokio::time::sleep;
@@ -227,6 +229,14 @@ impl AgentRuntimeExecutor {
             max_summary_tokens: memory.max_summary_tokens,
             ..CompactionConfig::default()
         })
+    }
+
+    fn to_agent_resource_limits(limits: &crate::models::ResourceLimits) -> AgentResourceLimits {
+        AgentResourceLimits {
+            max_tool_calls: limits.max_tool_calls,
+            max_wall_clock: Duration::from_secs(limits.max_duration_secs),
+            max_depth: AgentResourceLimits::default().max_depth,
+        }
     }
 
     fn has_non_empty_secret(&self, name: &str) -> Result<bool> {
@@ -871,6 +881,7 @@ impl AgentRuntimeExecutor {
         background_task_id: Option<&str>,
         input: Option<&str>,
         memory_config: &MemoryConfig,
+        resource_limits: &crate::models::ResourceLimits,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
         emitter: Option<Box<dyn StreamEmitter>>,
         factory: Arc<dyn LlmClientFactory>,
@@ -894,7 +905,9 @@ impl AgentRuntimeExecutor {
         let mut config = ReActAgentConfig::new(goal.to_string())
             .with_system_prompt(system_prompt)
             .with_max_memory_messages(memory_config.max_messages)
-            .with_context_window(Self::context_window_for_model(model));
+            .with_context_window(Self::context_window_for_model(model))
+            .with_resource_limits(Self::to_agent_resource_limits(resource_limits))
+            .with_max_tool_result_length(resource_limits.max_output_bytes);
         if let Some(compaction) = Self::build_compaction_config(memory_config) {
             config = config.with_compaction_config(compaction);
         }
@@ -953,6 +966,7 @@ impl AgentRuntimeExecutor {
         background_task_id: Option<&str>,
         input: Option<&str>,
         memory_config: &MemoryConfig,
+        resource_limits: &crate::models::ResourceLimits,
         primary_provider: Provider,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
         emitter: Option<Box<dyn StreamEmitter>>,
@@ -994,6 +1008,7 @@ impl AgentRuntimeExecutor {
             background_task_id,
             input,
             memory_config,
+            resource_limits,
             steer_rx,
             emitter,
             factory,
@@ -1010,6 +1025,7 @@ impl AgentRuntimeExecutor {
         background_task_id: Option<&str>,
         input: Option<&str>,
         memory_config: &MemoryConfig,
+        resource_limits: &crate::models::ResourceLimits,
         primary_provider: Provider,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
         emitter: Option<Box<dyn StreamEmitter>>,
@@ -1023,6 +1039,7 @@ impl AgentRuntimeExecutor {
                     background_task_id,
                     input,
                     memory_config,
+                    resource_limits,
                     primary_provider,
                     steer_rx,
                     emitter,
@@ -1039,6 +1056,7 @@ impl AgentRuntimeExecutor {
                     background_task_id,
                     input,
                     memory_config,
+                    resource_limits,
                     primary_provider,
                     steer_rx,
                     emitter,
@@ -1060,6 +1078,7 @@ impl AgentRuntimeExecutor {
                     background_task_id,
                     input,
                     memory_config,
+                    resource_limits,
                     primary_provider,
                     steer_rx,
                     emitter,
@@ -1107,6 +1126,7 @@ impl AgentRuntimeExecutor {
                     background_task_id,
                     input,
                     memory_config,
+                    resource_limits,
                     steer_rx.take(),
                     emitter.take(),
                     factory,
@@ -1255,6 +1275,16 @@ impl AgentRuntimeExecutor {
             .agents
             .get_agent(agent_id.to_string())?
             .ok_or_else(|| anyhow!("Agent '{}' not found", agent_id))?;
+        let resolved_resource_limits = background_task_id
+            .and_then(|task_id| {
+                self.storage
+                    .background_agents
+                    .get_task(task_id)
+                    .ok()
+                    .flatten()
+            })
+            .map(|task| task.resource_limits)
+            .unwrap_or_default();
 
         let agent_node = stored_agent.agent.clone();
         let primary_model = self.resolve_primary_model(&agent_node).await?;
@@ -1271,6 +1301,7 @@ impl AgentRuntimeExecutor {
                     background_task_id,
                     input,
                     memory_config,
+                    &resolved_resource_limits,
                     primary_provider,
                     steer_rx,
                     emitter,
@@ -1298,6 +1329,7 @@ impl AgentRuntimeExecutor {
                 let node = agent_node_clone.clone();
                 let steer_rx = steer_rx.take();
                 let emitter = emitter.take();
+                let limits = resolved_resource_limits.clone();
                 async move {
                     self.execute_with_profiles(
                         &node,
@@ -1305,6 +1337,7 @@ impl AgentRuntimeExecutor {
                         background_task_id,
                         input_ref,
                         memory_config,
+                        &limits,
                         primary_provider,
                         steer_rx,
                         emitter,

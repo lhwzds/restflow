@@ -326,6 +326,9 @@ impl BackgroundAgentStorage {
         if let Some(memory) = spec.memory {
             task.memory = memory;
         }
+        if let Some(resource_limits) = spec.resource_limits {
+            task.resource_limits = resource_limits;
+        }
         task.updated_at = chrono::Utc::now().timestamp_millis();
         self.update_task(&task)?;
         Ok(task)
@@ -372,6 +375,9 @@ impl BackgroundAgentStorage {
         }
         if let Some(memory) = patch.memory {
             task.memory = memory;
+        }
+        if let Some(resource_limits) = patch.resource_limits {
+            task.resource_limits = resource_limits;
         }
 
         task.updated_at = chrono::Utc::now().timestamp_millis();
@@ -1086,6 +1092,7 @@ mod tests {
                 execution_mode: None,
                 timeout_secs: None,
                 memory: None,
+                resource_limits: None,
             })
             .unwrap();
 
@@ -1120,6 +1127,7 @@ mod tests {
                 execution_mode: None,
                 timeout_secs: None,
                 memory: None,
+                resource_limits: None,
             })
             .unwrap();
 
@@ -1199,6 +1207,7 @@ mod tests {
                 execution_mode: None,
                 timeout_secs: None,
                 memory: None,
+                resource_limits: None,
             })
             .unwrap();
         assert_eq!(created.name, "BG Agent");
@@ -1298,6 +1307,7 @@ mod tests {
                     compaction_threshold_ratio: 0.80,
                     max_summary_tokens: 2_000,
                 }),
+                resource_limits: None,
             })
             .unwrap();
 
@@ -1325,6 +1335,7 @@ mod tests {
                 execution_mode: None,
                 timeout_secs: None,
                 memory: None,
+                resource_limits: None,
             })
             .unwrap();
 
@@ -1368,6 +1379,7 @@ mod tests {
             execution_mode: None,
             timeout_secs: Some(5),
             memory: None,
+            resource_limits: None,
         });
 
         assert!(result.is_err());
@@ -1394,6 +1406,7 @@ mod tests {
                 execution_mode: None,
                 timeout_secs: None,
                 memory: None,
+                resource_limits: None,
             })
             .unwrap();
 
@@ -1408,5 +1421,53 @@ mod tests {
             .unwrap();
 
         assert_eq!(updated.timeout_secs, Some(900));
+    }
+
+    #[test]
+    fn test_background_agent_resource_limits_roundtrip() {
+        use crate::models::ResourceLimits;
+
+        let storage = create_test_storage();
+        let created = storage
+            .create_background_agent(BackgroundAgentSpec {
+                name: "Resource Limits Task".to_string(),
+                agent_id: "agent-001".to_string(),
+                description: None,
+                input: None,
+                input_template: None,
+                schedule: BackgroundAgentSchedule::default(),
+                notification: None,
+                execution_mode: None,
+                timeout_secs: None,
+                memory: None,
+                resource_limits: Some(ResourceLimits {
+                    max_tool_calls: 12,
+                    max_duration_secs: 90,
+                    max_output_bytes: 2048,
+                }),
+            })
+            .unwrap();
+
+        assert_eq!(created.resource_limits.max_tool_calls, 12);
+        assert_eq!(created.resource_limits.max_duration_secs, 90);
+        assert_eq!(created.resource_limits.max_output_bytes, 2048);
+
+        let updated = storage
+            .update_background_agent(
+                &created.id,
+                BackgroundAgentPatch {
+                    resource_limits: Some(ResourceLimits {
+                        max_tool_calls: 34,
+                        max_duration_secs: 120,
+                        max_output_bytes: 4096,
+                    }),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+
+        assert_eq!(updated.resource_limits.max_tool_calls, 34);
+        assert_eq!(updated.resource_limits.max_duration_secs, 120);
+        assert_eq!(updated.resource_limits.max_output_bytes, 4096);
     }
 }
