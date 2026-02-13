@@ -77,6 +77,13 @@ pub struct TelegramChannel {
 }
 
 impl TelegramChannel {
+    fn build_conversation_id(chat_id: i64, message_thread_id: Option<i64>) -> String {
+        match message_thread_id {
+            Some(thread_id) => format!("{}:{}", chat_id, thread_id),
+            None => chat_id.to_string(),
+        }
+    }
+
     /// Create a new Telegram channel
     pub fn new(config: TelegramConfig) -> Self {
         Self {
@@ -296,6 +303,8 @@ impl TelegramChannel {
     async fn convert_update(&self, update: TelegramUpdate) -> Option<InboundMessage> {
         let message = update.message?;
         let from = message.from?;
+        let conversation_id =
+            Self::build_conversation_id(message.chat.id, message.message_thread_id);
 
         let sender_name = from
             .username
@@ -317,13 +326,16 @@ impl TelegramChannel {
             "chat_title": message.chat.title,
             "update_id": update.update_id,
         });
+        if let Some(thread_id) = message.message_thread_id {
+            metadata["message_thread_id"] = serde_json::Value::Number(thread_id.into());
+        }
 
         let inbound = |content: String| {
             InboundMessage::new(
                 format!("tg_{}", message.message_id),
                 ChannelType::Telegram,
                 from.id.to_string(),
-                message.chat.id.to_string(),
+                conversation_id.clone(),
                 content,
             )
             .with_sender_name(sender_name.clone().unwrap_or_default())
@@ -687,6 +699,7 @@ struct TelegramMessage {
     chat: TelegramChat,
     #[allow(dead_code)]
     date: u64,
+    message_thread_id: Option<i64>,
     text: Option<String>,
     caption: Option<String>,
     voice: Option<TelegramVoice>,
@@ -840,6 +853,7 @@ mod tests {
                     username: None,
                 },
                 date: 1234567890,
+                message_thread_id: None,
                 text: Some("Hello world".to_string()),
                 caption: None,
                 voice: None,
@@ -882,6 +896,7 @@ mod tests {
                     username: None,
                 },
                 date: 1234567890,
+                message_thread_id: None,
                 text: Some("Hello".to_string()),
                 caption: None,
                 voice: None,
@@ -931,6 +946,7 @@ mod tests {
                     username: None,
                 },
                 date: 1234567890,
+                message_thread_id: None,
                 text: None,
                 caption: None,
                 voice: None,
@@ -943,6 +959,52 @@ mod tests {
         };
 
         assert!(channel.convert_update(update).await.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_convert_update_forum_thread_conversation_id() {
+        let channel = TelegramChannel::with_token("test");
+
+        let update = TelegramUpdate {
+            update_id: 22345,
+            message: Some(TelegramMessage {
+                message_id: 201,
+                from: Some(TelegramUser {
+                    id: 42,
+                    is_bot: false,
+                    first_name: Some("John".to_string()),
+                    last_name: None,
+                    username: Some("johndoe".to_string()),
+                }),
+                chat: TelegramChat {
+                    id: -10012345,
+                    r#type: "supergroup".to_string(),
+                    title: Some("Forum".to_string()),
+                    username: None,
+                },
+                date: 1234567890,
+                message_thread_id: Some(7),
+                text: Some("Thread message".to_string()),
+                caption: None,
+                voice: None,
+                photo: None,
+                video: None,
+                video_note: None,
+                document: None,
+                reply_to_message: None,
+            }),
+        };
+
+        let inbound = channel.convert_update(update).await.unwrap();
+        assert_eq!(inbound.conversation_id, "-10012345:7");
+        assert_eq!(
+            inbound
+                .metadata
+                .unwrap()
+                .get("message_thread_id")
+                .and_then(|value| value.as_i64()),
+            Some(7)
+        );
     }
 
     #[tokio::test]
@@ -967,6 +1029,7 @@ mod tests {
                     username: None,
                 },
                 date: 1234567890,
+                message_thread_id: None,
                 text: None,
                 caption: None,
                 voice: Some(TelegramVoice {
@@ -1013,6 +1076,7 @@ mod tests {
                     username: None,
                 },
                 date: 1234567890,
+                message_thread_id: None,
                 text: None,
                 caption: Some("Look".to_string()),
                 voice: None,
@@ -1071,6 +1135,7 @@ mod tests {
                     username: None,
                 },
                 date: 1234567890,
+                message_thread_id: None,
                 text: None,
                 caption: None,
                 voice: None,
