@@ -9,6 +9,7 @@ use serde_json::Value;
 
 use crate::agent::ExecutionStep;
 use crate::agent::context::{AgentContext, ContextDiscoveryConfig, WorkspaceContextCache};
+use crate::agent::history::{HistoryPipeline, HistoryProcessor};
 use crate::agent::resource::{ResourceLimits, ResourceTracker, ResourceUsage};
 use crate::agent::state::{AgentState, AgentStatus};
 use crate::agent::stream::{ChannelEmitter, NullEmitter, StreamEmitter, ToolCallAccumulator};
@@ -52,6 +53,8 @@ pub struct AgentConfig {
     pub context_window: usize,
     /// Optional compaction configuration for working memory.
     pub compaction_config: Option<CompactionConfig>,
+    /// Optional history processors applied before each LLM request.
+    pub history_pipeline: HistoryPipeline,
     /// Optional agent context injected into the system prompt.
     pub agent_context: Option<AgentContext>,
     /// Agent type for context injection rules.
@@ -78,6 +81,7 @@ impl AgentConfig {
             max_memory_messages: DEFAULT_MAX_MESSAGES,
             context_window: 128_000,
             compaction_config: None,
+            history_pipeline: HistoryPipeline::default(),
             agent_context: None,
             agent_type: AgentType::default(),
             resource_limits: ResourceLimits::default(),
@@ -100,6 +104,18 @@ impl AgentConfig {
     /// Enable working memory compaction.
     pub fn with_compaction_config(mut self, config: CompactionConfig) -> Self {
         self.compaction_config = Some(config);
+        self
+    }
+
+    /// Register a history processor in the request pipeline.
+    pub fn with_history_processor(mut self, processor: Arc<dyn HistoryProcessor>) -> Self {
+        self.history_pipeline.add(processor);
+        self
+    }
+
+    /// Override the full history pipeline.
+    pub fn with_history_pipeline(mut self, pipeline: HistoryPipeline) -> Self {
+        self.history_pipeline = pipeline;
         self
     }
 
@@ -342,8 +358,9 @@ impl AgentExecutor {
             }
 
             // 1. LLM call - use working memory for context (handles overflow)
+            let request_messages = config.history_pipeline.apply(memory.get_messages());
             let mut request =
-                CompletionRequest::new(memory.get_messages()).with_tools(self.tools.schemas());
+                CompletionRequest::new(request_messages).with_tools(self.tools.schemas());
 
             // Only set temperature if explicitly configured (some models don't support it)
             if let Some(temp) = config.temperature {
@@ -792,6 +809,7 @@ impl AgentExecutor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::agent::TrimOldMessagesProcessor;
     use crate::llm::{
         CompletionResponse, FinishReason, Role, StreamChunk, StreamResult, TokenUsage, ToolCall,
     };
@@ -1026,6 +1044,48 @@ mod tests {
         assert_eq!(messages[0].role, Role::System);
         assert_eq!(messages[1].role, Role::User);
         assert!(messages[1].content.contains("Test task"));
+    }
+
+    #[tokio::test]
+    async fn test_executor_applies_history_pipeline_before_llm_call() {
+        let responses = vec![
+            CompletionResponse {
+                content: Some("step".to_string()),
+                tool_calls: vec![ToolCall {
+                    id: "call_1".to_string(),
+                    name: "unknown_tool".to_string(),
+                    arguments: serde_json::json!({}),
+                }],
+                finish_reason: FinishReason::ToolCalls,
+                usage: None,
+            },
+            CompletionResponse {
+                content: Some("done".to_string()),
+                tool_calls: vec![],
+                finish_reason: FinishReason::Stop,
+                usage: None,
+            },
+        ];
+
+        let mock_llm = Arc::new(MockLlmClient::new(responses));
+        let tools = Arc::new(ToolRegistry::new());
+        let executor = AgentExecutor::new(mock_llm.clone(), tools);
+
+        let config = AgentConfig::new("Test history pipeline")
+            .with_max_memory_messages(20)
+            .with_history_processor(Arc::new(TrimOldMessagesProcessor::new(1)));
+
+        let result = executor.run(config).await.unwrap();
+        assert!(result.success);
+
+        let requests = mock_llm.captured_requests();
+        let second_request = &requests[1];
+
+        assert!(
+            second_request
+                .iter()
+                .any(|msg| msg.content == "[Earlier conversation trimmed]")
+        );
     }
 
     #[tokio::test]

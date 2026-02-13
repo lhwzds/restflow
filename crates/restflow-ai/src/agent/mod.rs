@@ -37,6 +37,7 @@ mod context;
 mod definitions;
 mod execution_engine;
 mod executor;
+mod history;
 pub mod react;
 mod resource;
 mod state;
@@ -54,6 +55,7 @@ pub use context::{
 pub use definitions::{AgentDefinition, AgentDefinitionRegistry, builtin_agents};
 pub use execution_engine::{AgentExecutionEngine, AgentExecutionEngineConfig, ExecutionResult};
 pub use executor::{AgentConfig, AgentExecutor, AgentResult};
+pub use history::{HistoryPipeline, HistoryProcessor, TrimOldMessagesProcessor};
 pub use resource::{ResourceError, ResourceLimits, ResourceTracker, ResourceUsage};
 pub use state::{AgentState, AgentStatus};
 pub use step::ExecutionStep;
