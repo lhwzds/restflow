@@ -905,6 +905,9 @@ pub struct ManageBackgroundAgentsParams {
     /// Optional execution mode payload
     #[serde(default)]
     pub execution_mode: Option<Value>,
+    /// Optional per-task timeout (seconds) for API execution mode
+    #[serde(default)]
+    pub timeout_secs: Option<u64>,
     /// Optional memory payload
     #[serde(default)]
     pub memory: Option<Value>,
@@ -1408,6 +1411,7 @@ impl RestFlowMcpServer {
                         "execution_mode",
                         params.execution_mode,
                     )?,
+                    timeout_secs: params.timeout_secs,
                     memory,
                 };
                 serde_json::to_value(self.backend.create_background_agent(spec).await?)
@@ -1429,6 +1433,7 @@ impl RestFlowMcpServer {
                         "execution_mode",
                         params.execution_mode,
                     )?,
+                    timeout_secs: params.timeout_secs,
                     memory,
                 };
                 serde_json::to_value(self.backend.update_background_agent(&id, patch).await?)
@@ -2853,6 +2858,7 @@ mod tests {
             schedule: None,
             notification: None,
             execution_mode: None,
+            timeout_secs: None,
             memory: None,
             memory_scope: None,
             status: None,

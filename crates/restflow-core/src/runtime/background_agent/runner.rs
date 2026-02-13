@@ -1058,13 +1058,17 @@ impl BackgroundAgentRunner {
         } else {
             None
         };
+        let execution_timeout_secs = match &task.execution_mode {
+            ExecutionMode::Api => task.timeout_secs.unwrap_or(self.config.task_timeout_secs),
+            ExecutionMode::Cli(cli_config) => cli_config.timeout_secs,
+        };
 
         let exec_future = async {
             match &task.execution_mode {
                 ExecutionMode::Api => {
                     // Use the injected API executor
                     debug!("Using API executor for task '{}'", task.name);
-                    let timeout = Duration::from_secs(self.config.task_timeout_secs);
+                    let timeout = Duration::from_secs(execution_timeout_secs);
                     tokio::time::timeout(
                         timeout,
                         self.executor.execute_with_emitter(
@@ -1101,7 +1105,7 @@ impl BackgroundAgentRunner {
                     });
 
                     // Execute with timeout
-                    let timeout = Duration::from_secs(cli_config.timeout_secs);
+                    let timeout = Duration::from_secs(execution_timeout_secs);
                     tokio::time::timeout(
                         timeout,
                         cli_executor.execute_cli(cli_config, resolved_input.as_deref()),
@@ -1307,16 +1311,13 @@ impl BackgroundAgentRunner {
             }
             Err(_) => {
                 // Timeout
-                let error_msg = format!(
-                    "Task timed out after {} seconds",
-                    self.config.task_timeout_secs
-                );
+                let error_msg = format!("Task timed out after {} seconds", execution_timeout_secs);
                 error!("Task '{}' timed out", task.name);
 
                 self.event_emitter
                     .emit(TaskStreamEvent::timeout(
                         task_id,
-                        self.config.task_timeout_secs,
+                        execution_timeout_secs,
                         duration_ms,
                     ))
                     .await;

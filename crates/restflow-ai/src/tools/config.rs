@@ -80,6 +80,12 @@ impl ConfigTool {
                 })?;
                 config.stall_timeout_seconds = timeout;
             }
+            "background_api_timeout_seconds" => {
+                let timeout = value.as_u64().ok_or_else(|| {
+                    AiError::Tool("background_api_timeout_seconds must be a number".to_string())
+                })?;
+                config.background_api_timeout_seconds = timeout;
+            }
             "max_retries" => {
                 let retries = value
                     .as_u64()
@@ -88,7 +94,7 @@ impl ConfigTool {
             }
             _ => {
                 return Err(AiError::Tool(format!(
-                    "Unknown config field: '{key}'. Valid fields: worker_count, task_timeout_seconds, stall_timeout_seconds, max_retries."
+                    "Unknown config field: '{key}'. Valid fields: worker_count, task_timeout_seconds, stall_timeout_seconds, background_api_timeout_seconds, max_retries."
                 )));
             }
         }
@@ -245,7 +251,7 @@ mod tests {
 
         assert!(message.contains("Unknown config field: 'invalid_field'"));
         assert!(message.contains(
-            "Valid fields: worker_count, task_timeout_seconds, stall_timeout_seconds, max_retries"
+            "Valid fields: worker_count, task_timeout_seconds, stall_timeout_seconds, background_api_timeout_seconds, max_retries"
         ));
     }
 }

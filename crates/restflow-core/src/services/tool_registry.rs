@@ -454,6 +454,7 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
                 schedule,
                 notification: None,
                 execution_mode: None,
+                timeout_secs: request.timeout_secs,
                 memory,
             })
             .map_err(|e| AiError::Tool(e.to_string()))?;
@@ -480,6 +481,7 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
             schedule: Self::parse_optional_value("schedule", request.schedule)?,
             notification: Self::parse_optional_value("notification", request.notification)?,
             execution_mode: Self::parse_optional_value("execution_mode", request.execution_mode)?,
+            timeout_secs: request.timeout_secs,
             memory,
         };
 
@@ -3203,6 +3205,7 @@ mod tests {
                 schedule: None,
                 input: Some("Run periodic checks".to_string()),
                 input_template: Some("Template {{task.id}}".to_string()),
+                timeout_secs: Some(1800),
                 memory: None,
                 memory_scope: Some("per_background_agent".to_string()),
             },
@@ -3239,6 +3242,7 @@ mod tests {
                 schedule: None,
                 notification: None,
                 execution_mode: None,
+                timeout_secs: Some(900),
                 memory: None,
                 memory_scope: Some("shared_agent".to_string()),
             },
@@ -3254,6 +3258,10 @@ mod tests {
                 .and_then(|value| value.get("memory_scope"))
                 .and_then(|value| value.as_str()),
             Some("shared_agent")
+        );
+        assert_eq!(
+            updated.get("timeout_secs").and_then(|value| value.as_u64()),
+            Some(900)
         );
 
         let controlled = BackgroundAgentStore::control_background_agent(

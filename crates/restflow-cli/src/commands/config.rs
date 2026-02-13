@@ -46,6 +46,10 @@ async fn show_config(executor: Arc<dyn CommandExecutor>, format: OutputFormat) -
         Cell::new(config.stall_timeout_seconds),
     ]);
     table.add_row(vec![
+        Cell::new("background_api_timeout_seconds"),
+        Cell::new(config.background_api_timeout_seconds),
+    ]);
+    table.add_row(vec![
         Cell::new("max_retries"),
         Cell::new(config.max_retries),
     ]);
@@ -79,6 +83,7 @@ async fn get_config_value(
         "worker_count" => json!(config.worker_count),
         "task_timeout_seconds" => json!(config.task_timeout_seconds),
         "stall_timeout_seconds" => json!(config.stall_timeout_seconds),
+        "background_api_timeout_seconds" => json!(config.background_api_timeout_seconds),
         "max_retries" => json!(config.max_retries),
         "chat_session_retention_days" => json!(config.chat_session_retention_days),
         "background_task_retention_days" => json!(config.background_task_retention_days),
@@ -112,6 +117,9 @@ async fn set_config_value(
         }
         "stall_timeout_seconds" => {
             config.stall_timeout_seconds = parse_value(value)?;
+        }
+        "background_api_timeout_seconds" => {
+            config.background_api_timeout_seconds = parse_value(value)?;
         }
         "max_retries" => {
             config.max_retries = parse_value(value)?;
