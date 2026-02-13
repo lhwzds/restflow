@@ -1260,6 +1260,25 @@ impl AgentRuntimeExecutor {
         let primary_model = self.resolve_primary_model(&agent_node).await?;
         let primary_provider = primary_model.provider();
 
+        // steer_rx/emitter are one-shot resources and cannot be replayed safely across
+        // failover or retry attempts. Execute a single primary-model attempt when either
+        // channel is present to avoid dropping steering/streaming state mid-run.
+        if steer_rx.is_some() || emitter.is_some() {
+            return self
+                .execute_with_profiles(
+                    &agent_node,
+                    primary_model,
+                    background_task_id,
+                    input,
+                    memory_config,
+                    primary_provider,
+                    steer_rx,
+                    emitter,
+                    Some(agent_id),
+                )
+                .await;
+        }
+
         let failover_config = self
             .build_failover_config(primary_model, agent_node.api_key_config.as_ref())
             .await;

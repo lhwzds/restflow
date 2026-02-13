@@ -95,8 +95,14 @@ impl PairingStorage {
         let write_txn = self.db.begin_write()?;
         {
             let mut table = write_txn.open_table(PAIRING_REQUESTS_TABLE)?;
-            table.insert(code, data)?;
             let mut index = write_txn.open_table(PAIRING_PEER_INDEX_TABLE)?;
+            if let Some(existing_code) = index.get(peer_id)? {
+                let existing_code = existing_code.value().to_string();
+                if existing_code != code {
+                    let _ = table.remove(existing_code.as_str())?;
+                }
+            }
+            table.insert(code, data)?;
             index.insert(peer_id, code)?;
         }
         write_txn.commit()?;

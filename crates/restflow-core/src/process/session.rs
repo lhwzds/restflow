@@ -107,6 +107,7 @@ impl ProcessSession {
         }
 
         let deadline = Instant::now() + timeout;
+        let mut backoff_ms = 10u64;
         loop {
             if let Some(status) = self.try_update_exit_status()? {
                 return Ok(Some(status));
@@ -116,7 +117,8 @@ impl ProcessSession {
                 return Ok(None);
             }
 
-            std::thread::sleep(Duration::from_millis(25));
+            std::thread::sleep(Duration::from_millis(backoff_ms));
+            backoff_ms = (backoff_ms.saturating_mul(2)).min(200);
         }
     }
 

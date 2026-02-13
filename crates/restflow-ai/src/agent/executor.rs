@@ -273,7 +273,8 @@ impl AgentExecutor {
     /// Execute agent - simplified Swarm-style loop
     pub async fn run(&self, config: AgentConfig) -> Result<AgentResult> {
         let mut emitter = NullEmitter;
-        self.execute_with_mode(config, &mut emitter, false).await
+        self.execute_with_mode(config, &mut emitter, false, None)
+            .await
     }
 
     #[deprecated(note = "Use run() or stream-based execution APIs")]
@@ -282,7 +283,7 @@ impl AgentExecutor {
         config: AgentConfig,
         emitter: &mut dyn StreamEmitter,
     ) -> Result<AgentResult> {
-        self.execute_with_mode(config, emitter, true).await
+        self.execute_with_mode(config, emitter, true, None).await
     }
 
     async fn execute_with_mode(
@@ -290,8 +291,10 @@ impl AgentExecutor {
         config: AgentConfig,
         emitter: &mut dyn StreamEmitter,
         stream_llm: bool,
+        execution_id_override: Option<String>,
     ) -> Result<AgentResult> {
-        let execution_id = uuid::Uuid::new_v4().to_string();
+        let execution_id =
+            execution_id_override.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
         let mut state = AgentState::new(execution_id, config.max_iterations);
         state.context = config.context.clone();
         let mut total_tokens: u32 = 0;
@@ -523,15 +526,24 @@ impl AgentExecutor {
 
         tokio::spawn(async move {
             let started_execution_id = uuid::Uuid::new_v4().to_string();
-            let _ = tx
+            if tx
                 .send(ExecutionStep::Started {
-                    execution_id: started_execution_id,
+                    execution_id: started_execution_id.clone(),
                 })
-                .await;
+                .await
+                .is_err()
+            {
+                return;
+            }
 
             let mut emitter = ChannelEmitter::new(tx.clone());
-            #[allow(deprecated)]
-            let result = executor.execute_streaming(config, &mut emitter).await;
+            let execution =
+                executor.execute_with_mode(config, &mut emitter, true, Some(started_execution_id));
+            tokio::pin!(execution);
+            let result = tokio::select! {
+                result = &mut execution => result,
+                _ = tx.closed() => return,
+            };
             match result {
                 Ok(result) => {
                     let _ = tx

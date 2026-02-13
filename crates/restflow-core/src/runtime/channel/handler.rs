@@ -5,6 +5,7 @@
 
 use anyhow::Result;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 use tokio::time::sleep;
 use tokio_stream::StreamExt;
@@ -22,6 +23,9 @@ use super::trigger::BackgroundAgentTrigger;
 const STREAM_RECONNECT_DELAY: Duration = Duration::from_millis(20);
 #[cfg(not(test))]
 const STREAM_RECONNECT_DELAY: Duration = Duration::from_secs(2);
+const CONVERSATION_CLEANUP_INTERVAL_MESSAGES: usize = 64;
+const CONVERSATION_STALE_MAX_AGE_MS: i64 = 24 * 60 * 60 * 1000;
+static MESSAGE_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
 /// Message handler configuration
 #[derive(Debug, Clone)]
@@ -197,6 +201,16 @@ async fn handle_message_routed(
     message: &InboundMessage,
     config: &MessageHandlerConfig,
 ) -> Result<()> {
+    let message_count = MESSAGE_COUNTER.fetch_add(1, Ordering::Relaxed) + 1;
+    if message_count.is_multiple_of(CONVERSATION_CLEANUP_INTERVAL_MESSAGES) {
+        let removed = router
+            .cleanup_stale_conversations(CONVERSATION_STALE_MAX_AGE_MS)
+            .await;
+        if removed > 0 {
+            info!("Cleaned up {} stale conversation context(s)", removed);
+        }
+    }
+
     debug!(
         "Received: {:?} from {} in {}",
         message.channel_type, message.sender_id, message.conversation_id

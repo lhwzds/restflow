@@ -160,7 +160,10 @@ impl ProcessManager {
         {
             use nix::sys::signal::kill;
             use nix::unistd::Pid;
-            kill(Pid::from_raw(pid as i32), None).is_ok()
+            let Ok(pid_i32) = i32::try_from(pid) else {
+                return false;
+            };
+            kill(Pid::from_raw(pid_i32), None).is_ok()
         }
 
         #[cfg(not(unix))]

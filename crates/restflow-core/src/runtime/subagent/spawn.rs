@@ -245,7 +245,6 @@ fn build_registry_for_agent(parent: &Arc<ToolRegistry>, allowed_tools: &[String]
                     restricted_file_actions.insert("list".to_string());
                     restricted_file_actions.insert("search".to_string());
                     restricted_file_actions.insert("exists".to_string());
-                    restricted_file_actions.insert("delete".to_string());
                 }
                 "file" => {
                     full_file_access = true;

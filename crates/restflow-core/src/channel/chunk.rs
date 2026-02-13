@@ -10,6 +10,8 @@ const TELEGRAM_MAX_LEN: usize = 4096;
 
 /// Default split threshold (leaves headroom for fence re-opening markup).
 const DEFAULT_MAX_LEN: usize = 4000;
+/// Lower bound to prevent pathological tiny limits.
+const MIN_SAFE_LEN: usize = 64;
 
 /// Split `text` into chunks of at most `max_len` characters that respect
 /// Markdown fenced code blocks.
@@ -21,7 +23,7 @@ const DEFAULT_MAX_LEN: usize = 4000;
 /// 4. When a split occurs inside a fence, the current chunk gets a closing
 ///    `` ``` `` and the next chunk gets an opening `` ```lang ``.
 pub fn chunk_markdown(text: &str, max_len: Option<usize>) -> Vec<String> {
-    let limit = max_len.unwrap_or(DEFAULT_MAX_LEN);
+    let limit = max_len.unwrap_or(DEFAULT_MAX_LEN).max(MIN_SAFE_LEN);
 
     if text.is_empty() {
         return Vec::new();
@@ -31,7 +33,8 @@ pub fn chunk_markdown(text: &str, max_len: Option<usize>) -> Vec<String> {
     }
 
     let mut chunks: Vec<String> = Vec::new();
-    let mut remaining = text;
+    let mut remaining_owned = text.to_string();
+    let mut remaining = remaining_owned.as_str();
     let mut in_fence = false;
     let mut fence_lang: Option<String> = None;
 
@@ -49,8 +52,30 @@ pub fn chunk_markdown(text: &str, max_len: Option<usize>) -> Vec<String> {
             .take_while(|&i| i <= limit)
             .last()
             .unwrap_or(0);
+        if safe_limit == 0 {
+            // Should be unreachable with MIN_SAFE_LEN, but keep a hard-progress
+            // guard to avoid infinite loops on malformed limits.
+            let next = remaining
+                .chars()
+                .next()
+                .map(|ch| ch.len_utf8())
+                .unwrap_or(remaining.len());
+            chunks.push(remaining[..next].to_string());
+            remaining = &remaining[next..];
+            continue;
+        }
         let candidate = &remaining[..safe_limit];
         let split_at = find_split_point(candidate, safe_limit, in_fence);
+        if split_at == 0 {
+            let next = remaining
+                .chars()
+                .next()
+                .map(|ch| ch.len_utf8())
+                .unwrap_or(remaining.len());
+            chunks.push(remaining[..next].to_string());
+            remaining = &remaining[next..];
+            continue;
+        }
 
         let chunk_text = &remaining[..split_at];
 
@@ -64,23 +89,19 @@ pub fn chunk_markdown(text: &str, max_len: Option<usize>) -> Vec<String> {
             closed.push_str("\n```");
             chunks.push(closed);
 
-            // Advance past the split point.
-            remaining = skip_leading_newlines(&remaining[split_at..]);
-
-            // The next chunk will reopen the fence.
+            // Advance past the split point and reopen the fence in the next chunk.
+            let tail = skip_leading_newlines(&remaining[split_at..]);
             let opener = match &new_fence_lang {
                 Some(lang) => format!("```{}\n", lang),
                 None => "```\n".to_string(),
             };
-            remaining = &remaining[0..]; // no-op, but keeps logic clear
-            // Prepend the opener to the remaining text by collecting into a
-            // new owned string. We break the borrow here intentionally.
-            let reopened = format!("{}{}", opener, remaining);
-            // Recurse with the reopened text — this handles deeply nested
-            // splits correctly without complex state tracking.
-            let sub_chunks = chunk_markdown(&reopened, Some(limit));
-            chunks.extend(sub_chunks);
-            return chunks;
+            remaining_owned = format!("{}{}", opener, tail);
+            remaining = remaining_owned.as_str();
+            // We closed the fence in the emitted chunk. The reopened marker is
+            // now part of `remaining`, so restart scanning from non-fence state.
+            in_fence = false;
+            fence_lang = None;
+            continue;
         }
 
         chunks.push(chunk_text.to_string());
@@ -107,7 +128,14 @@ fn find_split_point(candidate: &str, limit: usize, _in_fence: bool) -> usize {
     if let Some(pos) = candidate.rfind('\n')
         && pos > 0
     {
-        return pos;
+        let is_only_fence_opener_newline = candidate.starts_with("```")
+            && candidate
+                .find('\n')
+                .map(|first| first == pos)
+                .unwrap_or(false);
+        if !is_only_fence_opener_newline {
+            return pos;
+        }
     }
 
     // 3. Hard cut at limit.
@@ -295,6 +323,17 @@ mod tests {
         let text = "a".repeat(DEFAULT_MAX_LEN + 1);
         let chunks = chunk_markdown(&text, None);
         assert!(chunks.len() >= 2);
+    }
+
+    #[test]
+    fn test_tiny_limit_is_clamped_and_makes_progress() {
+        let text = format!("```rust\n{}\n```", "x".repeat(512));
+        let chunks = chunk_markdown(&text, Some(5));
+
+        assert!(!chunks.is_empty());
+        assert!(chunks.iter().all(|chunk| !chunk.is_empty()));
+        // Clamp should avoid pathological tiny slicing.
+        assert!(chunks[0].len() >= MIN_SAFE_LEN || chunks.len() == 1);
     }
 
     #[test]
