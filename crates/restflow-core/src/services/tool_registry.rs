@@ -6,8 +6,8 @@ use crate::memory::{MemoryExporter, UnifiedSearchEngine};
 use crate::models::{
     BackgroundAgentControlAction, BackgroundAgentPatch, BackgroundAgentSchedule,
     BackgroundAgentSpec, BackgroundAgentStatus, BackgroundMessageSource, MemoryConfig, MemoryScope,
-    MemorySearchQuery, NoteQuery, NoteStatus, SearchMode, SharedEntry, Skill, TerminalSession,
-    ToolAction, TriggerConfig, UnifiedSearchQuery, Visibility, WorkspaceNote,
+    MemorySearchQuery, NoteQuery, NoteStatus, ResourceLimits, SearchMode, SharedEntry, Skill,
+    TerminalSession, ToolAction, TriggerConfig, UnifiedSearchQuery, Visibility, WorkspaceNote,
     WorkspaceNotePatch as CoreWorkspaceNotePatch, WorkspaceNoteSpec as CoreWorkspaceNoteSpec,
 };
 use crate::registry::{
@@ -448,6 +448,8 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
                 .unwrap_or_default();
         let memory = Self::parse_optional_value("memory", request.memory)?;
         let memory = Self::merge_memory_scope(memory, request.memory_scope)?;
+        let resource_limits: Option<ResourceLimits> =
+            Self::parse_optional_value("resource_limits", request.resource_limits)?;
         let task = self
             .storage
             .create_background_agent(BackgroundAgentSpec {
@@ -461,6 +463,7 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
                 execution_mode: None,
                 timeout_secs: request.timeout_secs,
                 memory,
+                resource_limits,
             })
             .map_err(|e| AiError::Tool(e.to_string()))?;
         serde_json::to_value(task).map_err(AiError::from)
@@ -477,6 +480,8 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
             .transpose()?;
         let memory = Self::parse_optional_value("memory", request.memory)?;
         let memory = Self::merge_memory_scope(memory, request.memory_scope)?;
+        let resource_limits: Option<ResourceLimits> =
+            Self::parse_optional_value("resource_limits", request.resource_limits)?;
         let patch = BackgroundAgentPatch {
             name: request.name,
             description: request.description,
@@ -488,6 +493,7 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
             execution_mode: Self::parse_optional_value("execution_mode", request.execution_mode)?,
             timeout_secs: request.timeout_secs,
             memory,
+            resource_limits,
         };
 
         let task = self
@@ -3333,6 +3339,7 @@ mod tests {
                 timeout_secs: Some(1800),
                 memory: None,
                 memory_scope: Some("per_background_agent".to_string()),
+                resource_limits: None,
             },
         )
         .unwrap();
@@ -3370,6 +3377,7 @@ mod tests {
                 timeout_secs: Some(900),
                 memory: None,
                 memory_scope: Some("shared_agent".to_string()),
+                resource_limits: None,
             },
         )
         .unwrap();

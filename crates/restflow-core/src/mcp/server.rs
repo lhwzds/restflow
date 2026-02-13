@@ -10,7 +10,7 @@ use crate::models::{
     BackgroundAgentSchedule, BackgroundAgentSpec, BackgroundAgentStatus, BackgroundMessage,
     BackgroundMessageSource, BackgroundProgress, ChatSession, ChatSessionSummary, Hook, HookAction,
     HookEvent, HookFilter, MemoryChunk, MemoryConfig, MemoryScope, MemorySearchQuery,
-    MemorySearchResult, MemorySource, MemoryStats, Provider, SearchMode, Skill,
+    MemorySearchResult, MemorySource, MemoryStats, Provider, ResourceLimits, SearchMode, Skill,
 };
 use crate::services::tool_registry::create_tool_registry;
 use crate::storage::SecretStorage;
@@ -914,6 +914,9 @@ pub struct ManageBackgroundAgentsParams {
     /// Optional memory scope override
     #[serde(default)]
     pub memory_scope: Option<String>,
+    /// Optional resource limits payload
+    #[serde(default)]
+    pub resource_limits: Option<Value>,
     /// Optional list status filter
     #[serde(default)]
     pub status: Option<String>,
@@ -1399,6 +1402,10 @@ impl RestFlowMcpServer {
                 .unwrap_or_default();
                 let memory = Self::parse_optional_value::<MemoryConfig>("memory", params.memory)?;
                 let memory = Self::merge_memory_scope(memory, params.memory_scope)?;
+                let resource_limits = Self::parse_optional_value::<ResourceLimits>(
+                    "resource_limits",
+                    params.resource_limits,
+                )?;
                 let spec = BackgroundAgentSpec {
                     name,
                     agent_id,
@@ -1413,6 +1420,7 @@ impl RestFlowMcpServer {
                     )?,
                     timeout_secs: params.timeout_secs,
                     memory,
+                    resource_limits,
                 };
                 serde_json::to_value(self.backend.create_background_agent(spec).await?)
                     .map_err(|e| e.to_string())?
@@ -1421,6 +1429,10 @@ impl RestFlowMcpServer {
                 let id = Self::required_string(params.id, "id")?;
                 let memory = Self::parse_optional_value::<MemoryConfig>("memory", params.memory)?;
                 let memory = Self::merge_memory_scope(memory, params.memory_scope)?;
+                let resource_limits = Self::parse_optional_value::<ResourceLimits>(
+                    "resource_limits",
+                    params.resource_limits,
+                )?;
                 let patch = BackgroundAgentPatch {
                     name: params.name,
                     description: params.description,
@@ -1435,6 +1447,7 @@ impl RestFlowMcpServer {
                     )?,
                     timeout_secs: params.timeout_secs,
                     memory,
+                    resource_limits,
                 };
                 serde_json::to_value(self.backend.update_background_agent(&id, patch).await?)
                     .map_err(|e| e.to_string())?
@@ -2861,6 +2874,7 @@ mod tests {
             timeout_secs: None,
             memory: None,
             memory_scope: None,
+            resource_limits: None,
             status: None,
             action: None,
             event_limit: None,
