@@ -25,6 +25,20 @@ pub struct BackgroundAgentStorage {
 }
 
 impl BackgroundAgentStorage {
+    const MIN_TASK_TIMEOUT_SECS: u64 = 10;
+
+    fn validate_timeout_secs(timeout_secs: Option<u64>) -> Result<()> {
+        if let Some(timeout) = timeout_secs
+            && timeout < Self::MIN_TASK_TIMEOUT_SECS
+        {
+            return Err(anyhow::anyhow!(
+                "timeout_secs must be at least {} seconds",
+                Self::MIN_TASK_TIMEOUT_SECS
+            ));
+        }
+        Ok(())
+    }
+
     /// Create a new BackgroundAgentStorage instance
     pub fn new(db: Arc<Database>) -> Result<Self> {
         let checkpoints = CheckpointStorage::new(db.clone())?;
@@ -296,6 +310,7 @@ impl BackgroundAgentStorage {
 
     /// Create a background agent from a rich spec.
     pub fn create_background_agent(&self, spec: BackgroundAgentSpec) -> Result<BackgroundAgent> {
+        Self::validate_timeout_secs(spec.timeout_secs)?;
         let mut task = self.create_task(spec.name, spec.agent_id, spec.schedule)?;
 
         task.description = spec.description;
@@ -307,6 +322,7 @@ impl BackgroundAgentStorage {
         if let Some(execution_mode) = spec.execution_mode {
             task.execution_mode = execution_mode;
         }
+        task.timeout_secs = spec.timeout_secs;
         if let Some(memory) = spec.memory {
             task.memory = memory;
         }
@@ -321,6 +337,7 @@ impl BackgroundAgentStorage {
         id: &str,
         patch: BackgroundAgentPatch,
     ) -> Result<BackgroundAgent> {
+        Self::validate_timeout_secs(patch.timeout_secs)?;
         let mut task = self
             .get_task(id)?
             .ok_or_else(|| anyhow::anyhow!("Task {} not found", id))?;
@@ -349,6 +366,9 @@ impl BackgroundAgentStorage {
         }
         if let Some(execution_mode) = patch.execution_mode {
             task.execution_mode = execution_mode;
+        }
+        if let Some(timeout_secs) = patch.timeout_secs {
+            task.timeout_secs = Some(timeout_secs);
         }
         if let Some(memory) = patch.memory {
             task.memory = memory;
@@ -656,6 +676,33 @@ impl BackgroundAgentStorage {
         self.add_event(&event)
     }
 
+    /// Delete old terminal tasks and their related messages/events.
+    ///
+    /// Returns the number of deleted tasks.
+    pub fn cleanup_old_tasks(&self, older_than_ms: i64) -> Result<usize> {
+        let tasks = self.list_tasks()?;
+        let mut deleted = 0usize;
+
+        for task in tasks {
+            if !matches!(
+                task.status,
+                BackgroundAgentStatus::Completed | BackgroundAgentStatus::Failed
+            ) {
+                continue;
+            }
+
+            if task.updated_at >= older_than_ms {
+                continue;
+            }
+
+            if self.delete_task(&task.id)? {
+                deleted += 1;
+            }
+        }
+
+        Ok(deleted)
+    }
+
     // ============== Checkpoint Operations ==============
 
     /// Save an agent checkpoint.
@@ -767,6 +814,42 @@ mod tests {
         assert_eq!(active_tasks[0].id, task1.id);
         assert_eq!(paused_tasks.len(), 1);
         assert_eq!(paused_tasks[0].id, task2.id);
+    }
+
+    #[test]
+    fn test_cleanup_old_tasks_keeps_non_terminal() {
+        let storage = create_test_storage();
+        let now = chrono::Utc::now().timestamp_millis();
+
+        let terminal = storage
+            .create_task(
+                "Terminal Task".to_string(),
+                "agent-001".to_string(),
+                BackgroundAgentSchedule::default(),
+            )
+            .unwrap();
+        storage
+            .fail_task_execution(&terminal.id, "failed".to_string(), 1)
+            .unwrap();
+        let mut terminal_updated = storage.get_task(&terminal.id).unwrap().unwrap();
+        terminal_updated.updated_at = now - (10 * 24 * 60 * 60 * 1000);
+        storage.update_task(&terminal_updated).unwrap();
+
+        let mut active = storage
+            .create_task(
+                "Active Task".to_string(),
+                "agent-001".to_string(),
+                BackgroundAgentSchedule::default(),
+            )
+            .unwrap();
+        active.updated_at = now - (30 * 24 * 60 * 60 * 1000);
+        storage.update_task(&active).unwrap();
+
+        let cutoff = now - (7 * 24 * 60 * 60 * 1000);
+        let deleted = storage.cleanup_old_tasks(cutoff).unwrap();
+        assert_eq!(deleted, 1);
+        assert!(storage.get_task(&terminal.id).unwrap().is_none());
+        assert!(storage.get_task(&active.id).unwrap().is_some());
     }
 
     #[test]
@@ -1001,6 +1084,7 @@ mod tests {
                 },
                 notification: None,
                 execution_mode: None,
+                timeout_secs: None,
                 memory: None,
             })
             .unwrap();
@@ -1034,6 +1118,7 @@ mod tests {
                 },
                 notification: None,
                 execution_mode: None,
+                timeout_secs: None,
                 memory: None,
             })
             .unwrap();
@@ -1112,6 +1197,7 @@ mod tests {
                 },
                 notification: None,
                 execution_mode: None,
+                timeout_secs: None,
                 memory: None,
             })
             .unwrap();
@@ -1202,6 +1288,7 @@ mod tests {
                 schedule: BackgroundAgentSchedule::default(),
                 notification: None,
                 execution_mode: None,
+                timeout_secs: None,
                 memory: Some(MemoryConfig {
                     max_messages: 120,
                     enable_file_memory: true,
@@ -1236,6 +1323,7 @@ mod tests {
                 schedule: BackgroundAgentSchedule::default(),
                 notification: None,
                 execution_mode: None,
+                timeout_secs: None,
                 memory: None,
             })
             .unwrap();
@@ -1264,5 +1352,61 @@ mod tests {
             Some("Template {{task.name}}")
         );
         assert_eq!(updated.memory.memory_scope, MemoryScope::PerBackgroundAgent);
+    }
+
+    #[test]
+    fn test_create_background_agent_rejects_timeout_below_minimum() {
+        let storage = create_test_storage();
+        let result = storage.create_background_agent(BackgroundAgentSpec {
+            name: "Too Fast Timeout".to_string(),
+            agent_id: "agent-001".to_string(),
+            description: None,
+            input: None,
+            input_template: None,
+            schedule: BackgroundAgentSchedule::default(),
+            notification: None,
+            execution_mode: None,
+            timeout_secs: Some(5),
+            memory: None,
+        });
+
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("timeout_secs must be at least")
+        );
+    }
+
+    #[test]
+    fn test_update_background_agent_updates_timeout_secs() {
+        let storage = create_test_storage();
+        let created = storage
+            .create_background_agent(BackgroundAgentSpec {
+                name: "Timeout Update Task".to_string(),
+                agent_id: "agent-001".to_string(),
+                description: None,
+                input: None,
+                input_template: None,
+                schedule: BackgroundAgentSchedule::default(),
+                notification: None,
+                execution_mode: None,
+                timeout_secs: None,
+                memory: None,
+            })
+            .unwrap();
+
+        let updated = storage
+            .update_background_agent(
+                &created.id,
+                BackgroundAgentPatch {
+                    timeout_secs: Some(900),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+
+        assert_eq!(updated.timeout_secs, Some(900));
     }
 }

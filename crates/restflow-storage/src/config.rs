@@ -11,17 +11,29 @@ const CONFIG_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("system_
 const DEFAULT_WORKER_COUNT: usize = 4;
 const DEFAULT_TASK_TIMEOUT_SECONDS: u64 = 300; // 5 minutes
 const DEFAULT_STALL_TIMEOUT_SECONDS: u64 = 300; // 5 minutes
+const DEFAULT_BACKGROUND_API_TIMEOUT_SECONDS: u64 = 3600; // 60 minutes
 const DEFAULT_MAX_RETRIES: u32 = 3;
+const DEFAULT_CHAT_SESSION_RETENTION_DAYS: u32 = 30;
+const DEFAULT_BACKGROUND_TASK_RETENTION_DAYS: u32 = 7;
+const DEFAULT_CHECKPOINT_RETENTION_DAYS: u32 = 3;
+const DEFAULT_MEMORY_CHUNK_RETENTION_DAYS: u32 = 90;
+const MIN_RETENTION_DAYS: u32 = 1;
 const MIN_WORKER_COUNT: usize = 1;
 const MIN_TIMEOUT_SECONDS: u64 = 10;
 
 /// System configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct SystemConfig {
     pub worker_count: usize,
     pub task_timeout_seconds: u64,
     pub stall_timeout_seconds: u64,
+    pub background_api_timeout_seconds: u64,
     pub max_retries: u32,
+    pub chat_session_retention_days: u32,
+    pub background_task_retention_days: u32,
+    pub checkpoint_retention_days: u32,
+    pub memory_chunk_retention_days: u32,
 }
 
 impl Default for SystemConfig {
@@ -30,7 +42,12 @@ impl Default for SystemConfig {
             worker_count: DEFAULT_WORKER_COUNT,
             task_timeout_seconds: DEFAULT_TASK_TIMEOUT_SECONDS,
             stall_timeout_seconds: DEFAULT_STALL_TIMEOUT_SECONDS,
+            background_api_timeout_seconds: DEFAULT_BACKGROUND_API_TIMEOUT_SECONDS,
             max_retries: DEFAULT_MAX_RETRIES,
+            chat_session_retention_days: DEFAULT_CHAT_SESSION_RETENTION_DAYS,
+            background_task_retention_days: DEFAULT_BACKGROUND_TASK_RETENTION_DAYS,
+            checkpoint_retention_days: DEFAULT_CHECKPOINT_RETENTION_DAYS,
+            memory_chunk_retention_days: DEFAULT_MEMORY_CHUNK_RETENTION_DAYS,
         }
     }
 }
@@ -59,8 +76,47 @@ impl SystemConfig {
             ));
         }
 
+        if self.background_api_timeout_seconds < MIN_TIMEOUT_SECONDS {
+            return Err(anyhow::anyhow!(
+                "Background API timeout must be at least {} seconds",
+                MIN_TIMEOUT_SECONDS
+            ));
+        }
+
         if self.max_retries == 0 {
             return Err(anyhow::anyhow!("Max retries must be at least 1"));
+        }
+
+        if self.chat_session_retention_days != 0
+            && self.chat_session_retention_days < MIN_RETENTION_DAYS
+        {
+            return Err(anyhow::anyhow!(
+                "Chat session retention must be 0 (forever) or at least {} day",
+                MIN_RETENTION_DAYS
+            ));
+        }
+
+        if self.background_task_retention_days < MIN_RETENTION_DAYS {
+            return Err(anyhow::anyhow!(
+                "Background task retention must be at least {} day",
+                MIN_RETENTION_DAYS
+            ));
+        }
+
+        if self.checkpoint_retention_days < MIN_RETENTION_DAYS {
+            return Err(anyhow::anyhow!(
+                "Checkpoint retention must be at least {} day",
+                MIN_RETENTION_DAYS
+            ));
+        }
+
+        if self.memory_chunk_retention_days != 0
+            && self.memory_chunk_retention_days < MIN_RETENTION_DAYS
+        {
+            return Err(anyhow::anyhow!(
+                "Memory chunk retention must be 0 (forever) or at least {} day",
+                MIN_RETENTION_DAYS
+            ));
         }
 
         Ok(())
@@ -154,6 +210,10 @@ mod tests {
         let config = config.unwrap();
         assert_eq!(config.worker_count, DEFAULT_WORKER_COUNT);
         assert_eq!(config.task_timeout_seconds, DEFAULT_TASK_TIMEOUT_SECONDS);
+        assert_eq!(
+            config.background_api_timeout_seconds,
+            DEFAULT_BACKGROUND_API_TIMEOUT_SECONDS
+        );
     }
 
     #[test]
@@ -164,7 +224,12 @@ mod tests {
             worker_count: 8,
             task_timeout_seconds: 600,
             stall_timeout_seconds: 600,
+            background_api_timeout_seconds: 3600,
             max_retries: 5,
+            chat_session_retention_days: 45,
+            background_task_retention_days: 14,
+            checkpoint_retention_days: 5,
+            memory_chunk_retention_days: 120,
         };
 
         storage.update_config(new_config).unwrap();
@@ -180,7 +245,12 @@ mod tests {
             worker_count: 2,
             task_timeout_seconds: 30,
             stall_timeout_seconds: 30,
+            background_api_timeout_seconds: 1200,
             max_retries: 1,
+            chat_session_retention_days: 30,
+            background_task_retention_days: 7,
+            checkpoint_retention_days: 3,
+            memory_chunk_retention_days: 90,
         };
         assert!(valid_config.validate().is_ok());
     }
@@ -193,7 +263,12 @@ mod tests {
             worker_count: 0,
             task_timeout_seconds: 300,
             stall_timeout_seconds: 300,
+            background_api_timeout_seconds: 3600,
             max_retries: 3,
+            chat_session_retention_days: 30,
+            background_task_retention_days: 7,
+            checkpoint_retention_days: 3,
+            memory_chunk_retention_days: 90,
         };
 
         let result = storage.update_config(invalid_config);

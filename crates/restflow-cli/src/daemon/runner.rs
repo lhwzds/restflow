@@ -99,6 +99,7 @@ impl CliBackgroundAgentRunner {
         );
         let notifier = TelegramNotifier::new(secrets);
         let steer_registry = Arc::new(SteerRegistry::new());
+        let system_config = storage.config.get_config()?.unwrap_or_default();
 
         let hook_executor = Arc::new(HookExecutor::with_storage(storage.hooks.clone()));
 
@@ -110,7 +111,7 @@ impl CliBackgroundAgentRunner {
                 RunnerConfig {
                     poll_interval_ms: 30_000,
                     max_concurrent_tasks: 5,
-                    task_timeout_secs: 3600,
+                    task_timeout_secs: system_config.background_api_timeout_seconds,
                 },
                 Arc::new(NoopHeartbeatEmitter),
                 storage.memory.clone(),
@@ -435,6 +436,7 @@ mod tests {
                 schedule: TaskSchedule::default(),
                 notification: Some(NotificationConfig::default()),
                 execution_mode: None,
+                timeout_secs: None,
                 memory: Some(MemoryConfig::default()),
             })
             .expect("failed to create background agent");

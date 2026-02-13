@@ -158,14 +158,22 @@ mod tests {
 
         assert!(!created.id.is_empty());
         assert_eq!(created.name, "Test Agent");
+        if let Some(prompt) = &created.agent.prompt {
+            assert_eq!(prompt, "You are a helpful assistant");
+        }
+
+        let prompt_on_disk = prompt_files::load_agent_prompt(&created.id).unwrap();
         assert_eq!(
-            created.agent.prompt,
+            prompt_on_disk,
             Some("You are a helpful assistant".to_string())
         );
 
         let retrieved = get_agent(&core, &created.id).await.unwrap();
         assert_eq!(retrieved.id, created.id);
         assert_eq!(retrieved.name, "Test Agent");
+        if let Some(prompt) = &retrieved.agent.prompt {
+            assert_eq!(prompt, "You are a helpful assistant");
+        }
     }
 
     #[tokio::test]
@@ -210,9 +218,11 @@ mod tests {
             .unwrap();
 
         assert_eq!(updated.name, "Updated Name");
-        let prompt = updated.agent.prompt.unwrap_or_default();
-        let default_prompt = prompt_files::load_default_main_agent_prompt().unwrap();
-        assert!(prompt == "Test prompt" || prompt == default_prompt);
+        if let Some(prompt) = &updated.agent.prompt {
+            assert_eq!(prompt, "Test prompt");
+        }
+        let prompt_on_disk = prompt_files::load_agent_prompt(&created.id).unwrap();
+        assert_eq!(prompt_on_disk, Some("Test prompt".to_string()));
     }
 
     #[tokio::test]
@@ -234,9 +244,11 @@ mod tests {
             .unwrap();
 
         assert_eq!(updated.name, "Test Agent"); // Name unchanged
-        let prompt = updated.agent.prompt.unwrap_or_default();
-        let default_prompt = prompt_files::load_default_main_agent_prompt().unwrap();
-        assert!(prompt == "Updated prompt" || prompt == default_prompt);
+        if let Some(prompt) = &updated.agent.prompt {
+            assert_eq!(prompt, "Updated prompt");
+        }
+        let prompt_on_disk = prompt_files::load_agent_prompt(&created.id).unwrap();
+        assert_eq!(prompt_on_disk, Some("Updated prompt".to_string()));
         assert_eq!(updated.agent.temperature, Some(0.9));
         assert_eq!(updated.agent.model, Some(AIModel::DeepseekChat));
     }
@@ -360,10 +372,12 @@ mod tests {
             .expect_err("expected validation error");
         let payload: ValidationErrorResponse = serde_json::from_str(&err.to_string())
             .expect("validation error payload should be JSON");
-        assert!(payload
-            .errors
-            .iter()
-            .any(|e| e.field == "temperature" && e.message.contains("does not support")));
+        assert!(
+            payload
+                .errors
+                .iter()
+                .any(|e| e.field == "temperature" && e.message.contains("does not support"))
+        );
     }
 
     #[tokio::test]
@@ -378,11 +392,13 @@ mod tests {
             .expect_err("expected validation error");
         let payload: ValidationErrorResponse = serde_json::from_str(&err.to_string())
             .expect("validation error payload should be JSON");
-        assert!(payload
-            .errors
-            .iter()
-            .any(|e| e.field == "codex_cli_reasoning_effort"
-                && e.message.contains("only applies to Codex CLI")));
+        assert!(
+            payload
+                .errors
+                .iter()
+                .any(|e| e.field == "codex_cli_reasoning_effort"
+                    && e.message.contains("only applies to Codex CLI"))
+        );
     }
 
     #[tokio::test]

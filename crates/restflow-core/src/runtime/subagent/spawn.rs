@@ -245,7 +245,6 @@ fn build_registry_for_agent(parent: &Arc<ToolRegistry>, allowed_tools: &[String]
                     restricted_file_actions.insert("list".to_string());
                     restricted_file_actions.insert("search".to_string());
                     restricted_file_actions.insert("exists".to_string());
-                    restricted_file_actions.insert("delete".to_string());
                 }
                 "file" => {
                     full_file_access = true;
@@ -332,15 +331,29 @@ impl Tool for RestrictedFileTool {
     }
 
     async fn execute(&self, input: Value) -> Result<ToolOutput, restflow_ai::error::AiError> {
-        if let Some(action) = input.get("action").and_then(Value::as_str)
-            && !self.allowed_actions.contains(action)
-        {
-            let allowed = self.allowed_actions_sorted().join(", ");
+        let allowed = self.allowed_actions_sorted().join(", ");
+        let action = match input.get("action") {
+            Some(Value::String(action)) => action,
+            Some(_) => {
+                return Ok(ToolOutput::error(
+                    "Invalid action type. 'action' must be a string.".to_string(),
+                ));
+            }
+            None => {
+                return Ok(ToolOutput::error(format!(
+                    "Missing required 'action' field. Allowed actions: [{}]",
+                    allowed
+                )));
+            }
+        };
+
+        if !self.allowed_actions.contains(action) {
             return Ok(ToolOutput::error(format!(
                 "Action '{}' is not allowed for this agent. Allowed actions: [{}]",
                 action, allowed
             )));
         }
+
         self.inner.execute(input).await
     }
 
@@ -532,6 +545,30 @@ mod tests {
         let output = tool.execute(json!({ "action": "read" })).await.unwrap();
         assert!(output.success);
         assert_eq!(output.result["action"], "read");
+    }
+
+    #[tokio::test]
+    async fn test_restricted_file_tool_rejects_missing_action() {
+        let mut allowed_actions = HashSet::new();
+        allowed_actions.insert("read".to_string());
+        let tool = RestrictedFileTool::new(Arc::new(MockFileTool), allowed_actions);
+
+        let output = tool.execute(json!({})).await.unwrap();
+        assert!(!output.success);
+        let error = output.error.unwrap();
+        assert!(error.contains("Missing required 'action' field"));
+    }
+
+    #[tokio::test]
+    async fn test_restricted_file_tool_rejects_non_string_action() {
+        let mut allowed_actions = HashSet::new();
+        allowed_actions.insert("read".to_string());
+        let tool = RestrictedFileTool::new(Arc::new(MockFileTool), allowed_actions);
+
+        let output = tool.execute(json!({ "action": 123 })).await.unwrap();
+        assert!(!output.success);
+        let error = output.error.unwrap();
+        assert!(error.contains("Invalid action type"));
     }
 
     #[test]

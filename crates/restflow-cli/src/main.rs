@@ -11,14 +11,9 @@ mod setup;
 use anyhow::Result;
 use clap::{CommandFactory, Parser};
 use clap_complete::generate;
-use cli::{Cli, Commands, DaemonCommands};
-use commands::daemon::sync_mcp_configs;
-use restflow_core::daemon::{
-    DaemonConfig, DaemonStatus, check_daemon_status, start_daemon_with_config, stop_daemon,
-};
+use cli::{Cli, Commands};
 use restflow_core::paths;
 use std::io;
-use tokio::time::{Duration, sleep};
 use tracing_appender::non_blocking::WorkerGuard;
 
 fn init_logging(verbose: bool) -> Option<WorkerGuard> {
@@ -67,6 +62,7 @@ fn command_needs_direct_core(command: &Option<Commands>) -> bool {
             | Some(Commands::Hook { .. })
             | Some(Commands::Pairing { .. })
             | Some(Commands::Route { .. })
+            | Some(Commands::Maintenance { .. })
     )
 }
 
@@ -114,82 +110,10 @@ async fn run() -> Result<()> {
     }
 
     // Handle daemon commands that don't need AppCore (to avoid database lock conflicts)
-    if let Some(Commands::Daemon { command }) = &cli.command {
-        match command {
-            DaemonCommands::Start {
-                foreground: false,
-                mcp_port,
-            } => {
-                match check_daemon_status()? {
-                    DaemonStatus::Running { pid } => {
-                        println!("Daemon already running (PID: {})", pid);
-                    }
-                    _ => {
-                        let config = DaemonConfig {
-                            mcp: true,
-                            mcp_port: *mcp_port,
-                        };
-                        let pid = start_daemon_with_config(config)?;
-                        println!("Daemon started (PID: {})", pid);
-                        sync_mcp_configs(*mcp_port).await;
-                    }
-                }
-                return Ok(());
-            }
-            DaemonCommands::Stop => {
-                if stop_daemon()? {
-                    println!("Sent stop signal to daemon");
-                } else {
-                    println!("Daemon not running");
-                }
-                return Ok(());
-            }
-            DaemonCommands::Status => {
-                match check_daemon_status()? {
-                    DaemonStatus::Running { pid } => {
-                        println!("Daemon running (PID: {})", pid);
-                    }
-                    DaemonStatus::NotRunning => {
-                        println!("Daemon not running");
-                    }
-                    DaemonStatus::Stale { pid } => {
-                        println!("Daemon not running (stale PID: {})", pid);
-                    }
-                }
-                return Ok(());
-            }
-            DaemonCommands::Restart {
-                foreground: false,
-                mcp_port,
-            } => {
-                let was_running = stop_daemon()?;
-                if was_running {
-                    println!("Sent stop signal to daemon");
-                    wait_for_daemon_exit().await?;
-                }
-
-                let config = DaemonConfig {
-                    mcp: true,
-                    mcp_port: *mcp_port,
-                };
-                let pid = start_daemon_with_config(config)?;
-                if was_running {
-                    println!("Daemon restarted (PID: {})", pid);
-                } else {
-                    println!("Daemon started (PID: {})", pid);
-                }
-                sync_mcp_configs(*mcp_port).await;
-                return Ok(());
-            }
-            DaemonCommands::Start {
-                foreground: true, ..
-            }
-            | DaemonCommands::Restart {
-                foreground: true, ..
-            } => {
-                // Continue to open database for foreground mode
-            }
-        }
+    if let Some(Commands::Daemon { command }) = &cli.command
+        && commands::daemon::run_without_core(command).await?
+    {
+        return Ok(());
     }
 
     if matches!(
@@ -227,6 +151,9 @@ async fn run() -> Result<()> {
             }
             Some(Commands::Route { command }) => {
                 commands::pairing::run_route(core, command, cli.format).await
+            }
+            Some(Commands::Maintenance { command }) => {
+                commands::maintenance::run(core, command, cli.format).await
             }
             _ => unreachable!(),
         }
@@ -275,21 +202,10 @@ async fn run() -> Result<()> {
     }
 }
 
-async fn wait_for_daemon_exit() -> Result<()> {
-    for _ in 0..50 {
-        match check_daemon_status()? {
-            DaemonStatus::Running { .. } => sleep(Duration::from_millis(100)).await,
-            DaemonStatus::NotRunning | DaemonStatus::Stale { .. } => return Ok(()),
-        }
-    }
-
-    anyhow::bail!("Daemon did not stop within timeout")
-}
-
 #[cfg(test)]
 mod tests {
     use super::command_needs_direct_core;
-    use crate::cli::{Commands, HookCommands, StartArgs};
+    use crate::cli::{Commands, HookCommands, MaintenanceCommands, StartArgs};
 
     #[test]
     fn start_does_not_need_direct_core() {
@@ -301,6 +217,14 @@ mod tests {
     fn hook_needs_direct_core() {
         let command = Some(Commands::Hook {
             command: HookCommands::List,
+        });
+        assert!(command_needs_direct_core(&command));
+    }
+
+    #[test]
+    fn maintenance_needs_direct_core() {
+        let command = Some(Commands::Maintenance {
+            command: MaintenanceCommands::Cleanup,
         });
         assert!(command_needs_direct_core(&command));
     }

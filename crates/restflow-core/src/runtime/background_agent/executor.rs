@@ -30,7 +30,7 @@ use restflow_ai::{
 };
 use tokio::sync::mpsc;
 use tokio::time::sleep;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 use super::failover::{FailoverConfig, FailoverManager, execute_with_failover};
 use super::retry::{RetryConfig, RetryState};
@@ -414,9 +414,11 @@ impl AgentRuntimeExecutor {
         agent_id: Option<&str>,
         python_runtime: PythonRuntime,
     ) -> Arc<ToolRegistry> {
+        let filtered_tool_names = self.filter_requested_tool_names(tool_names);
+        let filtered_tool_names_ref = filtered_tool_names.as_deref();
         let secret_resolver = Some(secret_resolver_from_storage(&self.storage));
         let subagent_tool_registry = Arc::new(registry_from_allowlist(
-            tool_names,
+            filtered_tool_names_ref,
             None,
             secret_resolver.clone(),
             Some(self.storage.as_ref()),
@@ -425,7 +427,7 @@ impl AgentRuntimeExecutor {
         ));
         let subagent_deps = self.build_subagent_deps(llm_client, subagent_tool_registry);
         let mut registry = registry_from_allowlist(
-            tool_names,
+            filtered_tool_names_ref,
             Some(&subagent_deps),
             secret_resolver,
             Some(self.storage.as_ref()),
@@ -434,7 +436,7 @@ impl AgentRuntimeExecutor {
         );
 
         let requested = |name: &str| {
-            tool_names
+            filtered_tool_names_ref
                 .map(|names| names.iter().any(|n| n == name))
                 .unwrap_or(false)
         };
@@ -454,6 +456,27 @@ impl AgentRuntimeExecutor {
         }
 
         Arc::new(registry)
+    }
+
+    fn filter_requested_tool_names(&self, tool_names: Option<&[String]>) -> Option<Vec<String>> {
+        let names = tool_names?;
+        let has_reply_sender = self.reply_sender.is_some();
+
+        Some(
+            names
+                .iter()
+                .filter_map(|name| {
+                    if name == "reply" && !has_reply_sender {
+                        debug!(
+                            tool_name = "reply",
+                            "Reply sender missing in this execution context; skipping tool"
+                        );
+                        return None;
+                    }
+                    Some(name.clone())
+                })
+                .collect(),
+        )
     }
 
     /// Resolve the stored agent referenced by a chat session.
@@ -1237,6 +1260,25 @@ impl AgentRuntimeExecutor {
         let primary_model = self.resolve_primary_model(&agent_node).await?;
         let primary_provider = primary_model.provider();
 
+        // steer_rx/emitter are one-shot resources and cannot be replayed safely across
+        // failover or retry attempts. Execute a single primary-model attempt when either
+        // channel is present to avoid dropping steering/streaming state mid-run.
+        if steer_rx.is_some() || emitter.is_some() {
+            return self
+                .execute_with_profiles(
+                    &agent_node,
+                    primary_model,
+                    background_task_id,
+                    input,
+                    memory_config,
+                    primary_provider,
+                    steer_rx,
+                    emitter,
+                    Some(agent_id),
+                )
+                .await;
+        }
+
         let failover_config = self
             .build_failover_config(primary_model, agent_node.api_key_config.as_ref())
             .await;
@@ -1296,6 +1338,9 @@ mod tests {
     use crate::auth::{AuthProvider, Credential, CredentialSource};
     use crate::models::{AgentNode, MemoryConfig};
     use crate::runtime::subagent::{AgentDefinitionRegistry, SubagentConfig, SubagentTracker};
+    use restflow_ai::ReplySender;
+    use std::future::Future;
+    use std::pin::Pin;
     use tempfile::tempdir;
     use tokio::sync::mpsc;
 
@@ -1364,6 +1409,46 @@ mod tests {
             ..MemoryConfig::default()
         };
         assert!(AgentRuntimeExecutor::build_compaction_config(&disabled).is_none());
+    }
+
+    struct NoopReplySender;
+
+    impl ReplySender for NoopReplySender {
+        fn send(
+            &self,
+            _message: String,
+        ) -> Pin<Box<dyn Future<Output = anyhow::Result<()>> + Send>> {
+            Box::pin(async { Ok(()) })
+        }
+    }
+
+    #[test]
+    fn test_filter_requested_tool_names_removes_reply_without_sender() {
+        let (storage, _temp_dir) = create_test_storage();
+        let executor = create_test_executor(storage);
+        let requested = vec!["bash".to_string(), "reply".to_string(), "file".to_string()];
+
+        let filtered = executor
+            .filter_requested_tool_names(Some(&requested))
+            .expect("filtered tool list");
+
+        assert!(filtered.iter().any(|name| name == "bash"));
+        assert!(filtered.iter().any(|name| name == "file"));
+        assert!(!filtered.iter().any(|name| name == "reply"));
+    }
+
+    #[test]
+    fn test_filter_requested_tool_names_keeps_reply_with_sender() {
+        let (storage, _temp_dir) = create_test_storage();
+        let executor = create_test_executor(storage).with_reply_sender(Arc::new(NoopReplySender));
+        let requested = vec!["reply".to_string(), "bash".to_string()];
+
+        let filtered = executor
+            .filter_requested_tool_names(Some(&requested))
+            .expect("filtered tool list");
+
+        assert!(filtered.iter().any(|name| name == "reply"));
+        assert!(filtered.iter().any(|name| name == "bash"));
     }
 
     #[tokio::test]

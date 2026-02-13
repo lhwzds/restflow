@@ -42,9 +42,9 @@ use restflow_ai::{
 };
 use serde::{Deserialize, de::DeserializeOwned};
 use serde_json::{Value, json};
-use std::collections::BTreeMap;
-use std::path::Path;
-use std::sync::Arc;
+use std::collections::{BTreeMap, HashSet};
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, RwLock};
 use uuid::Uuid;
 
 /// SkillProvider implementation that reads from SkillStorage
@@ -175,7 +175,7 @@ struct AgentStoreAdapter {
     storage: AgentStorage,
     skills: SkillStorage,
     secrets: SecretStorage,
-    known_tools: Arc<std::collections::HashSet<String>>,
+    known_tools: Arc<RwLock<HashSet<String>>>,
 }
 
 impl AgentStoreAdapter {
@@ -183,7 +183,7 @@ impl AgentStoreAdapter {
         storage: AgentStorage,
         skills: SkillStorage,
         secrets: SecretStorage,
-        known_tools: Arc<std::collections::HashSet<String>>,
+        known_tools: Arc<RwLock<HashSet<String>>>,
     ) -> Self {
         Self {
             storage,
@@ -216,7 +216,12 @@ impl AgentStoreAdapter {
                     ));
                     continue;
                 }
-                if !self.known_tools.contains(normalized) {
+                let is_known = self
+                    .known_tools
+                    .read()
+                    .map(|set| set.contains(normalized))
+                    .unwrap_or(false);
+                if !is_known {
                     errors.push(crate::models::ValidationError::new(
                         "tools",
                         format!("unknown tool: {}", normalized),
@@ -454,6 +459,7 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
                 schedule,
                 notification: None,
                 execution_mode: None,
+                timeout_secs: request.timeout_secs,
                 memory,
             })
             .map_err(|e| AiError::Tool(e.to_string()))?;
@@ -480,6 +486,7 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
             schedule: Self::parse_optional_value("schedule", request.schedule)?,
             notification: Self::parse_optional_value("notification", request.notification)?,
             execution_mode: Self::parse_optional_value("execution_mode", request.execution_mode)?,
+            timeout_secs: request.timeout_secs,
             memory,
         };
 
@@ -1352,18 +1359,12 @@ pub fn create_tool_registry(
     // Add system management tools (read-only by default)
     registry.register(SecretsTool::new(Arc::new(secret_storage.clone())));
     registry.register(ConfigTool::new(Arc::new(config_storage)));
-    let known_tools = Arc::new(
-        registry
-            .list()
-            .into_iter()
-            .map(|name| name.to_string())
-            .collect::<std::collections::HashSet<_>>(),
-    );
+    let known_tools = Arc::new(RwLock::new(HashSet::new()));
     let agent_store = Arc::new(AgentStoreAdapter::new(
         agent_storage.clone(),
         skill_storage.clone(),
         secret_storage.clone(),
-        known_tools,
+        known_tools.clone(),
     ));
     registry.register(AgentCrudTool::new(agent_store).with_write(true));
     let background_agent_store = Arc::new(BackgroundAgentStoreAdapter::new(
@@ -1375,6 +1376,13 @@ pub fn create_tool_registry(
     registry.register(TriggerTool::new(trigger_storage));
     registry.register(TerminalTool::new(terminal_storage));
     registry.register(SecurityQueryTool::new());
+    if let Ok(mut known) = known_tools.write() {
+        *known = registry
+            .list()
+            .into_iter()
+            .map(|name| name.to_string())
+            .collect::<HashSet<_>>();
+    }
 
     registry
 }
@@ -1519,8 +1527,69 @@ impl ManageOpsTool {
             .clamp(1, max)
     }
 
+    fn canonical_existing_ancestor(path: &Path) -> anyhow::Result<PathBuf> {
+        let mut current = if path.exists() {
+            path.to_path_buf()
+        } else {
+            path.parent()
+                .map(Path::to_path_buf)
+                .unwrap_or_else(|| path.to_path_buf())
+        };
+
+        while !current.exists() {
+            if !current.pop() {
+                break;
+            }
+        }
+
+        if !current.exists() {
+            anyhow::bail!("No existing ancestor found for path: {}", path.display());
+        }
+
+        Ok(current.canonicalize()?)
+    }
+
+    fn resolve_log_tail_path(input: &Value) -> restflow_ai::error::Result<PathBuf> {
+        let logs_dir = crate::paths::logs_dir().map_err(|e| AiError::Tool(e.to_string()))?;
+        let path = match input
+            .get("path")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|raw| !raw.is_empty())
+            .map(PathBuf::from)
+        {
+            Some(custom_path) if custom_path.is_absolute() => custom_path,
+            Some(custom_path) => logs_dir.join(custom_path),
+            None => crate::paths::daemon_log_path().map_err(|e| AiError::Tool(e.to_string()))?,
+        };
+
+        let logs_root = Self::canonical_existing_ancestor(&logs_dir)
+            .map_err(|e| AiError::Tool(e.to_string()))?;
+        let path_root =
+            Self::canonical_existing_ancestor(&path).map_err(|e| AiError::Tool(e.to_string()))?;
+        if !path_root.starts_with(&logs_root) {
+            return Err(AiError::Tool(format!(
+                "log_tail path must stay under {}",
+                logs_dir.display()
+            )));
+        }
+
+        if let Ok(metadata) = std::fs::symlink_metadata(&path)
+            && metadata.file_type().is_symlink()
+        {
+            return Err(AiError::Tool(
+                "log_tail does not allow symlink paths".to_string(),
+            ));
+        }
+
+        Ok(path)
+    }
+
     fn read_log_tail(path: &Path, lines: usize) -> anyhow::Result<(Vec<String>, bool)> {
-        let content = std::fs::read_to_string(path)?;
+        let mut file = std::fs::File::open(path)?;
+        let mut content = String::new();
+        use std::io::Read;
+        file.read_to_string(&mut content)?;
         let all_lines: Vec<String> = content.lines().map(str::to_string).collect();
         let total = all_lines.len();
         let start = total.saturating_sub(lines);
@@ -1629,11 +1698,7 @@ impl ManageOpsTool {
 
     fn log_tail_payload(input: &Value) -> restflow_ai::error::Result<(Value, Value)> {
         let lines = Self::parse_limit(input, "lines", 100, 1000);
-        let path = if let Some(raw_path) = input.get("path").and_then(Value::as_str) {
-            std::path::PathBuf::from(raw_path)
-        } else {
-            crate::paths::daemon_log_path().map_err(|e| AiError::Tool(e.to_string()))?
-        };
+        let path = Self::resolve_log_tail_path(input)?;
         if !path.exists() {
             let evidence = json!({
                 "path": path.to_string_lossy(),
@@ -1698,7 +1763,7 @@ impl Tool for ManageOpsTool {
                 },
                 "path": {
                     "type": "string",
-                    "description": "Optional custom log file path for log_tail."
+                    "description": "Optional log file path for log_tail. Must stay under ~/.restflow/logs."
                 }
             },
             "required": ["operation"]
@@ -2805,6 +2870,180 @@ mod tests {
     }
 
     #[test]
+    fn test_manage_ops_log_tail_rejects_path_outside_logs_dir() {
+        let _lock = restflow_dir_env_lock();
+        let temp_dir = tempdir().unwrap();
+        let state_dir = temp_dir.path().join("state");
+        std::fs::create_dir_all(&state_dir).unwrap();
+        let outside_log = temp_dir.path().join("outside.log");
+        std::fs::write(&outside_log, "line-1\nline-2\n").unwrap();
+
+        let previous_restflow_dir = std::env::var_os("RESTFLOW_DIR");
+        unsafe { std::env::set_var("RESTFLOW_DIR", &state_dir) };
+
+        let result = ManageOpsTool::log_tail_payload(&json!({
+            "path": outside_log.to_string_lossy(),
+            "lines": 10
+        }));
+
+        unsafe {
+            if let Some(value) = previous_restflow_dir {
+                std::env::set_var("RESTFLOW_DIR", value);
+            } else {
+                std::env::remove_var("RESTFLOW_DIR");
+            }
+        }
+
+        let err = result.expect_err("path outside ~/.restflow/logs should be rejected");
+        assert!(err.to_string().contains("log_tail path must stay under"));
+    }
+
+    #[test]
+    fn test_manage_ops_log_tail_allows_relative_path_in_logs_dir() {
+        let _lock = restflow_dir_env_lock();
+        let temp_dir = tempdir().unwrap();
+        let state_dir = temp_dir.path().join("state");
+        std::fs::create_dir_all(&state_dir).unwrap();
+
+        let previous_restflow_dir = std::env::var_os("RESTFLOW_DIR");
+        unsafe { std::env::set_var("RESTFLOW_DIR", &state_dir) };
+
+        let logs_dir = crate::paths::logs_dir().unwrap();
+        let custom_log = logs_dir.join("custom.log");
+        std::fs::write(&custom_log, "line-1\nline-2\nline-3\n").unwrap();
+
+        let result = ManageOpsTool::log_tail_payload(&json!({
+            "path": "custom.log",
+            "lines": 2
+        }));
+
+        unsafe {
+            if let Some(value) = previous_restflow_dir {
+                std::env::set_var("RESTFLOW_DIR", value);
+            } else {
+                std::env::remove_var("RESTFLOW_DIR");
+            }
+        }
+
+        let (evidence, verification) = result.expect("path under ~/.restflow/logs should pass");
+        let lines = evidence["lines"]
+            .as_array()
+            .expect("lines should be an array");
+        assert_eq!(evidence["line_count"], json!(2));
+        assert_eq!(verification["path_exists"], json!(true));
+        assert_eq!(lines.len(), 2);
+        assert_eq!(lines[0].as_str(), Some("line-2"));
+        assert_eq!(lines[1].as_str(), Some("line-3"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_manage_ops_log_tail_rejects_symlink_path() {
+        let _lock = restflow_dir_env_lock();
+        let temp_dir = tempdir().unwrap();
+        let state_dir = temp_dir.path().join("state");
+        std::fs::create_dir_all(&state_dir).unwrap();
+
+        let previous_restflow_dir = std::env::var_os("RESTFLOW_DIR");
+        unsafe { std::env::set_var("RESTFLOW_DIR", &state_dir) };
+
+        let logs_dir = crate::paths::logs_dir().unwrap();
+        let outside_log = temp_dir.path().join("outside.log");
+        std::fs::write(&outside_log, "line-1\nline-2\n").unwrap();
+        let symlink_path = logs_dir.join("symlink.log");
+        std::os::unix::fs::symlink(&outside_log, &symlink_path).unwrap();
+
+        let result = ManageOpsTool::log_tail_payload(&json!({
+            "path": "symlink.log",
+            "lines": 2
+        }));
+
+        unsafe {
+            if let Some(value) = previous_restflow_dir {
+                std::env::set_var("RESTFLOW_DIR", value);
+            } else {
+                std::env::remove_var("RESTFLOW_DIR");
+            }
+        }
+
+        let err = result.expect_err("symlink path should be rejected");
+        let message = err.to_string();
+        assert!(
+            message.contains("symlink") || message.contains("must stay under"),
+            "unexpected error message: {message}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_manage_agents_accepts_tools_registered_after_snapshot_point() {
+        struct AgentsDirEnvCleanup;
+        impl Drop for AgentsDirEnvCleanup {
+            fn drop(&mut self) {
+                unsafe { std::env::remove_var(crate::prompt_files::AGENTS_DIR_ENV) };
+            }
+        }
+        let _cleanup = AgentsDirEnvCleanup;
+        let _env_lock = crate::prompt_files::agents_dir_env_lock();
+        let agents_temp = tempdir().unwrap();
+        unsafe { std::env::set_var(crate::prompt_files::AGENTS_DIR_ENV, agents_temp.path()) };
+
+        let (
+            skill_storage,
+            memory_storage,
+            chat_storage,
+            shared_space_storage,
+            workspace_note_storage,
+            secret_storage,
+            config_storage,
+            agent_storage,
+            background_agent_storage,
+            trigger_storage,
+            terminal_storage,
+            _temp_dir,
+        ) = setup_storage();
+
+        let registry = create_tool_registry(
+            skill_storage,
+            memory_storage,
+            chat_storage,
+            shared_space_storage,
+            workspace_note_storage,
+            secret_storage,
+            config_storage,
+            agent_storage,
+            background_agent_storage,
+            trigger_storage,
+            terminal_storage,
+            None,
+            None,
+        );
+
+        let output = registry
+            .execute_safe(
+                "manage_agents",
+                json!({
+                    "operation": "create",
+                    "name": "Late Tool Validation Agent",
+                    "agent": {
+                        "tools": [
+                            "manage_background_agents",
+                            "manage_terminal",
+                            "security_query"
+                        ]
+                    }
+                }),
+            )
+            .await
+            .unwrap();
+
+        assert!(
+            output.success,
+            "expected create to pass known tool validation, got: {:?}",
+            output.result
+        );
+    }
+
+    #[test]
     fn test_skill_provider_list_empty() {
         let (
             storage,
@@ -2917,14 +3156,14 @@ mod tests {
         );
         skill_storage.create(&audit_skill).unwrap();
 
-        let known_tools = Arc::new(
+        let known_tools = Arc::new(RwLock::new(
             [
                 "manage_background_agents".to_string(),
                 "manage_agents".to_string(),
             ]
             .into_iter()
-            .collect::<std::collections::HashSet<_>>(),
-        );
+            .collect::<HashSet<_>>(),
+        ));
         let adapter =
             AgentStoreAdapter::new(agent_storage, skill_storage, secret_storage, known_tools);
         let base_node = crate::models::AgentNode {
@@ -3025,11 +3264,11 @@ mod tests {
             _temp_dir,
         ) = setup_storage();
 
-        let known_tools = Arc::new(
+        let known_tools = Arc::new(RwLock::new(
             ["manage_background_agents".to_string()]
                 .into_iter()
-                .collect::<std::collections::HashSet<_>>(),
-        );
+                .collect::<HashSet<_>>(),
+        ));
         let adapter =
             AgentStoreAdapter::new(agent_storage, skill_storage, secret_storage, known_tools);
 
@@ -3090,6 +3329,7 @@ mod tests {
                 schedule: None,
                 input: Some("Run periodic checks".to_string()),
                 input_template: Some("Template {{task.id}}".to_string()),
+                timeout_secs: Some(1800),
                 memory: None,
                 memory_scope: Some("per_background_agent".to_string()),
             },
@@ -3126,6 +3366,7 @@ mod tests {
                 schedule: None,
                 notification: None,
                 execution_mode: None,
+                timeout_secs: Some(900),
                 memory: None,
                 memory_scope: Some("shared_agent".to_string()),
             },
@@ -3141,6 +3382,10 @@ mod tests {
                 .and_then(|value| value.get("memory_scope"))
                 .and_then(|value| value.as_str()),
             Some("shared_agent")
+        );
+        assert_eq!(
+            updated.get("timeout_secs").and_then(|value| value.as_u64()),
+            Some(900)
         );
 
         let controlled = BackgroundAgentStore::control_background_agent(

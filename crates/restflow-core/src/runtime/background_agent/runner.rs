@@ -852,10 +852,17 @@ impl BackgroundAgentRunner {
 
         // Transition task status back to Running
         if let Ok(Some(mut task)) = self.storage.get_task(task_id) {
-            task.status = BackgroundAgentStatus::Running;
+            task.status = if payload.approved {
+                BackgroundAgentStatus::Running
+            } else {
+                BackgroundAgentStatus::Paused
+            };
             task.updated_at = chrono::Utc::now().timestamp_millis();
             if let Err(e) = self.storage.save_task(&task) {
-                error!("Failed to update task status to running: {}", e);
+                error!(
+                    "Failed to update task status after checkpoint decision: {}",
+                    e
+                );
                 return;
             }
         }
@@ -890,7 +897,9 @@ impl BackgroundAgentRunner {
             approved = payload.approved,
             "Resuming task from checkpoint"
         );
-        self.run_task_immediate(task_id).await;
+        if payload.approved {
+            self.run_task_immediate(task_id).await;
+        }
     }
 
     fn to_steer_source(source: &BackgroundMessageSource) -> SteerSource {
@@ -1058,13 +1067,17 @@ impl BackgroundAgentRunner {
         } else {
             None
         };
+        let execution_timeout_secs = match &task.execution_mode {
+            ExecutionMode::Api => task.timeout_secs.unwrap_or(self.config.task_timeout_secs),
+            ExecutionMode::Cli(cli_config) => cli_config.timeout_secs,
+        };
 
         let exec_future = async {
             match &task.execution_mode {
                 ExecutionMode::Api => {
                     // Use the injected API executor
                     debug!("Using API executor for task '{}'", task.name);
-                    let timeout = Duration::from_secs(self.config.task_timeout_secs);
+                    let timeout = Duration::from_secs(execution_timeout_secs);
                     tokio::time::timeout(
                         timeout,
                         self.executor.execute_with_emitter(
@@ -1101,7 +1114,7 @@ impl BackgroundAgentRunner {
                     });
 
                     // Execute with timeout
-                    let timeout = Duration::from_secs(cli_config.timeout_secs);
+                    let timeout = Duration::from_secs(execution_timeout_secs);
                     tokio::time::timeout(
                         timeout,
                         cli_executor.execute_cli(cli_config, resolved_input.as_deref()),
@@ -1116,6 +1129,11 @@ impl BackgroundAgentRunner {
                 "No cancel receiver found for task '{}'. Task will run without cancellation support.",
                 task_id
             );
+        }
+
+        enum PauseSignal {
+            Paused,
+            Deleted,
         }
 
         let result = tokio::select! {
@@ -1158,43 +1176,74 @@ impl BackgroundAgentRunner {
             }
             // Pause branch: if control API sets task status to Paused while this
             // execution is running, stop current run immediately.
-            _ = async {
+            pause_signal = async {
+                let mut poll_interval = Duration::from_millis(250);
                 loop {
-                    tokio::time::sleep(Duration::from_millis(250)).await;
+                    tokio::time::sleep(poll_interval).await;
                     match self.storage.get_task(task_id) {
-                        Ok(Some(stored_task)) if stored_task.status == BackgroundAgentStatus::Paused => break,
-                        Ok(Some(_)) => {}
-                        Ok(None) => break,
+                        Ok(Some(stored_task)) if stored_task.status == BackgroundAgentStatus::Paused => {
+                            return PauseSignal::Paused;
+                        }
+                        Ok(Some(_)) => {
+                            poll_interval = Duration::from_millis(250);
+                        }
+                        Ok(None) => {
+                            return PauseSignal::Deleted;
+                        }
                         Err(err) => {
                             warn!("Failed to read task {} while waiting for pause signal: {}", task_id, err);
+                            poll_interval = poll_interval.saturating_mul(2).min(Duration::from_secs(5));
                         }
                     }
                 }
             } => {
                 let duration_ms = chrono::Utc::now().timestamp_millis() - start_time;
-                info!(
-                    "Task '{}' interrupted by pause request (duration={}ms)",
-                    task.name, duration_ms
-                );
                 pump_cancel.cancel();
                 if let Some(pump) = message_pump.take() {
                     let _ = pump.await;
                 }
-                self.event_emitter
-                    .emit(TaskStreamEvent::cancelled(
-                        task_id,
-                        "Paused by user",
-                        duration_ms,
-                    ))
-                    .await;
-                self.fire_hooks(&HookContext::from_cancelled(
-                    &task,
-                    "Paused by user",
-                    duration_ms,
-                ))
-                .await;
-                if let Err(e) = self.storage.pause_task(task_id) {
-                    error!("Failed to keep task {} paused: {}", task_id, e);
+                match pause_signal {
+                    PauseSignal::Paused => {
+                        info!(
+                            "Task '{}' interrupted by pause request (duration={}ms)",
+                            task.name, duration_ms
+                        );
+                        self.event_emitter
+                            .emit(TaskStreamEvent::cancelled(
+                                task_id,
+                                "Paused by user",
+                                duration_ms,
+                            ))
+                            .await;
+                        self.fire_hooks(&HookContext::from_cancelled(
+                            &task,
+                            "Paused by user",
+                            duration_ms,
+                        ))
+                        .await;
+                        if let Err(e) = self.storage.pause_task(task_id) {
+                            error!("Failed to keep task {} paused: {}", task_id, e);
+                        }
+                    }
+                    PauseSignal::Deleted => {
+                        info!(
+                            "Task '{}' stopped because task record was deleted (duration={}ms)",
+                            task.name, duration_ms
+                        );
+                        self.event_emitter
+                            .emit(TaskStreamEvent::cancelled(
+                                task_id,
+                                "Task deleted",
+                                duration_ms,
+                            ))
+                            .await;
+                        self.fire_hooks(&HookContext::from_cancelled(
+                            &task,
+                            "Task deleted",
+                            duration_ms,
+                        ))
+                        .await;
+                    }
                 }
                 self.cleanup_task_tracking(task_id).await;
                 return Ok(false);
@@ -1307,16 +1356,13 @@ impl BackgroundAgentRunner {
             }
             Err(_) => {
                 // Timeout
-                let error_msg = format!(
-                    "Task timed out after {} seconds",
-                    self.config.task_timeout_secs
-                );
+                let error_msg = format!("Task timed out after {} seconds", execution_timeout_secs);
                 error!("Task '{}' timed out", task.name);
 
                 self.event_emitter
                     .emit(TaskStreamEvent::timeout(
                         task_id,
-                        self.config.task_timeout_secs,
+                        execution_timeout_secs,
                         duration_ms,
                     ))
                     .await;
@@ -1641,7 +1687,10 @@ impl TaskExecutor for RunnerTaskExecutor {
 mod tests {
     use super::*;
     use crate::hooks::{HookExecutor, HookTaskScheduler};
-    use crate::models::{Hook, HookAction, HookEvent, MemoryScope, TaskEventType, TaskSchedule};
+    use crate::models::{
+        AgentCheckpoint, Hook, HookAction, HookEvent, MemoryScope, ResumePayload, TaskEventType,
+        TaskSchedule,
+    };
     use crate::runtime::background_agent::{ChannelEventEmitter, StreamEventKind};
     use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
     use std::time::Instant;
@@ -2261,6 +2310,60 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_resume_from_checkpoint_reject_keeps_task_paused() {
+        let (storage, _temp_dir) = create_test_storage();
+        let executor = Arc::new(MockExecutor::new());
+
+        let runner = BackgroundAgentRunner::new(
+            storage.clone(),
+            executor.clone(),
+            Arc::new(NoopNotificationSender),
+            RunnerConfig::default(),
+            Arc::new(SteerRegistry::new()),
+        );
+
+        let task = storage
+            .create_task(
+                "Checkpoint Task".to_string(),
+                "agent-001".to_string(),
+                TaskSchedule::default(),
+            )
+            .unwrap();
+
+        let checkpoint = AgentCheckpoint::new(
+            "exec-1".to_string(),
+            Some(task.id.clone()),
+            1,
+            0,
+            b"{}".to_vec(),
+            "approval required".to_string(),
+        );
+        let checkpoint_id = checkpoint.id.clone();
+        storage.save_checkpoint(&checkpoint).unwrap();
+
+        let payload = ResumePayload {
+            checkpoint_id: checkpoint_id.clone(),
+            approved: false,
+            user_message: Some("denied".to_string()),
+            metadata: serde_json::json!({}),
+        };
+
+        runner.resume_from_checkpoint(&task.id, payload).await;
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        let updated_task = storage.get_task(&task.id).unwrap().unwrap();
+        assert_eq!(updated_task.status, BackgroundAgentStatus::Paused);
+        assert_eq!(executor.call_count(), 0);
+
+        let updated_checkpoint = storage
+            .load_checkpoint_by_task_id(&task.id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(updated_checkpoint.id, checkpoint_id);
+        assert!(updated_checkpoint.resumed_at.is_some());
+    }
+
+    #[tokio::test]
     async fn test_runner_uses_input_template_when_running_task() {
         let (storage, _temp_dir) = create_test_storage();
         let executor = Arc::new(MockExecutor::new());
@@ -2860,6 +2963,54 @@ mod tests {
 
         let updated_task = storage.get_task(&task.id).unwrap().unwrap();
         assert_eq!(updated_task.status, BackgroundAgentStatus::Paused);
+
+        handle.stop().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_runner_interrupts_running_task_when_deleted() {
+        let (storage, _temp_dir) = create_test_storage();
+        let executor = Arc::new(MockExecutor::with_delay(3_000));
+        let notifier = Arc::new(NoopNotificationSender);
+
+        let past_time = chrono::Utc::now().timestamp_millis() - 1000;
+        let mut task = storage
+            .create_task(
+                "Delete Interrupt Task".to_string(),
+                "agent-001".to_string(),
+                TaskSchedule::Once { run_at: past_time },
+            )
+            .unwrap();
+        task.next_run_at = Some(past_time);
+        storage.update_task(&task).unwrap();
+
+        let config = RunnerConfig {
+            poll_interval_ms: 100,
+            ..Default::default()
+        };
+
+        let steer_registry = Arc::new(SteerRegistry::new());
+        let runner = Arc::new(BackgroundAgentRunner::new(
+            storage.clone(),
+            executor,
+            notifier,
+            config,
+            steer_registry,
+        ));
+
+        let handle = runner.clone().start();
+
+        // Wait for task to start running
+        tokio::time::sleep(Duration::from_millis(400)).await;
+        assert_eq!(runner.running_task_count().await, 1);
+
+        // Delete task while execution is running.
+        storage.delete_task(&task.id).unwrap();
+
+        // Runner should notice deletion and stop execution early.
+        tokio::time::sleep(Duration::from_millis(700)).await;
+        assert_eq!(runner.running_task_count().await, 0);
+        assert!(storage.get_task(&task.id).unwrap().is_none());
 
         handle.stop().await.unwrap();
     }

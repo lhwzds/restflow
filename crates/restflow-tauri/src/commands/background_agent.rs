@@ -120,6 +120,9 @@ pub struct CreateBackgroundAgentRequest {
     /// Optional execution mode (API or CLI)
     #[serde(default)]
     pub execution_mode: Option<ExecutionMode>,
+    /// Optional per-task timeout (seconds) for API execution mode
+    #[serde(default)]
+    pub timeout_secs: Option<u64>,
     /// Optional memory configuration
     #[serde(default)]
     pub memory: Option<MemoryConfig>,
@@ -155,6 +158,9 @@ pub struct UpdateBackgroundAgentRequest {
     /// New memory configuration (optional)
     #[serde(default)]
     pub memory: Option<MemoryConfig>,
+    /// New per-task timeout (seconds) for API execution mode
+    #[serde(default)]
+    pub timeout_secs: Option<u64>,
     /// New memory scope override (optional)
     #[serde(default)]
     pub memory_scope: Option<MemoryScope>,
@@ -222,6 +228,7 @@ pub async fn create_background_agent(
         schedule: request.schedule,
         notification: request.notification,
         execution_mode: request.execution_mode,
+        timeout_secs: request.timeout_secs,
         memory: merge_memory_scope(request.memory, request.memory_scope),
     };
 
@@ -248,6 +255,7 @@ pub async fn update_background_agent(
         schedule: request.schedule,
         notification: request.notification,
         execution_mode: None,
+        timeout_secs: request.timeout_secs,
         memory: merge_memory_scope(request.memory, request.memory_scope),
     };
 

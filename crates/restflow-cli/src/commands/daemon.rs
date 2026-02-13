@@ -10,6 +10,7 @@ use restflow_core::daemon::{
 };
 use restflow_core::paths;
 use std::net::{IpAddr, Ipv4Addr};
+use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::time::{Duration, sleep};
 use tracing::{error, info, warn};
@@ -18,6 +19,7 @@ use tracing::{error, info, warn};
 use nix::libc;
 
 const MCP_BIND_ADDR_ENV: &str = "RESTFLOW_MCP_BIND_ADDR";
+const CLEANUP_INTERVAL_HOURS: u64 = 24;
 
 pub async fn sync_mcp_configs(mcp_port: Option<u16>) {
     if let Err(err) = try_sync_claude_http_mcp(mcp_port.unwrap_or(8787)).await {
@@ -69,6 +71,65 @@ pub async fn run(core: Arc<AppCore>, command: DaemonCommands) -> Result<()> {
         } => restart(core, foreground, mcp_port).await,
         DaemonCommands::Stop => stop().await,
         DaemonCommands::Status => status().await,
+    }
+}
+
+/// Run daemon commands that do not require opening AppCore.
+/// Returns true when the command is handled and the caller should return.
+pub async fn run_without_core(command: &DaemonCommands) -> Result<bool> {
+    match command {
+        DaemonCommands::Start {
+            foreground: false,
+            mcp_port,
+        } => {
+            start_background(*mcp_port).await?;
+            Ok(true)
+        }
+        DaemonCommands::Restart {
+            foreground: false,
+            mcp_port,
+        } => {
+            restart_background(*mcp_port).await?;
+            Ok(true)
+        }
+        DaemonCommands::Stop => {
+            stop().await?;
+            Ok(true)
+        }
+        DaemonCommands::Status => {
+            status().await?;
+            Ok(true)
+        }
+        DaemonCommands::Start {
+            foreground: true, ..
+        }
+        | DaemonCommands::Restart {
+            foreground: true, ..
+        } => Ok(false),
+    }
+}
+
+async fn start_background(mcp_port: Option<u16>) -> Result<()> {
+    let config = DaemonConfig {
+        mcp: true,
+        mcp_port,
+    };
+
+    match check_daemon_status()? {
+        DaemonStatus::Running { pid } => {
+            println!("Daemon already running (PID: {})", pid);
+            Ok(())
+        }
+        _ => {
+            let report = restflow_core::daemon::recovery::recover().await?;
+            if !report.is_clean() {
+                println!("{}", report);
+            }
+            let pid = start_daemon_with_config(config)?;
+            println!("Daemon started (PID: {})", pid);
+            sync_mcp_configs(mcp_port).await;
+            Ok(())
+        }
     }
 }
 
@@ -134,8 +195,8 @@ async fn run_daemon(core: Arc<AppCore>, config: DaemonConfig) -> Result<()> {
     #[cfg(unix)]
     configure_nofile_limit();
 
-    let pid_path = paths::daemon_pid_path()?;
-    std::fs::write(&pid_path, std::process::id().to_string())?;
+    let lock_path = paths::daemon_lock_path()?;
+    let _lock_guard = DaemonLockGuard::acquire(lock_path)?;
 
     let (shutdown_tx, _) = tokio::sync::broadcast::channel(1);
 
@@ -188,10 +249,33 @@ async fn run_daemon(core: Arc<AppCore>, config: DaemonConfig) -> Result<()> {
         }
     });
 
-    let mut runner = CliBackgroundAgentRunner::new(core);
+    let mut runner = CliBackgroundAgentRunner::new(core.clone());
     if let Err(err) = runner.start().await {
         error!(error = %err, "Task runner failed to start; continuing without runner");
     }
+
+    if let Err(err) = run_and_log_cleanup(core.clone()).await {
+        warn!(error = %err, "Startup cleanup failed");
+    }
+
+    let cleanup_shutdown = shutdown_tx.subscribe();
+    let cleanup_core = core.clone();
+    let cleanup_handle = tokio::spawn(async move {
+        run_cleanup_loop(cleanup_core, cleanup_shutdown).await;
+    });
+
+    // Ensure core services did not fail immediately before declaring daemon as running.
+    sleep(Duration::from_millis(120)).await;
+    if ipc_handle.is_finished() {
+        anyhow::bail!("IPC server exited during startup");
+    }
+    if mcp_handle.is_finished() {
+        anyhow::bail!("MCP server exited during startup");
+    }
+
+    let pid_path = paths::daemon_pid_path()?;
+    std::fs::write(&pid_path, std::process::id().to_string())?;
+    let _pid_guard = PidFileGuard::new(pid_path.clone());
 
     println!("Daemon running. Press Ctrl+C to stop.");
 
@@ -199,11 +283,38 @@ async fn run_daemon(core: Arc<AppCore>, config: DaemonConfig) -> Result<()> {
     let _ = shutdown_rx.recv().await;
 
     runner.stop().await?;
-    let _ = std::fs::remove_file(&pid_path);
     let _ = ipc_handle.await;
     let _ = mcp_handle.await;
+    let _ = cleanup_handle.await;
 
     println!("Daemon stopped");
+    Ok(())
+}
+
+async fn run_cleanup_loop(core: Arc<AppCore>, mut shutdown: tokio::sync::broadcast::Receiver<()>) {
+    let mut interval = tokio::time::interval(Duration::from_secs(CLEANUP_INTERVAL_HOURS * 60 * 60));
+    interval.tick().await;
+    loop {
+        tokio::select! {
+            _ = shutdown.recv() => break,
+            _ = interval.tick() => {
+                if let Err(err) = run_and_log_cleanup(core.clone()).await {
+                    warn!(error = %err, "Scheduled cleanup failed");
+                }
+            }
+        }
+    }
+}
+
+async fn run_and_log_cleanup(core: Arc<AppCore>) -> Result<()> {
+    let report = restflow_core::services::cleanup::run_cleanup(&core).await?;
+    info!(
+        chat_sessions = report.chat_sessions,
+        background_tasks = report.background_tasks,
+        checkpoints = report.checkpoints,
+        memory_chunks = report.memory_chunks,
+        "Storage cleanup completed"
+    );
     Ok(())
 }
 
@@ -273,14 +384,28 @@ async fn stop() -> Result<()> {
 async fn status() -> Result<()> {
     let pid_path = paths::daemon_pid_path()?;
     let socket_path = paths::socket_path()?;
+    let mut daemon_status = check_daemon_status()?;
+    let mut recovery_report = None;
+
+    if matches!(daemon_status, DaemonStatus::Stale { .. }) {
+        let report = restflow_core::daemon::recovery::recover().await?;
+        if !report.is_clean() {
+            recovery_report = Some(report);
+        }
+        daemon_status = check_daemon_status()?;
+    }
+
     let stale_state = restflow_core::daemon::recovery::inspect(&pid_path, &socket_path).await?;
 
-    match check_daemon_status()? {
+    match daemon_status {
         DaemonStatus::Running { pid } => {
             println!("Daemon running (PID: {})", pid);
         }
         DaemonStatus::NotRunning => {
             println!("Daemon not running");
+            if let Some(report) = recovery_report {
+                println!("  Auto-cleaned: {}", report);
+            }
             if stale_state == restflow_core::daemon::recovery::StaleState::StaleSocket {
                 println!("  Note: stale socket detected (run `daemon start` to auto-clean)");
             }
@@ -327,6 +452,95 @@ fn resolve_mcp_bind_addr() -> IpAddr {
 
 fn parse_mcp_bind_addr(value: Option<&str>) -> Option<IpAddr> {
     value.and_then(|v| v.parse().ok())
+}
+
+struct PidFileGuard {
+    path: PathBuf,
+}
+
+impl PidFileGuard {
+    fn new(path: PathBuf) -> Self {
+        Self { path }
+    }
+}
+
+impl Drop for PidFileGuard {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.path);
+    }
+}
+
+struct DaemonLockGuard {
+    path: PathBuf,
+}
+
+impl DaemonLockGuard {
+    fn acquire(path: PathBuf) -> Result<Self> {
+        let current_pid = std::process::id();
+        let mut attempts = 0;
+        loop {
+            attempts += 1;
+
+            match std::fs::OpenOptions::new()
+                .create_new(true)
+                .write(true)
+                .open(&path)
+            {
+                Ok(mut lock_file) => {
+                    use std::io::Write;
+                    write!(lock_file, "{}", current_pid)?;
+                    return Ok(Self { path });
+                }
+                Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {
+                    if let Some(lock_pid) = read_lock_pid(&path)
+                        && is_process_alive(lock_pid)
+                    {
+                        anyhow::bail!("Daemon already running (lock held by PID {})", lock_pid);
+                    }
+                    let _ = std::fs::remove_file(&path);
+                    if attempts >= 2 {
+                        anyhow::bail!(
+                            "Failed to acquire daemon lock after removing stale lock file"
+                        );
+                    }
+                }
+                Err(err) => return Err(err.into()),
+            }
+        }
+    }
+}
+
+impl Drop for DaemonLockGuard {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.path);
+    }
+}
+
+fn read_lock_pid(path: &std::path::Path) -> Option<u32> {
+    std::fs::read_to_string(path)
+        .ok()
+        .and_then(|raw| raw.trim().parse::<u32>().ok())
+}
+
+fn is_process_alive(pid: u32) -> bool {
+    #[cfg(unix)]
+    {
+        use nix::sys::signal::kill;
+        use nix::unistd::Pid;
+        let Ok(pid_i32) = i32::try_from(pid) else {
+            return false;
+        };
+        kill(Pid::from_raw(pid_i32), None).is_ok()
+    }
+
+    #[cfg(not(unix))]
+    {
+        std::process::Command::new("tasklist")
+            .args(["/FI", &format!("PID eq {}", pid)])
+            .output()
+            .map(|output| String::from_utf8_lossy(&output.stdout).contains(&pid.to_string()))
+            .unwrap_or(false)
+    }
 }
 
 #[cfg(test)]

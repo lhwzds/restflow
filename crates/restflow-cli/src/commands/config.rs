@@ -46,10 +46,29 @@ async fn show_config(executor: Arc<dyn CommandExecutor>, format: OutputFormat) -
         Cell::new(config.stall_timeout_seconds),
     ]);
     table.add_row(vec![
+        Cell::new("background_api_timeout_seconds"),
+        Cell::new(config.background_api_timeout_seconds),
+    ]);
+    table.add_row(vec![
         Cell::new("max_retries"),
         Cell::new(config.max_retries),
     ]);
-
+    table.add_row(vec![
+        Cell::new("chat_session_retention_days"),
+        Cell::new(config.chat_session_retention_days),
+    ]);
+    table.add_row(vec![
+        Cell::new("background_task_retention_days"),
+        Cell::new(config.background_task_retention_days),
+    ]);
+    table.add_row(vec![
+        Cell::new("checkpoint_retention_days"),
+        Cell::new(config.checkpoint_retention_days),
+    ]);
+    table.add_row(vec![
+        Cell::new("memory_chunk_retention_days"),
+        Cell::new(config.memory_chunk_retention_days),
+    ]);
     crate::output::table::print_table(table)
 }
 
@@ -64,7 +83,12 @@ async fn get_config_value(
         "worker_count" => json!(config.worker_count),
         "task_timeout_seconds" => json!(config.task_timeout_seconds),
         "stall_timeout_seconds" => json!(config.stall_timeout_seconds),
+        "background_api_timeout_seconds" => json!(config.background_api_timeout_seconds),
         "max_retries" => json!(config.max_retries),
+        "chat_session_retention_days" => json!(config.chat_session_retention_days),
+        "background_task_retention_days" => json!(config.background_task_retention_days),
+        "checkpoint_retention_days" => json!(config.checkpoint_retention_days),
+        "memory_chunk_retention_days" => json!(config.memory_chunk_retention_days),
         _ => bail!("Unsupported config key: {key}"),
     };
 
@@ -94,8 +118,23 @@ async fn set_config_value(
         "stall_timeout_seconds" => {
             config.stall_timeout_seconds = parse_value(value)?;
         }
+        "background_api_timeout_seconds" => {
+            config.background_api_timeout_seconds = parse_value(value)?;
+        }
         "max_retries" => {
             config.max_retries = parse_value(value)?;
+        }
+        "chat_session_retention_days" => {
+            config.chat_session_retention_days = parse_value(value)?;
+        }
+        "background_task_retention_days" => {
+            config.background_task_retention_days = parse_value(value)?;
+        }
+        "checkpoint_retention_days" => {
+            config.checkpoint_retention_days = parse_value(value)?;
+        }
+        "memory_chunk_retention_days" => {
+            config.memory_chunk_retention_days = parse_value(value)?;
         }
         _ => bail!("Unsupported config key: {key}"),
     }
