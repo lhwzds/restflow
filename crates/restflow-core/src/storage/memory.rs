@@ -215,6 +215,23 @@ impl MemoryStorage {
         Ok(deleted)
     }
 
+    /// Delete chunks older than the given timestamp across all agents.
+    ///
+    /// Returns the number of deleted chunks.
+    pub fn cleanup_old_chunks(&self, older_than_ms: i64) -> Result<usize> {
+        let raw_chunks = self.inner.list_all_chunks_raw()?;
+        let mut deleted = 0usize;
+
+        for (chunk_id, bytes) in raw_chunks {
+            let chunk: MemoryChunk = serde_json::from_slice(&bytes)?;
+            if chunk.created_at < older_than_ms && self.delete_chunk(&chunk_id)? {
+                deleted += 1;
+            }
+        }
+
+        Ok(deleted)
+    }
+
     // ============== Session Operations ==============
 
     /// Create a new memory session
@@ -1053,6 +1070,26 @@ mod tests {
         // agent-002 chunks should still exist
         let chunks_agent2 = storage.list_chunks("agent-002").unwrap();
         assert_eq!(chunks_agent2.len(), 1);
+    }
+
+    #[test]
+    fn test_cleanup_old_chunks() {
+        let storage = create_test_storage();
+        let now = chrono::Utc::now().timestamp_millis();
+
+        let old_chunk = MemoryChunk::new("agent-1".to_string(), "old".to_string())
+            .with_created_at(now - (120 * 24 * 60 * 60 * 1000));
+        let recent_chunk = MemoryChunk::new("agent-1".to_string(), "recent".to_string())
+            .with_created_at(now - (2 * 24 * 60 * 60 * 1000));
+
+        storage.store_chunk(&old_chunk).unwrap();
+        storage.store_chunk(&recent_chunk).unwrap();
+
+        let cutoff = now - (90 * 24 * 60 * 60 * 1000);
+        let deleted = storage.cleanup_old_chunks(cutoff).unwrap();
+        assert_eq!(deleted, 1);
+        assert!(storage.get_chunk(&old_chunk.id).unwrap().is_none());
+        assert!(storage.get_chunk(&recent_chunk.id).unwrap().is_some());
     }
 
     #[test]

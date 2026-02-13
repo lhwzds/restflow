@@ -7,6 +7,7 @@ pub mod daemon;
 pub mod hook;
 pub mod info;
 pub mod key;
+pub mod maintenance;
 pub mod mcp;
 pub mod memory;
 pub mod migrate;
