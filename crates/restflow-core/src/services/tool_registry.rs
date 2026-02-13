@@ -2974,6 +2974,7 @@ mod tests {
         );
     }
 
+    #[allow(clippy::await_holding_lock)]
     #[tokio::test]
     async fn test_manage_agents_accepts_tools_registered_after_snapshot_point() {
         struct AgentsDirEnvCleanup;
