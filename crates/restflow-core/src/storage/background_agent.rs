@@ -115,6 +115,32 @@ impl BackgroundAgentStorage {
         Ok(result)
     }
 
+    /// List tasks filtered by agent ID.
+    pub fn list_tasks_by_agent_id(&self, agent_id: &str) -> Result<Vec<BackgroundAgent>> {
+        let tasks = self.list_tasks()?;
+        Ok(tasks
+            .into_iter()
+            .filter(|task| task.agent_id == agent_id)
+            .collect())
+    }
+
+    /// List non-terminal tasks filtered by agent ID.
+    pub fn list_active_tasks_by_agent_id(&self, agent_id: &str) -> Result<Vec<BackgroundAgent>> {
+        let tasks = self.list_tasks_by_agent_id(agent_id)?;
+        Ok(tasks
+            .into_iter()
+            .filter(|task| {
+                matches!(
+                    task.status,
+                    BackgroundAgentStatus::Active
+                        | BackgroundAgentStatus::Paused
+                        | BackgroundAgentStatus::Running
+                        | BackgroundAgentStatus::Interrupted
+                )
+            })
+            .collect())
+    }
+
     /// List tasks that are ready to run
     pub fn list_runnable_tasks(&self, current_time: i64) -> Result<Vec<BackgroundAgent>> {
         let tasks = self.list_tasks()?;
@@ -814,6 +840,86 @@ mod tests {
         assert_eq!(active_tasks[0].id, task1.id);
         assert_eq!(paused_tasks.len(), 1);
         assert_eq!(paused_tasks[0].id, task2.id);
+    }
+
+    #[test]
+    fn test_list_tasks_by_agent_id() {
+        let storage = create_test_storage();
+
+        let task1 = storage
+            .create_task(
+                "Agent One Active".to_string(),
+                "agent-001".to_string(),
+                BackgroundAgentSchedule::default(),
+            )
+            .unwrap();
+        let task2 = storage
+            .create_task(
+                "Agent One Paused".to_string(),
+                "agent-001".to_string(),
+                BackgroundAgentSchedule::default(),
+            )
+            .unwrap();
+        let _task3 = storage
+            .create_task(
+                "Agent Two Active".to_string(),
+                "agent-002".to_string(),
+                BackgroundAgentSchedule::default(),
+            )
+            .unwrap();
+
+        storage.pause_task(&task2.id).unwrap();
+
+        let mut tasks = storage.list_tasks_by_agent_id("agent-001").unwrap();
+        tasks.sort_by(|a, b| a.name.cmp(&b.name));
+
+        assert_eq!(tasks.len(), 2);
+        assert_eq!(tasks[0].id, task1.id);
+        assert_eq!(tasks[1].id, task2.id);
+    }
+
+    #[test]
+    fn test_list_active_tasks_by_agent_id() {
+        let storage = create_test_storage();
+
+        let active = storage
+            .create_task(
+                "Active".to_string(),
+                "agent-001".to_string(),
+                BackgroundAgentSchedule::default(),
+            )
+            .unwrap();
+        let paused = storage
+            .create_task(
+                "Paused".to_string(),
+                "agent-001".to_string(),
+                BackgroundAgentSchedule::default(),
+            )
+            .unwrap();
+        let completed = storage
+            .create_task(
+                "Completed".to_string(),
+                "agent-001".to_string(),
+                BackgroundAgentSchedule::Once {
+                    run_at: chrono::Utc::now().timestamp_millis(),
+                },
+            )
+            .unwrap();
+
+        storage.pause_task(&paused.id).unwrap();
+        storage.start_task_execution(&completed.id).unwrap();
+        storage
+            .complete_task_execution(&completed.id, Some("done".to_string()), 100)
+            .unwrap();
+
+        let mut tasks = storage
+            .list_active_tasks_by_agent_id("agent-001")
+            .unwrap();
+        tasks.sort_by(|a, b| a.name.cmp(&b.name));
+
+        assert_eq!(tasks.len(), 2);
+        assert_eq!(tasks[0].id, active.id);
+        assert_eq!(tasks[1].id, paused.id);
     }
 
     #[test]
