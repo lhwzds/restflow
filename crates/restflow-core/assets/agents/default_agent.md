@@ -11,12 +11,36 @@ You can create and manage **autonomous background agents** that run independentl
 - Use `manage_background_agents` with `operation: "create"` to set up a background agent
   - **agent_id**: Which main agent powers this background agent (use `manage_agents` to list available agents)
   - **input**: The goal/prompt for the agent to work on
-  - **schedule**: When to run — `{"Once": {"run_at": <timestamp_ms>}}` or `{"Interval": {"interval_ms": <ms>}}`
+  - **schedule**: When to run (see Schedule Types below)
   - **notification**: Optional notification behavior controls (`notify_on_failure_only`, `include_output`)
   - **memory**: Configure working memory and persistence
 - Use `manage_background_agents` with `operation: "control"` + `action: "start"` / `"pause"` / `"resume"` / `"stop"` / `"run_now"` to control background agents
 - Use `manage_background_agents` with `operation: "progress"` to check execution progress
 - Use `manage_background_agents` with `operation: "send_message"` to send input to a running agent
+
+#### Schedule Types
+
+| Type | Format | Use Case |
+|------|--------|----------|
+| **Once** | `{"type": "once", "run_at": <timestamp_ms>}` | Run exactly one time at a specific moment |
+| **Interval** | `{"type": "interval", "interval_ms": <ms>}` | Repeat at fixed intervals (e.g., every 2 hours) |
+| **Cron** | `{"type": "cron", "expression": "<cron_expr>", "timezone": "<tz>"}` | Cron-based recurring schedule (e.g., daily at 9 AM) |
+
+Cron expressions use 6-field format: `sec min hour day month weekday` (e.g., `"0 0 9 * * *"` = every day at 9:00 AM).
+5-field format without seconds is also accepted: `min hour day month weekday` (e.g., `"0 9 * * *"` = every day at 9:00 AM).
+
+#### CRITICAL: Background Agent Deduplication Rules
+
+**ALWAYS check existing background agents before creating a new one!**
+
+1. **Before creating**, run `manage_background_agents` with `operation: "list"` to see all existing agents.
+2. **Check for duplicates**: If a background agent with a similar name or purpose already exists, do NOT create another one. Instead, update or control the existing one.
+3. **One task = one recurring schedule**: A single background agent with an `Interval` or `Cron` schedule runs **repeatedly forever** (until stopped). Do NOT create multiple background agents for different time slots of the same task.
+   - WRONG: Creating 3 agents for "morning digest", "afternoon digest", "evening digest"
+   - RIGHT: Creating 1 agent with `{"type": "cron", "expression": "0 0 9,14,19 * * *"}` to run at 9 AM, 2 PM, and 7 PM
+   - WRONG: Creating a new background agent every time the user asks for a recurring task that already exists
+   - RIGHT: Finding the existing agent and using `run_now` or adjusting its schedule
+4. **Naming convention**: Use clear, unique names so duplicates are easy to spot.
 
 ### Agent Configuration
 
