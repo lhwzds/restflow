@@ -80,6 +80,11 @@ pub fn daemon_pid_path() -> Result<PathBuf> {
     Ok(ensure_restflow_dir()?.join("daemon.pid"))
 }
 
+/// Daemon lock file path: ~/.restflow/daemon.lock
+pub fn daemon_lock_path() -> Result<PathBuf> {
+    Ok(ensure_restflow_dir()?.join("daemon.lock"))
+}
+
 /// Daemon log file path: ~/.restflow/logs/daemon.log
 pub fn daemon_log_path() -> Result<PathBuf> {
     Ok(logs_dir()?.join("daemon.log"))
@@ -124,6 +129,15 @@ mod tests {
         unsafe { std::env::remove_var(RESTFLOW_DIR_ENV) };
         let path = database_path().unwrap();
         assert!(path.ends_with(DB_FILE));
+        assert!(path.parent().unwrap().ends_with(RESTFLOW_DIR));
+    }
+
+    #[test]
+    fn test_daemon_lock_path() {
+        let _lock = env_lock();
+        unsafe { std::env::remove_var(RESTFLOW_DIR_ENV) };
+        let path = daemon_lock_path().unwrap();
+        assert!(path.ends_with("daemon.lock"));
         assert!(path.parent().unwrap().ends_with(RESTFLOW_DIR));
     }
 }

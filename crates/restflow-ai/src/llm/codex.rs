@@ -2,6 +2,7 @@
 
 use async_trait::async_trait;
 use serde_json::Value;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use tokio::process::Command;
 use tracing::{debug, info};
@@ -209,8 +210,9 @@ impl LlmClient for CodexClient {
 
         let prompt = Self::build_prompt(&request.messages);
         let args = self.build_cli_args(&prompt);
+        let executable = resolve_executable("codex", "RESTFLOW_CODEX_BIN", &codex_fallbacks())?;
 
-        let output = Command::new("codex")
+        let output = Command::new(executable)
             .args(&args)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
@@ -255,6 +257,78 @@ impl LlmClient for CodexClient {
 
     fn supports_streaming(&self) -> bool {
         false
+    }
+}
+
+fn codex_fallbacks() -> Vec<PathBuf> {
+    let mut paths = vec![
+        PathBuf::from("/opt/homebrew/bin/codex"),
+        PathBuf::from("/usr/local/bin/codex"),
+        PathBuf::from("/usr/bin/codex"),
+    ];
+    if let Some(home) = dirs::home_dir() {
+        paths.push(home.join(".local").join("bin").join("codex"));
+    }
+    paths
+}
+
+fn resolve_executable(name: &str, override_env: &str, fallbacks: &[PathBuf]) -> Result<PathBuf> {
+    if let Ok(raw) = std::env::var(override_env)
+        && !raw.trim().is_empty()
+    {
+        let path = PathBuf::from(raw);
+        if is_executable(&path) {
+            return Ok(path);
+        }
+        return Err(AiError::Llm(format!(
+            "{} points to non-executable path: {}",
+            override_env,
+            path.display()
+        )));
+    }
+
+    if let Some(path) = resolve_from_path(name) {
+        return Ok(path);
+    }
+
+    for fallback in fallbacks {
+        if is_executable(fallback) {
+            return Ok(fallback.clone());
+        }
+    }
+
+    Err(AiError::Llm(format!(
+        "Failed to locate '{}' executable in PATH or fallback locations",
+        name
+    )))
+}
+
+fn resolve_from_path(name: &str) -> Option<PathBuf> {
+    let path_value = std::env::var_os("PATH")?;
+    for entry in std::env::split_paths(&path_value) {
+        let candidate = entry.join(name);
+        if is_executable(&candidate) {
+            return Some(candidate);
+        }
+    }
+    None
+}
+
+fn is_executable(path: &Path) -> bool {
+    if !path.exists() || !path.is_file() {
+        return false;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Ok(metadata) = std::fs::metadata(path) {
+            return metadata.permissions().mode() & 0o111 != 0;
+        }
+        false
+    }
+    #[cfg(not(unix))]
+    {
+        true
     }
 }
 
