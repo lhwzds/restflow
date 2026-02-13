@@ -173,16 +173,106 @@ impl SkillProvider for SkillStorageProvider {
 #[derive(Clone)]
 struct AgentStoreAdapter {
     storage: AgentStorage,
+    skills: SkillStorage,
+    secrets: SecretStorage,
+    known_tools: Arc<std::collections::HashSet<String>>,
 }
 
 impl AgentStoreAdapter {
-    fn new(storage: AgentStorage) -> Self {
-        Self { storage }
+    fn new(
+        storage: AgentStorage,
+        skills: SkillStorage,
+        secrets: SecretStorage,
+        known_tools: Arc<std::collections::HashSet<String>>,
+    ) -> Self {
+        Self {
+            storage,
+            skills,
+            secrets,
+            known_tools,
+        }
     }
 
     fn parse_agent_node(value: serde_json::Value) -> Result<crate::models::AgentNode, AiError> {
         serde_json::from_value(value)
             .map_err(|e| AiError::Tool(format!("Invalid agent payload: {}", e)))
+    }
+
+    fn validate_agent_node(&self, agent: &crate::models::AgentNode) -> Result<(), AiError> {
+        if let Err(errors) = agent.validate() {
+            return Err(AiError::Tool(crate::models::encode_validation_error(
+                errors,
+            )));
+        }
+
+        let mut errors = Vec::new();
+        if let Some(tools) = &agent.tools {
+            for tool_name in tools {
+                let normalized = tool_name.trim();
+                if normalized.is_empty() {
+                    errors.push(crate::models::ValidationError::new(
+                        "tools",
+                        "tool name must not be empty",
+                    ));
+                    continue;
+                }
+                if !self.known_tools.contains(normalized) {
+                    errors.push(crate::models::ValidationError::new(
+                        "tools",
+                        format!("unknown tool: {}", normalized),
+                    ));
+                }
+            }
+        }
+
+        if let Some(skills) = &agent.skills {
+            for skill_id in skills {
+                let normalized = skill_id.trim();
+                if normalized.is_empty() {
+                    errors.push(crate::models::ValidationError::new(
+                        "skills",
+                        "skill ID must not be empty",
+                    ));
+                    continue;
+                }
+                match self.skills.exists(normalized) {
+                    Ok(true) => {}
+                    Ok(false) => errors.push(crate::models::ValidationError::new(
+                        "skills",
+                        format!("unknown skill: {}", normalized),
+                    )),
+                    Err(err) => errors.push(crate::models::ValidationError::new(
+                        "skills",
+                        format!("failed to verify skill '{}': {}", normalized, err),
+                    )),
+                }
+            }
+        }
+
+        if let Some(crate::models::ApiKeyConfig::Secret(secret_name)) = &agent.api_key_config {
+            let normalized = secret_name.trim();
+            if !normalized.is_empty() {
+                match self.secrets.has_secret(normalized) {
+                    Ok(true) => {}
+                    Ok(false) => errors.push(crate::models::ValidationError::new(
+                        "api_key_config",
+                        format!("secret not found: {}", normalized),
+                    )),
+                    Err(err) => errors.push(crate::models::ValidationError::new(
+                        "api_key_config",
+                        format!("failed to verify secret '{}': {}", normalized, err),
+                    )),
+                }
+            }
+        }
+
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(AiError::Tool(crate::models::encode_validation_error(
+                errors,
+            )))
+        }
     }
 }
 
@@ -209,6 +299,7 @@ impl AgentStore for AgentStoreAdapter {
         request: AgentCreateRequest,
     ) -> restflow_ai::error::Result<serde_json::Value> {
         let agent = Self::parse_agent_node(request.agent)?;
+        self.validate_agent_node(&agent)?;
         let created = self
             .storage
             .create_agent(request.name, agent)
@@ -221,7 +312,11 @@ impl AgentStore for AgentStoreAdapter {
         request: AgentUpdateRequest,
     ) -> restflow_ai::error::Result<serde_json::Value> {
         let agent = match request.agent {
-            Some(value) => Some(Self::parse_agent_node(value)?),
+            Some(value) => {
+                let node = Self::parse_agent_node(value)?;
+                self.validate_agent_node(&node)?;
+                Some(node)
+            }
             None => None,
         };
         let updated = self
@@ -1255,9 +1350,21 @@ pub fn create_tool_registry(
     registry.register(AuthProfileTool::new(auth_store).with_write(true));
 
     // Add system management tools (read-only by default)
-    registry.register(SecretsTool::new(Arc::new(secret_storage)));
+    registry.register(SecretsTool::new(Arc::new(secret_storage.clone())));
     registry.register(ConfigTool::new(Arc::new(config_storage)));
-    let agent_store = Arc::new(AgentStoreAdapter::new(agent_storage.clone()));
+    let known_tools = Arc::new(
+        registry
+            .list()
+            .into_iter()
+            .map(|name| name.to_string())
+            .collect::<std::collections::HashSet<_>>(),
+    );
+    let agent_store = Arc::new(AgentStoreAdapter::new(
+        agent_storage.clone(),
+        skill_storage.clone(),
+        secret_storage.clone(),
+        known_tools,
+    ));
     registry.register(AgentCrudTool::new(agent_store).with_write(true));
     let background_agent_store = Arc::new(BackgroundAgentStoreAdapter::new(
         background_agent_storage,
@@ -2779,12 +2886,12 @@ mod tests {
         unsafe { std::env::set_var(crate::prompt_files::AGENTS_DIR_ENV, agents_temp.path()) };
 
         let (
-            _skill_storage,
+            skill_storage,
             _memory_storage,
             _chat_storage,
             _shared_space_storage,
             _workspace_note_storage,
-            _secret_storage,
+            secret_storage,
             _config_storage,
             agent_storage,
             _background_agent_storage,
@@ -2793,7 +2900,33 @@ mod tests {
             _temp_dir,
         ) = setup_storage();
 
-        let adapter = AgentStoreAdapter::new(agent_storage);
+        let ops_skill = crate::models::Skill::new(
+            "ops-skill".to_string(),
+            "Ops Skill".to_string(),
+            None,
+            None,
+            "ops".to_string(),
+        );
+        skill_storage.create(&ops_skill).unwrap();
+        let audit_skill = crate::models::Skill::new(
+            "audit-skill".to_string(),
+            "Audit Skill".to_string(),
+            None,
+            None,
+            "audit".to_string(),
+        );
+        skill_storage.create(&audit_skill).unwrap();
+
+        let known_tools = Arc::new(
+            [
+                "manage_background_agents".to_string(),
+                "manage_agents".to_string(),
+            ]
+            .into_iter()
+            .collect::<std::collections::HashSet<_>>(),
+        );
+        let adapter =
+            AgentStoreAdapter::new(agent_storage, skill_storage, secret_storage, known_tools);
         let base_node = crate::models::AgentNode {
             model: Some(crate::models::AIModel::ClaudeSonnet4_5),
             prompt: Some("You are a testing assistant".to_string()),
@@ -2861,6 +2994,56 @@ mod tests {
             deleted.get("deleted").and_then(|value| value.as_bool()),
             Some(true)
         );
+    }
+
+    #[test]
+    fn test_agent_store_adapter_rejects_unknown_tool() {
+        struct AgentsDirEnvCleanup;
+        impl Drop for AgentsDirEnvCleanup {
+            fn drop(&mut self) {
+                unsafe { std::env::remove_var(crate::prompt_files::AGENTS_DIR_ENV) };
+            }
+        }
+
+        let _cleanup = AgentsDirEnvCleanup;
+        let _env_lock = crate::prompt_files::agents_dir_env_lock();
+        let agents_temp = tempdir().unwrap();
+        unsafe { std::env::set_var(crate::prompt_files::AGENTS_DIR_ENV, agents_temp.path()) };
+
+        let (
+            skill_storage,
+            _memory_storage,
+            _chat_storage,
+            _shared_space_storage,
+            _workspace_note_storage,
+            secret_storage,
+            _config_storage,
+            agent_storage,
+            _background_agent_storage,
+            _trigger_storage,
+            _terminal_storage,
+            _temp_dir,
+        ) = setup_storage();
+
+        let known_tools = Arc::new(
+            ["manage_background_agents".to_string()]
+                .into_iter()
+                .collect::<std::collections::HashSet<_>>(),
+        );
+        let adapter =
+            AgentStoreAdapter::new(agent_storage, skill_storage, secret_storage, known_tools);
+
+        let err = AgentStore::create_agent(
+            &adapter,
+            AgentCreateRequest {
+                name: "Invalid".to_string(),
+                agent: serde_json::json!({
+                    "tools": ["unknown_tool"]
+                }),
+            },
+        )
+        .expect_err("expected validation error");
+        assert!(err.to_string().contains("validation_error"));
     }
 
     #[test]

@@ -3,7 +3,11 @@
 //! This module only covers agent CRUD operations.
 //! Agent execution happens through chat sessions and background agent runtime paths.
 
-use crate::{AppCore, models::AgentNode, storage::agent::StoredAgent};
+use crate::{
+    AppCore,
+    models::{AgentNode, encode_validation_error},
+    storage::agent::StoredAgent,
+};
 use anyhow::{Context, Result};
 use std::sync::Arc;
 
@@ -27,6 +31,7 @@ pub async fn create_agent(
     name: String,
     agent: AgentNode,
 ) -> Result<StoredAgent> {
+    validate_agent_node(core, &agent).await?;
     core.storage
         .agents
         .create_agent(name.clone(), agent)
@@ -39,6 +44,9 @@ pub async fn update_agent(
     name: Option<String>,
     agent: Option<AgentNode>,
 ) -> Result<StoredAgent> {
+    if let Some(agent_node) = agent.as_ref() {
+        validate_agent_node(core, agent_node).await?;
+    }
     core.storage
         .agents
         .update_agent(id.to_string(), name, agent)
@@ -52,11 +60,21 @@ pub async fn delete_agent(core: &Arc<AppCore>, id: &str) -> Result<()> {
         .with_context(|| format!("Failed to delete agent {}", id))
 }
 
+async fn validate_agent_node(core: &Arc<AppCore>, agent: &AgentNode) -> Result<()> {
+    if let Err(errors) = agent.validate() {
+        anyhow::bail!(encode_validation_error(errors));
+    }
+    if let Err(errors) = agent.validate_async(core).await {
+        anyhow::bail!(encode_validation_error(errors));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 #[allow(clippy::await_holding_lock)]
 mod tests {
     use super::*;
-    use crate::models::{AIModel, ApiKeyConfig};
+    use crate::models::{AIModel, ApiKeyConfig, ValidationErrorResponse};
     use crate::prompt_files;
     use restflow_storage::time_utils;
     use tempfile::tempdir;
@@ -114,7 +132,7 @@ mod tests {
             codex_cli_reasoning_effort: None,
             codex_cli_execution_mode: None,
             api_key_config: Some(ApiKeyConfig::Direct("test_key".to_string())),
-            tools: Some(vec!["add".to_string()]),
+            tools: Some(vec!["http_request".to_string()]),
             skills: None,
             skill_variables: None,
             python_runtime_policy: None,
@@ -206,9 +224,10 @@ mod tests {
             .await
             .unwrap();
 
+        // Use DeepseekChat which supports temperature (unlike Gpt5Mini)
         let mut new_agent_node = create_test_agent_node("Updated prompt");
         new_agent_node.temperature = Some(0.9);
-        new_agent_node.model = Some(AIModel::Gpt5Mini);
+        new_agent_node.model = Some(AIModel::DeepseekChat);
 
         let updated = update_agent(&core, &created.id, None, Some(new_agent_node))
             .await
@@ -219,7 +238,7 @@ mod tests {
         let default_prompt = prompt_files::load_default_main_agent_prompt().unwrap();
         assert!(prompt == "Updated prompt" || prompt == default_prompt);
         assert_eq!(updated.agent.temperature, Some(0.9));
-        assert_eq!(updated.agent.model, Some(AIModel::Gpt5Mini));
+        assert_eq!(updated.agent.model, Some(AIModel::DeepseekChat));
     }
 
     #[tokio::test]
@@ -312,5 +331,117 @@ mod tests {
         assert!(updated.updated_at.unwrap() > created.updated_at.unwrap());
         // Created timestamp should remain the same
         assert_eq!(updated.created_at, created.created_at);
+    }
+
+    #[tokio::test]
+    async fn test_create_agent_rejects_invalid_temperature() {
+        let (core, _db, _agents, _guard) = create_test_core_isolated().await;
+        let mut node = create_test_agent_node("test");
+        node.temperature = Some(3.0);
+
+        let err = create_agent(&core, "Invalid Agent".to_string(), node)
+            .await
+            .expect_err("expected validation error");
+        let payload: ValidationErrorResponse = serde_json::from_str(&err.to_string())
+            .expect("validation error payload should be JSON");
+        assert_eq!(payload.error_type, "validation_error");
+        assert!(payload.errors.iter().any(|e| e.field == "temperature"));
+    }
+
+    #[tokio::test]
+    async fn test_create_agent_rejects_temperature_on_unsupported_model() {
+        let (core, _db, _agents, _guard) = create_test_core_isolated().await;
+        let mut node = create_test_agent_node("test");
+        node.model = Some(AIModel::Gpt5);
+        node.temperature = Some(0.5);
+
+        let err = create_agent(&core, "Bad Temp Agent".to_string(), node)
+            .await
+            .expect_err("expected validation error");
+        let payload: ValidationErrorResponse = serde_json::from_str(&err.to_string())
+            .expect("validation error payload should be JSON");
+        assert!(payload
+            .errors
+            .iter()
+            .any(|e| e.field == "temperature" && e.message.contains("does not support")));
+    }
+
+    #[tokio::test]
+    async fn test_create_agent_rejects_reasoning_effort_on_non_codex() {
+        let (core, _db, _agents, _guard) = create_test_core_isolated().await;
+        let mut node = create_test_agent_node("test");
+        // ClaudeSonnet4_5 is not a Codex model
+        node.codex_cli_reasoning_effort = Some("high".to_string());
+
+        let err = create_agent(&core, "Bad Effort Agent".to_string(), node)
+            .await
+            .expect_err("expected validation error");
+        let payload: ValidationErrorResponse = serde_json::from_str(&err.to_string())
+            .expect("validation error payload should be JSON");
+        assert!(payload
+            .errors
+            .iter()
+            .any(|e| e.field == "codex_cli_reasoning_effort"
+                && e.message.contains("only applies to Codex CLI")));
+    }
+
+    #[tokio::test]
+    async fn test_create_agent_rejects_unknown_tool() {
+        let (core, _db, _agents, _guard) = create_test_core_isolated().await;
+        let mut node = create_test_agent_node("test");
+        node.tools = Some(vec!["tool_does_not_exist".to_string()]);
+
+        let err = create_agent(&core, "Invalid Tool Agent".to_string(), node)
+            .await
+            .expect_err("expected validation error");
+        let payload: ValidationErrorResponse = serde_json::from_str(&err.to_string())
+            .expect("validation error payload should be JSON");
+        assert!(payload.errors.iter().any(|e| e.field == "tools"));
+    }
+
+    #[tokio::test]
+    async fn test_create_agent_rejects_unknown_skill() {
+        let (core, _db, _agents, _guard) = create_test_core_isolated().await;
+        let mut node = create_test_agent_node("test");
+        node.skills = Some(vec!["missing-skill".to_string()]);
+
+        let err = create_agent(&core, "Invalid Skill Agent".to_string(), node)
+            .await
+            .expect_err("expected validation error");
+        let payload: ValidationErrorResponse = serde_json::from_str(&err.to_string())
+            .expect("validation error payload should be JSON");
+        assert!(payload.errors.iter().any(|e| e.field == "skills"));
+    }
+
+    #[tokio::test]
+    async fn test_create_agent_rejects_missing_secret_reference() {
+        let (core, _db, _agents, _guard) = create_test_core_isolated().await;
+        let mut node = create_test_agent_node("test");
+        node.api_key_config = Some(ApiKeyConfig::Secret("MISSING_SECRET".to_string()));
+
+        let err = create_agent(&core, "Missing Secret Agent".to_string(), node)
+            .await
+            .expect_err("expected validation error");
+        let payload: ValidationErrorResponse = serde_json::from_str(&err.to_string())
+            .expect("validation error payload should be JSON");
+        assert!(payload.errors.iter().any(|e| e.field == "api_key_config"));
+    }
+
+    #[tokio::test]
+    async fn test_create_agent_accepts_existing_secret_reference() {
+        let (core, _db, _agents, _guard) = create_test_core_isolated().await;
+        core.storage
+            .secrets
+            .set_secret("OPENAI_API_KEY", "secret-value", None)
+            .unwrap();
+
+        let mut node = create_test_agent_node("test");
+        node.api_key_config = Some(ApiKeyConfig::Secret("OPENAI_API_KEY".to_string()));
+        node.tools = Some(vec!["http_request".to_string()]);
+
+        let created = create_agent(&core, "Valid Secret Agent".to_string(), node)
+            .await
+            .expect("expected create to pass");
+        assert_eq!(created.name, "Valid Secret Agent");
     }
 }
