@@ -137,6 +137,18 @@ impl ChatSessionStorage {
 
         Ok(deleted)
     }
+
+    /// Delete expired sessions using retention-days policy.
+    ///
+    /// `retention_days = 0` disables cleanup.
+    pub fn cleanup_expired(&self, retention_days: u32, now_ms: i64) -> Result<usize> {
+        if retention_days == 0 {
+            return Ok(0);
+        }
+
+        let cutoff = now_ms - (retention_days as i64) * 24 * 60 * 60 * 1000;
+        self.delete_older_than(cutoff)
+    }
 }
 
 #[cfg(test)]
@@ -413,5 +425,25 @@ mod tests {
         assert_eq!(retrieved.messages[0].role, ChatRole::User);
         assert_eq!(retrieved.messages[0].content, "Hello!");
         assert_eq!(retrieved.messages[1].role, ChatRole::Assistant);
+    }
+
+    #[test]
+    fn test_cleanup_expired_deletes_old_only() {
+        let (storage, _temp_dir) = setup();
+        let now = chrono::Utc::now().timestamp_millis();
+
+        let mut expired = ChatSession::new("agent-1".to_string(), "claude-sonnet-4".to_string());
+        expired.updated_at = now - (31 * 24 * 60 * 60 * 1000);
+
+        let mut recent = ChatSession::new("agent-1".to_string(), "claude-sonnet-4".to_string());
+        recent.updated_at = now - (2 * 24 * 60 * 60 * 1000);
+
+        storage.save(&expired).unwrap();
+        storage.save(&recent).unwrap();
+
+        let deleted = storage.cleanup_expired(30, now).unwrap();
+        assert_eq!(deleted, 1);
+        assert!(!storage.exists(&expired.id).unwrap());
+        assert!(storage.exists(&recent.id).unwrap());
     }
 }

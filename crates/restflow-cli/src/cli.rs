@@ -125,6 +125,12 @@ pub enum Commands {
         command: ConfigCommands,
     },
 
+    /// Maintenance operations
+    Maintenance {
+        #[command(subcommand)]
+        command: MaintenanceCommands,
+    },
+
     /// Migrate configuration from old locations
     Migrate(MigrateArgs),
 
@@ -290,6 +296,18 @@ mod tests {
             cli.command,
             Some(super::Commands::Note {
                 command: super::NoteCommands::List { .. }
+            })
+        ));
+    }
+
+    #[test]
+    fn parses_maintenance_cleanup_command() {
+        let cli =
+            Cli::try_parse_from(["restflow", "maintenance", "cleanup"]).expect("parse cleanup");
+        assert!(matches!(
+            cli.command,
+            Some(super::Commands::Maintenance {
+                command: super::MaintenanceCommands::Cleanup
             })
         ));
     }
@@ -604,6 +622,12 @@ pub enum ConfigCommands {
 
     /// Reset configuration to defaults
     Reset,
+}
+
+#[derive(Subcommand)]
+pub enum MaintenanceCommands {
+    /// Run storage cleanup immediately
+    Cleanup,
 }
 
 #[derive(Subcommand)]

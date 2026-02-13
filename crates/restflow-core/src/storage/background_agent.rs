@@ -656,6 +656,33 @@ impl BackgroundAgentStorage {
         self.add_event(&event)
     }
 
+    /// Delete old terminal tasks and their related messages/events.
+    ///
+    /// Returns the number of deleted tasks.
+    pub fn cleanup_old_tasks(&self, older_than_ms: i64) -> Result<usize> {
+        let tasks = self.list_tasks()?;
+        let mut deleted = 0usize;
+
+        for task in tasks {
+            if !matches!(
+                task.status,
+                BackgroundAgentStatus::Completed | BackgroundAgentStatus::Failed
+            ) {
+                continue;
+            }
+
+            if task.updated_at >= older_than_ms {
+                continue;
+            }
+
+            if self.delete_task(&task.id)? {
+                deleted += 1;
+            }
+        }
+
+        Ok(deleted)
+    }
+
     // ============== Checkpoint Operations ==============
 
     /// Save an agent checkpoint.
@@ -767,6 +794,42 @@ mod tests {
         assert_eq!(active_tasks[0].id, task1.id);
         assert_eq!(paused_tasks.len(), 1);
         assert_eq!(paused_tasks[0].id, task2.id);
+    }
+
+    #[test]
+    fn test_cleanup_old_tasks_keeps_non_terminal() {
+        let storage = create_test_storage();
+        let now = chrono::Utc::now().timestamp_millis();
+
+        let terminal = storage
+            .create_task(
+                "Terminal Task".to_string(),
+                "agent-001".to_string(),
+                BackgroundAgentSchedule::default(),
+            )
+            .unwrap();
+        storage
+            .fail_task_execution(&terminal.id, "failed".to_string(), 1)
+            .unwrap();
+        let mut terminal_updated = storage.get_task(&terminal.id).unwrap().unwrap();
+        terminal_updated.updated_at = now - (10 * 24 * 60 * 60 * 1000);
+        storage.update_task(&terminal_updated).unwrap();
+
+        let mut active = storage
+            .create_task(
+                "Active Task".to_string(),
+                "agent-001".to_string(),
+                BackgroundAgentSchedule::default(),
+            )
+            .unwrap();
+        active.updated_at = now - (30 * 24 * 60 * 60 * 1000);
+        storage.update_task(&active).unwrap();
+
+        let cutoff = now - (7 * 24 * 60 * 60 * 1000);
+        let deleted = storage.cleanup_old_tasks(cutoff).unwrap();
+        assert_eq!(deleted, 1);
+        assert!(storage.get_task(&terminal.id).unwrap().is_none());
+        assert!(storage.get_task(&active.id).unwrap().is_some());
     }
 
     #[test]

@@ -67,6 +67,7 @@ fn command_needs_direct_core(command: &Option<Commands>) -> bool {
             | Some(Commands::Hook { .. })
             | Some(Commands::Pairing { .. })
             | Some(Commands::Route { .. })
+            | Some(Commands::Maintenance { .. })
     )
 }
 
@@ -228,6 +229,9 @@ async fn run() -> Result<()> {
             Some(Commands::Route { command }) => {
                 commands::pairing::run_route(core, command, cli.format).await
             }
+            Some(Commands::Maintenance { command }) => {
+                commands::maintenance::run(core, command, cli.format).await
+            }
             _ => unreachable!(),
         }
     } else {
@@ -289,7 +293,7 @@ async fn wait_for_daemon_exit() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::command_needs_direct_core;
-    use crate::cli::{Commands, HookCommands, StartArgs};
+    use crate::cli::{Commands, HookCommands, MaintenanceCommands, StartArgs};
 
     #[test]
     fn start_does_not_need_direct_core() {
@@ -301,6 +305,14 @@ mod tests {
     fn hook_needs_direct_core() {
         let command = Some(Commands::Hook {
             command: HookCommands::List,
+        });
+        assert!(command_needs_direct_core(&command));
+    }
+
+    #[test]
+    fn maintenance_needs_direct_core() {
+        let command = Some(Commands::Maintenance {
+            command: MaintenanceCommands::Cleanup,
         });
         assert!(command_needs_direct_core(&command));
     }

@@ -18,6 +18,7 @@ use tracing::{error, info, warn};
 use nix::libc;
 
 const MCP_BIND_ADDR_ENV: &str = "RESTFLOW_MCP_BIND_ADDR";
+const CLEANUP_INTERVAL_HOURS: u64 = 24;
 
 pub async fn sync_mcp_configs(mcp_port: Option<u16>) {
     if let Err(err) = try_sync_claude_http_mcp(mcp_port.unwrap_or(8787)).await {
@@ -188,10 +189,20 @@ async fn run_daemon(core: Arc<AppCore>, config: DaemonConfig) -> Result<()> {
         }
     });
 
-    let mut runner = CliBackgroundAgentRunner::new(core);
+    let mut runner = CliBackgroundAgentRunner::new(core.clone());
     if let Err(err) = runner.start().await {
         error!(error = %err, "Task runner failed to start; continuing without runner");
     }
+
+    if let Err(err) = run_and_log_cleanup(core.clone()).await {
+        warn!(error = %err, "Startup cleanup failed");
+    }
+
+    let cleanup_shutdown = shutdown_tx.subscribe();
+    let cleanup_core = core.clone();
+    let cleanup_handle = tokio::spawn(async move {
+        run_cleanup_loop(cleanup_core, cleanup_shutdown).await;
+    });
 
     println!("Daemon running. Press Ctrl+C to stop.");
 
@@ -202,8 +213,36 @@ async fn run_daemon(core: Arc<AppCore>, config: DaemonConfig) -> Result<()> {
     let _ = std::fs::remove_file(&pid_path);
     let _ = ipc_handle.await;
     let _ = mcp_handle.await;
+    let _ = cleanup_handle.await;
 
     println!("Daemon stopped");
+    Ok(())
+}
+
+async fn run_cleanup_loop(core: Arc<AppCore>, mut shutdown: tokio::sync::broadcast::Receiver<()>) {
+    let mut interval = tokio::time::interval(Duration::from_secs(CLEANUP_INTERVAL_HOURS * 60 * 60));
+    interval.tick().await;
+    loop {
+        tokio::select! {
+            _ = shutdown.recv() => break,
+            _ = interval.tick() => {
+                if let Err(err) = run_and_log_cleanup(core.clone()).await {
+                    warn!(error = %err, "Scheduled cleanup failed");
+                }
+            }
+        }
+    }
+}
+
+async fn run_and_log_cleanup(core: Arc<AppCore>) -> Result<()> {
+    let report = restflow_core::services::cleanup::run_cleanup(&core).await?;
+    info!(
+        chat_sessions = report.chat_sessions,
+        background_tasks = report.background_tasks,
+        checkpoints = report.checkpoints,
+        memory_chunks = report.memory_chunks,
+        "Storage cleanup completed"
+    );
     Ok(())
 }
 

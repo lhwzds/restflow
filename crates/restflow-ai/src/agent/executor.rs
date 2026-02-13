@@ -530,6 +530,7 @@ impl AgentExecutor {
                 .await;
 
             let mut emitter = ChannelEmitter::new(tx.clone());
+            #[allow(deprecated)]
             let result = executor.execute_streaming(config, &mut emitter).await;
             match result {
                 Ok(result) => {
@@ -1218,8 +1219,7 @@ mod tests {
         let executor = AgentExecutor::new(mock_llm, tools);
 
         // Set max_tool_result_length to a value that would split Chinese chars
-        let config = AgentConfig::new("Test UTF-8 safety")
-            .with_max_tool_result_length(4000);
+        let config = AgentConfig::new("Test UTF-8 safety").with_max_tool_result_length(4000);
 
         // This should NOT panic even with Chinese characters at byte boundary
         let result = executor.run(config).await;
