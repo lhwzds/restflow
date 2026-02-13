@@ -287,6 +287,9 @@ pub struct BackgroundAgentSpec {
     /// Optional execution mode
     #[serde(default)]
     pub execution_mode: Option<ExecutionMode>,
+    /// Optional per-task timeout (seconds) for API execution mode
+    #[serde(default)]
+    pub timeout_secs: Option<u64>,
     /// Optional memory configuration
     #[serde(default)]
     pub memory: Option<MemoryConfig>,
@@ -320,6 +323,9 @@ pub struct BackgroundAgentPatch {
     /// New execution mode
     #[serde(default)]
     pub execution_mode: Option<ExecutionMode>,
+    /// New per-task timeout (seconds) for API execution mode
+    #[serde(default)]
+    pub timeout_secs: Option<u64>,
     /// New memory configuration
     #[serde(default)]
     pub memory: Option<MemoryConfig>,
@@ -578,6 +584,9 @@ pub struct BackgroundAgent {
     /// Execution mode (API or CLI)
     #[serde(default)]
     pub execution_mode: ExecutionMode,
+    /// Optional per-task timeout (seconds) for API execution mode
+    #[serde(default)]
+    pub timeout_secs: Option<u64>,
     /// Notification configuration
     #[serde(default)]
     pub notification: NotificationConfig,
@@ -639,6 +648,7 @@ impl BackgroundAgent {
             input_template: None,
             schedule,
             execution_mode: ExecutionMode::default(),
+            timeout_secs: None,
             notification: NotificationConfig::default(),
             memory: MemoryConfig::default(),
             status: BackgroundAgentStatus::Active,

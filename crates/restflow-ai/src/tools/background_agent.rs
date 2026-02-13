@@ -19,6 +19,8 @@ pub struct BackgroundAgentCreateRequest {
     #[serde(default)]
     pub input_template: Option<String>,
     #[serde(default)]
+    pub timeout_secs: Option<u64>,
+    #[serde(default)]
     pub memory: Option<Value>,
     #[serde(default)]
     pub memory_scope: Option<String>,
@@ -43,6 +45,8 @@ pub struct BackgroundAgentUpdateRequest {
     pub notification: Option<Value>,
     #[serde(default)]
     pub execution_mode: Option<Value>,
+    #[serde(default)]
+    pub timeout_secs: Option<u64>,
     #[serde(default)]
     pub memory: Option<Value>,
     #[serde(default)]
@@ -140,6 +144,8 @@ enum BackgroundAgentAction {
         #[serde(default)]
         input_template: Option<String>,
         #[serde(default)]
+        timeout_secs: Option<u64>,
+        #[serde(default)]
         memory: Option<Value>,
         #[serde(default)]
         memory_scope: Option<String>,
@@ -162,6 +168,8 @@ enum BackgroundAgentAction {
         notification: Option<Value>,
         #[serde(default)]
         execution_mode: Option<Value>,
+        #[serde(default)]
+        timeout_secs: Option<u64>,
         #[serde(default)]
         memory: Option<Value>,
         #[serde(default)]
@@ -271,6 +279,11 @@ impl Tool for BackgroundAgentTool {
                     "type": "object",
                     "description": "Memory configuration payload (for create/update)"
                 },
+                "timeout_secs": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "Optional per-task timeout in seconds for API execution mode (for create/update)"
+                },
                 "input": {
                     "type": "string",
                     "description": "Optional input for the background agent (for create/update)"
@@ -339,6 +352,7 @@ impl Tool for BackgroundAgentTool {
                 schedule,
                 input,
                 input_template,
+                timeout_secs,
                 memory,
                 memory_scope,
             } => {
@@ -351,6 +365,7 @@ impl Tool for BackgroundAgentTool {
                         schedule,
                         input,
                         input_template,
+                        timeout_secs,
                         memory,
                         memory_scope,
                     })
@@ -369,6 +384,7 @@ impl Tool for BackgroundAgentTool {
                 schedule,
                 notification,
                 execution_mode,
+                timeout_secs,
                 memory,
                 memory_scope,
             } => {
@@ -385,6 +401,7 @@ impl Tool for BackgroundAgentTool {
                         schedule,
                         notification,
                         execution_mode,
+                        timeout_secs,
                         memory,
                         memory_scope,
                     })
