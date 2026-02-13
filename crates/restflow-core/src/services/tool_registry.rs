@@ -175,6 +175,7 @@ struct AgentStoreAdapter {
     storage: AgentStorage,
     skills: SkillStorage,
     secrets: SecretStorage,
+    background_agent_storage: BackgroundAgentStorage,
     known_tools: Arc<RwLock<HashSet<String>>>,
 }
 
@@ -183,12 +184,14 @@ impl AgentStoreAdapter {
         storage: AgentStorage,
         skills: SkillStorage,
         secrets: SecretStorage,
+        background_agent_storage: BackgroundAgentStorage,
         known_tools: Arc<RwLock<HashSet<String>>>,
     ) -> Self {
         Self {
             storage,
             skills,
             secrets,
+            background_agent_storage,
             known_tools,
         }
     }
@@ -332,6 +335,22 @@ impl AgentStore for AgentStoreAdapter {
     }
 
     fn delete_agent(&self, id: &str) -> restflow_ai::error::Result<serde_json::Value> {
+        let active_tasks = self
+            .background_agent_storage
+            .list_active_tasks_by_agent_id(id)
+            .map_err(|e| AiError::Tool(e.to_string()))?;
+        if !active_tasks.is_empty() {
+            let task_names = active_tasks
+                .iter()
+                .map(|task| task.name.clone())
+                .collect::<Vec<_>>()
+                .join(", ");
+            return Err(AiError::Tool(format!(
+                "Cannot delete agent {}: active background tasks exist ({})",
+                id, task_names
+            )));
+        }
+
         self.storage
             .delete_agent(id.to_string())
             .map_err(|e| AiError::Tool(e.to_string()))?;
@@ -1364,6 +1383,7 @@ pub fn create_tool_registry(
         agent_storage.clone(),
         skill_storage.clone(),
         secret_storage.clone(),
+        background_agent_storage.clone(),
         known_tools.clone(),
     ));
     registry.register(AgentCrudTool::new(agent_store).with_write(true));
@@ -3134,7 +3154,7 @@ mod tests {
             secret_storage,
             _config_storage,
             agent_storage,
-            _background_agent_storage,
+            background_agent_storage,
             _trigger_storage,
             _terminal_storage,
             _temp_dir,
@@ -3165,8 +3185,13 @@ mod tests {
             .into_iter()
             .collect::<HashSet<_>>(),
         ));
-        let adapter =
-            AgentStoreAdapter::new(agent_storage, skill_storage, secret_storage, known_tools);
+        let adapter = AgentStoreAdapter::new(
+            agent_storage,
+            skill_storage,
+            secret_storage,
+            background_agent_storage,
+            known_tools,
+        );
         let base_node = crate::models::AgentNode {
             model: Some(crate::models::AIModel::ClaudeSonnet4_5),
             prompt: Some("You are a testing assistant".to_string()),
@@ -3259,7 +3284,7 @@ mod tests {
             secret_storage,
             _config_storage,
             agent_storage,
-            _background_agent_storage,
+            background_agent_storage,
             _trigger_storage,
             _terminal_storage,
             _temp_dir,
@@ -3270,8 +3295,13 @@ mod tests {
                 .into_iter()
                 .collect::<HashSet<_>>(),
         ));
-        let adapter =
-            AgentStoreAdapter::new(agent_storage, skill_storage, secret_storage, known_tools);
+        let adapter = AgentStoreAdapter::new(
+            agent_storage,
+            skill_storage,
+            secret_storage,
+            background_agent_storage,
+            known_tools,
+        );
 
         let err = AgentStore::create_agent(
             &adapter,
@@ -3284,6 +3314,79 @@ mod tests {
         )
         .expect_err("expected validation error");
         assert!(err.to_string().contains("validation_error"));
+    }
+
+    #[test]
+    fn test_agent_store_adapter_blocks_delete_with_active_task() {
+        struct AgentsDirEnvCleanup;
+        impl Drop for AgentsDirEnvCleanup {
+            fn drop(&mut self) {
+                unsafe { std::env::remove_var(crate::prompt_files::AGENTS_DIR_ENV) };
+            }
+        }
+
+        let _cleanup = AgentsDirEnvCleanup;
+        let _env_lock = crate::prompt_files::agents_dir_env_lock();
+        let agents_temp = tempdir().unwrap();
+        unsafe { std::env::set_var(crate::prompt_files::AGENTS_DIR_ENV, agents_temp.path()) };
+
+        let (
+            skill_storage,
+            _memory_storage,
+            _chat_storage,
+            _shared_space_storage,
+            _workspace_note_storage,
+            secret_storage,
+            _config_storage,
+            agent_storage,
+            background_agent_storage,
+            _trigger_storage,
+            _terminal_storage,
+            _temp_dir,
+        ) = setup_storage();
+
+        let known_tools = Arc::new(RwLock::new(
+            ["manage_background_agents".to_string()]
+                .into_iter()
+                .collect::<HashSet<_>>(),
+        ));
+        let adapter = AgentStoreAdapter::new(
+            agent_storage.clone(),
+            skill_storage,
+            secret_storage,
+            background_agent_storage.clone(),
+            known_tools,
+        );
+
+        let created = AgentStore::create_agent(
+            &adapter,
+            AgentCreateRequest {
+                name: "Task Owner".to_string(),
+                agent: serde_json::json!({
+                    "model": "claude-sonnet-4-5",
+                    "prompt": "owner"
+                }),
+            },
+        )
+        .unwrap();
+        let agent_id = created
+            .get("id")
+            .and_then(|value| value.as_str())
+            .unwrap()
+            .to_string();
+
+        background_agent_storage
+            .create_task(
+                "Active MCP Task".to_string(),
+                agent_id.clone(),
+                crate::models::BackgroundAgentSchedule::default(),
+            )
+            .unwrap();
+
+        let err = AgentStore::delete_agent(&adapter, &agent_id).expect_err("should be blocked");
+        let msg = err.to_string();
+        assert!(msg.contains("Cannot delete agent"));
+        assert!(msg.contains("Active MCP Task"));
     }
 
     #[test]
