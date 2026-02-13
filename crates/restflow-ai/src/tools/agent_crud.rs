@@ -137,20 +137,26 @@ impl Tool for AgentCrudTool {
             AgentAction::Create { name, agent } => {
                 self.write_guard()?;
                 let request = AgentCreateRequest { name, agent };
-                ToolOutput::success(
-                    self.store
-                        .create_agent(request)
-                        .map_err(|e| AiError::Tool(format!("Failed to create agent: {e}")))?,
-                )
+                ToolOutput::success(self.store.create_agent(request).map_err(|e| {
+                    let message = e.to_string();
+                    if message.contains("\"type\":\"validation_error\"") {
+                        AiError::Tool(message)
+                    } else {
+                        AiError::Tool(format!("Failed to create agent: {e}"))
+                    }
+                })?)
             }
             AgentAction::Update { id, name, agent } => {
                 self.write_guard()?;
                 let request = AgentUpdateRequest { id, name, agent };
-                ToolOutput::success(
-                    self.store
-                        .update_agent(request)
-                        .map_err(|e| AiError::Tool(format!("Failed to update agent: {e}")))?,
-                )
+                ToolOutput::success(self.store.update_agent(request).map_err(|e| {
+                    let message = e.to_string();
+                    if message.contains("\"type\":\"validation_error\"") {
+                        AiError::Tool(message)
+                    } else {
+                        AiError::Tool(format!("Failed to update agent: {e}"))
+                    }
+                })?)
             }
             AgentAction::Delete { id } => {
                 self.write_guard()?;
@@ -212,5 +218,43 @@ mod tests {
             err.to_string()
                 .contains("Available read-only operations: list, get")
         );
+    }
+
+    struct ValidationStore;
+
+    impl AgentStore for ValidationStore {
+        fn list_agents(&self) -> Result<Value> {
+            Ok(json!([]))
+        }
+
+        fn get_agent(&self, _id: &str) -> Result<Value> {
+            Ok(json!({}))
+        }
+
+        fn create_agent(&self, _request: AgentCreateRequest) -> Result<Value> {
+            Err(AiError::Tool(
+                "{\"type\":\"validation_error\",\"errors\":[{\"field\":\"temperature\",\"message\":\"invalid\"}]}".to_string(),
+            ))
+        }
+
+        fn update_agent(&self, _request: AgentUpdateRequest) -> Result<Value> {
+            Err(AiError::Tool(
+                "{\"type\":\"validation_error\",\"errors\":[{\"field\":\"tools\",\"message\":\"unknown\"}]}".to_string(),
+            ))
+        }
+
+        fn delete_agent(&self, _id: &str) -> Result<Value> {
+            Ok(json!({}))
+        }
+    }
+
+    #[tokio::test]
+    async fn test_create_propagates_validation_payload_without_wrapping() {
+        let tool = AgentCrudTool::new(Arc::new(ValidationStore)).with_write(true);
+        let err = tool
+            .execute(json!({"operation": "create", "name": "Agent", "agent": {}}))
+            .await
+            .expect_err("expected validation error");
+        assert!(err.to_string().contains("\"type\":\"validation_error\""));
     }
 }
