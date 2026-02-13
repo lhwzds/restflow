@@ -65,7 +65,7 @@ impl AgentExecutor for DeterministicMockExecutor {
 
         if self
             .fail_every
-            .is_some_and(|interval| interval > 0 && call_index % interval == 0)
+            .is_some_and(|interval| interval > 0 && call_index.is_multiple_of(interval))
         {
             return Err(anyhow!(
                 "deterministic mock failure at call {} for task {:?}",
