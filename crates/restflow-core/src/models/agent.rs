@@ -445,9 +445,11 @@ mod tests {
             ..AgentNode::new().with_temperature(0.5)
         };
         let errors = node.validate().expect_err("expected validation error");
-        assert!(errors
-            .iter()
-            .any(|e| e.field == "temperature" && e.message.contains("does not support")));
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.field == "temperature" && e.message.contains("does not support"))
+        );
     }
 
     #[test]
@@ -493,8 +495,12 @@ mod tests {
             ..AgentNode::new().with_codex_cli_reasoning_effort("high")
         };
         let errors = node.validate().expect_err("expected validation error");
-        assert!(errors.iter().any(|e| e.field == "codex_cli_reasoning_effort"
-            && e.message.contains("only applies to Codex CLI")));
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.field == "codex_cli_reasoning_effort"
+                    && e.message.contains("only applies to Codex CLI"))
+        );
     }
 
     #[test]

@@ -360,10 +360,12 @@ mod tests {
             .expect_err("expected validation error");
         let payload: ValidationErrorResponse = serde_json::from_str(&err.to_string())
             .expect("validation error payload should be JSON");
-        assert!(payload
-            .errors
-            .iter()
-            .any(|e| e.field == "temperature" && e.message.contains("does not support")));
+        assert!(
+            payload
+                .errors
+                .iter()
+                .any(|e| e.field == "temperature" && e.message.contains("does not support"))
+        );
     }
 
     #[tokio::test]
@@ -378,11 +380,13 @@ mod tests {
             .expect_err("expected validation error");
         let payload: ValidationErrorResponse = serde_json::from_str(&err.to_string())
             .expect("validation error payload should be JSON");
-        assert!(payload
-            .errors
-            .iter()
-            .any(|e| e.field == "codex_cli_reasoning_effort"
-                && e.message.contains("only applies to Codex CLI")));
+        assert!(
+            payload
+                .errors
+                .iter()
+                .any(|e| e.field == "codex_cli_reasoning_effort"
+                    && e.message.contains("only applies to Codex CLI"))
+        );
     }
 
     #[tokio::test]
