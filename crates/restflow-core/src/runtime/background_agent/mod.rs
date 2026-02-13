@@ -149,6 +149,7 @@ pub mod notifier;
 pub mod persist;
 pub mod retry;
 pub mod runner;
+pub mod testkit;
 
 pub use cli_executor::{CliAgentExecutor, create_cli_executor_with_events};
 #[cfg(feature = "tauri-runtime")]
