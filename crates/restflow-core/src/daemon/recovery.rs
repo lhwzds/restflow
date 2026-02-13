@@ -118,19 +118,15 @@ pub async fn recover() -> Result<RecoveryReport> {
         }
         StaleState::StalePid => {
             report.stale_pid = read_pid(&pid_path);
-            remove_file_logged(&pid_path, "PID file");
-            report.removed_pid_file = true;
+            report.removed_pid_file = remove_file_logged(&pid_path, "PID file");
         }
         StaleState::StaleSocket => {
-            remove_file_logged(&socket_path, "socket");
-            report.removed_socket = true;
+            report.removed_socket = remove_file_logged(&socket_path, "socket");
         }
         StaleState::Both => {
             report.stale_pid = read_pid(&pid_path);
-            remove_file_logged(&pid_path, "PID file");
-            report.removed_pid_file = true;
-            remove_file_logged(&socket_path, "socket");
-            report.removed_socket = true;
+            report.removed_pid_file = remove_file_logged(&pid_path, "PID file");
+            report.removed_socket = remove_file_logged(&socket_path, "socket");
         }
     }
 
@@ -169,9 +165,12 @@ fn is_process_alive(pid: u32) -> bool {
     }
 }
 
-fn remove_file_logged(path: &Path, label: &str) {
+fn remove_file_logged(path: &Path, label: &str) -> bool {
     match std::fs::remove_file(path) {
-        Ok(()) => info!("Removed stale {}: {}", label, path.display()),
+        Ok(()) => {
+            info!("Removed stale {}: {}", label, path.display());
+            return true;
+        }
         Err(e) => warn!(
             "Failed to remove stale {}: {} ({})",
             label,
@@ -179,6 +178,7 @@ fn remove_file_logged(path: &Path, label: &str) {
             e
         ),
     }
+    false
 }
 
 #[cfg(test)]

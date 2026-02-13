@@ -195,9 +195,8 @@ async fn run_daemon(core: Arc<AppCore>, config: DaemonConfig) -> Result<()> {
     #[cfg(unix)]
     configure_nofile_limit();
 
-    let pid_path = paths::daemon_pid_path()?;
-    std::fs::write(&pid_path, std::process::id().to_string())?;
-    let _pid_guard = PidFileGuard::new(pid_path.clone());
+    let lock_path = paths::daemon_lock_path()?;
+    let _lock_guard = DaemonLockGuard::acquire(lock_path)?;
 
     let (shutdown_tx, _) = tokio::sync::broadcast::channel(1);
 
@@ -264,6 +263,19 @@ async fn run_daemon(core: Arc<AppCore>, config: DaemonConfig) -> Result<()> {
     let cleanup_handle = tokio::spawn(async move {
         run_cleanup_loop(cleanup_core, cleanup_shutdown).await;
     });
+
+    // Ensure core services did not fail immediately before declaring daemon as running.
+    sleep(Duration::from_millis(120)).await;
+    if ipc_handle.is_finished() {
+        anyhow::bail!("IPC server exited during startup");
+    }
+    if mcp_handle.is_finished() {
+        anyhow::bail!("MCP server exited during startup");
+    }
+
+    let pid_path = paths::daemon_pid_path()?;
+    std::fs::write(&pid_path, std::process::id().to_string())?;
+    let _pid_guard = PidFileGuard::new(pid_path.clone());
 
     println!("Daemon running. Press Ctrl+C to stop.");
 
@@ -455,6 +467,79 @@ impl PidFileGuard {
 impl Drop for PidFileGuard {
     fn drop(&mut self) {
         let _ = std::fs::remove_file(&self.path);
+    }
+}
+
+struct DaemonLockGuard {
+    path: PathBuf,
+}
+
+impl DaemonLockGuard {
+    fn acquire(path: PathBuf) -> Result<Self> {
+        let current_pid = std::process::id();
+        let mut attempts = 0;
+        loop {
+            attempts += 1;
+
+            match std::fs::OpenOptions::new()
+                .create_new(true)
+                .write(true)
+                .open(&path)
+            {
+                Ok(mut lock_file) => {
+                    use std::io::Write;
+                    write!(lock_file, "{}", current_pid)?;
+                    return Ok(Self { path });
+                }
+                Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {
+                    if let Some(lock_pid) = read_lock_pid(&path)
+                        && is_process_alive(lock_pid)
+                    {
+                        anyhow::bail!("Daemon already running (lock held by PID {})", lock_pid);
+                    }
+                    let _ = std::fs::remove_file(&path);
+                    if attempts >= 2 {
+                        anyhow::bail!(
+                            "Failed to acquire daemon lock after removing stale lock file"
+                        );
+                    }
+                }
+                Err(err) => return Err(err.into()),
+            }
+        }
+    }
+}
+
+impl Drop for DaemonLockGuard {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.path);
+    }
+}
+
+fn read_lock_pid(path: &std::path::Path) -> Option<u32> {
+    std::fs::read_to_string(path)
+        .ok()
+        .and_then(|raw| raw.trim().parse::<u32>().ok())
+}
+
+fn is_process_alive(pid: u32) -> bool {
+    #[cfg(unix)]
+    {
+        use nix::sys::signal::kill;
+        use nix::unistd::Pid;
+        let Ok(pid_i32) = i32::try_from(pid) else {
+            return false;
+        };
+        kill(Pid::from_raw(pid_i32), None).is_ok()
+    }
+
+    #[cfg(not(unix))]
+    {
+        std::process::Command::new("tasklist")
+            .args(["/FI", &format!("PID eq {}", pid)])
+            .output()
+            .map(|output| String::from_utf8_lossy(&output.stdout).contains(&pid.to_string()))
+            .unwrap_or(false)
     }
 }
 
