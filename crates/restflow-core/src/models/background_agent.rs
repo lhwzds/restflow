@@ -18,6 +18,20 @@ pub enum ExecutionMode {
     Cli(CliExecutionConfig),
 }
 
+/// Durability mode for checkpoint persistence.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, TS, PartialEq, Eq)]
+#[ts(export)]
+#[serde(rename_all = "snake_case")]
+pub enum DurabilityMode {
+    /// Persist checkpoints before each tool execution.
+    Sync,
+    /// Persist checkpoints in a background task while execution continues.
+    #[default]
+    Async,
+    /// Persist checkpoints only at execution exit.
+    Exit,
+}
+
 /// Configuration for CLI-based execution
 #[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
 #[ts(export)]
@@ -293,6 +307,9 @@ pub struct BackgroundAgentSpec {
     /// Optional memory configuration
     #[serde(default)]
     pub memory: Option<MemoryConfig>,
+    /// Optional durability mode for checkpoint persistence
+    #[serde(default)]
+    pub durability_mode: Option<DurabilityMode>,
 }
 
 /// Partial update payload for background agents.
@@ -329,6 +346,9 @@ pub struct BackgroundAgentPatch {
     /// New memory configuration
     #[serde(default)]
     pub memory: Option<MemoryConfig>,
+    /// New durability mode for checkpoint persistence
+    #[serde(default)]
+    pub durability_mode: Option<DurabilityMode>,
 }
 
 /// Control actions for a background agent.
@@ -593,6 +613,9 @@ pub struct BackgroundAgent {
     /// Memory configuration
     #[serde(default)]
     pub memory: MemoryConfig,
+    /// Durability mode for checkpoint persistence
+    #[serde(default)]
+    pub durability_mode: DurabilityMode,
     /// Current status of the task
     #[serde(default)]
     pub status: BackgroundAgentStatus,
@@ -651,6 +674,7 @@ impl BackgroundAgent {
             timeout_secs: None,
             notification: NotificationConfig::default(),
             memory: MemoryConfig::default(),
+            durability_mode: DurabilityMode::Async,
             status: BackgroundAgentStatus::Active,
             created_at: now,
             updated_at: now,
