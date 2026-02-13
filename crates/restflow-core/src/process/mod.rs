@@ -172,14 +172,26 @@ impl ProcessRegistry {
         output.aggregated.push_str(data);
 
         if output.pending.len() > max_bytes {
-            let keep_from = output.pending.len() - (max_bytes * 9 / 10);
-            output.pending = output.pending[keep_from..].to_string();
+            let target = max_bytes * 9 / 10;
+            let keep_from = output.pending.len().saturating_sub(target);
+            let start = Self::nearest_char_boundary_forward(&output.pending, keep_from);
+            output.pending = output.pending[start..].to_string();
         }
 
         if output.aggregated.len() > max_bytes {
-            let keep_from = output.aggregated.len() - (max_bytes * 9 / 10);
-            output.aggregated = output.aggregated[keep_from..].to_string();
+            let target = max_bytes * 9 / 10;
+            let keep_from = output.aggregated.len().saturating_sub(target);
+            let start = Self::nearest_char_boundary_forward(&output.aggregated, keep_from);
+            output.aggregated = output.aggregated[start..].to_string();
         }
+    }
+
+    fn nearest_char_boundary_forward(text: &str, index: usize) -> usize {
+        let mut pos = index.min(text.len());
+        while pos < text.len() && !text.is_char_boundary(pos) {
+            pos += 1;
+        }
+        pos
     }
 
     fn slice_utf8(text: &str, offset: usize, limit: usize) -> String {
@@ -195,6 +207,10 @@ impl ProcessRegistry {
             end += 1;
         }
         text[start..end].to_string()
+    }
+
+    fn is_truncated(total: usize, offset: usize, limit: usize) -> bool {
+        offset.saturating_add(limit) < total
     }
 
     fn take_pending(output: &Arc<Mutex<SessionOutput>>) -> String {
@@ -495,8 +511,8 @@ impl ProcessRegistry {
             return Some(output);
         }
 
-        if let Some((_, finished)) = self.finished.remove(session_id) {
-            return Some(finished.output);
+        if let Some(finished) = self.finished.get(session_id) {
+            return Some(finished.output.clone());
         }
 
         None
@@ -569,7 +585,7 @@ impl ProcessRegistry {
                 offset,
                 limit,
                 total,
-                truncated: offset + limit < total,
+                truncated: Self::is_truncated(total, offset, limit),
             });
         }
 
@@ -582,7 +598,7 @@ impl ProcessRegistry {
                 offset,
                 limit,
                 total,
-                truncated: offset + limit < total,
+                truncated: Self::is_truncated(total, offset, limit),
             });
         }
 
@@ -696,5 +712,24 @@ mod tests {
         tokio::time::timeout(Duration::from_secs(10), test_future)
             .await
             .expect("test_kill_session timed out after 10 seconds");
+    }
+
+    #[test]
+    fn test_append_output_keeps_utf8_boundaries() {
+        let mut output = SessionOutput::default();
+        let data = "前缀😀后缀".repeat(64);
+
+        ProcessRegistry::append_output(&mut output, &data, 128);
+
+        assert!(std::str::from_utf8(output.pending.as_bytes()).is_ok());
+        assert!(std::str::from_utf8(output.aggregated.as_bytes()).is_ok());
+        assert!(!output.pending.is_empty());
+        assert!(!output.aggregated.is_empty());
+    }
+
+    #[test]
+    fn test_is_truncated_handles_large_offset_without_overflow() {
+        let truncated = ProcessRegistry::is_truncated(10, usize::MAX - 2, 10);
+        assert!(!truncated);
     }
 }

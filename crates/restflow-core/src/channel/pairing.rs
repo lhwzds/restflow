@@ -96,6 +96,18 @@ impl PairingManager {
         peer_name: Option<&str>,
         chat_id: &str,
     ) -> Result<String> {
+        if let Some(existing_code) = self.storage.get_pairing_request_by_peer(peer_id)?
+            && let Some(data) = self.storage.get_pairing_request(&existing_code)?
+        {
+            let request: PairingRequest = serde_json::from_slice(&data)?;
+            let now = chrono::Utc::now().timestamp_millis();
+            if request.expires_at > now {
+                return Ok(existing_code);
+            }
+            // Expired request can be replaced by a new one.
+            let _ = self.storage.delete_pairing_request(&existing_code);
+        }
+
         let code: String = rand::rng()
             .sample_iter(&Alphanumeric)
             .take(8)
@@ -249,13 +261,14 @@ mod tests {
         let code1 = mgr
             .create_request("12345", Some("Alice"), "chat-1")
             .unwrap();
-        // Creating another request for the same peer replaces the old one
+        // Creating another request for the same peer reuses the existing
+        // pending code until expiry.
         let code2 = mgr
             .create_request("12345", Some("Alice"), "chat-1")
             .unwrap();
-        assert_ne!(code1, code2);
+        assert_eq!(code1, code2);
 
-        // Only the new code should work
+        // The existing code remains valid.
         let peer = mgr.approve(&code2, "cli").unwrap();
         assert_eq!(peer.peer_id, "12345");
     }
