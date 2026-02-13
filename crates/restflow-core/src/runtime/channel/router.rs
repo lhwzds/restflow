@@ -31,6 +31,16 @@ pub struct MessageRouter {
 }
 
 impl MessageRouter {
+    fn legacy_telegram_conversation_key(message: &InboundMessage) -> Option<&str> {
+        if message.channel_type != crate::channel::ChannelType::Telegram {
+            return None;
+        }
+        message
+            .conversation_id
+            .split_once(':')
+            .map(|(chat_id, _)| chat_id)
+    }
+
     /// Create a new MessageRouter.
     pub fn new(channel_router: Arc<ChannelRouter>, command_prefix: impl Into<String>) -> Self {
         Self {
@@ -46,6 +56,14 @@ impl MessageRouter {
             .channel_router
             .get_conversation(&message.conversation_id)
             .await
+            && let Some(task_id) = ctx.task_id
+        {
+            return RouteDecision::ForwardToBackgroundAgent {
+                background_agent_id: task_id,
+            };
+        }
+        if let Some(legacy_key) = Self::legacy_telegram_conversation_key(message)
+            && let Some(ctx) = self.channel_router.get_conversation(legacy_key).await
             && let Some(task_id) = ctx.task_id
         {
             return RouteDecision::ForwardToBackgroundAgent {
@@ -144,6 +162,32 @@ mod tests {
         // Even a command should be forwarded to task if linked
         let cmd_message = create_message("/help");
         let decision = router.route(&cmd_message).await;
+
+        assert!(matches!(
+            decision,
+            RouteDecision::ForwardToBackgroundAgent { background_agent_id: task_id } if task_id == "task-1"
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_route_task_linked_conversation_legacy_telegram_fallback() {
+        let channel_router = Arc::new(ChannelRouter::new());
+
+        let legacy_message =
+            InboundMessage::new("msg-1", ChannelType::Telegram, "user-1", "chat-1", "test");
+        channel_router
+            .record_conversation(&legacy_message, Some("task-1".to_string()))
+            .await;
+
+        let router = MessageRouter::new(channel_router, "/");
+        let thread_message = InboundMessage::new(
+            "msg-2",
+            ChannelType::Telegram,
+            "user-1",
+            "chat-1:10",
+            "hello",
+        );
+        let decision = router.route(&thread_message).await;
 
         assert!(matches!(
             decision,
