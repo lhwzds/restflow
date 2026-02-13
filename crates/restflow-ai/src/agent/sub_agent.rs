@@ -4,7 +4,7 @@ use crate::agent::definitions::{AgentDefinition, AgentDefinitionRegistry};
 use crate::agent::executor::{AgentConfig, AgentExecutor, AgentResult};
 use crate::error::{AiError, Result};
 use crate::llm::LlmClient;
-use crate::tools::ToolRegistry;
+use crate::tools::{FilteredToolset, ToolRegistry, Toolset};
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -647,19 +647,11 @@ async fn execute_subagent(
 }
 
 fn build_registry_for_agent(parent: &Arc<ToolRegistry>, allowed_tools: &[String]) -> ToolRegistry {
+    let filtered = FilteredToolset::from_allowlist(parent.clone(), allowed_tools);
     let mut registry = ToolRegistry::new();
 
-    if allowed_tools.is_empty() {
-        for name in parent.list() {
-            if let Some(tool) = parent.get(name) {
-                registry.register_arc(tool);
-            }
-        }
-        return registry;
-    }
-
-    for name in allowed_tools {
-        if let Some(tool) = parent.get(name) {
+    for schema in filtered.list_tools() {
+        if let Some(tool) = parent.get(&schema.name) {
             registry.register_arc(tool);
         }
     }
