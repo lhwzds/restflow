@@ -3,6 +3,7 @@
 use anyhow::Result;
 use redb::{Database, ReadableDatabase, TableDefinition};
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::sync::Arc;
 
 const CONFIG_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("system_config");
@@ -34,6 +35,7 @@ pub struct SystemConfig {
     pub background_task_retention_days: u32,
     pub checkpoint_retention_days: u32,
     pub memory_chunk_retention_days: u32,
+    pub experimental_features: Vec<String>,
 }
 
 impl Default for SystemConfig {
@@ -48,6 +50,7 @@ impl Default for SystemConfig {
             background_task_retention_days: DEFAULT_BACKGROUND_TASK_RETENTION_DAYS,
             checkpoint_retention_days: DEFAULT_CHECKPOINT_RETENTION_DAYS,
             memory_chunk_retention_days: DEFAULT_MEMORY_CHUNK_RETENTION_DAYS,
+            experimental_features: Vec::new(),
         }
     }
 }
@@ -117,6 +120,22 @@ impl SystemConfig {
                 "Memory chunk retention must be 0 (forever) or at least {} day",
                 MIN_RETENTION_DAYS
             ));
+        }
+
+        let mut seen = HashSet::new();
+        for feature in &self.experimental_features {
+            let normalized = feature.trim().to_ascii_lowercase();
+            if normalized.is_empty() {
+                return Err(anyhow::anyhow!(
+                    "Experimental feature names must be non-empty strings"
+                ));
+            }
+            if !seen.insert(normalized.clone()) {
+                return Err(anyhow::anyhow!(
+                    "Duplicate experimental feature: {}",
+                    normalized
+                ));
+            }
         }
 
         Ok(())
@@ -230,6 +249,7 @@ mod tests {
             background_task_retention_days: 14,
             checkpoint_retention_days: 5,
             memory_chunk_retention_days: 120,
+            experimental_features: vec!["plan_mode".to_string()],
         };
 
         storage.update_config(new_config).unwrap();
@@ -251,6 +271,7 @@ mod tests {
             background_task_retention_days: 7,
             checkpoint_retention_days: 3,
             memory_chunk_retention_days: 90,
+            experimental_features: vec!["websocket_transport".to_string()],
         };
         assert!(valid_config.validate().is_ok());
     }
@@ -269,9 +290,35 @@ mod tests {
             background_task_retention_days: 7,
             checkpoint_retention_days: 3,
             memory_chunk_retention_days: 90,
+            experimental_features: vec![],
         };
 
         let result = storage.update_config(invalid_config);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_invalid_experimental_features_duplicates() {
+        let config = SystemConfig {
+            worker_count: 2,
+            task_timeout_seconds: 30,
+            stall_timeout_seconds: 30,
+            background_api_timeout_seconds: 1200,
+            max_retries: 1,
+            chat_session_retention_days: 30,
+            background_task_retention_days: 7,
+            checkpoint_retention_days: 3,
+            memory_chunk_retention_days: 90,
+            experimental_features: vec!["Plan_Mode".to_string(), "plan_mode".to_string()],
+        };
+
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Duplicate experimental feature")
+        );
     }
 }
