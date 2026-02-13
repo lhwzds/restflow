@@ -8,9 +8,9 @@ use crate::daemon::{IpcClient, IpcRequest, IpcResponse};
 use crate::models::{
     AIModel, BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentPatch,
     BackgroundAgentSchedule, BackgroundAgentSpec, BackgroundAgentStatus, BackgroundMessage,
-    BackgroundMessageSource, BackgroundProgress, ChatSession, ChatSessionSummary, Hook, HookAction,
-    HookEvent, HookFilter, MemoryChunk, MemoryConfig, MemoryScope, MemorySearchQuery,
-    MemorySearchResult, MemorySource, MemoryStats, Provider, SearchMode, Skill,
+    BackgroundMessageSource, BackgroundProgress, ChatSession, ChatSessionSummary, DurabilityMode,
+    Hook, HookAction, HookEvent, HookFilter, MemoryChunk, MemoryConfig, MemoryScope,
+    MemorySearchQuery, MemorySearchResult, MemorySource, MemoryStats, Provider, SearchMode, Skill,
 };
 use crate::services::tool_registry::create_tool_registry;
 use crate::storage::SecretStorage;
@@ -908,6 +908,9 @@ pub struct ManageBackgroundAgentsParams {
     /// Optional per-task timeout (seconds) for API execution mode
     #[serde(default)]
     pub timeout_secs: Option<u64>,
+    /// Optional checkpoint durability mode
+    #[serde(default)]
+    pub durability_mode: Option<String>,
     /// Optional memory payload
     #[serde(default)]
     pub memory: Option<Value>,
@@ -1057,6 +1060,17 @@ impl RestFlowMcpServer {
             Some(s) if s == "shared_agent" => Ok(Some(MemoryScope::SharedAgent)),
             Some(s) if s == "per_background_agent" => Ok(Some(MemoryScope::PerBackgroundAgent)),
             Some(s) => Err(format!("Unknown memory_scope: {}", s)),
+        }
+    }
+
+    fn parse_durability_mode(value: Option<String>) -> Result<Option<DurabilityMode>, String> {
+        match value.map(|s| s.trim().to_lowercase()) {
+            None => Ok(None),
+            Some(s) if s.is_empty() => Ok(None),
+            Some(s) if s == "sync" => Ok(Some(DurabilityMode::Sync)),
+            Some(s) if s == "async" => Ok(Some(DurabilityMode::Async)),
+            Some(s) if s == "exit" => Ok(Some(DurabilityMode::Exit)),
+            Some(s) => Err(format!("Unknown durability_mode: {}", s)),
         }
     }
 
@@ -1399,6 +1413,7 @@ impl RestFlowMcpServer {
                 .unwrap_or_default();
                 let memory = Self::parse_optional_value::<MemoryConfig>("memory", params.memory)?;
                 let memory = Self::merge_memory_scope(memory, params.memory_scope)?;
+                let durability_mode = Self::parse_durability_mode(params.durability_mode)?;
                 let spec = BackgroundAgentSpec {
                     name,
                     agent_id,
@@ -1413,6 +1428,7 @@ impl RestFlowMcpServer {
                     )?,
                     timeout_secs: params.timeout_secs,
                     memory,
+                    durability_mode,
                 };
                 serde_json::to_value(self.backend.create_background_agent(spec).await?)
                     .map_err(|e| e.to_string())?
@@ -1421,6 +1437,7 @@ impl RestFlowMcpServer {
                 let id = Self::required_string(params.id, "id")?;
                 let memory = Self::parse_optional_value::<MemoryConfig>("memory", params.memory)?;
                 let memory = Self::merge_memory_scope(memory, params.memory_scope)?;
+                let durability_mode = Self::parse_durability_mode(params.durability_mode)?;
                 let patch = BackgroundAgentPatch {
                     name: params.name,
                     description: params.description,
@@ -1435,6 +1452,7 @@ impl RestFlowMcpServer {
                     )?,
                     timeout_secs: params.timeout_secs,
                     memory,
+                    durability_mode,
                 };
                 serde_json::to_value(self.backend.update_background_agent(&id, patch).await?)
                     .map_err(|e| e.to_string())?
@@ -2859,6 +2877,7 @@ mod tests {
             notification: None,
             execution_mode: None,
             timeout_secs: None,
+            durability_mode: None,
             memory: None,
             memory_scope: None,
             status: None,

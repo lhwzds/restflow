@@ -326,6 +326,9 @@ impl BackgroundAgentStorage {
         if let Some(memory) = spec.memory {
             task.memory = memory;
         }
+        if let Some(durability_mode) = spec.durability_mode {
+            task.durability_mode = durability_mode;
+        }
         task.updated_at = chrono::Utc::now().timestamp_millis();
         self.update_task(&task)?;
         Ok(task)
@@ -372,6 +375,9 @@ impl BackgroundAgentStorage {
         }
         if let Some(memory) = patch.memory {
             task.memory = memory;
+        }
+        if let Some(durability_mode) = patch.durability_mode {
+            task.durability_mode = durability_mode;
         }
 
         task.updated_at = chrono::Utc::now().timestamp_millis();
@@ -1086,6 +1092,7 @@ mod tests {
                 execution_mode: None,
                 timeout_secs: None,
                 memory: None,
+                durability_mode: None,
             })
             .unwrap();
 
@@ -1120,6 +1127,7 @@ mod tests {
                 execution_mode: None,
                 timeout_secs: None,
                 memory: None,
+                durability_mode: None,
             })
             .unwrap();
 
@@ -1199,6 +1207,7 @@ mod tests {
                 execution_mode: None,
                 timeout_secs: None,
                 memory: None,
+                durability_mode: None,
             })
             .unwrap();
         assert_eq!(created.name, "BG Agent");
@@ -1298,6 +1307,7 @@ mod tests {
                     compaction_threshold_ratio: 0.80,
                     max_summary_tokens: 2_000,
                 }),
+                durability_mode: None,
             })
             .unwrap();
 
@@ -1325,6 +1335,7 @@ mod tests {
                 execution_mode: None,
                 timeout_secs: None,
                 memory: None,
+                durability_mode: None,
             })
             .unwrap();
 
@@ -1368,6 +1379,7 @@ mod tests {
             execution_mode: None,
             timeout_secs: Some(5),
             memory: None,
+            durability_mode: None,
         });
 
         assert!(result.is_err());
@@ -1394,6 +1406,7 @@ mod tests {
                 execution_mode: None,
                 timeout_secs: None,
                 memory: None,
+                durability_mode: None,
             })
             .unwrap();
 

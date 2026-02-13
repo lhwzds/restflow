@@ -33,6 +33,7 @@
 //! let result = agent.execute(config).await?;
 //! ```
 
+mod checkpoint;
 mod context;
 mod definitions;
 mod execution_engine;
@@ -47,6 +48,7 @@ pub mod stuck;
 mod sub_agent;
 mod trace;
 
+pub use checkpoint::{AgentCheckpoint, checkpoint_restore, checkpoint_save};
 pub use context::{
     AgentContext, ContextDiscoveryConfig, ContextLoader, DiscoveredContext, MemoryContext,
     SkillSummary, WorkspaceContextCache,
