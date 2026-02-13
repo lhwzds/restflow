@@ -17,13 +17,19 @@ pub async fn run_cleanup(core: &Arc<AppCore>) -> Result<CleanupReport> {
     let config = core.storage.config.get_config()?.unwrap_or_default();
     let now_ms = chrono::Utc::now().timestamp_millis();
 
-    let chat_sessions = if retention_cutoff(now_ms, config.chat_session_retention_days).is_some() {
-        core.storage
-            .chat_sessions
-            .cleanup_expired(config.chat_session_retention_days, now_ms)?
-    } else {
-        0
-    };
+    let mut chat_sessions =
+        if retention_cutoff(now_ms, config.chat_session_retention_days).is_some() {
+            core.storage
+                .chat_sessions
+                .cleanup_expired(config.chat_session_retention_days, now_ms)?
+        } else {
+            0
+        };
+    chat_sessions += core
+        .storage
+        .chat_sessions
+        .cleanup_by_session_retention(now_ms)?
+        .deleted;
 
     let background_tasks =
         if let Some(cutoff) = retention_cutoff(now_ms, config.background_task_retention_days) {
