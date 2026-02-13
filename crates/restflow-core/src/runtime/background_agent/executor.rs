@@ -887,7 +887,10 @@ impl AgentRuntimeExecutor {
         }
 
         let result = if let Some(mut emitter) = emitter {
-            agent.execute_streaming(config, emitter.as_mut()).await?
+            #[allow(deprecated)]
+            {
+                agent.execute_streaming(config, emitter.as_mut()).await?
+            }
         } else {
             agent.run(config).await?
         };

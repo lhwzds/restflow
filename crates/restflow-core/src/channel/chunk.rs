@@ -238,8 +238,7 @@ mod tests {
         );
         // Last chunk should close the fence.
         assert!(
-            chunks.last().unwrap().ends_with("```")
-                || chunks.last().unwrap().contains("```"),
+            chunks.last().unwrap().ends_with("```") || chunks.last().unwrap().contains("```"),
             "Last chunk should contain a closing fence"
         );
     }

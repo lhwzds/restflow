@@ -103,7 +103,11 @@ impl StuckDetector {
         // Check if the last `threshold` calls are all identical
         let last = self.recent_calls.back()?;
         let tail_start = self.recent_calls.len() - threshold;
-        let all_same = self.recent_calls.iter().skip(tail_start).all(|fp| fp == last);
+        let all_same = self
+            .recent_calls
+            .iter()
+            .skip(tail_start)
+            .all(|fp| fp == last);
 
         if all_same {
             Some(StuckInfo {
