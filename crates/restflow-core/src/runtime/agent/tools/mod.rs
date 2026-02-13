@@ -1,7 +1,7 @@
 //! Unified tool registry for agent execution.
 
 use std::sync::Arc;
-use tracing::warn;
+use tracing::{debug, warn};
 
 use crate::models::agent::PythonRuntimePolicy;
 use crate::runtime::subagent::{AgentDefinitionRegistry, SubagentConfig, SubagentTracker};
@@ -319,7 +319,7 @@ pub fn registry_from_allowlist(
                 if let Some(deps) = subagent_deps {
                     builder = builder.with_spawn_agent(Arc::new(deps.clone()));
                 } else {
-                    warn!(
+                    debug!(
                         tool_name = "spawn_agent",
                         "Subagent dependencies missing, skipping"
                     );
@@ -329,7 +329,7 @@ pub fn registry_from_allowlist(
                 if let Some(deps) = subagent_deps {
                     builder = builder.with_wait_agents(Arc::new(deps.clone()));
                 } else {
-                    warn!(
+                    debug!(
                         tool_name = "wait_agents",
                         "Subagent dependencies missing, skipping"
                     );
@@ -339,7 +339,7 @@ pub fn registry_from_allowlist(
                 if let Some(deps) = subagent_deps {
                     builder = builder.with_list_agents(Arc::new(deps.clone()));
                 } else {
-                    warn!(
+                    debug!(
                         tool_name = "list_agents",
                         "Subagent dependencies missing, skipping"
                     );
@@ -349,7 +349,7 @@ pub fn registry_from_allowlist(
                 if let Some(deps) = subagent_deps {
                     builder = builder.with_use_skill(Arc::new(deps.clone()));
                 } else {
-                    warn!(
+                    debug!(
                         tool_name = "use_skill",
                         "Subagent dependencies missing, skipping"
                     );
@@ -414,6 +414,9 @@ pub fn registry_from_allowlist(
             }
             "switch_model" => {
                 // Registered by callers that provide SwappableLlm + LlmClientFactory.
+            }
+            "reply" => {
+                // Registered by callers that provide a ReplySender (e.g., ChatDispatcher).
             }
             "process" => {
                 // Registered by callers that provide a ProcessRegistry.
