@@ -92,9 +92,24 @@ impl ConfigTool {
                     .ok_or_else(|| AiError::Tool("max_retries must be a number".to_string()))?;
                 config.max_retries = retries as u32;
             }
+            "experimental_features" => {
+                let values = value.as_array().ok_or_else(|| {
+                    AiError::Tool("experimental_features must be an array of strings".to_string())
+                })?;
+                let mut features = Vec::with_capacity(values.len());
+                for entry in values {
+                    let feature = entry.as_str().ok_or_else(|| {
+                        AiError::Tool(
+                            "experimental_features must be an array of strings".to_string(),
+                        )
+                    })?;
+                    features.push(feature.to_string());
+                }
+                config.experimental_features = features;
+            }
             _ => {
                 return Err(AiError::Tool(format!(
-                    "Unknown config field: '{key}'. Valid fields: worker_count, task_timeout_seconds, stall_timeout_seconds, background_api_timeout_seconds, max_retries."
+                    "Unknown config field: '{key}'. Valid fields: worker_count, task_timeout_seconds, stall_timeout_seconds, background_api_timeout_seconds, max_retries, experimental_features."
                 )));
             }
         }
@@ -108,6 +123,7 @@ impl ConfigTool {
 enum ConfigAction {
     Get,
     Show,
+    List,
     Reset,
     Set {
         #[serde(default)]
@@ -135,7 +151,7 @@ impl Tool for ConfigTool {
             "properties": {
                 "operation": {
                     "type": "string",
-                    "enum": ["get", "show", "set", "reset"],
+                    "enum": ["get", "show", "list", "set", "reset"],
                     "description": "Config operation to perform"
                 },
                 "config": {
@@ -162,6 +178,20 @@ impl Tool for ConfigTool {
                 let config = self.get_config()?;
                 ToolOutput::success(serde_json::to_value(config)?)
             }
+            ConfigAction::List => ToolOutput::success(json!({
+                "fields": [
+                    "worker_count",
+                    "task_timeout_seconds",
+                    "stall_timeout_seconds",
+                    "background_api_timeout_seconds",
+                    "max_retries",
+                    "chat_session_retention_days",
+                    "background_task_retention_days",
+                    "checkpoint_retention_days",
+                    "memory_chunk_retention_days",
+                    "experimental_features"
+                ]
+            })),
             ConfigAction::Reset => {
                 self.write_guard()?;
                 let config = SystemConfig::default();
@@ -251,7 +281,45 @@ mod tests {
 
         assert!(message.contains("Unknown config field: 'invalid_field'"));
         assert!(message.contains(
-            "Valid fields: worker_count, task_timeout_seconds, stall_timeout_seconds, background_api_timeout_seconds, max_retries"
+            "Valid fields: worker_count, task_timeout_seconds, stall_timeout_seconds, background_api_timeout_seconds, max_retries, experimental_features"
         ));
+    }
+
+    #[tokio::test]
+    async fn test_set_experimental_features() {
+        let storage = setup_storage();
+        let tool = ConfigTool::new(storage).with_write(true);
+
+        let output = tool
+            .execute(json!({
+                "operation": "set",
+                "key": "experimental_features",
+                "value": ["plan_mode", "websocket_transport"]
+            }))
+            .await
+            .unwrap();
+        assert!(output.success);
+        let values = output
+            .result
+            .get("experimental_features")
+            .and_then(|value| value.as_array())
+            .expect("experimental_features should be an array");
+        assert_eq!(values.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_list_supported_fields() {
+        let storage = setup_storage();
+        let tool = ConfigTool::new(storage);
+
+        let output = tool.execute(json!({ "operation": "list" })).await.unwrap();
+        assert!(output.success);
+        assert!(
+            output
+                .result
+                .get("fields")
+                .and_then(|v| v.as_array())
+                .is_some()
+        );
     }
 }
