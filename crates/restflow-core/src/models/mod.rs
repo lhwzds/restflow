@@ -20,6 +20,7 @@ pub mod terminal_session;
 pub mod trigger;
 pub mod validation;
 pub mod webhook;
+pub mod workflow;
 pub mod workspace_note;
 
 pub use agent::{AgentNode, ApiKeyConfig, CodexCliExecutionMode, ModelRoutingConfig};
@@ -42,6 +43,10 @@ pub use memory::{
 pub use pricing::{ModelPricing, calculate_cost};
 pub use steer::{SteerMessage, SteerSource};
 pub use webhook::{WebhookConfig, WebhookRateLimiter, WebhookRequest, WebhookResponse};
+pub use workflow::{
+    AgentWorkflow, WorkflowCheckpoint, WorkflowDefinition, WorkflowPhase, WorkflowRetryConfig,
+    WorkflowStatus,
+};
 pub use workspace_note::{
     NoteQuery, NoteStatus, WorkspaceNote, WorkspaceNotePatch, WorkspaceNoteSpec,
 };

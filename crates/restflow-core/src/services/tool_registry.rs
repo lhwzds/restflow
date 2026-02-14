@@ -497,6 +497,7 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
                 memory,
                 durability_mode,
                 resource_limits,
+                workflow: None,
             })
             .map_err(|e| AiError::Tool(e.to_string()))?;
         serde_json::to_value(task).map_err(AiError::from)
@@ -529,6 +530,7 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
             memory,
             durability_mode,
             resource_limits,
+            workflow: None,
         };
 
         let task = self

@@ -11,7 +11,7 @@ use crate::models::{
     BackgroundMessageSource, BackgroundProgress, ChatSession, ChatSessionSummary, DurabilityMode,
     Hook, HookAction, HookEvent, HookFilter, MemoryChunk, MemoryConfig, MemoryScope,
     MemorySearchQuery, MemorySearchResult, MemorySource, MemoryStats, Provider, ResourceLimits,
-    SearchMode, Skill, SkillStatus,
+    SearchMode, Skill, SkillStatus, WorkflowDefinition,
 };
 use crate::services::tool_registry::create_tool_registry;
 use crate::storage::SecretStorage;
@@ -929,6 +929,9 @@ pub struct ManageBackgroundAgentsParams {
     /// Optional resource limits payload
     #[serde(default)]
     pub resource_limits: Option<Value>,
+    /// Optional workflow payload
+    #[serde(default)]
+    pub workflow: Option<Value>,
     /// Optional list status filter
     #[serde(default)]
     pub status: Option<String>,
@@ -1497,6 +1500,10 @@ impl RestFlowMcpServer {
                     memory,
                     durability_mode,
                     resource_limits,
+                    workflow: Self::parse_optional_value::<WorkflowDefinition>(
+                        "workflow",
+                        params.workflow,
+                    )?,
                 };
                 serde_json::to_value(self.backend.create_background_agent(spec).await?)
                     .map_err(|e| e.to_string())?
@@ -1526,6 +1533,10 @@ impl RestFlowMcpServer {
                     memory,
                     durability_mode,
                     resource_limits,
+                    workflow: Self::parse_optional_value::<WorkflowDefinition>(
+                        "workflow",
+                        params.workflow,
+                    )?,
                 };
                 serde_json::to_value(self.backend.update_background_agent(&id, patch).await?)
                     .map_err(|e| e.to_string())?
@@ -3048,6 +3059,7 @@ mod tests {
             memory: None,
             memory_scope: None,
             resource_limits: None,
+            workflow: None,
             status: None,
             action: None,
             event_limit: None,
@@ -3428,6 +3440,7 @@ mod tests {
             memory_scope: None,
             durability_mode: None,
             resource_limits: None,
+            workflow: None,
             status: None,
             action: None,
             event_limit: None,

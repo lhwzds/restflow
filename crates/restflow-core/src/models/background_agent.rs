@@ -3,6 +3,7 @@
 //! Agent tasks represent recurring or one-time scheduled executions of agents
 //! with optional notification configurations for reporting results.
 
+use super::workflow::WorkflowDefinition;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -354,6 +355,9 @@ pub struct BackgroundAgentSpec {
     /// Optional resource limits for this task
     #[serde(default)]
     pub resource_limits: Option<ResourceLimits>,
+    /// Optional multi-phase workflow definition
+    #[serde(default)]
+    pub workflow: Option<WorkflowDefinition>,
 }
 
 /// Partial update payload for background agents.
@@ -396,6 +400,9 @@ pub struct BackgroundAgentPatch {
     /// New resource limits
     #[serde(default)]
     pub resource_limits: Option<ResourceLimits>,
+    /// New workflow definition
+    #[serde(default)]
+    pub workflow: Option<WorkflowDefinition>,
 }
 
 /// Control actions for a background agent.
@@ -704,6 +711,9 @@ pub struct BackgroundAgent {
     /// Summary message pointer for compacted task sessions
     #[serde(default)]
     pub summary_message_id: Option<String>,
+    /// Optional multi-phase workflow definition
+    #[serde(default)]
+    pub workflow: Option<WorkflowDefinition>,
 }
 
 impl BackgroundAgent {
@@ -738,6 +748,7 @@ impl BackgroundAgent {
             last_error: None,
             webhook: None,
             summary_message_id: None,
+            workflow: None,
         }
     }
 
