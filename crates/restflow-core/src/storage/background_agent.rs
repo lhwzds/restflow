@@ -223,17 +223,7 @@ impl BackgroundAgentStorage {
 
     /// Delete an agent task and all its events
     pub fn delete_task(&self, id: &str) -> Result<bool> {
-        let task = match self.get_task(id)? {
-            Some(task) => task,
-            None => return Ok(false),
-        };
-
-        // First delete all queued background messages for this task
-        self.inner.delete_background_messages_for_task(id)?;
-        // First delete all events for this task
-        self.inner.delete_events_for_task(id)?;
-        // Then delete the task itself with status index cleanup
-        self.inner.delete_task_with_status(id, task.status.as_str())
+        self.inner.delete_task_cascade(id)
     }
 
     /// Pause an agent task
@@ -1008,6 +998,14 @@ mod tests {
         // Add some events
         let event = BackgroundAgentEvent::new(task.id.clone(), BackgroundAgentEventType::Started);
         storage.add_event(&event).unwrap();
+        let bg_message = storage
+            .send_background_agent_message(
+                &task.id,
+                "queued message".to_string(),
+                BackgroundMessageSource::User,
+            )
+            .unwrap();
+        assert_eq!(bg_message.status, BackgroundMessageStatus::Queued);
 
         // Delete the task
         let deleted = storage.delete_task(&task.id).unwrap();
@@ -1020,6 +1018,10 @@ mod tests {
         // Events should also be gone
         let events = storage.list_events_for_task(&task.id).unwrap();
         assert!(events.is_empty());
+
+        // Background messages should also be gone
+        let messages = storage.list_background_agent_messages(&task.id, 10).unwrap();
+        assert!(messages.is_empty());
     }
 
     #[test]
