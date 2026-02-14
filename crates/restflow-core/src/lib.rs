@@ -2,6 +2,7 @@ pub mod auth;
 pub mod channel;
 pub mod context;
 pub mod daemon;
+pub mod features;
 pub mod hooks;
 pub mod loader;
 pub mod lsp;
@@ -41,6 +42,7 @@ use crate::mcp::McpToolCache;
 pub struct AppCore {
     pub storage: Arc<Storage>,
     pub mcp_tool_cache: Arc<McpToolCache>,
+    pub features: Arc<features::Features>,
 }
 
 const DEFAULT_AGENT_NAME: &str = "Default Assistant";
@@ -76,10 +78,13 @@ impl AppCore {
         info!("Initializing RestFlow (Agent-centric mode)");
 
         let mcp_tool_cache = Arc::new(McpToolCache::new(Duration::from_secs(3600)));
+        let config = storage.config.get_config()?.unwrap_or_default();
+        let features = Arc::new(features::Features::from_config(&config));
 
         let core = Self {
             storage,
             mcp_tool_cache,
+            features,
         };
 
         // Sync filesystem-backed default skills into database records.
