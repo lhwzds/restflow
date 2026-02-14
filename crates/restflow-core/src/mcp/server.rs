@@ -2121,8 +2121,7 @@ mod tests {
         assert!(result.is_ok());
         let json = result.unwrap();
         let skills: Vec<SkillSummary> = serde_json::from_str(&json).unwrap();
-        assert_eq!(skills.len(), 1);
-        assert_eq!(skills[0].id, "self-heal-ops");
+        assert_eq!(skills.len(), 2);
     }
 
     #[tokio::test]

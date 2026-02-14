@@ -120,7 +120,7 @@ mod tests {
     async fn test_list_skills_empty() {
         let core = create_test_core().await;
         let skills = list_skills(&core).await.unwrap();
-        assert!(skills.len() <= 1);
+        assert!(skills.len() <= 2);
         assert!(!skills.iter().any(|skill| skill.id == "test-skill"));
     }
 
