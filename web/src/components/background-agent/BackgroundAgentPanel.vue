@@ -21,6 +21,7 @@ import {
   Cog,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
+import StreamingMarkdown from '@/components/shared/StreamingMarkdown.vue'
 import AgentStatusBadge from './AgentStatusBadge.vue'
 import AgentOverviewOverlay from './AgentOverviewOverlay.vue'
 import { useBackgroundAgentStore } from '@/stores/backgroundAgentStore'
@@ -281,6 +282,27 @@ function formatDuration(ms: number | null): string {
   return `${(ms / 1000).toFixed(1)}s`
 }
 
+function formatRelativeTime(timestamp: number): string {
+  const diff = Date.now() - timestamp
+  if (diff < 60_000) return 'just now'
+  if (diff < 3600_000) return `${Math.floor(diff / 60_000)}m ago`
+  if (diff < 86400_000) return `${Math.floor(diff / 3600_000)}h ago`
+  return new Date(timestamp).toLocaleDateString()
+}
+
+// Classify events for chat-style rendering
+function isSystemEvent(type: string): boolean {
+  return ['started', 'completed', 'failed', 'paused', 'resumed', 'cancelled'].includes(type)
+}
+
+function eventSummary(event: TaskEvent): string {
+  const parts: string[] = []
+  if (event.duration_ms != null) parts.push(formatDuration(event.duration_ms))
+  if (event.tokens_used != null) parts.push(`${event.tokens_used} tokens`)
+  if (event.cost_usd != null) parts.push(`$${event.cost_usd.toFixed(4)}`)
+  return parts.join(' · ')
+}
+
 // Auto-scroll on new output, events, or loaded memory
 watch([outputText, () => events.value.length, () => memoryChunks.value.length], () => {
   nextTick(scrollToBottom)
@@ -391,112 +413,107 @@ onMounted(() => {
 
     <!-- Message / Event List -->
     <div ref="scrollContainer" class="flex-1 overflow-auto px-4 py-4">
-      <div class="max-w-[48rem] mx-auto space-y-3">
+      <div class="max-w-[48rem] mx-auto space-y-4">
         <!-- Loading -->
-        <div v-if="isLoadingEvents" class="flex items-center justify-center py-8">
-          <Loader2 :size="20" class="animate-spin text-muted-foreground" />
-        </div>
-
-        <!-- Event history (rendered as system messages) -->
-        <div v-for="event in events" :key="event.id" class="flex items-start gap-2 text-sm">
-          <component
-            :is="eventIcon(event.event_type)"
-            :size="14"
-            :class="['mt-0.5 shrink-0', eventColor(event.event_type)]"
+        <div v-if="isLoadingEvents" class="flex items-center gap-2 text-muted-foreground p-2">
+          <div
+            class="animate-spin h-4 w-4 border-2 border-primary border-t-transparent rounded-full"
           />
-          <div class="flex-1 min-w-0">
-            <div class="flex items-baseline gap-2">
-              <span :class="['font-medium', eventColor(event.event_type)]">
-                {{ formatEventType(event.event_type) }}
-              </span>
-              <span class="text-xs text-muted-foreground">
-                {{ new Date(event.timestamp).toLocaleString() }}
-              </span>
-            </div>
-            <div v-if="event.message" class="text-xs text-muted-foreground mt-0.5">
-              {{ event.message }}
-            </div>
-            <div
-              v-if="event.duration_ms != null || event.tokens_used != null"
-              class="text-xs text-muted-foreground mt-0.5"
-            >
-              <template v-if="event.duration_ms != null">
-                {{ formatDuration(event.duration_ms) }}
-              </template>
-              <template v-if="event.duration_ms != null && event.tokens_used != null"> · </template>
-              <template v-if="event.tokens_used != null"> {{ event.tokens_used }} tokens </template>
-              <template v-if="event.cost_usd != null">
-                · ${{ event.cost_usd.toFixed(4) }}
-              </template>
-            </div>
-            <!-- Output content (for completion events) -->
-            <pre
-              v-if="event.output"
-              class="mt-1 text-xs font-mono bg-muted/30 rounded-md px-2 py-1.5 whitespace-pre-wrap break-words max-h-48 overflow-auto"
-              >{{ event.output }}</pre
-            >
-          </div>
+          <span class="text-sm">Loading history...</span>
         </div>
 
-        <!-- Persisted memory transcript -->
+        <!-- Event history (chat-style) -->
+        <template v-for="event in events" :key="event.id">
+          <!-- System events: centered pill -->
+          <div v-if="isSystemEvent(event.event_type)" class="flex justify-center">
+            <div
+              :class="[
+                'inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs',
+                event.event_type === 'failed'
+                  ? 'bg-destructive/10 text-destructive'
+                  : event.event_type === 'completed'
+                    ? 'bg-green-500/10 text-green-600'
+                    : 'bg-muted text-muted-foreground',
+              ]"
+            >
+              <component :is="eventIcon(event.event_type)" :size="11" />
+              <span>{{ formatEventType(event.event_type) }}</span>
+              <span v-if="eventSummary(event)" class="opacity-70">{{ eventSummary(event) }}</span>
+              <span class="opacity-50">{{ formatRelativeTime(event.timestamp) }}</span>
+            </div>
+          </div>
+
+          <!-- Output events: assistant-style bubble -->
+          <div v-else-if="event.output" class="bg-muted mr-auto max-w-[90%] p-4 rounded-lg">
+            <div class="text-xs text-muted-foreground mb-1">
+              {{ formatEventType(event.event_type) }}
+              <span class="opacity-50 ml-1">{{ formatRelativeTime(event.timestamp) }}</span>
+            </div>
+            <StreamingMarkdown :content="event.output" />
+          </div>
+
+          <!-- Other events with message: subtle info row -->
+          <div v-else-if="event.message" class="bg-muted mr-auto max-w-[90%] p-3 rounded-lg">
+            <div class="text-xs text-muted-foreground mb-0.5 flex items-center gap-1.5">
+              <component
+                :is="eventIcon(event.event_type)"
+                :size="11"
+                :class="eventColor(event.event_type)"
+              />
+              {{ formatEventType(event.event_type) }}
+              <span class="opacity-50">{{ formatRelativeTime(event.timestamp) }}</span>
+            </div>
+            <div class="text-sm">{{ event.message }}</div>
+          </div>
+        </template>
+
+        <!-- Persisted memory transcript (chat-style) -->
+        <template v-if="hasMemoryPersistence && memoryChunks.length > 0">
+          <div class="flex justify-center">
+            <div class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs bg-muted text-muted-foreground">
+              <Info :size="11" />
+              <span>Persisted Memory · {{ memoryChunks.length }} chunks</span>
+            </div>
+          </div>
+          <div
+            v-for="chunk in memoryChunks"
+            :key="chunk.id"
+            class="bg-muted/60 mr-auto max-w-[90%] p-3 rounded-lg"
+          >
+            <div class="text-xs text-muted-foreground mb-0.5">
+              {{ new Date(chunk.created_at).toLocaleString() }}
+            </div>
+            <StreamingMarkdown :content="chunk.content" />
+          </div>
+        </template>
+
+        <!-- Live stream output (assistant bubble style) -->
         <div
-          v-if="hasMemoryPersistence"
-          class="rounded-lg border border-border/60 bg-background/60 p-3"
+          v-if="streamTaskId && (outputText || isStreaming)"
+          class="bg-muted mr-auto max-w-[90%] p-4 rounded-lg"
         >
-          <div class="text-xs text-muted-foreground mb-2 flex items-center gap-2">
-            <span class="font-medium text-foreground">Persisted Memory</span>
-            <Loader2 v-if="isLoadingMemory" :size="10" class="animate-spin" />
-            <span v-else-if="memoryChunks.length > 0">{{ memoryChunks.length }} chunks</span>
-            <span v-else-if="memorySessions.length > 0">{{ memorySessions.length }} sessions</span>
+          <div class="text-xs text-muted-foreground mb-1">Agent</div>
+
+          <!-- Thinking indicator -->
+          <div v-if="isStreaming && !outputText" class="text-sm text-muted-foreground italic mb-2">
+            Thinking...
           </div>
 
-          <div
-            v-if="memoryLoadError"
-            class="text-xs text-destructive bg-destructive/10 rounded px-2 py-1 break-words"
-          >
-            {{ memoryLoadError }}
-          </div>
-
-          <div
-            v-else-if="!isLoadingMemory && memoryChunks.length === 0"
-            class="text-xs text-muted-foreground"
-          >
-            No persisted conversation found for this background agent.
-          </div>
-
-          <div v-else class="space-y-2 max-h-[40vh] overflow-auto pr-1">
-            <div
-              v-for="chunk in memoryChunks"
-              :key="chunk.id"
-              class="rounded-md border border-border/40 bg-muted/20 p-2"
-            >
-              <div class="text-[11px] text-muted-foreground">
-                {{ new Date(chunk.created_at).toLocaleString() }}
-              </div>
-              <pre class="mt-1 text-xs whitespace-pre-wrap break-words">{{ chunk.content }}</pre>
-            </div>
-          </div>
-        </div>
-
-        <!-- Live stream output block -->
-        <div v-if="streamTaskId && (outputText || isStreaming)" class="bg-muted rounded-lg p-4">
-          <div class="text-xs text-muted-foreground mb-1 flex items-center gap-1.5">
-            <Loader2 v-if="isStreaming" :size="10" class="animate-spin" />
-            <CheckCircle v-else-if="streamState.completedAt" :size="10" class="text-green-500" />
-            <AlertCircle v-else-if="streamState.error" :size="10" class="text-destructive" />
-            <span>Live Output</span>
-            <span v-if="streamState.durationMs" class="ml-auto">
-              {{ formatDuration(streamState.durationMs) }}
-            </span>
-          </div>
-          <pre
+          <!-- Streaming content -->
+          <StreamingMarkdown
             v-if="outputText"
-            class="text-xs font-mono whitespace-pre-wrap break-words max-h-[60vh] overflow-auto"
-            >{{ outputText }}</pre
+            :content="outputText"
+            :is-streaming="isStreaming"
+          />
+
+          <!-- Stats footer -->
+          <div
+            v-if="!isStreaming && streamState.durationMs"
+            class="text-[11px] text-muted-foreground mt-2 opacity-60"
           >
-          <div v-else-if="isStreaming" class="text-xs text-muted-foreground italic">
-            Waiting for output...
+            {{ formatDuration(streamState.durationMs) }}
           </div>
+
           <!-- Error banner -->
           <div
             v-if="streamState.error"
@@ -504,6 +521,7 @@ onMounted(() => {
           >
             {{ streamState.error }}
           </div>
+
           <!-- Result -->
           <div
             v-if="streamState.result && !isStreaming"
@@ -513,47 +531,78 @@ onMounted(() => {
           </div>
         </div>
 
-        <!-- Empty state with quick info -->
+        <!-- Typing indicator (matches ChatPanel) -->
         <div
-          v-if="events.length === 0 && !isLoadingEvents && !streamTaskId"
-          class="flex flex-col items-center justify-center py-12 text-muted-foreground"
+          v-if="isStreaming && !outputText && streamTaskId"
+          class="flex items-center gap-2 text-muted-foreground p-2"
+        >
+          <div
+            class="animate-spin h-4 w-4 border-2 border-primary border-t-transparent rounded-full"
+          />
+          <span class="text-sm">Processing...</span>
+        </div>
+
+        <!-- Empty state: only when truly empty (no events, no stats, no stream) -->
+        <div
+          v-if="
+            events.length === 0 &&
+            !isLoadingEvents &&
+            !streamTaskId &&
+            !agent.last_run_at &&
+            agent.success_count === 0 &&
+            agent.failure_count === 0
+          "
+          class="flex flex-col items-center justify-center py-20 text-muted-foreground"
         >
           <Cog :size="32" class="mb-3 opacity-50" />
-          <p class="text-sm">No execution events recorded</p>
-          <p class="text-xs mt-1 mb-4">
-            Events are recorded when the daemon executes this agent
-          </p>
-          <!-- Quick stats even when no events -->
+          <p class="text-sm">No executions yet</p>
+          <p class="text-xs mt-1">Click Run to start the agent</p>
+        </div>
+
+        <!-- Stats summary when events are empty but agent has run history -->
+        <div
+          v-else-if="events.length === 0 && !isLoadingEvents && !streamTaskId && agent.last_run_at"
+          class="flex justify-center"
+        >
           <div
-            v-if="agent.success_count > 0 || agent.failure_count > 0 || agent.last_run_at"
-            class="text-xs space-y-1 text-center"
+            class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs bg-muted text-muted-foreground"
           >
-            <p v-if="agent.last_run_at">
-              Last run: {{ new Date(agent.last_run_at).toLocaleString() }}
-            </p>
-            <p v-if="agent.success_count > 0 || agent.failure_count > 0">
-              <span class="text-green-500">{{ agent.success_count }} success</span>
-              /
-              <span class="text-destructive">{{ agent.failure_count }} failed</span>
-            </p>
+            <span>
+              Last run {{ formatRelativeTime(agent.last_run_at) }}
+            </span>
+            <span class="opacity-40">·</span>
+            <span class="text-green-500">{{ agent.success_count }} passed</span>
+            <span class="opacity-40">·</span>
+            <span class="text-destructive">{{ agent.failure_count }} failed</span>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- Steer Input -->
-    <div v-if="canSteer" class="shrink-0 px-4 pb-4">
-      <div class="max-w-[48rem] mx-auto flex gap-2">
-        <input
-          v-model="steerInput"
-          type="text"
-          placeholder="Send instruction to agent..."
-          class="flex-1 text-sm px-3 py-2 rounded-lg border border-input bg-background focus:outline-none focus:ring-1 focus:ring-ring"
-          @keydown.enter="handleSteer"
-        />
-        <Button :disabled="!steerInput.trim() || isSteering" @click="handleSteer">
-          <Send :size="14" />
-        </Button>
+    <!-- Steer Input (matches ChatBox style) -->
+    <div class="shrink-0 px-4 pb-4">
+      <div class="max-w-[48rem] mx-auto">
+        <div
+          class="flex items-end gap-2 rounded-xl border border-input bg-background px-3 py-2 focus-within:ring-1 focus-within:ring-ring"
+        >
+          <textarea
+            v-model="steerInput"
+            rows="1"
+            :placeholder="canSteer ? 'Send instruction to agent...' : 'Agent is idle'"
+            :disabled="!canSteer"
+            class="flex-1 resize-none bg-transparent text-sm outline-none placeholder:text-muted-foreground disabled:opacity-50 max-h-32"
+            @keydown.enter.exact.prevent="handleSteer"
+          />
+          <Button
+            size="icon"
+            class="h-7 w-7 shrink-0"
+            :disabled="!steerInput.trim() || isSteering || !canSteer"
+            @click="handleSteer"
+          >
+            <Loader2 v-if="isSteering" :size="14" class="animate-spin" />
+            <Send v-else :size="14" />
+          </Button>
+        </div>
       </div>
     </div>
 
