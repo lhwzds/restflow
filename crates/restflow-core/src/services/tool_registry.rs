@@ -2192,6 +2192,8 @@ impl MarketplaceTool {
             author: manifest.author.map(|a| a.name),
             license: manifest.license,
             content_hash: None,
+            status: crate::models::SkillStatus::Active,
+            auto_complete: false,
             storage_mode: crate::models::StorageMode::DatabaseOnly,
             is_synced: false,
             created_at: now,

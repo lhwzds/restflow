@@ -2,6 +2,7 @@
 import type { SkillGating } from './SkillGating'
 import type { SkillReference } from './SkillReference'
 import type { SkillScript } from './SkillScript'
+import type { SkillStatus } from './SkillStatus'
 import type { StorageMode } from './StorageMode'
 
 /**
@@ -64,6 +65,14 @@ export type Skill = {
    * Optional content hash for change detection
    */
   content_hash: string | null
+  /**
+   * Lifecycle status for the skill
+   */
+  status: SkillStatus
+  /**
+   * Automatically mark skill as completed after a successful execute call
+   */
+  auto_complete: boolean
   /**
    * Storage mode for the skill
    */
