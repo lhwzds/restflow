@@ -92,6 +92,30 @@ impl ConfigTool {
                     .ok_or_else(|| AiError::Tool("max_retries must be a number".to_string()))?;
                 config.max_retries = retries as u32;
             }
+            "chat_session_retention_days" => {
+                let days = value.as_u64().ok_or_else(|| {
+                    AiError::Tool("chat_session_retention_days must be a number".to_string())
+                })?;
+                config.chat_session_retention_days = days as u32;
+            }
+            "background_task_retention_days" => {
+                let days = value.as_u64().ok_or_else(|| {
+                    AiError::Tool("background_task_retention_days must be a number".to_string())
+                })?;
+                config.background_task_retention_days = days as u32;
+            }
+            "checkpoint_retention_days" => {
+                let days = value.as_u64().ok_or_else(|| {
+                    AiError::Tool("checkpoint_retention_days must be a number".to_string())
+                })?;
+                config.checkpoint_retention_days = days as u32;
+            }
+            "memory_chunk_retention_days" => {
+                let days = value.as_u64().ok_or_else(|| {
+                    AiError::Tool("memory_chunk_retention_days must be a number".to_string())
+                })?;
+                config.memory_chunk_retention_days = days as u32;
+            }
             "experimental_features" => {
                 let values = value.as_array().ok_or_else(|| {
                     AiError::Tool("experimental_features must be an array of strings".to_string())
@@ -109,7 +133,7 @@ impl ConfigTool {
             }
             _ => {
                 return Err(AiError::Tool(format!(
-                    "Unknown config field: '{key}'. Valid fields: worker_count, task_timeout_seconds, stall_timeout_seconds, background_api_timeout_seconds, max_retries, experimental_features."
+                    "Unknown config field: '{key}'. Valid fields: worker_count, task_timeout_seconds, stall_timeout_seconds, background_api_timeout_seconds, max_retries, chat_session_retention_days, background_task_retention_days, checkpoint_retention_days, memory_chunk_retention_days, experimental_features."
                 )));
             }
         }
@@ -281,7 +305,7 @@ mod tests {
 
         assert!(message.contains("Unknown config field: 'invalid_field'"));
         assert!(message.contains(
-            "Valid fields: worker_count, task_timeout_seconds, stall_timeout_seconds, background_api_timeout_seconds, max_retries, experimental_features"
+            "Valid fields: worker_count, task_timeout_seconds, stall_timeout_seconds, background_api_timeout_seconds, max_retries, chat_session_retention_days, background_task_retention_days, checkpoint_retention_days, memory_chunk_retention_days, experimental_features"
         ));
     }
 
@@ -321,5 +345,33 @@ mod tests {
                 .and_then(|v| v.as_array())
                 .is_some()
         );
+    }
+
+    #[tokio::test]
+    async fn test_listed_retention_fields_are_settable() {
+        let storage = setup_storage();
+        let tool = ConfigTool::new(storage).with_write(true);
+
+        let updates = [
+            ("chat_session_retention_days", json!(0)),
+            ("background_task_retention_days", json!(14)),
+            ("checkpoint_retention_days", json!(5)),
+            ("memory_chunk_retention_days", json!(120)),
+        ];
+
+        for (key, value) in updates {
+            let output = tool
+                .execute(json!({
+                    "operation": "set",
+                    "key": key,
+                    "value": value
+                }))
+                .await
+                .unwrap_or_else(|err| panic!("set should support listed field '{key}': {err}"));
+            assert!(
+                output.success,
+                "set should succeed for listed field '{key}'"
+            );
+        }
     }
 }
