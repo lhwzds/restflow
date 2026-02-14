@@ -18,8 +18,8 @@ use crate::registry::{
 use crate::security::SecurityChecker;
 use crate::storage::skill::SkillStorage;
 use crate::storage::{
-    AgentStorage, BackgroundAgentStorage, ChatSessionStorage, ConfigStorage, MemoryStorage,
-    SecretStorage, SharedSpaceStorage, TerminalSessionStorage, TriggerStorage,
+    AgentStorage, AuditStorage, BackgroundAgentStorage, ChatSessionStorage, ConfigStorage,
+    MemoryStorage, SecretStorage, SharedSpaceStorage, TerminalSessionStorage, TriggerStorage,
     WorkspaceNoteStorage,
 };
 use crate::tools::ops::{ManageOpsOperation, build_response, parse_operation};
@@ -27,14 +27,14 @@ use chrono::Utc;
 use restflow_ai::error::AiError;
 use restflow_ai::tools::{
     AgentCreateRequest, AgentCrudTool, AgentStore, AgentUpdateRequest, AuthProfileCreateRequest,
-    AuthProfileStore, AuthProfileTestRequest, AuthProfileTool, BackgroundAgentControlRequest,
-    BackgroundAgentCreateRequest, BackgroundAgentMessageListRequest, BackgroundAgentMessageRequest,
-    BackgroundAgentProgressRequest, BackgroundAgentStore, BackgroundAgentTool,
-    BackgroundAgentUpdateRequest, ConfigTool, MemoryClearRequest, MemoryCompactRequest,
-    MemoryExportRequest, MemoryManagementTool, MemoryManager, MemoryStore, SecretsTool,
-    SessionCreateRequest, SessionListFilter, SessionSearchQuery, SessionStore, SessionTool,
-    WorkspaceNotePatch, WorkspaceNoteProvider, WorkspaceNoteQuery, WorkspaceNoteRecord,
-    WorkspaceNoteSpec, WorkspaceNoteStatus, WorkspaceNoteTool,
+    AuthProfileStore, AuthProfileTestRequest, AuthProfileTool, BackgroundAgentAuditRequest,
+    BackgroundAgentControlRequest, BackgroundAgentCreateRequest, BackgroundAgentMessageListRequest,
+    BackgroundAgentMessageRequest, BackgroundAgentProgressRequest, BackgroundAgentStore,
+    BackgroundAgentTool, BackgroundAgentUpdateRequest, ConfigTool, MemoryClearRequest,
+    MemoryCompactRequest, MemoryExportRequest, MemoryManagementTool, MemoryManager, MemoryStore,
+    SecretsTool, SessionCreateRequest, SessionListFilter, SessionSearchQuery, SessionStore,
+    SessionTool, WorkspaceNotePatch, WorkspaceNoteProvider, WorkspaceNoteQuery,
+    WorkspaceNoteRecord, WorkspaceNoteSpec, WorkspaceNoteStatus, WorkspaceNoteTool,
 };
 use restflow_ai::tools::{DeleteMemoryTool, ListMemoryTool, ReadMemoryTool, SaveMemoryTool};
 use restflow_ai::{
@@ -585,6 +585,41 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
             .get_background_agent_progress(&request.id, request.event_limit.unwrap_or(10).max(1))
             .map_err(|e| AiError::Tool(e.to_string()))?;
         serde_json::to_value(progress).map_err(AiError::from)
+    }
+
+    fn get_background_agent_audit(
+        &self,
+        request: BackgroundAgentAuditRequest,
+    ) -> restflow_ai::error::Result<serde_json::Value> {
+        let limit = request.event_limit.unwrap_or(50).max(1);
+        let audit_storage =
+            AuditStorage::new(self.storage.db()).map_err(|e| AiError::Tool(e.to_string()))?;
+        let entries = audit_storage
+            .list_by_task(&request.id, limit)
+            .map_err(|e| AiError::Tool(e.to_string()))?;
+        let execution_id = entries
+            .first()
+            .map(|entry| entry.execution_id.clone())
+            .unwrap_or_default();
+        let summary = if execution_id.is_empty() {
+            serde_json::json!({
+                "task_id": request.id,
+                "execution_id": "",
+                "entries": [],
+                "summary": null,
+            })
+        } else {
+            let summary = audit_storage
+                .summarize_execution(&execution_id)
+                .map_err(|e| AiError::Tool(e.to_string()))?;
+            serde_json::json!({
+                "task_id": request.id,
+                "execution_id": execution_id,
+                "entries": entries,
+                "summary": summary,
+            })
+        };
+        Ok(summary)
     }
 
     fn send_background_agent_message(
@@ -3572,6 +3607,19 @@ mod tests {
             progress
                 .get("background_agent_id")
                 .and_then(|value| value.as_str()),
+            Some(task_id.as_str())
+        );
+
+        let audit = BackgroundAgentStore::get_background_agent_audit(
+            &adapter,
+            BackgroundAgentAuditRequest {
+                id: task_id.clone(),
+                event_limit: Some(5),
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            audit.get("task_id").and_then(|value| value.as_str()),
             Some(task_id.as_str())
         );
 

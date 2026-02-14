@@ -4,6 +4,7 @@
 //! the byte-level APIs from restflow-storage with Rust types from our models.
 
 pub mod agent;
+pub mod audit;
 pub mod background_agent;
 pub mod chat_session;
 pub mod checkpoint;
@@ -28,6 +29,7 @@ pub use restflow_storage::{
 };
 
 pub use agent::AgentStorage;
+pub use audit::AuditStorage;
 pub use background_agent::BackgroundAgentStorage;
 pub use chat_session::ChatSessionStorage;
 pub use checkpoint::CheckpointStorage;
@@ -48,6 +50,7 @@ pub struct Storage {
     pub config: ConfigStorage,
     pub triggers: TriggerStorage,
     pub agents: AgentStorage,
+    pub audits: AuditStorage,
     pub background_agents: BackgroundAgentStorage,
     pub secrets: SecretStorage,
     pub daemon_state: DaemonStateStorage,
@@ -76,6 +79,7 @@ impl Storage {
         let config = ConfigStorage::new(db.clone())?;
         let triggers = TriggerStorage::new(db.clone())?;
         let agents = AgentStorage::new(db.clone())?;
+        let audits = AuditStorage::new(db.clone())?;
         let background_agents = BackgroundAgentStorage::new(db.clone())?;
         let secrets = SecretStorage::with_config(db.clone(), secret_config)?;
         let daemon_state = DaemonStateStorage::new(db.clone())?;
@@ -108,6 +112,7 @@ impl Storage {
             config,
             triggers,
             agents,
+            audits,
             background_agents,
             secrets,
             daemon_state,

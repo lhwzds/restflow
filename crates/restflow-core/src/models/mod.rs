@@ -2,6 +2,7 @@ pub mod agent;
 pub mod agent_execution;
 pub mod agent_meta;
 pub mod ai_model;
+pub mod audit;
 pub mod background_agent;
 pub mod chat_session;
 pub mod checkpoint;
@@ -26,6 +27,7 @@ pub use agent::{AgentNode, ApiKeyConfig, CodexCliExecutionMode, ModelRoutingConf
 pub use agent_execution::{AgentExecuteResponse, ExecutionDetails, ExecutionStep, ToolCallInfo};
 pub use agent_meta::{AgentMeta, AgentType};
 pub use ai_model::{AIModel, ModelMetadataDTO, Provider};
+pub use audit::{AuditEntry, AuditEntryType, AuditSummary, ModelAuditSummary, ToolAuditSummary};
 pub use background_agent::{
     BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentEvent, BackgroundAgentEventType,
     BackgroundAgentPatch, BackgroundAgentSchedule, BackgroundAgentSpec, BackgroundAgentStatus,

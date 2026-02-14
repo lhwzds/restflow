@@ -10,7 +10,7 @@ use async_trait::async_trait;
 use chrono::Utc;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::{
     AIModel, Provider,
@@ -37,6 +37,7 @@ use tokio::sync::mpsc;
 use tokio::time::sleep;
 use tracing::{debug, info, warn};
 
+use super::audit_emitter::AuditStreamEmitter;
 use super::failover::{FailoverConfig, FailoverManager, execute_with_failover};
 use super::retry::{RetryConfig, RetryState};
 use super::runner::{AgentExecutor, ExecutionResult};
@@ -989,15 +990,44 @@ impl AgentRuntimeExecutor {
             agent = agent.with_steer_channel(rx);
         }
 
-        let result = if let Some(mut emitter) = emitter {
-            #[allow(deprecated)]
-            {
-                agent.execute_streaming(config, emitter.as_mut()).await?
-            }
+        let mut passthrough_emitter = emitter;
+        let mut audit_emitter = background_task_id.map(|task_id| {
+            let execution_id = uuid::Uuid::new_v4().to_string();
+            let wrapped = AuditStreamEmitter::new(
+                task_id.to_string(),
+                execution_id,
+                self.storage.audits.clone(),
+                passthrough_emitter.take(),
+            );
+            wrapped.record_execution_start(agent_id.unwrap_or("unknown"), model.as_str(), goal);
+            wrapped
+        });
+
+        let execution_start = Instant::now();
+        #[allow(deprecated)]
+        let result = if let Some(audit_stream_emitter) = audit_emitter.as_mut() {
+            agent
+                .execute_streaming(config, audit_stream_emitter)
+                .await?
+        } else if let Some(mut emitter) = passthrough_emitter {
+            agent.execute_streaming(config, emitter.as_mut()).await?
         } else {
             agent.run(config).await?
         };
         if result.success {
+            let total_iterations = result.iterations as u32;
+            let total_tokens = result.total_tokens;
+            let total_cost_usd = result.total_cost_usd;
+            let execution_id = Some(result.state.execution_id.clone());
+            if let Some(audit_stream_emitter) = audit_emitter.as_ref() {
+                audit_stream_emitter.record_execution_complete(
+                    result.iterations,
+                    result.total_tokens,
+                    result.total_cost_usd,
+                    execution_start.elapsed().as_millis() as u64,
+                    true,
+                );
+            }
             let compaction = result.compaction_results.iter().fold(
                 super::runner::CompactionMetrics::default(),
                 |mut acc, item| {
@@ -1011,13 +1041,25 @@ impl AgentRuntimeExecutor {
             let messages = result.state.messages;
             let output = result.answer.unwrap_or_default();
             if compaction.event_count > 0 {
-                Ok(ExecutionResult::success_with_compaction(
-                    output, messages, compaction,
-                ))
+                Ok(
+                    ExecutionResult::success_with_compaction(output, messages, compaction)
+                        .with_metrics(total_iterations, total_tokens, total_cost_usd, execution_id),
+                )
             } else {
-                Ok(ExecutionResult::success(output, messages))
+                Ok(ExecutionResult::success(output, messages).with_metrics(
+                    total_iterations,
+                    total_tokens,
+                    total_cost_usd,
+                    execution_id,
+                ))
             }
         } else {
+            if let Some(audit_stream_emitter) = audit_emitter.as_ref() {
+                audit_stream_emitter.record_execution_failed(
+                    result.error.as_deref().unwrap_or("unknown error"),
+                    execution_start.elapsed().as_millis() as u64,
+                );
+            }
             Err(anyhow!(
                 "Agent execution failed: {}",
                 result.error.unwrap_or_else(|| "unknown error".to_string())

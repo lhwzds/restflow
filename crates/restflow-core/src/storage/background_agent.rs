@@ -20,6 +20,7 @@ use super::CheckpointStorage;
 /// Typed agent task storage wrapper around restflow-storage::BackgroundAgentStorage.
 #[derive(Clone)]
 pub struct BackgroundAgentStorage {
+    db: Arc<Database>,
     inner: restflow_storage::BackgroundAgentStorage,
     checkpoints: CheckpointStorage,
 }
@@ -56,9 +57,15 @@ impl BackgroundAgentStorage {
     pub fn new(db: Arc<Database>) -> Result<Self> {
         let checkpoints = CheckpointStorage::new(db.clone())?;
         Ok(Self {
+            db: db.clone(),
             inner: restflow_storage::BackgroundAgentStorage::new(db)?,
             checkpoints,
         })
+    }
+
+    /// Get underlying database handle.
+    pub fn db(&self) -> Arc<Database> {
+        self.db.clone()
     }
 
     // ============== Agent Task Operations ==============

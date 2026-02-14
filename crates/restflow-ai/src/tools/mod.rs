@@ -48,9 +48,10 @@ pub use auth_profile::{
     CredentialInput,
 };
 pub use background_agent::{
-    BackgroundAgentControlRequest, BackgroundAgentCreateRequest, BackgroundAgentMessageListRequest,
-    BackgroundAgentMessageRequest, BackgroundAgentProgressRequest, BackgroundAgentStore,
-    BackgroundAgentTool, BackgroundAgentUpdateRequest,
+    BackgroundAgentAuditRequest, BackgroundAgentControlRequest, BackgroundAgentCreateRequest,
+    BackgroundAgentMessageListRequest, BackgroundAgentMessageRequest,
+    BackgroundAgentProgressRequest, BackgroundAgentStore, BackgroundAgentTool,
+    BackgroundAgentUpdateRequest,
 };
 pub use bash::{BashInput, BashOutput, BashTool};
 pub use config::ConfigTool;

@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::pin::Pin;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde_json::Value;
 
@@ -424,6 +424,14 @@ impl AgentExecutor {
                             "Failed to switch routed model"
                         );
                     } else {
+                        emitter
+                            .emit_model_switch(
+                                &current_model,
+                                &target_model,
+                                "model_routing",
+                                state.iteration + 1,
+                            )
+                            .await;
                         debug!(
                             current_model = %current_model,
                             target_model = %target_model,
@@ -443,6 +451,7 @@ impl AgentExecutor {
                 request = request.with_temperature(temp);
             }
 
+            let llm_start = Instant::now();
             let response = if stream_llm {
                 self.get_streaming_completion(
                     request,
@@ -454,6 +463,7 @@ impl AgentExecutor {
             } else {
                 self.llm.complete(request).await?
             };
+            let llm_duration_ms = llm_start.elapsed().as_millis() as u64;
 
             // Track token usage
             if let Some(usage) = &response.usage {
@@ -462,6 +472,16 @@ impl AgentExecutor {
                     total_cost_usd += cost;
                     tracker.record_cost(cost);
                 }
+                emitter
+                    .emit_llm_call(
+                        self.llm.model(),
+                        usage.prompt_tokens,
+                        usage.completion_tokens,
+                        usage.cost_usd,
+                        llm_duration_ms,
+                        state.iteration + 1,
+                    )
+                    .await;
             }
             if let Err(e) = tracker.check_cost() {
                 state.resource_exhaust(e.to_string());
