@@ -42,6 +42,10 @@ pub struct ChannelRouter {
 }
 
 impl ChannelRouter {
+    fn legacy_telegram_conversation_key(conversation_id: &str) -> Option<&str> {
+        conversation_id.split_once(':').map(|(chat_id, _)| chat_id)
+    }
+
     /// Create a new channel router
     pub fn new() -> Self {
         Self {
@@ -240,6 +244,19 @@ impl ChannelRouter {
             conversations
                 .get(&message.conversation_id)
                 .and_then(|ctx| ctx.task_id.clone())
+                .or_else(|| {
+                    if message.channel_type == ChannelType::Telegram {
+                        Self::legacy_telegram_conversation_key(&message.conversation_id).and_then(
+                            |legacy_key| {
+                                conversations
+                                    .get(legacy_key)
+                                    .and_then(|ctx| ctx.task_id.clone())
+                            },
+                        )
+                    } else {
+                        None
+                    }
+                })
         } else {
             None
         };
@@ -461,6 +478,34 @@ mod tests {
         let context = router.get_conversation("chat-456").await.unwrap();
         assert_eq!(context.channel_type, ChannelType::Telegram);
         assert_eq!(context.user_id, "user-123");
+        assert_eq!(context.task_id, Some("task-1".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_conversation_tracking_telegram_thread_fallback_task() {
+        let router = ChannelRouter::new();
+
+        let legacy = InboundMessage::new(
+            "msg-1",
+            ChannelType::Telegram,
+            "user-123",
+            "chat-456",
+            "Hello",
+        );
+        router
+            .record_conversation(&legacy, Some("task-1".to_string()))
+            .await;
+
+        let thread_message = InboundMessage::new(
+            "msg-2",
+            ChannelType::Telegram,
+            "user-123",
+            "chat-456:9",
+            "Hello from thread",
+        );
+        router.record_conversation(&thread_message, None).await;
+
+        let context = router.get_conversation("chat-456:9").await.unwrap();
         assert_eq!(context.task_id, Some("task-1".to_string()));
     }
 
