@@ -6,11 +6,10 @@ use crate::memory::{MemoryExporter, UnifiedSearchEngine};
 use crate::models::{
     BackgroundAgentControlAction, BackgroundAgentPatch, BackgroundAgentSchedule,
     BackgroundAgentSpec, BackgroundAgentStatus, BackgroundMessageSource, DurabilityMode,
-    MemoryConfig, MemoryScope, MemorySearchQuery, NoteQuery, NoteStatus, SearchMode, SharedEntry,
-    Skill, TerminalSession, ToolAction, TriggerConfig, UnifiedSearchQuery, Visibility,
-    WorkspaceNote, WorkspaceNotePatch as CoreWorkspaceNotePatch,
+    MemoryConfig, MemoryScope, MemorySearchQuery, NoteQuery, NoteStatus, ResourceLimits,
+    SearchMode, SharedEntry, Skill, TerminalSession, ToolAction, TriggerConfig, UnifiedSearchQuery,
+    Visibility, WorkspaceNote, WorkspaceNotePatch as CoreWorkspaceNotePatch,
     WorkspaceNoteSpec as CoreWorkspaceNoteSpec,
-    ResourceLimits,
 };
 use crate::registry::{
     GitHubProvider, MarketplaceProvider, SkillProvider as MarketplaceSkillProvider,

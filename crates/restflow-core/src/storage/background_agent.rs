@@ -924,9 +924,7 @@ mod tests {
             .complete_task_execution(&completed.id, Some("done".to_string()), 100)
             .unwrap();
 
-        let mut tasks = storage
-            .list_active_tasks_by_agent_id("agent-001")
-            .unwrap();
+        let mut tasks = storage.list_active_tasks_by_agent_id("agent-001").unwrap();
         tasks.sort_by(|a, b| a.name.cmp(&b.name));
 
         assert_eq!(tasks.len(), 2);

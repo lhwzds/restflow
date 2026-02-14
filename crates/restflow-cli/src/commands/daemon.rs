@@ -479,13 +479,13 @@ struct DaemonLockGuard {
 impl DaemonLockGuard {
     fn acquire(path: PathBuf) -> Result<Self> {
         let current_pid = std::process::id();
-        
+
         #[cfg(unix)]
         {
             use std::fs::OpenOptions;
             use std::io::Write;
             use std::os::unix::io::AsRawFd;
-            
+
             // Create or open the lock file
             let file = OpenOptions::new()
                 .create(true)
@@ -493,28 +493,26 @@ impl DaemonLockGuard {
                 .truncate(true)
                 .open(&path)
                 .context("Failed to create daemon lock file")?;
-            
+
             // Try to acquire exclusive lock (non-blocking)
-            let rc = unsafe { 
-                libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) 
-            };
-            
+            let rc = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
+
             if rc != 0 {
                 let err = std::io::Error::last_os_error();
-                if err.raw_os_error() == Some(libc::EWOULDBLOCK) 
-                    || err.raw_os_error() == Some(libc::EAGAIN) 
+                if err.raw_os_error() == Some(libc::EWOULDBLOCK)
+                    || err.raw_os_error() == Some(libc::EAGAIN)
                 {
                     anyhow::bail!("Daemon already running (lock file held by another process)");
                 }
                 anyhow::bail!("Failed to acquire daemon lock: {}", err);
             }
-            
+
             // Write PID to lock file
             write!(&file, "{}", current_pid)?;
-            
+
             Ok(Self { path, _file: file })
         }
-        
+
         #[cfg(not(unix))]
         {
             // Fallback for non-Unix platforms (still has TOCTOU but with reduced window)

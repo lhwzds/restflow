@@ -868,9 +868,9 @@ mod tests {
     fn test_apply_task_id_placeholder_prevents_double_substitution() {
         // Test that a malicious task_id containing placeholder syntax doesn't get re-processed
         let content = "{{task_id}} - {{background_task_id}}";
-        let malicious_task_id = "injected{{task_id}}";  // If double-substitution happens, this would become "injectedinjected{{task_id}}"
+        let malicious_task_id = "injected{{task_id}}"; // If double-substitution happens, this would become "injectedinjected{{task_id}}"
         let result = apply_task_id_placeholder(content, Some(malicious_task_id));
-        
+
         // Should NOT perform second substitution - the {{task_id}} in the value should remain as-is
         assert_eq!(result, "injected{{task_id}} - injected{{task_id}}");
     }
