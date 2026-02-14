@@ -18,6 +18,20 @@ pub enum ExecutionMode {
     Cli(CliExecutionConfig),
 }
 
+/// Durability mode for checkpoint persistence.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, TS, PartialEq, Eq)]
+#[ts(export)]
+#[serde(rename_all = "snake_case")]
+pub enum DurabilityMode {
+    /// Persist checkpoints before each tool execution.
+    Sync,
+    /// Persist checkpoints in a background task while execution continues.
+    #[default]
+    Async,
+    /// Persist checkpoints only at execution exit.
+    Exit,
+}
+
 /// Configuration for CLI-based execution
 #[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
 #[ts(export)]
@@ -330,6 +344,9 @@ pub struct BackgroundAgentSpec {
     /// Optional memory configuration
     #[serde(default)]
     pub memory: Option<MemoryConfig>,
+    /// Optional durability mode for checkpoint persistence
+    #[serde(default)]
+    pub durability_mode: Option<DurabilityMode>,
     /// Optional resource limits for this task
     #[serde(default)]
     pub resource_limits: Option<ResourceLimits>,
@@ -369,6 +386,9 @@ pub struct BackgroundAgentPatch {
     /// New memory configuration
     #[serde(default)]
     pub memory: Option<MemoryConfig>,
+    /// New durability mode for checkpoint persistence
+    #[serde(default)]
+    pub durability_mode: Option<DurabilityMode>,
     /// New resource limits
     #[serde(default)]
     pub resource_limits: Option<ResourceLimits>,
@@ -636,6 +656,9 @@ pub struct BackgroundAgent {
     /// Memory configuration
     #[serde(default)]
     pub memory: MemoryConfig,
+    /// Durability mode for checkpoint persistence
+    #[serde(default)]
+    pub durability_mode: DurabilityMode,
     /// Resource limits configuration
     #[serde(default)]
     pub resource_limits: ResourceLimits,
@@ -697,6 +720,7 @@ impl BackgroundAgent {
             timeout_secs: None,
             notification: NotificationConfig::default(),
             memory: MemoryConfig::default(),
+            durability_mode: DurabilityMode::Async,
             resource_limits: ResourceLimits::default(),
             status: BackgroundAgentStatus::Active,
             created_at: now,

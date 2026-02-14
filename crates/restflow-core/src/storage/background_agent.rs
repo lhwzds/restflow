@@ -352,6 +352,9 @@ impl BackgroundAgentStorage {
         if let Some(memory) = spec.memory {
             task.memory = memory;
         }
+        if let Some(durability_mode) = spec.durability_mode {
+            task.durability_mode = durability_mode;
+        }
         if let Some(resource_limits) = spec.resource_limits {
             task.resource_limits = resource_limits;
         }
@@ -401,6 +404,9 @@ impl BackgroundAgentStorage {
         }
         if let Some(memory) = patch.memory {
             task.memory = memory;
+        }
+        if let Some(durability_mode) = patch.durability_mode {
+            task.durability_mode = durability_mode;
         }
         if let Some(resource_limits) = patch.resource_limits {
             task.resource_limits = resource_limits;
@@ -1198,6 +1204,7 @@ mod tests {
                 execution_mode: None,
                 timeout_secs: None,
                 memory: None,
+                durability_mode: None,
                 resource_limits: None,
             })
             .unwrap();
@@ -1233,6 +1240,7 @@ mod tests {
                 execution_mode: None,
                 timeout_secs: None,
                 memory: None,
+                durability_mode: None,
                 resource_limits: None,
             })
             .unwrap();
@@ -1313,6 +1321,7 @@ mod tests {
                 execution_mode: None,
                 timeout_secs: None,
                 memory: None,
+                durability_mode: None,
                 resource_limits: None,
             })
             .unwrap();
@@ -1413,6 +1422,7 @@ mod tests {
                     compaction_threshold_ratio: 0.80,
                     max_summary_tokens: 2_000,
                 }),
+                durability_mode: None,
                 resource_limits: None,
             })
             .unwrap();
@@ -1441,6 +1451,7 @@ mod tests {
                 execution_mode: None,
                 timeout_secs: None,
                 memory: None,
+                durability_mode: None,
                 resource_limits: None,
             })
             .unwrap();
@@ -1485,6 +1496,7 @@ mod tests {
             execution_mode: None,
             timeout_secs: Some(5),
             memory: None,
+            durability_mode: None,
             resource_limits: None,
         });
 
@@ -1512,6 +1524,7 @@ mod tests {
                 execution_mode: None,
                 timeout_secs: None,
                 memory: None,
+                durability_mode: None,
                 resource_limits: None,
             })
             .unwrap();
@@ -1546,6 +1559,7 @@ mod tests {
                 execution_mode: None,
                 timeout_secs: None,
                 memory: None,
+                durability_mode: None,
                 resource_limits: Some(ResourceLimits {
                     max_tool_calls: 12,
                     max_duration_secs: 90,
