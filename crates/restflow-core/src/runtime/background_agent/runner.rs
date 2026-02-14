@@ -1052,6 +1052,42 @@ impl BackgroundAgentRunner {
         };
 
         let resolved_input = self.resolve_task_input(&task);
+        if resolved_input
+            .as_deref()
+            .is_none_or(|value| value.trim().is_empty())
+        {
+            let duration_ms = chrono::Utc::now().timestamp_millis() - start_time;
+            let reason = "Background task requires non-empty input or input_template";
+            let error_msg = format!("Execution error: {}", reason);
+
+            error!("Task '{}' failed preflight: {}", task.name, reason);
+            pump_cancel.cancel();
+            if let Some(pump) = message_pump.take() {
+                let _ = pump.await;
+            }
+
+            self.event_emitter
+                .emit(TaskStreamEvent::failed(
+                    task_id,
+                    &error_msg,
+                    duration_ms,
+                    false,
+                ))
+                .await;
+            self.fire_hooks(&HookContext::from_failed(&task, &error_msg, duration_ms))
+                .await;
+
+            if let Err(e) = self
+                .storage
+                .fail_task_execution(task_id, error_msg.clone(), duration_ms)
+            {
+                error!("Failed to record preflight task failure: {}", e);
+            }
+
+            self.send_notification(&task, false, &error_msg).await;
+            self.cleanup_task_tracking(task_id).await;
+            return Ok(false);
+        }
         let step_emitter = if matches!(task.execution_mode, ExecutionMode::Api)
             && task.notification.broadcast_steps
         {
@@ -1988,6 +2024,7 @@ mod tests {
             .unwrap();
 
         // Update next_run_at to be in the past
+        task.input = Some("Test task input".to_string());
         task.next_run_at = Some(past_time);
         storage.update_task(&task).unwrap();
 
@@ -2036,6 +2073,7 @@ mod tests {
                 TaskSchedule::Once { run_at: past_time },
             )
             .unwrap();
+        task.input = Some("Event task input".to_string());
         task.next_run_at = Some(past_time);
         storage.update_task(&task).unwrap();
 
@@ -2095,6 +2133,7 @@ mod tests {
                 TaskSchedule::Once { run_at: past_time },
             )
             .unwrap();
+        task.input = Some("Hook task input".to_string());
         task.next_run_at = Some(past_time);
         storage.update_task(&task).unwrap();
 
@@ -2132,6 +2171,7 @@ mod tests {
             )
             .unwrap();
 
+        task.input = Some("Failing task input".to_string());
         task.next_run_at = Some(past_time);
         storage.update_task(&task).unwrap();
 
@@ -2178,6 +2218,7 @@ mod tests {
                     TaskSchedule::Once { run_at: past_time },
                 )
                 .unwrap();
+            task.input = Some(format!("Concurrent task input {}", i));
             task.next_run_at = Some(past_time);
             storage.update_task(&task).unwrap();
         }
@@ -2254,6 +2295,7 @@ mod tests {
                 TaskSchedule::Once { run_at: past_time },
             )
             .unwrap();
+        task.input = Some("Immediate check input".to_string());
         task.next_run_at = Some(past_time);
         storage.update_task(&task).unwrap();
 
@@ -2293,7 +2335,7 @@ mod tests {
 
         // Create a task with future run time (shouldn't run automatically)
         let future_time = chrono::Utc::now().timestamp_millis() + 3600000;
-        let task = storage
+        let mut task = storage
             .create_task(
                 "Future Task".to_string(),
                 "agent-001".to_string(),
@@ -2302,6 +2344,8 @@ mod tests {
                 },
             )
             .unwrap();
+        task.input = Some("Run now input".to_string());
+        storage.update_task(&task).unwrap();
 
         // Run it immediately
         handle.run_task_now(task.id.clone()).await.unwrap();
@@ -2327,13 +2371,15 @@ mod tests {
             Arc::new(SteerRegistry::new()),
         );
 
-        let task = storage
+        let mut task = storage
             .create_task(
                 "Checkpoint Task".to_string(),
                 "agent-001".to_string(),
                 TaskSchedule::default(),
             )
             .unwrap();
+        task.input = Some("Checkpoint task input".to_string());
+        storage.update_task(&task).unwrap();
 
         let checkpoint = AgentCheckpoint::new(
             "exec-1".to_string(),
@@ -2423,6 +2469,54 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_runner_fails_fast_when_input_and_template_missing() {
+        let (storage, _temp_dir) = create_test_storage();
+        let executor = Arc::new(MockExecutor::new());
+        let notifier = Arc::new(NoopNotificationSender);
+
+        let past_time = chrono::Utc::now().timestamp_millis() - 1000;
+        let mut task = storage
+            .create_task(
+                "Missing Input Task".to_string(),
+                "agent-001".to_string(),
+                TaskSchedule::Once { run_at: past_time },
+            )
+            .unwrap();
+        task.next_run_at = Some(past_time);
+        storage.update_task(&task).unwrap();
+
+        let config = RunnerConfig {
+            poll_interval_ms: 100,
+            ..Default::default()
+        };
+
+        let steer_registry = Arc::new(SteerRegistry::new());
+        let runner = Arc::new(BackgroundAgentRunner::new(
+            storage.clone(),
+            executor.clone(),
+            notifier,
+            config,
+            steer_registry,
+        ));
+
+        let handle = runner.clone().start();
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        handle.stop().await.unwrap();
+
+        assert_eq!(executor.call_count(), 0);
+
+        let updated_task = storage.get_task(&task.id).unwrap().unwrap();
+        assert_eq!(updated_task.status, BackgroundAgentStatus::Failed);
+        assert!(
+            updated_task
+                .last_error
+                .as_deref()
+                .unwrap_or_default()
+                .contains("requires non-empty input or input_template")
+        );
+    }
+
+    #[tokio::test]
     async fn test_runner_skips_paused_tasks() {
         let (storage, _temp_dir) = create_test_storage();
         let executor = Arc::new(MockExecutor::new());
@@ -2437,6 +2531,7 @@ mod tests {
                 TaskSchedule::Once { run_at: past_time },
             )
             .unwrap();
+        task.input = Some("Paused task input".to_string());
         task.next_run_at = Some(past_time);
         storage.update_task(&task).unwrap();
         storage.pause_task(&task.id).unwrap();
@@ -2653,6 +2748,7 @@ mod tests {
                 TaskSchedule::Once { run_at: past_time },
             )
             .unwrap();
+        task.input = Some("Notified task input".to_string());
         task.next_run_at = Some(past_time);
         storage.update_task(&task).unwrap();
 
@@ -2695,6 +2791,7 @@ mod tests {
                 TaskSchedule::Once { run_at: past_time },
             )
             .unwrap();
+        task.input = Some("Success no notify input".to_string());
         task.next_run_at = Some(past_time);
         task.notification.notify_on_failure_only = true;
         storage.update_task(&task).unwrap();
@@ -2758,6 +2855,7 @@ mod tests {
                 TaskSchedule::Once { run_at: past_time },
             )
             .unwrap();
+        task.input = Some("Step broadcast input".to_string());
         task.next_run_at = Some(past_time);
         task.notification.broadcast_steps = true;
         storage.update_task(&task).unwrap();
@@ -2802,6 +2900,7 @@ mod tests {
                 TaskSchedule::Once { run_at: past_time },
             )
             .unwrap();
+        task.input = Some("Success output input".to_string());
         task.next_run_at = Some(past_time);
         task.notification.include_output = false;
         storage.update_task(&task).unwrap();
@@ -2845,6 +2944,7 @@ mod tests {
                 TaskSchedule::Once { run_at: past_time },
             )
             .unwrap();
+        task.input = Some("Failure output input".to_string());
         task.next_run_at = Some(past_time);
         task.notification.include_output = false;
         storage.update_task(&task).unwrap();
@@ -2886,6 +2986,7 @@ mod tests {
                 TaskSchedule::Once { run_at: past_time },
             )
             .unwrap();
+        task.input = Some("Slow task input".to_string());
         task.next_run_at = Some(past_time);
         storage.update_task(&task).unwrap();
 
@@ -2936,6 +3037,7 @@ mod tests {
                 TaskSchedule::Once { run_at: past_time },
             )
             .unwrap();
+        task.input = Some("Pause interrupt input".to_string());
         task.next_run_at = Some(past_time);
         storage.update_task(&task).unwrap();
 
@@ -2986,6 +3088,7 @@ mod tests {
                 TaskSchedule::Once { run_at: past_time },
             )
             .unwrap();
+        task.input = Some("Delete interrupt input".to_string());
         task.next_run_at = Some(past_time);
         storage.update_task(&task).unwrap();
 

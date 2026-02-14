@@ -27,6 +27,10 @@ pub struct BackgroundAgentStorage {
 impl BackgroundAgentStorage {
     const MIN_TASK_TIMEOUT_SECS: u64 = 10;
 
+    fn has_non_empty_text(value: Option<&str>) -> bool {
+        value.is_some_and(|text| !text.trim().is_empty())
+    }
+
     fn validate_timeout_secs(timeout_secs: Option<u64>) -> Result<()> {
         if let Some(timeout) = timeout_secs
             && timeout < Self::MIN_TASK_TIMEOUT_SECS
@@ -37,6 +41,15 @@ impl BackgroundAgentStorage {
             ));
         }
         Ok(())
+    }
+
+    fn validate_task_input(input: Option<&str>, input_template: Option<&str>) -> Result<()> {
+        if Self::has_non_empty_text(input) || Self::has_non_empty_text(input_template) {
+            return Ok(());
+        }
+        Err(anyhow::anyhow!(
+            "background agent requires non-empty input or input_template"
+        ))
     }
 
     /// Create a new BackgroundAgentStorage instance
@@ -337,6 +350,7 @@ impl BackgroundAgentStorage {
     /// Create a background agent from a rich spec.
     pub fn create_background_agent(&self, spec: BackgroundAgentSpec) -> Result<BackgroundAgent> {
         Self::validate_timeout_secs(spec.timeout_secs)?;
+        Self::validate_task_input(spec.input.as_deref(), spec.input_template.as_deref())?;
         let mut task = self.create_task(spec.name, spec.agent_id, spec.schedule)?;
 
         task.description = spec.description;
@@ -411,6 +425,7 @@ impl BackgroundAgentStorage {
         if let Some(resource_limits) = patch.resource_limits {
             task.resource_limits = resource_limits;
         }
+        Self::validate_task_input(task.input.as_deref(), task.input_template.as_deref())?;
 
         task.updated_at = chrono::Utc::now().timestamp_millis();
         self.update_task(&task)?;
@@ -1452,7 +1467,7 @@ mod tests {
                 name: "Updatable Task".to_string(),
                 agent_id: "agent-001".to_string(),
                 description: None,
-                input: None,
+                input: Some("Fallback task input".to_string()),
                 input_template: None,
                 schedule: BackgroundAgentSchedule::default(),
                 notification: None,
@@ -1497,7 +1512,7 @@ mod tests {
             name: "Too Fast Timeout".to_string(),
             agent_id: "agent-001".to_string(),
             description: None,
-            input: None,
+            input: Some("Run timeout validation".to_string()),
             input_template: None,
             schedule: BackgroundAgentSchedule::default(),
             notification: None,
@@ -1525,7 +1540,7 @@ mod tests {
                 name: "Timeout Update Task".to_string(),
                 agent_id: "agent-001".to_string(),
                 description: None,
-                input: None,
+                input: Some("Run timeout update".to_string()),
                 input_template: None,
                 schedule: BackgroundAgentSchedule::default(),
                 notification: None,
@@ -1560,7 +1575,7 @@ mod tests {
                 name: "Resource Limits Task".to_string(),
                 agent_id: "agent-001".to_string(),
                 description: None,
-                input: None,
+                input: Some("Run resource limit roundtrip".to_string()),
                 input_template: None,
                 schedule: BackgroundAgentSchedule::default(),
                 notification: None,
@@ -1597,5 +1612,70 @@ mod tests {
         assert_eq!(updated.resource_limits.max_tool_calls, 34);
         assert_eq!(updated.resource_limits.max_duration_secs, 120);
         assert_eq!(updated.resource_limits.max_output_bytes, 4096);
+    }
+
+    #[test]
+    fn test_create_background_agent_rejects_missing_input_and_template() {
+        let storage = create_test_storage();
+        let result = storage.create_background_agent(BackgroundAgentSpec {
+            name: "Missing Input".to_string(),
+            agent_id: "agent-001".to_string(),
+            description: None,
+            input: None,
+            input_template: None,
+            schedule: BackgroundAgentSchedule::default(),
+            notification: None,
+            execution_mode: None,
+            timeout_secs: None,
+            memory: None,
+            durability_mode: None,
+            resource_limits: None,
+        });
+
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("requires non-empty input or input_template")
+        );
+    }
+
+    #[test]
+    fn test_update_background_agent_rejects_empty_input_and_template() {
+        let storage = create_test_storage();
+        let created = storage
+            .create_background_agent(BackgroundAgentSpec {
+                name: "Mutable Input".to_string(),
+                agent_id: "agent-001".to_string(),
+                description: None,
+                input: Some("Initial input".to_string()),
+                input_template: Some("Template {{task.name}}".to_string()),
+                schedule: BackgroundAgentSchedule::default(),
+                notification: None,
+                execution_mode: None,
+                timeout_secs: None,
+                memory: None,
+                durability_mode: None,
+                resource_limits: None,
+            })
+            .unwrap();
+
+        let result = storage.update_background_agent(
+            &created.id,
+            BackgroundAgentPatch {
+                input: Some("".to_string()),
+                input_template: Some("   ".to_string()),
+                ..Default::default()
+            },
+        );
+
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("requires non-empty input or input_template")
+        );
     }
 }
