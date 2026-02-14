@@ -579,8 +579,8 @@ onMounted(() => {
       </div>
     </div>
 
-    <!-- Steer Input (matches ChatBox style) -->
-    <div class="shrink-0 px-4 pb-4">
+    <!-- Steer Input (only visible when agent is actively running/streaming) -->
+    <div v-if="canSteer" class="shrink-0 px-4 pb-4">
       <div class="max-w-[48rem] mx-auto">
         <div
           class="flex items-end gap-2 rounded-xl border border-input bg-background px-3 py-2 focus-within:ring-1 focus-within:ring-ring"
@@ -588,15 +588,14 @@ onMounted(() => {
           <textarea
             v-model="steerInput"
             rows="1"
-            :placeholder="canSteer ? 'Send instruction to agent...' : 'Agent is idle'"
-            :disabled="!canSteer"
-            class="flex-1 resize-none bg-transparent text-sm outline-none placeholder:text-muted-foreground disabled:opacity-50 max-h-32"
+            placeholder="Send instruction to agent..."
+            class="flex-1 resize-none bg-transparent text-sm outline-none placeholder:text-muted-foreground max-h-32"
             @keydown.enter.exact.prevent="handleSteer"
           />
           <Button
             size="icon"
             class="h-7 w-7 shrink-0"
-            :disabled="!steerInput.trim() || isSteering || !canSteer"
+            :disabled="!steerInput.trim() || isSteering"
             @click="handleSteer"
           >
             <Loader2 v-if="isSteering" :size="14" class="animate-spin" />

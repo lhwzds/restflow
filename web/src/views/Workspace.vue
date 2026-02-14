@@ -176,13 +176,13 @@ onMounted(() => {
     <!-- Normal layout -->
     <div v-show="!showSettings" class="flex flex-1 min-w-0">
       <!-- Left: Session List (chat sessions + background agents) -->
-      <div class="w-56 border-r border-border shrink-0 flex flex-col">
+      <div class="w-56 border-r border-border shrink-0 flex flex-col overflow-hidden">
         <SessionList
           :sessions="sessions"
           :current-session-id="selectedItemId"
           :available-agents="availableAgents"
           :agent-filter="agentFilter"
-          class="flex-1"
+          class="flex-1 min-h-0"
           @select="onSelectItem"
           @new-session="onNewSession"
           @update-agent-filter="onUpdateAgentFilter"
