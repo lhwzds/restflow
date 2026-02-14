@@ -1,4 +1,6 @@
 use crate::paths;
+#[cfg(unix)]
+use anyhow::Context;
 use anyhow::Result;
 use std::ffi::OsString;
 use std::fs::File;
@@ -6,6 +8,12 @@ use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::time::Duration;
 use tracing::{debug, warn};
+
+#[cfg(unix)]
+fn pid_to_unix_pid(pid: u32) -> Result<nix::unistd::Pid> {
+    let pid_i32 = i32::try_from(pid).with_context(|| format!("PID {} exceeds i32 range", pid))?;
+    Ok(nix::unistd::Pid::from_raw(pid_i32))
+}
 
 #[derive(Debug, Clone)]
 pub struct DaemonConfig {
@@ -107,8 +115,8 @@ impl ProcessManager {
             #[cfg(unix)]
             {
                 use nix::sys::signal::{Signal, kill};
-                use nix::unistd::Pid;
-                kill(Pid::from_raw(pid as i32), Signal::SIGTERM)?;
+                let signal_pid = pid_to_unix_pid(pid)?;
+                kill(signal_pid, Signal::SIGTERM)?;
             }
 
             #[cfg(not(unix))]
@@ -248,5 +256,12 @@ mod tests {
         ];
         let unique = unique_paths(input);
         assert_eq!(unique.len(), 2);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn pid_to_unix_pid_rejects_out_of_range() {
+        assert!(pid_to_unix_pid(i32::MAX as u32).is_ok());
+        assert!(pid_to_unix_pid(i32::MAX as u32 + 1).is_err());
     }
 }

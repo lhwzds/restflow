@@ -1,6 +1,7 @@
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, OnceLock, RwLock};
 
-use anyhow::Result;
+use anyhow::{Result, anyhow, bail};
 use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -8,6 +9,52 @@ use uuid::Uuid;
 
 const SECURITY_AMENDMENTS_TABLE: TableDefinition<&str, &[u8]> =
     TableDefinition::new("security_amendments");
+const MAX_REGEX_PATTERN_LEN: usize = 512;
+const MAX_CACHED_REGEX_PATTERNS: usize = 1024;
+static REGEX_CACHE: OnceLock<RwLock<HashMap<String, Arc<Regex>>>> = OnceLock::new();
+
+fn regex_cache() -> &'static RwLock<HashMap<String, Arc<Regex>>> {
+    REGEX_CACHE.get_or_init(|| RwLock::new(HashMap::new()))
+}
+
+fn compile_and_cache_regex(pattern: &str) -> Option<Arc<Regex>> {
+    if pattern.len() > MAX_REGEX_PATTERN_LEN {
+        return None;
+    }
+
+    if let Ok(cache) = regex_cache().read()
+        && let Some(cached) = cache.get(pattern)
+    {
+        return Some(Arc::clone(cached));
+    }
+
+    let compiled = Arc::new(Regex::new(pattern).ok()?);
+
+    if let Ok(mut cache) = regex_cache().write() {
+        if let Some(existing) = cache.get(pattern) {
+            return Some(Arc::clone(existing));
+        }
+
+        if cache.len() >= MAX_CACHED_REGEX_PATTERNS {
+            cache.clear();
+        }
+        cache.insert(pattern.to_string(), Arc::clone(&compiled));
+    }
+
+    Some(compiled)
+}
+
+fn validate_regex_pattern(pattern: &str) -> Result<()> {
+    if pattern.len() > MAX_REGEX_PATTERN_LEN {
+        bail!(
+            "Regex pattern length {} exceeds max {}",
+            pattern.len(),
+            MAX_REGEX_PATTERN_LEN
+        );
+    }
+    Regex::new(pattern).map_err(|err| anyhow!("Invalid regex pattern: {}", err))?;
+    Ok(())
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -55,7 +102,7 @@ impl SecurityAmendment {
         match self.match_type {
             AmendmentMatchType::Exact => self.command_pattern == command,
             AmendmentMatchType::Prefix => command.starts_with(&self.command_pattern),
-            AmendmentMatchType::Regex => Regex::new(&self.command_pattern)
+            AmendmentMatchType::Regex => compile_and_cache_regex(&self.command_pattern)
                 .map(|pattern| pattern.is_match(command))
                 .unwrap_or(false),
         }
@@ -84,10 +131,15 @@ impl SecurityAmendmentStore {
         match_type: AmendmentMatchType,
         scope: AmendmentScope,
     ) -> Result<SecurityAmendment> {
+        let command_pattern = command_pattern.into();
+        if matches!(match_type, AmendmentMatchType::Regex) {
+            validate_regex_pattern(&command_pattern)?;
+        }
+
         let rule = SecurityAmendment {
             id: format!("amendment-{}", Uuid::new_v4()),
             tool_name: tool_name.into(),
-            command_pattern: command_pattern.into(),
+            command_pattern,
             match_type,
             scope,
             enabled: true,
@@ -217,5 +269,30 @@ mod tests {
                 .unwrap()
                 .is_none()
         );
+    }
+
+    #[test]
+    fn reject_invalid_regex_pattern_on_create() {
+        let store = create_store();
+        let result = store.add_allow_rule(
+            "bash",
+            "([invalid",
+            AmendmentMatchType::Regex,
+            AmendmentScope::Workspace,
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn reject_oversized_regex_pattern_on_create() {
+        let store = create_store();
+        let oversized = "a".repeat(MAX_REGEX_PATTERN_LEN + 1);
+        let result = store.add_allow_rule(
+            "bash",
+            oversized,
+            AmendmentMatchType::Regex,
+            AmendmentScope::Workspace,
+        );
+        assert!(result.is_err());
     }
 }
