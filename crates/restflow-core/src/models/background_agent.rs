@@ -301,6 +301,9 @@ pub struct ResourceLimits {
     /// Maximum output payload size in bytes for tool results.
     #[serde(default = "default_max_output_bytes")]
     pub max_output_bytes: usize,
+    /// Maximum estimated LLM cost in USD for one execution.
+    #[serde(default)]
+    pub max_cost_usd: Option<f64>,
 }
 
 impl Default for ResourceLimits {
@@ -309,6 +312,7 @@ impl Default for ResourceLimits {
             max_tool_calls: default_max_tool_calls(),
             max_duration_secs: default_max_duration_secs(),
             max_output_bytes: default_max_output_bytes(),
+            max_cost_usd: None,
         }
     }
 }
@@ -1402,6 +1406,7 @@ mod tests {
         assert_eq!(task.resource_limits.max_tool_calls, 100);
         assert_eq!(task.resource_limits.max_duration_secs, 300);
         assert_eq!(task.resource_limits.max_output_bytes, 1_000_000);
+        assert_eq!(task.resource_limits.max_cost_usd, None);
     }
 
     #[test]

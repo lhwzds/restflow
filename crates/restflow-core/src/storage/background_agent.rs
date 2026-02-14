@@ -1587,6 +1587,7 @@ mod tests {
                     max_tool_calls: 12,
                     max_duration_secs: 90,
                     max_output_bytes: 2048,
+                    max_cost_usd: Some(1.25),
                 }),
             })
             .unwrap();
@@ -1594,6 +1595,7 @@ mod tests {
         assert_eq!(created.resource_limits.max_tool_calls, 12);
         assert_eq!(created.resource_limits.max_duration_secs, 90);
         assert_eq!(created.resource_limits.max_output_bytes, 2048);
+        assert_eq!(created.resource_limits.max_cost_usd, Some(1.25));
 
         let updated = storage
             .update_background_agent(
@@ -1603,6 +1605,7 @@ mod tests {
                         max_tool_calls: 34,
                         max_duration_secs: 120,
                         max_output_bytes: 4096,
+                        max_cost_usd: Some(2.5),
                     }),
                     ..Default::default()
                 },
@@ -1612,6 +1615,7 @@ mod tests {
         assert_eq!(updated.resource_limits.max_tool_calls, 34);
         assert_eq!(updated.resource_limits.max_duration_secs, 120);
         assert_eq!(updated.resource_limits.max_output_bytes, 4096);
+        assert_eq!(updated.resource_limits.max_cost_usd, Some(2.5));
     }
 
     #[test]

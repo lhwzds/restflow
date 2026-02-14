@@ -66,6 +66,7 @@ mod tests {
                 tool_calls: 0,
                 wall_clock: Duration::ZERO,
                 depth: 0,
+                total_cost_usd: 0.0,
             },
         }
     }
