@@ -30,8 +30,8 @@ pub use background_agent::{
     BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentEvent, BackgroundAgentEventType,
     BackgroundAgentPatch, BackgroundAgentSchedule, BackgroundAgentSpec, BackgroundAgentStatus,
     BackgroundMessage, BackgroundMessageSource, BackgroundMessageStatus, BackgroundProgress,
-    CliExecutionConfig, ExecutionMode, MemoryConfig, MemoryScope, NotificationConfig,
-    ResourceLimits, TaskEvent, TaskEventType, TaskSchedule,
+    CliExecutionConfig, DurabilityMode, ExecutionMode, MemoryConfig, MemoryScope,
+    NotificationConfig, ResourceLimits, TaskEvent, TaskEventType, TaskSchedule,
 };
 pub use checkpoint::{AgentCheckpoint, ResumePayload};
 pub use hook::{Hook, HookAction, HookContext, HookEvent, HookFilter};

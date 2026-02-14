@@ -5,10 +5,12 @@ use crate::lsp::LspManager;
 use crate::memory::{MemoryExporter, UnifiedSearchEngine};
 use crate::models::{
     BackgroundAgentControlAction, BackgroundAgentPatch, BackgroundAgentSchedule,
-    BackgroundAgentSpec, BackgroundAgentStatus, BackgroundMessageSource, MemoryConfig, MemoryScope,
-    MemorySearchQuery, NoteQuery, NoteStatus, ResourceLimits, SearchMode, SharedEntry, Skill,
-    TerminalSession, ToolAction, TriggerConfig, UnifiedSearchQuery, Visibility, WorkspaceNote,
-    WorkspaceNotePatch as CoreWorkspaceNotePatch, WorkspaceNoteSpec as CoreWorkspaceNoteSpec,
+    BackgroundAgentSpec, BackgroundAgentStatus, BackgroundMessageSource, DurabilityMode,
+    MemoryConfig, MemoryScope, MemorySearchQuery, NoteQuery, NoteStatus, SearchMode, SharedEntry,
+    Skill, TerminalSession, ToolAction, TriggerConfig, UnifiedSearchQuery, Visibility,
+    WorkspaceNote, WorkspaceNotePatch as CoreWorkspaceNotePatch,
+    WorkspaceNoteSpec as CoreWorkspaceNoteSpec,
+    ResourceLimits,
 };
 use crate::registry::{
     GitHubProvider, MarketplaceProvider, SkillProvider as MarketplaceSkillProvider,
@@ -430,6 +432,17 @@ impl BackgroundAgentStoreAdapter {
         }
     }
 
+    fn parse_durability_mode(value: Option<&str>) -> Result<Option<DurabilityMode>, AiError> {
+        match value.map(|mode| mode.trim().to_lowercase()) {
+            None => Ok(None),
+            Some(mode) if mode.is_empty() => Ok(None),
+            Some(mode) if mode == "sync" => Ok(Some(DurabilityMode::Sync)),
+            Some(mode) if mode == "async" => Ok(Some(DurabilityMode::Async)),
+            Some(mode) if mode == "exit" => Ok(Some(DurabilityMode::Exit)),
+            Some(mode) => Err(AiError::Tool(format!("Unknown durability_mode: {}", mode))),
+        }
+    }
+
     fn merge_memory_scope(
         memory: Option<MemoryConfig>,
         memory_scope: Option<String>,
@@ -467,6 +480,7 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
                 .unwrap_or_default();
         let memory = Self::parse_optional_value("memory", request.memory)?;
         let memory = Self::merge_memory_scope(memory, request.memory_scope)?;
+        let durability_mode = Self::parse_durability_mode(request.durability_mode.as_deref())?;
         let resource_limits: Option<ResourceLimits> =
             Self::parse_optional_value("resource_limits", request.resource_limits)?;
         let task = self
@@ -482,6 +496,7 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
                 execution_mode: None,
                 timeout_secs: request.timeout_secs,
                 memory,
+                durability_mode,
                 resource_limits,
             })
             .map_err(|e| AiError::Tool(e.to_string()))?;
@@ -499,6 +514,7 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
             .transpose()?;
         let memory = Self::parse_optional_value("memory", request.memory)?;
         let memory = Self::merge_memory_scope(memory, request.memory_scope)?;
+        let durability_mode = Self::parse_durability_mode(request.durability_mode.as_deref())?;
         let resource_limits: Option<ResourceLimits> =
             Self::parse_optional_value("resource_limits", request.resource_limits)?;
         let patch = BackgroundAgentPatch {
@@ -512,6 +528,7 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
             execution_mode: Self::parse_optional_value("execution_mode", request.execution_mode)?,
             timeout_secs: request.timeout_secs,
             memory,
+            durability_mode,
             resource_limits,
         };
 
@@ -3452,6 +3469,7 @@ mod tests {
                 input: Some("Run periodic checks".to_string()),
                 input_template: Some("Template {{task.id}}".to_string()),
                 timeout_secs: Some(1800),
+                durability_mode: Some("async".to_string()),
                 memory: None,
                 memory_scope: Some("per_background_agent".to_string()),
                 resource_limits: None,
@@ -3490,6 +3508,7 @@ mod tests {
                 notification: None,
                 execution_mode: None,
                 timeout_secs: Some(900),
+                durability_mode: Some("sync".to_string()),
                 memory: None,
                 memory_scope: Some("shared_agent".to_string()),
                 resource_limits: None,

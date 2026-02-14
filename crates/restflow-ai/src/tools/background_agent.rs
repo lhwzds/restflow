@@ -21,6 +21,8 @@ pub struct BackgroundAgentCreateRequest {
     #[serde(default)]
     pub timeout_secs: Option<u64>,
     #[serde(default)]
+    pub durability_mode: Option<String>,
+    #[serde(default)]
     pub memory: Option<Value>,
     #[serde(default)]
     pub memory_scope: Option<String>,
@@ -49,6 +51,8 @@ pub struct BackgroundAgentUpdateRequest {
     pub execution_mode: Option<Value>,
     #[serde(default)]
     pub timeout_secs: Option<u64>,
+    #[serde(default)]
+    pub durability_mode: Option<String>,
     #[serde(default)]
     pub memory: Option<Value>,
     #[serde(default)]
@@ -150,6 +154,8 @@ enum BackgroundAgentAction {
         #[serde(default)]
         timeout_secs: Option<u64>,
         #[serde(default)]
+        durability_mode: Option<String>,
+        #[serde(default)]
         memory: Option<Value>,
         #[serde(default)]
         memory_scope: Option<String>,
@@ -176,6 +182,8 @@ enum BackgroundAgentAction {
         execution_mode: Option<Value>,
         #[serde(default)]
         timeout_secs: Option<u64>,
+        #[serde(default)]
+        durability_mode: Option<String>,
         #[serde(default)]
         memory: Option<Value>,
         #[serde(default)]
@@ -292,6 +300,11 @@ impl Tool for BackgroundAgentTool {
                     "minimum": 1,
                     "description": "Optional per-task timeout in seconds for API execution mode (for create/update)"
                 },
+                "durability_mode": {
+                    "type": "string",
+                    "enum": ["sync", "async", "exit"],
+                    "description": "Checkpoint durability mode (for create/update)"
+                },
                 "input": {
                     "type": "string",
                     "description": "Optional input for the background agent (for create/update)"
@@ -365,6 +378,7 @@ impl Tool for BackgroundAgentTool {
                 input,
                 input_template,
                 timeout_secs,
+                durability_mode,
                 memory,
                 memory_scope,
                 resource_limits,
@@ -379,6 +393,7 @@ impl Tool for BackgroundAgentTool {
                         input,
                         input_template,
                         timeout_secs,
+                        durability_mode,
                         memory,
                         memory_scope,
                         resource_limits,
@@ -399,6 +414,7 @@ impl Tool for BackgroundAgentTool {
                 notification,
                 execution_mode,
                 timeout_secs,
+                durability_mode,
                 memory,
                 memory_scope,
                 resource_limits,
@@ -417,6 +433,7 @@ impl Tool for BackgroundAgentTool {
                         notification,
                         execution_mode,
                         timeout_secs,
+                        durability_mode,
                         memory,
                         memory_scope,
                         resource_limits,
