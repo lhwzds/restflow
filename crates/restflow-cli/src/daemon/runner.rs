@@ -438,6 +438,7 @@ mod tests {
                 execution_mode: None,
                 timeout_secs: None,
                 memory: Some(MemoryConfig::default()),
+                durability_mode: None,
                 resource_limits: None,
             })
             .expect("failed to create background agent");
