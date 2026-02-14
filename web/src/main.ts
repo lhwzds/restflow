@@ -13,6 +13,7 @@ import './styles/theme/index.scss'
 import App from './App.vue'
 import { preloadPlugin } from './plugins/pinia-preload'
 import i18n from './plugins/i18n'
+import { syncDocumentTitle } from './plugins/page-title'
 import router from './router'
 import './style.scss'
 
@@ -40,5 +41,6 @@ enableMocking().then(() => {
   app.use(pinia)
   app.use(i18n)
   app.use(router)
+  syncDocumentTitle(router, i18n)
   app.mount('#app')
 })
