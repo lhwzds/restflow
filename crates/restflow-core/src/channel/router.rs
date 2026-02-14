@@ -8,6 +8,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
 
+use super::plugin::{ChannelPlugin, ChannelRegistry};
 use super::traits::Channel;
 use super::types::{
     ChannelType, ConversationContext, InboundMessage, MessageLevel, OutboundMessage,
@@ -33,12 +34,10 @@ use super::types::{
 /// router.reply("conversation-id", "Hello!").await?;
 /// ```
 pub struct ChannelRouter {
-    /// Registered channels
-    channels: HashMap<ChannelType, Arc<dyn Channel>>,
+    /// Registered channel plugins
+    registry: ChannelRegistry,
     /// Conversation context cache
     conversations: Arc<RwLock<HashMap<String, ConversationContext>>>,
-    /// Default conversation IDs per channel (for broadcasts)
-    default_conversations: HashMap<ChannelType, String>,
 }
 
 impl ChannelRouter {
@@ -49,9 +48,8 @@ impl ChannelRouter {
     /// Create a new channel router
     pub fn new() -> Self {
         Self {
-            channels: HashMap::new(),
+            registry: ChannelRegistry::new(),
             conversations: Arc::new(RwLock::new(HashMap::new())),
-            default_conversations: HashMap::new(),
         }
     }
 
@@ -61,7 +59,7 @@ impl ChannelRouter {
     pub fn register<C: Channel + 'static>(&mut self, channel: C) {
         let channel_type = channel.channel_type();
         info!("Registering channel: {:?}", channel_type);
-        self.channels.insert(channel_type, Arc::new(channel));
+        self.registry.register(channel);
     }
 
     /// Register a channel with a default conversation ID
@@ -72,35 +70,30 @@ impl ChannelRouter {
         channel: C,
         default_conversation: impl Into<String>,
     ) {
-        let channel_type = channel.channel_type();
-        self.default_conversations
-            .insert(channel_type, default_conversation.into());
-        self.register(channel);
+        self.registry
+            .register_with_default(channel, default_conversation);
     }
 
     /// Check whether a channel has a configured default conversation ID.
     pub fn has_default_conversation(&self, channel_type: ChannelType) -> bool {
-        self.default_conversations.contains_key(&channel_type)
+        self.registry.has_default_conversation(channel_type)
     }
 
     /// Get a channel by type
-    pub fn get(&self, channel_type: ChannelType) -> Option<&Arc<dyn Channel>> {
-        self.channels.get(&channel_type)
+    pub fn get(&self, channel_type: ChannelType) -> Option<&Arc<dyn ChannelPlugin>> {
+        self.registry.get(channel_type)
     }
 
     /// Check if a channel is registered and configured
     pub fn is_available(&self, channel_type: ChannelType) -> bool {
-        self.channels
-            .get(&channel_type)
-            .map(|c| c.is_configured())
-            .unwrap_or(false)
+        self.registry.is_available(channel_type)
     }
 
     /// Send message to a specific channel
     pub async fn send_to(&self, channel_type: ChannelType, message: OutboundMessage) -> Result<()> {
         let channel = self
-            .channels
-            .get(&channel_type)
+            .registry
+            .get(channel_type)
             .ok_or_else(|| anyhow!("Channel {:?} not registered", channel_type))?;
 
         if !channel.is_configured() {
@@ -117,8 +110,8 @@ impl ChannelRouter {
     /// Send text to the configured default conversation of a channel.
     pub async fn send_to_default(&self, channel_type: ChannelType, content: &str) -> Result<()> {
         let conversation_id = self
-            .default_conversations
-            .get(&channel_type)
+            .registry
+            .default_conversation(channel_type)
             .ok_or_else(|| anyhow!("No default conversation configured for {:?}", channel_type))?;
 
         let message = OutboundMessage::new(conversation_id, content);
@@ -132,8 +125,8 @@ impl ChannelRouter {
         conversation_id: &str,
     ) -> Result<()> {
         let channel = self
-            .channels
-            .get(&channel_type)
+            .registry
+            .get(channel_type)
             .ok_or_else(|| anyhow!("Channel {:?} not registered", channel_type))?;
 
         if !channel.is_configured() {
@@ -188,12 +181,12 @@ impl ChannelRouter {
     ) -> Vec<(ChannelType, Result<()>)> {
         let mut results = vec![];
 
-        for (channel_type, channel) in &self.channels {
+        for (channel_type, channel) in self.registry.channels() {
             if !channel.is_configured() {
                 continue;
             }
 
-            let target_conversations = self.resolve_targets(*channel_type).await;
+            let target_conversations = self.resolve_targets(channel_type).await;
 
             if target_conversations.is_empty() {
                 warn!(
@@ -209,7 +202,7 @@ impl ChannelRouter {
                 // to avoid Telegram entity parsing failures that drop notifications.
                 message.parse_mode = None;
                 let result = channel.send(message).await;
-                results.push((*channel_type, result));
+                results.push((channel_type, result));
             }
         }
 
@@ -223,19 +216,19 @@ impl ChannelRouter {
     pub async fn broadcast_typing(&self) -> Vec<(ChannelType, Result<()>)> {
         let mut results = vec![];
 
-        for (channel_type, channel) in &self.channels {
+        for (channel_type, channel) in self.registry.channels() {
             if !channel.is_configured() {
                 continue;
             }
 
-            let target_conversations = self.resolve_targets(*channel_type).await;
+            let target_conversations = self.resolve_targets(channel_type).await;
             if target_conversations.is_empty() {
                 continue;
             }
 
             for conversation_id in target_conversations {
                 let result = channel.send_typing(&conversation_id).await;
-                results.push((*channel_type, result));
+                results.push((channel_type, result));
             }
         }
 
@@ -243,8 +236,8 @@ impl ChannelRouter {
     }
 
     async fn resolve_targets(&self, channel_type: ChannelType) -> Vec<String> {
-        if let Some(default_conv) = self.default_conversations.get(&channel_type) {
-            return vec![default_conv.clone()];
+        if let Some(default_conv) = self.registry.default_conversation(channel_type) {
+            return vec![default_conv.to_string()];
         }
         if channel_type == ChannelType::Telegram {
             warn!(
@@ -360,20 +353,12 @@ impl ChannelRouter {
 
     /// List all configured and ready channels
     pub fn list_configured(&self) -> Vec<ChannelType> {
-        self.channels
-            .iter()
-            .filter(|(_, c)| c.is_configured())
-            .map(|(t, _)| *t)
-            .collect()
+        self.registry.list_configured()
     }
 
     /// List channels that support interaction (bidirectional)
     pub fn list_interactive(&self) -> Vec<ChannelType> {
-        self.channels
-            .iter()
-            .filter(|(_, c)| c.is_configured() && c.supports_interaction())
-            .map(|(t, _)| *t)
-            .collect()
+        self.registry.list_interactive()
     }
 
     /// Get total number of active conversations
@@ -383,7 +368,7 @@ impl ChannelRouter {
 
     /// Get number of registered channels
     pub fn channel_count(&self) -> usize {
-        self.channels.len()
+        self.registry.channel_count()
     }
 }
 
