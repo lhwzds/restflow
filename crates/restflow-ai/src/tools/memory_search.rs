@@ -54,7 +54,7 @@ impl Tool for MemorySearchTool {
     }
 
     fn description(&self) -> &str {
-        "Search long-term memory using semantic similarity and optional tag filters."
+        "Search long-term memory using semantic similarity and optional tag filters. Returns matching memory chunks; use read_memory for direct id/tag/title retrieval."
     }
 
     fn parameters_schema(&self) -> Value {

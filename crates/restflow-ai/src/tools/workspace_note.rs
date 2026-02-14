@@ -127,7 +127,7 @@ impl Tool for WorkspaceNoteTool {
     }
 
     fn description(&self) -> &str {
-        "Manage workspace notes across folders with list/get/create/update/delete and claim operations."
+        "Manage workspace notes. Operations: create (new note), update (modify existing note), delete (remove note), list (browse notes), get (read a note), and claim (assign to yourself)."
     }
 
     fn parameters_schema(&self) -> Value {

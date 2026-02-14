@@ -75,7 +75,7 @@ impl Tool for EmailTool {
     }
 
     fn description(&self) -> &str {
-        "Send an email via configured SMTP with recipient, subject, and body content."
+        "Send an email via configured SMTP with recipient, subject, and body content. This is the PRIMARY email tool."
     }
 
     fn parameters_schema(&self) -> Value {
