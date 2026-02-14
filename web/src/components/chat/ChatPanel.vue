@@ -7,6 +7,7 @@
  * detects show_panel tool calls for Canvas panel display.
  */
 import { ref, computed, watch, onMounted } from 'vue'
+import { useI18n } from 'vue-i18n'
 import ChatHeader from './ChatHeader.vue'
 import MessageList from './MessageList.vue'
 import ChatBox from '@/components/workspace/ChatBox.vue'
@@ -26,6 +27,7 @@ const emit = defineEmits<{
 }>()
 
 const toast = useToast()
+const { t } = useI18n()
 const chatSessionStore = useChatSessionStore()
 const modelsStore = useModelsStore()
 
@@ -125,7 +127,7 @@ async function loadAgents() {
       selectedAgent.value = availableAgents.value[0]?.id ?? null
     }
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Failed to load agents'
+    const message = error instanceof Error ? error.message : t('chat.loadAgentsFailed')
     toast.error(message)
   }
 }
@@ -142,7 +144,7 @@ async function loadModels() {
       selectedModel.value = availableModels.value[0]?.id ?? ''
     }
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Failed to load models'
+    const message = error instanceof Error ? error.message : t('chat.loadModelsFailed')
     toast.error(message)
   }
 }
@@ -153,18 +155,18 @@ async function ensureChatSession(): Promise<boolean> {
   }
 
   if (!selectedAgent.value) {
-    toast.error('Select an agent to start a chat')
+    toast.error(t('chat.selectAgentToStart'))
     return false
   }
 
   if (!selectedModel.value) {
-    toast.error('Select a model to start a chat')
+    toast.error(t('chat.selectModelToStart'))
     return false
   }
 
   const session = await createChatSession(selectedAgent.value, selectedModel.value)
   if (!session) {
-    toast.error('Failed to create chat session')
+    toast.error(t('chat.createSessionFailed'))
     return false
   }
 
@@ -183,7 +185,7 @@ async function onSendMessage(message: string) {
         const session = await sendChatMessageApi(sessionId, message)
         chatSessionStore.updateSessionLocally(session)
       } catch (error) {
-        toast.error(error instanceof Error ? error.message : 'Failed to send message')
+        toast.error(error instanceof Error ? error.message : t('chat.sendMessageFailed'))
       }
     }
     return
@@ -214,7 +216,7 @@ async function onUpdateSelectedAgent(agentId: string | null) {
   const updated = await chatSessionStore.updateSessionAgent(session.id, agentId)
   if (!updated) {
     selectedAgent.value = oldAgent
-    toast.error('Failed to update session agent')
+    toast.error(t('chat.updateSessionAgentFailed'))
     return
   }
 
@@ -231,7 +233,7 @@ async function onUpdateSelectedModel(model: string) {
   const updated = await chatSessionStore.updateSessionModel(session.id, model)
   if (!updated) {
     selectedModel.value = oldModel
-    toast.error('Failed to update session model')
+    toast.error(t('chat.updateSessionModelFailed'))
     return
   }
 

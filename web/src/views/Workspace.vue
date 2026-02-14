@@ -8,6 +8,7 @@
  * - Right: AI-controlled Canvas panel (hideable)
  */
 import { ref, computed, onMounted, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { Settings, Moon, Sun } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import SessionList from '@/components/workspace/SessionList.vue'
@@ -26,6 +27,7 @@ import type { ChatSessionSummary } from '@/types/generated/ChatSessionSummary'
 import type { StreamStep } from '@/composables/workspace/useChatStream'
 
 const toast = useToast()
+const { t } = useI18n()
 const chatSessionStore = useChatSessionStore()
 const backgroundAgentStore = useBackgroundAgentStore()
 const { isDark, toggleDark } = useTheme()
@@ -107,7 +109,7 @@ async function loadAgents() {
       path: `agents/${agent.id}`,
     }))
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Failed to load agents'
+    const message = error instanceof Error ? error.message : t('chat.loadAgentsFailed')
     toast.error(message)
   }
 }
@@ -194,7 +196,7 @@ onMounted(() => {
             variant="ghost"
             size="icon"
             class="h-7 w-7"
-            aria-label="Open settings"
+            :aria-label="t('common.settings')"
             @click="showSettings = true"
           >
             <Settings :size="14" />
@@ -203,7 +205,7 @@ onMounted(() => {
             variant="ghost"
             size="icon"
             class="h-7 w-7"
-            aria-label="Toggle theme"
+            :aria-label="t('common.theme')"
             @click="toggleDark()"
           >
             <Sun v-if="isDark" :size="14" />

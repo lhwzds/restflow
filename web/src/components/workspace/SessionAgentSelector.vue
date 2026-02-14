@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { Bot } from 'lucide-vue-next'
+import { useI18n } from 'vue-i18n'
 import {
   Select,
   SelectContent,
@@ -18,6 +19,8 @@ defineProps<{
 const emit = defineEmits<{
   'update:selectedAgent': [value: string | null]
 }>()
+
+const { t } = useI18n()
 </script>
 
 <template>
@@ -28,7 +31,7 @@ const emit = defineEmits<{
   >
     <SelectTrigger class="w-[180px] h-8 text-xs">
       <Bot :size="14" class="mr-1 text-muted-foreground shrink-0" />
-      <SelectValue placeholder="Agent" />
+      <SelectValue :placeholder="t('common.agent')" />
     </SelectTrigger>
     <SelectContent>
       <SelectItem v-for="agent in availableAgents" :key="agent.id" :value="agent.id">

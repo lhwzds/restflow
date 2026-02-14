@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { Plus, MessageSquare, Check, Loader2, Bot, Cog, ChevronDown } from 'lucide-vue-next'
+import { useI18n } from 'vue-i18n'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -18,8 +19,10 @@ const props = defineProps<{
   agentFilter: string | null
 }>()
 
+const { t } = useI18n()
+
 const filterLabel = computed(() => {
-  if (!props.agentFilter) return 'All agents'
+  if (!props.agentFilter) return t('workspace.allAgents')
   const agent = props.availableAgents.find((a) => a.id === props.agentFilter)
   return agent?.name || props.agentFilter
 })
@@ -35,9 +38,9 @@ const formatTime = (timestamp: number) => {
   const now = new Date()
   const diff = now.getTime() - date.getTime()
 
-  if (diff < 60000) return 'Just now'
-  if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`
-  if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`
+  if (diff < 60000) return t('workspace.time.justNow')
+  if (diff < 3600000) return t('workspace.time.minutesAgo', { count: Math.floor(diff / 60000) })
+  if (diff < 86400000) return t('workspace.time.hoursAgo', { count: Math.floor(diff / 3600000) })
   return date.toLocaleDateString()
 }
 </script>
@@ -48,7 +51,7 @@ const formatTime = (timestamp: number) => {
     <div class="px-3 pt-8 pb-3 space-y-2">
       <Button variant="outline" size="sm" class="w-full gap-2" @click="emit('newSession')">
         <Plus :size="16" />
-        <span>New Session</span>
+        <span>{{ t('workspace.newSession') }}</span>
       </Button>
 
       <DropdownMenu>
@@ -68,7 +71,7 @@ const formatTime = (timestamp: number) => {
             :class="cn(!agentFilter && 'bg-accent')"
             @click="emit('updateAgentFilter', null)"
           >
-            All agents
+            {{ t('workspace.allAgents') }}
           </DropdownMenuItem>
           <DropdownMenuItem
             v-for="agent in availableAgents"
@@ -123,11 +126,11 @@ const formatTime = (timestamp: number) => {
             <div class="text-sm truncate">{{ session.name }}</div>
             <div class="text-xs text-muted-foreground truncate">
               <template v-if="session.isBackgroundAgent">
-                <span class="text-blue-500 font-medium">background</span>
+                <span class="text-blue-500 font-medium">{{ t('workspace.background') }}</span>
                 <span v-if="session.agentName"> · {{ session.agentName }}</span>
               </template>
               <template v-else>
-                {{ session.agentName || 'Unknown agent' }}
+                {{ session.agentName || t('common.unknownAgent') }}
               </template>
             </div>
             <div class="text-xs text-muted-foreground">
@@ -139,7 +142,7 @@ const formatTime = (timestamp: number) => {
 
       <!-- Empty State -->
       <div v-if="sessions.length === 0" class="px-3 py-8 text-center text-sm text-muted-foreground">
-        No sessions yet
+        {{ t('workspace.noSessions') }}
       </div>
     </div>
   </div>
