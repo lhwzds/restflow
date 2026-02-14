@@ -1482,10 +1482,19 @@ impl BackgroundAgentRunner {
     }
 
     fn resolve_task_input(&self, task: &BackgroundAgent) -> Option<String> {
+        let fallback_input = task
+            .input
+            .clone()
+            .filter(|value| !value.trim().is_empty());
+
         if let Some(template) = task.input_template.as_deref() {
-            Some(Self::render_input_template(task, template))
+            let rendered = Self::render_input_template(task, template);
+            if !rendered.trim().is_empty() {
+                return Some(rendered);
+            }
+            fallback_input
         } else {
-            task.input.clone()
+            fallback_input
         }
     }
 
@@ -2710,6 +2719,55 @@ mod tests {
             .expect("resolved input should exist");
 
         assert_eq!(resolved, "Template for Template Input Task");
+    }
+
+    #[test]
+    fn test_resolve_task_input_falls_back_when_template_renders_empty() {
+        let (storage, _temp_dir) = create_test_storage();
+        let mut task = BackgroundAgent::new(
+            "task-template-empty".to_string(),
+            "Template Empty Task".to_string(),
+            "agent-789".to_string(),
+            TaskSchedule::default(),
+        );
+        task.input = Some("fallback".to_string());
+        task.input_template = Some("{{input}}".to_string());
+
+        let runner = BackgroundAgentRunner::new(
+            storage,
+            Arc::new(MockExecutor::new()),
+            Arc::new(NoopNotificationSender),
+            RunnerConfig::default(),
+            Arc::new(SteerRegistry::new()),
+        );
+
+        let resolved = runner
+            .resolve_task_input(&task)
+            .expect("resolved input should fallback");
+
+        assert_eq!(resolved, "fallback");
+    }
+
+    #[test]
+    fn test_resolve_task_input_returns_none_for_empty_template_without_fallback() {
+        let (storage, _temp_dir) = create_test_storage();
+        let mut task = BackgroundAgent::new(
+            "task-template-empty-none".to_string(),
+            "Template Empty No Fallback Task".to_string(),
+            "agent-789".to_string(),
+            TaskSchedule::default(),
+        );
+        task.input_template = Some("{{input}}".to_string());
+
+        let runner = BackgroundAgentRunner::new(
+            storage,
+            Arc::new(MockExecutor::new()),
+            Arc::new(NoopNotificationSender),
+            RunnerConfig::default(),
+            Arc::new(SteerRegistry::new()),
+        );
+
+        assert!(runner.resolve_task_input(&task).is_none());
     }
 
     #[test]
