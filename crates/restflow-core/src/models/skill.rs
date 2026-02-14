@@ -7,6 +7,18 @@ use ts_rs::TS;
 use crate::models::StorageMode;
 use crate::models::skill_folder::{SkillGating, SkillReference, SkillScript};
 
+/// Skill lifecycle status used for discovery and planning.
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Default, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+#[ts(export)]
+pub enum SkillStatus {
+    #[default]
+    Active,
+    Completed,
+    Archived,
+    Draft,
+}
+
 /// A skill represents a reusable AI prompt template
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
@@ -48,6 +60,12 @@ pub struct Skill {
     /// Optional content hash for change detection
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content_hash: Option<String>,
+    /// Lifecycle status for the skill
+    #[serde(default)]
+    pub status: SkillStatus,
+    /// Automatically mark skill as completed after a successful execute call
+    #[serde(default)]
+    pub auto_complete: bool,
     /// Storage mode for the skill
     #[serde(default)]
     pub storage_mode: StorageMode,
@@ -87,6 +105,8 @@ impl Skill {
             author: None,
             license: None,
             content_hash: None,
+            status: SkillStatus::Active,
+            auto_complete: false,
             storage_mode: StorageMode::DatabaseOnly,
             is_synced: false,
             created_at: now,
@@ -118,6 +138,12 @@ impl Skill {
     }
 }
 
+impl Default for Skill {
+    fn default() -> Self {
+        Self::new(String::new(), String::new(), None, None, String::new())
+    }
+}
+
 /// Frontmatter structure for import/export
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SkillFrontmatter {
@@ -140,6 +166,10 @@ pub struct SkillFrontmatter {
     pub author: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub license: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<SkillStatus>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auto_complete: Option<bool>,
 }
 
 impl Skill {
@@ -168,6 +198,12 @@ impl Skill {
             version: self.version.clone(),
             author: self.author.clone(),
             license: self.license.clone(),
+            status: if self.status == SkillStatus::Active {
+                None
+            } else {
+                Some(self.status.clone())
+            },
+            auto_complete: if self.auto_complete { Some(true) } else { None },
         };
 
         let yaml = serde_yaml::to_string(&frontmatter).unwrap_or_default();
@@ -210,6 +246,8 @@ impl Skill {
         skill.version = frontmatter.version;
         skill.author = frontmatter.author;
         skill.license = frontmatter.license;
+        skill.status = frontmatter.status.unwrap_or_default();
+        skill.auto_complete = frontmatter.auto_complete.unwrap_or(false);
 
         Ok(skill)
     }
@@ -303,5 +341,26 @@ name: Simple Skill
         let markdown = "# No frontmatter";
         let result = Skill::from_markdown("test", markdown);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_skill_status_default() {
+        let skill = Skill::default();
+        assert_eq!(skill.status, SkillStatus::Active);
+        assert!(!skill.auto_complete);
+    }
+
+    #[test]
+    fn test_skill_status_from_frontmatter() {
+        let markdown = r#"---
+name: Statused Skill
+status: completed
+auto_complete: true
+---
+
+Done"#;
+        let skill = Skill::from_markdown("statused", markdown).unwrap();
+        assert_eq!(skill.status, SkillStatus::Completed);
+        assert!(skill.auto_complete);
     }
 }

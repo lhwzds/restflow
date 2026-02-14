@@ -56,7 +56,7 @@ pub use security::{
     SecurityCheckResult, SecurityMode, SecurityPolicy, ToolAction, ToolRule,
 };
 pub use shared_space::{SharedEntry, Visibility};
-pub use skill::Skill;
+pub use skill::{Skill, SkillStatus};
 pub use skill_folder::{SkillGating, SkillReference, SkillScript};
 pub use skill_marketplace::{
     BinaryRequirement, EnvVarRequirement, GatingCheckResult, GatingRequirements, InstallStatus,
