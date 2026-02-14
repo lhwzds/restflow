@@ -94,8 +94,8 @@ const sessions = computed<SessionItem[]>(() => {
     isBackgroundAgent: true,
   }))
 
-  // Background agents first (pinned), then chat sessions sorted by time
-  return [...bgAgents, ...chatSessions]
+  // Chat sessions first, then background agents at the bottom
+  return [...chatSessions, ...bgAgents]
 })
 
 async function loadAgents() {

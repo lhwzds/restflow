@@ -101,7 +101,12 @@ const formatTime = (timestamp: number) => {
             <Cog
               v-if="session.isBackgroundAgent && session.status === 'running'"
               :size="14"
-              class="animate-spin text-primary"
+              class="animate-spin text-green-500"
+            />
+            <Cog
+              v-else-if="session.isBackgroundAgent && session.status === 'failed'"
+              :size="14"
+              class="text-red-500"
             />
             <Cog v-else-if="session.isBackgroundAgent" :size="14" class="text-blue-500" />
             <Loader2
