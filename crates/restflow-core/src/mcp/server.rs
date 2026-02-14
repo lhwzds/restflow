@@ -947,6 +947,12 @@ pub struct ManageBackgroundAgentsParams {
     /// Optional message list limit
     #[serde(default)]
     pub limit: Option<usize>,
+    /// Scratchpad filename returned by list_scratchpads
+    #[serde(default)]
+    pub scratchpad: Option<String>,
+    /// Optional trailing line limit for read_scratchpad
+    #[serde(default)]
+    pub line_limit: Option<usize>,
 }
 
 /// Parameters for manage_hooks tool
@@ -1128,6 +1134,26 @@ impl RestFlowMcpServer {
             })),
             (None, None) => Ok(None),
         }
+    }
+
+    fn scratchpad_dir() -> Result<std::path::PathBuf, String> {
+        let dir = crate::paths::ensure_restflow_dir()
+            .map_err(|e| format!("Failed to resolve restflow dir: {}", e))?
+            .join("scratchpads");
+        std::fs::create_dir_all(&dir)
+            .map_err(|e| format!("Failed to prepare scratchpad dir: {}", e))?;
+        Ok(dir)
+    }
+
+    fn validate_scratchpad_name(value: Option<String>) -> Result<String, String> {
+        let name = Self::required_string(value, "scratchpad")?;
+        if name.contains('/') || name.contains('\\') || name.contains("..") {
+            return Err("invalid scratchpad name".to_string());
+        }
+        if !name.ends_with(".jsonl") {
+            return Err("scratchpad must be a .jsonl file".to_string());
+        }
+        Ok(name)
     }
 
     fn runtime_alias_target(name: &str) -> Option<&'static str> {
@@ -1604,9 +1630,89 @@ impl RestFlowMcpServer {
                 )
                 .map_err(|e| e.to_string())?
             }
+            "list_scratchpads" => {
+                let dir = Self::scratchpad_dir()?;
+                let prefix = params.id.map(|id| format!("{id}-"));
+                let mut entries: Vec<(std::time::SystemTime, Value)> = Vec::new();
+                for entry in std::fs::read_dir(&dir)
+                    .map_err(|e| format!("Failed to read scratchpad dir: {}", e))?
+                {
+                    let entry = entry.map_err(|e| format!("Failed to read entry: {}", e))?;
+                    let path = entry.path();
+                    if !path.is_file() {
+                        continue;
+                    }
+                    if path.extension().and_then(|ext| ext.to_str()) != Some("jsonl") {
+                        continue;
+                    }
+                    let file_name = match path.file_name().and_then(|name| name.to_str()) {
+                        Some(name) => name.to_string(),
+                        None => continue,
+                    };
+                    if let Some(prefix) = &prefix
+                        && !file_name.starts_with(prefix)
+                    {
+                        continue;
+                    }
+                    let metadata = entry
+                        .metadata()
+                        .map_err(|e| format!("Failed to read metadata: {}", e))?;
+                    let modified = metadata.modified().unwrap_or(std::time::UNIX_EPOCH);
+                    let modified_at = chrono::DateTime::<chrono::Utc>::from(modified).to_rfc3339();
+                    let task_id = file_name.strip_suffix(".jsonl").and_then(|name| {
+                        let mut parts = name.rsplitn(3, '-');
+                        let _time = parts.next();
+                        let _date = parts.next();
+                        parts.next().map(ToString::to_string)
+                    });
+                    entries.push((
+                        modified,
+                        serde_json::json!({
+                            "scratchpad": file_name,
+                            "task_id": task_id,
+                            "size_bytes": metadata.len(),
+                            "modified_at": modified_at,
+                        }),
+                    ));
+                }
+                entries.sort_by(|a, b| b.0.cmp(&a.0));
+                let limit = params.limit.unwrap_or(50).max(1);
+                Value::Array(
+                    entries
+                        .into_iter()
+                        .take(limit)
+                        .map(|(_, value)| value)
+                        .collect(),
+                )
+            }
+            "read_scratchpad" => {
+                let file_name = Self::validate_scratchpad_name(params.scratchpad)?;
+                let dir = Self::scratchpad_dir()?;
+                let path = dir.join(&file_name);
+                if !path.is_file() {
+                    return Err(format!("scratchpad {} not found", file_name));
+                }
+                let content = std::fs::read_to_string(&path)
+                    .map_err(|e| format!("Failed to read scratchpad {}: {}", file_name, e))?;
+                let lines: Vec<&str> = content.lines().collect();
+                let total_lines = lines.len();
+                let line_limit = params.line_limit.unwrap_or(200).max(1);
+                let start = total_lines.saturating_sub(line_limit);
+                let tail: Vec<String> = lines[start..]
+                    .iter()
+                    .map(|line| (*line).to_string())
+                    .collect();
+                serde_json::json!({
+                    "scratchpad": file_name,
+                    "path": path.to_string_lossy().into_owned(),
+                    "total_lines": total_lines,
+                    "line_limit": line_limit,
+                    "lines": tail,
+                })
+            }
             _ => {
                 return Err(format!(
-                    "Unknown operation: {}. Supported: create, update, delete, list, control, progress, send_message, list_messages, pause, resume, cancel, run",
+                    "Unknown operation: {}. Supported: create, update, delete, list, control, progress, send_message, list_messages, list_scratchpads, read_scratchpad, pause, resume, cancel, run",
                     operation
                 ));
             }
@@ -1826,7 +1932,7 @@ impl ServerHandler for RestFlowMcpServer {
             ),
             Tool::new(
                 "manage_background_agents",
-                "Manage background agents. Operations: create (define new agent), run (trigger now), pause/resume (toggle schedule), cancel (stop permanently), delete (remove definition), list (browse agents), progress (execution history), send_message/list_messages (interact with running agents).",
+                "Manage background agents. Operations: create (define new agent), run (trigger now), pause/resume (toggle schedule), cancel (stop permanently), delete (remove definition), list (browse agents), progress (execution history), send_message/list_messages (interact with running agents), list_scratchpads/read_scratchpad (diagnose execution traces).",
                 schema_for_type::<ManageBackgroundAgentsParams>(),
             ),
             Tool::new(
@@ -3054,6 +3160,8 @@ mod tests {
             message: None,
             source: None,
             limit: None,
+            scratchpad: None,
+            line_limit: None,
         };
 
         let json = server
@@ -3434,6 +3542,8 @@ mod tests {
             message: None,
             source: None,
             limit: None,
+            scratchpad: None,
+            line_limit: None,
         }
     }
 
