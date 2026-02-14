@@ -11,6 +11,7 @@ use crate::agent::ExecutionStep;
 use crate::agent::context::{AgentContext, ContextDiscoveryConfig, WorkspaceContextCache};
 use crate::agent::history::{HistoryPipeline, HistoryProcessor};
 use crate::agent::resource::{ResourceLimits, ResourceTracker, ResourceUsage};
+use crate::agent::scratchpad::Scratchpad;
 use crate::agent::state::{AgentState, AgentStatus};
 use crate::agent::stream::{ChannelEmitter, NullEmitter, StreamEmitter, ToolCallAccumulator};
 use crate::agent::stuck::{StuckAction, StuckDetector, StuckDetectorConfig};
@@ -65,6 +66,8 @@ pub struct AgentConfig {
     /// When enabled, detects when the agent repeatedly calls the same tool
     /// with the same arguments and either nudges or stops execution.
     pub stuck_detection: Option<StuckDetectorConfig>,
+    /// Optional append-only JSONL scratchpad for execution diagnostics.
+    pub scratchpad: Option<Arc<Scratchpad>>,
 }
 
 impl AgentConfig {
@@ -86,6 +89,7 @@ impl AgentConfig {
             agent_type: AgentType::default(),
             resource_limits: ResourceLimits::default(),
             stuck_detection: Some(StuckDetectorConfig::default()),
+            scratchpad: None,
         }
     }
 
@@ -182,6 +186,12 @@ impl AgentConfig {
     /// Disable stuck detection.
     pub fn without_stuck_detection(mut self) -> Self {
         self.stuck_detection = None;
+        self
+    }
+
+    /// Set scratchpad for append-only JSONL execution tracing.
+    pub fn with_scratchpad(mut self, scratchpad: Arc<Scratchpad>) -> Self {
+        self.scratchpad = Some(scratchpad);
         self
     }
 }
@@ -312,6 +322,9 @@ impl AgentExecutor {
         let execution_id =
             execution_id_override.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
         let mut state = AgentState::new(execution_id, config.max_iterations);
+        if let Some(scratchpad) = &config.scratchpad {
+            scratchpad.log_start(&state.execution_id, self.llm.model(), &config.goal);
+        }
         state.context = config.context.clone();
         let mut total_tokens: u32 = 0;
         let mut total_cost_usd: f64 = 0.0;
@@ -340,6 +353,9 @@ impl AgentExecutor {
 
         // Core loop (Swarm-inspired simplicity)
         while state.iteration < state.max_iterations && !state.is_terminal() {
+            if let Some(scratchpad) = &config.scratchpad {
+                scratchpad.log_iteration_begin(state.iteration + 1);
+            }
             let summarizer = self.summarizer.as_deref().unwrap_or(self.llm.as_ref());
             if let Some(result) = memory
                 .auto_compact_if_needed(summarizer, config.context_window)
@@ -368,7 +384,13 @@ impl AgentExecutor {
             }
 
             let response = if stream_llm {
-                self.get_streaming_completion(request, emitter).await?
+                self.get_streaming_completion(
+                    request,
+                    emitter,
+                    config.scratchpad.as_deref(),
+                    state.iteration + 1,
+                )
+                .await?
             } else {
                 self.llm.complete(request).await?
             };
@@ -384,6 +406,11 @@ impl AgentExecutor {
             // 2. No tool calls → check finish reason and complete
             if response.tool_calls.is_empty() {
                 let answer = response.content.unwrap_or_default();
+                if let Some(scratchpad) = &config.scratchpad
+                    && !answer.is_empty()
+                {
+                    scratchpad.log_text_delta(state.iteration + 1, &answer);
+                }
                 let assistant_msg = Message::assistant(&answer);
                 state.add_message(assistant_msg.clone());
                 memory.add(assistant_msg);
@@ -391,10 +418,19 @@ impl AgentExecutor {
                 match response.finish_reason {
                     FinishReason::MaxTokens => {
                         state.fail("Response truncated due to max token limit");
+                        if let Some(scratchpad) = &config.scratchpad {
+                            scratchpad.log_error(
+                                state.iteration + 1,
+                                "Response truncated due to max token limit",
+                            );
+                        }
                         break;
                     }
                     FinishReason::Error => {
                         state.fail("LLM returned an error");
+                        if let Some(scratchpad) = &config.scratchpad {
+                            scratchpad.log_error(state.iteration + 1, "LLM returned an error");
+                        }
                         break;
                     }
                     _ => {
@@ -422,7 +458,17 @@ impl AgentExecutor {
             // Check all resource limits before tool execution
             if let Err(e) = tracker.check() {
                 state.resource_exhaust(e.to_string());
+                if let Some(scratchpad) = &config.scratchpad {
+                    scratchpad.log_error(state.iteration + 1, &e.to_string());
+                }
                 break;
+            }
+
+            if let Some(scratchpad) = &config.scratchpad {
+                for call in &response.tool_calls {
+                    let arguments = serde_json::to_string(&call.arguments).unwrap_or_default();
+                    scratchpad.log_tool_call(state.iteration + 1, &call.id, &call.name, &arguments);
+                }
             }
 
             // 3. Execute tools with timeout and optional stream events.
@@ -473,6 +519,22 @@ impl AgentExecutor {
                     detector.record(tool_name, &args_json);
                 }
 
+                if let Some(scratchpad) = &config.scratchpad {
+                    let (tool_name, success) = response
+                        .tool_calls
+                        .iter()
+                        .find(|tc| tc.id == tool_call_id)
+                        .map(|tc| (tc.name.as_str(), !result_str.starts_with("Error: ")))
+                        .unwrap_or(("unknown", !result_str.starts_with("Error: ")));
+                    scratchpad.log_tool_result(
+                        state.iteration + 1,
+                        &tool_call_id,
+                        tool_name,
+                        success,
+                        &result_str,
+                    );
+                }
+
                 // Add tool result to both state and working memory
                 let tool_result_msg = Message::tool_result(tool_call_id.clone(), result_str);
                 state.add_message(tool_result_msg.clone());
@@ -504,6 +566,15 @@ impl AgentExecutor {
                             "Agent stuck: repeated '{}' {} times",
                             stuck_info.repeated_tool, stuck_info.repeat_count
                         ));
+                        if let Some(scratchpad) = &config.scratchpad {
+                            scratchpad.log_error(
+                                state.iteration + 1,
+                                &format!(
+                                    "Agent stuck: repeated '{}' {} times",
+                                    stuck_info.repeated_tool, stuck_info.repeat_count
+                                ),
+                            );
+                        }
                         break;
                     }
                 }
@@ -514,6 +585,9 @@ impl AgentExecutor {
 
         // Build result
         let resource_usage = tracker.usage_snapshot();
+        if let Some(scratchpad) = &config.scratchpad {
+            scratchpad.log_complete(state.iteration, total_tokens, total_cost_usd);
+        }
         Ok(AgentResult {
             success: matches!(state.status, AgentStatus::Completed),
             answer: state.final_answer.clone(),
@@ -590,11 +664,16 @@ impl AgentExecutor {
         &self,
         request: CompletionRequest,
         emitter: &mut dyn StreamEmitter,
+        scratchpad: Option<&Scratchpad>,
+        iteration: usize,
     ) -> Result<crate::llm::CompletionResponse> {
         if !self.llm.supports_streaming() {
             let response = self.llm.complete(request).await?;
             if let Some(content) = &response.content {
                 emitter.emit_text_delta(content).await;
+                if let Some(scratchpad) = scratchpad {
+                    scratchpad.log_text_delta(iteration, content);
+                }
             }
             return Ok(response);
         }
@@ -611,10 +690,16 @@ impl AgentExecutor {
             if !chunk.text.is_empty() {
                 text.push_str(&chunk.text);
                 emitter.emit_text_delta(&chunk.text).await;
+                if let Some(scratchpad) = scratchpad {
+                    scratchpad.log_text_delta(iteration, &chunk.text);
+                }
             }
 
             if let Some(thinking) = &chunk.thinking {
                 emitter.emit_thinking_delta(thinking).await;
+                if let Some(scratchpad) = scratchpad {
+                    scratchpad.log_thinking(iteration, thinking);
+                }
             }
 
             if let Some(delta) = &chunk.tool_call_delta {
@@ -1352,5 +1437,32 @@ mod tests {
 
         assert!(result.success);
         assert_eq!(emitter.completed.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn test_run_writes_jsonl_scratchpad_events() {
+        let response = CompletionResponse {
+            content: Some("done".to_string()),
+            tool_calls: vec![],
+            finish_reason: FinishReason::Stop,
+            usage: None,
+        };
+
+        let llm = Arc::new(MockLlmClient::new(vec![response]));
+        let tools = Arc::new(ToolRegistry::new());
+        let executor = AgentExecutor::new(llm, tools);
+
+        let dir = tempfile::tempdir().unwrap();
+        let scratchpad_path = dir.path().join("exec.jsonl");
+        let scratchpad = Arc::new(Scratchpad::new(scratchpad_path.clone()).unwrap());
+        let config = AgentConfig::new("scratchpad").with_scratchpad(scratchpad);
+
+        let result = executor.run(config).await.unwrap();
+        assert!(result.success);
+
+        let content = std::fs::read_to_string(scratchpad_path).unwrap();
+        assert!(content.contains("\"event_type\":\"execution_start\""));
+        assert!(content.contains("\"event_type\":\"iteration_begin\""));
+        assert!(content.contains("\"event_type\":\"execution_complete\""));
     }
 }
