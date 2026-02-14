@@ -24,7 +24,7 @@ impl OutputFormat {
 
 #[derive(Parser)]
 #[command(name = "restflow")]
-#[command(version, about = "浮流 RestFlow - AI Agent Workflow Automation")]
+#[command(version, about = "RestFlow - AI Agent Workflow Automation")]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Option<Commands>,
@@ -195,7 +195,7 @@ pub struct UpgradeArgs {
 #[cfg(test)]
 mod tests {
     use super::Cli;
-    use clap::{CommandFactory, Parser};
+    use clap::Parser;
 
     #[test]
     fn parses_start_command() {
@@ -310,13 +310,6 @@ mod tests {
                 command: super::MaintenanceCommands::Cleanup
             })
         ));
-    }
-
-    #[test]
-    fn includes_branding_in_about_text() {
-        let command = Cli::command();
-        let about = command.get_about().expect("about text").to_string();
-        assert!(about.contains("浮流 RestFlow"));
     }
 }
 

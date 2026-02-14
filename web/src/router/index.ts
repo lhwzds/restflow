@@ -11,7 +11,7 @@ const router = createRouter({
       path: '/workspace',
       name: 'workspace',
       component: () => import('../views/Workspace.vue'),
-      meta: { title: '浮流 RestFlow' },
+      meta: { title: 'RestFlow' },
     },
   ],
 })
