@@ -50,6 +50,14 @@ pub struct ExecutionResult {
     pub messages: Vec<Message>,
     /// Whether the execution was successful
     pub success: bool,
+    /// Agent loop iterations for this execution.
+    pub iterations: u32,
+    /// Total token usage for this execution.
+    pub total_tokens: u32,
+    /// Total estimated cost for this execution.
+    pub total_cost_usd: f64,
+    /// Unique execution identifier used by audit records.
+    pub execution_id: Option<String>,
     /// Aggregated memory compaction metrics from this execution, if any.
     pub compaction: Option<CompactionMetrics>,
 }
@@ -70,6 +78,10 @@ impl ExecutionResult {
             output,
             messages,
             success: true,
+            iterations: 0,
+            total_tokens: 0,
+            total_cost_usd: 0.0,
+            execution_id: None,
             compaction: None,
         }
     }
@@ -84,8 +96,26 @@ impl ExecutionResult {
             output,
             messages,
             success: true,
+            iterations: 0,
+            total_tokens: 0,
+            total_cost_usd: 0.0,
+            execution_id: None,
             compaction: Some(compaction),
         }
+    }
+
+    pub fn with_metrics(
+        mut self,
+        iterations: u32,
+        total_tokens: u32,
+        total_cost_usd: f64,
+        execution_id: Option<String>,
+    ) -> Self {
+        self.iterations = iterations;
+        self.total_tokens = total_tokens;
+        self.total_cost_usd = total_cost_usd;
+        self.execution_id = execution_id;
+        self
     }
 
     /// Create a failed execution result.
@@ -94,6 +124,10 @@ impl ExecutionResult {
             output: error,
             messages: Vec::new(),
             success: false,
+            iterations: 0,
+            total_tokens: 0,
+            total_cost_usd: 0.0,
+            execution_id: None,
             compaction: None,
         }
     }
@@ -1077,9 +1111,9 @@ impl BackgroundAgentRunner {
             self.fire_hooks(&HookContext::from_failed(&task, &error_msg, duration_ms))
                 .await;
 
-            if let Err(e) = self
-                .storage
-                .fail_task_execution(task_id, error_msg.clone(), duration_ms)
+            if let Err(e) =
+                self.storage
+                    .fail_task_execution(task_id, error_msg.clone(), duration_ms)
             {
                 error!("Failed to record preflight task failure: {}", e);
             }

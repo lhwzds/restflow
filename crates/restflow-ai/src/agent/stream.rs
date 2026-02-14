@@ -12,6 +12,24 @@ pub trait StreamEmitter: Send + Sync {
     async fn emit_thinking_delta(&mut self, text: &str);
     async fn emit_tool_call_start(&mut self, id: &str, name: &str, arguments: &str);
     async fn emit_tool_call_result(&mut self, id: &str, name: &str, result: &str, success: bool);
+    async fn emit_llm_call(
+        &mut self,
+        _model: &str,
+        _input_tokens: u32,
+        _output_tokens: u32,
+        _cost_usd: Option<f64>,
+        _duration_ms: u64,
+        _iteration: usize,
+    ) {
+    }
+    async fn emit_model_switch(
+        &mut self,
+        _from_model: &str,
+        _to_model: &str,
+        _reason: &str,
+        _iteration: usize,
+    ) {
+    }
     async fn emit_complete(&mut self);
 }
 

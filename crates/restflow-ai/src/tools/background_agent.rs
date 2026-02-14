@@ -75,6 +75,13 @@ pub struct BackgroundAgentProgressRequest {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct BackgroundAgentAuditRequest {
+    pub id: String,
+    #[serde(default)]
+    pub event_limit: Option<usize>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct BackgroundAgentMessageRequest {
     pub id: String,
     pub message: String,
@@ -99,6 +106,7 @@ pub trait BackgroundAgentStore: Send + Sync {
         &self,
         request: BackgroundAgentProgressRequest,
     ) -> Result<Value>;
+    fn get_background_agent_audit(&self, request: BackgroundAgentAuditRequest) -> Result<Value>;
     fn send_background_agent_message(
         &self,
         request: BackgroundAgentMessageRequest,
@@ -133,7 +141,7 @@ impl BackgroundAgentTool {
             Ok(())
         } else {
             Err(AiError::Tool(
-                "Write access to background agents is disabled. Available read-only operations: list, get, progress. To modify background agents, the user must grant write permissions.".to_string(),
+                "Write access to background agents is disabled. Available read-only operations: list, get, progress, audit. To modify background agents, the user must grant write permissions.".to_string(),
             ))
         }
     }
@@ -207,6 +215,11 @@ enum BackgroundAgentAction {
         #[serde(default)]
         event_limit: Option<usize>,
     },
+    Audit {
+        id: String,
+        #[serde(default)]
+        event_limit: Option<usize>,
+    },
     SendMessage {
         id: String,
         message: String,
@@ -239,7 +252,7 @@ impl Tool for BackgroundAgentTool {
     }
 
     fn description(&self) -> &str {
-        "Manage background agents. Operations: create (define new agent), run (trigger now), pause/resume (toggle schedule), cancel (stop permanently), delete (remove definition), list (browse agents), progress (execution history), send_message/list_messages (interact with running agents)."
+        "Manage background agents. Operations: create (define new agent), run (trigger now), pause/resume (toggle schedule), cancel (stop permanently), delete (remove definition), list (browse agents), progress/audit (execution history and breakdown), send_message/list_messages (interact with running agents)."
     }
 
     fn parameters_schema(&self) -> Value {
@@ -255,6 +268,7 @@ impl Tool for BackgroundAgentTool {
                         "list",
                         "control",
                         "progress",
+                        "audit",
                         "send_message",
                         "list_messages",
                         "pause",
@@ -358,7 +372,7 @@ impl Tool for BackgroundAgentTool {
             Ok(action) => action,
             Err(e) => {
                 return Ok(ToolOutput::error(format!(
-                    "Invalid input: {e}. Required: operation (create|list|get|update|delete|progress)."
+                    "Invalid input: {e}. Required: operation (create|list|get|update|delete|progress|audit)."
                 )));
             }
         };
@@ -512,6 +526,11 @@ impl Tool for BackgroundAgentTool {
                     })
                     .map_err(|e| AiError::Tool(format!("Failed to get background agent: {e}.")))?,
             ),
+            BackgroundAgentAction::Audit { id, event_limit } => ToolOutput::success(
+                self.store
+                    .get_background_agent_audit(BackgroundAgentAuditRequest { id, event_limit })
+                    .map_err(|e| AiError::Tool(format!("Failed to get background audit: {e}.")))?,
+            ),
             BackgroundAgentAction::SendMessage {
                 id,
                 message,
@@ -585,6 +604,17 @@ mod tests {
             }))
         }
 
+        fn get_background_agent_audit(
+            &self,
+            request: BackgroundAgentAuditRequest,
+        ) -> Result<Value> {
+            Ok(json!({
+                "id": request.id,
+                "event_limit": request.event_limit.unwrap_or(50),
+                "total_tool_calls": 3
+            }))
+        }
+
         fn send_background_agent_message(
             &self,
             request: BackgroundAgentMessageRequest,
@@ -640,6 +670,17 @@ mod tests {
                 "id": request.id,
                 "event_limit": request.event_limit.unwrap_or(10),
                 "status": "active"
+            }))
+        }
+
+        fn get_background_agent_audit(
+            &self,
+            request: BackgroundAgentAuditRequest,
+        ) -> Result<Value> {
+            Ok(json!({
+                "id": request.id,
+                "event_limit": request.event_limit.unwrap_or(50),
+                "total_tool_calls": 0
             }))
         }
 
@@ -704,7 +745,7 @@ mod tests {
             output
                 .error
                 .expect("expected error")
-                .contains("Required: operation (create|list|get|update|delete|progress)")
+                .contains("Required: operation (create|list|get|update|delete|progress|audit)")
         );
     }
 
@@ -730,5 +771,20 @@ mod tests {
             .await
             .unwrap();
         assert!(output.success);
+    }
+
+    #[tokio::test]
+    async fn test_audit_operation() {
+        let tool = BackgroundAgentTool::new(Arc::new(MockStore));
+        let output = tool
+            .execute(json!({
+                "operation": "audit",
+                "id": "task-1",
+                "event_limit": 12
+            }))
+            .await
+            .unwrap();
+        assert!(output.success);
+        assert_eq!(output.result["event_limit"].as_u64(), Some(12));
     }
 }

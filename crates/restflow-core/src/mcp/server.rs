@@ -107,6 +107,29 @@ pub trait McpBackend: Send + Sync {
         id: &str,
         event_limit: usize,
     ) -> Result<BackgroundProgress, String>;
+    async fn get_background_agent_audit(
+        &self,
+        id: &str,
+        event_limit: usize,
+    ) -> Result<Value, String> {
+        let runtime = self
+            .execute_runtime_tool(
+                "manage_background_agents",
+                serde_json::json!({
+                    "operation": "audit",
+                    "id": id,
+                    "event_limit": event_limit,
+                }),
+            )
+            .await?;
+        if runtime.success {
+            Ok(runtime.result)
+        } else {
+            Err(runtime
+                .error
+                .unwrap_or_else(|| "Failed to fetch background-agent audit".to_string()))
+        }
+    }
     async fn send_background_agent_message(
         &self,
         id: &str,
@@ -1583,6 +1606,13 @@ impl RestFlowMcpServer {
                 )
                 .map_err(|e| e.to_string())?
             }
+            "audit" => {
+                let id = Self::required_string(params.id, "id")?;
+                let event_limit = params.event_limit.unwrap_or(50).max(1);
+                self.backend
+                    .get_background_agent_audit(&id, event_limit)
+                    .await?
+            }
             "send_message" => {
                 let id = Self::required_string(params.id, "id")?;
                 let message = Self::required_string(params.message, "message")?;
@@ -1606,7 +1636,7 @@ impl RestFlowMcpServer {
             }
             _ => {
                 return Err(format!(
-                    "Unknown operation: {}. Supported: create, update, delete, list, control, progress, send_message, list_messages, pause, resume, cancel, run",
+                    "Unknown operation: {}. Supported: create, update, delete, list, control, progress, audit, send_message, list_messages, pause, resume, cancel, run",
                     operation
                 ));
             }
@@ -1826,7 +1856,7 @@ impl ServerHandler for RestFlowMcpServer {
             ),
             Tool::new(
                 "manage_background_agents",
-                "Manage background agents. Operations: create (define new agent), run (trigger now), pause/resume (toggle schedule), cancel (stop permanently), delete (remove definition), list (browse agents), progress (execution history), send_message/list_messages (interact with running agents).",
+                "Manage background agents. Operations: create (define new agent), run (trigger now), pause/resume (toggle schedule), cancel (stop permanently), delete (remove definition), list (browse agents), progress/audit (execution history and breakdown), send_message/list_messages (interact with running agents).",
                 schema_for_type::<ManageBackgroundAgentsParams>(),
             ),
             Tool::new(

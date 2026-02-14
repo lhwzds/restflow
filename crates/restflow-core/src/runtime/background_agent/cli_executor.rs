@@ -214,6 +214,10 @@ impl CliAgentExecutor {
             output: output_trimmed,
             messages: vec![], // CLI doesn't produce structured messages
             success: true,
+            iterations: 0,
+            total_tokens: 0,
+            total_cost_usd: 0.0,
+            execution_id: None,
             compaction: None,
         })
     }
