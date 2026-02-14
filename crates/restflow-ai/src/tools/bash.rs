@@ -23,7 +23,12 @@ use std::process::Stdio;
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::process::Command;
-use tokio::time::{Duration, timeout};
+use tokio::time::{Duration, sleep, timeout};
+
+#[cfg(unix)]
+use nix::sys::signal::{Signal, killpg};
+#[cfg(unix)]
+use nix::unistd::Pid;
 
 use super::traits::{Tool, ToolOutput};
 use crate::error::Result;
@@ -107,16 +112,43 @@ impl BashTool {
         &self,
         command: &str,
         workdir: &str,
+        timeout_secs: u64,
     ) -> std::result::Result<(i32, String, String, bool), std::io::Error> {
-        let output = Command::new("sh")
-            .arg("-c")
+        let mut cmd = Command::new("sh");
+        cmd.arg("-c")
             .arg(command)
             .current_dir(workdir)
             .kill_on_drop(true)
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .output()
-            .await?;
+            .stderr(Stdio::piped());
+
+        #[cfg(unix)]
+        {
+            // Put the shell into its own process group so timeout/cancel can terminate the full tree.
+            cmd.process_group(0);
+        }
+
+        let child = cmd.spawn()?;
+        #[cfg(unix)]
+        let process_group_id = child.id().map(|pid| pid as i32);
+
+        let output = match timeout(Duration::from_secs(timeout_secs), child.wait_with_output()).await {
+            Ok(result) => result?,
+            Err(_) => {
+                #[cfg(unix)]
+                if let Some(process_group_id) = process_group_id {
+                    let pgid = Pid::from_raw(process_group_id);
+                    let _ = killpg(pgid, Signal::SIGTERM);
+                    sleep(Duration::from_millis(500)).await;
+                    let _ = killpg(pgid, Signal::SIGKILL);
+                }
+
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    format!("Timeout after {timeout_secs} seconds"),
+                ));
+            }
+        };
 
         let exit_code = output.status.code().unwrap_or(-1);
 
@@ -272,17 +304,12 @@ impl Tool for BashTool {
 
         let start = Instant::now();
 
-        // Execute with timeout
-        let result = timeout(
-            Duration::from_secs(timeout_secs),
-            self.run_command(&input.command, &workdir),
-        )
-        .await;
+        let result = self.run_command(&input.command, &workdir, timeout_secs).await;
 
         let duration_ms = start.elapsed().as_millis() as u64;
 
         match result {
-            Ok(Ok((exit_code, stdout, stderr, truncated))) => {
+            Ok((exit_code, stdout, stderr, truncated)) => {
                 let output = BashOutput {
                     exit_code,
                     stdout,
@@ -301,18 +328,18 @@ impl Tool for BashTool {
                     },
                 })
             }
-            Ok(Err(e)) => Ok(ToolOutput {
-                success: false,
-                result: serde_json::json!({"error": e.to_string()}),
-                error: Some(e.to_string()),
-            }),
-            Err(_) => Ok(ToolOutput {
+            Err(e) if e.kind() == std::io::ErrorKind::TimedOut => Ok(ToolOutput {
                 success: false,
                 result: serde_json::json!({
                     "error": "Command timed out",
                     "timeout_secs": timeout_secs,
                 }),
                 error: Some(format!("Timeout after {} seconds", timeout_secs)),
+            }),
+            Err(e) => Ok(ToolOutput {
+                success: false,
+                result: serde_json::json!({"error": e.to_string()}),
+                error: Some(e.to_string()),
             }),
         }
     }
@@ -321,6 +348,7 @@ impl Tool for BashTool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::tempdir;
 
     #[test]
     fn test_bash_tool_new() {
@@ -575,6 +603,48 @@ mod tests {
 
         assert!(!output.success);
         assert!(output.error.as_ref().unwrap().contains("Timeout"));
+    }
+
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn test_bash_tool_timeout_kills_spawned_child_processes() {
+        let tool = BashTool::new().with_timeout(1);
+        let temp_dir = tempdir().unwrap();
+        let pid_file = temp_dir.path().join("child.pid");
+        let command = format!(
+            "sleep 30 & child=$!; echo $child > {}; wait",
+            pid_file.display()
+        );
+
+        let output = tool
+            .execute(serde_json::json!({
+                "command": command
+            }))
+            .await
+            .unwrap();
+
+        assert!(!output.success);
+        assert!(output.error.as_ref().unwrap().contains("Timeout"));
+
+        let child_pid = std::fs::read_to_string(&pid_file)
+            .unwrap()
+            .trim()
+            .parse::<i32>()
+            .unwrap();
+
+        sleep(Duration::from_millis(300)).await;
+
+        let status = Command::new("sh")
+            .arg("-c")
+            .arg(format!("kill -0 {child_pid}"))
+            .status()
+            .await
+            .unwrap();
+
+        assert!(
+            !status.success(),
+            "Child process should be terminated on timeout, pid={child_pid}",
+        );
     }
 
     #[test]
