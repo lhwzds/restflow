@@ -22,7 +22,7 @@ pub mod validation;
 pub mod webhook;
 pub mod workspace_note;
 
-pub use agent::{AgentNode, ApiKeyConfig, CodexCliExecutionMode};
+pub use agent::{AgentNode, ApiKeyConfig, CodexCliExecutionMode, ModelRoutingConfig};
 pub use agent_execution::{AgentExecuteResponse, ExecutionDetails, ExecutionStep, ToolCallInfo};
 pub use agent_meta::{AgentMeta, AgentType};
 pub use ai_model::{AIModel, ModelMetadataDTO, Provider};

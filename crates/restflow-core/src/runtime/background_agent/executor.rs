@@ -22,7 +22,9 @@ use crate::{
     prompt_files,
     storage::Storage,
 };
-use restflow_ai::agent::StreamEmitter;
+use restflow_ai::agent::{
+    ModelRoutingConfig as AiModelRoutingConfig, ModelSwitcher as AiModelSwitcher, StreamEmitter,
+};
 use restflow_ai::llm::Message;
 use restflow_ai::tools::PythonRuntime;
 use restflow_ai::{
@@ -81,6 +83,33 @@ pub enum SessionInputMode {
     EphemeralInput,
 }
 
+struct RuntimeModelSwitcher {
+    swappable: Arc<SwappableLlm>,
+    factory: Arc<dyn LlmClientFactory>,
+    agent_node: AgentNode,
+}
+
+#[async_trait]
+impl AiModelSwitcher for RuntimeModelSwitcher {
+    fn current_model(&self) -> String {
+        self.swappable.current_model()
+    }
+
+    async fn switch_model(&self, target_model: &str) -> std::result::Result<(), AiError> {
+        let model = AIModel::from_api_name(target_model)
+            .ok_or_else(|| AiError::Agent(format!("Unsupported routed model: {}", target_model)))?;
+        let client = AgentRuntimeExecutor::create_llm_client(
+            self.factory.as_ref(),
+            model,
+            None,
+            &self.agent_node,
+        )
+        .map_err(|error| AiError::Agent(error.to_string()))?;
+        self.swappable.swap(client);
+        Ok(())
+    }
+}
+
 impl AgentRuntimeExecutor {
     fn create_scratchpad_for_task(background_task_id: &str) -> Result<Arc<Scratchpad>> {
         let base_dir = crate::paths::ensure_restflow_dir()?.join("scratchpads");
@@ -88,6 +117,18 @@ impl AgentRuntimeExecutor {
         let timestamp = Utc::now().format("%Y%m%d-%H%M%S");
         let path = base_dir.join(format!("{background_task_id}-{timestamp}.jsonl"));
         Ok(Arc::new(Scratchpad::new(path)?))
+    }
+
+    fn to_ai_model_routing_config(
+        config: &crate::models::ModelRoutingConfig,
+    ) -> AiModelRoutingConfig {
+        AiModelRoutingConfig {
+            enabled: config.enabled,
+            routine_model: config.routine_model.clone(),
+            moderate_model: config.moderate_model.clone(),
+            complex_model: config.complex_model.clone(),
+            escalate_on_failure: config.escalate_on_failure,
+        }
     }
 
     /// Create a new AgentRuntimeExecutor with access to storage.
@@ -602,7 +643,7 @@ impl AgentRuntimeExecutor {
             Some(&effective_tools),
             swappable.clone(),
             swappable.clone(),
-            factory,
+            factory.clone(),
             agent_id,
             python_runtime,
         );
@@ -904,7 +945,7 @@ impl AgentRuntimeExecutor {
             Some(&effective_tools),
             swappable.clone(),
             swappable.clone(),
-            factory,
+            factory.clone(),
             agent_id,
             python_runtime,
         );
@@ -929,6 +970,17 @@ impl AgentRuntimeExecutor {
             && let Some(temp) = agent_node.temperature
         {
             config = config.with_temperature(temp as f32);
+        }
+        if let Some(model_routing) = agent_node.model_routing.as_ref() {
+            config = config.with_model_routing(Self::to_ai_model_routing_config(model_routing));
+            if model_routing.enabled {
+                let switcher: Arc<dyn AiModelSwitcher> = Arc::new(RuntimeModelSwitcher {
+                    swappable: swappable.clone(),
+                    factory: factory.clone(),
+                    agent_node: agent_node.clone(),
+                });
+                config = config.with_model_switcher(switcher);
+            }
         }
 
         let mut agent = ReActAgentExecutor::new(swappable, tools);

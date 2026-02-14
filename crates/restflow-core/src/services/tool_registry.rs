@@ -3237,6 +3237,7 @@ mod tests {
             skills: Some(vec!["ops-skill".to_string()]),
             skill_variables: None,
             python_runtime_policy: None,
+            model_routing: None,
         };
 
         let created = AgentStore::create_agent(

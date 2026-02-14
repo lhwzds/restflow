@@ -10,13 +10,14 @@ use serde_json::Value;
 use crate::agent::ExecutionStep;
 use crate::agent::context::{AgentContext, ContextDiscoveryConfig, WorkspaceContextCache};
 use crate::agent::history::{HistoryPipeline, HistoryProcessor};
+use crate::agent::model_router::{ModelRoutingConfig, ModelSwitcher, classify_task, select_model};
 use crate::agent::resource::{ResourceLimits, ResourceTracker, ResourceUsage};
 use crate::agent::scratchpad::Scratchpad;
 use crate::agent::state::{AgentState, AgentStatus};
 use crate::agent::stream::{ChannelEmitter, NullEmitter, StreamEmitter, ToolCallAccumulator};
 use crate::agent::stuck::{StuckAction, StuckDetector, StuckDetectorConfig};
 use crate::error::{AiError, Result};
-use crate::llm::{CompletionRequest, FinishReason, LlmClient, Message, ToolCall};
+use crate::llm::{CompletionRequest, FinishReason, LlmClient, Message, Role, ToolCall};
 use crate::memory::{CompactionConfig, CompactionResult, DEFAULT_MAX_MESSAGES, WorkingMemory};
 use crate::steer::SteerMessage;
 use crate::tools::ToolRegistry;
@@ -35,7 +36,7 @@ pub enum AgentType {
 }
 
 /// Configuration for agent execution
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct AgentConfig {
     pub goal: String,
     pub system_prompt: Option<String>,
@@ -68,6 +69,10 @@ pub struct AgentConfig {
     pub stuck_detection: Option<StuckDetectorConfig>,
     /// Optional append-only JSONL scratchpad for execution diagnostics.
     pub scratchpad: Option<Arc<Scratchpad>>,
+    /// Optional model routing configuration for dynamic tier-based switching.
+    pub model_routing: Option<ModelRoutingConfig>,
+    /// Optional model switcher used when model routing is enabled.
+    pub model_switcher: Option<Arc<dyn ModelSwitcher>>,
 }
 
 impl AgentConfig {
@@ -90,6 +95,8 @@ impl AgentConfig {
             resource_limits: ResourceLimits::default(),
             stuck_detection: Some(StuckDetectorConfig::default()),
             scratchpad: None,
+            model_routing: None,
+            model_switcher: None,
         }
     }
 
@@ -192,6 +199,18 @@ impl AgentConfig {
     /// Set scratchpad for append-only JSONL execution tracing.
     pub fn with_scratchpad(mut self, scratchpad: Arc<Scratchpad>) -> Self {
         self.scratchpad = Some(scratchpad);
+        self
+    }
+
+    /// Set model routing configuration.
+    pub fn with_model_routing(mut self, routing: ModelRoutingConfig) -> Self {
+        self.model_routing = Some(routing);
+        self
+    }
+
+    /// Set model switcher used by routing.
+    pub fn with_model_switcher(mut self, switcher: Arc<dyn ModelSwitcher>) -> Self {
+        self.model_switcher = Some(switcher);
         self
     }
 }
@@ -339,6 +358,8 @@ impl AgentExecutor {
 
         // Initialize stuck detector
         let mut stuck_detector = config.stuck_detection.clone().map(StuckDetector::new);
+        let mut had_failure = false;
+        let mut last_tool_names: Vec<String> = Vec::new();
 
         // Initialize messages
         let system_prompt = self.build_system_prompt(&config).await;
@@ -374,6 +395,45 @@ impl AgentExecutor {
             }
 
             // 1. LLM call - use working memory for context (handles overflow)
+            if let Some(routing) = config
+                .model_routing
+                .as_ref()
+                .filter(|routing| routing.enabled)
+                && let Some(switcher) = config.model_switcher.as_ref()
+            {
+                let tool_names: Vec<&str> = last_tool_names.iter().map(String::as_str).collect();
+                let messages = memory.get_messages();
+                let latest_signal = messages
+                    .iter()
+                    .rev()
+                    .find(|message| matches!(message.role, Role::User | Role::Assistant))
+                    .map(|message| message.content.as_str())
+                    .unwrap_or(config.goal.as_str());
+                let should_escalate = routing.escalate_on_failure && had_failure;
+                let tier =
+                    classify_task(&tool_names, latest_signal, state.iteration, should_escalate);
+                let current_model = switcher.current_model();
+                let target_model = select_model(routing, tier, &current_model);
+                if target_model != current_model {
+                    if let Err(error) = switcher.switch_model(&target_model).await {
+                        debug!(
+                            current_model = %current_model,
+                            target_model = %target_model,
+                            tier = ?tier,
+                            error = %error,
+                            "Failed to switch routed model"
+                        );
+                    } else {
+                        debug!(
+                            current_model = %current_model,
+                            target_model = %target_model,
+                            tier = ?tier,
+                            "Switched model via router"
+                        );
+                    }
+                }
+            }
+
             let request_messages = config.history_pipeline.apply(memory.get_messages());
             let mut request =
                 CompletionRequest::new(request_messages).with_tools(self.tools.schemas());
@@ -414,6 +474,7 @@ impl AgentExecutor {
                 let assistant_msg = Message::assistant(&answer);
                 state.add_message(assistant_msg.clone());
                 memory.add(assistant_msg);
+                last_tool_names.clear();
 
                 match response.finish_reason {
                     FinishReason::MaxTokens => {
@@ -476,14 +537,26 @@ impl AgentExecutor {
                 .execute_tools_with_events(&response.tool_calls, emitter, config.tool_timeout)
                 .await;
             tracker.record_tool_calls(results.len());
+            last_tool_names = response
+                .tool_calls
+                .iter()
+                .map(|call| call.name.clone())
+                .collect();
+            let mut tool_failed = false;
 
             for (tool_call_id, result) in results {
                 let mut result_str = match result {
                     Ok(output) if output.success => {
                         serde_json::to_string(&output.result).unwrap_or_default()
                     }
-                    Ok(output) => format!("Error: {}", output.error.unwrap_or_default()),
-                    Err(e) => format!("Error: {}", e),
+                    Ok(output) => {
+                        tool_failed = true;
+                        format!("Error: {}", output.error.unwrap_or_default())
+                    }
+                    Err(e) => {
+                        tool_failed = true;
+                        format!("Error: {}", e)
+                    }
                 };
 
                 // Truncate long results to prevent context overflow
@@ -540,6 +613,7 @@ impl AgentExecutor {
                 state.add_message(tool_result_msg.clone());
                 memory.add(tool_result_msg);
             }
+            had_failure = tool_failed;
 
             // Check for stuck agent after tool execution
             if let Some(ref detector) = stuck_detector
