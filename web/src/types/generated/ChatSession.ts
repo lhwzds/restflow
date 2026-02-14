@@ -56,6 +56,10 @@ updated_at: bigint,
  */
 skill_id: string | null, 
 /**
+ * Optional per-session retention policy (e.g., "1h", "1d", "7d", "30d")
+ */
+retention?: string | null, 
+/**
  * Summary message pointer for compacted sessions
  */
 summary_message_id: string | null, 
