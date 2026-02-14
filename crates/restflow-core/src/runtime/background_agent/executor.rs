@@ -245,6 +245,7 @@ impl AgentRuntimeExecutor {
             max_tool_calls: limits.max_tool_calls,
             max_wall_clock: Duration::from_secs(limits.max_duration_secs),
             max_depth: AgentResourceLimits::default().max_depth,
+            max_cost_usd: limits.max_cost_usd,
         }
     }
 
@@ -1456,6 +1457,20 @@ mod tests {
             ..MemoryConfig::default()
         };
         assert!(AgentRuntimeExecutor::build_compaction_config(&disabled).is_none());
+    }
+
+    #[test]
+    fn test_to_agent_resource_limits_maps_cost_budget() {
+        let limits = crate::models::ResourceLimits {
+            max_tool_calls: 12,
+            max_duration_secs: 34,
+            max_output_bytes: 56,
+            max_cost_usd: Some(7.5),
+        };
+        let mapped = AgentRuntimeExecutor::to_agent_resource_limits(&limits);
+        assert_eq!(mapped.max_tool_calls, 12);
+        assert_eq!(mapped.max_wall_clock, Duration::from_secs(34));
+        assert_eq!(mapped.max_cost_usd, Some(7.5));
     }
 
     struct NoopReplySender;
