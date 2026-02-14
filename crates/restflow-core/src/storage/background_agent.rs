@@ -44,12 +44,40 @@ impl BackgroundAgentStorage {
     }
 
     fn validate_task_input(input: Option<&str>, input_template: Option<&str>) -> Result<()> {
-        if Self::has_non_empty_text(input) || Self::has_non_empty_text(input_template) {
+        if Self::resolve_effective_input_for_validation(input, input_template).is_some() {
             return Ok(());
         }
         Err(anyhow::anyhow!(
             "background agent requires non-empty input or input_template"
         ))
+    }
+
+    fn resolve_effective_input_for_validation(
+        input: Option<&str>,
+        input_template: Option<&str>,
+    ) -> Option<String> {
+        let fallback_input = input
+            .filter(|value| Self::has_non_empty_text(Some(value)))
+            .map(str::to_string);
+
+        if let Some(template) = input_template {
+            let rendered = Self::render_input_template_for_validation(template, input);
+            if !rendered.trim().is_empty() {
+                return Some(rendered);
+            }
+            return fallback_input;
+        }
+
+        fallback_input
+    }
+
+    fn render_input_template_for_validation(template: &str, input: Option<&str>) -> String {
+        let input_value = input.unwrap_or_default();
+        let replacements = std::collections::HashMap::from([
+            ("{{task.input}}", input_value),
+            ("{{input}}", input_value),
+        ]);
+        crate::utils::template::render_template_single_pass(template, &replacements)
     }
 
     /// Create a new BackgroundAgentStorage instance
@@ -1681,5 +1709,74 @@ mod tests {
                 .to_string()
                 .contains("requires non-empty input or input_template")
         );
+    }
+
+    #[test]
+    fn test_create_background_agent_allows_empty_template_render_when_fallback_input_exists() {
+        let storage = create_test_storage();
+        let result = storage.create_background_agent(BackgroundAgentSpec {
+            name: "Fallback Input".to_string(),
+            agent_id: "agent-001".to_string(),
+            description: None,
+            input: Some("Use fallback".to_string()),
+            input_template: Some("{{input}}".to_string()),
+            schedule: BackgroundAgentSchedule::default(),
+            notification: None,
+            execution_mode: None,
+            timeout_secs: None,
+            memory: None,
+            durability_mode: None,
+            resource_limits: None,
+        });
+
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_create_background_agent_rejects_template_that_renders_empty_without_fallback() {
+        let storage = create_test_storage();
+        let result = storage.create_background_agent(BackgroundAgentSpec {
+            name: "Empty Template".to_string(),
+            agent_id: "agent-001".to_string(),
+            description: None,
+            input: None,
+            input_template: Some("{{input}}".to_string()),
+            schedule: BackgroundAgentSchedule::default(),
+            notification: None,
+            execution_mode: None,
+            timeout_secs: None,
+            memory: None,
+            durability_mode: None,
+            resource_limits: None,
+        });
+
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("requires non-empty input or input_template")
+        );
+    }
+
+    #[test]
+    fn test_create_background_agent_keeps_non_empty_template_compatibility() {
+        let storage = create_test_storage();
+        let result = storage.create_background_agent(BackgroundAgentSpec {
+            name: "Template Compatibility".to_string(),
+            agent_id: "agent-001".to_string(),
+            description: None,
+            input: None,
+            input_template: Some("Task {{task.name}}".to_string()),
+            schedule: BackgroundAgentSchedule::default(),
+            notification: None,
+            execution_mode: None,
+            timeout_secs: None,
+            memory: None,
+            durability_mode: None,
+            resource_limits: None,
+        });
+
+        assert!(result.is_ok());
     }
 }
