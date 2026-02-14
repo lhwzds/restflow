@@ -121,7 +121,7 @@ mod tests {
         let core = create_test_core().await;
         let skills = list_skills(&core).await.unwrap();
         // Default skills are bootstrapped; only verify no test artifacts exist
-        assert!(skills.len() >= 1);
+        assert!(!skills.is_empty());
         assert!(!skills.iter().any(|skill| skill.id == "test-skill"));
     }
 
