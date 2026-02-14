@@ -5084,6 +5084,7 @@ dependencies = [
  "futures",
  "hex",
  "lsp-types",
+ "nix 0.29.0",
  "once_cell",
  "postcard",
  "redb",
