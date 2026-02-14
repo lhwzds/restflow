@@ -243,6 +243,7 @@ mod tests {
             skills: None,
             skill_variables: None,
             python_runtime_policy: None,
+            model_routing: None,
         }
     }
 

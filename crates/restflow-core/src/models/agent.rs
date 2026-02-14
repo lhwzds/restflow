@@ -40,6 +40,40 @@ pub enum PythonRuntimePolicy {
     Cpython,
 }
 
+/// Model routing configuration for automatic tier-based model selection.
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq, Eq)]
+#[ts(export)]
+pub struct ModelRoutingConfig {
+    /// Enable automatic model routing.
+    pub enabled: bool,
+    /// Model for routine tasks (cheapest).
+    #[ts(optional)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub routine_model: Option<String>,
+    /// Model for moderate tasks.
+    #[ts(optional)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub moderate_model: Option<String>,
+    /// Model for complex tasks (most capable).
+    #[ts(optional)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub complex_model: Option<String>,
+    /// Escalate to complex tier after a failed iteration.
+    pub escalate_on_failure: bool,
+}
+
+impl Default for ModelRoutingConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            routine_model: None,
+            moderate_model: None,
+            complex_model: None,
+            escalate_on_failure: true,
+        }
+    }
+}
+
 /// API key or password configuration (direct value or secret reference)
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
@@ -95,6 +129,10 @@ pub struct AgentNode {
     #[ts(optional)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub python_runtime_policy: Option<PythonRuntimePolicy>,
+    /// Optional tier-based model routing policy.
+    #[ts(optional)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_routing: Option<ModelRoutingConfig>,
 }
 
 impl AgentNode {
@@ -166,6 +204,12 @@ impl AgentNode {
     /// Set python runtime policy.
     pub fn with_python_runtime_policy(mut self, policy: PythonRuntimePolicy) -> Self {
         self.python_runtime_policy = Some(policy);
+        self
+    }
+
+    /// Set model routing policy.
+    pub fn with_model_routing(mut self, routing: ModelRoutingConfig) -> Self {
+        self.model_routing = Some(routing);
         self
     }
 
@@ -249,6 +293,35 @@ impl AgentNode {
                     model.metadata().name
                 ),
             ));
+        }
+
+        if let Some(routing) = &self.model_routing {
+            for (field, model) in [
+                (
+                    "model_routing.routine_model",
+                    routing.routine_model.as_deref(),
+                ),
+                (
+                    "model_routing.moderate_model",
+                    routing.moderate_model.as_deref(),
+                ),
+                (
+                    "model_routing.complex_model",
+                    routing.complex_model.as_deref(),
+                ),
+            ] {
+                if let Some(model) = model {
+                    let normalized = model.trim();
+                    if normalized.is_empty() {
+                        errors.push(ValidationError::new(field, "must not be empty"));
+                    } else if AIModel::from_api_name(normalized).is_none() {
+                        errors.push(ValidationError::new(
+                            field,
+                            format!("unsupported model '{}'", normalized),
+                        ));
+                    }
+                }
+            }
         }
 
         if let Some(prompt) = &self.prompt
@@ -528,5 +601,36 @@ mod tests {
         let node = AgentNode::new().with_api_key(ApiKeyConfig::Direct("  ".to_string()));
         let errors = node.validate().expect_err("expected validation error");
         assert!(errors.iter().any(|error| error.field == "api_key_config"));
+    }
+
+    #[test]
+    fn validate_accepts_model_routing_with_known_models() {
+        let node = AgentNode::new().with_model_routing(ModelRoutingConfig {
+            enabled: true,
+            routine_model: Some("gpt-5-nano".to_string()),
+            moderate_model: Some("claude-sonnet-4-5".to_string()),
+            complex_model: Some("claude-opus-4-6".to_string()),
+            escalate_on_failure: true,
+        });
+
+        assert!(node.validate().is_ok());
+    }
+
+    #[test]
+    fn validate_rejects_model_routing_with_unknown_model() {
+        let node = AgentNode::new().with_model_routing(ModelRoutingConfig {
+            enabled: true,
+            routine_model: Some("not-a-real-model".to_string()),
+            moderate_model: None,
+            complex_model: None,
+            escalate_on_failure: true,
+        });
+
+        let errors = node.validate().expect_err("expected validation error");
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.field == "model_routing.routine_model")
+        );
     }
 }
