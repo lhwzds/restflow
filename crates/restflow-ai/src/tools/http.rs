@@ -76,7 +76,7 @@ impl Tool for HttpTool {
     }
 
     fn description(&self) -> &str {
-        "Send HTTP requests with method, URL, optional headers/body, and return status and response data."
+        "Send HTTP requests with method, URL, optional headers/body, and return status and response data. This is the PRIMARY HTTP tool."
     }
 
     fn parameters_schema(&self) -> Value {
