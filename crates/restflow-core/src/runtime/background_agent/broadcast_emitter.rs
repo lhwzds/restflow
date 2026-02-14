@@ -2,25 +2,46 @@ use async_trait::async_trait;
 use restflow_ai::agent::StreamEmitter;
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
+use tokio::task::JoinHandle;
 use tracing::warn;
 
 use crate::channel::{ChannelRouter, MessageLevel};
 
 const MAX_BROADCAST_CHARS: usize = 200;
+const TYPING_INTERVAL_SECS: u64 = 5;
 
 pub struct BroadcastStreamEmitter {
     task_name: String,
     router: Arc<ChannelRouter>,
     started_at: HashMap<String, Instant>,
+    typing_task: Option<JoinHandle<()>>,
 }
 
 impl BroadcastStreamEmitter {
     pub fn new(task_name: String, router: Arc<ChannelRouter>) -> Self {
+        let typing_router = Arc::clone(&router);
+        let typing_task = tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(TYPING_INTERVAL_SECS));
+            loop {
+                interval.tick().await;
+                for (channel_type, result) in typing_router.broadcast_typing().await {
+                    if let Err(error) = result {
+                        warn!(
+                            channel = ?channel_type,
+                            error = %error,
+                            "Failed to broadcast typing indicator"
+                        );
+                    }
+                }
+            }
+        });
+
         Self {
             task_name,
             router,
             started_at: HashMap::new(),
+            typing_task: Some(typing_task),
         }
     }
 
@@ -61,6 +82,12 @@ impl BroadcastStreamEmitter {
             }
         }
     }
+
+    fn stop_typing_task(&mut self) {
+        if let Some(handle) = self.typing_task.take() {
+            handle.abort();
+        }
+    }
 }
 
 #[async_trait]
@@ -84,7 +111,15 @@ impl StreamEmitter for BroadcastStreamEmitter {
         self.broadcast(&message).await;
     }
 
-    async fn emit_complete(&mut self) {}
+    async fn emit_complete(&mut self) {
+        self.stop_typing_task();
+    }
+}
+
+impl Drop for BroadcastStreamEmitter {
+    fn drop(&mut self) {
+        self.stop_typing_task();
+    }
 }
 
 fn truncate_text(value: &str, max_chars: usize) -> String {

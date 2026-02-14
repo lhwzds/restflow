@@ -47,6 +47,7 @@ mod state;
 mod step;
 pub mod strategy;
 mod stream;
+mod streaming_buffer;
 pub mod stuck;
 mod sub_agent;
 mod trace;

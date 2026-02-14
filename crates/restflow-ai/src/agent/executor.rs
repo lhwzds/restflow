@@ -15,6 +15,7 @@ use crate::agent::resource::{ResourceLimits, ResourceTracker, ResourceUsage};
 use crate::agent::scratchpad::Scratchpad;
 use crate::agent::state::{AgentState, AgentStatus};
 use crate::agent::stream::{ChannelEmitter, NullEmitter, StreamEmitter, ToolCallAccumulator};
+use crate::agent::streaming_buffer::{BufferMode, StreamingBuffer};
 use crate::agent::stuck::{StuckAction, StuckDetector, StuckDetectorConfig};
 use crate::error::{AiError, Result};
 use crate::llm::{CompletionRequest, FinishReason, LlmClient, Message, Role, ToolCall};
@@ -340,6 +341,7 @@ impl AgentExecutor {
     ) -> Result<AgentResult> {
         let execution_id =
             execution_id_override.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+        let mut streaming_buffer = StreamingBuffer::default();
         let mut state = AgentState::new(execution_id, config.max_iterations);
         if let Some(scratchpad) = &config.scratchpad {
             scratchpad.log_start(&state.execution_id, self.llm.model(), &config.goal);
@@ -449,6 +451,8 @@ impl AgentExecutor {
                     emitter,
                     config.scratchpad.as_deref(),
                     state.iteration + 1,
+                    &state.execution_id,
+                    &mut streaming_buffer,
                 )
                 .await?
             } else {
@@ -660,6 +664,14 @@ impl AgentExecutor {
             }
 
             state.increment_iteration();
+
+            for (_id, content) in streaming_buffer.flush_all() {
+                emitter.emit_text_delta(&content).await;
+            }
+        }
+
+        for (_id, content) in streaming_buffer.flush_all() {
+            emitter.emit_text_delta(&content).await;
         }
 
         // Build result
@@ -745,14 +757,23 @@ impl AgentExecutor {
         emitter: &mut dyn StreamEmitter,
         scratchpad: Option<&Scratchpad>,
         iteration: usize,
+        execution_id: &str,
+        streaming_buffer: &mut StreamingBuffer,
     ) -> Result<crate::llm::CompletionResponse> {
         if !self.llm.supports_streaming() {
             let response = self.llm.complete(request).await?;
             if let Some(content) = &response.content {
-                emitter.emit_text_delta(content).await;
+                if let Some(flushed) =
+                    streaming_buffer.append(execution_id, content, BufferMode::Replace)
+                {
+                    emitter.emit_text_delta(&flushed).await;
+                }
                 if let Some(scratchpad) = scratchpad {
                     scratchpad.log_text_delta(iteration, content);
                 }
+            }
+            if let Some(flushed) = streaming_buffer.flush(execution_id) {
+                emitter.emit_text_delta(&flushed).await;
             }
             return Ok(response);
         }
@@ -768,7 +789,11 @@ impl AgentExecutor {
 
             if !chunk.text.is_empty() {
                 text.push_str(&chunk.text);
-                emitter.emit_text_delta(&chunk.text).await;
+                if let Some(flushed) =
+                    streaming_buffer.append(execution_id, &chunk.text, BufferMode::Accumulate)
+                {
+                    emitter.emit_text_delta(&flushed).await;
+                }
                 if let Some(scratchpad) = scratchpad {
                     scratchpad.log_text_delta(iteration, &chunk.text);
                 }
@@ -792,6 +817,10 @@ impl AgentExecutor {
             if let Some(reason) = chunk.finish_reason {
                 finish_reason = Some(reason);
             }
+        }
+
+        if let Some(flushed) = streaming_buffer.flush(execution_id) {
+            emitter.emit_text_delta(&flushed).await;
         }
 
         Ok(crate::llm::CompletionResponse {
