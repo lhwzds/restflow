@@ -3234,6 +3234,7 @@ mod tests {
             timeout_secs: None,
             memory: None,
             memory_scope: None,
+            resource_limits: None,
             status: None,
             action: None,
             event_limit: None,
