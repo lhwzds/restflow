@@ -90,6 +90,7 @@
 
 pub mod chunk;
 pub mod pairing;
+pub mod plugin;
 mod reply_sender;
 pub mod route_binding;
 mod router;
@@ -98,6 +99,7 @@ mod traits;
 mod types;
 
 pub use pairing::{AllowedPeer, PairingManager, PairingRequest};
+pub use plugin::{ChannelPlugin, ChannelRegistry};
 pub use reply_sender::ChannelReplySender;
 pub use route_binding::{RouteBinding, RouteBindingType, RouteResolver};
 pub use router::ChannelRouter;

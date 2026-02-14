@@ -18,6 +18,17 @@ pub enum ChannelType {
 }
 
 impl ChannelType {
+    /// Stable plugin identifier.
+    pub fn plugin_id(&self) -> &'static str {
+        match self {
+            Self::Telegram => "telegram",
+            Self::Discord => "discord",
+            Self::Slack => "slack",
+            Self::Email => "email",
+            Self::Webhook => "webhook",
+        }
+    }
+
     /// Whether this channel type supports bidirectional interaction
     pub fn supports_interaction(&self) -> bool {
         matches!(self, Self::Telegram | Self::Discord | Self::Slack)
@@ -290,6 +301,12 @@ mod tests {
     fn test_channel_type_display_name() {
         assert_eq!(ChannelType::Telegram.display_name(), "Telegram");
         assert_eq!(ChannelType::Discord.display_name(), "Discord");
+    }
+
+    #[test]
+    fn test_channel_type_plugin_id() {
+        assert_eq!(ChannelType::Telegram.plugin_id(), "telegram");
+        assert_eq!(ChannelType::Discord.plugin_id(), "discord");
     }
 
     #[test]
