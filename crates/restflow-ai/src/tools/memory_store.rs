@@ -72,7 +72,7 @@ impl Tool for SaveMemoryTool {
     }
 
     fn description(&self) -> &str {
-        "Store a persistent memory entry with title, content, and optional tags."
+        "Store a structured persistent memory entry with title, content, and optional tags. Use this for facts, decisions, and long-term knowledge."
     }
 
     fn parameters_schema(&self) -> Value {
@@ -153,7 +153,7 @@ impl Tool for ReadMemoryTool {
     }
 
     fn description(&self) -> &str {
-        "Retrieve stored memory entries by id, tag, or title keyword search."
+        "Retrieve stored memory entries by id, tag, or title keyword. Returns structured entries with metadata. Use this for specific lookups and tag-based retrieval."
     }
 
     fn parameters_schema(&self) -> Value {

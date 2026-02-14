@@ -1119,6 +1119,28 @@ impl RestFlowMcpServer {
         }
     }
 
+    fn runtime_alias_description(alias_name: &str, target_name: &str) -> String {
+        match (alias_name, target_name) {
+            ("http", "http_request") => {
+                "Alias of 'http_request' for convenience. Prefer using 'http_request' directly."
+                    .to_string()
+            }
+            ("email", "send_email") => {
+                "Alias of 'send_email' for convenience. Prefer using 'send_email' directly."
+                    .to_string()
+            }
+            ("telegram", "telegram_send") => {
+                "Alias of 'telegram_send' for convenience. Prefer using 'telegram_send' directly."
+                    .to_string()
+            }
+            ("use_skill", "skill") => {
+                "Alias of 'skill' for backward compatibility. Prefer using 'skill' directly."
+                    .to_string()
+            }
+            _ => format!("Alias of '{}' for backward compatibility.", target_name),
+        }
+    }
+
     fn convert_use_skill_input(input: Value) -> Value {
         let Value::Object(mut map) = input else {
             return serde_json::json!({ "action": "list" });
@@ -1737,12 +1759,12 @@ impl ServerHandler for RestFlowMcpServer {
             ),
             Tool::new(
                 "memory_search",
-                "Search memory chunks for an agent using keyword matching.",
+                "Search memory chunks using keyword matching. Returns raw chunks. Use this for broad keyword searches across memory.",
                 schema_for_type::<MemorySearchParams>(),
             ),
             Tool::new(
                 "memory_store",
-                "Store a new memory chunk for an agent.",
+                "Store a new memory chunk for an agent. Use this for raw memory storage without title/tags structure.",
                 schema_for_type::<MemoryStoreParams>(),
             ),
             Tool::new(
@@ -1767,7 +1789,7 @@ impl ServerHandler for RestFlowMcpServer {
             ),
             Tool::new(
                 "manage_background_agents",
-                "Manage background agents with explicit operations: create, update, delete, list, control, progress, send_message, list_messages, pause, resume, cancel, and run.",
+                "Manage background agents. Operations: create (define new agent), run (trigger now), pause/resume (toggle schedule), cancel (stop permanently), delete (remove definition), list (browse agents), progress (execution history), send_message/list_messages (interact with running agents).",
                 schema_for_type::<ManageBackgroundAgentsParams>(),
             ),
             Tool::new(
@@ -1812,7 +1834,7 @@ impl ServerHandler for RestFlowMcpServer {
                     };
                     tools.push(Tool::new(
                         alias_name,
-                        format!("Alias of '{}' for main-agent compatibility.", target_name),
+                        Self::runtime_alias_description(alias_name, target_name),
                         parameters,
                     ));
                     known_names.insert(alias_name.to_string());
@@ -3037,6 +3059,26 @@ mod tests {
         let output = RestFlowMcpServer::convert_use_skill_input(input);
         assert_eq!(output["action"], "read");
         assert_eq!(output["id"], "my-skill");
+    }
+
+    #[test]
+    fn test_runtime_alias_description_prefers_primary_tool() {
+        assert_eq!(
+            RestFlowMcpServer::runtime_alias_description("http", "http_request"),
+            "Alias of 'http_request' for convenience. Prefer using 'http_request' directly."
+        );
+        assert_eq!(
+            RestFlowMcpServer::runtime_alias_description("email", "send_email"),
+            "Alias of 'send_email' for convenience. Prefer using 'send_email' directly."
+        );
+        assert_eq!(
+            RestFlowMcpServer::runtime_alias_description("telegram", "telegram_send"),
+            "Alias of 'telegram_send' for convenience. Prefer using 'telegram_send' directly."
+        );
+        assert_eq!(
+            RestFlowMcpServer::runtime_alias_description("use_skill", "skill"),
+            "Alias of 'skill' for backward compatibility. Prefer using 'skill' directly."
+        );
     }
 
     #[test]

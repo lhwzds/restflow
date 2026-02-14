@@ -115,7 +115,7 @@ impl Tool for TelegramTool {
     }
 
     fn description(&self) -> &str {
-        "Send Telegram Bot API messages to a chat with optional formatting and notification flags."
+        "Send Telegram Bot API messages to a chat with optional formatting and notification flags. This is the PRIMARY Telegram tool."
     }
 
     fn parameters_schema(&self) -> Value {

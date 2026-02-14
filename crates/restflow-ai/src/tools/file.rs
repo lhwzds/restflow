@@ -1476,7 +1476,7 @@ impl Tool for FileTool {
     }
 
     fn description(&self) -> &str {
-        "Perform file and directory operations: read, write, list, search, delete, exists, and batch variants."
+        "Perform file and directory operations: read, write, list, search, delete, exists, and batch variants. Use this for file content workflows; for shell command execution, use bash."
     }
 
     fn parameters_schema(&self) -> Value {
@@ -1917,6 +1917,7 @@ mod tests {
     fn test_file_tool_description() {
         let tool = FileTool::new();
         assert!(tool.description().contains("file and directory operations"));
+        assert!(tool.description().contains("use bash"));
     }
 
     #[test]

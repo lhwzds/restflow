@@ -194,7 +194,7 @@ impl Tool for BashTool {
     }
 
     fn description(&self) -> &str {
-        "Run shell commands in the local environment and return stdout, stderr, and exit status."
+        "Run shell commands in the local environment and return stdout, stderr, and exit status. Use this for command execution; for file content operations, prefer the file tool."
     }
 
     fn parameters_schema(&self) -> Value {
@@ -358,6 +358,7 @@ mod tests {
     fn test_bash_tool_description() {
         let tool = BashTool::new();
         assert!(tool.description().contains("shell commands"));
+        assert!(tool.description().contains("file tool"));
     }
 
     #[test]

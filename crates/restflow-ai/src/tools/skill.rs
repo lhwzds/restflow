@@ -104,7 +104,7 @@ impl Tool for SkillTool {
     }
 
     fn description(&self) -> &str {
-        "Create, read, update, list, import, export, and delete reusable skill definitions."
+        "Create, read, update, list, import, export, and delete reusable skill definitions. This is the PRIMARY skill management tool."
     }
 
     fn parameters_schema(&self) -> Value {
