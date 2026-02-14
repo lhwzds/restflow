@@ -26,6 +26,10 @@ export type Skill = {
    */
   tags: Array<string> | null
   /**
+   * Optional trigger phrases that auto-activate this skill from user input
+   */
+  triggers?: Array<string>
+  /**
    * The markdown content of the skill (instructions for the AI)
    */
   content: string
