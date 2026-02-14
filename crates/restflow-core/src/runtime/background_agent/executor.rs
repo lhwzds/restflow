@@ -7,6 +7,7 @@
 
 use anyhow::{Result, anyhow};
 use async_trait::async_trait;
+use chrono::Utc;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
@@ -27,8 +28,8 @@ use restflow_ai::tools::PythonRuntime;
 use restflow_ai::{
     AgentConfig as ReActAgentConfig, AgentExecutor as ReActAgentExecutor, AiError, CodexClient,
     CompactionConfig, DefaultLlmClientFactory, LlmClient, LlmClientFactory, LlmProvider,
-    ProcessTool, ReplySender, ReplyTool, ResourceLimits as AgentResourceLimits, SwappableLlm,
-    SwitchModelTool,
+    ProcessTool, ReplySender, ReplyTool, ResourceLimits as AgentResourceLimits, Scratchpad,
+    SwappableLlm, SwitchModelTool,
 };
 use tokio::sync::mpsc;
 use tokio::time::sleep;
@@ -81,6 +82,14 @@ pub enum SessionInputMode {
 }
 
 impl AgentRuntimeExecutor {
+    fn create_scratchpad_for_task(background_task_id: &str) -> Result<Arc<Scratchpad>> {
+        let base_dir = crate::paths::ensure_restflow_dir()?.join("scratchpads");
+        std::fs::create_dir_all(&base_dir)?;
+        let timestamp = Utc::now().format("%Y%m%d-%H%M%S");
+        let path = base_dir.join(format!("{background_task_id}-{timestamp}.jsonl"));
+        Ok(Arc::new(Scratchpad::new(path)?))
+    }
+
     /// Create a new AgentRuntimeExecutor with access to storage.
     pub fn new(
         storage: Arc<Storage>,
@@ -910,6 +919,11 @@ impl AgentRuntimeExecutor {
             .with_max_tool_result_length(resource_limits.max_output_bytes);
         if let Some(compaction) = Self::build_compaction_config(memory_config) {
             config = config.with_compaction_config(compaction);
+        }
+        if let Some(task_id) = background_task_id
+            && let Ok(scratchpad) = Self::create_scratchpad_for_task(task_id)
+        {
+            config = config.with_scratchpad(scratchpad);
         }
         if model.supports_temperature()
             && let Some(temp) = agent_node.temperature

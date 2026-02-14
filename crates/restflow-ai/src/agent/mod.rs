@@ -41,6 +41,7 @@ mod executor;
 mod history;
 pub mod react;
 mod resource;
+mod scratchpad;
 mod state;
 mod step;
 pub mod strategy;
@@ -59,6 +60,7 @@ pub use execution_engine::{AgentExecutionEngine, AgentExecutionEngineConfig, Exe
 pub use executor::{AgentConfig, AgentExecutor, AgentResult};
 pub use history::{HistoryPipeline, HistoryProcessor, TrimOldMessagesProcessor};
 pub use resource::{ResourceError, ResourceLimits, ResourceTracker, ResourceUsage};
+pub use scratchpad::Scratchpad;
 pub use state::{AgentState, AgentStatus};
 pub use step::ExecutionStep;
 pub use stream::{ChannelEmitter, NullEmitter, StreamEmitter, ToolCallAccumulator};
