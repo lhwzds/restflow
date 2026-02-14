@@ -9,6 +9,8 @@ export interface SessionItem {
   updatedAt: number
   agentId?: string
   agentName?: string
+  /** If true, this item represents a background agent, not a chat session */
+  isBackgroundAgent?: boolean
 }
 
 export interface AgentFile {
