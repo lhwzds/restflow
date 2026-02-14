@@ -25,8 +25,16 @@ import AgentStatusBadge from './AgentStatusBadge.vue'
 import AgentOverviewOverlay from './AgentOverviewOverlay.vue'
 import { useBackgroundAgentStore } from '@/stores/backgroundAgentStore'
 import { useBackgroundAgentStream } from '@/composables/workspace/useBackgroundAgentStream'
-import { getBackgroundAgentEvents, steerTask } from '@/api/background-agents'
+import {
+  getBackgroundAgentEvents,
+  listMemoryChunksByTag,
+  listMemoryChunksForSession,
+  listMemorySessions,
+  steerTask,
+} from '@/api/background-agents'
 import type { BackgroundAgent } from '@/types/generated/BackgroundAgent'
+import type { MemoryChunk } from '@/types/generated/MemoryChunk'
+import type { MemorySession } from '@/types/generated/MemorySession'
 import type { TaskEvent } from '@/types/generated/TaskEvent'
 
 const props = defineProps<{
@@ -38,6 +46,8 @@ const emit = defineEmits<{
 }>()
 
 const store = useBackgroundAgentStore()
+const MEMORY_CHUNK_LIMIT = 200
+const MEMORY_FALLBACK_SESSION_LIMIT = 20
 
 // Overlay toggle
 const showOverview = ref(false)
@@ -49,6 +59,12 @@ const isSteering = ref(false)
 // Event history
 const events = ref<TaskEvent[]>([])
 const isLoadingEvents = ref(false)
+
+// Persisted long-term memory for this background agent
+const memoryChunks = ref<MemoryChunk[]>([])
+const memorySessions = ref<MemorySession[]>([])
+const isLoadingMemory = ref(false)
+const memoryLoadError = ref<string | null>(null)
 
 // Stream
 const streamTaskId = ref<string | null>(null)
@@ -64,6 +80,7 @@ const canResume = computed(() => props.agent.status === 'paused')
 const canRun = computed(() => props.agent.status === 'active' || props.agent.status === 'paused')
 const canCancel = computed(() => props.agent.status === 'running')
 const canSteer = computed(() => isStreaming.value || props.agent.status === 'running')
+const hasMemoryPersistence = computed(() => props.agent.memory.persist_on_complete)
 
 async function handlePause() {
   await store.pauseAgent(props.agent.id)
@@ -116,6 +133,105 @@ async function loadEvents() {
   }
 }
 
+function memoryAgentIdCandidates(): string[] {
+  const sharedNamespace = props.agent.agent_id
+  const taskNamespace = `${props.agent.agent_id}::task::${props.agent.id}`
+  const ordered =
+    props.agent.memory.memory_scope === 'per_background_agent'
+      ? [taskNamespace, sharedNamespace]
+      : [sharedNamespace, taskNamespace]
+  return [...new Set(ordered)]
+}
+
+function dedupeById<T extends { id: string }>(items: T[]): T[] {
+  const map = new Map<string, T>()
+  for (const item of items) {
+    map.set(item.id, item)
+  }
+  return Array.from(map.values())
+}
+
+function chunkMatchesTask(chunk: MemoryChunk): boolean {
+  if (chunk.source.type === 'task_execution' && chunk.source.task_id === props.agent.id) {
+    return true
+  }
+  return chunk.tags.includes(`task:${props.agent.id}`)
+}
+
+function sortChunksByTime(chunks: MemoryChunk[]): MemoryChunk[] {
+  return [...chunks].sort((a, b) => a.created_at - b.created_at)
+}
+
+async function loadMemoryConversation() {
+  memoryLoadError.value = null
+  memorySessions.value = []
+
+  if (!hasMemoryPersistence.value) {
+    memoryChunks.value = []
+    return
+  }
+
+  isLoadingMemory.value = true
+  try {
+    const taskTag = `task:${props.agent.id}`
+    const taggedChunks = await listMemoryChunksByTag(taskTag, MEMORY_CHUNK_LIMIT)
+    const filteredTaggedChunks = sortChunksByTime(dedupeById(taggedChunks).filter(chunkMatchesTask))
+
+    if (filteredTaggedChunks.length > 0) {
+      memoryChunks.value = filteredTaggedChunks
+      return
+    }
+
+    // Fallback for older records that may not have task tags.
+    const sessionsPerNamespace = await Promise.all(
+      memoryAgentIdCandidates().map(async (agentId) => {
+        try {
+          return await listMemorySessions(agentId)
+        } catch (err) {
+          console.warn(`Failed to load memory sessions for namespace ${agentId}:`, err)
+          return []
+        }
+      }),
+    )
+
+    const allSessions = dedupeById(sessionsPerNamespace.flat()).sort(
+      (a, b) => b.updated_at - a.updated_at,
+    )
+    const taggedSessions = allSessions.filter((session) => session.tags.includes(taskTag))
+    const sessionsToInspect =
+      taggedSessions.length > 0
+        ? taggedSessions
+        : allSessions.slice(0, MEMORY_FALLBACK_SESSION_LIMIT)
+
+    if (sessionsToInspect.length === 0) {
+      memoryChunks.value = []
+      return
+    }
+
+    memorySessions.value = sessionsToInspect
+
+    const sessionChunks = await Promise.all(
+      sessionsToInspect.map(async (session) => {
+        try {
+          return await listMemoryChunksForSession(session.id)
+        } catch (err) {
+          console.warn(`Failed to load memory chunks for session ${session.id}:`, err)
+          return []
+        }
+      }),
+    )
+
+    memoryChunks.value = sortChunksByTime(
+      dedupeById(sessionChunks.flat()).filter((chunk) => chunkMatchesTask(chunk)),
+    )
+  } catch (err) {
+    memoryLoadError.value = err instanceof Error ? err.message : 'Failed to load memory'
+    memoryChunks.value = []
+  } finally {
+    isLoadingMemory.value = false
+  }
+}
+
 function scrollToBottom() {
   if (scrollContainer.value) {
     scrollContainer.value.scrollTop = scrollContainer.value.scrollHeight
@@ -165,8 +281,8 @@ function formatDuration(ms: number | null): string {
   return `${(ms / 1000).toFixed(1)}s`
 }
 
-// Auto-scroll on new output or events
-watch([outputText, () => events.value.length], () => {
+// Auto-scroll on new output, events, or loaded memory
+watch([outputText, () => events.value.length, () => memoryChunks.value.length], () => {
   nextTick(scrollToBottom)
 })
 
@@ -177,11 +293,23 @@ watch(
     streamTaskId.value = null
     reset()
     loadEvents()
+    loadMemoryConversation()
+  },
+)
+
+watch(
+  () => streamState.value.completedAt,
+  (completedAt, previousCompletedAt) => {
+    if (completedAt && completedAt !== previousCompletedAt) {
+      loadEvents()
+      loadMemoryConversation()
+    }
   },
 )
 
 onMounted(() => {
   loadEvents()
+  loadMemoryConversation()
 })
 </script>
 
@@ -307,6 +435,46 @@ onMounted(() => {
               class="mt-1 text-xs font-mono bg-muted/30 rounded-md px-2 py-1.5 whitespace-pre-wrap break-words max-h-48 overflow-auto"
               >{{ event.output }}</pre
             >
+          </div>
+        </div>
+
+        <!-- Persisted memory transcript -->
+        <div
+          v-if="hasMemoryPersistence"
+          class="rounded-lg border border-border/60 bg-background/60 p-3"
+        >
+          <div class="text-xs text-muted-foreground mb-2 flex items-center gap-2">
+            <span class="font-medium text-foreground">Persisted Memory</span>
+            <Loader2 v-if="isLoadingMemory" :size="10" class="animate-spin" />
+            <span v-else-if="memoryChunks.length > 0">{{ memoryChunks.length }} chunks</span>
+            <span v-else-if="memorySessions.length > 0">{{ memorySessions.length }} sessions</span>
+          </div>
+
+          <div
+            v-if="memoryLoadError"
+            class="text-xs text-destructive bg-destructive/10 rounded px-2 py-1 break-words"
+          >
+            {{ memoryLoadError }}
+          </div>
+
+          <div
+            v-else-if="!isLoadingMemory && memoryChunks.length === 0"
+            class="text-xs text-muted-foreground"
+          >
+            No persisted conversation found for this background agent.
+          </div>
+
+          <div v-else class="space-y-2 max-h-[40vh] overflow-auto pr-1">
+            <div
+              v-for="chunk in memoryChunks"
+              :key="chunk.id"
+              class="rounded-md border border-border/40 bg-muted/20 p-2"
+            >
+              <div class="text-[11px] text-muted-foreground">
+                {{ new Date(chunk.created_at).toLocaleString() }}
+              </div>
+              <pre class="mt-1 text-xs whitespace-pre-wrap break-words">{{ chunk.content }}</pre>
+            </div>
           </div>
         </div>
 
