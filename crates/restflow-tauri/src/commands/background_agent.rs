@@ -237,6 +237,7 @@ pub async fn create_background_agent(
         timeout_secs: request.timeout_secs,
         memory: merge_memory_scope(request.memory, request.memory_scope),
         resource_limits: request.resource_limits,
+        durability_mode: None,
     };
 
     state
@@ -265,6 +266,7 @@ pub async fn update_background_agent(
         timeout_secs: request.timeout_secs,
         memory: merge_memory_scope(request.memory, request.memory_scope),
         resource_limits: request.resource_limits,
+        durability_mode: None,
     };
 
     state

@@ -722,14 +722,24 @@ impl BackgroundAgentStorage {
         let mut deleted = 0usize;
 
         for task in tasks {
-            if !matches!(
-                task.status,
-                BackgroundAgentStatus::Completed | BackgroundAgentStatus::Failed
-            ) {
-                continue;
-            }
+            // Re-fetch current state before deleting to avoid race condition.
+            // Between the initial list_tasks() snapshot and delete_task(),
+            // another thread could have changed task status or timestamp.
+            if let Some(current) = self.get_task(&task.id)? {
+                // Verify status is still terminal (Completed or Failed)
+                if !matches!(
+                    current.status,
+                    BackgroundAgentStatus::Completed | BackgroundAgentStatus::Failed
+                ) {
+                    continue;
+                }
 
-            if task.updated_at >= older_than_ms {
+                // Verify timestamp is still old enough for deletion
+                if current.updated_at >= older_than_ms {
+                    continue;
+                }
+            } else {
+                // Task was already deleted, skip
                 continue;
             }
 
