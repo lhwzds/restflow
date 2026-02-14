@@ -2182,6 +2182,7 @@ impl MarketplaceTool {
             name: manifest.name,
             description: manifest.description,
             tags: Some(manifest.keywords),
+            triggers: Vec::new(),
             content,
             folder_path: None,
             suggested_tools: Vec::new(),

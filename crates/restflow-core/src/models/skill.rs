@@ -31,6 +31,9 @@ pub struct Skill {
     pub description: Option<String>,
     /// Optional tags for categorization
     pub tags: Option<Vec<String>>,
+    /// Optional trigger phrases that auto-activate this skill from user input
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub triggers: Vec<String>,
     /// The markdown content of the skill (instructions for the AI)
     pub content: String,
     /// Optional folder path for skills stored on disk
@@ -95,6 +98,7 @@ impl Skill {
             name,
             description,
             tags,
+            triggers: Vec::new(),
             content,
             folder_path: None,
             suggested_tools: Vec::new(),
@@ -153,6 +157,8 @@ pub struct SkillFrontmatter {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tags: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub triggers: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub suggested_tools: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub scripts: Option<Vec<SkillScript>>,
@@ -179,6 +185,11 @@ impl Skill {
             name: self.name.clone(),
             description: self.description.clone(),
             tags: self.tags.clone(),
+            triggers: if self.triggers.is_empty() {
+                None
+            } else {
+                Some(self.triggers.clone())
+            },
             suggested_tools: if self.suggested_tools.is_empty() {
                 None
             } else {
@@ -240,6 +251,7 @@ impl Skill {
         );
 
         skill.suggested_tools = frontmatter.suggested_tools.unwrap_or_default();
+        skill.triggers = frontmatter.triggers.unwrap_or_default();
         skill.scripts = frontmatter.scripts.unwrap_or_default();
         skill.references = frontmatter.references.unwrap_or_default();
         skill.gating = frontmatter.gating;
@@ -286,10 +298,14 @@ mod tests {
             Some(vec!["git".to_string(), "workflow".to_string()]),
             "# Test Content\n\nSome instructions here.".to_string(),
         );
+        let mut skill = skill;
+        skill.triggers = vec!["code review".to_string(), "review pr".to_string()];
 
         let markdown = skill.to_markdown();
         assert!(markdown.contains("name: Test Skill"));
         assert!(markdown.contains("description: A test skill"));
+        assert!(markdown.contains("triggers:"));
+        assert!(markdown.contains("- code review"));
         assert!(markdown.contains("# Test Content"));
     }
 
@@ -301,6 +317,9 @@ description: Generate commit messages from git diff
 tags:
   - git
   - workflow
+triggers:
+  - code review
+  - review PR
 ---
 
 # Commit Message Generator
@@ -317,6 +336,10 @@ When generating commit messages, follow these steps..."#;
         assert_eq!(
             skill.tags,
             Some(vec!["git".to_string(), "workflow".to_string()])
+        );
+        assert_eq!(
+            skill.triggers,
+            vec!["code review".to_string(), "review PR".to_string()]
         );
         assert!(skill.content.contains("# Commit Message Generator"));
     }
