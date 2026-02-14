@@ -1,22 +1,28 @@
 <script setup lang="ts">
-import { Plus, MessageSquare, Check, Loader2, Bot, Cog } from 'lucide-vue-next'
+import { computed } from 'vue'
+import { Plus, MessageSquare, Check, Loader2, Bot, Cog, ChevronDown } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from '@/components/ui/dropdown-menu'
 import { cn } from '@/lib/utils'
 import type { AgentFile, SessionItem } from '@/types/workspace'
 
-defineProps<{
+const props = defineProps<{
   sessions: SessionItem[]
   currentSessionId: string | null
   availableAgents: AgentFile[]
   agentFilter: string | null
 }>()
+
+const filterLabel = computed(() => {
+  if (!props.agentFilter) return 'All agents'
+  const agent = props.availableAgents.find((a) => a.id === props.agentFilter)
+  return agent?.name || props.agentFilter
+})
 
 const emit = defineEmits<{
   select: [id: string]
@@ -45,21 +51,35 @@ const formatTime = (timestamp: number) => {
         <span>New Session</span>
       </Button>
 
-      <Select
-        :model-value="agentFilter || ''"
-        @update:model-value="emit('updateAgentFilter', $event || null)"
-      >
-        <SelectTrigger class="w-full h-8 text-xs">
-          <Bot :size="14" class="mr-1 text-muted-foreground shrink-0" />
-          <SelectValue placeholder="All agents" />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="">All agents</SelectItem>
-          <SelectItem v-for="agent in availableAgents" :key="agent.id" :value="agent.id">
+      <DropdownMenu>
+        <DropdownMenuTrigger as-child>
+          <button
+            class="flex h-8 w-full items-center justify-between rounded-md border border-input bg-transparent px-3 py-2 text-xs shadow-sm ring-offset-background focus:outline-none focus:ring-1 focus:ring-ring"
+          >
+            <span class="flex items-center gap-1 truncate">
+              <Bot :size="14" class="text-muted-foreground shrink-0" />
+              <span class="truncate">{{ filterLabel }}</span>
+            </span>
+            <ChevronDown :size="14" class="opacity-50 shrink-0" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" class="w-[var(--radix-dropdown-menu-trigger-width)]">
+          <DropdownMenuItem
+            :class="cn(!agentFilter && 'bg-accent')"
+            @click="emit('updateAgentFilter', null)"
+          >
+            All agents
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            v-for="agent in availableAgents"
+            :key="agent.id"
+            :class="cn(agentFilter === agent.id && 'bg-accent')"
+            @click="emit('updateAgentFilter', agent.id)"
+          >
             {{ agent.name }}
-          </SelectItem>
-        </SelectContent>
-      </Select>
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
     </div>
 
     <!-- Session List -->
