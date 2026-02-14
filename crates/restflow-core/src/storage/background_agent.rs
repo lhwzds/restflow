@@ -372,6 +372,9 @@ impl BackgroundAgentStorage {
         if let Some(resource_limits) = spec.resource_limits {
             task.resource_limits = resource_limits;
         }
+        if let Some(continuation) = spec.continuation {
+            task.continuation = continuation;
+        }
         task.updated_at = chrono::Utc::now().timestamp_millis();
         self.update_task(&task)?;
         Ok(task)
@@ -424,6 +427,11 @@ impl BackgroundAgentStorage {
         }
         if let Some(resource_limits) = patch.resource_limits {
             task.resource_limits = resource_limits;
+        }
+        if let Some(continuation) = patch.continuation {
+            task.continuation = continuation;
+            task.continuation_total_iterations = 0;
+            task.continuation_segments_completed = 0;
         }
         Self::validate_task_input(task.input.as_deref(), task.input_template.as_deref())?;
 
@@ -1229,6 +1237,7 @@ mod tests {
                 memory: None,
                 durability_mode: None,
                 resource_limits: None,
+                continuation: None,
             })
             .unwrap();
 
@@ -1265,6 +1274,7 @@ mod tests {
                 memory: None,
                 durability_mode: None,
                 resource_limits: None,
+                continuation: None,
             })
             .unwrap();
 
@@ -1346,6 +1356,7 @@ mod tests {
                 memory: None,
                 durability_mode: None,
                 resource_limits: None,
+                continuation: None,
             })
             .unwrap();
         assert_eq!(created.name, "BG Agent");
@@ -1447,6 +1458,7 @@ mod tests {
                 }),
                 durability_mode: None,
                 resource_limits: None,
+                continuation: None,
             })
             .unwrap();
 
@@ -1476,6 +1488,7 @@ mod tests {
                 memory: None,
                 durability_mode: None,
                 resource_limits: None,
+                continuation: None,
             })
             .unwrap();
 
@@ -1521,6 +1534,7 @@ mod tests {
             memory: None,
             durability_mode: None,
             resource_limits: None,
+            continuation: None,
         });
 
         assert!(result.is_err());
@@ -1549,6 +1563,7 @@ mod tests {
                 memory: None,
                 durability_mode: None,
                 resource_limits: None,
+                continuation: None,
             })
             .unwrap();
 
@@ -1589,6 +1604,7 @@ mod tests {
                     max_output_bytes: 2048,
                     max_cost_usd: Some(1.25),
                 }),
+                continuation: None,
             })
             .unwrap();
 
@@ -1619,6 +1635,72 @@ mod tests {
     }
 
     #[test]
+    fn test_background_agent_continuation_roundtrip() {
+        use crate::models::ContinuationConfig;
+
+        let storage = create_test_storage();
+        let created = storage
+            .create_background_agent(BackgroundAgentSpec {
+                name: "Continuation Task".to_string(),
+                agent_id: "agent-001".to_string(),
+                description: None,
+                input: Some("Run continuation roundtrip".to_string()),
+                input_template: None,
+                schedule: BackgroundAgentSchedule::default(),
+                notification: None,
+                execution_mode: None,
+                timeout_secs: None,
+                memory: None,
+                durability_mode: None,
+                resource_limits: None,
+                continuation: Some(ContinuationConfig {
+                    enabled: true,
+                    segment_iterations: 40,
+                    max_total_iterations: 800,
+                    max_total_cost_usd: Some(4.5),
+                    inter_segment_pause_ms: 250,
+                }),
+            })
+            .unwrap();
+
+        assert!(created.continuation.enabled);
+        assert_eq!(created.continuation.segment_iterations, 40);
+        assert_eq!(created.continuation.max_total_iterations, 800);
+        assert_eq!(created.continuation.max_total_cost_usd, Some(4.5));
+        assert_eq!(created.continuation.inter_segment_pause_ms, 250);
+        assert_eq!(created.continuation_total_iterations, 0);
+        assert_eq!(created.continuation_segments_completed, 0);
+
+        let mut advanced = created.clone();
+        advanced.continuation_total_iterations = 120;
+        advanced.continuation_segments_completed = 3;
+        storage.update_task(&advanced).unwrap();
+
+        let updated = storage
+            .update_background_agent(
+                &created.id,
+                BackgroundAgentPatch {
+                    continuation: Some(ContinuationConfig {
+                        enabled: true,
+                        segment_iterations: 60,
+                        max_total_iterations: 1_200,
+                        max_total_cost_usd: Some(6.0),
+                        inter_segment_pause_ms: 500,
+                    }),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+
+        assert_eq!(updated.continuation.segment_iterations, 60);
+        assert_eq!(updated.continuation.max_total_iterations, 1_200);
+        assert_eq!(updated.continuation.max_total_cost_usd, Some(6.0));
+        assert_eq!(updated.continuation.inter_segment_pause_ms, 500);
+        assert_eq!(updated.continuation_total_iterations, 0);
+        assert_eq!(updated.continuation_segments_completed, 0);
+    }
+
+    #[test]
     fn test_create_background_agent_rejects_missing_input_and_template() {
         let storage = create_test_storage();
         let result = storage.create_background_agent(BackgroundAgentSpec {
@@ -1634,6 +1716,7 @@ mod tests {
             memory: None,
             durability_mode: None,
             resource_limits: None,
+            continuation: None,
         });
 
         assert!(result.is_err());
@@ -1662,6 +1745,7 @@ mod tests {
                 memory: None,
                 durability_mode: None,
                 resource_limits: None,
+                continuation: None,
             })
             .unwrap();
 

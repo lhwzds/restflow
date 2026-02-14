@@ -187,6 +187,18 @@ fn default_max_output_bytes() -> usize {
     1_000_000
 }
 
+fn default_segment_iterations() -> usize {
+    50
+}
+
+fn default_max_total_iterations() -> usize {
+    500
+}
+
+fn default_inter_segment_pause_ms() -> u64 {
+    1_000
+}
+
 /// Scope for background-agent memory persistence.
 ///
 /// Controls whether long-term memory is shared across all background agents of
@@ -317,6 +329,40 @@ impl Default for ResourceLimits {
     }
 }
 
+/// Configuration for long-horizon execution continuation.
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
+#[ts(export)]
+pub struct ContinuationConfig {
+    /// Automatically continue with additional segments when an execution reaches
+    /// the segment iteration ceiling.
+    #[serde(default)]
+    pub enabled: bool,
+    /// Maximum iterations allowed in one segment execution.
+    #[serde(default = "default_segment_iterations")]
+    pub segment_iterations: usize,
+    /// Hard cap for total iterations accumulated across all segments.
+    #[serde(default = "default_max_total_iterations")]
+    pub max_total_iterations: usize,
+    /// Hard cap for cumulative LLM cost across all segments.
+    #[serde(default)]
+    pub max_total_cost_usd: Option<f64>,
+    /// Delay between segments in milliseconds to allow checkpoint persistence.
+    #[serde(default = "default_inter_segment_pause_ms")]
+    pub inter_segment_pause_ms: u64,
+}
+
+impl Default for ContinuationConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            segment_iterations: default_segment_iterations(),
+            max_total_iterations: default_max_total_iterations(),
+            max_total_cost_usd: None,
+            inter_segment_pause_ms: default_inter_segment_pause_ms(),
+        }
+    }
+}
+
 /// Creation payload for background agents.
 #[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
 #[ts(export)]
@@ -354,6 +400,9 @@ pub struct BackgroundAgentSpec {
     /// Optional resource limits for this task
     #[serde(default)]
     pub resource_limits: Option<ResourceLimits>,
+    /// Optional continuation policy for long-horizon execution
+    #[serde(default)]
+    pub continuation: Option<ContinuationConfig>,
 }
 
 /// Partial update payload for background agents.
@@ -396,6 +445,9 @@ pub struct BackgroundAgentPatch {
     /// New resource limits
     #[serde(default)]
     pub resource_limits: Option<ResourceLimits>,
+    /// New continuation policy
+    #[serde(default)]
+    pub continuation: Option<ContinuationConfig>,
 }
 
 /// Control actions for a background agent.
@@ -666,6 +718,15 @@ pub struct BackgroundAgent {
     /// Resource limits configuration
     #[serde(default)]
     pub resource_limits: ResourceLimits,
+    /// Continuation policy for long-horizon execution
+    #[serde(default)]
+    pub continuation: ContinuationConfig,
+    /// Total iterations accumulated across all continuation segments.
+    #[serde(default)]
+    pub continuation_total_iterations: u32,
+    /// Number of continuation segments completed so far.
+    #[serde(default)]
+    pub continuation_segments_completed: u32,
     /// Current status of the task
     #[serde(default)]
     pub status: BackgroundAgentStatus,
@@ -726,6 +787,9 @@ impl BackgroundAgent {
             memory: MemoryConfig::default(),
             durability_mode: DurabilityMode::Async,
             resource_limits: ResourceLimits::default(),
+            continuation: ContinuationConfig::default(),
+            continuation_total_iterations: 0,
+            continuation_segments_completed: 0,
             status: BackgroundAgentStatus::Active,
             created_at: now,
             updated_at: now,
@@ -1407,6 +1471,30 @@ mod tests {
         assert_eq!(task.resource_limits.max_duration_secs, 300);
         assert_eq!(task.resource_limits.max_output_bytes, 1_000_000);
         assert_eq!(task.resource_limits.max_cost_usd, None);
+    }
+
+    #[test]
+    fn test_continuation_config_defaults() {
+        let continuation = ContinuationConfig::default();
+        assert!(!continuation.enabled);
+        assert_eq!(continuation.segment_iterations, 50);
+        assert_eq!(continuation.max_total_iterations, 500);
+        assert_eq!(continuation.max_total_cost_usd, None);
+        assert_eq!(continuation.inter_segment_pause_ms, 1_000);
+    }
+
+    #[test]
+    fn test_background_agent_continuation_defaults() {
+        let task = BackgroundAgent::new(
+            "task-123".to_string(),
+            "Test Task".to_string(),
+            "agent-456".to_string(),
+            TaskSchedule::default(),
+        );
+
+        assert_eq!(task.continuation, ContinuationConfig::default());
+        assert_eq!(task.continuation_total_iterations, 0);
+        assert_eq!(task.continuation_segments_completed, 0);
     }
 
     #[test]
