@@ -46,11 +46,6 @@ const isBackgroundAgentSelected = computed(
   () => selectedItemId.value !== null && selectedItemId.value.startsWith(BG_PREFIX),
 )
 
-const selectedBackgroundAgentId = computed(() => {
-  if (!isBackgroundAgentSelected.value || !selectedItemId.value) return null
-  return selectedItemId.value.slice(BG_PREFIX.length)
-})
-
 const currentSessionId = computed(() =>
   isBackgroundAgentSelected.value ? null : selectedItemId.value,
 )
