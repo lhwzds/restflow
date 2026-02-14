@@ -39,6 +39,7 @@ mod vision;
 mod web_fetch;
 mod web_search;
 mod workspace_note;
+mod wrapper;
 
 use file_tracker::FileTracker;
 
@@ -95,6 +96,7 @@ pub use workspace_note::{
     WorkspaceNotePatch, WorkspaceNoteProvider, WorkspaceNoteQuery, WorkspaceNoteRecord,
     WorkspaceNoteSpec, WorkspaceNoteStatus, WorkspaceNoteTool,
 };
+pub use wrapper::{LoggingWrapper, RateLimitWrapper, TimeoutWrapper, ToolWrapper, WrappedTool};
 
 /// Create a registry with default tools
 pub fn default_registry() -> ToolRegistry {
