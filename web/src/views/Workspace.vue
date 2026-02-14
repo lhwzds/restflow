@@ -176,7 +176,7 @@ onMounted(() => {
     <!-- Normal layout -->
     <div v-show="!showSettings" class="flex flex-1 min-w-0">
       <!-- Left: Session List (chat sessions + background agents) -->
-      <div class="w-56 border-r border-border shrink-0 flex flex-col overflow-hidden">
+      <div class="w-56 border-r border-border shrink-0 flex flex-col">
         <SessionList
           :sessions="sessions"
           :current-session-id="selectedItemId"
