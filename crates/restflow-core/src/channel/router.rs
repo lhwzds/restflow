@@ -193,25 +193,7 @@ impl ChannelRouter {
                 continue;
             }
 
-            let target_conversations = if let Some(default_conv) =
-                self.default_conversations.get(channel_type)
-            {
-                vec![default_conv.clone()]
-            } else if *channel_type == ChannelType::Telegram {
-                warn!(
-                    "Skipping Telegram broadcast - no default conversation configured (set TELEGRAM_CHAT_ID)"
-                );
-                Vec::new()
-            } else {
-                let conversations = self.conversations.read().await;
-                let mut targets = HashSet::new();
-                for (conversation_id, context) in conversations.iter() {
-                    if context.channel_type == *channel_type {
-                        targets.insert(conversation_id.clone());
-                    }
-                }
-                targets.into_iter().collect::<Vec<_>>()
-            };
+            let target_conversations = self.resolve_targets(*channel_type).await;
 
             if target_conversations.is_empty() {
                 warn!(
@@ -232,6 +214,53 @@ impl ChannelRouter {
         }
 
         results
+    }
+
+    /// Broadcast typing indicator to all configured channels.
+    ///
+    /// Uses default conversation IDs where configured.
+    /// Returns a list of (channel_type, result) pairs.
+    pub async fn broadcast_typing(&self) -> Vec<(ChannelType, Result<()>)> {
+        let mut results = vec![];
+
+        for (channel_type, channel) in &self.channels {
+            if !channel.is_configured() {
+                continue;
+            }
+
+            let target_conversations = self.resolve_targets(*channel_type).await;
+            if target_conversations.is_empty() {
+                continue;
+            }
+
+            for conversation_id in target_conversations {
+                let result = channel.send_typing(&conversation_id).await;
+                results.push((*channel_type, result));
+            }
+        }
+
+        results
+    }
+
+    async fn resolve_targets(&self, channel_type: ChannelType) -> Vec<String> {
+        if let Some(default_conv) = self.default_conversations.get(&channel_type) {
+            return vec![default_conv.clone()];
+        }
+        if channel_type == ChannelType::Telegram {
+            warn!(
+                "Skipping Telegram broadcast - no default conversation configured (set TELEGRAM_CHAT_ID)"
+            );
+            return Vec::new();
+        }
+
+        let conversations = self.conversations.read().await;
+        let mut targets = HashSet::new();
+        for (conversation_id, context) in conversations.iter() {
+            if context.channel_type == channel_type {
+                targets.insert(conversation_id.clone());
+            }
+        }
+        targets.into_iter().collect::<Vec<_>>()
     }
 
     /// Record conversation context when receiving a message
@@ -377,11 +406,20 @@ mod tests {
     struct CaptureChannel {
         channel_type: ChannelType,
         sent: Arc<Mutex<Vec<OutboundMessage>>>,
+        typing: Arc<Mutex<Vec<String>>>,
     }
 
     impl CaptureChannel {
-        fn new(channel_type: ChannelType, sent: Arc<Mutex<Vec<OutboundMessage>>>) -> Self {
-            Self { channel_type, sent }
+        fn new(
+            channel_type: ChannelType,
+            sent: Arc<Mutex<Vec<OutboundMessage>>>,
+            typing: Arc<Mutex<Vec<String>>>,
+        ) -> Self {
+            Self {
+                channel_type,
+                sent,
+                typing,
+            }
         }
     }
 
@@ -397,6 +435,11 @@ mod tests {
 
         async fn send(&self, message: OutboundMessage) -> Result<()> {
             self.sent.lock().await.push(message);
+            Ok(())
+        }
+
+        async fn send_typing(&self, conversation_id: &str) -> Result<()> {
+            self.typing.lock().await.push(conversation_id.to_string());
             Ok(())
         }
 
@@ -646,8 +689,9 @@ mod tests {
     async fn test_broadcast_uses_plain_parse_mode() {
         let mut router = ChannelRouter::new();
         let sent = Arc::new(Mutex::new(Vec::new()));
+        let typing = Arc::new(Mutex::new(Vec::new()));
         router.register_with_default(
-            CaptureChannel::new(ChannelType::Telegram, Arc::clone(&sent)),
+            CaptureChannel::new(ChannelType::Telegram, Arc::clone(&sent), typing),
             "default-chat",
         );
 
@@ -660,6 +704,27 @@ mod tests {
         let captured = sent.lock().await;
         assert_eq!(captured.len(), 1);
         assert!(captured[0].parse_mode.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_broadcast_typing_uses_default_conversation() {
+        let mut router = ChannelRouter::new();
+        let sent = Arc::new(Mutex::new(Vec::new()));
+        let typing = Arc::new(Mutex::new(Vec::new()));
+        router.register_with_default(
+            CaptureChannel::new(
+                ChannelType::Telegram,
+                Arc::clone(&sent),
+                Arc::clone(&typing),
+            ),
+            "default-chat",
+        );
+
+        let results = router.broadcast_typing().await;
+        assert_eq!(results.len(), 1);
+        assert!(results[0].1.is_ok());
+        let typing_calls = typing.lock().await;
+        assert_eq!(typing_calls.as_slice(), ["default-chat"]);
     }
 
     #[tokio::test]
