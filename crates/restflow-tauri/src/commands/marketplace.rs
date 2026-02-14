@@ -392,6 +392,7 @@ pub async fn marketplace_install_skill(
         name: manifest.name.clone(),
         description: manifest.description.clone(),
         tags: Some(manifest.keywords.clone()),
+        triggers: Vec::new(),
         content: content.unwrap_or_default(),
         folder_path: None,
         suggested_tools: Vec::new(),
