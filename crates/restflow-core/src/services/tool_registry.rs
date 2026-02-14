@@ -29,7 +29,8 @@ use restflow_ai::tools::{
     AgentCreateRequest, AgentCrudTool, AgentStore, AgentUpdateRequest, AuthProfileCreateRequest,
     AuthProfileStore, AuthProfileTestRequest, AuthProfileTool, BackgroundAgentControlRequest,
     BackgroundAgentCreateRequest, BackgroundAgentMessageListRequest, BackgroundAgentMessageRequest,
-    BackgroundAgentProgressRequest, BackgroundAgentStore, BackgroundAgentTool,
+    BackgroundAgentProgressRequest, BackgroundAgentScratchpadListRequest,
+    BackgroundAgentScratchpadReadRequest, BackgroundAgentStore, BackgroundAgentTool,
     BackgroundAgentUpdateRequest, ConfigTool, MemoryClearRequest, MemoryCompactRequest,
     MemoryExportRequest, MemoryManagementTool, MemoryManager, MemoryStore, SecretsTool,
     SessionCreateRequest, SessionListFilter, SessionSearchQuery, SessionStore, SessionTool,
@@ -466,6 +467,32 @@ impl BackgroundAgentStoreAdapter {
             .resolve_existing_agent_id(id_or_prefix)
             .map_err(|e| AiError::Tool(e.to_string()))
     }
+
+    fn scratchpad_dir() -> Result<PathBuf, AiError> {
+        let dir = crate::paths::ensure_restflow_dir()
+            .map_err(|e| AiError::Tool(e.to_string()))?
+            .join("scratchpads");
+        std::fs::create_dir_all(&dir).map_err(|e| AiError::Tool(e.to_string()))?;
+        Ok(dir)
+    }
+
+    fn validate_scratchpad_name(name: &str) -> Result<(), AiError> {
+        let trimmed = name.trim();
+        if trimmed.is_empty() {
+            return Err(AiError::Tool(
+                "scratchpad name must not be empty".to_string(),
+            ));
+        }
+        if trimmed.contains('/') || trimmed.contains('\\') || trimmed.contains("..") {
+            return Err(AiError::Tool("invalid scratchpad name".to_string()));
+        }
+        if !trimmed.ends_with(".jsonl") {
+            return Err(AiError::Tool(
+                "scratchpad must be a .jsonl file".to_string(),
+            ));
+        }
+        Ok(())
+    }
 }
 
 impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
@@ -608,6 +635,94 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
             .list_background_agent_messages(&request.id, request.limit.unwrap_or(50).max(1))
             .map_err(|e| AiError::Tool(e.to_string()))?;
         serde_json::to_value(messages).map_err(AiError::from)
+    }
+
+    fn list_background_agent_scratchpads(
+        &self,
+        request: BackgroundAgentScratchpadListRequest,
+    ) -> restflow_ai::error::Result<serde_json::Value> {
+        let dir = Self::scratchpad_dir()?;
+        let prefix = request.id.map(|id| format!("{id}-"));
+        let mut entries: Vec<(std::time::SystemTime, Value)> = Vec::new();
+        for entry in std::fs::read_dir(&dir).map_err(|e| AiError::Tool(e.to_string()))? {
+            let entry = entry.map_err(|e| AiError::Tool(e.to_string()))?;
+            let path = entry.path();
+            if !path.is_file() {
+                continue;
+            }
+            if path.extension().and_then(|ext| ext.to_str()) != Some("jsonl") {
+                continue;
+            }
+            let file_name = match path.file_name().and_then(|name| name.to_str()) {
+                Some(name) => name.to_string(),
+                None => continue,
+            };
+            if let Some(prefix) = &prefix
+                && !file_name.starts_with(prefix)
+            {
+                continue;
+            }
+
+            let metadata = entry.metadata().map_err(|e| AiError::Tool(e.to_string()))?;
+            let modified = metadata.modified().unwrap_or(std::time::UNIX_EPOCH);
+            let modified_at = chrono::DateTime::<Utc>::from(modified).to_rfc3339();
+            let task_id = file_name.strip_suffix(".jsonl").and_then(|name| {
+                let mut parts = name.rsplitn(3, '-');
+                let _time = parts.next();
+                let _date = parts.next();
+                parts.next().map(ToString::to_string)
+            });
+            entries.push((
+                modified,
+                json!({
+                    "scratchpad": file_name,
+                    "task_id": task_id,
+                    "size_bytes": metadata.len(),
+                    "modified_at": modified_at,
+                }),
+            ));
+        }
+
+        entries.sort_by(|a, b| b.0.cmp(&a.0));
+        let limit = request.limit.unwrap_or(50).max(1);
+        let data: Vec<Value> = entries
+            .into_iter()
+            .take(limit)
+            .map(|(_, value)| value)
+            .collect();
+        Ok(Value::Array(data))
+    }
+
+    fn read_background_agent_scratchpad(
+        &self,
+        request: BackgroundAgentScratchpadReadRequest,
+    ) -> restflow_ai::error::Result<serde_json::Value> {
+        Self::validate_scratchpad_name(&request.scratchpad)?;
+        let dir = Self::scratchpad_dir()?;
+        let path = dir.join(&request.scratchpad);
+        if !path.is_file() {
+            return Err(AiError::Tool(format!(
+                "scratchpad {} not found",
+                request.scratchpad
+            )));
+        }
+
+        let content = std::fs::read_to_string(&path).map_err(|e| AiError::Tool(e.to_string()))?;
+        let lines: Vec<&str> = content.lines().collect();
+        let total_lines = lines.len();
+        let line_limit = request.line_limit.unwrap_or(200).max(1);
+        let start = total_lines.saturating_sub(line_limit);
+        let tail: Vec<String> = lines[start..]
+            .iter()
+            .map(|line| (*line).to_string())
+            .collect();
+        Ok(json!({
+            "scratchpad": request.scratchpad,
+            "path": path.to_string_lossy().into_owned(),
+            "total_lines": total_lines,
+            "line_limit": line_limit,
+            "lines": tail,
+        }))
     }
 }
 
@@ -3583,6 +3698,67 @@ mod tests {
         )
         .unwrap();
         assert_eq!(messages.as_array().map(|items| items.len()), Some(1));
+
+        let _restflow_lock = restflow_dir_env_lock();
+        let scratchpad_state = tempdir().unwrap();
+        let previous_restflow_dir = std::env::var_os("RESTFLOW_DIR");
+        unsafe { std::env::set_var("RESTFLOW_DIR", scratchpad_state.path()) };
+
+        let scratchpad_dir = crate::paths::ensure_restflow_dir()
+            .unwrap()
+            .join("scratchpads");
+        std::fs::create_dir_all(&scratchpad_dir).unwrap();
+        let scratchpad_name = format!("{task_id}-20260214-120000.jsonl");
+        std::fs::write(
+            scratchpad_dir.join(&scratchpad_name),
+            "{\"event_type\":\"execution_start\"}\n{\"event_type\":\"execution_complete\"}\n",
+        )
+        .unwrap();
+        std::fs::write(
+            scratchpad_dir.join("other-task-20260214-120000.jsonl"),
+            "{\"event_type\":\"execution_start\"}\n",
+        )
+        .unwrap();
+
+        let scratchpads = BackgroundAgentStore::list_background_agent_scratchpads(
+            &adapter,
+            BackgroundAgentScratchpadListRequest {
+                id: Some(task_id.clone()),
+                limit: Some(5),
+            },
+        )
+        .unwrap();
+        assert_eq!(scratchpads.as_array().map(|items| items.len()), Some(1));
+        assert_eq!(
+            scratchpads[0]
+                .get("scratchpad")
+                .and_then(|value| value.as_str()),
+            Some(scratchpad_name.as_str())
+        );
+
+        let scratchpad_content = BackgroundAgentStore::read_background_agent_scratchpad(
+            &adapter,
+            BackgroundAgentScratchpadReadRequest {
+                scratchpad: scratchpad_name,
+                line_limit: Some(1),
+            },
+        )
+        .unwrap();
+        assert_eq!(scratchpad_content["total_lines"].as_u64(), Some(2));
+        assert_eq!(
+            scratchpad_content["lines"]
+                .as_array()
+                .map(|items| items.len()),
+            Some(1)
+        );
+
+        unsafe {
+            if let Some(value) = previous_restflow_dir {
+                std::env::set_var("RESTFLOW_DIR", value);
+            } else {
+                std::env::remove_var("RESTFLOW_DIR");
+            }
+        }
 
         let deleted = BackgroundAgentStore::delete_background_agent(&adapter, &task_id).unwrap();
         assert_eq!(

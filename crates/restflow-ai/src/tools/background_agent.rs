@@ -89,6 +89,21 @@ pub struct BackgroundAgentMessageListRequest {
     pub limit: Option<usize>,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct BackgroundAgentScratchpadListRequest {
+    #[serde(default)]
+    pub id: Option<String>,
+    #[serde(default)]
+    pub limit: Option<usize>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct BackgroundAgentScratchpadReadRequest {
+    pub scratchpad: String,
+    #[serde(default)]
+    pub line_limit: Option<usize>,
+}
+
 pub trait BackgroundAgentStore: Send + Sync {
     fn create_background_agent(&self, request: BackgroundAgentCreateRequest) -> Result<Value>;
     fn update_background_agent(&self, request: BackgroundAgentUpdateRequest) -> Result<Value>;
@@ -106,6 +121,14 @@ pub trait BackgroundAgentStore: Send + Sync {
     fn list_background_agent_messages(
         &self,
         request: BackgroundAgentMessageListRequest,
+    ) -> Result<Value>;
+    fn list_background_agent_scratchpads(
+        &self,
+        request: BackgroundAgentScratchpadListRequest,
+    ) -> Result<Value>;
+    fn read_background_agent_scratchpad(
+        &self,
+        request: BackgroundAgentScratchpadReadRequest,
     ) -> Result<Value>;
 }
 
@@ -218,6 +241,17 @@ enum BackgroundAgentAction {
         #[serde(default)]
         limit: Option<usize>,
     },
+    ListScratchpads {
+        #[serde(default)]
+        id: Option<String>,
+        #[serde(default)]
+        limit: Option<usize>,
+    },
+    ReadScratchpad {
+        scratchpad: String,
+        #[serde(default)]
+        line_limit: Option<usize>,
+    },
     Pause {
         id: String,
     },
@@ -239,7 +273,7 @@ impl Tool for BackgroundAgentTool {
     }
 
     fn description(&self) -> &str {
-        "Manage background agents. Operations: create (define new agent), run (trigger now), pause/resume (toggle schedule), cancel (stop permanently), delete (remove definition), list (browse agents), progress (execution history), send_message/list_messages (interact with running agents)."
+        "Manage background agents. Operations: create (define new agent), run (trigger now), pause/resume (toggle schedule), cancel (stop permanently), delete (remove definition), list (browse agents), progress (execution history), send_message/list_messages (interact with running agents), list_scratchpads/read_scratchpad (diagnose execution traces)."
     }
 
     fn parameters_schema(&self) -> Value {
@@ -257,6 +291,8 @@ impl Tool for BackgroundAgentTool {
                         "progress",
                         "send_message",
                         "list_messages",
+                        "list_scratchpads",
+                        "read_scratchpad",
                         "pause",
                         "resume",
                         "cancel",
@@ -347,6 +383,14 @@ impl Tool for BackgroundAgentTool {
                 "limit": {
                     "type": "integer",
                     "description": "Message list limit for list_messages"
+                },
+                "scratchpad": {
+                    "type": "string",
+                    "description": "Scratchpad filename returned by list_scratchpads (for read_scratchpad)"
+                },
+                "line_limit": {
+                    "type": "integer",
+                    "description": "Maximum number of trailing lines returned by read_scratchpad"
                 }
             },
             "required": ["operation"]
@@ -537,6 +581,29 @@ impl Tool for BackgroundAgentTool {
                         AiError::Tool(format!("Failed to list messages background agent: {e}."))
                     })?,
             ),
+            BackgroundAgentAction::ListScratchpads { id, limit } => ToolOutput::success(
+                self.store
+                    .list_background_agent_scratchpads(BackgroundAgentScratchpadListRequest {
+                        id,
+                        limit,
+                    })
+                    .map_err(|e| {
+                        AiError::Tool(format!("Failed to list scratchpads background agent: {e}."))
+                    })?,
+            ),
+            BackgroundAgentAction::ReadScratchpad {
+                scratchpad,
+                line_limit,
+            } => ToolOutput::success(
+                self.store
+                    .read_background_agent_scratchpad(BackgroundAgentScratchpadReadRequest {
+                        scratchpad,
+                        line_limit,
+                    })
+                    .map_err(|e| {
+                        AiError::Tool(format!("Failed to read scratchpad background agent: {e}."))
+                    })?,
+            ),
         };
 
         Ok(output)
@@ -606,6 +673,31 @@ mod tests {
                 "limit": request.limit.unwrap_or(50)
             }]))
         }
+
+        fn list_background_agent_scratchpads(
+            &self,
+            request: BackgroundAgentScratchpadListRequest,
+        ) -> Result<Value> {
+            Ok(json!([{
+                "id": request.id,
+                "scratchpad": "task-1-20260214-000000.jsonl",
+                "size_bytes": 128,
+            }]))
+        }
+
+        fn read_background_agent_scratchpad(
+            &self,
+            request: BackgroundAgentScratchpadReadRequest,
+        ) -> Result<Value> {
+            Ok(json!({
+                "scratchpad": request.scratchpad,
+                "line_limit": request.line_limit.unwrap_or(200),
+                "lines": [
+                    "{\"event_type\":\"execution_start\"}",
+                    "{\"event_type\":\"execution_complete\"}"
+                ]
+            }))
+        }
     }
 
     impl BackgroundAgentStore for FailingListStore {
@@ -663,6 +755,24 @@ mod tests {
                 "task_id": request.id,
                 "limit": request.limit.unwrap_or(50)
             }]))
+        }
+
+        fn list_background_agent_scratchpads(
+            &self,
+            _request: BackgroundAgentScratchpadListRequest,
+        ) -> Result<Value> {
+            Ok(json!([]))
+        }
+
+        fn read_background_agent_scratchpad(
+            &self,
+            request: BackgroundAgentScratchpadReadRequest,
+        ) -> Result<Value> {
+            Ok(json!({
+                "scratchpad": request.scratchpad,
+                "line_limit": request.line_limit.unwrap_or(200),
+                "lines": []
+            }))
         }
     }
 
@@ -730,5 +840,41 @@ mod tests {
             .await
             .unwrap();
         assert!(output.success);
+    }
+
+    #[tokio::test]
+    async fn test_list_scratchpads_operation() {
+        let tool = BackgroundAgentTool::new(Arc::new(MockStore));
+        let output = tool
+            .execute(json!({
+                "operation": "list_scratchpads",
+                "id": "task-1",
+                "limit": 5
+            }))
+            .await
+            .unwrap();
+        assert!(output.success);
+        assert_eq!(output.result.as_array().map(|items| items.len()), Some(1));
+    }
+
+    #[tokio::test]
+    async fn test_read_scratchpad_operation() {
+        let tool = BackgroundAgentTool::new(Arc::new(MockStore));
+        let output = tool
+            .execute(json!({
+                "operation": "read_scratchpad",
+                "scratchpad": "task-1-20260214-000000.jsonl",
+                "line_limit": 2
+            }))
+            .await
+            .unwrap();
+        assert!(output.success);
+        assert_eq!(
+            output
+                .result
+                .get("scratchpad")
+                .and_then(|value| value.as_str()),
+            Some("task-1-20260214-000000.jsonl")
+        );
     }
 }
