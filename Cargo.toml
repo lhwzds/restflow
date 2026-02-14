@@ -13,7 +13,7 @@ default-members = ["crates/restflow-core"]
 
 [workspace.package]
 version = "0.2.11"
-authors = ["RestFlow Team"]
+authors = ["浮流 RestFlow Team"]
 edition = "2024"
 
 [workspace.dependencies]
