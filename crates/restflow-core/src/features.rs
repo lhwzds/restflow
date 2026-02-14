@@ -145,9 +145,10 @@ mod tests {
     use super::*;
 
     fn config_with_flags(flags: &[&str]) -> SystemConfig {
-        let mut config = SystemConfig::default();
-        config.experimental_features = flags.iter().map(|v| (*v).to_string()).collect();
-        config
+        SystemConfig {
+            experimental_features: flags.iter().map(|v| (*v).to_string()).collect(),
+            ..Default::default()
+        }
     }
 
     #[test]
