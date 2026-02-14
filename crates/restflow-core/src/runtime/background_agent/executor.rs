@@ -958,7 +958,8 @@ impl AgentRuntimeExecutor {
             .with_max_memory_messages(memory_config.max_messages)
             .with_context_window(Self::context_window_for_model(model))
             .with_resource_limits(Self::to_agent_resource_limits(resource_limits))
-            .with_max_tool_result_length(resource_limits.max_output_bytes);
+            .with_max_tool_result_length(resource_limits.max_output_bytes)
+            .with_yolo_mode(background_task_id.is_some());
         if let Some(compaction) = Self::build_compaction_config(memory_config) {
             config = config.with_compaction_config(compaction);
         }
