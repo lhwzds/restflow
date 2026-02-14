@@ -17,6 +17,10 @@ const DEFAULT_SKILLS: &[(&str, &str)] = &[
         "address-pr-feedback",
         include_str!("../assets/skills/address-pr-feedback/SKILL.md"),
     ),
+    (
+        "pr-context-gatherer",
+        include_str!("../assets/skills/pr-context-gatherer/SKILL.md"),
+    ),
 ];
 
 /// Ensure default skill files exist under ~/.restflow/skills/.
