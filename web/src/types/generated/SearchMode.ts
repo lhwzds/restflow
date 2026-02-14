@@ -3,4 +3,4 @@
 /**
  * Search mode for memory queries.
  */
-export type SearchMode = "keyword" | "phrase" | "regex";
+export type SearchMode = 'keyword' | 'phrase' | 'regex'

@@ -3,4 +3,4 @@
 /**
  * Structured validation error for model and API validation.
  */
-export type ValidationError = { field: string, message: string, };
+export type ValidationError = { field: string; message: string }

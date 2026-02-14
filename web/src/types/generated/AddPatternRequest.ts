@@ -3,12 +3,13 @@
 /**
  * Request to add a command pattern to a list
  */
-export type AddPatternRequest = { 
-/**
- * The pattern to add (glob-style)
- */
-pattern: string, 
-/**
- * Optional description
- */
-description: string | null, };
+export type AddPatternRequest = {
+  /**
+   * The pattern to add (glob-style)
+   */
+  pattern: string
+  /**
+   * Optional description
+   */
+  description: string | null
+}

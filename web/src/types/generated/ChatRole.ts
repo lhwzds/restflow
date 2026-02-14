@@ -3,4 +3,4 @@
 /**
  * Role of a message sender in a chat session.
  */
-export type ChatRole = "user" | "assistant" | "system";
+export type ChatRole = 'user' | 'assistant' | 'system'

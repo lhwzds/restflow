@@ -413,10 +413,7 @@ export const useChatSessionStore = defineStore('chatSession', {
       // Step 1: Save user message
       let sessionAfterUserMsg: ChatSession
       try {
-        sessionAfterUserMsg = await chatSessionApi.sendChatMessage(
-          this.currentSessionId,
-          content,
-        )
+        sessionAfterUserMsg = await chatSessionApi.sendChatMessage(this.currentSessionId, content)
         this.sessions.set(sessionAfterUserMsg.id, sessionAfterUserMsg)
 
         const summaryIndex = this.summaries.findIndex((s) => s.id === sessionAfterUserMsg.id)

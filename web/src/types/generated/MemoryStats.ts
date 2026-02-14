@@ -3,28 +3,29 @@
 /**
  * Statistics about an agent's memory storage.
  */
-export type MemoryStats = { 
-/**
- * Agent ID
- */
-agent_id: string, 
-/**
- * Total number of sessions
- */
-session_count: number, 
-/**
- * Total number of chunks
- */
-chunk_count: number, 
-/**
- * Total tokens across all chunks
- */
-total_tokens: number, 
-/**
- * Oldest memory timestamp
- */
-oldest_memory: number | null, 
-/**
- * Newest memory timestamp
- */
-newest_memory: number | null, };
+export type MemoryStats = {
+  /**
+   * Agent ID
+   */
+  agent_id: string
+  /**
+   * Total number of sessions
+   */
+  session_count: number
+  /**
+   * Total number of chunks
+   */
+  chunk_count: number
+  /**
+   * Total tokens across all chunks
+   */
+  total_tokens: number
+  /**
+   * Oldest memory timestamp
+   */
+  oldest_memory: number | null
+  /**
+   * Newest memory timestamp
+   */
+  newest_memory: number | null
+}

@@ -3,4 +3,4 @@
 /**
  * Python script output
  */
-export type PythonOutput = { result: any, };
+export type PythonOutput = { result: any }

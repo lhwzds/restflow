@@ -50,7 +50,12 @@ export function useCanvasPanel(streamState: Ref<StreamState>) {
       // Check new steps for show_panel tool calls
       for (let i = lastProcessedStepCount; i < steps.length; i++) {
         const step = steps[i]
-        if (step && step.type === 'tool_call' && step.name === 'show_panel' && step.status === 'completed') {
+        if (
+          step &&
+          step.type === 'tool_call' &&
+          step.name === 'show_panel' &&
+          step.status === 'completed'
+        ) {
           // Content is handled via handleShowPanelResult() called from parent
         }
       }
@@ -95,11 +100,7 @@ export function useCanvasPanel(streamState: Ref<StreamState>) {
     try {
       const result = JSON.parse(resultJson)
       if (result.displayed) {
-        openCanvas(
-          result.title || '',
-          result.content || '',
-          result.content_type || 'markdown',
-        )
+        openCanvas(result.title || '', result.content || '', result.content_type || 'markdown')
       }
     } catch {
       // Ignore parse errors

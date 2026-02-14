@@ -96,11 +96,7 @@ onMounted(() => {
   <div ref="scrollContainer" class="flex-1 overflow-auto px-4 py-4">
     <div class="max-w-[48rem] mx-auto space-y-4">
       <!-- Saved Messages -->
-      <div
-        v-for="(msg, idx) in messages"
-        :key="msg.id || idx"
-        class="group relative"
-      >
+      <div v-for="(msg, idx) in messages" :key="msg.id || idx" class="group relative">
         <div
           :class="[
             'p-4 rounded-lg',
@@ -145,10 +141,7 @@ onMounted(() => {
       </div>
 
       <!-- Streaming Response (in-progress) -->
-      <div
-        v-if="isStreaming || streamContent"
-        class="bg-muted mr-auto max-w-[90%] p-4 rounded-lg"
-      >
+      <div v-if="isStreaming || streamContent" class="bg-muted mr-auto max-w-[90%] p-4 rounded-lg">
         <div class="text-xs text-muted-foreground mb-1">Assistant</div>
 
         <!-- Thinking indicator -->
@@ -189,11 +182,7 @@ onMounted(() => {
                 :size="12"
                 class="text-green-500 shrink-0"
               />
-              <X
-                v-else-if="step.status === 'failed'"
-                :size="12"
-                class="text-red-500 shrink-0"
-              />
+              <X v-else-if="step.status === 'failed'" :size="12" class="text-red-500 shrink-0" />
 
               <Wrench :size="12" class="text-muted-foreground shrink-0" />
               <span class="font-mono truncate flex-1 text-left">{{ step.name }}</span>
@@ -216,11 +205,7 @@ onMounted(() => {
                 :size="12"
                 class="text-muted-foreground shrink-0"
               />
-              <ChevronRight
-                v-else
-                :size="12"
-                class="text-muted-foreground shrink-0"
-              />
+              <ChevronRight v-else :size="12" class="text-muted-foreground shrink-0" />
             </button>
 
             <!-- Expanded result -->
@@ -228,7 +213,10 @@ onMounted(() => {
               v-if="expandedToolCalls.has(idx) && step.result"
               class="px-2 py-1.5 border-t border-border bg-muted/30"
             >
-              <pre class="text-[11px] font-mono whitespace-pre-wrap break-words max-h-48 overflow-auto">{{ step.result }}</pre>
+              <pre
+                class="text-[11px] font-mono whitespace-pre-wrap break-words max-h-48 overflow-auto"
+                >{{ step.result }}</pre
+              >
             </div>
           </div>
         </div>

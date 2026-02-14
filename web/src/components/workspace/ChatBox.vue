@@ -39,7 +39,9 @@ const composing = ref(false)
 // Delay clearing composing flag so keydown fires while still composing.
 // WebKit fires compositionend BEFORE the Enter keydown, unlike Chrome.
 const onCompositionEnd = () => {
-  window.setTimeout(() => { composing.value = false }, 0)
+  window.setTimeout(() => {
+    composing.value = false
+  }, 0)
 }
 
 const handleSend = () => {

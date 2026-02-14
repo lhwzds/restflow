@@ -3,8 +3,13 @@
 /**
  * Query parameters for hybrid semantic + keyword search.
  */
-export type HybridSearchQuery = { agent_id: string, query_text: string, top_k: number, 
-/**
- * Weight for semantic search (0.0-1.0); rest goes to text search
- */
-semantic_weight: number, tags: Array<string>, };
+export type HybridSearchQuery = {
+  agent_id: string
+  query_text: string
+  top_k: number
+  /**
+   * Weight for semantic search (0.0-1.0); rest goes to text search
+   */
+  semantic_weight: number
+  tags: Array<string>
+}

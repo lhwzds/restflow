@@ -31,11 +31,7 @@ defineProps<{
     <span v-if="modelName" class="truncate">{{ modelName }}</span>
 
     <!-- Streaming indicator -->
-    <Loader2
-      v-if="isStreaming"
-      :size="12"
-      class="animate-spin text-primary shrink-0"
-    />
+    <Loader2 v-if="isStreaming" :size="12" class="animate-spin text-primary shrink-0" />
 
     <!-- Spacer -->
     <div class="flex-1" />

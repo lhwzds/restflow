@@ -7,5 +7,7 @@ const props = defineProps<{
 </script>
 
 <template>
-  <MarkdownRenderer :content="String(props.data.content ?? props.data.text ?? props.data.raw ?? '')" />
+  <MarkdownRenderer
+    :content="String(props.data.content ?? props.data.text ?? props.data.raw ?? '')"
+  />
 </template>

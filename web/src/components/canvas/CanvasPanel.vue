@@ -78,7 +78,11 @@ function formatJson(json: string): string {
 
     <!-- Header -->
     <div class="flex items-center gap-2 px-3 py-2 border-b border-border shrink-0">
-      <component :is="contentTypeIcons[props.contentType]" :size="14" class="text-muted-foreground shrink-0" />
+      <component
+        :is="contentTypeIcons[props.contentType]"
+        :size="14"
+        class="text-muted-foreground shrink-0"
+      />
       <span class="text-sm font-medium truncate flex-1">{{ props.title || 'Canvas' }}</span>
       <button
         class="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
@@ -91,10 +95,7 @@ function formatJson(json: string): string {
     <!-- Content -->
     <div class="flex-1 overflow-auto p-4">
       <!-- Markdown -->
-      <MarkdownRenderer
-        v-if="props.contentType === 'markdown'"
-        :content="props.content"
-      />
+      <MarkdownRenderer v-if="props.contentType === 'markdown'" :content="props.content" />
 
       <!-- Code -->
       <pre

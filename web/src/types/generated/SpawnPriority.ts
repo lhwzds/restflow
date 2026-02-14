@@ -3,4 +3,4 @@
 /**
  * Priority level for sub-agent spawning.
  */
-export type SpawnPriority = "Low" | "Normal" | "High";
+export type SpawnPriority = 'Low' | 'Normal' | 'High'

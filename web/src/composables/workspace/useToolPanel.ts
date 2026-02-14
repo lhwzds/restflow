@@ -84,7 +84,11 @@ function toPanelType(toolName: string): ToolPanelType {
   return TOOL_PANEL_MAP[toolName] ?? 'generic'
 }
 
-function toTitle(toolName: string, panelType: ToolPanelType, data: Record<string, unknown>): string {
+function toTitle(
+  toolName: string,
+  panelType: ToolPanelType,
+  data: Record<string, unknown>,
+): string {
   if (panelType === 'canvas' && typeof data.title === 'string' && data.title.length > 0) {
     return data.title
   }
