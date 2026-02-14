@@ -1,7 +1,7 @@
 <div align="center">
   <img src="web/src/assets/restflow.svg" alt="RestFlow Logo" width="120" height="120" />
 
-# 浮流 RestFlow
+# RestFlow
 
 **AI agents work. You rest.**
 
@@ -17,9 +17,9 @@ A high-performance AI agent runtime built in Rust — run 10+ agents in parallel
 
 ---
 
-## What is 浮流 RestFlow?
+## What is RestFlow?
 
-浮流 RestFlow is a **high-performance AI agent runtime** built in Rust. It runs multiple autonomous agents in parallel — each agent thinks, decides, acts, and observes in a ReAct loop until your task is complete.
+RestFlow is a **high-performance AI agent runtime** built in Rust. It runs multiple autonomous agents in parallel — each agent thinks, decides, acts, and observes in a ReAct loop until your task is complete.
 
 ### Why RestFlow?
 

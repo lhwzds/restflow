@@ -1737,13 +1737,13 @@ impl ServerHandler for RestFlowMcpServer {
             capabilities: ServerCapabilities::builder().enable_tools().build(),
             server_info: Implementation {
                 name: "restflow".to_string(),
-                title: Some("浮流 RestFlow MCP Server".to_string()),
+                title: Some("RestFlow MCP Server".to_string()),
                 version: env!("CARGO_PKG_VERSION").to_string(),
                 icons: None,
                 website_url: None,
             },
             instructions: Some(
-                "浮流 RestFlow MCP Server - Manage skills, agents, memory, chat sessions, and hooks. \
+                "RestFlow MCP Server - Manage skills, agents, memory, chat sessions, and hooks. \
                 Use list_skills/get_skill to access skills, list_agents/get_agent for agents, \
                 memory_search/memory_store for memory, chat_session_list/chat_session_get for sessions, \
                 manage_hooks for lifecycle hook automation, \
@@ -2542,10 +2542,6 @@ mod tests {
         let info = server.get_info();
 
         assert_eq!(info.server_info.name, "restflow");
-        assert_eq!(
-            info.server_info.title.as_deref(),
-            Some("浮流 RestFlow MCP Server")
-        );
         assert!(info.capabilities.tools.is_some());
         assert!(info.instructions.is_some());
     }

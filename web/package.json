@@ -1,6 +1,6 @@
 {
   "name": "@restflow/web",
-  "description": "浮流 RestFlow - AI Agent Workflow Automation",
+  "description": "RestFlow - AI Agent Workflow Automation",
   "private": true,
   "version": "0.0.1",
   "type": "module",

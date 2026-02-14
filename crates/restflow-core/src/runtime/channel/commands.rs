@@ -41,17 +41,17 @@ pub async fn handle_command(
 
 /// Send help message
 async fn cmd_help(router: &ChannelRouter, message: &InboundMessage) -> Result<()> {
-    let text = r#"🤖 *浮流 RestFlow Agent Bot*
+    let text = r#"🤖 *RestFlow Agent Bot*
 
-*命令:*
-`/agents` - 列出所有已配置后台 Agent
-`/run <name>` - 按名称或 ID 运行后台 Agent
-`/status` - 显示当前状态
-`/stop` - 停止正在运行的后台 Agent
-`/help` - 显示帮助
+*Commands:*
+`/agents` - List all configured background agents
+`/run <name>` - Run a background agent by name or ID
+`/status` - Show current status
+`/stop` - Stop active background agent
+`/help` - Show this help
 
-*后台 Agent 执行中:*
-可直接发送消息与 Agent 交互。"#;
+*During Background Agent Execution:*
+Send messages directly to interact with the agent."#;
 
     let response = OutboundMessage::new(&message.conversation_id, text);
     router.send_to(message.channel_type, response).await
@@ -65,10 +65,10 @@ async fn cmd_list_tasks(
 ) -> Result<()> {
     let tasks = trigger.list_background_agents().await?;
 
-    let mut text = String::from("📋 *后台 Agent:*\n\n");
+    let mut text = String::from("📋 *Background Agents:*\n\n");
 
     if tasks.is_empty() {
-        text.push_str("_暂无配置后台 Agent._\n\n请在浮流 RestFlow 应用中创建。");
+        text.push_str("_No background agents configured._\n\nCreate one in the RestFlow app.");
     } else {
         for task in tasks.iter().take(10) {
             let status_emoji = match task.status {
@@ -210,7 +210,7 @@ async fn cmd_unknown(
 
 /// Send help message for unrecognized input
 pub async fn send_help(router: &ChannelRouter, message: &InboundMessage) -> Result<()> {
-    let text = "👋 你好！我是浮流 RestFlow Bot。\n\n使用 `/help` 查看可用命令。";
+    let text = "👋 Hi! I'm the RestFlow bot.\n\nUse `/help` to see available commands.";
     let response = OutboundMessage::new(&message.conversation_id, text);
     router.send_to(message.channel_type, response).await
 }
