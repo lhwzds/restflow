@@ -2540,7 +2540,10 @@ mod tests {
     #[cfg(unix)]
     #[tokio::test]
     async fn test_ipc_backend_list_skills() {
+        let _env_guard = AgentsDirEnvGuard::new();
         let temp_dir = tempfile::tempdir().unwrap();
+        let temp_agents = tempfile::tempdir().unwrap();
+        unsafe { std::env::set_var(prompt_files::AGENTS_DIR_ENV, temp_agents.path()) };
         let db_path = temp_dir.path().join("mcp-ipc.db");
         let core = Arc::new(AppCore::new(db_path.to_str().unwrap()).await.unwrap());
 
