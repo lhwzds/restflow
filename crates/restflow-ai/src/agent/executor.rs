@@ -400,7 +400,12 @@ impl AgentExecutor {
                 total_tokens += usage.total_tokens;
                 if let Some(cost) = usage.cost_usd {
                     total_cost_usd += cost;
+                    tracker.record_cost(cost);
                 }
+            }
+            if let Err(e) = tracker.check_cost() {
+                state.resource_exhaust(e.to_string());
+                break;
             }
 
             // 2. No tool calls → check finish reason and complete

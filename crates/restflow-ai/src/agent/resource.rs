@@ -4,7 +4,7 @@
 //! batch, preventing runaway agents with clear, typed error messages.
 
 use std::fmt;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 /// Configurable limits for a single agent run.
@@ -16,6 +16,8 @@ pub struct ResourceLimits {
     pub max_wall_clock: Duration,
     /// Maximum sub-agent nesting depth. 0 = disabled.
     pub max_depth: usize,
+    /// Maximum accumulated LLM cost in USD. `None` = disabled.
+    pub max_cost_usd: Option<f64>,
 }
 
 impl Default for ResourceLimits {
@@ -24,6 +26,7 @@ impl Default for ResourceLimits {
             max_tool_calls: 200,
             max_wall_clock: Duration::from_secs(30 * 60), // 30 minutes
             max_depth: 20,
+            max_cost_usd: None,
         }
     }
 }
@@ -33,6 +36,7 @@ pub struct ResourceTracker {
     limits: ResourceLimits,
     start_time: Instant,
     tool_call_count: AtomicUsize,
+    total_cost_micros: AtomicU64,
     current_depth: usize,
 }
 
@@ -43,6 +47,7 @@ impl ResourceTracker {
             limits,
             start_time: Instant::now(),
             tool_call_count: AtomicUsize::new(0),
+            total_cost_micros: AtomicU64::new(0),
             current_depth: 0,
         }
     }
@@ -53,6 +58,7 @@ impl ResourceTracker {
             limits,
             start_time: Instant::now(),
             tool_call_count: AtomicUsize::new(0),
+            total_cost_micros: AtomicU64::new(0),
             current_depth: depth,
         }
     }
@@ -62,6 +68,7 @@ impl ResourceTracker {
         self.check_tool_calls()?;
         self.check_wall_clock()?;
         self.check_depth()?;
+        self.check_cost()?;
         Ok(())
     }
 
@@ -83,13 +90,39 @@ impl ResourceTracker {
         self.tool_call_count.fetch_add(count, Ordering::Relaxed);
     }
 
+    /// Record additional LLM cost in USD.
+    pub fn record_cost(&self, cost_usd: f64) {
+        if cost_usd <= 0.0 {
+            return;
+        }
+        let micros = (cost_usd * 1_000_000.0).round() as u64;
+        self.total_cost_micros.fetch_add(micros, Ordering::Relaxed);
+    }
+
+    /// Check only the configured cost budget, if enabled.
+    pub fn check_cost(&self) -> std::result::Result<(), ResourceError> {
+        let Some(limit) = self.limits.max_cost_usd else {
+            return Ok(());
+        };
+        let actual = self.total_cost_usd();
+        if actual >= limit {
+            return Err(ResourceError::CostExceeded { limit, actual });
+        }
+        Ok(())
+    }
+
     /// Return a snapshot of current resource usage.
     pub fn usage_snapshot(&self) -> ResourceUsage {
         ResourceUsage {
             tool_calls: self.tool_call_count.load(Ordering::Relaxed),
             wall_clock: self.start_time.elapsed(),
             depth: self.current_depth,
+            total_cost_usd: self.total_cost_usd(),
         }
+    }
+
+    fn total_cost_usd(&self) -> f64 {
+        self.total_cost_micros.load(Ordering::Relaxed) as f64 / 1_000_000.0
     }
 
     fn check_tool_calls(&self) -> std::result::Result<(), ResourceError> {
@@ -125,6 +158,7 @@ pub enum ResourceError {
     ToolCallsExceeded { limit: usize, actual: usize },
     WallClockExceeded { limit: Duration, elapsed: Duration },
     DepthExceeded { limit: usize, actual: usize },
+    CostExceeded { limit: f64, actual: f64 },
 }
 
 impl fmt::Display for ResourceError {
@@ -152,6 +186,13 @@ impl fmt::Display for ResourceError {
                     actual, limit
                 )
             }
+            ResourceError::CostExceeded { limit, actual } => {
+                write!(
+                    f,
+                    "Exceeded cost limit: ${:.4} (limit: ${:.4})",
+                    actual, limit
+                )
+            }
         }
     }
 }
@@ -164,6 +205,7 @@ pub struct ResourceUsage {
     pub tool_calls: usize,
     pub wall_clock: Duration,
     pub depth: usize,
+    pub total_cost_usd: f64,
 }
 
 #[cfg(test)]
@@ -177,6 +219,7 @@ mod tests {
         assert_eq!(limits.max_tool_calls, 200);
         assert_eq!(limits.max_wall_clock, Duration::from_secs(30 * 60));
         assert_eq!(limits.max_depth, 20);
+        assert_eq!(limits.max_cost_usd, None);
     }
 
     #[test]
@@ -222,6 +265,7 @@ mod tests {
             max_tool_calls: 0,
             max_wall_clock: Duration::ZERO,
             max_depth: 0,
+            max_cost_usd: None,
         };
         let tracker = ResourceTracker::new(limits);
         tracker.record_tool_calls(999);
@@ -269,6 +313,27 @@ mod tests {
         assert_eq!(snap.tool_calls, 7);
         assert_eq!(snap.depth, 3);
         assert!(snap.wall_clock < Duration::from_secs(1));
+        assert_eq!(snap.total_cost_usd, 0.0);
+    }
+
+    #[test]
+    fn test_cost_limit_exceeded() {
+        let limits = ResourceLimits {
+            max_cost_usd: Some(1.0),
+            ..Default::default()
+        };
+        let tracker = ResourceTracker::new(limits);
+        tracker.record_cost(0.4);
+        assert!(tracker.check_cost().is_ok());
+        tracker.record_cost(0.7);
+        let err = tracker.check_cost().unwrap_err();
+        assert!(matches!(
+            err,
+            ResourceError::CostExceeded {
+                limit,
+                actual
+            } if (limit - 1.0).abs() < f64::EPSILON && actual >= 1.1
+        ));
     }
 
     #[test]
