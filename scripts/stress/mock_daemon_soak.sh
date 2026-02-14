@@ -65,20 +65,32 @@ collect_metrics() {
     warn_count=$((warn_count + 1))
   fi
 
-  python3 - <<PY
+  local timestamp
+  timestamp="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+
+  PY_TIMESTAMP="$timestamp" \
+  PY_PID="$$" \
+  PY_FD_COUNT="$fd_count" \
+  PY_THREAD_COUNT="$thread_count" \
+  PY_RSS_KB="$rss_kb" \
+  PY_LEVEL="$level" \
+  PY_METRICS_FILE="$METRICS_FILE" \
+  python3 - <<'PY'
 import json
+import os
+
 entry = {
-  "timestamp": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
-  "pid": $$,
-  "fd_count": int("${fd_count}"),
-  "thread_count": int("${thread_count}"),
-  "rss_kb": int("${rss_kb}"),
+  "timestamp": os.environ["PY_TIMESTAMP"],
+  "pid": int(os.environ["PY_PID"]),
+  "fd_count": int(os.environ["PY_FD_COUNT"]),
+  "thread_count": int(os.environ["PY_THREAD_COUNT"]),
+  "rss_kb": int(os.environ["PY_RSS_KB"]),
   "running_task_count": 0,
   "pending_task_count": 0,
   "queue_depth": 0,
-  "level": "${level}"
+  "level": os.environ["PY_LEVEL"]
 }
-with open("${METRICS_FILE}", "a", encoding="utf-8") as f:
+with open(os.environ["PY_METRICS_FILE"], "a", encoding="utf-8") as f:
     f.write(json.dumps(entry, ensure_ascii=False) + "\\n")
 PY
 
@@ -102,28 +114,47 @@ for ((i = 1; i <= RUNS; i++)); do
   fi
 done
 
-python3 - <<PY
+PY_TOTAL_RUNS="$RUNS" \
+PY_SUCCESS="$success" \
+PY_FAILURE="$failure" \
+PY_PANIC_COUNT="$panic_count" \
+PY_WARN_COUNT="$warn_count" \
+PY_HARD_LIMIT_BREACHES="$hard_limit_breaches" \
+PY_FD_WARN="$FD_WARN_THRESHOLD" \
+PY_FD_HARD="$FD_HARD_THRESHOLD" \
+PY_THREAD_WARN="$THREAD_WARN_THRESHOLD" \
+PY_THREAD_HARD="$THREAD_HARD_THRESHOLD" \
+PY_RSS_WARN_KB="$RSS_WARN_KB" \
+PY_RSS_HARD_KB="$RSS_HARD_KB" \
+PY_METRICS_FILE="$METRICS_FILE" \
+PY_SUMMARY_FILE="$SUMMARY_FILE" \
+python3 - <<'PY'
 import json
+import os
+
+total_runs = int(os.environ["PY_TOTAL_RUNS"])
+success = int(os.environ["PY_SUCCESS"])
+failure = int(os.environ["PY_FAILURE"])
 summary = {
-  "total_runs": ${RUNS},
-  "success": ${success},
-  "failure": ${failure},
-  "timeout": max(0, ${RUNS} - (${success} + ${failure})),
-  "success_rate": (${success} / ${RUNS}) if ${RUNS} else 0,
-  "panic_count": ${panic_count},
-  "warn_count": ${warn_count},
-  "hard_limit_breaches": ${hard_limit_breaches},
+  "total_runs": total_runs,
+  "success": success,
+  "failure": failure,
+  "timeout": max(0, total_runs - (success + failure)),
+  "success_rate": (success / total_runs) if total_runs else 0,
+  "panic_count": int(os.environ["PY_PANIC_COUNT"]),
+  "warn_count": int(os.environ["PY_WARN_COUNT"]),
+  "hard_limit_breaches": int(os.environ["PY_HARD_LIMIT_BREACHES"]),
   "thresholds": {
-    "fd_warn": int("${FD_WARN_THRESHOLD}"),
-    "fd_hard": int("${FD_HARD_THRESHOLD}"),
-    "thread_warn": int("${THREAD_WARN_THRESHOLD}"),
-    "thread_hard": int("${THREAD_HARD_THRESHOLD}"),
-    "rss_warn_kb": int("${RSS_WARN_KB}"),
-    "rss_hard_kb": int("${RSS_HARD_KB}")
+    "fd_warn": int(os.environ["PY_FD_WARN"]),
+    "fd_hard": int(os.environ["PY_FD_HARD"]),
+    "thread_warn": int(os.environ["PY_THREAD_WARN"]),
+    "thread_hard": int(os.environ["PY_THREAD_HARD"]),
+    "rss_warn_kb": int(os.environ["PY_RSS_WARN_KB"]),
+    "rss_hard_kb": int(os.environ["PY_RSS_HARD_KB"])
   },
-  "metrics_jsonl": "${METRICS_FILE}",
+  "metrics_jsonl": os.environ["PY_METRICS_FILE"],
 }
-with open("${SUMMARY_FILE}", "w", encoding="utf-8") as f:
+with open(os.environ["PY_SUMMARY_FILE"], "w", encoding="utf-8") as f:
     json.dump(summary, f, indent=2)
 PY
 

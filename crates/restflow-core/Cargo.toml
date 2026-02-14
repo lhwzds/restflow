@@ -11,6 +11,7 @@ path = "src/lib.rs"
 default = []
 keychain = ["keyring"]
 tauri-runtime = []
+test-utils = []
 
 [dependencies]
 keyring = { version = "3.6", optional = true, features = ["apple-native"] }

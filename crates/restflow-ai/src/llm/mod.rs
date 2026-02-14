@@ -6,6 +6,7 @@ mod client;
 mod codex;
 mod factory;
 mod gemini_cli;
+#[cfg(any(test, feature = "test-utils"))]
 mod mock_client;
 mod openai;
 mod opencode;
@@ -22,6 +23,7 @@ pub use client::{
 pub use codex::CodexClient;
 pub use factory::{DefaultLlmClientFactory, LlmClientFactory, LlmProvider, ModelSpec};
 pub use gemini_cli::GeminiCliClient;
+#[cfg(any(test, feature = "test-utils"))]
 pub use mock_client::{MockLlmClient, MockStep, MockStepKind};
 pub use openai::OpenAIClient;
 pub use opencode::OpenCodeClient;
