@@ -132,6 +132,16 @@ impl PairingManager {
 
     /// Approve a pairing request by code. Returns the approved peer.
     pub fn approve(&self, code: &str, approved_by: &str) -> Result<AllowedPeer> {
+        let (peer, _) = self.approve_with_request(code, approved_by)?;
+        Ok(peer)
+    }
+
+    /// Approve a pairing request and return both approved peer and source request.
+    pub fn approve_with_request(
+        &self,
+        code: &str,
+        approved_by: &str,
+    ) -> Result<(AllowedPeer, PairingRequest)> {
         let data = self
             .storage
             .get_pairing_request(code)?
@@ -156,7 +166,7 @@ impl PairingManager {
         self.storage.add_peer(&peer.peer_id, &peer_data)?;
         self.storage.delete_pairing_request(code)?;
 
-        Ok(peer)
+        Ok((peer, request))
     }
 
     /// Deny/delete a pairing request by code.
@@ -239,6 +249,18 @@ mod tests {
         assert_eq!(peer.approved_by, "cli");
 
         assert!(mgr.is_allowed("12345").unwrap());
+    }
+
+    #[test]
+    fn test_approve_with_request_preserves_chat_id() {
+        let mgr = create_test_manager();
+        let code = mgr
+            .create_request("12345", Some("Alice"), "chat-123")
+            .unwrap();
+
+        let (peer, request) = mgr.approve_with_request(&code, "cli").unwrap();
+        assert_eq!(peer.peer_id, "12345");
+        assert_eq!(request.chat_id, "chat-123");
     }
 
     #[test]

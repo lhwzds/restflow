@@ -175,6 +175,18 @@ fn default_max_summary_tokens() -> usize {
     2_000
 }
 
+fn default_max_tool_calls() -> usize {
+    100
+}
+
+fn default_max_duration_secs() -> u64 {
+    300
+}
+
+fn default_max_output_bytes() -> usize {
+    1_000_000
+}
+
 /// Scope for background-agent memory persistence.
 ///
 /// Controls whether long-term memory is shared across all background agents of
@@ -276,6 +288,31 @@ impl Default for NotificationConfig {
     }
 }
 
+/// Resource guardrails for background agent executions.
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
+#[ts(export)]
+pub struct ResourceLimits {
+    /// Maximum tool calls allowed in one execution.
+    #[serde(default = "default_max_tool_calls")]
+    pub max_tool_calls: usize,
+    /// Maximum execution duration in seconds.
+    #[serde(default = "default_max_duration_secs")]
+    pub max_duration_secs: u64,
+    /// Maximum output payload size in bytes for tool results.
+    #[serde(default = "default_max_output_bytes")]
+    pub max_output_bytes: usize,
+}
+
+impl Default for ResourceLimits {
+    fn default() -> Self {
+        Self {
+            max_tool_calls: default_max_tool_calls(),
+            max_duration_secs: default_max_duration_secs(),
+            max_output_bytes: default_max_output_bytes(),
+        }
+    }
+}
+
 /// Creation payload for background agents.
 #[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
 #[ts(export)]
@@ -310,6 +347,9 @@ pub struct BackgroundAgentSpec {
     /// Optional durability mode for checkpoint persistence
     #[serde(default)]
     pub durability_mode: Option<DurabilityMode>,
+    /// Optional resource limits for this task
+    #[serde(default)]
+    pub resource_limits: Option<ResourceLimits>,
 }
 
 /// Partial update payload for background agents.
@@ -349,6 +389,9 @@ pub struct BackgroundAgentPatch {
     /// New durability mode for checkpoint persistence
     #[serde(default)]
     pub durability_mode: Option<DurabilityMode>,
+    /// New resource limits
+    #[serde(default)]
+    pub resource_limits: Option<ResourceLimits>,
 }
 
 /// Control actions for a background agent.
@@ -616,6 +659,9 @@ pub struct BackgroundAgent {
     /// Durability mode for checkpoint persistence
     #[serde(default)]
     pub durability_mode: DurabilityMode,
+    /// Resource limits configuration
+    #[serde(default)]
+    pub resource_limits: ResourceLimits,
     /// Current status of the task
     #[serde(default)]
     pub status: BackgroundAgentStatus,
@@ -675,6 +721,7 @@ impl BackgroundAgent {
             notification: NotificationConfig::default(),
             memory: MemoryConfig::default(),
             durability_mode: DurabilityMode::Async,
+            resource_limits: ResourceLimits::default(),
             status: BackgroundAgentStatus::Active,
             created_at: now,
             updated_at: now,
@@ -1341,6 +1388,20 @@ mod tests {
         assert!(task.memory.enable_compaction);
         assert_eq!(task.memory.compaction_threshold_ratio, 0.80);
         assert_eq!(task.memory.max_summary_tokens, 2_000);
+    }
+
+    #[test]
+    fn test_background_agent_with_resource_limits_defaults() {
+        let task = BackgroundAgent::new(
+            "task-123".to_string(),
+            "Test Task".to_string(),
+            "agent-456".to_string(),
+            TaskSchedule::default(),
+        );
+
+        assert_eq!(task.resource_limits.max_tool_calls, 100);
+        assert_eq!(task.resource_limits.max_duration_secs, 300);
+        assert_eq!(task.resource_limits.max_output_bytes, 1_000_000);
     }
 
     #[test]

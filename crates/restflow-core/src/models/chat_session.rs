@@ -299,6 +299,9 @@ pub struct ChatSession {
     /// Optional skill ID for context-aware sessions
     #[serde(skip_serializing_if = "Option::is_none")]
     pub skill_id: Option<String>,
+    /// Optional per-session retention policy (e.g., "1h", "1d", "7d", "30d")
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retention: Option<String>,
     /// Summary message pointer for compacted sessions
     #[serde(default)]
     pub summary_message_id: Option<String>,
@@ -337,6 +340,7 @@ impl ChatSession {
             created_at: now,
             updated_at: now,
             skill_id: None,
+            retention: None,
             summary_message_id: None,
             prompt_tokens: 0,
             completion_tokens: 0,
@@ -354,6 +358,12 @@ impl ChatSession {
     /// Associate the session with a skill.
     pub fn with_skill(mut self, skill_id: impl Into<String>) -> Self {
         self.skill_id = Some(skill_id.into());
+        self
+    }
+
+    /// Set an optional retention policy for this session.
+    pub fn with_retention(mut self, retention: impl Into<String>) -> Self {
+        self.retention = Some(retention.into());
         self
     }
 
@@ -549,6 +559,13 @@ mod tests {
         let session = ChatSession::new("agent-1".to_string(), "claude-sonnet-4".to_string())
             .with_skill("skill-123");
         assert_eq!(session.skill_id, Some("skill-123".to_string()));
+    }
+
+    #[test]
+    fn test_chat_session_with_retention() {
+        let session = ChatSession::new("agent-1".to_string(), "claude-sonnet-4".to_string())
+            .with_retention("7d");
+        assert_eq!(session.retention, Some("7d".to_string()));
     }
 
     #[test]

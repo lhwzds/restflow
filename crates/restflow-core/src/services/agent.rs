@@ -54,6 +54,24 @@ pub async fn update_agent(
 }
 
 pub async fn delete_agent(core: &Arc<AppCore>, id: &str) -> Result<()> {
+    let active_tasks = core
+        .storage
+        .background_agents
+        .list_active_tasks_by_agent_id(id)
+        .with_context(|| format!("Failed to query background tasks for agent {}", id))?;
+    if !active_tasks.is_empty() {
+        let task_names = active_tasks
+            .iter()
+            .map(|task| task.name.clone())
+            .collect::<Vec<_>>()
+            .join(", ");
+        anyhow::bail!(
+            "Cannot delete agent {}: active background tasks exist ({})",
+            id,
+            task_names
+        );
+    }
+
     core.storage
         .agents
         .delete_agent(id.to_string())
@@ -272,6 +290,30 @@ mod tests {
         // Verify it's gone
         let result = get_agent(&core, &created.id).await;
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_delete_agent_blocked_by_active_task() {
+        let (core, _db, _agents, _guard) = create_test_core_isolated().await;
+
+        let agent_node = create_test_agent_node("Task owner");
+        let created = create_agent(&core, "Task Owner".to_string(), agent_node)
+            .await
+            .unwrap();
+
+        core.storage
+            .background_agents
+            .create_task(
+                "Integrity Task".to_string(),
+                created.id.clone(),
+                crate::models::BackgroundAgentSchedule::default(),
+            )
+            .unwrap();
+
+        let err = delete_agent(&core, &created.id).await.unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("Cannot delete agent"));
+        assert!(msg.contains("Integrity Task"));
     }
 
     #[tokio::test]

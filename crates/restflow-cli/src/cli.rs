@@ -807,6 +807,24 @@ pub enum PairingCommands {
         /// The peer ID to revoke
         peer_id: String,
     },
+
+    /// Manage Telegram notification owner chat ID
+    Owner {
+        #[command(subcommand)]
+        command: PairingOwnerCommands,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum PairingOwnerCommands {
+    /// Show current Telegram notification owner
+    Show,
+
+    /// Set Telegram notification owner chat ID
+    Set {
+        /// Telegram chat ID
+        chat_id: String,
+    },
 }
 
 #[derive(Subcommand)]

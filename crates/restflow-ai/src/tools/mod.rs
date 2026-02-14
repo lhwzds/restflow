@@ -14,6 +14,7 @@ mod diagnostics;
 mod email;
 mod file;
 mod file_tracker;
+mod filtered;
 mod http;
 mod jina_reader;
 mod mcp_cache;
@@ -31,6 +32,7 @@ mod session;
 mod skill;
 mod switch_model;
 mod telegram;
+mod toolset;
 mod traits;
 mod transcribe;
 mod vision;
@@ -55,6 +57,7 @@ pub use config::ConfigTool;
 pub use diagnostics::{DiagnosticsProvider, DiagnosticsTool};
 pub use email::EmailTool;
 pub use file::{FileAction, FileTool};
+pub use filtered::FilteredToolset;
 pub use http::HttpTool;
 pub use jina_reader::JinaReaderTool;
 pub use mcp_cache::{McpServerConfig, get_mcp_tools, invalidate_mcp_cache};
@@ -79,6 +82,7 @@ pub use session::{
 pub use skill::SkillTool;
 pub use switch_model::SwitchModelTool;
 pub use telegram::{TelegramTool, send_telegram_notification};
+pub use toolset::{Toolset, ToolsetContext};
 pub use traits::{
     SecretResolver, SkillContent, SkillInfo, SkillProvider, SkillRecord, SkillUpdate, Tool,
     ToolOutput, ToolSchema,
