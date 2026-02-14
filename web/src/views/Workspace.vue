@@ -3,8 +3,8 @@
  * Workspace View
  *
  * Main application layout with three columns:
- * - Left: Chat session list (or Settings panel)
- * - Center: Chat panel (messages + input)
+ * - Left: Session list (chat sessions + background agents mixed)
+ * - Center: Chat panel or Background agent panel
  * - Right: AI-controlled Canvas panel (hideable)
  */
 import { ref, computed, onMounted, watch } from 'vue'
@@ -14,7 +14,9 @@ import SessionList from '@/components/workspace/SessionList.vue'
 import SettingsPanel from '@/components/settings/SettingsPanel.vue'
 import ChatPanel from '@/components/chat/ChatPanel.vue'
 import ToolPanel from '@/components/tool-panel/ToolPanel.vue'
+import BackgroundAgentPanel from '@/components/background-agent/BackgroundAgentPanel.vue'
 import { useChatSessionStore } from '@/stores/chatSessionStore'
+import { useBackgroundAgentStore } from '@/stores/backgroundAgentStore'
 import { useToolPanel } from '@/composables/workspace/useToolPanel'
 import { useTheme } from '@/composables/useTheme'
 import { listAgents } from '@/api/agents'
@@ -25,7 +27,11 @@ import type { StreamStep } from '@/composables/workspace/useChatStream'
 
 const toast = useToast()
 const chatSessionStore = useChatSessionStore()
+const backgroundAgentStore = useBackgroundAgentStore()
 const { isDark, toggleDark } = useTheme()
+
+// Prefix to distinguish background agent IDs from session IDs
+const BG_PREFIX = 'bg:'
 
 // Settings panel toggle
 const showSettings = ref(false)
@@ -33,30 +39,68 @@ const showSettings = ref(false)
 // Agent data for SessionList
 const availableAgents = ref<AgentFile[]>([])
 
-const currentSessionId = computed(() => chatSessionStore.currentSessionId)
+// Track which item is selected: a chat session or a background agent
+const selectedItemId = ref<string | null>(null)
+
+const isBackgroundAgentSelected = computed(
+  () => selectedItemId.value !== null && selectedItemId.value.startsWith(BG_PREFIX),
+)
+
+const selectedBackgroundAgentId = computed(() => {
+  if (!isBackgroundAgentSelected.value || !selectedItemId.value) return null
+  return selectedItemId.value.slice(BG_PREFIX.length)
+})
+
+const currentSessionId = computed(() =>
+  isBackgroundAgentSelected.value ? null : selectedItemId.value,
+)
+
 const agentFilter = computed(() => chatSessionStore.agentFilter)
 const isSending = computed(() => chatSessionStore.isSending)
 
 // Tool panel
 const toolPanel = useToolPanel()
 
-// Build session list from store
+// Map background agent status to session status
+function mapBgStatus(status: string): 'running' | 'completed' | 'failed' | 'pending' {
+  if (status === 'running') return 'running'
+  if (status === 'completed') return 'completed'
+  if (status === 'failed') return 'failed'
+  return 'pending'
+}
+
+// Build unified session list: chat sessions + background agents
 const sessions = computed<SessionItem[]>(() => {
   const agentLookup = new Map(availableAgents.value.map((a) => [a.id, a.name]))
 
-  return chatSessionStore.filteredSummaries.map((session: ChatSessionSummary) => ({
-    id: session.id,
-    name: session.name,
-    status:
-      session.id === currentSessionId.value && isSending.value
-        ? 'running'
-        : session.message_count > 0
-          ? 'completed'
-          : 'pending',
-    updatedAt: Number(session.updated_at),
-    agentId: session.agent_id,
-    agentName: agentLookup.get(session.agent_id) ?? session.agent_id,
+  const chatSessions: SessionItem[] = chatSessionStore.filteredSummaries.map(
+    (session: ChatSessionSummary) => ({
+      id: session.id,
+      name: session.name,
+      status:
+        session.id === currentSessionId.value && isSending.value
+          ? 'running'
+          : session.message_count > 0
+            ? 'completed'
+            : 'pending',
+      updatedAt: Number(session.updated_at),
+      agentId: session.agent_id,
+      agentName: agentLookup.get(session.agent_id) ?? session.agent_id,
+    }),
+  )
+
+  const bgAgents: SessionItem[] = backgroundAgentStore.agents.map((agent) => ({
+    id: BG_PREFIX + agent.id,
+    name: agent.name,
+    status: mapBgStatus(agent.status),
+    updatedAt: agent.updated_at,
+    agentId: agent.agent_id,
+    agentName: agentLookup.get(agent.agent_id) ?? agent.agent_id,
+    isBackgroundAgent: true,
   }))
+
+  // Background agents first (pinned), then chat sessions sorted by time
+  return [...bgAgents, ...chatSessions]
 })
 
 async function loadAgents() {
@@ -74,11 +118,23 @@ async function loadAgents() {
 }
 
 async function onNewSession() {
+  selectedItemId.value = null
   await chatSessionStore.selectSession(null)
 }
 
-async function onSelectSession(sessionId: string) {
-  await chatSessionStore.selectSession(sessionId)
+async function onSelectItem(id: string) {
+  selectedItemId.value = id
+
+  if (id.startsWith(BG_PREFIX)) {
+    // Background agent selected — update bg store, clear chat selection
+    const bgId = id.slice(BG_PREFIX.length)
+    backgroundAgentStore.selectAgent(bgId)
+    await chatSessionStore.selectSession(null)
+  } else {
+    // Chat session selected — update chat store, clear bg selection
+    backgroundAgentStore.selectAgent(null)
+    await chatSessionStore.selectSession(id)
+  }
 }
 
 function onUpdateAgentFilter(agentId: string | null) {
@@ -93,35 +149,46 @@ function onToolResult(step: StreamStep) {
   toolPanel.handleToolResult(step)
 }
 
-onMounted(() => {
-  loadAgents()
-})
+function onRefreshAgents() {
+  backgroundAgentStore.fetchAgents()
+}
+
+// Sync selectedItemId when chat store changes externally
+watch(
+  () => chatSessionStore.currentSessionId,
+  (newId) => {
+    if (newId && !isBackgroundAgentSelected.value) {
+      selectedItemId.value = newId
+    }
+  },
+)
 
 watch(currentSessionId, () => {
   toolPanel.clearHistory()
+})
+
+onMounted(() => {
+  loadAgents()
+  backgroundAgentStore.fetchAgents()
 })
 </script>
 
 <template>
   <div class="h-screen flex bg-background">
     <!-- Full-screen Settings (replaces entire layout) -->
-    <SettingsPanel
-      v-if="showSettings"
-      class="flex-1"
-      @back="showSettings = false"
-    />
+    <SettingsPanel v-if="showSettings" class="flex-1" @back="showSettings = false" />
 
-    <!-- Normal chat layout (v-show avoids unmount/remount of complex component tree) -->
+    <!-- Normal layout -->
     <div v-show="!showSettings" class="flex flex-1 min-w-0">
-      <!-- Left: Session List -->
+      <!-- Left: Session List (chat sessions + background agents) -->
       <div class="w-56 border-r border-border shrink-0 flex flex-col">
         <SessionList
           :sessions="sessions"
-          :current-session-id="currentSessionId"
+          :current-session-id="selectedItemId"
           :available-agents="availableAgents"
           :agent-filter="agentFilter"
           class="flex-1"
-          @select="onSelectSession"
+          @select="onSelectItem"
           @new-session="onNewSession"
           @update-agent-filter="onUpdateAgentFilter"
         />
@@ -150,16 +217,23 @@ watch(currentSessionId, () => {
         </div>
       </div>
 
-      <!-- Center: Chat -->
+      <!-- Center Panel -->
+      <BackgroundAgentPanel
+        v-if="isBackgroundAgentSelected && backgroundAgentStore.selectedAgent"
+        :agent="backgroundAgentStore.selectedAgent"
+        class="flex-1 min-w-0"
+        @refresh="onRefreshAgents"
+      />
       <ChatPanel
+        v-else
         class="flex-1 min-w-0"
         @show-panel="onShowPanel"
         @tool-result="onToolResult"
       />
 
-      <!-- Right: Tool Panel -->
+      <!-- Right: Tool Panel (hidden when background agent overlay is active) -->
       <ToolPanel
-        v-if="toolPanel.visible.value && toolPanel.activeEntry.value"
+        v-if="!isBackgroundAgentSelected && toolPanel.visible.value && toolPanel.activeEntry.value"
         :panel-type="toolPanel.state.value.panelType"
         :title="toolPanel.state.value.title"
         :tool-name="toolPanel.state.value.toolName"

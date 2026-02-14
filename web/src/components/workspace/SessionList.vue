@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Plus, MessageSquare, Check, Loader2, Bot } from 'lucide-vue-next'
+import { Plus, MessageSquare, Check, Loader2, Bot, Cog } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import {
   Select,
@@ -78,8 +78,14 @@ const formatTime = (timestamp: number) => {
         <div class="flex items-start gap-2">
           <!-- Status Icon -->
           <div class="mt-0.5">
+            <Cog
+              v-if="session.isBackgroundAgent && session.status === 'running'"
+              :size="14"
+              class="animate-spin text-primary"
+            />
+            <Cog v-else-if="session.isBackgroundAgent" :size="14" class="text-blue-500" />
             <Loader2
-              v-if="session.status === 'running'"
+              v-else-if="session.status === 'running'"
               :size="14"
               class="animate-spin text-primary"
             />
@@ -91,7 +97,13 @@ const formatTime = (timestamp: number) => {
           <div class="flex-1 min-w-0">
             <div class="text-sm truncate">{{ session.name }}</div>
             <div class="text-xs text-muted-foreground truncate">
-              {{ session.agentName || 'Unknown agent' }}
+              <template v-if="session.isBackgroundAgent">
+                <span class="text-blue-500 font-medium">background</span>
+                <span v-if="session.agentName"> · {{ session.agentName }}</span>
+              </template>
+              <template v-else>
+                {{ session.agentName || 'Unknown agent' }}
+              </template>
             </div>
             <div class="text-xs text-muted-foreground">
               {{ formatTime(session.updatedAt) }}
