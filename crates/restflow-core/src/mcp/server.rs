@@ -10,7 +10,8 @@ use crate::models::{
     BackgroundAgentSchedule, BackgroundAgentSpec, BackgroundAgentStatus, BackgroundMessage,
     BackgroundMessageSource, BackgroundProgress, ChatSession, ChatSessionSummary, DurabilityMode,
     Hook, HookAction, HookEvent, HookFilter, MemoryChunk, MemoryConfig, MemoryScope,
-    MemorySearchQuery, MemorySearchResult, MemorySource, MemoryStats, Provider, SearchMode, Skill,
+    MemorySearchQuery, MemorySearchResult, MemorySource, MemoryStats, Provider, ResourceLimits,
+    SearchMode, Skill,
 };
 use crate::services::tool_registry::create_tool_registry;
 use crate::storage::SecretStorage;
@@ -917,6 +918,9 @@ pub struct ManageBackgroundAgentsParams {
     /// Optional memory scope override
     #[serde(default)]
     pub memory_scope: Option<String>,
+    /// Optional resource limits payload
+    #[serde(default)]
+    pub resource_limits: Option<Value>,
     /// Optional list status filter
     #[serde(default)]
     pub status: Option<String>,
@@ -1414,6 +1418,10 @@ impl RestFlowMcpServer {
                 let memory = Self::parse_optional_value::<MemoryConfig>("memory", params.memory)?;
                 let memory = Self::merge_memory_scope(memory, params.memory_scope)?;
                 let durability_mode = Self::parse_durability_mode(params.durability_mode)?;
+                let resource_limits = Self::parse_optional_value::<ResourceLimits>(
+                    "resource_limits",
+                    params.resource_limits,
+                )?;
                 let spec = BackgroundAgentSpec {
                     name,
                     agent_id,
@@ -1429,6 +1437,7 @@ impl RestFlowMcpServer {
                     timeout_secs: params.timeout_secs,
                     memory,
                     durability_mode,
+                    resource_limits,
                 };
                 serde_json::to_value(self.backend.create_background_agent(spec).await?)
                     .map_err(|e| e.to_string())?
@@ -1438,6 +1447,10 @@ impl RestFlowMcpServer {
                 let memory = Self::parse_optional_value::<MemoryConfig>("memory", params.memory)?;
                 let memory = Self::merge_memory_scope(memory, params.memory_scope)?;
                 let durability_mode = Self::parse_durability_mode(params.durability_mode)?;
+                let resource_limits = Self::parse_optional_value::<ResourceLimits>(
+                    "resource_limits",
+                    params.resource_limits,
+                )?;
                 let patch = BackgroundAgentPatch {
                     name: params.name,
                     description: params.description,
@@ -1453,6 +1466,7 @@ impl RestFlowMcpServer {
                     timeout_secs: params.timeout_secs,
                     memory,
                     durability_mode,
+                    resource_limits,
                 };
                 serde_json::to_value(self.backend.update_background_agent(&id, patch).await?)
                     .map_err(|e| e.to_string())?
@@ -1984,6 +1998,7 @@ mod tests {
     use crate::models::{AIModel, AgentNode, ApiKeyConfig, Skill};
     use crate::prompt_files;
     use crate::storage::agent::StoredAgent;
+    use std::time::Instant;
     use tempfile::TempDir;
     use tokio::time::{Duration, sleep};
 
@@ -2880,6 +2895,7 @@ mod tests {
             durability_mode: None,
             memory: None,
             memory_scope: None,
+            resource_limits: None,
             status: None,
             action: None,
             event_limit: None,
@@ -3082,5 +3098,179 @@ mod tests {
             .unwrap_err();
 
         assert!(error.contains("not found") || error.contains("Unknown"));
+    }
+
+    #[tokio::test]
+    async fn test_mcp_manage_background_agents_stress_path_emits_latency_summary() {
+        let (server, _core, _temp_dir, _temp_agents, _guard) = create_test_server().await;
+        let artifacts_dir = std::path::Path::new("target/stress-artifacts");
+        std::fs::create_dir_all(artifacts_dir).expect("failed to create stress artifacts dir");
+
+        let _ = server
+            .handle_list_skills()
+            .await
+            .expect("list skills should simulate initialize path");
+        let tools = server
+            .backend
+            .list_runtime_tools()
+            .await
+            .expect("runtime tools should be available");
+        assert!(
+            tools
+                .iter()
+                .any(|tool| tool.name == "manage_background_agents"),
+            "manage_background_agents tool must be registered"
+        );
+
+        let mut create_params = base_manage_background_params("create");
+        create_params.name = Some("mcp-stress-task".to_string());
+        create_params.agent_id = Some("default".to_string());
+        create_params.description =
+            Some("stress path create/run/control/progress/list".to_string());
+        create_params.input = Some("deterministic".to_string());
+        create_params.schedule = Some(serde_json::json!({
+            "type": "once",
+            "run_at": chrono::Utc::now().timestamp_millis()
+        }));
+        let created_json = server
+            .handle_manage_background_agents(create_params)
+            .await
+            .expect("create operation should succeed");
+        let created: serde_json::Value =
+            serde_json::from_str(&created_json).expect("create response should be valid json");
+        let task_id = created["id"]
+            .as_str()
+            .expect("created task id should be present")
+            .to_string();
+
+        let mut run_params = base_manage_background_params("run");
+        run_params.id = Some(task_id.clone());
+        server
+            .handle_manage_background_agents(run_params)
+            .await
+            .expect("run operation should succeed");
+
+        let mut progress_params = base_manage_background_params("progress");
+        progress_params.id = Some(task_id.clone());
+        progress_params.event_limit = Some(20);
+        let progress_json = server
+            .handle_manage_background_agents(progress_params)
+            .await
+            .expect("progress operation should succeed");
+        let progress: serde_json::Value =
+            serde_json::from_str(&progress_json).expect("progress response should be valid json");
+        assert_eq!(
+            progress["background_agent_id"].as_str(),
+            Some(task_id.as_str())
+        );
+
+        let workers = 16usize;
+        let loops_per_worker = 6usize;
+        let total_calls = workers * loops_per_worker * 2;
+        let mut join_set = tokio::task::JoinSet::new();
+
+        for _ in 0..workers {
+            let server = server.clone();
+            let task_id = task_id.clone();
+            join_set.spawn(async move {
+                let mut latencies_ms = Vec::with_capacity(loops_per_worker * 2);
+                for _ in 0..loops_per_worker {
+                    let list_params = base_manage_background_params("list");
+                    let started = Instant::now();
+                    let _ = server
+                        .handle_manage_background_agents(list_params)
+                        .await
+                        .expect("list operation should succeed");
+                    latencies_ms.push(started.elapsed().as_micros() as u64 / 1_000);
+
+                    let mut progress_params = base_manage_background_params("progress");
+                    progress_params.id = Some(task_id.clone());
+                    progress_params.event_limit = Some(20);
+                    let started = Instant::now();
+                    let _ = server
+                        .handle_manage_background_agents(progress_params)
+                        .await
+                        .expect("progress operation should succeed");
+                    latencies_ms.push(started.elapsed().as_micros() as u64 / 1_000);
+                }
+                latencies_ms
+            });
+        }
+
+        let mut all_latencies = Vec::with_capacity(total_calls);
+        while let Some(joined) = join_set.join_next().await {
+            let mut worker_latencies = joined.expect("worker join should succeed");
+            all_latencies.append(&mut worker_latencies);
+        }
+
+        assert_eq!(all_latencies.len(), total_calls);
+        all_latencies.sort_unstable();
+
+        let p50 = percentile_ms(&all_latencies, 50.0);
+        let p95 = percentile_ms(&all_latencies, 95.0);
+        let p99 = percentile_ms(&all_latencies, 99.0);
+        assert!(p95 <= 250, "p95 latency should stay bounded, got {p95}ms");
+
+        let summary = serde_json::json!({
+            "workers": workers,
+            "loops_per_worker": loops_per_worker,
+            "total_calls": total_calls,
+            "success_calls": all_latencies.len(),
+            "latency_ms": {
+                "p50": p50,
+                "p95": p95,
+                "p99": p99
+            },
+        });
+
+        std::fs::write(
+            artifacts_dir.join("mcp-background-agent-stress-summary.json"),
+            serde_json::to_vec_pretty(&summary).expect("failed to serialize mcp stress summary"),
+        )
+        .expect("failed to write mcp stress summary artifact");
+
+        let markdown = format!(
+            "# MCP Background Agent Stress Summary\n\n- Workers: {workers}\n- Loops per worker: {loops_per_worker}\n- Total calls: {total_calls}\n- p50: {p50}ms\n- p95: {p95}ms\n- p99: {p99}ms\n"
+        );
+        std::fs::write(
+            artifacts_dir.join("mcp-background-agent-stress-summary.md"),
+            markdown,
+        )
+        .expect("failed to write mcp stress markdown artifact");
+    }
+
+    fn base_manage_background_params(operation: &str) -> ManageBackgroundAgentsParams {
+        ManageBackgroundAgentsParams {
+            operation: operation.to_string(),
+            id: None,
+            name: None,
+            agent_id: None,
+            description: None,
+            input: None,
+            input_template: None,
+            schedule: None,
+            notification: None,
+            execution_mode: None,
+            timeout_secs: None,
+            memory: None,
+            memory_scope: None,
+            durability_mode: None,
+            resource_limits: None,
+            status: None,
+            action: None,
+            event_limit: None,
+            message: None,
+            source: None,
+            limit: None,
+        }
+    }
+
+    fn percentile_ms(sorted_ms: &[u64], percentile: f64) -> u64 {
+        if sorted_ms.is_empty() {
+            return 0;
+        }
+        let idx =
+            ((percentile / 100.0) * (sorted_ms.len().saturating_sub(1) as f64)).round() as usize;
+        sorted_ms[idx]
     }
 }

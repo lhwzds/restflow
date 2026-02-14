@@ -3,6 +3,7 @@ import type { DurabilityMode } from "./DurabilityMode";
 import type { ExecutionMode } from "./ExecutionMode";
 import type { MemoryConfig } from "./MemoryConfig";
 import type { NotificationConfig } from "./NotificationConfig";
+import type { ResourceLimits } from "./ResourceLimits";
 import type { TaskSchedule } from "./TaskSchedule";
 
 /**
@@ -52,4 +53,8 @@ memory: MemoryConfig | null,
 /**
  * Optional durability mode for checkpoint persistence
  */
-durability_mode: DurabilityMode | null, };
+durability_mode: DurabilityMode | null, 
+/**
+ * Optional resource limits for this task
+ */
+resource_limits: ResourceLimits | null, };

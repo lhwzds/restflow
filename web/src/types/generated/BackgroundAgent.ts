@@ -4,6 +4,7 @@ import type { DurabilityMode } from "./DurabilityMode";
 import type { ExecutionMode } from "./ExecutionMode";
 import type { MemoryConfig } from "./MemoryConfig";
 import type { NotificationConfig } from "./NotificationConfig";
+import type { ResourceLimits } from "./ResourceLimits";
 import type { TaskSchedule } from "./TaskSchedule";
 import type { WebhookConfig } from "./WebhookConfig";
 
@@ -59,6 +60,10 @@ memory: MemoryConfig,
  * Durability mode for checkpoint persistence
  */
 durability_mode: DurabilityMode, 
+/**
+ * Resource limits configuration
+ */
+resource_limits: ResourceLimits, 
 /**
  * Current status of the task
  */

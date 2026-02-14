@@ -7,9 +7,13 @@ use std::path::Path;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use redb::Database;
 use tokio::sync::RwLock;
 
-use super::{ApprovalManager, SecurityConfigStore};
+use super::{
+    AmendmentMatchType, AmendmentScope, ApprovalManager, SecurityAmendmentStore,
+    SecurityConfigStore,
+};
 use crate::models::security::{
     AgentSecurityConfig, AskMode, SecurityAction, SecurityCheckResult, SecurityMode,
     SecurityPolicy, ToolAction, ToolRule,
@@ -31,6 +35,9 @@ pub struct SecurityChecker {
 
     /// Per-agent security configuration
     config_store: Arc<SecurityConfigStore>,
+
+    /// Optional persistent amendments for auto-approving known-safe patterns
+    amendment_store: Option<Arc<SecurityAmendmentStore>>,
 }
 
 impl SecurityChecker {
@@ -42,6 +49,7 @@ impl SecurityChecker {
             policy: RwLock::new(policy),
             approval_manager,
             config_store,
+            amendment_store: None,
         }
     }
 
@@ -54,7 +62,25 @@ impl SecurityChecker {
             policy: RwLock::new(policy),
             approval_manager: Arc::new(ApprovalManager::new()),
             config_store,
+            amendment_store: None,
         }
+    }
+
+    /// Create a checker backed by a persistent amendment store.
+    pub fn with_db(
+        policy: SecurityPolicy,
+        approval_manager: Arc<ApprovalManager>,
+        db: Arc<Database>,
+    ) -> anyhow::Result<Self> {
+        let mut checker = Self::new(policy, approval_manager);
+        checker.amendment_store = Some(Arc::new(SecurityAmendmentStore::new(db)?));
+        Ok(checker)
+    }
+
+    /// Attach a persistent amendment store to the checker.
+    pub fn with_amendment_store(mut self, store: Arc<SecurityAmendmentStore>) -> Self {
+        self.amendment_store = Some(store);
+        self
     }
 
     /// Get a reference to the approval manager.
@@ -235,10 +261,23 @@ impl SecurityChecker {
             },
         };
 
+        let amended = matches!(decision, Decision::RequireApproval)
+            && self
+                .find_matching_amendment("bash", command_trimmed, Some(agent_id))
+                .is_some();
+        if amended {
+            decision = Decision::Allow;
+        }
+
         match decision {
-            Decision::Allow => Ok(SecurityCheckResult::allowed(Some(
-                "Command allowed by policy".to_string(),
-            ))),
+            Decision::Allow => {
+                let reason = if amended {
+                    "Command allowed by approved amendment".to_string()
+                } else {
+                    "Command allowed by policy".to_string()
+                };
+                Ok(SecurityCheckResult::allowed(Some(reason)))
+            }
             Decision::Block => Ok(SecurityCheckResult::blocked(
                 "Command blocked by policy".to_string(),
                 None,
@@ -296,6 +335,19 @@ impl SecurityChecker {
                             .unwrap_or_else(|| format!("Blocked by rule: {}", rule.id)),
                     ))),
                     SecurityAction::RequireApproval => {
+                        let command_like = action.as_pattern_string();
+                        if self
+                            .find_matching_amendment(
+                                action.tool_name.as_str(),
+                                &command_like,
+                                agent_id,
+                            )
+                            .is_some()
+                        {
+                            return Ok(SecurityDecision::allowed(Some(
+                                "Tool action allowed by approved amendment".to_string(),
+                            )));
+                        }
                         let task_id = task_id.unwrap_or("unknown");
                         let agent_id = agent_id.unwrap_or("unknown");
                         let approval_id = self
@@ -491,6 +543,41 @@ impl SecurityChecker {
             .set_default_config(AgentSecurityConfig::from_policy(policy.clone()))
             .await;
     }
+
+    /// Add a persistent allow-rule amendment for future matching requests.
+    pub fn add_allow_amendment(
+        &self,
+        tool_name: &str,
+        command_pattern: &str,
+        match_type: AmendmentMatchType,
+        scope: AmendmentScope,
+    ) -> anyhow::Result<()> {
+        let store = self
+            .amendment_store
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("security amendment store is not configured"))?;
+        store.add_allow_rule(
+            tool_name.to_string(),
+            command_pattern.to_string(),
+            match_type,
+            scope,
+        )?;
+        Ok(())
+    }
+
+    fn find_matching_amendment(
+        &self,
+        tool_name: &str,
+        command: &str,
+        agent_id: Option<&str>,
+    ) -> Option<crate::security::SecurityAmendment> {
+        self.amendment_store.as_ref().and_then(|store| {
+            store
+                .find_matching_rule(tool_name, command, agent_id)
+                .ok()
+                .flatten()
+        })
+    }
 }
 
 #[async_trait]
@@ -555,6 +642,7 @@ fn matches_pattern(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::tempdir;
 
     fn create_test_checker() -> SecurityChecker {
         SecurityChecker::with_defaults()
@@ -920,5 +1008,31 @@ mod tests {
             checker.would_allow("cargo publish").await,
             SecurityAction::RequireApproval
         );
+    }
+
+    #[tokio::test]
+    async fn test_command_auto_allowed_by_amendment() {
+        let dir = tempdir().unwrap();
+        let db = Arc::new(Database::create(dir.path().join("amendment-checker.db")).unwrap());
+        let amendment_store = Arc::new(SecurityAmendmentStore::new(db).unwrap());
+
+        let checker = create_test_checker().with_amendment_store(amendment_store);
+        checker
+            .add_allow_amendment(
+                "bash",
+                "rm ",
+                AmendmentMatchType::Prefix,
+                AmendmentScope::Agent {
+                    agent_id: "agent-1".to_string(),
+                },
+            )
+            .unwrap();
+
+        let result = checker
+            .check_command("rm file.txt", "task-1", "agent-1")
+            .await
+            .unwrap();
+        assert!(result.allowed);
+        assert!(!result.requires_approval);
     }
 }

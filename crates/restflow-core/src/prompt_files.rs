@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use tracing::warn;
@@ -281,9 +282,11 @@ pub fn cleanup_orphan_agent_prompt_files(active_agent_ids: &[String]) -> Result<
 
 fn apply_task_id_placeholder(content: &str, background_task_id: Option<&str>) -> String {
     let task_id = background_task_id.unwrap_or("unknown");
-    content
-        .replace("{{task_id}}", task_id)
-        .replace("{{background_task_id}}", task_id)
+    let replacements = HashMap::from([
+        ("{{task_id}}", task_id),
+        ("{{background_task_id}}", task_id),
+    ]);
+    crate::utils::template::render_template_single_pass(content, &replacements)
 }
 
 fn resolve_agents_dir() -> Result<PathBuf> {
@@ -859,5 +862,23 @@ mod tests {
         let expected = crate::paths::resolve_restflow_dir().unwrap().join("agents");
         let actual = resolve_agents_dir().unwrap();
         assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_apply_task_id_placeholder_prevents_double_substitution() {
+        // Test that a malicious task_id containing placeholder syntax doesn't get re-processed
+        let content = "{{task_id}} - {{background_task_id}}";
+        let malicious_task_id = "injected{{task_id}}";  // If double-substitution happens, this would become "injectedinjected{{task_id}}"
+        let result = apply_task_id_placeholder(content, Some(malicious_task_id));
+        
+        // Should NOT perform second substitution - the {{task_id}} in the value should remain as-is
+        assert_eq!(result, "injected{{task_id}} - injected{{task_id}}");
+    }
+
+    #[test]
+    fn test_apply_task_id_placeholder_handles_none() {
+        let content = "{{task_id}} - {{background_task_id}}";
+        let result = apply_task_id_placeholder(content, None);
+        assert_eq!(result, "unknown - unknown");
     }
 }

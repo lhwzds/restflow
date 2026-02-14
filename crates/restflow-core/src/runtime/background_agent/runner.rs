@@ -1071,6 +1071,11 @@ impl BackgroundAgentRunner {
             ExecutionMode::Api => task.timeout_secs.unwrap_or(self.config.task_timeout_secs),
             ExecutionMode::Cli(cli_config) => cli_config.timeout_secs,
         };
+        let execution_timeout_secs = if task.resource_limits.max_duration_secs > 0 {
+            execution_timeout_secs.min(task.resource_limits.max_duration_secs)
+        } else {
+            execution_timeout_secs
+        };
 
         let exec_future = async {
             match &task.execution_mode {
