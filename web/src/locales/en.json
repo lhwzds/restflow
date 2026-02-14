@@ -1,0 +1,36 @@
+{
+  "common": {
+    "settings": "Settings",
+    "theme": "Theme",
+    "agent": "Agent",
+    "model": "Model",
+    "send": "Send",
+    "stop": "Stop",
+    "unknownAgent": "Unknown agent"
+  },
+  "workspace": {
+    "newSession": "New Session",
+    "allAgents": "All agents",
+    "noSessions": "No sessions yet",
+    "background": "background",
+    "askAgent": "Ask the agent to do something...",
+    "pressEnterToSend": "Press {shortcut} to send",
+    "shiftEnterForNewLine": "{shortcut} for new line",
+    "time": {
+      "justNow": "Just now",
+      "minutesAgo": "{count}m ago",
+      "hoursAgo": "{count}h ago"
+    }
+  },
+  "chat": {
+    "loadAgentsFailed": "Failed to load agents",
+    "loadModelsFailed": "Failed to load models",
+    "selectAgentToStart": "Select an agent to start a chat",
+    "selectModelToStart": "Select a model to start a chat",
+    "createSessionFailed": "Failed to create chat session",
+    "sendMessageFailed": "Failed to send message",
+    "updateSessionAgentFailed": "Failed to update session agent",
+    "updateSessionModelFailed": "Failed to update session model",
+    "collapseInput": "Collapse chat input"
+  }
+}

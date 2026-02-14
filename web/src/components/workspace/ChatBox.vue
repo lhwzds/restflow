@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, watch, nextTick } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { Send, Square, X, Cpu } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
@@ -31,6 +32,7 @@ const emit = defineEmits<{
   'update:selectedModel': [value: string]
 }>()
 
+const { t } = useI18n()
 const inputMessage = ref('')
 
 // Track IME composition state manually (WebKit's e.isComposing is unreliable)
@@ -87,7 +89,7 @@ watch(inputMessage, async (newVal) => {
         variant="ghost"
         size="icon"
         class="h-7 w-7"
-        aria-label="Collapse chat input"
+        :aria-label="t('chat.collapseInput')"
         @click="emit('close')"
       >
         <X :size="16" />
@@ -106,7 +108,7 @@ watch(inputMessage, async (newVal) => {
       <!-- Textarea -->
       <Textarea
         v-model="inputMessage"
-        placeholder="Ask the agent to do something..."
+        :placeholder="t('workspace.askAgent')"
         class="chat-textarea min-h-[40px] max-h-[120px] resize-none border-0 bg-transparent p-0 text-sm shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
         @keydown="handleKeydown"
         @input="handleInput"
@@ -131,7 +133,7 @@ watch(inputMessage, async (newVal) => {
         >
           <SelectTrigger class="w-[180px] h-8 text-xs">
             <Cpu :size="14" class="mr-1 text-muted-foreground shrink-0" />
-            <SelectValue placeholder="Model" />
+            <SelectValue :placeholder="t('common.model')" />
           </SelectTrigger>
           <SelectContent>
             <SelectItem v-for="model in availableModels" :key="model.id" :value="model.id">
@@ -152,7 +154,7 @@ watch(inputMessage, async (newVal) => {
           @click="emit('cancel')"
         >
           <Square :size="14" class="mr-1" />
-          Stop
+          {{ t('common.stop') }}
         </Button>
 
         <!-- Send Button -->
@@ -164,7 +166,7 @@ watch(inputMessage, async (newVal) => {
           @click="handleSend"
         >
           <Send :size="14" class="mr-1" />
-          Send
+          {{ t('common.send') }}
         </Button>
       </div>
     </div>
@@ -174,10 +176,16 @@ watch(inputMessage, async (newVal) => {
       v-if="!isExpanded"
       class="mt-2 flex items-center justify-center gap-4 text-xs text-muted-foreground"
     >
-      <span>Press <kbd class="px-1 py-0.5 bg-muted rounded text-[10px]">Enter</kbd> to send</span>
-      <span
-        ><kbd class="px-1 py-0.5 bg-muted rounded text-[10px]">Shift+Enter</kbd> for new line</span
-      >
+      <span>{{
+        t('workspace.pressEnterToSend', {
+          shortcut: 'Enter',
+        })
+      }}</span>
+      <span>{{
+        t('workspace.shiftEnterForNewLine', {
+          shortcut: 'Shift+Enter',
+        })
+      }}</span>
     </div>
   </div>
 </template>

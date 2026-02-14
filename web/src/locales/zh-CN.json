@@ -1,0 +1,36 @@
+{
+  "common": {
+    "settings": "设置",
+    "theme": "主题",
+    "agent": "Agent",
+    "model": "模型",
+    "send": "发送",
+    "stop": "停止",
+    "unknownAgent": "未知 Agent"
+  },
+  "workspace": {
+    "newSession": "新会话",
+    "allAgents": "全部 Agent",
+    "noSessions": "暂无会话",
+    "background": "后台",
+    "askAgent": "让 Agent 帮你执行任务...",
+    "pressEnterToSend": "按 {shortcut} 发送",
+    "shiftEnterForNewLine": "{shortcut} 换行",
+    "time": {
+      "justNow": "刚刚",
+      "minutesAgo": "{count}分钟前",
+      "hoursAgo": "{count}小时前"
+    }
+  },
+  "chat": {
+    "loadAgentsFailed": "加载 Agent 列表失败",
+    "loadModelsFailed": "加载模型列表失败",
+    "selectAgentToStart": "请选择 Agent 后开始对话",
+    "selectModelToStart": "请选择模型后开始对话",
+    "createSessionFailed": "创建会话失败",
+    "sendMessageFailed": "发送消息失败",
+    "updateSessionAgentFailed": "更新会话 Agent 失败",
+    "updateSessionModelFailed": "更新会话模型失败",
+    "collapseInput": "收起输入框"
+  }
+}
