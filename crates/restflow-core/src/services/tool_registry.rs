@@ -5,11 +5,11 @@ use crate::lsp::LspManager;
 use crate::memory::{MemoryExporter, UnifiedSearchEngine};
 use crate::models::{
     BackgroundAgentControlAction, BackgroundAgentPatch, BackgroundAgentSchedule,
-    BackgroundAgentSpec, BackgroundAgentStatus, BackgroundMessageSource, DurabilityMode,
-    MemoryConfig, MemoryScope, MemorySearchQuery, NoteQuery, NoteStatus, ResourceLimits,
-    SearchMode, SharedEntry, Skill, TerminalSession, ToolAction, TriggerConfig, UnifiedSearchQuery,
-    Visibility, WorkspaceNote, WorkspaceNotePatch as CoreWorkspaceNotePatch,
-    WorkspaceNoteSpec as CoreWorkspaceNoteSpec,
+    BackgroundAgentSpec, BackgroundAgentStatus, BackgroundMessageSource, Deliverable,
+    DeliverableType, DurabilityMode, MemoryConfig, MemoryScope, MemorySearchQuery, NoteQuery,
+    NoteStatus, ResourceLimits, SearchMode, SharedEntry, Skill, TerminalSession, ToolAction,
+    TriggerConfig, UnifiedSearchQuery, Visibility, WorkspaceNote,
+    WorkspaceNotePatch as CoreWorkspaceNotePatch, WorkspaceNoteSpec as CoreWorkspaceNoteSpec,
 };
 use crate::registry::{
     GitHubProvider, MarketplaceProvider, SkillProvider as MarketplaceSkillProvider,
@@ -28,13 +28,14 @@ use restflow_ai::error::AiError;
 use restflow_ai::tools::{
     AgentCreateRequest, AgentCrudTool, AgentStore, AgentUpdateRequest, AuthProfileCreateRequest,
     AuthProfileStore, AuthProfileTestRequest, AuthProfileTool, BackgroundAgentControlRequest,
-    BackgroundAgentCreateRequest, BackgroundAgentMessageListRequest, BackgroundAgentMessageRequest,
+    BackgroundAgentCreateRequest, BackgroundAgentDeliverableListRequest,
+    BackgroundAgentMessageListRequest, BackgroundAgentMessageRequest,
     BackgroundAgentProgressRequest, BackgroundAgentStore, BackgroundAgentTool,
-    BackgroundAgentUpdateRequest, ConfigTool, MemoryClearRequest, MemoryCompactRequest,
-    MemoryExportRequest, MemoryManagementTool, MemoryManager, MemoryStore, SecretsTool,
-    SessionCreateRequest, SessionListFilter, SessionSearchQuery, SessionStore, SessionTool,
-    WorkspaceNotePatch, WorkspaceNoteProvider, WorkspaceNoteQuery, WorkspaceNoteRecord,
-    WorkspaceNoteSpec, WorkspaceNoteStatus, WorkspaceNoteTool,
+    BackgroundAgentUpdateRequest, ConfigTool, DeliverableStore, MemoryClearRequest,
+    MemoryCompactRequest, MemoryExportRequest, MemoryManagementTool, MemoryManager, MemoryStore,
+    SaveDeliverableTool, SecretsTool, SessionCreateRequest, SessionListFilter, SessionSearchQuery,
+    SessionStore, SessionTool, WorkspaceNotePatch, WorkspaceNoteProvider, WorkspaceNoteQuery,
+    WorkspaceNoteRecord, WorkspaceNoteSpec, WorkspaceNoteStatus, WorkspaceNoteTool,
 };
 use restflow_ai::tools::{DeleteMemoryTool, ListMemoryTool, ReadMemoryTool, SaveMemoryTool};
 use restflow_ai::{
@@ -363,13 +364,19 @@ impl AgentStore for AgentStoreAdapter {
 struct BackgroundAgentStoreAdapter {
     storage: BackgroundAgentStorage,
     agent_storage: AgentStorage,
+    deliverable_storage: crate::storage::DeliverableStorage,
 }
 
 impl BackgroundAgentStoreAdapter {
-    fn new(storage: BackgroundAgentStorage, agent_storage: AgentStorage) -> Self {
+    fn new(
+        storage: BackgroundAgentStorage,
+        agent_storage: AgentStorage,
+        deliverable_storage: crate::storage::DeliverableStorage,
+    ) -> Self {
         Self {
             storage,
             agent_storage,
+            deliverable_storage,
         }
     }
 
@@ -608,6 +615,85 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
             .list_background_agent_messages(&request.id, request.limit.unwrap_or(50).max(1))
             .map_err(|e| AiError::Tool(e.to_string()))?;
         serde_json::to_value(messages).map_err(AiError::from)
+    }
+
+    fn list_background_agent_deliverables(
+        &self,
+        request: BackgroundAgentDeliverableListRequest,
+    ) -> restflow_ai::error::Result<serde_json::Value> {
+        let items = self
+            .deliverable_storage
+            .list_by_task(&request.id)
+            .map_err(|e| AiError::Tool(e.to_string()))?;
+        serde_json::to_value(items).map_err(AiError::from)
+    }
+}
+
+#[derive(Clone)]
+struct DeliverableStoreAdapter {
+    storage: crate::storage::DeliverableStorage,
+}
+
+impl DeliverableStoreAdapter {
+    fn new(storage: crate::storage::DeliverableStorage) -> Self {
+        Self { storage }
+    }
+
+    fn parse_deliverable_type(value: &str) -> restflow_ai::error::Result<DeliverableType> {
+        match value.trim().to_lowercase().as_str() {
+            "report" => Ok(DeliverableType::Report),
+            "data" => Ok(DeliverableType::Data),
+            "file" => Ok(DeliverableType::File),
+            "artifact" => Ok(DeliverableType::Artifact),
+            other => Err(AiError::Tool(format!(
+                "Unknown deliverable type: {}. Supported: report, data, file, artifact",
+                other
+            ))),
+        }
+    }
+}
+
+impl DeliverableStore for DeliverableStoreAdapter {
+    fn save_deliverable(
+        &self,
+        task_id: &str,
+        execution_id: &str,
+        deliverable_type: &str,
+        title: &str,
+        content: &str,
+        file_path: Option<&str>,
+        content_type: Option<&str>,
+        metadata: Option<Value>,
+    ) -> restflow_ai::error::Result<Value> {
+        let deliverable_type = Self::parse_deliverable_type(deliverable_type)?;
+        let now_ms = Utc::now().timestamp_millis();
+        let metadata = metadata
+            .map(serde_json::from_value::<std::collections::BTreeMap<String, String>>)
+            .transpose()
+            .map_err(|e| AiError::Tool(format!("Invalid metadata object: {}", e)))?;
+        let deliverable = Deliverable {
+            id: Uuid::new_v4().to_string(),
+            task_id: task_id.trim().to_string(),
+            execution_id: execution_id.trim().to_string(),
+            deliverable_type,
+            title: title.trim().to_string(),
+            content: content.to_string(),
+            file_path: file_path
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_string),
+            content_type: content_type
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_string),
+            size_bytes: content.len(),
+            created_at: now_ms,
+            metadata,
+        };
+        self.storage
+            .save(&deliverable)
+            .map_err(|e| AiError::Tool(e.to_string()))?;
+        serde_json::to_value(deliverable).map_err(AiError::from)
     }
 }
 
@@ -1346,6 +1432,7 @@ pub fn create_tool_registry(
     background_agent_storage: BackgroundAgentStorage,
     trigger_storage: TriggerStorage,
     terminal_storage: TerminalSessionStorage,
+    deliverable_storage: crate::storage::DeliverableStorage,
     accessor_id: Option<String>,
     _agent_id: Option<String>,
 ) -> ToolRegistry {
@@ -1390,6 +1477,12 @@ pub fn create_tool_registry(
         registry.register(DeleteMemoryTool::new(mem_store));
     }
 
+    {
+        let deliverable_store: Arc<dyn DeliverableStore> =
+            Arc::new(DeliverableStoreAdapter::new(deliverable_storage.clone()));
+        registry.register(SaveDeliverableTool::new(deliverable_store));
+    }
+
     // Add unified memory search tool
     let search_engine = UnifiedSearchEngine::new(memory_storage, chat_storage.clone());
     registry.register(MemorySearchTool::new(search_engine));
@@ -1424,6 +1517,7 @@ pub fn create_tool_registry(
     let background_agent_store = Arc::new(BackgroundAgentStoreAdapter::new(
         background_agent_storage,
         agent_storage,
+        deliverable_storage.clone(),
     ));
     registry.register(BackgroundAgentTool::new(background_agent_store).with_write(true));
     registry.register(MarketplaceTool::new(skill_storage));
@@ -2759,6 +2853,7 @@ mod tests {
         BackgroundAgentStorage,
         TriggerStorage,
         TerminalSessionStorage,
+        crate::storage::DeliverableStorage,
         tempfile::TempDir,
     ) {
         let temp_dir = tempdir().unwrap();
@@ -2794,7 +2889,8 @@ mod tests {
         let agent_storage = AgentStorage::new(db.clone()).unwrap();
         let background_agent_storage = BackgroundAgentStorage::new(db.clone()).unwrap();
         let trigger_storage = TriggerStorage::new(db.clone()).unwrap();
-        let terminal_storage = TerminalSessionStorage::new(db).unwrap();
+        let terminal_storage = TerminalSessionStorage::new(db.clone()).unwrap();
+        let deliverable_storage = crate::storage::DeliverableStorage::new(db).unwrap();
 
         unsafe {
             std::env::remove_var("RESTFLOW_DIR");
@@ -2816,6 +2912,7 @@ mod tests {
             background_agent_storage,
             trigger_storage,
             terminal_storage,
+            deliverable_storage,
             temp_dir,
         )
     }
@@ -2834,6 +2931,7 @@ mod tests {
             background_agent_storage,
             trigger_storage,
             terminal_storage,
+            deliverable_storage,
             _temp_dir,
         ) = setup_storage();
         let registry = create_tool_registry(
@@ -2848,6 +2946,7 @@ mod tests {
             background_agent_storage,
             trigger_storage,
             terminal_storage,
+            deliverable_storage,
             None,
             None,
         );
@@ -2872,6 +2971,7 @@ mod tests {
         assert!(registry.has("manage_sessions"));
         assert!(registry.has("manage_memory"));
         assert!(registry.has("manage_auth_profiles"));
+        assert!(registry.has("save_deliverable"));
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -2888,6 +2988,7 @@ mod tests {
             background_agent_storage,
             trigger_storage,
             terminal_storage,
+            deliverable_storage,
             _temp_dir,
         ) = setup_storage();
 
@@ -2908,6 +3009,7 @@ mod tests {
             background_agent_storage,
             trigger_storage,
             terminal_storage,
+            deliverable_storage,
             None,
             None,
         );
@@ -3056,6 +3158,7 @@ mod tests {
             background_agent_storage,
             trigger_storage,
             terminal_storage,
+            deliverable_storage,
             _temp_dir,
         ) = setup_storage();
 
@@ -3071,6 +3174,7 @@ mod tests {
             background_agent_storage,
             trigger_storage,
             terminal_storage,
+            deliverable_storage,
             None,
             None,
         );
@@ -3114,6 +3218,7 @@ mod tests {
             _background_agent_storage,
             _trigger_storage,
             _terminal_storage,
+            deliverable_storage,
             _temp_dir,
         ) = setup_storage();
         let provider = SkillStorageProvider::new(storage);
@@ -3136,6 +3241,7 @@ mod tests {
             _background_agent_storage,
             _trigger_storage,
             _terminal_storage,
+            deliverable_storage,
             _temp_dir,
         ) = setup_storage();
 
@@ -3193,6 +3299,7 @@ mod tests {
             background_agent_storage,
             _trigger_storage,
             _terminal_storage,
+            deliverable_storage,
             _temp_dir,
         ) = setup_storage();
 
@@ -3324,6 +3431,7 @@ mod tests {
             background_agent_storage,
             _trigger_storage,
             _terminal_storage,
+            deliverable_storage,
             _temp_dir,
         ) = setup_storage();
 
@@ -3379,6 +3487,7 @@ mod tests {
             background_agent_storage,
             _trigger_storage,
             _terminal_storage,
+            deliverable_storage,
             _temp_dir,
         ) = setup_storage();
 
@@ -3451,6 +3560,7 @@ mod tests {
             background_agent_storage,
             _trigger_storage,
             _terminal_storage,
+            deliverable_storage,
             _temp_dir,
         ) = setup_storage();
 
@@ -3460,7 +3570,11 @@ mod tests {
                 crate::models::AgentNode::new(),
             )
             .unwrap();
-        let adapter = BackgroundAgentStoreAdapter::new(background_agent_storage, agent_storage);
+        let adapter = BackgroundAgentStoreAdapter::new(
+            background_agent_storage,
+            agent_storage,
+            deliverable_storage,
+        );
 
         let created = BackgroundAgentStore::create_background_agent(
             &adapter,
@@ -3606,6 +3720,7 @@ mod tests {
             background_agent_storage,
             trigger_storage,
             terminal_storage,
+            deliverable_storage,
             _temp_dir,
         ) = setup_storage();
 
@@ -3630,6 +3745,7 @@ mod tests {
             background_agent_storage,
             trigger_storage,
             terminal_storage,
+            deliverable_storage,
             None,
             None,
         );
@@ -3669,6 +3785,7 @@ mod tests {
             background_agent_storage,
             trigger_storage,
             terminal_storage,
+            deliverable_storage,
             _temp_dir,
         ) = setup_storage();
 
@@ -3684,6 +3801,7 @@ mod tests {
             background_agent_storage,
             trigger_storage,
             terminal_storage,
+            deliverable_storage,
             None,
             None,
         );
@@ -3738,6 +3856,7 @@ mod tests {
             background_agent_storage,
             trigger_storage,
             terminal_storage,
+            deliverable_storage,
             _temp_dir,
         ) = setup_storage();
 
@@ -3753,6 +3872,7 @@ mod tests {
             background_agent_storage,
             trigger_storage,
             terminal_storage,
+            deliverable_storage,
             None,
             None,
         );
@@ -3828,6 +3948,7 @@ mod tests {
             background_agent_storage,
             trigger_storage,
             terminal_storage,
+            deliverable_storage,
             _temp_dir,
         ) = setup_storage();
 
@@ -3843,6 +3964,7 @@ mod tests {
             background_agent_storage,
             trigger_storage,
             terminal_storage,
+            deliverable_storage,
             None,
             None,
         );
@@ -3885,6 +4007,7 @@ mod tests {
             _background_agent_storage,
             _trigger_storage,
             _terminal_storage,
+            deliverable_storage,
             _temp_dir,
         ) = setup_storage();
 
@@ -3985,6 +4108,7 @@ mod tests {
             background_agent_storage,
             trigger_storage,
             terminal_storage,
+            deliverable_storage,
             _temp_dir,
         ) = setup_storage();
 
@@ -4001,6 +4125,7 @@ mod tests {
             background_agent_storage,
             trigger_storage,
             terminal_storage,
+            deliverable_storage,
             None,
             None,
         );

@@ -47,12 +47,12 @@ pub use security::{SecurityDecision, SecurityGate, ToolAction};
 pub use steer::{SteerMessage, SteerSource};
 pub use tools::{
     AgentCreateRequest, AgentCrudTool, AgentStore, AgentUpdateRequest, AuthProfileCreateRequest,
-    AuthProfileStore, AuthProfileTestRequest, AuthProfileTool, CredentialInput,
+    AuthProfileStore, AuthProfileTestRequest, AuthProfileTool, CredentialInput, DeliverableStore,
     DiagnosticsProvider, DiagnosticsTool, EmailTool, HttpTool, MemoryClearRequest,
     MemoryCompactRequest, MemoryExportRequest, MemoryManagementTool, MemoryManager,
     MemorySearchMatch, MemorySearchTool, MemoryStore, ProcessManager, ProcessTool, ReplySender,
-    ReplyTool, SecretResolver, SemanticMemory, SessionCreateRequest, SessionListFilter,
-    SessionSearchQuery, SessionStore, SessionTool, SkillContent, SkillInfo, SkillProvider,
-    SkillRecord, SkillTool, SkillUpdate, SwitchModelTool, Tool, ToolOutput, ToolRegistry,
-    ToolSchema, TranscribeTool, VisionTool,
+    ReplyTool, SaveDeliverableTool, SecretResolver, SemanticMemory, SessionCreateRequest,
+    SessionListFilter, SessionSearchQuery, SessionStore, SessionTool, SkillContent, SkillInfo,
+    SkillProvider, SkillRecord, SkillTool, SkillUpdate, SwitchModelTool, Tool, ToolOutput,
+    ToolRegistry, ToolSchema, TranscribeTool, VisionTool,
 };

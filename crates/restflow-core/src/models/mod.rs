@@ -5,6 +5,7 @@ pub mod ai_model;
 pub mod background_agent;
 pub mod chat_session;
 pub mod checkpoint;
+pub mod deliverable;
 pub mod hook;
 pub mod memory;
 pub mod pricing;
@@ -34,6 +35,7 @@ pub use background_agent::{
     NotificationConfig, ResourceLimits, TaskEvent, TaskEventType, TaskSchedule,
 };
 pub use checkpoint::{AgentCheckpoint, ResumePayload};
+pub use deliverable::{Deliverable, DeliverableType};
 pub use hook::{Hook, HookAction, HookContext, HookEvent, HookFilter};
 pub use memory::{
     MemoryChunk, MemorySearchQuery, MemorySearchResult, MemorySession, MemorySource, MemoryStats,

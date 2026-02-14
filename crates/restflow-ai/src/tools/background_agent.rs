@@ -89,6 +89,11 @@ pub struct BackgroundAgentMessageListRequest {
     pub limit: Option<usize>,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct BackgroundAgentDeliverableListRequest {
+    pub id: String,
+}
+
 pub trait BackgroundAgentStore: Send + Sync {
     fn create_background_agent(&self, request: BackgroundAgentCreateRequest) -> Result<Value>;
     fn update_background_agent(&self, request: BackgroundAgentUpdateRequest) -> Result<Value>;
@@ -106,6 +111,10 @@ pub trait BackgroundAgentStore: Send + Sync {
     fn list_background_agent_messages(
         &self,
         request: BackgroundAgentMessageListRequest,
+    ) -> Result<Value>;
+    fn list_background_agent_deliverables(
+        &self,
+        request: BackgroundAgentDeliverableListRequest,
     ) -> Result<Value>;
 }
 
@@ -218,6 +227,9 @@ enum BackgroundAgentAction {
         #[serde(default)]
         limit: Option<usize>,
     },
+    ListDeliverables {
+        id: String,
+    },
     Pause {
         id: String,
     },
@@ -239,7 +251,7 @@ impl Tool for BackgroundAgentTool {
     }
 
     fn description(&self) -> &str {
-        "Manage background agents. Operations: create (define new agent), run (trigger now), pause/resume (toggle schedule), cancel (stop permanently), delete (remove definition), list (browse agents), progress (execution history), send_message/list_messages (interact with running agents)."
+        "Manage background agents. Operations: create (define new agent), run (trigger now), pause/resume (toggle schedule), cancel (stop permanently), delete (remove definition), list (browse agents), progress (execution history), send_message/list_messages (interact with running agents), list_deliverables (typed outputs)."
     }
 
     fn parameters_schema(&self) -> Value {
@@ -257,6 +269,7 @@ impl Tool for BackgroundAgentTool {
                         "progress",
                         "send_message",
                         "list_messages",
+                        "list_deliverables",
                         "pause",
                         "resume",
                         "cancel",
@@ -347,6 +360,10 @@ impl Tool for BackgroundAgentTool {
                 "limit": {
                     "type": "integer",
                     "description": "Message list limit for list_messages"
+                },
+                "deliverable_limit": {
+                    "type": "integer",
+                    "description": "Reserved for future pagination support"
                 }
             },
             "required": ["operation"]
@@ -537,6 +554,17 @@ impl Tool for BackgroundAgentTool {
                         AiError::Tool(format!("Failed to list messages background agent: {e}."))
                     })?,
             ),
+            BackgroundAgentAction::ListDeliverables { id } => ToolOutput::success(
+                self.store
+                    .list_background_agent_deliverables(BackgroundAgentDeliverableListRequest {
+                        id,
+                    })
+                    .map_err(|e| {
+                        AiError::Tool(format!(
+                            "Failed to list deliverables background agent: {e}."
+                        ))
+                    })?,
+            ),
         };
 
         Ok(output)
@@ -606,6 +634,17 @@ mod tests {
                 "limit": request.limit.unwrap_or(50)
             }]))
         }
+
+        fn list_background_agent_deliverables(
+            &self,
+            request: BackgroundAgentDeliverableListRequest,
+        ) -> Result<Value> {
+            Ok(json!([{
+                "id": "d-1",
+                "task_id": request.id,
+                "type": "report"
+            }]))
+        }
     }
 
     impl BackgroundAgentStore for FailingListStore {
@@ -662,6 +701,17 @@ mod tests {
                 "id": "msg-1",
                 "task_id": request.id,
                 "limit": request.limit.unwrap_or(50)
+            }]))
+        }
+
+        fn list_background_agent_deliverables(
+            &self,
+            request: BackgroundAgentDeliverableListRequest,
+        ) -> Result<Value> {
+            Ok(json!([{
+                "id": "d-1",
+                "task_id": request.id,
+                "type": "report"
             }]))
         }
     }
@@ -726,6 +776,19 @@ mod tests {
                 "operation": "progress",
                 "id": "task-1",
                 "event_limit": 5
+            }))
+            .await
+            .unwrap();
+        assert!(output.success);
+    }
+
+    #[tokio::test]
+    async fn test_list_deliverables_operation() {
+        let tool = BackgroundAgentTool::new(Arc::new(MockStore));
+        let output = tool
+            .execute(json!({
+                "operation": "list_deliverables",
+                "id": "task-1"
             }))
             .await
             .unwrap();
