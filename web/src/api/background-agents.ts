@@ -6,9 +6,16 @@
 
 import { tauriInvoke } from './tauri-client'
 import type { BackgroundAgent } from '@/types/generated/BackgroundAgent'
+import type { MemoryChunk } from '@/types/generated/MemoryChunk'
+import type { MemorySession } from '@/types/generated/MemorySession'
 import type { TaskEvent } from '@/types/generated/TaskEvent'
 
 export type { BackgroundAgent, TaskEvent }
+
+interface MemoryListResponse<T> {
+  items: T[]
+  total: number
+}
 
 /** Response from running a background agent with streaming */
 export interface StreamingBackgroundAgentResponse {
@@ -89,4 +96,23 @@ export async function getActiveBackgroundAgents(): Promise<ActiveBackgroundAgent
 /** Delete a background agent */
 export async function deleteBackgroundAgent(id: string): Promise<boolean> {
   return tauriInvoke<boolean>('delete_background_agent', { id })
+}
+
+/** List memory sessions for a memory namespace (agent ID) */
+export async function listMemorySessions(agentId: string): Promise<MemorySession[]> {
+  return tauriInvoke<MemorySession[]>('list_memory_sessions', { agent_id: agentId })
+}
+
+/** List memory chunks for a given session */
+export async function listMemoryChunksForSession(sessionId: string): Promise<MemoryChunk[]> {
+  return tauriInvoke<MemoryChunk[]>('list_memory_chunks_for_session', { session_id: sessionId })
+}
+
+/** List memory chunks by tag (used for task:<background-agent-id>) */
+export async function listMemoryChunksByTag(tag: string, limit?: number): Promise<MemoryChunk[]> {
+  const response = await tauriInvoke<MemoryListResponse<MemoryChunk>>('list_memory_chunks_by_tag', {
+    tag,
+    limit,
+  })
+  return response.items
 }
