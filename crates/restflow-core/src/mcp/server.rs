@@ -2121,8 +2121,10 @@ mod tests {
         assert!(result.is_ok());
         let json = result.unwrap();
         let skills: Vec<SkillSummary> = serde_json::from_str(&json).unwrap();
-        assert_eq!(skills.len(), 1);
-        assert_eq!(skills[0].id, "self-heal-ops");
+        // Default skills are bootstrapped; verify at least the known ones exist
+        assert!(skills.len() >= 2);
+        assert!(skills.iter().any(|s| s.id == "self-heal-ops"));
+        assert!(skills.iter().any(|s| s.id == "structured-planner"));
     }
 
     #[tokio::test]
