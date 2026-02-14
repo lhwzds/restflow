@@ -436,6 +436,7 @@ mod tests {
                 schedule: TaskSchedule::default(),
                 notification: Some(NotificationConfig::default()),
                 execution_mode: None,
+                durability_mode: None,
                 timeout_secs: None,
                 memory: Some(MemoryConfig::default()),
                 resource_limits: None,
