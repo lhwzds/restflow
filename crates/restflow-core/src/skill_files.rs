@@ -4,10 +4,16 @@ use std::path::Path;
 use crate::paths;
 
 const SKILL_FILE_NAME: &str = "SKILL.md";
-const DEFAULT_SKILLS: &[(&str, &str)] = &[(
-    "self-heal-ops",
-    include_str!("../assets/skills/self-heal-ops/SKILL.md"),
-)];
+const DEFAULT_SKILLS: &[(&str, &str)] = &[
+    (
+        "self-heal-ops",
+        include_str!("../assets/skills/self-heal-ops/SKILL.md"),
+    ),
+    (
+        "structured-planner",
+        include_str!("../assets/skills/structured-planner/SKILL.md"),
+    ),
+];
 
 /// Ensure default skill files exist under ~/.restflow/skills/.
 /// Existing user-edited files are preserved and never overwritten.
@@ -65,16 +71,28 @@ mod tests {
 
         ensure_default_skill_files().unwrap();
 
-        let path = temp
+        let self_heal_path = temp
             .path()
             .join("skills")
             .join("self-heal-ops")
             .join(SKILL_FILE_NAME);
-        assert!(path.exists());
+        assert!(self_heal_path.exists());
         assert!(
-            std::fs::read_to_string(path)
+            std::fs::read_to_string(self_heal_path)
                 .unwrap()
                 .contains("RestFlow Self-Heal Ops")
+        );
+
+        let planner_path = temp
+            .path()
+            .join("skills")
+            .join("structured-planner")
+            .join(SKILL_FILE_NAME);
+        assert!(planner_path.exists());
+        assert!(
+            std::fs::read_to_string(planner_path)
+                .unwrap()
+                .contains("Structured Planning Pipeline")
         );
 
         unsafe { std::env::remove_var(RESTFLOW_DIR_ENV) };
@@ -103,12 +121,20 @@ mod tests {
 
     #[test]
     fn default_skill_content_is_valid_frontmatter() {
-        let content = DEFAULT_SKILLS
+        let self_heal = DEFAULT_SKILLS
             .iter()
             .find(|(id, _)| *id == "self-heal-ops")
             .map(|(_, value)| *value)
             .unwrap();
-        assert!(content.starts_with("---"));
-        assert!(content.contains("name: RestFlow Self-Heal Ops"));
+        assert!(self_heal.starts_with("---"));
+        assert!(self_heal.contains("name: RestFlow Self-Heal Ops"));
+
+        let structured_planner = DEFAULT_SKILLS
+            .iter()
+            .find(|(id, _)| *id == "structured-planner")
+            .map(|(_, value)| *value)
+            .unwrap();
+        assert!(structured_planner.starts_with("---"));
+        assert!(structured_planner.contains("name: Structured Planner"));
     }
 }
