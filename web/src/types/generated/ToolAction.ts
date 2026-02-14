@@ -4,4 +4,4 @@
  * Generic tool operation for policy evaluation.
  * Replaces the bash-only command string approach.
  */
-export type ToolAction = { tool_name: string, operation: string, target: string, summary: string, };
+export type ToolAction = { tool_name: string; operation: string; target: string; summary: string }

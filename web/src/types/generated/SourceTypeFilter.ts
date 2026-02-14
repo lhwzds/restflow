@@ -3,4 +3,4 @@
 /**
  * Filter for memory source types.
  */
-export type SourceTypeFilter = "task_execution" | "conversation" | "manual_note" | "agent_generated";
+export type SourceTypeFilter = 'task_execution' | 'conversation' | 'manual_note' | 'agent_generated'

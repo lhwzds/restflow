@@ -6,20 +6,21 @@
  * Tracks individual steps taken during agent execution, such as
  * tool calls, API requests, or thinking processes.
  */
-export type ExecutionStepInfo = { 
-/**
- * Type of step (e.g., "tool_call", "api_request", "thinking")
- */
-step_type: string, 
-/**
- * Human-readable name of the step
- */
-name: string, 
-/**
- * Current status of this step
- */
-status: string, 
-/**
- * Duration of this step in milliseconds (if completed)
- */
-duration_ms: bigint | null, };
+export type ExecutionStepInfo = {
+  /**
+   * Type of step (e.g., "tool_call", "api_request", "thinking")
+   */
+  step_type: string
+  /**
+   * Human-readable name of the step
+   */
+  name: string
+  /**
+   * Current status of this step
+   */
+  status: string
+  /**
+   * Duration of this step in milliseconds (if completed)
+   */
+  duration_ms: bigint | null
+}

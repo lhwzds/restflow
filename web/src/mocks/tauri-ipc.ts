@@ -169,15 +169,30 @@ function handleCommand(cmd: string, args?: InvokeArgs): unknown {
         updated_at: Date.now(),
       }
       secrets.push(newSecret)
-      return { key: req.key, description: req.description, created_at: newSecret.created_at, updated_at: newSecret.updated_at }
+      return {
+        key: req.key,
+        description: req.description,
+        created_at: newSecret.created_at,
+        updated_at: newSecret.updated_at,
+      }
     }
 
     case 'update_secret': {
       const idx = secrets.findIndex((s) => s.key === a.key)
       if (idx === -1) throw `Secret not found: ${a.key}`
       const req = a.request as { value: string; description: string | null }
-      secrets[idx] = { ...secrets[idx]!, value: req.value, description: req.description, updated_at: Date.now() }
-      return { key: a.key, description: req.description, created_at: secrets[idx]!.created_at, updated_at: secrets[idx]!.updated_at }
+      secrets[idx] = {
+        ...secrets[idx]!,
+        value: req.value,
+        description: req.description,
+        updated_at: Date.now(),
+      }
+      return {
+        key: a.key,
+        description: req.description,
+        created_at: secrets[idx]!.created_at,
+        updated_at: secrets[idx]!.updated_at,
+      }
     }
 
     case 'delete_secret': {
@@ -375,7 +390,15 @@ function handleCommand(cmd: string, args?: InvokeArgs): unknown {
       return null
 
     case 'auth_get_summary':
-      return { total: 0, enabled: 0, available: 0, in_cooldown: 0, disabled: 0, by_provider: {}, by_source: {} }
+      return {
+        total: 0,
+        enabled: 0,
+        available: 0,
+        in_cooldown: 0,
+        disabled: 0,
+        by_provider: {},
+        by_source: {},
+      }
 
     case 'auth_clear':
       return null

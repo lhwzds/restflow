@@ -3,4 +3,4 @@
 /**
  * Codex CLI execution mode.
  */
-export type CodexCliExecutionMode = "safe" | "bypass";
+export type CodexCliExecutionMode = 'safe' | 'bypass'

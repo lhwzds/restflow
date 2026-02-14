@@ -3,12 +3,13 @@
 /**
  * Request to reject a command
  */
-export type RejectRequest = { 
-/**
- * The approval ID
- */
-approval_id: string, 
-/**
- * Optional rejection reason
- */
-reason: string | null, };
+export type RejectRequest = {
+  /**
+   * The approval ID
+   */
+  approval_id: string
+  /**
+   * Optional rejection reason
+   */
+  reason: string | null
+}

@@ -3,4 +3,4 @@
 /**
  * Python runtime policy used by python tools.
  */
-export type PythonRuntimePolicy = "monty" | "cpython";
+export type PythonRuntimePolicy = 'monty' | 'cpython'

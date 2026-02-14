@@ -3,4 +3,4 @@
 /**
  * Security mode for a given agent.
  */
-export type SecurityMode = "deny" | "allowlist" | "full";
+export type SecurityMode = 'deny' | 'allowlist' | 'full'

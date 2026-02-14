@@ -3,12 +3,13 @@
 /**
  * Configuration for sub-agent execution.
  */
-export type SubagentConfig = { 
-/**
- * Maximum number of parallel sub-agents.
- */
-max_parallel_agents: number, 
-/**
- * Default timeout for sub-agents in seconds.
- */
-subagent_timeout_secs: bigint, };
+export type SubagentConfig = {
+  /**
+   * Maximum number of parallel sub-agents.
+   */
+  max_parallel_agents: number
+  /**
+   * Default timeout for sub-agents in seconds.
+   */
+  subagent_timeout_secs: bigint
+}

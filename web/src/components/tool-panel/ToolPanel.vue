@@ -86,7 +86,9 @@ const panelComponent = computed(() => {
 
     <div class="flex items-center gap-2 px-3 py-2 border-b border-border shrink-0">
       <PanelRight :size="14" class="text-muted-foreground shrink-0" />
-      <span class="text-sm font-medium truncate flex-1">{{ props.title || props.toolName || 'Tool Panel' }}</span>
+      <span class="text-sm font-medium truncate flex-1">{{
+        props.title || props.toolName || 'Tool Panel'
+      }}</span>
       <Button
         variant="ghost"
         size="icon"

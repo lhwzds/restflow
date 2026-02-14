@@ -74,10 +74,7 @@ describe('MessageList - Chat Controls', () => {
     it('shows copy button for messages with content on hover', () => {
       const wrapper = mount(MessageList, {
         props: {
-          messages: [
-            createMessage('user', 'Hello'),
-            createMessage('assistant', 'Hi there!'),
-          ],
+          messages: [createMessage('user', 'Hello'), createMessage('assistant', 'Hi there!')],
           isStreaming: false,
           streamContent: '',
           streamThinking: '',
@@ -182,10 +179,7 @@ describe('MessageList - Chat Controls', () => {
     it('does not show Retry button when streaming', () => {
       const wrapper = mount(MessageList, {
         props: {
-          messages: [
-            createMessage('user', 'Question'),
-            createMessage('assistant', 'Answer'),
-          ],
+          messages: [createMessage('user', 'Question'), createMessage('assistant', 'Answer')],
           isStreaming: true,
           streamContent: 'streaming...',
           streamThinking: '',
@@ -200,10 +194,7 @@ describe('MessageList - Chat Controls', () => {
     it('emits regenerate event when Retry is clicked', async () => {
       const wrapper = mount(MessageList, {
         props: {
-          messages: [
-            createMessage('user', 'Question'),
-            createMessage('assistant', 'Answer'),
-          ],
+          messages: [createMessage('user', 'Question'), createMessage('assistant', 'Answer')],
           isStreaming: false,
           streamContent: '',
           streamThinking: '',

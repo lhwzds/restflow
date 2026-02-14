@@ -84,7 +84,9 @@ describe('useToolPanel', () => {
   it('supports legacy show_panel payload', () => {
     const panel = useToolPanel()
 
-    panel.handleShowPanelResult('{"displayed":true,"title":"Legacy","content":"Hello","content_type":"markdown"}')
+    panel.handleShowPanelResult(
+      '{"displayed":true,"title":"Legacy","content":"Hello","content_type":"markdown"}',
+    )
 
     expect(panel.state.value.panelType).toBe('canvas')
     expect(panel.state.value.title).toBe('Legacy')

@@ -222,20 +222,14 @@ onMounted(async () => {
     <!-- Results -->
     <div class="pt-4">
       <!-- Loading State -->
-      <div
-        v-if="loading"
-        class="grid grid-cols-1 sm:grid-cols-2 gap-4"
-      >
+      <div v-if="loading" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div v-for="i in 6" :key="i" class="space-y-3">
           <Skeleton class="h-[200px] w-full rounded-lg" />
         </div>
       </div>
 
       <!-- Empty State -->
-      <div
-        v-else-if="results.length === 0"
-        class="flex flex-col items-center justify-center py-16"
-      >
+      <div v-else-if="results.length === 0" class="flex flex-col items-center justify-center py-16">
         <Filter class="w-12 h-12 text-muted-foreground mb-4" />
         <h3 class="text-lg font-medium mb-2">No skills found</h3>
         <p class="text-muted-foreground text-center max-w-[28rem]">

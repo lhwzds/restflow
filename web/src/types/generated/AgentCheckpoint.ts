@@ -7,48 +7,49 @@
  * the serialized `AgentState`, the reason for interruption, and
  * metadata for the caller that triggered the interrupt.
  */
-export type AgentCheckpoint = { 
-/**
- * Unique checkpoint ID.
- */
-id: string, 
-/**
- * Links to `AgentState.execution_id`.
- */
-execution_id: string, 
-/**
- * Links to `BackgroundAgent.id` (if running as a background task).
- */
-task_id: string | null, 
-/**
- * `AgentState.version` at checkpoint time.
- */
-version: number, 
-/**
- * Current iteration when the checkpoint was taken.
- */
-iteration: number, 
-/**
- * Serialized `AgentState` (full JSON).
- */
-state_json: number[], 
-/**
- * Why execution was interrupted.
- */
-interrupt_reason: string, 
-/**
- * Extra data for the caller (e.g. tool_call_id, cost estimate).
- */
-interrupt_metadata: any, 
-/**
- * Creation timestamp in milliseconds since epoch.
- */
-created_at: number, 
-/**
- * When the checkpoint was resumed (None = still waiting).
- */
-resumed_at: number | null, 
-/**
- * TTL: auto-cleanup after this timestamp (milliseconds since epoch).
- */
-expired_at: number | null, };
+export type AgentCheckpoint = {
+  /**
+   * Unique checkpoint ID.
+   */
+  id: string
+  /**
+   * Links to `AgentState.execution_id`.
+   */
+  execution_id: string
+  /**
+   * Links to `BackgroundAgent.id` (if running as a background task).
+   */
+  task_id: string | null
+  /**
+   * `AgentState.version` at checkpoint time.
+   */
+  version: number
+  /**
+   * Current iteration when the checkpoint was taken.
+   */
+  iteration: number
+  /**
+   * Serialized `AgentState` (full JSON).
+   */
+  state_json: number[]
+  /**
+   * Why execution was interrupted.
+   */
+  interrupt_reason: string
+  /**
+   * Extra data for the caller (e.g. tool_call_id, cost estimate).
+   */
+  interrupt_metadata: any
+  /**
+   * Creation timestamp in milliseconds since epoch.
+   */
+  created_at: number
+  /**
+   * When the checkpoint was resumed (None = still waiting).
+   */
+  resumed_at: number | null
+  /**
+   * TTL: auto-cleanup after this timestamp (milliseconds since epoch).
+   */
+  expired_at: number | null
+}
