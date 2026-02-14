@@ -47,6 +47,8 @@ export async function createSkill(request: CreateSkillRequest): Promise<Skill> {
     author: null,
     license: null,
     content_hash: null,
+    status: 'active',
+    auto_complete: false,
     storage_mode: 'DatabaseOnly',
     is_synced: false,
     created_at: Date.now(),

@@ -44,6 +44,8 @@ export const skillHandlers = [
       author: null,
       license: null,
       content_hash: null,
+      status: 'active',
+      auto_complete: false,
       storage_mode: 'DatabaseOnly',
       is_synced: false,
       created_at: Date.now(),
