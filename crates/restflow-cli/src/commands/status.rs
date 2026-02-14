@@ -37,7 +37,7 @@ pub async fn run(format: OutputFormat) -> Result<()> {
         }));
     }
 
-    println!("RestFlow Status");
+    println!("浮流 RestFlow Status");
     match daemon_status {
         DaemonStatus::Running { pid } => println!("Daemon: running (PID: {pid})"),
         DaemonStatus::NotRunning => println!("Daemon: not running"),
