@@ -22,7 +22,7 @@ test.describe('Workspace Layout', () => {
     await expect(page.locator('textarea[placeholder*="Ask the agent"]')).toBeVisible()
 
     // Bottom bar with settings gear
-    const settingsButton = page.getByRole('button', { name: 'Open settings' })
+    const settingsButton = page.getByRole('button', { name: 'Settings' })
     await expect(settingsButton).toBeVisible()
   })
 
