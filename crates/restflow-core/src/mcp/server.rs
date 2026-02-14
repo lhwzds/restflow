@@ -11,7 +11,7 @@ use crate::models::{
     BackgroundMessageSource, BackgroundProgress, ChatSession, ChatSessionSummary, DurabilityMode,
     Hook, HookAction, HookEvent, HookFilter, MemoryChunk, MemoryConfig, MemoryScope,
     MemorySearchQuery, MemorySearchResult, MemorySource, MemoryStats, Provider, ResourceLimits,
-    SearchMode, Skill,
+    SearchMode, Skill, SkillStatus,
 };
 use crate::services::tool_registry::create_tool_registry;
 use crate::storage::SecretStorage;
@@ -856,6 +856,14 @@ pub struct SkillExecuteParams {
     pub input: Option<String>,
 }
 
+/// Parameters for list_skills tool
+#[derive(Debug, Serialize, Deserialize, JsonSchema, Default)]
+pub struct ListSkillsParams {
+    /// Optional status filter: active/completed/archived/draft
+    #[serde(default)]
+    pub status: Option<String>,
+}
+
 /// Parameters for chat_session_list tool
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct ChatSessionListParams {
@@ -980,6 +988,7 @@ pub struct SkillSummary {
     pub name: String,
     pub description: Option<String>,
     pub tags: Option<Vec<String>>,
+    pub status: SkillStatus,
 }
 
 /// Agent summary for list_agents response
@@ -1029,6 +1038,18 @@ impl RestFlowMcpServer {
             Some(s) if s == "failed" => Ok(Some(BackgroundAgentStatus::Failed)),
             Some(s) if s == "interrupted" => Ok(Some(BackgroundAgentStatus::Interrupted)),
             Some(s) => Err(format!("Unknown status: {}", s)),
+        }
+    }
+
+    fn parse_skill_status(value: Option<String>) -> Result<Option<SkillStatus>, String> {
+        match value.map(|s| s.trim().to_lowercase()) {
+            None => Ok(None),
+            Some(s) if s.is_empty() => Ok(None),
+            Some(s) if s == "active" => Ok(Some(SkillStatus::Active)),
+            Some(s) if s == "completed" => Ok(Some(SkillStatus::Completed)),
+            Some(s) if s == "archived" => Ok(Some(SkillStatus::Archived)),
+            Some(s) if s == "draft" => Ok(Some(SkillStatus::Draft)),
+            Some(s) => Err(format!("Unknown skill status: {}", s)),
         }
     }
 
@@ -1193,20 +1214,26 @@ impl RestFlowMcpServer {
         }]
     }
 
-    async fn handle_list_skills(&self) -> Result<String, String> {
+    async fn handle_list_skills(&self, params: ListSkillsParams) -> Result<String, String> {
         let skills = self
             .backend
             .list_skills()
             .await
             .map_err(|e| format!("Failed to list skills: {}", e))?;
 
+        let status_filter = Self::parse_skill_status(params.status)?;
         let summaries: Vec<SkillSummary> = skills
             .into_iter()
+            .filter(|s| match &status_filter {
+                Some(status) => &s.status == status,
+                None => true,
+            })
             .map(|s| SkillSummary {
                 id: s.id,
                 name: s.name,
                 description: s.description,
                 tags: s.tags,
+                status: s.status,
             })
             .collect();
 
@@ -1357,18 +1384,28 @@ impl RestFlowMcpServer {
     }
 
     async fn handle_skill_execute(&self, params: SkillExecuteParams) -> Result<String, String> {
-        let skill = self
+        let mut skill = self
             .backend
             .get_skill(&params.skill_id)
             .await
             .map_err(|e| format!("Failed to get skill: {}", e))?
             .ok_or_else(|| format!("Skill not found: {}", params.skill_id))?;
 
+        if skill.auto_complete && skill.status != SkillStatus::Completed {
+            skill.status = SkillStatus::Completed;
+            skill.updated_at = chrono::Utc::now().timestamp_millis();
+            self.backend
+                .update_skill(skill.clone())
+                .await
+                .map_err(|e| format!("Failed to update skill status: {}", e))?;
+        }
+
         let response = serde_json::json!({
             "skill_id": skill.id,
             "name": skill.name,
             "content": skill.content,
             "input": params.input,
+            "status": skill.status,
             "note": "Skill execution is not supported via MCP. Use the content with the input as context."
         });
 
@@ -1725,7 +1762,7 @@ impl ServerHandler for RestFlowMcpServer {
             Tool::new(
                 "list_skills",
                 "List all available skills in RestFlow. Returns a summary of each skill including ID, name, description, and tags.",
-                schema_for_type::<EmptyParams>(),
+                schema_for_type::<ListSkillsParams>(),
             ),
             Tool::new(
                 "get_skill",
@@ -1871,7 +1908,14 @@ impl ServerHandler for RestFlowMcpServer {
         _context: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, McpError> {
         let result = match request.name.as_ref() {
-            "list_skills" => self.handle_list_skills().await,
+            "list_skills" => {
+                let params: ListSkillsParams =
+                    serde_json::from_value(Value::Object(request.arguments.unwrap_or_default()))
+                        .map_err(|e| {
+                            McpError::invalid_params(format!("Invalid parameters: {}", e), None)
+                        })?;
+                self.handle_list_skills(params).await
+            }
             "get_skill" => {
                 let params: GetSkillParams =
                     serde_json::from_value(Value::Object(request.arguments.unwrap_or_default()))
@@ -2110,6 +2154,7 @@ mod tests {
             name: "Test Skill".to_string(),
             description: Some("A test skill".to_string()),
             tags: Some(vec!["test".to_string()]),
+            status: SkillStatus::Active,
         };
 
         let json = serde_json::to_string(&summary).unwrap();
@@ -2138,7 +2183,7 @@ mod tests {
     async fn test_list_skills_empty() {
         let (server, _core, _temp_dir, _temp_agents, _guard) = create_test_server().await;
 
-        let result = server.handle_list_skills().await;
+        let result = server.handle_list_skills(ListSkillsParams::default()).await;
 
         assert!(result.is_ok());
         let json = result.unwrap();
@@ -2153,7 +2198,10 @@ mod tests {
     async fn test_list_skills_multiple() {
         let (server, core, _temp_dir, _temp_agents, _guard) = create_test_server().await;
 
-        let base_json = server.handle_list_skills().await.unwrap();
+        let base_json = server
+            .handle_list_skills(ListSkillsParams::default())
+            .await
+            .unwrap();
         let base_skills: Vec<SkillSummary> = serde_json::from_str(&base_json).unwrap();
         let base_len = base_skills.len();
 
@@ -2168,12 +2216,39 @@ mod tests {
             .await
             .unwrap();
 
-        let result = server.handle_list_skills().await;
+        let result = server.handle_list_skills(ListSkillsParams::default()).await;
 
         assert!(result.is_ok());
         let json = result.unwrap();
         let skills: Vec<SkillSummary> = serde_json::from_str(&json).unwrap();
         assert_eq!(skills.len(), base_len + 2);
+    }
+
+    #[tokio::test]
+    async fn test_list_skills_filter_by_status() {
+        let (server, core, _temp_dir, _temp_agents, _guard) = create_test_server().await;
+
+        let mut completed = create_test_skill("skill-completed", "Completed Skill");
+        completed.status = SkillStatus::Completed;
+        let draft = create_test_skill("skill-draft", "Draft Skill");
+
+        crate::services::skills::create_skill(&core, completed)
+            .await
+            .unwrap();
+        crate::services::skills::create_skill(&core, draft)
+            .await
+            .unwrap();
+
+        let json = server
+            .handle_list_skills(ListSkillsParams {
+                status: Some("completed".to_string()),
+            })
+            .await
+            .unwrap();
+        let skills: Vec<SkillSummary> = serde_json::from_str(&json).unwrap();
+
+        assert!(skills.iter().any(|s| s.id == "skill-completed"));
+        assert!(skills.iter().all(|s| s.status == SkillStatus::Completed));
     }
 
     #[tokio::test]
@@ -2213,10 +2288,40 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_skill_execute_auto_complete_updates_status() {
+        let (server, core, _temp_dir, _temp_agents, _guard) = create_test_server().await;
+
+        let mut skill = create_test_skill("auto-complete", "Auto Complete");
+        skill.auto_complete = true;
+        crate::services::skills::create_skill(&core, skill)
+            .await
+            .unwrap();
+
+        let json = server
+            .handle_skill_execute(SkillExecuteParams {
+                skill_id: "auto-complete".to_string(),
+                input: Some("test input".to_string()),
+            })
+            .await
+            .unwrap();
+        let response: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(response["status"], "completed");
+
+        let updated = crate::services::skills::get_skill(&core, "auto-complete")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(updated.status, SkillStatus::Completed);
+    }
+
+    #[tokio::test]
     async fn test_create_skill_success() {
         let (server, _core, _temp_dir, _temp_agents, _guard) = create_test_server().await;
 
-        let base_json = server.handle_list_skills().await.unwrap();
+        let base_json = server
+            .handle_list_skills(ListSkillsParams::default())
+            .await
+            .unwrap();
         let base_skills: Vec<SkillSummary> = serde_json::from_str(&base_json).unwrap();
         let base_len = base_skills.len();
 
@@ -2233,7 +2338,10 @@ mod tests {
         assert!(message.contains("created successfully"));
 
         // Verify it was persisted
-        let skills = server.handle_list_skills().await.unwrap();
+        let skills = server
+            .handle_list_skills(ListSkillsParams::default())
+            .await
+            .unwrap();
         let skill_list: Vec<SkillSummary> = serde_json::from_str(&skills).unwrap();
         assert_eq!(skill_list.len(), base_len + 1);
         assert!(skill_list.iter().any(|s| s.name == "New Skill"));
@@ -2468,7 +2576,7 @@ mod tests {
 
         // Test unknown tool handling by simulating what call_tool does internally
         let result = match "unknown_tool" {
-            "list_skills" => server.handle_list_skills().await,
+            "list_skills" => server.handle_list_skills(ListSkillsParams::default()).await,
             _ => Err(format!("Unknown tool: {}", "unknown_tool")),
         };
 
@@ -2497,7 +2605,10 @@ mod tests {
     async fn test_skill_crud_workflow() {
         let (server, _core, _temp_dir, _temp_agents, _guard) = create_test_server().await;
 
-        let base_json = server.handle_list_skills().await.unwrap();
+        let base_json = server
+            .handle_list_skills(ListSkillsParams::default())
+            .await
+            .unwrap();
         let base_skills: Vec<SkillSummary> = serde_json::from_str(&base_json).unwrap();
         let base_len = base_skills.len();
 
@@ -2512,7 +2623,10 @@ mod tests {
         assert!(create_result.contains("created successfully"));
 
         // 2. List to get ID
-        let list_json = server.handle_list_skills().await.unwrap();
+        let list_json = server
+            .handle_list_skills(ListSkillsParams::default())
+            .await
+            .unwrap();
         let skills: Vec<SkillSummary> = serde_json::from_str(&list_json).unwrap();
         assert_eq!(skills.len(), base_len + 1);
         let skill_id = skills
@@ -2556,7 +2670,10 @@ mod tests {
         server.handle_delete_skill(delete_params).await.unwrap();
 
         // 7. Verify deletion
-        let final_list = server.handle_list_skills().await.unwrap();
+        let final_list = server
+            .handle_list_skills(ListSkillsParams::default())
+            .await
+            .unwrap();
         let final_skills: Vec<SkillSummary> = serde_json::from_str(&final_list).unwrap();
         assert_eq!(final_skills.len(), base_len);
     }
@@ -2633,7 +2750,10 @@ mod tests {
         });
         let mcp_server = RestFlowMcpServer::with_ipc(client);
 
-        let base_json = mcp_server.handle_list_skills().await.unwrap();
+        let base_json = mcp_server
+            .handle_list_skills(ListSkillsParams::default())
+            .await
+            .unwrap();
         let base_skills: Vec<SkillSummary> = serde_json::from_str(&base_json).unwrap();
         let base_len = base_skills.len();
 
@@ -2642,7 +2762,10 @@ mod tests {
             .await
             .unwrap();
 
-        let json = mcp_server.handle_list_skills().await.unwrap();
+        let json = mcp_server
+            .handle_list_skills(ListSkillsParams::default())
+            .await
+            .unwrap();
         let skills: Vec<SkillSummary> = serde_json::from_str(&json).unwrap();
         assert_eq!(skills.len(), base_len + 1);
         assert!(skills.iter().any(|s| s.name == "IPC Skill"));
@@ -2882,7 +3005,10 @@ mod tests {
     #[tokio::test]
     async fn test_mock_backend_list_skills() {
         let server = RestFlowMcpServer::with_backend(Arc::new(MockBackend::new()));
-        let json = server.handle_list_skills().await.unwrap();
+        let json = server
+            .handle_list_skills(ListSkillsParams::default())
+            .await
+            .unwrap();
         let skills: Vec<SkillSummary> = serde_json::from_str(&json).unwrap();
         assert_eq!(skills.len(), 1);
         assert_eq!(skills[0].name, "Mock Skill");
@@ -3151,7 +3277,7 @@ mod tests {
         std::fs::create_dir_all(artifacts_dir).expect("failed to create stress artifacts dir");
 
         let _ = server
-            .handle_list_skills()
+            .handle_list_skills(ListSkillsParams::default())
             .await
             .expect("list skills should simulate initialize path");
         let tools = server

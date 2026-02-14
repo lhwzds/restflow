@@ -402,6 +402,8 @@ pub async fn marketplace_install_skill(
         author: manifest.author.as_ref().map(|author| author.name.clone()),
         license: manifest.license.clone(),
         content_hash: None,
+        status: restflow_core::SkillStatus::Active,
+        auto_complete: false,
         storage_mode: StorageMode::DatabaseOnly,
         is_synced: false,
         created_at: chrono::Utc::now().timestamp_millis(),
