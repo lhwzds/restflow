@@ -159,6 +159,11 @@ Use `workspace_notes` to manage internal organizational notes organized by folde
 
 Metadata: `priority` (p0-p3), `status` (open, in_progress, done, archived), `tags`, `assignee`
 
+For PR workflows:
+- Keep `workspace_notes` focused on lifecycle state, assignment, and summary.
+- Store only a lightweight pointer such as `shared_key_prefix=pr:{task_id}` in the note content.
+- Do not store full PR title/body content in `workspace_notes`.
+
 ### Shared Space
 
 Use `shared_space` to share data between agents via a global key-value store:
@@ -167,6 +172,17 @@ Use `shared_space` to share data between agents via a global key-value store:
 - `action: "set"` — Store entry with `key`, `value`, optional `visibility` (public/shared/private), `tags`, `content_type`
 - `action: "delete"` — Remove entry by `key`
 - `action: "list"` — List entries, optional `namespace` prefix filter
+
+For PR draft workflows, use shared keys:
+- `pr:{task_id}:title`
+- `pr:{task_id}:body`
+- `pr:{task_id}:checks`
+- `pr:{task_id}:result`
+
+When creating pull requests:
+- Build title/body from `shared_space` content.
+- Always use `gh pr create --body-file <path>`.
+- Never use inline `gh pr create --body "..."`.
 
 ### Execution & Automation
 
