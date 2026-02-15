@@ -4,8 +4,8 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use crate::models::StorageMode;
 use crate::models::skill_folder::{SkillGating, SkillReference, SkillScript};
+use crate::models::StorageMode;
 
 /// Skill lifecycle status used for discovery and planning.
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Default, PartialEq, Eq)]
@@ -268,6 +268,7 @@ impl Skill {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::skill_folder::SkillReference;
 
     #[test]
     fn test_skill_new() {
@@ -385,5 +386,31 @@ Done"#;
         let skill = Skill::from_markdown("statused", markdown).unwrap();
         assert_eq!(skill.status, SkillStatus::Completed);
         assert!(skill.auto_complete);
+    }
+
+    #[test]
+    fn test_skill_reference_roundtrip_with_title_and_summary() {
+        let mut skill = Skill::new(
+            "reference-skill".to_string(),
+            "Reference Skill".to_string(),
+            None,
+            None,
+            "# Root content".to_string(),
+        );
+        skill.references = vec![SkillReference {
+            id: "ref-1".to_string(),
+            path: "references/ref-1.md".to_string(),
+            title: Some("Reference One".to_string()),
+            summary: Some("One line summary".to_string()),
+        }];
+
+        let markdown = skill.to_markdown();
+        let parsed = Skill::from_markdown("reference-skill", &markdown).unwrap();
+        assert_eq!(parsed.references.len(), 1);
+        let reference = &parsed.references[0];
+        assert_eq!(reference.id, "ref-1");
+        assert_eq!(reference.path, "references/ref-1.md");
+        assert_eq!(reference.title.as_deref(), Some("Reference One"));
+        assert_eq!(reference.summary.as_deref(), Some("One line summary"));
     }
 }
