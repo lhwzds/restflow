@@ -531,6 +531,7 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
                 memory,
                 durability_mode,
                 resource_limits,
+                prerequisites: Vec::new(),
                 continuation: None,
             })
             .map_err(|e| AiError::Tool(e.to_string()))?;
@@ -564,6 +565,7 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
             memory,
             durability_mode,
             resource_limits,
+            prerequisites: None,
             continuation: None,
         };
 

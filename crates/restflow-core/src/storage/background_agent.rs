@@ -390,6 +390,7 @@ impl BackgroundAgentStorage {
         if let Some(resource_limits) = spec.resource_limits {
             task.resource_limits = resource_limits;
         }
+        task.prerequisites = spec.prerequisites;
         if let Some(continuation) = spec.continuation {
             task.continuation = continuation;
         }
@@ -445,6 +446,9 @@ impl BackgroundAgentStorage {
         }
         if let Some(resource_limits) = patch.resource_limits {
             task.resource_limits = resource_limits;
+        }
+        if let Some(prerequisites) = patch.prerequisites {
+            task.prerequisites = prerequisites;
         }
         if let Some(continuation) = patch.continuation {
             task.continuation = continuation;
@@ -1056,7 +1060,9 @@ mod tests {
         assert!(events.is_empty());
 
         // Background messages should also be gone
-        let messages = storage.list_background_agent_messages(&task.id, 10).unwrap();
+        let messages = storage
+            .list_background_agent_messages(&task.id, 10)
+            .unwrap();
         assert!(messages.is_empty());
     }
 
@@ -1267,6 +1273,7 @@ mod tests {
                 memory: None,
                 durability_mode: None,
                 resource_limits: None,
+                prerequisites: Vec::new(),
                 continuation: None,
             })
             .unwrap();
@@ -1304,6 +1311,7 @@ mod tests {
                 memory: None,
                 durability_mode: None,
                 resource_limits: None,
+                prerequisites: Vec::new(),
                 continuation: None,
             })
             .unwrap();
@@ -1386,6 +1394,7 @@ mod tests {
                 memory: None,
                 durability_mode: None,
                 resource_limits: None,
+                prerequisites: Vec::new(),
                 continuation: None,
             })
             .unwrap();
@@ -1488,6 +1497,7 @@ mod tests {
                 }),
                 durability_mode: None,
                 resource_limits: None,
+                prerequisites: Vec::new(),
                 continuation: None,
             })
             .unwrap();
@@ -1518,6 +1528,7 @@ mod tests {
                 memory: None,
                 durability_mode: None,
                 resource_limits: None,
+                prerequisites: Vec::new(),
                 continuation: None,
             })
             .unwrap();
@@ -1564,6 +1575,7 @@ mod tests {
             memory: None,
             durability_mode: None,
             resource_limits: None,
+            prerequisites: Vec::new(),
             continuation: None,
         });
 
@@ -1593,6 +1605,7 @@ mod tests {
                 memory: None,
                 durability_mode: None,
                 resource_limits: None,
+                prerequisites: Vec::new(),
                 continuation: None,
             })
             .unwrap();
@@ -1634,6 +1647,7 @@ mod tests {
                     max_output_bytes: 2048,
                     max_cost_usd: Some(1.25),
                 }),
+                prerequisites: Vec::new(),
                 continuation: None,
             })
             .unwrap();
@@ -1683,6 +1697,7 @@ mod tests {
                 memory: None,
                 durability_mode: None,
                 resource_limits: None,
+                prerequisites: Vec::new(),
                 continuation: Some(ContinuationConfig {
                     enabled: true,
                     segment_iterations: 40,
@@ -1746,6 +1761,7 @@ mod tests {
             memory: None,
             durability_mode: None,
             resource_limits: None,
+            prerequisites: Vec::new(),
             continuation: None,
         });
 
@@ -1775,6 +1791,7 @@ mod tests {
                 memory: None,
                 durability_mode: None,
                 resource_limits: None,
+                prerequisites: Vec::new(),
                 continuation: None,
             })
             .unwrap();
@@ -1813,6 +1830,7 @@ mod tests {
             memory: None,
             durability_mode: None,
             resource_limits: None,
+            prerequisites: Vec::new(),
             continuation: None,
         });
 
@@ -1835,6 +1853,7 @@ mod tests {
             memory: None,
             durability_mode: None,
             resource_limits: None,
+            prerequisites: Vec::new(),
             continuation: None,
         });
 
@@ -1863,6 +1882,7 @@ mod tests {
             memory: None,
             durability_mode: None,
             resource_limits: None,
+            prerequisites: Vec::new(),
             continuation: None,
         });
 
