@@ -643,7 +643,7 @@ impl AIModel {
 
             // Zhipu
             Self::Glm5 => "glm-5",
-            Self::Glm5Code => "glm-5-code",
+            Self::Glm5Code => "glm-5",
             Self::Glm4_7 => "glm-4.7",
 
             // Moonshot
@@ -679,6 +679,7 @@ impl AIModel {
         }
 
         match name {
+            "glm-5-code" => Some(Self::Glm5Code),
             "claude-sonnet-4-5-20250514" | "claude-sonnet-4-20250514" => {
                 Some(Self::ClaudeSonnet4_5)
             }
@@ -1031,6 +1032,7 @@ mod tests {
         assert_eq!(AIModel::CodexCli.as_str(), "gpt-5.3-codex");
         assert_eq!(AIModel::OpenCodeCli.as_str(), "opencode");
         assert_eq!(AIModel::GeminiCli.as_str(), "gemini-2.5-pro");
+        assert_eq!(AIModel::Glm5Code.as_str(), "glm-5");
         assert_eq!(AIModel::DeepseekChat.as_str(), "deepseek-chat");
         assert_eq!(AIModel::Gemini25Pro.as_str(), "gemini-2.5-pro");
         assert_eq!(
@@ -1139,6 +1141,17 @@ mod tests {
             specs
                 .iter()
                 .any(|spec| spec.name == "gpt-5.3-codex" && spec.is_codex_cli)
+        );
+    }
+
+    #[test]
+    fn test_glm5_code_uses_glm5_model_with_coding_endpoint() {
+        let spec = AIModel::Glm5Code.as_model_spec();
+        assert_eq!(spec.client_model, "glm-5");
+        assert_eq!(spec.name, "glm-5-code");
+        assert_eq!(
+            spec.base_url.as_deref(),
+            Some("https://api.z.ai/api/coding/paas/v4")
         );
     }
 
