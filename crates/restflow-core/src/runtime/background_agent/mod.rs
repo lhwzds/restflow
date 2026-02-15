@@ -151,6 +151,7 @@ pub mod retry;
 pub mod runner;
 #[cfg(any(test, feature = "test-utils"))]
 pub mod testkit;
+pub mod workflow;
 
 pub use cli_executor::{CliAgentExecutor, create_cli_executor_with_events};
 #[cfg(feature = "tauri-runtime")]
@@ -174,3 +175,4 @@ pub use runner::{
     AgentExecutor, BackgroundAgentRunner, ExecutionResult, NoopNotificationSender,
     NotificationSender, RunnerConfig, RunnerHandle,
 };
+pub use workflow::{WorkflowExecutionResult, WorkflowExecutor, WorkflowPhaseRunner};

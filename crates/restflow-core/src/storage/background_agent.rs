@@ -390,6 +390,7 @@ impl BackgroundAgentStorage {
         if let Some(resource_limits) = spec.resource_limits {
             task.resource_limits = resource_limits;
         }
+        task.workflow = spec.workflow;
         task.updated_at = chrono::Utc::now().timestamp_millis();
         self.update_task(&task)?;
         Ok(task)
@@ -442,6 +443,9 @@ impl BackgroundAgentStorage {
         }
         if let Some(resource_limits) = patch.resource_limits {
             task.resource_limits = resource_limits;
+        }
+        if let Some(workflow) = patch.workflow {
+            task.workflow = Some(workflow);
         }
         Self::validate_task_input(task.input.as_deref(), task.input_template.as_deref())?;
 
@@ -1259,6 +1263,7 @@ mod tests {
                 memory: None,
                 durability_mode: None,
                 resource_limits: None,
+                workflow: None,
             })
             .unwrap();
 
@@ -1295,6 +1300,7 @@ mod tests {
                 memory: None,
                 durability_mode: None,
                 resource_limits: None,
+                workflow: None,
             })
             .unwrap();
 
@@ -1376,6 +1382,7 @@ mod tests {
                 memory: None,
                 durability_mode: None,
                 resource_limits: None,
+                workflow: None,
             })
             .unwrap();
         assert_eq!(created.name, "BG Agent");
@@ -1477,6 +1484,7 @@ mod tests {
                 }),
                 durability_mode: None,
                 resource_limits: None,
+                workflow: None,
             })
             .unwrap();
 
@@ -1506,6 +1514,7 @@ mod tests {
                 memory: None,
                 durability_mode: None,
                 resource_limits: None,
+                workflow: None,
             })
             .unwrap();
 
@@ -1551,6 +1560,7 @@ mod tests {
             memory: None,
             durability_mode: None,
             resource_limits: None,
+            workflow: None,
         });
 
         assert!(result.is_err());
@@ -1579,6 +1589,7 @@ mod tests {
                 memory: None,
                 durability_mode: None,
                 resource_limits: None,
+                workflow: None,
             })
             .unwrap();
 
@@ -1619,6 +1630,7 @@ mod tests {
                     max_output_bytes: 2048,
                     max_cost_usd: Some(1.25),
                 }),
+                workflow: None,
             })
             .unwrap();
 
@@ -1664,6 +1676,7 @@ mod tests {
             memory: None,
             durability_mode: None,
             resource_limits: None,
+            workflow: None,
         });
 
         assert!(result.is_err());
@@ -1692,6 +1705,7 @@ mod tests {
                 memory: None,
                 durability_mode: None,
                 resource_limits: None,
+                workflow: None,
             })
             .unwrap();
 
