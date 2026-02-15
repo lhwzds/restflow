@@ -43,20 +43,22 @@ pub struct UncommittedCheckpoint {
 
 impl UncommittedCheckpoint {
     /// Create a new uncommitted checkpoint from an agent state.
-    pub fn new(state: &AgentState, task_id: String, reason: String) -> Self {
-        let state_json = serde_json::to_vec(state).unwrap_or_default();
-        let meta = CheckpointMeta {
-            task_id,
-            reason,
-            iteration: state.iteration,
-        };
-
-        Self {
+    ///
+    /// Returns an error if serialization fails, preventing silent data integrity issues.
+    pub fn new(state: &AgentState, task_id: String, reason: String) -> Result<Self> {
+        let state_json = serde_json::to_vec(state)
+            .map_err(|e| anyhow::anyhow!("Failed to serialize agent state: {}", e))?;
+        
+        Ok(Self {
             state_json,
-            meta,
+            meta: CheckpointMeta {
+                task_id,
+                reason,
+                iteration: state.iteration,
+            },
             execution_id: state.execution_id.clone(),
             version: state.version,
-        }
+        })
     }
 
     /// Convert to a persistable AgentCheckpoint.
@@ -78,7 +80,7 @@ impl UncommittedCheckpoint {
 ///
 /// This does NOT write to the database. The checkpoint is held in memory
 /// until `commit_if_success` is called with a successful result.
-pub fn prepare(state: &AgentState, task_id: String, reason: String) -> UncommittedCheckpoint {
+pub fn prepare(state: &AgentState, task_id: String, reason: String) -> Result<UncommittedCheckpoint> {
     UncommittedCheckpoint::new(state, task_id, reason)
 }
 
@@ -109,12 +111,15 @@ mod tests {
     use redb::Database;
     use std::sync::Arc;
     use tempfile::tempdir;
+    use tempfile::TempDir;
 
-    fn create_test_storage() -> BackgroundAgentStorage {
+    /// Creates a test storage with TempDir kept alive for the test scope.
+    /// Returns (TempDir, BackgroundAgentStorage) to ensure TempDir is not dropped early.
+    fn create_test_storage() -> (TempDir, BackgroundAgentStorage) {
         let temp_dir = tempdir().unwrap();
         let db_path = temp_dir.path().join("test.db");
         let db = Arc::new(Database::create(db_path).unwrap());
-        BackgroundAgentStorage::new(db).unwrap()
+        (temp_dir, BackgroundAgentStorage::new(db).unwrap())
     }
 
     #[test]
@@ -123,8 +128,12 @@ mod tests {
         state.iteration = 5;
         state.add_message(restflow_ai::llm::Message::user("test"));
 
-        let checkpoint =
-            UncommittedCheckpoint::new(&state, "task-123".to_string(), "tool execution".to_string());
+        let checkpoint = UncommittedCheckpoint::new(
+            &state,
+            "task-123".to_string(),
+            "tool execution".to_string(),
+        )
+        .expect("checkpoint creation should succeed");
 
         assert_eq!(checkpoint.meta.task_id, "task-123");
         assert_eq!(checkpoint.meta.iteration, 5);
@@ -143,7 +152,8 @@ mod tests {
             &state,
             "task-456".to_string(),
             "security checkpoint".to_string(),
-        );
+        )
+        .expect("checkpoint creation should succeed");
 
         let persisted = uncommitted.into_persistable();
 
@@ -161,7 +171,8 @@ mod tests {
         let mut state = AgentState::new("exec-3".to_string(), 10);
         state.iteration = 2;
 
-        let checkpoint = prepare(&state, "task-789".to_string(), "before tool call".to_string());
+        let checkpoint = prepare(&state, "task-789".to_string(), "before tool call".to_string())
+            .expect("prepare should succeed");
 
         assert_eq!(checkpoint.meta.task_id, "task-789");
         assert_eq!(checkpoint.meta.reason, "before tool call");
@@ -170,7 +181,7 @@ mod tests {
 
     #[test]
     fn test_commit_if_success_none_checkpoint() {
-        let storage = create_test_storage();
+        let (_temp_dir, storage) = create_test_storage();
 
         let result: Result<()> = Ok(());
         let commit_result = commit_if_success(&storage, None, &result);
@@ -179,12 +190,13 @@ mod tests {
 
     #[test]
     fn test_commit_if_success_with_ok_result() {
-        let storage = create_test_storage();
+        let (_temp_dir, storage) = create_test_storage();
 
         let mut state = AgentState::new("exec-4".to_string(), 10);
         state.iteration = 1;
 
-        let checkpoint = prepare(&state, "task-111".to_string(), "after success".to_string());
+        let checkpoint = prepare(&state, "task-111".to_string(), "after success".to_string())
+            .expect("prepare should succeed");
         let result: Result<()> = Ok(());
 
         let commit_result = commit_if_success(&storage, Some(checkpoint), &result);
@@ -200,12 +212,13 @@ mod tests {
 
     #[test]
     fn test_commit_if_success_with_err_result() {
-        let storage = create_test_storage();
+        let (_temp_dir, storage) = create_test_storage();
 
         let mut state = AgentState::new("exec-5".to_string(), 10);
         state.iteration = 1;
 
-        let checkpoint = prepare(&state, "task-222".to_string(), "should not persist".to_string());
+        let checkpoint = prepare(&state, "task-222".to_string(), "should not persist".to_string())
+            .expect("prepare should succeed");
         let result: Result<()> = Err(anyhow::anyhow!("tool failed"));
 
         let commit_result = commit_if_success(&storage, Some(checkpoint), &result);
@@ -214,5 +227,26 @@ mod tests {
         // Verify checkpoint was NOT saved
         let loaded = storage.load_checkpoint_by_task_id("task-222").unwrap();
         assert!(loaded.is_none());
+    }
+
+    #[test]
+    fn test_uncommitted_checkpoint_serialization_error() {
+        // This test verifies that serialization errors are properly propagated
+        // instead of being silently swallowed with unwrap_or_default().
+        //
+        // Note: AgentState is always serializable in practice, so we can't easily
+        // force a serialization error. This test documents the expected behavior
+        // and ensures the API returns Result<> for error handling.
+        let (_temp_dir, _storage) = create_test_storage();
+
+        let state = AgentState::new("exec-6".to_string(), 10);
+
+        // With a valid state, serialization should succeed
+        let result = UncommittedCheckpoint::new(
+            &state,
+            "task-333".to_string(),
+            "test serialization".to_string(),
+        );
+        assert!(result.is_ok(), "serialization should succeed with valid state");
     }
 }
