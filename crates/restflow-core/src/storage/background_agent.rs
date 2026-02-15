@@ -1056,7 +1056,9 @@ mod tests {
         assert!(events.is_empty());
 
         // Background messages should also be gone
-        let messages = storage.list_background_agent_messages(&task.id, 10).unwrap();
+        let messages = storage
+            .list_background_agent_messages(&task.id, 10)
+            .unwrap();
         assert!(messages.is_empty());
     }
 
@@ -1813,6 +1815,7 @@ mod tests {
             memory: None,
             durability_mode: None,
             resource_limits: None,
+            continuation: None,
         });
 
         assert!(result.is_ok());
@@ -1834,6 +1837,7 @@ mod tests {
             memory: None,
             durability_mode: None,
             resource_limits: None,
+            continuation: None,
         });
 
         assert!(result.is_err());
@@ -1861,6 +1865,7 @@ mod tests {
             memory: None,
             durability_mode: None,
             resource_limits: None,
+            continuation: None,
         });
 
         assert!(result.is_ok());
