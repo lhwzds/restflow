@@ -30,7 +30,7 @@ use tokio::io::AsyncWriteExt;
 
 use super::diagnostics::DiagnosticsProvider;
 use super::file_tracker::FileTracker;
-use super::traits::{Tool, ToolOutput};
+use super::traits::{Tool, ToolErrorCategory, ToolOutput};
 use crate::ToolAction;
 use crate::cache::{AgentCacheManager, CachedSearchResult, SearchMatch as CachedSearchMatch};
 use crate::error::Result;
@@ -958,6 +958,9 @@ impl FileTool {
             } else {
                 None
             },
+            error_category: None,
+            retryable: None,
+            retry_after_ms: None,
         }
     }
 
@@ -1772,8 +1775,37 @@ impl Tool for FileTool {
             }
         };
 
-        Ok(output)
+        Ok(output.classify_if_error(classify_file_error_message))
     }
+}
+
+fn classify_file_error_message(message: &str) -> (ToolErrorCategory, bool, Option<u64>) {
+    let normalized = message.to_ascii_lowercase();
+
+    if normalized.contains("not found")
+        || normalized.contains("no such file")
+        || normalized.contains("no such directory")
+    {
+        return (ToolErrorCategory::NotFound, false, None);
+    }
+
+    if normalized.contains("permission denied")
+        || normalized.contains("operation not permitted")
+        || normalized.contains("access denied")
+    {
+        return (ToolErrorCategory::Auth, false, None);
+    }
+
+    if normalized.contains("invalid regex")
+        || normalized.contains("invalid path")
+        || normalized.contains("escapes allowed base directory")
+        || normalized.contains("too many")
+        || normalized.contains("invalid")
+    {
+        return (ToolErrorCategory::Config, false, None);
+    }
+
+    (ToolErrorCategory::Execution, false, None)
 }
 
 /// Simple glob matching (supports * and ?)
@@ -1927,6 +1959,18 @@ mod tests {
         assert_eq!(schema["type"], "object");
         assert!(schema["properties"]["action"].is_object());
         assert!(schema["properties"]["path"].is_object());
+    }
+
+    #[test]
+    fn test_file_error_classification() {
+        assert_eq!(
+            classify_file_error_message("File not found: foo.txt"),
+            (ToolErrorCategory::NotFound, false, None)
+        );
+        assert_eq!(
+            classify_file_error_message("Cannot open file: Permission denied"),
+            (ToolErrorCategory::Auth, false, None)
+        );
     }
 
     #[test]
