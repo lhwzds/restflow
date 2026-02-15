@@ -256,14 +256,32 @@ impl LlmClient for OpenAIClient {
         let mut last_error = None;
 
         for attempt in 0..=self.retry_config.max_retries {
-            let response = self
+            let response = match self
                 .client
                 .post(format!("{}/chat/completions", self.base_url))
                 .header("Authorization", format!("Bearer {}", self.api_key))
                 .header("Content-Type", "application/json")
                 .json(&body)
                 .send()
-                .await?;
+                .await
+            {
+                Ok(resp) => resp,
+                Err(e) => {
+                    let error = AiError::Http(e);
+                    if !error.is_retryable() || attempt == self.retry_config.max_retries {
+                        return Err(error);
+                    }
+                    let delay = self.retry_config.delay_for(attempt + 1, None);
+                    tracing::warn!(
+                        attempt = attempt + 1,
+                        delay_ms = delay.as_millis(),
+                        "Retrying OpenAI request after connection error"
+                    );
+                    tokio::time::sleep(delay).await;
+                    last_error = Some(error);
+                    continue;
+                }
+            };
 
             if response.status().is_success() {
                 let data: OpenAIResponse = response.json().await?;

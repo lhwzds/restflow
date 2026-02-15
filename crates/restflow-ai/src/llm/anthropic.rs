@@ -383,13 +383,31 @@ impl LlmClient for AnthropicClient {
         let mut last_error = None;
 
         for attempt in 0..=self.retry_config.max_retries {
-            let response = self
+            let response = match self
                 .client
                 .post("https://api.anthropic.com/v1/messages")
                 .headers(self.build_auth_headers())
                 .json(&body)
                 .send()
-                .await?;
+                .await
+            {
+                Ok(resp) => resp,
+                Err(e) => {
+                    let error = AiError::Http(e);
+                    if !error.is_retryable() || attempt == self.retry_config.max_retries {
+                        return Err(error);
+                    }
+                    let delay = self.retry_config.delay_for(attempt + 1, None);
+                    tracing::warn!(
+                        attempt = attempt + 1,
+                        delay_ms = delay.as_millis(),
+                        "Retrying Anthropic request after connection error"
+                    );
+                    tokio::time::sleep(delay).await;
+                    last_error = Some(error);
+                    continue;
+                }
+            };
 
             if response.status().is_success() {
                 let data: AnthropicResponse = response.json().await?;

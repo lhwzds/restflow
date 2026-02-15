@@ -52,6 +52,10 @@ impl AiError {
                     || lower.contains("rate limit")
                     || lower.contains("429")
                     || lower.contains("503")
+                    || lower.contains("usage limit")
+                    || lower.contains("quota")
+                    || lower.contains("rollout")
+                    || lower.contains("state db")
             }
             _ => false,
         }
@@ -69,3 +73,61 @@ impl AiError {
 
 /// Result type alias for AI operations
 pub type Result<T> = std::result::Result<T, AiError>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_cli_errors_retryable() {
+        let codex_err = AiError::Llm(
+            "Codex CLI error: state db missing rollout path for thread 019c5096".to_string(),
+        );
+        assert!(codex_err.is_retryable());
+
+        let usage_err = AiError::Llm("Usage limit exceeded".to_string());
+        assert!(usage_err.is_retryable());
+
+        let quota_err = AiError::Llm("API quota exhausted".to_string());
+        assert!(quota_err.is_retryable());
+    }
+
+    #[test]
+    fn test_non_retryable_errors() {
+        let auth_err = AiError::Llm("Authentication failed".to_string());
+        assert!(!auth_err.is_retryable());
+
+        let tool_err = AiError::ToolNotFound("bash".to_string());
+        assert!(!tool_err.is_retryable());
+
+        let format_err = AiError::InvalidFormat("bad json".to_string());
+        assert!(!format_err.is_retryable());
+    }
+
+    #[test]
+    fn test_http_status_retryable() {
+        for status in [429, 500, 502, 503, 504] {
+            let err = AiError::LlmHttp {
+                provider: "test".to_string(),
+                status,
+                message: "error".to_string(),
+                retry_after_secs: None,
+            };
+            assert!(err.is_retryable(), "status {} should be retryable", status);
+        }
+
+        for status in [400, 401, 403, 404, 422] {
+            let err = AiError::LlmHttp {
+                provider: "test".to_string(),
+                status,
+                message: "error".to_string(),
+                retry_after_secs: None,
+            };
+            assert!(
+                !err.is_retryable(),
+                "status {} should not be retryable",
+                status
+            );
+        }
+    }
+}
