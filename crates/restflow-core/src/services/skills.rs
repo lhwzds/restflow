@@ -504,10 +504,14 @@ This is the skill content."#;
             crate::models::skill_folder::SkillReference {
                 id: "known-skill".to_string(),
                 path: "./SKILL.md".to_string(),
+                title: None,
+                summary: None,
             },
             crate::models::skill_folder::SkillReference {
                 id: "missing-skill".to_string(),
                 path: "./missing.md".to_string(),
+                title: None,
+                summary: None,
             },
         ];
 
@@ -536,6 +540,8 @@ This is the skill content."#;
         skill.references = vec![crate::models::skill_folder::SkillReference {
             id: "known-skill".to_string(),
             path: "./SKILL.md".to_string(),
+            title: None,
+            summary: None,
         }];
 
         let tool_names = vec!["bash".to_string()];
