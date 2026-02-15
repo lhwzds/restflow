@@ -11,7 +11,7 @@ use crate::models::{
     BackgroundMessageSource, BackgroundProgress, ChatSession, ChatSessionSummary, Deliverable,
     DurabilityMode, Hook, HookAction, HookEvent, HookFilter, MemoryChunk, MemoryConfig,
     MemoryScope, MemorySearchQuery, MemorySearchResult, MemorySource, MemoryStats, Provider,
-    ResourceLimits, SearchMode, Skill, SkillStatus,
+    ResourceLimits, SearchMode, Skill, SkillStatus, ValidationError,
 };
 use crate::services::tool_registry::create_tool_registry;
 use crate::storage::SecretStorage;
@@ -1316,13 +1316,20 @@ impl RestFlowMcpServer {
             params.tags,
             params.content,
         );
+        let warnings = self.skill_validation_warnings(&skill).await;
 
         self.backend
             .create_skill(skill)
             .await
             .map_err(|e| format!("Failed to create skill: {}", e))?;
 
-        Ok(format!("Skill created successfully with ID: {}", id))
+        let mut message = format!("Skill created successfully with ID: {}", id);
+        if let Some(warning_message) = Self::format_validation_warnings(&warnings) {
+            message.push('\n');
+            message.push_str(&warning_message);
+        }
+
+        Ok(message)
     }
 
     async fn handle_update_skill(&self, params: UpdateSkillParams) -> Result<String, String> {
@@ -1340,13 +1347,19 @@ impl RestFlowMcpServer {
             params.tags.map(Some),
             params.content,
         );
+        let warnings = self.skill_validation_warnings(&skill).await;
 
         self.backend
             .update_skill(skill)
             .await
             .map_err(|e| format!("Failed to update skill: {}", e))?;
 
-        Ok(format!("Skill {} updated successfully", params.id))
+        let mut message = format!("Skill {} updated successfully", params.id);
+        if let Some(warning_message) = Self::format_validation_warnings(&warnings) {
+            message.push('\n');
+            message.push_str(&warning_message);
+        }
+        Ok(message)
     }
 
     async fn handle_delete_skill(&self, params: DeleteSkillParams) -> Result<String, String> {
@@ -1864,6 +1877,36 @@ impl RestFlowMcpServer {
                 .error
                 .unwrap_or_else(|| "switch_model execution failed".to_string()))
         }
+    }
+
+    async fn skill_validation_warnings(&self, skill: &Skill) -> Vec<ValidationError> {
+        let tool_names = self
+            .backend
+            .list_runtime_tools()
+            .await
+            .map(|tools| tools.into_iter().map(|tool| tool.name).collect::<Vec<_>>())
+            .unwrap_or_default();
+        let skill_ids = self
+            .backend
+            .list_skills()
+            .await
+            .map(|skills| skills.into_iter().map(|entry| entry.id).collect::<Vec<_>>())
+            .unwrap_or_default();
+
+        crate::services::skills::validate_skill_complete(skill, &tool_names, &skill_ids)
+    }
+
+    fn format_validation_warnings(errors: &[ValidationError]) -> Option<String> {
+        if errors.is_empty() {
+            return None;
+        }
+
+        let message = errors
+            .iter()
+            .map(|error| format!("{}: {}", error.field, error.message))
+            .collect::<Vec<_>>()
+            .join("; ");
+        Some(format!("Warnings: {}", message))
     }
 }
 
@@ -2490,6 +2533,26 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_create_skill_returns_validation_warnings_non_blocking() {
+        let (server, _core, _temp_dir, _temp_agents, _guard) = create_test_server().await;
+
+        let params = CreateSkillParams {
+            name: "   ".to_string(),
+            description: None,
+            tags: Some(vec!["valid".to_string(), "".to_string()]),
+            content: "   ".to_string(),
+        };
+        let result = server.handle_create_skill(params).await;
+
+        assert!(result.is_ok());
+        let message = result.unwrap();
+        assert!(message.contains("created successfully"));
+        assert!(message.contains("Warnings:"));
+        assert!(message.contains("name: Skill name cannot be empty"));
+        assert!(message.contains("content: Skill content cannot be empty"));
+    }
+
+    #[tokio::test]
     async fn test_update_skill_success() {
         let (server, core, _temp_dir, _temp_agents, _guard) = create_test_server().await;
 
@@ -2518,6 +2581,37 @@ mod tests {
         assert_eq!(updated.name, "Updated Name");
         assert_eq!(updated.description, Some("Updated description".to_string()));
         assert_eq!(updated.content, "# Updated content");
+    }
+
+    #[tokio::test]
+    async fn test_update_skill_returns_validation_warnings_non_blocking() {
+        let (server, core, _temp_dir, _temp_agents, _guard) = create_test_server().await;
+
+        let skill = create_test_skill("warn-skill", "Warn Skill");
+        crate::services::skills::create_skill(&core, skill)
+            .await
+            .unwrap();
+
+        let params = UpdateSkillParams {
+            id: "warn-skill".to_string(),
+            name: None,
+            description: None,
+            tags: None,
+            content: Some("Use {{bad-variable}} in template".to_string()),
+        };
+        let result = server.handle_update_skill(params).await;
+
+        assert!(result.is_ok());
+        let message = result.unwrap();
+        assert!(message.contains("updated successfully"));
+        assert!(message.contains("Warnings:"));
+        assert!(message.contains("Invalid variable 'bad-variable'"));
+
+        let updated = crate::services::skills::get_skill(&core, "warn-skill")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(updated.content, "Use {{bad-variable}} in template");
     }
 
     #[tokio::test]
