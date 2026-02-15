@@ -334,6 +334,9 @@ pub enum AgentCommands {
 
         #[arg(long, value_enum)]
         codex_execution_mode: Option<CodexExecutionModeArg>,
+
+        #[arg(long)]
+        codex_reasoning_effort: Option<String>,
     },
 
     /// Update agent
@@ -348,6 +351,9 @@ pub enum AgentCommands {
 
         #[arg(long, value_enum)]
         codex_execution_mode: Option<CodexExecutionModeArg>,
+
+        #[arg(long)]
+        codex_reasoning_effort: Option<String>,
     },
 
     /// Delete agent
