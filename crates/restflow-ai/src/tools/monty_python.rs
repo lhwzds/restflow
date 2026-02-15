@@ -73,6 +73,9 @@ impl PythonExecutor {
                 success: output.exit_code == 0 && !output.timed_out,
                 result: serde_json::to_value(output).unwrap_or(Value::Null),
                 error: None,
+                error_category: None,
+                retryable: None,
+                retry_after_ms: None,
             },
             Err(primary_error) => {
                 let allow_fallback =
@@ -88,6 +91,9 @@ impl PythonExecutor {
                                 "Monty backend failed, used cpython fallback: {}",
                                 primary_error
                             )),
+                            error_category: None,
+                            retryable: None,
+                            retry_after_ms: None,
                         },
                         Err(fallback_error) => ToolOutput::error(format!(
                             "Monty backend failed ({}) and cpython fallback failed ({})",
