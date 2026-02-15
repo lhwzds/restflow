@@ -17,7 +17,7 @@ use crate::{
     auth::{AuthProfileManager, AuthProvider},
     models::{
         AgentCheckpoint, AgentNode, ApiKeyConfig, ChatMessage, ChatRole, ChatSession,
-        DurabilityMode, MemoryConfig, Skill, SteerMessage,
+        DurabilityMode, MemoryConfig, SharedEntry, Skill, SteerMessage, Visibility,
     },
     process::ProcessRegistry,
     prompt_files,
@@ -115,6 +115,83 @@ impl AiModelSwitcher for RuntimeModelSwitcher {
 }
 
 impl AgentRuntimeExecutor {
+    fn save_task_deliverable(&self, task_id: &str, agent_id: &str, output: &str) -> Result<()> {
+        let now = Utc::now().timestamp_millis();
+        let key = format!("deliverable:{task_id}");
+        let payload = serde_json::json!({
+            "agent_id": agent_id,
+            "parts": [
+                {
+                    "type": "text",
+                    "content": output,
+                }
+            ],
+            "completed_at": Utc::now().to_rfc3339(),
+        });
+        let payload = serde_json::to_string(&payload)?;
+        let created_at = self
+            .storage
+            .shared_space
+            .get_unchecked(&key)?
+            .map(|entry| entry.created_at)
+            .unwrap_or(now);
+        let entry = SharedEntry {
+            key,
+            value: payload,
+            visibility: Visibility::Shared,
+            owner: Some(agent_id.to_string()),
+            content_type: Some("application/json".to_string()),
+            type_hint: Some("deliverable".to_string()),
+            tags: vec!["deliverable".to_string()],
+            created_at,
+            updated_at: now,
+            last_modified_by: Some(agent_id.to_string()),
+        };
+        self.storage.shared_space.set(&entry)
+    }
+
+    fn validate_prerequisites(&self, prerequisites: &[String]) -> Result<()> {
+        if prerequisites.is_empty() {
+            return Ok(());
+        }
+
+        let mut failed = Vec::new();
+        for task_id in prerequisites {
+            let key = format!("deliverable:{task_id}");
+            match self.storage.shared_space.quick_get(&key, None) {
+                Ok(Some(raw)) => match serde_json::from_str::<serde_json::Value>(&raw) {
+                    Ok(value) => {
+                        let parts = value.get("parts").and_then(|part| part.as_array());
+                        if parts.is_none_or(|items| items.is_empty()) {
+                            failed.push(format!("{task_id} (empty deliverable)"));
+                        }
+                    }
+                    Err(_) => failed.push(format!("{task_id} (invalid JSON)")),
+                },
+                Ok(None) => failed.push(format!("{task_id} (not found)")),
+                Err(error) => failed.push(format!("{task_id} ({error})")),
+            }
+        }
+
+        if failed.is_empty() {
+            Ok(())
+        } else {
+            Err(anyhow!("Prerequisites not met: {}", failed.join(", ")))
+        }
+    }
+
+    fn persist_deliverable_if_needed(
+        &self,
+        background_task_id: Option<&str>,
+        agent_id: &str,
+        output: &str,
+    ) -> Result<()> {
+        if let Some(task_id) = background_task_id {
+            self.save_task_deliverable(task_id, agent_id, output)?;
+        }
+        Ok(())
+    }
+
     fn create_scratchpad_for_task(background_task_id: &str) -> Result<Arc<Scratchpad>> {
         let base_dir = crate::paths::ensure_restflow_dir()?.join("scratchpads");
         std::fs::create_dir_all(&base_dir)?;
@@ -1534,15 +1611,19 @@ impl AgentRuntimeExecutor {
             .agents
             .get_agent(agent_id.to_string())?
             .ok_or_else(|| anyhow!("Agent '{}' not found", agent_id))?;
-        let resolved_resource_limits = background_task_id
-            .and_then(|task_id| {
-                self.storage
-                    .background_agents
-                    .get_task(task_id)
-                    .ok()
-                    .flatten()
-            })
-            .map(|task| task.resource_limits)
+        let background_task = background_task_id.and_then(|task_id| {
+            self.storage
+                .background_agents
+                .get_task(task_id)
+                .ok()
+                .flatten()
+        });
+        if let Some(task) = background_task.as_ref() {
+            self.validate_prerequisites(&task.prerequisites)?;
+        }
+        let resolved_resource_limits = background_task
+            .as_ref()
+            .map(|task| task.resource_limits.clone())
             .unwrap_or_default();
 
         let agent_node = stored_agent.agent.clone();
@@ -1555,7 +1636,7 @@ impl AgentRuntimeExecutor {
         // failover or retry attempts. Execute a single primary-model attempt when either
         // channel is present to avoid dropping steering/streaming state mid-run.
         if steer_rx.is_some() || emitter.is_some() {
-            return self
+            let result = self
                 .execute_with_profiles(
                     &agent_node,
                     primary_model,
@@ -1569,7 +1650,9 @@ impl AgentRuntimeExecutor {
                     Some(agent_id),
                     None,
                 )
-                .await;
+                .await?;
+            self.persist_deliverable_if_needed(background_task_id, agent_id, &result.output)?;
+            return Ok(result);
         }
 
         let failover_config = self
@@ -1612,7 +1695,14 @@ impl AgentRuntimeExecutor {
             .await;
 
             match result {
-                Ok((exec_result, _model)) => return Ok(exec_result),
+                Ok((exec_result, _model)) => {
+                    self.persist_deliverable_if_needed(
+                        background_task_id,
+                        agent_id,
+                        &exec_result.output,
+                    )?;
+                    return Ok(exec_result);
+                }
                 Err(err) => {
                     let error_msg = err.to_string();
                     if retry_state.should_retry(&retry_config, &error_msg) {
@@ -1677,7 +1767,7 @@ impl AgentRuntimeExecutor {
 mod tests {
     use super::*;
     use crate::auth::{AuthProvider, Credential, CredentialSource};
-    use crate::models::{AgentNode, MemoryConfig, Skill};
+    use crate::models::{AgentNode, MemoryConfig, SharedEntry, Skill, Visibility};
     use crate::runtime::subagent::{AgentDefinitionRegistry, SubagentConfig, SubagentTracker};
     use restflow_ai::ReplySender;
     use std::future::Future;
@@ -1718,6 +1808,23 @@ mod tests {
         );
         skill.triggers = vec![trigger.to_string()];
         skill
+    }
+
+    fn insert_shared_entry(storage: &Storage, key: &str, value: &str) {
+        let now = Utc::now().timestamp_millis();
+        let entry = SharedEntry {
+            key: key.to_string(),
+            value: value.to_string(),
+            visibility: Visibility::Public,
+            owner: None,
+            content_type: Some("application/json".to_string()),
+            type_hint: Some("deliverable".to_string()),
+            tags: vec!["deliverable".to_string()],
+            created_at: now,
+            updated_at: now,
+            last_modified_by: Some("test".to_string()),
+        };
+        storage.shared_space.set(&entry).unwrap();
     }
 
     #[test]
@@ -1948,6 +2055,91 @@ mod tests {
             "Error should mention missing secret: {}",
             err_msg
         );
+    }
+
+    #[test]
+    fn test_validate_prerequisites_passes_with_valid_deliverables() {
+        let (storage, _temp_dir) = create_test_storage();
+        let executor = create_test_executor(storage.clone());
+        insert_shared_entry(
+            &storage,
+            "deliverable:task-a",
+            r#"{"parts":[{"type":"text","content":"ok"}]}"#,
+        );
+        insert_shared_entry(
+            &storage,
+            "deliverable:task-b",
+            r#"{"parts":[{"type":"text","content":"done"}]}"#,
+        );
+
+        let prerequisites = vec!["task-a".to_string(), "task-b".to_string()];
+        let result = executor.validate_prerequisites(&prerequisites);
+        assert!(result.is_ok(), "validation should pass: {:?}", result.err());
+    }
+
+    #[test]
+    fn test_validate_prerequisites_fails_when_missing() {
+        let (storage, _temp_dir) = create_test_storage();
+        let executor = create_test_executor(storage);
+        let prerequisites = vec!["missing-task".to_string()];
+
+        let err = executor
+            .validate_prerequisites(&prerequisites)
+            .expect_err("validation should fail");
+        assert!(err.to_string().contains("missing-task (not found)"));
+    }
+
+    #[test]
+    fn test_validate_prerequisites_fails_on_empty_parts() {
+        let (storage, _temp_dir) = create_test_storage();
+        let executor = create_test_executor(storage.clone());
+        insert_shared_entry(&storage, "deliverable:task-empty", r#"{"parts":[]}"#);
+        let prerequisites = vec!["task-empty".to_string()];
+
+        let err = executor
+            .validate_prerequisites(&prerequisites)
+            .expect_err("validation should fail");
+        assert!(err.to_string().contains("task-empty (empty deliverable)"));
+    }
+
+    #[test]
+    fn test_validate_prerequisites_fails_on_invalid_json() {
+        let (storage, _temp_dir) = create_test_storage();
+        let executor = create_test_executor(storage.clone());
+        insert_shared_entry(&storage, "deliverable:task-invalid", "not-json");
+        let prerequisites = vec!["task-invalid".to_string()];
+
+        let err = executor
+            .validate_prerequisites(&prerequisites)
+            .expect_err("validation should fail");
+        assert!(err.to_string().contains("task-invalid (invalid JSON)"));
+    }
+
+    #[test]
+    fn test_save_task_deliverable_persists_structured_payload() {
+        let (storage, _temp_dir) = create_test_storage();
+        let executor = create_test_executor(storage.clone());
+
+        executor
+            .save_task_deliverable("task-save", "agent-1", "final answer")
+            .expect("save deliverable should succeed");
+
+        let entry = storage
+            .shared_space
+            .get_unchecked("deliverable:task-save")
+            .expect("shared space read should succeed")
+            .expect("deliverable entry should exist");
+        assert_eq!(entry.type_hint.as_deref(), Some("deliverable"));
+        assert_eq!(entry.owner.as_deref(), Some("agent-1"));
+
+        let payload: serde_json::Value =
+            serde_json::from_str(&entry.value).expect("payload should be valid json");
+        assert_eq!(payload["agent_id"].as_str(), Some("agent-1"));
+        let parts = payload["parts"]
+            .as_array()
+            .expect("parts should be an array");
+        assert_eq!(parts.len(), 1);
+        assert_eq!(parts[0]["content"].as_str(), Some("final answer"));
     }
 
     #[test]

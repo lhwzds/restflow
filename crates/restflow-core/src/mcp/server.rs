@@ -1013,6 +1013,9 @@ pub struct ManageBackgroundAgentsParams {
     /// Optional resource limits payload
     #[serde(default)]
     pub resource_limits: Option<Value>,
+    /// Optional prerequisite task IDs
+    #[serde(default)]
+    pub prerequisites: Option<Vec<String>>,
     /// Optional list status filter
     #[serde(default)]
     pub status: Option<String>,
@@ -1661,6 +1664,7 @@ impl RestFlowMcpServer {
                     memory,
                     durability_mode,
                     resource_limits,
+                    prerequisites: params.prerequisites.unwrap_or_default(),
                     continuation: None,
                 };
                 serde_json::to_value(self.backend.create_background_agent(spec).await?)
@@ -1691,6 +1695,7 @@ impl RestFlowMcpServer {
                     memory,
                     durability_mode,
                     resource_limits,
+                    prerequisites: params.prerequisites,
                     continuation: None,
                 };
                 serde_json::to_value(self.backend.update_background_agent(&id, patch).await?)
@@ -3473,6 +3478,7 @@ mod tests {
             memory: None,
             memory_scope: None,
             resource_limits: None,
+            prerequisites: None,
             status: None,
             action: None,
             event_limit: None,
@@ -3869,6 +3875,7 @@ mod tests {
             memory_scope: None,
             durability_mode: None,
             resource_limits: None,
+            prerequisites: None,
             status: None,
             action: None,
             event_limit: None,

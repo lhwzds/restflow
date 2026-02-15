@@ -400,6 +400,9 @@ pub struct BackgroundAgentSpec {
     /// Optional resource limits for this task
     #[serde(default)]
     pub resource_limits: Option<ResourceLimits>,
+    /// Upstream task IDs that must provide deliverables before execution
+    #[serde(default)]
+    pub prerequisites: Vec<String>,
     /// Optional continuation policy for long-horizon execution
     #[serde(default)]
     pub continuation: Option<ContinuationConfig>,
@@ -445,6 +448,9 @@ pub struct BackgroundAgentPatch {
     /// New resource limits
     #[serde(default)]
     pub resource_limits: Option<ResourceLimits>,
+    /// New prerequisite task IDs
+    #[serde(default)]
+    pub prerequisites: Option<Vec<String>>,
     /// New continuation policy
     #[serde(default)]
     pub continuation: Option<ContinuationConfig>,
@@ -718,6 +724,9 @@ pub struct BackgroundAgent {
     /// Resource limits configuration
     #[serde(default)]
     pub resource_limits: ResourceLimits,
+    /// Task IDs that must complete before this task starts.
+    #[serde(default)]
+    pub prerequisites: Vec<String>,
     /// Continuation policy for long-horizon execution
     #[serde(default)]
     pub continuation: ContinuationConfig,
@@ -787,6 +796,7 @@ impl BackgroundAgent {
             memory: MemoryConfig::default(),
             durability_mode: DurabilityMode::Async,
             resource_limits: ResourceLimits::default(),
+            prerequisites: Vec::new(),
             continuation: ContinuationConfig::default(),
             continuation_total_iterations: 0,
             continuation_segments_completed: 0,
