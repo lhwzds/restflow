@@ -141,6 +141,7 @@
 
 pub mod broadcast_emitter;
 pub mod cli_executor;
+pub mod event_log;
 pub mod events;
 pub mod executor;
 pub mod failover;
@@ -162,6 +163,7 @@ pub use events::{
 };
 pub use executor::{AgentRuntimeExecutor, SessionExecutionResult, SessionInputMode};
 pub use failover::{FailoverConfig, FailoverManager, ModelStatus, execute_with_failover};
+pub use event_log::{AgentEvent, EventLog};
 #[cfg(feature = "tauri-runtime")]
 pub use heartbeat::TauriHeartbeatEmitter;
 pub use heartbeat::{
