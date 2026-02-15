@@ -53,7 +53,7 @@ pub struct CliExecutionConfig {
 }
 
 fn default_timeout_secs() -> u64 {
-    300 // 5 minutes default
+    1800 // 30 minutes default
 }
 
 impl Default for CliExecutionConfig {
@@ -180,7 +180,7 @@ fn default_max_tool_calls() -> usize {
 }
 
 fn default_max_duration_secs() -> u64 {
-    300
+    1800 // 30 minutes
 }
 
 fn default_max_output_bytes() -> usize {
@@ -1321,7 +1321,7 @@ mod tests {
         assert_eq!(config.binary, "claude");
         assert!(config.args.is_empty());
         assert!(config.working_dir.is_none());
-        assert_eq!(config.timeout_secs, 300);
+        assert_eq!(config.timeout_secs, 1800);
         assert!(!config.use_pty);
     }
 
@@ -1468,7 +1468,7 @@ mod tests {
         );
 
         assert_eq!(task.resource_limits.max_tool_calls, 100);
-        assert_eq!(task.resource_limits.max_duration_secs, 300);
+        assert_eq!(task.resource_limits.max_duration_secs, 1800);
         assert_eq!(task.resource_limits.max_output_bytes, 1_000_000);
         assert_eq!(task.resource_limits.max_cost_usd, None);
     }

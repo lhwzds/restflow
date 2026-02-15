@@ -116,7 +116,7 @@ impl AgentConfig {
             max_iterations: 25,
             temperature: None, // None = use model default
             context: HashMap::new(),
-            tool_timeout: Duration::from_secs(30),
+            tool_timeout: Duration::from_secs(120),
             max_tool_result_length: 4000,
             max_memory_messages: DEFAULT_MAX_MESSAGES,
             context_window: 128_000,

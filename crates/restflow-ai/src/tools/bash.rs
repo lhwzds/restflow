@@ -35,7 +35,7 @@ use crate::error::Result;
 use crate::security::SecurityGate;
 
 /// Default timeout for command execution in seconds
-const DEFAULT_TIMEOUT_SECS: u64 = 120;
+const DEFAULT_TIMEOUT_SECS: u64 = 300;
 
 /// Maximum output size in bytes (100KB)
 const DEFAULT_MAX_OUTPUT_BYTES: usize = 100_000;

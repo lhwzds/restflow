@@ -47,7 +47,7 @@ impl Default for StrategyConfig {
             goal: String::new(),
             system_prompt: None,
             max_iterations: 25,
-            tool_timeout: Duration::from_secs(30),
+            tool_timeout: Duration::from_secs(120),
             context: HashMap::new(),
             options: StrategyOptions::default(),
         }
