@@ -49,10 +49,10 @@ pub struct AgentDefaults {
 impl Default for AgentDefaults {
     fn default() -> Self {
         Self {
-            tool_timeout_secs: 120,
+            tool_timeout_secs: 300,
             bash_timeout_secs: 300,
-            python_timeout_secs: 30,
-            max_iterations: 25,
+            python_timeout_secs: 120,
+            max_iterations: 100,
             subagent_timeout_secs: 600,
             max_tool_calls: 200,
             max_wall_clock_secs: 1800,
@@ -417,9 +417,9 @@ mod tests {
         let (storage, _temp_dir) = setup_test_storage();
 
         let mut config = storage.get_config().unwrap().unwrap();
-        assert_eq!(config.agent.tool_timeout_secs, 120);
+        assert_eq!(config.agent.tool_timeout_secs, 300);
         assert_eq!(config.agent.bash_timeout_secs, 300);
-        assert_eq!(config.agent.max_iterations, 25);
+        assert_eq!(config.agent.max_iterations, 100);
 
         config.agent.tool_timeout_secs = 180;
         config.agent.bash_timeout_secs = 600;
