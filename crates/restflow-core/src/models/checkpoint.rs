@@ -47,6 +47,10 @@ pub struct AgentCheckpoint {
     #[serde(default)]
     #[ts(type = "number | null")]
     pub expired_at: Option<i64>,
+    /// Optional redb persistent savepoint ID linked to this checkpoint.
+    #[serde(default)]
+    #[ts(type = "number | null")]
+    pub savepoint_id: Option<u64>,
 }
 
 impl AgentCheckpoint {
@@ -74,6 +78,7 @@ impl AgentCheckpoint {
             created_at: now,
             resumed_at: None,
             expired_at,
+            savepoint_id: None,
         }
     }
 
@@ -145,6 +150,7 @@ mod tests {
         assert_eq!(cp.interrupt_reason, "security approval needed");
         assert!(!cp.is_resumed());
         assert!(cp.expired_at.is_some());
+        assert_eq!(cp.savepoint_id, None);
     }
 
     #[test]

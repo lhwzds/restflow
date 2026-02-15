@@ -16,8 +16,8 @@ use crate::{
     AIModel, Provider,
     auth::{AuthProfileManager, AuthProvider},
     models::{
-        AgentNode, ApiKeyConfig, ChatMessage, ChatRole, ChatSession, MemoryConfig, Skill,
-        SteerMessage,
+        AgentCheckpoint, AgentNode, ApiKeyConfig, ChatMessage, ChatRole, ChatSession,
+        DurabilityMode, MemoryConfig, Skill, SteerMessage,
     },
     process::ProcessRegistry,
     prompt_files,
@@ -25,7 +25,8 @@ use crate::{
     storage::Storage,
 };
 use restflow_ai::agent::{
-    ModelRoutingConfig as AiModelRoutingConfig, ModelSwitcher as AiModelSwitcher, StreamEmitter,
+    CheckpointDurability, ModelRoutingConfig as AiModelRoutingConfig,
+    ModelSwitcher as AiModelSwitcher, StreamEmitter,
 };
 use restflow_ai::llm::Message;
 use restflow_ai::tools::PythonRuntime;
@@ -1050,6 +1051,7 @@ impl AgentRuntimeExecutor {
         emitter: Option<Box<dyn StreamEmitter>>,
         factory: Arc<dyn LlmClientFactory>,
         agent_id: Option<&str>,
+        initial_state: Option<restflow_ai::AgentState>,
     ) -> Result<ExecutionResult> {
         let swappable = Arc::new(SwappableLlm::new(llm_client));
         let effective_tools = effective_main_agent_tool_names(agent_node.tools.as_deref());
@@ -1097,13 +1099,62 @@ impl AgentRuntimeExecutor {
                 config = config.with_model_switcher(switcher);
             }
         }
+        if let Some(task_id) = background_task_id
+            && let Ok(Some(task)) = self.storage.background_agents.get_task(task_id)
+        {
+            let checkpoint_durability = match task.durability_mode {
+                DurabilityMode::Sync => CheckpointDurability::PerTurn,
+                DurabilityMode::Async => CheckpointDurability::Periodic { interval: 5 },
+                DurabilityMode::Exit => CheckpointDurability::OnComplete,
+            };
+            config = config.with_checkpoint_durability(checkpoint_durability);
+
+            let checkpoints = self.storage.background_agents.clone();
+            let task_id_owned = task.id.clone();
+            config = config.with_checkpoint_callback(move |state| {
+                let checkpoints = checkpoints.clone();
+                let task_id = task_id_owned.clone();
+                let state = state.clone();
+                async move {
+                    let state_json = serde_json::to_vec(&state)
+                        .map_err(|e| AiError::Agent(format!("Failed to encode state: {e}")))?;
+                    let mut checkpoint = AgentCheckpoint::new(
+                        state.execution_id.clone(),
+                        Some(task_id),
+                        state.version,
+                        state.iteration,
+                        state_json,
+                        "periodic_checkpoint".to_string(),
+                    );
+                    let savepoint_id = checkpoints
+                        .save_checkpoint_with_savepoint(&checkpoint)
+                        .map_err(|e| AiError::Agent(format!("Failed to save checkpoint: {e}")))?;
+                    checkpoint.savepoint_id = Some(savepoint_id);
+                    checkpoints.save_checkpoint(&checkpoint).map_err(|e| {
+                        AiError::Agent(format!("Failed to persist savepoint id: {e}"))
+                    })?;
+                    Ok(())
+                }
+            });
+        }
 
         let mut agent = ReActAgentExecutor::new(swappable, tools);
         if let Some(rx) = steer_rx {
             agent = agent.with_steer_channel(rx);
         }
 
-        let result = if let Some(mut emitter) = emitter {
+        let result = if let Some(state) = initial_state {
+            if let Some(mut emitter) = emitter {
+                agent
+                    .execute_from_state(config, state, emitter.as_mut())
+                    .await?
+            } else {
+                let mut emitter = restflow_ai::agent::NullEmitter;
+                agent
+                    .execute_from_state(config, state, &mut emitter)
+                    .await?
+            }
+        } else if let Some(mut emitter) = emitter {
             #[allow(deprecated)]
             {
                 agent.execute_streaming(config, emitter.as_mut()).await?
@@ -1152,6 +1203,7 @@ impl AgentRuntimeExecutor {
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
         emitter: Option<Box<dyn StreamEmitter>>,
         agent_id: Option<&str>,
+        initial_state: Option<restflow_ai::AgentState>,
     ) -> Result<ExecutionResult> {
         let model_specs = AIModel::build_model_specs();
         let api_keys = self
@@ -1194,6 +1246,7 @@ impl AgentRuntimeExecutor {
             emitter,
             factory,
             agent_id,
+            initial_state,
         )
         .await
     }
@@ -1211,6 +1264,7 @@ impl AgentRuntimeExecutor {
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
         emitter: Option<Box<dyn StreamEmitter>>,
         agent_id: Option<&str>,
+        initial_state: Option<restflow_ai::AgentState>,
     ) -> Result<ExecutionResult> {
         if model.is_codex_cli() {
             return self
@@ -1225,6 +1279,7 @@ impl AgentRuntimeExecutor {
                     steer_rx,
                     emitter,
                     agent_id,
+                    initial_state,
                 )
                 .await;
         }
@@ -1242,6 +1297,7 @@ impl AgentRuntimeExecutor {
                     steer_rx,
                     emitter,
                     agent_id,
+                    initial_state,
                 )
                 .await;
         }
@@ -1264,6 +1320,7 @@ impl AgentRuntimeExecutor {
                     steer_rx,
                     emitter,
                     agent_id,
+                    initial_state,
                 )
                 .await;
         }
@@ -1312,6 +1369,7 @@ impl AgentRuntimeExecutor {
                     emitter.take(),
                     factory,
                     agent_id,
+                    initial_state.clone(),
                 )
                 .await
             {
@@ -1439,6 +1497,26 @@ impl AgentExecutor for AgentRuntimeExecutor {
         )
         .await
     }
+
+    async fn execute_from_state(
+        &self,
+        agent_id: &str,
+        background_task_id: Option<&str>,
+        state: restflow_ai::AgentState,
+        memory_config: &MemoryConfig,
+        steer_rx: Option<mpsc::Receiver<SteerMessage>>,
+        emitter: Option<Box<dyn StreamEmitter>>,
+    ) -> Result<ExecutionResult> {
+        self.execute_internal_from_state(
+            agent_id,
+            background_task_id,
+            state,
+            memory_config,
+            steer_rx,
+            emitter,
+        )
+        .await
+    }
 }
 
 impl AgentRuntimeExecutor {
@@ -1489,6 +1567,7 @@ impl AgentRuntimeExecutor {
                     steer_rx,
                     emitter,
                     Some(agent_id),
+                    None,
                 )
                 .await;
         }
@@ -1525,6 +1604,7 @@ impl AgentRuntimeExecutor {
                         steer_rx,
                         emitter,
                         Some(agent_id),
+                        None,
                     )
                     .await
                 }
@@ -1545,6 +1625,51 @@ impl AgentRuntimeExecutor {
                 }
             }
         }
+    }
+
+    async fn execute_internal_from_state(
+        &self,
+        agent_id: &str,
+        background_task_id: Option<&str>,
+        state: restflow_ai::AgentState,
+        memory_config: &MemoryConfig,
+        steer_rx: Option<mpsc::Receiver<SteerMessage>>,
+        emitter: Option<Box<dyn StreamEmitter>>,
+    ) -> Result<ExecutionResult> {
+        let stored_agent = self
+            .storage
+            .agents
+            .get_agent(agent_id.to_string())?
+            .ok_or_else(|| anyhow!("Agent '{}' not found", agent_id))?;
+        let resolved_resource_limits = background_task_id
+            .and_then(|task_id| {
+                self.storage
+                    .background_agents
+                    .get_task(task_id)
+                    .ok()
+                    .flatten()
+            })
+            .map(|task| task.resource_limits)
+            .unwrap_or_default();
+
+        let agent_node = stored_agent.agent.clone();
+        let primary_model = self.resolve_primary_model(&agent_node).await?;
+        let primary_provider = primary_model.provider();
+
+        self.execute_with_profiles(
+            &agent_node,
+            primary_model,
+            background_task_id,
+            None,
+            memory_config,
+            &resolved_resource_limits,
+            primary_provider,
+            steer_rx,
+            emitter,
+            Some(agent_id),
+            Some(state),
+        )
+        .await
     }
 }
 

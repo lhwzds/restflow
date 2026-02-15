@@ -34,6 +34,17 @@ impl CheckpointStorage {
         )
     }
 
+    /// Save a checkpoint and attach a persistent redb savepoint ID.
+    pub fn save_with_savepoint(&self, checkpoint: &AgentCheckpoint) -> Result<u64> {
+        let data = serde_json::to_vec(checkpoint)?;
+        self.inner.save_with_savepoint(
+            &checkpoint.id,
+            &checkpoint.execution_id,
+            checkpoint.task_id.as_deref(),
+            &data,
+        )
+    }
+
     /// Load a checkpoint by ID.
     pub fn load(&self, id: &str) -> Result<Option<AgentCheckpoint>> {
         match self.inner.load(id)? {
@@ -71,5 +82,10 @@ impl CheckpointStorage {
     pub fn cleanup_expired(&self) -> Result<usize> {
         let now = chrono::Utc::now().timestamp_millis();
         self.inner.cleanup_expired(now)
+    }
+
+    /// Delete a persistent savepoint.
+    pub fn delete_savepoint(&self, savepoint_id: u64) -> Result<bool> {
+        self.inner.delete_savepoint(savepoint_id)
     }
 }

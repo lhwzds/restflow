@@ -27,8 +27,9 @@ pub mod tools;
 // Re-export commonly used types
 pub use agent::{
     AgentConfig, AgentExecutionEngine, AgentExecutionEngineConfig, AgentExecutor, AgentResult,
-    AgentState, AgentStatus, ExecutionResult, ExecutionStep, HistoryPipeline, HistoryProcessor,
-    ResourceLimits, ResourceUsage, Scratchpad, TraceEvent, TrimOldMessagesProcessor,
+    AgentState, AgentStatus, CheckpointDurability, ExecutionResult, ExecutionStep, HistoryPipeline,
+    HistoryProcessor, ResourceLimits, ResourceUsage, Scratchpad, TraceEvent,
+    TrimOldMessagesProcessor,
 };
 pub use embedding::{
     EmbeddingCache, EmbeddingConfig, EmbeddingProvider, OpenAIEmbedding, VoyageEmbedding,
