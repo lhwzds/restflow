@@ -2959,6 +2959,7 @@ mod tests {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
+    #[allow(clippy::type_complexity)]
     fn setup_storage() -> (
         SkillStorage,
         MemoryStorage,
@@ -3336,7 +3337,7 @@ mod tests {
             _background_agent_storage,
             _trigger_storage,
             _terminal_storage,
-            deliverable_storage,
+            _deliverable_storage,
             _temp_dir,
         ) = setup_storage();
         let provider = SkillStorageProvider::new(storage);
@@ -3359,7 +3360,7 @@ mod tests {
             _background_agent_storage,
             _trigger_storage,
             _terminal_storage,
-            deliverable_storage,
+            _deliverable_storage,
             _temp_dir,
         ) = setup_storage();
 
@@ -3417,7 +3418,7 @@ mod tests {
             background_agent_storage,
             _trigger_storage,
             _terminal_storage,
-            deliverable_storage,
+            _deliverable_storage,
             _temp_dir,
         ) = setup_storage();
 
@@ -3549,7 +3550,7 @@ mod tests {
             background_agent_storage,
             _trigger_storage,
             _terminal_storage,
-            deliverable_storage,
+            _deliverable_storage,
             _temp_dir,
         ) = setup_storage();
 
@@ -3605,7 +3606,7 @@ mod tests {
             background_agent_storage,
             _trigger_storage,
             _terminal_storage,
-            deliverable_storage,
+            _deliverable_storage,
             _temp_dir,
         ) = setup_storage();
 
@@ -4186,7 +4187,7 @@ mod tests {
             _background_agent_storage,
             _trigger_storage,
             _terminal_storage,
-            deliverable_storage,
+            _deliverable_storage,
             _temp_dir,
         ) = setup_storage();
 
