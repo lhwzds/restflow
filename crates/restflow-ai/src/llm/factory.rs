@@ -69,6 +69,8 @@ pub struct ModelSpec {
     pub name: String,
     pub provider: LlmProvider,
     pub client_model: String,
+    /// Override the provider's default base URL for this specific model.
+    pub base_url: Option<String>,
     pub is_codex_cli: bool,
     pub is_opencode_cli: bool,
     pub is_gemini_cli: bool,
@@ -84,10 +86,17 @@ impl ModelSpec {
             name: name.into(),
             provider,
             client_model: client_model.into(),
+            base_url: None,
             is_codex_cli: false,
             is_opencode_cli: false,
             is_gemini_cli: false,
         }
+    }
+
+    /// Set a custom base URL override for this model.
+    pub fn with_base_url(mut self, url: impl Into<String>) -> Self {
+        self.base_url = Some(url.into());
+        self
     }
 
     pub fn codex(name: impl Into<String>, client_model: impl Into<String>) -> Self {
@@ -95,6 +104,7 @@ impl ModelSpec {
             name: name.into(),
             provider: LlmProvider::OpenAI,
             client_model: client_model.into(),
+            base_url: None,
             is_codex_cli: true,
             is_opencode_cli: false,
             is_gemini_cli: false,
@@ -106,6 +116,7 @@ impl ModelSpec {
             name: name.into(),
             provider: LlmProvider::OpenAI,
             client_model: client_model.into(),
+            base_url: None,
             is_codex_cli: false,
             is_opencode_cli: true,
             is_gemini_cli: false,
@@ -117,6 +128,7 @@ impl ModelSpec {
             name: name.into(),
             provider: LlmProvider::Google,
             client_model: client_model.into(),
+            base_url: None,
             is_codex_cli: false,
             is_opencode_cli: false,
             is_gemini_cli: true,
@@ -200,9 +212,13 @@ impl LlmClientFactory for DefaultLlmClientFactory {
                 }
             }
             provider => {
+                let base_url = spec
+                    .base_url
+                    .as_deref()
+                    .unwrap_or(provider.base_url());
                 let client = OpenAIClient::new(key)
                     .with_model(spec.client_model)
-                    .with_base_url(provider.base_url());
+                    .with_base_url(base_url);
                 Ok(Arc::new(client))
             }
         }
