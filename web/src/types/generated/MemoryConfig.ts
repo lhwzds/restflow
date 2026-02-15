@@ -18,8 +18,9 @@ max_messages: number,
  */
 enable_file_memory: boolean, 
 /**
- * Persist conversation to long-term memory on task completion
- * Working memory is chunked and stored for future retrieval
+ * Persist conversation to long-term memory on task completion.
+ * Working memory is chunked and stored for future retrieval.
+ * Defaults to false — agents should use save_to_memory tool for selective persistence.
  */
 persist_on_complete: boolean, 
 /**

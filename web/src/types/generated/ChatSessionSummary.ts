@@ -3,37 +3,36 @@
 /**
  * Summary view of a chat session (for listing).
  */
-export type ChatSessionSummary = {
-  /**
-   * Session ID
-   */
-  id: string
-  /**
-   * Session name
-   */
-  name: string
-  /**
-   * Agent ID
-   */
-  agent_id: string
-  /**
-   * Model used
-   */
-  model: string
-  /**
-   * Optional skill ID for context-aware sessions
-   */
-  skill_id: string | null
-  /**
-   * Number of messages
-   */
-  message_count: number
-  /**
-   * Last update timestamp
-   */
-  updated_at: bigint
-  /**
-   * Preview of last message (truncated)
-   */
-  last_message_preview: string | null
-}
+export type ChatSessionSummary = { 
+/**
+ * Session ID
+ */
+id: string, 
+/**
+ * Session name
+ */
+name: string, 
+/**
+ * Agent ID
+ */
+agent_id: string, 
+/**
+ * Model used
+ */
+model: string, 
+/**
+ * Optional skill ID for context-aware sessions
+ */
+skill_id: string | null, 
+/**
+ * Number of messages
+ */
+message_count: number, 
+/**
+ * Last update timestamp
+ */
+updated_at: bigint, 
+/**
+ * Preview of last message (truncated)
+ */
+last_message_preview: string | null, };

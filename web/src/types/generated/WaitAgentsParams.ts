@@ -3,13 +3,12 @@
 /**
  * Parameters for wait_agents tool.
  */
-export type WaitAgentsParams = {
-  /**
-   * Task IDs to wait for.
-   */
-  task_ids: Array<string>
-  /**
-   * Timeout in seconds (default: 300).
-   */
-  timeout_secs: bigint | null
-}
+export type WaitAgentsParams = { 
+/**
+ * Task IDs to wait for.
+ */
+task_ids: Array<string>, 
+/**
+ * Timeout in seconds (default: 300).
+ */
+timeout_secs: bigint | null, };

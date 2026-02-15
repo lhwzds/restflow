@@ -3,4 +3,4 @@
 /**
  * Channel type identifier
  */
-export type ChannelType = 'telegram' | 'discord' | 'slack' | 'email' | 'webhook'
+export type ChannelType = "telegram" | "discord" | "slack" | "email" | "webhook";

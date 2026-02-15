@@ -3,4 +3,4 @@
 /**
  * Health status of an auth profile
  */
-export type ProfileHealth = 'healthy' | 'cooldown' | 'disabled' | 'unknown'
+export type ProfileHealth = "healthy" | "cooldown" | "disabled" | "unknown";

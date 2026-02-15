@@ -3,29 +3,28 @@
 /**
  * Gating check result
  */
-export type GatingCheckResult = {
-  /**
-   * Whether all requirements are met
-   */
-  passed: boolean
-  /**
-   * List of missing binaries
-   */
-  missing_binaries: Array<string>
-  /**
-   * List of missing environment variables
-   */
-  missing_env_vars: Array<string>
-  /**
-   * Whether OS is supported
-   */
-  os_supported: boolean
-  /**
-   * Whether RestFlow version is sufficient
-   */
-  restflow_version_ok: boolean
-  /**
-   * Human-readable summary
-   */
-  summary: string
-}
+export type GatingCheckResult = { 
+/**
+ * Whether all requirements are met
+ */
+passed: boolean, 
+/**
+ * List of missing binaries
+ */
+missing_binaries: Array<string>, 
+/**
+ * List of missing environment variables
+ */
+missing_env_vars: Array<string>, 
+/**
+ * Whether OS is supported
+ */
+os_supported: boolean, 
+/**
+ * Whether RestFlow version is sufficient
+ */
+restflow_version_ok: boolean, 
+/**
+ * Human-readable summary
+ */
+summary: string, };

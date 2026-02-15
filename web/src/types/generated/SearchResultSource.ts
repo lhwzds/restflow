@@ -3,6 +3,4 @@
 /**
  * Source of a unified search result.
  */
-export type SearchResultSource =
-  | 'memory'
-  | { session: { session_id: string; session_name: string } }
+export type SearchResultSource = "memory" | { "session": { session_id: string, session_name: string, } };

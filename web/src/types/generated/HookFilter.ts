@@ -3,8 +3,4 @@
 /**
  * Optional filter to limit when a hook is executed.
  */
-export type HookFilter = {
-  task_name_pattern: string | null
-  agent_id: string | null
-  success_only: boolean | null
-}
+export type HookFilter = { task_name_pattern: string | null, agent_id: string | null, success_only: boolean | null, };

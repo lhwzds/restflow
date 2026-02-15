@@ -3,43 +3,32 @@
 /**
  * Skill source information
  */
-export type SkillSource =
-  | { type: 'local' }
-  | { type: 'builtin' }
-  | {
-      type: 'marketplace'
-      /**
-       * Marketplace URL
-       */
-      url: string
-    }
-  | {
-      type: 'git_hub'
-      /**
-       * Repository owner
-       */
-      owner: string
-      /**
-       * Repository name
-       */
-      repo: string
-      /**
-       * Optional branch/tag/commit
-       */
-      ref: string | null
-      /**
-       * Path within the repository
-       */
-      path: string | null
-    }
-  | {
-      type: 'git'
-      /**
-       * Git URL
-       */
-      url: string
-      /**
-       * Optional branch/tag/commit
-       */
-      ref: string | null
-    }
+export type SkillSource = { "type": "local" } | { "type": "builtin" } | { "type": "marketplace", 
+/**
+ * Marketplace URL
+ */
+url: string, } | { "type": "git_hub", 
+/**
+ * Repository owner
+ */
+owner: string, 
+/**
+ * Repository name
+ */
+repo: string, 
+/**
+ * Optional branch/tag/commit
+ */
+ref: string | null, 
+/**
+ * Path within the repository
+ */
+path: string | null, } | { "type": "git", 
+/**
+ * Git URL
+ */
+url: string, 
+/**
+ * Optional branch/tag/commit
+ */
+ref: string | null, };

@@ -130,25 +130,10 @@ impl MemoryPersister {
         Self { storage, config }
     }
 
-    /// Persist conversation messages to long-term memory.
+    /// Persist background task conversation to long-term memory.
     ///
-    /// This method:
-    /// 1. Formats the messages into a readable conversation transcript
-    /// 2. Creates a memory session to group the chunks
-    /// 3. Chunks the content and stores each chunk
-    /// 4. Handles deduplication (chunks with same content hash are skipped)
-    ///
-    /// # Arguments
-    ///
-    /// * `messages` - The conversation messages to persist
-    /// * `agent_id` - The agent that ran the conversation
-    /// * `task_id` - The task that triggered the execution
-    /// * `task_name` - Human-readable task name for the session
-    /// * `tags` - Optional tags to associate with the memory
-    ///
-    /// # Returns
-    ///
-    /// A `PersistResult` containing statistics about the operation.
+    /// Uses `MemorySource::TaskExecution` as the source type.
+    /// For chat session persistence, use `persist_conversation()` instead.
     pub fn persist(
         &self,
         messages: &[Message],
@@ -156,6 +141,45 @@ impl MemoryPersister {
         task_id: &str,
         task_name: &str,
         tags: &[String],
+    ) -> Result<PersistResult> {
+        let source = MemorySource::TaskExecution {
+            task_id: task_id.to_string(),
+        };
+        self.persist_with_source(messages, agent_id, task_id, task_name, tags, source)
+    }
+
+    /// Persist a chat session conversation to long-term memory.
+    ///
+    /// Uses `MemorySource::Conversation` as the source type for proper attribution.
+    pub fn persist_conversation(
+        &self,
+        messages: &[Message],
+        agent_id: &str,
+        session_id: &str,
+        session_name: &str,
+        tags: &[String],
+    ) -> Result<PersistResult> {
+        let source = MemorySource::Conversation {
+            session_id: session_id.to_string(),
+        };
+        self.persist_with_source(messages, agent_id, session_id, session_name, tags, source)
+    }
+
+    /// Internal: persist messages with a configurable memory source.
+    ///
+    /// This method:
+    /// 1. Formats the messages into a readable conversation transcript
+    /// 2. Creates a memory session to group the chunks
+    /// 3. Chunks the content and stores each chunk
+    /// 4. Handles deduplication (chunks with same content hash are skipped)
+    fn persist_with_source(
+        &self,
+        messages: &[Message],
+        agent_id: &str,
+        source_id: &str,
+        source_name: &str,
+        tags: &[String],
+        source: MemorySource,
     ) -> Result<PersistResult> {
         // Format messages into conversation text
         let conversation_text = self.format_conversation(messages);
@@ -175,9 +199,9 @@ impl MemoryPersister {
         }
 
         // Create memory session
-        let session_name = format!("Task: {}", task_name);
+        let session_name = format!("Session: {}", source_name);
         let session_desc = format!(
-            "Conversation from task execution at {}",
+            "Conversation persisted at {}",
             Utc::now().format("%Y-%m-%d %H:%M UTC")
         );
 
@@ -190,8 +214,8 @@ impl MemoryPersister {
         let session_id = session.id.clone();
 
         info!(
-            "Created memory session '{}' for task '{}' (agent: {})",
-            session_id, task_name, agent_id
+            "Created memory session '{}' for '{}' (agent: {})",
+            session_id, source_id, agent_id
         );
 
         // Create chunker with config
@@ -200,9 +224,6 @@ impl MemoryPersister {
             .with_overlap(self.config.chunk_overlap);
 
         // Chunk the conversation
-        let source = MemorySource::TaskExecution {
-            task_id: task_id.to_string(),
-        };
         let chunks = chunker.chunk(&conversation_text, agent_id, Some(&session_id), source);
 
         let _total_chunks = chunks.len();
@@ -493,6 +514,40 @@ mod tests {
             let chunk = &chunks[0];
             assert!(chunk.tags.contains(&"automation".to_string()));
             assert!(chunk.tags.contains(&"weather".to_string()));
+        }
+    }
+
+    #[test]
+    fn test_persist_conversation_uses_conversation_source() {
+        let (storage, _temp_dir) = create_test_storage();
+        let persister = MemoryPersister::new(storage.clone());
+
+        let messages = create_test_messages();
+        let tags = vec!["source:chat_session".to_string()];
+
+        let result = persister
+            .persist_conversation(
+                &messages,
+                "agent-1",
+                "session-abc",
+                "My Chat",
+                &tags,
+            )
+            .unwrap();
+
+        assert!(!result.session_id.is_empty());
+        assert!(result.chunk_count > 0 || result.deduplicated_count > 0);
+
+        // Verify session exists and has correct name
+        let session = storage.get_session(&result.session_id).unwrap();
+        assert!(session.is_some());
+        let session = session.unwrap();
+        assert!(session.name.contains("My Chat"));
+
+        // Verify chunks have the tag
+        let chunks = storage.list_chunks_for_session(&result.session_id).unwrap();
+        if !chunks.is_empty() {
+            assert!(chunks[0].tags.contains(&"source:chat_session".to_string()));
         }
     }
 

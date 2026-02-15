@@ -3,9 +3,8 @@
 /**
  * Parameters for list_agents tool.
  */
-export type ListAgentsParams = {
-  /**
-   * Include currently running agents in the response.
-   */
-  include_running: boolean
-}
+export type ListAgentsParams = { 
+/**
+ * Include currently running agents in the response.
+ */
+include_running: boolean, };

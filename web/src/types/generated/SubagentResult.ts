@@ -3,33 +3,32 @@
 /**
  * Result from a sub-agent execution
  */
-export type SubagentResult = {
-  /**
-   * Whether execution succeeded
-   */
-  success: boolean
-  /**
-   * Output content
-   */
-  output: string
-  /**
-   * Optional summary of the output
-   */
-  summary: string | null
-  /**
-   * Duration in milliseconds
-   */
-  duration_ms: bigint
-  /**
-   * Tokens used
-   */
-  tokens_used: number | null
-  /**
-   * Cost in USD
-   */
-  cost_usd: number | null
-  /**
-   * Error message (if failed)
-   */
-  error: string | null
-}
+export type SubagentResult = { 
+/**
+ * Whether execution succeeded
+ */
+success: boolean, 
+/**
+ * Output content
+ */
+output: string, 
+/**
+ * Optional summary of the output
+ */
+summary: string | null, 
+/**
+ * Duration in milliseconds
+ */
+duration_ms: bigint, 
+/**
+ * Tokens used
+ */
+tokens_used: number | null, 
+/**
+ * Cost in USD
+ */
+cost_usd: number | null, 
+/**
+ * Error message (if failed)
+ */
+error: string | null, };

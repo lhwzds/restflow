@@ -3,21 +3,20 @@
 /**
  * Parameters for spawn_agent tool.
  */
-export type SpawnAgentParams = {
-  /**
-   * Agent type to spawn (researcher, coder, reviewer, writer, analyst).
-   */
-  agent: string
-  /**
-   * Task description for the agent.
-   */
-  task: string
-  /**
-   * If true, wait for completion. If false (default), run in background.
-   */
-  wait: boolean
-  /**
-   * Timeout in seconds (default: 300).
-   */
-  timeout_secs: bigint | null
-}
+export type SpawnAgentParams = { 
+/**
+ * Agent type to spawn (researcher, coder, reviewer, writer, analyst).
+ */
+agent: string, 
+/**
+ * Task description for the agent.
+ */
+task: string, 
+/**
+ * If true, wait for completion. If false (default), run in background.
+ */
+wait: boolean, 
+/**
+ * Timeout in seconds (default: 300).
+ */
+timeout_secs: bigint | null, };

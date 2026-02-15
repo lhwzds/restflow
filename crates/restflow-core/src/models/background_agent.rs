@@ -252,9 +252,10 @@ pub struct MemoryConfig {
     #[serde(default = "default_true")]
     pub enable_file_memory: bool,
 
-    /// Persist conversation to long-term memory on task completion
-    /// Working memory is chunked and stored for future retrieval
-    #[serde(default = "default_true")]
+    /// Persist conversation to long-term memory on task completion.
+    /// Working memory is chunked and stored for future retrieval.
+    /// Defaults to false — agents should use save_to_memory tool for selective persistence.
+    #[serde(default)]
     pub persist_on_complete: bool,
 
     /// Scope for long-term memory persistence.
@@ -281,7 +282,7 @@ impl Default for MemoryConfig {
         Self {
             max_messages: default_max_messages(),
             enable_file_memory: true,
-            persist_on_complete: true,
+            persist_on_complete: false,
             memory_scope: MemoryScope::SharedAgent,
             enable_compaction: default_compaction_enabled(),
             compaction_threshold_ratio: default_compaction_threshold_ratio(),
@@ -1421,7 +1422,7 @@ mod tests {
 
         assert_eq!(config.max_messages, 100);
         assert!(config.enable_file_memory);
-        assert!(config.persist_on_complete);
+        assert!(!config.persist_on_complete);
         assert_eq!(config.memory_scope, MemoryScope::SharedAgent);
         assert!(config.enable_compaction);
         assert_eq!(config.compaction_threshold_ratio, 0.80);
@@ -1461,7 +1462,7 @@ mod tests {
         // Default memory config should be applied
         assert_eq!(task.memory.max_messages, 100);
         assert!(task.memory.enable_file_memory);
-        assert!(task.memory.persist_on_complete);
+        assert!(!task.memory.persist_on_complete);
         assert_eq!(task.memory.memory_scope, MemoryScope::SharedAgent);
         assert!(task.memory.enable_compaction);
         assert_eq!(task.memory.compaction_threshold_ratio, 0.80);
@@ -1539,7 +1540,7 @@ mod tests {
 
         assert_eq!(config.max_messages, 100);
         assert!(config.enable_file_memory);
-        assert!(config.persist_on_complete);
+        assert!(!config.persist_on_complete);
         assert_eq!(config.memory_scope, MemoryScope::SharedAgent);
         assert!(config.enable_compaction);
         assert_eq!(config.compaction_threshold_ratio, 0.80);
