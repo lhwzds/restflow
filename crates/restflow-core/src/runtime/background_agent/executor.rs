@@ -17,7 +17,7 @@ use crate::{
     auth::{AuthProfileManager, AuthProvider},
     models::{
         AgentCheckpoint, AgentNode, ApiKeyConfig, ChatMessage, ChatRole, ChatSession,
-        DurabilityMode, MemoryConfig, SteerMessage,
+        DurabilityMode, MemoryConfig, Skill, SteerMessage,
     },
     process::ProcessRegistry,
     prompt_files,
@@ -41,6 +41,7 @@ use tokio::time::sleep;
 use tracing::{debug, info, warn};
 
 use super::failover::{FailoverConfig, FailoverManager, execute_with_failover};
+use super::preflight::{PreflightCategory, PreflightIssue, run_preflight};
 use super::retry::{RetryConfig, RetryState};
 use super::runner::{AgentExecutor, ExecutionResult};
 use crate::runtime::agent::{
@@ -490,6 +491,89 @@ impl AgentRuntimeExecutor {
             .into_iter()
             .map(|matched| matched.skill_id)
             .collect())
+    }
+
+    fn resolve_preflight_skills(
+        &self,
+        agent_node: &AgentNode,
+        user_input: Option<&str>,
+    ) -> Result<Vec<Skill>> {
+        let mut skill_ids = agent_node.skills.clone().unwrap_or_default();
+        if let Some(input) = user_input.map(str::trim).filter(|value| !value.is_empty()) {
+            let triggered_skill_ids = self.resolve_triggered_skill_ids(input)?;
+            for skill_id in triggered_skill_ids {
+                if !skill_ids.iter().any(|existing| existing == &skill_id) {
+                    skill_ids.push(skill_id);
+                }
+            }
+        }
+
+        let mut skills = Vec::new();
+        for skill_id in skill_ids {
+            match self.storage.skills.get(&skill_id)? {
+                Some(skill) => skills.push(skill),
+                None => {
+                    warn!(skill_id = %skill_id, "Skill referenced by agent not found during preflight")
+                }
+            }
+        }
+        Ok(skills)
+    }
+
+    async fn run_preflight_check(
+        &self,
+        agent_node: &AgentNode,
+        primary_model: AIModel,
+        primary_provider: Provider,
+        user_input: Option<&str>,
+    ) -> Result<()> {
+        let skills = self.resolve_preflight_skills(agent_node, user_input)?;
+        let available_tools = effective_main_agent_tool_names(agent_node.tools.as_deref());
+        let mut preflight = run_preflight(
+            &skills,
+            &available_tools,
+            agent_node.skill_variables.as_ref(),
+            true,
+        );
+
+        if !primary_model.is_codex_cli()
+            && !primary_model.is_gemini_cli()
+            && let Err(error) = self
+                .resolve_api_key_for_model(
+                    primary_provider,
+                    agent_node.api_key_config.as_ref(),
+                    primary_provider,
+                )
+                .await
+        {
+            preflight.blockers.push(PreflightIssue {
+                category: PreflightCategory::MissingSecret,
+                message: error.to_string(),
+                suggestion: Some("Configure API key via auth profile or secrets".to_string()),
+            });
+            preflight.passed = false;
+        }
+
+        for warning_issue in &preflight.warnings {
+            warn!(
+                category = warning_issue.category.as_str(),
+                message = %warning_issue.message,
+                suggestion = ?warning_issue.suggestion,
+                "Background agent preflight warning"
+            );
+        }
+
+        if !preflight.passed {
+            let blocker_message = preflight
+                .blockers
+                .iter()
+                .map(|issue| format!("- [{}] {}", issue.category.as_str(), issue.message))
+                .collect::<Vec<_>>()
+                .join("\n");
+            return Err(anyhow!("Preflight check failed:\n{}", blocker_message));
+        }
+
+        Ok(())
     }
 
     /// Build the tool registry for an agent.
@@ -1464,6 +1548,8 @@ impl AgentRuntimeExecutor {
         let agent_node = stored_agent.agent.clone();
         let primary_model = self.resolve_primary_model(&agent_node).await?;
         let primary_provider = primary_model.provider();
+        self.run_preflight_check(&agent_node, primary_model, primary_provider, input)
+            .await?;
 
         // steer_rx/emitter are one-shot resources and cannot be replayed safely across
         // failover or retry attempts. Execute a single primary-model attempt when either

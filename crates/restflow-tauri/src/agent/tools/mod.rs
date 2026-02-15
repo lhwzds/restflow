@@ -90,6 +90,7 @@ pub fn main_agent_default_tool_names() -> Vec<String> {
         "manage_sessions",
         "manage_memory",
         "manage_auth_profiles",
+        "save_deliverable",
         "patch",
         "diagnostics",
         "web_search",
@@ -277,6 +278,7 @@ pub fn registry_from_allowlist(
     let mut enable_patch = false;
     let mut enable_diagnostics = false;
     let mut enable_file_memory = false;
+    let mut enable_save_deliverable = false;
 
     for raw_name in tool_names {
         match raw_name.as_str() {
@@ -413,6 +415,9 @@ pub fn registry_from_allowlist(
             "save_to_memory" | "read_memory" | "list_memories" | "delete_memory" => {
                 enable_file_memory = true;
             }
+            "save_deliverable" => {
+                enable_save_deliverable = true;
+            }
             "web_search" => {
                 let mut tool = restflow_ai::tools::WebSearchTool::new();
                 if let Some(resolver) = secret_resolver.clone() {
@@ -473,7 +478,8 @@ pub fn registry_from_allowlist(
         || enable_manage_auth_profiles
         || enable_patch
         || enable_diagnostics
-        || enable_file_memory;
+        || enable_file_memory
+        || enable_save_deliverable;
 
     if any_storage_tool {
         if let Some(storage) = storage {
@@ -489,6 +495,7 @@ pub fn registry_from_allowlist(
                 storage.background_agents.clone(),
                 storage.triggers.clone(),
                 storage.terminal_sessions.clone(),
+                storage.deliverables.clone(),
                 None,
                 agent_id.map(|s| s.to_string()),
             );
@@ -514,6 +521,7 @@ pub fn registry_from_allowlist(
                 ("read_memory", enable_file_memory),
                 ("list_memories", enable_file_memory),
                 ("delete_memory", enable_file_memory),
+                ("save_deliverable", enable_save_deliverable),
             ];
             for (tool_name, enabled) in storage_backed_tools {
                 if !enabled {
@@ -551,6 +559,7 @@ pub fn registry_from_allowlist(
                 ("read_memory", enable_file_memory),
                 ("list_memories", enable_file_memory),
                 ("delete_memory", enable_file_memory),
+                ("save_deliverable", enable_save_deliverable),
             ];
             for (tool_name, enabled) in storage_backed_tools {
                 if enabled {
