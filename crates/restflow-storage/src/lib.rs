@@ -16,6 +16,7 @@ pub mod chat_session;
 pub mod checkpoint;
 pub mod config;
 pub mod daemon_state;
+pub mod deliverable;
 pub mod keychain;
 pub mod memory;
 pub mod memory_index;
@@ -45,6 +46,7 @@ pub use chat_session::ChatSessionStorage;
 pub use checkpoint::CheckpointStorage;
 pub use config::{ConfigStorage, SystemConfig};
 pub use daemon_state::DaemonStateStorage;
+pub use deliverable::DeliverableStorage;
 pub use memory::{MemoryStorage, PutChunkResult};
 pub use memory_index::{IndexableChunk, MemoryIndex, SearchHit};
 pub use pairing::PairingStorage;
@@ -69,6 +71,7 @@ pub struct Storage {
     pub terminal_sessions: TerminalSessionStorage,
     pub memory: MemoryStorage,
     pub chat_sessions: ChatSessionStorage,
+    pub deliverables: DeliverableStorage,
     pub workspace_notes: WorkspaceNoteStorage,
     pub checkpoints: CheckpointStorage,
     pub pairing: PairingStorage,
@@ -92,6 +95,7 @@ impl Storage {
         let terminal_sessions = TerminalSessionStorage::new(db.clone())?;
         let memory = MemoryStorage::new(db.clone())?;
         let chat_sessions = ChatSessionStorage::new(db.clone())?;
+        let deliverables = DeliverableStorage::new(db.clone())?;
         let workspace_notes = WorkspaceNoteStorage::new(db.clone())?;
         let checkpoints = CheckpointStorage::new(db.clone())?;
         let pairing = PairingStorage::new(db.clone())?;
@@ -108,6 +112,7 @@ impl Storage {
             terminal_sessions,
             memory,
             chat_sessions,
+            deliverables,
             workspace_notes,
             checkpoints,
             pairing,

@@ -7,6 +7,7 @@ pub mod agent;
 pub mod background_agent;
 pub mod chat_session;
 pub mod checkpoint;
+pub mod deliverable;
 pub mod hook;
 pub mod memory;
 pub mod shared_space;
@@ -31,6 +32,7 @@ pub use agent::AgentStorage;
 pub use background_agent::BackgroundAgentStorage;
 pub use chat_session::ChatSessionStorage;
 pub use checkpoint::CheckpointStorage;
+pub use deliverable::DeliverableStorage;
 pub use hook::HookStorage;
 pub use memory::MemoryStorage;
 pub use shared_space::SharedSpaceStorage;
@@ -56,6 +58,7 @@ pub struct Storage {
     pub terminal_sessions: TerminalSessionStorage,
     pub memory: MemoryStorage,
     pub chat_sessions: ChatSessionStorage,
+    pub deliverables: DeliverableStorage,
     pub hooks: HookStorage,
     pub workspace_notes: WorkspaceNoteStorage,
     pub checkpoints: CheckpointStorage,
@@ -98,6 +101,7 @@ impl Storage {
         let memory = MemoryStorage::with_index(db.clone(), index)?;
         memory.rebuild_text_index_if_empty()?;
         let chat_sessions = ChatSessionStorage::new(db.clone())?;
+        let deliverables = DeliverableStorage::new(db.clone())?;
         let hooks = HookStorage::new(db.clone())?;
         let workspace_notes = WorkspaceNoteStorage::new(db.clone())?;
         let checkpoints = CheckpointStorage::new(db.clone())?;
@@ -116,6 +120,7 @@ impl Storage {
             terminal_sessions,
             memory,
             chat_sessions,
+            deliverables,
             hooks,
             workspace_notes,
             checkpoints,

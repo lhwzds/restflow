@@ -27,6 +27,7 @@ mod process;
 mod python_backend;
 mod registry;
 mod reply;
+mod save_deliverable;
 mod secrets;
 mod session;
 mod skill;
@@ -49,7 +50,8 @@ pub use auth_profile::{
     CredentialInput,
 };
 pub use background_agent::{
-    BackgroundAgentControlRequest, BackgroundAgentCreateRequest, BackgroundAgentMessageListRequest,
+    BackgroundAgentControlRequest, BackgroundAgentCreateRequest,
+    BackgroundAgentDeliverableListRequest, BackgroundAgentMessageListRequest,
     BackgroundAgentMessageRequest, BackgroundAgentProgressRequest,
     BackgroundAgentScratchpadListRequest, BackgroundAgentScratchpadReadRequest,
     BackgroundAgentStore, BackgroundAgentTool, BackgroundAgentUpdateRequest,
@@ -77,6 +79,7 @@ pub use process::{ProcessLog, ProcessManager, ProcessPollResult, ProcessSessionI
 pub use python_backend::{PythonExecutionBackend, PythonExecutionLimits, PythonRuntime};
 pub use registry::ToolRegistry;
 pub use reply::{ReplySender, ReplyTool};
+pub use save_deliverable::{DeliverableStore, SaveDeliverableTool};
 pub use secrets::SecretsTool;
 pub use session::{
     SessionCreateRequest, SessionListFilter, SessionSearchQuery, SessionStore, SessionTool,

@@ -377,6 +377,7 @@ impl AgentNode {
             core.storage.background_agents.clone(),
             core.storage.triggers.clone(),
             core.storage.terminal_sessions.clone(),
+            core.storage.deliverables.clone(),
             None,
             None,
         );

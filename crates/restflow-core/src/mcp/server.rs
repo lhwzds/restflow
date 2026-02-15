@@ -8,10 +8,10 @@ use crate::daemon::{IpcClient, IpcRequest, IpcResponse};
 use crate::models::{
     AIModel, BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentPatch,
     BackgroundAgentSchedule, BackgroundAgentSpec, BackgroundAgentStatus, BackgroundMessage,
-    BackgroundMessageSource, BackgroundProgress, ChatSession, ChatSessionSummary, DurabilityMode,
-    Hook, HookAction, HookEvent, HookFilter, MemoryChunk, MemoryConfig, MemoryScope,
-    MemorySearchQuery, MemorySearchResult, MemorySource, MemoryStats, Provider, ResourceLimits,
-    SearchMode, Skill, SkillStatus,
+    BackgroundMessageSource, BackgroundProgress, ChatSession, ChatSessionSummary, Deliverable,
+    DurabilityMode, Hook, HookAction, HookEvent, HookFilter, MemoryChunk, MemoryConfig,
+    MemoryScope, MemorySearchQuery, MemorySearchResult, MemorySource, MemoryStats, Provider,
+    ResourceLimits, SearchMode, Skill, SkillStatus,
 };
 use crate::services::tool_registry::create_tool_registry;
 use crate::storage::SecretStorage;
@@ -118,6 +118,7 @@ pub trait McpBackend: Send + Sync {
         id: &str,
         limit: usize,
     ) -> Result<Vec<BackgroundMessage>, String>;
+    async fn list_deliverables(&self, task_id: &str) -> Result<Vec<Deliverable>, String>;
 
     async fn list_hooks(&self) -> Result<Vec<Hook>, String>;
     async fn create_hook(&self, hook: Hook) -> Result<Hook, String>;
@@ -145,6 +146,7 @@ fn create_runtime_tool_registry_for_core(core: &Arc<AppCore>) -> restflow_ai::to
         core.storage.background_agents.clone(),
         core.storage.triggers.clone(),
         core.storage.terminal_sessions.clone(),
+        core.storage.deliverables.clone(),
         None,
         None,
     )
@@ -381,6 +383,14 @@ impl McpBackend for CoreBackend {
             .storage
             .background_agents
             .list_background_agent_messages(id, limit)
+            .map_err(|e| e.to_string())
+    }
+
+    async fn list_deliverables(&self, task_id: &str) -> Result<Vec<Deliverable>, String> {
+        self.core
+            .storage
+            .deliverables
+            .list_by_task(task_id)
             .map_err(|e| e.to_string())
     }
 
@@ -651,6 +661,24 @@ impl McpBackend for IpcBackend {
             limit: Some(limit),
         })
         .await
+    }
+
+    async fn list_deliverables(&self, task_id: &str) -> Result<Vec<Deliverable>, String> {
+        let result = self
+            .execute_runtime_tool(
+                "manage_background_agents",
+                serde_json::json!({
+                    "operation": "list_deliverables",
+                    "id": task_id,
+                }),
+            )
+            .await?;
+        if !result.success {
+            return Err(result
+                .error
+                .unwrap_or_else(|| "Runtime tool execution failed".to_string()));
+        }
+        serde_json::from_value(result.result).map_err(|e| e.to_string())
     }
 
     async fn list_hooks(&self) -> Result<Vec<Hook>, String> {
@@ -1632,6 +1660,11 @@ impl RestFlowMcpServer {
                 )
                 .map_err(|e| e.to_string())?
             }
+            "list_deliverables" => {
+                let id = Self::required_string(params.id, "id")?;
+                serde_json::to_value(self.backend.list_deliverables(&id).await?)
+                    .map_err(|e| e.to_string())?
+            }
             "list_scratchpads" => {
                 let dir = Self::scratchpad_dir()?;
                 let prefix = params.id.map(|id| format!("{id}-"));
@@ -1714,7 +1747,7 @@ impl RestFlowMcpServer {
             }
             _ => {
                 return Err(format!(
-                    "Unknown operation: {}. Supported: create, update, delete, list, control, progress, send_message, list_messages, list_scratchpads, read_scratchpad, pause, resume, cancel, run",
+                    "Unknown operation: {}. Supported: create, update, delete, list, control, progress, send_message, list_messages, list_deliverables, list_scratchpads, read_scratchpad, pause, resume, cancel, run",
                     operation
                 ));
             }
@@ -1934,7 +1967,7 @@ impl ServerHandler for RestFlowMcpServer {
             ),
             Tool::new(
                 "manage_background_agents",
-                "Manage background agents. Operations: create (define new agent), run (trigger now), pause/resume (toggle schedule), cancel (stop permanently), delete (remove definition), list (browse agents), progress (execution history), send_message/list_messages (interact with running agents), list_scratchpads/read_scratchpad (diagnose execution traces).",
+                "Manage background agents. Operations: create (define new agent), run (trigger now), pause/resume (toggle schedule), cancel (stop permanently), delete (remove definition), list (browse agents), progress (execution history), send_message/list_messages (interact with running agents), list_deliverables (read typed outputs), list_scratchpads/read_scratchpad (diagnose execution traces).",
                 schema_for_type::<ManageBackgroundAgentsParams>(),
             ),
             Tool::new(
@@ -3066,6 +3099,10 @@ mod tests {
             Ok(Vec::new())
         }
 
+        async fn list_deliverables(&self, _task_id: &str) -> Result<Vec<Deliverable>, String> {
+            Ok(Vec::new())
+        }
+
         async fn list_hooks(&self) -> Result<Vec<Hook>, String> {
             Ok(Vec::new())
         }
@@ -3172,6 +3209,20 @@ mod tests {
             .unwrap();
         let tasks: Vec<serde_json::Value> = serde_json::from_str(&json).unwrap();
         assert!(tasks.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_manage_background_agents_list_deliverables_operation() {
+        let server = RestFlowMcpServer::with_backend(Arc::new(MockBackend::new()));
+        let mut params = base_manage_background_params("list_deliverables");
+        params.id = Some("task-1".to_string());
+
+        let json = server
+            .handle_manage_background_agents(params)
+            .await
+            .unwrap();
+        let deliverables: Vec<serde_json::Value> = serde_json::from_str(&json).unwrap();
+        assert!(deliverables.is_empty());
     }
 
     #[tokio::test]
