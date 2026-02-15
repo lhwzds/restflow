@@ -155,6 +155,12 @@ impl PatchTool {
                 PatchOperation::Update { path, hunks } => {
                     let resolved = self.resolve_path(path).map_err(|err| anyhow!(err))?;
                     self.ensure_file_exists(&resolved)?;
+                    if !self.tracker.has_been_read(&resolved) {
+                        return Err(anyhow!(
+                            "File {} has not been read. Read it before patching.",
+                            resolved.display()
+                        ));
+                    }
                     if self.tracker.check_external_modification(&resolved).await? {
                         return Err(anyhow!(
                             "File {} modified externally. Read it first.",
@@ -360,11 +366,36 @@ mod tests {
 
         let file_path = temp_dir.path().join("example.txt");
         fs::write(&file_path, "line1\nline2\nline3").await.unwrap();
+        let resolved = tool.resolve_path("example.txt").unwrap();
+        tool.tracker.record_read(&resolved);
 
         let patch = "*** Update File: example.txt\nline1\n-line2\n+line2b\nline3\n*** Add File: new.txt\n+hello\n+world\n*** Delete File: example.txt";
         let operations = parse_patch(patch).unwrap();
         let result = tool.apply_operations(&operations).await;
         assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn apply_operations_update_requires_read_first() {
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let tracker = Arc::new(FileTracker::new());
+        let tool = PatchTool::new(tracker).with_base_dir(temp_dir.path());
+
+        let file_path = temp_dir.path().join("example.txt");
+        fs::write(&file_path, "line1\nline2\nline3").await.unwrap();
+
+        let patch = "*** Update File: example.txt\nline1\n-line2\n+line2b\nline3";
+        let operations = parse_patch(patch).unwrap();
+        let result = tool.apply_operations(&operations).await;
+
+        assert!(result.is_err());
+        assert!(
+            result
+                .err()
+                .unwrap()
+                .to_string()
+                .contains("has not been read")
+        );
     }
 
     #[tokio::test]
