@@ -5,7 +5,7 @@ use sha2::{Digest, Sha256};
 use tracing::warn;
 use walkdir::WalkDir;
 
-use crate::models::{Skill, SkillScript, StorageMode};
+use crate::models::{Skill, SkillReference, SkillScript, StorageMode};
 use crate::paths;
 
 #[derive(Debug, Clone)]
@@ -125,6 +125,12 @@ impl SkillFolderLoader {
             self.fill_script_langs(folder_path, &mut skill.scripts);
         }
 
+        if skill.references.is_empty() {
+            skill.references = self.discover_references(folder_path)?;
+        } else {
+            self.fill_reference_metadata(folder_path, &mut skill.references);
+        }
+
         Ok(skill)
     }
 
@@ -194,11 +200,123 @@ impl SkillFolderLoader {
             script.lang = Self::detect_lang(&candidate_path);
         }
     }
+
+    pub fn discover_references(&self, folder_path: &Path) -> Result<Vec<SkillReference>> {
+        let references_dir = folder_path.join("references");
+        if !references_dir.exists() {
+            return Ok(Vec::new());
+        }
+
+        let mut references = Vec::new();
+        for entry in WalkDir::new(&references_dir)
+            .min_depth(1)
+            .follow_links(false)
+        {
+            let entry = entry?;
+            if !entry.file_type().is_file() {
+                continue;
+            }
+
+            let path = entry.path();
+            let extension = path.extension().and_then(|ext| ext.to_str()).unwrap_or("");
+            if !matches!(extension.to_ascii_lowercase().as_str(), "md" | "markdown") {
+                continue;
+            }
+
+            let relative_path = path
+                .strip_prefix(folder_path)
+                .unwrap_or(path)
+                .to_string_lossy()
+                .replace('\\', "/");
+            let id = path
+                .file_stem()
+                .and_then(|stem| stem.to_str())
+                .unwrap_or("reference")
+                .to_string();
+            let (title, summary) = std::fs::read_to_string(path)
+                .ok()
+                .map(|content| Self::extract_reference_metadata(&content))
+                .unwrap_or((None, None));
+
+            references.push(SkillReference {
+                id,
+                path: relative_path,
+                title,
+                summary,
+            });
+        }
+
+        references.sort_by(|a, b| a.id.cmp(&b.id));
+        Ok(references)
+    }
+
+    fn fill_reference_metadata(&self, folder_path: &Path, references: &mut [SkillReference]) {
+        for reference in references {
+            if reference.title.is_some() && reference.summary.is_some() {
+                continue;
+            }
+
+            let path = Path::new(&reference.path);
+            let candidate_path = if path.is_absolute() {
+                path.to_path_buf()
+            } else {
+                folder_path.join(path)
+            };
+
+            let Ok(content) = std::fs::read_to_string(candidate_path) else {
+                continue;
+            };
+            let (title, summary) = Self::extract_reference_metadata(&content);
+            if reference.title.is_none() {
+                reference.title = title;
+            }
+            if reference.summary.is_none() {
+                reference.summary = summary;
+            }
+        }
+    }
+
+    fn extract_reference_metadata(content: &str) -> (Option<String>, Option<String>) {
+        let normalized = content.replace("\r\n", "\n");
+        let mut lines = normalized.lines();
+
+        if normalized.starts_with("---\n") {
+            let _ = lines.next();
+            for line in &mut lines {
+                if line.trim() == "---" {
+                    break;
+                }
+            }
+        }
+
+        let mut title = None;
+        let mut summary = None;
+        for line in lines {
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+
+            if title.is_none()
+                && let Some(rest) = trimmed.strip_prefix("# ")
+            {
+                title = Some(rest.trim().to_string());
+                continue;
+            }
+
+            if !trimmed.starts_with('#') {
+                summary = Some(trimmed.to_string());
+                break;
+            }
+        }
+
+        (title, summary)
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{SkillFolderLoader, discover_skill_dirs};
+    use super::{discover_skill_dirs, SkillFolderLoader};
 
     #[test]
     fn test_discover_skill_dirs_root() {
@@ -259,5 +377,35 @@ mod tests {
 
         assert_eq!(failed, 1);
         assert_eq!(ids, vec!["valid-a".to_string(), "valid-b".to_string()]);
+    }
+
+    #[test]
+    fn test_load_skill_folder_discovers_references() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::write(
+            temp.path().join("SKILL.md"),
+            "---\nname: Root\n---\n\n# Root skill",
+        )
+        .unwrap();
+        let references_dir = temp.path().join("references");
+        std::fs::create_dir_all(&references_dir).unwrap();
+        std::fs::write(
+            references_dir.join("api.md"),
+            "# API Guide\n\nUse this guide to call the API safely.",
+        )
+        .unwrap();
+
+        let loader = SkillFolderLoader::new(temp.path());
+        let skill = loader.load_skill_folder(temp.path()).unwrap();
+
+        assert_eq!(skill.references.len(), 1);
+        let reference = &skill.references[0];
+        assert_eq!(reference.id, "api");
+        assert_eq!(reference.path, "references/api.md");
+        assert_eq!(reference.title.as_deref(), Some("API Guide"));
+        assert_eq!(
+            reference.summary.as_deref(),
+            Some("Use this guide to call the API safely.")
+        );
     }
 }
