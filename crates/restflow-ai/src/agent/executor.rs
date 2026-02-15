@@ -113,10 +113,10 @@ impl AgentConfig {
         Self {
             goal: goal.into(),
             system_prompt: None,
-            max_iterations: 25,
+            max_iterations: 100,
             temperature: None, // None = use model default
             context: HashMap::new(),
-            tool_timeout: Duration::from_secs(120),
+            tool_timeout: Duration::from_secs(300),
             max_tool_result_length: 4000,
             max_memory_messages: DEFAULT_MAX_MESSAGES,
             context_window: 128_000,
