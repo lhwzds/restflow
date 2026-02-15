@@ -8,6 +8,7 @@ use crate::llm::{
     AnthropicClient, ClaudeCodeClient, CodexClient, GeminiCliClient, LlmClient, OpenAIClient,
     OpenCodeClient,
 };
+use crate::llm::retry::RetryingLlmClient;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum LlmProvider {
@@ -176,52 +177,49 @@ impl LlmClientFactory for DefaultLlmClientFactory {
     fn create_client(&self, model: &str, api_key: Option<&str>) -> Result<Arc<dyn LlmClient>> {
         let spec = self.model_spec(model)?;
 
-        if spec.is_opencode_cli {
-            let mut client = OpenCodeClient::new().with_model(spec.client_model);
+        let client: Arc<dyn LlmClient> = if spec.is_opencode_cli {
+            let mut c = OpenCodeClient::new().with_model(spec.client_model);
             if let Some(key) = api_key {
                 let env_var = detect_env_var(key);
-                client = client.with_provider_env(env_var, key.to_string());
+                c = c.with_provider_env(env_var, key.to_string());
             }
-            return Ok(Arc::new(client));
-        }
-
-        if spec.is_codex_cli {
-            return Ok(Arc::new(CodexClient::new().with_model(spec.client_model)));
-        }
-
-        if spec.is_gemini_cli {
-            let mut client = GeminiCliClient::new().with_model(spec.client_model);
+            Arc::new(c)
+        } else if spec.is_codex_cli {
+            Arc::new(CodexClient::new().with_model(spec.client_model))
+        } else if spec.is_gemini_cli {
+            let mut c = GeminiCliClient::new().with_model(spec.client_model);
             if let Some(key) = api_key {
-                client = client.with_api_key(key.to_string());
+                c = c.with_api_key(key.to_string());
             }
-            return Ok(Arc::new(client));
-        }
+            Arc::new(c)
+        } else {
+            let key = api_key.ok_or_else(|| {
+                AiError::Llm(format!("{} API key is required", spec.provider.as_str()))
+            })?;
 
-        let key = api_key.ok_or_else(|| {
-            AiError::Llm(format!("{} API key is required", spec.provider.as_str()))
-        })?;
-
-        match spec.provider {
-            LlmProvider::Anthropic => {
-                if key.starts_with("sk-ant-oat") {
-                    let client = ClaudeCodeClient::new(key).with_model(spec.client_model);
-                    Ok(Arc::new(client))
-                } else {
-                    let client = AnthropicClient::new(key).with_model(spec.client_model);
-                    Ok(Arc::new(client))
+            match spec.provider {
+                LlmProvider::Anthropic => {
+                    if key.starts_with("sk-ant-oat") {
+                        Arc::new(ClaudeCodeClient::new(key).with_model(spec.client_model))
+                    } else {
+                        Arc::new(AnthropicClient::new(key).with_model(spec.client_model))
+                    }
+                }
+                provider => {
+                    let base_url = spec
+                        .base_url
+                        .as_deref()
+                        .unwrap_or(provider.base_url());
+                    Arc::new(
+                        OpenAIClient::new(key)
+                            .with_model(spec.client_model)
+                            .with_base_url(base_url),
+                    )
                 }
             }
-            provider => {
-                let base_url = spec
-                    .base_url
-                    .as_deref()
-                    .unwrap_or(provider.base_url());
-                let client = OpenAIClient::new(key)
-                    .with_model(spec.client_model)
-                    .with_base_url(base_url);
-                Ok(Arc::new(client))
-            }
-        }
+        };
+
+        Ok(Arc::new(RetryingLlmClient::with_default_config(client)))
     }
 
     fn available_models(&self) -> Vec<String> {

@@ -13,7 +13,7 @@ use crate::llm::client::{
     StreamResult, TokenUsage, ToolCall, ToolCallDelta,
 };
 use crate::llm::pricing::calculate_cost;
-use crate::llm::retry::{LlmRetryConfig, response_to_error};
+use crate::llm::retry::response_to_error;
 
 /// OpenAI client
 pub struct OpenAIClient {
@@ -21,7 +21,6 @@ pub struct OpenAIClient {
     api_key: String,
     model: String,
     base_url: String,
-    retry_config: LlmRetryConfig,
 }
 
 impl OpenAIClient {
@@ -32,7 +31,6 @@ impl OpenAIClient {
             api_key: api_key.into(),
             model: "gpt-4o".to_string(),
             base_url: "https://api.openai.com/v1".to_string(),
-            retry_config: LlmRetryConfig::default(),
         }
     }
 
@@ -48,10 +46,6 @@ impl OpenAIClient {
         self
     }
 
-    pub fn with_retry_config(mut self, config: LlmRetryConfig) -> Self {
-        self.retry_config = config;
-        self
-    }
 }
 
 #[derive(Serialize)]
@@ -253,102 +247,64 @@ impl LlmClient for OpenAIClient {
             max_tokens: request.max_tokens,
         };
 
-        let mut last_error = None;
+        let response = self
+            .client
+            .post(format!("{}/chat/completions", self.base_url))
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .header("Content-Type", "application/json")
+            .json(&body)
+            .send()
+            .await
+            .map_err(AiError::Http)?;
 
-        for attempt in 0..=self.retry_config.max_retries {
-            let response = match self
-                .client
-                .post(format!("{}/chat/completions", self.base_url))
-                .header("Authorization", format!("Bearer {}", self.api_key))
-                .header("Content-Type", "application/json")
-                .json(&body)
-                .send()
-                .await
-            {
-                Ok(resp) => resp,
-                Err(e) => {
-                    let error = AiError::Http(e);
-                    if !error.is_retryable() || attempt == self.retry_config.max_retries {
-                        return Err(error);
-                    }
-                    let delay = self.retry_config.delay_for(attempt + 1, None);
-                    tracing::warn!(
-                        attempt = attempt + 1,
-                        delay_ms = delay.as_millis(),
-                        "Retrying OpenAI request after connection error"
-                    );
-                    tokio::time::sleep(delay).await;
-                    last_error = Some(error);
-                    continue;
-                }
-            };
-
-            if response.status().is_success() {
-                let data: OpenAIResponse = response.json().await?;
-                let choice = data
-                    .choices
-                    .into_iter()
-                    .next()
-                    .ok_or_else(|| AiError::Llm("No response from OpenAI".to_string()))?;
-
-                let tool_calls = choice
-                    .message
-                    .tool_calls
-                    .unwrap_or_default()
-                    .into_iter()
-                    .map(|tc| ToolCall {
-                        id: tc.id,
-                        name: tc.function.name,
-                        arguments: serde_json::from_str(&tc.function.arguments)
-                            .unwrap_or(Value::Null),
-                    })
-                    .collect();
-
-                let finish_reason = match choice.finish_reason.as_str() {
-                    "stop" => FinishReason::Stop,
-                    "tool_calls" => FinishReason::ToolCalls,
-                    "length" => FinishReason::MaxTokens,
-                    _ => FinishReason::Error,
-                };
-
-                let usage = data.usage.map(|u| {
-                    let cost_usd =
-                        calculate_cost(&self.model, u.prompt_tokens, u.completion_tokens);
-                    TokenUsage {
-                        prompt_tokens: u.prompt_tokens,
-                        completion_tokens: u.completion_tokens,
-                        total_tokens: u.total_tokens,
-                        cost_usd,
-                    }
-                });
-
-                return Ok(CompletionResponse {
-                    content: choice.message.content,
-                    tool_calls,
-                    finish_reason,
-                    usage,
-                });
-            }
-
-            let error = response_to_error(response, "OpenAI").await;
-            if !error.is_retryable() || attempt == self.retry_config.max_retries {
-                return Err(error);
-            }
-
-            let delay = self
-                .retry_config
-                .delay_for(attempt + 1, error.retry_after());
-            tracing::warn!(
-                attempt = attempt + 1,
-                delay_ms = delay.as_millis(),
-                "Retrying OpenAI request"
-            );
-            tokio::time::sleep(delay).await;
-            last_error = Some(error);
+        if !response.status().is_success() {
+            return Err(response_to_error(response, "OpenAI").await);
         }
 
-        Err(last_error
-            .unwrap_or_else(|| AiError::Llm("OpenAI request failed after retries".to_string())))
+        let data: OpenAIResponse = response.json().await?;
+        let choice = data
+            .choices
+            .into_iter()
+            .next()
+            .ok_or_else(|| AiError::Llm("No response from OpenAI".to_string()))?;
+
+        let tool_calls = choice
+            .message
+            .tool_calls
+            .unwrap_or_default()
+            .into_iter()
+            .map(|tc| ToolCall {
+                id: tc.id,
+                name: tc.function.name,
+                arguments: serde_json::from_str(&tc.function.arguments)
+                    .unwrap_or(Value::Null),
+            })
+            .collect();
+
+        let finish_reason = match choice.finish_reason.as_str() {
+            "stop" => FinishReason::Stop,
+            "tool_calls" => FinishReason::ToolCalls,
+            "length" => FinishReason::MaxTokens,
+            _ => FinishReason::Error,
+        };
+
+        let usage = data.usage.map(|u| {
+            let cost_usd =
+                calculate_cost(&self.model, u.prompt_tokens, u.completion_tokens);
+            TokenUsage {
+                prompt_tokens: u.prompt_tokens,
+                completion_tokens: u.completion_tokens,
+                total_tokens: u.total_tokens,
+                cost_usd,
+            }
+        });
+
+        Ok(CompletionResponse {
+            content: choice.message.content,
+            tool_calls,
+            finish_reason,
+            usage,
+        })
     }
 
     fn complete_stream(&self, request: CompletionRequest) -> StreamResult {

@@ -27,5 +27,5 @@ pub use gemini_cli::GeminiCliClient;
 pub use mock_client::{MockLlmClient, MockStep, MockStepKind};
 pub use openai::OpenAIClient;
 pub use opencode::OpenCodeClient;
-pub use retry::LlmRetryConfig;
+pub use retry::{LlmRetryConfig, RetryingLlmClient};
 pub use swappable::SwappableLlm;

@@ -1,8 +1,13 @@
+use std::sync::Arc;
 use std::time::Duration;
 
+use async_trait::async_trait;
 use reqwest::Response;
 
 use crate::error::AiError;
+use crate::llm::client::{
+    CompletionRequest, CompletionResponse, LlmClient, StreamResult,
+};
 
 #[derive(Debug, Clone)]
 pub struct LlmRetryConfig {
@@ -63,6 +68,80 @@ pub async fn response_to_error(response: Response, provider: &str) -> AiError {
         status,
         message,
         retry_after_secs: retry_after,
+    }
+}
+
+/// Decorator that adds retry logic around any `LlmClient`.
+///
+/// Wraps a `complete()` call with exponential backoff and retryable-error
+/// detection.  `complete_stream()` is passed through without retry because
+/// resuming a partially-consumed stream is non-trivial.
+pub struct RetryingLlmClient {
+    inner: Arc<dyn LlmClient>,
+    config: LlmRetryConfig,
+}
+
+impl RetryingLlmClient {
+    pub fn new(inner: Arc<dyn LlmClient>, config: LlmRetryConfig) -> Self {
+        Self { inner, config }
+    }
+
+    pub fn with_default_config(inner: Arc<dyn LlmClient>) -> Self {
+        Self::new(inner, LlmRetryConfig::default())
+    }
+}
+
+#[async_trait]
+impl LlmClient for RetryingLlmClient {
+    fn provider(&self) -> &str {
+        self.inner.provider()
+    }
+
+    fn model(&self) -> &str {
+        self.inner.model()
+    }
+
+    fn supports_streaming(&self) -> bool {
+        self.inner.supports_streaming()
+    }
+
+    async fn complete(&self, request: CompletionRequest) -> crate::error::Result<CompletionResponse> {
+        let mut last_error = None;
+
+        for attempt in 0..=self.config.max_retries {
+            let req = request.clone();
+            match self.inner.complete(req).await {
+                Ok(response) => return Ok(response),
+                Err(error) => {
+                    if !error.is_retryable() || attempt == self.config.max_retries {
+                        return Err(error);
+                    }
+                    let delay = self.config.delay_for(attempt + 1, error.retry_after());
+                    tracing::warn!(
+                        provider = self.inner.provider(),
+                        model = self.inner.model(),
+                        attempt = attempt + 1,
+                        delay_ms = delay.as_millis() as u64,
+                        error = %error,
+                        "Retrying LLM request"
+                    );
+                    tokio::time::sleep(delay).await;
+                    last_error = Some(error);
+                }
+            }
+        }
+
+        Err(last_error.unwrap_or_else(|| {
+            AiError::Llm(format!(
+                "{}/{} request failed after retries",
+                self.inner.provider(),
+                self.inner.model()
+            ))
+        }))
+    }
+
+    fn complete_stream(&self, request: CompletionRequest) -> StreamResult {
+        self.inner.complete_stream(request)
     }
 }
 
