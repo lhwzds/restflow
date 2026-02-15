@@ -30,6 +30,8 @@ fn find_hunk_position(lines: &[String], hunk: &Hunk) -> Result<usize> {
         return Err(anyhow!("Hunk has no searchable context"));
     }
 
+    let mut first_match: Option<usize> = None;
+
     for i in 0..=lines.len().saturating_sub(search_lines.len()) {
         let mut matched = true;
         for (offset, expected) in search_lines.iter().enumerate() {
@@ -39,11 +41,16 @@ fn find_hunk_position(lines: &[String], hunk: &Hunk) -> Result<usize> {
             }
         }
         if matched {
-            return Ok(i);
+            if first_match.is_some() {
+                return Err(anyhow!(
+                    "Ambiguous patch: hunk matches at multiple locations. Add more context lines to disambiguate."
+                ));
+            }
+            first_match = Some(i);
         }
     }
 
-    Err(anyhow!("Could not find matching context for hunk"))
+    first_match.ok_or_else(|| anyhow!("Could not find matching context for hunk"))
 }
 
 #[cfg(test)]
@@ -63,5 +70,26 @@ mod tests {
 
         let updated = apply_hunks(original, &[hunk]).unwrap();
         assert_eq!(updated, "line1\nline2b\nline3");
+    }
+
+    #[test]
+    fn apply_hunk_rejects_ambiguous_match() {
+        let original = "header\nline1\nline2\nline3\nsep\nline1\nline2\nline3\nfooter";
+        let hunk = Hunk {
+            context_before: vec!["line1".to_string()],
+            removals: vec!["line2".to_string()],
+            additions: vec!["line2b".to_string()],
+            context_after: vec!["line3".to_string()],
+        };
+
+        let result = apply_hunks(original, &[hunk]);
+        assert!(result.is_err());
+        assert!(
+            result
+                .err()
+                .unwrap()
+                .to_string()
+                .contains("Ambiguous patch")
+        );
     }
 }
