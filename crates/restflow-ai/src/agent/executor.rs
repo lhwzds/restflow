@@ -19,6 +19,7 @@ use crate::agent::state::{AgentState, AgentStatus};
 use crate::agent::stream::{ChannelEmitter, NullEmitter, StreamEmitter, ToolCallAccumulator};
 use crate::agent::streaming_buffer::{BufferMode, StreamingBuffer};
 use crate::agent::stuck::{StuckAction, StuckDetector, StuckDetectorConfig};
+use crate::security::SecurityPolicyConfig;
 use crate::error::{AiError, Result};
 use crate::llm::{CompletionRequest, FinishReason, LlmClient, Message, Role, ToolCall};
 use crate::memory::{CompactionConfig, CompactionResult, DEFAULT_MAX_MESSAGES, WorkingMemory};
@@ -97,6 +98,8 @@ pub struct AgentConfig {
     pub checkpoint_durability: CheckpointDurability,
     /// Optional callback to persist agent state checkpoints.
     pub checkpoint_callback: Option<CheckpointCallback>,
+    /// Security policy configuration for immutable policy injection.
+    pub security_policy_config: SecurityPolicyConfig,
 }
 
 impl AgentConfig {
@@ -125,6 +128,7 @@ impl AgentConfig {
             yolo_mode: false,
             checkpoint_durability: CheckpointDurability::Periodic { interval: 5 },
             checkpoint_callback: None,
+            security_policy_config: SecurityPolicyConfig::default(),
         }
     }
 
@@ -267,6 +271,12 @@ impl AgentConfig {
         Fut: Future<Output = Result<()>> + Send + 'static,
     {
         self.checkpoint_callback = Some(Arc::new(move |state| Box::pin(callback(state))));
+        self
+    }
+
+    /// Set security policy configuration.
+    pub fn with_security_policy_config(mut self, config: SecurityPolicyConfig) -> Self {
+        self.security_policy_config = config;
         self
     }
 }
@@ -1306,6 +1316,13 @@ impl AgentExecutor {
 
     async fn build_system_prompt(&self, config: &AgentConfig) -> String {
         let mut sections = Vec::new();
+
+        // Inject immutable security policy FIRST - it must come before any other content
+        // to ensure skill content cannot override it
+        let security_policy = config.security_policy_config.build_policy();
+        if !security_policy.is_empty() {
+            sections.push(security_policy);
+        }
 
         let base = config
             .system_prompt
@@ -2358,5 +2375,90 @@ mod tests {
         assert!(content.contains("\"event_type\":\"execution_start\""));
         assert!(content.contains("\"event_type\":\"iteration_begin\""));
         assert!(content.contains("\"event_type\":\"execution_complete\""));
+    }
+
+    #[tokio::test]
+    async fn test_security_policy_injected_in_system_prompt() {
+        let response = CompletionResponse {
+            content: Some("done".to_string()),
+            tool_calls: vec![],
+            finish_reason: FinishReason::Stop,
+            usage: None,
+        };
+
+        let mock_llm = Arc::new(MockLlmClient::new(vec![response]));
+        let tools = Arc::new(ToolRegistry::new());
+        let executor = AgentExecutor::new(mock_llm.clone(), tools);
+
+        let config = AgentConfig::new("Test task");
+        let result = executor.run(config).await.unwrap();
+        assert!(result.success);
+
+        // Verify the security policy is injected into the system prompt
+        let requests = mock_llm.captured_requests();
+        assert_eq!(requests.len(), 1);
+
+        let system_msg = &requests[0][0];
+        assert_eq!(system_msg.role, Role::System);
+        assert!(system_msg.content.contains("SECURITY POLICY (IMMUTABLE)"));
+        assert!(system_msg.content.contains("SANDBOX BOUNDARY ENFORCEMENT"));
+        assert!(system_msg.content.contains("PROMPT INJECTION DEFENSE"));
+    }
+
+    #[tokio::test]
+    async fn test_security_policy_can_be_disabled() {
+        let response = CompletionResponse {
+            content: Some("done".to_string()),
+            tool_calls: vec![],
+            finish_reason: FinishReason::Stop,
+            usage: None,
+        };
+
+        let mock_llm = Arc::new(MockLlmClient::new(vec![response]));
+        let tools = Arc::new(ToolRegistry::new());
+        let executor = AgentExecutor::new(mock_llm.clone(), tools);
+
+        let config = AgentConfig::new("Test task")
+            .with_security_policy_config(crate::security::SecurityPolicyConfig::disabled());
+        let result = executor.run(config).await.unwrap();
+        assert!(result.success);
+
+        // Verify the security policy is NOT injected when disabled
+        let requests = mock_llm.captured_requests();
+        assert_eq!(requests.len(), 1);
+
+        let system_msg = &requests[0][0];
+        assert_eq!(system_msg.role, Role::System);
+        assert!(!system_msg.content.contains("SECURITY POLICY (IMMUTABLE)"));
+    }
+
+    #[tokio::test]
+    async fn test_security_policy_custom_rules() {
+        let response = CompletionResponse {
+            content: Some("done".to_string()),
+            tool_calls: vec![],
+            finish_reason: FinishReason::Stop,
+            usage: None,
+        };
+
+        let mock_llm = Arc::new(MockLlmClient::new(vec![response]));
+        let tools = Arc::new(ToolRegistry::new());
+        let executor = AgentExecutor::new(mock_llm.clone(), tools);
+
+        let config = AgentConfig::new("Test task")
+            .with_security_policy_config(
+                crate::security::SecurityPolicyConfig::new()
+                    .with_custom_rule("No production database access")
+                    .with_custom_rule("All deployments require approval")
+            );
+        let result = executor.run(config).await.unwrap();
+        assert!(result.success);
+
+        // Verify custom rules are injected
+        let requests = mock_llm.captured_requests();
+        let system_msg = &requests[0][0];
+        assert!(system_msg.content.contains("CUSTOM SECURITY RULES"));
+        assert!(system_msg.content.contains("No production database access"));
+        assert!(system_msg.content.contains("All deployments require approval"));
     }
 }

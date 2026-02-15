@@ -4,6 +4,7 @@
 //! coordinates with the `ApprovalManager` for commands that require user approval.
 
 use std::path::Path;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -38,6 +39,11 @@ pub struct SecurityChecker {
 
     /// Optional persistent amendments for auto-approving known-safe patterns
     amendment_store: Option<Arc<SecurityAmendmentStore>>,
+    
+    /// In-memory cache of approval decisions within a session
+    /// Key: "{tool_name}:{operation}:{target}" pattern
+    /// Value: true if previously approved, false if denied
+    cached_approvals: RwLock<HashMap<String, bool>>,
 }
 
 impl SecurityChecker {
@@ -50,6 +56,7 @@ impl SecurityChecker {
             approval_manager,
             config_store,
             amendment_store: None,
+            cached_approvals: RwLock::new(HashMap::new()),
         }
     }
 
@@ -63,6 +70,7 @@ impl SecurityChecker {
             approval_manager: Arc::new(ApprovalManager::new()),
             config_store,
             amendment_store: None,
+            cached_approvals: RwLock::new(HashMap::new()),
         }
     }
 
@@ -310,6 +318,23 @@ impl SecurityChecker {
         let policy = self.get_policy().await;
         let action = ToolAction::from(action);
 
+        // Check cached approvals first to avoid re-prompting for identical tool+action combinations
+        let cache_key = action.as_pattern_string();
+        {
+            let cache = self.cached_approvals.read().await;
+            if let Some(&approved) = cache.get(&cache_key) {
+                if approved {
+                    return Ok(SecurityDecision::allowed(Some(
+                        "Tool action allowed by cached approval".to_string(),
+                    )));
+                } else {
+                    return Ok(SecurityDecision::blocked(Some(
+                        "Tool action blocked by cached denial".to_string(),
+                    )));
+                }
+            }
+        }
+
         let mut rules: Vec<&ToolRule> = policy
             .tool_rules
             .iter()
@@ -375,14 +400,33 @@ impl SecurityChecker {
         let status = self.approval_manager.check_status(approval_id).await;
 
         match status {
-            Some(crate::models::security::ApprovalStatus::Approved) => Ok(
-                SecurityCheckResult::approved_result(approval_id.to_string()),
-            ),
+            Some(crate::models::security::ApprovalStatus::Approved) => {
+                // Cache the approval decision
+                if let Some(approval) = self.approval_manager.get(approval_id).await {
+                    let cache_key = format!("{}:{}:{}", 
+                        approval.command.split_whitespace().next().unwrap_or(""),
+                        approval.command.split_whitespace().nth(1).unwrap_or(""),
+                        ""
+                    );
+                    self.cached_approvals.write().await.insert(cache_key, true);
+                }
+                Ok(SecurityCheckResult::approved_result(approval_id.to_string()))
+            }
             Some(crate::models::security::ApprovalStatus::Rejected) => {
                 let approval = self.approval_manager.get(approval_id).await;
                 let reason = approval
-                    .and_then(|a| a.rejection_reason)
+                    .as_ref()
+                    .and_then(|a| a.rejection_reason.clone())
                     .unwrap_or_else(|| "User rejected".to_string());
+                // Cache the rejection decision
+                if let Some(ref approval) = approval {
+                    let cache_key = format!("{}:{}:{}",
+                        approval.command.split_whitespace().next().unwrap_or(""),
+                        approval.command.split_whitespace().nth(1).unwrap_or(""),
+                        ""
+                    );
+                    self.cached_approvals.write().await.insert(cache_key, false);
+                }
                 Ok(SecurityCheckResult::blocked(reason, None))
             }
             Some(crate::models::security::ApprovalStatus::Expired) => Ok(
