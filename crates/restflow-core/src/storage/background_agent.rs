@@ -1813,6 +1813,7 @@ mod tests {
             memory: None,
             durability_mode: None,
             resource_limits: None,
+            continuation: None,
         });
 
         assert!(result.is_ok());
@@ -1834,6 +1835,7 @@ mod tests {
             memory: None,
             durability_mode: None,
             resource_limits: None,
+            continuation: None,
         });
 
         assert!(result.is_err());
@@ -1861,6 +1863,7 @@ mod tests {
             memory: None,
             durability_mode: None,
             resource_limits: None,
+            continuation: None,
         });
 
         assert!(result.is_ok());
