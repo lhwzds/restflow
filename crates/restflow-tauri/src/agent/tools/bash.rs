@@ -28,7 +28,7 @@ impl Default for BashConfig {
     fn default() -> Self {
         Self {
             working_dir: None,
-            timeout_secs: 30,
+            timeout_secs: 300,
             blocked_commands: vec![
                 "rm -rf /".to_string(),
                 "mkfs".to_string(),
@@ -133,6 +133,9 @@ impl Tool for BashTool {
                 success: false,
                 result: json!(stdout.to_string()),
                 error: Some(stderr.to_string()),
+                error_category: None,
+                retryable: None,
+                retry_after_ms: None,
             })
         }
     }

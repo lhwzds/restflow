@@ -30,7 +30,7 @@ impl Default for BashConfig {
     fn default() -> Self {
         Self {
             working_dir: None,
-            timeout_secs: 30,
+            timeout_secs: 300,
             blocked_commands: vec![
                 "rm -rf /".to_string(),
                 "mkfs".to_string(),

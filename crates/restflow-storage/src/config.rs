@@ -22,6 +22,104 @@ const MIN_RETENTION_DAYS: u32 = 1;
 const MIN_WORKER_COUNT: usize = 1;
 const MIN_TIMEOUT_SECONDS: u64 = 10;
 
+/// Agent execution defaults (configurable at runtime via `manage_config`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AgentDefaults {
+    /// Timeout for a single tool execution in seconds.
+    pub tool_timeout_secs: u64,
+    /// Default timeout for bash command execution in seconds.
+    pub bash_timeout_secs: u64,
+    /// Default timeout for Python code execution in seconds.
+    pub python_timeout_secs: u64,
+    /// Maximum ReAct loop iterations per agent run.
+    pub max_iterations: usize,
+    /// Default timeout for sub-agent execution in seconds.
+    pub subagent_timeout_secs: u64,
+    /// Maximum tool calls allowed per agent run.
+    pub max_tool_calls: usize,
+    /// Maximum wall-clock time per agent run in seconds.
+    pub max_wall_clock_secs: u64,
+    /// Default timeout for background agent task execution in seconds.
+    pub default_task_timeout_secs: u64,
+    /// Default max duration for background agent resource limits in seconds.
+    pub default_max_duration_secs: u64,
+}
+
+impl Default for AgentDefaults {
+    fn default() -> Self {
+        Self {
+            tool_timeout_secs: 120,
+            bash_timeout_secs: 300,
+            python_timeout_secs: 30,
+            max_iterations: 25,
+            subagent_timeout_secs: 600,
+            max_tool_calls: 200,
+            max_wall_clock_secs: 1800,
+            default_task_timeout_secs: 1800,
+            default_max_duration_secs: 1800,
+        }
+    }
+}
+
+impl AgentDefaults {
+    fn validate(&self) -> Result<()> {
+        if self.tool_timeout_secs < MIN_TIMEOUT_SECONDS {
+            return Err(anyhow::anyhow!(
+                "agent.tool_timeout_secs must be at least {} seconds",
+                MIN_TIMEOUT_SECONDS
+            ));
+        }
+        if self.bash_timeout_secs < MIN_TIMEOUT_SECONDS {
+            return Err(anyhow::anyhow!(
+                "agent.bash_timeout_secs must be at least {} seconds",
+                MIN_TIMEOUT_SECONDS
+            ));
+        }
+        if self.python_timeout_secs < MIN_TIMEOUT_SECONDS {
+            return Err(anyhow::anyhow!(
+                "agent.python_timeout_secs must be at least {} seconds",
+                MIN_TIMEOUT_SECONDS
+            ));
+        }
+        if self.max_iterations == 0 {
+            return Err(anyhow::anyhow!(
+                "agent.max_iterations must be at least 1"
+            ));
+        }
+        if self.subagent_timeout_secs < MIN_TIMEOUT_SECONDS {
+            return Err(anyhow::anyhow!(
+                "agent.subagent_timeout_secs must be at least {} seconds",
+                MIN_TIMEOUT_SECONDS
+            ));
+        }
+        if self.max_tool_calls == 0 {
+            return Err(anyhow::anyhow!(
+                "agent.max_tool_calls must be at least 1"
+            ));
+        }
+        if self.max_wall_clock_secs < MIN_TIMEOUT_SECONDS {
+            return Err(anyhow::anyhow!(
+                "agent.max_wall_clock_secs must be at least {} seconds",
+                MIN_TIMEOUT_SECONDS
+            ));
+        }
+        if self.default_task_timeout_secs < MIN_TIMEOUT_SECONDS {
+            return Err(anyhow::anyhow!(
+                "agent.default_task_timeout_secs must be at least {} seconds",
+                MIN_TIMEOUT_SECONDS
+            ));
+        }
+        if self.default_max_duration_secs < MIN_TIMEOUT_SECONDS {
+            return Err(anyhow::anyhow!(
+                "agent.default_max_duration_secs must be at least {} seconds",
+                MIN_TIMEOUT_SECONDS
+            ));
+        }
+        Ok(())
+    }
+}
+
 /// System configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -36,6 +134,9 @@ pub struct SystemConfig {
     pub checkpoint_retention_days: u32,
     pub memory_chunk_retention_days: u32,
     pub experimental_features: Vec<String>,
+    /// Agent execution defaults.
+    #[serde(default)]
+    pub agent: AgentDefaults,
 }
 
 impl Default for SystemConfig {
@@ -51,6 +152,7 @@ impl Default for SystemConfig {
             checkpoint_retention_days: DEFAULT_CHECKPOINT_RETENTION_DAYS,
             memory_chunk_retention_days: DEFAULT_MEMORY_CHUNK_RETENTION_DAYS,
             experimental_features: Vec::new(),
+            agent: AgentDefaults::default(),
         }
     }
 }
@@ -137,6 +239,8 @@ impl SystemConfig {
                 ));
             }
         }
+
+        self.agent.validate()?;
 
         Ok(())
     }
@@ -250,6 +354,7 @@ mod tests {
             checkpoint_retention_days: 5,
             memory_chunk_retention_days: 120,
             experimental_features: vec!["plan_mode".to_string()],
+            ..Default::default()
         };
 
         storage.update_config(new_config).unwrap();
@@ -272,6 +377,7 @@ mod tests {
             checkpoint_retention_days: 3,
             memory_chunk_retention_days: 90,
             experimental_features: vec!["websocket_transport".to_string()],
+            ..Default::default()
         };
         assert!(valid_config.validate().is_ok());
     }
@@ -282,15 +388,7 @@ mod tests {
 
         let invalid_config = SystemConfig {
             worker_count: 0,
-            task_timeout_seconds: 300,
-            stall_timeout_seconds: 300,
-            background_api_timeout_seconds: 3600,
-            max_retries: 3,
-            chat_session_retention_days: 30,
-            background_task_retention_days: 7,
-            checkpoint_retention_days: 3,
-            memory_chunk_retention_days: 90,
-            experimental_features: vec![],
+            ..Default::default()
         };
 
         let result = storage.update_config(invalid_config);
@@ -300,16 +398,8 @@ mod tests {
     #[test]
     fn test_invalid_experimental_features_duplicates() {
         let config = SystemConfig {
-            worker_count: 2,
-            task_timeout_seconds: 30,
-            stall_timeout_seconds: 30,
-            background_api_timeout_seconds: 1200,
-            max_retries: 1,
-            chat_session_retention_days: 30,
-            background_task_retention_days: 7,
-            checkpoint_retention_days: 3,
-            memory_chunk_retention_days: 90,
             experimental_features: vec!["Plan_Mode".to_string(), "plan_mode".to_string()],
+            ..Default::default()
         };
 
         let result = config.validate();
@@ -320,5 +410,34 @@ mod tests {
                 .to_string()
                 .contains("Duplicate experimental feature")
         );
+    }
+
+    #[test]
+    fn test_agent_defaults_round_trip() {
+        let (storage, _temp_dir) = setup_test_storage();
+
+        let mut config = storage.get_config().unwrap().unwrap();
+        assert_eq!(config.agent.tool_timeout_secs, 120);
+        assert_eq!(config.agent.bash_timeout_secs, 300);
+        assert_eq!(config.agent.max_iterations, 25);
+
+        config.agent.tool_timeout_secs = 180;
+        config.agent.bash_timeout_secs = 600;
+        storage.update_config(config).unwrap();
+
+        let retrieved = storage.get_config().unwrap().unwrap();
+        assert_eq!(retrieved.agent.tool_timeout_secs, 180);
+        assert_eq!(retrieved.agent.bash_timeout_secs, 600);
+    }
+
+    #[test]
+    fn test_agent_defaults_validation() {
+        let mut config = SystemConfig::default();
+        config.agent.tool_timeout_secs = 5; // below min
+        assert!(config.validate().is_err());
+
+        let mut config = SystemConfig::default();
+        config.agent.max_iterations = 0;
+        assert!(config.validate().is_err());
     }
 }

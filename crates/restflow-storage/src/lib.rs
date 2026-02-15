@@ -44,7 +44,7 @@ pub use auth_profiles::AuthProfileStorage;
 pub use background_agent::BackgroundAgentStorage;
 pub use chat_session::ChatSessionStorage;
 pub use checkpoint::CheckpointStorage;
-pub use config::{ConfigStorage, SystemConfig};
+pub use config::{AgentDefaults, ConfigStorage, SystemConfig};
 pub use daemon_state::DaemonStateStorage;
 pub use deliverable::DeliverableStorage;
 pub use memory::{MemoryStorage, PutChunkResult};

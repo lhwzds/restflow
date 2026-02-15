@@ -247,6 +247,7 @@ pub fn registry_from_allowlist(
     storage: Option<&Storage>,
     agent_id: Option<&str>,
     python_runtime: Option<PythonRuntime>,
+    bash_config: Option<BashConfig>,
 ) -> ToolRegistry {
     let Some(tool_names) = tool_names else {
         return ToolRegistry::new();
@@ -283,7 +284,7 @@ pub fn registry_from_allowlist(
     for raw_name in tool_names {
         match raw_name.as_str() {
             "bash" => {
-                builder = builder.with_bash(BashConfig::default());
+                builder = builder.with_bash(bash_config.clone().unwrap_or_default());
             }
             "file" | "read" => {
                 allow_file = true;
@@ -611,7 +612,7 @@ mod tests {
         ];
 
         let registry =
-            registry_from_allowlist(Some(&names), None, None, Some(&storage), None, None);
+            registry_from_allowlist(Some(&names), None, None, Some(&storage), None, None, None);
         assert!(registry.has("manage_background_agents"));
         assert!(registry.has("manage_agents"));
     }
@@ -622,7 +623,7 @@ mod tests {
             "manage_background_agents".to_string(),
             "manage_agents".to_string(),
         ];
-        let registry = registry_from_allowlist(Some(&names), None, None, None, None, None);
+        let registry = registry_from_allowlist(Some(&names), None, None, None, None, None, None);
         assert!(!registry.has("manage_background_agents"));
         assert!(!registry.has("manage_agents"));
     }
@@ -641,7 +642,7 @@ mod tests {
         ];
 
         let registry =
-            registry_from_allowlist(Some(&names), None, None, Some(&storage), None, None);
+            registry_from_allowlist(Some(&names), None, None, Some(&storage), None, None, None);
         assert!(registry.has("manage_marketplace"));
         assert!(registry.has("manage_triggers"));
         assert!(registry.has("manage_terminal"));
@@ -665,7 +666,7 @@ mod tests {
     #[test]
     fn test_python_alias_and_run_python_are_both_registered() {
         let names = vec!["python".to_string()];
-        let registry = registry_from_allowlist(Some(&names), None, None, None, None, None);
+        let registry = registry_from_allowlist(Some(&names), None, None, None, None, None, None);
         assert!(registry.has("python"));
         assert!(registry.has("run_python"));
     }
@@ -690,7 +691,7 @@ mod tests {
         ];
 
         let registry =
-            registry_from_allowlist(Some(&names), None, None, Some(&storage), None, None);
+            registry_from_allowlist(Some(&names), None, None, Some(&storage), None, None, None);
         assert!(registry.has("skill"));
         assert!(registry.has("memory_search"));
         assert!(registry.has("shared_space"));
@@ -737,6 +738,7 @@ mod tests {
             Some(&storage),
             Some("test-agent"),
             None,
+            None,
         );
         assert!(registry.has("save_to_memory"));
         assert!(registry.has("read_memory"));
@@ -757,7 +759,7 @@ mod tests {
             "delete_memory".to_string(),
         ];
         let registry =
-            registry_from_allowlist(Some(&names), None, None, Some(&storage), None, None);
+            registry_from_allowlist(Some(&names), None, None, Some(&storage), None, None, None);
         assert!(registry.has("save_to_memory"));
         assert!(registry.has("read_memory"));
         assert!(registry.has("list_memories"));
@@ -774,6 +776,7 @@ mod tests {
             None,
             None,
             Some(PythonRuntime::Cpython),
+            None,
         );
         let output = registry
             .execute("run_python", json!({ "code": "print('policy-default')" }))

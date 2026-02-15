@@ -131,9 +131,82 @@ impl ConfigTool {
                 }
                 config.experimental_features = features;
             }
+            key if key.starts_with("agent.") => {
+                let field = &key["agent.".len()..];
+                match field {
+                    "tool_timeout_secs" => {
+                        config.agent.tool_timeout_secs = value.as_u64().ok_or_else(|| {
+                            AiError::Tool("agent.tool_timeout_secs must be a number".to_string())
+                        })?;
+                    }
+                    "bash_timeout_secs" => {
+                        config.agent.bash_timeout_secs = value.as_u64().ok_or_else(|| {
+                            AiError::Tool("agent.bash_timeout_secs must be a number".to_string())
+                        })?;
+                    }
+                    "python_timeout_secs" => {
+                        config.agent.python_timeout_secs = value.as_u64().ok_or_else(|| {
+                            AiError::Tool("agent.python_timeout_secs must be a number".to_string())
+                        })?;
+                    }
+                    "max_iterations" => {
+                        config.agent.max_iterations = value
+                            .as_u64()
+                            .ok_or_else(|| {
+                                AiError::Tool("agent.max_iterations must be a number".to_string())
+                            })?
+                            as usize;
+                    }
+                    "subagent_timeout_secs" => {
+                        config.agent.subagent_timeout_secs =
+                            value.as_u64().ok_or_else(|| {
+                                AiError::Tool(
+                                    "agent.subagent_timeout_secs must be a number".to_string(),
+                                )
+                            })?;
+                    }
+                    "max_tool_calls" => {
+                        config.agent.max_tool_calls = value
+                            .as_u64()
+                            .ok_or_else(|| {
+                                AiError::Tool("agent.max_tool_calls must be a number".to_string())
+                            })?
+                            as usize;
+                    }
+                    "max_wall_clock_secs" => {
+                        config.agent.max_wall_clock_secs =
+                            value.as_u64().ok_or_else(|| {
+                                AiError::Tool(
+                                    "agent.max_wall_clock_secs must be a number".to_string(),
+                                )
+                            })?;
+                    }
+                    "default_task_timeout_secs" => {
+                        config.agent.default_task_timeout_secs =
+                            value.as_u64().ok_or_else(|| {
+                                AiError::Tool(
+                                    "agent.default_task_timeout_secs must be a number".to_string(),
+                                )
+                            })?;
+                    }
+                    "default_max_duration_secs" => {
+                        config.agent.default_max_duration_secs =
+                            value.as_u64().ok_or_else(|| {
+                                AiError::Tool(
+                                    "agent.default_max_duration_secs must be a number".to_string(),
+                                )
+                            })?;
+                    }
+                    unknown => {
+                        return Err(AiError::Tool(format!(
+                            "Unknown agent config field: 'agent.{unknown}'. Valid agent fields: agent.tool_timeout_secs, agent.bash_timeout_secs, agent.python_timeout_secs, agent.max_iterations, agent.subagent_timeout_secs, agent.max_tool_calls, agent.max_wall_clock_secs, agent.default_task_timeout_secs, agent.default_max_duration_secs."
+                        )));
+                    }
+                }
+            }
             _ => {
                 return Err(AiError::Tool(format!(
-                    "Unknown config field: '{key}'. Valid fields: worker_count, task_timeout_seconds, stall_timeout_seconds, background_api_timeout_seconds, max_retries, chat_session_retention_days, background_task_retention_days, checkpoint_retention_days, memory_chunk_retention_days, experimental_features."
+                    "Unknown config field: '{key}'. Valid fields: worker_count, task_timeout_seconds, stall_timeout_seconds, background_api_timeout_seconds, max_retries, chat_session_retention_days, background_task_retention_days, checkpoint_retention_days, memory_chunk_retention_days, experimental_features, agent.*."
                 )));
             }
         }
@@ -151,7 +224,7 @@ enum ConfigAction {
     Reset,
     Set {
         #[serde(default)]
-        config: Option<SystemConfig>,
+        config: Option<Box<SystemConfig>>,
         #[serde(default)]
         key: Option<String>,
         #[serde(default)]
@@ -213,7 +286,16 @@ impl Tool for ConfigTool {
                     "background_task_retention_days",
                     "checkpoint_retention_days",
                     "memory_chunk_retention_days",
-                    "experimental_features"
+                    "experimental_features",
+                    "agent.tool_timeout_secs",
+                    "agent.bash_timeout_secs",
+                    "agent.python_timeout_secs",
+                    "agent.max_iterations",
+                    "agent.subagent_timeout_secs",
+                    "agent.max_tool_calls",
+                    "agent.max_wall_clock_secs",
+                    "agent.default_task_timeout_secs",
+                    "agent.default_max_duration_secs"
                 ]
             })),
             ConfigAction::Reset => {
@@ -227,7 +309,7 @@ impl Tool for ConfigTool {
             ConfigAction::Set { config, key, value } => {
                 self.write_guard()?;
                 let updated = if let Some(config) = config {
-                    config
+                    *config
                 } else if let (Some(key), Some(value)) = (key, value) {
                     self.apply_update(&key, &value)?
                 } else {
@@ -305,7 +387,7 @@ mod tests {
 
         assert!(message.contains("Unknown config field: 'invalid_field'"));
         assert!(message.contains(
-            "Valid fields: worker_count, task_timeout_seconds, stall_timeout_seconds, background_api_timeout_seconds, max_retries, chat_session_retention_days, background_task_retention_days, checkpoint_retention_days, memory_chunk_retention_days, experimental_features"
+            "Valid fields: worker_count, task_timeout_seconds, stall_timeout_seconds, background_api_timeout_seconds, max_retries, chat_session_retention_days, background_task_retention_days, checkpoint_retention_days, memory_chunk_retention_days, experimental_features, agent.*"
         ));
     }
 
@@ -373,5 +455,80 @@ mod tests {
                 "set should succeed for listed field '{key}'"
             );
         }
+    }
+
+    #[tokio::test]
+    async fn test_set_agent_defaults() {
+        let storage = setup_storage();
+        let tool = ConfigTool::new(storage).with_write(true);
+
+        let updates = [
+            ("agent.tool_timeout_secs", json!(180)),
+            ("agent.bash_timeout_secs", json!(600)),
+            ("agent.python_timeout_secs", json!(60)),
+            ("agent.max_iterations", json!(50)),
+            ("agent.subagent_timeout_secs", json!(900)),
+            ("agent.max_tool_calls", json!(300)),
+            ("agent.max_wall_clock_secs", json!(3600)),
+            ("agent.default_task_timeout_secs", json!(3600)),
+            ("agent.default_max_duration_secs", json!(3600)),
+        ];
+
+        for (key, value) in updates {
+            let output = tool
+                .execute(json!({
+                    "operation": "set",
+                    "key": key,
+                    "value": value
+                }))
+                .await
+                .unwrap_or_else(|err| panic!("set should support agent field '{key}': {err}"));
+            assert!(
+                output.success,
+                "set should succeed for agent field '{key}'"
+            );
+        }
+
+        // Verify the values persisted
+        let output = tool
+            .execute(json!({ "operation": "get" }))
+            .await
+            .unwrap();
+        let agent = output.result.get("agent").expect("agent block should exist");
+        assert_eq!(agent.get("tool_timeout_secs").and_then(|v| v.as_u64()), Some(180));
+        assert_eq!(agent.get("bash_timeout_secs").and_then(|v| v.as_u64()), Some(600));
+        assert_eq!(agent.get("max_iterations").and_then(|v| v.as_u64()), Some(50));
+    }
+
+    #[tokio::test]
+    async fn test_set_agent_unknown_field() {
+        let storage = setup_storage();
+        let tool = ConfigTool::new(storage).with_write(true);
+
+        let result = tool
+            .execute(json!({
+                "operation": "set",
+                "key": "agent.nonexistent",
+                "value": 42
+            }))
+            .await;
+        let err = result.expect_err("expected unknown agent field error");
+        assert!(err.to_string().contains("Unknown agent config field"));
+    }
+
+    #[tokio::test]
+    async fn test_get_includes_agent_defaults() {
+        let storage = setup_storage();
+        let tool = ConfigTool::new(storage);
+
+        let output = tool
+            .execute(json!({ "operation": "get" }))
+            .await
+            .unwrap();
+        assert!(output.success);
+        let agent = output.result.get("agent").expect("agent block should exist");
+        assert!(agent.get("tool_timeout_secs").is_some());
+        assert!(agent.get("bash_timeout_secs").is_some());
+        assert!(agent.get("max_iterations").is_some());
     }
 }

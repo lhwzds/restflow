@@ -45,7 +45,7 @@ use super::preflight::{PreflightCategory, PreflightIssue, run_preflight};
 use super::retry::{RetryConfig, RetryState};
 use super::runner::{AgentExecutor, ExecutionResult};
 use crate::runtime::agent::{
-    AgentExecutionEngine, AgentExecutionEngineConfig, SubagentDeps, ToolRegistry,
+    AgentExecutionEngine, AgentExecutionEngineConfig, BashConfig, SubagentDeps, ToolRegistry,
     build_agent_system_prompt, effective_main_agent_tool_names, registry_from_allowlist,
     resolve_python_runtime_policy, secret_resolver_from_storage,
 };
@@ -657,6 +657,7 @@ impl AgentRuntimeExecutor {
     ///
     /// If the agent has specific tools configured, only those tools are registered.
     /// Otherwise, an empty registry is used (secure default).
+    #[allow(clippy::too_many_arguments)]
     fn build_tool_registry(
         &self,
         tool_names: Option<&[String]>,
@@ -665,6 +666,7 @@ impl AgentRuntimeExecutor {
         factory: Arc<dyn LlmClientFactory>,
         agent_id: Option<&str>,
         python_runtime: PythonRuntime,
+        bash_config: Option<BashConfig>,
     ) -> Arc<ToolRegistry> {
         let filtered_tool_names = self.filter_requested_tool_names(tool_names);
         let filtered_tool_names_ref = filtered_tool_names.as_deref();
@@ -676,6 +678,7 @@ impl AgentRuntimeExecutor {
             Some(self.storage.as_ref()),
             agent_id,
             Some(python_runtime.clone()),
+            bash_config.clone(),
         ));
         let subagent_deps = self.build_subagent_deps(llm_client, subagent_tool_registry);
         let mut registry = registry_from_allowlist(
@@ -685,6 +688,7 @@ impl AgentRuntimeExecutor {
             Some(self.storage.as_ref()),
             agent_id,
             Some(python_runtime),
+            bash_config,
         );
 
         let requested = |name: &str| {
@@ -831,6 +835,18 @@ impl AgentRuntimeExecutor {
         let effective_tools = effective_main_agent_tool_names(agent_node.tools.as_deref());
         let python_runtime =
             resolve_python_runtime_policy(agent_node.python_runtime_policy.as_ref());
+        let agent_defaults = self
+            .storage
+            .config
+            .get_config()
+            .ok()
+            .flatten()
+            .map(|c| c.agent)
+            .unwrap_or_default();
+        let bash_config = BashConfig {
+            timeout_secs: agent_defaults.bash_timeout_secs,
+            ..BashConfig::default()
+        };
         let tools = self.build_tool_registry(
             Some(&effective_tools),
             swappable.clone(),
@@ -838,6 +854,7 @@ impl AgentRuntimeExecutor {
             factory.clone(),
             agent_id,
             python_runtime,
+            Some(bash_config),
         );
         let system_prompt = build_agent_system_prompt(self.storage.clone(), agent_node, agent_id)?;
 
@@ -1130,10 +1147,24 @@ impl AgentRuntimeExecutor {
         agent_id: Option<&str>,
         initial_state: Option<restflow_ai::AgentState>,
     ) -> Result<ExecutionResult> {
+        // Load agent execution defaults from system config (runtime-configurable).
+        let agent_defaults = self
+            .storage
+            .config
+            .get_config()
+            .ok()
+            .flatten()
+            .map(|c| c.agent)
+            .unwrap_or_default();
+
         let swappable = Arc::new(SwappableLlm::new(llm_client));
         let effective_tools = effective_main_agent_tool_names(agent_node.tools.as_deref());
         let python_runtime =
             resolve_python_runtime_policy(agent_node.python_runtime_policy.as_ref());
+        let bash_config = BashConfig {
+            timeout_secs: agent_defaults.bash_timeout_secs,
+            ..BashConfig::default()
+        };
         let tools = self.build_tool_registry(
             Some(&effective_tools),
             swappable.clone(),
@@ -1141,12 +1172,15 @@ impl AgentRuntimeExecutor {
             factory.clone(),
             agent_id,
             python_runtime,
+            Some(bash_config),
         );
         let system_prompt =
             self.build_background_system_prompt(agent_node, agent_id, background_task_id, input)?;
         let goal = input.unwrap_or("Execute the agent task");
         let mut config = ReActAgentConfig::new(goal.to_string())
             .with_system_prompt(system_prompt)
+            .with_tool_timeout(Duration::from_secs(agent_defaults.tool_timeout_secs))
+            .with_max_iterations(agent_defaults.max_iterations)
             .with_max_memory_messages(memory_config.max_messages)
             .with_context_window(Self::context_window_for_model(model))
             .with_resource_limits(Self::to_agent_resource_limits(resource_limits))
