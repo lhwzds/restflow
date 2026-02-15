@@ -222,6 +222,30 @@ pub trait AgentExecutor: Send + Sync {
         self.execute(agent_id, background_task_id, input, memory_config, steer_rx)
             .await
     }
+
+    /// Execute an agent from a previously persisted state.
+    ///
+    /// Default implementation falls back to a fresh execution.
+    async fn execute_from_state(
+        &self,
+        agent_id: &str,
+        background_task_id: Option<&str>,
+        state: restflow_ai::AgentState,
+        memory_config: &MemoryConfig,
+        steer_rx: Option<mpsc::Receiver<SteerMessage>>,
+        emitter: Option<Box<dyn StreamEmitter>>,
+    ) -> Result<ExecutionResult> {
+        let _ = state;
+        self.execute_with_emitter(
+            agent_id,
+            background_task_id,
+            None,
+            memory_config,
+            steer_rx,
+            emitter,
+        )
+        .await
+    }
 }
 
 /// Notification sender trait for dependency injection
@@ -342,6 +366,7 @@ pub struct BackgroundAgentRunner {
     running_tasks: Arc<RwLock<HashSet<String>>>,
     cancel_senders: Arc<RwLock<HashMap<String, oneshot::Sender<()>>>>,
     pending_cancel_receivers: Arc<RwLock<HashMap<String, oneshot::Receiver<()>>>>,
+    resume_states: Arc<RwLock<HashMap<String, restflow_ai::AgentState>>>,
     task_queue: Arc<TaskQueue>,
     heartbeat_emitter: Arc<dyn HeartbeatEmitter>,
     event_emitter: Arc<dyn TaskEventEmitter>,
@@ -379,6 +404,7 @@ impl BackgroundAgentRunner {
             running_tasks: Arc::new(RwLock::new(HashSet::new())),
             cancel_senders: Arc::new(RwLock::new(HashMap::new())),
             pending_cancel_receivers: Arc::new(RwLock::new(HashMap::new())),
+            resume_states: Arc::new(RwLock::new(HashMap::new())),
             task_queue,
             heartbeat_emitter: Arc::new(NoopHeartbeatEmitter),
             event_emitter: Arc::new(NoopEventEmitter),
@@ -414,6 +440,7 @@ impl BackgroundAgentRunner {
             running_tasks: Arc::new(RwLock::new(HashSet::new())),
             cancel_senders: Arc::new(RwLock::new(HashMap::new())),
             pending_cancel_receivers: Arc::new(RwLock::new(HashMap::new())),
+            resume_states: Arc::new(RwLock::new(HashMap::new())),
             task_queue,
             heartbeat_emitter,
             event_emitter: Arc::new(NoopEventEmitter),
@@ -453,6 +480,7 @@ impl BackgroundAgentRunner {
             running_tasks: Arc::new(RwLock::new(HashSet::new())),
             cancel_senders: Arc::new(RwLock::new(HashMap::new())),
             pending_cancel_receivers: Arc::new(RwLock::new(HashMap::new())),
+            resume_states: Arc::new(RwLock::new(HashMap::new())),
             task_queue,
             heartbeat_emitter,
             event_emitter: Arc::new(NoopEventEmitter),
@@ -664,6 +692,13 @@ impl BackgroundAgentRunner {
                 recovered
             );
         }
+
+        if let Err(e) = self.storage.cleanup_expired_checkpoints() {
+            warn!(
+                "Failed to cleanup expired checkpoints during startup: {}",
+                e
+            );
+        }
     }
 
     /// Check for runnable tasks and execute them
@@ -843,11 +878,32 @@ impl BackgroundAgentRunner {
             }
         };
 
+        // Deserialize checkpointed agent state for real resume.
+        let restored_state: Option<restflow_ai::AgentState> =
+            match serde_json::from_slice(&checkpoint.state_json) {
+                Ok(state) => Some(state),
+                Err(e) => {
+                    error!(
+                        "Failed to deserialize checkpoint state for task {}: {}",
+                        task_id, e
+                    );
+                    None
+                }
+            };
+
         // Mark checkpoint as resumed
         let mut cp = checkpoint;
         cp.mark_resumed();
         if let Err(e) = self.storage.save_checkpoint(&cp) {
             warn!("Failed to mark checkpoint as resumed: {}", e);
+        }
+        if let Some(savepoint_id) = cp.savepoint_id
+            && let Err(e) = self.storage.delete_checkpoint_savepoint(savepoint_id)
+        {
+            warn!(
+                "Failed to delete checkpoint savepoint {} for task {}: {}",
+                savepoint_id, task_id, e
+            );
         }
 
         // Transition task status back to Running
@@ -888,9 +944,8 @@ impl BackgroundAgentRunner {
                 .await;
         }
 
-        // Run the task normally (the agent will start fresh since we don't
-        // have the full in-memory executor state persisted yet; the checkpoint
-        // stores the serialized AgentState for future full resume support).
+        // Run the task. If state deserialization succeeded, execution resumes
+        // from that state on the next queue dispatch.
         info!(
             task_id = %task_id,
             checkpoint_id = %cp.id,
@@ -898,6 +953,12 @@ impl BackgroundAgentRunner {
             "Resuming task from checkpoint"
         );
         if payload.approved {
+            if let Some(state) = restored_state {
+                self.resume_states
+                    .write()
+                    .await
+                    .insert(task_id.to_string(), state);
+            }
             self.run_task_immediate(task_id).await;
         }
     }
@@ -1077,9 +1138,9 @@ impl BackgroundAgentRunner {
             self.fire_hooks(&HookContext::from_failed(&task, &error_msg, duration_ms))
                 .await;
 
-            if let Err(e) = self
-                .storage
-                .fail_task_execution(task_id, error_msg.clone(), duration_ms)
+            if let Err(e) =
+                self.storage
+                    .fail_task_execution(task_id, error_msg.clone(), duration_ms)
             {
                 error!("Failed to record preflight task failure: {}", e);
             }
@@ -1112,6 +1173,7 @@ impl BackgroundAgentRunner {
         } else {
             execution_timeout_secs
         };
+        let resume_state = self.resume_states.write().await.remove(task_id);
 
         let exec_future = async {
             match &task.execution_mode {
@@ -1119,18 +1181,33 @@ impl BackgroundAgentRunner {
                     // Use the injected API executor
                     debug!("Using API executor for task '{}'", task.name);
                     let timeout = Duration::from_secs(execution_timeout_secs);
-                    tokio::time::timeout(
-                        timeout,
-                        self.executor.execute_with_emitter(
-                            &task.agent_id,
-                            Some(&task.id),
-                            resolved_input.as_deref(),
-                            &task.memory,
-                            steer_rx,
-                            step_emitter,
-                        ),
-                    )
-                    .await
+                    if let Some(state) = resume_state {
+                        tokio::time::timeout(
+                            timeout,
+                            self.executor.execute_from_state(
+                                &task.agent_id,
+                                Some(&task.id),
+                                state,
+                                &task.memory,
+                                steer_rx,
+                                step_emitter,
+                            ),
+                        )
+                        .await
+                    } else {
+                        tokio::time::timeout(
+                            timeout,
+                            self.executor.execute_with_emitter(
+                                &task.agent_id,
+                                Some(&task.id),
+                                resolved_input.as_deref(),
+                                &task.memory,
+                                steer_rx,
+                                step_emitter,
+                            ),
+                        )
+                        .await
+                    }
                 }
                 ExecutionMode::Cli(cli_config) => {
                     // Use CliAgentExecutor for CLI-based execution
@@ -1431,6 +1508,7 @@ impl BackgroundAgentRunner {
         self.running_tasks.write().await.remove(task_id);
         self.cancel_senders.write().await.remove(task_id);
         self.pending_cancel_receivers.write().await.remove(task_id);
+        self.resume_states.write().await.remove(task_id);
         self.steer_registry.unregister(task_id).await;
     }
 
@@ -1482,10 +1560,7 @@ impl BackgroundAgentRunner {
     }
 
     fn resolve_task_input(&self, task: &BackgroundAgent) -> Option<String> {
-        let fallback_input = task
-            .input
-            .clone()
-            .filter(|value| !value.trim().is_empty());
+        let fallback_input = task.input.clone().filter(|value| !value.trim().is_empty());
 
         if let Some(template) = task.input_template.as_deref() {
             let rendered = Self::render_input_template(task, template);
@@ -1749,6 +1824,7 @@ mod tests {
     /// Mock executor for testing
     struct MockExecutor {
         call_count: AtomicU32,
+        resume_call_count: AtomicU32,
         should_fail: bool,
         delay_ms: u64,
         saw_emitter: AtomicBool,
@@ -1758,6 +1834,7 @@ mod tests {
         fn new() -> Self {
             Self {
                 call_count: AtomicU32::new(0),
+                resume_call_count: AtomicU32::new(0),
                 should_fail: false,
                 delay_ms: 0,
                 saw_emitter: AtomicBool::new(false),
@@ -1767,6 +1844,7 @@ mod tests {
         fn with_failure() -> Self {
             Self {
                 call_count: AtomicU32::new(0),
+                resume_call_count: AtomicU32::new(0),
                 should_fail: true,
                 delay_ms: 0,
                 saw_emitter: AtomicBool::new(false),
@@ -1776,6 +1854,7 @@ mod tests {
         fn with_delay(delay_ms: u64) -> Self {
             Self {
                 call_count: AtomicU32::new(0),
+                resume_call_count: AtomicU32::new(0),
                 should_fail: false,
                 delay_ms,
                 saw_emitter: AtomicBool::new(false),
@@ -1784,6 +1863,10 @@ mod tests {
 
         fn call_count(&self) -> u32 {
             self.call_count.load(Ordering::SeqCst)
+        }
+
+        fn resume_call_count(&self) -> u32 {
+            self.resume_call_count.load(Ordering::SeqCst)
         }
 
         fn saw_emitter(&self) -> bool {
@@ -1830,6 +1913,22 @@ mod tests {
             }
             self.execute(agent_id, background_task_id, input, memory_config, steer_rx)
                 .await
+        }
+
+        async fn execute_from_state(
+            &self,
+            _agent_id: &str,
+            _background_task_id: Option<&str>,
+            state: restflow_ai::AgentState,
+            _memory_config: &MemoryConfig,
+            _steer_rx: Option<mpsc::Receiver<SteerMessage>>,
+            _emitter: Option<Box<dyn StreamEmitter>>,
+        ) -> Result<ExecutionResult> {
+            self.resume_call_count.fetch_add(1, Ordering::SeqCst);
+            Ok(ExecutionResult::success(
+                format!("Resumed execution {}", state.execution_id),
+                state.messages,
+            ))
         }
     }
 
@@ -2421,6 +2520,61 @@ mod tests {
             .unwrap();
         assert_eq!(updated_checkpoint.id, checkpoint_id);
         assert!(updated_checkpoint.resumed_at.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_resume_from_checkpoint_approved_uses_restored_state() {
+        let (storage, _temp_dir) = create_test_storage();
+        let executor = Arc::new(MockExecutor::new());
+
+        let runner = Arc::new(BackgroundAgentRunner::new(
+            storage.clone(),
+            executor.clone(),
+            Arc::new(NoopNotificationSender),
+            RunnerConfig::default(),
+            Arc::new(SteerRegistry::new()),
+        ));
+
+        let mut task = storage
+            .create_task(
+                "Checkpoint Resume Task".to_string(),
+                "agent-001".to_string(),
+                TaskSchedule::default(),
+            )
+            .unwrap();
+        task.input = Some("Checkpoint task input".to_string());
+        storage.update_task(&task).unwrap();
+
+        let mut state = restflow_ai::AgentState::new("resume-exec-1".to_string(), 10);
+        state.iteration = 2;
+        state.add_message(restflow_ai::Message::user("resume me"));
+
+        let checkpoint = AgentCheckpoint::new(
+            state.execution_id.clone(),
+            Some(task.id.clone()),
+            state.version,
+            state.iteration,
+            serde_json::to_vec(&state).unwrap(),
+            "approval required".to_string(),
+        );
+        let checkpoint_id = checkpoint.id.clone();
+        storage.save_checkpoint(&checkpoint).unwrap();
+
+        let payload = ResumePayload {
+            checkpoint_id,
+            approved: true,
+            user_message: Some("approved".to_string()),
+            metadata: serde_json::json!({}),
+        };
+
+        let handle = runner.clone().start();
+        runner.resume_from_checkpoint(&task.id, payload).await;
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        handle.stop().await.unwrap();
+
+        let updated_task = storage.get_task(&task.id).unwrap().unwrap();
+        assert_eq!(updated_task.success_count, 1);
+        assert_eq!(executor.resume_call_count(), 1);
     }
 
     #[tokio::test]

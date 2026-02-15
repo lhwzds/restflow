@@ -30,7 +30,7 @@ use tokio::io::AsyncWriteExt;
 
 use super::diagnostics::DiagnosticsProvider;
 use super::file_tracker::FileTracker;
-use super::traits::{Tool, ToolOutput};
+use super::traits::{Tool, ToolErrorCategory, ToolOutput};
 use crate::ToolAction;
 use crate::cache::{AgentCacheManager, CachedSearchResult, SearchMatch as CachedSearchMatch};
 use crate::error::Result;
@@ -333,6 +333,13 @@ impl FileTool {
             Ok(p) => p,
             Err(e) => return ToolOutput::error(e),
         };
+
+        if path.exists() && !self.tracker.has_been_read(&path) {
+            return ToolOutput::error(format!(
+                "You must read {} before writing to it. Read the file first to understand its current content.",
+                path.display()
+            ));
+        }
 
         match self.tracker.check_external_modification(&path).await {
             Ok(true) => {
@@ -958,6 +965,9 @@ impl FileTool {
             } else {
                 None
             },
+            error_category: None,
+            retryable: None,
+            retry_after_ms: None,
         }
     }
 
@@ -1772,8 +1782,37 @@ impl Tool for FileTool {
             }
         };
 
-        Ok(output)
+        Ok(output.classify_if_error(classify_file_error_message))
     }
+}
+
+fn classify_file_error_message(message: &str) -> (ToolErrorCategory, bool, Option<u64>) {
+    let normalized = message.to_ascii_lowercase();
+
+    if normalized.contains("not found")
+        || normalized.contains("no such file")
+        || normalized.contains("no such directory")
+    {
+        return (ToolErrorCategory::NotFound, false, None);
+    }
+
+    if normalized.contains("permission denied")
+        || normalized.contains("operation not permitted")
+        || normalized.contains("access denied")
+    {
+        return (ToolErrorCategory::Auth, false, None);
+    }
+
+    if normalized.contains("invalid regex")
+        || normalized.contains("invalid path")
+        || normalized.contains("escapes allowed base directory")
+        || normalized.contains("too many")
+        || normalized.contains("invalid")
+    {
+        return (ToolErrorCategory::Config, false, None);
+    }
+
+    (ToolErrorCategory::Execution, false, None)
 }
 
 /// Simple glob matching (supports * and ?)
@@ -1930,6 +1969,18 @@ mod tests {
     }
 
     #[test]
+    fn test_file_error_classification() {
+        assert_eq!(
+            classify_file_error_message("File not found: foo.txt"),
+            (ToolErrorCategory::NotFound, false, None)
+        );
+        assert_eq!(
+            classify_file_error_message("Cannot open file: Permission denied"),
+            (ToolErrorCategory::Auth, false, None)
+        );
+    }
+
+    #[test]
     fn test_glob_match_exact() {
         assert!(glob_match("hello", "hello"));
         assert!(!glob_match("hello", "world"));
@@ -2082,6 +2133,13 @@ mod tests {
         .await
         .unwrap();
 
+        tool.execute(serde_json::json!({
+            "action": "read",
+            "path": &file_path
+        }))
+        .await
+        .unwrap();
+
         // Append more content
         tool.execute(serde_json::json!({
             "action": "write",
@@ -2104,6 +2162,51 @@ mod tests {
         let content = output.result["content"].as_str().unwrap();
         assert!(content.contains("first"));
         assert!(content.contains("second"));
+    }
+
+    #[tokio::test]
+    async fn test_write_existing_file_requires_read_first() {
+        let temp_dir = TempDir::new().unwrap();
+        let file_path = temp_dir.path().join("existing.txt");
+        fs::write(&file_path, "initial").await.unwrap();
+
+        let tool = FileTool::new();
+        let output = tool
+            .execute(serde_json::json!({
+                "action": "write",
+                "path": file_path.display().to_string(),
+                "content": "updated"
+            }))
+            .await
+            .unwrap();
+
+        assert!(!output.success);
+        assert!(
+            output
+                .error
+                .as_deref()
+                .unwrap_or_default()
+                .contains("You must read")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_write_new_file_without_read_succeeds() {
+        let temp_dir = TempDir::new().unwrap();
+        let file_path = temp_dir.path().join("new.txt");
+        let tool = FileTool::new();
+
+        let output = tool
+            .execute(serde_json::json!({
+                "action": "write",
+                "path": file_path.display().to_string(),
+                "content": "created"
+            }))
+            .await
+            .unwrap();
+
+        assert!(output.success);
+        assert!(file_path.exists());
     }
 
     #[tokio::test]

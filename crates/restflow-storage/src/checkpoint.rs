@@ -3,7 +3,7 @@
 //! Provides low-level storage operations for agent checkpoints using the
 //! redb embedded database.
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
 use std::sync::Arc;
 
@@ -63,6 +63,48 @@ impl CheckpointStorage {
         }
         write_txn.commit()?;
         Ok(())
+    }
+
+    /// Store a checkpoint and create a persistent savepoint in the same transaction.
+    ///
+    /// The savepoint is created before opening any tables to satisfy redb constraints.
+    pub fn save_with_savepoint(
+        &self,
+        id: &str,
+        execution_id: &str,
+        task_id: Option<&str>,
+        data: &[u8],
+    ) -> Result<u64> {
+        let write_txn = self.db.begin_write()?;
+        let savepoint_id = write_txn
+            .persistent_savepoint()
+            .context("Failed to create persistent savepoint")?;
+        {
+            let mut table = write_txn.open_table(CHECKPOINT_TABLE)?;
+            table.insert(id, data)?;
+
+            let mut exec_idx = write_txn.open_table(CHECKPOINT_EXECUTION_INDEX)?;
+            let exec_key = format!("{}:{}", execution_id, id);
+            exec_idx.insert(exec_key.as_str(), id)?;
+
+            if let Some(tid) = task_id {
+                let mut task_idx = write_txn.open_table(CHECKPOINT_TASK_INDEX)?;
+                let task_key = format!("{}:{}", tid, id);
+                task_idx.insert(task_key.as_str(), id)?;
+            }
+        }
+        write_txn.commit()?;
+        Ok(savepoint_id)
+    }
+
+    /// Delete a previously created persistent savepoint.
+    pub fn delete_savepoint(&self, savepoint_id: u64) -> Result<bool> {
+        let write_txn = self.db.begin_write()?;
+        let deleted = write_txn
+            .delete_persistent_savepoint(savepoint_id)
+            .context("Failed to delete persistent savepoint")?;
+        write_txn.commit()?;
+        Ok(deleted)
     }
 
     /// Load a checkpoint by ID.
@@ -312,5 +354,20 @@ mod tests {
         assert_eq!(cleaned, 1);
         assert!(storage.load("cp-expired").unwrap().is_none());
         assert!(storage.load("cp-valid").unwrap().is_some());
+    }
+
+    #[test]
+    fn test_save_with_savepoint_and_delete() {
+        let db = setup_db();
+        let storage = CheckpointStorage::new(db).unwrap();
+
+        let savepoint_id = storage
+            .save_with_savepoint("cp-1", "exec-1", Some("task-1"), b"data")
+            .unwrap();
+        assert!(savepoint_id > 0);
+        assert_eq!(storage.load("cp-1").unwrap().unwrap(), b"data".to_vec());
+
+        let deleted = storage.delete_savepoint(savepoint_id).unwrap();
+        assert!(deleted);
     }
 }

@@ -1,6 +1,7 @@
 //! Agent executor with ReAct loop
 
 use std::collections::HashMap;
+use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
@@ -22,10 +23,13 @@ use crate::error::{AiError, Result};
 use crate::llm::{CompletionRequest, FinishReason, LlmClient, Message, Role, ToolCall};
 use crate::memory::{CompactionConfig, CompactionResult, DEFAULT_MAX_MESSAGES, WorkingMemory};
 use crate::steer::SteerMessage;
-use crate::tools::ToolRegistry;
+use crate::tools::{ToolErrorCategory, ToolRegistry};
 use futures::{Stream, StreamExt};
 use tokio::sync::{Mutex, mpsc};
+use tokio::time::sleep;
 use tracing::debug;
+
+const MAX_TOOL_RETRIES: usize = 2;
 
 /// Agent type for system prompt composition.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -36,6 +40,26 @@ pub enum AgentType {
     Summarizer,
     Title,
 }
+
+/// Persistence frequency for execution checkpoints.
+#[derive(Debug, Clone)]
+pub enum CheckpointDurability {
+    /// Persist state after each ReAct turn.
+    PerTurn,
+    /// Persist state every N turns.
+    Periodic { interval: usize },
+    /// Persist state only on terminal completion/failure.
+    OnComplete,
+}
+
+impl Default for CheckpointDurability {
+    fn default() -> Self {
+        Self::Periodic { interval: 5 }
+    }
+}
+
+type CheckpointFuture = Pin<Box<dyn Future<Output = Result<()>> + Send + 'static>>;
+type CheckpointCallback = Arc<dyn Fn(&AgentState) -> CheckpointFuture + Send + Sync>;
 
 /// Configuration for agent execution
 #[derive(Clone)]
@@ -77,6 +101,10 @@ pub struct AgentConfig {
     pub model_switcher: Option<Arc<dyn ModelSwitcher>>,
     /// Auto-approve security-gated tool calls (scheduled automation mode).
     pub yolo_mode: bool,
+    /// Checkpoint persistence policy.
+    pub checkpoint_durability: CheckpointDurability,
+    /// Optional callback to persist agent state checkpoints.
+    pub checkpoint_callback: Option<CheckpointCallback>,
 }
 
 impl AgentConfig {
@@ -102,6 +130,8 @@ impl AgentConfig {
             model_routing: None,
             model_switcher: None,
             yolo_mode: false,
+            checkpoint_durability: CheckpointDurability::Periodic { interval: 5 },
+            checkpoint_callback: None,
         }
     }
 
@@ -222,6 +252,22 @@ impl AgentConfig {
     /// Enable or disable yolo mode (auto-approval execution mode).
     pub fn with_yolo_mode(mut self, yolo_mode: bool) -> Self {
         self.yolo_mode = yolo_mode;
+        self
+    }
+
+    /// Set checkpoint durability policy.
+    pub fn with_checkpoint_durability(mut self, durability: CheckpointDurability) -> Self {
+        self.checkpoint_durability = durability;
+        self
+    }
+
+    /// Set asynchronous checkpoint callback.
+    pub fn with_checkpoint_callback<F, Fut>(mut self, callback: F) -> Self
+    where
+        F: Fn(&AgentState) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Result<()>> + Send + 'static,
+    {
+        self.checkpoint_callback = Some(Arc::new(move |state| Box::pin(callback(state))));
         self
     }
 }
@@ -439,7 +485,7 @@ impl AgentExecutor {
     /// Execute agent - simplified Swarm-style loop
     pub async fn run(&self, config: AgentConfig) -> Result<AgentResult> {
         let mut emitter = NullEmitter;
-        self.execute_with_mode(config, &mut emitter, false, None)
+        self.execute_with_mode(config, &mut emitter, false, None, None)
             .await
     }
 
@@ -449,7 +495,22 @@ impl AgentExecutor {
         config: AgentConfig,
         emitter: &mut dyn StreamEmitter,
     ) -> Result<AgentResult> {
-        self.execute_with_mode(config, emitter, true, None).await
+        self.execute_with_mode(config, emitter, true, None, None)
+            .await
+    }
+
+    /// Resume execution from an existing state snapshot.
+    pub async fn execute_from_state(
+        &self,
+        config: AgentConfig,
+        mut state: AgentState,
+        emitter: &mut dyn StreamEmitter,
+    ) -> Result<AgentResult> {
+        state.status = AgentStatus::Running;
+        state.ended_at = None;
+        let execution_id = state.execution_id.clone();
+        self.execute_with_mode(config, emitter, true, Some(execution_id), Some(state))
+            .await
     }
 
     async fn execute_with_mode(
@@ -458,15 +519,18 @@ impl AgentExecutor {
         emitter: &mut dyn StreamEmitter,
         stream_llm: bool,
         execution_id_override: Option<String>,
+        initial_state: Option<AgentState>,
     ) -> Result<AgentResult> {
         let execution_id =
             execution_id_override.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
         let mut streaming_buffer = StreamingBuffer::default();
-        let mut state = AgentState::new(execution_id, config.max_iterations);
+        let mut state =
+            initial_state.unwrap_or_else(|| AgentState::new(execution_id, config.max_iterations));
         if let Some(scratchpad) = &config.scratchpad {
             scratchpad.log_start(&state.execution_id, self.llm.model(), &config.goal);
         }
-        state.context = config.context.clone();
+        state.max_iterations = config.max_iterations;
+        state.context.extend(config.context.clone());
         let mut total_tokens: u32 = 0;
         let mut total_cost_usd: f64 = 0.0;
         let mut compaction_results = Vec::new();
@@ -477,6 +541,9 @@ impl AgentExecutor {
         if let Some(compaction_config) = config.compaction_config.clone() {
             memory.enable_compaction(compaction_config);
         }
+        for msg in &state.messages {
+            memory.add(msg.clone());
+        }
 
         // Initialize stuck detector
         let mut stuck_detector = config.stuck_detection.clone().map(StuckDetector::new);
@@ -484,16 +551,17 @@ impl AgentExecutor {
         let mut last_tool_names: Vec<String> = Vec::new();
         let deferred_manager = DeferredExecutionManager::new(Duration::from_secs(300));
 
-        // Initialize messages
-        let system_prompt = self.build_system_prompt(&config).await;
-        let system_msg = Message::system(&system_prompt);
-        let user_msg = Message::user(&config.goal);
+        // Initialize conversation only for fresh executions.
+        if state.messages.is_empty() {
+            let system_prompt = self.build_system_prompt(&config).await;
+            let system_msg = Message::system(&system_prompt);
+            let user_msg = Message::user(&config.goal);
 
-        // Add to both state (full history) and memory (LLM context window)
-        state.add_message(system_msg.clone());
-        state.add_message(user_msg.clone());
-        memory.add(system_msg);
-        memory.add(user_msg);
+            state.add_message(system_msg.clone());
+            state.add_message(user_msg.clone());
+            memory.add(system_msg);
+            memory.add(user_msg);
+        }
 
         // Core loop (Swarm-inspired simplicity)
         while state.iteration < state.max_iterations && !state.is_terminal() {
@@ -819,6 +887,7 @@ impl AgentExecutor {
             }
 
             state.increment_iteration();
+            self.maybe_checkpoint(&config, &state, false).await?;
 
             for (_id, content) in streaming_buffer.flush_all() {
                 emitter.emit_text_delta(&content).await;
@@ -834,6 +903,7 @@ impl AgentExecutor {
         if let Some(scratchpad) = &config.scratchpad {
             scratchpad.log_complete(state.iteration, total_tokens, total_cost_usd);
         }
+        self.maybe_checkpoint(&config, &state, true).await?;
         Ok(AgentResult {
             success: matches!(state.status, AgentStatus::Completed),
             answer: state.final_answer.clone(),
@@ -851,6 +921,36 @@ impl AgentExecutor {
             compaction_results,
             resource_usage,
         })
+    }
+
+    async fn maybe_checkpoint(
+        &self,
+        config: &AgentConfig,
+        state: &AgentState,
+        terminal: bool,
+    ) -> Result<()> {
+        let Some(callback) = &config.checkpoint_callback else {
+            return Ok(());
+        };
+        let should_checkpoint = if terminal {
+            matches!(
+                config.checkpoint_durability,
+                CheckpointDurability::OnComplete
+            )
+        } else {
+            match config.checkpoint_durability {
+                CheckpointDurability::PerTurn => true,
+                CheckpointDurability::Periodic { interval } => {
+                    let interval = interval.max(1);
+                    state.iteration > 0 && state.iteration.is_multiple_of(interval)
+                }
+                CheckpointDurability::OnComplete => false,
+            }
+        };
+        if should_checkpoint {
+            callback(state).await?;
+        }
+        Ok(())
     }
 
     /// Execute agent and return execution steps as an async stream.
@@ -874,8 +974,13 @@ impl AgentExecutor {
             }
 
             let mut emitter = ChannelEmitter::new(tx.clone());
-            let execution =
-                executor.execute_with_mode(config, &mut emitter, true, Some(started_execution_id));
+            let execution = executor.execute_with_mode(
+                config,
+                &mut emitter,
+                true,
+                Some(started_execution_id),
+                None,
+            );
             tokio::pin!(execution);
             let result = tokio::select! {
                 result = &mut execution => result,
@@ -1012,6 +1117,58 @@ impl AgentExecutor {
     async fn execute_tool_call(
         &self,
         name: &str,
+        args: Value,
+        yolo_mode: bool,
+    ) -> Result<crate::tools::ToolOutput> {
+        let mut retry_count = 0usize;
+
+        loop {
+            let output = self
+                .execute_tool_call_once(name, args.clone(), yolo_mode)
+                .await?;
+            if output.success {
+                return Ok(output);
+            }
+
+            let pending_approval = output
+                .result
+                .get("pending_approval")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            if pending_approval {
+                return Ok(output);
+            }
+
+            let retryable = output.retryable.unwrap_or(false);
+            if retryable && retry_count < MAX_TOOL_RETRIES {
+                retry_count += 1;
+                if let Some(wait_ms) = output.retry_after_ms {
+                    sleep(Duration::from_millis(wait_ms)).await;
+                }
+                continue;
+            }
+
+            if matches!(
+                output.error_category,
+                Some(ToolErrorCategory::Auth | ToolErrorCategory::Config)
+            ) {
+                let detail = output
+                    .error
+                    .clone()
+                    .unwrap_or_else(|| "Unknown error".to_string());
+                return Ok(output.with_error_message(format!(
+                    "Non-retryable error: {}. Try a different approach.",
+                    detail
+                )));
+            }
+
+            return Ok(output);
+        }
+    }
+
+    async fn execute_tool_call_once(
+        &self,
+        name: &str,
         mut args: Value,
         yolo_mode: bool,
     ) -> Result<crate::tools::ToolOutput> {
@@ -1083,26 +1240,22 @@ impl AgentExecutor {
                 .await;
         }
 
-        let tools = Arc::clone(&self.tools);
+        let executor = self;
         let futures: Vec<_> = tool_calls
             .iter()
             .map(|call| {
                 let name = call.name.clone();
-                let mut args = call.arguments.clone();
+                let args = call.arguments.clone();
                 let id = call.id.clone();
-                let tools = Arc::clone(&tools);
                 let timeout_dur = tool_timeout;
                 async move {
-                    if yolo_mode
-                        && name == "bash"
-                        && let Some(map) = args.as_object_mut()
-                    {
-                        map.insert("yolo_mode".to_string(), Value::Bool(true));
-                    }
-                    let result = tokio::time::timeout(timeout_dur, tools.execute_safe(&name, args))
-                        .await
-                        .map_err(|_| AiError::Tool(format!("Tool {} timed out", name)))
-                        .and_then(|r| r);
+                    let result = tokio::time::timeout(
+                        timeout_dur,
+                        executor.execute_tool_call(&name, args, yolo_mode),
+                    )
+                    .await
+                    .map_err(|_| AiError::Tool(format!("Tool {} timed out", name)))
+                    .and_then(|r| r);
                     (id, name, result)
                 }
             })
@@ -1207,7 +1360,7 @@ mod tests {
     use crate::llm::{
         CompletionResponse, FinishReason, Role, StreamChunk, StreamResult, TokenUsage, ToolCall,
     };
-    use crate::tools::{Tool, ToolOutput};
+    use crate::tools::{Tool, ToolErrorCategory, ToolOutput};
     use async_trait::async_trait;
     use futures::stream;
     use std::sync::Mutex;
@@ -1361,7 +1514,68 @@ mod tests {
                     "approval_id": "approval-test-1"
                 }),
                 error: Some("Approval required".to_string()),
+                error_category: None,
+                retryable: None,
+                retry_after_ms: None,
             })
+        }
+    }
+
+    struct RetryThenSuccessTool {
+        calls: Arc<AtomicUsize>,
+    }
+
+    #[async_trait]
+    impl Tool for RetryThenSuccessTool {
+        fn name(&self) -> &str {
+            "retry_once_tool"
+        }
+
+        fn description(&self) -> &str {
+            "Fails once with retryable error then succeeds"
+        }
+
+        fn parameters_schema(&self) -> Value {
+            serde_json::json!({"type":"object"})
+        }
+
+        async fn execute(&self, _input: Value) -> Result<ToolOutput> {
+            let current = self.calls.fetch_add(1, Ordering::SeqCst);
+            if current == 0 {
+                Ok(ToolOutput::retryable_error(
+                    "temporary network failure",
+                    ToolErrorCategory::Network,
+                ))
+            } else {
+                Ok(ToolOutput::success(serde_json::json!({"ok": true})))
+            }
+        }
+    }
+
+    struct NonRetryableTool {
+        calls: Arc<AtomicUsize>,
+    }
+
+    #[async_trait]
+    impl Tool for NonRetryableTool {
+        fn name(&self) -> &str {
+            "non_retryable_tool"
+        }
+
+        fn description(&self) -> &str {
+            "Always fails with non-retryable config error"
+        }
+
+        fn parameters_schema(&self) -> Value {
+            serde_json::json!({"type":"object"})
+        }
+
+        async fn execute(&self, _input: Value) -> Result<ToolOutput> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            Ok(ToolOutput::non_retryable_error(
+                "missing required config",
+                ToolErrorCategory::Config,
+            ))
         }
     }
 
@@ -1439,6 +1653,85 @@ mod tests {
         assert!(result.success);
         assert_eq!(result.answer, Some("Hello, I'm done!".to_string()));
         assert_eq!(mock_llm.call_count(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_execute_from_state_resumes_without_reinjecting_prompt() {
+        let response = CompletionResponse {
+            content: Some("Resumed done".to_string()),
+            tool_calls: vec![],
+            finish_reason: FinishReason::Stop,
+            usage: None,
+        };
+
+        let mock_llm = Arc::new(MockLlmClient::new(vec![response]));
+        let tools = Arc::new(ToolRegistry::new());
+        let executor = AgentExecutor::new(mock_llm.clone(), tools);
+
+        let mut state = AgentState::new("resume-exec-1".to_string(), 10);
+        state.iteration = 3;
+        state.add_message(Message::system("Existing system"));
+        state.add_message(Message::user("Existing user"));
+        state.add_message(Message::assistant("Existing assistant"));
+
+        let mut emitter = NullEmitter;
+        let result = executor
+            .execute_from_state(AgentConfig::new("ignored new goal"), state, &mut emitter)
+            .await
+            .unwrap();
+
+        assert!(result.success);
+        assert_eq!(result.state.execution_id, "resume-exec-1");
+        assert_eq!(mock_llm.call_count(), 1);
+        assert!(
+            result
+                .state
+                .messages
+                .iter()
+                .any(|msg| msg.content == "Resumed done")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_checkpoint_durability_per_turn_triggers_callback() {
+        let responses = vec![
+            CompletionResponse {
+                content: Some("Tool".to_string()),
+                tool_calls: vec![ToolCall {
+                    id: "call_1".to_string(),
+                    name: "echo".to_string(),
+                    arguments: serde_json::json!({"message":"hello"}),
+                }],
+                finish_reason: FinishReason::ToolCalls,
+                usage: None,
+            },
+            CompletionResponse {
+                content: Some("Done".to_string()),
+                tool_calls: vec![],
+                finish_reason: FinishReason::Stop,
+                usage: None,
+            },
+        ];
+        let mock_llm = Arc::new(MockLlmClient::new(responses));
+        let mut registry = ToolRegistry::new();
+        registry.register(EchoTool);
+        let executor = AgentExecutor::new(mock_llm, Arc::new(registry));
+
+        let checkpoint_count = Arc::new(AtomicUsize::new(0));
+        let count_ref = checkpoint_count.clone();
+        let config = AgentConfig::new("checkpoint")
+            .with_checkpoint_durability(CheckpointDurability::PerTurn)
+            .with_checkpoint_callback(move |_| {
+                let count_ref = count_ref.clone();
+                async move {
+                    count_ref.fetch_add(1, Ordering::SeqCst);
+                    Ok(())
+                }
+            });
+
+        let result = executor.run(config).await.unwrap();
+        assert!(result.success);
+        assert_eq!(checkpoint_count.load(Ordering::SeqCst), 1);
     }
 
     #[tokio::test]
@@ -1629,6 +1922,79 @@ mod tests {
             m.content
                 .contains("Deferred execution for tool 'approval_tool'")
         }));
+    }
+
+    #[tokio::test]
+    async fn test_executor_retries_retryable_tool_errors() {
+        let responses = vec![
+            CompletionResponse {
+                content: Some("try tool".to_string()),
+                tool_calls: vec![ToolCall {
+                    id: "call_1".to_string(),
+                    name: "retry_once_tool".to_string(),
+                    arguments: serde_json::json!({}),
+                }],
+                finish_reason: FinishReason::ToolCalls,
+                usage: None,
+            },
+            CompletionResponse {
+                content: Some("done".to_string()),
+                tool_calls: vec![],
+                finish_reason: FinishReason::Stop,
+                usage: None,
+            },
+        ];
+
+        let calls = Arc::new(AtomicUsize::new(0));
+        let tool = RetryThenSuccessTool {
+            calls: calls.clone(),
+        };
+        let mock_llm = Arc::new(MockLlmClient::new(responses));
+        let mut registry = ToolRegistry::new();
+        registry.register(tool);
+        let executor = AgentExecutor::new(mock_llm, Arc::new(registry));
+
+        let result = executor.run(AgentConfig::new("retry test")).await.unwrap();
+        assert!(result.success);
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn test_executor_skips_retry_for_non_retryable_errors() {
+        let responses = vec![
+            CompletionResponse {
+                content: Some("try tool".to_string()),
+                tool_calls: vec![ToolCall {
+                    id: "call_1".to_string(),
+                    name: "non_retryable_tool".to_string(),
+                    arguments: serde_json::json!({}),
+                }],
+                finish_reason: FinishReason::ToolCalls,
+                usage: None,
+            },
+            CompletionResponse {
+                content: Some("done".to_string()),
+                tool_calls: vec![],
+                finish_reason: FinishReason::Stop,
+                usage: None,
+            },
+        ];
+
+        let calls = Arc::new(AtomicUsize::new(0));
+        let tool = NonRetryableTool {
+            calls: calls.clone(),
+        };
+        let mock_llm = Arc::new(MockLlmClient::new(responses));
+        let mut registry = ToolRegistry::new();
+        registry.register(tool);
+        let executor = AgentExecutor::new(mock_llm, Arc::new(registry));
+
+        let result = executor
+            .run(AgentConfig::new("non retry test"))
+            .await
+            .unwrap();
+        assert!(result.success);
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
     }
 
     #[tokio::test]

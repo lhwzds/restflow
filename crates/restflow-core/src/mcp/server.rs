@@ -65,6 +65,11 @@ pub struct RuntimeToolResult {
 pub trait McpBackend: Send + Sync {
     async fn list_skills(&self) -> Result<Vec<Skill>, String>;
     async fn get_skill(&self, id: &str) -> Result<Option<Skill>, String>;
+    async fn get_skill_reference(
+        &self,
+        skill_id: &str,
+        ref_id: &str,
+    ) -> Result<Option<String>, String>;
     async fn create_skill(&self, skill: Skill) -> Result<(), String>;
     async fn update_skill(&self, skill: Skill) -> Result<(), String>;
     async fn delete_skill(&self, id: &str) -> Result<(), String>;
@@ -198,6 +203,16 @@ impl McpBackend for CoreBackend {
 
     async fn get_skill(&self, id: &str) -> Result<Option<Skill>, String> {
         crate::services::skills::get_skill(&self.core, id)
+            .await
+            .map_err(|e| e.to_string())
+    }
+
+    async fn get_skill_reference(
+        &self,
+        skill_id: &str,
+        ref_id: &str,
+    ) -> Result<Option<String>, String> {
+        crate::services::skills::get_skill_reference(&self.core, skill_id, ref_id)
             .await
             .map_err(|e| e.to_string())
     }
@@ -483,6 +498,38 @@ impl McpBackend for IpcBackend {
             .get_skill(id.to_string())
             .await
             .map_err(|e| e.to_string())
+    }
+
+    async fn get_skill_reference(
+        &self,
+        skill_id: &str,
+        ref_id: &str,
+    ) -> Result<Option<String>, String> {
+        let mut client = self.client.lock().await;
+        let Some(skill) = client
+            .get_skill(skill_id.to_string())
+            .await
+            .map_err(|e| e.to_string())?
+        else {
+            return Err(format!("Skill not found: {}", skill_id));
+        };
+
+        let Some(reference) = skill
+            .references
+            .iter()
+            .find(|reference| reference.id == ref_id)
+        else {
+            return Err(format!(
+                "Reference '{}' not found in skill '{}'",
+                ref_id, skill_id
+            ));
+        };
+
+        let linked = client
+            .get_skill(reference.id.clone())
+            .await
+            .map_err(|e| e.to_string())?;
+        Ok(linked.map(|reference_skill| reference_skill.content))
     }
 
     async fn create_skill(&self, skill: Skill) -> Result<(), String> {
@@ -793,6 +840,15 @@ fn stdio() -> (tokio::io::Stdin, tokio::io::Stdout) {
 pub struct GetSkillParams {
     /// The ID of the skill to retrieve
     pub id: String,
+}
+
+/// Parameters for get_skill_reference tool
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct GetSkillReferenceParams {
+    /// The skill ID that owns the reference
+    pub skill_id: String,
+    /// The reference ID to load
+    pub ref_id: String,
 }
 
 /// Parameters for create_skill tool
@@ -1310,6 +1366,32 @@ impl RestFlowMcpServer {
             .map_err(|e| format!("Failed to serialize skill: {}", e))
     }
 
+    async fn handle_get_skill_reference(
+        &self,
+        params: GetSkillReferenceParams,
+    ) -> Result<String, String> {
+        let content = self
+            .backend
+            .get_skill_reference(&params.skill_id, &params.ref_id)
+            .await
+            .map_err(|e| format!("Failed to get skill reference: {}", e))?
+            .ok_or_else(|| {
+                format!(
+                    "Reference not found: skill_id={}, ref_id={}",
+                    params.skill_id, params.ref_id
+                )
+            })?;
+
+        let response = serde_json::json!({
+            "skill_id": params.skill_id,
+            "ref_id": params.ref_id,
+            "content": content,
+        });
+
+        serde_json::to_string_pretty(&response)
+            .map_err(|e| format!("Failed to serialize reference response: {}", e))
+    }
+
     async fn handle_create_skill(&self, params: CreateSkillParams) -> Result<String, String> {
         let id = uuid::Uuid::new_v4().to_string();
         let skill = crate::models::Skill::new(
@@ -1470,12 +1552,27 @@ impl RestFlowMcpServer {
                 .map_err(|e| format!("Failed to update skill status: {}", e))?;
         }
 
+        let available_references: Vec<Value> = skill
+            .references
+            .iter()
+            .map(|reference| {
+                serde_json::json!({
+                    "ref_id": reference.id,
+                    "path": reference.path,
+                    "title": reference.title.as_deref().unwrap_or(reference.id.as_str()),
+                    "summary": reference.summary.as_deref().unwrap_or("No summary"),
+                })
+            })
+            .collect();
+
         let response = serde_json::json!({
             "skill_id": skill.id,
             "name": skill.name,
             "content": skill.content,
             "input": params.input,
             "status": skill.status,
+            "available_references": available_references,
+            "note_references": "Deep reference content is available on-demand via get_skill_reference.",
             "note": "Skill execution is not supported via MCP. Use the content with the input as context."
         });
 
@@ -1959,6 +2056,11 @@ impl ServerHandler for RestFlowMcpServer {
                 schema_for_type::<GetSkillParams>(),
             ),
             Tool::new(
+                "get_skill_reference",
+                "Load the full content of a specific skill reference by skill_id and ref_id.",
+                schema_for_type::<GetSkillReferenceParams>(),
+            ),
+            Tool::new(
                 "create_skill",
                 "Create a new skill in RestFlow. Provide a name, optional description, optional tags, and the markdown content.",
                 schema_for_type::<CreateSkillParams>(),
@@ -2113,6 +2215,14 @@ impl ServerHandler for RestFlowMcpServer {
                         })?;
                 self.handle_get_skill(params).await
             }
+            "get_skill_reference" => {
+                let params: GetSkillReferenceParams =
+                    serde_json::from_value(Value::Object(request.arguments.unwrap_or_default()))
+                        .map_err(|e| {
+                            McpError::invalid_params(format!("Invalid parameters: {}", e), None)
+                        })?;
+                self.handle_get_skill_reference(params).await
+            }
             "create_skill" => {
                 let params: CreateSkillParams =
                     serde_json::from_value(Value::Object(request.arguments.unwrap_or_default()))
@@ -2250,7 +2360,7 @@ impl ServerHandler for RestFlowMcpServer {
 mod tests {
     use super::*;
     use crate::daemon::{IpcClient, IpcServer};
-    use crate::models::{AIModel, AgentNode, ApiKeyConfig, Skill};
+    use crate::models::{AIModel, AgentNode, ApiKeyConfig, Skill, SkillReference};
     use crate::prompt_files;
     use crate::storage::agent::StoredAgent;
     use std::time::Instant;
@@ -2478,11 +2588,56 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_get_skill_reference_success() {
+        let (server, core, _temp_dir, _temp_agents, _guard) = create_test_server().await;
+
+        let mut skill = create_test_skill("root-skill", "Root Skill");
+        skill.references = vec![SkillReference {
+            id: "reference-skill".to_string(),
+            path: "references/reference-skill.md".to_string(),
+            title: Some("Reference Skill".to_string()),
+            summary: Some("Detailed reference".to_string()),
+        }];
+        crate::services::skills::create_skill(&core, skill)
+            .await
+            .unwrap();
+
+        let reference_skill = Skill::new(
+            "reference-skill".to_string(),
+            "Reference Skill".to_string(),
+            Some("Reference".to_string()),
+            None,
+            "# Reference Skill\n\nDeep details.".to_string(),
+        );
+        crate::services::skills::create_skill(&core, reference_skill.clone())
+            .await
+            .unwrap();
+
+        let json = server
+            .handle_get_skill_reference(GetSkillReferenceParams {
+                skill_id: "root-skill".to_string(),
+                ref_id: "reference-skill".to_string(),
+            })
+            .await
+            .unwrap();
+        let payload: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(payload["skill_id"], "root-skill");
+        assert_eq!(payload["ref_id"], "reference-skill");
+        assert_eq!(payload["content"], reference_skill.content);
+    }
+
+    #[tokio::test]
     async fn test_skill_execute_auto_complete_updates_status() {
         let (server, core, _temp_dir, _temp_agents, _guard) = create_test_server().await;
 
         let mut skill = create_test_skill("auto-complete", "Auto Complete");
         skill.auto_complete = true;
+        skill.references = vec![SkillReference {
+            id: "ref-doc".to_string(),
+            path: "references/ref-doc.md".to_string(),
+            title: Some("Reference Doc".to_string()),
+            summary: Some("Reference summary".to_string()),
+        }];
         crate::services::skills::create_skill(&core, skill)
             .await
             .unwrap();
@@ -2496,6 +2651,14 @@ mod tests {
             .unwrap();
         let response: serde_json::Value = serde_json::from_str(&json).unwrap();
         assert_eq!(response["status"], "completed");
+        assert_eq!(
+            response["available_references"].as_array().unwrap().len(),
+            1
+        );
+        assert_eq!(
+            response["available_references"][0]["title"],
+            "Reference Doc"
+        );
 
         let updated = crate::services::skills::get_skill(&core, "auto-complete")
             .await
@@ -2793,6 +2956,7 @@ mod tests {
         let expected_tools = [
             "list_skills",
             "get_skill",
+            "get_skill_reference",
             "create_skill",
             "update_skill",
             "delete_skill",
@@ -2805,10 +2969,11 @@ mod tests {
             "chat_session_list",
             "chat_session_get",
             "manage_background_agents",
+            "manage_hooks",
         ];
 
         // Verify we have definitions for all expected tools
-        assert_eq!(expected_tools.len(), 14);
+        assert_eq!(expected_tools.len(), 16);
     }
 
     #[tokio::test]
@@ -3071,6 +3236,27 @@ mod tests {
 
         async fn get_skill(&self, id: &str) -> Result<Option<Skill>, String> {
             Ok(self.skills.iter().find(|s| s.id == id).cloned())
+        }
+
+        async fn get_skill_reference(
+            &self,
+            skill_id: &str,
+            ref_id: &str,
+        ) -> Result<Option<String>, String> {
+            let Some(skill) = self.skills.iter().find(|skill| skill.id == skill_id) else {
+                return Ok(None);
+            };
+            let Some(reference) = skill
+                .references
+                .iter()
+                .find(|reference| reference.id == ref_id)
+            else {
+                return Ok(None);
+            };
+            Ok(Some(format!(
+                "Mock reference content for {}",
+                reference.path
+            )))
         }
 
         async fn create_skill(&self, _skill: Skill) -> Result<(), String> {

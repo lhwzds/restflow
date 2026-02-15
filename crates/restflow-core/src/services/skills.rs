@@ -7,6 +7,7 @@ use crate::{
 use anyhow::{Context, Result};
 use regex::Regex;
 use std::collections::HashSet;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 /// List all skills
@@ -52,6 +53,60 @@ pub async fn skill_exists(core: &Arc<AppCore>, id: &str) -> Result<bool> {
         .skills
         .exists(id)
         .with_context(|| format!("Failed to check skill {}", id))
+}
+
+/// Get full content for a skill reference by skill_id and ref_id
+pub async fn get_skill_reference(
+    core: &Arc<AppCore>,
+    skill_id: &str,
+    ref_id: &str,
+) -> Result<Option<String>> {
+    let skill = get_skill(core, skill_id)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("Skill not found: {}", skill_id))?;
+
+    let reference = skill
+        .references
+        .iter()
+        .find(|reference| reference.id == ref_id)
+        .ok_or_else(|| {
+            anyhow::anyhow!("Reference '{}' not found in skill '{}'", ref_id, skill_id)
+        })?;
+
+    if let Some(reference_skill) = get_skill(core, &reference.id).await? {
+        return Ok(Some(reference_skill.content));
+    }
+
+    let shared_space_key = format!("skill-ref:{}:{}", skill_id, ref_id);
+    if let Some(content) = core
+        .storage
+        .shared_space
+        .quick_get(&shared_space_key, None)?
+    {
+        return Ok(Some(content));
+    }
+
+    if !reference.path.trim().is_empty() {
+        let path = resolve_reference_path(&skill, &reference.path);
+        if let Ok(content) = tokio::fs::read_to_string(path).await {
+            return Ok(Some(content));
+        }
+    }
+
+    Ok(None)
+}
+
+fn resolve_reference_path(skill: &Skill, reference_path: &str) -> PathBuf {
+    let path = Path::new(reference_path);
+    if path.is_absolute() {
+        return path.to_path_buf();
+    }
+
+    if let Some(folder_path) = &skill.folder_path {
+        return Path::new(folder_path).join(path);
+    }
+
+    path.to_path_buf()
 }
 
 /// Export a skill to markdown format
@@ -158,6 +213,7 @@ pub fn validate_skill_complete(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::SkillReference;
     use std::sync::OnceLock;
     use tempfile::tempdir;
     use tokio::sync::Mutex;
@@ -315,6 +371,35 @@ mod tests {
 
         let result = get_skill(&core, "nonexistent").await.unwrap();
         assert!(result.is_none());
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_get_skill_reference_from_referenced_skill() {
+        let core = create_test_core().await;
+
+        let mut skill = create_test_skill("root-skill", "Root Skill");
+        skill.references = vec![SkillReference {
+            id: "ref-skill".to_string(),
+            path: "references/ref-skill.md".to_string(),
+            title: Some("Reference Skill".to_string()),
+            summary: Some("Reference summary".to_string()),
+        }];
+
+        let reference_skill = Skill::new(
+            "ref-skill".to_string(),
+            "Reference Skill".to_string(),
+            Some("Referenced skill".to_string()),
+            None,
+            "# Reference Skill\n\nDetailed content.".to_string(),
+        );
+
+        create_skill(&core, skill).await.unwrap();
+        create_skill(&core, reference_skill.clone()).await.unwrap();
+
+        let content = get_skill_reference(&core, "root-skill", "ref-skill")
+            .await
+            .unwrap();
+        assert_eq!(content, Some(reference_skill.content));
     }
 
     #[test]

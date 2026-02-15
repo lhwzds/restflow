@@ -1,5 +1,6 @@
 {
   "common": {
+    "brandName": "RestFlow",
     "settings": "Settings",
     "theme": "Theme",
     "agent": "Agent",
