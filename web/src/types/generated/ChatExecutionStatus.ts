@@ -3,4 +3,4 @@
 /**
  * Status of message execution (distinct from workflow ExecutionStatus).
  */
-export type ChatExecutionStatus = 'running' | 'completed' | 'failed'
+export type ChatExecutionStatus = "running" | "completed" | "failed";

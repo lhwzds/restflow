@@ -3,13 +3,12 @@
 /**
  * Parameters for use_skill tool.
  */
-export type UseSkillParams = {
-  /**
-   * Skill ID to load.
-   */
-  skill_id: string | null
-  /**
-   * If true, list available skills instead of loading.
-   */
-  list: boolean
-}
+export type UseSkillParams = { 
+/**
+ * Skill ID to load.
+ */
+skill_id: string | null, 
+/**
+ * If true, list available skills instead of loading.
+ */
+list: boolean, };

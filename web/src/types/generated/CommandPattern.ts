@@ -5,13 +5,12 @@
  *
  * Supports glob-style patterns with `*` for wildcard matching.
  */
-export type CommandPattern = {
-  /**
-   * Pattern to match (supports glob-style wildcards)
-   */
-  pattern: string
-  /**
-   * Optional description for this rule
-   */
-  description?: string | null
-}
+export type CommandPattern = { 
+/**
+ * Pattern to match (supports glob-style wildcards)
+ */
+pattern: string, 
+/**
+ * Optional description for this rule
+ */
+description?: string | null, };

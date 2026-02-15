@@ -3,10 +3,4 @@
 /**
  * Installed skill status
  */
-export type InstallStatus =
-  | 'installed'
-  | 'requirements_not_met'
-  | 'missing_dependencies'
-  | 'installing'
-  | 'failed'
-  | 'not_installed'
+export type InstallStatus = "installed" | "requirements_not_met" | "missing_dependencies" | "installing" | "failed" | "not_installed";

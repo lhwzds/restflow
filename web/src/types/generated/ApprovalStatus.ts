@@ -3,4 +3,4 @@
 /**
  * Status of an approval request.
  */
-export type ApprovalStatus = 'pending' | 'approved' | 'rejected' | 'expired'
+export type ApprovalStatus = "pending" | "approved" | "rejected" | "expired";

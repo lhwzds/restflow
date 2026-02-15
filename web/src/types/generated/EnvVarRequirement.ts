@@ -3,17 +3,16 @@
 /**
  * Environment variable requirement for gating
  */
-export type EnvVarRequirement = {
-  /**
-   * Name of the environment variable
-   */
-  name: string
-  /**
-   * Whether the variable must be set
-   */
-  required: boolean
-  /**
-   * Optional description of what this variable is for
-   */
-  description: string | null
-}
+export type EnvVarRequirement = { 
+/**
+ * Name of the environment variable
+ */
+name: string, 
+/**
+ * Whether the variable must be set
+ */
+required: boolean, 
+/**
+ * Optional description of what this variable is for
+ */
+description: string | null, };

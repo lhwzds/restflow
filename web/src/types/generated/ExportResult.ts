@@ -3,25 +3,24 @@
 /**
  * Result of an export operation.
  */
-export type ExportResult = {
-  /**
-   * The exported Markdown content
-   */
-  markdown: string
-  /**
-   * Number of chunks exported
-   */
-  chunk_count: number
-  /**
-   * Number of sessions included
-   */
-  session_count: number
-  /**
-   * Agent ID
-   */
-  agent_id: string
-  /**
-   * Suggested filename
-   */
-  suggested_filename: string
-}
+export type ExportResult = { 
+/**
+ * The exported Markdown content
+ */
+markdown: string, 
+/**
+ * Number of chunks exported
+ */
+chunk_count: number, 
+/**
+ * Number of sessions included
+ */
+session_count: number, 
+/**
+ * Agent ID
+ */
+agent_id: string, 
+/**
+ * Suggested filename
+ */
+suggested_filename: string, };

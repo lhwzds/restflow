@@ -5,26 +5,16 @@
  *
  * This helps categorize and filter memories based on their origin.
  */
-export type MemorySource =
-  | {
-      type: 'task_execution'
-      /**
-       * The task ID that generated this memory
-       */
-      task_id: string
-    }
-  | {
-      type: 'conversation'
-      /**
-       * The session ID where this conversation occurred
-       */
-      session_id: string
-    }
-  | { type: 'manual_note' }
-  | {
-      type: 'agent_generated'
-      /**
-       * Tool that created this memory (e.g., "save_memory")
-       */
-      tool_name: string
-    }
+export type MemorySource = { "type": "task_execution", 
+/**
+ * The task ID that generated this memory
+ */
+task_id: string, } | { "type": "conversation", 
+/**
+ * The session ID where this conversation occurred
+ */
+session_id: string, } | { "type": "manual_note" } | { "type": "agent_generated", 
+/**
+ * Tool that created this memory (e.g., "save_memory")
+ */
+tool_name: string, };

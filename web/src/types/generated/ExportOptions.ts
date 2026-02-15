@@ -3,33 +3,32 @@
 /**
  * Options for customizing the export format.
  */
-export type ExportOptions = {
-  /**
-   * Include metadata as HTML comments
-   */
-  include_metadata: boolean
-  /**
-   * Include creation timestamps
-   */
-  include_timestamps: boolean
-  /**
-   * Include source information
-   */
-  include_source: boolean
-  /**
-   * Include tags
-   */
-  include_tags: boolean
-  /**
-   * Include session headers
-   */
-  include_session_headers: boolean
-  /**
-   * Date format string (strftime format)
-   */
-  date_format: string
-  /**
-   * Separator between chunks
-   */
-  chunk_separator: string
-}
+export type ExportOptions = { 
+/**
+ * Include metadata as HTML comments
+ */
+include_metadata: boolean, 
+/**
+ * Include creation timestamps
+ */
+include_timestamps: boolean, 
+/**
+ * Include source information
+ */
+include_source: boolean, 
+/**
+ * Include tags
+ */
+include_tags: boolean, 
+/**
+ * Include session headers
+ */
+include_session_headers: boolean, 
+/**
+ * Date format string (strftime format)
+ */
+date_format: string, 
+/**
+ * Separator between chunks
+ */
+chunk_separator: string, };

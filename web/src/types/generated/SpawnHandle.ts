@@ -3,13 +3,12 @@
 /**
  * Handle returned after spawning a sub-agent.
  */
-export type SpawnHandle = {
-  /**
-   * Unique task ID.
-   */
-  id: string
-  /**
-   * Agent name.
-   */
-  agent_name: string
-}
+export type SpawnHandle = { 
+/**
+ * Unique task ID.
+ */
+id: string, 
+/**
+ * Agent name.
+ */
+agent_name: string, };

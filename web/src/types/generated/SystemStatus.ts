@@ -3,21 +3,20 @@
 /**
  * System status for /status command
  */
-export type SystemStatus = {
-  /**
-   * Whether the task runner is active
-   */
-  runner_active: boolean
-  /**
-   * Number of currently running tasks
-   */
-  active_count: number
-  /**
-   * Number of pending tasks
-   */
-  pending_count: number
-  /**
-   * Number of tasks completed today
-   */
-  completed_today: number
-}
+export type SystemStatus = { 
+/**
+ * Whether the task runner is active
+ */
+runner_active: boolean, 
+/**
+ * Number of currently running tasks
+ */
+active_count: number, 
+/**
+ * Number of pending tasks
+ */
+pending_count: number, 
+/**
+ * Number of tasks completed today
+ */
+completed_today: number, };

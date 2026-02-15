@@ -3,4 +3,4 @@
 /**
  * Result counts grouped by source.
  */
-export type SourceCounts = { memory: number; sessions: number }
+export type SourceCounts = { memory: number, sessions: number, };

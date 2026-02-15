@@ -3,4 +3,4 @@
 /**
  * API key or password configuration (direct value or secret reference)
  */
-export type ApiKeyConfig = { type: 'direct'; value: string } | { type: 'secret'; value: string }
+export type ApiKeyConfig = { "type": "direct", "value": string } | { "type": "secret", "value": string };

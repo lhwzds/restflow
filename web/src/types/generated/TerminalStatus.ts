@@ -3,4 +3,4 @@
 /**
  * Terminal session status
  */
-export type TerminalStatus = 'running' | 'stopped'
+export type TerminalStatus = "running" | "stopped";

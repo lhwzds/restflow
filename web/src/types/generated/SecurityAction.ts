@@ -3,4 +3,4 @@
 /**
  * Action to take for a command based on security policy.
  */
-export type SecurityAction = 'allow' | 'block' | 'require_approval'
+export type SecurityAction = "allow" | "block" | "require_approval";

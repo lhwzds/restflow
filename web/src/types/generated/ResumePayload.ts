@@ -3,21 +3,20 @@
 /**
  * Payload provided when resuming from a checkpoint.
  */
-export type ResumePayload = {
-  /**
-   * The checkpoint ID to resume from.
-   */
-  checkpoint_id: string
-  /**
-   * Whether the action was approved.
-   */
-  approved: boolean
-  /**
-   * Optional message to inject into the conversation on resume.
-   */
-  user_message: string | null
-  /**
-   * Arbitrary data the caller can pass back.
-   */
-  metadata: any
-}
+export type ResumePayload = { 
+/**
+ * The checkpoint ID to resume from.
+ */
+checkpoint_id: string, 
+/**
+ * Whether the action was approved.
+ */
+approved: boolean, 
+/**
+ * Optional message to inject into the conversation on resume.
+ */
+user_message: string | null, 
+/**
+ * Arbitrary data the caller can pass back.
+ */
+metadata: any, };
