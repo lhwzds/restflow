@@ -220,8 +220,8 @@ fn parse_status(status: Option<String>) -> Result<Option<NoteStatus>> {
     let normalized = value.trim().to_ascii_lowercase();
     let parsed = match normalized.as_str() {
         "open" => NoteStatus::Open,
-        "in_progress" | "in-progress" => NoteStatus::InProgress,
-        "done" => NoteStatus::Done,
+        "in_progress" | "in-progress" | "inprogress" | "in progress" => NoteStatus::InProgress,
+        "done" | "finished" | "complete" | "completed" => NoteStatus::Done,
         "archived" => NoteStatus::Archived,
         _ => return Err(anyhow!("Invalid status: {}", value)),
     };
@@ -235,5 +235,46 @@ fn status_label(status: NoteStatus) -> &'static str {
         NoteStatus::InProgress => "in_progress",
         NoteStatus::Done => "done",
         NoteStatus::Archived => "archived",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{parse_status, status_label};
+    use restflow_core::models::NoteStatus;
+
+    #[test]
+    fn parse_status_accepts_none() {
+        assert!(parse_status(None).unwrap().is_none());
+    }
+
+    #[test]
+    fn parse_status_accepts_in_progress_aliases() {
+        for value in ["in_progress", "in-progress", "inprogress", "in progress"] {
+            let parsed = parse_status(Some(value.to_string())).unwrap();
+            assert_eq!(parsed, Some(NoteStatus::InProgress));
+        }
+    }
+
+    #[test]
+    fn parse_status_accepts_done_aliases() {
+        for value in ["done", "finished", "complete", "completed"] {
+            let parsed = parse_status(Some(value.to_string())).unwrap();
+            assert_eq!(parsed, Some(NoteStatus::Done));
+        }
+    }
+
+    #[test]
+    fn parse_status_rejects_unknown_values() {
+        let error = parse_status(Some("todo".to_string())).unwrap_err();
+        assert!(error.to_string().contains("Invalid status: todo"));
+    }
+
+    #[test]
+    fn status_label_is_stable() {
+        assert_eq!(status_label(NoteStatus::Open), "open");
+        assert_eq!(status_label(NoteStatus::InProgress), "in_progress");
+        assert_eq!(status_label(NoteStatus::Done), "done");
+        assert_eq!(status_label(NoteStatus::Archived), "archived");
     }
 }

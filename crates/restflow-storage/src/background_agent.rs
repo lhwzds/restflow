@@ -181,6 +181,80 @@ impl BackgroundAgentStorage {
         Ok(existed)
     }
 
+    /// Delete a task and all related task/message/event records atomically.
+    pub fn delete_task_cascade(&self, id: &str) -> Result<bool> {
+        let write_txn = self.db.begin_write()?;
+        let existed = {
+            let mut task_table = write_txn.open_table(BACKGROUND_AGENT_TABLE)?;
+            let existed = task_table.get(id)?.is_some();
+
+            let prefix = format!("{}:", id);
+            let (start, end) = prefix_range(&prefix);
+
+            let mut event_table = write_txn.open_table(BACKGROUND_AGENT_EVENT_TABLE)?;
+            let mut event_index = write_txn.open_table(BACKGROUND_AGENT_EVENT_INDEX_TABLE)?;
+            let mut event_keys = Vec::new();
+            for item in event_index.range(start.as_str()..end.as_str())? {
+                let (key, value) = item?;
+                event_keys.push((key.value().to_string(), value.value().to_string()));
+            }
+            for (event_key, event_id) in event_keys {
+                event_index.remove(event_key.as_str())?;
+                event_table.remove(event_id.as_str())?;
+            }
+
+            let mut message_table = write_txn.open_table(BACKGROUND_MESSAGE_TABLE)?;
+            let mut message_task_index = write_txn.open_table(BACKGROUND_MESSAGE_TASK_INDEX_TABLE)?;
+            let mut message_keys = Vec::new();
+            for item in message_task_index.range(start.as_str()..end.as_str())? {
+                let (key, value) = item?;
+                message_keys.push((key.value().to_string(), value.value().to_string()));
+            }
+            for (message_key, message_id) in message_keys {
+                message_task_index.remove(message_key.as_str())?;
+                message_table.remove(message_id.as_str())?;
+            }
+
+            let mut message_status_index = write_txn.open_table(BACKGROUND_MESSAGE_STATUS_INDEX_TABLE)?;
+            let task_segment = format!("{}:", id);
+            let mut message_status_keys = Vec::new();
+            for item in message_status_index.iter()? {
+                let (key, _) = item?;
+                let key_value = key.value();
+                if let Some((_, suffix)) = key_value.split_once(':')
+                    && suffix.starts_with(task_segment.as_str())
+                {
+                    message_status_keys.push(key_value.to_string());
+                }
+            }
+            for status_key in message_status_keys {
+                message_status_index.remove(status_key.as_str())?;
+            }
+
+            let mut task_status_index = write_txn.open_table(BACKGROUND_AGENT_STATUS_INDEX_TABLE)?;
+            let task_suffix = format!(":{}", id);
+            let mut task_status_keys = Vec::new();
+            for item in task_status_index.iter()? {
+                let (key, _) = item?;
+                let key_value = key.value();
+                if key_value.ends_with(task_suffix.as_str()) {
+                    task_status_keys.push(key_value.to_string());
+                }
+            }
+            for status_key in task_status_keys {
+                task_status_index.remove(status_key.as_str())?;
+            }
+
+            if existed {
+                task_table.remove(id)?;
+            }
+
+            existed
+        };
+        write_txn.commit()?;
+        Ok(existed)
+    }
+
     // ============== Background Message Operations ==============
 
     /// Store raw background message data with task/status indices.
@@ -792,5 +866,75 @@ mod tests {
 
         let retrieved = storage.get_task_raw("task-001").unwrap();
         assert_eq!(retrieved.unwrap(), b"updated data");
+    }
+
+    #[test]
+    fn test_delete_task_cascade_removes_related_records_atomically() {
+        let storage = create_test_storage();
+
+        storage
+            .put_task_raw_with_status("task-1", "active", br#"{"id":"task-1"}"#)
+            .unwrap();
+        storage
+            .put_task_raw_with_status("task-2", "active", br#"{"id":"task-2"}"#)
+            .unwrap();
+
+        storage
+            .put_event_raw("event-1", "task-1", b"event-1")
+            .unwrap();
+        storage
+            .put_event_raw("event-2", "task-1", b"event-2")
+            .unwrap();
+        storage
+            .put_event_raw("event-3", "task-2", b"event-3")
+            .unwrap();
+
+        storage
+            .put_background_message_raw_with_status(
+                "msg-1",
+                "task-1",
+                "queued",
+                br#"{"id":"msg-1","status":"queued"}"#,
+            )
+            .unwrap();
+        storage
+            .put_background_message_raw_with_status(
+                "msg-2",
+                "task-1",
+                "delivered",
+                br#"{"id":"msg-2","status":"delivered"}"#,
+            )
+            .unwrap();
+        storage
+            .put_background_message_raw_with_status(
+                "msg-3",
+                "task-2",
+                "queued",
+                br#"{"id":"msg-3","status":"queued"}"#,
+            )
+            .unwrap();
+
+        let deleted = storage.delete_task_cascade("task-1").unwrap();
+        assert!(deleted);
+
+        assert!(storage.get_task_raw("task-1").unwrap().is_none());
+        assert_eq!(storage.list_events_for_task_raw("task-1").unwrap().len(), 0);
+        assert_eq!(
+            storage
+                .list_background_messages_for_task_raw("task-1")
+                .unwrap()
+                .len(),
+            0
+        );
+
+        assert!(storage.get_task_raw("task-2").unwrap().is_some());
+        assert_eq!(storage.list_events_for_task_raw("task-2").unwrap().len(), 1);
+        assert_eq!(
+            storage
+                .list_background_messages_for_task_raw("task-2")
+                .unwrap()
+                .len(),
+            1
+        );
     }
 }

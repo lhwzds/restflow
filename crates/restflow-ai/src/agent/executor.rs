@@ -9,12 +9,14 @@ use serde_json::Value;
 
 use crate::agent::ExecutionStep;
 use crate::agent::context::{AgentContext, ContextDiscoveryConfig, WorkspaceContextCache};
+use crate::agent::deferred::{DeferredExecutionManager, DeferredStatus};
 use crate::agent::history::{HistoryPipeline, HistoryProcessor};
 use crate::agent::model_router::{ModelRoutingConfig, ModelSwitcher, classify_task, select_model};
 use crate::agent::resource::{ResourceLimits, ResourceTracker, ResourceUsage};
 use crate::agent::scratchpad::Scratchpad;
 use crate::agent::state::{AgentState, AgentStatus};
 use crate::agent::stream::{ChannelEmitter, NullEmitter, StreamEmitter, ToolCallAccumulator};
+use crate::agent::streaming_buffer::{BufferMode, StreamingBuffer};
 use crate::agent::stuck::{StuckAction, StuckDetector, StuckDetectorConfig};
 use crate::error::{AiError, Result};
 use crate::llm::{CompletionRequest, FinishReason, LlmClient, Message, Role, ToolCall};
@@ -73,6 +75,8 @@ pub struct AgentConfig {
     pub model_routing: Option<ModelRoutingConfig>,
     /// Optional model switcher used when model routing is enabled.
     pub model_switcher: Option<Arc<dyn ModelSwitcher>>,
+    /// Auto-approve security-gated tool calls (scheduled automation mode).
+    pub yolo_mode: bool,
 }
 
 impl AgentConfig {
@@ -97,6 +101,7 @@ impl AgentConfig {
             scratchpad: None,
             model_routing: None,
             model_switcher: None,
+            yolo_mode: false,
         }
     }
 
@@ -213,6 +218,12 @@ impl AgentConfig {
         self.model_switcher = Some(switcher);
         self
     }
+
+    /// Enable or disable yolo mode (auto-approval execution mode).
+    pub fn with_yolo_mode(mut self, yolo_mode: bool) -> Self {
+        self.yolo_mode = yolo_mode;
+        self
+    }
 }
 
 /// Result of agent execution
@@ -285,7 +296,12 @@ impl AgentExecutor {
         messages
     }
 
-    async fn apply_steer_messages(&self, state: &mut AgentState, memory: &mut WorkingMemory) {
+    async fn apply_steer_messages(
+        &self,
+        state: &mut AgentState,
+        memory: &mut WorkingMemory,
+        deferred_manager: &DeferredExecutionManager,
+    ) {
         let messages = self.drain_steer_messages().await;
         if messages.is_empty() {
             return;
@@ -294,6 +310,32 @@ impl AgentExecutor {
         for steer in messages {
             match &steer.command {
                 crate::steer::SteerCommand::Message { instruction } => {
+                    if let Some((approval_id, approved, reason)) =
+                        parse_approval_resolution(instruction)
+                    {
+                        let _ = deferred_manager
+                            .resolve_by_approval_id(&approval_id, approved, reason.clone())
+                            .await;
+                        tracing::info!(
+                            approval_id = %approval_id,
+                            approved = approved,
+                            "Received approval resolution steer message"
+                        );
+                        let text = if approved {
+                            format!("[Approval Update]: {approval_id} approved.")
+                        } else {
+                            format!(
+                                "[Approval Update]: {approval_id} denied. {}",
+                                reason
+                                    .clone()
+                                    .unwrap_or_else(|| "No reason provided.".to_string())
+                            )
+                        };
+                        let msg = Message::system(text);
+                        state.add_message(msg.clone());
+                        memory.add(msg);
+                        continue;
+                    }
                     tracing::info!(
                         instruction = %instruction,
                         source = ?steer.source,
@@ -311,6 +353,85 @@ impl AgentExecutor {
                     );
                     state.interrupt(reason);
                 }
+            }
+        }
+    }
+
+    async fn process_resolved_deferred_calls(
+        &self,
+        deferred_manager: &DeferredExecutionManager,
+        state: &mut AgentState,
+        memory: &mut WorkingMemory,
+        tool_timeout: Duration,
+        max_tool_result_length: usize,
+    ) {
+        let resolved_calls = deferred_manager.drain_resolved().await;
+        if resolved_calls.is_empty() {
+            return;
+        }
+
+        for deferred in resolved_calls {
+            match deferred.status {
+                DeferredStatus::Approved => {
+                    let result = tokio::time::timeout(
+                        tool_timeout,
+                        self.execute_tool_call(&deferred.tool_name, deferred.args.clone(), false),
+                    )
+                    .await
+                    .map_err(|_| AiError::Tool(format!("Tool {} timed out", deferred.tool_name)))
+                    .and_then(|result| result);
+                    let mut text = match result {
+                        Ok(output) if output.success => {
+                            let value = serde_json::to_string(&output.result).unwrap_or_default();
+                            format!(
+                                "Deferred tool call '{}' was approved and executed successfully. Result: {}",
+                                deferred.tool_name, value
+                            )
+                        }
+                        Ok(output) => format!(
+                            "Deferred tool call '{}' was approved but failed: {}",
+                            deferred.tool_name,
+                            output.error.unwrap_or_else(|| "unknown error".to_string())
+                        ),
+                        Err(error) => format!(
+                            "Deferred tool call '{}' failed after approval: {}",
+                            deferred.tool_name, error
+                        ),
+                    };
+                    if text.len() > max_tool_result_length {
+                        let safe_len = text
+                            .char_indices()
+                            .map(|(i, _)| i)
+                            .take_while(|&i| i <= max_tool_result_length)
+                            .last()
+                            .unwrap_or(0);
+                        text = format!(
+                            "{}...[truncated, {} chars total]",
+                            &text[..safe_len],
+                            text.len()
+                        );
+                    }
+                    let msg = Message::system(text);
+                    state.add_message(msg.clone());
+                    memory.add(msg);
+                }
+                DeferredStatus::Denied { reason } => {
+                    let msg = Message::system(format!(
+                        "Deferred tool call '{}' was denied: {}",
+                        deferred.tool_name, reason
+                    ));
+                    state.add_message(msg.clone());
+                    memory.add(msg);
+                }
+                DeferredStatus::TimedOut => {
+                    let msg = Message::system(format!(
+                        "Approval timed out for deferred tool call '{}'.",
+                        deferred.tool_name
+                    ));
+                    state.add_message(msg.clone());
+                    memory.add(msg);
+                }
+                DeferredStatus::Pending => {}
             }
         }
     }
@@ -340,6 +461,7 @@ impl AgentExecutor {
     ) -> Result<AgentResult> {
         let execution_id =
             execution_id_override.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+        let mut streaming_buffer = StreamingBuffer::default();
         let mut state = AgentState::new(execution_id, config.max_iterations);
         if let Some(scratchpad) = &config.scratchpad {
             scratchpad.log_start(&state.execution_id, self.llm.model(), &config.goal);
@@ -360,6 +482,7 @@ impl AgentExecutor {
         let mut stuck_detector = config.stuck_detection.clone().map(StuckDetector::new);
         let mut had_failure = false;
         let mut last_tool_names: Vec<String> = Vec::new();
+        let deferred_manager = DeferredExecutionManager::new(Duration::from_secs(300));
 
         // Initialize messages
         let system_prompt = self.build_system_prompt(&config).await;
@@ -386,7 +509,16 @@ impl AgentExecutor {
                 compaction_results.push(result);
             }
 
-            self.apply_steer_messages(&mut state, &mut memory).await;
+            self.apply_steer_messages(&mut state, &mut memory, &deferred_manager)
+                .await;
+            self.process_resolved_deferred_calls(
+                &deferred_manager,
+                &mut state,
+                &mut memory,
+                config.tool_timeout,
+                config.max_tool_result_length,
+            )
+            .await;
 
             // Check wall-clock before LLM call
             if let Err(e) = tracker.check_wall_clock() {
@@ -449,6 +581,8 @@ impl AgentExecutor {
                     emitter,
                     config.scratchpad.as_deref(),
                     state.iteration + 1,
+                    &state.execution_id,
+                    &mut streaming_buffer,
                 )
                 .await?
             } else {
@@ -539,7 +673,12 @@ impl AgentExecutor {
 
             // 3. Execute tools with timeout and optional stream events.
             let results = self
-                .execute_tools_with_events(&response.tool_calls, emitter, config.tool_timeout)
+                .execute_tools_with_events(
+                    &response.tool_calls,
+                    emitter,
+                    config.tool_timeout,
+                    config.yolo_mode,
+                )
                 .await;
             tracker.record_tool_calls(results.len());
             last_tool_names = response
@@ -550,13 +689,44 @@ impl AgentExecutor {
             let mut tool_failed = false;
 
             for (tool_call_id, result) in results {
+                let tool_call = response.tool_calls.iter().find(|tc| tc.id == tool_call_id);
                 let mut result_str = match result {
                     Ok(output) if output.success => {
                         serde_json::to_string(&output.result).unwrap_or_default()
                     }
                     Ok(output) => {
-                        tool_failed = true;
-                        format!("Error: {}", output.error.unwrap_or_default())
+                        if output
+                            .result
+                            .get("pending_approval")
+                            .and_then(Value::as_bool)
+                            .unwrap_or(false)
+                        {
+                            if let Some(tool_call) = tool_call {
+                                let approval_id = output
+                                    .result
+                                    .get("approval_id")
+                                    .and_then(Value::as_str)
+                                    .map(str::to_string);
+                                deferred_manager
+                                    .defer(
+                                        &tool_call_id,
+                                        &tool_call.name,
+                                        tool_call.arguments.clone(),
+                                        approval_id.clone(),
+                                    )
+                                    .await;
+                                format!(
+                                    "Deferred execution for tool '{}' (approval_id: {}). Continuing with other work.",
+                                    tool_call.name,
+                                    approval_id.unwrap_or_else(|| "unknown".to_string())
+                                )
+                            } else {
+                                "Deferred execution pending user approval.".to_string()
+                            }
+                        } else {
+                            tool_failed = true;
+                            format!("Error: {}", output.error.unwrap_or_default())
+                        }
                     }
                     Err(e) => {
                         tool_failed = true;
@@ -582,26 +752,15 @@ impl AgentExecutor {
 
                 // Record tool call for stuck detection
                 if let Some(ref mut detector) = stuck_detector {
-                    let args_json = response
-                        .tool_calls
-                        .iter()
-                        .find(|tc| tc.id == tool_call_id)
+                    let args_json = tool_call
                         .map(|tc| serde_json::to_string(&tc.arguments).unwrap_or_default())
                         .unwrap_or_default();
-                    let tool_name = response
-                        .tool_calls
-                        .iter()
-                        .find(|tc| tc.id == tool_call_id)
-                        .map(|tc| tc.name.as_str())
-                        .unwrap_or("unknown");
+                    let tool_name = tool_call.map(|tc| tc.name.as_str()).unwrap_or("unknown");
                     detector.record(tool_name, &args_json);
                 }
 
                 if let Some(scratchpad) = &config.scratchpad {
-                    let (tool_name, success) = response
-                        .tool_calls
-                        .iter()
-                        .find(|tc| tc.id == tool_call_id)
+                    let (tool_name, success) = tool_call
                         .map(|tc| (tc.name.as_str(), !result_str.starts_with("Error: ")))
                         .unwrap_or(("unknown", !result_str.starts_with("Error: ")));
                     scratchpad.log_tool_result(
@@ -660,6 +819,14 @@ impl AgentExecutor {
             }
 
             state.increment_iteration();
+
+            for (_id, content) in streaming_buffer.flush_all() {
+                emitter.emit_text_delta(&content).await;
+            }
+        }
+
+        for (_id, content) in streaming_buffer.flush_all() {
+            emitter.emit_text_delta(&content).await;
         }
 
         // Build result
@@ -745,14 +912,23 @@ impl AgentExecutor {
         emitter: &mut dyn StreamEmitter,
         scratchpad: Option<&Scratchpad>,
         iteration: usize,
+        execution_id: &str,
+        streaming_buffer: &mut StreamingBuffer,
     ) -> Result<crate::llm::CompletionResponse> {
         if !self.llm.supports_streaming() {
             let response = self.llm.complete(request).await?;
             if let Some(content) = &response.content {
-                emitter.emit_text_delta(content).await;
+                if let Some(flushed) =
+                    streaming_buffer.append(execution_id, content, BufferMode::Replace)
+                {
+                    emitter.emit_text_delta(&flushed).await;
+                }
                 if let Some(scratchpad) = scratchpad {
                     scratchpad.log_text_delta(iteration, content);
                 }
+            }
+            if let Some(flushed) = streaming_buffer.flush(execution_id) {
+                emitter.emit_text_delta(&flushed).await;
             }
             return Ok(response);
         }
@@ -768,7 +944,11 @@ impl AgentExecutor {
 
             if !chunk.text.is_empty() {
                 text.push_str(&chunk.text);
-                emitter.emit_text_delta(&chunk.text).await;
+                if let Some(flushed) =
+                    streaming_buffer.append(execution_id, &chunk.text, BufferMode::Accumulate)
+                {
+                    emitter.emit_text_delta(&flushed).await;
+                }
                 if let Some(scratchpad) = scratchpad {
                     scratchpad.log_text_delta(iteration, &chunk.text);
                 }
@@ -794,6 +974,10 @@ impl AgentExecutor {
             }
         }
 
+        if let Some(flushed) = streaming_buffer.flush(execution_id) {
+            emitter.emit_text_delta(&flushed).await;
+        }
+
         Ok(crate::llm::CompletionResponse {
             content: if text.is_empty() { None } else { Some(text) },
             tool_calls: accumulator.finalize(),
@@ -807,6 +991,7 @@ impl AgentExecutor {
         tool_calls: &[ToolCall],
         emitter: &mut dyn StreamEmitter,
         tool_timeout: Duration,
+        yolo_mode: bool,
     ) -> Vec<(String, Result<crate::tools::ToolOutput>)> {
         let all_parallel = tool_calls.iter().all(|call| {
             self.tools
@@ -816,12 +1001,27 @@ impl AgentExecutor {
         });
 
         if all_parallel && tool_calls.len() > 1 {
-            self.execute_tools_parallel(tool_calls, emitter, tool_timeout)
+            self.execute_tools_parallel(tool_calls, emitter, tool_timeout, yolo_mode)
                 .await
         } else {
-            self.execute_tools_sequential(tool_calls, emitter, tool_timeout)
+            self.execute_tools_sequential(tool_calls, emitter, tool_timeout, yolo_mode)
                 .await
         }
+    }
+
+    async fn execute_tool_call(
+        &self,
+        name: &str,
+        mut args: Value,
+        yolo_mode: bool,
+    ) -> Result<crate::tools::ToolOutput> {
+        if yolo_mode
+            && name == "bash"
+            && let Some(map) = args.as_object_mut()
+        {
+            map.insert("yolo_mode".to_string(), Value::Bool(true));
+        }
+        self.tools.execute_safe(name, args).await
     }
 
     async fn execute_tools_sequential(
@@ -829,6 +1029,7 @@ impl AgentExecutor {
         tool_calls: &[ToolCall],
         emitter: &mut dyn StreamEmitter,
         tool_timeout: Duration,
+        yolo_mode: bool,
     ) -> Vec<(String, Result<crate::tools::ToolOutput>)> {
         let mut results = Vec::new();
 
@@ -840,7 +1041,7 @@ impl AgentExecutor {
 
             let result = tokio::time::timeout(
                 tool_timeout,
-                self.tools.execute_safe(&call.name, call.arguments.clone()),
+                self.execute_tool_call(&call.name, call.arguments.clone(), yolo_mode),
             )
             .await
             .map_err(|_| AiError::Tool(format!("Tool {} timed out", call.name)))
@@ -873,6 +1074,7 @@ impl AgentExecutor {
         tool_calls: &[ToolCall],
         emitter: &mut dyn StreamEmitter,
         tool_timeout: Duration,
+        yolo_mode: bool,
     ) -> Vec<(String, Result<crate::tools::ToolOutput>)> {
         for call in tool_calls {
             let arguments = serde_json::to_string(&call.arguments).unwrap_or_default();
@@ -886,11 +1088,17 @@ impl AgentExecutor {
             .iter()
             .map(|call| {
                 let name = call.name.clone();
-                let args = call.arguments.clone();
+                let mut args = call.arguments.clone();
                 let id = call.id.clone();
                 let tools = Arc::clone(&tools);
                 let timeout_dur = tool_timeout;
                 async move {
+                    if yolo_mode
+                        && name == "bash"
+                        && let Some(map) = args.as_object_mut()
+                    {
+                        map.insert("yolo_mode".to_string(), Value::Bool(true));
+                    }
                     let result = tokio::time::timeout(timeout_dur, tools.execute_safe(&name, args))
                         .await
                         .map_err(|_| AiError::Tool(format!("Tool {} timed out", name)))
@@ -967,6 +1175,28 @@ impl AgentExecutor {
         }
 
         sections.join("\n\n")
+    }
+}
+
+fn parse_approval_resolution(instruction: &str) -> Option<(String, bool, Option<String>)> {
+    let trimmed = instruction.trim();
+    let lower = trimmed.to_ascii_lowercase();
+    if !lower.starts_with("approval ") {
+        return None;
+    }
+
+    let mut parts = trimmed.splitn(4, ' ');
+    let _ = parts.next();
+    let approval_id = parts.next()?.trim();
+    let action = parts.next()?.trim().to_ascii_lowercase();
+    let reason = parts.next().map(|s| s.trim().to_string());
+
+    if action == "approved" {
+        Some((approval_id.to_string(), true, reason))
+    } else if action == "denied" || action == "rejected" {
+        Some((approval_id.to_string(), false, reason))
+    } else {
+        None
     }
 }
 
@@ -1099,6 +1329,39 @@ mod tests {
 
         async fn execute(&self, input: Value) -> Result<ToolOutput> {
             Ok(ToolOutput::success(input))
+        }
+    }
+
+    struct PendingApprovalTool;
+
+    #[async_trait]
+    impl Tool for PendingApprovalTool {
+        fn name(&self) -> &str {
+            "approval_tool"
+        }
+
+        fn description(&self) -> &str {
+            "Always returns pending approval"
+        }
+
+        fn parameters_schema(&self) -> Value {
+            serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "command": { "type": "string" }
+                }
+            })
+        }
+
+        async fn execute(&self, _input: Value) -> Result<ToolOutput> {
+            Ok(ToolOutput {
+                success: false,
+                result: serde_json::json!({
+                    "pending_approval": true,
+                    "approval_id": "approval-test-1"
+                }),
+                error: Some("Approval required".to_string()),
+            })
         }
     }
 
@@ -1330,6 +1593,45 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_executor_defers_approval_and_continues() {
+        let responses = vec![
+            CompletionResponse {
+                content: Some("Need a tool".to_string()),
+                tool_calls: vec![ToolCall {
+                    id: "call_1".to_string(),
+                    name: "approval_tool".to_string(),
+                    arguments: serde_json::json!({"command": "danger"}),
+                }],
+                finish_reason: FinishReason::ToolCalls,
+                usage: None,
+            },
+            CompletionResponse {
+                content: Some("continued".to_string()),
+                tool_calls: vec![],
+                finish_reason: FinishReason::Stop,
+                usage: None,
+            },
+        ];
+
+        let mock_llm = Arc::new(MockLlmClient::new(responses));
+        let mut registry = ToolRegistry::new();
+        registry.register(PendingApprovalTool);
+        let executor = AgentExecutor::new(mock_llm.clone(), Arc::new(registry));
+
+        let result = executor
+            .run(AgentConfig::new("test deferred"))
+            .await
+            .unwrap();
+
+        assert!(result.success);
+        assert_eq!(mock_llm.call_count(), 2);
+        assert!(result.state.messages.iter().any(|m| {
+            m.content
+                .contains("Deferred execution for tool 'approval_tool'")
+        }));
+    }
+
+    #[tokio::test]
     async fn test_run_stream_basic() {
         let response = CompletionResponse {
             content: Some("stream-finished".to_string()),
@@ -1516,6 +1818,19 @@ mod tests {
 
         assert!(result.success);
         assert_eq!(emitter.completed.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn test_parse_approval_resolution() {
+        assert_eq!(
+            parse_approval_resolution("approval abc approved"),
+            Some(("abc".to_string(), true, None))
+        );
+        assert_eq!(
+            parse_approval_resolution("approval id-1 denied too dangerous"),
+            Some(("id-1".to_string(), false, Some("too dangerous".to_string())))
+        );
+        assert!(parse_approval_resolution("hello world").is_none());
     }
 
     #[tokio::test]

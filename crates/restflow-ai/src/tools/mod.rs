@@ -40,6 +40,7 @@ mod vision;
 mod web_fetch;
 mod web_search;
 mod workspace_note;
+mod wrapper;
 
 use file_tracker::FileTracker;
 
@@ -51,8 +52,9 @@ pub use auth_profile::{
 pub use background_agent::{
     BackgroundAgentControlRequest, BackgroundAgentCreateRequest,
     BackgroundAgentDeliverableListRequest, BackgroundAgentMessageListRequest,
-    BackgroundAgentMessageRequest, BackgroundAgentProgressRequest, BackgroundAgentStore,
-    BackgroundAgentTool, BackgroundAgentUpdateRequest,
+    BackgroundAgentMessageRequest, BackgroundAgentProgressRequest,
+    BackgroundAgentScratchpadListRequest, BackgroundAgentScratchpadReadRequest,
+    BackgroundAgentStore, BackgroundAgentTool, BackgroundAgentUpdateRequest,
 };
 pub use bash::{BashInput, BashOutput, BashTool};
 pub use config::ConfigTool;
@@ -98,6 +100,7 @@ pub use workspace_note::{
     WorkspaceNotePatch, WorkspaceNoteProvider, WorkspaceNoteQuery, WorkspaceNoteRecord,
     WorkspaceNoteSpec, WorkspaceNoteStatus, WorkspaceNoteTool,
 };
+pub use wrapper::{LoggingWrapper, RateLimitWrapper, TimeoutWrapper, ToolWrapper, WrappedTool};
 
 /// Create a registry with default tools
 pub fn default_registry() -> ToolRegistry {

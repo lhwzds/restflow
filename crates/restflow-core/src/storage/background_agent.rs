@@ -44,12 +44,40 @@ impl BackgroundAgentStorage {
     }
 
     fn validate_task_input(input: Option<&str>, input_template: Option<&str>) -> Result<()> {
-        if Self::has_non_empty_text(input) || Self::has_non_empty_text(input_template) {
+        if Self::resolve_effective_input_for_validation(input, input_template).is_some() {
             return Ok(());
         }
         Err(anyhow::anyhow!(
             "background agent requires non-empty input or input_template"
         ))
+    }
+
+    fn resolve_effective_input_for_validation(
+        input: Option<&str>,
+        input_template: Option<&str>,
+    ) -> Option<String> {
+        let fallback_input = input
+            .filter(|value| Self::has_non_empty_text(Some(value)))
+            .map(str::to_string);
+
+        if let Some(template) = input_template {
+            let rendered = Self::render_input_template_for_validation(template, input);
+            if !rendered.trim().is_empty() {
+                return Some(rendered);
+            }
+            return fallback_input;
+        }
+
+        fallback_input
+    }
+
+    fn render_input_template_for_validation(template: &str, input: Option<&str>) -> String {
+        let input_value = input.unwrap_or_default();
+        let replacements = std::collections::HashMap::from([
+            ("{{task.input}}", input_value),
+            ("{{input}}", input_value),
+        ]);
+        crate::utils::template::render_template_single_pass(template, &replacements)
     }
 
     /// Create a new BackgroundAgentStorage instance
@@ -223,17 +251,7 @@ impl BackgroundAgentStorage {
 
     /// Delete an agent task and all its events
     pub fn delete_task(&self, id: &str) -> Result<bool> {
-        let task = match self.get_task(id)? {
-            Some(task) => task,
-            None => return Ok(false),
-        };
-
-        // First delete all queued background messages for this task
-        self.inner.delete_background_messages_for_task(id)?;
-        // First delete all events for this task
-        self.inner.delete_events_for_task(id)?;
-        // Then delete the task itself with status index cleanup
-        self.inner.delete_task_with_status(id, task.status.as_str())
+        self.inner.delete_task_cascade(id)
     }
 
     /// Pause an agent task
@@ -372,6 +390,9 @@ impl BackgroundAgentStorage {
         if let Some(resource_limits) = spec.resource_limits {
             task.resource_limits = resource_limits;
         }
+        if let Some(continuation) = spec.continuation {
+            task.continuation = continuation;
+        }
         task.updated_at = chrono::Utc::now().timestamp_millis();
         self.update_task(&task)?;
         Ok(task)
@@ -424,6 +445,11 @@ impl BackgroundAgentStorage {
         }
         if let Some(resource_limits) = patch.resource_limits {
             task.resource_limits = resource_limits;
+        }
+        if let Some(continuation) = patch.continuation {
+            task.continuation = continuation;
+            task.continuation_total_iterations = 0;
+            task.continuation_segments_completed = 0;
         }
         Self::validate_task_input(task.input.as_deref(), task.input_template.as_deref())?;
 
@@ -1008,6 +1034,14 @@ mod tests {
         // Add some events
         let event = BackgroundAgentEvent::new(task.id.clone(), BackgroundAgentEventType::Started);
         storage.add_event(&event).unwrap();
+        let bg_message = storage
+            .send_background_agent_message(
+                &task.id,
+                "queued message".to_string(),
+                BackgroundMessageSource::User,
+            )
+            .unwrap();
+        assert_eq!(bg_message.status, BackgroundMessageStatus::Queued);
 
         // Delete the task
         let deleted = storage.delete_task(&task.id).unwrap();
@@ -1020,6 +1054,10 @@ mod tests {
         // Events should also be gone
         let events = storage.list_events_for_task(&task.id).unwrap();
         assert!(events.is_empty());
+
+        // Background messages should also be gone
+        let messages = storage.list_background_agent_messages(&task.id, 10).unwrap();
+        assert!(messages.is_empty());
     }
 
     #[test]
@@ -1229,6 +1267,7 @@ mod tests {
                 memory: None,
                 durability_mode: None,
                 resource_limits: None,
+                continuation: None,
             })
             .unwrap();
 
@@ -1265,6 +1304,7 @@ mod tests {
                 memory: None,
                 durability_mode: None,
                 resource_limits: None,
+                continuation: None,
             })
             .unwrap();
 
@@ -1346,6 +1386,7 @@ mod tests {
                 memory: None,
                 durability_mode: None,
                 resource_limits: None,
+                continuation: None,
             })
             .unwrap();
         assert_eq!(created.name, "BG Agent");
@@ -1447,6 +1488,7 @@ mod tests {
                 }),
                 durability_mode: None,
                 resource_limits: None,
+                continuation: None,
             })
             .unwrap();
 
@@ -1476,6 +1518,7 @@ mod tests {
                 memory: None,
                 durability_mode: None,
                 resource_limits: None,
+                continuation: None,
             })
             .unwrap();
 
@@ -1521,6 +1564,7 @@ mod tests {
             memory: None,
             durability_mode: None,
             resource_limits: None,
+            continuation: None,
         });
 
         assert!(result.is_err());
@@ -1549,6 +1593,7 @@ mod tests {
                 memory: None,
                 durability_mode: None,
                 resource_limits: None,
+                continuation: None,
             })
             .unwrap();
 
@@ -1589,6 +1634,7 @@ mod tests {
                     max_output_bytes: 2048,
                     max_cost_usd: Some(1.25),
                 }),
+                continuation: None,
             })
             .unwrap();
 
@@ -1619,6 +1665,72 @@ mod tests {
     }
 
     #[test]
+    fn test_background_agent_continuation_roundtrip() {
+        use crate::models::ContinuationConfig;
+
+        let storage = create_test_storage();
+        let created = storage
+            .create_background_agent(BackgroundAgentSpec {
+                name: "Continuation Task".to_string(),
+                agent_id: "agent-001".to_string(),
+                description: None,
+                input: Some("Run continuation roundtrip".to_string()),
+                input_template: None,
+                schedule: BackgroundAgentSchedule::default(),
+                notification: None,
+                execution_mode: None,
+                timeout_secs: None,
+                memory: None,
+                durability_mode: None,
+                resource_limits: None,
+                continuation: Some(ContinuationConfig {
+                    enabled: true,
+                    segment_iterations: 40,
+                    max_total_iterations: 800,
+                    max_total_cost_usd: Some(4.5),
+                    inter_segment_pause_ms: 250,
+                }),
+            })
+            .unwrap();
+
+        assert!(created.continuation.enabled);
+        assert_eq!(created.continuation.segment_iterations, 40);
+        assert_eq!(created.continuation.max_total_iterations, 800);
+        assert_eq!(created.continuation.max_total_cost_usd, Some(4.5));
+        assert_eq!(created.continuation.inter_segment_pause_ms, 250);
+        assert_eq!(created.continuation_total_iterations, 0);
+        assert_eq!(created.continuation_segments_completed, 0);
+
+        let mut advanced = created.clone();
+        advanced.continuation_total_iterations = 120;
+        advanced.continuation_segments_completed = 3;
+        storage.update_task(&advanced).unwrap();
+
+        let updated = storage
+            .update_background_agent(
+                &created.id,
+                BackgroundAgentPatch {
+                    continuation: Some(ContinuationConfig {
+                        enabled: true,
+                        segment_iterations: 60,
+                        max_total_iterations: 1_200,
+                        max_total_cost_usd: Some(6.0),
+                        inter_segment_pause_ms: 500,
+                    }),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+
+        assert_eq!(updated.continuation.segment_iterations, 60);
+        assert_eq!(updated.continuation.max_total_iterations, 1_200);
+        assert_eq!(updated.continuation.max_total_cost_usd, Some(6.0));
+        assert_eq!(updated.continuation.inter_segment_pause_ms, 500);
+        assert_eq!(updated.continuation_total_iterations, 0);
+        assert_eq!(updated.continuation_segments_completed, 0);
+    }
+
+    #[test]
     fn test_create_background_agent_rejects_missing_input_and_template() {
         let storage = create_test_storage();
         let result = storage.create_background_agent(BackgroundAgentSpec {
@@ -1634,6 +1746,7 @@ mod tests {
             memory: None,
             durability_mode: None,
             resource_limits: None,
+            continuation: None,
         });
 
         assert!(result.is_err());
@@ -1662,6 +1775,7 @@ mod tests {
                 memory: None,
                 durability_mode: None,
                 resource_limits: None,
+                continuation: None,
             })
             .unwrap();
 
@@ -1681,5 +1795,74 @@ mod tests {
                 .to_string()
                 .contains("requires non-empty input or input_template")
         );
+    }
+
+    #[test]
+    fn test_create_background_agent_allows_empty_template_render_when_fallback_input_exists() {
+        let storage = create_test_storage();
+        let result = storage.create_background_agent(BackgroundAgentSpec {
+            name: "Fallback Input".to_string(),
+            agent_id: "agent-001".to_string(),
+            description: None,
+            input: Some("Use fallback".to_string()),
+            input_template: Some("{{input}}".to_string()),
+            schedule: BackgroundAgentSchedule::default(),
+            notification: None,
+            execution_mode: None,
+            timeout_secs: None,
+            memory: None,
+            durability_mode: None,
+            resource_limits: None,
+        });
+
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_create_background_agent_rejects_template_that_renders_empty_without_fallback() {
+        let storage = create_test_storage();
+        let result = storage.create_background_agent(BackgroundAgentSpec {
+            name: "Empty Template".to_string(),
+            agent_id: "agent-001".to_string(),
+            description: None,
+            input: None,
+            input_template: Some("{{input}}".to_string()),
+            schedule: BackgroundAgentSchedule::default(),
+            notification: None,
+            execution_mode: None,
+            timeout_secs: None,
+            memory: None,
+            durability_mode: None,
+            resource_limits: None,
+        });
+
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("requires non-empty input or input_template")
+        );
+    }
+
+    #[test]
+    fn test_create_background_agent_keeps_non_empty_template_compatibility() {
+        let storage = create_test_storage();
+        let result = storage.create_background_agent(BackgroundAgentSpec {
+            name: "Template Compatibility".to_string(),
+            agent_id: "agent-001".to_string(),
+            description: None,
+            input: None,
+            input_template: Some("Task {{task.name}}".to_string()),
+            schedule: BackgroundAgentSchedule::default(),
+            notification: None,
+            execution_mode: None,
+            timeout_secs: None,
+            memory: None,
+            durability_mode: None,
+            resource_limits: None,
+        });
+
+        assert!(result.is_ok());
     }
 }

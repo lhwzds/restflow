@@ -31,8 +31,8 @@ pub use background_agent::{
     BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentEvent, BackgroundAgentEventType,
     BackgroundAgentPatch, BackgroundAgentSchedule, BackgroundAgentSpec, BackgroundAgentStatus,
     BackgroundMessage, BackgroundMessageSource, BackgroundMessageStatus, BackgroundProgress,
-    CliExecutionConfig, DurabilityMode, ExecutionMode, MemoryConfig, MemoryScope,
-    NotificationConfig, ResourceLimits, TaskEvent, TaskEventType, TaskSchedule,
+    CliExecutionConfig, ContinuationConfig, DurabilityMode, ExecutionMode, MemoryConfig,
+    MemoryScope, NotificationConfig, ResourceLimits, TaskEvent, TaskEventType, TaskSchedule,
 };
 pub use checkpoint::{AgentCheckpoint, ResumePayload};
 pub use deliverable::{Deliverable, DeliverableType};

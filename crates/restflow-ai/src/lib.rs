@@ -48,11 +48,13 @@ pub use steer::{SteerMessage, SteerSource};
 pub use tools::{
     AgentCreateRequest, AgentCrudTool, AgentStore, AgentUpdateRequest, AuthProfileCreateRequest,
     AuthProfileStore, AuthProfileTestRequest, AuthProfileTool, CredentialInput, DeliverableStore,
-    DiagnosticsProvider, DiagnosticsTool, EmailTool, HttpTool, MemoryClearRequest,
+    DiagnosticsProvider, DiagnosticsTool, EmailTool, HttpTool, LoggingWrapper,
+    MemoryClearRequest,
     MemoryCompactRequest, MemoryExportRequest, MemoryManagementTool, MemoryManager,
-    MemorySearchMatch, MemorySearchTool, MemoryStore, ProcessManager, ProcessTool, ReplySender,
-    ReplyTool, SaveDeliverableTool, SecretResolver, SemanticMemory, SessionCreateRequest,
+    MemorySearchMatch, MemorySearchTool, MemoryStore, ProcessManager, ProcessTool,
+    RateLimitWrapper, ReplySender, ReplyTool, SaveDeliverableTool, SecretResolver,
+    SemanticMemory, SessionCreateRequest,
     SessionListFilter, SessionSearchQuery, SessionStore, SessionTool, SkillContent, SkillInfo,
-    SkillProvider, SkillRecord, SkillTool, SkillUpdate, SwitchModelTool, Tool, ToolOutput,
-    ToolRegistry, ToolSchema, TranscribeTool, VisionTool,
+    SkillProvider, SkillRecord, SkillTool, SkillUpdate, SwitchModelTool, TimeoutWrapper, Tool,
+    ToolOutput, ToolRegistry, ToolSchema, ToolWrapper, TranscribeTool, VisionTool, WrappedTool,
 };

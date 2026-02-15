@@ -20,6 +20,7 @@ use crate::{
     },
     process::ProcessRegistry,
     prompt_files,
+    services::skill_triggers::match_triggers,
     storage::Storage,
 };
 use restflow_ai::agent::{
@@ -453,13 +454,40 @@ impl AgentRuntimeExecutor {
         agent_node: &AgentNode,
         agent_id: Option<&str>,
         background_task_id: Option<&str>,
+        user_input: Option<&str>,
     ) -> Result<String> {
-        let base_prompt = build_agent_system_prompt(self.storage.clone(), agent_node, agent_id)?;
+        let mut prompt_agent = agent_node.clone();
+        if let Some(input) = user_input.map(str::trim).filter(|value| !value.is_empty()) {
+            let triggered_skill_ids = self.resolve_triggered_skill_ids(input)?;
+            if !triggered_skill_ids.is_empty() {
+                let mut effective_skills = prompt_agent.skills.clone().unwrap_or_default();
+                for skill_id in triggered_skill_ids {
+                    if !effective_skills
+                        .iter()
+                        .any(|existing| existing == &skill_id)
+                    {
+                        effective_skills.push(skill_id);
+                    }
+                }
+                prompt_agent.skills = Some(effective_skills);
+            }
+        }
+
+        let base_prompt = build_agent_system_prompt(self.storage.clone(), &prompt_agent, agent_id)?;
         let policy_prompt = prompt_files::load_background_agent_policy(background_task_id)?;
         if policy_prompt.trim().is_empty() {
             return Ok(base_prompt);
         }
         Ok(format!("{base_prompt}\n\n{policy_prompt}"))
+    }
+
+    fn resolve_triggered_skill_ids(&self, user_input: &str) -> Result<Vec<String>> {
+        let skills = self.storage.skills.list()?;
+        let matches = match_triggers(user_input, &skills);
+        Ok(matches
+            .into_iter()
+            .map(|matched| matched.skill_id)
+            .collect())
     }
 
     /// Build the tool registry for an agent.
@@ -951,14 +979,15 @@ impl AgentRuntimeExecutor {
             python_runtime,
         );
         let system_prompt =
-            self.build_background_system_prompt(agent_node, agent_id, background_task_id)?;
+            self.build_background_system_prompt(agent_node, agent_id, background_task_id, input)?;
         let goal = input.unwrap_or("Execute the agent task");
         let mut config = ReActAgentConfig::new(goal.to_string())
             .with_system_prompt(system_prompt)
             .with_max_memory_messages(memory_config.max_messages)
             .with_context_window(Self::context_window_for_model(model))
             .with_resource_limits(Self::to_agent_resource_limits(resource_limits))
-            .with_max_tool_result_length(resource_limits.max_output_bytes);
+            .with_max_tool_result_length(resource_limits.max_output_bytes)
+            .with_yolo_mode(background_task_id.is_some());
         if let Some(compaction) = Self::build_compaction_config(memory_config) {
             config = config.with_compaction_config(compaction);
         }
@@ -1436,7 +1465,7 @@ impl AgentRuntimeExecutor {
 mod tests {
     use super::*;
     use crate::auth::{AuthProvider, Credential, CredentialSource};
-    use crate::models::{AgentNode, MemoryConfig};
+    use crate::models::{AgentNode, MemoryConfig, Skill};
     use crate::runtime::subagent::{AgentDefinitionRegistry, SubagentConfig, SubagentTracker};
     use restflow_ai::ReplySender;
     use std::future::Future;
@@ -1465,6 +1494,18 @@ mod tests {
             subagent_definitions,
             subagent_config,
         )
+    }
+
+    fn create_trigger_skill(id: &str, trigger: &str, content: &str) -> Skill {
+        let mut skill = Skill::new(
+            id.to_string(),
+            "Trigger Skill".to_string(),
+            Some("triggered skill".to_string()),
+            None,
+            content.to_string(),
+        );
+        skill.triggers = vec![trigger.to_string()];
+        skill
     }
 
     #[test]
@@ -1563,6 +1604,44 @@ mod tests {
 
         assert!(filtered.iter().any(|name| name == "reply"));
         assert!(filtered.iter().any(|name| name == "bash"));
+    }
+
+    #[test]
+    fn test_build_background_system_prompt_includes_triggered_skill() {
+        let (storage, _temp_dir) = create_test_storage();
+        let executor = create_test_executor(storage.clone());
+        let skill = create_trigger_skill("triggered-skill", "code review", "Triggered Content");
+        storage.skills.create(&skill).unwrap();
+
+        let node = AgentNode {
+            prompt: Some("Base Prompt".to_string()),
+            ..AgentNode::new()
+        };
+        let prompt = executor
+            .build_background_system_prompt(&node, None, None, Some("please do code review"))
+            .unwrap();
+
+        assert!(prompt.contains("Base Prompt"));
+        assert!(prompt.contains("Triggered Content"));
+    }
+
+    #[test]
+    fn test_build_background_system_prompt_skips_non_matching_skill() {
+        let (storage, _temp_dir) = create_test_storage();
+        let executor = create_test_executor(storage.clone());
+        let skill = create_trigger_skill("triggered-skill", "deploy release", "Triggered Content");
+        storage.skills.create(&skill).unwrap();
+
+        let node = AgentNode {
+            prompt: Some("Base Prompt".to_string()),
+            ..AgentNode::new()
+        };
+        let prompt = executor
+            .build_background_system_prompt(&node, None, None, Some("review this patch"))
+            .unwrap();
+
+        assert!(prompt.contains("Base Prompt"));
+        assert!(!prompt.contains("Triggered Content"));
     }
 
     #[tokio::test]

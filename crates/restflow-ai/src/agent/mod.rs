@@ -35,6 +35,7 @@
 
 mod checkpoint;
 mod context;
+mod deferred;
 mod definitions;
 mod execution_engine;
 mod executor;
@@ -47,6 +48,7 @@ mod state;
 mod step;
 pub mod strategy;
 mod stream;
+mod streaming_buffer;
 pub mod stuck;
 mod sub_agent;
 mod trace;
@@ -56,6 +58,7 @@ pub use context::{
     AgentContext, ContextDiscoveryConfig, ContextLoader, DiscoveredContext, MemoryContext,
     SkillSummary, WorkspaceContextCache,
 };
+pub use deferred::{DeferredExecutionManager, DeferredStatus, DeferredToolCall};
 pub use definitions::{AgentDefinition, AgentDefinitionRegistry, builtin_agents};
 pub use execution_engine::{AgentExecutionEngine, AgentExecutionEngineConfig, ExecutionResult};
 pub use executor::{AgentConfig, AgentExecutor, AgentResult};
