@@ -36,6 +36,9 @@
 //! │           ApprovalManager                                    │
 //! │             (pending approvals, callbacks)                   │
 //! │                                                              │
+//! │           ApprovalCache                                      │
+//! │             (cached grants to reduce approval fatigue)       │
+//! │                                                              │
 //! └─────────────────────────────────────────────────────────────┘
 //! ```
 //!
@@ -60,6 +63,7 @@
 
 mod amendments;
 mod approval;
+mod cache;
 mod checker;
 mod config_store;
 mod path_resolver;
@@ -69,5 +73,6 @@ pub use amendments::{
     AmendmentMatchType, AmendmentScope, SecurityAmendment, SecurityAmendmentStore,
 };
 pub use approval::{ApprovalCallback, ApprovalManager};
+pub use cache::{ApprovalCache, ApprovalGrant, ApprovalScope as CacheApprovalScope};
 pub use checker::SecurityChecker;
 pub use config_store::SecurityConfigStore;

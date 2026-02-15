@@ -6,6 +6,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
+use parking_lot::RwLock as SyncRwLock;
 use async_trait::async_trait;
 use redb::Database;
 use tokio::sync::RwLock;
@@ -14,6 +15,7 @@ use super::{
     AmendmentMatchType, AmendmentScope, ApprovalManager, SecurityAmendmentStore,
     SecurityConfigStore,
 };
+use super::cache::{ApprovalCache, ApprovalScope as CacheApprovalScope};
 use crate::models::security::{
     AgentSecurityConfig, AskMode, SecurityAction, SecurityCheckResult, SecurityMode,
     SecurityPolicy, ToolAction, ToolRule,
@@ -38,6 +40,9 @@ pub struct SecurityChecker {
 
     /// Optional persistent amendments for auto-approving known-safe patterns
     amendment_store: Option<Arc<SecurityAmendmentStore>>,
+
+    /// In-memory cache for approval grants (session-level caching)
+    approval_cache: Arc<SyncRwLock<ApprovalCache>>,
 }
 
 impl SecurityChecker {
@@ -50,6 +55,7 @@ impl SecurityChecker {
             approval_manager,
             config_store,
             amendment_store: None,
+            approval_cache: Arc::new(SyncRwLock::new(ApprovalCache::new())),
         }
     }
 
@@ -63,6 +69,7 @@ impl SecurityChecker {
             approval_manager: Arc::new(ApprovalManager::new()),
             config_store,
             amendment_store: None,
+            approval_cache: Arc::new(SyncRwLock::new(ApprovalCache::new())),
         }
     }
 
@@ -80,6 +87,18 @@ impl SecurityChecker {
     /// Attach a persistent amendment store to the checker.
     pub fn with_amendment_store(mut self, store: Arc<SecurityAmendmentStore>) -> Self {
         self.amendment_store = Some(store);
+        self
+    }
+
+    /// Attach an approval cache to the checker.
+    pub fn with_cache(mut self, cache: ApprovalCache) -> Self {
+        self.approval_cache = Arc::new(SyncRwLock::new(cache));
+        self
+    }
+
+    /// Attach a shared approval cache to the checker.
+    pub fn with_cache_shared(mut self, cache: Arc<SyncRwLock<ApprovalCache>>) -> Self {
+        self.approval_cache = cache;
         self
     }
 
@@ -269,6 +288,13 @@ impl SecurityChecker {
             decision = Decision::Allow;
         }
 
+        // Check approval cache for session-level grants
+        if matches!(decision, Decision::RequireApproval)
+            && self.approval_cache.read().check("bash", command_trimmed, workdir.as_deref()).is_some()
+        {
+            decision = Decision::Allow;
+        }
+
         match decision {
             Decision::Allow => {
                 let reason = if amended {
@@ -346,6 +372,12 @@ impl SecurityChecker {
                         {
                             return Ok(SecurityDecision::allowed(Some(
                                 "Tool action allowed by approved amendment".to_string(),
+                            )));
+                        }
+                        // Check cache for tool actions
+                        if self.approval_cache.read().check(&action.tool_name, &command_like, None).is_some() {
+                            return Ok(SecurityDecision::allowed(Some(
+                                "Tool action allowed by cached approval".to_string(),
                             )));
                         }
                         let task_id = task_id.unwrap_or("unknown");
@@ -577,6 +609,54 @@ impl SecurityChecker {
                 .ok()
                 .flatten()
         })
+    }
+
+    /// Grant an approval in the in-memory cache.
+    ///
+    /// This allows future identical requests to skip the approval flow.
+    pub fn grant_cache(
+        &self,
+        tool_name: impl Into<String>,
+        action: impl Into<String>,
+        path: Option<String>,
+        scope: CacheApprovalScope,
+    ) {
+        self.approval_cache.write().grant(tool_name, action, path, scope);
+    }
+
+    /// Grant a session-level approval in the cache.
+    pub fn grant_session(
+        &self,
+        tool_name: impl Into<String>,
+        action: impl Into<String>,
+        path: Option<String>,
+    ) {
+        self.grant_cache(tool_name, action, path, CacheApprovalScope::Session);
+    }
+
+    /// Grant a single-use approval in the cache.
+    pub fn grant_this_call(
+        &self,
+        tool_name: impl Into<String>,
+        action: impl Into<String>,
+        path: Option<String>,
+    ) {
+        self.grant_cache(tool_name, action, path, CacheApprovalScope::ThisCall);
+    }
+
+    /// Revoke a cached approval.
+    pub fn revoke_cache(
+        &self,
+        tool_name: &str,
+        action: &str,
+        path: Option<&str>,
+    ) -> bool {
+        self.approval_cache.write().revoke(tool_name, action, path).is_some()
+    }
+
+    /// Clear all session-level cached grants.
+    pub fn clear_session_cache(&self) {
+        self.approval_cache.write().clear_session_grants();
     }
 }
 
