@@ -1,7 +1,12 @@
 //! Skills service layer for business logic.
 
-use crate::{AppCore, models::Skill};
+use crate::{
+    AppCore,
+    models::{Skill, ValidationError},
+};
 use anyhow::{Context, Result};
+use regex::Regex;
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -112,6 +117,97 @@ pub fn export_skill_to_markdown(skill: &Skill) -> String {
 /// Import a skill from markdown format
 pub fn import_skill_from_markdown(id: &str, markdown: &str) -> Result<Skill> {
     Skill::from_markdown(id, markdown).context("Failed to parse markdown")
+}
+
+/// Validate a skill with Basic and Standard conformance checks.
+pub fn validate_skill(skill: &Skill) -> Vec<ValidationError> {
+    let mut errors = Vec::new();
+
+    if skill.name.trim().is_empty() {
+        errors.push(ValidationError::new("name", "Skill name cannot be empty"));
+    }
+
+    if skill.content.trim().is_empty() {
+        errors.push(ValidationError::new(
+            "content",
+            "Skill content cannot be empty",
+        ));
+    }
+
+    if let Some(tags) = &skill.tags {
+        for (index, tag) in tags.iter().enumerate() {
+            if tag.trim().is_empty() {
+                errors.push(ValidationError::new(
+                    format!("tags[{index}]"),
+                    "Tag cannot be empty",
+                ));
+            }
+        }
+    }
+
+    for (index, trigger) in skill.triggers.iter().enumerate() {
+        if trigger.trim().is_empty() {
+            errors.push(ValidationError::new(
+                format!("triggers[{index}]"),
+                "Trigger cannot be empty",
+            ));
+        }
+    }
+
+    let variable_regex = Regex::new(r"\{\{\s*([^{}]+?)\s*\}\}").expect("valid variable regex");
+    let variable_name_regex = Regex::new(r"^[a-zA-Z_][a-zA-Z0-9_]*$").expect("valid name regex");
+    for captures in variable_regex.captures_iter(&skill.content) {
+        let variable_name = captures[1].trim();
+        if !variable_name_regex.is_match(variable_name) {
+            errors.push(ValidationError::new(
+                "content",
+                format!("Invalid variable '{variable_name}': must match [a-zA-Z_][a-zA-Z0-9_]*"),
+            ));
+        }
+    }
+
+    for tool in &skill.suggested_tools {
+        if !variable_name_regex.is_match(tool) {
+            errors.push(ValidationError::new(
+                "suggested_tools",
+                format!("Invalid tool name '{tool}': must match [a-zA-Z_][a-zA-Z0-9_]*"),
+            ));
+        }
+    }
+
+    errors
+}
+
+/// Validate a skill with complete checks that require external registry data.
+pub fn validate_skill_complete(
+    skill: &Skill,
+    tool_names: &[String],
+    skill_ids: &[String],
+) -> Vec<ValidationError> {
+    let mut errors = validate_skill(skill);
+
+    let known_tools: HashSet<&str> = tool_names.iter().map(String::as_str).collect();
+    let known_skill_ids: HashSet<&str> = skill_ids.iter().map(String::as_str).collect();
+
+    for tool in &skill.suggested_tools {
+        if !known_tools.contains(tool.as_str()) {
+            errors.push(ValidationError::new(
+                "suggested_tools",
+                format!("Tool '{tool}' not found in registry"),
+            ));
+        }
+    }
+
+    for reference in &skill.references {
+        if !known_skill_ids.contains(reference.id.as_str()) {
+            errors.push(ValidationError::new(
+                "references",
+                format!("Referenced skill '{}' not found", reference.id),
+            ));
+        }
+    }
+
+    errors
 }
 
 #[cfg(test)]
@@ -362,5 +458,91 @@ This is the skill content."#;
         assert_eq!(imported.description, original.description);
         assert_eq!(imported.tags, original.tags);
         // Note: content might have minor whitespace differences after roundtrip
+    }
+
+    #[test]
+    fn test_validate_skill_empty_fields() {
+        let mut skill = create_test_skill("skill-1", "Skill One");
+        skill.name = "   ".to_string();
+        skill.content = "\n".to_string();
+        skill.tags = Some(vec!["ok".to_string(), " ".to_string()]);
+        skill.triggers = vec!["".to_string()];
+
+        let errors = validate_skill(&skill);
+
+        assert!(errors.iter().any(|e| e.field == "name"));
+        assert!(errors.iter().any(|e| e.field == "content"));
+        assert!(errors.iter().any(|e| e.field == "tags[1]"));
+        assert!(errors.iter().any(|e| e.field == "triggers[0]"));
+    }
+
+    #[test]
+    fn test_validate_skill_invalid_tool_and_variable_name() {
+        let mut skill = create_test_skill("skill-2", "Skill Two");
+        skill.content = "Use {{invalid-name}} and {{valid_name}}".to_string();
+        skill.suggested_tools = vec!["good_tool".to_string(), "bad-tool".to_string()];
+
+        let errors = validate_skill(&skill);
+
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.field == "content" && e.message.contains("invalid-name"))
+        );
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.field == "suggested_tools" && e.message.contains("bad-tool"))
+        );
+    }
+
+    #[test]
+    fn test_validate_skill_complete_unknown_tool_and_reference() {
+        let mut skill = create_test_skill("skill-3", "Skill Three");
+        skill.suggested_tools = vec!["bash".to_string(), "missing_tool".to_string()];
+        skill.references = vec![
+            crate::models::skill_folder::SkillReference {
+                id: "known-skill".to_string(),
+                path: "./SKILL.md".to_string(),
+            },
+            crate::models::skill_folder::SkillReference {
+                id: "missing-skill".to_string(),
+                path: "./missing.md".to_string(),
+            },
+        ];
+
+        let tool_names = vec!["bash".to_string(), "file".to_string()];
+        let skill_ids = vec!["known-skill".to_string(), "other-skill".to_string()];
+
+        let errors = validate_skill_complete(&skill, &tool_names, &skill_ids);
+
+        assert!(
+            errors
+                .iter()
+                .any(|e| { e.field == "suggested_tools" && e.message.contains("missing_tool") })
+        );
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.field == "references" && e.message.contains("missing-skill"))
+        );
+    }
+
+    #[test]
+    fn test_validate_skill_complete_valid_skill() {
+        let mut skill = create_test_skill("skill-4", "Skill Four");
+        skill.content = "Use {{ticket_id}} with {{ticket_id}}".to_string();
+        skill.suggested_tools = vec!["bash".to_string()];
+        skill.references = vec![crate::models::skill_folder::SkillReference {
+            id: "known-skill".to_string(),
+            path: "./SKILL.md".to_string(),
+        }];
+
+        let tool_names = vec!["bash".to_string()];
+        let skill_ids = vec!["known-skill".to_string()];
+
+        let errors = validate_skill_complete(&skill, &tool_names, &skill_ids);
+
+        assert!(errors.is_empty());
     }
 }

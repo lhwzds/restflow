@@ -25,6 +25,17 @@ You can create and manage **autonomous background agents** that run independentl
   - **progress**: Get execution progress by `id` (optional `event_limit`, default 10)
   - **send_message**: Send input to running agent by `id` + `message` (optional `source`: user/agent/system)
   - **list_messages**: List messages for agent by `id` (optional `limit`, default 50)
+  - **list_deliverables**: List typed deliverables produced by the task via `id`
+
+### Deliverables
+
+Use `save_deliverable` to persist structured outputs from an execution:
+- `type`: `report` | `data` | `file` | `artifact`
+- `title`: Human-readable title
+- `content`: Main payload
+- `file_path`: Optional generated file path
+- `content_type`: Optional MIME type
+- `metadata`: Optional structured metadata
 
 #### Schedule Types
 

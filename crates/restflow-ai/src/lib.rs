@@ -27,8 +27,9 @@ pub mod tools;
 // Re-export commonly used types
 pub use agent::{
     AgentConfig, AgentExecutionEngine, AgentExecutionEngineConfig, AgentExecutor, AgentResult,
-    AgentState, AgentStatus, ExecutionResult, ExecutionStep, HistoryPipeline, HistoryProcessor,
-    ResourceLimits, ResourceUsage, Scratchpad, TraceEvent, TrimOldMessagesProcessor,
+    AgentState, AgentStatus, CheckpointDurability, ExecutionResult, ExecutionStep, HistoryPipeline,
+    HistoryProcessor, ResourceLimits, ResourceUsage, Scratchpad, TraceEvent,
+    TrimOldMessagesProcessor,
 };
 pub use embedding::{
     EmbeddingCache, EmbeddingConfig, EmbeddingProvider, OpenAIEmbedding, VoyageEmbedding,
@@ -47,11 +48,13 @@ pub use security::{SecurityDecision, SecurityGate, ToolAction};
 pub use steer::{SteerMessage, SteerSource};
 pub use tools::{
     AgentCreateRequest, AgentCrudTool, AgentStore, AgentUpdateRequest, AuthProfileCreateRequest,
-    AuthProfileStore, AuthProfileTestRequest, AuthProfileTool, CredentialInput,
-    DiagnosticsProvider, DiagnosticsTool, EmailTool, HttpTool, LoggingWrapper, MemoryClearRequest,
+    AuthProfileStore, AuthProfileTestRequest, AuthProfileTool, CredentialInput, DeliverableStore,
+    DiagnosticsProvider, DiagnosticsTool, EmailTool, HttpTool, LoggingWrapper,
+    MemoryClearRequest,
     MemoryCompactRequest, MemoryExportRequest, MemoryManagementTool, MemoryManager,
     MemorySearchMatch, MemorySearchTool, MemoryStore, ProcessManager, ProcessTool,
-    RateLimitWrapper, ReplySender, ReplyTool, SecretResolver, SemanticMemory, SessionCreateRequest,
+    RateLimitWrapper, ReplySender, ReplyTool, SaveDeliverableTool, SecretResolver,
+    SemanticMemory, SessionCreateRequest,
     SessionListFilter, SessionSearchQuery, SessionStore, SessionTool, SkillContent, SkillInfo,
     SkillProvider, SkillRecord, SkillTool, SkillUpdate, SwitchModelTool, TimeoutWrapper, Tool,
     ToolOutput, ToolRegistry, ToolSchema, ToolWrapper, TranscribeTool, VisionTool, WrappedTool,

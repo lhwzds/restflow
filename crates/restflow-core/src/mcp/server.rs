@@ -8,10 +8,10 @@ use crate::daemon::{IpcClient, IpcRequest, IpcResponse};
 use crate::models::{
     AIModel, BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentPatch,
     BackgroundAgentSchedule, BackgroundAgentSpec, BackgroundAgentStatus, BackgroundMessage,
-    BackgroundMessageSource, BackgroundProgress, ChatSession, ChatSessionSummary, DurabilityMode,
-    Hook, HookAction, HookEvent, HookFilter, MemoryChunk, MemoryConfig, MemoryScope,
-    MemorySearchQuery, MemorySearchResult, MemorySource, MemoryStats, Provider, ResourceLimits,
-    SearchMode, Skill, SkillStatus,
+    BackgroundMessageSource, BackgroundProgress, ChatSession, ChatSessionSummary, Deliverable,
+    DurabilityMode, Hook, HookAction, HookEvent, HookFilter, MemoryChunk, MemoryConfig,
+    MemoryScope, MemorySearchQuery, MemorySearchResult, MemorySource, MemoryStats, Provider,
+    ResourceLimits, SearchMode, Skill, SkillStatus, ValidationError,
 };
 use crate::services::tool_registry::create_tool_registry;
 use crate::storage::SecretStorage;
@@ -123,6 +123,7 @@ pub trait McpBackend: Send + Sync {
         id: &str,
         limit: usize,
     ) -> Result<Vec<BackgroundMessage>, String>;
+    async fn list_deliverables(&self, task_id: &str) -> Result<Vec<Deliverable>, String>;
 
     async fn list_hooks(&self) -> Result<Vec<Hook>, String>;
     async fn create_hook(&self, hook: Hook) -> Result<Hook, String>;
@@ -150,6 +151,7 @@ fn create_runtime_tool_registry_for_core(core: &Arc<AppCore>) -> restflow_ai::to
         core.storage.background_agents.clone(),
         core.storage.triggers.clone(),
         core.storage.terminal_sessions.clone(),
+        core.storage.deliverables.clone(),
         None,
         None,
     )
@@ -396,6 +398,14 @@ impl McpBackend for CoreBackend {
             .storage
             .background_agents
             .list_background_agent_messages(id, limit)
+            .map_err(|e| e.to_string())
+    }
+
+    async fn list_deliverables(&self, task_id: &str) -> Result<Vec<Deliverable>, String> {
+        self.core
+            .storage
+            .deliverables
+            .list_by_task(task_id)
             .map_err(|e| e.to_string())
     }
 
@@ -698,6 +708,24 @@ impl McpBackend for IpcBackend {
             limit: Some(limit),
         })
         .await
+    }
+
+    async fn list_deliverables(&self, task_id: &str) -> Result<Vec<Deliverable>, String> {
+        let result = self
+            .execute_runtime_tool(
+                "manage_background_agents",
+                serde_json::json!({
+                    "operation": "list_deliverables",
+                    "id": task_id,
+                }),
+            )
+            .await?;
+        if !result.success {
+            return Err(result
+                .error
+                .unwrap_or_else(|| "Runtime tool execution failed".to_string()));
+        }
+        serde_json::from_value(result.result).map_err(|e| e.to_string())
     }
 
     async fn list_hooks(&self) -> Result<Vec<Hook>, String> {
@@ -1370,13 +1398,20 @@ impl RestFlowMcpServer {
             params.tags,
             params.content,
         );
+        let warnings = self.skill_validation_warnings(&skill).await;
 
         self.backend
             .create_skill(skill)
             .await
             .map_err(|e| format!("Failed to create skill: {}", e))?;
 
-        Ok(format!("Skill created successfully with ID: {}", id))
+        let mut message = format!("Skill created successfully with ID: {}", id);
+        if let Some(warning_message) = Self::format_validation_warnings(&warnings) {
+            message.push('\n');
+            message.push_str(&warning_message);
+        }
+
+        Ok(message)
     }
 
     async fn handle_update_skill(&self, params: UpdateSkillParams) -> Result<String, String> {
@@ -1394,13 +1429,19 @@ impl RestFlowMcpServer {
             params.tags.map(Some),
             params.content,
         );
+        let warnings = self.skill_validation_warnings(&skill).await;
 
         self.backend
             .update_skill(skill)
             .await
             .map_err(|e| format!("Failed to update skill: {}", e))?;
 
-        Ok(format!("Skill {} updated successfully", params.id))
+        let mut message = format!("Skill {} updated successfully", params.id);
+        if let Some(warning_message) = Self::format_validation_warnings(&warnings) {
+            message.push('\n');
+            message.push_str(&warning_message);
+        }
+        Ok(message)
     }
 
     async fn handle_delete_skill(&self, params: DeleteSkillParams) -> Result<String, String> {
@@ -1729,6 +1770,11 @@ impl RestFlowMcpServer {
                 )
                 .map_err(|e| e.to_string())?
             }
+            "list_deliverables" => {
+                let id = Self::required_string(params.id, "id")?;
+                serde_json::to_value(self.backend.list_deliverables(&id).await?)
+                    .map_err(|e| e.to_string())?
+            }
             "list_scratchpads" => {
                 let dir = Self::scratchpad_dir()?;
                 let prefix = params.id.map(|id| format!("{id}-"));
@@ -1811,7 +1857,7 @@ impl RestFlowMcpServer {
             }
             _ => {
                 return Err(format!(
-                    "Unknown operation: {}. Supported: create, update, delete, list, control, progress, send_message, list_messages, list_scratchpads, read_scratchpad, pause, resume, cancel, run",
+                    "Unknown operation: {}. Supported: create, update, delete, list, control, progress, send_message, list_messages, list_deliverables, list_scratchpads, read_scratchpad, pause, resume, cancel, run",
                     operation
                 ));
             }
@@ -1929,6 +1975,36 @@ impl RestFlowMcpServer {
                 .unwrap_or_else(|| "switch_model execution failed".to_string()))
         }
     }
+
+    async fn skill_validation_warnings(&self, skill: &Skill) -> Vec<ValidationError> {
+        let tool_names = self
+            .backend
+            .list_runtime_tools()
+            .await
+            .map(|tools| tools.into_iter().map(|tool| tool.name).collect::<Vec<_>>())
+            .unwrap_or_default();
+        let skill_ids = self
+            .backend
+            .list_skills()
+            .await
+            .map(|skills| skills.into_iter().map(|entry| entry.id).collect::<Vec<_>>())
+            .unwrap_or_default();
+
+        crate::services::skills::validate_skill_complete(skill, &tool_names, &skill_ids)
+    }
+
+    fn format_validation_warnings(errors: &[ValidationError]) -> Option<String> {
+        if errors.is_empty() {
+            return None;
+        }
+
+        let message = errors
+            .iter()
+            .map(|error| format!("{}: {}", error.field, error.message))
+            .collect::<Vec<_>>()
+            .join("; ");
+        Some(format!("Warnings: {}", message))
+    }
 }
 
 // ============================================================================
@@ -2036,7 +2112,7 @@ impl ServerHandler for RestFlowMcpServer {
             ),
             Tool::new(
                 "manage_background_agents",
-                "Manage background agents. Operations: create (define new agent), run (trigger now), pause/resume (toggle schedule), cancel (stop permanently), delete (remove definition), list (browse agents), progress (execution history), send_message/list_messages (interact with running agents), list_scratchpads/read_scratchpad (diagnose execution traces).",
+                "Manage background agents. Operations: create (define new agent), run (trigger now), pause/resume (toggle schedule), cancel (stop permanently), delete (remove definition), list (browse agents), progress (execution history), send_message/list_messages (interact with running agents), list_deliverables (read typed outputs), list_scratchpads/read_scratchpad (diagnose execution traces).",
                 schema_for_type::<ManageBackgroundAgentsParams>(),
             ),
             Tool::new(
@@ -2620,6 +2696,26 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_create_skill_returns_validation_warnings_non_blocking() {
+        let (server, _core, _temp_dir, _temp_agents, _guard) = create_test_server().await;
+
+        let params = CreateSkillParams {
+            name: "   ".to_string(),
+            description: None,
+            tags: Some(vec!["valid".to_string(), "".to_string()]),
+            content: "   ".to_string(),
+        };
+        let result = server.handle_create_skill(params).await;
+
+        assert!(result.is_ok());
+        let message = result.unwrap();
+        assert!(message.contains("created successfully"));
+        assert!(message.contains("Warnings:"));
+        assert!(message.contains("name: Skill name cannot be empty"));
+        assert!(message.contains("content: Skill content cannot be empty"));
+    }
+
+    #[tokio::test]
     async fn test_update_skill_success() {
         let (server, core, _temp_dir, _temp_agents, _guard) = create_test_server().await;
 
@@ -2648,6 +2744,37 @@ mod tests {
         assert_eq!(updated.name, "Updated Name");
         assert_eq!(updated.description, Some("Updated description".to_string()));
         assert_eq!(updated.content, "# Updated content");
+    }
+
+    #[tokio::test]
+    async fn test_update_skill_returns_validation_warnings_non_blocking() {
+        let (server, core, _temp_dir, _temp_agents, _guard) = create_test_server().await;
+
+        let skill = create_test_skill("warn-skill", "Warn Skill");
+        crate::services::skills::create_skill(&core, skill)
+            .await
+            .unwrap();
+
+        let params = UpdateSkillParams {
+            id: "warn-skill".to_string(),
+            name: None,
+            description: None,
+            tags: None,
+            content: Some("Use {{bad-variable}} in template".to_string()),
+        };
+        let result = server.handle_update_skill(params).await;
+
+        assert!(result.is_ok());
+        let message = result.unwrap();
+        assert!(message.contains("updated successfully"));
+        assert!(message.contains("Warnings:"));
+        assert!(message.contains("Invalid variable 'bad-variable'"));
+
+        let updated = crate::services::skills::get_skill(&core, "warn-skill")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(updated.content, "Use {{bad-variable}} in template");
     }
 
     #[tokio::test]
@@ -3252,6 +3379,10 @@ mod tests {
             Ok(Vec::new())
         }
 
+        async fn list_deliverables(&self, _task_id: &str) -> Result<Vec<Deliverable>, String> {
+            Ok(Vec::new())
+        }
+
         async fn list_hooks(&self) -> Result<Vec<Hook>, String> {
             Ok(Vec::new())
         }
@@ -3358,6 +3489,20 @@ mod tests {
             .unwrap();
         let tasks: Vec<serde_json::Value> = serde_json::from_str(&json).unwrap();
         assert!(tasks.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_manage_background_agents_list_deliverables_operation() {
+        let server = RestFlowMcpServer::with_backend(Arc::new(MockBackend::new()));
+        let mut params = base_manage_background_params("list_deliverables");
+        params.id = Some("task-1".to_string());
+
+        let json = server
+            .handle_manage_background_agents(params)
+            .await
+            .unwrap();
+        let deliverables: Vec<serde_json::Value> = serde_json::from_str(&json).unwrap();
+        assert!(deliverables.is_empty());
     }
 
     #[tokio::test]
