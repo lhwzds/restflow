@@ -10,8 +10,8 @@ const CONFIG_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("system_
 
 // Default configuration constants
 const DEFAULT_WORKER_COUNT: usize = 4;
-const DEFAULT_TASK_TIMEOUT_SECONDS: u64 = 300; // 5 minutes
-const DEFAULT_STALL_TIMEOUT_SECONDS: u64 = 300; // 5 minutes
+const DEFAULT_TASK_TIMEOUT_SECONDS: u64 = 1800; // 30 minutes
+const DEFAULT_STALL_TIMEOUT_SECONDS: u64 = 600; // 10 minutes
 const DEFAULT_BACKGROUND_API_TIMEOUT_SECONDS: u64 = 3600; // 60 minutes
 const DEFAULT_MAX_RETRIES: u32 = 3;
 const DEFAULT_CHAT_SESSION_RETENTION_DAYS: u32 = 30;

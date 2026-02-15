@@ -133,7 +133,7 @@ impl Default for RunnerConfig {
         Self {
             poll_interval_ms: 10_000, // 10 seconds
             max_concurrent_tasks: 5,
-            task_timeout_secs: 300, // 5 minutes
+            task_timeout_secs: 1800, // 30 minutes
         }
     }
 }
