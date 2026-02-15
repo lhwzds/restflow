@@ -90,7 +90,7 @@ pub use telegram::{TelegramTool, send_telegram_notification};
 pub use toolset::{Toolset, ToolsetContext};
 pub use traits::{
     SecretResolver, SkillContent, SkillInfo, SkillProvider, SkillRecord, SkillUpdate, Tool,
-    ToolOutput, ToolSchema,
+    ToolErrorCategory, ToolOutput, ToolSchema,
 };
 pub use transcribe::TranscribeTool;
 pub use vision::VisionTool;

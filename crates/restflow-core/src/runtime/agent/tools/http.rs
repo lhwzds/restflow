@@ -112,6 +112,9 @@ impl Tool for HttpTool {
                 success: false,
                 result: json!(text),
                 error: Some(format!("HTTP error: {}", status)),
+                error_category: None,
+                retryable: None,
+                retry_after_ms: None,
             })
         }
     }

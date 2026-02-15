@@ -149,6 +149,9 @@ impl Tool for BashTool {
                 success: false,
                 result: json!(stdout),
                 error: Some(stderr),
+                error_category: None,
+                retryable: None,
+                retry_after_ms: None,
             })
         }
     }

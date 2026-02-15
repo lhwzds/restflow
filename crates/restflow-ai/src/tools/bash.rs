@@ -30,7 +30,7 @@ use nix::sys::signal::{Signal, killpg};
 #[cfg(unix)]
 use nix::unistd::Pid;
 
-use super::traits::{Tool, ToolOutput};
+use super::traits::{Tool, ToolErrorCategory, ToolOutput};
 use crate::error::Result;
 use crate::security::SecurityGate;
 
@@ -190,6 +190,37 @@ impl BashTool {
             (text, false)
         }
     }
+
+    fn classify_command_failure(stderr: &str) -> (ToolErrorCategory, bool) {
+        let normalized = stderr.to_ascii_lowercase();
+
+        if normalized.contains("command not found")
+            || normalized.contains("no such file or directory")
+        {
+            return (ToolErrorCategory::Config, false);
+        }
+
+        if normalized.contains("permission denied")
+            || normalized.contains("operation not permitted")
+            || normalized.contains("unauthorized")
+        {
+            return (ToolErrorCategory::Auth, false);
+        }
+
+        if normalized.contains("connection refused")
+            || normalized.contains("connection reset")
+            || normalized.contains("timed out")
+            || normalized.contains("timeout")
+            || normalized.contains("temporary failure in name resolution")
+            || normalized.contains("name or service not known")
+            || normalized.contains("network is unreachable")
+            || normalized.contains("no route to host")
+        {
+            return (ToolErrorCategory::Network, true);
+        }
+
+        (ToolErrorCategory::Execution, false)
+    }
 }
 
 /// Input parameters for bash command execution
@@ -295,6 +326,9 @@ impl Tool for BashTool {
                             "approval_id": decision.approval_id,
                         }),
                         error: decision.reason,
+                        error_category: Some(ToolErrorCategory::Auth),
+                        retryable: Some(false),
+                        retry_after_ms: None,
                     });
                 }
 
@@ -304,6 +338,9 @@ impl Tool for BashTool {
                         "blocked": true,
                     }),
                     error: decision.reason,
+                    error_category: Some(ToolErrorCategory::Config),
+                    retryable: Some(false),
+                    retry_after_ms: None,
                 });
             }
         }
@@ -318,6 +355,8 @@ impl Tool for BashTool {
 
         match result {
             Ok((exit_code, stdout, stderr, truncated)) => {
+                let failure_meta =
+                    (exit_code != 0).then(|| Self::classify_command_failure(&stderr));
                 let output = BashOutput {
                     exit_code,
                     stdout,
@@ -329,11 +368,11 @@ impl Tool for BashTool {
                 Ok(ToolOutput {
                     success: exit_code == 0,
                     result: serde_json::to_value(&output)?,
-                    error: if exit_code != 0 {
-                        Some(format!("Command exited with code {}", exit_code))
-                    } else {
-                        None
-                    },
+                    error: (exit_code != 0)
+                        .then(|| format!("Command exited with code {}", exit_code)),
+                    error_category: failure_meta.as_ref().map(|(category, _)| category.clone()),
+                    retryable: failure_meta.map(|(_, retryable)| retryable),
+                    retry_after_ms: None,
                 })
             }
             Err(e) if e.kind() == std::io::ErrorKind::TimedOut => Ok(ToolOutput {
@@ -343,11 +382,17 @@ impl Tool for BashTool {
                     "timeout_secs": timeout_secs,
                 }),
                 error: Some(format!("Timeout after {} seconds", timeout_secs)),
+                error_category: Some(ToolErrorCategory::Network),
+                retryable: Some(true),
+                retry_after_ms: None,
             }),
             Err(e) => Ok(ToolOutput {
                 success: false,
                 result: serde_json::json!({"error": e.to_string()}),
                 error: Some(e.to_string()),
+                error_category: Some(ToolErrorCategory::Execution),
+                retryable: Some(false),
+                retry_after_ms: None,
             }),
         }
     }
@@ -602,6 +647,24 @@ mod tests {
         assert!(!output.success);
         let result: BashOutput = serde_json::from_value(output.result).unwrap();
         assert_ne!(result.exit_code, 0);
+        assert_eq!(output.error_category, Some(ToolErrorCategory::Config));
+        assert_eq!(output.retryable, Some(false));
+    }
+
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn test_bash_tool_execute_network_classified_as_retryable() {
+        let tool = BashTool::new();
+        let output = tool
+            .execute(serde_json::json!({
+                "command": "echo 'Connection refused' >&2; exit 7"
+            }))
+            .await
+            .unwrap();
+
+        assert!(!output.success);
+        assert_eq!(output.error_category, Some(ToolErrorCategory::Network));
+        assert_eq!(output.retryable, Some(true));
     }
 
     #[tokio::test]

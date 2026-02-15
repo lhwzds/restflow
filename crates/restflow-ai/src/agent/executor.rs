@@ -23,10 +23,13 @@ use crate::error::{AiError, Result};
 use crate::llm::{CompletionRequest, FinishReason, LlmClient, Message, Role, ToolCall};
 use crate::memory::{CompactionConfig, CompactionResult, DEFAULT_MAX_MESSAGES, WorkingMemory};
 use crate::steer::SteerMessage;
-use crate::tools::ToolRegistry;
+use crate::tools::{ToolErrorCategory, ToolRegistry};
 use futures::{Stream, StreamExt};
 use tokio::sync::{Mutex, mpsc};
+use tokio::time::sleep;
 use tracing::debug;
+
+const MAX_TOOL_RETRIES: usize = 2;
 
 /// Agent type for system prompt composition.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -1114,6 +1117,58 @@ impl AgentExecutor {
     async fn execute_tool_call(
         &self,
         name: &str,
+        args: Value,
+        yolo_mode: bool,
+    ) -> Result<crate::tools::ToolOutput> {
+        let mut retry_count = 0usize;
+
+        loop {
+            let output = self
+                .execute_tool_call_once(name, args.clone(), yolo_mode)
+                .await?;
+            if output.success {
+                return Ok(output);
+            }
+
+            let pending_approval = output
+                .result
+                .get("pending_approval")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            if pending_approval {
+                return Ok(output);
+            }
+
+            let retryable = output.retryable.unwrap_or(false);
+            if retryable && retry_count < MAX_TOOL_RETRIES {
+                retry_count += 1;
+                if let Some(wait_ms) = output.retry_after_ms {
+                    sleep(Duration::from_millis(wait_ms)).await;
+                }
+                continue;
+            }
+
+            if matches!(
+                output.error_category,
+                Some(ToolErrorCategory::Auth | ToolErrorCategory::Config)
+            ) {
+                let detail = output
+                    .error
+                    .clone()
+                    .unwrap_or_else(|| "Unknown error".to_string());
+                return Ok(output.with_error_message(format!(
+                    "Non-retryable error: {}. Try a different approach.",
+                    detail
+                )));
+            }
+
+            return Ok(output);
+        }
+    }
+
+    async fn execute_tool_call_once(
+        &self,
+        name: &str,
         mut args: Value,
         yolo_mode: bool,
     ) -> Result<crate::tools::ToolOutput> {
@@ -1185,26 +1240,22 @@ impl AgentExecutor {
                 .await;
         }
 
-        let tools = Arc::clone(&self.tools);
+        let executor = self;
         let futures: Vec<_> = tool_calls
             .iter()
             .map(|call| {
                 let name = call.name.clone();
-                let mut args = call.arguments.clone();
+                let args = call.arguments.clone();
                 let id = call.id.clone();
-                let tools = Arc::clone(&tools);
                 let timeout_dur = tool_timeout;
                 async move {
-                    if yolo_mode
-                        && name == "bash"
-                        && let Some(map) = args.as_object_mut()
-                    {
-                        map.insert("yolo_mode".to_string(), Value::Bool(true));
-                    }
-                    let result = tokio::time::timeout(timeout_dur, tools.execute_safe(&name, args))
-                        .await
-                        .map_err(|_| AiError::Tool(format!("Tool {} timed out", name)))
-                        .and_then(|r| r);
+                    let result = tokio::time::timeout(
+                        timeout_dur,
+                        executor.execute_tool_call(&name, args, yolo_mode),
+                    )
+                    .await
+                    .map_err(|_| AiError::Tool(format!("Tool {} timed out", name)))
+                    .and_then(|r| r);
                     (id, name, result)
                 }
             })
@@ -1309,7 +1360,7 @@ mod tests {
     use crate::llm::{
         CompletionResponse, FinishReason, Role, StreamChunk, StreamResult, TokenUsage, ToolCall,
     };
-    use crate::tools::{Tool, ToolOutput};
+    use crate::tools::{Tool, ToolErrorCategory, ToolOutput};
     use async_trait::async_trait;
     use futures::stream;
     use std::sync::Mutex;
@@ -1463,7 +1514,68 @@ mod tests {
                     "approval_id": "approval-test-1"
                 }),
                 error: Some("Approval required".to_string()),
+                error_category: None,
+                retryable: None,
+                retry_after_ms: None,
             })
+        }
+    }
+
+    struct RetryThenSuccessTool {
+        calls: Arc<AtomicUsize>,
+    }
+
+    #[async_trait]
+    impl Tool for RetryThenSuccessTool {
+        fn name(&self) -> &str {
+            "retry_once_tool"
+        }
+
+        fn description(&self) -> &str {
+            "Fails once with retryable error then succeeds"
+        }
+
+        fn parameters_schema(&self) -> Value {
+            serde_json::json!({"type":"object"})
+        }
+
+        async fn execute(&self, _input: Value) -> Result<ToolOutput> {
+            let current = self.calls.fetch_add(1, Ordering::SeqCst);
+            if current == 0 {
+                Ok(ToolOutput::retryable_error(
+                    "temporary network failure",
+                    ToolErrorCategory::Network,
+                ))
+            } else {
+                Ok(ToolOutput::success(serde_json::json!({"ok": true})))
+            }
+        }
+    }
+
+    struct NonRetryableTool {
+        calls: Arc<AtomicUsize>,
+    }
+
+    #[async_trait]
+    impl Tool for NonRetryableTool {
+        fn name(&self) -> &str {
+            "non_retryable_tool"
+        }
+
+        fn description(&self) -> &str {
+            "Always fails with non-retryable config error"
+        }
+
+        fn parameters_schema(&self) -> Value {
+            serde_json::json!({"type":"object"})
+        }
+
+        async fn execute(&self, _input: Value) -> Result<ToolOutput> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            Ok(ToolOutput::non_retryable_error(
+                "missing required config",
+                ToolErrorCategory::Config,
+            ))
         }
     }
 
@@ -1810,6 +1922,79 @@ mod tests {
             m.content
                 .contains("Deferred execution for tool 'approval_tool'")
         }));
+    }
+
+    #[tokio::test]
+    async fn test_executor_retries_retryable_tool_errors() {
+        let responses = vec![
+            CompletionResponse {
+                content: Some("try tool".to_string()),
+                tool_calls: vec![ToolCall {
+                    id: "call_1".to_string(),
+                    name: "retry_once_tool".to_string(),
+                    arguments: serde_json::json!({}),
+                }],
+                finish_reason: FinishReason::ToolCalls,
+                usage: None,
+            },
+            CompletionResponse {
+                content: Some("done".to_string()),
+                tool_calls: vec![],
+                finish_reason: FinishReason::Stop,
+                usage: None,
+            },
+        ];
+
+        let calls = Arc::new(AtomicUsize::new(0));
+        let tool = RetryThenSuccessTool {
+            calls: calls.clone(),
+        };
+        let mock_llm = Arc::new(MockLlmClient::new(responses));
+        let mut registry = ToolRegistry::new();
+        registry.register(tool);
+        let executor = AgentExecutor::new(mock_llm, Arc::new(registry));
+
+        let result = executor.run(AgentConfig::new("retry test")).await.unwrap();
+        assert!(result.success);
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn test_executor_skips_retry_for_non_retryable_errors() {
+        let responses = vec![
+            CompletionResponse {
+                content: Some("try tool".to_string()),
+                tool_calls: vec![ToolCall {
+                    id: "call_1".to_string(),
+                    name: "non_retryable_tool".to_string(),
+                    arguments: serde_json::json!({}),
+                }],
+                finish_reason: FinishReason::ToolCalls,
+                usage: None,
+            },
+            CompletionResponse {
+                content: Some("done".to_string()),
+                tool_calls: vec![],
+                finish_reason: FinishReason::Stop,
+                usage: None,
+            },
+        ];
+
+        let calls = Arc::new(AtomicUsize::new(0));
+        let tool = NonRetryableTool {
+            calls: calls.clone(),
+        };
+        let mock_llm = Arc::new(MockLlmClient::new(responses));
+        let mut registry = ToolRegistry::new();
+        registry.register(tool);
+        let executor = AgentExecutor::new(mock_llm, Arc::new(registry));
+
+        let result = executor
+            .run(AgentConfig::new("non retry test"))
+            .await
+            .unwrap();
+        assert!(result.success);
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
     }
 
     #[tokio::test]
