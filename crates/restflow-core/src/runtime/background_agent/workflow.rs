@@ -67,7 +67,28 @@ impl<R: WorkflowPhaseRunner> WorkflowExecutor<R> {
                 .ok_or_else(|| anyhow!("phase {} missing", idx))?;
             self.ensure_dependencies(idx, phase, workflow)?;
             let input = self.render_phase_input(phase, workflow, context);
-            let (output, attempt) = self.execute_phase_with_retry(task, phase, input).await?;
+            
+            // FIX: Catch phase errors to set PhaseFailed status and persist failure checkpoint
+            let (output, attempt) = match self.execute_phase_with_retry(task, phase, input).await {
+                Ok(result) => result,
+                Err(err) => {
+                    // Set status to PhaseFailed and persist failure checkpoint before returning
+                    workflow.status = WorkflowStatus::PhaseFailed {
+                        phase_idx: idx,
+                        error: err.to_string(),
+                    };
+                    let failure_checkpoint = self.build_checkpoint(
+                        workflow,
+                        idx,
+                        0, // attempt is 0 on terminal failure
+                        serde_json::json!({"status": "failed", "error": err.to_string()}),
+                    );
+                    // Best-effort persist; ignore errors to ensure we still return the original error
+                    let _ = self.save_checkpoint(task, &failure_checkpoint).await;
+                    return Err(err);
+                }
+            };
+            
             workflow.phase_outputs.insert(idx as u32, output);
             workflow.current_phase = idx + 1;
             let checkpoint =
@@ -110,14 +131,45 @@ impl<R: WorkflowPhaseRunner> WorkflowExecutor<R> {
         let retry = &phase.retry_config;
         let max_attempts = retry.max_attempts.max(1);
         let mut backoff_ms = retry.initial_backoff_ms.min(retry.max_backoff_ms.max(1));
+        
+        // FIX: Get timeout from phase config
+        let timeout_duration = phase.timeout_secs.map(Duration::from_secs);
 
         loop {
             attempt = attempt.saturating_add(1);
-            match self.runner.run_phase(task, phase, input.clone()).await {
-                Ok(output) => return Ok((output, attempt)),
-                Err(error) => {
+            
+            // FIX: Wrap phase execution with optional timeout
+            let run_result = if let Some(timeout) = timeout_duration {
+                tokio::time::timeout(
+                    timeout,
+                    self.runner.run_phase(task, phase, input.clone())
+                ).await
+            } else {
+                // No timeout configured, run directly and wrap in Ok to match timeout result type
+                Ok(self.runner.run_phase(task, phase, input.clone()).await)
+            };
+            
+            match run_result {
+                Ok(Ok(output)) => return Ok((output, attempt)),
+                Ok(Err(error)) => {
                     if attempt >= max_attempts || self.is_non_retryable(&error, retry) {
                         return Err(error);
+                    }
+                    tokio::time::sleep(Duration::from_millis(backoff_ms)).await;
+                    backoff_ms = ((backoff_ms as f32) * retry.backoff_multiplier)
+                        .round()
+                        .clamp(1.0, retry.max_backoff_ms as f32)
+                        as u64;
+                }
+                // FIX: Handle timeout error
+                Err(_timeout_elapsed) => {
+                    let timeout_error = anyhow!(
+                        "phase '{}' timed out after {}s",
+                        phase.name,
+                        phase.timeout_secs.unwrap_or(0)
+                    );
+                    if attempt >= max_attempts {
+                        return Err(timeout_error);
                     }
                     tokio::time::sleep(Duration::from_millis(backoff_ms)).await;
                     backoff_ms = ((backoff_ms as f32) * retry.backoff_multiplier)
@@ -445,7 +497,8 @@ mod tests {
             .expect_err("workflow should stop on non-retryable error");
         assert!(err.to_string().contains("fatal"));
         assert_eq!(runner.calls(), vec!["phase-a"]);
-        assert_eq!(workflow.current_phase, 0);
+        // FIX: Verify status is PhaseFailed
+        assert!(matches!(workflow.status, WorkflowStatus::PhaseFailed { phase_idx: 0, .. }));
     }
 
     #[tokio::test]
@@ -498,5 +551,214 @@ mod tests {
         assert!(resumed);
         assert_eq!(workflow.current_phase, 1);
         assert_eq!(workflow.phase_outputs.get(&0), Some(&"seed".to_string()));
+    }
+    
+    // FIX: New test for PhaseFailed status and failure checkpoint persistence
+    #[tokio::test]
+    async fn test_phase_failed_status_and_failure_checkpoint() {
+        let mut responses = HashMap::new();
+        responses.insert(
+            "failing-phase".to_string(),
+            VecDeque::from([Err("permanent failure".to_string())]),
+        );
+        let runner = Arc::new(MockPhaseRunner::new(responses));
+        let checkpoint_dir = temp_checkpoint_dir("phase-failed");
+        let executor = WorkflowExecutor::new(runner.clone(), checkpoint_dir.clone());
+        
+        let definition = WorkflowDefinition {
+            phases: vec![WorkflowPhase {
+                name: "failing-phase".to_string(),
+                description: None,
+                skill_id: None,
+                input_template: Some("run".to_string()),
+                retry_config: WorkflowRetryConfig {
+                    max_attempts: 1,
+                    initial_backoff_ms: 1,
+                    max_backoff_ms: 1,
+                    backoff_multiplier: 1.0,
+                    non_retryable_errors: vec!["permanent".to_string()],
+                },
+                depends_on: vec![],
+                timeout_secs: None,
+            }],
+        };
+        let mut workflow = AgentWorkflow::from_definition(
+            "wf-failed".to_string(),
+            "task-failed".to_string(),
+            definition,
+        );
+        let task = test_task("task-failed");
+
+        let err = executor
+            .execute_workflow(&task, &mut workflow, &HashMap::new())
+            .await
+            .expect_err("workflow should fail on non-retryable error");
+        
+        // Verify error message
+        assert!(err.to_string().contains("permanent failure"));
+        
+        // Verify status is PhaseFailed with correct phase_idx
+        match &workflow.status {
+            WorkflowStatus::PhaseFailed { phase_idx, error } => {
+                assert_eq!(*phase_idx, 0);
+                assert!(error.contains("permanent failure"));
+            }
+            _ => panic!("expected PhaseFailed status, got {:?}", workflow.status),
+        }
+        
+        // Verify failure checkpoint was persisted
+        let loaded = executor
+            .load_latest_checkpoint("task-failed")
+            .await
+            .expect("should load checkpoint");
+        let checkpoint = loaded.expect("checkpoint should exist");
+        assert_eq!(checkpoint.workflow_id, "wf-failed");
+        assert_eq!(checkpoint.phase_idx, 0);
+        // State should contain failure info
+        let state = checkpoint.state.as_object().expect("state should be object");
+        assert_eq!(state.get("status").and_then(|v| v.as_str()), Some("failed"));
+    }
+    
+    // FIX: New test for timeout enforcement
+    #[tokio::test]
+    async fn test_timeout_enforcement() {
+        use std::sync::atomic::{AtomicU32, Ordering};
+        
+        struct SlowRunner {
+            calls: AtomicU32,
+        }
+        
+        #[async_trait]
+        impl WorkflowPhaseRunner for SlowRunner {
+            async fn run_phase(
+                &self,
+                _task: &BackgroundAgent,
+                _phase: &WorkflowPhase,
+                _input: String,
+            ) -> Result<String> {
+                self.calls.fetch_add(1, Ordering::SeqCst);
+                // Sleep longer than timeout (timeout is 1s, we sleep 10s)
+                tokio::time::sleep(Duration::from_secs(10)).await;
+                Ok("never reached".to_string())
+            }
+        }
+        
+        let runner = Arc::new(SlowRunner { calls: AtomicU32::new(0) });
+        let checkpoint_dir = temp_checkpoint_dir("timeout");
+        let executor = WorkflowExecutor::new(runner.clone(), checkpoint_dir);
+        
+        let definition = WorkflowDefinition {
+            phases: vec![WorkflowPhase {
+                name: "slow-phase".to_string(),
+                description: None,
+                skill_id: None,
+                input_template: Some("run".to_string()),
+                retry_config: WorkflowRetryConfig {
+                    max_attempts: 1,
+                    initial_backoff_ms: 1,
+                    max_backoff_ms: 1,
+                    backoff_multiplier: 1.0,
+                    non_retryable_errors: Vec::new(),
+                },
+                depends_on: vec![],
+                timeout_secs: Some(1), // 1 second timeout
+            }],
+        };
+        let mut workflow = AgentWorkflow::from_definition(
+            "wf-timeout".to_string(),
+            "task-timeout".to_string(),
+            definition,
+        );
+        let task = test_task("task-timeout");
+
+        let err = executor
+            .execute_workflow(&task, &mut workflow, &HashMap::new())
+            .await
+            .expect_err("workflow should fail on timeout");
+        
+        // Verify timeout error message
+        assert!(err.to_string().contains("timed out"));
+        
+        // Verify status is PhaseFailed
+        match &workflow.status {
+            WorkflowStatus::PhaseFailed { phase_idx, error } => {
+                assert_eq!(*phase_idx, 0);
+                assert!(error.contains("timed out"));
+            }
+            _ => panic!("expected PhaseFailed status, got {:?}", workflow.status),
+        }
+        
+        // Verify runner was called exactly once (no retries since max_attempts=1)
+        assert_eq!(runner.calls.load(Ordering::SeqCst), 1);
+    }
+    
+    // FIX: New test for timeout with retry
+    #[tokio::test]
+    async fn test_timeout_with_retry() {
+        use std::sync::atomic::{AtomicU32, Ordering};
+        
+        struct SlowThenFastRunner {
+            calls: AtomicU32,
+        }
+        
+        #[async_trait]
+        impl WorkflowPhaseRunner for SlowThenFastRunner {
+            async fn run_phase(
+                &self,
+                _task: &BackgroundAgent,
+                _phase: &WorkflowPhase,
+                _input: String,
+            ) -> Result<String> {
+                let call = self.calls.fetch_add(1, Ordering::SeqCst);
+                if call == 0 {
+                    // First call: timeout (sleep longer than timeout)
+                    tokio::time::sleep(Duration::from_secs(10)).await;
+                    Ok("never reached".to_string())
+                } else {
+                    // Second call: succeed quickly
+                    Ok("success".to_string())
+                }
+            }
+        }
+        
+        let runner = Arc::new(SlowThenFastRunner { calls: AtomicU32::new(0) });
+        let checkpoint_dir = temp_checkpoint_dir("timeout-retry");
+        let executor = WorkflowExecutor::new(runner.clone(), checkpoint_dir);
+        
+        let definition = WorkflowDefinition {
+            phases: vec![WorkflowPhase {
+                name: "phase-with-timeout".to_string(),
+                description: None,
+                skill_id: None,
+                input_template: Some("run".to_string()),
+                retry_config: WorkflowRetryConfig {
+                    max_attempts: 2,
+                    initial_backoff_ms: 1,
+                    max_backoff_ms: 10,
+                    backoff_multiplier: 1.0,
+                    non_retryable_errors: Vec::new(),
+                },
+                depends_on: vec![],
+                timeout_secs: Some(1), // 1 second timeout
+            }],
+        };
+        let mut workflow = AgentWorkflow::from_definition(
+            "wf-timeout-retry".to_string(),
+            "task-timeout-retry".to_string(),
+            definition,
+        );
+        let task = test_task("task-timeout-retry");
+
+        let result = executor
+            .execute_workflow(&task, &mut workflow, &HashMap::new())
+            .await
+            .expect("workflow should succeed after retry");
+        
+        // Verify workflow completed
+        assert_eq!(workflow.status, WorkflowStatus::Completed);
+        assert_eq!(result.phase_outputs.get(&0), Some(&"success".to_string()));
+        
+        // Verify runner was called twice (first timeout, second success)
+        assert_eq!(runner.calls.load(Ordering::SeqCst), 2);
     }
 }
