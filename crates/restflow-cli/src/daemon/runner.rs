@@ -440,6 +440,7 @@ mod tests {
                 memory: Some(MemoryConfig::default()),
                 durability_mode: None,
                 resource_limits: None,
+                prerequisites: Vec::new(),
                 continuation: None,
             })
             .expect("failed to create background agent");
