@@ -69,6 +69,42 @@ async fn show_config(executor: Arc<dyn CommandExecutor>, format: OutputFormat) -
         Cell::new("memory_chunk_retention_days"),
         Cell::new(config.memory_chunk_retention_days),
     ]);
+    table.add_row(vec![
+        Cell::new("agent.max_iterations"),
+        Cell::new(config.agent.max_iterations),
+    ]);
+    table.add_row(vec![
+        Cell::new("agent.tool_timeout_secs"),
+        Cell::new(config.agent.tool_timeout_secs),
+    ]);
+    table.add_row(vec![
+        Cell::new("agent.bash_timeout_secs"),
+        Cell::new(config.agent.bash_timeout_secs),
+    ]);
+    table.add_row(vec![
+        Cell::new("agent.python_timeout_secs"),
+        Cell::new(config.agent.python_timeout_secs),
+    ]);
+    table.add_row(vec![
+        Cell::new("agent.subagent_timeout_secs"),
+        Cell::new(config.agent.subagent_timeout_secs),
+    ]);
+    table.add_row(vec![
+        Cell::new("agent.max_tool_calls"),
+        Cell::new(config.agent.max_tool_calls),
+    ]);
+    table.add_row(vec![
+        Cell::new("agent.max_wall_clock_secs"),
+        Cell::new(config.agent.max_wall_clock_secs),
+    ]);
+    table.add_row(vec![
+        Cell::new("agent.default_task_timeout_secs"),
+        Cell::new(config.agent.default_task_timeout_secs),
+    ]);
+    table.add_row(vec![
+        Cell::new("agent.default_max_duration_secs"),
+        Cell::new(config.agent.default_max_duration_secs),
+    ]);
     crate::output::table::print_table(table)
 }
 
@@ -89,6 +125,16 @@ async fn get_config_value(
         "background_task_retention_days" => json!(config.background_task_retention_days),
         "checkpoint_retention_days" => json!(config.checkpoint_retention_days),
         "memory_chunk_retention_days" => json!(config.memory_chunk_retention_days),
+        "agent" => json!(config.agent),
+        "agent.tool_timeout_secs" => json!(config.agent.tool_timeout_secs),
+        "agent.bash_timeout_secs" => json!(config.agent.bash_timeout_secs),
+        "agent.python_timeout_secs" => json!(config.agent.python_timeout_secs),
+        "agent.max_iterations" => json!(config.agent.max_iterations),
+        "agent.subagent_timeout_secs" => json!(config.agent.subagent_timeout_secs),
+        "agent.max_tool_calls" => json!(config.agent.max_tool_calls),
+        "agent.max_wall_clock_secs" => json!(config.agent.max_wall_clock_secs),
+        "agent.default_task_timeout_secs" => json!(config.agent.default_task_timeout_secs),
+        "agent.default_max_duration_secs" => json!(config.agent.default_max_duration_secs),
         _ => bail!("Unsupported config key: {key}"),
     };
 
@@ -135,6 +181,33 @@ async fn set_config_value(
         }
         "memory_chunk_retention_days" => {
             config.memory_chunk_retention_days = parse_value(value)?;
+        }
+        "agent.tool_timeout_secs" => {
+            config.agent.tool_timeout_secs = parse_value(value)?;
+        }
+        "agent.bash_timeout_secs" => {
+            config.agent.bash_timeout_secs = parse_value(value)?;
+        }
+        "agent.python_timeout_secs" => {
+            config.agent.python_timeout_secs = parse_value(value)?;
+        }
+        "agent.max_iterations" => {
+            config.agent.max_iterations = parse_value(value)?;
+        }
+        "agent.subagent_timeout_secs" => {
+            config.agent.subagent_timeout_secs = parse_value(value)?;
+        }
+        "agent.max_tool_calls" => {
+            config.agent.max_tool_calls = parse_value(value)?;
+        }
+        "agent.max_wall_clock_secs" => {
+            config.agent.max_wall_clock_secs = parse_value(value)?;
+        }
+        "agent.default_task_timeout_secs" => {
+            config.agent.default_task_timeout_secs = parse_value(value)?;
+        }
+        "agent.default_max_duration_secs" => {
+            config.agent.default_max_duration_secs = parse_value(value)?;
         }
         _ => bail!("Unsupported config key: {key}"),
     }
