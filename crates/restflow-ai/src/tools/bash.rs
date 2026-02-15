@@ -193,9 +193,12 @@ impl BashTool {
 
     fn classify_command_failure(stderr: &str) -> (ToolErrorCategory, bool) {
         let normalized = stderr.to_ascii_lowercase();
+        let shell_not_found = (normalized.contains("sh:") || normalized.contains("bash:"))
+            && normalized.contains("not found");
 
         if normalized.contains("command not found")
             || normalized.contains("no such file or directory")
+            || shell_not_found
         {
             return (ToolErrorCategory::Config, false);
         }
@@ -461,6 +464,15 @@ mod tests {
         let tool = BashTool::new();
         assert!(tool.description().contains("shell commands"));
         assert!(tool.description().contains("file tool"));
+    }
+
+    #[test]
+    fn test_classify_command_failure_shell_not_found() {
+        let (category, retryable) =
+            BashTool::classify_command_failure("sh: 1: nonexistent_command_12345: not found");
+
+        assert_eq!(category, ToolErrorCategory::Config);
+        assert!(!retryable);
     }
 
     #[test]
