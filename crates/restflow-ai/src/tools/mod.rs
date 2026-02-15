@@ -30,6 +30,7 @@ mod reply;
 mod save_deliverable;
 mod secrets;
 mod session;
+mod sub_agent;
 mod skill;
 mod switch_model;
 mod telegram;
@@ -84,6 +85,7 @@ pub use secrets::SecretsTool;
 pub use session::{
     SessionCreateRequest, SessionListFilter, SessionSearchQuery, SessionStore, SessionTool,
 };
+pub use sub_agent::{SubAgentInput, SubAgentTool};
 pub use skill::SkillTool;
 pub use switch_model::SwitchModelTool;
 pub use telegram::{TelegramTool, send_telegram_notification};

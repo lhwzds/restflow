@@ -656,11 +656,6 @@ pub struct TaskEvent {
     #[serde(default)]
     #[ts(type = "number | null")]
     pub duration_ms: Option<i64>,
-    /// Hierarchical subflow path identifying position in the call tree.
-    /// When Agent A calls Agent B which calls Agent C, events carry
-    /// the full path ["tool_call_id_1", "tool_call_id_2"].
-    #[serde(default)]
-    pub subflow_path: Vec<String>,
 }
 
 /// Type of task event
@@ -1018,7 +1013,6 @@ impl TaskEvent {
             tokens_used: None,
             cost_usd: None,
             duration_ms: None,
-            subflow_path: Vec::new(),
         }
     }
 
@@ -1037,12 +1031,6 @@ impl TaskEvent {
     /// Create a new event with duration
     pub fn with_duration(mut self, duration_ms: i64) -> Self {
         self.duration_ms = Some(duration_ms);
-        self
-    }
-
-    /// Set the subflow path for hierarchical tracking
-    pub fn with_subflow_path(mut self, path: Vec<String>) -> Self {
-        self.subflow_path = path;
         self
     }
 }
@@ -1604,40 +1592,5 @@ mod tests {
         .with_message("started");
         assert_eq!(event.event_type, BackgroundAgentEventType::Started);
         assert_eq!(event.message.as_deref(), Some("started"));
-    }
-}
-
-// Additional tests for subflow_path tracking
-#[cfg(test)]
-mod subflow_tests {
-    use super::*;
-
-    #[test]
-    fn test_task_event_with_subflow_path() {
-        let event = TaskEvent::new("task-123".to_string(), TaskEventType::Started)
-            .with_subflow_path(vec!["tool_call_1".to_string(), "tool_call_2".to_string()]);
-        
-        assert_eq!(event.subflow_path, vec!["tool_call_1", "tool_call_2"]);
-    }
-
-    #[test]
-    fn test_task_event_default_empty_subflow_path() {
-        let event = TaskEvent::new("task-456".to_string(), TaskEventType::Completed);
-        
-        assert!(event.subflow_path.is_empty());
-    }
-
-    #[test]
-    fn test_task_event_serialization_with_subflow_path() {
-        let event = TaskEvent::new("task-789".to_string(), TaskEventType::Started)
-            .with_subflow_path(vec!["call_1".to_string(), "call_2".to_string()]);
-        
-        let json = serde_json::to_string(&event).unwrap();
-        assert!(json.contains("subflow_path"));
-        assert!(json.contains("call_1"));
-        assert!(json.contains("call_2"));
-        
-        let deserialized: TaskEvent = serde_json::from_str(&json).unwrap();
-        assert_eq!(deserialized.subflow_path, event.subflow_path);
     }
 }

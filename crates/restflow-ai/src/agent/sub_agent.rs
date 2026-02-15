@@ -50,6 +50,10 @@ pub struct SpawnRequest {
 
     /// Optional priority level.
     pub priority: Option<SpawnPriority>,
+    /// Parent subflow path for hierarchical tracking.
+    /// When set, the spawned agent will inherit this path and append its task ID.
+    #[serde(default)]
+    pub parent_subflow_path: Vec<String>,
 }
 
 /// Priority level for sub-agent spawning.
@@ -670,6 +674,7 @@ mod tests {
             task: "Research topic X".to_string(),
             timeout_secs: Some(300),
             priority: Some(SpawnPriority::High),
+            parent_subflow_path: vec![],
         };
 
         let json = serde_json::to_string(&request).unwrap();
