@@ -132,23 +132,24 @@ impl BashTool {
         #[cfg(unix)]
         let process_group_id = child.id().map(|pid| pid as i32);
 
-        let output = match timeout(Duration::from_secs(timeout_secs), child.wait_with_output()).await {
-            Ok(result) => result?,
-            Err(_) => {
-                #[cfg(unix)]
-                if let Some(process_group_id) = process_group_id {
-                    let pgid = Pid::from_raw(process_group_id);
-                    let _ = killpg(pgid, Signal::SIGTERM);
-                    sleep(Duration::from_millis(500)).await;
-                    let _ = killpg(pgid, Signal::SIGKILL);
-                }
+        let output =
+            match timeout(Duration::from_secs(timeout_secs), child.wait_with_output()).await {
+                Ok(result) => result?,
+                Err(_) => {
+                    #[cfg(unix)]
+                    if let Some(process_group_id) = process_group_id {
+                        let pgid = Pid::from_raw(process_group_id);
+                        let _ = killpg(pgid, Signal::SIGTERM);
+                        sleep(Duration::from_millis(500)).await;
+                        let _ = killpg(pgid, Signal::SIGKILL);
+                    }
 
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::TimedOut,
-                    format!("Timeout after {timeout_secs} seconds"),
-                ));
-            }
-        };
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::TimedOut,
+                        format!("Timeout after {timeout_secs} seconds"),
+                    ));
+                }
+            };
 
         let exit_code = output.status.code().unwrap_or(-1);
 
@@ -202,6 +203,9 @@ pub struct BashInput {
     /// Timeout in seconds (optional, default: 120)
     #[serde(default)]
     pub timeout: Option<u64>,
+    /// Internal flag for executor-driven approval bypass.
+    #[serde(default)]
+    pub yolo_mode: bool,
 }
 
 /// Output from bash command execution
@@ -266,7 +270,9 @@ impl Tool for BashTool {
         // Determine timeout
         let timeout_secs = input.timeout.unwrap_or(self.timeout_secs);
 
-        if let Some(security_gate) = &self.security_gate {
+        if !input.yolo_mode
+            && let Some(security_gate) = &self.security_gate
+        {
             let agent_id = self
                 .agent_id
                 .as_deref()
@@ -304,7 +310,9 @@ impl Tool for BashTool {
 
         let start = Instant::now();
 
-        let result = self.run_command(&input.command, &workdir, timeout_secs).await;
+        let result = self
+            .run_command(&input.command, &workdir, timeout_secs)
+            .await;
 
         let duration_ms = start.elapsed().as_millis() as u64;
 
@@ -348,7 +356,28 @@ impl Tool for BashTool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::security::{SecurityDecision, SecurityGate};
+    use async_trait::async_trait;
+    use std::sync::Arc;
     use tempfile::tempdir;
+
+    struct AlwaysApprovalGate;
+
+    #[async_trait]
+    impl SecurityGate for AlwaysApprovalGate {
+        async fn check_command(
+            &self,
+            _command: &str,
+            _task_id: &str,
+            _agent_id: &str,
+            _workdir: Option<&str>,
+        ) -> Result<SecurityDecision> {
+            Ok(SecurityDecision::requires_approval(
+                "approval-1".to_string(),
+                Some("needs approval".to_string()),
+            ))
+        }
+    }
 
     #[test]
     fn test_bash_tool_new() {
@@ -443,6 +472,7 @@ mod tests {
         assert_eq!(input.command, "ls -la");
         assert!(input.workdir.is_none());
         assert!(input.timeout.is_none());
+        assert!(!input.yolo_mode);
     }
 
     #[test]
@@ -456,6 +486,7 @@ mod tests {
         assert_eq!(input.command, "ls -la");
         assert_eq!(input.workdir, Some("/tmp".to_string()));
         assert_eq!(input.timeout, Some(60));
+        assert!(!input.yolo_mode);
     }
 
     #[tokio::test]
@@ -603,6 +634,32 @@ mod tests {
 
         assert!(!output.success);
         assert!(output.error.as_ref().unwrap().contains("Timeout"));
+    }
+
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn test_bash_tool_yolo_mode_bypasses_security_gate() {
+        let tool = BashTool::new().with_security(Arc::new(AlwaysApprovalGate), "agent-1", "task-1");
+
+        let blocked = tool
+            .execute(serde_json::json!({
+                "command": "echo blocked"
+            }))
+            .await
+            .unwrap();
+        assert!(!blocked.success);
+        assert_eq!(blocked.result["pending_approval"], true);
+
+        let yolo = tool
+            .execute(serde_json::json!({
+                "command": "echo allowed",
+                "yolo_mode": true
+            }))
+            .await
+            .unwrap();
+        assert!(yolo.success);
+        let result: BashOutput = serde_json::from_value(yolo.result).unwrap();
+        assert!(result.stdout.contains("allowed"));
     }
 
     #[tokio::test]
