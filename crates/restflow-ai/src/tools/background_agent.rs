@@ -90,6 +90,11 @@ pub struct BackgroundAgentMessageListRequest {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct BackgroundAgentDeliverableListRequest {
+    pub id: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct BackgroundAgentScratchpadListRequest {
     #[serde(default)]
     pub id: Option<String>,
@@ -121,6 +126,10 @@ pub trait BackgroundAgentStore: Send + Sync {
     fn list_background_agent_messages(
         &self,
         request: BackgroundAgentMessageListRequest,
+    ) -> Result<Value>;
+    fn list_background_agent_deliverables(
+        &self,
+        request: BackgroundAgentDeliverableListRequest,
     ) -> Result<Value>;
     fn list_background_agent_scratchpads(
         &self,
@@ -241,6 +250,9 @@ enum BackgroundAgentAction {
         #[serde(default)]
         limit: Option<usize>,
     },
+    ListDeliverables {
+        id: String,
+    },
     ListScratchpads {
         #[serde(default)]
         id: Option<String>,
@@ -273,7 +285,7 @@ impl Tool for BackgroundAgentTool {
     }
 
     fn description(&self) -> &str {
-        "Manage background agents. Operations: create (define new agent), run (trigger now), pause/resume (toggle schedule), cancel (stop permanently), delete (remove definition), list (browse agents), progress (execution history), send_message/list_messages (interact with running agents), list_scratchpads/read_scratchpad (diagnose execution traces)."
+        "Manage background agents. Operations: create (define new agent), run (trigger now), pause/resume (toggle schedule), cancel (stop permanently), delete (remove definition), list (browse agents), progress (execution history), send_message/list_messages (interact with running agents), list_deliverables (typed outputs), list_scratchpads/read_scratchpad (diagnose execution traces)."
     }
 
     fn parameters_schema(&self) -> Value {
@@ -291,6 +303,7 @@ impl Tool for BackgroundAgentTool {
                         "progress",
                         "send_message",
                         "list_messages",
+                        "list_deliverables",
                         "list_scratchpads",
                         "read_scratchpad",
                         "pause",
@@ -581,6 +594,17 @@ impl Tool for BackgroundAgentTool {
                         AiError::Tool(format!("Failed to list messages background agent: {e}."))
                     })?,
             ),
+            BackgroundAgentAction::ListDeliverables { id } => ToolOutput::success(
+                self.store
+                    .list_background_agent_deliverables(BackgroundAgentDeliverableListRequest {
+                        id,
+                    })
+                    .map_err(|e| {
+                        AiError::Tool(format!(
+                            "Failed to list deliverables background agent: {e}."
+                        ))
+                    })?,
+            ),
             BackgroundAgentAction::ListScratchpads { id, limit } => ToolOutput::success(
                 self.store
                     .list_background_agent_scratchpads(BackgroundAgentScratchpadListRequest {
@@ -674,6 +698,17 @@ mod tests {
             }]))
         }
 
+        fn list_background_agent_deliverables(
+            &self,
+            request: BackgroundAgentDeliverableListRequest,
+        ) -> Result<Value> {
+            Ok(json!([{
+                "id": "d-1",
+                "task_id": request.id,
+                "type": "report"
+            }]))
+        }
+
         fn list_background_agent_scratchpads(
             &self,
             request: BackgroundAgentScratchpadListRequest,
@@ -757,6 +792,17 @@ mod tests {
             }]))
         }
 
+        fn list_background_agent_deliverables(
+            &self,
+            request: BackgroundAgentDeliverableListRequest,
+        ) -> Result<Value> {
+            Ok(json!([{
+                "id": "d-1",
+                "task_id": request.id,
+                "type": "report"
+            }]))
+        }
+
         fn list_background_agent_scratchpads(
             &self,
             _request: BackgroundAgentScratchpadListRequest,
@@ -836,6 +882,19 @@ mod tests {
                 "operation": "progress",
                 "id": "task-1",
                 "event_limit": 5
+            }))
+            .await
+            .unwrap();
+        assert!(output.success);
+    }
+
+    #[tokio::test]
+    async fn test_list_deliverables_operation() {
+        let tool = BackgroundAgentTool::new(Arc::new(MockStore));
+        let output = tool
+            .execute(json!({
+                "operation": "list_deliverables",
+                "id": "task-1"
             }))
             .await
             .unwrap();
