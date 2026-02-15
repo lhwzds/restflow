@@ -5,8 +5,10 @@
 //! and workflows.
 
 pub mod cache;
+pub mod factory;
 pub mod server;
 pub mod tools;
 
 pub use cache::{CachedMcpTool, McpToolCache};
+pub use factory::{McpServerFactory, TaskMcpConfig};
 pub use server::RestFlowMcpServer;
