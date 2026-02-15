@@ -147,6 +147,7 @@ pub mod failover;
 pub mod heartbeat;
 pub mod notifier;
 pub mod persist;
+pub mod preflight;
 pub mod retry;
 pub mod runner;
 #[cfg(any(test, feature = "test-utils"))]
