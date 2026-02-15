@@ -1,0 +1,534 @@
+@import 'tailwindcss';
+
+/*
+ * RestFlow Design System - Tailwind CSS v4
+ * Single source of truth for all design tokens
+ *
+ * Color palette: Orange primary (#ff6b35)
+ */
+
+@theme {
+  /* ========================================
+   * Primary Colors - RestFlow Orange
+   * ======================================== */
+  --color-primary: #ff6b35;
+  --color-primary-hover: #ff7d4d;
+  --color-primary-active: #e55a2b;
+  --color-primary-disabled: #ffb396;
+  --color-primary-foreground: #ffffff;
+
+  /* Primary backgrounds */
+  --color-primary-bg: #ffe9df;
+  --color-primary-bg-light: #fff5f0;
+  --color-primary-bg-lighter: #fffbf8;
+
+  /* ========================================
+   * Semantic Colors
+   * ======================================== */
+  --color-success: #67c23a;
+  --color-success-light: #e1f3d8;
+  --color-success-lighter: #f0f9e8;
+
+  --color-warning: #e6a23c;
+  --color-warning-light: #faecd8;
+  --color-warning-lighter: #fdf6ec;
+
+  --color-danger: #f56c6c;
+  --color-danger-light: #fde2e2;
+  --color-danger-lighter: #fef0f0;
+
+  --color-info: #909399;
+  --color-info-light: #e9e9eb;
+  --color-info-lighter: #f4f4f5;
+
+  /* ========================================
+   * Background Colors
+   * ======================================== */
+  --color-background: #ffffff;
+  --color-background-page: #f5f7fa;
+  --color-background-container: #ffffff;
+  --color-background-secondary: #f8fafc;
+  --color-background-overlay: #ffffff;
+
+  /* Popover/Dropdown backgrounds */
+  --color-popover: #ffffff;
+  --color-popover-foreground: #303133;
+
+  /* Card backgrounds */
+  --color-card: #ffffff;
+  --color-card-foreground: #303133;
+
+  /* ========================================
+   * Text Colors
+   * ======================================== */
+  --color-foreground: #303133;
+  --color-foreground-regular: #606266;
+  --color-foreground-secondary: #909399;
+  --color-foreground-muted: #a8abb2;
+  --color-foreground-disabled: #c0c4cc;
+
+  /* ========================================
+   * Border Colors
+   * ======================================== */
+  --color-border: #dcdfe6;
+  --color-border-light: #e4e7ed;
+  --color-border-lighter: #ebeef5;
+  --color-border-extra-light: #f2f6fc;
+  --color-border-focus: #6366f1;
+
+  /* shadcn-vue input border color */
+  --color-input: #dcdfe6;
+
+  /* ========================================
+   * Accent Colors
+   * ======================================== */
+  --color-blue: #3b82f6;
+  --color-blue-light: #60a5fa;
+  --color-purple: #667eea;
+  --color-green: #22c55e;
+  --color-green-light: #4ade80;
+  --color-pink: #ec4899;
+  --color-pink-light: #f472b6;
+
+  /* ========================================
+   * Shadows
+   * ======================================== */
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --shadow-base: 0 2px 4px 0 rgba(0, 0, 0, 0.08);
+  --shadow-md: 0 4px 8px 0 rgba(0, 0, 0, 0.1);
+  --shadow-lg: 0 8px 16px 0 rgba(0, 0, 0, 0.12);
+  --shadow-xl: 0 12px 24px 0 rgba(0, 0, 0, 0.15);
+  --shadow-card: 0 2px 12px 0 rgba(0, 0, 0, 0.06);
+  --shadow-dropdown: 0 6px 16px 0 rgba(0, 0, 0, 0.12);
+  --shadow-dialog: 0 12px 32px 0 rgba(0, 0, 0, 0.15);
+  --shadow-panel: 0 -2px 10px rgba(0, 0, 0, 0.1);
+
+  /* ========================================
+   * Border Radius
+   * ======================================== */
+  --radius-xs: 2px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+  --radius-2xl: 14px;
+  --radius-round: 20px;
+  --radius-circle: 50%;
+
+  /* ========================================
+   * Spacing
+   * ======================================== */
+  --spacing-3xs: 2px;
+  --spacing-2xs: 4px;
+  --spacing-xs: 6px;
+  --spacing-sm: 8px;
+  --spacing-md: 10px;
+  --spacing-lg: 12px;
+  --spacing-xl: 16px;
+  --spacing-2xl: 20px;
+  --spacing-3xl: 24px;
+  --spacing-4xl: 32px;
+  --spacing-5xl: 40px;
+
+  /* ========================================
+   * Sizes
+   * ======================================== */
+  --size-xs: 36px;
+  --size-sm: 64px;
+  --size-base: 80px;
+  --size-md: 140px;
+  --size-lg: 200px;
+  --size-xl: 300px;
+  --size-2xl: 500px;
+
+  /* Component sizes */
+  --size-splitter: 4px;
+  --size-section: 20px;
+  --size-header: 60px;
+  --size-header-sm: 50px;
+  --size-line-lg: 48px;
+  --size-label: 80px;
+  --size-label-lg: 100px;
+  --size-icon-sm: 24px;
+  --size-icon-md: 32px;
+  --size-icon-lg: 40px;
+
+  /* ========================================
+   * Typography
+   * ======================================== */
+  --font-size-xs: 12px;
+  --font-size-sm: 13px;
+  --font-size-base: 14px;
+  --font-size-md: 16px;
+  --font-size-lg: 18px;
+  --font-size-xl: 20px;
+  --font-size-2xl: 24px;
+  --font-size-3xl: 30px;
+  --font-size-4xl: 48px;
+
+  --font-weight-light: 300;
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+
+  --line-height-tight: 1.25;
+  --line-height-base: 1.5;
+  --line-height-relaxed: 1.75;
+
+  /* ========================================
+   * Transitions
+   * ======================================== */
+  --transition-fast: 0.2s;
+  --transition-base: 0.3s;
+  --transition-slow: 0.4s;
+
+  /* ========================================
+   * Z-Index
+   * ======================================== */
+  --z-index-normal: 1;
+  --z-index-dropdown: 10;
+  --z-index-popup: 999;
+  --z-index-tags: 1000;
+  --z-index-sticky: 1020;
+  --z-index-fixed: 1030;
+  --z-index-modal-backdrop: 1040;
+  --z-index-modal: 1050;
+  --z-index-popover: 1060;
+  --z-index-tooltip: 1070;
+
+  /* ========================================
+   * Effects
+   * ======================================== */
+  --transform-lift-sm: -4px;
+  --transform-lift-xs: -1px;
+  --letter-spacing-wide: 2px;
+  --letter-spacing-tight: -0.5px;
+}
+
+/* ========================================
+ * shadcn-vue CSS Variables (HSL format)
+ * Required by shadcn-vue components
+ * ======================================== */
+@layer base {
+  :root {
+    /* Core shadcn variables */
+    --background: 0 0% 100%;
+    --foreground: 224 71.4% 4.1%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 224 71.4% 4.1%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 224 71.4% 4.1%;
+
+    /* Primary: RestFlow Orange (#ff6b35 = hsl(18, 100%, 60%)) */
+    --primary: 18 100% 60%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 220 14.3% 95.9%;
+    --secondary-foreground: 220.9 39.3% 11%;
+
+    --muted: 220 14.3% 95.9%;
+    --muted-foreground: 220 8.9% 46.1%;
+
+    --accent: 220 14.3% 95.9%;
+    --accent-foreground: 220.9 39.3% 11%;
+
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 220 13% 91%;
+    --input: 220 13% 91%;
+    --ring: 18 100% 60%;
+
+    --radius: 0.5rem;
+
+    /* Extended semantic colors for Badge variants */
+    --success: 130 60% 40%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 100%;
+
+    --info: 217 91% 60%;
+    --info-foreground: 0 0% 100%;
+  }
+
+  .dark,
+  html.dark {
+    --background: 0 0% 4%;
+    --foreground: 210 20% 98%;
+
+    --card: 0 0% 8%;
+    --card-foreground: 210 20% 98%;
+
+    --popover: 0 0% 8%;
+    --popover-foreground: 210 20% 98%;
+
+    /* Primary: Brighter orange for dark mode */
+    --primary: 18 100% 65%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 215 27.9% 16.9%;
+    --secondary-foreground: 210 20% 98%;
+
+    --muted: 215 27.9% 16.9%;
+    --muted-foreground: 217.9 10.6% 64.9%;
+
+    --accent: 215 27.9% 16.9%;
+    --accent-foreground: 210 20% 98%;
+
+    --destructive: 0 62.8% 50%;
+    --destructive-foreground: 0 0% 100%;
+
+    /* Dark mode border colors - darker values */
+    --border: 240 3.7% 20%;
+    --input: 240 3.7% 25%;
+    --ring: 18 100% 65%;
+
+    /* Extended semantic colors for dark mode */
+    --success: 130 50% 50%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 38 92% 60%;
+    --warning-foreground: 0 0% 100%;
+
+    --info: 217 91% 70%;
+    --info-foreground: 0 0% 100%;
+  }
+}
+
+/* ========================================
+ * Legacy RestFlow CSS Variables
+ * Maps @theme tokens to --rf-* for backward compatibility
+ * TODO: Gradually migrate components to use Tailwind classes
+ * ======================================== */
+@layer base {
+  :root {
+    /* Primary colors */
+    --rf-color-primary: var(--color-primary);
+    --rf-color-primary-hover: var(--color-primary-hover);
+    --rf-color-primary-active: var(--color-primary-active);
+    --rf-color-primary-disabled: var(--color-primary-disabled);
+    --rf-color-primary-bg: var(--color-primary-bg);
+    --rf-color-primary-bg-light: var(--color-primary-bg-light);
+    --rf-color-primary-bg-lighter: var(--color-primary-bg-lighter);
+    --rf-gradient-primary: linear-gradient(135deg, #ff6b35 0%, #ff8f66 100%);
+
+    /* Semantic colors */
+    --rf-color-success: var(--color-success);
+    --rf-color-success-light: var(--color-success-light);
+    --rf-color-success-lighter: var(--color-success-lighter);
+    --rf-color-warning: var(--color-warning);
+    --rf-color-warning-light: var(--color-warning-light);
+    --rf-color-warning-lighter: var(--color-warning-lighter);
+    --rf-color-danger: var(--color-danger);
+    --rf-color-danger-light: var(--color-danger-light);
+    --rf-color-danger-lighter: var(--color-danger-lighter);
+    --rf-color-info: var(--color-info);
+    --rf-color-info-light: var(--color-info-light);
+    --rf-color-info-lighter: var(--color-info-lighter);
+
+    /* Background colors */
+    --rf-color-bg: var(--color-background);
+    --rf-color-bg-page: var(--color-background-page);
+    --rf-color-bg-container: var(--color-background-container);
+    --rf-color-bg-secondary: var(--color-background-secondary);
+
+    /* Text colors */
+    --rf-color-text-primary: var(--color-foreground);
+    --rf-color-text-regular: var(--color-foreground-regular);
+    --rf-color-text-secondary: var(--color-foreground-secondary);
+    --rf-color-text-placeholder: var(--color-foreground-muted);
+    --rf-color-text-disabled: var(--color-foreground-disabled);
+
+    /* Border colors */
+    --rf-color-border-base: var(--color-border);
+    --rf-color-border-light: var(--color-border-light);
+    --rf-color-border-lighter: var(--color-border-lighter);
+    --rf-color-border-extra-light: var(--color-border-extra-light);
+    --rf-color-border-focus: var(--color-border-focus);
+
+    /* Accent colors */
+    --rf-color-blue: var(--color-blue);
+    --rf-color-purple: var(--color-purple);
+    --rf-color-green: var(--color-green);
+    --rf-color-pink: var(--color-pink);
+    --rf-color-white: #ffffff;
+
+    /* Shadows */
+    --rf-shadow-sm: var(--shadow-sm);
+    --rf-shadow-base: var(--shadow-base);
+    --rf-shadow-md: var(--shadow-md);
+    --rf-shadow-lg: var(--shadow-lg);
+    --rf-shadow-xl: var(--shadow-xl);
+    --rf-shadow-card: var(--shadow-card);
+    --rf-shadow-dropdown: var(--shadow-dropdown);
+    --rf-shadow-dialog: var(--shadow-dialog);
+    --rf-shadow-panel: var(--shadow-panel);
+
+    /* Border radius */
+    --rf-radius-xs: var(--radius-xs);
+    --rf-radius-small: var(--radius-sm);
+    --rf-radius-base: var(--radius-md);
+    --rf-radius-large: var(--radius-lg);
+    --rf-radius-md: var(--radius-xl);
+    --rf-radius-lg: var(--radius-2xl);
+    --rf-radius-round: var(--radius-round);
+    --rf-radius-circle: var(--radius-circle);
+
+    /* Spacing */
+    --rf-spacing-3xs: var(--spacing-3xs);
+    --rf-spacing-2xs: var(--spacing-2xs);
+    --rf-spacing-xs: var(--spacing-xs);
+    --rf-spacing-sm: var(--spacing-sm);
+    --rf-spacing-md: var(--spacing-md);
+    --rf-spacing-lg: var(--spacing-lg);
+    --rf-spacing-xl: var(--spacing-xl);
+    --rf-spacing-2xl: var(--spacing-2xl);
+    --rf-spacing-3xl: var(--spacing-3xl);
+    --rf-spacing-4xl: var(--spacing-4xl);
+    --rf-spacing-5xl: var(--spacing-5xl);
+
+    /* Sizes */
+    --rf-size-xs: var(--size-xs);
+    --rf-size-sm: var(--size-sm);
+    --rf-size-base: var(--size-base);
+    --rf-size-md: var(--size-md);
+    --rf-size-lg: var(--size-lg);
+    --rf-size-xl: var(--size-xl);
+    --rf-size-2xl: var(--size-2xl);
+    --rf-size-splitter: var(--size-splitter);
+    --rf-size-section: var(--size-section);
+    --rf-size-header: var(--size-header);
+    --rf-size-header-sm: var(--size-header-sm);
+    --rf-size-line-lg: var(--size-line-lg);
+    --rf-size-label: var(--size-label);
+    --rf-size-label-lg: var(--size-label-lg);
+    --rf-size-icon-sm: var(--size-icon-sm);
+    --rf-size-icon-md: var(--size-icon-md);
+    --rf-size-icon-lg: var(--size-icon-lg);
+
+    /* Typography */
+    --rf-font-size-xs: var(--font-size-xs);
+    --rf-font-size-sm: var(--font-size-sm);
+    --rf-font-size-base: var(--font-size-base);
+    --rf-font-size-md: var(--font-size-md);
+    --rf-font-size-lg: var(--font-size-lg);
+    --rf-font-size-xl: var(--font-size-xl);
+    --rf-font-size-2xl: var(--font-size-2xl);
+    --rf-font-size-3xl: var(--font-size-3xl);
+    --rf-font-size-4xl: var(--font-size-4xl);
+    --rf-font-weight-light: var(--font-weight-light);
+    --rf-font-weight-regular: var(--font-weight-regular);
+    --rf-font-weight-medium: var(--font-weight-medium);
+    --rf-font-weight-semibold: var(--font-weight-semibold);
+    --rf-font-weight-bold: var(--font-weight-bold);
+    --rf-line-height-tight: var(--line-height-tight);
+    --rf-line-height-base: var(--line-height-base);
+    --rf-line-height-relaxed: var(--line-height-relaxed);
+
+    /* Transitions */
+    --rf-transition-fast: var(--transition-fast);
+    --rf-transition-base: var(--transition-base);
+    --rf-transition-slow: var(--transition-slow);
+    --rf-transition-func: cubic-bezier(0.4, 0, 0.2, 1);
+
+    /* Z-index */
+    --rf-z-index-normal: var(--z-index-normal);
+    --rf-z-index-dropdown: var(--z-index-dropdown);
+    --rf-z-index-popup: var(--z-index-popup);
+    --rf-z-index-tags: var(--z-index-tags);
+    --rf-z-index-sticky: var(--z-index-sticky);
+    --rf-z-index-fixed: var(--z-index-fixed);
+    --rf-z-index-modal-backdrop: var(--z-index-modal-backdrop);
+    --rf-z-index-modal: var(--z-index-modal);
+    --rf-z-index-popover: var(--z-index-popover);
+    --rf-z-index-tooltip: var(--z-index-tooltip);
+
+    /* Effects */
+    --rf-transform-lift-sm: var(--transform-lift-sm);
+    --rf-transform-lift-xs: var(--transform-lift-xs);
+    --rf-letter-spacing-wide: var(--letter-spacing-wide);
+    --rf-letter-spacing-tight: var(--letter-spacing-tight);
+  }
+
+  /* Dark mode overrides */
+  .dark,
+  html.dark {
+    --rf-color-primary: #ff7d4d;
+    --rf-color-primary-hover: #ff8f66;
+    --rf-color-primary-active: #ff6b35;
+    --rf-color-primary-bg: rgba(255, 107, 53, 0.15);
+    --rf-color-primary-bg-light: rgba(255, 107, 53, 0.1);
+    --rf-color-primary-bg-lighter: rgba(255, 107, 53, 0.05);
+
+    --rf-color-bg: #0a0a0a;
+    --rf-color-bg-page: #0a0a0a;
+    --rf-color-bg-container: #141414;
+    --rf-color-bg-secondary: #1f1f1f;
+    --rf-color-white: #141414;
+
+    --rf-color-text-primary: #e4e4e7;
+    --rf-color-text-regular: #a1a1aa;
+    --rf-color-text-secondary: #71717a;
+    --rf-color-text-placeholder: #52525b;
+    --rf-color-text-disabled: #3f3f46;
+
+    --rf-color-border-base: #27272a;
+    --rf-color-border-light: #3f3f46;
+    --rf-color-border-lighter: #52525b;
+    --rf-color-border-extra-light: #27272a;
+    --rf-color-border-focus: #818cf8;
+
+    --rf-color-blue: #60a5fa;
+    --rf-color-purple: #a78bfa;
+    --rf-color-green: #34d399;
+    --rf-color-pink: #f472b6;
+    --rf-color-white: #ffffff;
+
+    --rf-shadow-panel: 0 -2px 10px rgba(0, 0, 0, 0.3);
+  }
+}
+
+/* ========================================
+ * Dark Mode Overrides for @theme colors
+ * ======================================== */
+.dark,
+html.dark {
+  /* Override @theme colors for dark mode */
+  --color-border: #3f3f46;
+  --color-border-light: #52525b;
+  --color-border-lighter: #71717a;
+  --color-input: #3f3f46;
+  --color-background: #0a0a0a;
+  --color-background-page: #0a0a0a;
+  --color-background-container: #141414;
+  --color-background-secondary: #1f1f1f;
+  --color-foreground: #e4e4e7;
+  --color-foreground-regular: #a1a1aa;
+  --color-foreground-secondary: #71717a;
+  --color-foreground-muted: #52525b;
+
+  /* Popover/Dropdown backgrounds for dark mode */
+  --color-popover: #1f1f1f;
+  --color-popover-foreground: #e4e4e7;
+
+  /* Card backgrounds for dark mode */
+  --color-card: #141414;
+  --color-card-foreground: #e4e4e7;
+}
+
+/* ========================================
+ * Base Styles
+ * ======================================== */
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+  }
+}

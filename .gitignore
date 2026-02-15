@@ -1,0 +1,26 @@
+.DS_Store
+target/
+
+# Internal development documentation
+/doc/
+CLAUDE.md
+AGENTS.md
+
+# Python environment
+/python/.venv/
+/python/scripts/*.py  # User scripts (runtime generated)
+!/python/scripts/templates/  # Keep templates
+
+# Hide UV enviroment Dont change
+/.uv
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+.playwright-mcp
+.restflow/
+
+# Claude Code
+.claude/

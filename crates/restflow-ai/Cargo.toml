@@ -1,0 +1,53 @@
+[package]
+name = "restflow-ai"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+description = "Rust-powered AI Agent framework with ReAct loop"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# Workspace dependencies
+anyhow.workspace = true
+async-trait.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+uuid.workspace = true
+tracing.workspace = true
+restflow-storage = { path = "../restflow-storage" }
+
+# AI-specific dependencies
+async-stream = "0.3"
+chrono = { version = "0.4", features = ["serde"] }
+thiserror = "2.0"
+futures = "0.3"
+reqwest = { version = "0.13.2", features = ["json", "stream", "multipart"] }
+regex = "1.11"
+sha2 = "0.10.9"
+hex = "0.4"
+base64 = "0.22"
+once_cell = "1.20"
+lsp-types = "0.97"
+dashmap = "6.1.0"
+url = "2.5"
+scraper = "0.25"
+urlencoding = "2"
+dirs = "6.0.0"
+postcard = { version = "1.1.3", features = ["use-std"] }
+nix = { version = "0.29", features = ["signal", "process"] }
+
+[features]
+default = []
+test-utils = []
+
+[lints.rust]
+dead_code = "allow"
+
+[dev-dependencies]
+tempfile = "3.19"
+tokio = { version = "1.0", features = ["rt-multi-thread", "macros"] }
+wiremock = "0.6"
+redb = "3.1"

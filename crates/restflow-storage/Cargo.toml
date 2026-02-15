@@ -1,0 +1,33 @@
+[package]
+name = "restflow-storage"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "restflow_storage"
+path = "src/lib.rs"
+
+[dependencies]
+anyhow.workspace = true
+serde = { workspace = true }
+serde_json.workspace = true
+tokio = { workspace = true }
+chrono.workspace = true
+uuid.workspace = true
+redb = "3.1"
+aes-gcm = "0.10"
+base64 = "0.22"
+rand = "0.10"
+ts-rs = "12.0"
+tracing = { workspace = true }
+hnsw_rs = "0.3"
+parking_lot = "0.12"
+bincode = { version = "2.0", features = ["serde"] }
+dirs = "6.0"
+tantivy = "0.24"
+
+[dev-dependencies]
+tempfile = "3.23.0"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+security-framework = "3.5"

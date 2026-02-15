@@ -1,0 +1,34 @@
+# Git
+.git
+.gitignore
+
+# Node
+web/node_modules
+web/.pnpm-store
+web/npm-debug.log
+web/.env.local
+web/.env.*.local
+
+# Rust
+target
+**/*.rs.bk
+*.pdb
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Documentation
+*.md
+LICENSE
+
+# Build artifacts (we'll rebuild in Docker)
+web/dist
+crates/restflow-core/target
+crates/restflow-desktop/target

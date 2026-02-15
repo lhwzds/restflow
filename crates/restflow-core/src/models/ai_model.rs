@@ -1,0 +1,1240 @@
+use restflow_ai::llm::{LlmProvider, ModelSpec};
+use serde::{Deserialize, Serialize};
+use ts_rs::TS;
+
+/// AI model provider
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "lowercase")]
+pub enum Provider {
+    OpenAI,
+    Anthropic,
+    DeepSeek,
+    Google,
+    Groq,
+    OpenRouter,
+    XAI,
+    Qwen,
+    Zhipu,
+    Moonshot,
+    Doubao,
+    Yi,
+    SiliconFlow,
+}
+
+impl Provider {
+    pub fn all() -> &'static [Provider] {
+        &[
+            Self::OpenAI,
+            Self::Anthropic,
+            Self::DeepSeek,
+            Self::Google,
+            Self::Groq,
+            Self::OpenRouter,
+            Self::XAI,
+            Self::Qwen,
+            Self::Zhipu,
+            Self::Moonshot,
+            Self::Doubao,
+            Self::Yi,
+            Self::SiliconFlow,
+        ]
+    }
+
+    pub fn api_key_env(&self) -> &'static str {
+        match self {
+            Self::OpenAI => "OPENAI_API_KEY",
+            Self::Anthropic => "ANTHROPIC_API_KEY",
+            Self::DeepSeek => "DEEPSEEK_API_KEY",
+            Self::Google => "GEMINI_API_KEY",
+            Self::Groq => "GROQ_API_KEY",
+            Self::OpenRouter => "OPENROUTER_API_KEY",
+            Self::XAI => "XAI_API_KEY",
+            Self::Qwen => "DASHSCOPE_API_KEY",
+            Self::Zhipu => "ZHIPU_API_KEY",
+            Self::Moonshot => "MOONSHOT_API_KEY",
+            Self::Doubao => "ARK_API_KEY",
+            Self::Yi => "YI_API_KEY",
+            Self::SiliconFlow => "SILICONFLOW_API_KEY",
+        }
+    }
+
+    /// Convert Provider to LLM provider used by runtime factory.
+    pub fn as_llm_provider(&self) -> LlmProvider {
+        match self {
+            Self::OpenAI => LlmProvider::OpenAI,
+            Self::Anthropic => LlmProvider::Anthropic,
+            Self::DeepSeek => LlmProvider::DeepSeek,
+            Self::Google => LlmProvider::Google,
+            Self::Groq => LlmProvider::Groq,
+            Self::OpenRouter => LlmProvider::OpenRouter,
+            Self::XAI => LlmProvider::XAI,
+            Self::Qwen => LlmProvider::Qwen,
+            Self::Zhipu => LlmProvider::Zhipu,
+            Self::Moonshot => LlmProvider::Moonshot,
+            Self::Doubao => LlmProvider::Doubao,
+            Self::Yi => LlmProvider::Yi,
+            Self::SiliconFlow => LlmProvider::SiliconFlow,
+        }
+    }
+
+    /// Get the best available model for this provider.
+    pub fn flagship_model(&self) -> AIModel {
+        match self {
+            Self::OpenAI => AIModel::Gpt5,
+            Self::Anthropic => AIModel::ClaudeSonnet4_5,
+            Self::DeepSeek => AIModel::DeepseekChat,
+            Self::Google => AIModel::Gemini3Pro,
+            Self::Groq => AIModel::GroqLlama4Maverick,
+            Self::OpenRouter => AIModel::OrClaudeOpus4_6,
+            Self::XAI => AIModel::Grok4,
+            Self::Qwen => AIModel::Qwen3Max,
+            Self::Zhipu => AIModel::Glm5,
+            Self::Moonshot => AIModel::KimiK2_5,
+            Self::Doubao => AIModel::DoubaoPro,
+            Self::Yi => AIModel::YiLightning,
+            Self::SiliconFlow => AIModel::SiliconFlowAuto,
+        }
+    }
+}
+
+/// Model metadata containing provider, temperature support, and display name
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ModelMetadata {
+    pub provider: Provider,
+    pub supports_temperature: bool,
+    pub name: &'static str,
+}
+
+/// Serializable model metadata for transferring to frontend
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct ModelMetadataDTO {
+    pub model: AIModel,
+    pub provider: Provider,
+    pub supports_temperature: bool,
+    pub name: String,
+}
+
+/// AI model enum - Single Source of Truth for all supported models
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "kebab-case")]
+pub enum AIModel {
+    // OpenAI GPT-5 series (no temperature support)
+    #[serde(rename = "gpt-5")]
+    Gpt5,
+    #[serde(rename = "gpt-5-mini")]
+    Gpt5Mini,
+    #[serde(rename = "gpt-5-nano")]
+    Gpt5Nano,
+    #[serde(rename = "gpt-5-pro")]
+    Gpt5Pro,
+    #[serde(rename = "gpt-5-1")]
+    Gpt5_1,
+    #[serde(rename = "gpt-5-2")]
+    Gpt5_2,
+
+    // Anthropic Claude series (latest models only, for direct API)
+    #[serde(rename = "claude-opus-4-6")]
+    ClaudeOpus4_6,
+    #[serde(rename = "claude-sonnet-4-5")]
+    ClaudeSonnet4_5,
+    #[serde(rename = "claude-haiku-4-5")]
+    ClaudeHaiku4_5,
+
+    // Claude Code CLI aliases (for use with claude CLI tool)
+    #[serde(rename = "claude-code-opus")]
+    ClaudeCodeOpus,
+    #[serde(rename = "claude-code-sonnet")]
+    ClaudeCodeSonnet,
+    #[serde(rename = "claude-code-haiku")]
+    ClaudeCodeHaiku,
+
+    // DeepSeek series
+    #[serde(rename = "deepseek-chat")]
+    DeepseekChat,
+    #[serde(rename = "deepseek-reasoner")]
+    DeepseekReasoner,
+
+    // Google Gemini (OpenAI-compatible endpoint)
+    #[serde(rename = "gemini-2-5-pro")]
+    Gemini25Pro,
+    #[serde(rename = "gemini-2-5-flash")]
+    Gemini25Flash,
+    #[serde(rename = "gemini-3-pro")]
+    Gemini3Pro,
+    #[serde(rename = "gemini-3-flash")]
+    Gemini3Flash,
+
+    // Groq
+    #[serde(rename = "groq-llama4-scout")]
+    GroqLlama4Scout,
+    #[serde(rename = "groq-llama4-maverick")]
+    GroqLlama4Maverick,
+
+    // X.AI
+    #[serde(rename = "grok-4")]
+    Grok4,
+    #[serde(rename = "grok-3-mini")]
+    Grok3Mini,
+
+    // OpenRouter
+    #[serde(rename = "openrouter")]
+    OpenRouterAuto,
+
+    // OpenRouter flagship models (via openrouter.ai/api/v1)
+    #[serde(rename = "or-claude-opus-4-6")]
+    OrClaudeOpus4_6,
+    #[serde(rename = "or-gpt-5")]
+    OrGpt5,
+    #[serde(rename = "or-gemini-3-pro")]
+    OrGemini3Pro,
+    #[serde(rename = "or-deepseek-v3-2")]
+    OrDeepseekV3_2,
+    #[serde(rename = "or-grok-4")]
+    OrGrok4,
+    #[serde(rename = "or-llama-4-maverick")]
+    OrLlama4Maverick,
+    #[serde(rename = "or-qwen3-coder")]
+    OrQwen3Coder,
+    #[serde(rename = "or-devstral-2")]
+    OrDevstral2,
+    #[serde(rename = "or-glm-4-7")]
+    OrGlm4_7,
+    #[serde(rename = "or-kimi-k2-5")]
+    OrKimiK2_5,
+    #[serde(rename = "or-minimax-m2-1")]
+    OrMinimaxM2_1,
+
+    // Qwen
+    #[serde(rename = "qwen3-max")]
+    Qwen3Max,
+    #[serde(rename = "qwen3-plus")]
+    Qwen3Plus,
+
+    // Zhipu
+    #[serde(rename = "glm-5")]
+    Glm5,
+    #[serde(rename = "glm-5-code")]
+    Glm5Code,
+    #[serde(rename = "glm-4-7")]
+    Glm4_7,
+
+    // Moonshot
+    #[serde(rename = "kimi-k2-5")]
+    KimiK2_5,
+
+    // Doubao
+    #[serde(rename = "doubao-pro")]
+    DoubaoPro,
+
+    // Yi
+    #[serde(rename = "yi-lightning")]
+    YiLightning,
+
+    // SiliconFlow
+    #[serde(rename = "siliconflow")]
+    SiliconFlowAuto,
+
+    // Codex CLI (OpenAI)
+    #[serde(rename = "gpt-5-codex")]
+    Gpt5Codex,
+    #[serde(rename = "gpt-5.1-codex")]
+    Gpt5_1Codex,
+    #[serde(rename = "gpt-5.2-codex")]
+    Gpt5_2Codex,
+    #[serde(rename = "gpt-5.3-codex")]
+    CodexCli,
+
+    // OpenCode CLI (multi-provider)
+    #[serde(rename = "opencode-cli")]
+    OpenCodeCli,
+
+    // Gemini CLI (Google)
+    #[serde(rename = "gemini-cli")]
+    GeminiCli,
+}
+
+impl AIModel {
+    /// Convert AIModel to ModelSpec used by runtime LLM factory.
+    pub fn as_model_spec(&self) -> ModelSpec {
+        let provider = self.provider().as_llm_provider();
+        if self.is_opencode_cli() {
+            ModelSpec::opencode(self.as_serialized_str(), self.as_str())
+        } else if self.is_codex_cli() {
+            ModelSpec::codex(self.as_serialized_str(), self.as_str())
+        } else if self.is_gemini_cli() {
+            ModelSpec::gemini_cli(self.as_serialized_str(), self.as_str())
+        } else if matches!(self, Self::Glm5Code) {
+            ModelSpec::new(self.as_serialized_str(), provider, self.as_str())
+                .with_base_url("https://api.z.ai/api/coding/paas/v4")
+        } else {
+            ModelSpec::new(self.as_serialized_str(), provider, self.as_str())
+        }
+    }
+
+    /// Build the shared model catalog for dynamic model switching.
+    pub fn build_model_specs() -> Vec<ModelSpec> {
+        let mut specs = Vec::new();
+        for model in Self::all() {
+            specs.push(model.as_model_spec());
+
+            // Claude Code aliases are matched by `as_str()` at runtime as well.
+            if model.is_claude_code() {
+                let provider = model.provider().as_llm_provider();
+                specs.push(ModelSpec::new(model.as_str(), provider, model.as_str()));
+            }
+        }
+
+        specs
+    }
+
+    /// Get comprehensive metadata for this model
+    pub fn metadata(&self) -> ModelMetadata {
+        match self {
+            // GPT-5 series (no temperature support)
+            Self::Gpt5 => ModelMetadata {
+                provider: Provider::OpenAI,
+                supports_temperature: false,
+                name: "GPT-5",
+            },
+            Self::Gpt5Mini => ModelMetadata {
+                provider: Provider::OpenAI,
+                supports_temperature: false,
+                name: "GPT-5 Mini",
+            },
+            Self::Gpt5Nano => ModelMetadata {
+                provider: Provider::OpenAI,
+                supports_temperature: false,
+                name: "GPT-5 Nano",
+            },
+            Self::Gpt5Pro => ModelMetadata {
+                provider: Provider::OpenAI,
+                supports_temperature: false,
+                name: "GPT-5 Pro",
+            },
+            Self::Gpt5_1 => ModelMetadata {
+                provider: Provider::OpenAI,
+                supports_temperature: false,
+                name: "GPT-5.1",
+            },
+            Self::Gpt5_2 => ModelMetadata {
+                provider: Provider::OpenAI,
+                supports_temperature: false,
+                name: "GPT-5.2",
+            },
+
+            // Claude series
+            Self::ClaudeOpus4_6 => ModelMetadata {
+                provider: Provider::Anthropic,
+                supports_temperature: true,
+                name: "Claude Opus 4.6",
+            },
+            Self::ClaudeSonnet4_5 => ModelMetadata {
+                provider: Provider::Anthropic,
+                supports_temperature: true,
+                name: "Claude Sonnet 4.5",
+            },
+            Self::ClaudeHaiku4_5 => ModelMetadata {
+                provider: Provider::Anthropic,
+                supports_temperature: true,
+                name: "Claude Haiku 4.5",
+            },
+
+            // Claude Code CLI aliases
+            Self::ClaudeCodeOpus => ModelMetadata {
+                provider: Provider::Anthropic,
+                supports_temperature: true,
+                name: "Claude Code Opus",
+            },
+            Self::ClaudeCodeSonnet => ModelMetadata {
+                provider: Provider::Anthropic,
+                supports_temperature: true,
+                name: "Claude Code Sonnet",
+            },
+            Self::ClaudeCodeHaiku => ModelMetadata {
+                provider: Provider::Anthropic,
+                supports_temperature: true,
+                name: "Claude Code Haiku",
+            },
+
+            // DeepSeek series
+            Self::DeepseekChat => ModelMetadata {
+                provider: Provider::DeepSeek,
+                supports_temperature: true,
+                name: "DeepSeek Chat",
+            },
+            Self::DeepseekReasoner => ModelMetadata {
+                provider: Provider::DeepSeek,
+                supports_temperature: true,
+                name: "DeepSeek Reasoner",
+            },
+
+            // Google Gemini
+            Self::Gemini25Pro => ModelMetadata {
+                provider: Provider::Google,
+                supports_temperature: true,
+                name: "Gemini 2.5 Pro",
+            },
+            Self::Gemini25Flash => ModelMetadata {
+                provider: Provider::Google,
+                supports_temperature: true,
+                name: "Gemini 2.5 Flash",
+            },
+            Self::Gemini3Pro => ModelMetadata {
+                provider: Provider::Google,
+                supports_temperature: true,
+                name: "Gemini 3 Pro Preview",
+            },
+            Self::Gemini3Flash => ModelMetadata {
+                provider: Provider::Google,
+                supports_temperature: true,
+                name: "Gemini 3 Flash Preview",
+            },
+
+            // Groq
+            Self::GroqLlama4Scout => ModelMetadata {
+                provider: Provider::Groq,
+                supports_temperature: true,
+                name: "Llama 4 Scout",
+            },
+            Self::GroqLlama4Maverick => ModelMetadata {
+                provider: Provider::Groq,
+                supports_temperature: true,
+                name: "Llama 4 Maverick",
+            },
+
+            // X.AI
+            Self::Grok4 => ModelMetadata {
+                provider: Provider::XAI,
+                supports_temperature: true,
+                name: "Grok 4",
+            },
+            Self::Grok3Mini => ModelMetadata {
+                provider: Provider::XAI,
+                supports_temperature: true,
+                name: "Grok 3 Mini",
+            },
+
+            // OpenRouter
+            Self::OpenRouterAuto => ModelMetadata {
+                provider: Provider::OpenRouter,
+                supports_temperature: true,
+                name: "OpenRouter Auto",
+            },
+            Self::OrClaudeOpus4_6 => ModelMetadata {
+                provider: Provider::OpenRouter,
+                supports_temperature: true,
+                name: "OR Claude Opus 4.6",
+            },
+            Self::OrGpt5 => ModelMetadata {
+                provider: Provider::OpenRouter,
+                supports_temperature: false,
+                name: "OR GPT-5",
+            },
+            Self::OrGemini3Pro => ModelMetadata {
+                provider: Provider::OpenRouter,
+                supports_temperature: true,
+                name: "OR Gemini 3 Pro",
+            },
+            Self::OrDeepseekV3_2 => ModelMetadata {
+                provider: Provider::OpenRouter,
+                supports_temperature: true,
+                name: "OR DeepSeek V3.2",
+            },
+            Self::OrGrok4 => ModelMetadata {
+                provider: Provider::OpenRouter,
+                supports_temperature: true,
+                name: "OR Grok 4",
+            },
+            Self::OrLlama4Maverick => ModelMetadata {
+                provider: Provider::OpenRouter,
+                supports_temperature: true,
+                name: "OR Llama 4 Maverick",
+            },
+            Self::OrQwen3Coder => ModelMetadata {
+                provider: Provider::OpenRouter,
+                supports_temperature: true,
+                name: "OR Qwen3 Coder",
+            },
+            Self::OrDevstral2 => ModelMetadata {
+                provider: Provider::OpenRouter,
+                supports_temperature: true,
+                name: "OR Devstral 2",
+            },
+            Self::OrGlm4_7 => ModelMetadata {
+                provider: Provider::OpenRouter,
+                supports_temperature: true,
+                name: "OR GLM-4.7",
+            },
+            Self::OrKimiK2_5 => ModelMetadata {
+                provider: Provider::OpenRouter,
+                supports_temperature: true,
+                name: "OR Kimi K2.5",
+            },
+            Self::OrMinimaxM2_1 => ModelMetadata {
+                provider: Provider::OpenRouter,
+                supports_temperature: true,
+                name: "OR MiniMax M2.1",
+            },
+
+            // Qwen
+            Self::Qwen3Max => ModelMetadata {
+                provider: Provider::Qwen,
+                supports_temperature: true,
+                name: "Qwen3 Max",
+            },
+            Self::Qwen3Plus => ModelMetadata {
+                provider: Provider::Qwen,
+                supports_temperature: true,
+                name: "Qwen3 Plus",
+            },
+
+            // Zhipu
+            Self::Glm5 => ModelMetadata {
+                provider: Provider::Zhipu,
+                supports_temperature: true,
+                name: "GLM-5",
+            },
+            Self::Glm5Code => ModelMetadata {
+                provider: Provider::Zhipu,
+                supports_temperature: true,
+                name: "GLM-5 Code",
+            },
+            Self::Glm4_7 => ModelMetadata {
+                provider: Provider::Zhipu,
+                supports_temperature: true,
+                name: "GLM-4.7",
+            },
+
+            // Moonshot
+            Self::KimiK2_5 => ModelMetadata {
+                provider: Provider::Moonshot,
+                supports_temperature: true,
+                name: "Kimi K2.5",
+            },
+
+            // Doubao
+            Self::DoubaoPro => ModelMetadata {
+                provider: Provider::Doubao,
+                supports_temperature: true,
+                name: "Doubao Pro",
+            },
+
+            // Yi
+            Self::YiLightning => ModelMetadata {
+                provider: Provider::Yi,
+                supports_temperature: true,
+                name: "Yi Lightning",
+            },
+
+            // SiliconFlow
+            Self::SiliconFlowAuto => ModelMetadata {
+                provider: Provider::SiliconFlow,
+                supports_temperature: true,
+                name: "SiliconFlow Auto",
+            },
+
+            // Codex CLI
+            Self::Gpt5Codex => ModelMetadata {
+                provider: Provider::OpenAI,
+                supports_temperature: false,
+                name: "Codex GPT-5",
+            },
+            Self::Gpt5_1Codex => ModelMetadata {
+                provider: Provider::OpenAI,
+                supports_temperature: false,
+                name: "Codex GPT-5.1",
+            },
+            Self::Gpt5_2Codex => ModelMetadata {
+                provider: Provider::OpenAI,
+                supports_temperature: false,
+                name: "Codex GPT-5.2",
+            },
+            Self::CodexCli => ModelMetadata {
+                provider: Provider::OpenAI,
+                supports_temperature: false,
+                name: "Codex GPT-5.3",
+            },
+
+            // OpenCode CLI
+            Self::OpenCodeCli => ModelMetadata {
+                provider: Provider::OpenAI,
+                supports_temperature: false,
+                name: "OpenCode CLI",
+            },
+
+            // Gemini CLI
+            Self::GeminiCli => ModelMetadata {
+                provider: Provider::Google,
+                supports_temperature: false,
+                name: "Gemini CLI",
+            },
+        }
+    }
+
+    /// Get the provider for this model
+    pub fn provider(&self) -> Provider {
+        self.metadata().provider
+    }
+
+    /// Check if this model supports temperature parameter
+    pub fn supports_temperature(&self) -> bool {
+        self.metadata().supports_temperature
+    }
+
+    /// Get the string representation used for API calls
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            // GPT-5 series
+            Self::Gpt5 => "gpt-5",
+            Self::Gpt5Mini => "gpt-5-mini",
+            Self::Gpt5Nano => "gpt-5-nano",
+            Self::Gpt5Pro => "gpt-5-pro",
+            Self::Gpt5_1 => "gpt-5.1",
+            Self::Gpt5_2 => "gpt-5.2",
+
+            // Claude series (direct API)
+            Self::ClaudeOpus4_6 => "claude-opus-4-6",
+            Self::ClaudeSonnet4_5 => "claude-sonnet-4-5",
+            Self::ClaudeHaiku4_5 => "claude-haiku-4-5",
+
+            // Claude Code CLI (aliases for claude CLI tool)
+            Self::ClaudeCodeOpus => "opus",
+            Self::ClaudeCodeSonnet => "sonnet",
+            Self::ClaudeCodeHaiku => "haiku",
+
+            // DeepSeek series
+            Self::DeepseekChat => "deepseek-chat",
+            Self::DeepseekReasoner => "deepseek-reasoner",
+
+            // Google Gemini
+            Self::Gemini25Pro => "gemini-2.5-pro",
+            Self::Gemini25Flash => "gemini-2.5-flash",
+            Self::Gemini3Pro => "gemini-3-pro-preview",
+            Self::Gemini3Flash => "gemini-3-flash-preview",
+
+            // Groq
+            Self::GroqLlama4Scout => "meta-llama/llama-4-scout-17b-16e-instruct",
+            Self::GroqLlama4Maverick => "meta-llama/llama-4-maverick-17b-128e-instruct",
+
+            // X.AI
+            Self::Grok4 => "grok-4",
+            Self::Grok3Mini => "grok-3-mini",
+
+            // OpenRouter
+            Self::OpenRouterAuto => "openrouter/auto",
+            Self::OrClaudeOpus4_6 => "anthropic/claude-opus-4.6",
+            Self::OrGpt5 => "openai/gpt-5",
+            Self::OrGemini3Pro => "google/gemini-3-pro-preview",
+            Self::OrDeepseekV3_2 => "deepseek/deepseek-v3.2",
+            Self::OrGrok4 => "x-ai/grok-4",
+            Self::OrLlama4Maverick => "meta-llama/llama-4-maverick",
+            Self::OrQwen3Coder => "qwen/qwen3-coder",
+            Self::OrDevstral2 => "mistralai/devstral-2-2512",
+            Self::OrGlm4_7 => "z-ai/glm-4.7",
+            Self::OrKimiK2_5 => "moonshotai/kimi-k2.5",
+            Self::OrMinimaxM2_1 => "minimax/minimax-m2.1",
+
+            // Qwen
+            Self::Qwen3Max => "qwen3-max",
+            Self::Qwen3Plus => "qwen3-plus",
+
+            // Zhipu
+            Self::Glm5 => "glm-5",
+            Self::Glm5Code => "glm-5",
+            Self::Glm4_7 => "glm-4.7",
+
+            // Moonshot
+            Self::KimiK2_5 => "kimi-k2.5",
+
+            // Doubao
+            Self::DoubaoPro => "doubao-pro-256k",
+
+            // Yi
+            Self::YiLightning => "yi-lightning",
+
+            // SiliconFlow
+            Self::SiliconFlowAuto => "deepseek-ai/DeepSeek-V3",
+
+            // Codex CLI
+            Self::Gpt5Codex => "gpt-5-codex",
+            Self::Gpt5_1Codex => "gpt-5.1-codex",
+            Self::Gpt5_2Codex => "gpt-5.2-codex",
+            Self::CodexCli => "gpt-5.3-codex",
+
+            // OpenCode CLI
+            Self::OpenCodeCli => "opencode",
+
+            // Gemini CLI
+            Self::GeminiCli => "gemini-2.5-pro",
+        }
+    }
+
+    /// Convert an API model name into an AIModel.
+    pub fn from_api_name(name: &str) -> Option<Self> {
+        if let Some(model) = Self::all().iter().find(|m| m.as_str() == name).copied() {
+            return Some(model);
+        }
+
+        match name {
+            "glm-5-code" => Some(Self::Glm5Code),
+            "claude-sonnet-4-5-20250514" | "claude-sonnet-4-20250514" => {
+                Some(Self::ClaudeSonnet4_5)
+            }
+            "claude-opus-4-6-20260205" | "claude-opus-4-6-20250514" => Some(Self::ClaudeOpus4_6),
+            "claude-haiku-4-5-20250514" | "claude-haiku-4-20250514" => Some(Self::ClaudeHaiku4_5),
+            _ => {
+                if name.starts_with("claude-sonnet-4") {
+                    Some(Self::ClaudeSonnet4_5)
+                } else if name.starts_with("claude-opus-4-6") || name.starts_with("claude-opus-4") {
+                    Some(Self::ClaudeOpus4_6)
+                } else if name.starts_with("claude-haiku-4") {
+                    Some(Self::ClaudeHaiku4_5)
+                } else {
+                    None
+                }
+            }
+        }
+    }
+
+    /// Get the display name for UI
+    pub fn display_name(&self) -> &'static str {
+        self.metadata().name
+    }
+
+    /// Get the serialized string representation (serde rename)
+    pub fn as_serialized_str(&self) -> &'static str {
+        match self {
+            // GPT-5 series
+            Self::Gpt5 => "gpt-5",
+            Self::Gpt5Mini => "gpt-5-mini",
+            Self::Gpt5Nano => "gpt-5-nano",
+            Self::Gpt5Pro => "gpt-5-pro",
+            Self::Gpt5_1 => "gpt-5-1",
+            Self::Gpt5_2 => "gpt-5-2",
+
+            // Claude series (direct API)
+            Self::ClaudeOpus4_6 => "claude-opus-4-6",
+            Self::ClaudeSonnet4_5 => "claude-sonnet-4-5",
+            Self::ClaudeHaiku4_5 => "claude-haiku-4-5",
+
+            // Claude Code CLI aliases
+            Self::ClaudeCodeOpus => "claude-code-opus",
+            Self::ClaudeCodeSonnet => "claude-code-sonnet",
+            Self::ClaudeCodeHaiku => "claude-code-haiku",
+
+            // DeepSeek series
+            Self::DeepseekChat => "deepseek-chat",
+            Self::DeepseekReasoner => "deepseek-reasoner",
+
+            // Google Gemini
+            Self::Gemini25Pro => "gemini-2-5-pro",
+            Self::Gemini25Flash => "gemini-2-5-flash",
+            Self::Gemini3Pro => "gemini-3-pro",
+            Self::Gemini3Flash => "gemini-3-flash",
+
+            // Groq
+            Self::GroqLlama4Scout => "groq-llama4-scout",
+            Self::GroqLlama4Maverick => "groq-llama4-maverick",
+
+            // X.AI
+            Self::Grok4 => "grok-4",
+            Self::Grok3Mini => "grok-3-mini",
+
+            // OpenRouter
+            Self::OpenRouterAuto => "openrouter",
+            Self::OrClaudeOpus4_6 => "or-claude-opus-4-6",
+            Self::OrGpt5 => "or-gpt-5",
+            Self::OrGemini3Pro => "or-gemini-3-pro",
+            Self::OrDeepseekV3_2 => "or-deepseek-v3-2",
+            Self::OrGrok4 => "or-grok-4",
+            Self::OrLlama4Maverick => "or-llama-4-maverick",
+            Self::OrQwen3Coder => "or-qwen3-coder",
+            Self::OrDevstral2 => "or-devstral-2",
+            Self::OrGlm4_7 => "or-glm-4-7",
+            Self::OrKimiK2_5 => "or-kimi-k2-5",
+            Self::OrMinimaxM2_1 => "or-minimax-m2-1",
+
+            // Qwen
+            Self::Qwen3Max => "qwen3-max",
+            Self::Qwen3Plus => "qwen3-plus",
+
+            // Zhipu
+            Self::Glm5 => "glm-5",
+            Self::Glm5Code => "glm-5-code",
+            Self::Glm4_7 => "glm-4-7",
+
+            // Moonshot
+            Self::KimiK2_5 => "kimi-k2-5",
+
+            // Doubao
+            Self::DoubaoPro => "doubao-pro",
+
+            // Yi
+            Self::YiLightning => "yi-lightning",
+
+            // SiliconFlow
+            Self::SiliconFlowAuto => "siliconflow",
+
+            // Codex CLI
+            Self::Gpt5Codex => "gpt-5-codex",
+            Self::Gpt5_1Codex => "gpt-5.1-codex",
+            Self::Gpt5_2Codex => "gpt-5.2-codex",
+            Self::CodexCli => "gpt-5.3-codex",
+
+            // OpenCode CLI
+            Self::OpenCodeCli => "opencode-cli",
+
+            // Gemini CLI
+            Self::GeminiCli => "gemini-cli",
+        }
+    }
+
+    /// Check if this model uses the Codex CLI
+    pub fn is_codex_cli(&self) -> bool {
+        matches!(
+            self,
+            Self::Gpt5Codex | Self::Gpt5_1Codex | Self::Gpt5_2Codex | Self::CodexCli
+        )
+    }
+
+    /// Check if this model uses the Claude Code CLI
+    pub fn is_claude_code(&self) -> bool {
+        matches!(
+            self,
+            Self::ClaudeCodeOpus | Self::ClaudeCodeSonnet | Self::ClaudeCodeHaiku
+        )
+    }
+
+    /// Check if this model uses the OpenCode CLI
+    pub fn is_opencode_cli(&self) -> bool {
+        matches!(self, Self::OpenCodeCli)
+    }
+
+    /// Check if this model uses the Gemini CLI
+    pub fn is_gemini_cli(&self) -> bool {
+        matches!(self, Self::GeminiCli)
+    }
+
+    /// Check if this model is any CLI-based model (manages its own auth)
+    pub fn is_cli_model(&self) -> bool {
+        self.is_codex_cli()
+            || self.is_opencode_cli()
+            || self.is_gemini_cli()
+            || self.is_claude_code()
+    }
+
+    /// Get a same-provider fallback model (cheaper tier).
+    /// Returns None if this is already the cheapest or no fallback exists.
+    pub fn same_provider_fallback(&self) -> Option<Self> {
+        match self {
+            // Anthropic: Opus -> Sonnet -> Haiku
+            Self::ClaudeOpus4_6 => Some(Self::ClaudeSonnet4_5),
+            Self::ClaudeSonnet4_5 => Some(Self::ClaudeHaiku4_5),
+            // OpenAI: Pro -> Gpt5 -> Mini -> Nano
+            Self::Gpt5Pro => Some(Self::Gpt5),
+            Self::Gpt5 => Some(Self::Gpt5Mini),
+            Self::Gpt5Mini => Some(Self::Gpt5Nano),
+            // DeepSeek: Reasoner -> Chat
+            Self::DeepseekReasoner => Some(Self::DeepseekChat),
+            // Gemini: Pro -> Flash (both generations)
+            Self::Gemini3Pro => Some(Self::Gemini3Flash),
+            Self::Gemini25Pro => Some(Self::Gemini25Flash),
+            // GLM: 5 -> 5Code -> 4.7
+            Self::Glm5 => Some(Self::Glm5Code),
+            Self::Glm5Code => Some(Self::Glm4_7),
+            // X.AI: Grok4 -> Grok3Mini
+            Self::Grok4 => Some(Self::Grok3Mini),
+            _ => None,
+        }
+    }
+
+    /// Get the OpenRouter equivalent of this model (if one exists).
+    pub fn openrouter_equivalent(&self) -> Option<Self> {
+        match self {
+            Self::ClaudeOpus4_6 | Self::ClaudeSonnet4_5 => Some(Self::OrClaudeOpus4_6),
+            Self::Gpt5 | Self::Gpt5Mini | Self::Gpt5Pro => Some(Self::OrGpt5),
+            Self::Gemini3Pro | Self::Gemini25Pro => Some(Self::OrGemini3Pro),
+            Self::DeepseekChat | Self::DeepseekReasoner => Some(Self::OrDeepseekV3_2),
+            Self::Grok4 | Self::Grok3Mini => Some(Self::OrGrok4),
+            Self::Glm5 | Self::Glm5Code | Self::Glm4_7 => Some(Self::OrGlm4_7),
+            Self::KimiK2_5 => Some(Self::OrKimiK2_5),
+            Self::Qwen3Max | Self::Qwen3Plus => Some(Self::OrQwen3Coder),
+            _ => None,
+        }
+    }
+
+    /// Get all available models as a slice
+    pub fn all() -> &'static [AIModel] {
+        &[
+            // OpenAI
+            Self::Gpt5,
+            Self::Gpt5Mini,
+            Self::Gpt5Nano,
+            Self::Gpt5Pro,
+            Self::Gpt5_1,
+            Self::Gpt5_2,
+            // Anthropic (direct API)
+            Self::ClaudeOpus4_6,
+            Self::ClaudeSonnet4_5,
+            Self::ClaudeHaiku4_5,
+            // Anthropic (Claude Code CLI)
+            Self::ClaudeCodeOpus,
+            Self::ClaudeCodeSonnet,
+            Self::ClaudeCodeHaiku,
+            // DeepSeek
+            Self::DeepseekChat,
+            Self::DeepseekReasoner,
+            // Google Gemini
+            Self::Gemini25Pro,
+            Self::Gemini25Flash,
+            Self::Gemini3Pro,
+            Self::Gemini3Flash,
+            // Groq
+            Self::GroqLlama4Scout,
+            Self::GroqLlama4Maverick,
+            // X.AI
+            Self::Grok4,
+            Self::Grok3Mini,
+            // OpenRouter
+            Self::OpenRouterAuto,
+            Self::OrClaudeOpus4_6,
+            Self::OrGpt5,
+            Self::OrGemini3Pro,
+            Self::OrDeepseekV3_2,
+            Self::OrGrok4,
+            Self::OrLlama4Maverick,
+            Self::OrQwen3Coder,
+            Self::OrDevstral2,
+            Self::OrGlm4_7,
+            Self::OrKimiK2_5,
+            Self::OrMinimaxM2_1,
+            // Qwen
+            Self::Qwen3Max,
+            Self::Qwen3Plus,
+            // Zhipu
+            Self::Glm5,
+            Self::Glm5Code,
+            Self::Glm4_7,
+            // Moonshot
+            Self::KimiK2_5,
+            // Doubao
+            Self::DoubaoPro,
+            // Yi
+            Self::YiLightning,
+            // SiliconFlow
+            Self::SiliconFlowAuto,
+            // Codex CLI
+            Self::Gpt5Codex,
+            Self::Gpt5_1Codex,
+            Self::Gpt5_2Codex,
+            Self::CodexCli,
+            // OpenCode CLI
+            Self::OpenCodeCli,
+            // Gemini CLI
+            Self::GeminiCli,
+        ]
+    }
+
+    /// Convert metadata to serializable DTO for frontend
+    pub fn to_metadata_dto(&self) -> ModelMetadataDTO {
+        let metadata = self.metadata();
+        ModelMetadataDTO {
+            model: *self,
+            provider: metadata.provider,
+            supports_temperature: metadata.supports_temperature,
+            name: metadata.name.to_string(),
+        }
+    }
+
+    /// Get all models with their metadata as DTOs
+    pub fn all_with_metadata() -> Vec<ModelMetadataDTO> {
+        Self::all()
+            .iter()
+            .map(|model| model.to_metadata_dto())
+            .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_provider() {
+        assert_eq!(AIModel::Gpt5.provider(), Provider::OpenAI);
+        assert_eq!(AIModel::ClaudeSonnet4_5.provider(), Provider::Anthropic);
+        assert_eq!(AIModel::DeepseekChat.provider(), Provider::DeepSeek);
+        assert_eq!(AIModel::Gemini25Pro.provider(), Provider::Google);
+        assert_eq!(AIModel::GroqLlama4Scout.provider(), Provider::Groq);
+        assert_eq!(AIModel::Grok4.provider(), Provider::XAI);
+        assert_eq!(AIModel::Qwen3Max.provider(), Provider::Qwen);
+        assert_eq!(AIModel::Glm4_7.provider(), Provider::Zhipu);
+        assert_eq!(AIModel::KimiK2_5.provider(), Provider::Moonshot);
+        assert_eq!(AIModel::DoubaoPro.provider(), Provider::Doubao);
+        assert_eq!(AIModel::YiLightning.provider(), Provider::Yi);
+    }
+
+    #[test]
+    fn test_supports_temperature() {
+        // Models that don't support temperature
+        assert!(!AIModel::Gpt5.supports_temperature());
+        assert!(!AIModel::Gpt5Mini.supports_temperature());
+        assert!(!AIModel::Gpt5_1.supports_temperature());
+        assert!(!AIModel::Gpt5_2.supports_temperature());
+        assert!(!AIModel::Gpt5Codex.supports_temperature());
+        assert!(!AIModel::Gpt5_1Codex.supports_temperature());
+        assert!(!AIModel::Gpt5_2Codex.supports_temperature());
+        assert!(!AIModel::CodexCli.supports_temperature());
+        assert!(!AIModel::OpenCodeCli.supports_temperature());
+        assert!(!AIModel::GeminiCli.supports_temperature());
+
+        // Models that support temperature
+        assert!(AIModel::ClaudeSonnet4_5.supports_temperature());
+        assert!(AIModel::ClaudeHaiku4_5.supports_temperature());
+        assert!(AIModel::DeepseekChat.supports_temperature());
+        assert!(AIModel::Gemini25Flash.supports_temperature());
+        assert!(AIModel::GroqLlama4Maverick.supports_temperature());
+    }
+
+    #[test]
+    fn test_is_codex_cli() {
+        assert!(AIModel::Gpt5Codex.is_codex_cli());
+        assert!(AIModel::Gpt5_1Codex.is_codex_cli());
+        assert!(AIModel::Gpt5_2Codex.is_codex_cli());
+        assert!(AIModel::CodexCli.is_codex_cli());
+        assert!(!AIModel::Gpt5.is_codex_cli());
+    }
+
+    #[test]
+    fn test_is_opencode_cli() {
+        assert!(AIModel::OpenCodeCli.is_opencode_cli());
+        assert!(!AIModel::Gpt5.is_opencode_cli());
+    }
+
+    #[test]
+    fn test_is_gemini_cli() {
+        assert!(AIModel::GeminiCli.is_gemini_cli());
+        assert!(!AIModel::Gpt5.is_gemini_cli());
+    }
+
+    #[test]
+    fn test_as_str() {
+        assert_eq!(AIModel::Gpt5.as_str(), "gpt-5");
+        assert_eq!(AIModel::Gpt5_1.as_str(), "gpt-5.1");
+        assert_eq!(AIModel::ClaudeSonnet4_5.as_str(), "claude-sonnet-4-5");
+        assert_eq!(AIModel::ClaudeHaiku4_5.as_str(), "claude-haiku-4-5");
+        assert_eq!(AIModel::Gpt5Codex.as_str(), "gpt-5-codex");
+        assert_eq!(AIModel::Gpt5_1Codex.as_str(), "gpt-5.1-codex");
+        assert_eq!(AIModel::Gpt5_2Codex.as_str(), "gpt-5.2-codex");
+        assert_eq!(AIModel::CodexCli.as_str(), "gpt-5.3-codex");
+        assert_eq!(AIModel::OpenCodeCli.as_str(), "opencode");
+        assert_eq!(AIModel::GeminiCli.as_str(), "gemini-2.5-pro");
+        assert_eq!(AIModel::Glm5Code.as_str(), "glm-5");
+        assert_eq!(AIModel::DeepseekChat.as_str(), "deepseek-chat");
+        assert_eq!(AIModel::Gemini25Pro.as_str(), "gemini-2.5-pro");
+        assert_eq!(
+            AIModel::GroqLlama4Scout.as_str(),
+            "meta-llama/llama-4-scout-17b-16e-instruct"
+        );
+    }
+
+    #[test]
+    fn test_from_api_name() {
+        assert_eq!(
+            AIModel::from_api_name("claude-sonnet-4-5-20250514"),
+            Some(AIModel::ClaudeSonnet4_5)
+        );
+        assert_eq!(
+            AIModel::from_api_name("claude-sonnet-4-20250514"),
+            Some(AIModel::ClaudeSonnet4_5)
+        );
+        assert_eq!(AIModel::from_api_name("nonexistent"), None);
+    }
+
+    #[test]
+    fn test_display_name() {
+        assert_eq!(AIModel::Gpt5.display_name(), "GPT-5");
+        assert_eq!(AIModel::Gpt5_2.display_name(), "GPT-5.2");
+        assert_eq!(AIModel::ClaudeSonnet4_5.display_name(), "Claude Sonnet 4.5");
+        assert_eq!(AIModel::ClaudeHaiku4_5.display_name(), "Claude Haiku 4.5");
+        assert_eq!(AIModel::Gpt5Codex.display_name(), "Codex GPT-5");
+        assert_eq!(AIModel::Gpt5_1Codex.display_name(), "Codex GPT-5.1");
+        assert_eq!(AIModel::Gpt5_2Codex.display_name(), "Codex GPT-5.2");
+        assert_eq!(AIModel::CodexCli.display_name(), "Codex GPT-5.3");
+        assert_eq!(AIModel::OpenCodeCli.display_name(), "OpenCode CLI");
+        assert_eq!(AIModel::GeminiCli.display_name(), "Gemini CLI");
+        assert_eq!(AIModel::DeepseekChat.display_name(), "DeepSeek Chat");
+    }
+
+    #[test]
+    fn test_all_models() {
+        let models = AIModel::all();
+        assert_eq!(models.len(), 49);
+        assert!(models.contains(&AIModel::Gpt5));
+        assert!(models.contains(&AIModel::Gpt5_1));
+        assert!(models.contains(&AIModel::ClaudeOpus4_6));
+        assert!(models.contains(&AIModel::ClaudeSonnet4_5));
+        assert!(models.contains(&AIModel::ClaudeHaiku4_5));
+        assert!(models.contains(&AIModel::Gpt5Codex));
+        assert!(models.contains(&AIModel::Gpt5_1Codex));
+        assert!(models.contains(&AIModel::Gpt5_2Codex));
+        assert!(models.contains(&AIModel::CodexCli));
+        assert!(models.contains(&AIModel::OpenCodeCli));
+        assert!(models.contains(&AIModel::GeminiCli));
+        assert!(models.contains(&AIModel::DeepseekChat));
+        assert!(models.contains(&AIModel::Gemini25Pro));
+    }
+
+    #[test]
+    fn test_metadata() {
+        // Test metadata for GPT-5 (no temperature)
+        let metadata = AIModel::Gpt5.metadata();
+        assert_eq!(metadata.provider, Provider::OpenAI);
+        assert!(!metadata.supports_temperature);
+        assert_eq!(metadata.name, "GPT-5");
+
+        // Test metadata for Claude Sonnet 4.5 (with temperature)
+        let metadata = AIModel::ClaudeSonnet4_5.metadata();
+        assert_eq!(metadata.provider, Provider::Anthropic);
+        assert!(metadata.supports_temperature);
+        assert_eq!(metadata.name, "Claude Sonnet 4.5");
+
+        // Test metadata for DeepSeek Chat
+        let metadata = AIModel::DeepseekChat.metadata();
+        assert_eq!(metadata.provider, Provider::DeepSeek);
+        assert!(metadata.supports_temperature);
+        assert_eq!(metadata.name, "DeepSeek Chat");
+    }
+
+    #[test]
+    fn test_provider_as_llm_provider() {
+        assert_eq!(Provider::OpenAI.as_llm_provider(), LlmProvider::OpenAI);
+        assert_eq!(
+            Provider::Anthropic.as_llm_provider(),
+            LlmProvider::Anthropic
+        );
+        assert_eq!(Provider::Google.as_llm_provider(), LlmProvider::Google);
+    }
+
+    #[test]
+    fn test_build_model_specs_contains_codex_cli() {
+        let specs = AIModel::build_model_specs();
+        assert!(
+            specs
+                .iter()
+                .any(|spec| spec.name == "gpt-5-codex" && spec.is_codex_cli)
+        );
+        assert!(
+            specs
+                .iter()
+                .any(|spec| spec.name == "gpt-5.1-codex" && spec.is_codex_cli)
+        );
+        assert!(
+            specs
+                .iter()
+                .any(|spec| spec.name == "gpt-5.2-codex" && spec.is_codex_cli)
+        );
+        assert!(
+            specs
+                .iter()
+                .any(|spec| spec.name == "gpt-5.3-codex" && spec.is_codex_cli)
+        );
+    }
+
+    #[test]
+    fn test_glm5_code_uses_glm5_model_with_coding_endpoint() {
+        let spec = AIModel::Glm5Code.as_model_spec();
+        assert_eq!(spec.client_model, "glm-5");
+        assert_eq!(spec.name, "glm-5-code");
+        assert_eq!(
+            spec.base_url.as_deref(),
+            Some("https://api.z.ai/api/coding/paas/v4")
+        );
+    }
+
+    #[test]
+    fn test_provider_api_key_env() {
+        assert_eq!(Provider::Google.api_key_env(), "GEMINI_API_KEY");
+        assert_eq!(Provider::Groq.api_key_env(), "GROQ_API_KEY");
+        assert_eq!(Provider::Qwen.api_key_env(), "DASHSCOPE_API_KEY");
+    }
+
+    #[test]
+    fn test_same_provider_fallback() {
+        // Anthropic chain
+        assert_eq!(
+            AIModel::ClaudeOpus4_6.same_provider_fallback(),
+            Some(AIModel::ClaudeSonnet4_5)
+        );
+        assert_eq!(
+            AIModel::ClaudeSonnet4_5.same_provider_fallback(),
+            Some(AIModel::ClaudeHaiku4_5)
+        );
+        assert_eq!(AIModel::ClaudeHaiku4_5.same_provider_fallback(), None);
+
+        // OpenAI chain
+        assert_eq!(
+            AIModel::Gpt5Pro.same_provider_fallback(),
+            Some(AIModel::Gpt5)
+        );
+        assert_eq!(
+            AIModel::Gpt5.same_provider_fallback(),
+            Some(AIModel::Gpt5Mini)
+        );
+        assert_eq!(
+            AIModel::Gpt5Mini.same_provider_fallback(),
+            Some(AIModel::Gpt5Nano)
+        );
+        assert_eq!(AIModel::Gpt5Nano.same_provider_fallback(), None);
+
+        // DeepSeek chain
+        assert_eq!(
+            AIModel::DeepseekReasoner.same_provider_fallback(),
+            Some(AIModel::DeepseekChat)
+        );
+        assert_eq!(AIModel::DeepseekChat.same_provider_fallback(), None);
+
+        // CLI models have no fallback
+        assert_eq!(AIModel::CodexCli.same_provider_fallback(), None);
+    }
+
+    #[test]
+    fn test_openrouter_equivalent() {
+        assert_eq!(
+            AIModel::ClaudeOpus4_6.openrouter_equivalent(),
+            Some(AIModel::OrClaudeOpus4_6)
+        );
+        assert_eq!(AIModel::Gpt5.openrouter_equivalent(), Some(AIModel::OrGpt5));
+        assert_eq!(
+            AIModel::DeepseekChat.openrouter_equivalent(),
+            Some(AIModel::OrDeepseekV3_2)
+        );
+        assert_eq!(
+            AIModel::KimiK2_5.openrouter_equivalent(),
+            Some(AIModel::OrKimiK2_5)
+        );
+        // OR models themselves have no OR equivalent
+        assert_eq!(AIModel::OrClaudeOpus4_6.openrouter_equivalent(), None);
+        // CLI models have no OR equivalent
+        assert_eq!(AIModel::CodexCli.openrouter_equivalent(), None);
+    }
+
+    #[test]
+    fn test_flagship_model() {
+        assert_eq!(
+            Provider::Anthropic.flagship_model(),
+            AIModel::ClaudeSonnet4_5
+        );
+        assert_eq!(Provider::OpenAI.flagship_model(), AIModel::Gpt5);
+        assert_eq!(Provider::DeepSeek.flagship_model(), AIModel::DeepseekChat);
+        assert_eq!(Provider::Google.flagship_model(), AIModel::Gemini3Pro);
+        assert_eq!(Provider::Zhipu.flagship_model(), AIModel::Glm5);
+        assert_eq!(
+            Provider::OpenRouter.flagship_model(),
+            AIModel::OrClaudeOpus4_6
+        );
+    }
+}
