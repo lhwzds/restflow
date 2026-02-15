@@ -21,13 +21,37 @@ pub async fn run(
             model,
             prompt,
             codex_execution_mode,
-        } => create_agent(executor, &name, model, prompt, codex_execution_mode, format).await,
+            codex_reasoning_effort,
+        } => {
+            create_agent(
+                executor,
+                &name,
+                model,
+                prompt,
+                codex_execution_mode,
+                codex_reasoning_effort,
+                format,
+            )
+            .await
+        }
         AgentCommands::Update {
             id,
             name,
             model,
             codex_execution_mode,
-        } => update_agent(executor, &id, name, model, codex_execution_mode, format).await,
+            codex_reasoning_effort,
+        } => {
+            update_agent(
+                executor,
+                &id,
+                name,
+                model,
+                codex_execution_mode,
+                codex_reasoning_effort,
+                format,
+            )
+            .await
+        }
         AgentCommands::Delete { id } => delete_agent(executor, &id, format).await,
     }
 }
@@ -85,6 +109,9 @@ async fn show_agent(
     if let Some(mode) = agent.agent.codex_cli_execution_mode {
         println!("Codex Mode:  {}", mode.as_str());
     }
+    if let Some(effort) = &agent.agent.codex_cli_reasoning_effort {
+        println!("Codex Effort: {}", effort);
+    }
 
     if let Some(prompt) = agent.agent.prompt {
         println!("\nSystem Prompt:\n{prompt}");
@@ -99,6 +126,7 @@ async fn create_agent(
     model: Option<String>,
     prompt: Option<String>,
     codex_execution_mode: Option<CodexExecutionModeArg>,
+    codex_reasoning_effort: Option<String>,
     format: OutputFormat,
 ) -> Result<()> {
     let mut agent_node = match model {
@@ -110,6 +138,9 @@ async fn create_agent(
     }
     if let Some(mode) = codex_execution_mode {
         agent_node = agent_node.with_codex_cli_execution_mode(to_codex_mode(mode));
+    }
+    if let Some(effort) = codex_reasoning_effort {
+        agent_node = agent_node.with_codex_cli_reasoning_effort(effort);
     }
 
     let created = executor.create_agent(name.to_string(), agent_node).await?;
@@ -128,6 +159,7 @@ async fn update_agent(
     name: Option<String>,
     model: Option<String>,
     codex_execution_mode: Option<CodexExecutionModeArg>,
+    codex_reasoning_effort: Option<String>,
     format: OutputFormat,
 ) -> Result<()> {
     let mut existing = executor.get_agent(id).await?;
@@ -137,6 +169,9 @@ async fn update_agent(
     }
     if let Some(mode) = codex_execution_mode {
         existing.agent.codex_cli_execution_mode = Some(to_codex_mode(mode));
+    }
+    if let Some(effort) = codex_reasoning_effort {
+        existing.agent.codex_cli_reasoning_effort = Some(effort);
     }
 
     let updated = executor
