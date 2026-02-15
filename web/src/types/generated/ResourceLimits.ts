@@ -15,4 +15,8 @@ max_duration_secs: bigint,
 /**
  * Maximum output payload size in bytes for tool results.
  */
-max_output_bytes: number, };
+max_output_bytes: number, 
+/**
+ * Maximum estimated LLM cost in USD for one execution.
+ */
+max_cost_usd: number | null, };

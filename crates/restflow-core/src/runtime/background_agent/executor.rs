@@ -1008,11 +1008,25 @@ impl AgentRuntimeExecutor {
         let result = if let Some(audit_stream_emitter) = audit_emitter.as_mut() {
             agent
                 .execute_streaming(config, audit_stream_emitter)
-                .await?
+                .await
         } else if let Some(mut emitter) = passthrough_emitter {
-            agent.execute_streaming(config, emitter.as_mut()).await?
+            agent.execute_streaming(config, emitter.as_mut()).await
         } else {
-            agent.run(config).await?
+            agent.run(config).await
+        };
+        
+        let result = match result {
+            Ok(r) => r,
+            Err(e) => {
+                // Record execution failure for hard errors (network, LLM API errors, etc.)
+                if let Some(audit_stream_emitter) = audit_emitter.as_ref() {
+                    audit_stream_emitter.record_execution_failed(
+                        e.to_string().as_str(),
+                        execution_start.elapsed().as_millis() as u64,
+                    );
+                }
+                return Err(e.into());
+            }
         };
         if result.success {
             let total_iterations = result.iterations as u32;

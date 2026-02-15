@@ -1,6 +1,7 @@
 //! Tool registry service for creating tool registries with storage access.
 
 use crate::daemon::{DaemonStatus, check_daemon_status, check_health};
+use redb::{ReadableDatabase, ReadableTable};
 use crate::lsp::LspManager;
 use crate::memory::{MemoryExporter, UnifiedSearchEngine};
 use crate::models::{
@@ -594,14 +595,32 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
         let limit = request.event_limit.unwrap_or(50).max(1);
         let audit_storage =
             AuditStorage::new(self.storage.db()).map_err(|e| AiError::Tool(e.to_string()))?;
-        let entries = audit_storage
-            .list_by_task(&request.id, limit)
-            .map_err(|e| AiError::Tool(e.to_string()))?;
-        let execution_id = entries
-            .first()
-            .map(|entry| entry.execution_id.clone())
-            .unwrap_or_default();
-        let summary = if execution_id.is_empty() {
+        
+        // Get the latest execution_id by querying the task execution index
+        let latest_execution_id = {
+            let tx = self.storage.db().begin_read().map_err(|e| AiError::Tool(e.to_string()))?;
+            let index_def = redb::TableDefinition::<&str, u8>::new("audit_task_execution_index_v1");
+            let index = tx.open_table(index_def).map_err(|e| AiError::Tool(e.to_string()))?;
+            
+            let mut latest_exec = String::new();
+            
+            for row_result in index.iter().map_err(|e| AiError::Tool(e.to_string()))? {
+                let (key, _) = row_result.map_err(|e| AiError::Tool(e.to_string()))?;
+                let raw = key.value();
+                if let Some((task, execution)) = raw.split_once(':')
+                    && task == request.id
+                {
+                    // Pick the first (any) execution for this task
+                    latest_exec = execution.to_string();
+                    break;
+                }
+            }
+            drop(index);
+            drop(tx);
+            latest_exec
+        };
+        
+        let summary = if latest_execution_id.is_empty() {
             serde_json::json!({
                 "task_id": request.id,
                 "execution_id": "",
@@ -609,12 +628,20 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
                 "summary": null,
             })
         } else {
+            // Get entries only for the latest execution (ensures entries and summary are consistent)
+            let mut entries = audit_storage
+                .list_by_execution(&latest_execution_id)
+                .map_err(|e| AiError::Tool(e.to_string()))?;
+            // Reverse to get newest first, then limit
+            entries.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+            entries.truncate(limit);
+            
             let summary = audit_storage
-                .summarize_execution(&execution_id)
+                .summarize_execution(&latest_execution_id)
                 .map_err(|e| AiError::Tool(e.to_string()))?;
             serde_json::json!({
                 "task_id": request.id,
-                "execution_id": execution_id,
+                "execution_id": latest_execution_id,
                 "entries": entries,
                 "summary": summary,
             })
