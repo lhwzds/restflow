@@ -61,7 +61,7 @@ pub use context::{
 pub use deferred::{DeferredExecutionManager, DeferredStatus, DeferredToolCall};
 pub use definitions::{AgentDefinition, AgentDefinitionRegistry, builtin_agents};
 pub use execution_engine::{AgentExecutionEngine, AgentExecutionEngineConfig, ExecutionResult};
-pub use executor::{AgentConfig, AgentExecutor, AgentResult};
+pub use executor::{AgentConfig, AgentExecutor, AgentResult, CheckpointDurability};
 pub use history::{HistoryPipeline, HistoryProcessor, TrimOldMessagesProcessor};
 pub use model_router::{ModelRoutingConfig, ModelSwitcher, TaskTier, classify_task, select_model};
 pub use resource::{ResourceError, ResourceLimits, ResourceTracker, ResourceUsage};

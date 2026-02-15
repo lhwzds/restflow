@@ -799,6 +799,11 @@ impl BackgroundAgentStorage {
         self.checkpoints.save(checkpoint)
     }
 
+    /// Save an agent checkpoint and return a persistent savepoint ID.
+    pub fn save_checkpoint_with_savepoint(&self, checkpoint: &AgentCheckpoint) -> Result<u64> {
+        self.checkpoints.save_with_savepoint(checkpoint)
+    }
+
     /// Load a checkpoint by task ID.
     pub fn load_checkpoint_by_task_id(&self, task_id: &str) -> Result<Option<AgentCheckpoint>> {
         self.checkpoints.load_by_task_id(task_id)
@@ -807,6 +812,11 @@ impl BackgroundAgentStorage {
     /// Delete expired checkpoints.
     pub fn cleanup_expired_checkpoints(&self) -> Result<usize> {
         self.checkpoints.cleanup_expired()
+    }
+
+    /// Delete a persistent savepoint if it exists.
+    pub fn delete_checkpoint_savepoint(&self, savepoint_id: u64) -> Result<bool> {
+        self.checkpoints.delete_savepoint(savepoint_id)
     }
 }
 
@@ -1056,7 +1066,9 @@ mod tests {
         assert!(events.is_empty());
 
         // Background messages should also be gone
-        let messages = storage.list_background_agent_messages(&task.id, 10).unwrap();
+        let messages = storage
+            .list_background_agent_messages(&task.id, 10)
+            .unwrap();
         assert!(messages.is_empty());
     }
 
