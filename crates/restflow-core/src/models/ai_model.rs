@@ -266,6 +266,9 @@ impl AIModel {
             ModelSpec::codex(self.as_serialized_str(), self.as_str())
         } else if self.is_gemini_cli() {
             ModelSpec::gemini_cli(self.as_serialized_str(), self.as_str())
+        } else if matches!(self, Self::Glm5Code) {
+            ModelSpec::new(self.as_serialized_str(), provider, self.as_str())
+                .with_base_url("https://api.z.ai/api/coding/paas/v4")
         } else {
             ModelSpec::new(self.as_serialized_str(), provider, self.as_str())
         }
