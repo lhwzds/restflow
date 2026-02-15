@@ -1523,6 +1523,7 @@ impl RestFlowMcpServer {
                     memory,
                     durability_mode,
                     resource_limits,
+                    continuation: None,
                 };
                 serde_json::to_value(self.backend.create_background_agent(spec).await?)
                     .map_err(|e| e.to_string())?
@@ -1552,6 +1553,7 @@ impl RestFlowMcpServer {
                     memory,
                     durability_mode,
                     resource_limits,
+                    continuation: None,
                 };
                 serde_json::to_value(self.backend.update_background_agent(&id, patch).await?)
                     .map_err(|e| e.to_string())?
