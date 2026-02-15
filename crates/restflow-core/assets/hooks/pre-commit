@@ -1,0 +1,13 @@
+#!/bin/bash
+# RestFlow: Prevent background agents from committing on main branch directly
+# This hook is auto-installed by RestFlow daemon on startup
+
+BRANCH=$(git symbolic-ref --short HEAD 2>/dev/null)
+
+# Only enforce for background agent processes
+if [ -n "$RESTFLOW_AGENT" ] && [ "$BRANCH" = "main" -o "$BRANCH" = "master" ]; then
+    echo "ERROR: Background agents must not commit directly to $BRANCH."
+    echo "Use a worktree or feature branch instead."
+    echo "Task ID: $RESTFLOW_TASK_ID"
+    exit 1
+fi

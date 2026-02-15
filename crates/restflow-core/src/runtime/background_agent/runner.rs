@@ -1235,7 +1235,7 @@ impl BackgroundAgentRunner {
                     let timeout = Duration::from_secs(execution_timeout_secs);
                     tokio::time::timeout(
                         timeout,
-                        cli_executor.execute_cli(cli_config, resolved_input.as_deref()),
+                        cli_executor.execute_cli(cli_config, resolved_input.as_deref(), Some(task_id)),
                     )
                     .await
                 }

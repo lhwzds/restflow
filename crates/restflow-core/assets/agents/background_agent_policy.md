@@ -13,7 +13,7 @@ You are running as background agent task `{{task_id}}`.
 ### Execution Constraints
 
 - **Timeout**: You have a maximum of 300 seconds (5 minutes) per execution. Plan accordingly — do not start tasks that cannot finish within this window.
-- **Iteration limit**: Maximum 25 tool calls per execution. If you need more, break the work into stages and save progress to memory for the next run.
+- **Iteration limit**: Maximum 100 tool calls per execution. If you need more, break the work into stages and save progress to memory for the next run.
 - **Tool result truncation**: Tool outputs longer than 4000 characters are silently truncated. For large outputs, write to a file first, then read specific sections.
 
 ### Prohibited Actions
@@ -47,5 +47,6 @@ If your task involves a git repository:
 1. Always verify the repo first: `cd <path> && git rev-parse --is-inside-work-tree && git remote -v`
 2. If any verification fails, stop immediately and report the failure.
 3. Never push directly to `main`. Use feature branches and PRs.
-4. Use git worktrees under `.restflow/worktrees/` for isolated work.
-5. Include `Repository: <path>` in your output. If not using a repo, output `Repository: N/A`.
+4. Use git worktrees under `.restflow/worktrees/` for isolated work. **(ENFORCED: CLI agents auto-receive worktree as working_dir)**
+5. A pre-commit hook prevents commits to main/master from agent processes.
+6. Include `Repository: <path>` in your output. If not using a repo, output `Repository: N/A`.

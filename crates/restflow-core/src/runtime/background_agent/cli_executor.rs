@@ -63,23 +63,37 @@ impl CliAgentExecutor {
         }
     }
 
-    /// Execute a CLI command with the given configuration and input
+    /// Execute a CLI command with the given configuration and input.
+    ///
+    /// The optional `task_id` parameter is used to tag the process as a background
+    /// agent for git hook enforcement. When set, the following environment variables
+    /// are added:
+    /// - `RESTFLOW_AGENT=1`: Identifies the process as a background agent
+    /// - `RESTFLOW_TASK_ID=<task_id>`: The specific task ID for tracking
     pub async fn execute_cli(
         &self,
         config: &CliExecutionConfig,
         input: Option<&str>,
+        task_id: Option<&str>,
     ) -> Result<ExecutionResult> {
         info!(
             binary = %config.binary,
             args = ?config.args,
             working_dir = ?config.working_dir,
             timeout_secs = config.timeout_secs,
+            task_id = ?task_id,
             "Starting CLI execution"
         );
 
         // Build the command
         let mut cmd = Command::new(&config.binary);
         cmd.args(&config.args);
+
+        // Tag the process as a background agent for git hook enforcement
+        if let Some(tid) = task_id {
+            cmd.env("RESTFLOW_AGENT", "1");
+            cmd.env("RESTFLOW_TASK_ID", tid);
+        }
 
         // Set working directory if specified
         if let Some(ref cwd) = config.working_dir {
@@ -254,7 +268,7 @@ mod tests {
             use_pty: false,
         };
 
-        let result = executor.execute_cli(&config, None).await;
+        let result = executor.execute_cli(&config, None, None).await;
         assert!(result.is_ok());
 
         let result = result.unwrap();
@@ -279,7 +293,7 @@ mod tests {
             use_pty: false,
         };
 
-        let result = executor.execute_cli(&config, None).await;
+        let result = executor.execute_cli(&config, None, None).await;
         assert!(result.is_ok());
         assert!(line_count.load(Ordering::SeqCst) >= 1);
     }
@@ -295,7 +309,7 @@ mod tests {
             use_pty: false,
         };
 
-        let result = executor.execute_cli(&config, None).await;
+        let result = executor.execute_cli(&config, None, None).await;
         assert!(result.is_err());
 
         let error = result.unwrap_err();
@@ -313,7 +327,7 @@ mod tests {
             use_pty: false,
         };
 
-        let result = executor.execute_cli(&config, None).await;
+        let result = executor.execute_cli(&config, None, None).await;
         assert!(result.is_err());
 
         let error = result.unwrap_err();
@@ -332,7 +346,7 @@ mod tests {
         };
 
         // Input is added as -p argument
-        let result = executor.execute_cli(&config, Some("test input")).await;
+        let result = executor.execute_cli(&config, Some("test input"), None).await;
         assert!(result.is_ok());
 
         let result = result.unwrap();
@@ -353,7 +367,7 @@ mod tests {
             use_pty: false,
         };
 
-        let result = executor.execute_cli(&config, None).await;
+        let result = executor.execute_cli(&config, None, None).await;
         assert!(result.is_ok());
 
         let result = result.unwrap();
@@ -374,11 +388,53 @@ mod tests {
             use_pty: false,
         };
 
-        let result = executor.execute_cli(&config, None).await;
+        let result = executor.execute_cli(&config, None, None).await;
         assert!(result.is_ok());
 
         let result = result.unwrap();
         // Output should contain the temp directory path
         assert!(result.output.to_lowercase().contains("temp"));
+    }
+
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn test_cli_executor_sets_restflow_env_vars_when_task_id_provided() {
+        let executor = CliAgentExecutor::new();
+        // Use sh to print environment variables
+        let config = CliExecutionConfig {
+            binary: "sh".to_string(),
+            args: vec!["-c".to_string(), "echo RESTFLOW_AGENT=$RESTFLOW_AGENT RESTFLOW_TASK_ID=$RESTFLOW_TASK_ID".to_string()],
+            working_dir: None,
+            timeout_secs: 10,
+            use_pty: false,
+        };
+
+        let result = executor.execute_cli(&config, None, Some("test-task-123")).await;
+        assert!(result.is_ok());
+
+        let result = result.unwrap();
+        assert!(result.output.contains("RESTFLOW_AGENT=1"));
+        assert!(result.output.contains("RESTFLOW_TASK_ID=test-task-123"));
+    }
+
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn test_cli_executor_no_restflow_env_vars_when_task_id_not_provided() {
+        let executor = CliAgentExecutor::new();
+        // Use sh to print environment variables
+        let config = CliExecutionConfig {
+            binary: "sh".to_string(),
+            args: vec!["-c".to_string(), "echo RESTFLOW_AGENT=${RESTFLOW_AGENT:-unset} RESTFLOW_TASK_ID=${RESTFLOW_TASK_ID:-unset}".to_string()],
+            working_dir: None,
+            timeout_secs: 10,
+            use_pty: false,
+        };
+
+        let result = executor.execute_cli(&config, None, None).await;
+        assert!(result.is_ok());
+
+        let result = result.unwrap();
+        assert!(result.output.contains("RESTFLOW_AGENT=unset"));
+        assert!(result.output.contains("RESTFLOW_TASK_ID=unset"));
     }
 }
