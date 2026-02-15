@@ -8,6 +8,7 @@ use tokio::sync::RwLock;
 
 use crate::error::{AiError, Result};
 use crate::tools::traits::{Tool, ToolOutput, ToolSchema};
+use crate::tools::wrapper::{ToolWrapper, WrappedTool};
 use crate::tools::{ProcessManager, ProcessTool};
 
 /// Registry for managing available tools
@@ -41,6 +42,26 @@ impl ToolRegistry {
     pub fn register_arc(&mut self, tool: Arc<dyn Tool>) {
         let name = tool.name().to_string();
         self.tools.insert(name, tool);
+    }
+
+    /// Register a tool with wrapper decorators.
+    pub fn register_wrapped_arc(
+        &mut self,
+        tool: Arc<dyn Tool>,
+        wrappers: Vec<Arc<dyn ToolWrapper>>,
+    ) {
+        let wrapped = Arc::new(WrappedTool::new(tool, wrappers));
+        let name = wrapped.name().to_string();
+        self.tools.insert(name, wrapped);
+    }
+
+    /// Register a concrete tool with wrapper decorators.
+    pub fn register_wrapped<T: Tool + 'static>(
+        &mut self,
+        tool: T,
+        wrappers: Vec<Arc<dyn ToolWrapper>>,
+    ) {
+        self.register_wrapped_arc(Arc::new(tool), wrappers);
     }
 
     /// Register the process tool with a shared process manager
@@ -99,6 +120,8 @@ impl ToolRegistry {
 mod tests {
     use super::*;
     use crate::tools::HttpTool;
+    use crate::tools::wrapper::TimeoutWrapper;
+    use std::time::Duration;
 
     #[test]
     fn test_tool_registry() {
@@ -118,5 +141,16 @@ mod tests {
         let schemas = registry.schemas();
         assert_eq!(schemas.len(), 1);
         assert_eq!(schemas[0].name, "http_request");
+    }
+
+    #[test]
+    fn test_register_wrapped_preserves_tool_name() {
+        let mut registry = ToolRegistry::new();
+        registry.register_wrapped(
+            HttpTool::new(),
+            vec![Arc::new(TimeoutWrapper::new(Duration::from_secs(1)))],
+        );
+
+        assert!(registry.has("http_request"));
     }
 }
