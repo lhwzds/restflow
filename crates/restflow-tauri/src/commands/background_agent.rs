@@ -239,6 +239,7 @@ pub async fn create_background_agent(
         resource_limits: request.resource_limits,
         durability_mode: None,
         continuation: None,
+        prerequisites: Vec::new(),
     };
 
     state
@@ -269,6 +270,7 @@ pub async fn update_background_agent(
         resource_limits: request.resource_limits,
         durability_mode: None,
         continuation: None,
+        prerequisites: None,
     };
 
     state
