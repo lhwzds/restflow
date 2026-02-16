@@ -2058,6 +2058,7 @@ impl ServerHandler for RestFlowMcpServer {
                 "Get the full content of a skill by its ID. Returns the complete skill including its markdown content.",
                 schema_for_type::<GetSkillParams>(),
             ),
+            // No CLI needed: Deep reference lookup, use `skill show` for basic viewing
             Tool::new(
                 "get_skill_reference",
                 "Load the full content of a specific skill reference by skill_id and ref_id.",
@@ -2103,6 +2104,7 @@ impl ServerHandler for RestFlowMcpServer {
                 "Get memory statistics for an agent.",
                 schema_for_type::<MemoryStatsParams>(),
             ),
+            // No CLI needed: AI execution context only, use `skill show` for viewing
             Tool::new(
                 "get_skill_context",
                 "Fetch a skill's content with execution context (input, references). Use this when preparing to execute a skill task.",
