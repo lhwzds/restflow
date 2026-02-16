@@ -1,9 +1,11 @@
 pub mod agent;
 pub mod auth;
+pub mod background_agent;
 pub mod claude_mcp;
 pub mod codex_mcp;
 pub mod config;
 pub mod daemon;
+pub mod deliverable;
 pub mod hook;
 pub mod info;
 pub mod key;
@@ -14,13 +16,14 @@ pub mod migrate;
 pub mod note;
 pub mod pairing;
 pub mod restart;
-
 pub mod secret;
 pub mod security;
 pub mod session;
+pub mod shared;
 pub mod skill;
 pub mod start;
 pub mod status;
 pub mod stop;
+pub mod trigger;
 pub mod upgrade;
 pub mod utils;
