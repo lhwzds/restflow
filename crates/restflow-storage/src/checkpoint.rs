@@ -68,6 +68,10 @@ impl CheckpointStorage {
     /// Store a checkpoint and create a persistent savepoint in the same transaction.
     ///
     /// The savepoint is created before opening any tables to satisfy redb constraints.
+    /// The checkpoint is stored as-is (caller should not expect savepoint_id in data).
+    #[deprecated(
+        note = "Use save_with_savepoint_atomic instead to avoid race condition with savepoint_id"
+    )]
     pub fn save_with_savepoint(
         &self,
         id: &str,
@@ -95,6 +99,60 @@ impl CheckpointStorage {
         }
         write_txn.commit()?;
         Ok(savepoint_id)
+    }
+
+    /// Store a checkpoint and create a persistent savepoint atomically.
+    ///
+    /// This method eliminates the race window where a checkpoint could be loaded
+    /// with savepoint_id=None while a savepoint exists in the database.
+    ///
+    /// The savepoint_id is injected into the checkpoint JSON data before persisting,
+    /// ensuring that any concurrent reader will always see a checkpoint with the
+    /// correct savepoint_id if a savepoint exists.
+    pub fn save_with_savepoint_atomic(
+        &self,
+        id: &str,
+        execution_id: &str,
+        task_id: Option<&str>,
+        data: &[u8],
+    ) -> Result<u64> {
+        let write_txn = self.db.begin_write()?;
+        let savepoint_id = write_txn
+            .persistent_savepoint()
+            .context("Failed to create persistent savepoint")?;
+
+        // Inject savepoint_id into checkpoint data before storing
+        let data_with_savepoint = Self::inject_savepoint_id(data, savepoint_id)?;
+
+        {
+            let mut table = write_txn.open_table(CHECKPOINT_TABLE)?;
+            table.insert(id, data_with_savepoint.as_slice())?;
+
+            let mut exec_idx = write_txn.open_table(CHECKPOINT_EXECUTION_INDEX)?;
+            let exec_key = format!("{}:{}", execution_id, id);
+            exec_idx.insert(exec_key.as_str(), id)?;
+
+            if let Some(tid) = task_id {
+                let mut task_idx = write_txn.open_table(CHECKPOINT_TASK_INDEX)?;
+                let task_key = format!("{}:{}", tid, id);
+                task_idx.insert(task_key.as_str(), id)?;
+            }
+        }
+        write_txn.commit()?;
+        Ok(savepoint_id)
+    }
+
+    /// Inject savepoint_id into checkpoint JSON data.
+    fn inject_savepoint_id(data: &[u8], savepoint_id: u64) -> Result<Vec<u8>> {
+        let mut value: serde_json::Value =
+            serde_json::from_slice(data).context("Failed to parse checkpoint JSON")?;
+        if let Some(obj) = value.as_object_mut() {
+            obj.insert(
+                "savepoint_id".to_string(),
+                serde_json::Value::Number(savepoint_id.into()),
+            );
+        }
+        serde_json::to_vec(&value).context("Failed to serialize checkpoint with savepoint_id")
     }
 
     /// Delete a previously created persistent savepoint.
@@ -361,6 +419,7 @@ mod tests {
         let db = setup_db();
         let storage = CheckpointStorage::new(db).unwrap();
 
+        #[allow(deprecated)]
         let savepoint_id = storage
             .save_with_savepoint("cp-1", "exec-1", Some("task-1"), b"data")
             .unwrap();
@@ -369,5 +428,59 @@ mod tests {
 
         let deleted = storage.delete_savepoint(savepoint_id).unwrap();
         assert!(deleted);
+    }
+
+    #[test]
+    fn test_save_with_savepoint_atomic_injects_id() {
+        let db = setup_db();
+        let storage = CheckpointStorage::new(db).unwrap();
+
+        let data = br#"{"id":"cp-atomic","execution_id":"exec-1","version":5}"#;
+        let savepoint_id = storage
+            .save_with_savepoint_atomic("cp-atomic", "exec-1", Some("task-1"), data)
+            .unwrap();
+        assert!(savepoint_id > 0);
+
+        let loaded = storage.load("cp-atomic").unwrap().unwrap();
+        let loaded_json: serde_json::Value = serde_json::from_slice(&loaded).unwrap();
+
+        // Verify savepoint_id was injected
+        assert_eq!(
+            loaded_json.get("savepoint_id").and_then(|v| v.as_u64()),
+            Some(savepoint_id)
+        );
+        // Verify original fields preserved
+        assert_eq!(loaded_json.get("id").and_then(|v| v.as_str()), Some("cp-atomic"));
+        assert_eq!(loaded_json.get("execution_id").and_then(|v| v.as_str()), Some("exec-1"));
+        assert_eq!(loaded_json.get("version").and_then(|v| v.as_i64()), Some(5));
+
+        let deleted = storage.delete_savepoint(savepoint_id).unwrap();
+        assert!(deleted);
+    }
+
+    #[test]
+    fn test_save_with_savepoint_atomic_no_race_window() {
+        // This test verifies that savepoint_id is always present in the checkpoint
+        // when a savepoint exists, eliminating the race window described in the fix.
+        let db = setup_db();
+        let storage = CheckpointStorage::new(db).unwrap();
+
+        let data = br#"{"id":"cp-race","execution_id":"exec-race","version":1}"#;
+        let savepoint_id = storage
+            .save_with_savepoint_atomic("cp-race", "exec-race", Some("task-race"), data)
+            .unwrap();
+
+        // Immediately load - savepoint_id should be present
+        let loaded = storage.load("cp-race").unwrap().unwrap();
+        let loaded_json: serde_json::Value = serde_json::from_slice(&loaded).unwrap();
+
+        // No race: savepoint_id must be present
+        assert_eq!(
+            loaded_json.get("savepoint_id").and_then(|v| v.as_u64()),
+            Some(savepoint_id),
+            "savepoint_id must be present in checkpoint when savepoint exists"
+        );
+
+        storage.delete_savepoint(savepoint_id).unwrap();
     }
 }

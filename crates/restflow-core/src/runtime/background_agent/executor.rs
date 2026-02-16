@@ -297,6 +297,20 @@ impl AgentRuntimeExecutor {
                     return Ok(secret_value);
                 }
             }
+            Provider::Zhipu => {
+                if let Some(secret_value) = self
+                    .storage
+                    .secrets
+                    .get_secret("ZHIPU_CODING_PLAN_API_KEY")?
+                {
+                    return Ok(secret_value);
+                }
+            }
+            Provider::ZhipuCodingPlan => {
+                if let Some(secret_value) = self.storage.secrets.get_secret("ZHIPU_API_KEY")? {
+                    return Ok(secret_value);
+                }
+            }
             _ => {}
         }
 
@@ -1274,13 +1288,13 @@ impl AgentRuntimeExecutor {
                         state_json,
                         "periodic_checkpoint".to_string(),
                     );
-                    let savepoint_id = checkpoints
-                        .save_checkpoint_with_savepoint(&checkpoint)
+                    // save_with_savepoint atomically injects savepoint_id into checkpoint data
+                    // eliminating the race window where concurrent resume could load checkpoint
+                    // with savepoint_id=None while savepoint exists in DB
+                    let _savepoint_id = checkpoints
+                        .save_checkpoint_with_savepoint(&mut checkpoint)
                         .map_err(|e| AiError::Agent(format!("Failed to save checkpoint: {e}")))?;
-                    checkpoint.savepoint_id = Some(savepoint_id);
-                    checkpoints.save_checkpoint(&checkpoint).map_err(|e| {
-                        AiError::Agent(format!("Failed to persist savepoint id: {e}"))
-                    })?;
+                    // checkpoint.savepoint_id is now set atomically - no second save needed
                     Ok(())
                 }
             });
@@ -2103,6 +2117,48 @@ mod tests {
             "Error should mention missing secret: {}",
             err_msg
         );
+    }
+
+    #[tokio::test]
+    async fn test_resolve_api_key_uses_zhipu_coding_plan_secret_for_zhipu_provider() {
+        let (storage, _temp_dir) = create_test_storage();
+        storage
+            .secrets
+            .set_secret("ZHIPU_CODING_PLAN_API_KEY", "zhipu-coding-plan-key", None)
+            .unwrap();
+        let executor = create_test_executor(storage);
+
+        let key = executor
+            .resolve_api_key_for_model(
+                Provider::Zhipu,
+                None,
+                Provider::Zhipu,
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(key, "zhipu-coding-plan-key");
+    }
+
+    #[tokio::test]
+    async fn test_resolve_api_key_uses_zhipu_secret_for_zhipu_coding_plan_provider() {
+        let (storage, _temp_dir) = create_test_storage();
+        storage
+            .secrets
+            .set_secret("ZHIPU_API_KEY", "zhipu-key", None)
+            .unwrap();
+        let executor = create_test_executor(storage);
+
+        let key = executor
+            .resolve_api_key_for_model(
+                Provider::ZhipuCodingPlan,
+                None,
+                Provider::ZhipuCodingPlan,
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(key, "zhipu-key");
     }
 
     #[test]

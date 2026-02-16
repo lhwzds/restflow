@@ -804,7 +804,7 @@ impl BackgroundAgentStorage {
     }
 
     /// Save an agent checkpoint and return a persistent savepoint ID.
-    pub fn save_checkpoint_with_savepoint(&self, checkpoint: &AgentCheckpoint) -> Result<u64> {
+    pub fn save_checkpoint_with_savepoint(&self, checkpoint: &mut AgentCheckpoint) -> Result<u64> {
         self.checkpoints.save_with_savepoint(checkpoint)
     }
 

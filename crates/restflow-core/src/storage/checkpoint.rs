@@ -34,15 +34,23 @@ impl CheckpointStorage {
         )
     }
 
-    /// Save a checkpoint and attach a persistent redb savepoint ID.
-    pub fn save_with_savepoint(&self, checkpoint: &AgentCheckpoint) -> Result<u64> {
+    /// Save a checkpoint and attach a persistent redb savepoint ID atomically.
+    ///
+    /// This method eliminates the race window where a checkpoint could be loaded
+    /// with savepoint_id=None while a savepoint exists in the database.
+    ///
+    /// The savepoint_id is injected into the checkpoint data within the same
+    /// database transaction, ensuring atomic visibility.
+    pub fn save_with_savepoint(&self, checkpoint: &mut AgentCheckpoint) -> Result<u64> {
         let data = serde_json::to_vec(checkpoint)?;
-        self.inner.save_with_savepoint(
+        let savepoint_id = self.inner.save_with_savepoint_atomic(
             &checkpoint.id,
             &checkpoint.execution_id,
             checkpoint.task_id.as_deref(),
             &data,
-        )
+        )?;
+        checkpoint.savepoint_id = Some(savepoint_id);
+        Ok(savepoint_id)
     }
 
     /// Load a checkpoint by ID.
