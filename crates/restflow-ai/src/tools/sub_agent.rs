@@ -3,7 +3,7 @@
 //! This tool allows an agent to spawn another agent as a sub-task,
 //! with hierarchical tracking via subflow paths.
 
-use crate::agent::{spawn_subagent, SpawnRequest, SubagentConfig, SubagentTracker};
+use crate::agent::{spawn_subagent, SpawnRequest, SubagentConfig, SubagentTracker, AgentDefinitionRegistry};
 use crate::llm::LlmClient;
 use crate::tools::{Tool, ToolOutput};
 use crate::error::Result;
@@ -32,11 +32,30 @@ pub struct SubAgentTool {
     llm_client: Arc<dyn LlmClient>,
     tool_registry: Arc<crate::tools::ToolRegistry>,
     config: SubagentConfig,
+    /// Injected agent definition registry (allows non-builtin agents)
+    definitions: Arc<AgentDefinitionRegistry>,
 }
 
 impl SubAgentTool {
-    /// Create a new SubAgentTool.
+    /// Create a new SubAgentTool with injected dependencies.
     pub fn new(
+        tracker: Arc<SubagentTracker>,
+        llm_client: Arc<dyn LlmClient>,
+        tool_registry: Arc<crate::tools::ToolRegistry>,
+        config: SubagentConfig,
+        definitions: Arc<AgentDefinitionRegistry>,
+    ) -> Self {
+        Self {
+            tracker,
+            llm_client,
+            tool_registry,
+            config,
+            definitions,
+        }
+    }
+    
+    /// Create a SubAgentTool with built-in definitions only (for backward compatibility).
+    pub fn with_builtins(
         tracker: Arc<SubagentTracker>,
         llm_client: Arc<dyn LlmClient>,
         tool_registry: Arc<crate::tools::ToolRegistry>,
@@ -47,6 +66,7 @@ impl SubAgentTool {
             llm_client,
             tool_registry,
             config,
+            definitions: Arc::new(AgentDefinitionRegistry::with_builtins()),
         }
     }
 }
@@ -77,6 +97,11 @@ impl Tool for SubAgentTool {
                 "timeout_secs": {
                     "type": "integer",
                     "description": "Optional timeout in seconds (default: 300)"
+                },
+                "parent_subflow_path": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Parent subflow path for hierarchical tracking (inherited from parent agent context)"
                 }
             },
             "required": ["agent_id", "task"]
@@ -86,9 +111,6 @@ impl Tool for SubAgentTool {
     async fn execute(&self, input: serde_json::Value) -> Result<ToolOutput> {
         let sub_agent_input: SubAgentInput = serde_json::from_value(input)
             .map_err(|e| crate::error::AiError::Tool(format!("Invalid input: {}", e)))?;
-
-        // Get agent definitions registry
-        let definitions = Arc::new(crate::agent::AgentDefinitionRegistry::with_builtins());
 
         let request = SpawnRequest {
             agent_id: sub_agent_input.agent_id,
@@ -100,7 +122,7 @@ impl Tool for SubAgentTool {
 
         let handle = spawn_subagent(
             self.tracker.clone(),
-            definitions,
+            self.definitions.clone(),
             self.llm_client.clone(),
             self.tool_registry.clone(),
             self.config.clone(),
@@ -158,5 +180,36 @@ mod tests {
         assert_eq!(input.task, "Write a function");
         assert_eq!(input.timeout_secs, None);
         assert!(input.parent_subflow_path.is_empty());
+    }
+
+    #[test]
+    fn test_parameters_schema_includes_parent_subflow_path() {
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": {
+                "agent_id": {
+                    "type": "string",
+                    "description": "Agent type ID to spawn (e.g., 'researcher', 'coder')"
+                },
+                "task": {
+                    "type": "string",
+                    "description": "Detailed task description for the sub-agent"
+                },
+                "timeout_secs": {
+                    "type": "integer",
+                    "description": "Optional timeout in seconds (default: 300)"
+                },
+                "parent_subflow_path": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Parent subflow path for hierarchical tracking (inherited from parent agent context)"
+                }
+            },
+            "required": ["agent_id", "task"]
+        });
+        
+        // Verify parent_subflow_path is in schema
+        assert!(schema["properties"]["parent_subflow_path"].is_object());
+        assert_eq!(schema["properties"]["parent_subflow_path"]["type"], "array");
     }
 }

@@ -105,6 +105,8 @@ pub struct AgentConfig {
     pub checkpoint_durability: CheckpointDurability,
     /// Optional callback to persist agent state checkpoints.
     pub checkpoint_callback: Option<CheckpointCallback>,
+    /// Hierarchical subflow path for nested sub-agent tracking.
+    pub subflow_path: Vec<String>,
 }
 
 impl AgentConfig {
@@ -132,6 +134,7 @@ impl AgentConfig {
             yolo_mode: false,
             checkpoint_durability: CheckpointDurability::Periodic { interval: 5 },
             checkpoint_callback: None,
+            subflow_path: Vec::new(),
         }
     }
 
@@ -180,6 +183,12 @@ impl AgentConfig {
     /// Add context variable
     pub fn with_context(mut self, key: impl Into<String>, value: Value) -> Self {
         self.context.insert(key.into(), value);
+        self
+    }
+
+    /// Set subflow path for hierarchical tracking
+    pub fn with_subflow_path(mut self, path: Vec<String>) -> Self {
+        self.subflow_path = path;
         self
     }
 

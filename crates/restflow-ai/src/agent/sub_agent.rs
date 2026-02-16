@@ -530,6 +530,8 @@ pub fn spawn_subagent(
     let llm_client = llm_client.clone();
     let tool_registry = tool_registry.clone();
     let config_clone = config.clone();
+    let parent_subflow_path = request.parent_subflow_path.clone();
+    let task_id_for_path = task_id.clone();
 
     let (completion_tx, completion_rx) = oneshot::channel();
     let (start_tx, start_rx) = oneshot::channel();
@@ -547,6 +549,8 @@ pub fn spawn_subagent(
                 agent_def,
                 task.clone(),
                 config_clone,
+                parent_subflow_path,
+                task_id_for_path,
             ),
         )
         .await;
@@ -631,6 +635,8 @@ async fn execute_subagent(
     agent_def: AgentDefinition,
     task: String,
     config: SubagentConfig,
+    parent_subflow_path: Vec<String>,
+    task_id: String,
 ) -> Result<AgentResult> {
     let registry = build_registry_for_agent(&tool_registry, &agent_def.allowed_tools);
     let registry = Arc::new(registry);
@@ -643,6 +649,11 @@ async fn execute_subagent(
     let mut agent_config = AgentConfig::new(task.clone());
     agent_config.system_prompt = Some(agent_def.system_prompt.clone());
     agent_config.max_iterations = max_iterations;
+
+    // Build hierarchical subflow path: parent path + current task ID
+    let mut subflow_path = parent_subflow_path;
+    subflow_path.push(task_id);
+    agent_config = agent_config.with_subflow_path(subflow_path);
 
     let executor = AgentExecutor::new(llm_client, registry);
     let result = executor.run(agent_config).await?;
