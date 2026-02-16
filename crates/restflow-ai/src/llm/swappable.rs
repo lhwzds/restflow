@@ -1,7 +1,8 @@
 //! Swappable LLM wrapper for dynamic model switching
 
 use async_trait::async_trait;
-use std::sync::{Arc, RwLock};
+use parking_lot::RwLock;
+use std::sync::Arc;
 
 use crate::error::Result;
 use crate::llm::client::{CompletionRequest, CompletionResponse, LlmClient, StreamResult};
@@ -21,19 +22,19 @@ impl SwappableLlm {
 
     /// Swap the underlying LLM client, returning the previous client.
     pub fn swap(&self, new_client: Arc<dyn LlmClient>) -> Arc<dyn LlmClient> {
-        let mut guard = self.inner.write().expect("swappable LLM lock poisoned");
+        let mut guard = self.inner.write();
         std::mem::replace(&mut *guard, new_client)
     }
 
     /// Get the current provider name.
     pub fn current_provider(&self) -> String {
-        let guard = self.inner.read().expect("swappable LLM lock poisoned");
+        let guard = self.inner.read();
         guard.provider().to_string()
     }
 
     /// Get the current model name.
     pub fn current_model(&self) -> String {
-        let guard = self.inner.read().expect("swappable LLM lock poisoned");
+        let guard = self.inner.read();
         guard.model().to_string()
     }
 }
@@ -50,7 +51,7 @@ impl LlmClient for SwappableLlm {
 
     async fn complete(&self, request: CompletionRequest) -> Result<CompletionResponse> {
         let client = {
-            let guard = self.inner.read().expect("swappable LLM lock poisoned");
+            let guard = self.inner.read();
             guard.clone()
         };
         client.complete(request).await
@@ -58,7 +59,7 @@ impl LlmClient for SwappableLlm {
 
     fn complete_stream(&self, request: CompletionRequest) -> StreamResult {
         let client = {
-            let guard = self.inner.read().expect("swappable LLM lock poisoned");
+            let guard = self.inner.read();
             guard.clone()
         };
         client.complete_stream(request)

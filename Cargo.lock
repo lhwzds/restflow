@@ -5104,6 +5104,7 @@ dependencies = [
  "lsp-types",
  "nix 0.29.0",
  "once_cell",
+ "parking_lot",
  "postcard",
  "redb",
  "regex",
