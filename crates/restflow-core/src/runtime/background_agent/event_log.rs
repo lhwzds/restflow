@@ -89,8 +89,17 @@ impl AgentEvent {
 /// The log can be read back to reconstruct agent state.
 pub struct EventLog {
     writer: BufWriter<std::fs::File>,
+    #[allow(dead_code)]
     path: String,
+    #[allow(dead_code)]
     task_id: String,
+}
+
+impl Drop for EventLog {
+    fn drop(&mut self) {
+        // Ensure all buffered data is flushed when EventLog is dropped
+        let _ = self.writer.flush();
+    }
 }
 
 impl EventLog {
