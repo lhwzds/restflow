@@ -517,7 +517,24 @@ impl AgentRuntimeExecutor {
             })
             .collect();
 
-        let config = FailoverConfig::build_smart(primary, &available_providers);
+        // Get manually configured fallback models from config
+        let config = self
+            .storage
+            .config
+            .get_config()
+            .ok()
+            .flatten();
+        let fallback_models: Option<Vec<AIModel>> = config
+            .as_ref()
+            .and_then(|c| c.agent.fallback_models.clone())
+            .map(|models| {
+                models
+                    .iter()
+                    .filter_map(|s| AIModel::from_api_name(s))
+                    .collect()
+            });
+
+        let config = FailoverConfig::build_smart(primary, &available_providers, fallback_models);
 
         info!(
             primary = %primary.as_str(),
