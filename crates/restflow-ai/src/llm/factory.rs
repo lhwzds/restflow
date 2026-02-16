@@ -4,11 +4,11 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::error::{AiError, Result};
+use crate::llm::retry::RetryingLlmClient;
 use crate::llm::{
     AnthropicClient, ClaudeCodeClient, CodexClient, GeminiCliClient, LlmClient, OpenAIClient,
     OpenCodeClient,
 };
-use crate::llm::retry::RetryingLlmClient;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum LlmProvider {
@@ -25,6 +25,7 @@ pub enum LlmProvider {
     Doubao,
     Yi,
     SiliconFlow,
+    MiniMax,
 }
 
 impl LlmProvider {
@@ -43,6 +44,7 @@ impl LlmProvider {
             Self::Doubao => "doubao",
             Self::Yi => "yi",
             Self::SiliconFlow => "siliconflow",
+            Self::MiniMax => "minimax",
         }
     }
 
@@ -61,6 +63,7 @@ impl LlmProvider {
             Self::Doubao => "https://ark.cn-beijing.volces.com/api/v3",
             Self::Yi => "https://api.lingyiwanwu.com/v1",
             Self::SiliconFlow => "https://api.siliconflow.cn/v1",
+            Self::MiniMax => "https://api.minimax.io",
         }
     }
 }
@@ -205,11 +208,13 @@ impl LlmClientFactory for DefaultLlmClientFactory {
                         Arc::new(AnthropicClient::new(key).with_model(spec.client_model))
                     }
                 }
+                LlmProvider::MiniMax => Arc::new(
+                    AnthropicClient::new(key)
+                        .with_model(spec.client_model)
+                        .with_base_url("https://api.minimax.io/anthropic"),
+                ),
                 provider => {
-                    let base_url = spec
-                        .base_url
-                        .as_deref()
-                        .unwrap_or(provider.base_url());
+                    let base_url = spec.base_url.as_deref().unwrap_or(provider.base_url());
                     Arc::new(
                         OpenAIClient::new(key)
                             .with_model(spec.client_model)
