@@ -62,7 +62,7 @@ impl AIModel {
                 cost_per_1m_output: 2.19,
             }),
 
-            // Zhipu
+            // Zai
             Self::Glm5 => Some(ModelPricing {
                 cost_per_1m_input: 1.0,
                 cost_per_1m_output: 3.2,
