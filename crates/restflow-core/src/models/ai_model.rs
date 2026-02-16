@@ -21,6 +21,7 @@ pub enum Provider {
     Yi,
     SiliconFlow,
     MiniMax,
+    MiniMaxCodingPlan,
 }
 
 impl Provider {
@@ -40,6 +41,7 @@ impl Provider {
             Self::Yi,
             Self::SiliconFlow,
             Self::MiniMax,
+            Self::MiniMaxCodingPlan,
         ]
     }
 
@@ -59,6 +61,7 @@ impl Provider {
             Self::Yi => "YI_API_KEY",
             Self::SiliconFlow => "SILICONFLOW_API_KEY",
             Self::MiniMax => "MINIMAX_API_KEY",
+            Self::MiniMaxCodingPlan => "MINIMAX_CODING_PLAN_API_KEY",
         }
     }
 
@@ -79,6 +82,7 @@ impl Provider {
             Self::Yi => LlmProvider::Yi,
             Self::SiliconFlow => LlmProvider::SiliconFlow,
             Self::MiniMax => LlmProvider::MiniMax,
+            Self::MiniMaxCodingPlan => LlmProvider::MiniMax,
         }
     }
 
@@ -99,6 +103,7 @@ impl Provider {
             Self::Yi => AIModel::YiLightning,
             Self::SiliconFlow => AIModel::SiliconFlowAuto,
             Self::MiniMax => AIModel::MiniMaxM25,
+            Self::MiniMaxCodingPlan => AIModel::MiniMaxM25,
         }
     }
 }
@@ -1010,6 +1015,8 @@ mod tests {
         assert_eq!(AIModel::KimiK2_5.provider(), Provider::Moonshot);
         assert_eq!(AIModel::DoubaoPro.provider(), Provider::Doubao);
         assert_eq!(AIModel::YiLightning.provider(), Provider::Yi);
+        assert_eq!(AIModel::MiniMaxM25.provider(), Provider::MiniMax);
+        assert_eq!(AIModel::MiniMaxM21.provider(), Provider::MiniMax);
     }
 
     #[test]
@@ -1190,6 +1197,8 @@ mod tests {
         assert_eq!(Provider::Google.api_key_env(), "GEMINI_API_KEY");
         assert_eq!(Provider::Groq.api_key_env(), "GROQ_API_KEY");
         assert_eq!(Provider::Qwen.api_key_env(), "DASHSCOPE_API_KEY");
+        assert_eq!(Provider::MiniMax.api_key_env(), "MINIMAX_API_KEY");
+        assert_eq!(Provider::MiniMaxCodingPlan.api_key_env(), "MINIMAX_CODING_PLAN_API_KEY");
     }
 
     #[test]
