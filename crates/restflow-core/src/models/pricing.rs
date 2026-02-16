@@ -112,7 +112,8 @@ impl AIModel {
             | Self::Gpt5_2Codex
             | Self::CodexCli
             | Self::OpenCodeCli
-            | Self::GeminiCli => None,
+            | Self::GeminiCli
+            | Self::MiniMaxM25 => None,
         }
     }
 }

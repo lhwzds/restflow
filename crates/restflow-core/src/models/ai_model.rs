@@ -20,6 +20,7 @@ pub enum Provider {
     Doubao,
     Yi,
     SiliconFlow,
+    MiniMax,
 }
 
 impl Provider {
@@ -38,6 +39,7 @@ impl Provider {
             Self::Doubao,
             Self::Yi,
             Self::SiliconFlow,
+            Self::MiniMax,
         ]
     }
 
@@ -56,6 +58,7 @@ impl Provider {
             Self::Doubao => "ARK_API_KEY",
             Self::Yi => "YI_API_KEY",
             Self::SiliconFlow => "SILICONFLOW_API_KEY",
+            Self::MiniMax => "MINIMAX_API_KEY",
         }
     }
 
@@ -75,6 +78,7 @@ impl Provider {
             Self::Doubao => LlmProvider::Doubao,
             Self::Yi => LlmProvider::Yi,
             Self::SiliconFlow => LlmProvider::SiliconFlow,
+            Self::MiniMax => LlmProvider::MiniMax,
         }
     }
 
@@ -94,6 +98,7 @@ impl Provider {
             Self::Doubao => AIModel::DoubaoPro,
             Self::Yi => AIModel::YiLightning,
             Self::SiliconFlow => AIModel::SiliconFlowAuto,
+            Self::MiniMax => AIModel::MiniMaxM25,
         }
     }
 }
@@ -236,6 +241,10 @@ pub enum AIModel {
     // SiliconFlow
     #[serde(rename = "siliconflow")]
     SiliconFlowAuto,
+
+    // MiniMax (Anthropic-compatible API)
+    #[serde(rename = "minimax-m2-5")]
+    MiniMaxM25,
 
     // Codex CLI (OpenAI)
     #[serde(rename = "gpt-5-codex")]
@@ -536,6 +545,13 @@ impl AIModel {
                 name: "SiliconFlow Auto",
             },
 
+            // MiniMax
+            Self::MiniMaxM25 => ModelMetadata {
+                provider: Provider::MiniMax,
+                supports_temperature: true,
+                name: "MiniMax M2.5",
+            },
+
             // Codex CLI
             Self::Gpt5Codex => ModelMetadata {
                 provider: Provider::OpenAI,
@@ -669,6 +685,9 @@ impl AIModel {
 
             // Gemini CLI
             Self::GeminiCli => "gemini-2.5-pro",
+
+            // MiniMax
+            Self::MiniMaxM25 => "MiniMax-M2.5",
         }
     }
 
@@ -777,6 +796,9 @@ impl AIModel {
 
             // SiliconFlow
             Self::SiliconFlowAuto => "siliconflow",
+
+            // MiniMax
+            Self::MiniMaxM25 => "MiniMax-M2.5",
 
             // Codex CLI
             Self::Gpt5Codex => "gpt-5-codex",
@@ -926,6 +948,8 @@ impl AIModel {
             Self::YiLightning,
             // SiliconFlow
             Self::SiliconFlowAuto,
+            // MiniMax
+            Self::MiniMaxM25,
             // Codex CLI
             Self::Gpt5Codex,
             Self::Gpt5_1Codex,
@@ -1072,7 +1096,7 @@ mod tests {
     #[test]
     fn test_all_models() {
         let models = AIModel::all();
-        assert_eq!(models.len(), 49);
+        assert_eq!(models.len(), 50);
         assert!(models.contains(&AIModel::Gpt5));
         assert!(models.contains(&AIModel::Gpt5_1));
         assert!(models.contains(&AIModel::ClaudeOpus4_6));
@@ -1122,26 +1146,18 @@ mod tests {
     #[test]
     fn test_build_model_specs_contains_codex_cli() {
         let specs = AIModel::build_model_specs();
-        assert!(
-            specs
-                .iter()
-                .any(|spec| spec.name == "gpt-5-codex" && spec.is_codex_cli)
-        );
-        assert!(
-            specs
-                .iter()
-                .any(|spec| spec.name == "gpt-5.1-codex" && spec.is_codex_cli)
-        );
-        assert!(
-            specs
-                .iter()
-                .any(|spec| spec.name == "gpt-5.2-codex" && spec.is_codex_cli)
-        );
-        assert!(
-            specs
-                .iter()
-                .any(|spec| spec.name == "gpt-5.3-codex" && spec.is_codex_cli)
-        );
+        assert!(specs
+            .iter()
+            .any(|spec| spec.name == "gpt-5-codex" && spec.is_codex_cli));
+        assert!(specs
+            .iter()
+            .any(|spec| spec.name == "gpt-5.1-codex" && spec.is_codex_cli));
+        assert!(specs
+            .iter()
+            .any(|spec| spec.name == "gpt-5.2-codex" && spec.is_codex_cli));
+        assert!(specs
+            .iter()
+            .any(|spec| spec.name == "gpt-5.3-codex" && spec.is_codex_cli));
     }
 
     #[test]

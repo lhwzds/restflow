@@ -22,6 +22,7 @@ pub struct AnthropicClient {
     api_key: String,
     auth_type: AnthropicAuthType,
     model: String,
+    base_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -50,6 +51,7 @@ impl AnthropicClient {
             api_key,
             auth_type,
             model: "claude-sonnet-4-20250514".to_string(),
+            base_url: None,
         }
     }
 
@@ -57,6 +59,16 @@ impl AnthropicClient {
     pub fn with_model(mut self, model: impl Into<String>) -> Self {
         self.model = model.into();
         self
+    }
+
+    /// Set a custom base URL (for Anthropic-compatible APIs like MiniMax)
+    pub fn with_base_url(mut self, base_url: impl Into<String>) -> Self {
+        self.base_url = Some(base_url.into());
+        self
+    }
+
+    fn api_base_url(&self) -> &str {
+        self.base_url.as_deref().unwrap_or("https://api.anthropic.com")
     }
 
     fn build_auth_headers(&self) -> HeaderMap {
@@ -375,7 +387,7 @@ impl LlmClient for AnthropicClient {
 
         let response = self
             .client
-            .post("https://api.anthropic.com/v1/messages")
+            .post(format!("{}/v1/messages", self.api_base_url()))
             .headers(self.build_auth_headers())
             .json(&body)
             .send()
@@ -440,6 +452,7 @@ impl LlmClient for AnthropicClient {
         let api_key = self.api_key.clone();
         let model = self.model.clone();
         let auth_type = self.auth_type;
+        let base_url = self.api_base_url().to_string();
 
         Box::pin(async_stream::stream! {
             // OAuth tokens can't use Anthropic API - CLI doesn't support streaming
@@ -540,7 +553,7 @@ impl LlmClient for AnthropicClient {
             });
 
             let response = match client
-                .post("https://api.anthropic.com/v1/messages")
+                .post(format!("{}/v1/messages", base_url))
                 .headers(build_auth_headers(&api_key, auth_type))
                 .json(&body)
                 .send()
