@@ -41,6 +41,36 @@ pub enum AgentType {
     Title,
 }
 
+/// Agent role defines the execution mode and available tools.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum AgentRole {
+    /// Executor role: can use all registered tools including bash, http, file operations.
+    #[default]
+    Executor,
+    /// Coordinator role: can only orchestrate sub-agents, read files, and write status.
+    /// Cannot directly execute bash, http, or file writes.
+    Coordinator,
+}
+
+impl AgentRole {
+    /// Check if a tool is allowed for this role.
+    pub fn allows_tool(&self, tool_name: &str) -> bool {
+        match self {
+            AgentRole::Executor => true, // Executors can use all tools
+            AgentRole::Coordinator => {
+                // Coordinators are restricted to orchestration and read-only tools
+                matches!(
+                    tool_name,
+                    "manage_background_agents"
+                        | "file" // read/list operations only (checked in tool)
+                        | "save_deliverable"
+                        | "spawn_subtask" // convenience tool for spawning sub-agents
+                )
+            }
+        }
+    }
+}
+
 /// Persistence frequency for execution checkpoints.
 #[derive(Debug, Clone)]
 pub enum CheckpointDurability {
@@ -87,6 +117,8 @@ pub struct AgentConfig {
     pub agent_context: Option<AgentContext>,
     /// Agent type for context injection rules.
     pub agent_type: AgentType,
+    /// Agent role for tool restrictions (Executor or Coordinator).
+    pub agent_role: AgentRole,
     /// Resource limits for guardrails (tool calls, wall-clock, depth).
     pub resource_limits: ResourceLimits,
     /// Optional stuck detection configuration.
@@ -124,6 +156,7 @@ impl AgentConfig {
             history_pipeline: HistoryPipeline::default(),
             agent_context: None,
             agent_type: AgentType::default(),
+            agent_role: AgentRole::default(), // Default to Executor
             resource_limits: ResourceLimits::default(),
             stuck_detection: Some(StuckDetectorConfig::default()),
             scratchpad: None,
@@ -210,6 +243,12 @@ impl AgentConfig {
     /// Set agent type for context injection rules.
     pub fn with_agent_type(mut self, agent_type: AgentType) -> Self {
         self.agent_type = agent_type;
+        self
+    }
+
+    /// Set agent role for tool access restrictions.
+    pub fn with_agent_role(mut self, agent_role: AgentRole) -> Self {
+        self.agent_role = agent_role;
         self
     }
 
@@ -635,8 +674,14 @@ impl AgentExecutor {
             }
 
             let request_messages = config.history_pipeline.apply(memory.get_messages());
-            let mut request =
-                CompletionRequest::new(request_messages).with_tools(self.tools.schemas());
+            // Filter tool schemas based on agent role
+            let tool_schemas: Vec<_> = self
+                .tools
+                .schemas()
+                .into_iter()
+                .filter(|schema| config.agent_role.allows_tool(&schema.name))
+                .collect();
+            let mut request = CompletionRequest::new(request_messages).with_tools(tool_schemas);
 
             // Only set temperature if explicitly configured (some models don't support it)
             if let Some(temp) = config.temperature {
@@ -1295,16 +1340,32 @@ impl AgentExecutor {
             .unwrap_or("You are a helpful AI assistant that can use tools to accomplish tasks.");
         sections.push(base.to_string());
 
+        // Filter tools based on agent role
         let tools_desc: Vec<String> = self
             .tools
             .list()
             .iter()
+            .filter(|name| config.agent_role.allows_tool(name))
             .filter_map(|name| self.tools.get(name))
             .map(|t| format!("- {}: {}", t.name(), t.description()))
             .collect();
 
         if !tools_desc.is_empty() {
             sections.push(format!("## Available Tools\n\n{}", tools_desc.join("\n")));
+        }
+
+        // Add role-specific constraints
+        if matches!(config.agent_role, AgentRole::Coordinator) {
+            sections.push(
+                "## Coordinator Agent Constraints\n\n\
+                 You are a coordinator agent. IMPORTANT RULES:\n\
+                 - NEVER execute bash commands, HTTP requests, or file writes directly\n\
+                 - Spawn sub-agents for actual work using manage_background_agents or spawn_subtask\n\
+                 - You can read files and write status/deliverables\n\
+                 - Focus on orchestration, planning, and tracking progress\n\
+                 - Break complex tasks into sub-tasks and delegate to sub-agents"
+                    .to_string(),
+            );
         }
 
         if let Some(cache) = &self.context_cache {
