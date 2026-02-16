@@ -44,7 +44,7 @@ impl SwitchModelTool {
             "openrouter" => Some(ProviderSelector::Api(LlmProvider::OpenRouter)),
             "xai" => Some(ProviderSelector::Api(LlmProvider::XAI)),
             "qwen" => Some(ProviderSelector::Api(LlmProvider::Qwen)),
-            "zhipu" => Some(ProviderSelector::Api(LlmProvider::Zhipu)),
+            "zai" => Some(ProviderSelector::Api(LlmProvider::Zai)),
             "moonshot" => Some(ProviderSelector::Api(LlmProvider::Moonshot)),
             "doubao" => Some(ProviderSelector::Api(LlmProvider::Doubao)),
             "yi" => Some(ProviderSelector::Api(LlmProvider::Yi)),

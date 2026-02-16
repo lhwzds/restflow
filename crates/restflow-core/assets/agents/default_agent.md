@@ -120,7 +120,7 @@ Example — notify on task failure:
 - `groq-llama4-scout` / `groq-llama4-maverick`: Groq API
 - `grok-4` / `grok-3-mini`: X.AI API
 - `qwen3-max` / `qwen3-plus`: Qwen API
-- `glm-5` / `glm-5-code`: Zhipu API
+- `glm-5` / `glm-5-code`: Zai API
 - `kimi-k2-5`: Moonshot API
 - `or-*`: OpenRouter variants (e.g., `or-claude-opus-4-6`, `or-gpt-5`)
 - CLI models manage their own auth locally; API models need API keys via `manage_secrets` or `manage_auth_profiles`

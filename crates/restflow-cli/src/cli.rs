@@ -29,7 +29,7 @@ pub struct Cli {
     #[command(subcommand)]
     pub command: Option<Commands>,
 
-    /// Database path (defaults to ~/.local/share/restflow/restflow.db)
+    /// Database path (defaults to ~/.restflow/restflow.db)
     #[arg(long, global = true, env = "RESTFLOW_DB_PATH")]
     pub db_path: Option<String>,
 

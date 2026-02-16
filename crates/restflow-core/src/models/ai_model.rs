@@ -15,8 +15,8 @@ pub enum Provider {
     OpenRouter,
     XAI,
     Qwen,
-    Zhipu,
-    ZhipuCodingPlan,
+    Zai,
+    ZaiCodingPlan,
     Moonshot,
     Doubao,
     Yi,
@@ -36,8 +36,8 @@ impl Provider {
             Self::OpenRouter,
             Self::XAI,
             Self::Qwen,
-            Self::Zhipu,
-            Self::ZhipuCodingPlan,
+            Self::Zai,
+            Self::ZaiCodingPlan,
             Self::Moonshot,
             Self::Doubao,
             Self::Yi,
@@ -57,8 +57,8 @@ impl Provider {
             Self::OpenRouter => "OPENROUTER_API_KEY",
             Self::XAI => "XAI_API_KEY",
             Self::Qwen => "DASHSCOPE_API_KEY",
-            Self::Zhipu => "ZHIPU_API_KEY",
-            Self::ZhipuCodingPlan => "ZHIPU_CODING_PLAN_API_KEY",
+            Self::Zai => "ZAI_API_KEY",
+            Self::ZaiCodingPlan => "ZAI_CODING_PLAN_API_KEY",
             Self::Moonshot => "MOONSHOT_API_KEY",
             Self::Doubao => "ARK_API_KEY",
             Self::Yi => "YI_API_KEY",
@@ -79,8 +79,8 @@ impl Provider {
             Self::OpenRouter => LlmProvider::OpenRouter,
             Self::XAI => LlmProvider::XAI,
             Self::Qwen => LlmProvider::Qwen,
-            Self::Zhipu => LlmProvider::Zhipu,
-            Self::ZhipuCodingPlan => LlmProvider::Zhipu,
+            Self::Zai => LlmProvider::Zai,
+            Self::ZaiCodingPlan => LlmProvider::Zai,
             Self::Moonshot => LlmProvider::Moonshot,
             Self::Doubao => LlmProvider::Doubao,
             Self::Yi => LlmProvider::Yi,
@@ -101,8 +101,8 @@ impl Provider {
             Self::OpenRouter => AIModel::OrClaudeOpus4_6,
             Self::XAI => AIModel::Grok4,
             Self::Qwen => AIModel::Qwen3Max,
-            Self::Zhipu => AIModel::Glm5,
-            Self::ZhipuCodingPlan => AIModel::Glm5,
+            Self::Zai => AIModel::Glm5,
+            Self::ZaiCodingPlan => AIModel::Glm5,
             Self::Moonshot => AIModel::KimiK2_5,
             Self::Doubao => AIModel::DoubaoPro,
             Self::Yi => AIModel::YiLightning,
@@ -228,7 +228,7 @@ pub enum AIModel {
     #[serde(rename = "qwen3-plus")]
     Qwen3Plus,
 
-    // Zhipu
+    // Zai
     #[serde(rename = "glm-5")]
     Glm5,
     #[serde(rename = "glm-5-code")]
@@ -512,19 +512,19 @@ impl AIModel {
                 name: "Qwen3 Plus",
             },
 
-            // Zhipu
+            // Zai
             Self::Glm5 => ModelMetadata {
-                provider: Provider::Zhipu,
+                provider: Provider::Zai,
                 supports_temperature: true,
                 name: "GLM-5",
             },
             Self::Glm5Code => ModelMetadata {
-                provider: Provider::Zhipu,
+                provider: Provider::Zai,
                 supports_temperature: true,
                 name: "GLM-5 Code",
             },
             Self::Glm4_7 => ModelMetadata {
-                provider: Provider::Zhipu,
+                provider: Provider::Zai,
                 supports_temperature: true,
                 name: "GLM-4.7",
             },
@@ -674,7 +674,7 @@ impl AIModel {
             Self::Qwen3Max => "qwen3-max",
             Self::Qwen3Plus => "qwen3-plus",
 
-            // Zhipu
+            // Zai
             Self::Glm5 => "glm-5",
             Self::Glm5Code => "glm-5",
             Self::Glm4_7 => "glm-4.7",
@@ -798,7 +798,7 @@ impl AIModel {
             Self::Qwen3Max => "qwen3-max",
             Self::Qwen3Plus => "qwen3-plus",
 
-            // Zhipu
+            // Zai
             Self::Glm5 => "glm-5",
             Self::Glm5Code => "glm-5-code",
             Self::Glm4_7 => "glm-4-7",
@@ -956,7 +956,7 @@ impl AIModel {
             // Qwen
             Self::Qwen3Max,
             Self::Qwen3Plus,
-            // Zhipu
+            // Zai
             Self::Glm5,
             Self::Glm5Code,
             Self::Glm4_7,
@@ -1016,7 +1016,7 @@ mod tests {
         assert_eq!(AIModel::GroqLlama4Scout.provider(), Provider::Groq);
         assert_eq!(AIModel::Grok4.provider(), Provider::XAI);
         assert_eq!(AIModel::Qwen3Max.provider(), Provider::Qwen);
-        assert_eq!(AIModel::Glm4_7.provider(), Provider::Zhipu);
+        assert_eq!(AIModel::Glm4_7.provider(), Provider::Zai);
         assert_eq!(AIModel::KimiK2_5.provider(), Provider::Moonshot);
         assert_eq!(AIModel::DoubaoPro.provider(), Provider::Doubao);
         assert_eq!(AIModel::YiLightning.provider(), Provider::Yi);
@@ -1204,10 +1204,10 @@ mod tests {
         assert_eq!(Provider::Qwen.api_key_env(), "DASHSCOPE_API_KEY");
         assert_eq!(Provider::MiniMax.api_key_env(), "MINIMAX_API_KEY");
         assert_eq!(Provider::MiniMaxCodingPlan.api_key_env(), "MINIMAX_CODING_PLAN_API_KEY");
-        assert_eq!(Provider::Zhipu.api_key_env(), "ZHIPU_API_KEY");
+        assert_eq!(Provider::Zai.api_key_env(), "ZAI_API_KEY");
         assert_eq!(
-            Provider::ZhipuCodingPlan.api_key_env(),
-            "ZHIPU_CODING_PLAN_API_KEY"
+            Provider::ZaiCodingPlan.api_key_env(),
+            "ZAI_CODING_PLAN_API_KEY"
         );
     }
 
@@ -1288,8 +1288,8 @@ mod tests {
         assert_eq!(Provider::OpenAI.flagship_model(), AIModel::Gpt5);
         assert_eq!(Provider::DeepSeek.flagship_model(), AIModel::DeepseekChat);
         assert_eq!(Provider::Google.flagship_model(), AIModel::Gemini3Pro);
-        assert_eq!(Provider::Zhipu.flagship_model(), AIModel::Glm5);
-        assert_eq!(Provider::ZhipuCodingPlan.flagship_model(), AIModel::Glm5);
+        assert_eq!(Provider::Zai.flagship_model(), AIModel::Glm5);
+        assert_eq!(Provider::ZaiCodingPlan.flagship_model(), AIModel::Glm5);
         assert_eq!(
             Provider::OpenRouter.flagship_model(),
             AIModel::OrClaudeOpus4_6

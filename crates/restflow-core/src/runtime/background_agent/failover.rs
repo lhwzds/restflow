@@ -842,7 +842,7 @@ mod tests {
     fn test_build_smart_multiple_providers() {
         let mut providers = HashSet::new();
         providers.insert(Provider::Anthropic);
-        providers.insert(Provider::Zhipu);
+        providers.insert(Provider::Zai);
         providers.insert(Provider::OpenRouter);
 
         // Test with manual fallbacks (automatic cross-provider fallback disabled)

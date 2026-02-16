@@ -62,7 +62,7 @@ pub fn parse_model(input: &str) -> Result<AIModel> {
         // MiniMax
         "minimax-m2-1" => AIModel::MiniMaxM21,
         "minimax-m2-5" => AIModel::MiniMaxM25,
-        // Zhipu
+        // Zai
         "glm-5" | "glm5" => AIModel::Glm5,
         "glm-5-code" | "glm5-code" => AIModel::Glm5Code,
         "glm-4.7" | "glm-4-7" | "glm" => AIModel::Glm4_7,

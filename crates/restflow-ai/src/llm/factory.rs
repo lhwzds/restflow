@@ -20,7 +20,7 @@ pub enum LlmProvider {
     OpenRouter,
     XAI,
     Qwen,
-    Zhipu,
+    Zai,
     Moonshot,
     Doubao,
     Yi,
@@ -39,7 +39,7 @@ impl LlmProvider {
             Self::OpenRouter => "openrouter",
             Self::XAI => "xai",
             Self::Qwen => "qwen",
-            Self::Zhipu => "zhipu",
+            Self::Zai => "zai",
             Self::Moonshot => "moonshot",
             Self::Doubao => "doubao",
             Self::Yi => "yi",
@@ -58,7 +58,7 @@ impl LlmProvider {
             Self::OpenRouter => "https://openrouter.ai/api/v1",
             Self::XAI => "https://api.x.ai/v1",
             Self::Qwen => "https://dashscope.aliyuncs.com/compatible-mode/v1",
-            Self::Zhipu => "https://api.z.ai/api/paas/v4",
+            Self::Zai => "https://api.z.ai/api/paas/v4",
             Self::Moonshot => "https://api.moonshot.cn/v1",
             Self::Doubao => "https://ark.cn-beijing.volces.com/api/v3",
             Self::Yi => "https://api.lingyiwanwu.com/v1",
@@ -295,9 +295,9 @@ mod tests {
     use super::LlmProvider;
 
     #[test]
-    fn zhipu_uses_api_z_ai_endpoint() {
+    fn zai_uses_api_z_ai_endpoint() {
         assert_eq!(
-            LlmProvider::Zhipu.base_url(),
+            LlmProvider::Zai.base_url(),
             "https://api.z.ai/api/paas/v4"
         );
     }

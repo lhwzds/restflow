@@ -3,4 +3,4 @@
 /**
  * AI model provider
  */
-export type Provider = "openai" | "anthropic" | "deepseek" | "google" | "groq" | "openrouter" | "xai" | "qwen" | "zhipu" | "moonshot" | "doubao" | "yi" | "siliconflow" | "minimax";
+export type Provider = "openai" | "anthropic" | "deepseek" | "google" | "groq" | "openrouter" | "xai" | "qwen" | "zai" | "moonshot" | "doubao" | "yi" | "siliconflow" | "minimax";
