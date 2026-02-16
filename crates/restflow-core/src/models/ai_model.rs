@@ -243,6 +243,8 @@ pub enum AIModel {
     SiliconFlowAuto,
 
     // MiniMax (Anthropic-compatible API)
+    #[serde(rename = "minimax-m2-1")]
+    MiniMaxM21,
     #[serde(rename = "minimax-m2-5")]
     MiniMaxM25,
 
@@ -546,6 +548,11 @@ impl AIModel {
             },
 
             // MiniMax
+            Self::MiniMaxM21 => ModelMetadata {
+                provider: Provider::MiniMax,
+                supports_temperature: true,
+                name: "MiniMax M2.1",
+            },
             Self::MiniMaxM25 => ModelMetadata {
                 provider: Provider::MiniMax,
                 supports_temperature: true,
@@ -687,6 +694,7 @@ impl AIModel {
             Self::GeminiCli => "gemini-2.5-pro",
 
             // MiniMax
+            Self::MiniMaxM21 => "MiniMax-M2.1",
             Self::MiniMaxM25 => "MiniMax-M2.5",
         }
     }
@@ -798,6 +806,7 @@ impl AIModel {
             Self::SiliconFlowAuto => "siliconflow",
 
             // MiniMax
+            Self::MiniMaxM21 => "minimax-m2-1",
             Self::MiniMaxM25 => "MiniMax-M2.5",
 
             // Codex CLI
@@ -884,6 +893,7 @@ impl AIModel {
             Self::Glm5 | Self::Glm5Code | Self::Glm4_7 => Some(Self::OrGlm4_7),
             Self::KimiK2_5 => Some(Self::OrKimiK2_5),
             Self::Qwen3Max | Self::Qwen3Plus => Some(Self::OrQwen3Coder),
+            Self::MiniMaxM21 | Self::MiniMaxM25 => Some(Self::OrMinimaxM2_1),
             _ => None,
         }
     }
@@ -949,6 +959,7 @@ impl AIModel {
             // SiliconFlow
             Self::SiliconFlowAuto,
             // MiniMax
+            Self::MiniMaxM21,
             Self::MiniMaxM25,
             // Codex CLI
             Self::Gpt5Codex,
@@ -1056,6 +1067,7 @@ mod tests {
         assert_eq!(AIModel::CodexCli.as_str(), "gpt-5.3-codex");
         assert_eq!(AIModel::OpenCodeCli.as_str(), "opencode");
         assert_eq!(AIModel::GeminiCli.as_str(), "gemini-2.5-pro");
+        assert_eq!(AIModel::MiniMaxM21.as_str(), "MiniMax-M2.1");
         assert_eq!(AIModel::Glm5Code.as_str(), "glm-5");
         assert_eq!(AIModel::DeepseekChat.as_str(), "deepseek-chat");
         assert_eq!(AIModel::Gemini25Pro.as_str(), "gemini-2.5-pro");
@@ -1091,12 +1103,13 @@ mod tests {
         assert_eq!(AIModel::OpenCodeCli.display_name(), "OpenCode CLI");
         assert_eq!(AIModel::GeminiCli.display_name(), "Gemini CLI");
         assert_eq!(AIModel::DeepseekChat.display_name(), "DeepSeek Chat");
+        assert_eq!(AIModel::MiniMaxM21.display_name(), "MiniMax M2.1");
     }
 
     #[test]
     fn test_all_models() {
         let models = AIModel::all();
-        assert_eq!(models.len(), 50);
+        assert_eq!(models.len(), 51);
         assert!(models.contains(&AIModel::Gpt5));
         assert!(models.contains(&AIModel::Gpt5_1));
         assert!(models.contains(&AIModel::ClaudeOpus4_6));
@@ -1110,6 +1123,7 @@ mod tests {
         assert!(models.contains(&AIModel::GeminiCli));
         assert!(models.contains(&AIModel::DeepseekChat));
         assert!(models.contains(&AIModel::Gemini25Pro));
+        assert!(models.contains(&AIModel::MiniMaxM21));
     }
 
     #[test]
@@ -1231,6 +1245,14 @@ mod tests {
         assert_eq!(
             AIModel::KimiK2_5.openrouter_equivalent(),
             Some(AIModel::OrKimiK2_5)
+        );
+        assert_eq!(
+            AIModel::MiniMaxM21.openrouter_equivalent(),
+            Some(AIModel::OrMinimaxM2_1)
+        );
+        assert_eq!(
+            AIModel::MiniMaxM25.openrouter_equivalent(),
+            Some(AIModel::OrMinimaxM2_1)
         );
         // OR models themselves have no OR equivalent
         assert_eq!(AIModel::OrClaudeOpus4_6.openrouter_equivalent(), None);
