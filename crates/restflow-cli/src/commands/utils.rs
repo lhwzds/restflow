@@ -59,6 +59,9 @@ pub fn parse_model(input: &str) -> Result<AIModel> {
         // Qwen
         "qwen3-max" | "qwen-max" | "qwen" => AIModel::Qwen3Max,
         "qwen3-plus" | "qwen-plus" => AIModel::Qwen3Plus,
+        // MiniMax
+        "minimax-m2-1" => AIModel::MiniMaxM21,
+        "minimax-m2-5" => AIModel::MiniMaxM25,
         // Zhipu
         "glm-5" | "glm5" => AIModel::Glm5,
         "glm-5-code" | "glm5-code" => AIModel::Glm5Code,

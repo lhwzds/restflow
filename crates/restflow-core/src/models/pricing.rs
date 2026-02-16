@@ -113,7 +113,8 @@ impl AIModel {
             | Self::CodexCli
             | Self::OpenCodeCli
             | Self::GeminiCli
-            | Self::MiniMaxM25 => None,
+            | Self::MiniMaxM25
+            | Self::MiniMaxM21 => None,
         }
     }
 }
