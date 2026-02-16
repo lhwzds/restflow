@@ -1172,12 +1172,18 @@ impl BackgroundAgentRunner {
 
         // Record TaskStarted event
         if let Some(ref log) = event_log {
-            let mut log = log.lock().unwrap();
-            let _ = log.append(&AgentEvent::TaskStarted {
-                timestamp: chrono::Utc::now().timestamp_millis(),
-                task_id: task.id.clone(),
-                agent_id: task.agent_id.clone(),
-            });
+            match log.lock() {
+                Ok(mut l) => {
+                    if let Err(e) = l.append(&AgentEvent::TaskStarted {
+                        timestamp: chrono::Utc::now().timestamp_millis(),
+                        task_id: task.id.clone(),
+                        agent_id: task.agent_id.clone(),
+                    }) {
+                        warn!("Failed to log TaskStarted event: {}", e);
+                    }
+                }
+                Err(e) => warn!("EventLog mutex poisoned: {}", e),
+            }
         }
 
         let step_emitter = if matches!(task.execution_mode, ExecutionMode::Api)
@@ -1437,11 +1443,17 @@ impl BackgroundAgentRunner {
 
                 // Record TaskCompleted event
                 if let Some(ref log) = event_log {
-                    let mut log = log.lock().unwrap();
-                    let _ = log.append(&AgentEvent::TaskCompleted {
-                        timestamp: chrono::Utc::now().timestamp_millis(),
-                        result: truncate_event_output(&exec_result.output, 5000),
-                    });
+                    match log.lock() {
+                        Ok(mut l) => {
+                            if let Err(e) = l.append(&AgentEvent::TaskCompleted {
+                                timestamp: chrono::Utc::now().timestamp_millis(),
+                                result: truncate_event_output(&exec_result.output, 5000),
+                            }) {
+                                warn!("Failed to log TaskCompleted event: {}", e);
+                            }
+                        }
+                        Err(e) => warn!("EventLog mutex poisoned: {}", e),
+                    }
                 }
 
                 self.event_emitter
@@ -1511,11 +1523,17 @@ impl BackgroundAgentRunner {
 
                 // Record Error event
                 if let Some(ref log) = event_log {
-                    let mut log = log.lock().unwrap();
-                    let _ = log.append(&AgentEvent::Error {
-                        timestamp: chrono::Utc::now().timestamp_millis(),
-                        error: error_msg.clone(),
-                    });
+                    match log.lock() {
+                        Ok(mut l) => {
+                            if let Err(e) = l.append(&AgentEvent::Error {
+                                timestamp: chrono::Utc::now().timestamp_millis(),
+                                error: error_msg.clone(),
+                            }) {
+                                warn!("Failed to log Error event: {}", e);
+                            }
+                        }
+                        Err(e) => warn!("EventLog mutex poisoned: {}", e),
+                    }
                 }
 
                 self.event_emitter
@@ -1546,11 +1564,17 @@ impl BackgroundAgentRunner {
 
                 // Record Error event
                 if let Some(ref log) = event_log {
-                    let mut log = log.lock().unwrap();
-                    let _ = log.append(&AgentEvent::Error {
-                        timestamp: chrono::Utc::now().timestamp_millis(),
-                        error: error_msg.clone(),
-                    });
+                    match log.lock() {
+                        Ok(mut l) => {
+                            if let Err(e) = l.append(&AgentEvent::Error {
+                                timestamp: chrono::Utc::now().timestamp_millis(),
+                                error: error_msg.clone(),
+                            }) {
+                                warn!("Failed to log timeout Error event: {}", e);
+                            }
+                        }
+                        Err(e) => warn!("EventLog mutex poisoned: {}", e),
+                    }
                 }
 
                 self.event_emitter
@@ -1885,11 +1909,19 @@ impl TaskExecutor for RunnerTaskExecutor {
 }
 
 /// Truncate output for event log to prevent large log files.
+/// Safe for UTF-8: will not panic on multi-byte character boundaries.
 fn truncate_event_output(output: &str, max_len: usize) -> String {
     if output.len() > max_len {
+        // Find a safe truncation point that doesn't split a multi-byte character
+        let truncate_at = output
+            .char_indices()
+            .take_while(|(idx, _)| *idx < max_len)
+            .last()
+            .map(|(idx, c)| idx + c.len_utf8())
+            .unwrap_or(0);
         format!(
             "{}... [truncated, total {} bytes]",
-            &output[..max_len],
+            &output[..truncate_at],
             output.len()
         )
     } else {
