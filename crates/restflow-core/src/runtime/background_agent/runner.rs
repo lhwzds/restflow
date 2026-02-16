@@ -1604,11 +1604,31 @@ impl BackgroundAgentRunner {
     }
 
     /// Remove a task from runner tracking maps.
+    /// Acquires all locks atomically to prevent partial cleanup on panic.
     async fn cleanup_task_tracking(&self, task_id: &str) {
-        self.running_tasks.write().await.remove(task_id);
-        self.cancel_senders.write().await.remove(task_id);
-        self.pending_cancel_receivers.write().await.remove(task_id);
-        self.resume_states.write().await.remove(task_id);
+        // Acquire all locks concurrently to minimize inconsistency window
+        let (
+            mut running,
+            mut senders,
+            mut receivers,
+            mut states,
+        ) = tokio::join!(
+            self.running_tasks.write(),
+            self.cancel_senders.write(),
+            self.pending_cancel_receivers.write(),
+            self.resume_states.write(),
+        );
+
+        // Remove from all maps
+        running.remove(task_id);
+        senders.remove(task_id);
+        receivers.remove(task_id);
+        states.remove(task_id);
+
+        // Explicitly drop locks before unregister to avoid holding while calling external code
+        drop((running, senders, receivers, states));
+
+        // Unregister from steer registry (may fail, but maps are already cleaned)
         self.steer_registry.unregister(task_id).await;
     }
 
