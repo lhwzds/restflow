@@ -25,6 +25,26 @@ pub async fn run(
         SkillCommands::List => list_skills(executor, format).await,
         SkillCommands::Show { id } => show_skill(executor, &id, format).await,
         SkillCommands::Create { name } => create_skill(executor, &name, format).await,
+        SkillCommands::Update {
+            id,
+            name,
+            description,
+            content,
+            content_file,
+            tags,
+        } => {
+            update_skill(
+                executor,
+                &id,
+                name,
+                description,
+                content,
+                content_file,
+                tags,
+                format,
+            )
+            .await
+        }
         SkillCommands::Delete { id } => delete_skill(executor, &id, format).await,
         SkillCommands::Import { path } => import_skill(executor, &path, format).await,
         SkillCommands::Export { id, output } => export_skill(executor, &id, output, format).await,
@@ -110,6 +130,49 @@ async fn create_skill(
     }
 
     println!("Skill created: {} ({})", skill.name, skill.id);
+    Ok(())
+}
+
+async fn update_skill(
+    executor: Arc<dyn CommandExecutor>,
+    id: &str,
+    name: Option<String>,
+    description: Option<String>,
+    content: Option<String>,
+    content_file: Option<String>,
+    tags: Option<String>,
+    format: OutputFormat,
+) -> Result<()> {
+    let mut skill = executor
+        .get_skill(id)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("Skill not found: {}", id))?;
+
+    if let Some(n) = name {
+        skill.name = n;
+    }
+    if let Some(d) = description {
+        skill.description = Some(d);
+    }
+    if let Some(c) = content {
+        skill.content = c;
+    }
+    if let Some(path) = content_file {
+        let file_content = std::fs::read_to_string(&path)?;
+        skill.content = file_content;
+    }
+    if let Some(t) = tags {
+        skill.tags = Some(t.split(',').map(|s| s.trim().to_string()).collect());
+    }
+
+    skill.updated_at = chrono::Utc::now().timestamp_millis();
+    executor.update_skill(id, skill.clone()).await?;
+
+    if format.is_json() {
+        return print_json(&skill);
+    }
+
+    println!("Skill updated: {} ({})", skill.name, skill.id);
     Ok(())
 }
 

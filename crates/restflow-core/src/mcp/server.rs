@@ -930,10 +930,10 @@ pub struct MemoryStatsParams {
     pub agent_id: String,
 }
 
-/// Parameters for skill_execute tool
+/// Parameters for get_skill_context tool
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
-pub struct SkillExecuteParams {
-    /// Skill ID to execute
+pub struct GetSkillContextParams {
+    /// Skill ID to get context for
     pub skill_id: String,
     /// Optional input provided to the skill
     #[serde(default)]
@@ -1535,7 +1535,10 @@ impl RestFlowMcpServer {
             .map_err(|e| format!("Failed to serialize memory stats: {}", e))
     }
 
-    async fn handle_skill_execute(&self, params: SkillExecuteParams) -> Result<String, String> {
+    async fn handle_get_skill_context(
+        &self,
+        params: GetSkillContextParams,
+    ) -> Result<String, String> {
         let mut skill = self
             .backend
             .get_skill(&params.skill_id)
@@ -2101,9 +2104,9 @@ impl ServerHandler for RestFlowMcpServer {
                 schema_for_type::<MemoryStatsParams>(),
             ),
             Tool::new(
-                "skill_execute",
-                "Fetch a skill's content for execution context.",
-                schema_for_type::<SkillExecuteParams>(),
+                "get_skill_context",
+                "Fetch a skill's content with execution context (input, references). Use this when preparing to execute a skill task.",
+                schema_for_type::<GetSkillContextParams>(),
             ),
             Tool::new(
                 "chat_session_list",
@@ -2280,13 +2283,13 @@ impl ServerHandler for RestFlowMcpServer {
                         })?;
                 self.handle_memory_stats(params).await
             }
-            "skill_execute" => {
-                let params: SkillExecuteParams =
+            "get_skill_context" => {
+                let params: GetSkillContextParams =
                     serde_json::from_value(Value::Object(request.arguments.unwrap_or_default()))
                         .map_err(|e| {
                             McpError::invalid_params(format!("Invalid parameters: {}", e), None)
                         })?;
-                self.handle_skill_execute(params).await
+                self.handle_get_skill_context(params).await
             }
             "chat_session_list" => {
                 let params: ChatSessionListParams =
@@ -2627,7 +2630,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_skill_execute_auto_complete_updates_status() {
+    async fn test_get_skill_context_auto_complete_updates_status() {
         let (server, core, _temp_dir, _temp_agents, _guard) = create_test_server().await;
 
         let mut skill = create_test_skill("auto-complete", "Auto Complete");
@@ -2643,7 +2646,7 @@ mod tests {
             .unwrap();
 
         let json = server
-            .handle_skill_execute(SkillExecuteParams {
+            .handle_get_skill_context(GetSkillContextParams {
                 skill_id: "auto-complete".to_string(),
                 input: Some("test input".to_string()),
             })
@@ -2965,7 +2968,7 @@ mod tests {
             "memory_search",
             "memory_store",
             "memory_stats",
-            "skill_execute",
+            "get_skill_context",
             "chat_session_list",
             "chat_session_get",
             "manage_background_agents",

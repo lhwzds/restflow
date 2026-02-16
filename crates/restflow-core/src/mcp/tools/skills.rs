@@ -7,7 +7,7 @@
 // Available tools:
 // - list_skills: List all skills
 // - get_skill: Get a skill by ID
+// - get_skill_context: Get skill content with execution context
 // - create_skill: Create a new skill
 // - update_skill: Update an existing skill
 // - delete_skill: Delete a skill
-// - skill_execute: Fetch a skill for execution context

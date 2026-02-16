@@ -479,6 +479,32 @@ pub enum SkillCommands {
         name: String,
     },
 
+    /// Update skill
+    Update {
+        /// Skill ID
+        id: String,
+
+        /// New name
+        #[arg(short, long)]
+        name: Option<String>,
+
+        /// New description
+        #[arg(short, long)]
+        description: Option<String>,
+
+        /// New content (markdown)
+        #[arg(short, long)]
+        content: Option<String>,
+
+        /// Content from file
+        #[arg(long)]
+        content_file: Option<String>,
+
+        /// Tags (comma-separated)
+        #[arg(long)]
+        tags: Option<String>,
+    },
+
     /// Delete skill
     Delete { id: String },
 
