@@ -49,6 +49,12 @@ pub trait CommandExecutor: Send + Sync {
     async fn clear_memory(&self, agent_id: Option<String>) -> Result<u32>;
     async fn get_memory_stats(&self, agent_id: Option<String>) -> Result<MemoryStats>;
     async fn export_memory(&self, agent_id: Option<String>) -> Result<ExportResult>;
+    async fn store_memory(
+        &self,
+        agent_id: &str,
+        content: &str,
+        tags: Vec<String>,
+    ) -> Result<String>;
 
     async fn list_sessions(&self) -> Result<Vec<ChatSessionSummary>>;
     async fn get_session(&self, id: &str) -> Result<ChatSession>;

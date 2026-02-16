@@ -184,6 +184,27 @@ impl CommandExecutor for IpcExecutor {
         self.decode_response(response)
     }
 
+    async fn store_memory(
+        &self,
+        agent_id: &str,
+        content: &str,
+        tags: Vec<String>,
+    ) -> Result<String> {
+        #[derive(serde::Deserialize)]
+        struct StoreResponse {
+            id: String,
+        }
+        let response = self
+            .request(IpcRequest::AddMemory {
+                content: content.to_string(),
+                agent_id: Some(agent_id.to_string()),
+                tags,
+            })
+            .await?;
+        let resp: StoreResponse = self.decode_response(response)?;
+        Ok(resp.id)
+    }
+
     async fn list_sessions(&self) -> Result<Vec<ChatSessionSummary>> {
         let mut client = self.client.lock().await;
         client.list_sessions().await
