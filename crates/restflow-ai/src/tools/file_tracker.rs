@@ -1,9 +1,9 @@
 //! File read/write tracking for external modification detection.
 
+use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::RwLock;
 use std::time::SystemTime;
 
 use tokio::fs;
@@ -28,7 +28,7 @@ impl FileTracker {
 
     /// Record that we read a file.
     pub fn record_read(&self, path: &Path) {
-        let mut records = self.records.write().unwrap();
+        let mut records = self.records.write();
         let entry = records.entry(path.to_path_buf()).or_insert(FileRecord {
             last_read: SystemTime::UNIX_EPOCH,
             last_write: None,
@@ -38,7 +38,7 @@ impl FileTracker {
 
     /// Record that we wrote a file.
     pub fn record_write(&self, path: &Path) {
-        let mut records = self.records.write().unwrap();
+        let mut records = self.records.write();
         let entry = records.entry(path.to_path_buf()).or_insert(FileRecord {
             last_read: SystemTime::UNIX_EPOCH,
             last_write: None,
@@ -48,14 +48,14 @@ impl FileTracker {
 
     /// Check if a file has been read at least once.
     pub fn has_been_read(&self, path: &Path) -> bool {
-        let records = self.records.read().unwrap();
+        let records = self.records.read();
         records.contains_key(path)
     }
 
     /// Check if file was modified externally since last read.
     pub async fn check_external_modification(&self, path: &Path) -> io::Result<bool> {
         let (last_read, last_write) = {
-            let records = self.records.read().unwrap();
+            let records = self.records.read();
             let Some(record) = records.get(path) else {
                 return Ok(false);
             };
@@ -82,7 +82,7 @@ impl FileTracker {
 
     /// Get last read time for a file.
     pub fn last_read(&self, path: &Path) -> Option<SystemTime> {
-        let records = self.records.read().unwrap();
+        let records = self.records.read();
         records.get(path).map(|record| record.last_read)
     }
 }

@@ -1,6 +1,6 @@
+use parking_lot::RwLock;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
-use std::sync::RwLock;
 
 /// In-memory cache for embeddings to avoid redundant API calls
 pub struct EmbeddingCache {
@@ -26,20 +26,18 @@ impl EmbeddingCache {
 
     pub fn get(&self, text: &str, model: &str) -> Option<Vec<f32>> {
         let key = Self::cache_key(text, model);
-        self.cache.read().ok()?.get(&key).cloned()
+        self.cache.read().get(&key).cloned()
     }
 
     pub fn put(&self, text: &str, model: &str, embedding: Vec<f32>) {
         let key = Self::cache_key(text, model);
-        if let Ok(mut cache) = self.cache.write() {
-            if cache.len() >= self.max_entries {
-                let keys_to_remove: Vec<_> =
-                    cache.keys().take(self.max_entries / 2).cloned().collect();
-                for k in keys_to_remove {
-                    cache.remove(&k);
-                }
+        let mut cache = self.cache.write();
+        if cache.len() >= self.max_entries {
+            let keys_to_remove: Vec<_> = cache.keys().take(self.max_entries / 2).cloned().collect();
+            for k in keys_to_remove {
+                cache.remove(&k);
             }
-            cache.insert(key, embedding);
         }
+        cache.insert(key, embedding);
     }
 }
