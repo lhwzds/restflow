@@ -30,6 +30,8 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
 use super::broadcast_emitter::BroadcastStreamEmitter;
+use super::event_log::{AgentEvent, EventLog};
+use super::event_logging_emitter::EventLoggingEmitter;
 use super::events::{NoopEventEmitter, TaskEventEmitter, TaskStreamEvent};
 use super::persist::MemoryPersister;
 
@@ -518,6 +520,21 @@ impl BackgroundAgentRunner {
     /// Get a reference to the steer registry for sending messages to running tasks.
     pub fn steer_registry(&self) -> Arc<SteerRegistry> {
         self.steer_registry.clone()
+    }
+
+    /// Create an EventLog for recording task execution events.
+    fn create_event_log(&self, task_id: &str) -> Option<Arc<std::sync::Mutex<EventLog>>> {
+        let log_dir = crate::paths::ensure_restflow_dir()
+            .map(|dir| dir.join("task_logs"))
+            .ok()?;
+
+        match EventLog::new(task_id, &log_dir) {
+            Ok(log) => Some(Arc::new(std::sync::Mutex::new(log))),
+            Err(e) => {
+                warn!("Failed to create event log for task {}: {}", task_id, e);
+                None
+            }
+        }
     }
 
     /// Start the runner and return a handle for controlling it
@@ -1149,6 +1166,20 @@ impl BackgroundAgentRunner {
             self.cleanup_task_tracking(task_id).await;
             return Ok(false);
         }
+
+        // Create EventLog for this task
+        let event_log = self.create_event_log(&task.id);
+
+        // Record TaskStarted event
+        if let Some(ref log) = event_log {
+            let mut log = log.lock().unwrap();
+            let _ = log.append(&AgentEvent::TaskStarted {
+                timestamp: chrono::Utc::now().timestamp_millis(),
+                task_id: task.id.clone(),
+                agent_id: task.agent_id.clone(),
+            });
+        }
+
         let step_emitter = if matches!(task.execution_mode, ExecutionMode::Api)
             && task.notification.broadcast_steps
         {
@@ -1164,6 +1195,24 @@ impl BackgroundAgentRunner {
         } else {
             None
         };
+
+        // Wrap emitter with EventLoggingEmitter if we have an event log
+        let step_emitter = match (event_log.clone(), step_emitter) {
+            (Some(log), Some(emitter)) => {
+                Some(Box::new(EventLoggingEmitter::with_shared_log(
+                    emitter, log, task.id.clone(),
+                )) as Box<dyn StreamEmitter>)
+            }
+            (Some(log), None) => {
+                Some(Box::new(EventLoggingEmitter::with_shared_log(
+                    Box::new(restflow_ai::agent::NullEmitter),
+                    log,
+                    task.id.clone(),
+                )) as Box<dyn StreamEmitter>)
+            }
+            (None, emitter) => emitter,
+        };
+
         let execution_timeout_secs = match &task.execution_mode {
             ExecutionMode::Api => task.timeout_secs.unwrap_or(self.config.task_timeout_secs),
             ExecutionMode::Cli(cli_config) => cli_config.timeout_secs,
@@ -1386,6 +1435,15 @@ impl BackgroundAgentRunner {
                     task.name, duration_ms
                 );
 
+                // Record TaskCompleted event
+                if let Some(ref log) = event_log {
+                    let mut log = log.lock().unwrap();
+                    let _ = log.append(&AgentEvent::TaskCompleted {
+                        timestamp: chrono::Utc::now().timestamp_millis(),
+                        result: truncate_event_output(&exec_result.output, 5000),
+                    });
+                }
+
                 self.event_emitter
                     .emit(TaskStreamEvent::completed(
                         task_id,
@@ -1451,6 +1509,15 @@ impl BackgroundAgentRunner {
                 let error_msg = format!("Execution error: {}", e);
                 error!("Task '{}' failed: {}", task.name, error_msg);
 
+                // Record Error event
+                if let Some(ref log) = event_log {
+                    let mut log = log.lock().unwrap();
+                    let _ = log.append(&AgentEvent::Error {
+                        timestamp: chrono::Utc::now().timestamp_millis(),
+                        error: error_msg.clone(),
+                    });
+                }
+
                 self.event_emitter
                     .emit(TaskStreamEvent::failed(
                         task_id,
@@ -1476,6 +1543,15 @@ impl BackgroundAgentRunner {
                 // Timeout
                 let error_msg = format!("Task timed out after {} seconds", execution_timeout_secs);
                 error!("Task '{}' timed out", task.name);
+
+                // Record Error event
+                if let Some(ref log) = event_log {
+                    let mut log = log.lock().unwrap();
+                    let _ = log.append(&AgentEvent::Error {
+                        timestamp: chrono::Utc::now().timestamp_millis(),
+                        error: error_msg.clone(),
+                    });
+                }
 
                 self.event_emitter
                     .emit(TaskStreamEvent::timeout(
@@ -1804,7 +1880,20 @@ struct RunnerTaskExecutor {
 impl TaskExecutor for RunnerTaskExecutor {
     async fn execute(&self, task: &BackgroundAgent) -> Result<bool> {
         let cancel_rx = self.runner.take_cancel_receiver(&task.id).await;
-        self.runner.execute_task(&task.id, cancel_rx).await
+         self.runner.execute_task(&task.id, cancel_rx).await
+    }
+}
+
+/// Truncate output for event log to prevent large log files.
+fn truncate_event_output(output: &str, max_len: usize) -> String {
+    if output.len() > max_len {
+        format!(
+            "{}... [truncated, total {} bytes]",
+            &output[..max_len],
+            output.len()
+        )
+    } else {
+        output.to_string()
     }
 }
 

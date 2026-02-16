@@ -44,21 +44,13 @@ pub enum AgentEvent {
     },
 
     /// Human message sent to agent.
-    HumanMessage {
-        timestamp: i64,
-        content: String,
-    },
+    HumanMessage { timestamp: i64, content: String },
 
     /// Task paused.
-    Paused {
-        timestamp: i64,
-        reason: String,
-    },
+    Paused { timestamp: i64, reason: String },
 
     /// Task resumed.
-    Resumed {
-        timestamp: i64,
-    },
+    Resumed { timestamp: i64 },
 
     /// Checkpoint saved.
     CheckpointSaved {
@@ -67,16 +59,10 @@ pub enum AgentEvent {
     },
 
     /// Error occurred.
-    Error {
-        timestamp: i64,
-        error: String,
-    },
+    Error { timestamp: i64, error: String },
 
     /// Task completed.
-    TaskCompleted {
-        timestamp: i64,
-        result: String,
-    },
+    TaskCompleted { timestamp: i64, result: String },
 }
 
 impl AgentEvent {
@@ -101,7 +87,6 @@ impl AgentEvent {
 ///
 /// Each event is serialized to JSON and written as a single line.
 /// The log can be read back to reconstruct agent state.
-#[allow(dead_code)]
 pub struct EventLog {
     writer: BufWriter<std::fs::File>,
     path: String,
@@ -157,10 +142,10 @@ impl EventLog {
         let json = serde_json::to_string(event)
             .with_context(|| format!("Failed to serialize event: {:?}", event))?;
 
-        writeln!(self.writer, "{}", json)
-            .with_context(|| "Failed to write event to log")?;
+        writeln!(self.writer, "{}", json).with_context(|| "Failed to write event to log")?;
 
-        self.writer.flush()
+        self.writer
+            .flush()
             .with_context(|| "Failed to flush event log")?;
 
         Ok(())
@@ -179,8 +164,9 @@ impl EventLog {
                 continue; // Skip empty lines
             }
 
-            let event: AgentEvent = serde_json::from_str(line)
-                .with_context(|| format!("Failed to parse event on line {}: {}", line_num + 1, line))?;
+            let event: AgentEvent = serde_json::from_str(line).with_context(|| {
+                format!("Failed to parse event on line {}: {}", line_num + 1, line)
+            })?;
 
             events.push(event);
         }
@@ -276,10 +262,7 @@ mod tests {
 
         // Manually add empty lines to log
         let log_path = temp_dir.path().join(format!("{}.jsonl", task_id));
-        let mut file = fs::OpenOptions::new()
-            .append(true)
-            .open(&log_path)
-            .unwrap();
+        let mut file = fs::OpenOptions::new().append(true).open(&log_path).unwrap();
         writeln!(file).unwrap();
         writeln!(file).unwrap();
 
