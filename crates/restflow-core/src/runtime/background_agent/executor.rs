@@ -282,6 +282,24 @@ impl AgentRuntimeExecutor {
             return Ok(secret_value);
         }
 
+        match provider {
+            Provider::MiniMax => {
+                if let Some(secret_value) = self
+                    .storage
+                    .secrets
+                    .get_secret("MINIMAX_CODING_PLAN_API_KEY")?
+                {
+                    return Ok(secret_value);
+                }
+            }
+            Provider::MiniMaxCodingPlan => {
+                if let Some(secret_value) = self.storage.secrets.get_secret("MINIMAX_API_KEY")? {
+                    return Ok(secret_value);
+                }
+            }
+            _ => {}
+        }
+
         Err(anyhow!(
             "No API key configured for provider {:?}. Please add secret '{}' in Settings.",
             provider,
@@ -320,6 +338,7 @@ impl AgentRuntimeExecutor {
             Provider::Yi => AIModel::YiLightning,
             Provider::SiliconFlow => AIModel::SiliconFlowAuto,
             Provider::MiniMax => AIModel::MiniMaxM25,
+            Provider::MiniMaxCodingPlan => AIModel::MiniMaxM25,
         }
     }
 
