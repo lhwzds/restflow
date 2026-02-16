@@ -105,10 +105,16 @@ impl FailoverConfig {
     /// Build a failover chain that only includes models with available credentials.
     ///
     /// Priority order:
-    /// 1. Same-provider downgrade (e.g., Opus -> Sonnet)
-    /// 2. OpenRouter equivalent (if OR key available)
-    /// 3. Flagship models from other available providers (by quality tier)
-    pub fn build_smart(primary: AIModel, available_providers: &HashSet<Provider>) -> Self {
+    /// 1. Same-provider downgrade (e.g., glm-5 -> glm-4-7)
+    /// 2. Manually configured cross-provider fallbacks (from config)
+    ///
+    /// Note: Automatic cross-provider failover has been removed.
+    /// Users must manually configure fallback models via config.json.
+    pub fn build_smart(
+        primary: AIModel,
+        _available_providers: &HashSet<Provider>,
+        manual_fallbacks: Option<Vec<AIModel>>,
+    ) -> Self {
         if primary.is_cli_model() {
             return Self {
                 primary,
@@ -117,12 +123,11 @@ impl FailoverConfig {
             };
         }
 
-        let primary_provider = primary.provider();
         let mut fallbacks = Vec::new();
         let mut seen = HashSet::new();
         seen.insert(primary);
 
-        // 1. Same-provider downgrade chain
+        // 1. Same-provider downgrade chain (always automatic)
         let mut current = primary;
         while let Some(fallback) = current.same_provider_fallback() {
             if seen.insert(fallback) {
@@ -131,35 +136,9 @@ impl FailoverConfig {
             current = fallback;
         }
 
-        // 2. OpenRouter equivalent (if OR key available and primary is not already OR)
-        if primary_provider != Provider::OpenRouter
-            && available_providers.contains(&Provider::OpenRouter)
-            && let Some(or_equiv) = primary.openrouter_equivalent()
-            && seen.insert(or_equiv)
-        {
-            fallbacks.push(or_equiv);
-        }
-
-        // 3. Flagship models from other available providers (quality tier order)
-        let tier_order = [
-            Provider::Anthropic,
-            Provider::OpenAI,
-            Provider::Google,
-            Provider::DeepSeek,
-            Provider::OpenRouter,
-            Provider::Zhipu,
-            Provider::Qwen,
-            Provider::Moonshot,
-            Provider::XAI,
-            Provider::Groq,
-        ];
-
-        for provider in tier_order {
-            if provider == primary_provider {
-                continue;
-            }
-            if available_providers.contains(&provider) {
-                let model = provider.flagship_model();
+        // 2. Manually configured cross-provider fallbacks (from config)
+        if let Some(manual) = manual_fallbacks {
+            for model in manual {
                 if seen.insert(model) {
                     fallbacks.push(model);
                 }
@@ -828,28 +807,35 @@ mod tests {
         let mut providers = HashSet::new();
         providers.insert(Provider::Anthropic);
 
-        let config = FailoverConfig::build_smart(AIModel::ClaudeOpus4_6, &providers);
+        let config = FailoverConfig::build_smart(AIModel::ClaudeOpus4_6, &providers, None);
         assert_eq!(config.primary, AIModel::ClaudeOpus4_6);
         // Should include same-provider downgrades only
         assert!(config.fallbacks.contains(&AIModel::ClaudeSonnet4_5));
         assert!(config.fallbacks.contains(&AIModel::ClaudeHaiku4_5));
-        // Should NOT include models from providers we don't have keys for
+        // Should NOT include models from other providers
         assert!(!config.fallbacks.contains(&AIModel::Gpt5));
         assert!(!config.fallbacks.contains(&AIModel::DeepseekChat));
     }
 
     #[test]
-    fn test_build_smart_with_openrouter() {
+    fn test_build_smart_with_manual_fallback() {
         let mut providers = HashSet::new();
         providers.insert(Provider::Anthropic);
         providers.insert(Provider::OpenRouter);
 
-        let config = FailoverConfig::build_smart(AIModel::ClaudeSonnet4_5, &providers);
+        // Test with manual fallback configuration
+        let manual_fallbacks = vec![AIModel::OrClaudeOpus4_6, AIModel::Gpt5];
+        let config = FailoverConfig::build_smart(
+            AIModel::ClaudeSonnet4_5,
+            &providers,
+            Some(manual_fallbacks),
+        );
         assert_eq!(config.primary, AIModel::ClaudeSonnet4_5);
         // Should include same-provider downgrade
         assert!(config.fallbacks.contains(&AIModel::ClaudeHaiku4_5));
-        // Should include OpenRouter equivalent
+        // Should include manually configured fallbacks
         assert!(config.fallbacks.contains(&AIModel::OrClaudeOpus4_6));
+        assert!(config.fallbacks.contains(&AIModel::Gpt5));
     }
 
     #[test]
@@ -859,14 +845,19 @@ mod tests {
         providers.insert(Provider::Zhipu);
         providers.insert(Provider::OpenRouter);
 
-        let config = FailoverConfig::build_smart(AIModel::ClaudeSonnet4_5, &providers);
+        // Test with manual fallbacks (automatic cross-provider fallback disabled)
+        let manual_fallbacks = vec![AIModel::Glm5, AIModel::OrClaudeOpus4_6];
+        let config = FailoverConfig::build_smart(
+            AIModel::ClaudeSonnet4_5,
+            &providers,
+            Some(manual_fallbacks),
+        );
         assert_eq!(config.primary, AIModel::ClaudeSonnet4_5);
         // Same-provider downgrade
         assert!(config.fallbacks.contains(&AIModel::ClaudeHaiku4_5));
-        // OR equivalent
-        assert!(config.fallbacks.contains(&AIModel::OrClaudeOpus4_6));
-        // Zhipu flagship
+        // Manually configured fallbacks
         assert!(config.fallbacks.contains(&AIModel::Glm5));
+        assert!(config.fallbacks.contains(&AIModel::OrClaudeOpus4_6));
     }
 
     #[test]
@@ -875,7 +866,7 @@ mod tests {
         providers.insert(Provider::Anthropic);
         providers.insert(Provider::OpenAI);
 
-        let config = FailoverConfig::build_smart(AIModel::CodexCli, &providers);
+        let config = FailoverConfig::build_smart(AIModel::CodexCli, &providers, None);
         assert_eq!(config.primary, AIModel::CodexCli);
         assert!(config.fallbacks.is_empty());
     }
@@ -888,7 +879,7 @@ mod tests {
         providers.insert(Provider::OpenRouter);
         providers.insert(Provider::DeepSeek);
 
-        let config = FailoverConfig::build_smart(AIModel::ClaudeOpus4_6, &providers);
+        let config = FailoverConfig::build_smart(AIModel::ClaudeOpus4_6, &providers, None);
         let mut seen = HashSet::new();
         seen.insert(config.primary);
         for model in &config.fallbacks {

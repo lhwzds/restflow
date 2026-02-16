@@ -105,6 +105,17 @@ async fn show_config(executor: Arc<dyn CommandExecutor>, format: OutputFormat) -
         Cell::new("agent.default_max_duration_secs"),
         Cell::new(config.agent.default_max_duration_secs),
     ]);
+    table.add_row(vec![
+        Cell::new("agent.fallback_models"),
+        Cell::new(
+            config
+                .agent
+                .fallback_models
+                .as_ref()
+                .map(|m| m.join(", "))
+                .unwrap_or_else(|| "none".to_string()),
+        ),
+    ]);
     crate::output::table::print_table(table)
 }
 
@@ -135,6 +146,7 @@ async fn get_config_value(
         "agent.max_wall_clock_secs" => json!(config.agent.max_wall_clock_secs),
         "agent.default_task_timeout_secs" => json!(config.agent.default_task_timeout_secs),
         "agent.default_max_duration_secs" => json!(config.agent.default_max_duration_secs),
+        "agent.fallback_models" => json!(config.agent.fallback_models),
         _ => bail!("Unsupported config key: {key}"),
     };
 
@@ -208,6 +220,11 @@ async fn set_config_value(
         }
         "agent.default_max_duration_secs" => {
             config.agent.default_max_duration_secs = parse_value(value)?;
+        }
+        "agent.fallback_models" => {
+            let models: Vec<String> = serde_json::from_str(value)
+                .map_err(|e| anyhow::anyhow!("Invalid JSON array: {}", e))?;
+            config.agent.fallback_models = Some(models);
         }
         _ => bail!("Unsupported config key: {key}"),
     }

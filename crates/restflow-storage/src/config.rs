@@ -44,6 +44,11 @@ pub struct AgentDefaults {
     pub default_task_timeout_secs: u64,
     /// Default max duration for background agent resource limits in seconds.
     pub default_max_duration_secs: u64,
+    /// Fallback models for cross-provider failover (manually configured).
+    /// Only used when primary model fails - does not auto-discover providers.
+    /// Format: model names as strings (e.g., ["glm-4.7", "claude-sonnet-4-5"])
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback_models: Option<Vec<String>>,
 }
 
 impl Default for AgentDefaults {
@@ -58,6 +63,7 @@ impl Default for AgentDefaults {
             max_wall_clock_secs: 1800,
             default_task_timeout_secs: 1800,
             default_max_duration_secs: 1800,
+            fallback_models: None,
         }
     }
 }
@@ -83,9 +89,7 @@ impl AgentDefaults {
             ));
         }
         if self.max_iterations == 0 {
-            return Err(anyhow::anyhow!(
-                "agent.max_iterations must be at least 1"
-            ));
+            return Err(anyhow::anyhow!("agent.max_iterations must be at least 1"));
         }
         if self.subagent_timeout_secs < MIN_TIMEOUT_SECONDS {
             return Err(anyhow::anyhow!(
@@ -94,9 +98,7 @@ impl AgentDefaults {
             ));
         }
         if self.max_tool_calls == 0 {
-            return Err(anyhow::anyhow!(
-                "agent.max_tool_calls must be at least 1"
-            ));
+            return Err(anyhow::anyhow!("agent.max_tool_calls must be at least 1"));
         }
         if self.max_wall_clock_secs < MIN_TIMEOUT_SECONDS {
             return Err(anyhow::anyhow!(
@@ -404,12 +406,10 @@ mod tests {
 
         let result = config.validate();
         assert!(result.is_err());
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("Duplicate experimental feature")
-        );
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Duplicate experimental feature"));
     }
 
     #[test]
