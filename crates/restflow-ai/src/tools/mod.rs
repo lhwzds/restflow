@@ -31,6 +31,7 @@ mod save_deliverable;
 mod secrets;
 mod session;
 mod skill;
+mod spawn_subtask;
 mod switch_model;
 mod telegram;
 mod toolset;
@@ -85,6 +86,7 @@ pub use session::{
     SessionCreateRequest, SessionListFilter, SessionSearchQuery, SessionStore, SessionTool,
 };
 pub use skill::SkillTool;
+pub use spawn_subtask::{SpawnSubtaskRequest, SpawnSubtaskTool};
 pub use switch_model::SwitchModelTool;
 pub use telegram::{TelegramTool, send_telegram_notification};
 pub use toolset::{Toolset, ToolsetContext};
