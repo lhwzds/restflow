@@ -58,7 +58,14 @@ pub async fn response_to_error(response: Response, provider: &str) -> AiError {
     // Truncate error body to prevent leaking large or sensitive responses.
     const MAX_ERROR_BODY: usize = 512;
     let message = if body.len() > MAX_ERROR_BODY {
-        format!("{}... [truncated]", &body[..MAX_ERROR_BODY])
+        // Find safe character boundary to avoid panic on multi-byte UTF-8
+        let truncate_at = body
+            .char_indices()
+            .take_while(|(idx, _)| *idx < MAX_ERROR_BODY)
+            .last()
+            .map(|(idx, c)| idx + c.len_utf8())
+            .unwrap_or(0);
+        format!("{}... [truncated]", &body[..truncate_at])
     } else {
         body
     };
