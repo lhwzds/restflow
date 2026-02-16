@@ -499,6 +499,22 @@ impl IpcServer {
                 Ok(()) => IpcResponse::success(serde_json::json!({ "ok": true })),
                 Err(err) => IpcResponse::error(500, err.to_string()),
             },
+            IpcRequest::CreateSecret {
+                key,
+                value,
+                description,
+            } => match secrets_service::create_secret(core, &key, &value, description).await {
+                Ok(()) => IpcResponse::success(serde_json::json!({ "ok": true })),
+                Err(err) => IpcResponse::error(500, err.to_string()),
+            },
+            IpcRequest::UpdateSecret {
+                key,
+                value,
+                description,
+            } => match secrets_service::update_secret(core, &key, &value, description).await {
+                Ok(()) => IpcResponse::success(serde_json::json!({ "ok": true })),
+                Err(err) => IpcResponse::error(500, err.to_string()),
+            },
             IpcRequest::DeleteSecret { key } => {
                 match secrets_service::delete_secret(core, &key).await {
                     Ok(()) => IpcResponse::success(serde_json::json!({ "ok": true })),

@@ -220,6 +220,14 @@ impl CommandExecutor for DirectExecutor {
         secrets_service::set_secret(&self.core, key, value, description).await
     }
 
+    async fn create_secret(&self, key: &str, value: &str, description: Option<String>) -> Result<()> {
+        secrets_service::create_secret(&self.core, key, value, description).await
+    }
+
+    async fn update_secret(&self, key: &str, value: &str, description: Option<String>) -> Result<()> {
+        secrets_service::update_secret(&self.core, key, value, description).await
+    }
+
     async fn delete_secret(&self, key: &str) -> Result<()> {
         secrets_service::delete_secret(&self.core, key).await
     }

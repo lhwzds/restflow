@@ -31,6 +31,36 @@ pub async fn set_secret(
         .with_context(|| format!("Failed to set secret {}", key))
 }
 
+/// Create a new secret (fails if already exists)
+///
+/// This operation is atomic - prevents TOCTOU race conditions.
+pub async fn create_secret(
+    core: &Arc<AppCore>,
+    key: &str,
+    value: &str,
+    description: Option<String>,
+) -> Result<()> {
+    core.storage
+        .secrets
+        .create_secret(key, value, description)
+        .with_context(|| format!("Failed to create secret {}", key))
+}
+
+/// Update an existing secret (fails if not exists)
+///
+/// This operation is atomic - prevents TOCTOU race conditions.
+pub async fn update_secret(
+    core: &Arc<AppCore>,
+    key: &str,
+    value: &str,
+    description: Option<String>,
+) -> Result<()> {
+    core.storage
+        .secrets
+        .update_secret(key, value, description)
+        .with_context(|| format!("Failed to update secret {}", key))
+}
+
 /// Delete a secret
 pub async fn delete_secret(core: &Arc<AppCore>, key: &str) -> Result<()> {
     core.storage
