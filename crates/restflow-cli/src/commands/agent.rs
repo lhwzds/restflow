@@ -71,7 +71,7 @@ async fn list_agents(executor: Arc<dyn CommandExecutor>, format: OutputFormat) -
             .agent
             .model
             .as_ref()
-            .map(|m| m.as_str())
+            .map(|m| m.as_serialized_str())
             .unwrap_or("(not set)");
         table.add_row(vec![
             Cell::new(short_id(&agent.id)),
@@ -98,7 +98,7 @@ async fn show_agent(
     println!("ID:          {}", agent.id);
     println!("Name:        {}", agent.name);
     if let Some(model) = &agent.agent.model {
-        println!("Model:       {}", model.as_str());
+        println!("Model:       {}", model.as_serialized_str());
         println!("Provider:    {:?}", model.provider());
     } else {
         println!("Model:       (not set - will auto-select based on auth profile)");
