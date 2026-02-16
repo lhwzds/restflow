@@ -48,20 +48,10 @@ pub async fn create_secret(
     state: State<'_, AppState>,
     request: CreateSecretRequest,
 ) -> Result<SecretInfo, String> {
-    // Check if secret already exists
-    let existing = state
-        .executor()
-        .get_secret(request.key.clone())
-        .await
-        .map_err(|e| e.to_string())?;
-
-    if existing.is_some() {
-        return Err(format!("Secret '{}' already exists", request.key));
-    }
-
+    // Use atomic create_secret to prevent TOCTOU race condition
     state
         .executor()
-        .set_secret(
+        .create_secret(
             request.key.clone(),
             request.value,
             request.description.clone(),
@@ -92,20 +82,10 @@ pub async fn update_secret(
     key: String,
     request: UpdateSecretRequest,
 ) -> Result<SecretInfo, String> {
-    // Check if secret exists
-    let existing = state
-        .executor()
-        .get_secret(key.clone())
-        .await
-        .map_err(|e| e.to_string())?;
-
-    if existing.is_none() {
-        return Err(format!("Secret '{}' not found", key));
-    }
-
+    // Use atomic update_secret to prevent TOCTOU race condition
     state
         .executor()
-        .set_secret(key.clone(), request.value, request.description.clone())
+        .update_secret(key.clone(), request.value, request.description.clone())
         .await
         .map_err(|e| e.to_string())?;
 

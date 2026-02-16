@@ -115,6 +115,16 @@ pub enum IpcRequest {
         value: String,
         description: Option<String>,
     },
+    CreateSecret {
+        key: String,
+        value: String,
+        description: Option<String>,
+    },
+    UpdateSecret {
+        key: String,
+        value: String,
+        description: Option<String>,
+    },
     DeleteSecret {
         key: String,
     },

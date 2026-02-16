@@ -165,7 +165,13 @@ async fn update_agent(
     let mut existing = executor.get_agent(id).await?;
 
     if let Some(model) = model {
-        existing.agent.model = Some(parse_model(&model)?);
+        let parsed = parse_model(&model)?;
+        existing.agent.model = Some(parsed);
+        // Clear codex-related fields when switching to non-Codex model
+        if !parsed.is_codex_cli() {
+            existing.agent.codex_cli_reasoning_effort = None;
+            existing.agent.codex_cli_execution_mode = None;
+        }
     }
     if let Some(mode) = codex_execution_mode {
         existing.agent.codex_cli_execution_mode = Some(to_codex_mode(mode));
