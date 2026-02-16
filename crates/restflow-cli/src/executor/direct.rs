@@ -133,6 +133,22 @@ impl CommandExecutor for DirectExecutor {
         exporter.export_agent(&agent_id)
     }
 
+    async fn store_memory(
+        &self,
+        agent_id: &str,
+        content: &str,
+        tags: Vec<String>,
+    ) -> Result<String> {
+        use restflow_core::models::{MemoryChunk, MemorySource};
+        let mut chunk = MemoryChunk::new(agent_id.to_string(), content.to_string())
+            .with_source(MemorySource::ManualNote);
+        if !tags.is_empty() {
+            chunk = chunk.with_tags(tags);
+        }
+        let id = self.core.storage.memory.store_chunk(&chunk)?;
+        Ok(id)
+    }
+
     async fn list_sessions(&self) -> Result<Vec<ChatSessionSummary>> {
         self.core.storage.chat_sessions.list_summaries()
     }

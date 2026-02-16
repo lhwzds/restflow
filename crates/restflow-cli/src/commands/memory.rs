@@ -22,6 +22,9 @@ pub async fn run(
         }
         MemoryCommands::Stats => memory_stats(executor, format).await,
         MemoryCommands::Clear { agent } => clear_memory(executor, agent, format).await,
+        MemoryCommands::Store { content, agent, tags } => {
+            store_memory(executor, content, agent, tags, format).await
+        }
     }
 }
 
@@ -151,6 +154,46 @@ async fn clear_memory(
         println!("Cleared {} chunks for {}", deleted, agent_id);
     }
 
+    Ok(())
+}
+
+async fn store_memory(
+    executor: Arc<dyn CommandExecutor>,
+    content: String,
+    agent: Option<String>,
+    tags: Option<String>,
+    format: OutputFormat,
+) -> Result<()> {
+    let agent_id = if let Some(a) = agent {
+        a
+    } else {
+        let agents = executor.list_agents().await?;
+        if agents.is_empty() {
+            bail!("No agents available. Specify --agent or create an agent first.");
+        }
+        agents[0].id.clone()
+    };
+
+    let tags_vec: Vec<String> = tags
+        .map(|t| t.split(',').map(|s| s.trim().to_string()).collect())
+        .unwrap_or_default();
+
+    let id = executor.store_memory(&agent_id, &content, tags_vec.clone()).await?;
+
+    if format.is_json() {
+        return print_json(&json!({
+            "id": id,
+            "agent_id": agent_id,
+            "content_preview": preview_text(&content, 100),
+            "tags": tags_vec
+        }));
+    }
+
+    println!("Stored memory chunk: {}", id);
+    println!("Agent: {}", agent_id);
+    if !tags_vec.is_empty() {
+        println!("Tags: {}", tags_vec.join(", "));
+    }
     Ok(())
 }
 

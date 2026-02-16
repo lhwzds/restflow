@@ -542,6 +542,20 @@ pub enum MemoryCommands {
         #[arg(long)]
         agent: Option<String>,
     },
+
+    /// Store a memory chunk
+    Store {
+        /// Memory content to store
+        content: String,
+
+        /// Agent ID to store memory under
+        #[arg(long)]
+        agent: Option<String>,
+
+        /// Tags for categorization (comma-separated)
+        #[arg(long)]
+        tags: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
