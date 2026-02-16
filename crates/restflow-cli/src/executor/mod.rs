@@ -3,8 +3,10 @@ use async_trait::async_trait;
 use restflow_core::daemon::is_daemon_available;
 use restflow_core::memory::ExportResult;
 use restflow_core::models::{
-    AgentNode, ChatSession, ChatSessionSummary, MemoryChunk, MemorySearchResult, MemoryStats,
-    NoteQuery, Secret, Skill, WorkspaceNote, WorkspaceNotePatch, WorkspaceNoteSpec,
+    AgentNode, BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentPatch,
+    BackgroundAgentSpec, BackgroundProgress, ChatSession, ChatSessionSummary, Deliverable,
+    MemoryChunk, MemorySearchResult, MemoryStats, NoteQuery, Secret, SharedEntry, Skill,
+    WorkspaceNote, WorkspaceNotePatch, WorkspaceNoteSpec,
 };
 use restflow_core::paths;
 use restflow_core::storage::SystemConfig;
@@ -68,6 +70,42 @@ pub trait CommandExecutor: Send + Sync {
 
     async fn get_config(&self) -> Result<SystemConfig>;
     async fn set_config(&self, config: SystemConfig) -> Result<()>;
+
+    // Background Agent operations
+    async fn list_background_agents(&self, status: Option<String>) -> Result<Vec<BackgroundAgent>>;
+    async fn get_background_agent(&self, id: &str) -> Result<BackgroundAgent>;
+    async fn create_background_agent(&self, spec: BackgroundAgentSpec) -> Result<BackgroundAgent>;
+    async fn update_background_agent(
+        &self,
+        id: &str,
+        patch: BackgroundAgentPatch,
+    ) -> Result<BackgroundAgent>;
+    async fn delete_background_agent(&self, id: &str) -> Result<()>;
+    async fn control_background_agent(
+        &self,
+        id: &str,
+        action: BackgroundAgentControlAction,
+    ) -> Result<()>;
+    async fn get_background_agent_progress(
+        &self,
+        id: &str,
+        event_limit: Option<usize>,
+    ) -> Result<BackgroundProgress>;
+    async fn send_background_agent_message(&self, id: &str, message: &str) -> Result<()>;
+
+    // Shared Space operations
+    async fn list_shared_space(&self, namespace: Option<&str>) -> Result<Vec<SharedEntry>>;
+    async fn get_shared_space(&self, key: &str) -> Result<Option<SharedEntry>>;
+    async fn set_shared_space(
+        &self,
+        key: &str,
+        value: &str,
+        visibility: &str,
+    ) -> Result<SharedEntry>;
+    async fn delete_shared_space(&self, key: &str) -> Result<bool>;
+
+    // Deliverable operations
+    async fn list_deliverables(&self, task_id: &str) -> Result<Vec<Deliverable>>;
 }
 
 pub async fn create(db_path: Option<String>) -> Result<Arc<dyn CommandExecutor>> {

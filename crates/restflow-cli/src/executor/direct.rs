@@ -5,7 +5,10 @@ use std::sync::Arc;
 use crate::executor::CommandExecutor;
 use crate::setup;
 use restflow_core::memory::{ExportResult, MemoryExporter};
-use restflow_core::models::AgentNode;
+use restflow_core::models::{
+    AgentNode, BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentPatch,
+    BackgroundAgentSpec, BackgroundProgress, Deliverable, SharedEntry,
+};
 use restflow_core::services::{
     agent as agent_service, config as config_service, secrets as secrets_service,
     skills as skills_service,
@@ -217,6 +220,78 @@ impl CommandExecutor for DirectExecutor {
 
     async fn set_config(&self, config: SystemConfig) -> Result<()> {
         config_service::update_config(&self.core, config).await
+    }
+
+    // Background Agent operations - require daemon
+    async fn list_background_agents(&self, _status: Option<String>) -> Result<Vec<BackgroundAgent>> {
+        bail!("Background agent operations require daemon mode. Use 'restflow daemon start' first.")
+    }
+
+    async fn get_background_agent(&self, _id: &str) -> Result<BackgroundAgent> {
+        bail!("Background agent operations require daemon mode. Use 'restflow daemon start' first.")
+    }
+
+    async fn create_background_agent(&self, _spec: BackgroundAgentSpec) -> Result<BackgroundAgent> {
+        bail!("Background agent operations require daemon mode. Use 'restflow daemon start' first.")
+    }
+
+    async fn update_background_agent(
+        &self,
+        _id: &str,
+        _patch: BackgroundAgentPatch,
+    ) -> Result<BackgroundAgent> {
+        bail!("Background agent operations require daemon mode. Use 'restflow daemon start' first.")
+    }
+
+    async fn delete_background_agent(&self, _id: &str) -> Result<()> {
+        bail!("Background agent operations require daemon mode. Use 'restflow daemon start' first.")
+    }
+
+    async fn control_background_agent(
+        &self,
+        _id: &str,
+        _action: BackgroundAgentControlAction,
+    ) -> Result<()> {
+        bail!("Background agent operations require daemon mode. Use 'restflow daemon start' first.")
+    }
+
+    async fn get_background_agent_progress(
+        &self,
+        _id: &str,
+        _event_limit: Option<usize>,
+    ) -> Result<BackgroundProgress> {
+        bail!("Background agent operations require daemon mode. Use 'restflow daemon start' first.")
+    }
+
+    async fn send_background_agent_message(&self, _id: &str, _message: &str) -> Result<()> {
+        bail!("Background agent operations require daemon mode. Use 'restflow daemon start' first.")
+    }
+
+    // Shared Space operations - require daemon
+    async fn list_shared_space(&self, _namespace: Option<&str>) -> Result<Vec<SharedEntry>> {
+        bail!("Shared space operations require daemon mode. Use 'restflow daemon start' first.")
+    }
+
+    async fn get_shared_space(&self, _key: &str) -> Result<Option<SharedEntry>> {
+        bail!("Shared space operations require daemon mode. Use 'restflow daemon start' first.")
+    }
+
+    async fn set_shared_space(
+        &self,
+        _key: &str,
+        _value: &str,
+        _visibility: &str,
+    ) -> Result<SharedEntry> {
+        bail!("Shared space operations require daemon mode. Use 'restflow daemon start' first.")
+    }
+
+    async fn delete_shared_space(&self, _key: &str) -> Result<bool> {
+        bail!("Shared space operations require daemon mode. Use 'restflow daemon start' first.")
+    }
+
+    // Deliverable operations - require daemon
+    async fn list_deliverables(&self, _task_id: &str) -> Result<Vec<Deliverable>> {
+        bail!("Deliverable operations require daemon mode. Use 'restflow daemon start' first.")
     }
 }
 

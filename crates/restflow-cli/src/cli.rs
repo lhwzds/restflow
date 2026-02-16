@@ -166,6 +166,30 @@ pub enum Commands {
         #[command(subcommand)]
         command: RouteCommands,
     },
+
+    /// Background agent management
+    BackgroundAgent {
+        #[command(subcommand)]
+        command: BackgroundAgentCommands,
+    },
+
+    /// Shared space key-value store
+    Shared {
+        #[command(subcommand)]
+        command: SharedCommands,
+    },
+
+    /// Deliverable management
+    Deliverable {
+        #[command(subcommand)]
+        command: DeliverableCommands,
+    },
+
+    /// Trigger management
+    Trigger {
+        #[command(subcommand)]
+        command: TriggerCommands,
+    },
 }
 
 #[derive(Args)]
@@ -860,6 +884,181 @@ pub enum RouteCommands {
     /// Remove a route binding
     Unbind {
         /// Binding ID
+        id: String,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum BackgroundAgentCommands {
+    /// List background agents
+    List {
+        /// Filter by status: active, paused, running, completed, failed, interrupted
+        #[arg(long)]
+        status: Option<String>,
+    },
+
+    /// Show background agent details
+    Show {
+        /// Background agent ID
+        id: String,
+    },
+
+    /// Create a background agent
+    Create {
+        /// Display name
+        #[arg(short, long)]
+        name: String,
+
+        /// Agent ID to execute
+        #[arg(short, long)]
+        agent: String,
+
+        /// Schedule type: once, interval, cron
+        #[arg(long)]
+        schedule: String,
+
+        /// Schedule value (timestamp for once, milliseconds for interval, cron expression for cron)
+        #[arg(long)]
+        schedule_value: Option<String>,
+
+        /// Input prompt
+        #[arg(short, long)]
+        input: Option<String>,
+
+        /// Input template file
+        #[arg(long)]
+        input_template: Option<String>,
+
+        /// Timeout in seconds
+        #[arg(long)]
+        timeout: Option<u64>,
+
+        /// Enable Telegram notification
+        #[arg(long)]
+        notify: bool,
+    },
+
+    /// Update a background agent
+    Update {
+        /// Background agent ID
+        id: String,
+
+        #[arg(short, long)]
+        name: Option<String>,
+
+        #[arg(short, long)]
+        input: Option<String>,
+
+        #[arg(long)]
+        schedule: Option<String>,
+
+        #[arg(long)]
+        schedule_value: Option<String>,
+
+        #[arg(long)]
+        timeout: Option<u64>,
+    },
+
+    /// Delete a background agent
+    Delete {
+        /// Background agent ID
+        id: String,
+    },
+
+    /// Control a background agent (start, pause, resume, stop, run_now)
+    Control {
+        /// Background agent ID
+        id: String,
+
+        /// Action: start, pause, resume, stop, run_now
+        #[arg(short, long)]
+        action: String,
+    },
+
+    /// Show execution progress
+    Progress {
+        /// Background agent ID
+        id: String,
+
+        /// Number of events to show
+        #[arg(short, long, default_value = "10")]
+        limit: usize,
+    },
+
+    /// Send a message to a running background agent
+    Send {
+        /// Background agent ID
+        id: String,
+
+        /// Message content
+        message: String,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum SharedCommands {
+    /// List shared space entries
+    List {
+        /// Namespace prefix filter
+        #[arg(short, long)]
+        namespace: Option<String>,
+    },
+
+    /// Get a shared space entry
+    Get {
+        /// Key (format: namespace:name)
+        key: String,
+    },
+
+    /// Set a shared space entry
+    Set {
+        /// Key (format: namespace:name)
+        key: String,
+
+        /// Value
+        value: String,
+
+        /// Visibility: public, shared, private
+        #[arg(long, default_value = "shared")]
+        visibility: String,
+    },
+
+    /// Delete a shared space entry
+    Delete {
+        /// Key (format: namespace:name)
+        key: String,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum DeliverableCommands {
+    /// List deliverables for a background agent
+    List {
+        /// Background agent ID
+        #[arg(short, long)]
+        task: String,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum TriggerCommands {
+    /// List triggers
+    List,
+
+    /// Create a trigger
+    Create {
+        /// Trigger name
+        #[arg(short, long)]
+        name: String,
+
+        /// Trigger type: webhook, schedule
+        #[arg(long)]
+        trigger_type: String,
+    },
+
+    /// Delete a trigger
+    Delete {
+        /// Trigger ID
         id: String,
     },
 }

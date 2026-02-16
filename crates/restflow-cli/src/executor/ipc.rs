@@ -7,8 +7,10 @@ use crate::executor::CommandExecutor;
 use restflow_core::daemon::{IpcClient, IpcRequest, IpcResponse};
 use restflow_core::memory::ExportResult;
 use restflow_core::models::{
-    AgentNode, ChatSession, ChatSessionSummary, MemoryChunk, MemorySearchResult, MemoryStats,
-    NoteQuery, Secret, Skill, WorkspaceNote, WorkspaceNotePatch, WorkspaceNoteSpec,
+    AgentNode, BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentPatch,
+    BackgroundAgentSpec, BackgroundProgress, ChatSession, ChatSessionSummary, Deliverable,
+    MemoryChunk, MemorySearchResult, MemoryStats, NoteQuery, Secret, SharedEntry, Skill,
+    WorkspaceNote, WorkspaceNotePatch, WorkspaceNoteSpec,
 };
 use restflow_core::storage::SystemConfig;
 use restflow_core::storage::agent::StoredAgent;
@@ -303,5 +305,104 @@ impl CommandExecutor for IpcExecutor {
         let response = self.request(IpcRequest::SetConfig { config }).await?;
         self.decode_response::<serde_json::Value>(response)
             .map(|_| ())
+    }
+
+    // Background Agent operations - use IPC client methods
+    async fn list_background_agents(&self, status: Option<String>) -> Result<Vec<BackgroundAgent>> {
+        let mut client = self.client.lock().await;
+        client.list_background_agents(status).await
+    }
+
+    async fn get_background_agent(&self, id: &str) -> Result<BackgroundAgent> {
+        let mut client = self.client.lock().await;
+        client
+            .get_background_agent(id.to_string())
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("Background agent not found: {}", id))
+    }
+
+    async fn create_background_agent(&self, spec: BackgroundAgentSpec) -> Result<BackgroundAgent> {
+        let mut client = self.client.lock().await;
+        client.create_background_agent(spec).await
+    }
+
+    async fn update_background_agent(
+        &self,
+        id: &str,
+        patch: BackgroundAgentPatch,
+    ) -> Result<BackgroundAgent> {
+        let mut client = self.client.lock().await;
+        client.update_background_agent(id.to_string(), patch).await
+    }
+
+    async fn delete_background_agent(&self, id: &str) -> Result<()> {
+        let mut client = self.client.lock().await;
+        client.delete_background_agent(id.to_string()).await?;
+        Ok(())
+    }
+
+    async fn control_background_agent(
+        &self,
+        id: &str,
+        action: BackgroundAgentControlAction,
+    ) -> Result<()> {
+        let mut client = self.client.lock().await;
+        client
+            .control_background_agent(id.to_string(), action)
+            .await?;
+        Ok(())
+    }
+
+    async fn get_background_agent_progress(
+        &self,
+        id: &str,
+        event_limit: Option<usize>,
+    ) -> Result<BackgroundProgress> {
+        let response = self
+            .request(IpcRequest::GetBackgroundAgentProgress {
+                id: id.to_string(),
+                event_limit,
+            })
+            .await?;
+        self.decode_response(response)
+    }
+
+    async fn send_background_agent_message(&self, id: &str, message: &str) -> Result<()> {
+        let response = self
+            .request(IpcRequest::SendBackgroundAgentMessage {
+                id: id.to_string(),
+                message: message.to_string(),
+                source: None,
+            })
+            .await?;
+        self.decode_response::<serde_json::Value>(response)
+            .map(|_| ())
+    }
+
+    // Shared Space operations - not yet in IPC protocol
+    async fn list_shared_space(&self, _namespace: Option<&str>) -> Result<Vec<SharedEntry>> {
+        bail!("Shared space operations require daemon mode. Use 'restflow daemon start' first.")
+    }
+
+    async fn get_shared_space(&self, _key: &str) -> Result<Option<SharedEntry>> {
+        bail!("Shared space operations require daemon mode. Use 'restflow daemon start' first.")
+    }
+
+    async fn set_shared_space(
+        &self,
+        _key: &str,
+        _value: &str,
+        _visibility: &str,
+    ) -> Result<SharedEntry> {
+        bail!("Shared space operations require daemon mode. Use 'restflow daemon start' first.")
+    }
+
+    async fn delete_shared_space(&self, _key: &str) -> Result<bool> {
+        bail!("Shared space operations require daemon mode. Use 'restflow daemon start' first.")
+    }
+
+    // Deliverable operations
+    async fn list_deliverables(&self, _task_id: &str) -> Result<Vec<Deliverable>> {
+        bail!("Deliverable operations are not yet available via CLI. Use MCP tools instead.")
     }
 }

@@ -186,6 +186,18 @@ async fn run() -> Result<()> {
             Some(Commands::Security { command }) => {
                 commands::security::run(command, cli.format).await
             }
+            Some(Commands::BackgroundAgent { command }) => {
+                commands::background_agent::run(exec, command, cli.format).await
+            }
+            Some(Commands::Shared { command }) => {
+                commands::shared::run(exec, command, cli.format).await
+            }
+            Some(Commands::Deliverable { command }) => {
+                commands::deliverable::run(exec, command, cli.format).await
+            }
+            Some(Commands::Trigger { command }) => {
+                commands::trigger::run(exec, command, cli.format).await
+            }
             Some(Commands::Migrate(args)) => commands::migrate::run(args).await,
             Some(Commands::Info) => commands::info::run(),
             Some(Commands::Completions { .. }) => Ok(()),
