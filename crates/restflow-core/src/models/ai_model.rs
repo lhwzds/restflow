@@ -16,6 +16,7 @@ pub enum Provider {
     XAI,
     Qwen,
     Zhipu,
+    ZhipuCodingPlan,
     Moonshot,
     Doubao,
     Yi,
@@ -36,6 +37,7 @@ impl Provider {
             Self::XAI,
             Self::Qwen,
             Self::Zhipu,
+            Self::ZhipuCodingPlan,
             Self::Moonshot,
             Self::Doubao,
             Self::Yi,
@@ -56,6 +58,7 @@ impl Provider {
             Self::XAI => "XAI_API_KEY",
             Self::Qwen => "DASHSCOPE_API_KEY",
             Self::Zhipu => "ZHIPU_API_KEY",
+            Self::ZhipuCodingPlan => "ZHIPU_CODING_PLAN_API_KEY",
             Self::Moonshot => "MOONSHOT_API_KEY",
             Self::Doubao => "ARK_API_KEY",
             Self::Yi => "YI_API_KEY",
@@ -77,6 +80,7 @@ impl Provider {
             Self::XAI => LlmProvider::XAI,
             Self::Qwen => LlmProvider::Qwen,
             Self::Zhipu => LlmProvider::Zhipu,
+            Self::ZhipuCodingPlan => LlmProvider::Zhipu,
             Self::Moonshot => LlmProvider::Moonshot,
             Self::Doubao => LlmProvider::Doubao,
             Self::Yi => LlmProvider::Yi,
@@ -98,6 +102,7 @@ impl Provider {
             Self::XAI => AIModel::Grok4,
             Self::Qwen => AIModel::Qwen3Max,
             Self::Zhipu => AIModel::Glm5,
+            Self::ZhipuCodingPlan => AIModel::Glm5,
             Self::Moonshot => AIModel::KimiK2_5,
             Self::Doubao => AIModel::DoubaoPro,
             Self::Yi => AIModel::YiLightning,
@@ -1199,6 +1204,11 @@ mod tests {
         assert_eq!(Provider::Qwen.api_key_env(), "DASHSCOPE_API_KEY");
         assert_eq!(Provider::MiniMax.api_key_env(), "MINIMAX_API_KEY");
         assert_eq!(Provider::MiniMaxCodingPlan.api_key_env(), "MINIMAX_CODING_PLAN_API_KEY");
+        assert_eq!(Provider::Zhipu.api_key_env(), "ZHIPU_API_KEY");
+        assert_eq!(
+            Provider::ZhipuCodingPlan.api_key_env(),
+            "ZHIPU_CODING_PLAN_API_KEY"
+        );
     }
 
     #[test]
@@ -1279,6 +1289,7 @@ mod tests {
         assert_eq!(Provider::DeepSeek.flagship_model(), AIModel::DeepseekChat);
         assert_eq!(Provider::Google.flagship_model(), AIModel::Gemini3Pro);
         assert_eq!(Provider::Zhipu.flagship_model(), AIModel::Glm5);
+        assert_eq!(Provider::ZhipuCodingPlan.flagship_model(), AIModel::Glm5);
         assert_eq!(
             Provider::OpenRouter.flagship_model(),
             AIModel::OrClaudeOpus4_6

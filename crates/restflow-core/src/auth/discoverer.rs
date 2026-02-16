@@ -340,6 +340,7 @@ impl EnvVarDiscoverer {
                 ("XAI_API_KEY".to_string(), AuthProvider::Other),
                 ("DASHSCOPE_API_KEY".to_string(), AuthProvider::Other),
                 ("ZHIPU_API_KEY".to_string(), AuthProvider::Other),
+                ("ZHIPU_CODING_PLAN_API_KEY".to_string(), AuthProvider::Other),
                 ("MOONSHOT_API_KEY".to_string(), AuthProvider::Other),
                 ("ARK_API_KEY".to_string(), AuthProvider::Other),
                 ("YI_API_KEY".to_string(), AuthProvider::Other),
