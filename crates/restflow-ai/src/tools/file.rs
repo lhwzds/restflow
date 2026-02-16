@@ -766,6 +766,14 @@ impl FileTool {
             return ToolOutput::error(format!("File not found: {}", path.display()));
         }
 
+        // Enforce read-before-write: must read file before deleting
+        if path.is_file() && !self.tracker.has_been_read(&path) {
+            return ToolOutput::error(format!(
+                "You must read {} before deleting it. Read the file first to understand what you are deleting.",
+                path.display()
+            ));
+        }
+
         if path.is_dir() {
             match fs::remove_dir_all(&path).await {
                 Ok(()) => ToolOutput::success(serde_json::json!({
