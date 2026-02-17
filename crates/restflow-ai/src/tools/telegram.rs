@@ -29,6 +29,9 @@ struct TelegramInput {
     /// Disable notification sound (optional)
     #[serde(default)]
     disable_notification: bool,
+    /// Message thread ID for Telegram forum/supergroup topics (optional)
+    #[serde(default)]
+    message_thread_id: Option<i64>,
 }
 
 /// Telegram notification tool for sending messages via Bot API
@@ -89,6 +92,9 @@ impl TelegramTool {
         if input.disable_notification {
             payload["disable_notification"] = json!(true);
         }
+        if let Some(thread_id) = input.message_thread_id {
+            payload["message_thread_id"] = json!(thread_id);
+        }
 
         let response = self.client.post(&url).json(&payload).send().await?;
 
@@ -146,6 +152,10 @@ impl Tool for TelegramTool {
                 "disable_notification": {
                     "type": "boolean",
                     "description": "Send the message silently without notification sound"
+                },
+                "message_thread_id": {
+                    "type": "integer",
+                    "description": "Unique identifier for the target message thread (topic) in a forum or supergroup"
                 }
             },
             "required": ["bot_token", "chat_id", "message"]
