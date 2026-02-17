@@ -902,8 +902,9 @@ impl AgentExecutor {
 
             // Periodic re-planning: inject planning prompt at step 1 and every N steps
             if let Some(interval) = config.planning_interval {
+                let interval = interval.max(1);
                 let current_step = state.iteration + 1;
-                if current_step == 1 || (current_step - 1) % interval == 0 {
+                if current_step == 1 || (current_step - 1).is_multiple_of(interval) {
                     let observations: Vec<String> = state
                         .messages
                         .iter()
@@ -2278,4 +2279,41 @@ mod tests {
         assert!(content.contains("\"event_type\":\"iteration_begin\""));
         assert!(content.contains("\"event_type\":\"execution_complete\""));
     }
+
+    #[tokio::test]
+    async fn test_planning_interval_zero_does_not_panic() {
+        let responses = vec![
+            CompletionResponse {
+                content: Some("Need tool".to_string()),
+                tool_calls: vec![ToolCall {
+                    id: "call_1".to_string(),
+                    name: "echo".to_string(),
+                    arguments: serde_json::json!({"message":"hello"}),
+                }],
+                finish_reason: FinishReason::ToolCalls,
+                usage: None,
+            },
+            CompletionResponse {
+                content: Some("Done".to_string()),
+                tool_calls: vec![],
+                finish_reason: FinishReason::Stop,
+                usage: None,
+            },
+        ];
+
+        let mock_llm = Arc::new(MockLlmClient::new(responses));
+        let mut registry = ToolRegistry::new();
+        registry.register(EchoTool);
+        let executor = AgentExecutor::new(mock_llm, Arc::new(registry));
+
+        let config = AgentConfig {
+            planning_interval: Some(0),
+            ..AgentConfig::new("test planning interval")
+        };
+
+        let result = executor.run(config).await;
+        assert!(result.is_ok());
+        assert!(result.unwrap().success);
+    }
+
 }
