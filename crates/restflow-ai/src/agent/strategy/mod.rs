@@ -216,10 +216,7 @@ impl AgentStrategyFactory {
 
     /// Check if a strategy is implemented (not just a placeholder)
     pub fn is_implemented(strategy_type: StrategyType) -> bool {
-        matches!(
-            strategy_type,
-            StrategyType::ReAct | StrategyType::CodeFirst
-        )
+        matches!(strategy_type, StrategyType::ReAct)
     }
 }
 
