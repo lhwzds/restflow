@@ -41,6 +41,7 @@ use tokio::time::sleep;
 use tracing::{debug, info, warn};
 
 use super::failover::{FailoverConfig, FailoverManager, execute_with_failover};
+use super::model_catalog::ModelCatalog;
 use super::preflight::{PreflightCategory, PreflightIssue, run_preflight};
 use super::retry::{RetryConfig, RetryState};
 use super::runner::{AgentExecutor, ExecutionResult};
@@ -1225,15 +1226,31 @@ impl AgentRuntimeExecutor {
         let system_prompt =
             self.build_background_system_prompt(agent_node, agent_id, background_task_id, input)?;
         let goal = input.unwrap_or("Execute the agent task");
+        let catalog = ModelCatalog::global().await;
+        let model_entry = catalog.resolve(model).await;
+        let context_window = model_entry
+            .map(|entry| {
+                entry
+                    .capabilities
+                    .input_limit
+                    .unwrap_or(entry.capabilities.context_window)
+            })
+            .unwrap_or_else(|| Self::context_window_for_model(model));
+
         let mut config = ReActAgentConfig::new(goal.to_string())
             .with_system_prompt(system_prompt)
             .with_tool_timeout(Duration::from_secs(agent_defaults.tool_timeout_secs))
             .with_max_iterations(agent_defaults.max_iterations)
             .with_max_memory_messages(memory_config.max_messages)
-            .with_context_window(Self::context_window_for_model(model))
+            .with_context_window(context_window)
             .with_resource_limits(Self::to_agent_resource_limits(resource_limits))
             .with_max_tool_result_length(resource_limits.max_output_bytes)
             .with_yolo_mode(background_task_id.is_some());
+        if let Some(entry) = model_entry
+            && !model.is_cli_model()
+        {
+            config = config.with_max_output_tokens(entry.capabilities.output_limit as u32);
+        }
         if let Some(compaction) = Self::build_compaction_config(memory_config) {
             config = config.with_compaction_config(compaction);
         }

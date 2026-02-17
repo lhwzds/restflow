@@ -69,6 +69,8 @@ pub struct AgentConfig {
     pub max_memory_messages: usize,
     /// Context window size for compaction decisions (default: 128000 tokens).
     pub context_window: usize,
+    /// Optional maximum output tokens for each LLM completion request.
+    pub max_output_tokens: Option<u32>,
     /// Optional compaction configuration for working memory.
     pub compaction_config: Option<CompactionConfig>,
     /// Optional history processors applied before each LLM request.
@@ -110,6 +112,7 @@ impl AgentConfig {
             max_tool_result_length: 4000,
             max_memory_messages: DEFAULT_MAX_MESSAGES,
             context_window: 128_000,
+            max_output_tokens: None,
             compaction_config: None,
             history_pipeline: HistoryPipeline::default(),
             agent_context: None,
@@ -134,6 +137,12 @@ impl AgentConfig {
     /// Set context window size for compaction decisions.
     pub fn with_context_window(mut self, context_window: usize) -> Self {
         self.context_window = context_window;
+        self
+    }
+
+    /// Set max output tokens for each LLM request.
+    pub fn with_max_output_tokens(mut self, max_output_tokens: u32) -> Self {
+        self.max_output_tokens = Some(max_output_tokens);
         self
     }
 
@@ -645,6 +654,9 @@ impl AgentExecutor {
             // Only set temperature if explicitly configured (some models don't support it)
             if let Some(temp) = config.temperature {
                 request = request.with_temperature(temp);
+            }
+            if let Some(max_tokens) = config.max_output_tokens {
+                request = request.with_max_tokens(max_tokens);
             }
 
             let response = if stream_llm {
