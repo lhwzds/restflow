@@ -475,6 +475,12 @@ impl BackgroundAgentStoreAdapter {
             .map_err(|e| AiError::Tool(e.to_string()))
     }
 
+    fn resolve_task_id(&self, id_or_prefix: &str) -> Result<String, AiError> {
+        self.storage
+            .resolve_existing_task_id(id_or_prefix)
+            .map_err(|e| AiError::Tool(e.to_string()))
+    }
+
     fn scratchpad_dir() -> Result<PathBuf, AiError> {
         let dir = crate::paths::ensure_restflow_dir()
             .map_err(|e| AiError::Tool(e.to_string()))?
@@ -569,17 +575,19 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
             continuation: None,
         };
 
+        let resolved_id = self.resolve_task_id(&request.id)?;
         let task = self
             .storage
-            .update_background_agent(&request.id, patch)
+            .update_background_agent(&resolved_id, patch)
             .map_err(|e| AiError::Tool(e.to_string()))?;
         serde_json::to_value(task).map_err(AiError::from)
     }
 
     fn delete_background_agent(&self, id: &str) -> restflow_ai::error::Result<serde_json::Value> {
+        let resolved_id = self.resolve_task_id(id)?;
         let deleted = self
             .storage
-            .delete_task(id)
+            .delete_task(&resolved_id)
             .map_err(|e| AiError::Tool(e.to_string()))?;
         Ok(json!({ "id": id, "deleted": deleted }))
     }
@@ -607,9 +615,10 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
         request: BackgroundAgentControlRequest,
     ) -> restflow_ai::error::Result<serde_json::Value> {
         let action = Self::parse_control_action(&request.action)?;
+        let resolved_id = self.resolve_task_id(&request.id)?;
         let task = self
             .storage
-            .control_background_agent(&request.id, action)
+            .control_background_agent(&resolved_id, action)
             .map_err(|e| AiError::Tool(e.to_string()))?;
         serde_json::to_value(task).map_err(AiError::from)
     }
@@ -618,9 +627,10 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
         &self,
         request: BackgroundAgentProgressRequest,
     ) -> restflow_ai::error::Result<serde_json::Value> {
+        let resolved_id = self.resolve_task_id(&request.id)?;
         let progress = self
             .storage
-            .get_background_agent_progress(&request.id, request.event_limit.unwrap_or(10).max(1))
+            .get_background_agent_progress(&resolved_id, request.event_limit.unwrap_or(10).max(1))
             .map_err(|e| AiError::Tool(e.to_string()))?;
         serde_json::to_value(progress).map_err(AiError::from)
     }
@@ -630,9 +640,10 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
         request: BackgroundAgentMessageRequest,
     ) -> restflow_ai::error::Result<serde_json::Value> {
         let source = Self::parse_message_source(request.source.as_deref())?;
+        let resolved_id = self.resolve_task_id(&request.id)?;
         let message = self
             .storage
-            .send_background_agent_message(&request.id, request.message, source)
+            .send_background_agent_message(&resolved_id, request.message, source)
             .map_err(|e| AiError::Tool(e.to_string()))?;
         serde_json::to_value(message).map_err(AiError::from)
     }
@@ -641,9 +652,10 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
         &self,
         request: BackgroundAgentMessageListRequest,
     ) -> restflow_ai::error::Result<serde_json::Value> {
+        let resolved_id = self.resolve_task_id(&request.id)?;
         let messages = self
             .storage
-            .list_background_agent_messages(&request.id, request.limit.unwrap_or(50).max(1))
+            .list_background_agent_messages(&resolved_id, request.limit.unwrap_or(50).max(1))
             .map_err(|e| AiError::Tool(e.to_string()))?;
         serde_json::to_value(messages).map_err(AiError::from)
     }

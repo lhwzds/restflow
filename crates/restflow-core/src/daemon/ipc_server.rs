@@ -443,7 +443,11 @@ impl IpcServer {
                 }
             }
             IpcRequest::GetBackgroundAgent { id } => {
-                match core.storage.background_agents.get_task(&id) {
+                let resolved_id = match core.storage.background_agents.resolve_existing_task_id(&id) {
+                    Ok(id) => id,
+                    Err(_) => return IpcResponse::not_found("Background agent"),
+                };
+                match core.storage.background_agents.get_task(&resolved_id) {
                     Ok(Some(background_agent)) => IpcResponse::success(background_agent),
                     Ok(None) => IpcResponse::not_found("Background agent"),
                     Err(err) => IpcResponse::error(500, err.to_string()),
@@ -1259,20 +1263,28 @@ impl IpcServer {
                 }
             }
             IpcRequest::ControlBackgroundAgent { id, action } => {
+                let resolved_id = match core.storage.background_agents.resolve_existing_task_id(&id) {
+                    Ok(id) => id,
+                    Err(_) => return IpcResponse::not_found("Background agent"),
+                };
                 match core
                     .storage
                     .background_agents
-                    .control_background_agent(&id, action)
+                    .control_background_agent(&resolved_id, action)
                 {
                     Ok(task) => IpcResponse::success(task),
                     Err(err) => IpcResponse::error(500, err.to_string()),
                 }
             }
             IpcRequest::GetBackgroundAgentProgress { id, event_limit } => {
+                let resolved_id = match core.storage.background_agents.resolve_existing_task_id(&id) {
+                    Ok(id) => id,
+                    Err(_) => return IpcResponse::not_found("Background agent"),
+                };
                 match core
                     .storage
                     .background_agents
-                    .get_background_agent_progress(&id, event_limit.unwrap_or(10))
+                    .get_background_agent_progress(&resolved_id, event_limit.unwrap_or(10))
                 {
                     Ok(progress) => IpcResponse::success(progress),
                     Err(err) => IpcResponse::error(500, err.to_string()),
@@ -1282,18 +1294,28 @@ impl IpcServer {
                 id,
                 message,
                 source,
-            } => match core
-                .storage
-                .background_agents
-                .send_background_agent_message(
-                    &id,
-                    message,
-                    source.unwrap_or(crate::models::BackgroundMessageSource::User),
-                ) {
-                Ok(msg) => IpcResponse::success(msg),
-                Err(err) => IpcResponse::error(500, err.to_string()),
-            },
+            } => {
+                let resolved_id = match core.storage.background_agents.resolve_existing_task_id(&id) {
+                    Ok(id) => id,
+                    Err(_) => return IpcResponse::not_found("Background agent"),
+                };
+                match core
+                    .storage
+                    .background_agents
+                    .send_background_agent_message(
+                        &resolved_id,
+                        message,
+                        source.unwrap_or(crate::models::BackgroundMessageSource::User),
+                    ) {
+                    Ok(msg) => IpcResponse::success(msg),
+                    Err(err) => IpcResponse::error(500, err.to_string()),
+                }
+            }
             IpcRequest::HandleBackgroundAgentApproval { id, approved } => {
+                let resolved_id = match core.storage.background_agents.resolve_existing_task_id(&id) {
+                    Ok(id) => id,
+                    Err(_) => return IpcResponse::not_found("Background agent"),
+                };
                 let message = if approved {
                     "User approved the pending action."
                 } else {
@@ -1303,7 +1325,7 @@ impl IpcServer {
                     .storage
                     .background_agents
                     .send_background_agent_message(
-                        &id,
+                        &resolved_id,
                         message.to_string(),
                         crate::models::BackgroundMessageSource::System,
                     ) {
