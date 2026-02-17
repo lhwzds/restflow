@@ -164,8 +164,16 @@ impl EventLog {
     ///
     /// Returns an empty vector if the file doesn't exist.
     pub fn read_all(path: &Path) -> Result<Vec<AgentEvent>> {
-        let content = std::fs::read_to_string(path)
-            .with_context(|| format!("Failed to read log file: {}", path.display()))?;
+        let content = match std::fs::read_to_string(path) {
+            Ok(c) => c,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                // File doesn't exist - return empty vector as documented
+                return Ok(Vec::new());
+            }
+            Err(e) => {
+                return Err(e).with_context(|| format!("Failed to read log file: {}", path.display()));
+            }
+        };
 
         let mut events = Vec::new();
         for (line_num, line) in content.lines().enumerate() {
@@ -299,6 +307,20 @@ mod tests {
         let _log = EventLog::new("test-task", &nested_dir).unwrap();
 
         assert!(nested_dir.exists());
+    }
+
+    #[test]
+    fn test_read_all_missing_file_returns_empty() {
+        // Test that read_all returns empty vector for non-existent file
+        let temp_dir = TempDir::new().unwrap();
+        let non_existent_path = temp_dir.path().join("does-not-exist.jsonl");
+
+        // Verify file doesn't exist
+        assert!(!non_existent_path.exists());
+
+        // read_all should return Ok(Vec::new()) as documented
+        let events = EventLog::read_all(&non_existent_path).unwrap();
+        assert!(events.is_empty());
     }
 
     #[test]
