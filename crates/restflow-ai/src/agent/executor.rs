@@ -95,6 +95,9 @@ pub struct AgentConfig {
     pub checkpoint_durability: CheckpointDurability,
     /// Optional callback to persist agent state checkpoints.
     pub checkpoint_callback: Option<CheckpointCallback>,
+    /// Optional planning interval for periodic re-planning.
+    /// When set, the agent pauses every N steps to reassess its plan based on learned facts.
+    pub planning_interval: Option<usize>,
 }
 
 impl AgentConfig {
@@ -122,7 +125,14 @@ impl AgentConfig {
             yolo_mode: false,
             checkpoint_durability: CheckpointDurability::Periodic { interval: 5 },
             checkpoint_callback: None,
+            planning_interval: None,
         }
+    }
+
+    /// Set planning interval for periodic re-planning.
+    pub fn with_planning_interval(mut self, interval: usize) -> Self {
+        self.planning_interval = Some(interval.max(1));
+        self
     }
 
     /// Set maximum messages in working memory
@@ -887,6 +897,44 @@ impl AgentExecutor {
                         }
                         break;
                     }
+                }
+            }
+
+            // Periodic re-planning: inject planning prompt at step 1 and every N steps
+            if let Some(interval) = config.planning_interval {
+                let current_step = state.iteration + 1;
+                if current_step == 1 || (current_step - 1) % interval == 0 {
+                    let observations: Vec<String> = state
+                        .messages
+                        .iter()
+                        .rev()
+                        .take_while(|m| !matches!(m.role, Role::System))
+                        .filter_map(|m| {
+                            if matches!(m.role, Role::Tool) {
+                                Some(m.content.chars().take(200).collect::<String>())
+                            } else {
+                                None
+                            }
+                        })
+                        .collect();
+
+                    let planning_prompt = if observations.is_empty() {
+                        format!(
+                            "## Planning\n### Task: {}\n### What I know so far:\n- (No observations yet)\n### Next steps:",
+                            config.goal
+                        )
+                    } else {
+                        let obs_text = observations.join("\n- ");
+                        format!(
+                            "## Planning\n### Task: {}\n### What I've learned:\n- {}\n### Remaining goals:\n- Complete the original task\n### Updated Plan:",
+                            config.goal, obs_text
+                        )
+                    };
+
+                    tracing::debug!(step = current_step, "Injecting planning prompt");
+                    let planning_msg = Message::system(&planning_prompt);
+                    state.add_message(planning_msg.clone());
+                    memory.add(planning_msg);
                 }
             }
 
