@@ -736,6 +736,40 @@ impl TauriExecutor {
         Ok(())
     }
 
+    /// Create a new secret (strict, fails if already exists)
+    pub async fn create_secret(
+        &self,
+        key: String,
+        value: String,
+        description: Option<String>,
+    ) -> Result<()> {
+        let _: Value = self
+            .request(IpcRequest::CreateSecret {
+                key,
+                value,
+                description,
+            })
+            .await?;
+        Ok(())
+    }
+
+    /// Update an existing secret (strict, fails if not exists)
+    pub async fn update_secret(
+        &self,
+        key: String,
+        value: String,
+        description: Option<String>,
+    ) -> Result<()> {
+        let _: Value = self
+            .request(IpcRequest::UpdateSecret {
+                key,
+                value,
+                description,
+            })
+            .await?;
+        Ok(())
+    }
+
     pub async fn get_config(&self) -> Result<SystemConfig> {
         self.request(IpcRequest::GetConfig).await
     }
