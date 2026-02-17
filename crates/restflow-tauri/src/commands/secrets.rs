@@ -42,25 +42,36 @@ pub struct CreateSecretRequest {
     pub description: Option<String>,
 }
 
-/// Create a new secret
+/// Create a new secret (fails if key already exists)
 #[tauri::command]
 pub async fn create_secret(
     state: State<'_, AppState>,
     request: CreateSecretRequest,
 ) -> Result<SecretInfo, String> {
-    // set_secret handles upsert semantics through IPC.
+    // Use strict create_secret - will fail if key already exists
     state
         .executor()
-        .set_secret(request.key.clone(), request.value, request.description.clone())
+        .create_secret(request.key.clone(), request.value, request.description.clone())
         .await
         .map_err(|e| e.to_string())?;
 
-    let now = chrono::Utc::now().timestamp_millis();
+    // Get the created secret info from list to return accurate timestamps
+    let secrets = state
+        .executor()
+        .list_secrets()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let secret = secrets
+        .into_iter()
+        .find(|s| s.key == request.key)
+        .ok_or_else(|| format!("Secret '{}' not found after create", request.key))?;
+
     Ok(SecretInfo {
-        key: request.key,
-        description: request.description,
-        created_at: now,
-        updated_at: now,
+        key: secret.key,
+        description: secret.description,
+        created_at: secret.created_at,
+        updated_at: secret.updated_at,
     })
 }
 
@@ -71,17 +82,17 @@ pub struct UpdateSecretRequest {
     pub description: Option<String>,
 }
 
-/// Update an existing secret
+/// Update an existing secret (fails if key doesn't exist)
 #[tauri::command]
 pub async fn update_secret(
     state: State<'_, AppState>,
     key: String,
     request: UpdateSecretRequest,
 ) -> Result<SecretInfo, String> {
-    // set_secret handles upsert semantics through IPC.
+    // Use strict update_secret - will fail if key doesn't exist
     state
         .executor()
-        .set_secret(key.clone(), request.value, request.description.clone())
+        .update_secret(key.clone(), request.value, request.description.clone())
         .await
         .map_err(|e| e.to_string())?;
 

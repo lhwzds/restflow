@@ -731,6 +731,40 @@ impl TauriExecutor {
         Ok(())
     }
 
+    /// Create a new secret (fails if key already exists)
+    pub async fn create_secret(
+        &self,
+        key: String,
+        value: String,
+        description: Option<String>,
+    ) -> Result<()> {
+        let _: Value = self
+            .request(IpcRequest::CreateSecret {
+                key,
+                value,
+                description,
+            })
+            .await?;
+        Ok(())
+    }
+
+    /// Update an existing secret (fails if key doesn't exist)
+    pub async fn update_secret(
+        &self,
+        key: String,
+        value: String,
+        description: Option<String>,
+    ) -> Result<()> {
+        let _: Value = self
+            .request(IpcRequest::UpdateSecret {
+                key,
+                value,
+                description,
+            })
+            .await?;
+        Ok(())
+    }
+
     pub async fn delete_secret(&self, key: String) -> Result<()> {
         let _: Value = self.request(IpcRequest::DeleteSecret { key }).await?;
         Ok(())
