@@ -2,6 +2,8 @@ use async_trait::async_trait;
 
 use crate::error::Result;
 
+pub mod network;
+
 #[derive(Debug, Clone)]
 pub struct ToolAction {
     pub tool_name: String,
@@ -72,3 +74,6 @@ pub trait SecurityGate: Send + Sync {
         Ok(SecurityDecision::allowed(None))
     }
 }
+
+// Re-export network types
+pub use network::{NetworkAllowlist, NetworkEcosystem};
