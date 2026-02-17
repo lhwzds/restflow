@@ -122,6 +122,64 @@ impl BackgroundAgentStorage {
         }
     }
 
+    /// Resolve a task ID or short prefix to the full task ID.
+    ///
+    /// This method is designed for user-facing entry points where users may
+    /// provide a short ID prefix (e.g., "9f275c7a") instead of the full UUID.
+    ///
+    /// # Behavior
+    ///
+    /// - If `id_or_prefix` matches an exact task ID, returns that ID.
+    /// - Otherwise, searches for tasks whose ID starts with `id_or_prefix`.
+    /// - If exactly one match is found, returns the full ID.
+    /// - If no matches are found, returns an error "Task not found".
+    /// - If multiple matches are found, returns an error with candidate IDs.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let full_id = storage.resolve_existing_task_id("9f275c7a")?;
+    /// let task = storage.get_task(&full_id)?.unwrap();
+    /// ```
+    pub fn resolve_existing_task_id(&self, id_or_prefix: &str) -> Result<String> {
+        // First, try exact match (most common case)
+        if self.get_task(id_or_prefix)?.is_some() {
+            return Ok(id_or_prefix.to_string());
+        }
+
+        // Search for prefix matches
+        let candidates: Vec<String> = self
+            .list_tasks()?
+            .into_iter()
+            .filter(|task| task.id.starts_with(id_or_prefix))
+            .map(|task| task.id)
+            .collect();
+
+        match candidates.len() {
+            0 => Err(anyhow::anyhow!("Task not found: {}", id_or_prefix)),
+            1 => Ok(candidates.into_iter().next().unwrap()),
+            _ => {
+                let preview: Vec<String> = candidates
+                    .iter()
+                    .take(5)
+                    .map(|id| {
+                        // Show first 8 chars of each ID for readability
+                        if id.len() > 8 {
+                            format!("{}...", &id[..8])
+                        } else {
+                            id.clone()
+                        }
+                    })
+                    .collect();
+                Err(anyhow::anyhow!(
+                    "Task ID prefix '{}' is ambiguous. Candidates: {}",
+                    id_or_prefix,
+                    preview.join(", ")
+                ))
+            }
+        }
+    }
+
     /// List all agent tasks
     pub fn list_tasks(&self) -> Result<Vec<BackgroundAgent>> {
         let tasks = self.inner.list_tasks_raw()?;
@@ -835,6 +893,156 @@ mod tests {
         let db = Arc::new(Database::create(db_path).unwrap());
         BackgroundAgentStorage::new(db).unwrap()
     }
+
+    // ============== Short ID Resolution Tests ==============
+
+    #[test]
+    fn test_resolve_existing_task_id_exact_match() {
+        let storage = create_test_storage();
+
+        let task = storage
+            .create_background_agent(BackgroundAgentSpec {
+                name: "Test Task".to_string(),
+                agent_id: "agent-001".to_string(),
+                description: None,
+                input: Some("test input".to_string()),
+                input_template: None,
+                schedule: BackgroundAgentSchedule::default(),
+                notification: None,
+                execution_mode: None,
+                timeout_secs: None,
+                memory: None,
+                durability_mode: None,
+                resource_limits: None,
+                prerequisites: Vec::new(),
+                continuation: None,
+            })
+            .unwrap();
+
+        // Full ID should resolve to itself
+        let resolved = storage.resolve_existing_task_id(&task.id).unwrap();
+        assert_eq!(resolved, task.id);
+    }
+
+    #[test]
+    fn test_resolve_existing_task_id_unique_prefix() {
+        let storage = create_test_storage();
+
+        let task = storage
+            .create_background_agent(BackgroundAgentSpec {
+                name: "Test Task".to_string(),
+                agent_id: "agent-001".to_string(),
+                description: None,
+                input: Some("test input".to_string()),
+                input_template: None,
+                schedule: BackgroundAgentSchedule::default(),
+                notification: None,
+                execution_mode: None,
+                timeout_secs: None,
+                memory: None,
+                durability_mode: None,
+                resource_limits: None,
+                prerequisites: Vec::new(),
+                continuation: None,
+            })
+            .unwrap();
+
+        // 8-char prefix should resolve to full ID
+        let prefix = &task.id[..8];
+        let resolved = storage.resolve_existing_task_id(prefix).unwrap();
+        assert_eq!(resolved, task.id);
+    }
+
+    #[test]
+    fn test_resolve_existing_task_id_unknown_prefix() {
+        let storage = create_test_storage();
+
+        let result = storage.resolve_existing_task_id("nonexist");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Task not found"));
+    }
+
+    #[test]
+    fn test_resolve_existing_task_id_ambiguous_prefix() {
+        let storage = create_test_storage();
+
+        // Create multiple tasks
+        let _task1 = storage
+            .create_background_agent(BackgroundAgentSpec {
+                name: "Task 1".to_string(),
+                agent_id: "agent-001".to_string(),
+                description: None,
+                input: Some("test input".to_string()),
+                input_template: None,
+                schedule: BackgroundAgentSchedule::default(),
+                notification: None,
+                execution_mode: None,
+                timeout_secs: None,
+                memory: None,
+                durability_mode: None,
+                resource_limits: None,
+                prerequisites: Vec::new(),
+                continuation: None,
+            })
+            .unwrap();
+
+        let _task2 = storage
+            .create_background_agent(BackgroundAgentSpec {
+                name: "Task 2".to_string(),
+                agent_id: "agent-001".to_string(),
+                description: None,
+                input: Some("test input".to_string()),
+                input_template: None,
+                schedule: BackgroundAgentSchedule::default(),
+                notification: None,
+                execution_mode: None,
+                timeout_secs: None,
+                memory: None,
+                durability_mode: None,
+                resource_limits: None,
+                prerequisites: Vec::new(),
+                continuation: None,
+            })
+            .unwrap();
+
+        // Empty string should match all tasks (ambiguous)
+        let result = storage.resolve_existing_task_id("");
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(err_msg.contains("ambiguous"), "Error should mention ambiguity");
+        assert!(err_msg.contains("Candidates"), "Error should list candidates");
+    }
+
+    #[test]
+    fn test_resolve_existing_task_id_exact_priority_over_prefix() {
+        let storage = create_test_storage();
+
+        let task = storage
+            .create_background_agent(BackgroundAgentSpec {
+                name: "Test Task".to_string(),
+                agent_id: "agent-001".to_string(),
+                description: None,
+                input: Some("test input".to_string()),
+                input_template: None,
+                schedule: BackgroundAgentSchedule::default(),
+                notification: None,
+                execution_mode: None,
+                timeout_secs: None,
+                memory: None,
+                durability_mode: None,
+                resource_limits: None,
+                prerequisites: Vec::new(),
+                continuation: None,
+            })
+            .unwrap();
+
+        // Even if there's a prefix collision, exact match should win
+        // (This is already the case because we check exact first)
+        let resolved = storage.resolve_existing_task_id(&task.id).unwrap();
+        assert_eq!(resolved, task.id);
+    }
+
+    // ============== Original Tests ==============
 
     #[test]
     fn test_create_and_get_task() {
