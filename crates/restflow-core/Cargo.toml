@@ -56,6 +56,7 @@ which = "8"
 tempfile = "3.23.0"
 thiserror = "2.0.17"
 tokio = { version = "1.47.1", features = ["full"] }
+scopeguard = "1"
 tokio-util = "0.7"
 toml = "0.9"
 tokio-cron-scheduler = "0.15.1"
