@@ -67,9 +67,10 @@ impl Tool for JinaReaderTool {
 
     fn description(&self) -> &str {
         "Read a webpage using Jina Reader (cloud service). Handles JavaScript-rendered pages \
-         (SPAs, React/Vue apps, dynamic content). Use this when web_fetch returns empty or \
-         insufficient content. Returns page content as clean Markdown. \
-         Note: This uses an external service (r.jina.ai) — for static pages, prefer web_fetch."
+         (SPAs, React/Vue/Angular apps, dynamic content, lazy-loaded content). Use this when \
+         web_fetch returns empty or insufficient content. Returns page content as clean Markdown. \
+         DO NOT use for: static pages (news, blogs, docs, wikis) — use web_fetch instead (faster, \
+         no external service, no API rate limits). This is an external service (r.jina.ai)."
     }
 
     fn parameters_schema(&self) -> Value {
