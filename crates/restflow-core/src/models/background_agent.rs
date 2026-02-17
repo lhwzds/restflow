@@ -944,13 +944,33 @@ impl BackgroundAgent {
         }
     }
 
-    /// Mark the task as failed
+    /// Mark the task as failed.
+    ///
+    /// For non-Once schedules (interval/cron), the task is automatically
+    /// reset to Active status so it can be rescheduled at the next run time.
+    /// This ensures that recurring tasks continue to execute even after
+    /// transient failures.
+    ///
+    /// For Once schedules, the task remains in Failed status as a terminal state.
     pub fn set_failed(&mut self, error: String) {
         self.failure_count += 1;
         self.last_error = Some(error);
-        self.status = BackgroundAgentStatus::Failed;
         self.updated_at = chrono::Utc::now().timestamp_millis();
-        self.update_next_run(); // Still schedule next run
+
+        // Determine next status based on schedule type
+        match &self.schedule {
+            TaskSchedule::Once { .. } => {
+                // One-time tasks stay failed - this is a terminal state
+                self.status = BackgroundAgentStatus::Failed;
+                self.next_run_at = None;
+            }
+            _ => {
+                // Recurring tasks (interval/cron) should be rescheduled
+                // Reset to Active so should_run() returns true at next_run_at
+                self.status = BackgroundAgentStatus::Active;
+                self.update_next_run();
+            }
+        }
     }
 
     /// Mark the task as interrupted (awaiting external input).
@@ -1594,4 +1614,77 @@ mod tests {
         assert_eq!(event.event_type, BackgroundAgentEventType::Started);
         assert_eq!(event.message.as_deref(), Some("started"));
     }
+    #[test]
+    fn test_set_failed_once_schedule_stays_failed() {
+        let run_at = chrono::Utc::now().timestamp_millis() + 3600000;
+        let mut task = BackgroundAgent::new(
+            "task-1".to_string(),
+            "Once Task".to_string(),
+            "agent-1".to_string(),
+            TaskSchedule::Once { run_at },
+        );
+
+        task.set_running();
+        task.set_failed("Test error".to_string());
+
+        // Once tasks should stay in Failed status
+        assert_eq!(task.status, BackgroundAgentStatus::Failed);
+        assert_eq!(task.failure_count, 1);
+        assert_eq!(task.last_error, Some("Test error".to_string()));
+        assert!(task.next_run_at.is_none()); // No rescheduling for Once tasks
+    }
+
+    #[test]
+    fn test_set_failed_cron_schedule_resets_to_active() {
+        let mut task = BackgroundAgent::new(
+            "task-3".to_string(),
+            "Cron Task".to_string(),
+            "agent-1".to_string(),
+            TaskSchedule::Cron {
+                expression: "0 * * * * *".to_string(), // Every hour
+                timezone: Some("UTC".to_string()),
+            },
+        );
+
+        task.set_running();
+        task.set_failed("Test error".to_string());
+
+        // Cron tasks should reset to Active so they can be rescheduled
+        assert_eq!(task.status, BackgroundAgentStatus::Active);
+        assert_eq!(task.failure_count, 1);
+        assert_eq!(task.last_error, Some("Test error".to_string()));
+        // next_run_at should be set
+        assert!(task.next_run_at.is_some());
+    }
+
+    #[test]
+    fn test_failed_interval_task_can_run_again() {
+        let mut task = BackgroundAgent::new(
+            "task-4".to_string(),
+            "Interval Task".to_string(),
+            "agent-1".to_string(),
+            TaskSchedule::Interval {
+                interval_ms: 60000,
+                start_at: None,
+            },
+        );
+
+        // Simulate a failure
+        task.set_running();
+        task.set_failed("First failure".to_string());
+
+        // Task should be Active again
+        assert_eq!(task.status, BackgroundAgentStatus::Active);
+
+        // Simulate time passing to next_run_at
+        if let Some(next_run) = task.next_run_at {
+            // should_run should return true at next_run_at
+            assert!(task.should_run(next_run));
+            // should_run should return false before next_run_at
+            assert!(!task.should_run(next_run - 1));
+        } else {
+            panic!("next_run_at should be set after failure");
+        }
+    }
+
 }
