@@ -2344,8 +2344,17 @@ mod tests {
 
         let file_path = temp_dir.path().join("delete_me.txt");
         fs::write(&file_path, "content").await.unwrap();
-
         assert!(file_path.exists());
+
+        // Read first to satisfy read-before-delete guard
+        let read_output = tool
+            .execute(serde_json::json!({
+                "action": "read",
+                "path": file_path.display().to_string()
+            }))
+            .await
+            .unwrap();
+        assert!(read_output.success);
 
         let output = tool
             .execute(serde_json::json!({
@@ -2357,6 +2366,27 @@ mod tests {
 
         assert!(output.success);
         assert!(!file_path.exists());
+    }
+
+    #[tokio::test]
+    async fn test_delete_file_requires_read_first() {
+        let temp_dir = TempDir::new().unwrap();
+        let tool = FileTool::new();
+
+        let file_path = temp_dir.path().join("delete_requires_read.txt");
+        fs::write(&file_path, "content").await.unwrap();
+
+        let output = tool
+            .execute(serde_json::json!({
+                "action": "delete",
+                "path": file_path.display().to_string()
+            }))
+            .await
+            .unwrap();
+
+        assert!(!output.success);
+        assert!(output.error.as_deref().unwrap_or_default().contains("must read"));
+        assert!(file_path.exists());
     }
 
     #[tokio::test]
