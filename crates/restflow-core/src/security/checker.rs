@@ -407,9 +407,13 @@ impl SecurityChecker {
         let status = self.approval_manager.check_status(approval_id).await;
 
         match status {
-            Some(crate::models::security::ApprovalStatus::Approved) => Ok(
-                SecurityCheckResult::approved_result(approval_id.to_string()),
-            ),
+            Some(crate::models::security::ApprovalStatus::Approved) => {
+                // Cache approved command to avoid duplicate prompts in same session
+                if let Some(approval) = self.approval_manager.get(approval_id).await {
+                    self.grant_session("bash", approval.command.clone(), approval.workdir.clone());
+                }
+                Ok(SecurityCheckResult::approved_result(approval_id.to_string()))
+            }
             Some(crate::models::security::ApprovalStatus::Rejected) => {
                 let approval = self.approval_manager.get(approval_id).await;
                 let reason = approval
@@ -862,6 +866,50 @@ mod tests {
         let check_result = checker.check_approval(&approval_id).await.unwrap();
         assert!(check_result.allowed);
         assert!(check_result.approved);
+    }
+
+    #[tokio::test]
+    async fn test_approved_command_is_cached_for_session() {
+        let checker = create_test_checker();
+
+        // First check - should require approval
+        let first = checker
+            .check_command_with_workdir(
+                "rm file.txt",
+                "task-1",
+                "agent-1",
+                Some("/tmp".to_string()),
+            )
+            .await
+            .unwrap();
+
+        assert!(first.requires_approval);
+        let approval_id = first.approval_id.unwrap();
+
+        // Approve the request
+        checker
+            .approval_manager()
+            .approve(&approval_id)
+            .await
+            .unwrap();
+
+        // Check approval status - this should cache the command
+        let approval_check = checker.check_approval(&approval_id).await.unwrap();
+        assert!(approval_check.allowed);
+
+        // Second check - should be allowed without approval (cached)
+        let second = checker
+            .check_command_with_workdir(
+                "rm file.txt",
+                "task-1",
+                "agent-1",
+                Some("/tmp".to_string()),
+            )
+            .await
+            .unwrap();
+
+        assert!(second.allowed);
+        assert!(!second.requires_approval);
     }
 
     #[tokio::test]
