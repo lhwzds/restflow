@@ -85,7 +85,7 @@ impl CliBackgroundAgentRunner {
 
         // Create subagent system components
         let (completion_tx, completion_rx) = tokio::sync::mpsc::channel(100);
-        let subagent_tracker = Arc::new(SubagentTracker::new(completion_tx, completion_rx));
+        let subagent_tracker = Arc::new(SubagentTracker::new(completion_tx, completion_rx, subagent_config.max_parallel_agents));
         let subagent_definitions = Arc::new(AgentDefinitionRegistry::with_builtins());
         let subagent_config = SubagentConfig::default();
 

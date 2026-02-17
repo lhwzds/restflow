@@ -1409,8 +1409,9 @@ fn create_chat_executor(
     core: &Arc<AppCore>,
     auth_manager: Arc<AuthProfileManager>,
 ) -> AgentRuntimeExecutor {
+    let subagent_config = SubagentConfig::default();
     let (completion_tx, completion_rx) = mpsc::channel(128);
-    let subagent_tracker = Arc::new(SubagentTracker::new(completion_tx, completion_rx));
+    let subagent_tracker = Arc::new(SubagentTracker::new(completion_tx, completion_rx, subagent_config.max_parallel_agents));
     let subagent_definitions = Arc::new(AgentDefinitionRegistry::with_builtins());
     let subagent_config = SubagentConfig::default();
 

@@ -6,7 +6,7 @@
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use tokio::sync::{Mutex, mpsc, oneshot};
+use tokio::sync::{Mutex, mpsc, oneshot, Semaphore};
 use tokio::task::{AbortHandle, JoinHandle};
 use ts_rs::TS;
 
@@ -100,13 +100,18 @@ pub struct SubagentTracker {
 
     /// Completion notification receiver
     completion_rx: Mutex<mpsc::Receiver<SubagentCompletion>>,
+
+    /// Semaphore for atomic admission control of parallel sub-agents
+    /// Stored as Arc so it can be cloned and used in spawned tasks
+    permit_semaphore: Arc<Semaphore>,
 }
 
 impl SubagentTracker {
-    /// Create a new tracker
+    /// Create a new tracker with the given max parallel agents limit
     pub fn new(
         completion_tx: mpsc::Sender<SubagentCompletion>,
         completion_rx: mpsc::Receiver<SubagentCompletion>,
+        max_parallel_agents: usize,
     ) -> Self {
         Self {
             states: DashMap::new(),
@@ -114,7 +119,13 @@ impl SubagentTracker {
             completion_waiters: DashMap::new(),
             completion_tx,
             completion_rx: Mutex::new(completion_rx),
+            permit_semaphore: Arc::new(Semaphore::new(max_parallel_agents)),
         }
+    }
+
+    /// Get a clone of the semaphore Arc for use in spawned tasks
+    pub fn semaphore(&self) -> Arc<Semaphore> {
+        Arc::clone(&self.permit_semaphore)
     }
 
     /// Register a new sub-agent
@@ -193,7 +204,7 @@ impl SubagentTracker {
             .collect()
     }
 
-    /// Get count of running sub-agents
+    /// Get count of running sub-agents (for observability only, not for admission control)
     pub fn running_count(&self) -> usize {
         self.states
             .iter()
@@ -387,7 +398,7 @@ mod tests {
     #[tokio::test]
     async fn test_tracker_basic() {
         let (tx, rx) = mpsc::channel(10);
-        let tracker = Arc::new(SubagentTracker::new(tx, rx));
+        let tracker = Arc::new(SubagentTracker::new(tx, rx, 5));
 
         // Register a sub-agent
         let (completion_tx, completion_rx) = oneshot::channel();
@@ -427,7 +438,7 @@ mod tests {
     #[tokio::test]
     async fn test_tracker_cancel() {
         let (tx, rx) = mpsc::channel(10);
-        let tracker = Arc::new(SubagentTracker::new(tx, rx));
+        let tracker = Arc::new(SubagentTracker::new(tx, rx, 5));
 
         // Register a long-running sub-agent
         let (_completion_tx, completion_rx) = oneshot::channel();
@@ -460,5 +471,30 @@ mod tests {
         // Check state
         let state = tracker.get("task-1").unwrap();
         assert_eq!(state.status, SubagentStatus::Cancelled);
+    }
+
+    #[tokio::test]
+    async fn test_semaphore_limit() {
+        let (tx, rx) = mpsc::channel(10);
+        let tracker = Arc::new(SubagentTracker::new(tx, rx, 2));
+        let semaphore = tracker.semaphore();
+
+        // Should be able to acquire 2 permits
+        let permit1 = semaphore.try_acquire();
+        assert!(permit1.is_ok());
+
+        let permit2 = semaphore.try_acquire();
+        assert!(permit2.is_ok());
+
+        // Third permit should fail
+        let permit3 = semaphore.try_acquire();
+        assert!(permit3.is_err());
+
+        // Drop one permit
+        drop(permit2);
+
+        // Should be able to acquire again
+        let permit4 = semaphore.try_acquire();
+        assert!(permit4.is_ok());
     }
 }

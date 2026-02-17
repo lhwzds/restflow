@@ -74,7 +74,7 @@ pub struct SpawnHandle {
     pub agent_name: String,
 }
 
-/// Spawn a sub-agent with the given request.
+/// Spawn a sub-agent with the given request
 pub fn spawn_subagent(
     tracker: Arc<SubagentTracker>,
     definitions: Arc<AgentDefinitionRegistry>,
@@ -83,6 +83,7 @@ pub fn spawn_subagent(
     config: SubagentConfig,
     request: SpawnRequest,
 ) -> Result<SpawnHandle> {
+    // Check limit before spawning - this is advisory, the real admission is in the async block
     let running_count = tracker.running_count();
     if running_count >= config.max_parallel_agents {
         return Err(anyhow!(
@@ -107,13 +108,21 @@ pub fn spawn_subagent(
     let _agent_name = agent_def.name.clone();
     let tracker_clone = tracker.clone();
     let task_id_for_spawn = task_id.clone();
+    
+    let task_id_for_return = task_id.clone();
 
     let (completion_tx, completion_rx) = oneshot::channel();
     let (start_tx, start_rx) = oneshot::channel();
 
+    // Clone the semaphore Arc to move into async block
+    let semaphore = Arc::clone(&tracker.semaphore());
+
     let handle = tokio::spawn(async move {
-        let task_id = task_id_for_spawn;
-        let _ = start_rx.await;
+        // Acquire permit atomically INSIDE the async block - this is the real atomic admission control
+        // This will block until a permit is available, which is acceptable since we're already past the check
+        let _permit = semaphore.acquire().await.expect("Semaphore closed");
+
+        let _start = start_rx.await;
         let start = std::time::Instant::now();
 
         let result = timeout(
@@ -174,7 +183,7 @@ pub fn spawn_subagent(
     });
 
     tracker.register(
-        task_id.clone(),
+        task_id_for_spawn.clone(),
         agent_name_for_register,
         task_for_register,
         handle,
@@ -184,7 +193,7 @@ pub fn spawn_subagent(
     let _ = start_tx.send(());
 
     Ok(SpawnHandle {
-        id: task_id,
+        id: task_id_for_return,
         agent_name: agent_name_for_return,
     })
 }
@@ -431,9 +440,9 @@ mod tests {
         assert_eq!(normalize_tool_name("http_request"), "http");
         assert_eq!(normalize_tool_name("send_email"), "email");
         assert_eq!(normalize_tool_name("telegram_send"), "telegram");
+        assert_eq!(normalize_tool_name("grep"), "bash");
         assert_eq!(normalize_tool_name("read"), "read");
         assert_eq!(normalize_tool_name("write"), "write");
-        assert_eq!(normalize_tool_name("grep"), "bash");
         assert_eq!(normalize_tool_name("python"), "python");
     }
 

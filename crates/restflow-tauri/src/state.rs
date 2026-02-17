@@ -55,7 +55,7 @@ impl AppState {
         let channel_router = Arc::new(ChannelRouter::new());
         let process_registry = Arc::new(ProcessRegistry::new());
         let (completion_tx, completion_rx) = mpsc::channel(100);
-        let subagent_tracker = Arc::new(SubagentTracker::new(completion_tx, completion_rx));
+        let subagent_tracker = Arc::new(SubagentTracker::new(completion_tx, completion_rx, subagent_config.max_parallel_agents));
         let subagent_definitions = Arc::new(AgentDefinitionRegistry::with_builtins());
         let subagent_config = SubagentConfig::default();
         let daemon = Arc::new(Mutex::new(DaemonManager::new()));

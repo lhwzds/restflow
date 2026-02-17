@@ -1864,7 +1864,7 @@ mod tests {
     fn create_test_executor(storage: Arc<Storage>) -> AgentRuntimeExecutor {
         let auth_manager = Arc::new(AuthProfileManager::new(Arc::new(storage.secrets.clone())));
         let (completion_tx, completion_rx) = mpsc::channel(10);
-        let subagent_tracker = Arc::new(SubagentTracker::new(completion_tx, completion_rx));
+        let subagent_tracker = Arc::new(SubagentTracker::new(completion_tx, completion_rx, 5));
         let subagent_definitions = Arc::new(AgentDefinitionRegistry::with_builtins());
         let subagent_config = SubagentConfig::default();
         AgentRuntimeExecutor::new(

@@ -387,7 +387,7 @@ mod tests {
     #[tokio::test]
     async fn test_tracker_basic() {
         let (tx, rx) = mpsc::channel(10);
-        let tracker = Arc::new(SubagentTracker::new(tx, rx));
+        let tracker = Arc::new(SubagentTracker::new(tx, rx, 5));
 
         // Register a sub-agent
         let (completion_tx, completion_rx) = oneshot::channel();
@@ -427,7 +427,7 @@ mod tests {
     #[tokio::test]
     async fn test_tracker_cancel() {
         let (tx, rx) = mpsc::channel(10);
-        let tracker = Arc::new(SubagentTracker::new(tx, rx));
+        let tracker = Arc::new(SubagentTracker::new(tx, rx, 5));
 
         // Register a long-running sub-agent
         let (_completion_tx, completion_rx) = oneshot::channel();
