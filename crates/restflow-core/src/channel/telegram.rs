@@ -77,6 +77,19 @@ pub struct TelegramChannel {
 }
 
 impl TelegramChannel {
+    /// Parse conversation_id into (chat_id, thread_id)
+    /// Format: "chat_id" or "chat_id:thread_id"
+    fn parse_conversation_id(conversation_id: &str) -> (String, Option<i64>) {
+        if let Some(colon_pos) = conversation_id.find(':') {
+            let chat_id = &conversation_id[..colon_pos];
+            let thread_part = &conversation_id[colon_pos + 1..];
+            let thread_id = thread_part.parse::<i64>().ok();
+            (chat_id.to_string(), thread_id)
+        } else {
+            (conversation_id.to_string(), None)
+        }
+    }
+
     fn build_conversation_id(chat_id: i64, message_thread_id: Option<i64>) -> String {
         match message_thread_id {
             Some(thread_id) => format!("{}:{}", chat_id, thread_id),
@@ -140,6 +153,7 @@ impl TelegramChannel {
         text: &str,
         parse_mode: Option<&str>,
         reply_to_message_id: Option<&str>,
+        message_thread_id: Option<i64>,
     ) -> Result<TelegramMessageResponse> {
         let url = self.api_url("sendMessage");
 
@@ -158,6 +172,11 @@ impl TelegramChannel {
             && let Ok(id) = numeric_id.parse::<i64>()
         {
             params["reply_to_message_id"] = serde_json::Value::Number(id.into());
+        }
+
+        // Add message_thread_id for Telegram forum/supergroup topics
+        if let Some(thread_id) = message_thread_id {
+            params["message_thread_id"] = serde_json::Value::Number(thread_id.into());
         }
 
         let response = self
@@ -503,13 +522,20 @@ impl Channel for TelegramChannel {
         let formatted = self.format_message(&message);
         let parse_mode = message.parse_mode.as_deref();
 
+        // Parse conversation_id to extract chat_id and thread_id
+        let (chat_id, parsed_thread_id) = Self::parse_conversation_id(&message.conversation_id);
+        
+        // Use explicit message_thread_id if provided, otherwise use parsed thread_id
+        let thread_id = message.message_thread_id.or(parsed_thread_id);
+
         let chunks = chunk_markdown(&formatted, None);
         for chunk in &chunks {
             self.send_message(
-                &message.conversation_id,
+                &chat_id,
                 chunk,
                 parse_mode,
                 message.reply_to.as_deref(),
+                thread_id,
             )
             .await?;
         }
@@ -1160,5 +1186,41 @@ mod tests {
         let metadata = inbound.metadata.unwrap();
         assert_eq!(metadata["media_type"], "video");
         assert_eq!(metadata["file_path"], "/tmp/restflow-media/test-video");
+    }
+}
+
+// Add tests for thread reply functionality
+#[cfg(test)]
+mod thread_tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_conversation_id_simple() {
+        let (chat_id, thread_id) = TelegramChannel::parse_conversation_id("123456789");
+        assert_eq!(chat_id, "123456789");
+        assert_eq!(thread_id, None);
+    }
+
+    #[test]
+    fn test_parse_conversation_id_with_thread() {
+        let (chat_id, thread_id) = TelegramChannel::parse_conversation_id("-10012345:7");
+        assert_eq!(chat_id, "-10012345");
+        assert_eq!(thread_id, Some(7));
+    }
+
+    #[test]
+    fn test_parse_conversation_id_invalid_thread() {
+        let (chat_id, thread_id) = TelegramChannel::parse_conversation_id("123456:invalid");
+        assert_eq!(chat_id, "123456");
+        assert_eq!(thread_id, None);
+    }
+
+    #[test]
+    fn test_outbound_message_with_thread_id() {
+        let msg = OutboundMessage::new("-10012345", "Test message")
+            .with_message_thread_id(7);
+        
+        assert_eq!(msg.conversation_id, "-10012345");
+        assert_eq!(msg.message_thread_id, Some(7));
     }
 }
