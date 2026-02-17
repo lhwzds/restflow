@@ -147,6 +147,7 @@ pub mod events;
 pub mod executor;
 pub mod failover;
 pub mod heartbeat;
+pub mod model_catalog;
 pub mod notifier;
 pub mod persist;
 pub mod preflight;

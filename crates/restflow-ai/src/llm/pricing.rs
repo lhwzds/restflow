@@ -1,10 +1,156 @@
 //! Model pricing and cost calculation for LLM API calls.
 
+use once_cell::sync::Lazy;
+use serde::Deserialize;
+use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
+use std::sync::RwLock;
+
 /// Pricing per 1 million tokens (USD).
 #[derive(Debug, Clone, Copy)]
 pub struct ModelPricing {
     pub cost_per_1m_input: f64,
     pub cost_per_1m_output: f64,
+}
+
+#[derive(Default)]
+struct DynamicPricingCache {
+    loaded: bool,
+    by_model: HashMap<String, ModelPricing>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ModelsDevProvider {
+    models: HashMap<String, ModelsDevModel>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ModelsDevModel {
+    id: Option<String>,
+    cost: Option<ModelsDevCost>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ModelsDevCost {
+    input: f64,
+    output: f64,
+}
+
+static DYNAMIC_PRICING_CACHE: Lazy<RwLock<DynamicPricingCache>> =
+    Lazy::new(|| RwLock::new(DynamicPricingCache::default()));
+
+fn normalize(value: &str) -> String {
+    value.trim().to_ascii_lowercase()
+}
+
+fn pricing_candidates(model_name: &str) -> Vec<String> {
+    let mut candidates = Vec::new();
+    let mut seen = HashSet::new();
+    let mut push = |value: String| {
+        let trimmed = value.trim();
+        if trimmed.is_empty() {
+            return;
+        }
+        let key = normalize(trimmed);
+        if seen.insert(key) {
+            candidates.push(trimmed.to_string());
+        }
+    };
+
+    push(model_name.to_string());
+    push(model_name.replace('.', "-"));
+    push(model_name.replace('-', "."));
+
+    if let Some(base) = model_name.strip_suffix("-preview") {
+        push(base.to_string());
+    }
+    if let Some((_, tail)) = model_name.split_once('/') {
+        push(tail.to_string());
+        push(tail.replace('.', "-"));
+        push(tail.replace('-', "."));
+    }
+
+    candidates
+}
+
+fn resolve_models_cache_path() -> Option<PathBuf> {
+    if let Ok(path) = std::env::var("RESTFLOW_MODELS_PATH")
+        && !path.trim().is_empty()
+    {
+        return Some(PathBuf::from(path));
+    }
+
+    if let Ok(dir) = std::env::var("RESTFLOW_DIR")
+        && !dir.trim().is_empty()
+    {
+        return Some(PathBuf::from(dir).join("cache").join("models.json"));
+    }
+
+    dirs::home_dir().map(|home| home.join(".restflow").join("cache").join("models.json"))
+}
+
+fn load_dynamic_pricing_cache() -> HashMap<String, ModelPricing> {
+    let Some(path) = resolve_models_cache_path() else {
+        return HashMap::new();
+    };
+
+    let Ok(raw) = std::fs::read_to_string(path) else {
+        return HashMap::new();
+    };
+
+    let Ok(root) = serde_json::from_str::<HashMap<String, ModelsDevProvider>>(&raw) else {
+        return HashMap::new();
+    };
+
+    let mut by_model = HashMap::new();
+    for provider in root.into_values() {
+        for (model_key, model) in provider.models {
+            let Some(cost) = model.cost else {
+                continue;
+            };
+
+            let pricing = ModelPricing {
+                cost_per_1m_input: cost.input,
+                cost_per_1m_output: cost.output,
+            };
+
+            by_model.insert(normalize(&model_key), pricing);
+            if let Some(id) = model.id.as_deref() {
+                by_model.insert(normalize(id), pricing);
+            }
+        }
+    }
+
+    by_model
+}
+
+fn dynamic_pricing(model_name: &str) -> Option<ModelPricing> {
+    {
+        let cache = DYNAMIC_PRICING_CACHE.read().ok()?;
+        if cache.loaded {
+            for candidate in pricing_candidates(model_name) {
+                if let Some(pricing) = cache.by_model.get(&normalize(&candidate)) {
+                    return Some(*pricing);
+                }
+            }
+            return None;
+        }
+    }
+
+    {
+        let mut cache = DYNAMIC_PRICING_CACHE.write().ok()?;
+        if !cache.loaded {
+            cache.by_model = load_dynamic_pricing_cache();
+            cache.loaded = true;
+        }
+        for candidate in pricing_candidates(model_name) {
+            if let Some(pricing) = cache.by_model.get(&normalize(&candidate)) {
+                return Some(*pricing);
+            }
+        }
+    }
+
+    None
 }
 
 /// Get pricing for a model by API name.
@@ -20,6 +166,10 @@ pub fn get_pricing(model_name: &str) -> Option<ModelPricing> {
     }
     if model_name == "opus" || model_name == "sonnet" || model_name == "haiku" {
         return None;
+    }
+
+    if let Some(pricing) = dynamic_pricing(model_name) {
+        return Some(pricing);
     }
 
     // OpenAI
