@@ -70,6 +70,11 @@ pub struct AgentRuntimeExecutor {
     reply_sender: Option<Arc<dyn ReplySender>>,
 }
 
+const TOOL_RESULT_CONTEXT_RATIO: f64 = 0.08;
+const TOOL_RESULT_MIN_CHARS: usize = 512;
+const TOOL_RESULT_MAX_CHARS: usize = 24_000;
+const TOOL_RESULT_CHARS_PER_TOKEN_ESTIMATE: usize = 4;
+
 /// Result of executing a chat turn for a persisted chat session.
 #[derive(Debug, Clone)]
 pub struct SessionExecutionResult {
@@ -403,6 +408,19 @@ impl AgentRuntimeExecutor {
         }
     }
 
+    fn effective_max_tool_result_length(
+        requested_max_output_bytes: usize,
+        context_window: usize,
+    ) -> usize {
+        let requested = requested_max_output_bytes.max(1);
+        let context_token_budget =
+            ((context_window as f64) * TOOL_RESULT_CONTEXT_RATIO).round() as usize;
+        let context_char_budget =
+            context_token_budget.saturating_mul(TOOL_RESULT_CHARS_PER_TOKEN_ESTIMATE);
+        let context_cap = context_char_budget.clamp(TOOL_RESULT_MIN_CHARS, TOOL_RESULT_MAX_CHARS);
+        requested.min(context_cap)
+    }
+
     fn has_non_empty_secret(&self, name: &str) -> Result<bool> {
         Ok(self
             .storage
@@ -586,15 +604,28 @@ impl AgentRuntimeExecutor {
         user_input: Option<&str>,
     ) -> Result<String> {
         let mut prompt_agent = agent_node.clone();
+        
+        // SECURITY: Build allowed skill set from agent's assigned skills
+        let allowed_skills: HashSet<String> = agent_node
+            .skills
+            .as_ref()
+            .map(|s| s.iter().cloned().collect())
+            .unwrap_or_default();
+
         if let Some(input) = user_input.map(str::trim).filter(|value| !value.is_empty()) {
             let triggered_skill_ids = self.resolve_triggered_skill_ids(input)?;
-            if !triggered_skill_ids.is_empty() {
+            
+            // SECURITY: Only allow triggered skills that are in agent's skill list
+            // This prevents capability scope expansion via crafted input
+            let allowed_triggered: Vec<String> = triggered_skill_ids
+                .into_iter()
+                .filter(|skill_id| allowed_skills.contains(skill_id))
+                .collect();
+            
+            if !allowed_triggered.is_empty() {
                 let mut effective_skills = prompt_agent.skills.clone().unwrap_or_default();
-                for skill_id in triggered_skill_ids {
-                    if !effective_skills
-                        .iter()
-                        .any(|existing| existing == &skill_id)
-                    {
+                for skill_id in allowed_triggered {
+                    if !effective_skills.iter().any(|existing| existing == &skill_id) {
                         effective_skills.push(skill_id);
                     }
                 }
@@ -624,11 +655,21 @@ impl AgentRuntimeExecutor {
         agent_node: &AgentNode,
         user_input: Option<&str>,
     ) -> Result<Vec<Skill>> {
+        // SECURITY: Start with only agent's assigned skills
         let mut skill_ids = agent_node.skills.clone().unwrap_or_default();
+        
+        // SECURITY: Build allowed skill set from agent's assigned skills
+        let allowed_skills: HashSet<String> = agent_node
+            .skills
+            .as_ref()
+            .map(|s| s.iter().cloned().collect())
+            .unwrap_or_default();
+        
         if let Some(input) = user_input.map(str::trim).filter(|value| !value.is_empty()) {
             let triggered_skill_ids = self.resolve_triggered_skill_ids(input)?;
+            // SECURITY: Only allow triggered skills that are in agent's skill list
             for skill_id in triggered_skill_ids {
-                if !skill_ids.iter().any(|existing| existing == &skill_id) {
+                if allowed_skills.contains(&skill_id) && !skill_ids.iter().any(|existing| existing == &skill_id) {
                     skill_ids.push(skill_id);
                 }
             }
@@ -1236,6 +1277,17 @@ impl AgentRuntimeExecutor {
                     .unwrap_or(entry.capabilities.context_window)
             })
             .unwrap_or_else(|| Self::context_window_for_model(model));
+        let max_tool_result_length =
+            Self::effective_max_tool_result_length(resource_limits.max_output_bytes, context_window);
+        if max_tool_result_length < resource_limits.max_output_bytes {
+            debug!(
+                model = ?model,
+                requested_max_output_bytes = resource_limits.max_output_bytes,
+                context_window,
+                clamped_max_tool_result_length = max_tool_result_length,
+                "Clamped max tool result length based on context window"
+            );
+        }
 
         let mut config = ReActAgentConfig::new(goal.to_string())
             .with_system_prompt(system_prompt)
@@ -1244,7 +1296,7 @@ impl AgentRuntimeExecutor {
             .with_max_memory_messages(memory_config.max_messages)
             .with_context_window(context_window)
             .with_resource_limits(Self::to_agent_resource_limits(resource_limits))
-            .with_max_tool_result_length(resource_limits.max_output_bytes)
+            .with_max_tool_result_length(max_tool_result_length)
             .with_yolo_mode(background_task_id.is_some());
         if let Some(entry) = model_entry
             && !model.is_cli_model()
@@ -1964,6 +2016,24 @@ mod tests {
         assert_eq!(mapped.max_cost_usd, Some(7.5));
     }
 
+    #[test]
+    fn test_effective_max_tool_result_length_respects_small_requested_limit() {
+        let value = AgentRuntimeExecutor::effective_max_tool_result_length(300, 128_000);
+        assert_eq!(value, 300);
+    }
+
+    #[test]
+    fn test_effective_max_tool_result_length_clamps_large_requested_limit() {
+        let value = AgentRuntimeExecutor::effective_max_tool_result_length(1_000_000, 128_000);
+        assert_eq!(value, TOOL_RESULT_MAX_CHARS);
+    }
+
+    #[test]
+    fn test_effective_max_tool_result_length_for_small_context_window() {
+        let value = AgentRuntimeExecutor::effective_max_tool_result_length(1_000_000, 2013);
+        assert_eq!(value, 644);
+    }
+
     struct NoopReplySender;
 
     impl ReplySender for NoopReplySender {
@@ -2011,8 +2081,10 @@ mod tests {
         let skill = create_trigger_skill("triggered-skill", "code review", "Triggered Content");
         storage.skills.create(&skill).unwrap();
 
+        // SECURITY: Agent must have the skill in its skill list for triggers to work
         let node = AgentNode {
             prompt: Some("Base Prompt".to_string()),
+            skills: Some(vec!["triggered-skill".to_string()]),
             ..AgentNode::new()
         };
         let prompt = executor
@@ -2040,6 +2112,59 @@ mod tests {
 
         assert!(prompt.contains("Base Prompt"));
         assert!(!prompt.contains("Triggered Content"));
+    }
+
+    /// SECURITY TEST: Triggered skills NOT in agent's skill list must be ignored
+    /// to prevent capability scope expansion via crafted input
+    #[test]
+    fn test_build_background_system_prompt_ignores_unauthorized_triggered_skill() {
+        let (storage, _temp_dir) = create_test_storage();
+        let executor = create_test_executor(storage.clone());
+        
+        // Create a privileged skill with trigger
+        let privileged_skill = create_trigger_skill("privileged-skill", "admin", "Privileged Content");
+        storage.skills.create(&privileged_skill).unwrap();
+        
+        // Agent does NOT have the privileged skill in its skill list
+        let node = AgentNode {
+            prompt: Some("Base Prompt".to_string()),
+            skills: Some(vec!["regular-skill".to_string()]),
+            ..AgentNode::new()
+        };
+        
+        // User input triggers the privileged skill
+        let prompt = executor
+            .build_background_system_prompt(&node, None, None, Some("please do admin"))
+            .unwrap();
+
+        assert!(prompt.contains("Base Prompt"));
+        // SECURITY: Privileged skill content must NOT be included
+        assert!(!prompt.contains("Privileged Content"));
+    }
+
+    /// Test that triggered skills that ARE in agent's skill list are included
+    #[test]
+    fn test_build_background_system_prompt_includes_authorized_triggered_skill() {
+        let (storage, _temp_dir) = create_test_storage();
+        let executor = create_test_executor(storage.clone());
+        
+        // Create a skill with trigger
+        let skill = create_trigger_skill("authorized-skill", "code review", "Authorized Content");
+        storage.skills.create(&skill).unwrap();
+        
+        // Agent HAS the skill in its skill list
+        let node = AgentNode {
+            prompt: Some("Base Prompt".to_string()),
+            skills: Some(vec!["authorized-skill".to_string()]),
+            ..AgentNode::new()
+        };
+        
+        let prompt = executor
+            .build_background_system_prompt(&node, None, None, Some("please do code review"))
+            .unwrap();
+
+        assert!(prompt.contains("Base Prompt"));
+        assert!(prompt.contains("Authorized Content"));
     }
 
     #[tokio::test]
