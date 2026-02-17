@@ -156,6 +156,8 @@ pub struct OutboundMessage {
     pub title: Option<String>,
     /// Reply to specific message
     pub reply_to: Option<String>,
+    /// Message thread ID for Telegram forum/supergroup topics
+    pub message_thread_id: Option<i64>,
     /// Parse mode (markdown, html, plain)
     pub parse_mode: Option<String>,
 }
@@ -169,6 +171,7 @@ impl OutboundMessage {
             level: MessageLevel::Info,
             title: None,
             reply_to: None,
+            message_thread_id: None,
             parse_mode: Some("Markdown".to_string()),
         }
     }
@@ -188,6 +191,12 @@ impl OutboundMessage {
     /// Set reply_to
     pub fn with_reply_to(mut self, reply_to: impl Into<String>) -> Self {
         self.reply_to = Some(reply_to.into());
+        self
+    }
+
+    /// Set message thread ID (for Telegram forum topics)
+    pub fn with_message_thread_id(mut self, thread_id: i64) -> Self {
+        self.message_thread_id = Some(thread_id);
         self
     }
 
