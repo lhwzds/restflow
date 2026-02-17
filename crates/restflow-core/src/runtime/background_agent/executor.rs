@@ -1308,10 +1308,7 @@ impl AgentRuntimeExecutor {
                     .execute_from_state(config, state, emitter.as_mut())
                     .await?
             } else {
-                let mut emitter = restflow_ai::agent::NullEmitter;
-                agent
-                    .execute_from_state(config, state, &mut emitter)
-                    .await?
+                agent.run_from_state(config, state).await?
             }
         } else if let Some(mut emitter) = emitter {
             #[allow(deprecated)]
