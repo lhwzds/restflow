@@ -103,13 +103,28 @@ impl WorkingMemory {
 
         // If at capacity, remove oldest non-system message
         while self.messages.len() >= self.max_messages {
+            // Special case: max_messages == 1 cannot maintain capacity
+            // without losing the only slot. Always evict when at capacity=1.
+            if self.max_messages == 1 {
+                // With max_messages == 1, we must evict the existing message
+                // to maintain the capacity invariant. This is true regardless
+                // of whether the incoming message is system or non-system.
+                if let Some(removed) = self.messages.pop_front() {
+                    self.token_count = self
+                        .token_count
+                        .saturating_sub(Self::estimate_tokens(&removed));
+                }
+                break;
+            }
+
             if let Some(removed) = self.remove_oldest_non_system() {
                 self.token_count = self
                     .token_count
                     .saturating_sub(Self::estimate_tokens(&removed));
             } else {
                 // All messages are system messages - rare edge case
-                // Just remove the oldest one
+                // When max_messages > 1, we can safely remove one system message
+                // to make room.
                 if let Some(removed) = self.messages.pop_front() {
                     self.token_count = self
                         .token_count
@@ -483,5 +498,53 @@ mod tests {
         let (slice1, slice2) = memory.as_slices();
         let total = slice1.len() + slice2.len();
         assert_eq!(total, 2);
+    }
+
+    #[test]
+    fn test_max_messages_one_system_then_user() {
+        // This is the specific bug case from the issue:
+        // max_messages == 1, add system, then add user
+        // The system message should be evicted to make room for user
+        let mut memory = WorkingMemory::new(1);
+
+        memory.add(Message::system("policy"));
+        assert_eq!(memory.len(), 1);
+        assert_eq!(memory.get_messages()[0].role, Role::System);
+
+        memory.add(Message::user("hello"));
+        assert_eq!(memory.len(), 1);
+        // User message should now be present (system was evicted)
+        assert_eq!(memory.get_messages()[0].role, Role::User);
+        assert_eq!(memory.get_messages()[0].content, "hello");
+    }
+
+    #[test]
+    fn test_max_messages_one_user_then_system() {
+        // Edge case: add user first, then system
+        let mut memory = WorkingMemory::new(1);
+
+        memory.add(Message::user("hello"));
+        assert_eq!(memory.len(), 1);
+        assert_eq!(memory.get_messages()[0].role, Role::User);
+
+        // Adding system should replace user
+        memory.add(Message::system("policy"));
+        assert_eq!(memory.len(), 1);
+        assert_eq!(memory.get_messages()[0].role, Role::System);
+        assert_eq!(memory.get_messages()[0].content, "policy");
+    }
+
+    #[test]
+    fn test_max_messages_one_two_systems() {
+        // Edge case: add two system messages with max=1
+        let mut memory = WorkingMemory::new(1);
+
+        memory.add(Message::system("policy1"));
+        assert_eq!(memory.len(), 1);
+
+        memory.add(Message::system("policy2"));
+        assert_eq!(memory.len(), 1);
+        // Second system replaces first
+        assert_eq!(memory.get_messages()[0].content, "policy2");
     }
 }
