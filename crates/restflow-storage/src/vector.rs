@@ -3,6 +3,16 @@
 //! Provides low-level vector storage with persistence to ReDB.
 //! The HNSW index is kept in memory for fast search, with vectors
 //! persisted to the database for durability.
+//!
+//! # Orphan Vector Handling
+//!
+//! HNSW indices do not support efficient vector deletion. When `delete()` is called,
+//! the vector remains in the in-memory index but is removed from the id_map and
+//! reverse_map, effectively marking it as "deleted" for search purposes.
+//!
+//! Over time, these orphan vectors can accumulate and consume memory. Use
+//! `orphan_count()` to monitor and `cleanup_orphans()` to rebuild the index
+//! and reclaim memory.
 
 use anyhow::Result;
 use hnsw_rs::prelude::*;
@@ -40,6 +50,17 @@ impl Default for VectorConfig {
     }
 }
 
+/// Statistics about vector storage state.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VectorStats {
+    /// Number of active vectors (in id_map)
+    pub active_count: usize,
+    /// Number of orphan vectors in the HNSW index
+    pub orphan_count: usize,
+    /// Total vectors in the HNSW index
+    pub total_indexed: usize,
+}
+
 /// Low-level vector storage with HNSW index.
 pub struct VectorStorage {
     db: Arc<Database>,
@@ -52,6 +73,8 @@ pub struct VectorStorage {
     reverse_map: RwLock<HashMap<usize, String>>,
     /// Next available vector ID
     next_id: RwLock<usize>,
+    /// Number of deleted vectors (orphan count)
+    orphan_count: RwLock<usize>,
 }
 
 impl VectorStorage {
@@ -77,6 +100,7 @@ impl VectorStorage {
             id_map: RwLock::new(HashMap::new()),
             reverse_map: RwLock::new(HashMap::new()),
             next_id: RwLock::new(0),
+            orphan_count: RwLock::new(0),
         };
 
         storage.rebuild_index()?;
@@ -127,6 +151,11 @@ impl VectorStorage {
     }
 
     /// Delete a vector.
+    ///
+    /// Note: HNSW does not support efficient deletion, so the vector remains
+    /// in the in-memory index but is removed from the id_map. This creates
+    /// an "orphan" vector that will be filtered out during search.
+    /// Use `cleanup_orphans()` periodically to rebuild the index and reclaim memory.
     pub fn delete(&self, chunk_id: &str) -> Result<bool> {
         let vector_id = {
             let id_map = self.id_map.read();
@@ -141,6 +170,12 @@ impl VectorStorage {
             let mut reverse = self.reverse_map.write();
             id_map.remove(chunk_id);
             reverse.remove(&vector_id);
+        }
+
+        // Track orphan count (vector still in HNSW index but not in maps)
+        {
+            let mut orphan = self.orphan_count.write();
+            *orphan += 1;
         }
 
         let write_txn = self.db.begin_write()?;
@@ -232,9 +267,46 @@ impl VectorStorage {
         self.id_map.read().contains_key(chunk_id)
     }
 
-    /// Get vector count.
+    /// Get active vector count (excludes orphans).
     pub fn count(&self) -> usize {
         self.id_map.read().len()
+    }
+
+    /// Get the number of orphan vectors in the index.
+    ///
+    /// Orphans are vectors that have been "deleted" but still exist in the
+    /// HNSW index. They are filtered out during search but consume memory.
+    pub fn orphan_count(&self) -> usize {
+        *self.orphan_count.read()
+    }
+
+    /// Get statistics about the vector storage state.
+    pub fn stats(&self) -> VectorStats {
+        let active_count = self.id_map.read().len();
+        let orphan_count = *self.orphan_count.read();
+        let total_indexed = active_count + orphan_count;
+        VectorStats {
+            active_count,
+            orphan_count,
+            total_indexed,
+        }
+    }
+
+    /// Clean up orphan vectors by rebuilding the index.
+    ///
+    /// This recreates the HNSW index with only active vectors, reclaiming
+    /// memory from deleted vectors. This is an expensive operation and should
+    /// be called periodically based on orphan count thresholds.
+    ///
+    /// Returns the number of orphans cleaned up.
+    pub fn cleanup_orphans(&self) -> Result<usize> {
+        let orphans_before = self.orphan_count();
+        if orphans_before == 0 {
+            return Ok(0);
+        }
+
+        self.rebuild_index()?;
+        Ok(orphans_before)
     }
 
     fn persist_vector(&self, chunk_id: &str, vector: &[f32]) -> Result<()> {
@@ -265,6 +337,7 @@ impl VectorStorage {
         let mut id_map = self.id_map.write();
         let mut reverse = self.reverse_map.write();
         let mut next_id = self.next_id.write();
+        let mut orphan_count = self.orphan_count.write();
 
         *index = Hnsw::new(
             self.config.max_connections,
@@ -277,6 +350,7 @@ impl VectorStorage {
         id_map.clear();
         reverse.clear();
         *next_id = 0;
+        *orphan_count = 0;
 
         for (chunk_id, vector) in vectors {
             let vector_id = *next_id;
@@ -345,5 +419,121 @@ mod tests {
         storage.add("chunk-1", &[1.0, 0.0, 0.0, 0.0]).unwrap();
         storage.add("chunk-2", &[0.0, 1.0, 0.0, 0.0]).unwrap();
         assert_eq!(storage.count(), 2);
+    }
+
+    #[test]
+    fn test_orphan_tracking() {
+        let storage = create_test_storage(4);
+
+        // Initially no orphans
+        assert_eq!(storage.orphan_count(), 0);
+        let stats = storage.stats();
+        assert_eq!(stats.active_count, 0);
+        assert_eq!(stats.orphan_count, 0);
+
+        // Add vectors
+        storage.add("chunk-1", &[1.0, 0.0, 0.0, 0.0]).unwrap();
+        storage.add("chunk-2", &[0.0, 1.0, 0.0, 0.0]).unwrap();
+        assert_eq!(storage.count(), 2);
+        assert_eq!(storage.orphan_count(), 0);
+
+        // Delete one - creates orphan
+        storage.delete("chunk-1").unwrap();
+        assert_eq!(storage.count(), 1);
+        assert_eq!(storage.orphan_count(), 1);
+
+        let stats = storage.stats();
+        assert_eq!(stats.active_count, 1);
+        assert_eq!(stats.orphan_count, 1);
+        assert_eq!(stats.total_indexed, 2);
+    }
+
+    #[test]
+    fn test_cleanup_orphans() {
+        let storage = create_test_storage(4);
+
+        // Add and delete multiple vectors
+        for i in 0..10 {
+            let chunk_id = format!("chunk-{}", i);
+            storage.add(&chunk_id, &[i as f32, 0.0, 0.0, 0.0]).unwrap();
+        }
+        assert_eq!(storage.count(), 10);
+        assert_eq!(storage.orphan_count(), 0);
+
+        // Delete 5 vectors
+        for i in 0..5 {
+            let chunk_id = format!("chunk-{}", i);
+            storage.delete(&chunk_id).unwrap();
+        }
+        assert_eq!(storage.count(), 5);
+        assert_eq!(storage.orphan_count(), 5);
+
+        // Cleanup orphans
+        let cleaned = storage.cleanup_orphans().unwrap();
+        assert_eq!(cleaned, 5);
+        assert_eq!(storage.orphan_count(), 0);
+        assert_eq!(storage.count(), 5);
+
+        let stats = storage.stats();
+        assert_eq!(stats.active_count, 5);
+        assert_eq!(stats.orphan_count, 0);
+        assert_eq!(stats.total_indexed, 5);
+    }
+
+    #[test]
+    fn test_cleanup_orphans_when_none() {
+        let storage = create_test_storage(4);
+        storage.add("chunk-1", &[1.0, 0.0, 0.0, 0.0]).unwrap();
+
+        // Cleanup when no orphans should return 0
+        let cleaned = storage.cleanup_orphans().unwrap();
+        assert_eq!(cleaned, 0);
+        assert_eq!(storage.count(), 1);
+    }
+
+    #[test]
+    fn test_deleted_vector_not_in_search() {
+        let storage = create_test_storage(4);
+
+        // Add vectors
+        storage.add("chunk-1", &[1.0, 0.0, 0.0, 0.0]).unwrap();
+        storage.add("chunk-2", &[0.99, 0.01, 0.0, 0.0]).unwrap();
+
+        // Search should return both
+        let results = storage.search(&[1.0, 0.0, 0.0, 0.0], 10, 50).unwrap();
+        assert_eq!(results.len(), 2);
+
+        // Delete one
+        storage.delete("chunk-2").unwrap();
+
+        // Search should only return active vector (orphan filtered out)
+        let results = storage.search(&[1.0, 0.0, 0.0, 0.0], 10, 50).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].0, "chunk-1");
+    }
+
+    #[test]
+    fn test_rebuild_preserves_vectors() {
+        let storage = create_test_storage(4);
+
+        // Add vectors
+        storage.add("chunk-1", &[1.0, 0.0, 0.0, 0.0]).unwrap();
+        storage.add("chunk-2", &[0.0, 1.0, 0.0, 0.0]).unwrap();
+
+        // Create orphans
+        storage.add("chunk-3", &[0.0, 0.0, 1.0, 0.0]).unwrap();
+        storage.delete("chunk-3").unwrap();
+
+        // Cleanup (rebuilds index)
+        let cleaned = storage.cleanup_orphans().unwrap();
+        assert_eq!(cleaned, 1);
+
+        // Active vectors should still be searchable
+        let results = storage.search(&[1.0, 0.0, 0.0, 0.0], 10, 50).unwrap();
+        assert_eq!(results.len(), 2);
+
+        let ids: Vec<_> = results.iter().map(|(id, _)| id.as_str()).collect();
+        assert!(ids.contains(&"chunk-1"));
+        assert!(ids.contains(&"chunk-2"));
     }
 }
