@@ -1277,19 +1277,12 @@ impl BackgroundAgentRunner {
 
         // Wrap emitter with EventLoggingEmitter if we have an event log
         let step_emitter = match (event_log.clone(), step_emitter) {
-            (Some(log), Some(emitter)) => {
-                Some(Box::new(EventLoggingEmitter::with_shared_log(
-                    emitter, log, task.id.clone(),
-                )) as Box<dyn StreamEmitter>)
-            }
-            (Some(log), None) => {
-                Some(Box::new(EventLoggingEmitter::with_shared_log(
-                    Box::new(restflow_ai::agent::NullEmitter),
-                    log,
-                    task.id.clone(),
-                )) as Box<dyn StreamEmitter>)
-            }
-            (None, emitter) => emitter,
+            (Some(log), Some(emitter)) => Some(Box::new(EventLoggingEmitter::with_shared_log(
+                emitter,
+                log,
+                task.id.clone(),
+            )) as Box<dyn StreamEmitter>),
+            (_, emitter) => emitter,
         };
 
         let execution_timeout_secs = match &task.execution_mode {
