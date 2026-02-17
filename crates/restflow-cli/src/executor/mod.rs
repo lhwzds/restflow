@@ -71,7 +71,9 @@ pub trait CommandExecutor: Send + Sync {
 
     async fn list_secrets(&self) -> Result<Vec<Secret>>;
     async fn set_secret(&self, key: &str, value: &str, description: Option<String>) -> Result<()>;
+    #[allow(dead_code)]
     async fn create_secret(&self, key: &str, value: &str, description: Option<String>) -> Result<()>;
+    #[allow(dead_code)]
     async fn update_secret(&self, key: &str, value: &str, description: Option<String>) -> Result<()>;
     async fn delete_secret(&self, key: &str) -> Result<()>;
     async fn has_secret(&self, key: &str) -> Result<bool>;

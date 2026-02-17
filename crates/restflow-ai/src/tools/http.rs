@@ -49,25 +49,25 @@ fn validate_url(url: &str) -> std::result::Result<(), String> {
     }
 
     // Try to parse as IP address
-    if let Ok(ip) = host.parse::<IpAddr>() {
-        if is_restricted_ip(&ip) {
-            return Err(format!(
-                "Access to restricted IP address {} is not allowed (private/internal/metadata)",
-                ip
-            ));
-        }
+    if let Ok(ip) = host.parse::<IpAddr>()
+        && is_restricted_ip(&ip)
+    {
+        return Err(format!(
+            "Access to restricted IP address {} is not allowed (private/internal/metadata)",
+            ip
+        ));
     }
 
     // Handle bracketed IPv6 addresses
     if host.starts_with('[') && host.ends_with(']') {
         let inner = &host[1..host.len() - 1];
-        if let Ok(ip) = inner.parse::<Ipv6Addr>() {
-            if is_restricted_ip(&IpAddr::V6(ip)) {
-                return Err(format!(
-                    "Access to restricted IPv6 address {} is not allowed",
-                    ip
-                ));
-            }
+        if let Ok(ip) = inner.parse::<Ipv6Addr>()
+            && is_restricted_ip(&IpAddr::V6(ip))
+        {
+            return Err(format!(
+                "Access to restricted IPv6 address {} is not allowed",
+                ip
+            ));
         }
     }
 

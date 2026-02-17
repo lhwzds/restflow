@@ -102,7 +102,7 @@ async fn list_background_agents(
         let short_id = &agent.id[..8.min(agent.id.len())];
         let next_run = agent
             .next_run_at
-            .map(|ts| format_timestamp(ts))
+            .map(format_timestamp)
             .unwrap_or_else(|| "-".to_string());
         table.add_row(vec![
             Cell::new(short_id),

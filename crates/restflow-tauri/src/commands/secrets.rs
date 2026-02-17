@@ -48,14 +48,10 @@ pub async fn create_secret(
     state: State<'_, AppState>,
     request: CreateSecretRequest,
 ) -> Result<SecretInfo, String> {
-    // Use atomic create_secret to prevent TOCTOU race condition
+    // set_secret handles upsert semantics through IPC.
     state
         .executor()
-        .create_secret(
-            request.key.clone(),
-            request.value,
-            request.description.clone(),
-        )
+        .set_secret(request.key.clone(), request.value, request.description.clone())
         .await
         .map_err(|e| e.to_string())?;
 
@@ -82,10 +78,10 @@ pub async fn update_secret(
     key: String,
     request: UpdateSecretRequest,
 ) -> Result<SecretInfo, String> {
-    // Use atomic update_secret to prevent TOCTOU race condition
+    // set_secret handles upsert semantics through IPC.
     state
         .executor()
-        .update_secret(key.clone(), request.value, request.description.clone())
+        .set_secret(key.clone(), request.value, request.description.clone())
         .await
         .map_err(|e| e.to_string())?;
 
