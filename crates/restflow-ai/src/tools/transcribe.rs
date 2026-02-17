@@ -7,10 +7,46 @@ use reqwest::multipart::{Form, Part};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use tokio::fs;
+use std::path::{Path, PathBuf};
 
 use crate::error::{AiError, Result};
 use crate::http_client::build_http_client;
 use crate::tools::traits::{SecretResolver, Tool, ToolOutput};
+
+/// Configuration for transcribe tool security.
+#[derive(Debug, Clone)]
+pub struct TranscribeConfig {
+    /// Allowed paths (security). Only files within these paths can be transcribed.
+    pub allowed_paths: Vec<PathBuf>,
+    /// Maximum file size in bytes (default 25MB for Whisper API).
+    pub max_file_size: usize,
+    /// Allowed audio file extensions (lowercase).
+    pub allowed_extensions: Vec<String>,
+}
+
+impl Default for TranscribeConfig {
+    fn default() -> Self {
+        Self {
+            allowed_paths: vec![std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))],
+            max_file_size: 25 * 1024 * 1024, // 25MB
+            allowed_extensions: vec![
+                "mp3".to_string(),
+                "mp4".to_string(),
+                "mpeg".to_string(),
+                "mpga".to_string(),
+                "m4a".to_string(),
+                "wav".to_string(),
+                "webm".to_string(),
+                "ogg".to_string(),
+            ],
+        }
+    }
+}
+
+/// Check if a path is within any of the allowed directories.
+fn is_path_allowed(path: &Path, allowed_paths: &[PathBuf]) -> bool {
+    allowed_paths.iter().any(|allowed| path.starts_with(allowed))
+}
 
 #[derive(Debug, Deserialize)]
 struct TranscribeInput {
@@ -23,18 +59,53 @@ struct TranscribeInput {
 pub struct TranscribeTool {
     client: Client,
     secret_resolver: SecretResolver,
+    config: TranscribeConfig,
 }
 
 impl TranscribeTool {
     pub fn new(secret_resolver: SecretResolver) -> Self {
+        Self::with_config(secret_resolver, TranscribeConfig::default())
+    }
+
+    pub fn with_config(secret_resolver: SecretResolver, config: TranscribeConfig) -> Self {
         Self {
             client: build_http_client(),
             secret_resolver,
+            config,
         }
     }
 
     fn resolve_api_key(&self) -> Option<String> {
         (self.secret_resolver)("OPENAI_API_KEY")
+    }
+
+    fn validate_path(&self, file_path: &str) -> Result<()> {
+        let path = Path::new(file_path);
+
+        // Check if path is within allowed directories
+        if !is_path_allowed(path, &self.config.allowed_paths) {
+            return Err(AiError::Tool(format!(
+                "Path '{}' is not within allowed directories. Only files in specified directories can be transcribed.",
+                file_path
+            )));
+        }
+
+        // Check file extension
+        let extension = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.to_lowercase());
+
+        if let Some(ext) = extension
+            && !self.config.allowed_extensions.contains(&ext)
+        {
+            return Err(AiError::Tool(format!(
+                "File extension '{}' is not allowed. Only audio files are permitted.",
+                ext
+            )));
+        }
+
+        Ok(())
     }
 
     fn format_api_error(status: StatusCode, error_text: &str) -> String {
@@ -96,6 +167,9 @@ impl Tool for TranscribeTool {
                 )
             })?;
 
+        // Validate path and extension before reading
+        self.validate_path(&params.file_path)?;
+
         let audio_bytes = fs::read(&params.file_path)
             .await
             .map_err(|e| {
@@ -104,6 +178,15 @@ impl Tool for TranscribeTool {
                     params.file_path, e
                 ))
             })?;
+
+        // Validate file size before upload
+        if audio_bytes.len() > self.config.max_file_size {
+            return Err(AiError::Tool(format!(
+                "File too large ({} bytes). Maximum size is {} bytes.",
+                audio_bytes.len(),
+                self.config.max_file_size
+            )));
+        }
 
         let filename = std::path::Path::new(&params.file_path)
             .file_name()
@@ -201,5 +284,77 @@ mod tests {
         let passthrough =
             TranscribeTool::format_api_error(StatusCode::BAD_REQUEST, "custom message");
         assert_eq!(passthrough, "custom message");
+    }
+
+    #[test]
+    fn test_transcribe_config_default_values() {
+        let config = TranscribeConfig::default();
+        assert_eq!(config.max_file_size, 25 * 1024 * 1024);
+        assert!(config.allowed_extensions.contains(&"mp3".to_string()));
+        assert!(config.allowed_extensions.contains(&"wav".to_string()));
+    }
+
+    #[test]
+    fn test_is_path_allowed() {
+        let allowed = vec![PathBuf::from("/home/user/workspace")];
+
+        // Path within allowed directory
+        assert!(is_path_allowed(Path::new("/home/user/workspace/audio.mp3"), &allowed));
+        assert!(is_path_allowed(Path::new("/home/user/workspace/subfolder/test.wav"), &allowed));
+
+        // Path outside allowed directory
+        assert!(!is_path_allowed(Path::new("/etc/passwd"), &allowed));
+        assert!(!is_path_allowed(Path::new("/home/user/../etc/passwd"), &allowed));
+    }
+
+    #[test]
+    fn test_transcribe_tool_with_config() {
+        let resolver: SecretResolver = Arc::new(|_| None);
+        let config = TranscribeConfig {
+            allowed_paths: vec![PathBuf::from("/tmp")],
+            max_file_size: 1024,
+            allowed_extensions: vec!["mp3".to_string()],
+        };
+        let tool = TranscribeTool::with_config(resolver, config);
+        let schema = tool.parameters_schema();
+        assert_eq!(tool.name(), "transcribe");
+        assert!(schema.get("properties").is_some());
+    }
+
+    #[test]
+    fn test_validate_path_rejects_path_traversal() {
+        let resolver: SecretResolver = Arc::new(|_| None);
+        let config = TranscribeConfig {
+            allowed_paths: vec![PathBuf::from("/home/user/workspace")],
+            max_file_size: 25 * 1024 * 1024,
+            allowed_extensions: vec!["mp3".to_string()],
+        };
+        let tool = TranscribeTool::with_config(resolver, config);
+
+        let result = tool.validate_path("/etc/passwd");
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("not within allowed"), "Error: {}", err);
+    }
+
+    #[test]
+    fn test_validate_path_rejects_non_audio_extension() {
+        let resolver: SecretResolver = Arc::new(|_| None);
+        let config = TranscribeConfig {
+            allowed_paths: vec![PathBuf::from("/tmp")],
+            max_file_size: 25 * 1024 * 1024,
+            allowed_extensions: vec!["mp3".to_string()],
+        };
+        let tool = TranscribeTool::with_config(resolver, config);
+
+        // Test with .txt extension
+        let result = tool.validate_path("/tmp/test.txt");
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            err.to_string().contains("extension") || err.to_string().contains("not allowed"),
+            "Error: {}",
+            err
+        );
     }
 }
