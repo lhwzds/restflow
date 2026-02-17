@@ -319,7 +319,8 @@ impl SecurityChecker {
         let action = ToolAction::from(action);
 
         // Check cached approvals first to avoid re-prompting for identical tool+action combinations
-        let cache_key = action.as_pattern_string();
+        // Use "tool:" prefix to distinguish tool action cache from bash command cache
+        let cache_key = format!("tool:{}", action.as_pattern_string());
         {
             let cache = self.cached_approvals.read().await;
             if let Some(&approved) = cache.get(&cache_key) {
@@ -375,9 +376,11 @@ impl SecurityChecker {
                         }
                         let task_id = task_id.unwrap_or("unknown");
                         let agent_id = agent_id.unwrap_or("unknown");
+                        // Use canonical pattern string as approval summary for cache key consistency
+                        let command_like = action.as_pattern_string();
                         let approval_id = self
                             .approval_manager
-                            .create_approval(action.summary.clone(), task_id, agent_id, None)
+                            .create_approval(command_like, task_id, agent_id, None)
                             .await?;
                         Ok(SecurityDecision::requires_approval(
                             approval_id,
@@ -401,13 +404,9 @@ impl SecurityChecker {
 
         match status {
             Some(crate::models::security::ApprovalStatus::Approved) => {
-                // Cache the approval decision
+                // Cache the approval decision using the canonical pattern string
                 if let Some(approval) = self.approval_manager.get(approval_id).await {
-                    let cache_key = format!("{}:{}:{}", 
-                        approval.command.split_whitespace().next().unwrap_or(""),
-                        approval.command.split_whitespace().nth(1).unwrap_or(""),
-                        ""
-                    );
+                    let cache_key = format!("tool:{}", approval.command);
                     self.cached_approvals.write().await.insert(cache_key, true);
                 }
                 Ok(SecurityCheckResult::approved_result(approval_id.to_string()))
@@ -418,13 +417,9 @@ impl SecurityChecker {
                     .as_ref()
                     .and_then(|a| a.rejection_reason.clone())
                     .unwrap_or_else(|| "User rejected".to_string());
-                // Cache the rejection decision
+                // Cache the rejection decision using the canonical pattern string
                 if let Some(ref approval) = approval {
-                    let cache_key = format!("{}:{}:{}",
-                        approval.command.split_whitespace().next().unwrap_or(""),
-                        approval.command.split_whitespace().nth(1).unwrap_or(""),
-                        ""
-                    );
+                    let cache_key = format!("tool:{}", approval.command);
                     self.cached_approvals.write().await.insert(cache_key, false);
                 }
                 Ok(SecurityCheckResult::blocked(reason, None))
@@ -1078,5 +1073,53 @@ mod tests {
             .unwrap();
         assert!(result.allowed);
         assert!(!result.requires_approval);
+    }
+
+    #[tokio::test]
+    async fn test_tool_approval_cache_hit_after_approval() {
+        use crate::models::security::ToolRule;
+
+        let checker = create_test_checker();
+
+        let mut policy = SecurityPolicy::default();
+        policy.tool_rules = vec![ToolRule {
+            id: "require-file-delete-approval".to_string(),
+            tool_name: "file".to_string(),
+            operation: Some("delete".to_string()),
+            target_pattern: "*".to_string(),
+            action: SecurityAction::RequireApproval,
+            description: None,
+            priority: 100,
+        }];
+        checker.set_policy(policy).await;
+
+        let action = restflow_ai::ToolAction {
+            tool_name: "file".to_string(),
+            operation: "delete".to_string(),
+            target: "/tmp/demo.txt".to_string(),
+            summary: "Delete /tmp/demo.txt".to_string(),
+        };
+
+        let first = checker
+            .check_tool_action(&action, Some("agent-1"), Some("task-1"))
+            .await
+            .unwrap();
+        assert!(first.requires_approval);
+
+        let approval_id = first.approval_id.clone().unwrap();
+        checker
+            .approval_manager()
+            .approve(&approval_id)
+            .await
+            .unwrap();
+        checker.check_approval(&approval_id).await.unwrap();
+
+        // Second check should hit the cache
+        let second = checker
+            .check_tool_action(&action, Some("agent-1"), Some("task-1"))
+            .await
+            .unwrap();
+        assert!(second.allowed);
+        assert!(!second.requires_approval);
     }
 }
