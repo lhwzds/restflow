@@ -32,7 +32,7 @@
 use super::traits::{
     AgentStrategy, RecommendedSettings, StrategyConfig, StrategyFeature, StrategyResult,
 };
-use crate::error::Result;
+use crate::error::{AiError, Result};
 use crate::llm::{CompletionRequest, LlmClient, Message, Role};
 use crate::tools::ToolRegistry;
 use std::sync::Arc;
@@ -182,28 +182,13 @@ impl AgentStrategy for CodeFirstStrategy {
 
         let response = self.llm.complete(request).await?;
         let response_text = response.content.unwrap_or_default();
-        let code = self.extract_code(&response_text)?;
+        let _code = self.extract_code(&response_text)?;
 
-        // Step 3: Execute code in Monty sandbox
-        // TODO: Bridge tools as Monty external functions via FrameExit::ExternalCall
-        // TODO: Add final_answer() as special external function that signals completion
-        // For now, return placeholder result
-        let total_tokens = response
-            .usage
-            .as_ref()
-            .map(|u| u.total_tokens)
-            .unwrap_or(0);
-
-        Ok(StrategyResult {
-            success: true,
-            output: format!(
-                "CodeFirst strategy generated code:\n{}\n\n(Execution not yet implemented)",
-                code
-            ),
-            iterations: 1,
-            total_tokens,
-            strategy_metadata: Default::default(),
-        })
+        // Step 3: Execution bridge is not implemented yet.
+        // Do not report a successful task result before actual execution exists.
+        Err(AiError::Agent(
+            "CodeFirst execution bridge is not implemented yet".to_string(),
+        ))
     }
 
     fn supports_feature(&self, feature: StrategyFeature) -> bool {
@@ -250,6 +235,25 @@ This fetches the data."#;
         let code = strategy.extract_code(response).unwrap();
         assert!(code.contains("http_get"));
         assert!(code.contains("final_answer"));
+    }
+
+    #[tokio::test]
+    async fn execute_returns_error_until_execution_bridge_is_implemented() {
+        use crate::error::AiError;
+        
+        let strategy = CodeFirstStrategy {
+            llm: Arc::new(MockLlmClient::new("test-model")),
+            tools: Arc::new(ToolRegistry::new()),
+            config: CodeFirstConfig::default(),
+        };
+
+        let result = strategy
+            .execute(StrategyConfig::new("fetch users"))
+            .await;
+        assert!(matches!(
+            result,
+            Err(AiError::Agent(msg)) if msg.contains("not implemented")
+        ));
     }
 
     #[test]
