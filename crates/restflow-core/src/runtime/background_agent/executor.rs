@@ -1302,14 +1302,20 @@ impl AgentRuntimeExecutor {
             agent = agent.with_steer_channel(rx);
         }
 
+        let force_non_stream = model.is_codex_cli();
+
         let result = if let Some(state) = initial_state {
-            if let Some(mut emitter) = emitter {
+            if force_non_stream {
+                agent.run_from_state(config, state).await?
+            } else if let Some(mut emitter) = emitter {
                 agent
                     .execute_from_state(config, state, emitter.as_mut())
                     .await?
             } else {
                 agent.run_from_state(config, state).await?
             }
+        } else if force_non_stream {
+            agent.run(config).await?
         } else if let Some(mut emitter) = emitter {
             #[allow(deprecated)]
             {
