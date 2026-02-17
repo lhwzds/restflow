@@ -60,7 +60,14 @@ pub async fn run_route(
             let (binding_type, target_id) = if let Some(peer_id) = peer {
                 (RouteBindingType::Peer, peer_id)
             } else if let Some(group_id) = group {
-                (RouteBindingType::Group, group_id)
+                // Map --group to Channel binding for backward compatibility
+                // Group binding is deprecated; use --channel instead
+                // This allows existing CLI scripts using --group to continue working
+                tracing::warn!(
+                    target_id = %group_id,
+                    "Using deprecated --group flag, consider using --channel instead"
+                );
+                (RouteBindingType::Channel, group_id)
             } else if default {
                 (RouteBindingType::Default, "*".to_string())
             } else {
