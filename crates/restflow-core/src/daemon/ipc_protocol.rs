@@ -61,6 +61,10 @@ pub enum IpcRequest {
         id: String,
         skill: Skill,
     },
+    GetSkillReference {
+        skill_id: String,
+        ref_id: String,
+    },
     DeleteSkill {
         id: String,
     },
