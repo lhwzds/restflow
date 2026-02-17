@@ -1275,7 +1275,10 @@ impl BackgroundAgentRunner {
             None
         };
 
-        // Wrap emitter with EventLoggingEmitter if we have an event log
+        // Keep a dedicated handle for lifecycle event logging without forcing stream mode.
+        let event_log_for_events = event_log.clone();
+
+        // Wrap stream emitter with EventLoggingEmitter only when a stream emitter exists.
         let step_emitter = match (event_log.clone(), step_emitter) {
             (Some(log), Some(emitter)) => Some(Box::new(EventLoggingEmitter::with_shared_log(
                 emitter,
@@ -1508,7 +1511,7 @@ impl BackgroundAgentRunner {
                 );
 
                 // Record TaskCompleted event
-                if let Some(ref log) = event_log {
+                if let Some(ref log) = event_log_for_events {
                     match log.lock() {
                         Ok(mut l) => {
                             if let Err(e) = l.append(&AgentEvent::TaskCompleted {
@@ -1588,7 +1591,7 @@ impl BackgroundAgentRunner {
                 error!("Task '{}' failed: {}", task.name, error_msg);
 
                 // Record Error event
-                if let Some(ref log) = event_log {
+                if let Some(ref log) = event_log_for_events {
                     match log.lock() {
                         Ok(mut l) => {
                             if let Err(e) = l.append(&AgentEvent::Error {
@@ -1629,7 +1632,7 @@ impl BackgroundAgentRunner {
                 error!("Task '{}' timed out", task.name);
 
                 // Record Error event
-                if let Some(ref log) = event_log {
+                if let Some(ref log) = event_log_for_events {
                     match log.lock() {
                         Ok(mut l) => {
                             if let Err(e) = l.append(&AgentEvent::Error {
