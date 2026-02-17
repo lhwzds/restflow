@@ -275,11 +275,23 @@ mod tests {
     }
 
     #[test]
-    fn rejects_task_commands() {
+    fn rejects_legacy_task_command() {
         let cli = Cli::try_parse_from(["restflow", "task", "list"]);
         assert!(cli.is_err());
+    }
+
+    #[test]
+    fn parses_background_agent_list_command() {
         let cli = Cli::try_parse_from(["restflow", "background-agent", "list"]);
-        assert!(cli.is_err());
+        assert!(matches!(
+            cli,
+            Ok(Cli {
+                command: Some(super::Commands::BackgroundAgent {
+                    command: super::BackgroundAgentCommands::List { .. }
+                }),
+                ..
+            })
+        ));
     }
 
     #[test]

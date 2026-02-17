@@ -133,6 +133,7 @@ async fn create_skill(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn update_skill(
     executor: Arc<dyn CommandExecutor>,
     id: &str,
