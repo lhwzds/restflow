@@ -13,6 +13,27 @@ pub trait SimpleStorage: Send + Sync {
     /// Get reference to the database.
     fn db(&self) -> &Arc<Database>;
 
+    /// Insert only if key doesn't exist (atomic check-and-insert).
+    ///
+    /// Returns `Ok(true)` if the key was inserted (didn't exist before).
+    /// Returns `Ok(false)` if the key already existed (no modification made).
+    ///
+    /// This operation is atomic - the existence check and insert happen
+    /// in a single write transaction, preventing TOCTOU race conditions.
+    fn insert_if_absent(&self, id: &str, data: &[u8]) -> Result<bool> {
+        let write_txn = self.db().begin_write()?;
+        let inserted = {
+            let mut table = write_txn.open_table(Self::TABLE)?;
+            let existed = table.get(id)?.is_some();
+            if !existed {
+                table.insert(id, data)?;
+            }
+            !existed
+        };
+        write_txn.commit()?;
+        Ok(inserted)
+    }
+
     /// Store raw bytes by ID.
     fn put_raw(&self, id: &str, data: &[u8]) -> Result<()> {
         let write_txn = self.db().begin_write()?;
