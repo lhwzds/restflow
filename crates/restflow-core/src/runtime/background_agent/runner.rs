@@ -1210,6 +1210,16 @@ impl BackgroundAgentRunner {
                     }
                 }
                 ExecutionMode::Cli(cli_config) => {
+                    // Install pre-commit hook to prevent background agents from committing to main
+                    if let Some(ref working_dir) = cli_config.working_dir {
+                        let repo_path = std::path::Path::new(working_dir);
+                        if repo_path.join(".git").exists()
+                            && let Err(e) = super::hook::install_pre_commit_hook(repo_path)
+                        {
+                            warn!("Failed to install pre-commit hook: {}", e);
+                        }
+                    }
+
                     // Use CliAgentExecutor for CLI-based execution
                     use super::cli_executor::CliAgentExecutor;
 

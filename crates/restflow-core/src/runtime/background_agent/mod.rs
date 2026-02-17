@@ -147,6 +147,7 @@ pub mod failover;
 pub mod heartbeat;
 pub mod notifier;
 pub mod persist;
+pub mod hook;
 pub mod preflight;
 pub mod retry;
 pub mod runner;
