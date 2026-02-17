@@ -506,30 +506,10 @@ impl McpBackend for IpcBackend {
         ref_id: &str,
     ) -> Result<Option<String>, String> {
         let mut client = self.client.lock().await;
-        let Some(skill) = client
-            .get_skill(skill_id.to_string())
+        client
+            .get_skill_reference(skill_id.to_string(), ref_id.to_string())
             .await
-            .map_err(|e| e.to_string())?
-        else {
-            return Err(format!("Skill not found: {}", skill_id));
-        };
-
-        let Some(reference) = skill
-            .references
-            .iter()
-            .find(|reference| reference.id == ref_id)
-        else {
-            return Err(format!(
-                "Reference '{}' not found in skill '{}'",
-                ref_id, skill_id
-            ));
-        };
-
-        let linked = client
-            .get_skill(reference.id.clone())
-            .await
-            .map_err(|e| e.to_string())?;
-        Ok(linked.map(|reference_skill| reference_skill.content))
+            .map_err(|e| e.to_string())
     }
 
     async fn create_skill(&self, skill: Skill) -> Result<(), String> {
