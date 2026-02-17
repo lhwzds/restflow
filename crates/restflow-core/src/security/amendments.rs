@@ -47,32 +47,20 @@ fn regex_cache() -> &'static RwLock<HashMap<String, Arc<Regex>>> {
 /// Wrapper for regex matching with timeout protection.
 ///
 /// This prevents ReDoS attacks by limiting the time spent on regex matching.
-/// If the match takes longer than `MAX_REGEX_MATCH_TIME_MS`, it returns `false`.
+/// If the match takes longer than `MAX_REGEX_MATCH_TIME_MS`, it logs a warning.
+///
+/// IMPORTANT: Security decisions must evaluate the full command.
+/// We do NOT truncate the input because truncation changes semantics and can
+/// produce false positives (e.g., `^...$` matches truncated input but should
+/// fail on full input), creating an approval bypass vulnerability.
 fn safe_regex_match(regex: &Regex, text: &str) -> bool {
-    // For simple patterns, we can use direct matching
-    // For complex patterns, we need timeout protection
-    //
-    // The regex crate has built-in backtracking limits, but we add an additional
-    // time-based limit as a defense-in-depth measure.
-    //
-    // Note: The regex crate doesn't support async, so we use a simple time check.
-    // This isn't perfect but provides reasonable protection for most cases.
-    
-    // Simple heuristic: if text is very long, limit it
-    let text_to_match = if text.len() > 10000 {
-        // Truncate very long inputs to prevent issues
-        &text[..10000]
-    } else {
-        text
-    };
-    
-    // The regex crate has internal backtracking limits, so direct matching is usually safe
-    // We just add a time check for extra safety
+    // The regex crate has internal backtracking limits, so direct matching is usually safe.
+    // We add a time check for extra safety and to identify problematic patterns.
     let start = Instant::now();
-    let result = regex.is_match(text_to_match);
-    
-    // If matching took suspiciously long, log a warning but return the result
-    // This helps identify problematic patterns
+    let result = regex.is_match(text);
+
+    // If matching took suspiciously long, log a warning but return the result.
+    // This helps identify problematic patterns.
     let elapsed = start.elapsed();
     if elapsed > Duration::from_millis(MAX_REGEX_MATCH_TIME_MS) {
         tracing::warn!(
@@ -82,7 +70,7 @@ fn safe_regex_match(regex: &Regex, text: &str) -> bool {
             "Regex pattern took longer than expected to match; consider simplifying the pattern"
         );
     }
-    
+
     result
 }
 
@@ -568,5 +556,38 @@ mod tests {
         
         // Should have warnings because pattern is unanchored
         assert!(!warnings.is_empty());
+    }
+
+    #[test]
+    fn long_command_must_not_be_truncated_for_regex_match() {
+        // Security test: Verify that long commands are NOT truncated before regex matching.
+        // Truncation would create a bypass vulnerability where an anchored pattern
+        // matches the truncated input but should fail on the full input.
+        let store = create_store();
+        store
+            .add_allow_rule_simple(
+                "bash",
+                "^a{10000}$",
+                AmendmentMatchType::Regex,
+                AmendmentScope::Workspace,
+            )
+            .unwrap();
+
+        // Build a command that would pass the truncated check but fail the full check
+        let mut command = "a".repeat(10000);
+        command.push_str(";rm -rf /");
+
+        // The full command is "aaaa...(10000 a's)...;rm -rf /"
+        // Pattern "^a{10000}$" should NOT match because:
+        // - The command has more than 10000 'a' characters (actually 10000 'a' + ";rm -rf /")
+        // - Wait, actually we have exactly 10000 'a' followed by ";rm -rf /"
+        // So the pattern should NOT match because of the suffix
+        assert!(
+            store
+                .find_matching_rule("bash", &command, Some("agent-a"))
+                .unwrap()
+                .is_none(),
+            "Long command with malicious suffix should NOT match anchored pattern"
+        );
     }
 }
