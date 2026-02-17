@@ -503,6 +503,20 @@ impl AgentExecutor {
             .await
     }
 
+    /// Resume execution from an existing state snapshot in non-stream mode.
+    pub async fn run_from_state(
+        &self,
+        config: AgentConfig,
+        mut state: AgentState,
+    ) -> Result<AgentResult> {
+        state.status = AgentStatus::Running;
+        state.ended_at = None;
+        let execution_id = state.execution_id.clone();
+        let mut emitter = NullEmitter;
+        self.execute_with_mode(config, &mut emitter, false, Some(execution_id), Some(state))
+            .await
+    }
+
     async fn execute_with_mode(
         &self,
         config: AgentConfig,
