@@ -808,6 +808,11 @@ impl BackgroundAgentStorage {
         self.checkpoints.save_with_savepoint(checkpoint)
     }
 
+    /// Save a checkpoint with an already-obtained savepoint ID (atomic).
+    pub fn save_checkpoint_with_savepoint_id(&self, checkpoint: &AgentCheckpoint) -> Result<()> {
+        self.checkpoints.save_with_savepoint_id(checkpoint)
+    }
+
     /// Load a checkpoint by task ID.
     pub fn load_checkpoint_by_task_id(&self, task_id: &str) -> Result<Option<AgentCheckpoint>> {
         self.checkpoints.load_by_task_id(task_id)

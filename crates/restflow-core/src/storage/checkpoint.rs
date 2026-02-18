@@ -45,6 +45,18 @@ impl CheckpointStorage {
         )
     }
 
+    /// Save a checkpoint with an already-obtained persistent savepoint ID.
+    /// This is atomic - the savepoint_id is already embedded in the checkpoint.
+    pub fn save_with_savepoint_id(&self, checkpoint: &AgentCheckpoint) -> Result<()> {
+        let data = serde_json::to_vec(checkpoint)?;
+        self.inner.save(
+            &checkpoint.id,
+            &checkpoint.execution_id,
+            checkpoint.task_id.as_deref(),
+            &data,
+        )
+    }
+
     /// Load a checkpoint by ID.
     pub fn load(&self, id: &str) -> Result<Option<AgentCheckpoint>> {
         match self.inner.load(id)? {
