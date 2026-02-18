@@ -1121,6 +1121,13 @@ impl BackgroundAgentRunner {
             task.name, task.id, task.agent_id, task.execution_mode
         );
 
+        // Install scope guard for panic-safe cleanup
+        // This ensures resources are cleaned up even if the agent execution panics
+        let task_id_for_guard = task.id.clone();
+        let _cleanup_guard = scopeguard::guard(task_id_for_guard, |task_id| {
+            Self::cleanup_agent_resources(&task_id);
+        });
+
         let execution_mode_str = match &task.execution_mode {
             ExecutionMode::Api => "api".to_string(),
             ExecutionMode::Cli(cfg) => format!("cli:{}", cfg.binary),
@@ -1667,6 +1674,35 @@ impl BackgroundAgentRunner {
 
         self.cleanup_task_tracking(task_id).await;
         Ok(success)
+    }
+
+    /// Clean up all resources associated with a background agent task.
+    /// Called via scopeguard when task execution panics or fails unexpectedly.
+    fn cleanup_agent_resources(task_id: &str) {
+        use std::fs;
+
+        // Clean up scratchpad files for this task
+        if let Ok(restflow_dir) = crate::paths::resolve_restflow_dir() {
+            let scratchpad_dir = restflow_dir.join("scratchpads");
+            if scratchpad_dir.exists()
+                && let Ok(entries) = fs::read_dir(&scratchpad_dir)
+            {
+                for entry in entries.flatten() {
+                    let file_name = entry.file_name();
+                    let name = file_name.to_string_lossy();
+                    // Match files starting with task_id
+                    if name.starts_with(task_id) && name.ends_with(".jsonl") {
+                        if let Err(e) = fs::remove_file(entry.path()) {
+                            warn!("Failed to remove scratchpad file {:?}: {}", entry.path(), e);
+                        } else {
+                            debug!("Cleaned up scratchpad file for task {}", task_id);
+                        }
+                    }
+                }
+            }
+        }
+
+        debug!("Scope guard cleanup completed for task {}", task_id);
     }
 
     /// Remove a task from runner tracking maps.
@@ -3540,5 +3576,44 @@ mod tests {
         assert!(storage.get_task(&task.id).unwrap().is_none());
 
         handle.stop().await.unwrap();
+    }
+
+    #[test]
+    fn test_cleanup_agent_resources_removes_orphan_files() {
+        use std::fs;
+        use tempfile::tempdir;
+
+        // Create a temporary directory to act as RESTFLOW_DIR
+        let temp_dir = tempdir().expect("Failed to create temp dir");
+        let scratchpad_dir = temp_dir.path().join("scratchpads");
+        fs::create_dir_all(&scratchpad_dir).expect("Failed to create scratchpad dir");
+
+        // Create some test files
+        let task_id = "test-task-123";
+        let orphan_file = scratchpad_dir.join(format!("{}-20260217.jsonl", task_id));
+        let other_file = scratchpad_dir.join("other-task-456-20260217.jsonl");
+
+        fs::write(&orphan_file, "orphan content").expect("Failed to write orphan file");
+        fs::write(&other_file, "other content").expect("Failed to write other file");
+
+        assert!(orphan_file.exists());
+        assert!(other_file.exists());
+
+        // Set RESTFLOW_DIR env var temporarily
+        unsafe {
+            std::env::set_var("RESTFLOW_DIR", temp_dir.path());
+        }
+
+        // Call cleanup
+        BackgroundAgentRunner::cleanup_agent_resources(task_id);
+
+        // Orphan file should be removed, other file should remain
+        assert!(!orphan_file.exists(), "Orphan file should be removed");
+        assert!(other_file.exists(), "Other file should remain");
+
+        // Cleanup env var
+        unsafe {
+            std::env::remove_var("RESTFLOW_DIR");
+        }
     }
 }
