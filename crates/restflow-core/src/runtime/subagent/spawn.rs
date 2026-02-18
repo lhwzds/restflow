@@ -2,9 +2,10 @@
 
 use super::definition::{AgentDefinition, AgentDefinitionRegistry};
 use super::tracker::{SubagentResult, SubagentTracker};
-use crate::runtime::agent::{AgentExecutionEngine, AgentExecutionEngineConfig, ToolRegistry};
+use crate::runtime::agent::ToolRegistry;
 use anyhow::{Result, anyhow};
 use async_trait::async_trait;
+use restflow_ai::agent::{AgentConfig as ReActAgentConfig, AgentExecutor as ReActAgentExecutor};
 use restflow_ai::LlmClient;
 use restflow_ai::tools::{Tool, ToolOutput};
 use serde::{Deserialize, Serialize};
@@ -200,20 +201,18 @@ async fn execute_subagent(
         &agent_def.allowed_tools,
     ));
 
-    let mut engine_config = AgentExecutionEngineConfig::default();
-    engine_config.react.max_iterations = resolve_max_iterations(&agent_def);
-    let mut engine = AgentExecutionEngine::new(
-        llm_client,
-        registry,
-        agent_def.system_prompt.clone(),
-        engine_config,
-    );
-
-    let result = engine.execute(&task).await?;
+    let config = ReActAgentConfig::new(task)
+        .with_system_prompt(agent_def.system_prompt.clone())
+        .with_max_iterations(resolve_max_iterations(&agent_def));
+    let engine = ReActAgentExecutor::new(llm_client, registry);
+    let result = engine.run(config).await?;
     if result.success {
-        Ok(result.output)
+        Ok(result.answer.unwrap_or_default())
     } else {
-        Err(anyhow!("Sub-agent execution failed: {}", result.output))
+        Err(anyhow!(
+            "Sub-agent execution failed: {}",
+            result.error.unwrap_or_else(|| "unknown error".to_string())
+        ))
     }
 }
 
