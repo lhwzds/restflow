@@ -29,7 +29,7 @@
 //! │                    │                  │                      │
 //! │                    │                  ▼                      │
 //! │                    │         ┌───────────────┐               │
-//! │                    │         │    Default    │               │
+//! │                    │         │    Default     │               │
 //! │                    │         └───────────────┘               │
 //! │                    │                                         │
 //! │                    ▼                                         │
@@ -60,6 +60,7 @@
 
 mod amendments;
 mod approval;
+mod cache;
 mod checker;
 mod config_store;
 mod path_resolver;
@@ -68,6 +69,7 @@ mod shell_parser;
 pub use amendments::{
     AmendmentMatchType, AmendmentScope, SecurityAmendment, SecurityAmendmentStore,
 };
+pub use cache::{ApprovalCache, ApprovalGrant, ApprovalKey, ApprovalScope};
 pub use approval::{ApprovalCallback, ApprovalManager};
 pub use checker::SecurityChecker;
 pub use config_store::SecurityConfigStore;
