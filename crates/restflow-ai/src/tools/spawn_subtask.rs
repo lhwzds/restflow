@@ -101,7 +101,9 @@ impl Tool for SpawnSubtaskTool {
             .get("task_id")
             .and_then(|v| v.as_str())
             .ok_or_else(|| {
-                crate::error::AiError::Tool("Failed to extract task_id from create result".to_string())
+                crate::error::AiError::Tool(
+                    "Failed to extract task_id from create result".to_string(),
+                )
             })?
             .to_string();
 

@@ -351,7 +351,10 @@ impl SubagentTracker {
     pub fn mark_completed(&self, id: &str, result: SubagentResult) {
         // Check if already cancelled or timed out - don't overwrite the status
         if let Some(state) = self.states.get(id)
-            && matches!(state.status, SubagentStatus::Cancelled | SubagentStatus::TimedOut)
+            && matches!(
+                state.status,
+                SubagentStatus::Cancelled | SubagentStatus::TimedOut
+            )
         {
             // Already marked as cancelled/timed out, just clean up handles
             self.abort_handles.remove(id);
@@ -815,7 +818,9 @@ mod tests {
             result: None,
         };
         tracker.states.insert("race-test".to_string(), state);
-        tracker.abort_handles.insert("race-test".to_string(), abort_handle);
+        tracker
+            .abort_handles
+            .insert("race-test".to_string(), abort_handle);
 
         // Step 1: cancel() is called
         tracker.cancel("race-test");

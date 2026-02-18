@@ -129,8 +129,13 @@ impl IpcClient {
         Ok(())
     }
 
-    pub async fn get_skill_reference(&mut self, skill_id: String, ref_id: String) -> Result<Option<String>> {
-        self.request_optional(IpcRequest::GetSkillReference { skill_id, ref_id }).await
+    pub async fn get_skill_reference(
+        &mut self,
+        skill_id: String,
+        ref_id: String,
+    ) -> Result<Option<String>> {
+        self.request_optional(IpcRequest::GetSkillReference { skill_id, ref_id })
+            .await
     }
 
     pub async fn list_agents(&mut self) -> Result<Vec<StoredAgent>> {

@@ -88,9 +88,7 @@ impl StreamEmitter for EventLoggingEmitter {
     }
 
     async fn emit_tool_call_start(&mut self, id: &str, name: &str, arguments: &str) {
-        self.inner
-            .emit_tool_call_start(id, name, arguments)
-            .await;
+        self.inner.emit_tool_call_start(id, name, arguments).await;
 
         let step = self.next_step();
         self.tool_start_times.insert(id.to_string(), Instant::now());
@@ -103,13 +101,7 @@ impl StreamEmitter for EventLoggingEmitter {
         });
     }
 
-    async fn emit_tool_call_result(
-        &mut self,
-        id: &str,
-        name: &str,
-        result: &str,
-        success: bool,
-    ) {
+    async fn emit_tool_call_result(&mut self, id: &str, name: &str, result: &str, success: bool) {
         self.inner
             .emit_tool_call_result(id, name, result, success)
             .await;
@@ -169,10 +161,7 @@ mod tests {
     #[test]
     fn test_truncate_output_exact_boundary() {
         let output = "hello world";
-        assert_eq!(
-            truncate_output(output, 5),
-            "hello... [truncated, 11 bytes]"
-        );
+        assert_eq!(truncate_output(output, 5), "hello... [truncated, 11 bytes]");
     }
 
     #[test]

@@ -142,7 +142,7 @@ mod tests {
         let flags = PromptFlags::new()
             .without_tools()
             .without_workspace_context();
-        
+
         assert!(flags.include_base);
         assert!(!flags.include_tools);
         assert!(!flags.include_workspace_context);
@@ -162,10 +162,8 @@ mod tests {
 
     #[test]
     fn test_serde_roundtrip() {
-        let flags = PromptFlags::new()
-            .without_tools()
-            .without_security_policy();
-        
+        let flags = PromptFlags::new().without_tools().without_security_policy();
+
         let json = serde_json::to_string(&flags).unwrap();
         let parsed: PromptFlags = serde_json::from_str(&json).unwrap();
         assert_eq!(flags, parsed);

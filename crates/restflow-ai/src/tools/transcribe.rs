@@ -6,8 +6,8 @@ use reqwest::StatusCode;
 use reqwest::multipart::{Form, Part};
 use serde::Deserialize;
 use serde_json::{Value, json};
-use tokio::fs;
 use std::path::{Path, PathBuf};
+use tokio::fs;
 
 use crate::error::{AiError, Result};
 use crate::http_client::build_http_client;
@@ -45,7 +45,9 @@ impl Default for TranscribeConfig {
 
 /// Check if a path is within any of the allowed directories.
 fn is_path_allowed(path: &Path, allowed_paths: &[PathBuf]) -> bool {
-    allowed_paths.iter().any(|allowed| path.starts_with(allowed))
+    allowed_paths
+        .iter()
+        .any(|allowed| path.starts_with(allowed))
 }
 
 #[derive(Debug, Deserialize)]
@@ -299,12 +301,21 @@ mod tests {
         let allowed = vec![PathBuf::from("/home/user/workspace")];
 
         // Path within allowed directory
-        assert!(is_path_allowed(Path::new("/home/user/workspace/audio.mp3"), &allowed));
-        assert!(is_path_allowed(Path::new("/home/user/workspace/subfolder/test.wav"), &allowed));
+        assert!(is_path_allowed(
+            Path::new("/home/user/workspace/audio.mp3"),
+            &allowed
+        ));
+        assert!(is_path_allowed(
+            Path::new("/home/user/workspace/subfolder/test.wav"),
+            &allowed
+        ));
 
         // Path outside allowed directory
         assert!(!is_path_allowed(Path::new("/etc/passwd"), &allowed));
-        assert!(!is_path_allowed(Path::new("/home/user/../etc/passwd"), &allowed));
+        assert!(!is_path_allowed(
+            Path::new("/home/user/../etc/passwd"),
+            &allowed
+        ));
     }
 
     #[test]
@@ -334,7 +345,11 @@ mod tests {
         let result = tool.validate_path("/etc/passwd");
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(err.to_string().contains("not within allowed"), "Error: {}", err);
+        assert!(
+            err.to_string().contains("not within allowed"),
+            "Error: {}",
+            err
+        );
     }
 
     #[test]

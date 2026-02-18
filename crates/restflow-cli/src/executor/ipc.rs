@@ -293,7 +293,12 @@ impl CommandExecutor for IpcExecutor {
             .map(|_| ())
     }
 
-    async fn create_secret(&self, key: &str, value: &str, description: Option<String>) -> Result<()> {
+    async fn create_secret(
+        &self,
+        key: &str,
+        value: &str,
+        description: Option<String>,
+    ) -> Result<()> {
         let response = self
             .request(IpcRequest::CreateSecret {
                 key: key.to_string(),
@@ -305,7 +310,12 @@ impl CommandExecutor for IpcExecutor {
             .map(|_| ())
     }
 
-    async fn update_secret(&self, key: &str, value: &str, description: Option<String>) -> Result<()> {
+    async fn update_secret(
+        &self,
+        key: &str,
+        value: &str,
+        description: Option<String>,
+    ) -> Result<()> {
         let response = self
             .request(IpcRequest::UpdateSecret {
                 key: key.to_string(),

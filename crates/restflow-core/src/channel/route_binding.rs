@@ -7,8 +7,8 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
-use restflow_storage::PairingStorage;
 use super::types::ChannelType;
+use restflow_storage::PairingStorage;
 
 /// Type of route binding.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -182,7 +182,7 @@ impl RouteResolver {
         // Try plugin_id first (stable), then display name (backward compatibility)
         let channel_key_plugin = format!("channel:{}", channel_plugin_id);
         let channel_key_display = format!("channel:{}", channel_display);
-        
+
         if let Ok(Some(data)) = self.storage.resolve_route_by_key(&channel_key_plugin)
             && let Ok(binding) = serde_json::from_slice::<RouteBinding>(&data)
         {
@@ -196,7 +196,7 @@ impl RouteResolver {
                 matched_by: MatchedBy::Channel,
             });
         }
-        
+
         // Also try display name for backward compatibility with existing bindings
         if let Ok(Some(data)) = self.storage.resolve_route_by_key(&channel_key_display)
             && let Ok(binding) = serde_json::from_slice::<RouteBinding>(&data)
@@ -286,14 +286,14 @@ impl RouteResolver {
     ) -> Result<RouteBinding> {
         let id = uuid::Uuid::new_v4().to_string();
         let now = chrono::Utc::now().timestamp_millis();
-        
+
         // Normalize channel target_id to stable plugin_id format
         let normalized_target_id = if binding_type == RouteBindingType::Channel {
             Self::normalize_channel_id(target_id)
         } else {
             target_id.to_string()
         };
-        
+
         let priority = match binding_type {
             RouteBindingType::Peer => 0,
             RouteBindingType::Account => 1,
@@ -381,7 +381,8 @@ impl RouteResolver {
 
                 let new_key = format!("channel:{}", new_target_id);
                 let new_data = serde_json::to_vec(&new_binding)?;
-                self.storage.add_route_binding(&new_binding.id, &new_key, &new_data)?;
+                self.storage
+                    .add_route_binding(&new_binding.id, &new_key, &new_data)?;
 
                 // Remove old binding
                 self.storage.remove_route_binding(&id)?;
@@ -703,7 +704,9 @@ mod tests {
         let corrupted_id = uuid::Uuid::new_v4().to_string();
         let corrupted_key = "unknown:test".to_string();
         let corrupted_data = r#"{"id":"test","binding_type":"future_type","target_id":"test","agent_id":"test","created_at":0,"priority":99}"#;
-        storage.add_route_binding(&corrupted_id, &corrupted_key, corrupted_data.as_bytes()).unwrap();
+        storage
+            .add_route_binding(&corrupted_id, &corrupted_key, corrupted_data.as_bytes())
+            .unwrap();
 
         // List should skip the corrupted binding and return only valid ones
         let bindings = resolver.list().unwrap();
@@ -746,8 +749,8 @@ mod tests {
         assert_eq!(agent, Some("peer-agent".to_string()));
 
         // Verify the migrated channel binding exists
-        let route = resolver
-            .resolve_route(ChannelType::Telegram, "any-bot", "any-user", "any-chat");
+        let route =
+            resolver.resolve_route(ChannelType::Telegram, "any-bot", "any-user", "any-chat");
         assert!(route.is_some());
         assert_eq!(route.unwrap().agent_id, "agent-1");
     }
@@ -755,7 +758,7 @@ mod tests {
     #[test]
     fn test_channel_binding_uses_plugin_id() {
         let resolver = create_test_resolver();
-        
+
         // Bind with display name "Telegram"
         resolver
             .bind(RouteBindingType::Channel, "Telegram", "channel-agent")
@@ -767,17 +770,17 @@ mod tests {
             .unwrap();
         assert_eq!(route.agent_id, "channel-agent");
         assert_eq!(route.matched_by, MatchedBy::Channel);
-        
+
         // Verify stored with plugin_id
         let bindings = resolver.list().unwrap();
         assert_eq!(bindings.len(), 1);
         assert_eq!(bindings[0].target_id, "telegram");
     }
-    
+
     #[test]
     fn test_channel_binding_accepts_plugin_id_format() {
         let resolver = create_test_resolver();
-        
+
         // Bind directly with plugin_id format
         resolver
             .bind(RouteBindingType::Channel, "telegram", "channel-agent")
@@ -789,11 +792,11 @@ mod tests {
             .unwrap();
         assert_eq!(route.agent_id, "channel-agent");
     }
-    
+
     #[test]
     fn test_channel_binding_backward_compatible_display_name() {
         let resolver = create_test_resolver();
-        
+
         // Simulate a legacy binding stored with display name by manually inserting
         let storage = resolver.storage.clone();
         let legacy_binding = RouteBinding {
@@ -806,13 +809,14 @@ mod tests {
         };
         let legacy_key = "channel:Telegram".to_string();
         let legacy_data = serde_json::to_vec(&legacy_binding).unwrap();
-        storage.add_route_binding(&legacy_binding.id, &legacy_key, &legacy_data).unwrap();
-        
+        storage
+            .add_route_binding(&legacy_binding.id, &legacy_key, &legacy_data)
+            .unwrap();
+
         // Should still resolve via backward-compatible lookup
         let route = resolver
             .resolve_route(ChannelType::Telegram, "any-bot", "any-user", "chat-1")
             .unwrap();
         assert_eq!(route.agent_id, "legacy-agent");
     }
-
 }

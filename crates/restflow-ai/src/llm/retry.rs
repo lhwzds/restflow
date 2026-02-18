@@ -5,9 +5,7 @@ use async_trait::async_trait;
 use reqwest::Response;
 
 use crate::error::AiError;
-use crate::llm::client::{
-    CompletionRequest, CompletionResponse, LlmClient, StreamResult,
-};
+use crate::llm::client::{CompletionRequest, CompletionResponse, LlmClient, StreamResult};
 
 #[derive(Debug, Clone)]
 pub struct LlmRetryConfig {
@@ -112,7 +110,10 @@ impl LlmClient for RetryingLlmClient {
         self.inner.supports_streaming()
     }
 
-    async fn complete(&self, request: CompletionRequest) -> crate::error::Result<CompletionResponse> {
+    async fn complete(
+        &self,
+        request: CompletionRequest,
+    ) -> crate::error::Result<CompletionResponse> {
         let mut last_error = None;
 
         for attempt in 0..=self.config.max_retries {

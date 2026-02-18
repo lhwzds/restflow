@@ -13,7 +13,7 @@ use super::{
 };
 use crate::models::{
     BinaryRequirement, EnvVarRequirement, GatingRequirements, OsType, SkillAuthor, SkillManifest,
-    SkillPermissions, SkillSource, SkillVersion, SkillPermission,
+    SkillPermission, SkillPermissions, SkillSource, SkillVersion,
 };
 
 /// Default marketplace API URL

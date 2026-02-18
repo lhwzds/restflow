@@ -110,8 +110,9 @@ impl Tool for TelegramTool {
         if telegram_resp.ok {
             Ok(ToolResult::success(json!("Message sent")))
         } else {
-            let error_msg = telegram_resp.description
-                .unwrap_or_else(|| format!("Telegram API error code: {:?}", telegram_resp.error_code));
+            let error_msg = telegram_resp.description.unwrap_or_else(|| {
+                format!("Telegram API error code: {:?}", telegram_resp.error_code)
+            });
             Ok(ToolResult::error(format!(
                 "Telegram API error: {}",
                 error_msg

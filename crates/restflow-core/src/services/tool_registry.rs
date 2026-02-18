@@ -3301,11 +3301,11 @@ mod tests {
             .unwrap()
             .join("scratchpads");
         std::fs::create_dir_all(&scratchpads_dir).unwrap();
-        
+
         // Create a file outside the scratchpad directory
         let outside_file = temp_dir.path().join("outside.jsonl");
         std::fs::write(&outside_file, "sensitive data").unwrap();
-        
+
         // Create a symlink inside scratchpad pointing to outside file
         let symlink_path = scratchpads_dir.join("malicious.jsonl");
         std::os::unix::fs::symlink(&outside_file, &symlink_path).unwrap();
@@ -3314,7 +3314,7 @@ mod tests {
             scratchpad: "malicious.jsonl".to_string(),
             line_limit: Some(10),
         };
-        
+
         // Use a dummy adapter - we just need to test the static method
         // The function is on BackgroundAgentStoreAdapter, which is private
         // So we'll test through the actual tool implementation
@@ -3346,16 +3346,16 @@ mod tests {
             .unwrap()
             .join("scratchpads");
         std::fs::create_dir_all(&scratchpads_dir).unwrap();
-        
+
         // Create a directory that could be used for path traversal
         let attack_dir = scratchpads_dir.join("attack");
         std::fs::create_dir_all(&attack_dir).unwrap();
-        
+
         // Create a file in the attack directory that should be outside scratchpads
         // This simulates a case where an attacker creates "../outside.jsonl" as a file
         // But since we already validate ".." in the name, this is caught earlier
         // The canonicalize check is a defense-in-depth
-        
+
         unsafe {
             if let Some(value) = previous_restflow_dir {
                 std::env::set_var("RESTFLOW_DIR", value);
@@ -3368,7 +3368,10 @@ mod tests {
         let result = BackgroundAgentStoreAdapter::validate_scratchpad_name("../etc/passwd.jsonl");
         assert!(result.is_err(), "validation should reject path traversal");
         let err_msg = result.unwrap_err().to_string();
-        assert!(err_msg.contains("invalid"), "error should mention invalid name");
+        assert!(
+            err_msg.contains("invalid"),
+            "error should mention invalid name"
+        );
     }
 
     #[allow(clippy::await_holding_lock)]
@@ -4442,7 +4445,8 @@ mod tests {
     #[test]
     fn test_validate_scratchpad_name_accepts_normal_file() {
         // Test that normal filenames are accepted
-        let result = BackgroundAgentStoreAdapter::validate_scratchpad_name("task-123-2026-02-18.jsonl");
+        let result =
+            BackgroundAgentStoreAdapter::validate_scratchpad_name("task-123-2026-02-18.jsonl");
         assert!(result.is_ok());
     }
 
@@ -4451,10 +4455,11 @@ mod tests {
         // Test path traversal attempts
         let result = BackgroundAgentStoreAdapter::validate_scratchpad_name("../etc/passwd.jsonl");
         assert!(result.is_err());
-        
-        let result2 = BackgroundAgentStoreAdapter::validate_scratchpad_name("foo/../../../bar.jsonl");
+
+        let result2 =
+            BackgroundAgentStoreAdapter::validate_scratchpad_name("foo/../../../bar.jsonl");
         assert!(result2.is_err());
-        
+
         let result3 = BackgroundAgentStoreAdapter::validate_scratchpad_name("foo\\bar.jsonl");
         assert!(result3.is_err());
     }

@@ -4,8 +4,8 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use crate::models::skill_folder::{SkillGating, SkillReference, SkillScript};
 use crate::models::StorageMode;
+use crate::models::skill_folder::{SkillGating, SkillReference, SkillScript};
 
 /// Skill lifecycle status used for discovery and planning.
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Default, PartialEq, Eq)]
@@ -242,9 +242,11 @@ impl Skill {
         let lines: Vec<&str> = markdown.lines().collect();
 
         // Find the closing delimiter (must be a standalone line with just "---")
-        let end_line_offset = lines.iter()
-            .skip(1)  // Skip the opening "---" line
-            .position(|line| line.trim() == "---").map(|i| i + 1)
+        let end_line_offset = lines
+            .iter()
+            .skip(1) // Skip the opening "---" line
+            .position(|line| line.trim() == "---")
+            .map(|i| i + 1)
             .ok_or_else(|| anyhow::anyhow!("Invalid markdown format: frontmatter not closed"))?;
 
         // Extract frontmatter lines (between opening "---" and closing "---")

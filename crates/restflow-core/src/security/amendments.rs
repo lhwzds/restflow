@@ -130,12 +130,12 @@ fn validate_regex_pattern(pattern: &str) -> Result<Vec<PatternWarning>> {
             MAX_REGEX_PATTERN_LEN
         );
     }
-    
+
     // Check syntax
     Regex::new(pattern).map_err(|err| anyhow!("Invalid regex pattern: {}", err))?;
-    
+
     let mut warnings = Vec::new();
-    
+
     // Check for missing start anchor
     if !pattern.starts_with('^') {
         warnings.push(PatternWarning {
@@ -144,27 +144,33 @@ fn validate_regex_pattern(pattern: &str) -> Result<Vec<PatternWarning>> {
             severity: "high".to_string(),
         });
     }
-    
+
     // Check for missing end anchor
     if !pattern.ends_with('$') {
         warnings.push(PatternWarning {
             code: "MISSING_END_ANCHOR".to_string(),
-            message: "Pattern does not end with '$'. This could allow appending malicious arguments.".to_string(),
+            message:
+                "Pattern does not end with '$'. This could allow appending malicious arguments."
+                    .to_string(),
             severity: "high".to_string(),
         });
     }
-    
+
     // Check for ReDoS-prone patterns (nested quantifiers)
-    if pattern.contains(")+") || pattern.contains(")*") || pattern.contains("}+")
+    if pattern.contains(")+")
+        || pattern.contains(")*")
+        || pattern.contains("}+")
         || pattern.contains("}*")
     {
         warnings.push(PatternWarning {
             code: "REDOS_RISK".to_string(),
-            message: "Pattern contains nested quantifiers which could cause catastrophic backtracking.".to_string(),
+            message:
+                "Pattern contains nested quantifiers which could cause catastrophic backtracking."
+                    .to_string(),
             severity: "medium".to_string(),
         });
     }
-    
+
     // Check for overly broad patterns
     if pattern.contains(".*") && !pattern.contains(";") {
         warnings.push(PatternWarning {
@@ -173,13 +179,16 @@ fn validate_regex_pattern(pattern: &str) -> Result<Vec<PatternWarning>> {
             severity: "medium".to_string(),
         });
     }
-    
+
     // Check for patterns that might be case-sensitive bypasses
-    if pattern.contains(char::is_lowercase) && !pattern.contains("(?i)") && !pattern.contains("(?-i)") {
+    if pattern.contains(char::is_lowercase)
+        && !pattern.contains("(?i)")
+        && !pattern.contains("(?-i)")
+    {
         // Pattern has lowercase but no case-insensitive flag
         // This is informational, not a security issue
     }
-    
+
     Ok(warnings)
 }
 
@@ -520,7 +529,7 @@ mod tests {
                 AmendmentScope::Workspace,
             )
             .unwrap();
-        
+
         // Should have warnings about missing anchors
         assert!(warnings.iter().any(|w| w.code == "MISSING_START_ANCHOR"));
         assert!(warnings.iter().any(|w| w.code == "MISSING_END_ANCHOR"));
@@ -553,7 +562,7 @@ mod tests {
                 AmendmentScope::Workspace,
             )
             .unwrap();
-        
+
         // Should have warnings because pattern is unanchored
         assert!(!warnings.is_empty());
     }

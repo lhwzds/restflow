@@ -346,7 +346,10 @@ impl EnvVarDiscoverer {
                 ("YI_API_KEY".to_string(), AuthProvider::Other),
                 ("SILICONFLOW_API_KEY".to_string(), AuthProvider::Other),
                 ("MINIMAX_API_KEY".to_string(), AuthProvider::Other),
-                ("MINIMAX_CODING_PLAN_API_KEY".to_string(), AuthProvider::Other),
+                (
+                    "MINIMAX_CODING_PLAN_API_KEY".to_string(),
+                    AuthProvider::Other,
+                ),
             ],
         }
     }

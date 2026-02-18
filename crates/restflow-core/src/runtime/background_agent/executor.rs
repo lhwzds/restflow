@@ -560,12 +560,7 @@ impl AgentRuntimeExecutor {
             .collect();
 
         // Get manually configured fallback models from config
-        let config = self
-            .storage
-            .config
-            .get_config()
-            .ok()
-            .flatten();
+        let config = self.storage.config.get_config().ok().flatten();
         let fallback_models: Option<Vec<AIModel>> = config
             .as_ref()
             .and_then(|c| c.agent.fallback_models.clone())
@@ -596,7 +591,7 @@ impl AgentRuntimeExecutor {
         user_input: Option<&str>,
     ) -> Result<String> {
         let mut prompt_agent = agent_node.clone();
-        
+
         // SECURITY: Build allowed skill set from agent's assigned skills
         let allowed_skills: HashSet<String> = agent_node
             .skills
@@ -606,18 +601,21 @@ impl AgentRuntimeExecutor {
 
         if let Some(input) = user_input.map(str::trim).filter(|value| !value.is_empty()) {
             let triggered_skill_ids = self.resolve_triggered_skill_ids(input)?;
-            
+
             // SECURITY: Only allow triggered skills that are in agent's skill list
             // This prevents capability scope expansion via crafted input
             let allowed_triggered: Vec<String> = triggered_skill_ids
                 .into_iter()
                 .filter(|skill_id| allowed_skills.contains(skill_id))
                 .collect();
-            
+
             if !allowed_triggered.is_empty() {
                 let mut effective_skills = prompt_agent.skills.clone().unwrap_or_default();
                 for skill_id in allowed_triggered {
-                    if !effective_skills.iter().any(|existing| existing == &skill_id) {
+                    if !effective_skills
+                        .iter()
+                        .any(|existing| existing == &skill_id)
+                    {
                         effective_skills.push(skill_id);
                     }
                 }
@@ -649,19 +647,21 @@ impl AgentRuntimeExecutor {
     ) -> Result<Vec<Skill>> {
         // SECURITY: Start with only agent's assigned skills
         let mut skill_ids = agent_node.skills.clone().unwrap_or_default();
-        
+
         // SECURITY: Build allowed skill set from agent's assigned skills
         let allowed_skills: HashSet<String> = agent_node
             .skills
             .as_ref()
             .map(|s| s.iter().cloned().collect())
             .unwrap_or_default();
-        
+
         if let Some(input) = user_input.map(str::trim).filter(|value| !value.is_empty()) {
             let triggered_skill_ids = self.resolve_triggered_skill_ids(input)?;
             // SECURITY: Only allow triggered skills that are in agent's skill list
             for skill_id in triggered_skill_ids {
-                if allowed_skills.contains(&skill_id) && !skill_ids.iter().any(|existing| existing == &skill_id) {
+                if allowed_skills.contains(&skill_id)
+                    && !skill_ids.iter().any(|existing| existing == &skill_id)
+                {
                     skill_ids.push(skill_id);
                 }
             }
@@ -1307,8 +1307,10 @@ impl AgentRuntimeExecutor {
                     .unwrap_or(entry.capabilities.context_window)
             })
             .unwrap_or_else(|| Self::context_window_for_model(model));
-        let max_tool_result_length =
-            Self::effective_max_tool_result_length(resource_limits.max_output_bytes, context_window);
+        let max_tool_result_length = Self::effective_max_tool_result_length(
+            resource_limits.max_output_bytes,
+            context_window,
+        );
         if max_tool_result_length < resource_limits.max_output_bytes {
             debug!(
                 model = ?model,
@@ -1388,11 +1390,17 @@ impl AgentRuntimeExecutor {
                     // then re-save with savepoint_id embedded to close the race window.
                     let savepoint_id = checkpoints
                         .save_checkpoint_with_savepoint(&checkpoint)
-                        .map_err(|e| AiError::Agent(format!("Failed to save checkpoint with savepoint: {e}")))?;
+                        .map_err(|e| {
+                            AiError::Agent(format!("Failed to save checkpoint with savepoint: {e}"))
+                        })?;
                     checkpoint.savepoint_id = Some(savepoint_id);
-                    checkpoints.save_checkpoint_with_savepoint_id(&checkpoint).map_err(|e| {
-                        AiError::Agent(format!("Failed to persist checkpoint with savepoint id: {e}"))
-                    })?;
+                    checkpoints
+                        .save_checkpoint_with_savepoint_id(&checkpoint)
+                        .map_err(|e| {
+                            AiError::Agent(format!(
+                                "Failed to persist checkpoint with savepoint id: {e}"
+                            ))
+                        })?;
                     Ok(())
                 }
             });
@@ -2158,18 +2166,19 @@ mod tests {
     fn test_build_background_system_prompt_ignores_unauthorized_triggered_skill() {
         let (storage, _temp_dir) = create_test_storage();
         let executor = create_test_executor(storage.clone());
-        
+
         // Create a privileged skill with trigger
-        let privileged_skill = create_trigger_skill("privileged-skill", "admin", "Privileged Content");
+        let privileged_skill =
+            create_trigger_skill("privileged-skill", "admin", "Privileged Content");
         storage.skills.create(&privileged_skill).unwrap();
-        
+
         // Agent does NOT have the privileged skill in its skill list
         let node = AgentNode {
             prompt: Some("Base Prompt".to_string()),
             skills: Some(vec!["regular-skill".to_string()]),
             ..AgentNode::new()
         };
-        
+
         // User input triggers the privileged skill
         let prompt = executor
             .build_background_system_prompt(&node, None, None, Some("please do admin"))
@@ -2185,18 +2194,18 @@ mod tests {
     fn test_build_background_system_prompt_includes_authorized_triggered_skill() {
         let (storage, _temp_dir) = create_test_storage();
         let executor = create_test_executor(storage.clone());
-        
+
         // Create a skill with trigger
         let skill = create_trigger_skill("authorized-skill", "code review", "Authorized Content");
         storage.skills.create(&skill).unwrap();
-        
+
         // Agent HAS the skill in its skill list
         let node = AgentNode {
             prompt: Some("Base Prompt".to_string()),
             skills: Some(vec!["authorized-skill".to_string()]),
             ..AgentNode::new()
         };
-        
+
         let prompt = executor
             .build_background_system_prompt(&node, None, None, Some("please do code review"))
             .unwrap();
@@ -2309,11 +2318,7 @@ mod tests {
         let executor = create_test_executor(storage);
 
         let result = executor
-            .resolve_api_key_for_model(
-                Provider::Zai,
-                None,
-                Provider::Zai,
-            )
+            .resolve_api_key_for_model(Provider::Zai, None, Provider::Zai)
             .await;
 
         assert!(result.is_err());
@@ -2329,11 +2334,7 @@ mod tests {
         let executor = create_test_executor(storage);
 
         let result = executor
-            .resolve_api_key_for_model(
-                Provider::ZaiCodingPlan,
-                None,
-                Provider::ZaiCodingPlan,
-            )
+            .resolve_api_key_for_model(Provider::ZaiCodingPlan, None, Provider::ZaiCodingPlan)
             .await;
 
         assert!(result.is_err());

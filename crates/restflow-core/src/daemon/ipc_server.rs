@@ -450,7 +450,8 @@ impl IpcServer {
                 }
             }
             IpcRequest::GetBackgroundAgent { id } => {
-                let resolved_id = match core.storage.background_agents.resolve_existing_task_id(&id) {
+                let resolved_id = match core.storage.background_agents.resolve_existing_task_id(&id)
+                {
                     Ok(id) => id,
                     Err(_) => return IpcResponse::not_found("Background agent"),
                 };
@@ -1270,7 +1271,8 @@ impl IpcServer {
                 }
             }
             IpcRequest::ControlBackgroundAgent { id, action } => {
-                let resolved_id = match core.storage.background_agents.resolve_existing_task_id(&id) {
+                let resolved_id = match core.storage.background_agents.resolve_existing_task_id(&id)
+                {
                     Ok(id) => id,
                     Err(_) => return IpcResponse::not_found("Background agent"),
                 };
@@ -1284,7 +1286,8 @@ impl IpcServer {
                 }
             }
             IpcRequest::GetBackgroundAgentProgress { id, event_limit } => {
-                let resolved_id = match core.storage.background_agents.resolve_existing_task_id(&id) {
+                let resolved_id = match core.storage.background_agents.resolve_existing_task_id(&id)
+                {
                     Ok(id) => id,
                     Err(_) => return IpcResponse::not_found("Background agent"),
                 };
@@ -1302,7 +1305,8 @@ impl IpcServer {
                 message,
                 source,
             } => {
-                let resolved_id = match core.storage.background_agents.resolve_existing_task_id(&id) {
+                let resolved_id = match core.storage.background_agents.resolve_existing_task_id(&id)
+                {
                     Ok(id) => id,
                     Err(_) => return IpcResponse::not_found("Background agent"),
                 };
@@ -1319,7 +1323,8 @@ impl IpcServer {
                 }
             }
             IpcRequest::HandleBackgroundAgentApproval { id, approved } => {
-                let resolved_id = match core.storage.background_agents.resolve_existing_task_id(&id) {
+                let resolved_id = match core.storage.background_agents.resolve_existing_task_id(&id)
+                {
                     Ok(id) => id,
                     Err(_) => return IpcResponse::not_found("Background agent"),
                 };

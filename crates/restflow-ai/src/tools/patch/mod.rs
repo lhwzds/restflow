@@ -424,47 +424,47 @@ mod tests {
     }
 }
 
-    #[tokio::test]
-    async fn apply_operations_delete_requires_read_first() {
-        let temp_dir = tempfile::TempDir::new().unwrap();
-        let tracker = Arc::new(FileTracker::new());
-        let tool = PatchTool::new(tracker).with_base_dir(temp_dir.path());
+#[tokio::test]
+async fn apply_operations_delete_requires_read_first() {
+    let temp_dir = tempfile::TempDir::new().unwrap();
+    let tracker = Arc::new(FileTracker::new());
+    let tool = PatchTool::new(tracker).with_base_dir(temp_dir.path());
 
-        let file_path = temp_dir.path().join("to_delete.txt");
-        fs::write(&file_path, "content").await.unwrap();
+    let file_path = temp_dir.path().join("to_delete.txt");
+    fs::write(&file_path, "content").await.unwrap();
 
-        // Delete without read first should fail
-        let patch = "*** Delete File: to_delete.txt";
-        let operations = parse_patch(patch).unwrap();
-        let result = tool.apply_operations(&operations).await;
+    // Delete without read first should fail
+    let patch = "*** Delete File: to_delete.txt";
+    let operations = parse_patch(patch).unwrap();
+    let result = tool.apply_operations(&operations).await;
 
-        assert!(result.is_err());
-        assert!(
-            result
-                .err()
-                .unwrap()
-                .to_string()
-                .contains("has not been read")
-        );
-    }
+    assert!(result.is_err());
+    assert!(
+        result
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("has not been read")
+    );
+}
 
-    #[tokio::test]
-    async fn apply_operations_delete_succeeds_after_read() {
-        let temp_dir = tempfile::TempDir::new().unwrap();
-        let tracker = Arc::new(FileTracker::new());
-        let tool = PatchTool::new(tracker).with_base_dir(temp_dir.path());
+#[tokio::test]
+async fn apply_operations_delete_succeeds_after_read() {
+    let temp_dir = tempfile::TempDir::new().unwrap();
+    let tracker = Arc::new(FileTracker::new());
+    let tool = PatchTool::new(tracker).with_base_dir(temp_dir.path());
 
-        let file_path = temp_dir.path().join("to_delete.txt");
-        fs::write(&file_path, "content").await.unwrap();
+    let file_path = temp_dir.path().join("to_delete.txt");
+    fs::write(&file_path, "content").await.unwrap();
 
-        // Read first
-        let resolved = tool.resolve_path("to_delete.txt").unwrap();
-        tool.tracker.record_read(&resolved);
+    // Read first
+    let resolved = tool.resolve_path("to_delete.txt").unwrap();
+    tool.tracker.record_read(&resolved);
 
-        // Now delete should succeed
-        let patch = "*** Delete File: to_delete.txt";
-        let operations = parse_patch(patch).unwrap();
-        let result = tool.apply_operations(&operations).await;
+    // Now delete should succeed
+    let patch = "*** Delete File: to_delete.txt";
+    let operations = parse_patch(patch).unwrap();
+    let result = tool.apply_operations(&operations).await;
 
-        assert!(result.is_ok());
-    }
+    assert!(result.is_ok());
+}

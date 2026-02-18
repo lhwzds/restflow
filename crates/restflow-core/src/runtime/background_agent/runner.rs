@@ -543,7 +543,7 @@ impl BackgroundAgentRunner {
     /// committing directly to main/master branches.
     pub fn install_git_hooks(repo_path: &str) {
         let hook_path = format!("{}/.git/hooks/pre-commit", repo_path);
-        
+
         // Only install if no existing pre-commit hook
         if std::path::Path::new(&hook_path).exists() {
             debug!("Pre-commit hook already exists at {}", hook_path);
@@ -555,7 +555,8 @@ impl BackgroundAgentRunner {
             #[cfg(unix)]
             {
                 use std::os::unix::fs::PermissionsExt;
-                let _ = std::fs::set_permissions(&hook_path, std::fs::Permissions::from_mode(0o755));
+                let _ =
+                    std::fs::set_permissions(&hook_path, std::fs::Permissions::from_mode(0o755));
             }
             info!("Installed RestFlow pre-commit hook at {}", hook_path);
         } else {
@@ -570,9 +571,16 @@ impl BackgroundAgentRunner {
     #[allow(dead_code)]
     async fn setup_cli_worktree(&self, task: &BackgroundAgent, repo_path: &str) -> Option<String> {
         let timestamp = chrono::Utc::now().format("%Y%m%d%H%M%S").to_string();
-        let safe_name = task.name.chars().filter(|c| c.is_alphanumeric() || *c == '-').collect::<String>();
+        let safe_name = task
+            .name
+            .chars()
+            .filter(|c| c.is_alphanumeric() || *c == '-')
+            .collect::<String>();
         let branch_name = format!("task/{}-{}", safe_name, &task.id[..8.min(task.id.len())]);
-        let worktree_path = format!("{}/.restflow/worktrees/{}-{}", repo_path, safe_name, timestamp);
+        let worktree_path = format!(
+            "{}/.restflow/worktrees/{}-{}",
+            repo_path, safe_name, timestamp
+        );
 
         let output = tokio::process::Command::new("git")
             .args(["worktree", "add", &worktree_path, "-b", &branch_name])
@@ -585,7 +593,10 @@ impl BackgroundAgentRunner {
             info!(worktree = %worktree_path, branch = %branch_name, "Created worktree for CLI agent");
             Some(worktree_path)
         } else {
-            warn!("Failed to create worktree: {}", String::from_utf8_lossy(&output.stderr));
+            warn!(
+                "Failed to create worktree: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
             None
         }
     }
@@ -598,16 +609,14 @@ impl BackgroundAgentRunner {
         // For now, use current working directory as the default repo path
         // In a more sophisticated implementation, this could parse task input
         // or check task metadata for explicit repo paths
-        std::env::current_dir()
-            .ok()
-            .and_then(|p| {
-                // Check if it's a git repository
-                if p.join(".git").exists() {
-                    Some(p.to_string_lossy().to_string())
-                } else {
-                    None
-                }
-            })
+        std::env::current_dir().ok().and_then(|p| {
+            // Check if it's a git repository
+            if p.join(".git").exists() {
+                Some(p.to_string_lossy().to_string())
+            } else {
+                None
+            }
+        })
     }
 
     /// Start the runner and return a handle for controlling it
@@ -1366,7 +1375,11 @@ impl BackgroundAgentRunner {
                     let timeout = Duration::from_secs(execution_timeout_secs);
                     tokio::time::timeout(
                         timeout,
-                        cli_executor.execute_cli(cli_config, resolved_input.as_deref(), Some(task_id)),
+                        cli_executor.execute_cli(
+                            cli_config,
+                            resolved_input.as_deref(),
+                            Some(task_id),
+                        ),
                     )
                     .await
                 }
@@ -1709,12 +1722,7 @@ impl BackgroundAgentRunner {
     /// Acquires all locks atomically to prevent partial cleanup on panic.
     async fn cleanup_task_tracking(&self, task_id: &str) {
         // Acquire all locks concurrently to minimize inconsistency window
-        let (
-            mut running,
-            mut senders,
-            mut receivers,
-            mut states,
-        ) = tokio::join!(
+        let (mut running, mut senders, mut receivers, mut states) = tokio::join!(
             self.running_tasks.write(),
             self.cancel_senders.write(),
             self.pending_cancel_receivers.write(),
@@ -2026,7 +2034,7 @@ struct RunnerTaskExecutor {
 impl TaskExecutor for RunnerTaskExecutor {
     async fn execute(&self, task: &BackgroundAgent) -> Result<bool> {
         let cancel_rx = self.runner.take_cancel_receiver(&task.id).await;
-         self.runner.execute_task(&task.id, cancel_rx).await
+        self.runner.execute_task(&task.id, cancel_rx).await
     }
 }
 

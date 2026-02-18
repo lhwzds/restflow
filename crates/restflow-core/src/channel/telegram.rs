@@ -524,7 +524,7 @@ impl Channel for TelegramChannel {
 
         // Parse conversation_id to extract chat_id and thread_id
         let (chat_id, parsed_thread_id) = Self::parse_conversation_id(&message.conversation_id);
-        
+
         // Use explicit message_thread_id if provided, otherwise use parsed thread_id
         let thread_id = message.message_thread_id.or(parsed_thread_id);
 
@@ -1217,9 +1217,8 @@ mod thread_tests {
 
     #[test]
     fn test_outbound_message_with_thread_id() {
-        let msg = OutboundMessage::new("-10012345", "Test message")
-            .with_message_thread_id(7);
-        
+        let msg = OutboundMessage::new("-10012345", "Test message").with_message_thread_id(7);
+
         assert_eq!(msg.conversation_id, "-10012345");
         assert_eq!(msg.message_thread_id, Some(7));
     }

@@ -248,7 +248,11 @@ async fn update_background_agent(
         return print_json(&agent);
     }
 
-    println!("Background agent updated: {} ({})", agent.name, &agent.id[..8]);
+    println!(
+        "Background agent updated: {} ({})",
+        agent.name,
+        &agent.id[..8]
+    );
     Ok(())
 }
 
@@ -274,7 +278,9 @@ async fn control_background_agent(
     format: OutputFormat,
 ) -> Result<()> {
     let parsed_action = parse_control_action(action)?;
-    executor.control_background_agent(id, parsed_action.clone()).await?;
+    executor
+        .control_background_agent(id, parsed_action.clone())
+        .await?;
 
     if format.is_json() {
         return print_json(&serde_json::json!({"success": true}));
@@ -306,7 +312,12 @@ async fn show_progress(
     println!("Events (last {}):", progress.recent_events.len());
     for event in progress.recent_events {
         let ts = format_timestamp(event.timestamp);
-        println!("  [{}] {:?}: {}", ts, event.event_type, event.message.unwrap_or_default());
+        println!(
+            "  [{}] {:?}: {}",
+            ts,
+            event.event_type,
+            event.message.unwrap_or_default()
+        );
     }
 
     Ok(())
@@ -330,7 +341,10 @@ async fn send_message(
 
 fn parse_schedule(schedule_type: &str, schedule_value: Option<String>) -> Result<TaskSchedule> {
     let value = schedule_value.ok_or_else(|| {
-        anyhow::anyhow!("Schedule value is required for schedule type: {}", schedule_type)
+        anyhow::anyhow!(
+            "Schedule value is required for schedule type: {}",
+            schedule_type
+        )
     })?;
 
     match schedule_type.to_lowercase().as_str() {

@@ -316,7 +316,7 @@ impl SkillFolderLoader {
 
 #[cfg(test)]
 mod tests {
-    use super::{discover_skill_dirs, SkillFolderLoader};
+    use super::{SkillFolderLoader, discover_skill_dirs};
 
     #[test]
     fn test_discover_skill_dirs_root() {

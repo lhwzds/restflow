@@ -48,7 +48,7 @@ impl UncommittedCheckpoint {
     pub fn new(state: &AgentState, task_id: String, reason: String) -> Result<Self> {
         let state_json = serde_json::to_vec(state)
             .map_err(|e| anyhow::anyhow!("Failed to serialize agent state: {}", e))?;
-        
+
         Ok(Self {
             state_json,
             meta: CheckpointMeta {
@@ -80,7 +80,11 @@ impl UncommittedCheckpoint {
 ///
 /// This does NOT write to the database. The checkpoint is held in memory
 /// until `commit_if_success` is called with a successful result.
-pub fn prepare(state: &AgentState, task_id: String, reason: String) -> Result<UncommittedCheckpoint> {
+pub fn prepare(
+    state: &AgentState,
+    task_id: String,
+    reason: String,
+) -> Result<UncommittedCheckpoint> {
     UncommittedCheckpoint::new(state, task_id, reason)
 }
 
@@ -110,8 +114,8 @@ mod tests {
     use super::*;
     use redb::Database;
     use std::sync::Arc;
-    use tempfile::tempdir;
     use tempfile::TempDir;
+    use tempfile::tempdir;
 
     /// Creates a test storage with TempDir kept alive for the test scope.
     /// Returns (TempDir, BackgroundAgentStorage) to ensure TempDir is not dropped early.
@@ -171,8 +175,12 @@ mod tests {
         let mut state = AgentState::new("exec-3".to_string(), 10);
         state.iteration = 2;
 
-        let checkpoint = prepare(&state, "task-789".to_string(), "before tool call".to_string())
-            .expect("prepare should succeed");
+        let checkpoint = prepare(
+            &state,
+            "task-789".to_string(),
+            "before tool call".to_string(),
+        )
+        .expect("prepare should succeed");
 
         assert_eq!(checkpoint.meta.task_id, "task-789");
         assert_eq!(checkpoint.meta.reason, "before tool call");
@@ -217,8 +225,12 @@ mod tests {
         let mut state = AgentState::new("exec-5".to_string(), 10);
         state.iteration = 1;
 
-        let checkpoint = prepare(&state, "task-222".to_string(), "should not persist".to_string())
-            .expect("prepare should succeed");
+        let checkpoint = prepare(
+            &state,
+            "task-222".to_string(),
+            "should not persist".to_string(),
+        )
+        .expect("prepare should succeed");
         let result: Result<()> = Err(anyhow::anyhow!("tool failed"));
 
         let commit_result = commit_if_success(&storage, Some(checkpoint), &result);
@@ -247,6 +259,9 @@ mod tests {
             "task-333".to_string(),
             "test serialization".to_string(),
         );
-        assert!(result.is_ok(), "serialization should succeed with valid state");
+        assert!(
+            result.is_ok(),
+            "serialization should succeed with valid state"
+        );
     }
 }

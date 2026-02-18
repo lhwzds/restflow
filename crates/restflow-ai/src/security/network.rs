@@ -35,19 +35,15 @@ impl NetworkEcosystem {
                 "npmjs.com".to_string(),
                 "yarnpkg.com".to_string(),
             ],
-            NetworkEcosystem::Python => vec![
-                "pypi.org".to_string(),
-                "files.pythonhosted.org".to_string(),
-            ],
+            NetworkEcosystem::Python => {
+                vec!["pypi.org".to_string(), "files.pythonhosted.org".to_string()]
+            }
             NetworkEcosystem::Go => vec![
                 "proxy.golang.org".to_string(),
                 "go.dev".to_string(),
                 "pkg.go.dev".to_string(),
             ],
-            NetworkEcosystem::Rust => vec![
-                "crates.io".to_string(),
-                "static.crates.io".to_string(),
-            ],
+            NetworkEcosystem::Rust => vec!["crates.io".to_string(), "static.crates.io".to_string()],
             NetworkEcosystem::Custom(domains) => domains.clone(),
         }
     }
@@ -76,9 +72,10 @@ impl NetworkAllowlist {
             .collect();
 
         // Check exact match or subdomain match
-        allowed.contains(host) || allowed.iter().any(|domain| {
-            host.ends_with(&format!(".{}", domain)) || domain.ends_with(&format!(".{}", host))
-        })
+        allowed.contains(host)
+            || allowed.iter().any(|domain| {
+                host.ends_with(&format!(".{}", domain)) || domain.ends_with(&format!(".{}", host))
+            })
     }
 
     /// Get all allowed domains
@@ -131,11 +128,9 @@ mod tests {
 
     #[test]
     fn test_custom_ecosystem() {
-        let domains = NetworkEcosystem::Custom(vec![
-            "custom.com".to_string(),
-            "example.org".to_string(),
-        ])
-        .allowed_domains();
+        let domains =
+            NetworkEcosystem::Custom(vec!["custom.com".to_string(), "example.org".to_string()])
+                .allowed_domains();
         assert_eq!(domains.len(), 2);
         assert!(domains.contains(&"custom.com".to_string()));
         assert!(domains.contains(&"example.org".to_string()));
@@ -143,10 +138,8 @@ mod tests {
 
     #[test]
     fn test_allowlist_is_host_allowed() {
-        let allowlist = NetworkAllowlist::new(vec![
-            NetworkEcosystem::Defaults,
-            NetworkEcosystem::Python,
-        ]);
+        let allowlist =
+            NetworkAllowlist::new(vec![NetworkEcosystem::Defaults, NetworkEcosystem::Python]);
 
         // Exact match
         assert!(allowlist.is_host_allowed("github.com"));
@@ -163,10 +156,8 @@ mod tests {
 
     #[test]
     fn test_allowlist_allowed_domains() {
-        let allowlist = NetworkAllowlist::new(vec![
-            NetworkEcosystem::Defaults,
-            NetworkEcosystem::Node,
-        ]);
+        let allowlist =
+            NetworkAllowlist::new(vec![NetworkEcosystem::Defaults, NetworkEcosystem::Node]);
 
         let domains = allowlist.allowed_domains();
         assert!(domains.contains(&"github.com".to_string()));

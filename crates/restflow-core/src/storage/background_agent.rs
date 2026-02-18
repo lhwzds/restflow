@@ -1014,8 +1014,14 @@ mod tests {
         let result = storage.resolve_existing_task_id("");
         assert!(result.is_err());
         let err_msg = result.unwrap_err().to_string();
-        assert!(err_msg.contains("ambiguous"), "Error should mention ambiguity");
-        assert!(err_msg.contains("Candidates"), "Error should list candidates");
+        assert!(
+            err_msg.contains("ambiguous"),
+            "Error should mention ambiguity"
+        );
+        assert!(
+            err_msg.contains("Candidates"),
+            "Error should list candidates"
+        );
     }
 
     #[test]

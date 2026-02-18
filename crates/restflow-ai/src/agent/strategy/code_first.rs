@@ -240,16 +240,14 @@ This fetches the data."#;
     #[tokio::test]
     async fn execute_returns_error_until_execution_bridge_is_implemented() {
         use crate::error::AiError;
-        
+
         let strategy = CodeFirstStrategy {
             llm: Arc::new(MockLlmClient::new("test-model")),
             tools: Arc::new(ToolRegistry::new()),
             config: CodeFirstConfig::default(),
         };
 
-        let result = strategy
-            .execute(StrategyConfig::new("fetch users"))
-            .await;
+        let result = strategy.execute(StrategyConfig::new("fetch users")).await;
         assert!(matches!(
             result,
             Err(AiError::Agent(msg)) if msg.contains("not implemented")

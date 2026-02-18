@@ -171,11 +171,13 @@ pub mod persist;
 pub mod preflight;
 pub mod retry;
 pub mod runner;
-pub mod transactional_checkpoint;
 #[cfg(any(test, feature = "test-utils"))]
 pub mod testkit;
+pub mod transactional_checkpoint;
 
 pub use cli_executor::{CliAgentExecutor, create_cli_executor_with_events};
+pub use event_log::{AgentEvent, EventLog};
+pub use event_logging_emitter::EventLoggingEmitter;
 #[cfg(feature = "tauri-runtime")]
 pub use events::TauriEventEmitter;
 pub use events::{
@@ -184,8 +186,6 @@ pub use events::{
 };
 pub use executor::{AgentRuntimeExecutor, SessionExecutionResult, SessionInputMode};
 pub use failover::{FailoverConfig, FailoverManager, ModelStatus, execute_with_failover};
-pub use event_log::{AgentEvent, EventLog};
-pub use event_logging_emitter::EventLoggingEmitter;
 #[cfg(feature = "tauri-runtime")]
 pub use heartbeat::TauriHeartbeatEmitter;
 pub use heartbeat::{

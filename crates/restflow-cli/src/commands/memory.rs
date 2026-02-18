@@ -22,9 +22,11 @@ pub async fn run(
         }
         MemoryCommands::Stats => memory_stats(executor, format).await,
         MemoryCommands::Clear { agent } => clear_memory(executor, agent, format).await,
-        MemoryCommands::Store { content, agent, tags } => {
-            store_memory(executor, content, agent, tags, format).await
-        }
+        MemoryCommands::Store {
+            content,
+            agent,
+            tags,
+        } => store_memory(executor, content, agent, tags, format).await,
     }
 }
 
@@ -178,7 +180,9 @@ async fn store_memory(
         .map(|t| t.split(',').map(|s| s.trim().to_string()).collect())
         .unwrap_or_default();
 
-    let id = executor.store_memory(&agent_id, &content, tags_vec.clone()).await?;
+    let id = executor
+        .store_memory(&agent_id, &content, tags_vec.clone())
+        .await?;
 
     if format.is_json() {
         return print_json(&json!({
