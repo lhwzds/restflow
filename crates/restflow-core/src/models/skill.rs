@@ -218,10 +218,17 @@ impl Skill {
         };
 
         let yaml = serde_yaml::to_string(&frontmatter).unwrap_or_default();
-        format!("---\n{}---\n\n{}", yaml, self.content)
+        format!("---\n{}\n---\n\n{}", yaml, self.content)
     }
 
     /// Parse a skill from markdown with YAML frontmatter
+    ///
+    /// The frontmatter format requires:
+    /// - Opening `---` must be on the first line
+    /// - Closing `---` must be a standalone line (not part of YAML content)
+    ///
+    /// This prevents bugs where YAML values containing `---` (e.g., in strings)
+    /// would incorrectly terminate parsing early.
     pub fn from_markdown(id: &str, markdown: &str) -> anyhow::Result<Self> {
         // Check if the markdown starts with frontmatter
         if !markdown.starts_with("---") {
@@ -230,17 +237,26 @@ impl Skill {
             ));
         }
 
-        // Find the end of frontmatter
-        let rest = &markdown[3..];
-        let end_index = rest
-            .find("---")
+        // Find the end of frontmatter using line-based parsing
+        // The closing `---` must be on its own line (standalone delimiter)
+        let lines: Vec<&str> = markdown.lines().collect();
+
+        // Find the closing delimiter (must be a standalone line with just "---")
+        let end_line_offset = lines.iter()
+            .skip(1)  // Skip the opening "---" line
+            .position(|line| line.trim() == "---").map(|i| i + 1)
             .ok_or_else(|| anyhow::anyhow!("Invalid markdown format: frontmatter not closed"))?;
 
-        let frontmatter_str = &rest[..end_index].trim();
-        let content = rest[end_index + 3..].trim().to_string();
+        // Extract frontmatter lines (between opening "---" and closing "---")
+        let frontmatter_lines = &lines[1..end_line_offset];
+        let frontmatter_str = frontmatter_lines.join("\n");
+
+        // Extract content (everything after the closing "---" line)
+        let content_start = lines[..=end_line_offset].join("\n").len() + "\n".len();
+        let content = markdown[content_start..].trim().to_string();
 
         // Parse the YAML frontmatter
-        let frontmatter: SkillFrontmatter = serde_yaml::from_str(frontmatter_str)?;
+        let frontmatter: SkillFrontmatter = serde_yaml::from_str(&frontmatter_str)?;
 
         let mut skill = Self::new(
             id.to_string(),
@@ -412,5 +428,48 @@ Done"#;
         assert_eq!(reference.path, "references/ref-1.md");
         assert_eq!(reference.title.as_deref(), Some("Reference One"));
         assert_eq!(reference.summary.as_deref(), Some("One line summary"));
+    }
+
+    #[test]
+    fn test_frontmatter_with_dash_in_value() {
+        // This is the bug case: YAML value containing "---" should not terminate parsing
+        let markdown = r#"---
+name: Test Skill
+description: "Supports --- separator"
+tags:
+  - test
+---
+
+# Content"#;
+
+        let skill = Skill::from_markdown("test", markdown).unwrap();
+        assert_eq!(skill.name, "Test Skill");
+        // The description should contain the full value, not be truncated
+        assert_eq!(
+            skill.description,
+            Some("Supports --- separator".to_string())
+        );
+        assert!(skill.content.contains("# Content"));
+    }
+
+    #[test]
+    fn test_frontmatter_with_multiline_string_containing_dashes() {
+        // Test multiline YAML value with dashes
+        let markdown = r#"---
+name: Multi-line Skill
+description: |
+  This is a multi-line
+  description with
+  --- in the middle
+tags:
+  - multiline
+---
+
+# Skill Content"#;
+
+        let skill = Skill::from_markdown("multiline", markdown).unwrap();
+        assert_eq!(skill.name, "Multi-line Skill");
+        assert!(skill.description.unwrap().contains("---"));
+        assert!(skill.content.contains("# Skill Content"));
     }
 }

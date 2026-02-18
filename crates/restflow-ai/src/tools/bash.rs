@@ -1,10 +1,32 @@
 //! Bash command execution tool for AI agents
 //!
 //! Provides shell command execution with:
-//! - Configurable timeout (default 120s)
+//! - Configurable timeout (default 300s)
 //! - Output truncation for large outputs
 //! - Working directory support
 //! - Security check integration (optional)
+//!
+//! # Timeout Architecture
+//!
+//! This tool has an **internal timeout** for command execution. When used within
+//! an agent executor, there are **two layers of timeout**:
+//!
+//! 1. **Tool-internal timeout** (this file): Controls how long the shell command
+//!    can run before being terminated. Default: 300s. Configurable via
+//!    `BashTool::with_timeout()` or the `timeout` input parameter.
+//!
+//! 2. **Agent wrapper timeout** (`executor.rs`): Controls how long the entire
+//!    tool execution can take, including overhead. Default: 300s.
+//!
+//! **Important**: To avoid confusing timeout errors, ensure the agent wrapper
+//! timeout (`tool_timeout_secs`) is **greater than or equal to** the tool-internal
+//! timeout (`bash_timeout_secs`). If the wrapper timeout fires first, you'll get
+//! a generic "Tool bash timed out" error instead of the more specific internal
+//! timeout message.
+//!
+//! **Recommended configuration**:
+//! - `agent.tool_timeout_secs` >= `agent.bash_timeout_secs` + 10s buffer
+//! - Example: `tool_timeout_secs=320`, `bash_timeout_secs=300`
 //!
 //! # Example
 //!
@@ -234,7 +256,7 @@ pub struct BashInput {
     /// Working directory (optional)
     #[serde(default)]
     pub workdir: Option<String>,
-    /// Timeout in seconds (optional, default: 120)
+    /// Timeout in seconds (optional, default: 300)
     #[serde(default)]
     pub timeout: Option<u64>,
     /// Internal flag for executor-driven approval bypass.
@@ -281,7 +303,7 @@ impl Tool for BashTool {
                 },
                 "timeout": {
                     "type": "integer",
-                    "description": "Timeout in seconds (default: 120)"
+                    "description": "Timeout in seconds (default: 300)"
                 }
             },
             "required": ["command"]

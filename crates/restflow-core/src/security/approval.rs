@@ -119,9 +119,13 @@ impl ApprovalManager {
             pending.insert(id.clone(), approval.clone());
         }
 
-        // Notify via callback
-        if let Some(callback) = &self.callback {
-            callback.request_approval(&approval).await?;
+        // Notify via callback - rollback on failure to prevent invisible pending approvals
+        if let Some(callback) = &self.callback
+            && let Err(e) = callback.request_approval(&approval).await
+        {
+            let mut pending = self.pending.write().await;
+            pending.remove(&id);
+            return Err(e);
         }
 
         Ok(id)
@@ -599,5 +603,126 @@ mod tests {
 
         let resolve_count = *callback.resolve_count.read().await;
         assert_eq!(resolve_count, 1);
+    }
+
+    /// Test callback that always fails
+    struct FailingCallback {
+        fail_count: RwLock<usize>,
+    }
+
+    impl FailingCallback {
+        fn new() -> Self {
+            Self {
+                fail_count: RwLock::new(0),
+            }
+        }
+    }
+
+    #[async_trait]
+    impl ApprovalCallback for FailingCallback {
+        async fn request_approval(&self, _approval: &PendingApproval) -> anyhow::Result<()> {
+            let mut count = self.fail_count.write().await;
+            *count += 1;
+            anyhow::bail!("Simulated callback failure")
+        }
+    }
+
+    /// Regression test: callback failure should rollback the pending approval
+    /// so that retry will re-notify the user.
+    #[tokio::test]
+    async fn test_callback_failure_rollback() {
+        let callback = Arc::new(FailingCallback::new());
+        let manager = ApprovalManager::new().with_callback(callback.clone());
+
+        // First call should fail and rollback
+        let result = manager
+            .create_approval("cmd", "task-1", "agent-1", None)
+            .await;
+        assert!(result.is_err(), "First call should fail");
+
+        // Verify the approval was rolled back (not in memory)
+        let pending = manager.get_all_pending().await;
+        assert!(
+            pending.is_empty(),
+            "Pending approval should be rolled back after callback failure"
+        );
+
+        // Verify callback was called once
+        let fail_count = *callback.fail_count.read().await;
+        assert_eq!(fail_count, 1, "Callback should have been called once");
+
+        // Retry with a succeeding callback should work
+        let success_callback = Arc::new(MockCallback::new());
+        let mut manager2 = ApprovalManager::new();
+        manager2.set_callback(success_callback.clone());
+        let result = manager2
+            .create_approval("cmd", "task-1", "agent-1", None)
+            .await;
+        assert!(result.is_ok(), "Retry should succeed with working callback");
+    }
+
+    /// Regression test: retry after callback failure should re-notify
+    /// (not hit dedup logic and skip notification)
+    #[tokio::test]
+    async fn test_callback_failure_retry_renotifies() {
+        // Use a callback that fails first time, succeeds second time
+        struct ToggleCallback {
+            should_fail: RwLock<bool>,
+            call_count: RwLock<usize>,
+        }
+
+        impl ToggleCallback {
+            fn new() -> Self {
+                Self {
+                    should_fail: RwLock::new(true),
+                    call_count: RwLock::new(0),
+                }
+            }
+        }
+
+        #[async_trait]
+        impl ApprovalCallback for ToggleCallback {
+            async fn request_approval(&self, _approval: &PendingApproval) -> anyhow::Result<()> {
+                let mut count = self.call_count.write().await;
+                *count += 1;
+                let should_fail = *self.should_fail.read().await;
+                if should_fail {
+                    anyhow::bail!("First call fails")
+                }
+                Ok(())
+            }
+        }
+
+        let callback = Arc::new(ToggleCallback::new());
+        let manager = ApprovalManager::new().with_callback(callback.clone());
+
+        // First call should fail
+        let result = manager
+            .create_approval("cmd", "task-1", "agent-1", None)
+            .await;
+        assert!(result.is_err());
+
+        // Verify call count is 1
+        let call_count = *callback.call_count.read().await;
+        assert_eq!(call_count, 1);
+
+        // Make the callback succeed now
+        {
+            let mut should_fail = callback.should_fail.write().await;
+            *should_fail = false;
+        }
+
+        // Retry - should succeed and call callback again (not dedup)
+        let result = manager
+            .create_approval("cmd", "task-1", "agent-1", None)
+            .await;
+        assert!(result.is_ok(), "Retry should succeed");
+
+        // Verify callback was called again (total 2 calls)
+        let call_count = *callback.call_count.read().await;
+        assert_eq!(
+            call_count, 2,
+            "Callback should be called twice (not deduped)"
+        );
     }
 }
