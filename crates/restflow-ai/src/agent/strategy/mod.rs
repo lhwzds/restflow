@@ -105,6 +105,7 @@
 //! let result = agent.execute(config).await?;
 //! ```
 
+mod code_first;
 mod hierarchical;
 mod preact;
 mod reflexion;
@@ -112,6 +113,7 @@ mod swarm;
 mod tot;
 mod traits;
 
+pub use code_first::{CodeFirstConfig, CodeFirstStrategy};
 pub use hierarchical::{HierarchicalConfig, HierarchicalStrategy};
 pub use preact::{PreActConfig, PreActStrategy};
 pub use reflexion::{ReflexionConfig, ReflexionStrategy};
@@ -140,6 +142,8 @@ pub enum StrategyType {
     Swarm,
     /// Tree-of-Thought: Explore multiple reasoning paths
     TreeOfThought,
+    /// CodeFirst: LLM generates Python code that calls tools as functions
+    CodeFirst,
 }
 
 impl std::fmt::Display for StrategyType {
@@ -151,6 +155,7 @@ impl std::fmt::Display for StrategyType {
             Self::Hierarchical => write!(f, "hierarchical"),
             Self::Swarm => write!(f, "swarm"),
             Self::TreeOfThought => write!(f, "tree-of-thought"),
+            Self::CodeFirst => write!(f, "code-first"),
         }
     }
 }
@@ -166,6 +171,7 @@ impl std::str::FromStr for StrategyType {
             "hierarchical" => Ok(Self::Hierarchical),
             "swarm" => Ok(Self::Swarm),
             "tot" | "tree-of-thought" | "treeofthought" => Ok(Self::TreeOfThought),
+            "codefirst" | "code-first" => Ok(Self::CodeFirst),
             _ => Err(format!("Unknown strategy: {}", s)),
         }
     }
@@ -199,6 +205,7 @@ impl AgentStrategyFactory {
             StrategyType::Hierarchical => Box::new(HierarchicalStrategy::new(llm, tools)),
             StrategyType::Swarm => Box::new(SwarmStrategy::new(llm, tools)),
             StrategyType::TreeOfThought => Box::new(TreeOfThoughtStrategy::new(llm, tools)),
+            StrategyType::CodeFirst => Box::new(CodeFirstStrategy::new(llm, tools)),
         }
     }
 
@@ -255,5 +262,16 @@ impl AgentStrategy for ReactStrategyAdapter {
             total_tokens: result.total_tokens,
             strategy_metadata: Default::default(),
         })
+    }
+}
+
+#[cfg(test)]
+mod strategy_tests {
+    use super::*;
+
+    #[test]
+    fn code_first_is_not_reported_as_implemented_until_execution_bridge_exists() {
+        assert!(!AgentStrategyFactory::is_implemented(StrategyType::CodeFirst));
+        assert!(AgentStrategyFactory::is_implemented(StrategyType::ReAct));
     }
 }
