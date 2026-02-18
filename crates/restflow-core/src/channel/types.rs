@@ -206,6 +206,12 @@ impl OutboundMessage {
         self
     }
 
+    /// Clear parse mode (disable markdown/html parsing)
+    pub fn without_parse_mode(mut self) -> Self {
+        self.parse_mode = None;
+        self
+    }
+
     /// Create a success message
     pub fn success(conversation_id: impl Into<String>, content: impl Into<String>) -> Self {
         Self::new(conversation_id, content).with_level(MessageLevel::Success)
@@ -223,7 +229,11 @@ impl OutboundMessage {
 
     /// Create a plain message without emoji prefix (for AI chat responses)
     pub fn plain(conversation_id: impl Into<String>, content: impl Into<String>) -> Self {
-        Self::new(conversation_id, content).with_level(MessageLevel::Plain)
+        // Plain messages should not use any parse mode to avoid Telegram API
+        // rejecting messages with invalid markdown characters.
+        Self::new(conversation_id, content)
+            .with_level(MessageLevel::Plain)
+            .without_parse_mode()
     }
 
     /// Format the message with emoji prefix based on level
@@ -339,6 +349,14 @@ mod tests {
             msg_with_title.formatted_content(),
             "*Greeting*\n\nHello world"
         );
+    }
+
+    #[test]
+    fn test_plain_message_disables_parse_mode() {
+        // Plain messages should have parse_mode = None to avoid Telegram API
+        // rejecting messages with invalid markdown characters
+        let msg = OutboundMessage::plain("123", "Hello world");
+        assert_eq!(msg.parse_mode, None);
     }
 
     #[test]
