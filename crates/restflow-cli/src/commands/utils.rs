@@ -1,6 +1,6 @@
 use anyhow::{Result, bail};
 use chrono::{DateTime, Local, TimeZone};
-use restflow_core::models::AIModel;
+use restflow_core::models::{AIModel, Provider};
 
 pub fn format_timestamp(timestamp: Option<i64>) -> String {
     let Some(ts) = timestamp else {
@@ -62,10 +62,15 @@ pub fn parse_model(input: &str) -> Result<AIModel> {
         // MiniMax
         "minimax-m2-1" => AIModel::MiniMaxM21,
         "minimax-m2-5" => AIModel::MiniMaxM25,
+        "minimax-coding-plan-m2-1" => AIModel::MiniMaxM21CodingPlan,
+        "minimax-coding-plan-m2-5" => AIModel::MiniMaxM25CodingPlan,
         // Zai
         "glm-5" | "glm5" => AIModel::Glm5,
         "glm-5-code" | "glm5-code" => AIModel::Glm5Code,
         "glm-4.7" | "glm-4-7" | "glm" => AIModel::Glm4_7,
+        "zai-coding-plan-glm-5" => AIModel::Glm5CodingPlan,
+        "zai-coding-plan-glm-5-code" => AIModel::Glm5CodeCodingPlan,
+        "zai-coding-plan-glm-4-7" => AIModel::Glm4_7CodingPlan,
         // Moonshot
         "kimi-k2.5" | "kimi-k2-5" | "kimi" | "moonshot" => AIModel::KimiK2_5,
         // Doubao
@@ -75,12 +80,77 @@ pub fn parse_model(input: &str) -> Result<AIModel> {
         // Aggregators
         "openrouter" => AIModel::OpenRouterAuto,
         "siliconflow" => AIModel::SiliconFlowAuto,
-        _ => {
-            bail!("Unknown model: {input}")
-        }
+        _ => AIModel::from_api_name(input).ok_or_else(|| anyhow::anyhow!("Unknown model: {input}"))?,
     };
 
     Ok(model)
+}
+
+pub fn parse_provider(input: &str) -> Result<Provider> {
+    let normalized = input.trim().to_ascii_lowercase();
+    let provider = match normalized.as_str() {
+        "openai" | "gpt" => Provider::OpenAI,
+        "anthropic" | "claude" => Provider::Anthropic,
+        "deepseek" => Provider::DeepSeek,
+        "google" | "gemini" => Provider::Google,
+        "groq" => Provider::Groq,
+        "openrouter" => Provider::OpenRouter,
+        "xai" | "x.ai" => Provider::XAI,
+        "qwen" => Provider::Qwen,
+        "zai" | "zhipu" => Provider::Zai,
+        "zai-coding-plan" | "zai-coding" | "zhipu-coding-plan" => Provider::ZaiCodingPlan,
+        "moonshot" | "kimi" => Provider::Moonshot,
+        "doubao" | "ark" => Provider::Doubao,
+        "yi" => Provider::Yi,
+        "siliconflow" => Provider::SiliconFlow,
+        "minimax" => Provider::MiniMax,
+        "minimax-coding-plan" | "minimax-coding" => Provider::MiniMaxCodingPlan,
+        _ => bail!("Unknown provider: {input}"),
+    };
+
+    Ok(provider)
+}
+
+pub fn parse_model_for_provider(provider: Provider, input: &str) -> Result<AIModel> {
+    if let Some(model) = AIModel::for_provider_and_model(provider, input) {
+        return Ok(model);
+    }
+
+    if let Some(parsed) = AIModel::from_api_name(input) {
+        if parsed.provider() == provider {
+            return Ok(parsed);
+        }
+        if let Some(remapped) = parsed.remap_provider(provider) {
+            return Ok(remapped);
+        }
+    }
+
+    bail!(
+        "Model '{}' does not belong to provider '{}'",
+        input,
+        provider_label(provider)
+    )
+}
+
+fn provider_label(provider: Provider) -> &'static str {
+    match provider {
+        Provider::OpenAI => "openai",
+        Provider::Anthropic => "anthropic",
+        Provider::DeepSeek => "deepseek",
+        Provider::Google => "google",
+        Provider::Groq => "groq",
+        Provider::OpenRouter => "openrouter",
+        Provider::XAI => "xai",
+        Provider::Qwen => "qwen",
+        Provider::Zai => "zai",
+        Provider::ZaiCodingPlan => "zai-coding-plan",
+        Provider::Moonshot => "moonshot",
+        Provider::Doubao => "doubao",
+        Provider::Yi => "yi",
+        Provider::SiliconFlow => "siliconflow",
+        Provider::MiniMax => "minimax",
+        Provider::MiniMaxCodingPlan => "minimax-coding-plan",
+    }
 }
 
 pub fn slugify(input: &str) -> String {

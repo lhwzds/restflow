@@ -362,6 +362,9 @@ pub enum AgentCommands {
         #[arg(short, long)]
         name: String,
 
+        #[arg(long)]
+        provider: Option<String>,
+
         #[arg(short, long)]
         model: Option<String>,
 
@@ -381,6 +384,9 @@ pub enum AgentCommands {
 
         #[arg(short, long)]
         name: Option<String>,
+
+        #[arg(long)]
+        provider: Option<String>,
 
         #[arg(short, long)]
         model: Option<String>,

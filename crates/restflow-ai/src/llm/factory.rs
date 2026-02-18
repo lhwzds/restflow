@@ -21,11 +21,13 @@ pub enum LlmProvider {
     XAI,
     Qwen,
     Zai,
+    ZaiCodingPlan,
     Moonshot,
     Doubao,
     Yi,
     SiliconFlow,
     MiniMax,
+    MiniMaxCodingPlan,
 }
 
 impl LlmProvider {
@@ -40,11 +42,13 @@ impl LlmProvider {
             Self::XAI => "xai",
             Self::Qwen => "qwen",
             Self::Zai => "zai",
+            Self::ZaiCodingPlan => "zai-coding-plan",
             Self::Moonshot => "moonshot",
             Self::Doubao => "doubao",
             Self::Yi => "yi",
             Self::SiliconFlow => "siliconflow",
             Self::MiniMax => "minimax",
+            Self::MiniMaxCodingPlan => "minimax-coding-plan",
         }
     }
 
@@ -59,11 +63,13 @@ impl LlmProvider {
             Self::XAI => "https://api.x.ai/v1",
             Self::Qwen => "https://dashscope.aliyuncs.com/compatible-mode/v1",
             Self::Zai => "https://api.z.ai/api/paas/v4",
+            Self::ZaiCodingPlan => "https://api.z.ai/api/coding/paas/v4",
             Self::Moonshot => "https://api.moonshot.cn/v1",
             Self::Doubao => "https://ark.cn-beijing.volces.com/api/v3",
             Self::Yi => "https://api.lingyiwanwu.com/v1",
             Self::SiliconFlow => "https://api.siliconflow.cn/v1",
             Self::MiniMax => "https://api.minimax.io",
+            Self::MiniMaxCodingPlan => "https://api.minimax.io",
         }
     }
 }
@@ -208,7 +214,7 @@ impl LlmClientFactory for DefaultLlmClientFactory {
                         Arc::new(AnthropicClient::new(key).with_model(spec.client_model))
                     }
                 }
-                LlmProvider::MiniMax => Arc::new(
+                LlmProvider::MiniMax | LlmProvider::MiniMaxCodingPlan => Arc::new(
                     AnthropicClient::new(key)
                         .with_model(spec.client_model)
                         .with_base_url("https://api.minimax.io/anthropic"),

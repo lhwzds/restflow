@@ -3,7 +3,9 @@ use comfy_table::{Cell, Table};
 use std::sync::Arc;
 
 use crate::cli::{AgentCommands, CodexExecutionModeArg};
-use crate::commands::utils::{format_timestamp, parse_model};
+use crate::commands::utils::{
+    format_timestamp, parse_model, parse_model_for_provider, parse_provider,
+};
 use crate::executor::CommandExecutor;
 use crate::output::{OutputFormat, json::print_json};
 use restflow_core::models::{AgentNode, CodexCliExecutionMode};
@@ -18,6 +20,7 @@ pub async fn run(
         AgentCommands::Show { id } => show_agent(executor, &id, format).await,
         AgentCommands::Create {
             name,
+            provider,
             model,
             prompt,
             codex_execution_mode,
@@ -26,6 +29,7 @@ pub async fn run(
             create_agent(
                 executor,
                 &name,
+                provider,
                 model,
                 prompt,
                 codex_execution_mode,
@@ -37,6 +41,7 @@ pub async fn run(
         AgentCommands::Update {
             id,
             name,
+            provider,
             model,
             codex_execution_mode,
             codex_reasoning_effort,
@@ -45,6 +50,7 @@ pub async fn run(
                 executor,
                 &id,
                 name,
+                provider,
                 model,
                 codex_execution_mode,
                 codex_reasoning_effort,
@@ -123,15 +129,24 @@ async fn show_agent(
 async fn create_agent(
     executor: Arc<dyn CommandExecutor>,
     name: &str,
+    provider: Option<String>,
     model: Option<String>,
     prompt: Option<String>,
     codex_execution_mode: Option<CodexExecutionModeArg>,
     codex_reasoning_effort: Option<String>,
     format: OutputFormat,
 ) -> Result<()> {
-    let mut agent_node = match model {
-        Some(value) => AgentNode::with_model(parse_model(&value)?),
-        None => AgentNode::new(),
+    let mut agent_node = match (provider, model) {
+        (Some(provider), Some(model)) => {
+            let provider = parse_provider(&provider)?;
+            AgentNode::with_model(parse_model_for_provider(provider, &model)?)
+        }
+        (Some(provider), None) => {
+            let provider = parse_provider(&provider)?;
+            AgentNode::with_model(provider.flagship_model())
+        }
+        (None, Some(model)) => AgentNode::with_model(parse_model(&model)?),
+        (None, None) => AgentNode::new(),
     };
     if let Some(prompt) = prompt {
         agent_node = agent_node.with_prompt(prompt);
@@ -157,6 +172,7 @@ async fn update_agent(
     executor: Arc<dyn CommandExecutor>,
     id: &str,
     name: Option<String>,
+    provider: Option<String>,
     model: Option<String>,
     codex_execution_mode: Option<CodexExecutionModeArg>,
     codex_reasoning_effort: Option<String>,
@@ -164,8 +180,25 @@ async fn update_agent(
 ) -> Result<()> {
     let mut existing = executor.get_agent(id).await?;
 
-    if let Some(model) = model {
-        let parsed = parse_model(&model)?;
+    let parsed_model = match (provider, model) {
+        (Some(provider), Some(model)) => {
+            let provider = parse_provider(&provider)?;
+            Some(parse_model_for_provider(provider, &model)?)
+        }
+        (Some(provider), None) => {
+            let provider = parse_provider(&provider)?;
+            match existing.agent.model {
+                Some(current) => current
+                    .remap_provider(provider)
+                    .or(Some(provider.flagship_model())),
+                None => Some(provider.flagship_model()),
+            }
+        }
+        (None, Some(model)) => Some(parse_model(&model)?),
+        (None, None) => None,
+    };
+
+    if let Some(parsed) = parsed_model {
         existing.agent.model = Some(parsed);
         // Clear codex-related fields when switching to non-Codex model
         if !parsed.is_codex_cli() {

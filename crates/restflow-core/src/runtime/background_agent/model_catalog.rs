@@ -317,13 +317,13 @@ fn models_dev_provider_candidates(provider: Provider) -> &'static [&'static str]
         Provider::XAI => &["xai"],
         Provider::Qwen => &["alibaba-cn", "alibaba"],
         Provider::Zai => &["zai", "zhipuai"],
-        Provider::ZaiCodingPlan => &["zai-coding-plan", "zhipuai-coding-plan", "zai", "zhipuai"],
+        Provider::ZaiCodingPlan => &["zai-coding-plan", "zhipuai-coding-plan"],
         Provider::Moonshot => &["moonshotai", "moonshotai-cn", "kimi-for-coding"],
         Provider::Doubao => &["doubao", "doubao-cn", "ark"],
         Provider::Yi => &["yi"],
         Provider::SiliconFlow => &["siliconflow", "siliconflow-cn"],
-        Provider::MiniMax => &["minimax", "minimax-cn", "minimax-coding-plan", "minimax-cn-coding-plan"],
-        Provider::MiniMaxCodingPlan => &["minimax-coding-plan", "minimax-cn-coding-plan", "minimax", "minimax-cn"],
+        Provider::MiniMax => &["minimax", "minimax-cn"],
+        Provider::MiniMaxCodingPlan => &["minimax-coding-plan", "minimax-cn-coding-plan"],
     }
 }
 

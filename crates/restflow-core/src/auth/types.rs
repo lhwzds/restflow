@@ -369,6 +369,10 @@ impl AuthProvider {
             Provider::Anthropic => vec![AuthProvider::ClaudeCode, AuthProvider::Anthropic],
             Provider::OpenAI => vec![AuthProvider::OpenAICodex, AuthProvider::OpenAI],
             Provider::Google => vec![AuthProvider::Google],
+            Provider::MiniMax
+            | Provider::MiniMaxCodingPlan
+            | Provider::Zai
+            | Provider::ZaiCodingPlan => vec![],
             _ => vec![AuthProvider::Other],
         }
     }

@@ -288,34 +288,6 @@ impl AgentRuntimeExecutor {
             return Ok(secret_value);
         }
 
-        match provider {
-            Provider::MiniMax => {
-                if let Some(secret_value) = self
-                    .storage
-                    .secrets
-                    .get_secret("MINIMAX_CODING_PLAN_API_KEY")?
-                {
-                    return Ok(secret_value);
-                }
-            }
-            Provider::MiniMaxCodingPlan => {
-                if let Some(secret_value) = self.storage.secrets.get_secret("MINIMAX_API_KEY")? {
-                    return Ok(secret_value);
-                }
-            }
-            Provider::Zai => {
-                if let Some(secret_value) = self.storage.secrets.get_secret("ZAI_CODING_PLAN_API_KEY")? {
-                    return Ok(secret_value);
-                }
-            }
-            Provider::ZaiCodingPlan => {
-                if let Some(secret_value) = self.storage.secrets.get_secret("ZAI_API_KEY")? {
-                    return Ok(secret_value);
-                }
-            }
-            _ => {}
-        }
-
         Err(anyhow!(
             "No API key configured for provider {:?}. Please add secret '{}' in Settings.",
             provider,
@@ -349,13 +321,13 @@ impl AgentRuntimeExecutor {
             Provider::XAI => AIModel::Grok4,
             Provider::Qwen => AIModel::Qwen3Max,
             Provider::Zai => AIModel::Glm5,
-            Provider::ZaiCodingPlan => AIModel::Glm5,
+            Provider::ZaiCodingPlan => AIModel::Glm5CodingPlan,
             Provider::Moonshot => AIModel::KimiK2_5,
             Provider::Doubao => AIModel::DoubaoPro,
             Provider::Yi => AIModel::YiLightning,
             Provider::SiliconFlow => AIModel::SiliconFlowAuto,
             Provider::MiniMax => AIModel::MiniMaxM25,
-            Provider::MiniMaxCodingPlan => AIModel::MiniMaxM25,
+            Provider::MiniMaxCodingPlan => AIModel::MiniMaxM25CodingPlan,
         }
     }
 
@@ -461,9 +433,29 @@ impl AgentRuntimeExecutor {
         }
 
         // Finally, fall back to explicit provider secrets in storage.
-        for provider in Provider::all() {
+        // Prefer coding-plan providers before regular providers when both exist.
+        const SECRET_PROVIDER_ORDER: [Provider; 16] = [
+            Provider::MiniMaxCodingPlan,
+            Provider::MiniMax,
+            Provider::ZaiCodingPlan,
+            Provider::Zai,
+            Provider::Anthropic,
+            Provider::OpenAI,
+            Provider::Google,
+            Provider::DeepSeek,
+            Provider::Groq,
+            Provider::OpenRouter,
+            Provider::XAI,
+            Provider::Qwen,
+            Provider::Moonshot,
+            Provider::Doubao,
+            Provider::Yi,
+            Provider::SiliconFlow,
+        ];
+
+        for provider in SECRET_PROVIDER_ORDER {
             if self.has_non_empty_secret(provider.api_key_env())? {
-                return Ok(Some(Self::default_model_for_provider(*provider)));
+                return Ok(Some(Self::default_model_for_provider(provider)));
             }
         }
 
@@ -2262,7 +2254,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_resolve_api_key_uses_zai_coding_plan_secret_for_zai_provider() {
+    async fn test_resolve_api_key_requires_matching_zai_secret() {
         let (storage, _temp_dir) = create_test_storage();
         storage
             .secrets
@@ -2270,20 +2262,19 @@ mod tests {
             .unwrap();
         let executor = create_test_executor(storage);
 
-        let key = executor
+        let result = executor
             .resolve_api_key_for_model(
                 Provider::Zai,
                 None,
                 Provider::Zai,
             )
-            .await
-            .unwrap();
+            .await;
 
-        assert_eq!(key, "zai-coding-plan-key");
+        assert!(result.is_err());
     }
 
     #[tokio::test]
-    async fn test_resolve_api_key_uses_zai_secret_for_zai_coding_plan_provider() {
+    async fn test_resolve_api_key_requires_matching_zai_coding_plan_secret() {
         let (storage, _temp_dir) = create_test_storage();
         storage
             .secrets
@@ -2291,16 +2282,15 @@ mod tests {
             .unwrap();
         let executor = create_test_executor(storage);
 
-        let key = executor
+        let result = executor
             .resolve_api_key_for_model(
                 Provider::ZaiCodingPlan,
                 None,
                 Provider::ZaiCodingPlan,
             )
-            .await
-            .unwrap();
+            .await;
 
-        assert_eq!(key, "zai-key");
+        assert!(result.is_err());
     }
 
     #[test]
