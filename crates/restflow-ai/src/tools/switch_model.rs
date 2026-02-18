@@ -45,10 +45,17 @@ impl SwitchModelTool {
             "xai" => Some(ProviderSelector::Api(LlmProvider::XAI)),
             "qwen" => Some(ProviderSelector::Api(LlmProvider::Qwen)),
             "zai" => Some(ProviderSelector::Api(LlmProvider::Zai)),
+            "zaicodingplan" | "zaicoding" => {
+                Some(ProviderSelector::Api(LlmProvider::ZaiCodingPlan))
+            }
             "moonshot" => Some(ProviderSelector::Api(LlmProvider::Moonshot)),
             "doubao" => Some(ProviderSelector::Api(LlmProvider::Doubao)),
             "yi" => Some(ProviderSelector::Api(LlmProvider::Yi)),
             "siliconflow" => Some(ProviderSelector::Api(LlmProvider::SiliconFlow)),
+            "minimax" => Some(ProviderSelector::Api(LlmProvider::MiniMax)),
+            "minimaxcodingplan" | "minimaxcoding" => {
+                Some(ProviderSelector::Api(LlmProvider::MiniMaxCodingPlan))
+            }
             "codex" | "codexcli" | "openaicodex" => Some(ProviderSelector::OpenAICodex),
             "opencode" | "opencodecli" => Some(ProviderSelector::OpenCodeCli),
             "geminicli" => Some(ProviderSelector::GeminiCli),
@@ -121,7 +128,7 @@ impl SwitchModelTool {
         let provider_raw = requested_provider.expect("requested_provider checked above");
         let provider = Self::parse_provider(provider_raw).ok_or_else(|| {
             AiError::Tool(format!(
-                "Unknown provider: {provider_raw}. Use provider names like openai, anthropic, claude-code, openai-codex, gemini-cli"
+                "Unknown provider: {provider_raw}. Use provider names like openai, anthropic, minimax, minimax-coding-plan, zai, zai-coding-plan, claude-code, openai-codex, gemini-cli"
             ))
         })?;
 

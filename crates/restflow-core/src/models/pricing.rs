@@ -71,6 +71,14 @@ impl AIModel {
                 cost_per_1m_input: 1.2,
                 cost_per_1m_output: 5.0,
             }),
+            Self::Glm5CodingPlan => Some(ModelPricing {
+                cost_per_1m_input: 1.0,
+                cost_per_1m_output: 3.2,
+            }),
+            Self::Glm5CodeCodingPlan => Some(ModelPricing {
+                cost_per_1m_input: 1.2,
+                cost_per_1m_output: 5.0,
+            }),
 
             // Other providers (pricing varies by provider)
             Self::Gemini25Pro
@@ -85,6 +93,7 @@ impl AIModel {
             | Self::Qwen3Max
             | Self::Qwen3Plus
             | Self::Glm4_7
+            | Self::Glm4_7CodingPlan
             | Self::KimiK2_5
             | Self::DoubaoPro
             | Self::YiLightning
@@ -114,7 +123,9 @@ impl AIModel {
             | Self::OpenCodeCli
             | Self::GeminiCli
             | Self::MiniMaxM25
-            | Self::MiniMaxM21 => None,
+            | Self::MiniMaxM21
+            | Self::MiniMaxM25CodingPlan
+            | Self::MiniMaxM21CodingPlan => None,
         }
     }
 }
