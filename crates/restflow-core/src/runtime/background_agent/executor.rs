@@ -1384,12 +1384,14 @@ impl AgentRuntimeExecutor {
                         state_json,
                         "periodic_checkpoint".to_string(),
                     );
+                    // Atomic checkpoint + savepoint: first save with savepoint (no savepoint_id in data),
+                    // then re-save with savepoint_id embedded to close the race window.
                     let savepoint_id = checkpoints
                         .save_checkpoint_with_savepoint(&checkpoint)
-                        .map_err(|e| AiError::Agent(format!("Failed to save checkpoint: {e}")))?;
+                        .map_err(|e| AiError::Agent(format!("Failed to save checkpoint with savepoint: {e}")))?;
                     checkpoint.savepoint_id = Some(savepoint_id);
-                    checkpoints.save_checkpoint(&checkpoint).map_err(|e| {
-                        AiError::Agent(format!("Failed to persist savepoint id: {e}"))
+                    checkpoints.save_checkpoint_with_savepoint_id(&checkpoint).map_err(|e| {
+                        AiError::Agent(format!("Failed to persist checkpoint with savepoint id: {e}"))
                     })?;
                     Ok(())
                 }
