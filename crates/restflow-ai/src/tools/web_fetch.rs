@@ -291,8 +291,9 @@ impl Tool for WebFetchTool {
     fn description(&self) -> &str {
         "Fetch and read a webpage. Returns clean text extracted from HTML. \
          Works best with static content (news articles, blog posts, documentation, wikis). \
-         If the result is empty or too short, the page may require JavaScript rendering \
-         — try jina_reader instead."
+         DO NOT use for: SPAs, React/Vue/Angular apps, pages with lazy-loaded content, or \
+         any page that requires JavaScript to render. For those, use jina_reader instead. \
+         If the result is empty or too short, the page likely requires JavaScript rendering."
     }
 
     fn parameters_schema(&self) -> Value {

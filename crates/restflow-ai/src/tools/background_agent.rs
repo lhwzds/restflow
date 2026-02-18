@@ -285,7 +285,7 @@ impl Tool for BackgroundAgentTool {
     }
 
     fn description(&self) -> &str {
-        "Manage background agents. Operations: create (define new agent), run (trigger now), pause/resume (toggle schedule), cancel (stop permanently), delete (remove definition), list (browse agents), progress (execution history), send_message/list_messages (interact with running agents), list_deliverables (typed outputs), list_scratchpads/read_scratchpad (diagnose execution traces)."
+        "Manage background agents. CRITICAL: create only defines the task, to immediately execute use 'run' operation. Operations: create (define new agent, does NOT run), run (trigger now), pause/resume (toggle schedule), cancel (stop permanently), delete (remove definition), list (browse agents), progress (execution history), send_message/list_messages (interact with running agents), list_deliverables (typed outputs), list_scratchpads/read_scratchpad (diagnose execution traces)."
     }
 
     fn parameters_schema(&self) -> Value {
