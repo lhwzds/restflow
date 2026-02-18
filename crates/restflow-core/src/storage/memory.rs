@@ -10,15 +10,18 @@
 //! - **Deduplication**: Automatic content hash checking to prevent duplicates
 //! - **Search**: Text-based search across memory content
 //! - **Statistics**: Track memory usage per agent
+//! - **Vector Orphan Cleanup**: HNSW index maintenance for deleted vectors
 
 use crate::models::memory::{
     MemoryChunk, MemorySearchQuery, MemorySearchResult, MemorySession, MemorySource, MemoryStats,
     SearchMode, SemanticMatch, SourceTypeFilter,
 };
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
 use redb::Database;
 use regex::Regex;
-use restflow_storage::{IndexableChunk, MemoryIndex, PutChunkResult, VectorConfig, VectorStorage};
+use restflow_storage::{
+    IndexableChunk, MemoryIndex, PutChunkResult, VectorConfig, VectorStats, VectorStorage,
+};
 use std::sync::Arc;
 
 /// Typed memory storage wrapper around restflow-storage::MemoryStorage.
@@ -595,6 +598,55 @@ impl MemoryStorage {
             newest_memory,
         })
     }
+
+    // ============== Vector Orphan Cleanup ==============
+
+    /// Get statistics about the vector storage.
+    ///
+    /// Returns `None` if vector search is not enabled.
+    ///
+    /// # Example
+    /// ```ignore
+    /// if let Some(stats) = storage.vector_stats()? {
+    ///     println!("Active: {}, Orphans: {}", stats.active_count, stats.orphan_count);
+    ///     if stats.orphan_count > 100 {
+    ///         storage.cleanup_vector_orphans()?;
+    ///     }
+    /// }
+    /// ```
+    pub fn vector_stats(&self) -> Result<Option<VectorStats>> {
+        Ok(self.vectors.as_ref().map(|v| v.stats()))
+    }
+
+    /// Clean up orphan vectors in the HNSW index.
+    ///
+    /// HNSW indices do not support efficient vector deletion. When vectors are
+    /// deleted, they remain in the index but are filtered out during search.
+    /// This method rebuilds the index to reclaim memory from deleted vectors.
+    ///
+    /// Returns `None` if vector search is not enabled, otherwise returns the
+    /// number of orphan vectors cleaned up.
+    ///
+    /// # When to Call
+    ///
+    /// Call this method when:
+    /// - `vector_stats()` shows a high orphan count
+    /// - Memory usage is a concern
+    /// - After bulk delete operations
+    ///
+    /// # Performance
+    ///
+    /// This is an expensive operation that rebuilds the entire HNSW index.
+    /// Consider calling it during off-peak hours or when the orphan count
+    /// exceeds a threshold (e.g., > 10% of active vectors).
+    pub fn cleanup_vector_orphans(&self) -> Result<Option<usize>> {
+        if let Some(vectors) = &self.vectors {
+            let cleaned = vectors.cleanup_orphans()?;
+            Ok(Some(cleaned))
+        } else {
+            Ok(None)
+        }
+    }
 }
 
 /// Check if a MemorySource matches a SourceTypeFilter
@@ -1113,6 +1165,20 @@ mod tests {
         let results = storage.search(&query).unwrap();
         assert_eq!(results.chunks.len(), 1);
         assert!(results.chunks[0].content.contains("New"));
+    }
+
+    #[test]
+    fn test_vector_stats_without_vectors() {
+        let storage = create_test_storage();
+        let stats = storage.vector_stats().unwrap();
+        assert!(stats.is_none());
+    }
+
+    #[test]
+    fn test_cleanup_vector_orphans_without_vectors() {
+        let storage = create_test_storage();
+        let cleaned = storage.cleanup_vector_orphans().unwrap();
+        assert!(cleaned.is_none());
     }
 
     /// Test concurrent chunk storage with deduplication at the typed layer.
