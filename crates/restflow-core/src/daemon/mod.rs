@@ -25,5 +25,5 @@ pub use launcher::{
 };
 pub use logging::{LogPaths, open_daemon_log_append, resolve_log_paths};
 pub use mcp::run_mcp_http_server;
-pub use process::{DaemonConfig, ProcessManager};
+pub use process::{DaemonConfig, ProcessHandle, ProcessManager, ProcessRegistry};
 pub use supervisor::{Supervisor, SupervisorConfig};

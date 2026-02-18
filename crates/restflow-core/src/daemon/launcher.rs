@@ -45,7 +45,8 @@ pub fn start_daemon() -> Result<u32> {
 
 pub fn start_daemon_with_config(config: DaemonConfig) -> Result<u32> {
     let manager = ProcessManager::new()?;
-    let pid = manager.start(config)?;
+    let handle = manager.start(config)?;
+    let pid = handle.pid();
     info!(pid, "Daemon started in background");
     Ok(pid)
 }
