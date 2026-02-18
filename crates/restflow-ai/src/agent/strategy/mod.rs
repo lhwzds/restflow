@@ -264,3 +264,14 @@ impl AgentStrategy for ReactStrategyAdapter {
         })
     }
 }
+
+#[cfg(test)]
+mod strategy_tests {
+    use super::*;
+
+    #[test]
+    fn code_first_is_not_reported_as_implemented_until_execution_bridge_exists() {
+        assert!(!AgentStrategyFactory::is_implemented(StrategyType::CodeFirst));
+        assert!(AgentStrategyFactory::is_implemented(StrategyType::ReAct));
+    }
+}
