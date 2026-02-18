@@ -13,6 +13,7 @@
 //! - `heartbeat`: Status types and emitters (integrated into runner)
 //! - `retry`: Retry mechanism for transient failures
 //! - `failover`: Model failover system for automatic fallback
+//! - `transactional_checkpoint`: Prepare-then-execute-then-commit checkpoint pattern
 //! - `AgentExecutor`: Trait for executing agents (allows dependency injection)
 //! - `NotificationSender`: Trait for sending notifications (allows DI)
 //! - `TaskEventEmitter`: Trait for emitting real-time events (allows DI)
@@ -138,6 +139,23 @@
 //!     // Use this model
 //! }
 //! ```
+//!
+//! # Transactional Checkpoint Example
+//!
+//! ```ignore
+//! use restflow_core::runtime::background_agent::{
+//!     prepare, commit_if_success, UncommittedCheckpoint,
+//! };
+//!
+//! // Before tool execution, prepare checkpoint in memory
+//! let checkpoint = prepare(&agent_state, task_id.to_string(), "tool execution".to_string());
+//!
+//! // Execute the tool
+//! let result = execute_tool(...).await;
+//!
+//! // Only persist checkpoint if tool succeeded
+//! commit_if_success(&storage, Some(checkpoint), &result)?;
+//! ```
 
 pub mod broadcast_emitter;
 pub mod cli_executor;
@@ -153,6 +171,7 @@ pub mod persist;
 pub mod preflight;
 pub mod retry;
 pub mod runner;
+pub mod transactional_checkpoint;
 #[cfg(any(test, feature = "test-utils"))]
 pub mod testkit;
 
@@ -179,4 +198,7 @@ pub use retry::{ErrorCategory, RetryConfig, RetryState, is_transient_error};
 pub use runner::{
     AgentExecutor, BackgroundAgentRunner, ExecutionResult, NoopNotificationSender,
     NotificationSender, RunnerConfig, RunnerHandle,
+};
+pub use transactional_checkpoint::{
+    CheckpointMeta, UncommittedCheckpoint, commit_if_success, prepare,
 };
