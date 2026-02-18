@@ -126,6 +126,7 @@ async fn show_agent(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn create_agent(
     executor: Arc<dyn CommandExecutor>,
     name: &str,
@@ -168,6 +169,7 @@ async fn create_agent(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn update_agent(
     executor: Arc<dyn CommandExecutor>,
     id: &str,
