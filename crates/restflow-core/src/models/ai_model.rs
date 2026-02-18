@@ -90,6 +90,53 @@ impl Provider {
         }
     }
 
+    /// Get the canonical provider identifier for use in canonical model IDs.
+    /// Returns lowercase provider name (e.g., "openai", "anthropic").
+    pub fn as_canonical_str(&self) -> &'static str {
+        match self {
+            Self::OpenAI => "openai",
+            Self::Anthropic => "anthropic",
+            Self::DeepSeek => "deepseek",
+            Self::Google => "google",
+            Self::Groq => "groq",
+            Self::OpenRouter => "openrouter",
+            Self::XAI => "xai",
+            Self::Qwen => "qwen",
+            Self::Zai => "zai",
+            Self::ZaiCodingPlan => "zai-coding-plan",
+            Self::Moonshot => "moonshot",
+            Self::Doubao => "doubao",
+            Self::Yi => "yi",
+            Self::SiliconFlow => "siliconflow",
+            Self::MiniMax => "minimax",
+            Self::MiniMaxCodingPlan => "minimax-coding-plan",
+        }
+    }
+
+    /// Parse a canonical provider string back to Provider.
+    /// Returns None if the string is not recognized.
+    pub fn from_canonical_str(s: &str) -> Option<Self> {
+        match s {
+            "openai" => Some(Self::OpenAI),
+            "anthropic" => Some(Self::Anthropic),
+            "deepseek" => Some(Self::DeepSeek),
+            "google" => Some(Self::Google),
+            "groq" => Some(Self::Groq),
+            "openrouter" => Some(Self::OpenRouter),
+            "xai" => Some(Self::XAI),
+            "qwen" => Some(Self::Qwen),
+            "zai" => Some(Self::Zai),
+            "zai-coding-plan" => Some(Self::ZaiCodingPlan),
+            "moonshot" => Some(Self::Moonshot),
+            "doubao" => Some(Self::Doubao),
+            "yi" => Some(Self::Yi),
+            "siliconflow" => Some(Self::SiliconFlow),
+            "minimax" => Some(Self::MiniMax),
+            "minimax-coding-plan" => Some(Self::MiniMaxCodingPlan),
+            _ => None,
+        }
+    }
+
     /// Get the best available model for this provider.
     pub fn flagship_model(&self) -> AIModel {
         match self {
@@ -647,6 +694,51 @@ impl AIModel {
     /// Get the provider for this model
     pub fn provider(&self) -> Provider {
         self.metadata().provider
+    }
+
+    /// Get the canonical model identity in "provider:model" format.
+    /// This is the single source of truth for model identification across
+    /// routing, events, pricing lookup, and logs.
+    ///
+    /// Format: lowercase provider:model (e.g., "openai:gpt-5", "anthropic:claude-opus-4-6")
+    pub fn canonical_id(&self) -> String {
+        format!(
+            "{}:{}",
+            self.provider().as_canonical_str(),
+            self.as_serialized_str()
+        )
+    }
+
+    /// Parse a canonical model ID back to AIModel.
+    /// Accepts both "provider:model" format and legacy model-only strings.
+    ///
+    /// Returns None if the model string is not recognized.
+    pub fn from_canonical_id(canonical_id: &str) -> Option<Self> {
+        let normalized = canonical_id.trim().to_lowercase();
+
+        // Try "provider:model" format first
+        if let Some((provider_str, model_str)) = normalized.split_once(':')
+            && let Some(provider) = Provider::from_canonical_str(provider_str) {
+                // Search for matching model (case-insensitive comparison)
+                for model in Self::all() {
+                    if model.provider() == provider {
+                        let serialized = model.as_serialized_str().to_lowercase();
+                        if serialized == model_str || model.as_str() == model_str {
+                            return Some(*model);
+                        }
+                    }
+                }
+            }
+
+        // Fallback: try model-only lookup (legacy support, case-insensitive)
+        for model in Self::all() {
+            let serialized = model.as_serialized_str().to_lowercase();
+            if serialized == normalized || model.as_str() == normalized {
+                return Some(*model);
+            }
+        }
+
+        None
     }
 
     /// Check if this model supports temperature parameter
@@ -1477,6 +1569,88 @@ mod tests {
         assert_eq!(AIModel::OrClaudeOpus4_6.openrouter_equivalent(), None);
         // CLI models have no OR equivalent
         assert_eq!(AIModel::CodexCli.openrouter_equivalent(), None);
+    }
+
+    #[test]
+    fn test_canonical_id() {
+        // Test canonical ID generation
+        assert_eq!(AIModel::Gpt5.canonical_id(), "openai:gpt-5");
+        assert_eq!(
+            AIModel::ClaudeSonnet4_5.canonical_id(),
+            "anthropic:claude-sonnet-4-5"
+        );
+        assert_eq!(AIModel::DeepseekChat.canonical_id(), "deepseek:deepseek-chat");
+        assert_eq!(AIModel::Gemini3Pro.canonical_id(), "google:gemini-3-pro");
+        assert_eq!(AIModel::OrGpt5.canonical_id(), "openrouter:or-gpt-5");
+        assert_eq!(AIModel::CodexCli.canonical_id(), "openai:gpt-5.3-codex");
+    }
+
+    #[test]
+    fn test_from_canonical_id() {
+        // Test parsing canonical IDs
+        assert_eq!(
+            AIModel::from_canonical_id("openai:gpt-5"),
+            Some(AIModel::Gpt5)
+        );
+        assert_eq!(
+            AIModel::from_canonical_id("anthropic:claude-sonnet-4-5"),
+            Some(AIModel::ClaudeSonnet4_5)
+        );
+        assert_eq!(
+            AIModel::from_canonical_id("deepseek:deepseek-chat"),
+            Some(AIModel::DeepseekChat)
+        );
+
+        // Test legacy model-only strings (fallback)
+        assert_eq!(AIModel::from_canonical_id("gpt-5"), Some(AIModel::Gpt5));
+        assert_eq!(
+            AIModel::from_canonical_id("claude-sonnet-4-5"),
+            Some(AIModel::ClaudeSonnet4_5)
+        );
+
+        // Test invalid IDs
+        assert_eq!(AIModel::from_canonical_id("unknown:model"), None);
+        assert_eq!(AIModel::from_canonical_id("invalid-model"), None);
+    }
+
+    #[test]
+    fn test_canonical_id_round_trip() {
+        // Test round-trip: canonical_id -> from_canonical_id
+        for model in AIModel::all() {
+            let canonical = model.canonical_id();
+            let parsed = AIModel::from_canonical_id(&canonical);
+            assert_eq!(
+                parsed, Some(*model),
+                "Round-trip failed for {} -> {}",
+                model.as_str(),
+                canonical
+            );
+        }
+    }
+
+    #[test]
+    fn test_provider_canonical_str() {
+        // Test provider canonical strings
+        assert_eq!(Provider::OpenAI.as_canonical_str(), "openai");
+        assert_eq!(Provider::Anthropic.as_canonical_str(), "anthropic");
+        assert_eq!(Provider::DeepSeek.as_canonical_str(), "deepseek");
+        assert_eq!(Provider::Google.as_canonical_str(), "google");
+        assert_eq!(Provider::OpenRouter.as_canonical_str(), "openrouter");
+        assert_eq!(Provider::ZaiCodingPlan.as_canonical_str(), "zai-coding-plan");
+        assert_eq!(Provider::MiniMaxCodingPlan.as_canonical_str(), "minimax-coding-plan");
+    }
+
+    #[test]
+    fn test_provider_from_canonical_str() {
+        // Test parsing provider canonical strings
+        assert_eq!(Provider::from_canonical_str("openai"), Some(Provider::OpenAI));
+        assert_eq!(
+            Provider::from_canonical_str("anthropic"),
+            Some(Provider::Anthropic)
+        );
+        assert_eq!(Provider::from_canonical_str("deepseek"), Some(Provider::DeepSeek));
+        assert_eq!(Provider::from_canonical_str("google"), Some(Provider::Google));
+        assert_eq!(Provider::from_canonical_str("invalid"), None);
     }
 
     #[test]
