@@ -1,4 +1,27 @@
 //! Agent executor with ReAct loop
+//!
+//! # Timeout Architecture
+//!
+//! The executor applies a **wrapper timeout** around all tool executions. When a tool
+//! has its own internal timeout, there are **two layers of timeout**:
+//!
+//! 1. **Executor wrapper timeout** (`tool_timeout`): Controls how long the entire
+//!    tool execution can take, including any overhead. Default: 300s.
+//!    Configurable via `AgentConfig::with_tool_timeout()`.
+//!
+//! 2. **Tool-internal timeout**: Some tools (like `bash`, `python`) have their own
+//!    timeout for the actual operation:
+//!    - `bash`: `timeout_secs` (default 300s)
+//!    - `python`: `timeout_seconds` (default varies)
+//!
+//! **Important**: To avoid confusing timeout errors, ensure the executor wrapper
+//! timeout is **greater than or equal to** the tool-internal timeout plus a small
+//! buffer. If the wrapper timeout fires first, you'll get a generic "Tool X timed out"
+//! error instead of the tool's more specific timeout message.
+//!
+//! **Recommended configuration**:
+//! - `agent.tool_timeout_secs` >= max(`bash_timeout_secs`, `python_timeout_secs`) + 10s
+//! - Example: If bash needs 300s, set `tool_timeout_secs` to 310-320s
 
 use std::collections::HashMap;
 use std::future::Future;
@@ -61,7 +84,11 @@ pub struct AgentConfig {
     pub temperature: Option<f32>,
     /// Hidden context passed to tools but not shown to LLM (Swarm-inspired)
     pub context: HashMap<String, Value>,
-    /// Timeout for each tool execution (default: 30s)
+    /// Timeout for each tool execution (default: 300s).
+    ///
+    /// This is the **wrapper timeout** applied by the executor. To avoid confusing
+    /// errors, this should be >= the tool-internal timeout (e.g., `bash_timeout_secs`)
+    /// plus a small buffer. See module-level docs for details.
     pub tool_timeout: Duration,
     /// Max length for tool results to prevent context overflow (default: 4000)
     pub max_tool_result_length: usize,
@@ -186,7 +213,10 @@ impl AgentConfig {
         self
     }
 
-    /// Set tool timeout
+    /// Set tool timeout (wrapper timeout).
+    ///
+    /// This should be >= the tool-internal timeout (e.g., `bash_timeout_secs`)
+    /// plus a small buffer to avoid confusing error messages.
     pub fn with_tool_timeout(mut self, timeout: Duration) -> Self {
         self.tool_timeout = timeout;
         self

@@ -1,3 +1,32 @@
+//! Python execution backend for AI agents
+//!
+//! Provides Python code execution with:
+//! - Multiple runtime support (Monty, CPython)
+//! - Configurable timeout
+//! - Execution limits (partial support)
+//!
+//! # Timeout Architecture
+//!
+//! This backend has an **internal timeout** for code execution. When used within
+//! an agent executor, there are **two layers of timeout**:
+//!
+//! 1. **Backend-internal timeout** (this file): Controls how long the Python
+//!    code can run before being terminated. Configurable via `timeout_seconds`
+//!    in `PythonExecutionRequest`. Can be further limited by `limits.max_time_ms`.
+//!
+//! 2. **Agent wrapper timeout** (`executor.rs`): Controls how long the entire
+//!    tool execution can take, including process spawn overhead.
+//!
+//! **Important**: To avoid confusing timeout errors, ensure the agent wrapper
+//! timeout (`tool_timeout_secs`) is **greater than or equal to** the Python
+//! timeout (`python_timeout_secs`). If the wrapper timeout fires first, you'll
+//! get a generic "Tool python timed out" error instead of the more specific
+//! internal timeout message.
+//!
+//! **Recommended configuration**:
+//! - `agent.tool_timeout_secs` >= `agent.python_timeout_secs` + 5s buffer
+//! - Example: `tool_timeout_secs=320`, `python_timeout_secs=300`
+
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::process::Stdio;
