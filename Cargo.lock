@@ -5102,7 +5102,7 @@ dependencies = [
  "futures",
  "hex",
  "lsp-types",
- "nix 0.29.0",
+ "nix 0.31.1",
  "once_cell",
  "parking_lot",
  "postcard",
