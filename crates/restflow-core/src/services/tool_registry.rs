@@ -755,8 +755,6 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
                 "scratchpad path escapes scratchpad directory".to_string(),
             ));
         }
-            ));
-        }
 
         if !path.is_file() {
             return Err(AiError::Tool(format!(
