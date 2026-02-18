@@ -10,8 +10,10 @@ use std::sync::Arc;
 use crate::ToolAction;
 use crate::error::Result;
 use crate::http_client::build_http_client;
-use crate::security::SecurityGate;
+use crate::error::AiError;
+use crate::security::NetworkAllowlist;
 use crate::tools::traits::check_security;
+use crate::SecurityGate;
 use crate::tools::traits::{Tool, ToolErrorCategory, ToolOutput};
 
 #[derive(Debug, Deserialize)]
@@ -167,6 +169,7 @@ pub struct HttpTool {
     security_gate: Option<Arc<dyn SecurityGate>>,
     agent_id: Option<String>,
     task_id: Option<String>,
+    network_allowlist: Option<NetworkAllowlist>,
 }
 
 impl Default for HttpTool {
@@ -183,6 +186,7 @@ impl HttpTool {
             security_gate: None,
             agent_id: None,
             task_id: None,
+            network_allowlist: None,
         }
     }
 
@@ -193,6 +197,7 @@ impl HttpTool {
             security_gate: None,
             agent_id: None,
             task_id: None,
+            network_allowlist: None,
         }
     }
 
@@ -207,6 +212,34 @@ impl HttpTool {
         self.task_id = Some(task_id.into());
         self
     }
+
+    /// Set network allowlist for domain validation
+    pub fn with_network_allowlist(mut self, allowlist: NetworkAllowlist) -> Self {
+        self.network_allowlist = Some(allowlist);
+        self
+    }
+
+    /// Check if URL host is allowed by network allowlist
+    fn check_network_allowlist(&self, url: &str) -> Result<()> {
+        if let Some(ref allowlist) = self.network_allowlist {
+            // Parse URL to extract host
+            let parsed = url::Url::parse(url)
+                .map_err(|e| AiError::Tool(format!("Invalid URL: {}", e)))?;
+            
+            let host = parsed.host_str()
+                .ok_or_else(|| AiError::Tool("URL has no host".to_string()))?;
+            
+            if !allowlist.is_host_allowed(host) {
+                return Err(AiError::Tool(format!(
+                    "URL host '{}' is not in the allowed network list. Allowed domains: {:?}",
+                    host,
+                    allowlist.allowed_domains()
+                )));
+            }
+        }
+        Ok(())
+    }
+
 
     fn classify_status(status: u16) -> (ToolErrorCategory, bool) {
         match status {
@@ -302,6 +335,14 @@ impl Tool for HttpTool {
         {
             return Ok(ToolOutput::non_retryable_error(
                 message,
+                ToolErrorCategory::Auth,
+            ));
+        }
+
+        // Check network allowlist
+        if let Err(e) = self.check_network_allowlist(&params.url) {
+            return Ok(ToolOutput::non_retryable_error(
+                e.to_string(),
                 ToolErrorCategory::Auth,
             ));
         }

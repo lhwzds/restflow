@@ -56,7 +56,7 @@ pub use simple_storage::SimpleStorage;
 pub use skill::SkillStorage;
 pub use terminal_session::TerminalSessionStorage;
 pub use trigger::TriggerStorage;
-pub use vector::{VectorConfig, VectorStorage};
+pub use vector::{VectorConfig, VectorStats, VectorStorage};
 pub use workspace_note::WorkspaceNoteStorage;
 /// Central storage manager that initializes all storage subsystems
 pub struct Storage {

@@ -5197,6 +5197,7 @@ dependencies = [
  "restflow-storage",
  "rmcp",
  "schemars 1.2.1",
+ "scopeguard",
  "serde",
  "serde_json",
  "serde_yaml",

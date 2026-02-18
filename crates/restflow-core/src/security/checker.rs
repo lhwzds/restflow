@@ -556,7 +556,7 @@ impl SecurityChecker {
             .amendment_store
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("security amendment store is not configured"))?;
-        store.add_allow_rule(
+        store.add_allow_rule_simple(
             tool_name.to_string(),
             command_pattern.to_string(),
             match_type,
