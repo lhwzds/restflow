@@ -430,7 +430,7 @@ impl AgentExecutor {
                 DeferredStatus::Approved => {
                     let result = tokio::time::timeout(
                         tool_timeout,
-                        self.execute_tool_call(&deferred.tool_name, deferred.args.clone(), false),
+                        self.execute_tool_call(&[], &deferred.tool_name, deferred.args.clone(), false),
                     )
                     .await
                     .map_err(|_| AiError::Tool(format!("Tool {} timed out", deferred.tool_name)))
@@ -751,6 +751,7 @@ impl AgentExecutor {
             // 3. Execute tools with timeout and optional stream events.
             let results = self
                 .execute_tools_with_events(
+                    &config.subflow_path,
                     &response.tool_calls,
                     emitter,
                     config.tool_timeout,
@@ -1102,6 +1103,7 @@ impl AgentExecutor {
 
     async fn execute_tools_with_events(
         &self,
+        subflow_path: &[String],
         tool_calls: &[ToolCall],
         emitter: &mut dyn StreamEmitter,
         tool_timeout: Duration,
@@ -1115,16 +1117,17 @@ impl AgentExecutor {
         });
 
         if all_parallel && tool_calls.len() > 1 {
-            self.execute_tools_parallel(tool_calls, emitter, tool_timeout, yolo_mode)
+            self.execute_tools_parallel(subflow_path, tool_calls, emitter, tool_timeout, yolo_mode)
                 .await
         } else {
-            self.execute_tools_sequential(tool_calls, emitter, tool_timeout, yolo_mode)
+            self.execute_tools_sequential(subflow_path, tool_calls, emitter, tool_timeout, yolo_mode)
                 .await
         }
     }
 
     async fn execute_tool_call(
         &self,
+        subflow_path: &[String],
         name: &str,
         args: Value,
         yolo_mode: bool,
@@ -1133,7 +1136,7 @@ impl AgentExecutor {
 
         loop {
             let output = self
-                .execute_tool_call_once(name, args.clone(), yolo_mode)
+                .execute_tool_call_once(subflow_path, name, args.clone(), yolo_mode)
                 .await?;
             if output.success {
                 return Ok(output);
@@ -1177,6 +1180,7 @@ impl AgentExecutor {
 
     async fn execute_tool_call_once(
         &self,
+        subflow_path: &[String],
         name: &str,
         mut args: Value,
         yolo_mode: bool,
@@ -1187,11 +1191,19 @@ impl AgentExecutor {
         {
             map.insert("yolo_mode".to_string(), Value::Bool(true));
         }
+        // Inject parent_subflow_path for spawn_agent tool
+        if name == "spawn_agent"
+            && let Some(map) = args.as_object_mut()
+        {
+            map.entry("parent_subflow_path".to_string())
+                .or_insert_with(|| Value::Array(subflow_path.iter().map(|s| Value::String(s.clone())).collect()));
+        }
         self.tools.execute_safe(name, args).await
     }
 
     async fn execute_tools_sequential(
         &self,
+        subflow_path: &[String],
         tool_calls: &[ToolCall],
         emitter: &mut dyn StreamEmitter,
         tool_timeout: Duration,
@@ -1207,7 +1219,7 @@ impl AgentExecutor {
 
             let result = tokio::time::timeout(
                 tool_timeout,
-                self.execute_tool_call(&call.name, call.arguments.clone(), yolo_mode),
+                self.execute_tool_call(subflow_path, &call.name, call.arguments.clone(), yolo_mode),
             )
             .await
             .map_err(|_| AiError::Tool(format!("Tool {} timed out", call.name)))
@@ -1237,6 +1249,7 @@ impl AgentExecutor {
 
     async fn execute_tools_parallel(
         &self,
+        subflow_path: &[String],
         tool_calls: &[ToolCall],
         emitter: &mut dyn StreamEmitter,
         tool_timeout: Duration,
@@ -1260,7 +1273,7 @@ impl AgentExecutor {
                 async move {
                     let result = tokio::time::timeout(
                         timeout_dur,
-                        executor.execute_tool_call(&name, args, yolo_mode),
+                        executor.execute_tool_call(&subflow_path, &name, args, yolo_mode),
                     )
                     .await
                     .map_err(|_| AiError::Tool(format!("Tool {} timed out", name)))
