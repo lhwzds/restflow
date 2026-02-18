@@ -101,7 +101,7 @@ mod types;
 pub use pairing::{AllowedPeer, PairingManager, PairingRequest};
 pub use plugin::{ChannelPlugin, ChannelRegistry};
 pub use reply_sender::ChannelReplySender;
-pub use route_binding::{RouteBinding, RouteBindingType, RouteResolver};
+pub use route_binding::{MatchedBy, ResolvedRoute, RouteBinding, RouteBindingType, RouteResolver};
 pub use router::ChannelRouter;
 pub use telegram::{TelegramChannel, TelegramConfig};
 pub use traits::{Channel, StreamReceiver, WebhookReceiver};
