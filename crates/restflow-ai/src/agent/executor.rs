@@ -647,7 +647,9 @@ impl AgentExecutor {
                 }
             }
 
-            let request_messages = config.history_pipeline.apply(memory.get_messages());
+            let request_messages = sanitize_tool_call_history(
+                config.history_pipeline.apply(memory.get_messages()),
+            );
             let mut request =
                 CompletionRequest::new(request_messages).with_tools(self.tools.schemas());
 
@@ -1370,6 +1372,62 @@ fn parse_approval_resolution(instruction: &str) -> Option<(String, bool, Option<
     }
 }
 
+fn sanitize_tool_call_history(messages: Vec<Message>) -> Vec<Message> {
+    use std::collections::HashSet;
+
+    let mut assistant_ids: HashSet<String> = HashSet::new();
+    let mut tool_result_ids: HashSet<String> = HashSet::new();
+
+    for msg in &messages {
+        if let Some(tool_calls) = &msg.tool_calls {
+            for call in tool_calls {
+                assistant_ids.insert(call.id.clone());
+            }
+        }
+        if matches!(msg.role, Role::Tool)
+            && let Some(id) = &msg.tool_call_id
+        {
+            tool_result_ids.insert(id.clone());
+        }
+    }
+
+    let valid_ids: HashSet<String> = assistant_ids
+        .intersection(&tool_result_ids)
+        .cloned()
+        .collect();
+
+    let mut sanitized = Vec::with_capacity(messages.len());
+    for mut msg in messages {
+        if let Some(tool_calls) = msg.tool_calls.take() {
+            let filtered: Vec<ToolCall> = tool_calls
+                .into_iter()
+                .filter(|call| valid_ids.contains(&call.id))
+                .collect();
+            if !filtered.is_empty() {
+                msg.tool_calls = Some(filtered);
+                sanitized.push(msg);
+            } else if !msg.content.trim().is_empty() {
+                msg.tool_calls = None;
+                sanitized.push(msg);
+            }
+            continue;
+        }
+
+        if matches!(msg.role, Role::Tool) {
+            match msg.tool_call_id.as_ref() {
+                Some(id) if valid_ids.contains(id) => sanitized.push(msg),
+                Some(_) => {}
+                None => sanitized.push(msg),
+            }
+            continue;
+        }
+
+        sanitized.push(msg);
+    }
+
+    sanitized
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1474,6 +1532,65 @@ mod tests {
         fn supports_streaming(&self) -> bool {
             self.supports_streaming
         }
+    }
+
+    #[test]
+    fn sanitize_tool_call_history_drops_orphan_tool_results() {
+        let messages = vec![
+            Message::system("s"),
+            Message::assistant_with_tool_calls(
+                None,
+                vec![ToolCall {
+                    id: "call_1".to_string(),
+                    name: "bash".to_string(),
+                    arguments: serde_json::json!({"cmd":"echo 1"}),
+                }],
+            ),
+            Message::tool_result("call_1", "{\"ok\":true}"),
+            Message::tool_result("orphan_call", "{\"ok\":false}"),
+        ];
+
+        let sanitized = sanitize_tool_call_history(messages);
+        let tool_results: Vec<_> = sanitized
+            .iter()
+            .filter(|m| matches!(m.role, Role::Tool))
+            .collect();
+        assert_eq!(tool_results.len(), 1);
+        assert_eq!(tool_results[0].tool_call_id.as_deref(), Some("call_1"));
+    }
+
+    #[test]
+    fn sanitize_tool_call_history_filters_assistant_orphan_tool_calls() {
+        let messages = vec![
+            Message::assistant_with_tool_calls(
+                Some("planning".to_string()),
+                vec![
+                    ToolCall {
+                        id: "call_1".to_string(),
+                        name: "bash".to_string(),
+                        arguments: serde_json::json!({"cmd":"echo 1"}),
+                    },
+                    ToolCall {
+                        id: "call_2".to_string(),
+                        name: "bash".to_string(),
+                        arguments: serde_json::json!({"cmd":"echo 2"}),
+                    },
+                ],
+            ),
+            Message::tool_result("call_1", "{\"ok\":true}"),
+        ];
+
+        let sanitized = sanitize_tool_call_history(messages);
+        let assistant = sanitized
+            .iter()
+            .find(|m| m.role == Role::Assistant)
+            .expect("assistant message should exist");
+        let tool_calls = assistant
+            .tool_calls
+            .as_ref()
+            .expect("tool calls should be present");
+        assert_eq!(tool_calls.len(), 1);
+        assert_eq!(tool_calls[0].id, "call_1");
     }
 
     struct EchoTool;

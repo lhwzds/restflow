@@ -46,9 +46,9 @@ use super::preflight::{PreflightCategory, PreflightIssue, run_preflight};
 use super::retry::{RetryConfig, RetryState};
 use super::runner::{AgentExecutor, ExecutionResult};
 use crate::runtime::agent::{
-    AgentExecutionEngine, AgentExecutionEngineConfig, BashConfig, SubagentDeps, ToolRegistry,
-    build_agent_system_prompt, effective_main_agent_tool_names, registry_from_allowlist,
-    resolve_python_runtime_policy, secret_resolver_from_storage,
+    BashConfig, SubagentDeps, ToolRegistry, build_agent_system_prompt,
+    effective_main_agent_tool_names, registry_from_allowlist, resolve_python_runtime_policy,
+    secret_resolver_from_storage,
 };
 use crate::runtime::subagent::{AgentDefinitionRegistry, SubagentConfig, SubagentTracker};
 
@@ -875,15 +875,14 @@ impl AgentRuntimeExecutor {
         session.messages.clone()
     }
 
-    fn add_session_history(
-        agent: &mut AgentExecutionEngine,
+    fn session_history_messages(
         session: &ChatSession,
         max_messages: usize,
         input_mode: SessionInputMode,
-    ) {
+    ) -> Vec<Message> {
         let mut messages = Self::session_messages_for_context(session);
         if messages.is_empty() {
-            return;
+            return Vec::new();
         }
 
         // Exclude the latest user input because it will be passed to execute()
@@ -895,9 +894,10 @@ impl AgentRuntimeExecutor {
         }
 
         let start = messages.len().saturating_sub(max_messages);
-        for message in &messages[start..] {
-            agent.add_history_message(Self::chat_message_to_llm_message(message));
-        }
+        messages[start..]
+            .iter()
+            .map(Self::chat_message_to_llm_message)
+            .collect()
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -940,23 +940,61 @@ impl AgentRuntimeExecutor {
         );
         let system_prompt = build_agent_system_prompt(self.storage.clone(), agent_node, agent_id)?;
 
-        let mut config = AgentExecutionEngineConfig::default();
+        let catalog = ModelCatalog::global().await;
+        let model_entry = catalog.resolve(model).await;
+        let context_window = model_entry
+            .map(|entry| {
+                entry
+                    .capabilities
+                    .input_limit
+                    .unwrap_or(entry.capabilities.context_window)
+            })
+            .unwrap_or_else(|| Self::context_window_for_model(model));
+        let max_tool_result_length = Self::effective_max_tool_result_length(4_000, context_window);
+
+        let mut config = ReActAgentConfig::new(user_input.to_string())
+            .with_system_prompt(system_prompt.clone())
+            .with_tool_timeout(Duration::from_secs(agent_defaults.tool_timeout_secs))
+            .with_max_iterations(agent_defaults.max_iterations)
+            .with_max_memory_messages(max_history.max(1))
+            .with_context_window(context_window)
+            .with_max_tool_result_length(max_tool_result_length);
+        if let Some(entry) = model_entry
+            && !model.is_cli_model()
+        {
+            config = config.with_max_output_tokens(entry.capabilities.output_limit as u32);
+        }
         if model.supports_temperature()
             && let Some(temp) = agent_node.temperature
         {
-            config.temperature = temp as f32;
+            config = config.with_temperature(temp as f32);
         }
 
-        let mut agent = AgentExecutionEngine::new(swappable.clone(), tools, system_prompt, config);
-        Self::add_session_history(&mut agent, session, max_history, input_mode);
-
-        let result = agent.execute(user_input).await?;
+        let agent = ReActAgentExecutor::new(swappable.clone(), tools);
+        let history_messages = Self::session_history_messages(session, max_history, input_mode);
+        let result = if history_messages.is_empty() {
+            agent.run(config).await?
+        } else {
+            let mut state = restflow_ai::AgentState::new(
+                uuid::Uuid::new_v4().to_string(),
+                agent_defaults.max_iterations,
+            );
+            state.add_message(Message::system(system_prompt));
+            for message in history_messages {
+                state.add_message(message);
+            }
+            state.add_message(Message::user(user_input.to_string()));
+            agent.run_from_state(config, state).await?
+        };
         if !result.success {
-            return Err(anyhow!("Agent execution failed: {}", result.output));
+            return Err(anyhow!(
+                "Agent execution failed: {}",
+                result.error.unwrap_or_else(|| "unknown error".to_string())
+            ));
         }
 
         Ok(SessionExecutionResult {
-            output: result.output,
+            output: result.answer.unwrap_or_default(),
             iterations: result.iterations as u32,
             active_model: swappable.current_model(),
         })
