@@ -1098,7 +1098,7 @@ impl BackgroundAgentRunner {
     async fn execute_task(
         &self,
         task_id: &str,
-        mut cancel_rx: Option<oneshot::Receiver<()>>,
+        cancel_rx: Option<oneshot::Receiver<()>>,
     ) -> Result<bool> {
         let start_time = chrono::Utc::now().timestamp_millis();
 
@@ -1366,12 +1366,14 @@ impl BackgroundAgentRunner {
             }
         };
 
-        if cancel_rx.is_none() {
-            warn!(
-                "No cancel receiver found for task '{}'. Task will run without cancellation support.",
+        // Fail fast: refuse to run uncancellable tasks
+        let cancel_rx = cancel_rx.ok_or_else(|| {
+            error!(
+                "No cancel receiver found for task '{}'. Refusing to run uncancellable task.",
                 task_id
             );
-        }
+            anyhow!("Task {} has no cancellation channel", task_id)
+        })?;
 
         enum PauseSignal {
             Paused,
@@ -1381,13 +1383,8 @@ impl BackgroundAgentRunner {
         let result = tokio::select! {
             // Cancel branch: resolves when user sends cancel signal.
             // If no receiver exists, pending() never resolves — task runs to completion.
-            _ = async {
-                if let Some(rx) = &mut cancel_rx {
-                    let _ = rx.await;
-                } else {
-                    std::future::pending::<()>().await;
-                }
-            } => {
+            // Cancel branch: resolves when user sends cancel signal.
+            _ = cancel_rx => {
                 let duration_ms = chrono::Utc::now().timestamp_millis() - start_time;
                 info!(
                     "Task '{}' cancelled by user (duration={}ms)",
