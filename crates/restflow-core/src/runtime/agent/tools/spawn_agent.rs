@@ -26,6 +26,10 @@ pub struct SpawnAgentParams {
 
     /// Timeout in seconds (default: 300).
     pub timeout_secs: Option<u64>,
+
+    /// Parent subflow path for hierarchical tracking.
+    #[serde(default)]
+    pub parent_subflow_path: Vec<String>,
 }
 
 /// spawn_agent tool for the shared agent execution engine.
@@ -87,6 +91,7 @@ impl Tool for SpawnAgentTool {
             task: params.task.clone(),
             timeout_secs: params.timeout_secs,
             priority: None,
+            parent_subflow_path: params.parent_subflow_path.clone(),
         };
 
         let handle = spawn_subagent(
