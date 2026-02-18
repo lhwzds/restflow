@@ -121,6 +121,22 @@ impl CliBackgroundAgentRunner {
             .with_hook_executor(hook_executor),
         );
 
+        // NOTE: Do NOT store runner/handle until ALL setup steps succeed.
+        // This prevents partial startup state where daemon reports failure
+        // but background tasks continue running.
+        let mut pending_router: Option<Arc<ChannelRouter>> = None;
+
+        // Telegram setup must succeed BEFORE we start the runner.
+        // This is a fallible operation that can fail (e.g., invalid token, network error).
+        if let Some(router) = telegram::setup_telegram_channel(
+            &self.core.storage.secrets,
+            &self.core.storage.daemon_state,
+        )? {
+            pending_router = Some(router);
+        }
+
+        // Now that all fallible setup is complete, start and store the runner.
+        // If we reach here, the entire startup sequence has succeeded.
         let handle = runner.clone().start();
 
         {
@@ -133,10 +149,8 @@ impl CliBackgroundAgentRunner {
             *runner_guard = Some(runner);
         }
 
-        if let Some(router) = telegram::setup_telegram_channel(
-            &self.core.storage.secrets,
-            &self.core.storage.daemon_state,
-        )? {
+        // Now configure Telegram channel (this cannot fail since setup already succeeded)
+        if let Some(router) = pending_router {
             let trigger = Arc::new(CliBackgroundAgentTrigger::new(
                 self.core.clone(),
                 self.handle.clone(),
