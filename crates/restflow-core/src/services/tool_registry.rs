@@ -3297,7 +3297,7 @@ mod tests {
         let previous_restflow_dir = std::env::var_os("RESTFLOW_DIR");
         unsafe { std::env::set_var("RESTFLOW_DIR", &state_dir) };
 
-        let scratchpads_dir = crate::paths::restflow_dir()
+        let scratchpads_dir = crate::paths::resolve_restflow_dir()
             .unwrap()
             .join("scratchpads");
         std::fs::create_dir_all(&scratchpads_dir).unwrap();
@@ -3310,7 +3310,7 @@ mod tests {
         let symlink_path = scratchpads_dir.join("malicious.jsonl");
         std::os::unix::fs::symlink(&outside_file, &symlink_path).unwrap();
 
-        let request = BackgroundAgentScratchpadReadRequest {
+        let _request = BackgroundAgentScratchpadReadRequest {
             scratchpad: "malicious.jsonl".to_string(),
             line_limit: Some(10),
         };
@@ -3342,7 +3342,7 @@ mod tests {
         let previous_restflow_dir = std::env::var_os("RESTFLOW_DIR");
         unsafe { std::env::set_var("RESTFLOW_DIR", &state_dir) };
 
-        let scratchpads_dir = crate::paths::restflow_dir()
+        let scratchpads_dir = crate::paths::resolve_restflow_dir()
             .unwrap()
             .join("scratchpads");
         std::fs::create_dir_all(&scratchpads_dir).unwrap();
