@@ -13,6 +13,8 @@ use axum::{
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{info, warn};
+// Use constant-time comparison to prevent timing attacks (CWE-208)
+use constant_time_eq::constant_time_eq;
 
 use restflow_core::models::{WebhookRateLimiter, WebhookRequest, WebhookResponse};
 use restflow_core::storage::BackgroundAgentStorage;
@@ -120,7 +122,14 @@ async fn trigger_task(
         .unwrap_or("");
 
     let expected = format!("Bearer {}", webhook.token);
-    if auth_header != expected {
+
+    // Use constant-time comparison to prevent timing attacks
+    // Compare length first to avoid early return on length mismatch,
+    // then use constant_time_eq for the actual comparison
+    let is_valid = auth_header.len() == expected.len()
+        && constant_time_eq(auth_header.as_bytes(), expected.as_bytes());
+
+    if !is_valid {
         warn!(task_id = %task_id, "Invalid authorization token");
         return Err((
             StatusCode::UNAUTHORIZED,
