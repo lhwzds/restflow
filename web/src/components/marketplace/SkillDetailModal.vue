@@ -132,7 +132,7 @@ function openHomepage() {
 
 <template>
   <Dialog :open="open" @update:open="emit('update:open', $event)">
-    <DialogContent class="max-w-3xl max-h-[90vh] flex flex-col">
+    <DialogContent class="max-w-[48rem] max-h-[90vh] flex flex-col">
       <DialogHeader>
         <div class="flex items-start justify-between">
           <div>
