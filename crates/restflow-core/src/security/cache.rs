@@ -73,7 +73,11 @@ pub struct ApprovalKey {
 
 impl ApprovalKey {
     /// Create a new approval key.
-    pub fn new(tool_name: impl Into<String>, action: impl Into<String>, target: Option<String>) -> Self {
+    pub fn new(
+        tool_name: impl Into<String>,
+        action: impl Into<String>,
+        target: Option<String>,
+    ) -> Self {
         Self {
             tool_name: tool_name.into(),
             action: action.into(),
@@ -110,7 +114,8 @@ impl ApprovalCache {
 
     /// Clear all session-scoped grants (called when session ends).
     pub fn clear_session(&mut self) {
-        self.grants.retain(|_, grant| grant.scope == ApprovalScope::Persistent);
+        self.grants
+            .retain(|_, grant| grant.scope == ApprovalScope::Persistent);
     }
 
     /// Clear all grants (called when clearing all cached data).
@@ -183,7 +188,7 @@ mod tests {
     #[test]
     fn test_grant_expiry() {
         let mut grant = ApprovalGrant::new(ApprovalScope::Session, None);
-        
+
         // Fresh grant should not be expired
         assert!(!grant.is_expired(Duration::from_secs(3600)));
 

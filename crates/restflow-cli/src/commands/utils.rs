@@ -80,7 +80,8 @@ pub fn parse_model(input: &str) -> Result<AIModel> {
         // Aggregators
         "openrouter" => AIModel::OpenRouterAuto,
         "siliconflow" => AIModel::SiliconFlowAuto,
-        _ => AIModel::from_api_name(input).ok_or_else(|| anyhow::anyhow!("Unknown model: {input}"))?,
+        _ => AIModel::from_api_name(input)
+            .ok_or_else(|| anyhow::anyhow!("Unknown model: {input}"))?,
     };
 
     Ok(model)

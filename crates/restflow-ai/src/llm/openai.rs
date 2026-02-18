@@ -45,7 +45,6 @@ impl OpenAIClient {
         self.base_url = url.into();
         self
     }
-
 }
 
 #[derive(Serialize)]
@@ -276,8 +275,7 @@ impl LlmClient for OpenAIClient {
             .map(|tc| ToolCall {
                 id: tc.id,
                 name: tc.function.name,
-                arguments: serde_json::from_str(&tc.function.arguments)
-                    .unwrap_or(Value::Null),
+                arguments: serde_json::from_str(&tc.function.arguments).unwrap_or(Value::Null),
             })
             .collect();
 
@@ -289,8 +287,7 @@ impl LlmClient for OpenAIClient {
         };
 
         let usage = data.usage.map(|u| {
-            let cost_usd =
-                calculate_cost(&self.model, u.prompt_tokens, u.completion_tokens);
+            let cost_usd = calculate_cost(&self.model, u.prompt_tokens, u.completion_tokens);
             TokenUsage {
                 prompt_tokens: u.prompt_tokens,
                 completion_tokens: u.completion_tokens,

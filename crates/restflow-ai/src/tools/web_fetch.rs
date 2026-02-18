@@ -29,7 +29,12 @@ fn validate_url(url: &str) -> std::result::Result<(), String> {
     // Only allow HTTP and HTTPS schemes
     match parsed.scheme() {
         "http" | "https" => {}
-        scheme => return Err(format!("Scheme '{}' is not allowed. Only HTTP and HTTPS are permitted.", scheme)),
+        scheme => {
+            return Err(format!(
+                "Scheme '{}' is not allowed. Only HTTP and HTTPS are permitted.",
+                scheme
+            ));
+        }
     }
 
     // Check host
@@ -77,7 +82,12 @@ fn validate_url(url: &str) -> std::result::Result<(), String> {
 fn is_restricted_ip(ip: &IpAddr) -> bool {
     match ip {
         IpAddr::V4(v4) => {
-            if v4.is_loopback() || v4.is_private() || v4.is_link_local() || v4.is_broadcast() || v4.is_documentation() {
+            if v4.is_loopback()
+                || v4.is_private()
+                || v4.is_link_local()
+                || v4.is_broadcast()
+                || v4.is_documentation()
+            {
                 return true;
             }
             // CGNAT: 100.64.0.0/10

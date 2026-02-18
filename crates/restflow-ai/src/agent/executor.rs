@@ -687,9 +687,8 @@ impl AgentExecutor {
                 }
             }
 
-            let request_messages = sanitize_tool_call_history(
-                config.history_pipeline.apply(memory.get_messages()),
-            );
+            let request_messages =
+                sanitize_tool_call_history(config.history_pipeline.apply(memory.get_messages()));
             let mut request =
                 CompletionRequest::new(request_messages).with_tools(self.tools.schemas());
 
@@ -1350,10 +1349,9 @@ impl AgentExecutor {
 
         // Base prompt section (identity, role)
         if flags.include_base {
-            let base = config
-                .system_prompt
-                .as_deref()
-                .unwrap_or("You are a helpful AI assistant that can use tools to accomplish tasks.");
+            let base = config.system_prompt.as_deref().unwrap_or(
+                "You are a helpful AI assistant that can use tools to accomplish tasks.",
+            );
             sections.push(base.to_string());
         }
 
@@ -2432,11 +2430,10 @@ mod tests {
 
         // Disable tools section
         let flags = PromptFlags::new().without_tools();
-        let config = AgentConfig::new("test")
-            .with_prompt_flags(flags);
+        let config = AgentConfig::new("test").with_prompt_flags(flags);
 
         let prompt = executor.build_system_prompt(&config).await;
-        
+
         // Should NOT contain tools section
         assert!(!prompt.contains("Available Tools"));
         // Should contain base section
@@ -2458,11 +2455,10 @@ mod tests {
 
         // Disable base section
         let flags = PromptFlags::new().without_base();
-        let config = AgentConfig::new("test")
-            .with_prompt_flags(flags);
+        let config = AgentConfig::new("test").with_prompt_flags(flags);
 
         let prompt = executor.build_system_prompt(&config).await;
-        
+
         // Should NOT contain base prompt
         assert!(!prompt.contains("helpful AI assistant"));
         // Should be empty or minimal
@@ -2487,7 +2483,7 @@ mod tests {
         let config = AgentConfig::new("test");
 
         let prompt = executor.build_system_prompt(&config).await;
-        
+
         // Should contain all sections
         assert!(prompt.contains("helpful AI assistant"));
         assert!(prompt.contains("Available Tools"));

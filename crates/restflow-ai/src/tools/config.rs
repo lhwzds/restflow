@@ -150,36 +150,26 @@ impl ConfigTool {
                         })?;
                     }
                     "max_iterations" => {
-                        config.agent.max_iterations = value
-                            .as_u64()
-                            .ok_or_else(|| {
-                                AiError::Tool("agent.max_iterations must be a number".to_string())
-                            })?
-                            as usize;
+                        config.agent.max_iterations = value.as_u64().ok_or_else(|| {
+                            AiError::Tool("agent.max_iterations must be a number".to_string())
+                        })? as usize;
                     }
                     "subagent_timeout_secs" => {
-                        config.agent.subagent_timeout_secs =
-                            value.as_u64().ok_or_else(|| {
-                                AiError::Tool(
-                                    "agent.subagent_timeout_secs must be a number".to_string(),
-                                )
-                            })?;
+                        config.agent.subagent_timeout_secs = value.as_u64().ok_or_else(|| {
+                            AiError::Tool(
+                                "agent.subagent_timeout_secs must be a number".to_string(),
+                            )
+                        })?;
                     }
                     "max_tool_calls" => {
-                        config.agent.max_tool_calls = value
-                            .as_u64()
-                            .ok_or_else(|| {
-                                AiError::Tool("agent.max_tool_calls must be a number".to_string())
-                            })?
-                            as usize;
+                        config.agent.max_tool_calls = value.as_u64().ok_or_else(|| {
+                            AiError::Tool("agent.max_tool_calls must be a number".to_string())
+                        })? as usize;
                     }
                     "max_wall_clock_secs" => {
-                        config.agent.max_wall_clock_secs =
-                            value.as_u64().ok_or_else(|| {
-                                AiError::Tool(
-                                    "agent.max_wall_clock_secs must be a number".to_string(),
-                                )
-                            })?;
+                        config.agent.max_wall_clock_secs = value.as_u64().ok_or_else(|| {
+                            AiError::Tool("agent.max_wall_clock_secs must be a number".to_string())
+                        })?;
                     }
                     "default_task_timeout_secs" => {
                         config.agent.default_task_timeout_secs =
@@ -483,21 +473,27 @@ mod tests {
                 }))
                 .await
                 .unwrap_or_else(|err| panic!("set should support agent field '{key}': {err}"));
-            assert!(
-                output.success,
-                "set should succeed for agent field '{key}'"
-            );
+            assert!(output.success, "set should succeed for agent field '{key}'");
         }
 
         // Verify the values persisted
-        let output = tool
-            .execute(json!({ "operation": "get" }))
-            .await
-            .unwrap();
-        let agent = output.result.get("agent").expect("agent block should exist");
-        assert_eq!(agent.get("tool_timeout_secs").and_then(|v| v.as_u64()), Some(180));
-        assert_eq!(agent.get("bash_timeout_secs").and_then(|v| v.as_u64()), Some(600));
-        assert_eq!(agent.get("max_iterations").and_then(|v| v.as_u64()), Some(50));
+        let output = tool.execute(json!({ "operation": "get" })).await.unwrap();
+        let agent = output
+            .result
+            .get("agent")
+            .expect("agent block should exist");
+        assert_eq!(
+            agent.get("tool_timeout_secs").and_then(|v| v.as_u64()),
+            Some(180)
+        );
+        assert_eq!(
+            agent.get("bash_timeout_secs").and_then(|v| v.as_u64()),
+            Some(600)
+        );
+        assert_eq!(
+            agent.get("max_iterations").and_then(|v| v.as_u64()),
+            Some(50)
+        );
     }
 
     #[tokio::test]
@@ -521,12 +517,12 @@ mod tests {
         let storage = setup_storage();
         let tool = ConfigTool::new(storage);
 
-        let output = tool
-            .execute(json!({ "operation": "get" }))
-            .await
-            .unwrap();
+        let output = tool.execute(json!({ "operation": "get" })).await.unwrap();
         assert!(output.success);
-        let agent = output.result.get("agent").expect("agent block should exist");
+        let agent = output
+            .result
+            .get("agent")
+            .expect("agent block should exist");
         assert!(agent.get("tool_timeout_secs").is_some());
         assert!(agent.get("bash_timeout_secs").is_some());
         assert!(agent.get("max_iterations").is_some());

@@ -68,7 +68,7 @@ impl TelegramTool {
         let error_str = error.to_string();
         // Remove the bot token from any URL in the error message
         let sanitized = error_str.replace(bot_token, "***");
-        
+
         // If the error still contains sensitive info, provide a generic message
         if sanitized.contains("api.telegram.org/bot") && !sanitized.contains("***") {
             "Telegram request failed: network error".to_string()
@@ -117,10 +117,7 @@ impl TelegramTool {
             .send()
             .await
             .map_err(|e| {
-                crate::error::AiError::Tool(Self::sanitize_request_error(
-                    &e,
-                    &input.bot_token,
-                ))
+                crate::error::AiError::Tool(Self::sanitize_request_error(&e, &input.bot_token))
             })?;
 
         let status = response.status();
@@ -249,16 +246,11 @@ pub async fn send_telegram_notification(
         payload["parse_mode"] = json!(mode);
     }
 
-    let response = client
-        .post(&url)
-        .json(&payload)
-        .send()
-        .await
-        .map_err(|e| {
-            let error_str = e.to_string();
-            let sanitized = error_str.replace(bot_token, "***");
-            format!("Failed to send Telegram message: {}", sanitized)
-        })?;
+    let response = client.post(&url).json(&payload).send().await.map_err(|e| {
+        let error_str = e.to_string();
+        let sanitized = error_str.replace(bot_token, "***");
+        format!("Failed to send Telegram message: {}", sanitized)
+    })?;
     let status = response.status();
 
     let body: Value = response.json().await.unwrap_or_else(|_| json!({}));
@@ -317,10 +309,13 @@ mod tests {
     fn test_sanitize_request_error_removes_token() {
         // Test the sanitization logic directly
         let token = "123456789:ABCdefGHIjklMNOpqrsTUVwxyz";
-        let error_msg = format!("error sending request for url (https://api.telegram.org/bot{}/sendMessage): connection failed", token);
-        
+        let error_msg = format!(
+            "error sending request for url (https://api.telegram.org/bot{}/sendMessage): connection failed",
+            token
+        );
+
         let sanitized = error_msg.replace(token, "***");
-        
+
         // Token should be replaced with ***
         assert!(!sanitized.contains(token));
         assert!(sanitized.contains("***"));
@@ -331,9 +326,9 @@ mod tests {
         // Test that other error info is preserved
         let token = "secret_token_here";
         let error_msg = "connection timed out";
-        
+
         let sanitized = error_msg.replace(token, "***");
-        
+
         // Error message should be unchanged since it doesn't contain the token
         assert_eq!(sanitized, error_msg);
     }

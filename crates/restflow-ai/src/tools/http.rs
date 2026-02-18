@@ -7,13 +7,13 @@ use serde_json::{Value, json};
 use std::net::{IpAddr, Ipv6Addr};
 use std::sync::Arc;
 
+use crate::SecurityGate;
 use crate::ToolAction;
+use crate::error::AiError;
 use crate::error::Result;
 use crate::http_client::build_http_client;
-use crate::error::AiError;
 use crate::security::NetworkAllowlist;
 use crate::tools::traits::check_security;
-use crate::SecurityGate;
 use crate::tools::traits::{Tool, ToolErrorCategory, ToolOutput};
 
 #[derive(Debug, Deserialize)]
@@ -32,7 +32,12 @@ fn validate_url(url: &str) -> std::result::Result<(), String> {
     // Only allow HTTP and HTTPS schemes
     match parsed.scheme() {
         "http" | "https" => {}
-        scheme => return Err(format!("Scheme '{}' is not allowed. Only HTTP and HTTPS are permitted.", scheme)),
+        scheme => {
+            return Err(format!(
+                "Scheme '{}' is not allowed. Only HTTP and HTTPS are permitted.",
+                scheme
+            ));
+        }
     }
 
     // Check host
@@ -223,12 +228,13 @@ impl HttpTool {
     fn check_network_allowlist(&self, url: &str) -> Result<()> {
         if let Some(ref allowlist) = self.network_allowlist {
             // Parse URL to extract host
-            let parsed = url::Url::parse(url)
-                .map_err(|e| AiError::Tool(format!("Invalid URL: {}", e)))?;
-            
-            let host = parsed.host_str()
+            let parsed =
+                url::Url::parse(url).map_err(|e| AiError::Tool(format!("Invalid URL: {}", e)))?;
+
+            let host = parsed
+                .host_str()
                 .ok_or_else(|| AiError::Tool("URL has no host".to_string()))?;
-            
+
             if !allowlist.is_host_allowed(host) {
                 return Err(AiError::Tool(format!(
                     "URL host '{}' is not in the allowed network list. Allowed domains: {:?}",
@@ -239,7 +245,6 @@ impl HttpTool {
         }
         Ok(())
     }
-
 
     fn classify_status(status: u16) -> (ToolErrorCategory, bool) {
         match status {

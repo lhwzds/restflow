@@ -157,7 +157,13 @@ impl BashSecurityChecker {
         let mut normalized = command.to_lowercase();
 
         // Remove common path prefixes
-        let prefixes = ["/usr/bin/", "/usr/sbin/", "/bin/", "/sbin/", "/usr/local/bin/"];
+        let prefixes = [
+            "/usr/bin/",
+            "/usr/sbin/",
+            "/bin/",
+            "/sbin/",
+            "/usr/local/bin/",
+        ];
         for prefix in prefixes {
             normalized = normalized.replace(prefix, "");
         }
@@ -189,7 +195,9 @@ impl BashSecurityChecker {
         // Common sudo aliases
         let sudo_aliases = ["doas", "run0", "pkexec", "gsudo"];
         for alias in sudo_aliases {
-            if normalized.starts_with(&format!("{} ", alias)) || normalized.contains(&format!(" {} ", alias)) {
+            if normalized.starts_with(&format!("{} ", alias))
+                || normalized.contains(&format!(" {} ", alias))
+            {
                 return true;
             }
         }
@@ -201,7 +209,11 @@ impl BashSecurityChecker {
     fn check_dangerous_patterns(normalized: &str) -> Option<String> {
         // Check for rm with dangerous flags
         if normalized.contains("rm ") {
-            if normalized.contains("-rf") && (normalized.contains("/*") || normalized.contains("/ ~") || normalized.contains("/root")) {
+            if normalized.contains("-rf")
+                && (normalized.contains("/*")
+                    || normalized.contains("/ ~")
+                    || normalized.contains("/root"))
+            {
                 return Some("Dangerous rm command detected".to_string());
             }
             if normalized.contains("--no-preserve-root") {
@@ -220,15 +232,16 @@ impl BashSecurityChecker {
         // Check for curl/wget piped to sh (common malware pattern)
         static CURL_PIPE_SH: OnceLock<Regex> = OnceLock::new();
         let curl_regex = CURL_PIPE_SH.get_or_init(|| {
-            Regex::new(r"(curl|wget).*\|.*(sh|bash|zsh|fish)")
-                .expect("Invalid curl|sh regex")
+            Regex::new(r"(curl|wget).*\|.*(sh|bash|zsh|fish)").expect("Invalid curl|sh regex")
         });
         if curl_regex.is_match(normalized) {
             return Some("Curl/wget piped to shell detected".to_string());
         }
 
         // Check for base64 decode and execute
-        if normalized.contains("base64") && (normalized.contains("| sh") || normalized.contains("| bash")) {
+        if normalized.contains("base64")
+            && (normalized.contains("| sh") || normalized.contains("| bash"))
+        {
             return Some("Base64 decode and execute detected".to_string());
         }
 
@@ -294,7 +307,9 @@ impl Tool for BashTool {
         let check_result = checker.is_command_blocked(command);
 
         if !check_result.allowed {
-            let reason = check_result.reason.unwrap_or_else(|| "Unknown reason".to_string());
+            let reason = check_result
+                .reason
+                .unwrap_or_else(|| "Unknown reason".to_string());
             return Ok(ToolResult::error(format!(
                 "Command blocked for security: {}",
                 reason
@@ -477,7 +492,11 @@ mod tests {
 
         for cmd in safe_commands {
             let result = checker.is_command_blocked(cmd);
-            assert!(result.allowed, "Command '{}' should be allowed but was blocked: {:?}", cmd, result.reason);
+            assert!(
+                result.allowed,
+                "Command '{}' should be allowed but was blocked: {:?}",
+                cmd, result.reason
+            );
         }
     }
 

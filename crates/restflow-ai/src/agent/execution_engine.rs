@@ -306,7 +306,10 @@ mod tests {
         )
         .with_history(vec![Message::assistant("previous answer")]);
 
-        let result = engine.execute("next question").await.expect("execution failed");
+        let result = engine
+            .execute("next question")
+            .await
+            .expect("execution failed");
         assert!(
             result
                 .messages

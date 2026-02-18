@@ -68,7 +68,9 @@ impl AnthropicClient {
     }
 
     fn api_base_url(&self) -> &str {
-        self.base_url.as_deref().unwrap_or("https://api.anthropic.com")
+        self.base_url
+            .as_deref()
+            .unwrap_or("https://api.anthropic.com")
     }
 
     fn build_auth_headers(&self) -> HeaderMap {
@@ -407,8 +409,7 @@ impl LlmClient for AnthropicClient {
             match block.r#type.as_str() {
                 "text" => content = block.text,
                 "tool_use" => {
-                    if let (Some(id), Some(name), Some(input)) =
-                        (block.id, block.name, block.input)
+                    if let (Some(id), Some(name), Some(input)) = (block.id, block.name, block.input)
                     {
                         tool_calls.push(ToolCall {
                             id,

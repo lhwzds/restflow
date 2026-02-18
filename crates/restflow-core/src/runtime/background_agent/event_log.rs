@@ -171,7 +171,8 @@ impl EventLog {
                 return Ok(Vec::new());
             }
             Err(e) => {
-                return Err(e).with_context(|| format!("Failed to read log file: {}", path.display()));
+                return Err(e)
+                    .with_context(|| format!("Failed to read log file: {}", path.display()));
             }
         };
 

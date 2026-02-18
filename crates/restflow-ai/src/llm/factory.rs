@@ -302,9 +302,6 @@ mod tests {
 
     #[test]
     fn zai_uses_api_z_ai_endpoint() {
-        assert_eq!(
-            LlmProvider::Zai.base_url(),
-            "https://api.z.ai/api/paas/v4"
-        );
+        assert_eq!(LlmProvider::Zai.base_url(), "https://api.z.ai/api/paas/v4");
     }
 }

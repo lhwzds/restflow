@@ -279,7 +279,10 @@ mod tests {
         let result2 = handle2.join().unwrap();
 
         // Exactly one should succeed, one should fail
-        let success_count = [result1.is_ok(), result2.is_ok()].iter().filter(|&&x| x).count();
+        let success_count = [result1.is_ok(), result2.is_ok()]
+            .iter()
+            .filter(|&&x| x)
+            .count();
         assert_eq!(success_count, 1, "Exactly one create should succeed");
 
         // Verify the skill exists and can be retrieved

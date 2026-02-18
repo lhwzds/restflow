@@ -1,7 +1,7 @@
 //! Agent storage - byte-level API for agent persistence.
 
-use crate::define_simple_storage;
 use crate::SimpleStorage;
+use crate::define_simple_storage;
 
 define_simple_storage! {
     /// Low-level agent storage with byte-level API

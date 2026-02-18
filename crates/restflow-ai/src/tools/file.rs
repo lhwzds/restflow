@@ -2385,7 +2385,13 @@ mod tests {
             .unwrap();
 
         assert!(!output.success);
-        assert!(output.error.as_deref().unwrap_or_default().contains("must read"));
+        assert!(
+            output
+                .error
+                .as_deref()
+                .unwrap_or_default()
+                .contains("must read")
+        );
         assert!(file_path.exists());
     }
 

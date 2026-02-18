@@ -153,7 +153,11 @@ mod tests {
     #[test]
     fn default_skill_content_is_valid_frontmatter() {
         for (skill_id, content) in DEFAULT_SKILLS {
-            assert!(content.starts_with("---"), "skill {} missing frontmatter", skill_id);
+            assert!(
+                content.starts_with("---"),
+                "skill {} missing frontmatter",
+                skill_id
+            );
             assert!(content.contains("name:"), "skill {} missing name", skill_id);
         }
     }

@@ -204,7 +204,8 @@ impl BackgroundAgentStorage {
             }
 
             let mut message_table = write_txn.open_table(BACKGROUND_MESSAGE_TABLE)?;
-            let mut message_task_index = write_txn.open_table(BACKGROUND_MESSAGE_TASK_INDEX_TABLE)?;
+            let mut message_task_index =
+                write_txn.open_table(BACKGROUND_MESSAGE_TASK_INDEX_TABLE)?;
             let mut message_keys = Vec::new();
             for item in message_task_index.range(start.as_str()..end.as_str())? {
                 let (key, value) = item?;
@@ -215,7 +216,8 @@ impl BackgroundAgentStorage {
                 message_table.remove(message_id.as_str())?;
             }
 
-            let mut message_status_index = write_txn.open_table(BACKGROUND_MESSAGE_STATUS_INDEX_TABLE)?;
+            let mut message_status_index =
+                write_txn.open_table(BACKGROUND_MESSAGE_STATUS_INDEX_TABLE)?;
             let task_segment = format!("{}:", id);
             let mut message_status_keys = Vec::new();
             for item in message_status_index.iter()? {
@@ -231,7 +233,8 @@ impl BackgroundAgentStorage {
                 message_status_index.remove(status_key.as_str())?;
             }
 
-            let mut task_status_index = write_txn.open_table(BACKGROUND_AGENT_STATUS_INDEX_TABLE)?;
+            let mut task_status_index =
+                write_txn.open_table(BACKGROUND_AGENT_STATUS_INDEX_TABLE)?;
             let task_suffix = format!(":{}", id);
             let mut task_status_keys = Vec::new();
             for item in task_status_index.iter()? {

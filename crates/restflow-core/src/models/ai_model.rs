@@ -1365,18 +1365,26 @@ mod tests {
     #[test]
     fn test_build_model_specs_contains_codex_cli() {
         let specs = AIModel::build_model_specs();
-        assert!(specs
-            .iter()
-            .any(|spec| spec.name == "gpt-5-codex" && spec.is_codex_cli));
-        assert!(specs
-            .iter()
-            .any(|spec| spec.name == "gpt-5.1-codex" && spec.is_codex_cli));
-        assert!(specs
-            .iter()
-            .any(|spec| spec.name == "gpt-5.2-codex" && spec.is_codex_cli));
-        assert!(specs
-            .iter()
-            .any(|spec| spec.name == "gpt-5.3-codex" && spec.is_codex_cli));
+        assert!(
+            specs
+                .iter()
+                .any(|spec| spec.name == "gpt-5-codex" && spec.is_codex_cli)
+        );
+        assert!(
+            specs
+                .iter()
+                .any(|spec| spec.name == "gpt-5.1-codex" && spec.is_codex_cli)
+        );
+        assert!(
+            specs
+                .iter()
+                .any(|spec| spec.name == "gpt-5.2-codex" && spec.is_codex_cli)
+        );
+        assert!(
+            specs
+                .iter()
+                .any(|spec| spec.name == "gpt-5.3-codex" && spec.is_codex_cli)
+        );
     }
 
     #[test]
@@ -1403,7 +1411,10 @@ mod tests {
         assert_eq!(Provider::Groq.api_key_env(), "GROQ_API_KEY");
         assert_eq!(Provider::Qwen.api_key_env(), "DASHSCOPE_API_KEY");
         assert_eq!(Provider::MiniMax.api_key_env(), "MINIMAX_API_KEY");
-        assert_eq!(Provider::MiniMaxCodingPlan.api_key_env(), "MINIMAX_CODING_PLAN_API_KEY");
+        assert_eq!(
+            Provider::MiniMaxCodingPlan.api_key_env(),
+            "MINIMAX_CODING_PLAN_API_KEY"
+        );
         assert_eq!(Provider::Zai.api_key_env(), "ZAI_API_KEY");
         assert_eq!(
             Provider::ZaiCodingPlan.api_key_env(),

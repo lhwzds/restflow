@@ -1102,7 +1102,10 @@ mod tests {
             .unwrap();
 
         // Disable the profile
-        manager.disable_profile(&id, "Testing disable persistence").await.unwrap();
+        manager
+            .disable_profile(&id, "Testing disable persistence")
+            .await
+            .unwrap();
         let profile = manager.get_profile(&id).await.unwrap();
         assert!(!profile.enabled);
 
@@ -1116,7 +1119,10 @@ mod tests {
 
         // Verify disabled state persisted
         let profile_reloaded = manager2.get_profile(&id).await.unwrap();
-        assert!(!profile_reloaded.enabled, "Disabled state should persist across manager re-instantiation");
+        assert!(
+            !profile_reloaded.enabled,
+            "Disabled state should persist across manager re-instantiation"
+        );
         assert_eq!(profile_reloaded.health, ProfileHealth::Disabled);
 
         // Enable the profile
@@ -1134,7 +1140,10 @@ mod tests {
 
         // Verify enabled state persisted
         let profile_reloaded2 = manager3.get_profile(&id).await.unwrap();
-        assert!(profile_reloaded2.enabled, "Enabled state should persist across manager re-instantiation");
+        assert!(
+            profile_reloaded2.enabled,
+            "Enabled state should persist across manager re-instantiation"
+        );
         assert_eq!(profile_reloaded2.health, ProfileHealth::Unknown);
     }
 

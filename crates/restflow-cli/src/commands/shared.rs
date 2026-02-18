@@ -13,11 +13,15 @@ pub async fn run(
     format: OutputFormat,
 ) -> Result<()> {
     match command {
-        SharedCommands::List { namespace } => list_shared(executor, namespace.as_deref(), format).await,
-        SharedCommands::Get { key } => get_shared(executor, &key, format).await,
-        SharedCommands::Set { key, value, visibility } => {
-            set_shared(executor, &key, &value, &visibility, format).await
+        SharedCommands::List { namespace } => {
+            list_shared(executor, namespace.as_deref(), format).await
         }
+        SharedCommands::Get { key } => get_shared(executor, &key, format).await,
+        SharedCommands::Set {
+            key,
+            value,
+            visibility,
+        } => set_shared(executor, &key, &value, &visibility, format).await,
         SharedCommands::Delete { key } => delete_shared(executor, &key, format).await,
     }
 }

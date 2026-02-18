@@ -51,7 +51,11 @@ pub async fn create_secret(
     // Use strict create_secret - will fail if key already exists
     state
         .executor()
-        .create_secret(request.key.clone(), request.value, request.description.clone())
+        .create_secret(
+            request.key.clone(),
+            request.value,
+            request.description.clone(),
+        )
         .await
         .map_err(|e| e.to_string())?;
 

@@ -16,7 +16,7 @@ use crate::models::memory::{
     MemoryChunk, MemorySearchQuery, MemorySearchResult, MemorySession, MemorySource, MemoryStats,
     SearchMode, SemanticMatch, SourceTypeFilter,
 };
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use redb::Database;
 use regex::Regex;
 use restflow_storage::{

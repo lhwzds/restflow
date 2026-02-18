@@ -526,13 +526,7 @@ mod tests {
         let tags = vec!["source:chat_session".to_string()];
 
         let result = persister
-            .persist_conversation(
-                &messages,
-                "agent-1",
-                "session-abc",
-                "My Chat",
-                &tags,
-            )
+            .persist_conversation(&messages, "agent-1", "session-abc", "My Chat", &tags)
             .unwrap();
 
         assert!(!result.session_id.is_empty());

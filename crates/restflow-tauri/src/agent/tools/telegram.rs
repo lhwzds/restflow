@@ -94,7 +94,7 @@ impl Tool for TelegramTool {
             "chat_id": payload.chat_id,
             "text": payload.message
         });
-        
+
         if let Some(thread_id) = payload.message_thread_id {
             params["message_thread_id"] = json!(thread_id);
         }

@@ -260,13 +260,15 @@ impl SubagentTracker {
         for entry in self.states.iter() {
             let status = &entry.value().status;
             let has_result = entry.value().result.is_some();
-            if has_result && matches!(
-                status,
-                SubagentStatus::Completed
-                    | SubagentStatus::Failed
-                    | SubagentStatus::Cancelled
-                    | SubagentStatus::TimedOut
-            ) {
+            if has_result
+                && matches!(
+                    status,
+                    SubagentStatus::Completed
+                        | SubagentStatus::Failed
+                        | SubagentStatus::Cancelled
+                        | SubagentStatus::TimedOut
+                )
+            {
                 let id = entry.key().clone();
                 let result = entry.value().result.clone().unwrap();
                 return Some((id, result));
@@ -525,7 +527,10 @@ mod tests {
         // Now wait_any should also find this completed task via fallback
         // since channel may have been drained
         let result = tracker.wait_any().await;
-        assert!(result.is_some(), "wait_any should find completed task via fallback");
+        assert!(
+            result.is_some(),
+            "wait_any should find completed task via fallback"
+        );
         let (id, result) = result.unwrap();
         assert_eq!(id, "task-1");
         assert!(result.success);

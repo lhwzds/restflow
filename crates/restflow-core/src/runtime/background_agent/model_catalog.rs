@@ -59,9 +59,7 @@ impl ModelCatalog {
                     .build()
                     .unwrap_or_else(|_| reqwest::Client::new());
                 let cache_path = resolve_cache_path().unwrap_or_else(|_| {
-                    PathBuf::from(".restflow")
-                        .join("cache")
-                        .join("models.json")
+                    PathBuf::from(".restflow").join("cache").join("models.json")
                 });
 
                 let catalog = Arc::new(Self {
@@ -255,14 +253,16 @@ fn parse_models_dev_json(raw: &str) -> Result<ParsedCatalog> {
     Ok(parsed)
 }
 
-fn insert_entry(parsed: &mut ParsedCatalog, provider_id: &str, model_id: &str, entry: ModelCatalogEntry) {
+fn insert_entry(
+    parsed: &mut ParsedCatalog,
+    provider_id: &str,
+    model_id: &str,
+    entry: ModelCatalogEntry,
+) {
     parsed
         .by_provider_model
         .insert(provider_model_key(provider_id, model_id), entry);
-    parsed
-        .by_model
-        .entry(normalize(model_id))
-        .or_insert(entry);
+    parsed.by_model.entry(normalize(model_id)).or_insert(entry);
 }
 
 fn provider_model_key(provider_id: &str, model_id: &str) -> String {
@@ -343,7 +343,12 @@ fn models_url() -> String {
 fn models_fetch_disabled() -> bool {
     std::env::var("RESTFLOW_DISABLE_MODELS_FETCH")
         .ok()
-        .map(|raw| matches!(raw.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
+        .map(|raw| {
+            matches!(
+                raw.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
         .unwrap_or(false)
 }
 

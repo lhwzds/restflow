@@ -220,11 +220,21 @@ impl CommandExecutor for DirectExecutor {
         secrets_service::set_secret(&self.core, key, value, description).await
     }
 
-    async fn create_secret(&self, key: &str, value: &str, description: Option<String>) -> Result<()> {
+    async fn create_secret(
+        &self,
+        key: &str,
+        value: &str,
+        description: Option<String>,
+    ) -> Result<()> {
         secrets_service::create_secret(&self.core, key, value, description).await
     }
 
-    async fn update_secret(&self, key: &str, value: &str, description: Option<String>) -> Result<()> {
+    async fn update_secret(
+        &self,
+        key: &str,
+        value: &str,
+        description: Option<String>,
+    ) -> Result<()> {
         secrets_service::update_secret(&self.core, key, value, description).await
     }
 
@@ -247,7 +257,10 @@ impl CommandExecutor for DirectExecutor {
     }
 
     // Background Agent operations - require daemon
-    async fn list_background_agents(&self, _status: Option<String>) -> Result<Vec<BackgroundAgent>> {
+    async fn list_background_agents(
+        &self,
+        _status: Option<String>,
+    ) -> Result<Vec<BackgroundAgent>> {
         bail!("Background agent operations require daemon mode. Use 'restflow daemon start' first.")
     }
 

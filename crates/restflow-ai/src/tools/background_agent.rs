@@ -957,6 +957,9 @@ mod tests {
         assert!(output.success);
         // Cancel should call control_background_agent with action "stop", not delete
         // MockStore returns { id, action } for control operations
-        assert_eq!(output.result.get("action").and_then(|v| v.as_str()), Some("stop"));
+        assert_eq!(
+            output.result.get("action").and_then(|v| v.as_str()),
+            Some("stop")
+        );
     }
 }
