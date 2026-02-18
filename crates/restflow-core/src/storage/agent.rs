@@ -124,14 +124,24 @@ impl AgentStorage {
         self.hydrate_prompt_from_file(existing_agent)
     }
 
+    /// Delete an agent atomically to prevent TOCTOU race conditions.
+    ///
+    /// This operation resolves the agent ID and deletes it within a single
+    /// write transaction, ensuring that concurrent delete operations on the
+    /// same agent are handled correctly.
+    ///
+    /// # Errors
+    /// Returns an error if the agent is not found or if the ID prefix is ambiguous.
     pub fn delete_agent(&self, id: String) -> Result<()> {
-        let resolved_id = self
-            .resolve_existing_agent_id(&id)
-            .map_err(|_| anyhow::anyhow!("Agent {} not found", id))?;
-        if !self.inner.delete(&resolved_id)? {
+        // Use atomic delete from inner storage to prevent TOCTOU race
+        let (existed, resolved_id) = self.inner.delete_atomically(&id)?;
+        if !existed {
             return Err(anyhow::anyhow!("Agent {} not found", id));
         }
-        let _ = prompt_files::delete_agent_prompt_file(&resolved_id);
+        // Clean up prompt file using resolved ID
+        if let Some(resolved) = resolved_id {
+            let _ = prompt_files::delete_agent_prompt_file(&resolved);
+        }
         Ok(())
     }
 
@@ -501,6 +511,55 @@ mod tests {
 
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("not found"));
+        unsafe { std::env::remove_var(AGENTS_DIR_ENV) };
+    }
+
+    /// Test concurrent delete_agent operations don't cause race conditions.
+    /// Only one thread should succeed in deleting the agent.
+    #[test]
+    fn test_concurrent_delete_agent_atomic() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::thread;
+
+        let _lock = env_lock();
+        let temp_dir = tempdir().unwrap();
+        let prompts_dir = temp_dir.path().join("agents");
+        unsafe { std::env::set_var(AGENTS_DIR_ENV, &prompts_dir) };
+        let db_path = temp_dir.path().join("test.db");
+        let db = Arc::new(Database::create(db_path).unwrap());
+        let storage = Arc::new(AgentStorage::new(db).unwrap());
+
+        let stored = storage
+            .create_agent("Race Test".to_string(), create_test_agent_node())
+            .unwrap();
+
+        let success_count = Arc::new(AtomicUsize::new(0));
+        let num_threads = 10;
+
+        let handles: Vec<_> = (0..num_threads)
+            .map(|_| {
+                let s = Arc::clone(&storage);
+                let id = stored.id.clone();
+                let count = Arc::clone(&success_count);
+                thread::spawn(move || {
+                    if s.delete_agent(id).is_ok() {
+                        count.fetch_add(1, Ordering::SeqCst);
+                    }
+                })
+            })
+            .collect();
+
+        for h in handles {
+            h.join().unwrap();
+        }
+
+        // Exactly one delete should have succeeded
+        assert_eq!(success_count.load(Ordering::SeqCst), 1);
+
+        // Agent should no longer exist
+        let retrieved = storage.get_agent(stored.id.clone()).unwrap();
+        assert!(retrieved.is_none());
+
         unsafe { std::env::remove_var(AGENTS_DIR_ENV) };
     }
 }
