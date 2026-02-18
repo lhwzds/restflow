@@ -48,6 +48,7 @@ mod state;
 mod step;
 pub mod strategy;
 mod stream;
+mod prompt_flags;
 mod streaming_buffer;
 pub mod stuck;
 mod sub_agent;
@@ -70,6 +71,7 @@ pub use state::{AgentState, AgentStatus};
 pub use step::ExecutionStep;
 pub use stream::{ChannelEmitter, NullEmitter, StreamEmitter, ToolCallAccumulator};
 pub use stuck::{StuckAction, StuckDetector, StuckDetectorConfig, StuckInfo};
+pub use prompt_flags::PromptFlags;
 pub use sub_agent::{
     SpawnHandle, SpawnPriority, SpawnRequest, SubAgentManager, SubagentCompletion, SubagentConfig,
     SubagentResult, SubagentState, SubagentStatus, SubagentTracker, spawn_subagent,

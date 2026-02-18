@@ -9,6 +9,7 @@ use std::time::Duration;
 use serde_json::Value;
 
 use crate::agent::ExecutionStep;
+use crate::agent::PromptFlags;
 use crate::agent::context::{AgentContext, ContextDiscoveryConfig, WorkspaceContextCache};
 use crate::agent::deferred::{DeferredExecutionManager, DeferredStatus};
 use crate::agent::history::{HistoryPipeline, HistoryProcessor};
@@ -97,6 +98,8 @@ pub struct AgentConfig {
     pub checkpoint_durability: CheckpointDurability,
     /// Optional callback to persist agent state checkpoints.
     pub checkpoint_callback: Option<CheckpointCallback>,
+    /// Feature flags for conditional prompt section inclusion.
+    pub prompt_flags: PromptFlags,
 }
 
 impl AgentConfig {
@@ -125,6 +128,7 @@ impl AgentConfig {
             yolo_mode: false,
             checkpoint_durability: CheckpointDurability::Periodic { interval: 5 },
             checkpoint_callback: None,
+            prompt_flags: PromptFlags::default(),
         }
     }
 
@@ -249,6 +253,12 @@ impl AgentConfig {
     }
 
     /// Enable or disable yolo mode (auto-approval execution mode).
+    /// Set prompt flags for conditional section inclusion.
+    pub fn with_prompt_flags(mut self, flags: PromptFlags) -> Self {
+        self.prompt_flags = flags;
+        self
+    }
+
     pub fn with_yolo_mode(mut self, yolo_mode: bool) -> Self {
         self.yolo_mode = yolo_mode;
         self
@@ -1306,26 +1316,37 @@ impl AgentExecutor {
 
     async fn build_system_prompt(&self, config: &AgentConfig) -> String {
         let mut sections = Vec::new();
+        let flags = &config.prompt_flags;
 
-        let base = config
-            .system_prompt
-            .as_deref()
-            .unwrap_or("You are a helpful AI assistant that can use tools to accomplish tasks.");
-        sections.push(base.to_string());
-
-        let tools_desc: Vec<String> = self
-            .tools
-            .list()
-            .iter()
-            .filter_map(|name| self.tools.get(name))
-            .map(|t| format!("- {}: {}", t.name(), t.description()))
-            .collect();
-
-        if !tools_desc.is_empty() {
-            sections.push(format!("## Available Tools\n\n{}", tools_desc.join("\n")));
+        // Base prompt section (identity, role)
+        if flags.include_base {
+            let base = config
+                .system_prompt
+                .as_deref()
+                .unwrap_or("You are a helpful AI assistant that can use tools to accomplish tasks.");
+            sections.push(base.to_string());
         }
 
-        if let Some(cache) = &self.context_cache {
+        // Tools section
+        if flags.include_tools {
+            let tools_desc: Vec<String> = self
+                .tools
+                .list()
+                .iter()
+                .filter_map(|name| self.tools.get(name))
+                .map(|t| format!("- {}: {}", t.name(), t.description()))
+                .collect();
+
+            if !tools_desc.is_empty() {
+                sections.push(format!("## Available Tools\n\n{}", tools_desc.join("\n")));
+            }
+        }
+
+        // Workspace context section
+        // Workspace context section
+        if flags.include_workspace_context
+            && let Some(cache) = &self.context_cache
+        {
             let context = cache.get().await;
             if !context.content.is_empty() {
                 debug!(
@@ -1336,8 +1357,9 @@ impl AgentExecutor {
                 sections.push(context.content.clone());
             }
         }
-
-        if config.inject_agent_context
+        // Agent context section (skills, memory summary)
+        if flags.include_agent_context
+            && config.inject_agent_context
             && let Some(ref context) = config.agent_context
         {
             let context_str = context.format_for_prompt();
@@ -1345,6 +1367,10 @@ impl AgentExecutor {
                 sections.push(context_str);
             }
         }
+
+        // Security policy section (placeholder for future integration)
+        // When XPIA Security Policy is implemented, this section will be populated
+        // from the security module based on flags.include_security_policy
 
         sections.join("\n\n")
     }
@@ -2358,5 +2384,83 @@ mod tests {
         assert!(content.contains("\"event_type\":\"execution_start\""));
         assert!(content.contains("\"event_type\":\"iteration_begin\""));
         assert!(content.contains("\"event_type\":\"execution_complete\""));
+    }
+
+    #[tokio::test]
+    async fn test_prompt_flags_disable_tools() {
+        let response = CompletionResponse {
+            content: Some("Done".to_string()),
+            tool_calls: vec![],
+            finish_reason: FinishReason::Stop,
+            usage: None,
+        };
+
+        let llm = Arc::new(MockLlmClient::new(vec![response]));
+        let mut tools = ToolRegistry::new();
+        tools.register(EchoTool);
+        let executor = AgentExecutor::new(llm, Arc::new(tools));
+
+        // Disable tools section
+        let flags = PromptFlags::new().without_tools();
+        let config = AgentConfig::new("test")
+            .with_prompt_flags(flags);
+
+        let prompt = executor.build_system_prompt(&config).await;
+        
+        // Should NOT contain tools section
+        assert!(!prompt.contains("Available Tools"));
+        // Should contain base section
+        assert!(prompt.contains("helpful AI assistant"));
+    }
+
+    #[tokio::test]
+    async fn test_prompt_flags_disable_base() {
+        let response = CompletionResponse {
+            content: Some("Done".to_string()),
+            tool_calls: vec![],
+            finish_reason: FinishReason::Stop,
+            usage: None,
+        };
+
+        let llm = Arc::new(MockLlmClient::new(vec![response]));
+        let tools = Arc::new(ToolRegistry::new());
+        let executor = AgentExecutor::new(llm, tools);
+
+        // Disable base section
+        let flags = PromptFlags::new().without_base();
+        let config = AgentConfig::new("test")
+            .with_prompt_flags(flags);
+
+        let prompt = executor.build_system_prompt(&config).await;
+        
+        // Should NOT contain base prompt
+        assert!(!prompt.contains("helpful AI assistant"));
+        // Should be empty or minimal
+        assert!(prompt.is_empty() || prompt.len() < 20);
+    }
+
+    #[tokio::test]
+    async fn test_prompt_flags_default_all_enabled() {
+        let response = CompletionResponse {
+            content: Some("Done".to_string()),
+            tool_calls: vec![],
+            finish_reason: FinishReason::Stop,
+            usage: None,
+        };
+
+        let llm = Arc::new(MockLlmClient::new(vec![response]));
+        let mut tools = ToolRegistry::new();
+        tools.register(EchoTool);
+        let executor = AgentExecutor::new(llm, Arc::new(tools));
+
+        // Default flags should enable all sections
+        let config = AgentConfig::new("test");
+
+        let prompt = executor.build_system_prompt(&config).await;
+        
+        // Should contain all sections
+        assert!(prompt.contains("helpful AI assistant"));
+        assert!(prompt.contains("Available Tools"));
+        assert!(prompt.contains("echo"));
     }
 }
