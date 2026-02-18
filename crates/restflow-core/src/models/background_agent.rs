@@ -628,6 +628,22 @@ pub struct BackgroundProgress {
     pub pending_message_count: u32,
 }
 
+/// Execution path for nested sub-agent calls. Empty for top-level tasks.
+/// When Agent A spawns Agent B, Agent B's events include Agent A's subflow path
+/// plus its own tool_call_id. This enables hierarchical execution tracking.
+#[derive(Debug, Clone, Serialize, Deserialize, Default, TS)]
+#[ts(type = "string[]")]
+pub struct SubflowPath(pub Vec<String>);
+
+impl SubflowPath {
+    /// Create a new subflow path from a parent path and a new segment.
+    pub fn extend(&self, segment: &str) -> Self {
+        let mut new_path = self.0.clone();
+        new_path.push(segment.to_string());
+        SubflowPath(new_path)
+    }
+}
+
 /// Record of a task execution event
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
@@ -657,6 +673,11 @@ pub struct TaskEvent {
     #[serde(default)]
     #[ts(type = "number | null")]
     pub duration_ms: Option<i64>,
+    /// Subflow execution path - identifies position in nested agent call tree.
+    /// Empty for top-level tasks. Contains tool_call_ids when spawned by parent agent.
+    #[serde(default)]
+    #[ts(type = "string[]")]
+    pub subflow_path: SubflowPath,
 }
 
 /// Type of task event
@@ -1014,7 +1035,14 @@ impl TaskEvent {
             tokens_used: None,
             cost_usd: None,
             duration_ms: None,
+            subflow_path: SubflowPath::default(),
         }
+    }
+
+    /// Create a new event with a subflow path
+    pub fn with_subflow_path(mut self, subflow_path: SubflowPath) -> Self {
+        self.subflow_path = subflow_path;
+        self
     }
 
     /// Create a new event with a message
