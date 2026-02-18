@@ -94,7 +94,7 @@ pub use traits::{
     SecretResolver, SkillContent, SkillInfo, SkillProvider, SkillRecord, SkillUpdate, Tool,
     ToolErrorCategory, ToolOutput, ToolSchema,
 };
-pub use transcribe::TranscribeTool;
+pub use transcribe::{TranscribeConfig, TranscribeTool};
 pub use vision::VisionTool;
 pub use web_fetch::WebFetchTool;
 pub use web_search::WebSearchTool;
