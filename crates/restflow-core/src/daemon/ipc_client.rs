@@ -829,6 +829,14 @@ impl IpcClient {
         self.request_typed(IpcRequest::Ping).await
     }
 
+    pub async fn get_skill_reference(
+        &mut self,
+        _skill_id: String,
+        _ref_id: String,
+    ) -> Result<Option<String>> {
+        self.request_typed(IpcRequest::Ping).await
+    }
+
     pub async fn create_skill(&mut self, _skill: Skill) -> Result<()> {
         self.request_typed(IpcRequest::Ping).await
     }
