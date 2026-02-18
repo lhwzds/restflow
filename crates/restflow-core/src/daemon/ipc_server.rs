@@ -381,6 +381,13 @@ impl IpcServer {
                     Err(err) => IpcResponse::error(500, err.to_string()),
                 }
             }
+            IpcRequest::GetSkillReference { skill_id, ref_id } => {
+                match skills_service::get_skill_reference(core, &skill_id, &ref_id).await {
+                    Ok(Some(content)) => IpcResponse::success(content),
+                    Ok(None) => IpcResponse::not_found("Skill reference"),
+                    Err(err) => IpcResponse::error(500, err.to_string()),
+                }
+            }
             IpcRequest::DeleteSkill { id } => match skills_service::delete_skill(core, &id).await {
                 Ok(()) => IpcResponse::success(serde_json::json!({ "ok": true })),
                 Err(err) => IpcResponse::error(500, err.to_string()),

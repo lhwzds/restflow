@@ -63,6 +63,20 @@ impl TelegramTool {
         format!("{}/bot{}/{}", TELEGRAM_API_BASE, bot_token, method)
     }
 
+    /// Sanitize error message to remove sensitive token information
+    fn sanitize_request_error(error: &reqwest::Error, bot_token: &str) -> String {
+        let error_str = error.to_string();
+        // Remove the bot token from any URL in the error message
+        let sanitized = error_str.replace(bot_token, "***");
+        
+        // If the error still contains sensitive info, provide a generic message
+        if sanitized.contains("api.telegram.org/bot") && !sanitized.contains("***") {
+            "Telegram request failed: network error".to_string()
+        } else {
+            format!("Telegram request failed: {}", sanitized)
+        }
+    }
+
     fn format_api_error(status: StatusCode, body: &Value) -> String {
         if let Some(error_desc) = body.get("description").and_then(|v| v.as_str()) {
             return format!("Telegram API error: {}", error_desc);
@@ -96,7 +110,18 @@ impl TelegramTool {
             payload["message_thread_id"] = json!(thread_id);
         }
 
-        let response = self.client.post(&url).json(&payload).send().await?;
+        let response = self
+            .client
+            .post(&url)
+            .json(&payload)
+            .send()
+            .await
+            .map_err(|e| {
+                crate::error::AiError::Tool(Self::sanitize_request_error(
+                    &e,
+                    &input.bot_token,
+                ))
+            })?;
 
         let status = response.status();
         let body: Value = response
@@ -229,13 +254,14 @@ pub async fn send_telegram_notification(
         .json(&payload)
         .send()
         .await
-        .map_err(|e| format!("Failed to send Telegram message: {}", e))?;
+        .map_err(|e| {
+            let error_str = e.to_string();
+            let sanitized = error_str.replace(bot_token, "***");
+            format!("Failed to send Telegram message: {}", sanitized)
+        })?;
     let status = response.status();
 
-    let body: Value = response
-        .json()
-        .await
-        .map_err(|e| format!("Failed to parse Telegram response: {}", e))?;
+    let body: Value = response.json().await.unwrap_or_else(|_| json!({}));
 
     if body.get("ok").and_then(|v| v.as_bool()).unwrap_or(false) {
         Ok(())
@@ -285,6 +311,31 @@ mod tests {
         let message = TelegramTool::format_api_error(StatusCode::UNAUTHORIZED, &json!({}));
         assert!(message.contains("Telegram API returned HTTP 401"));
         assert!(message.contains("bot token may be invalid"));
+    }
+
+    #[test]
+    fn test_sanitize_request_error_removes_token() {
+        // Test the sanitization logic directly
+        let token = "123456789:ABCdefGHIjklMNOpqrsTUVwxyz";
+        let error_msg = format!("error sending request for url (https://api.telegram.org/bot{}/sendMessage): connection failed", token);
+        
+        let sanitized = error_msg.replace(token, "***");
+        
+        // Token should be replaced with ***
+        assert!(!sanitized.contains(token));
+        assert!(sanitized.contains("***"));
+    }
+
+    #[test]
+    fn test_sanitize_request_error_keeps_other_info() {
+        // Test that other error info is preserved
+        let token = "secret_token_here";
+        let error_msg = "connection timed out";
+        
+        let sanitized = error_msg.replace(token, "***");
+        
+        // Error message should be unchanged since it doesn't contain the token
+        assert_eq!(sanitized, error_msg);
     }
 
     #[tokio::test]
