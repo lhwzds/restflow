@@ -249,7 +249,31 @@ impl SubagentTracker {
     }
 
     /// Wait for any sub-agent to complete
+    ///
+    /// This method first tries to receive a completion notification from the channel.
+    /// If the channel is empty or the notification was dropped (due to `try_send` failure
+    /// in `mark_completed`), it falls back to scanning the states map for completed sub-agents.
     pub async fn wait_any(&self) -> Option<(String, SubagentResult)> {
+        // First, check if there are any already-completed sub-agents in the states map
+        // This handles the case where completion notification was dropped due to channel full
+        // or the receiver was dropped
+        for entry in self.states.iter() {
+            let status = &entry.value().status;
+            let has_result = entry.value().result.is_some();
+            if has_result && matches!(
+                status,
+                SubagentStatus::Completed
+                    | SubagentStatus::Failed
+                    | SubagentStatus::Cancelled
+                    | SubagentStatus::TimedOut
+            ) {
+                let id = entry.key().clone();
+                let result = entry.value().result.clone().unwrap();
+                return Some((id, result));
+            }
+        }
+
+        // Try to receive from the completion channel
         let mut rx = self.completion_rx.lock().await;
         rx.recv()
             .await
@@ -300,6 +324,7 @@ impl SubagentTracker {
         self.completion_waiters.remove(id);
 
         // Send completion notification
+        // Use try_send and ignore failure - wait_any has a fallback to check states map
         let _ = self.completion_tx.try_send(SubagentCompletion {
             id: id.to_string(),
             result,
@@ -335,6 +360,7 @@ impl SubagentTracker {
         self.completion_waiters.remove(id);
 
         // Send completion notification
+        // Use try_send and ignore failure - wait_any has a fallback to check states map
         let _ = self.completion_tx.try_send(SubagentCompletion {
             id: id.to_string(),
             result,
@@ -460,5 +486,48 @@ mod tests {
         // Check state
         let state = tracker.get("task-1").unwrap();
         assert_eq!(state.status, SubagentStatus::Cancelled);
+    }
+
+    #[tokio::test]
+    async fn test_wait_any_fallback_on_completed_state() {
+        // Test that wait_any can find completed sub-agents via fallback
+        let (tx, rx) = mpsc::channel(1);
+        let tracker = Arc::new(SubagentTracker::new(tx, rx));
+
+        // Register a task that completes
+        let (completion_tx, completion_rx) = oneshot::channel();
+        let handle = tokio::spawn(async move {
+            let result = SubagentResult {
+                success: true,
+                output: "Done".to_string(),
+                summary: None,
+                duration_ms: 100,
+                tokens_used: Some(50),
+                cost_usd: None,
+                error: None,
+            };
+            let _ = completion_tx.send(result.clone());
+            result
+        });
+
+        tracker.register(
+            "task-1".to_string(),
+            "researcher".to_string(),
+            "Research X".to_string(),
+            handle,
+            completion_rx,
+        );
+
+        // Wait for completion via wait()
+        let result = tracker.wait("task-1").await;
+        assert!(result.is_some());
+
+        // Now wait_any should also find this completed task via fallback
+        // since channel may have been drained
+        let result = tracker.wait_any().await;
+        assert!(result.is_some(), "wait_any should find completed task via fallback");
+        let (id, result) = result.unwrap();
+        assert_eq!(id, "task-1");
+        assert!(result.success);
     }
 }
