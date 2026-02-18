@@ -3707,8 +3707,8 @@ mod tests {
     #[tokio::test]
     async fn test_mcp_manage_background_agents_stress_path_emits_latency_summary() {
         let (server, _core, _temp_dir, _temp_agents, _guard) = create_test_server().await;
-        let artifacts_dir = std::path::Path::new("target/stress-artifacts");
-        std::fs::create_dir_all(artifacts_dir).expect("failed to create stress artifacts dir");
+        let artifacts_dir = stress_artifacts_dir();
+        std::fs::create_dir_all(&artifacts_dir).expect("failed to create stress artifacts dir");
 
         let _ = server
             .handle_list_skills(ListSkillsParams::default())
@@ -3841,6 +3841,12 @@ mod tests {
             markdown,
         )
         .expect("failed to write mcp stress markdown artifact");
+    }
+
+    fn stress_artifacts_dir() -> std::path::PathBuf {
+        std::env::var("LOG_DIR")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|_| std::path::PathBuf::from("target/stress-artifacts"))
     }
 
     fn base_manage_background_params(operation: &str) -> ManageBackgroundAgentsParams {
