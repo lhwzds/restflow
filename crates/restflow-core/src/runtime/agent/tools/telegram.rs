@@ -8,6 +8,13 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 #[derive(Debug, Deserialize)]
+struct TelegramResponse {
+    ok: bool,
+    description: Option<String>,
+    error_code: Option<i32>,
+}
+
+#[derive(Debug, Deserialize)]
 struct TelegramInput {
     bot_token: String,
     chat_id: String,
@@ -94,14 +101,20 @@ impl Tool for TelegramTool {
             .await
             .map_err(|e| AiError::Tool(format!("Telegram API error: {}", e)))?;
 
-        if response.status().is_success() {
+        // Always parse response body to check for business-level errors
+        // Telegram may return HTTP 200 with ok: false for business errors
+        let body = response.text().await.unwrap_or_default();
+        let telegram_resp: TelegramResponse = serde_json::from_str(&body)
+            .map_err(|e| AiError::Tool(format!("Failed to parse Telegram response: {}", e)))?;
+
+        if telegram_resp.ok {
             Ok(ToolResult::success(json!("Message sent")))
         } else {
-            let status = response.status();
-            let text = response.text().await.unwrap_or_default();
+            let error_msg = telegram_resp.description
+                .unwrap_or_else(|| format!("Telegram API error code: {:?}", telegram_resp.error_code));
             Ok(ToolResult::error(format!(
-                "Telegram API error {}: {}",
-                status, text
+                "Telegram API error: {}",
+                error_msg
             )))
         }
     }
