@@ -1797,13 +1797,17 @@ impl AgentRuntimeExecutor {
             .agents
             .get_agent(agent_id.to_string())?
             .ok_or_else(|| anyhow!("Agent '{}' not found", agent_id))?;
-        let background_task = background_task_id.and_then(|task_id| {
-            self.storage
-                .background_agents
-                .get_task(task_id)
-                .ok()
-                .flatten()
-        });
+        // Fail closed on storage errors - do not silently swallow DB failures.
+        let background_task = match background_task_id {
+            Some(task_id) => match self.storage.background_agents.get_task(task_id) {
+                Ok(task_opt) => task_opt,
+                Err(e) => {
+                    warn!(task_id, error = %e, "Failed to load background task");
+                    return Err(e);
+                }
+            },
+            None => None,
+        };
         if let Some(task) = background_task.as_ref() {
             self.validate_prerequisites(&task.prerequisites)?;
         }
@@ -1894,16 +1898,18 @@ impl AgentRuntimeExecutor {
             .agents
             .get_agent(agent_id.to_string())?
             .ok_or_else(|| anyhow!("Agent '{}' not found", agent_id))?;
-        let resolved_resource_limits = background_task_id
-            .and_then(|task_id| {
-                self.storage
-                    .background_agents
-                    .get_task(task_id)
-                    .ok()
-                    .flatten()
-            })
-            .map(|task| task.resource_limits)
-            .unwrap_or_default();
+        // Fail closed on storage errors - do not silently swallow DB failures.
+        let resolved_resource_limits = match background_task_id {
+            Some(task_id) => match self.storage.background_agents.get_task(task_id) {
+                Ok(Some(task)) => task.resource_limits,
+                Ok(None) => {
+                    warn!(task_id, "Background task not found, using default limits");
+                    Default::default()
+                }
+                Err(e) => return Err(e),
+            },
+            None => Default::default(),
+        };
 
         let agent_node = stored_agent.agent.clone();
         let primary_model = self.resolve_primary_model(&agent_node).await?;
