@@ -372,7 +372,7 @@ impl AuthProvider {
             Provider::MiniMax
             | Provider::MiniMaxCodingPlan
             | Provider::Zai
-            | Provider::ZaiCodingPlan => vec![],
+            | Provider::ZaiCodingPlan => vec![AuthProvider::Other],
             _ => vec![AuthProvider::Other],
         }
     }
