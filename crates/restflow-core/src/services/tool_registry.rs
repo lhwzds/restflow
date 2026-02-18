@@ -722,6 +722,18 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
         Self::validate_scratchpad_name(&request.scratchpad)?;
         let dir = Self::scratchpad_dir()?;
         let path = dir.join(&request.scratchpad);
+
+        // Canonicalize and verify path stays within scratchpad directory
+        let canonical_dir = dir.canonicalize()
+            .map_err(|e| AiError::Tool(format!("failed to resolve scratchpad dir: {}", e)))?;
+        let canonical_path = path.canonicalize()
+            .map_err(|e| AiError::Tool(format!("failed to resolve scratchpad path: {}", e)))?;
+        if !canonical_path.starts_with(&canonical_dir) {
+            return Err(AiError::Tool(
+                "scratchpad path escapes scratchpad directory".to_string()
+            ));
+        }
+
         if !path.is_file() {
             return Err(AiError::Tool(format!(
                 "scratchpad {} not found",
@@ -4316,5 +4328,28 @@ mod tests {
         assert!(registry.has("read_memory"));
         assert!(registry.has("list_memories"));
         assert!(registry.has("delete_memory"));
+    }
+
+    // Note: Full path escape test requires integration test with actual scratchpad dir
+    // The canonicalize() check in read_background_agent_scratchpad provides the actual protection
+
+    #[test]
+    fn test_validate_scratchpad_name_accepts_normal_file() {
+        // Test that normal filenames are accepted
+        let result = BackgroundAgentStoreAdapter::validate_scratchpad_name("task-123-2026-02-18.jsonl");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_validate_scratchpad_name_rejects_path_traversal() {
+        // Test path traversal attempts
+        let result = BackgroundAgentStoreAdapter::validate_scratchpad_name("../etc/passwd.jsonl");
+        assert!(result.is_err());
+        
+        let result2 = BackgroundAgentStoreAdapter::validate_scratchpad_name("foo/../../../bar.jsonl");
+        assert!(result2.is_err());
+        
+        let result3 = BackgroundAgentStoreAdapter::validate_scratchpad_name("foo\\bar.jsonl");
+        assert!(result3.is_err());
     }
 }
