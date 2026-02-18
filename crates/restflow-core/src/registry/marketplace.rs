@@ -1,4 +1,4 @@
-//! RestFlow Marketplace provider - fetches skills from the RestFlow marketplace API.
+//! RestFlow Marketplace provider - fetches skills from RestFlow marketplace API.
 
 use async_trait::async_trait;
 use reqwest::Client;
@@ -13,7 +13,7 @@ use super::{
 };
 use crate::models::{
     BinaryRequirement, EnvVarRequirement, GatingRequirements, OsType, SkillAuthor, SkillManifest,
-    SkillPermissions, SkillSource, SkillVersion,
+    SkillPermissions, SkillSource, SkillVersion, SkillPermission,
 };
 
 /// Default marketplace API URL
@@ -32,7 +32,7 @@ struct MarketplaceSkillListResponse {
     per_page: u32,
 }
 
-/// Skill data from the marketplace API
+/// Skill data from marketplace API
 #[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct MarketplaceSkill {
@@ -54,6 +54,8 @@ struct MarketplaceSkill {
     dependencies: HashMap<String, String>,
     #[serde(default)]
     permissions: Vec<String>,
+    #[serde(default)]
+    required_tools: Vec<String>,
     #[serde(default)]
     gating: MarketplaceGating,
 }
@@ -92,7 +94,7 @@ impl<T> CacheEntry<T> {
 pub struct MarketplaceProvider {
     /// HTTP client
     client: Client,
-    /// Base URL for the marketplace API
+    /// Base URL for marketplace API
     base_url: String,
     /// API key (optional, for rate limiting bypass)
     api_key: Option<String>,
@@ -169,6 +171,27 @@ impl MarketplaceProvider {
             })
             .collect();
 
+        // Parse permissions from required_tools
+        let required_permissions: Vec<SkillPermission> = skill
+            .required_tools
+            .into_iter()
+            .map(|tool| match tool.to_lowercase().as_str() {
+                "bash" | "shell" => SkillPermission::ShellExec,
+                "file" | "file_read" => SkillPermission::FileRead,
+                "file_write" => SkillPermission::FileWrite,
+                "http" | "network" | "web" => SkillPermission::Network,
+                "email" => SkillPermission::Network,
+                "telegram" => SkillPermission::Network,
+                "python" => SkillPermission::ShellExec,
+                _ => SkillPermission::Custom(tool),
+            })
+            .collect();
+
+        let permissions = SkillPermissions {
+            required: required_permissions,
+            optional: Vec::new(),
+        };
+
         // Parse gating requirements
         let gating = GatingRequirements {
             binaries: skill
@@ -225,7 +248,7 @@ impl MarketplaceProvider {
             icon: None,
             metadata: HashMap::new(),
             dependencies,
-            permissions: SkillPermissions::default(),
+            permissions,
             gating,
         })
     }
