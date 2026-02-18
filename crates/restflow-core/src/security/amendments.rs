@@ -166,7 +166,7 @@ fn validate_regex_pattern(pattern: &str) -> Result<Vec<PatternWarning>> {
     }
     
     // Check for overly broad patterns
-    if pattern.contains(".*") && pattern.contains(";") == false {
+    if pattern.contains(".*") && !pattern.contains(";") {
         warnings.push(PatternWarning {
             code: "BROAD_WILDCARD".to_string(),
             message: "Pattern contains '.*' which matches anything, including command separators. Consider using more specific character classes.".to_string(),
