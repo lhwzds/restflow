@@ -32,7 +32,7 @@ comfy-table = "7"
 indicatif = "0.18"
 
 # Config
-toml = "0.9"
+toml = "1.0"
 dirs = "6"
 reqwest = { version = "0.13", features = ["json"] }
 flate2 = "1.1"
