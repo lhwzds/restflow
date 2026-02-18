@@ -25,13 +25,17 @@ impl SkillStorage {
         })
     }
 
-    /// Create a new skill (fails if already exists)
+    /// Create a new skill (fails if already exists).
+    ///
+    /// This method uses atomic insert-if-absent to prevent TOCTOU race conditions
+    /// when multiple concurrent create() calls occur for the same skill ID.
     pub fn create(&self, skill: &Skill) -> Result<()> {
-        if self.inner.exists(&skill.id)? {
+        let json = serde_json::to_string(skill)?;
+        let inserted = self.inner.insert_if_absent(&skill.id, json.as_bytes())?;
+        if !inserted {
             return Err(anyhow::anyhow!("Skill {} already exists", skill.id));
         }
-        let json = serde_json::to_string(skill)?;
-        self.inner.put_raw(&skill.id, json.as_bytes())
+        Ok(())
     }
 
     /// Get a skill by ID
@@ -229,5 +233,57 @@ mod tests {
 
         let result = storage.update("nonexistent", &skill);
         assert!(result.is_err());
+    }
+
+    /// Regression test for TOCTOU race condition in create()
+    /// This test verifies that concurrent create() calls for the same skill ID
+    /// result in exactly one success and one failure, not silent data loss.
+    #[test]
+    fn test_create_concurrent_no_race() {
+        use std::sync::Arc;
+        use std::thread;
+
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test.db");
+        let db = Arc::new(Database::create(db_path).unwrap());
+        let storage = Arc::new(SkillStorage::new(db).unwrap());
+
+        let skill_id = "concurrent-skill";
+        let storage_clone = Arc::clone(&storage);
+
+        // Spawn two threads that both try to create the same skill
+        let handle1 = thread::spawn(move || {
+            let skill = Skill::new(
+                skill_id.to_string(),
+                "Thread 1 Skill".to_string(),
+                None,
+                None,
+                "# Thread 1".to_string(),
+            );
+            storage_clone.create(&skill)
+        });
+
+        let storage_clone2 = Arc::clone(&storage);
+        let handle2 = thread::spawn(move || {
+            let skill = Skill::new(
+                skill_id.to_string(),
+                "Thread 2 Skill".to_string(),
+                None,
+                None,
+                "# Thread 2".to_string(),
+            );
+            storage_clone2.create(&skill)
+        });
+
+        let result1 = handle1.join().unwrap();
+        let result2 = handle2.join().unwrap();
+
+        // Exactly one should succeed, one should fail
+        let success_count = [result1.is_ok(), result2.is_ok()].iter().filter(|&&x| x).count();
+        assert_eq!(success_count, 1, "Exactly one create should succeed");
+
+        // Verify the skill exists and can be retrieved
+        let retrieved = storage.get(skill_id).unwrap().unwrap();
+        assert_eq!(retrieved.id, skill_id);
     }
 }

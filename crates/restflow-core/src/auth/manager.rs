@@ -622,7 +622,15 @@ impl AuthProfileManager {
         profile.failure_count = 0;
         profile.cooldown_until = None;
 
+        let updated = profile.clone();
         info!(profile_id, "Profile enabled");
+
+        if updated.source == CredentialSource::Manual
+            && let Err(e) = self.save_profile_to_storage(&updated)
+        {
+            warn!(error = %e, "Failed to persist manual profile enable");
+        }
+
         Ok(())
     }
 
@@ -634,6 +642,14 @@ impl AuthProfileManager {
             .ok_or_else(|| anyhow!("Profile not found: {}", profile_id))?;
 
         profile.disable(reason);
+
+        let updated = profile.clone();
+        if updated.source == CredentialSource::Manual
+            && let Err(e) = self.save_profile_to_storage(&updated)
+        {
+            warn!(error = %e, "Failed to persist manual profile disable");
+        }
+
         Ok(())
     }
 
@@ -1051,6 +1067,75 @@ mod tests {
         let profile = manager.get_profile(&id).await.unwrap();
         assert!(profile.enabled);
         assert_eq!(profile.health, ProfileHealth::Unknown);
+    }
+
+    #[tokio::test]
+    async fn test_manager_enable_disable_persists_to_storage() {
+        use redb::Database;
+
+        let dir = TempDir::new().unwrap();
+        let db = Arc::new(Database::create(dir.path().join("test.db")).unwrap());
+        let secrets = Arc::new(SecretStorage::new(db.clone()).unwrap());
+        let storage = AuthProfileStorage::new(db).unwrap();
+
+        // Create manager with storage
+        let manager = AuthProfileManager::with_storage(
+            AuthManagerConfig::default(),
+            secrets.clone(),
+            Some(storage.clone()),
+        );
+        manager.initialize().await.unwrap();
+
+        // Add a manual profile
+        let credential = Credential::ApiKey {
+            key: "test-key-persist".to_string(),
+            email: None,
+        };
+        let id = manager
+            .add_profile_from_credential(
+                "Test Persist",
+                credential,
+                CredentialSource::Manual,
+                AuthProvider::Anthropic,
+            )
+            .await
+            .unwrap();
+
+        // Disable the profile
+        manager.disable_profile(&id, "Testing disable persistence").await.unwrap();
+        let profile = manager.get_profile(&id).await.unwrap();
+        assert!(!profile.enabled);
+
+        // Create a new manager instance (simulates IPC request creating fresh manager)
+        let manager2 = AuthProfileManager::with_storage(
+            AuthManagerConfig::default(),
+            secrets.clone(),
+            Some(storage.clone()),
+        );
+        manager2.initialize().await.unwrap();
+
+        // Verify disabled state persisted
+        let profile_reloaded = manager2.get_profile(&id).await.unwrap();
+        assert!(!profile_reloaded.enabled, "Disabled state should persist across manager re-instantiation");
+        assert_eq!(profile_reloaded.health, ProfileHealth::Disabled);
+
+        // Enable the profile
+        manager2.enable_profile(&id).await.unwrap();
+        let profile = manager2.get_profile(&id).await.unwrap();
+        assert!(profile.enabled);
+
+        // Create another new manager instance
+        let manager3 = AuthProfileManager::with_storage(
+            AuthManagerConfig::default(),
+            secrets.clone(),
+            Some(storage),
+        );
+        manager3.initialize().await.unwrap();
+
+        // Verify enabled state persisted
+        let profile_reloaded2 = manager3.get_profile(&id).await.unwrap();
+        assert!(profile_reloaded2.enabled, "Enabled state should persist across manager re-instantiation");
+        assert_eq!(profile_reloaded2.health, ProfileHealth::Unknown);
     }
 
     #[tokio::test]
