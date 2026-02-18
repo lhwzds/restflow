@@ -1273,7 +1273,7 @@ impl AgentExecutor {
                 async move {
                     let result = tokio::time::timeout(
                         timeout_dur,
-                        executor.execute_tool_call(&subflow_path, &name, args, yolo_mode),
+                        executor.execute_tool_call(subflow_path, &name, args, yolo_mode),
                     )
                     .await
                     .map_err(|_| AiError::Tool(format!("Tool {} timed out", name)))

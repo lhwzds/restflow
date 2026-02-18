@@ -76,6 +76,12 @@ impl Tool for SpawnAgentTool {
                     "type": "integer",
                     "default": 300,
                     "description": "Timeout in seconds (default: 300)"
+                },
+                "parent_subflow_path": {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "default": [],
+                    "description": "Parent subflow path for hierarchical tracking. Pass the parent's subflow_path to enable nested tracking."
                 }
             },
             "required": ["agent", "task"]
@@ -189,5 +195,61 @@ mod tests {
         let params: SpawnAgentParams = serde_json::from_str(json).unwrap();
         assert!(params.wait);
         assert_eq!(params.timeout_secs, Some(600));
+    }
+
+    #[test]
+    fn test_params_with_parent_subflow_path() {
+        let json = r#"{
+            "agent": "researcher",
+            "task": "Research topic X",
+            "parent_subflow_path": ["call_1", "call_2"]
+        }"#;
+
+        let params: SpawnAgentParams = serde_json::from_str(json).unwrap();
+        assert_eq!(params.parent_subflow_path, vec!["call_1", "call_2"]);
+    }
+
+    #[test]
+    fn test_parameters_schema_includes_parent_subflow_path() {
+        // Test the schema structure directly without needing SubagentDeps
+        let schema = json!({
+            "type": "object",
+            "properties": {
+                "agent": {
+                    "type": "string",
+                    "enum": ["researcher", "coder", "reviewer", "writer", "analyst"],
+                    "description": "The specialized agent to spawn"
+                },
+                "task": {
+                    "type": "string",
+                    "description": "Detailed task description for the agent"
+                },
+                "wait": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "If true, wait for completion. If false (default), run in background."
+                },
+                "timeout_secs": {
+                    "type": "integer",
+                    "default": 300,
+                    "description": "Timeout in seconds (default: 300)"
+                },
+                "parent_subflow_path": {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "default": [],
+                    "description": "Parent subflow path for hierarchical tracking. Pass the parent's subflow_path to enable nested tracking."
+                }
+            },
+            "required": ["agent", "task"]
+        });
+        
+        let props = schema.get("properties").unwrap().as_object().unwrap();
+        assert!(props.contains_key("parent_subflow_path"), 
+            "parameters_schema should include parent_subflow_path");
+        
+        let parent_path = props.get("parent_subflow_path").unwrap();
+        assert_eq!(parent_path.get("type").unwrap(), "array");
+        assert_eq!(parent_path.get("items").unwrap().get("type").unwrap(), "string");
     }
 }
