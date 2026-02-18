@@ -534,9 +534,16 @@ impl Tool for BackgroundAgentTool {
             }
             BackgroundAgentAction::Cancel { id } => {
                 self.write_guard()?;
-                ToolOutput::success(self.store.delete_background_agent(&id).map_err(|e| {
-                    AiError::Tool(format!("Failed to cancel background agent: {e}."))
-                })?)
+                ToolOutput::success(
+                    self.store
+                        .control_background_agent(BackgroundAgentControlRequest {
+                            id,
+                            action: "stop".to_string(),
+                        })
+                        .map_err(|e| {
+                            AiError::Tool(format!("Failed to cancel background agent: {e}."))
+                        })?,
+                )
             }
             BackgroundAgentAction::Run { id } => {
                 self.write_guard()?;
@@ -935,5 +942,21 @@ mod tests {
                 .and_then(|value| value.as_str()),
             Some("task-1-20260214-000000.jsonl")
         );
+    }
+
+    #[tokio::test]
+    async fn test_cancel_uses_control_not_delete() {
+        let tool = BackgroundAgentTool::new(Arc::new(MockStore)).with_write(true);
+        let output = tool
+            .execute(json!({
+                "operation": "cancel",
+                "id": "task-1"
+            }))
+            .await
+            .unwrap();
+        assert!(output.success);
+        // Cancel should call control_background_agent with action "stop", not delete
+        // MockStore returns { id, action } for control operations
+        assert_eq!(output.result.get("action").and_then(|v| v.as_str()), Some("stop"));
     }
 }
