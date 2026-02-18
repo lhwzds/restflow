@@ -1,16 +1,16 @@
 use crate::cli::DaemonCommands;
 use crate::commands::claude_mcp::try_sync_claude_http_mcp;
 use crate::commands::codex_mcp::try_sync_codex_http_mcp;
+use crate::commands::daemon_state::{self, EffectiveDaemonStatus, RunningSource};
 use crate::daemon::CliBackgroundAgentRunner;
 use anyhow::{Context, Result};
 use restflow_core::AppCore;
-use restflow_core::daemon::{
-    DaemonConfig, DaemonStatus, IpcServer, check_daemon_status, start_daemon_with_config,
-    stop_daemon,
-};
+use restflow_core::daemon::{DaemonConfig, IpcServer, start_daemon_with_config, stop_daemon};
 use restflow_core::paths;
 use std::net::{IpAddr, Ipv4Addr};
 use std::path::PathBuf;
+#[cfg(not(unix))]
+use std::process::Command;
 use std::sync::Arc;
 use tokio::time::{Duration, sleep};
 use tracing::{error, info, warn};
@@ -20,6 +20,8 @@ use nix::libc;
 
 const MCP_BIND_ADDR_ENV: &str = "RESTFLOW_MCP_BIND_ADDR";
 const CLEANUP_INTERVAL_HOURS: u64 = 24;
+const DAEMON_STOP_TIMEOUT: Duration = Duration::from_secs(30);
+const DAEMON_STOP_POLL_INTERVAL: Duration = Duration::from_millis(200);
 
 pub async fn sync_mcp_configs(mcp_port: Option<u16>) {
     if let Err(err) = try_sync_claude_http_mcp(mcp_port.unwrap_or(8787)).await {
@@ -36,7 +38,7 @@ pub async fn restart_background(mcp_port: Option<u16>) -> Result<()> {
         mcp_port,
     };
 
-    let was_running = stop_daemon()?;
+    let was_running = stop_daemon_effective().await?;
     if was_running {
         println!("Sent stop signal to daemon");
         wait_for_daemon_exit().await?;
@@ -115,22 +117,20 @@ async fn start_background(mcp_port: Option<u16>) -> Result<()> {
         mcp_port,
     };
 
-    match check_daemon_status()? {
-        DaemonStatus::Running { pid } => {
-            println!("Daemon already running (PID: {})", pid);
-            Ok(())
-        }
-        _ => {
-            let report = restflow_core::daemon::recovery::recover().await?;
-            if !report.is_clean() {
-                println!("{}", report);
-            }
-            let pid = start_daemon_with_config(config)?;
-            println!("Daemon started (PID: {})", pid);
-            sync_mcp_configs(mcp_port).await;
-            Ok(())
-        }
+    let snapshot = daemon_state::collect_daemon_status_snapshot(false).await?;
+    if let EffectiveDaemonStatus::Running { pid, .. } = snapshot.daemon_status {
+        print_already_running(pid);
+        return Ok(());
     }
+
+    let report = restflow_core::daemon::recovery::recover().await?;
+    if !report.is_clean() {
+        println!("{}", report);
+    }
+    let pid = start_daemon_with_config(config)?;
+    println!("Daemon started (PID: {})", pid);
+    sync_mcp_configs(mcp_port).await;
+    Ok(())
 }
 
 async fn start(core: Arc<AppCore>, foreground: bool, mcp_port: Option<u16>) -> Result<()> {
@@ -149,22 +149,28 @@ async fn start(core: Arc<AppCore>, foreground: bool, mcp_port: Option<u16>) -> R
         }
         run_daemon(core, config).await
     } else {
-        match check_daemon_status()? {
-            DaemonStatus::Running { pid } => {
-                println!("Daemon already running (PID: {})", pid);
-                Ok(())
+        let snapshot = daemon_state::collect_daemon_status_snapshot(false).await?;
+        if let EffectiveDaemonStatus::Running { pid, .. } = snapshot.daemon_status {
+            print_already_running(pid);
+            Ok(())
+        } else {
+            // Clean stale artifacts (e.g. leftover socket) before spawning.
+            let report = restflow_core::daemon::recovery::recover().await?;
+            if !report.is_clean() {
+                println!("{}", report);
             }
-            _ => {
-                // Clean stale artifacts (e.g. leftover socket) before spawning.
-                let report = restflow_core::daemon::recovery::recover().await?;
-                if !report.is_clean() {
-                    println!("{}", report);
-                }
-                let pid = start_daemon_with_config(config)?;
-                println!("Daemon started (PID: {})", pid);
-                Ok(())
-            }
+            let pid = start_daemon_with_config(config)?;
+            println!("Daemon started (PID: {})", pid);
+            Ok(())
         }
+    }
+}
+
+fn print_already_running(pid: Option<u32>) {
+    if let Some(pid) = pid {
+        println!("Daemon already running (PID: {})", pid);
+    } else {
+        println!("Daemon already running (PID: unknown)");
     }
 }
 
@@ -174,7 +180,7 @@ async fn restart(core: Arc<AppCore>, foreground: bool, mcp_port: Option<u16>) ->
             mcp: true,
             mcp_port,
         };
-        let was_running = stop_daemon()?;
+        let was_running = stop_daemon_effective().await?;
         if was_running {
             println!("Sent stop signal to daemon");
             wait_for_daemon_exit().await?;
@@ -373,7 +379,7 @@ fn configure_nofile_limit() {
 }
 
 async fn stop() -> Result<()> {
-    if stop_daemon()? {
+    if stop_daemon_effective().await? {
         println!("Sent stop signal to daemon");
     } else {
         println!("Daemon not running");
@@ -381,39 +387,77 @@ async fn stop() -> Result<()> {
     Ok(())
 }
 
-async fn status() -> Result<()> {
-    let pid_path = paths::daemon_pid_path()?;
-    let socket_path = paths::socket_path()?;
-    let mut daemon_status = check_daemon_status()?;
-    let mut recovery_report = None;
-
-    if matches!(daemon_status, DaemonStatus::Stale { .. }) {
-        let report = restflow_core::daemon::recovery::recover().await?;
-        if !report.is_clean() {
-            recovery_report = Some(report);
-        }
-        daemon_status = check_daemon_status()?;
+async fn stop_daemon_effective() -> Result<bool> {
+    if stop_daemon()? {
+        return Ok(true);
     }
 
-    let stale_state = restflow_core::daemon::recovery::inspect(&pid_path, &socket_path).await?;
+    let snapshot = daemon_state::collect_daemon_status_snapshot(false).await?;
+    if let EffectiveDaemonStatus::Running { pid: Some(pid), .. } = snapshot.daemon_status {
+        send_terminate_signal(pid)?;
+        return Ok(true);
+    }
 
-    match daemon_status {
-        DaemonStatus::Running { pid } => {
-            println!("Daemon running (PID: {})", pid);
+    Ok(false)
+}
+
+fn send_terminate_signal(pid: u32) -> Result<()> {
+    #[cfg(unix)]
+    {
+        use nix::sys::signal::{Signal, kill};
+        use nix::unistd::Pid;
+
+        let pid_i32 =
+            i32::try_from(pid).with_context(|| format!("Daemon PID {} exceeds i32 range", pid))?;
+        kill(Pid::from_raw(pid_i32), Signal::SIGTERM)?;
+    }
+
+    #[cfg(not(unix))]
+    {
+        Command::new("taskkill")
+            .args(["/PID", &pid.to_string(), "/F"])
+            .output()?;
+    }
+
+    Ok(())
+}
+
+async fn status() -> Result<()> {
+    let snapshot = daemon_state::collect_daemon_status_snapshot(true).await?;
+
+    match snapshot.daemon_status {
+        EffectiveDaemonStatus::Running { pid, source } => {
+            match (pid, source) {
+                (Some(pid), RunningSource::PidFile) => {
+                    println!("Daemon running (PID: {})", pid);
+                }
+                (Some(pid), RunningSource::LockFile) => {
+                    println!("Daemon running (PID: {}, detected via lock file)", pid);
+                }
+                (Some(pid), RunningSource::SocketProbe) => {
+                    println!("Daemon running (PID: {}, detected via socket)", pid);
+                }
+                (None, RunningSource::SocketProbe) => {
+                    println!("Daemon running (PID: unknown, detected via socket)");
+                }
+                (None, RunningSource::PidFile | RunningSource::LockFile) => {
+                    println!("Daemon running (PID: unknown)");
+                }
+            };
         }
-        DaemonStatus::NotRunning => {
+        EffectiveDaemonStatus::NotRunning => {
             println!("Daemon not running");
-            if let Some(report) = recovery_report {
-                println!("  Auto-cleaned: {}", report);
+            if let Some(report) = snapshot.auto_recovery {
+                println!("  {}", report);
             }
-            if stale_state == restflow_core::daemon::recovery::StaleState::StaleSocket {
+            if snapshot.stale_state == restflow_core::daemon::recovery::StaleState::StaleSocket {
                 println!("  Note: stale socket detected (run `daemon start` to auto-clean)");
             }
         }
-        DaemonStatus::Stale { pid } => {
+        EffectiveDaemonStatus::Stale { pid } => {
             println!("Daemon not running (stale PID: {})", pid);
             if matches!(
-                stale_state,
+                snapshot.stale_state,
                 restflow_core::daemon::recovery::StaleState::Both
                     | restflow_core::daemon::recovery::StaleState::StaleSocket
             ) {
@@ -426,14 +470,32 @@ async fn status() -> Result<()> {
 }
 
 async fn wait_for_daemon_exit() -> Result<()> {
-    for _ in 0..50 {
-        match check_daemon_status()? {
-            DaemonStatus::Running { .. } => sleep(Duration::from_millis(100)).await,
-            DaemonStatus::NotRunning | DaemonStatus::Stale { .. } => return Ok(()),
+    let deadline = tokio::time::Instant::now() + DAEMON_STOP_TIMEOUT;
+    loop {
+        let snapshot = daemon_state::collect_daemon_status_snapshot(false).await?;
+        if !snapshot.is_running() {
+            return Ok(());
         }
+        if tokio::time::Instant::now() >= deadline {
+            let detail = match snapshot.daemon_status {
+                EffectiveDaemonStatus::Running {
+                    pid: Some(pid),
+                    source,
+                } => format!("still running (pid={pid}, source={})", source.as_str()),
+                EffectiveDaemonStatus::Running { pid: None, source } => {
+                    format!("still running (pid=unknown, source={})", source.as_str())
+                }
+                EffectiveDaemonStatus::NotRunning => "status switched to not_running".to_string(),
+                EffectiveDaemonStatus::Stale { pid } => format!("stale pid={pid}"),
+            };
+            anyhow::bail!(
+                "Daemon did not stop within {}s: {}",
+                DAEMON_STOP_TIMEOUT.as_secs(),
+                detail
+            );
+        }
+        sleep(DAEMON_STOP_POLL_INTERVAL).await;
     }
-
-    anyhow::bail!("Daemon did not stop within timeout")
 }
 
 fn resolve_mcp_bind_addr() -> IpAddr {

@@ -5,6 +5,7 @@ pub mod claude_mcp;
 pub mod codex_mcp;
 pub mod config;
 pub mod daemon;
+pub mod daemon_state;
 pub mod deliverable;
 pub mod hook;
 pub mod info;
