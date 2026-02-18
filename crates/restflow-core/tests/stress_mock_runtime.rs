@@ -13,7 +13,7 @@ use restflow_core::steer::SteerRegistry;
 
 #[tokio::test]
 async fn stress_runner_handles_mock_throughput_without_leaks() {
-    let (storage, temp_dir) = create_test_storage();
+    let (storage, _temp_dir) = create_test_storage();
     let task_count = 60usize;
 
     let past_time = chrono::Utc::now().timestamp_millis() - 1_000;
@@ -78,8 +78,9 @@ async fn stress_runner_handles_mock_throughput_without_leaks() {
         "every execution should emit one notification"
     );
 
+    let artifacts_dir = stress_artifacts_dir();
     write_summary(
-        temp_dir.path().join("stress-summary.json"),
+        artifacts_dir.join("stress-summary.json"),
         task_count,
         completed,
         failed,
@@ -88,7 +89,7 @@ async fn stress_runner_handles_mock_throughput_without_leaks() {
 
 #[tokio::test]
 async fn stress_runner_recovers_after_restart_without_orphan_running_tasks() {
-    let (storage, temp_dir) = create_test_storage();
+    let (storage, _temp_dir) = create_test_storage();
     let task_count = 24usize;
     let past_time = chrono::Utc::now().timestamp_millis() - 1_000;
 
@@ -237,8 +238,9 @@ async fn stress_runner_recovers_after_restart_without_orphan_running_tasks() {
         "recovery_elapsed_ms": recovery_elapsed_ms,
         "notification_count": total_notifications,
     });
+    let artifacts_dir = stress_artifacts_dir();
     std::fs::write(
-        temp_dir.path().join("restart-recovery-summary.json"),
+        artifacts_dir.join("restart-recovery-summary.json"),
         serde_json::to_vec_pretty(&recovery_summary).expect("failed to serialize restart summary"),
     )
     .expect("failed to write restart summary file");
@@ -297,4 +299,11 @@ fn write_summary(path: PathBuf, total_runs: usize, success: usize, failure: usiz
         serde_json::to_vec_pretty(&summary).expect("failed to serialize stress summary"),
     )
     .expect("failed to write stress summary file");
+}
+
+fn stress_artifacts_dir() -> PathBuf {
+    let dir = std::env::var("LOG_DIR").unwrap_or_else(|_| "target/stress-artifacts".to_string());
+    let path = PathBuf::from(dir);
+    std::fs::create_dir_all(&path).expect("failed to create stress artifacts directory");
+    path
 }
