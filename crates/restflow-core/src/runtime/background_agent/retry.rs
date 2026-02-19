@@ -266,6 +266,10 @@ pub fn is_transient_error(error: &str) -> bool {
         "timed out",
         "connection refused",
         "connection reset",
+        "error sending request for url",
+        "connection aborted",
+        "broken pipe",
+        "transport error",
         "connection closed",
         "network error",
         "network unreachable",
@@ -418,6 +422,13 @@ mod tests {
         let config = RetryConfig::conservative();
         assert_eq!(config.max_retries, 2);
         assert_eq!(config.initial_delay_secs, 120);
+    }
+
+    #[test]
+    fn test_transient_error_detection_for_reqwest_send_failure() {
+        assert!(is_transient_error(
+            "LLM error: Request failed: error sending request for url (https://api.minimax.io/anthropic/v1/messages)"
+        ));
     }
 
     #[test]

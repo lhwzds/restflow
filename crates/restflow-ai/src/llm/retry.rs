@@ -2,6 +2,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
+use futures::StreamExt;
 use reqwest::Response;
 
 use crate::error::AiError;
@@ -79,8 +80,8 @@ pub async fn response_to_error(response: Response, provider: &str) -> AiError {
 /// Decorator that adds retry logic around any `LlmClient`.
 ///
 /// Wraps a `complete()` call with exponential backoff and retryable-error
-/// detection.  `complete_stream()` is passed through without retry because
-/// resuming a partially-consumed stream is non-trivial.
+/// detection. `complete_stream()` retries only when failure happens before
+/// any chunk is received.
 pub struct RetryingLlmClient {
     inner: Arc<dyn LlmClient>,
     config: LlmRetryConfig,
@@ -149,13 +150,116 @@ impl LlmClient for RetryingLlmClient {
     }
 
     fn complete_stream(&self, request: CompletionRequest) -> StreamResult {
-        self.inner.complete_stream(request)
+        let inner = Arc::clone(&self.inner);
+        let config = self.config.clone();
+
+        Box::pin(async_stream::stream! {
+            let mut retry_attempts = 0u32;
+
+            'retry_loop: loop {
+                let mut saw_any_chunk = false;
+                let mut stream = inner.complete_stream(request.clone());
+
+                while let Some(item) = stream.next().await {
+                    match item {
+                        Ok(chunk) => {
+                            saw_any_chunk = true;
+                            yield Ok(chunk);
+                        }
+                        Err(error) => {
+                            let can_retry = !saw_any_chunk
+                                && error.is_retryable()
+                                && retry_attempts < config.max_retries;
+
+                            if can_retry {
+                                retry_attempts += 1;
+                                let delay = config.delay_for(retry_attempts, error.retry_after());
+                                tracing::warn!(
+                                    provider = inner.provider(),
+                                    model = inner.model(),
+                                    attempt = retry_attempts,
+                                    delay_ms = delay.as_millis() as u64,
+                                    error = %error,
+                                    "Retrying LLM streaming request before first chunk"
+                                );
+                                tokio::time::sleep(delay).await;
+                                continue 'retry_loop;
+                            }
+
+                            yield Err(error);
+                            return;
+                        }
+                    }
+                }
+
+                return;
+            }
+        })
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::error::Result;
+    use crate::llm::client::{FinishReason, Message, StreamChunk, TokenUsage};
+    use futures::stream;
+    use std::sync::Mutex;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    struct MockRetryClient {
+        stream_calls: AtomicUsize,
+        stream_results: Mutex<Vec<Vec<Result<StreamChunk>>>>,
+    }
+
+    impl MockRetryClient {
+        fn new(stream_results: Vec<Vec<Result<StreamChunk>>>) -> Self {
+            Self {
+                stream_calls: AtomicUsize::new(0),
+                stream_results: Mutex::new(stream_results.into_iter().rev().collect()),
+            }
+        }
+
+        fn stream_call_count(&self) -> usize {
+            self.stream_calls.load(Ordering::SeqCst)
+        }
+    }
+
+    #[async_trait]
+    impl LlmClient for MockRetryClient {
+        fn provider(&self) -> &str {
+            "mock"
+        }
+
+        fn model(&self) -> &str {
+            "mock-model"
+        }
+
+        async fn complete(&self, _request: CompletionRequest) -> Result<CompletionResponse> {
+            Ok(CompletionResponse {
+                content: Some("ok".to_string()),
+                tool_calls: vec![],
+                finish_reason: FinishReason::Stop,
+                usage: Some(TokenUsage {
+                    prompt_tokens: 1,
+                    completion_tokens: 1,
+                    total_tokens: 2,
+                    cost_usd: None,
+                }),
+            })
+        }
+
+        fn complete_stream(&self, _request: CompletionRequest) -> StreamResult {
+            self.stream_calls.fetch_add(1, Ordering::SeqCst);
+            let next = self
+                .stream_results
+                .lock()
+                .unwrap()
+                .pop()
+                .unwrap_or_default();
+            Box::pin(stream::iter(next))
+        }
+    }
 
     #[test]
     fn test_delay_progression() {
@@ -198,5 +302,51 @@ mod tests {
         let non_retryable = AiError::Llm("bad request".to_string());
         assert!(retryable.is_retryable());
         assert!(!non_retryable.is_retryable());
+    }
+
+    #[tokio::test]
+    async fn test_complete_stream_retries_before_first_chunk() {
+        let client = Arc::new(MockRetryClient::new(vec![
+            vec![Err(AiError::Llm("timeout while connecting".to_string()))],
+            vec![Ok(StreamChunk::text("hello"))],
+        ]));
+        let config = LlmRetryConfig {
+            max_retries: 1,
+            initial_delay_ms: 0,
+            max_delay_ms: 0,
+            backoff_multiplier: 1.0,
+        };
+        let retrying = RetryingLlmClient::new(client.clone(), config);
+        let request = CompletionRequest::new(vec![Message::user("ping")]);
+
+        let mut stream = retrying.complete_stream(request);
+        let first = stream.next().await.expect("first stream item").expect("chunk");
+        assert_eq!(first.text, "hello");
+        assert!(stream.next().await.is_none());
+        assert_eq!(client.stream_call_count(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_complete_stream_does_not_retry_after_first_chunk() {
+        let client = Arc::new(MockRetryClient::new(vec![vec![
+            Ok(StreamChunk::text("partial")),
+            Err(AiError::Llm("timeout while reading stream".to_string())),
+        ]]));
+        let config = LlmRetryConfig {
+            max_retries: 3,
+            initial_delay_ms: 0,
+            max_delay_ms: 0,
+            backoff_multiplier: 1.0,
+        };
+        let retrying = RetryingLlmClient::new(client.clone(), config);
+        let request = CompletionRequest::new(vec![Message::user("ping")]);
+
+        let mut stream = retrying.complete_stream(request);
+        let first = stream.next().await.expect("first stream item").expect("chunk");
+        assert_eq!(first.text, "partial");
+
+        let second = stream.next().await.expect("second stream item");
+        assert!(second.is_err());
+        assert_eq!(client.stream_call_count(), 1);
     }
 }
