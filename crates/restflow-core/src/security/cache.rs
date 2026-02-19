@@ -123,6 +123,11 @@ impl ApprovalCache {
         self.grants.clear();
     }
 
+    /// Remove a specific grant from the cache.
+    pub fn remove(&mut self, key: &ApprovalKey) {
+        self.grants.remove(key);
+    }
+
     /// Remove expired grants (those older than max_age).
     pub fn prune(&mut self, max_age: Duration) {
         self.grants.retain(|_, grant| !grant.is_expired(max_age));
