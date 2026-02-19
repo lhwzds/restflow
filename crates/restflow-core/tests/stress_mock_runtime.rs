@@ -25,6 +25,7 @@ async fn stress_runner_handles_mock_throughput_without_leaks() {
                 TaskSchedule::Once { run_at: past_time },
             )
             .expect("failed to create stress task");
+        task.input = Some(format!("stress-input-{index}"));
         task.next_run_at = Some(past_time);
         storage
             .update_task(&task)
@@ -101,6 +102,7 @@ async fn stress_runner_recovers_after_restart_without_orphan_running_tasks() {
                 TaskSchedule::Once { run_at: past_time },
             )
             .expect("failed to create restart task");
+        task.input = Some(format!("restart-input-{index}"));
         task.next_run_at = Some(past_time);
         storage
             .update_task(&task)
