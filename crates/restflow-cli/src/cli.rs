@@ -1043,6 +1043,20 @@ pub enum BackgroundAgentCommands {
         limit: usize,
     },
 
+    /// Inspect persisted per-run event logs for a background agent
+    RunLog {
+        /// Background agent ID
+        id: String,
+
+        /// Specific run ID to read (use "legacy" for the old task-level log)
+        #[arg(long)]
+        run_id: Option<String>,
+
+        /// Max events to print from the end of the run log
+        #[arg(short, long, default_value = "200")]
+        limit: usize,
+    },
+
     /// Send a message to a running background agent
     Send {
         /// Background agent ID

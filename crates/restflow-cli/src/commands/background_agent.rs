@@ -6,9 +6,11 @@ use crate::cli::{BackgroundAgentCommands, OutputFormat};
 use crate::executor::CommandExecutor;
 use crate::output::json::print_json;
 use crate::output::table::print_table;
+use restflow_core::paths;
 use restflow_core::models::{
     BackgroundAgentControlAction, BackgroundAgentPatch, BackgroundAgentSpec, TaskSchedule,
 };
+use restflow_core::runtime::background_agent::EventLog;
 
 pub async fn run(
     executor: Arc<dyn CommandExecutor>,
@@ -72,6 +74,9 @@ pub async fn run(
         }
         BackgroundAgentCommands::Progress { id, limit } => {
             show_progress(executor, &id, limit, format).await
+        }
+        BackgroundAgentCommands::RunLog { id, run_id, limit } => {
+            show_run_log(&id, run_id.as_deref(), limit, format).await
         }
         BackgroundAgentCommands::Send { id, message } => {
             send_message(executor, &id, &message, format).await
@@ -336,6 +341,76 @@ async fn send_message(
     }
 
     println!("Message sent to background agent: {}", id);
+    Ok(())
+}
+
+async fn show_run_log(
+    task_id: &str,
+    run_id: Option<&str>,
+    limit: usize,
+    format: OutputFormat,
+) -> Result<()> {
+    let log_dir = paths::ensure_restflow_dir()?.join("task_logs");
+
+    if let Some(run_id) = run_id {
+        let path = if run_id == "legacy" {
+            EventLog::legacy_log_path(task_id, &log_dir)
+        } else {
+            EventLog::run_log_path(task_id, run_id, &log_dir)
+        };
+        let events = EventLog::read_all(&path)?;
+        let total = events.len();
+        let start = total.saturating_sub(limit);
+        let tail = &events[start..];
+
+        if format.is_json() {
+            return print_json(&serde_json::json!({
+                "task_id": task_id,
+                "run_id": run_id,
+                "path": path,
+                "total_events": total,
+                "returned_events": tail.len(),
+                "events": tail,
+            }));
+        }
+
+        println!("Task: {}", task_id);
+        println!("Run:  {}", run_id);
+        println!("Path: {}", path.display());
+        println!("Events: {} (showing last {})", total, tail.len());
+        for event in tail {
+            println!("{}", serde_json::to_string(event)?);
+        }
+        return Ok(());
+    }
+
+    let runs = EventLog::list_run_ids(task_id, &log_dir)?;
+    let legacy_path = EventLog::legacy_log_path(task_id, &log_dir);
+    let legacy_exists = legacy_path.exists();
+
+    if format.is_json() {
+        return print_json(&serde_json::json!({
+            "task_id": task_id,
+            "run_count": runs.len(),
+            "runs": runs,
+            "legacy_exists": legacy_exists,
+            "legacy_path": legacy_path,
+        }));
+    }
+
+    println!("Task: {}", task_id);
+    println!("Run logs: {}", runs.len());
+    if runs.is_empty() {
+        println!("No per-run logs found.");
+    } else {
+        for run in runs {
+            println!("  {}", run);
+        }
+    }
+    if legacy_exists {
+        println!("Legacy log available: {}", legacy_path.display());
+        println!("Use --run-id legacy to read it.");
+    }
     Ok(())
 }
 
