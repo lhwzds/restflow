@@ -562,7 +562,7 @@ impl LlmClient for AnthropicClient {
             {
                 Ok(resp) => resp,
                 Err(e) => {
-                    yield Err(AiError::Llm(format!("Request failed: {}", e)));
+                    yield Err(AiError::Http(e));
                     return;
                 }
             };
@@ -584,7 +584,7 @@ impl LlmClient for AnthropicClient {
                 let chunk = match chunk_result {
                     Ok(bytes) => bytes,
                     Err(e) => {
-                        yield Err(AiError::Llm(format!("Stream error: {}", e)));
+                        yield Err(AiError::Http(e));
                         return;
                     }
                 };
