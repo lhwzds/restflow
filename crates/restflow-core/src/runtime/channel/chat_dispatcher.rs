@@ -6,6 +6,7 @@
 use anyhow::{Result, anyhow};
 use std::sync::Arc;
 use parking_lot::Mutex;
+use tokio::sync::Mutex as TokioMutex;
 use tracing::{debug, error, info, warn};
 
 use crate::auth::AuthProfileManager;
@@ -134,6 +135,9 @@ impl std::error::Error for ChatError {}
 /// Chat session manager for conversation persistence.
 pub struct ChatSessionManager {
     storage: Arc<Storage>,
+    /// Mutex to serialize session creation and prevent duplicate sessions
+    /// from being created under concurrent requests for the same conversation.
+    session_creation_mutex: TokioMutex<()>,
     default_agent_id: Option<String>,
     max_history: usize,
     /// Mutex to serialize append_exchange operations per session.
@@ -147,6 +151,7 @@ impl ChatSessionManager {
     pub fn new(storage: Arc<Storage>, max_history: usize) -> Self {
         Self {
             storage,
+            session_creation_mutex: TokioMutex::new(()),
             default_agent_id: None,
             max_history,
             append_locks: Arc::new(Mutex::new(std::collections::HashMap::new())),
@@ -162,7 +167,7 @@ impl ChatSessionManager {
     /// Get or create a session for a conversation.
     ///
     /// Sessions are keyed by conversation_id (e.g., Telegram chat ID).
-    pub fn get_or_create_session(
+    pub async fn get_or_create_session(
         &self,
         conversation_id: &str,
         user_id: &str,
@@ -171,19 +176,35 @@ impl ChatSessionManager {
         // We use a naming convention: "channel:{conversation_id}"
         let session_name = format!("channel:{}", conversation_id);
 
-        // List sessions and find one with matching name
+        // Use mutex to serialize session creation and prevent race conditions.
+        // This ensures that under concurrent requests for the same conversation,
+        // only one session will be created.
+        let _guard = self.session_creation_mutex.lock().await;
+
+        // Re-check after acquiring lock (another task may have created it)
         let sessions = self.storage.chat_sessions.list()?;
         if let Some(session) = sessions.into_iter().find(|s| s.name == session_name) {
+            debug!("Found existing session {} for conversation {}", session.id, conversation_id);
             return Ok(session);
         }
 
-        // Create new session
+        // Create new session (we hold the mutex, so no race)
         let agent_id = self.get_default_agent_id()?;
         let model = self.get_agent_model(&agent_id)?;
 
-        let session = ChatSession::new(agent_id, model).with_name(session_name);
+        let session = ChatSession::new(agent_id, model).with_name(session_name.clone());
 
-        self.storage.chat_sessions.create(&session)?;
+        // Handle potential duplicate from race condition (defensive)
+        if let Err(e) = self.storage.chat_sessions.create(&session) {
+            // Check if another request created the session while we were creating ours
+            let sessions = self.storage.chat_sessions.list()?;
+            if let Some(existing) = sessions.into_iter().find(|s| s.name == session_name) {
+                debug!("Session {} was created by another request, using existing", existing.id);
+                return Ok(existing);
+            }
+            // It's a real error, propagate it
+            return Err(e);
+        }
 
         info!(
             "Created new chat session {} for conversation {} (user: {})",
@@ -437,7 +458,7 @@ impl ChatDispatcher {
         // 2. Get or create session
         let mut session = match self
             .sessions
-            .get_or_create_session(&message.conversation_id, &message.sender_id)
+            .get_or_create_session(&message.conversation_id, &message.sender_id).await
         {
             Ok(s) => s,
             Err(e) => {
@@ -675,11 +696,11 @@ mod tests {
 
         let manager = ChatSessionManager::new(storage, 20).with_default_agent(agent_id);
 
-        let session = manager.get_or_create_session("conv-1", "user-1").unwrap();
+        let session = manager.get_or_create_session("conv-1", "user-1").await.unwrap();
         assert_eq!(session.name, "channel:conv-1");
 
         // Getting again should return same session
-        let session2 = manager.get_or_create_session("conv-1", "user-1").unwrap();
+        let session2 = manager.get_or_create_session("conv-1", "user-1").await.unwrap();
         assert_eq!(session.id, session2.id);
     }
 
@@ -698,7 +719,7 @@ mod tests {
 
         let manager = ChatSessionManager::new(storage.clone(), 20).with_default_agent(agent_id);
 
-        let session = manager.get_or_create_session("conv-1", "user-1").unwrap();
+        let session = manager.get_or_create_session("conv-1", "user-1").await.unwrap();
 
         manager
             .append_exchange(&session.id, "Hello!", "Hi there!", None)
@@ -732,7 +753,7 @@ mod tests {
         let agent_id = agents[0].id.clone();
 
         let manager = ChatSessionManager::new(storage.clone(), 20).with_default_agent(agent_id);
-        let session = manager.get_or_create_session("conv-1", "user-1").unwrap();
+        let session = manager.get_or_create_session("conv-1", "user-1").await.unwrap();
 
         manager
             .append_exchange(
@@ -768,7 +789,7 @@ mod tests {
         let agent_id = agents[0].id.clone();
 
         let manager = ChatSessionManager::new(storage.clone(), 2).with_default_agent(agent_id);
-        let session = manager.get_or_create_session("conv-1", "user-1").unwrap();
+        let session = manager.get_or_create_session("conv-1", "user-1").await.unwrap();
 
         manager
             .append_exchange(&session.id, "u1", "a1", None)
@@ -807,7 +828,7 @@ mod tests {
             .unwrap();
 
         let manager = ChatSessionManager::new(storage.clone(), 20).with_default_agent(stale.id);
-        let session = manager.get_or_create_session("conv-1", "user-1").unwrap();
+        let session = manager.get_or_create_session("conv-1", "user-1").await.unwrap();
 
         let rebound = manager
             .rebind_session_agent(&session.id, &fallback.id)
