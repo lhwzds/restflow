@@ -12,6 +12,7 @@ pub mod hook;
 pub mod memory;
 pub mod shared_space;
 pub mod skill;
+pub mod audit;
 pub mod terminal_session;
 pub mod trigger;
 pub mod workspace_note;
@@ -40,6 +41,7 @@ pub use skill::SkillStorage;
 pub use terminal_session::TerminalSessionStorage;
 pub use trigger::TriggerStorage;
 pub use workspace_note::WorkspaceNoteStorage;
+pub use audit::AuditStorage;
 
 /// Central storage manager that initializes all storage subsystems.
 ///
@@ -63,6 +65,7 @@ pub struct Storage {
     pub workspace_notes: WorkspaceNoteStorage,
     pub checkpoints: CheckpointStorage,
     pub pairing: PairingStorage,
+    pub audit: AuditStorage,
 }
 
 impl Storage {
@@ -106,6 +109,7 @@ impl Storage {
         let workspace_notes = WorkspaceNoteStorage::new(db.clone())?;
         let checkpoints = CheckpointStorage::new(db.clone())?;
         let pairing = PairingStorage::new(db.clone())?;
+        let audit = AuditStorage::new(db.clone())?;
 
         Ok(Self {
             db,
@@ -125,6 +129,7 @@ impl Storage {
             workspace_notes,
             checkpoints,
             pairing,
+            audit,
         })
     }
 
