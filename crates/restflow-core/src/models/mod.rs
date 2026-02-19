@@ -12,6 +12,7 @@ pub mod pricing;
 pub mod security;
 pub mod shared_space;
 pub mod skill;
+pub mod audit;
 pub mod skill_folder;
 pub mod skill_marketplace;
 pub mod skill_meta;
@@ -66,6 +67,11 @@ pub use skill_marketplace::{
     SkillPermissions, SkillSource, SkillVersion, VersionRequirement,
 };
 pub use skill_meta::SkillMeta;
+pub use audit::{
+    AuditEvent, AuditEventCategory, AuditEventSource, AuditQuery,
+    AuditStats, AuditTimeRange, LifecycleAudit, LlmCallAudit,
+    MessageAudit, ModelSwitchAudit, ToolCallAudit,
+};
 pub use storage_mode::StorageMode;
 pub use terminal_session::{TerminalSession, TerminalStatus};
 pub use trigger::{ActiveTrigger, AuthConfig, TriggerConfig};
