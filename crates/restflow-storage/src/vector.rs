@@ -531,13 +531,19 @@ mod tests {
         // Cleanup (rebuilds index)
         let cleaned = storage.cleanup_orphans().unwrap();
         assert_eq!(cleaned, 1);
+        assert_eq!(storage.count(), 2);
 
-        // Active vectors should still be searchable
-        let results = storage.search(&[1.0, 0.0, 0.0, 0.0], 10, 50).unwrap();
-        assert_eq!(results.len(), 2);
+        // Active vectors should still be searchable after rebuild.
+        let search_chunk_1 = storage.search(&[1.0, 0.0, 0.0, 0.0], 10, 100).unwrap();
+        let ids_chunk_1: Vec<_> = search_chunk_1.iter().map(|(id, _)| id.as_str()).collect();
+        assert!(ids_chunk_1.contains(&"chunk-1"));
 
-        let ids: Vec<_> = results.iter().map(|(id, _)| id.as_str()).collect();
-        assert!(ids.contains(&"chunk-1"));
-        assert!(ids.contains(&"chunk-2"));
+        let search_chunk_2 = storage.search(&[0.0, 1.0, 0.0, 0.0], 10, 100).unwrap();
+        let ids_chunk_2: Vec<_> = search_chunk_2.iter().map(|(id, _)| id.as_str()).collect();
+        assert!(ids_chunk_2.contains(&"chunk-2"));
+
+        // Deleted vectors should not reappear after rebuild.
+        assert!(!ids_chunk_1.contains(&"chunk-3"));
+        assert!(!ids_chunk_2.contains(&"chunk-3"));
     }
 }
