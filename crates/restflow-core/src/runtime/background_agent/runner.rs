@@ -65,6 +65,28 @@ pub struct CompactionMetrics {
     pub messages_compacted: usize,
 }
 
+struct NoopStreamEmitter;
+
+#[async_trait::async_trait]
+impl StreamEmitter for NoopStreamEmitter {
+    async fn emit_text_delta(&mut self, _text: &str) {}
+
+    async fn emit_thinking_delta(&mut self, _text: &str) {}
+
+    async fn emit_tool_call_start(&mut self, _id: &str, _name: &str, _arguments: &str) {}
+
+    async fn emit_tool_call_result(
+        &mut self,
+        _id: &str,
+        _name: &str,
+        _result: &str,
+        _success: bool,
+    ) {
+    }
+
+    async fn emit_complete(&mut self) {}
+}
+
 impl ExecutionResult {
     /// Create a successful execution result.
     pub fn success(output: String, messages: Vec<Message>) -> Self {
@@ -522,16 +544,19 @@ impl BackgroundAgentRunner {
         self.steer_registry.clone()
     }
 
-    /// Create an EventLog for recording task execution events.
-    fn create_event_log(&self, task_id: &str) -> Option<Arc<std::sync::Mutex<EventLog>>> {
+    /// Create an EventLog for recording one task run.
+    fn create_event_log(&self, task_id: &str, run_id: &str) -> Option<Arc<std::sync::Mutex<EventLog>>> {
         let log_dir = crate::paths::ensure_restflow_dir()
             .map(|dir| dir.join("task_logs"))
             .ok()?;
 
-        match EventLog::new(task_id, &log_dir) {
+        match EventLog::new_for_run(task_id, run_id, &log_dir) {
             Ok(log) => Some(Arc::new(std::sync::Mutex::new(log))),
             Err(e) => {
-                warn!("Failed to create event log for task {}: {}", task_id, e);
+                warn!(
+                    "Failed to create event log for task {} run {}: {}",
+                    task_id, run_id, e
+                );
                 None
             }
         }
@@ -1256,8 +1281,13 @@ impl BackgroundAgentRunner {
             return Ok(false);
         }
 
-        // Create EventLog for this task
-        let event_log = self.create_event_log(&task.id);
+        // Create EventLog for this run
+        let run_id = format!(
+            "{}-{}",
+            chrono::Utc::now().timestamp_millis(),
+            uuid::Uuid::new_v4()
+        );
+        let event_log = self.create_event_log(&task.id, &run_id);
 
         // Record TaskStarted event
         if let Some(ref log) = event_log {
@@ -1275,7 +1305,7 @@ impl BackgroundAgentRunner {
             }
         }
 
-        let step_emitter = if matches!(task.execution_mode, ExecutionMode::Api)
+        let broadcast_emitter = if matches!(task.execution_mode, ExecutionMode::Api)
             && task.notification.broadcast_steps
         {
             self.channel_router
@@ -1294,14 +1324,21 @@ impl BackgroundAgentRunner {
         // Keep a dedicated handle for lifecycle event logging without forcing stream mode.
         let event_log_for_events = event_log.clone();
 
-        // Wrap stream emitter with EventLoggingEmitter only when a stream emitter exists.
-        let step_emitter = match (event_log.clone(), step_emitter) {
-            (Some(log), Some(emitter)) => Some(Box::new(EventLoggingEmitter::with_shared_log(
-                emitter,
-                log,
-                task.id.clone(),
-            )) as Box<dyn StreamEmitter>),
-            (_, emitter) => emitter,
+        // Always attach an EventLoggingEmitter when event_log exists, even when
+        // step broadcasting is disabled, so tool-call traces are persisted.
+        let step_emitter = match event_log.clone() {
+            Some(log) => {
+                let inner: Box<dyn StreamEmitter> = match broadcast_emitter {
+                    Some(emitter) => emitter,
+                    None => Box::new(NoopStreamEmitter),
+                };
+                Some(Box::new(EventLoggingEmitter::with_shared_log(
+                    inner,
+                    log,
+                    task.id.clone(),
+                )) as Box<dyn StreamEmitter>)
+            }
+            None => broadcast_emitter,
         };
 
         let execution_timeout_secs = match &task.execution_mode {
