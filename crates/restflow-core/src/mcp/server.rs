@@ -1229,6 +1229,7 @@ impl RestFlowMcpServer {
             "email" => Some("send_email"),
             "telegram" => Some("telegram_send"),
             "use_skill" => Some("skill"),
+            "python" => Some("run_python"),
             _ => None,
         }
     }
@@ -1249,6 +1250,10 @@ impl RestFlowMcpServer {
             }
             ("use_skill", "skill") => {
                 "Alias of 'skill' for backward compatibility. Prefer using 'skill' directly."
+                    .to_string()
+            }
+            ("python", "run_python") => {
+                "Alias of 'run_python' for backward compatibility. Prefer using 'run_python' directly."
                     .to_string()
             }
             _ => format!("Alias of '{}' for backward compatibility.", target_name),
@@ -2137,6 +2142,7 @@ impl ServerHandler for RestFlowMcpServer {
                 ("email", "send_email"),
                 ("telegram", "telegram_send"),
                 ("use_skill", "skill"),
+                ("python", "run_python"),
             ] {
                 if !known_names.contains(alias_name)
                     && let Some(target) = runtime_by_name.get(target_name)
@@ -2423,7 +2429,6 @@ mod tests {
             tools: Some(vec!["http_request".to_string()]),
             skills: None,
             skill_variables: None,
-            python_runtime_policy: None,
             model_routing: None,
         }
     }
@@ -3204,8 +3209,7 @@ mod tests {
                     tools: None,
                     skills: None,
                     skill_variables: None,
-                    python_runtime_policy: None,
-                    model_routing: None,
+                            model_routing: None,
                 },
                 created_at: None,
                 updated_at: None,

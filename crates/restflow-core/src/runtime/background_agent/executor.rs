@@ -29,7 +29,6 @@ use restflow_ai::agent::{
     ModelSwitcher as AiModelSwitcher, StreamEmitter,
 };
 use restflow_ai::llm::Message;
-use restflow_ai::tools::PythonRuntime;
 use restflow_ai::{
     AgentConfig as ReActAgentConfig, AgentExecutor as ReActAgentExecutor, AiError, CodexClient,
     CompactionConfig, DefaultLlmClientFactory, LlmClient, LlmClientFactory, LlmProvider,
@@ -47,8 +46,7 @@ use super::retry::{RetryConfig, RetryState};
 use super::runner::{AgentExecutor, ExecutionResult};
 use crate::runtime::agent::{
     BashConfig, SubagentDeps, ToolRegistry, build_agent_system_prompt,
-    effective_main_agent_tool_names, registry_from_allowlist, resolve_python_runtime_policy,
-    secret_resolver_from_storage,
+    effective_main_agent_tool_names, registry_from_allowlist, secret_resolver_from_storage,
 };
 use crate::runtime::subagent::{AgentDefinitionRegistry, SubagentConfig, SubagentTracker};
 
@@ -739,7 +737,6 @@ impl AgentRuntimeExecutor {
     ///
     /// If the agent has specific tools configured, only those tools are registered.
     /// Otherwise, an empty registry is used (secure default).
-    #[allow(clippy::too_many_arguments)]
     fn build_tool_registry(
         &self,
         tool_names: Option<&[String]>,
@@ -747,7 +744,6 @@ impl AgentRuntimeExecutor {
         swappable: Arc<SwappableLlm>,
         factory: Arc<dyn LlmClientFactory>,
         agent_id: Option<&str>,
-        python_runtime: PythonRuntime,
         bash_config: Option<BashConfig>,
     ) -> Arc<ToolRegistry> {
         let filtered_tool_names = self.filter_requested_tool_names(tool_names);
@@ -759,7 +755,6 @@ impl AgentRuntimeExecutor {
             secret_resolver.clone(),
             Some(self.storage.as_ref()),
             agent_id,
-            Some(python_runtime.clone()),
             bash_config.clone(),
         ));
         let subagent_deps = self.build_subagent_deps(llm_client, subagent_tool_registry);
@@ -769,7 +764,6 @@ impl AgentRuntimeExecutor {
             secret_resolver,
             Some(self.storage.as_ref()),
             agent_id,
-            Some(python_runtime),
             bash_config,
         );
 
@@ -915,8 +909,6 @@ impl AgentRuntimeExecutor {
     ) -> Result<SessionExecutionResult> {
         let swappable = Arc::new(SwappableLlm::new(llm_client));
         let effective_tools = effective_main_agent_tool_names(agent_node.tools.as_deref());
-        let python_runtime =
-            resolve_python_runtime_policy(agent_node.python_runtime_policy.as_ref());
         let agent_defaults = self
             .storage
             .config
@@ -935,7 +927,6 @@ impl AgentRuntimeExecutor {
             swappable.clone(),
             factory.clone(),
             agent_id,
-            python_runtime,
             Some(bash_config),
         );
         let system_prompt = build_agent_system_prompt(self.storage.clone(), agent_node, agent_id)?;
@@ -1279,8 +1270,6 @@ impl AgentRuntimeExecutor {
 
         let swappable = Arc::new(SwappableLlm::new(llm_client));
         let effective_tools = effective_main_agent_tool_names(agent_node.tools.as_deref());
-        let python_runtime =
-            resolve_python_runtime_policy(agent_node.python_runtime_policy.as_ref());
         let bash_config = BashConfig {
             timeout_secs: agent_defaults.bash_timeout_secs,
             ..BashConfig::default()
@@ -1291,7 +1280,6 @@ impl AgentRuntimeExecutor {
             swappable.clone(),
             factory.clone(),
             agent_id,
-            python_runtime,
             Some(bash_config),
         );
         let system_prompt =
