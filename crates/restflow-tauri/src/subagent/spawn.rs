@@ -1,34 +1,17 @@
 //! Sub-agent spawning support for tool-based execution.
 
-use super::definition::{AgentDefinition, AgentDefinitionRegistry};
-use super::tracker::{SubagentResult, SubagentTracker};
+use super::{
+    AgentDefinition, AgentDefinitionRegistry, SubagentResult, SubagentTracker,
+};
 use anyhow::{Result, anyhow};
 use restflow_ai::llm::CompletionRequest;
 use restflow_ai::{LlmClient, Message};
+use restflow_core::runtime::subagent::SubagentConfig;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::oneshot;
 use tokio::time::{Duration, timeout};
 use ts_rs::TS;
-
-/// Configuration for sub-agent execution.
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export)]
-pub struct SubagentConfig {
-    /// Maximum number of parallel sub-agents.
-    pub max_parallel_agents: usize,
-    /// Default timeout for sub-agents in seconds.
-    pub subagent_timeout_secs: u64,
-}
-
-impl Default for SubagentConfig {
-    fn default() -> Self {
-        Self {
-            max_parallel_agents: 5,
-            subagent_timeout_secs: 300,
-        }
-    }
-}
 
 /// Request to spawn a sub-agent.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
