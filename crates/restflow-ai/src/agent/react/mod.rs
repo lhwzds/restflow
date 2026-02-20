@@ -4,7 +4,7 @@ mod parser;
 mod state;
 
 pub use parser::ResponseParser;
-pub use state::{AgentState, ConversationHistory};
+pub use state::AgentState;
 
 use serde::{Deserialize, Serialize};
 
