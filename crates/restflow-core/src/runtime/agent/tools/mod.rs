@@ -3,12 +3,10 @@
 use std::sync::Arc;
 use tracing::{debug, warn};
 
-use crate::models::agent::PythonRuntimePolicy;
 use crate::runtime::subagent::{AgentDefinitionRegistry, SubagentConfig, SubagentTracker};
 use crate::services::tool_registry::create_tool_registry;
 use crate::storage::Storage;
 use restflow_ai::LlmClient;
-use restflow_ai::tools::PythonRuntime;
 
 pub use restflow_ai::tools::{
     PythonTool, RunPythonTool, SecretResolver, Tool, ToolOutput, ToolRegistry, TranscribeTool,
@@ -92,6 +90,9 @@ pub fn main_agent_default_tool_names() -> Vec<String> {
         "save_deliverable",
         "patch",
         "diagnostics",
+        "web_search",
+        "web_fetch",
+        "jina_reader",
         "reply",
         "process",
     ]
@@ -111,13 +112,6 @@ pub fn effective_main_agent_tool_names(tool_names: Option<&[String]>) -> Vec<Str
         }
     }
     merged
-}
-
-pub fn resolve_python_runtime_policy(policy: Option<&PythonRuntimePolicy>) -> PythonRuntime {
-    match policy {
-        Some(PythonRuntimePolicy::Cpython) => PythonRuntime::Cpython,
-        Some(PythonRuntimePolicy::Monty) | None => PythonRuntime::Monty,
-    }
 }
 
 /// Builder for creating a fully configured ToolRegistry.
@@ -169,11 +163,9 @@ impl ToolRegistryBuilder {
     }
 
     /// Add monty-backed python tools.
-    pub fn with_python(mut self, default_runtime: PythonRuntime) -> Self {
-        self.registry
-            .register(RunPythonTool::new().with_default_runtime(default_runtime.clone()));
-        self.registry
-            .register(PythonTool::new().with_default_runtime(default_runtime));
+    pub fn with_python(mut self) -> Self {
+        self.registry.register(RunPythonTool::new());
+        self.registry.register(PythonTool::new());
         self
     }
 
@@ -241,7 +233,6 @@ pub fn registry_from_allowlist(
     secret_resolver: Option<SecretResolver>,
     storage: Option<&Storage>,
     agent_id: Option<&str>,
-    python_runtime: Option<PythonRuntime>,
     bash_config: Option<BashConfig>,
 ) -> ToolRegistry {
     let Some(tool_names) = tool_names else {
@@ -253,7 +244,6 @@ pub fn registry_from_allowlist(
     }
 
     let mut builder = ToolRegistryBuilder::new();
-    let python_runtime = python_runtime.unwrap_or(PythonRuntime::Monty);
     let mut allow_file = false;
     let mut allow_file_write = false;
     let mut enable_manage_background_agents = false;
@@ -299,7 +289,7 @@ pub fn registry_from_allowlist(
                 builder = builder.with_telegram();
             }
             "python" | "run_python" => {
-                builder = builder.with_python(python_runtime.clone());
+                builder = builder.with_python();
             }
             "transcribe" => {
                 if let Some(resolver) = secret_resolver.clone() {
@@ -566,7 +556,7 @@ pub fn default_registry() -> ToolRegistry {
         .with_http()
         .with_email()
         .with_telegram()
-        .with_python(PythonRuntime::Monty)
+        .with_python()
         .build()
 }
 
@@ -574,12 +564,8 @@ pub fn default_registry() -> ToolRegistry {
 mod tests {
     use super::{
         effective_main_agent_tool_names, main_agent_default_tool_names, registry_from_allowlist,
-        resolve_python_runtime_policy,
     };
-    use crate::models::agent::PythonRuntimePolicy;
     use crate::storage::Storage;
-    use restflow_ai::tools::PythonRuntime;
-    use serde_json::json;
     use tempfile::tempdir;
 
     #[test]
@@ -594,7 +580,7 @@ mod tests {
         ];
 
         let registry =
-            registry_from_allowlist(Some(&names), None, None, Some(&storage), None, None, None);
+            registry_from_allowlist(Some(&names), None, None, Some(&storage), None, None);
         assert!(registry.has("manage_background_agents"));
         assert!(registry.has("manage_agents"));
     }
@@ -605,7 +591,7 @@ mod tests {
             "manage_background_agents".to_string(),
             "manage_agents".to_string(),
         ];
-        let registry = registry_from_allowlist(Some(&names), None, None, None, None, None, None);
+        let registry = registry_from_allowlist(Some(&names), None, None, None, None, None);
         assert!(!registry.has("manage_background_agents"));
         assert!(!registry.has("manage_agents"));
     }
@@ -625,7 +611,7 @@ mod tests {
         ];
 
         let registry =
-            registry_from_allowlist(Some(&names), None, None, Some(&storage), None, None, None);
+            registry_from_allowlist(Some(&names), None, None, Some(&storage), None, None);
         assert!(registry.has("manage_marketplace"));
         assert!(registry.has("manage_triggers"));
         assert!(registry.has("manage_terminal"));
@@ -651,46 +637,9 @@ mod tests {
     #[test]
     fn test_python_alias_and_run_python_are_both_registered() {
         let names = vec!["python".to_string()];
-        let registry = registry_from_allowlist(Some(&names), None, None, None, None, None, None);
+        let registry = registry_from_allowlist(Some(&names), None, None, None, None, None);
         assert!(registry.has("python"));
         assert!(registry.has("run_python"));
-    }
-
-    #[tokio::test]
-    async fn test_python_runtime_policy_sets_run_python_default_runtime() {
-        let names = vec!["run_python".to_string()];
-        let registry = registry_from_allowlist(
-            Some(&names),
-            None,
-            None,
-            None,
-            None,
-            Some(PythonRuntime::Cpython),
-            None,
-        );
-        let output = registry
-            .execute("run_python", json!({ "code": "print('policy-default')" }))
-            .await
-            .expect("run_python execution should succeed");
-        let runtime = output
-            .result
-            .get("runtime")
-            .and_then(|value| value.as_str())
-            .expect("runtime should be present");
-        assert_eq!(runtime, "cpython");
-    }
-
-    #[test]
-    fn test_resolve_python_runtime_policy_defaults_to_monty() {
-        assert_eq!(resolve_python_runtime_policy(None), PythonRuntime::Monty);
-        assert_eq!(
-            resolve_python_runtime_policy(Some(&PythonRuntimePolicy::Monty)),
-            PythonRuntime::Monty
-        );
-        assert_eq!(
-            resolve_python_runtime_policy(Some(&PythonRuntimePolicy::Cpython)),
-            PythonRuntime::Cpython
-        );
     }
 
     #[test]

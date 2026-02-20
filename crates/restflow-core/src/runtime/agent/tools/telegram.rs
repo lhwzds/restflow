@@ -19,6 +19,9 @@ struct TelegramInput {
     bot_token: String,
     chat_id: String,
     message: String,
+    /// Message thread ID for Telegram forum/supergroup topics (optional)
+    #[serde(default)]
+    message_thread_id: Option<i64>,
 }
 
 pub struct TelegramTool;
@@ -60,6 +63,10 @@ impl Tool for TelegramTool {
                 "message": {
                     "type": "string",
                     "description": "Message content"
+                },
+                "message_thread_id": {
+                    "type": "integer",
+                    "description": "Unique identifier for the target message thread (topic) in a forum or supergroup"
                 }
             },
             "required": ["bot_token", "chat_id", "message"]
@@ -90,13 +97,19 @@ impl Tool for TelegramTool {
             payload.bot_token
         );
 
+        let mut params = serde_json::json!({
+            "chat_id": payload.chat_id,
+            "text": payload.message
+        });
+
+        if let Some(thread_id) = payload.message_thread_id {
+            params["message_thread_id"] = json!(thread_id);
+        }
+
         let client = reqwest::Client::new();
         let response = client
             .post(&url)
-            .json(&serde_json::json!({
-                "chat_id": payload.chat_id,
-                "text": payload.message
-            }))
+            .json(&params)
             .send()
             .await
             .map_err(|e| AiError::Tool(format!("Telegram API error: {}", e)))?;

@@ -5251,7 +5251,6 @@ dependencies = [
  "dashmap",
  "portable-pty",
  "redb",
- "reqwest",
  "restflow-ai",
  "restflow-core",
  "restflow-storage",
@@ -5270,7 +5269,6 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "ts-rs",
- "url",
  "uuid",
 ]
 
