@@ -4,7 +4,6 @@
 //! - ReAct (Reasoning + Acting) loop for AI agents
 //! - Multi-provider LLM client (OpenAI, Anthropic)
 //! - Tool registry and execution
-//! - Graph engine with runtime decisions
 //! - Evaluation engine
 //! - Memory system (working memory with sliding window)
 
@@ -15,7 +14,6 @@ pub mod cache;
 pub mod embedding;
 pub mod error;
 pub mod eval;
-pub mod graph;
 mod http_client;
 pub mod llm;
 pub mod lsp;
@@ -26,16 +24,14 @@ pub mod tools;
 
 // Re-export commonly used types
 pub use agent::{
-    AgentConfig, AgentExecutionEngine, AgentExecutionEngineConfig, AgentExecutor, AgentResult,
-    AgentState, AgentStatus, CheckpointDurability, ExecutionResult, ExecutionStep, HistoryPipeline,
-    HistoryProcessor, ResourceLimits, ResourceUsage, Scratchpad, TraceEvent,
-    TrimOldMessagesProcessor,
+    AgentConfig, AgentExecutor, AgentResult, AgentState, AgentStatus, CheckpointDurability,
+    ExecutionStep, HistoryPipeline, HistoryProcessor, ResourceLimits, ResourceUsage, Scratchpad,
+    TraceEvent, TrimOldMessagesProcessor,
 };
 pub use embedding::{
     EmbeddingCache, EmbeddingConfig, EmbeddingProvider, OpenAIEmbedding, VoyageEmbedding,
 };
 pub use error::{AiError, Result};
-pub use graph::{Graph, GraphNode};
 pub use llm::{
     AnthropicClient, ClaudeCodeClient, CodexClient, DefaultLlmClientFactory, GeminiCliClient,
     LlmClient, LlmClientFactory, LlmProvider, Message, ModelSpec, OpenAIClient, OpenCodeClient,
