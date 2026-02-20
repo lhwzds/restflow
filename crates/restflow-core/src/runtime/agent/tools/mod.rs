@@ -408,6 +408,23 @@ pub fn registry_from_allowlist(
             "save_deliverable" => {
                 enable_save_deliverable = true;
             }
+            "web_search" => {
+                let mut tool = restflow_ai::tools::WebSearchTool::new();
+                if let Some(resolver) = secret_resolver.clone() {
+                    tool = tool.with_secret_resolver(resolver);
+                }
+                builder.registry.register(tool);
+            }
+            "web_fetch" => {
+                builder
+                    .registry
+                    .register(restflow_ai::tools::WebFetchTool::new());
+            }
+            "jina_reader" => {
+                builder
+                    .registry
+                    .register(restflow_ai::tools::JinaReaderTool::new());
+            }
             "switch_model" => {
                 // Registered by callers that provide SwappableLlm + LlmClientFactory.
             }

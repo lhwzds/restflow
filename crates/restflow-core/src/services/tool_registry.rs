@@ -22,7 +22,7 @@ use crate::storage::{
     SecretStorage, SharedSpaceStorage, TerminalSessionStorage, TriggerStorage,
     WorkspaceNoteStorage,
 };
-use crate::tools::ops::{ManageOpsOperation, build_response, parse_operation};
+use crate::ops::{ManageOpsOperation, build_response, parse_operation};
 use chrono::Utc;
 use restflow_ai::error::AiError;
 use restflow_ai::tools::{

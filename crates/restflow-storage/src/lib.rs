@@ -35,10 +35,6 @@ mod encryption;
 mod simple_storage;
 pub mod time_utils;
 
-use anyhow::Result;
-use redb::Database;
-use std::sync::Arc;
-
 pub use agent::AgentStorage;
 pub use auth_profiles::AuthProfileStorage;
 pub use background_agent::BackgroundAgentStorage;
@@ -58,69 +54,3 @@ pub use terminal_session::TerminalSessionStorage;
 pub use trigger::TriggerStorage;
 pub use vector::{VectorConfig, VectorStats, VectorStorage};
 pub use workspace_note::WorkspaceNoteStorage;
-/// Central storage manager that initializes all storage subsystems
-pub struct Storage {
-    db: Arc<Database>,
-    pub config: ConfigStorage,
-    pub triggers: TriggerStorage,
-    pub agents: AgentStorage,
-    pub background_agents: BackgroundAgentStorage,
-    pub secrets: SecretStorage,
-    pub daemon_state: DaemonStateStorage,
-    pub skills: SkillStorage,
-    pub terminal_sessions: TerminalSessionStorage,
-    pub memory: MemoryStorage,
-    pub chat_sessions: ChatSessionStorage,
-    pub deliverables: DeliverableStorage,
-    pub workspace_notes: WorkspaceNoteStorage,
-    pub checkpoints: CheckpointStorage,
-    pub pairing: PairingStorage,
-}
-
-impl Storage {
-    /// Create a new storage instance at the given path.
-    ///
-    /// This will create the database file if it doesn't exist and initialize
-    /// all required tables.
-    pub fn new(path: &str) -> Result<Self> {
-        let db = Arc::new(Database::create(path)?);
-
-        let config = ConfigStorage::new(db.clone())?;
-        let triggers = TriggerStorage::new(db.clone())?;
-        let agents = AgentStorage::new(db.clone())?;
-        let background_agents = BackgroundAgentStorage::new(db.clone())?;
-        let secrets = SecretStorage::new(db.clone())?;
-        let daemon_state = DaemonStateStorage::new(db.clone())?;
-        let skills = SkillStorage::new(db.clone())?;
-        let terminal_sessions = TerminalSessionStorage::new(db.clone())?;
-        let memory = MemoryStorage::new(db.clone())?;
-        let chat_sessions = ChatSessionStorage::new(db.clone())?;
-        let deliverables = DeliverableStorage::new(db.clone())?;
-        let workspace_notes = WorkspaceNoteStorage::new(db.clone())?;
-        let checkpoints = CheckpointStorage::new(db.clone())?;
-        let pairing = PairingStorage::new(db.clone())?;
-
-        Ok(Self {
-            db,
-            config,
-            triggers,
-            agents,
-            background_agents,
-            secrets,
-            daemon_state,
-            skills,
-            terminal_sessions,
-            memory,
-            chat_sessions,
-            deliverables,
-            workspace_notes,
-            checkpoints,
-            pairing,
-        })
-    }
-
-    /// Get a reference to the underlying database
-    pub fn get_db(&self) -> Arc<Database> {
-        self.db.clone()
-    }
-}
