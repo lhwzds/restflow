@@ -3,16 +3,42 @@
 //! Wraps any StreamEmitter and logs tool call events to an EventLog.
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use async_trait::async_trait;
 use chrono::Utc;
+use regex::Regex;
+use std::sync::LazyLock;
 use tracing::warn;
 
 use restflow_ai::agent::StreamEmitter;
 
 use super::event_log::{AgentEvent, EventLog};
+
+/// Sanitize sensitive data from a string before logging.
+///
+/// Replaces common secret patterns (API keys, tokens, credentials) with `[REDACTED]`.
+fn sanitize_secrets(input: &str) -> String {
+    static SECRET_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(concat!(
+            r"(?i)(?:",
+            r"sk-[a-zA-Z0-9_-]{20,}",
+            r"|xoxb-[a-zA-Z0-9_-]{20,}",
+            r"|xoxp-[a-zA-Z0-9_-]{20,}",
+            r"|Bearer\s+[a-zA-Z0-9._\-/+=]{20,}",
+            r"|AKIA[0-9A-Z]{16}",
+            r"|ghp_[a-zA-Z0-9]{36,}",
+            r"|gho_[a-zA-Z0-9]{36,}",
+            r"|glpat-[a-zA-Z0-9_-]{20,}",
+            r#"|(?:api[_\-]?key|apikey|secret[_\-]?key|access[_\-]?token|auth[_\-]?token)\s*[=:]\s*["']?[a-zA-Z0-9._\-/+=]{8,}"#,
+            r")",
+        ))
+        .expect("invalid secret pattern regex")
+    });
+    SECRET_PATTERN.replace_all(input, "[REDACTED]").into_owned()
+}
 
 /// Wrapper that logs tool call events to an EventLog while forwarding to an inner emitter.
 pub struct EventLoggingEmitter {
@@ -22,6 +48,7 @@ pub struct EventLoggingEmitter {
     task_id: String,
     current_step: u32,
     tool_start_times: HashMap<String, Instant>,
+    error_count: AtomicU32,
 }
 
 impl EventLoggingEmitter {
@@ -38,6 +65,7 @@ impl EventLoggingEmitter {
             task_id,
             current_step: 0,
             tool_start_times: HashMap::new(),
+            error_count: AtomicU32::new(0),
         }
     }
 
@@ -53,21 +81,33 @@ impl EventLoggingEmitter {
             task_id,
             current_step: 0,
             tool_start_times: HashMap::new(),
+            error_count: AtomicU32::new(0),
         }
     }
 
     /// Log an event to the event log.
+    ///
+    /// Recovers from mutex poisoning by extracting the inner EventLog,
+    /// ensuring events are not silently dropped after a panic in another thread.
     fn log_event(&self, event: AgentEvent) {
-        match self.event_log.lock() {
-            Ok(mut log) => {
-                if let Err(e) = log.append(&event) {
-                    warn!("Failed to append event to log: {}", e);
-                }
+        let mut log = match self.event_log.lock() {
+            Ok(log) => log,
+            Err(poisoned) => {
+                self.error_count.fetch_add(1, Ordering::Relaxed);
+                warn!("EventLog mutex was poisoned, recovering inner log");
+                poisoned.into_inner()
             }
-            Err(e) => {
-                warn!("EventLog mutex poisoned, cannot log event: {}", e);
-            }
+        };
+        if let Err(e) = log.append(&event) {
+            self.error_count.fetch_add(1, Ordering::Relaxed);
+            warn!("Failed to append event to log: {}", e);
         }
+    }
+
+    /// Get the number of logging errors encountered.
+    #[cfg(test)]
+    fn error_count(&self) -> u32 {
+        self.error_count.load(Ordering::Relaxed)
     }
 
     /// Get current step and increment.
@@ -97,7 +137,7 @@ impl StreamEmitter for EventLoggingEmitter {
             timestamp: Utc::now().timestamp_millis(),
             step,
             tool_name: name.to_string(),
-            input: arguments.to_string(),
+            input: sanitize_secrets(arguments),
         });
     }
 
@@ -117,7 +157,7 @@ impl StreamEmitter for EventLoggingEmitter {
             step: self.current_step,
             tool_name: name.to_string(),
             success,
-            output: truncate_output(result, 10000),
+            output: sanitize_secrets(&truncate_output(result, 10000)),
             duration_ms,
         });
     }
@@ -151,6 +191,145 @@ fn truncate_output(output: &str, max_len: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_sanitize_openai_key() {
+        let input = "Using key sk-abc123defghijklmnopqrstuvwxyz for API";
+        let result = sanitize_secrets(input);
+        assert!(!result.contains("sk-abc123"));
+        assert!(result.contains("[REDACTED]"));
+        assert!(result.contains("for API"));
+    }
+
+    #[test]
+    fn test_sanitize_bearer_token() {
+        let input = "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.payload.signature";
+        let result = sanitize_secrets(input);
+        assert!(!result.contains("eyJ"));
+        assert!(result.contains("[REDACTED]"));
+    }
+
+    #[test]
+    fn test_sanitize_no_secrets() {
+        let input = "This is normal text with no secrets at all";
+        let result = sanitize_secrets(input);
+        assert_eq!(result, input);
+    }
+
+    #[test]
+    fn test_sanitize_multiple_patterns() {
+        let input = "key1=sk-abc123defghijklmnopqrstuvwxyz key2=ghp_abcdefghijklmnopqrstuvwxyz1234567890";
+        let result = sanitize_secrets(input);
+        assert!(!result.contains("sk-abc"));
+        assert!(!result.contains("ghp_abc"));
+        // Both should be redacted
+        assert_eq!(result.matches("[REDACTED]").count(), 2);
+    }
+
+    #[test]
+    fn test_sanitize_github_token() {
+        let input = "Token: ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmn";
+        let result = sanitize_secrets(input);
+        assert!(!result.contains("ghp_"));
+        assert!(result.contains("[REDACTED]"));
+    }
+
+    #[test]
+    fn test_sanitize_aws_key() {
+        let input = "AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE";
+        let result = sanitize_secrets(input);
+        assert!(!result.contains("AKIAIOSFODNN7EXAMPLE"));
+        assert!(result.contains("[REDACTED]"));
+    }
+
+    #[test]
+    fn test_sanitize_slack_token() {
+        // Build the test token at runtime to avoid GitHub push protection false positive
+        let prefix = "xoxb-";
+        let suffix = "AAAABBBBCCCCDDDDEEEE";
+        let input = format!("SLACK_TOKEN={}{}", prefix, suffix);
+        let result = sanitize_secrets(&input);
+        assert!(!result.contains(prefix));
+        assert!(result.contains("[REDACTED]"));
+    }
+
+    #[test]
+    fn test_sanitize_api_key_assignment() {
+        let input = r#"api_key = "my_secret_key_value_here""#;
+        let result = sanitize_secrets(input);
+        assert!(!result.contains("my_secret_key_value_here"));
+        assert!(result.contains("[REDACTED]"));
+    }
+
+    #[test]
+    fn test_error_count_initial_value() {
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let log = EventLog::new("test", temp_dir.path()).unwrap();
+        let emitter = EventLoggingEmitter::new(
+            Box::new(NoopEmitter),
+            log,
+            "test".to_string(),
+        );
+        assert_eq!(emitter.error_count(), 0);
+    }
+
+    #[test]
+    fn test_mutex_poisoning_recovery() {
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let log = EventLog::new("poison-test", temp_dir.path()).unwrap();
+        let shared_log = Arc::new(Mutex::new(log));
+
+        let emitter = EventLoggingEmitter::with_shared_log(
+            Box::new(NoopEmitter),
+            shared_log.clone(),
+            "poison-test".to_string(),
+        );
+
+        // Poison the mutex by panicking inside a lock
+        let shared_clone = shared_log.clone();
+        let _ = std::thread::spawn(move || {
+            let _guard = shared_clone.lock().unwrap();
+            panic!("intentional panic to poison mutex");
+        })
+        .join();
+
+        // Mutex should now be poisoned
+        assert!(shared_log.lock().is_err(), "mutex should be poisoned");
+
+        // Use a terminal event (Error) which triggers immediate flush
+        emitter.log_event(AgentEvent::Error {
+            timestamp: 42,
+            error: "test error".to_string(),
+        });
+
+        // error_count should reflect the poisoning recovery
+        assert_eq!(emitter.error_count(), 1, "should have recorded 1 error from poisoning");
+
+        // Drop all Arc references so EventLog::Drop can flush remaining data
+        drop(emitter);
+        drop(shared_log);
+
+        // Verify the event was actually written to disk
+        let log_path = temp_dir.path().join("poison-test.jsonl");
+        let events = EventLog::read_all(&log_path).unwrap();
+        assert!(
+            !events.is_empty(),
+            "event should have been written despite poisoned mutex"
+        );
+        assert_eq!(events.last().unwrap().timestamp(), 42);
+    }
+
+    /// No-op emitter for testing
+    struct NoopEmitter;
+
+    #[async_trait]
+    impl StreamEmitter for NoopEmitter {
+        async fn emit_text_delta(&mut self, _text: &str) {}
+        async fn emit_thinking_delta(&mut self, _text: &str) {}
+        async fn emit_tool_call_start(&mut self, _id: &str, _name: &str, _arguments: &str) {}
+        async fn emit_tool_call_result(&mut self, _id: &str, _name: &str, _result: &str, _success: bool) {}
+        async fn emit_complete(&mut self) {}
+    }
 
     #[test]
     fn test_truncate_output_ascii() {

@@ -167,9 +167,13 @@ impl MemoryPersister {
 
     /// Internal: persist messages with a configurable memory source.
     ///
-    /// This method:
+    /// This method uses deterministic session IDs based on `sha256(agent_id:source_id)`
+    /// so that re-persisting the same source replaces old chunks (upsert) instead of
+    /// creating duplicate sessions.
+    ///
+    /// Steps:
     /// 1. Formats the messages into a readable conversation transcript
-    /// 2. Creates a memory session to group the chunks
+    /// 2. Creates or replaces the memory session (upsert via deterministic ID)
     /// 3. Chunks the content and stores each chunk
     /// 4. Handles deduplication (chunks with same content hash are skipped)
     fn persist_with_source(
@@ -198,18 +202,28 @@ impl MemoryPersister {
             });
         }
 
-        // Create memory session
+        // Create deterministic session (same agent+source → same session ID)
         let session_name = format!("Session: {}", source_name);
         let session_desc = format!(
             "Conversation persisted at {}",
             Utc::now().format("%Y-%m-%d %H:%M UTC")
         );
 
-        let session = MemorySession::new(agent_id.to_string(), session_name)
-            .with_description(session_desc)
-            .with_tags(tags.to_vec());
+        let session =
+            MemorySession::new_deterministic(agent_id.to_string(), source_id, session_name)
+                .with_description(session_desc)
+                .with_tags(tags.to_vec());
 
-        // Store session first
+        // Upsert: if session already exists, delete old chunks and replace
+        if self.storage.get_session(&session.id)?.is_some() {
+            debug!(
+                "Session '{}' already exists, replacing old chunks (upsert)",
+                session.id
+            );
+            self.storage.delete_session(&session.id, true)?;
+        }
+
+        // Store session
         self.storage.create_session(&session)?;
         let session_id = session.id.clone();
 
@@ -558,6 +572,74 @@ mod tests {
         assert_eq!(result.chunk_count, 5);
         assert_eq!(result.deduplicated_count, 2);
         assert_eq!(result.total_tokens, 1500);
+    }
+
+    #[test]
+    fn test_deterministic_session_id_consistency() {
+        let s1 = MemorySession::new_deterministic(
+            "agent-1".to_string(),
+            "source-abc",
+            "Session A".to_string(),
+        );
+        let s2 = MemorySession::new_deterministic(
+            "agent-1".to_string(),
+            "source-abc",
+            "Session B".to_string(),
+        );
+        // Same agent+source → same ID
+        assert_eq!(s1.id, s2.id);
+        assert!(s1.id.starts_with("session-"));
+    }
+
+    #[test]
+    fn test_deterministic_session_id_different_sources() {
+        let s1 = MemorySession::new_deterministic(
+            "agent-1".to_string(),
+            "source-abc",
+            "Session".to_string(),
+        );
+        let s2 = MemorySession::new_deterministic(
+            "agent-1".to_string(),
+            "source-xyz",
+            "Session".to_string(),
+        );
+        let s3 = MemorySession::new_deterministic(
+            "agent-2".to_string(),
+            "source-abc",
+            "Session".to_string(),
+        );
+        // Different inputs → different IDs
+        assert_ne!(s1.id, s2.id);
+        assert_ne!(s1.id, s3.id);
+    }
+
+    #[test]
+    fn test_persist_upsert_replaces_old_chunks() {
+        let (storage, _temp_dir) = create_test_storage();
+        let persister = MemoryPersister::new(storage.clone());
+
+        let messages = create_test_messages();
+
+        // First persist
+        let result1 = persister
+            .persist(&messages, "agent-1", "task-1", "Daily Report", &[])
+            .unwrap();
+        assert!(result1.chunk_count > 0);
+
+        let chunks1 = storage.list_chunks_for_session(&result1.session_id).unwrap();
+        let first_count = chunks1.len();
+
+        // Second persist with same agent+source (upsert)
+        let result2 = persister
+            .persist(&messages, "agent-1", "task-1", "Daily Report v2", &[])
+            .unwrap();
+
+        // Same session ID (deterministic)
+        assert_eq!(result1.session_id, result2.session_id);
+
+        // After upsert, only the latest chunks should exist
+        let chunks2 = storage.list_chunks_for_session(&result2.session_id).unwrap();
+        assert_eq!(chunks2.len(), first_count, "upsert should not accumulate chunks");
     }
 
     #[test]

@@ -18,6 +18,7 @@ const DEFAULT_CHAT_SESSION_RETENTION_DAYS: u32 = 30;
 const DEFAULT_BACKGROUND_TASK_RETENTION_DAYS: u32 = 7;
 const DEFAULT_CHECKPOINT_RETENTION_DAYS: u32 = 3;
 const DEFAULT_MEMORY_CHUNK_RETENTION_DAYS: u32 = 90;
+const DEFAULT_LOG_FILE_RETENTION_DAYS: u32 = 30;
 const MIN_RETENTION_DAYS: u32 = 1;
 const MIN_WORKER_COUNT: usize = 1;
 const MIN_TIMEOUT_SECONDS: u64 = 10;
@@ -135,6 +136,9 @@ pub struct SystemConfig {
     pub background_task_retention_days: u32,
     pub checkpoint_retention_days: u32,
     pub memory_chunk_retention_days: u32,
+    /// Retention period for daemon and event log files on disk.
+    /// 0 = keep forever, otherwise delete files older than N days.
+    pub log_file_retention_days: u32,
     pub experimental_features: Vec<String>,
     /// Agent execution defaults.
     #[serde(default)]
@@ -153,6 +157,7 @@ impl Default for SystemConfig {
             background_task_retention_days: DEFAULT_BACKGROUND_TASK_RETENTION_DAYS,
             checkpoint_retention_days: DEFAULT_CHECKPOINT_RETENTION_DAYS,
             memory_chunk_retention_days: DEFAULT_MEMORY_CHUNK_RETENTION_DAYS,
+            log_file_retention_days: DEFAULT_LOG_FILE_RETENTION_DAYS,
             experimental_features: Vec::new(),
             agent: AgentDefaults::default(),
         }
@@ -222,6 +227,15 @@ impl SystemConfig {
         {
             return Err(anyhow::anyhow!(
                 "Memory chunk retention must be 0 (forever) or at least {} day",
+                MIN_RETENTION_DAYS
+            ));
+        }
+
+        if self.log_file_retention_days != 0
+            && self.log_file_retention_days < MIN_RETENTION_DAYS
+        {
+            return Err(anyhow::anyhow!(
+                "Log file retention must be 0 (forever) or at least {} day",
                 MIN_RETENTION_DAYS
             ));
         }
@@ -430,6 +444,28 @@ mod tests {
         let retrieved = storage.get_config().unwrap().unwrap();
         assert_eq!(retrieved.agent.tool_timeout_secs, 180);
         assert_eq!(retrieved.agent.bash_timeout_secs, 600);
+    }
+
+    #[test]
+    fn test_log_file_retention_default() {
+        let config = SystemConfig::default();
+        assert_eq!(config.log_file_retention_days, 30);
+    }
+
+    #[test]
+    fn test_log_file_retention_validation() {
+        // 0 is valid (keep forever)
+        let mut config = SystemConfig::default();
+        config.log_file_retention_days = 0;
+        assert!(config.validate().is_ok());
+
+        // 1 is valid
+        config.log_file_retention_days = 1;
+        assert!(config.validate().is_ok());
+
+        // 365 is valid
+        config.log_file_retention_days = 365;
+        assert!(config.validate().is_ok());
     }
 
     #[test]

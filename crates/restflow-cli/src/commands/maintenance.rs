@@ -24,7 +24,11 @@ async fn run_cleanup(core: Arc<AppCore>, format: OutputFormat) -> Result<()> {
             "chat_sessions": report.chat_sessions,
             "background_tasks": report.background_tasks,
             "checkpoints": report.checkpoints,
-            "memory_chunks": report.memory_chunks
+            "memory_chunks": report.memory_chunks,
+            "memory_sessions": report.memory_sessions,
+            "vector_orphans": report.vector_orphans,
+            "daemon_log_files": report.daemon_log_files,
+            "event_log_files": report.event_log_files
         }));
     }
 
@@ -33,5 +37,9 @@ async fn run_cleanup(core: Arc<AppCore>, format: OutputFormat) -> Result<()> {
     println!("  background_tasks: {}", report.background_tasks);
     println!("  checkpoints: {}", report.checkpoints);
     println!("  memory_chunks: {}", report.memory_chunks);
+    println!("  memory_sessions: {}", report.memory_sessions);
+    println!("  vector_orphans: {}", report.vector_orphans);
+    println!("  daemon_log_files: {}", report.daemon_log_files);
+    println!("  event_log_files: {}", report.event_log_files);
     Ok(())
 }
