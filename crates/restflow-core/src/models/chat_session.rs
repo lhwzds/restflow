@@ -367,6 +367,9 @@ impl ChatSession {
         self
     }
 
+    /// Maximum messages stored per session to prevent unbounded DB growth.
+    const MAX_STORED_MESSAGES: usize = 200;
+
     /// Add a message to the session.
     pub fn add_message(&mut self, message: ChatMessage) {
         // Update metadata
@@ -377,6 +380,13 @@ impl ChatSession {
         }
 
         self.messages.push(message);
+
+        // Prevent unbounded growth in long-running sessions (e.g. Telegram).
+        if self.messages.len() > Self::MAX_STORED_MESSAGES {
+            let excess = self.messages.len() - Self::MAX_STORED_MESSAGES;
+            self.messages.drain(..excess);
+        }
+
         self.updated_at = chrono::Utc::now().timestamp_millis();
     }
 
@@ -696,5 +706,33 @@ mod tests {
     #[test]
     fn export_bindings_chat_session_summary() {
         ChatSessionSummary::export_to_string(&ts_rs::Config::default()).unwrap();
+    }
+
+    #[test]
+    fn test_add_message_enforces_max_stored_limit() {
+        let mut session = ChatSession::new("agent-1".to_string(), "model".to_string());
+        let total = ChatSession::MAX_STORED_MESSAGES + 10;
+
+        for i in 0..total {
+            if i % 2 == 0 {
+                session.add_message(ChatMessage::user(format!("msg {}", i)));
+            } else {
+                session.add_message(ChatMessage::assistant(format!("reply {}", i)));
+            }
+        }
+
+        assert_eq!(session.messages.len(), ChatSession::MAX_STORED_MESSAGES);
+
+        // Most recent message should be retained
+        let last = session.messages.last().unwrap();
+        assert!(last.content.contains(&(total - 1).to_string()));
+    }
+
+    #[test]
+    fn test_add_message_below_cap_is_unaffected() {
+        let mut session = ChatSession::new("agent-1".to_string(), "model".to_string());
+        session.add_message(ChatMessage::user("hello"));
+        session.add_message(ChatMessage::assistant("hi"));
+        assert_eq!(session.messages.len(), 2);
     }
 }
