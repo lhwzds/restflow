@@ -7,49 +7,11 @@ use anyhow::{Result, anyhow};
 use restflow_ai::llm::CompletionRequest;
 use restflow_ai::{LlmClient, Message};
 use restflow_core::runtime::subagent::SubagentConfig;
-use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::oneshot;
 use tokio::time::{Duration, timeout};
-use ts_rs::TS;
 
-/// Request to spawn a sub-agent.
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export)]
-pub struct SpawnRequest {
-    /// Agent type ID (e.g., "researcher", "coder").
-    pub agent_id: String,
-
-    /// Task description for the agent.
-    pub task: String,
-
-    /// Optional timeout in seconds.
-    pub timeout_secs: Option<u64>,
-
-    /// Optional priority level.
-    pub priority: Option<SpawnPriority>,
-}
-
-/// Priority level for sub-agent spawning.
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Default)]
-#[ts(export)]
-pub enum SpawnPriority {
-    Low,
-    #[default]
-    Normal,
-    High,
-}
-
-/// Handle returned after spawning a sub-agent.
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export)]
-pub struct SpawnHandle {
-    /// Unique task ID.
-    pub id: String,
-
-    /// Agent name.
-    pub agent_name: String,
-}
+pub use restflow_core::runtime::subagent::{SpawnHandle, SpawnPriority, SpawnRequest};
 
 /// Spawn a sub-agent with the given request.
 pub fn spawn_subagent(
