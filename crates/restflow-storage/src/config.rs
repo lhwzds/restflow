@@ -455,8 +455,10 @@ mod tests {
     #[test]
     fn test_log_file_retention_validation() {
         // 0 is valid (keep forever)
-        let mut config = SystemConfig::default();
-        config.log_file_retention_days = 0;
+        let mut config = SystemConfig {
+            log_file_retention_days: 0,
+            ..SystemConfig::default()
+        };
         assert!(config.validate().is_ok());
 
         // 1 is valid
