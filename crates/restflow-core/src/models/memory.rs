@@ -291,6 +291,34 @@ impl MemorySession {
         }
     }
 
+    /// Create a memory session with a deterministic ID based on agent_id and source_id.
+    ///
+    /// The ID is derived from `sha256(agent_id:source_id)` so the same agent+source
+    /// pair always produces the same session ID. This enables upsert semantics:
+    /// re-persisting the same source replaces the old session instead of creating duplicates.
+    pub fn new_deterministic(agent_id: String, source_id: &str, name: String) -> Self {
+        use restflow_storage::time_utils;
+        use sha2::{Digest, Sha256};
+
+        let hash = hex::encode(Sha256::digest(
+            format!("{}:{}", agent_id, source_id).as_bytes(),
+        ));
+        let id = format!("session-{}", &hash[..16]);
+        let now = time_utils::now_ms();
+
+        Self {
+            id,
+            agent_id,
+            name,
+            description: None,
+            chunk_count: 0,
+            total_tokens: 0,
+            created_at: now,
+            updated_at: now,
+            tags: Vec::new(),
+        }
+    }
+
     /// Create a session with a specific ID (for deserialization/testing)
     #[must_use]
     pub fn with_id(mut self, id: String) -> Self {
@@ -819,6 +847,30 @@ mod tests {
             serde_json::to_string(&SearchMode::Regex).unwrap(),
             "\"regex\""
         );
+    }
+
+    #[test]
+    fn test_deterministic_session_id() {
+        let s1 = MemorySession::new_deterministic(
+            "agent-x".to_string(),
+            "source-123",
+            "Name".to_string(),
+        );
+        let s2 = MemorySession::new_deterministic(
+            "agent-x".to_string(),
+            "source-123",
+            "Name".to_string(),
+        );
+        assert_eq!(s1.id, s2.id, "same inputs must produce same ID");
+        assert!(s1.id.starts_with("session-"));
+        assert_eq!(s1.id.len(), "session-".len() + 16);
+
+        let s3 = MemorySession::new_deterministic(
+            "agent-y".to_string(),
+            "source-123",
+            "Name".to_string(),
+        );
+        assert_ne!(s1.id, s3.id, "different agent must produce different ID");
     }
 
     #[test]

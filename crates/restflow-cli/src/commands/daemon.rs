@@ -319,6 +319,10 @@ async fn run_and_log_cleanup(core: Arc<AppCore>) -> Result<()> {
         background_tasks = report.background_tasks,
         checkpoints = report.checkpoints,
         memory_chunks = report.memory_chunks,
+        memory_sessions = report.memory_sessions,
+        vector_orphans = report.vector_orphans,
+        daemon_logs = report.daemon_log_files,
+        event_logs = report.event_log_files,
         "Storage cleanup completed"
     );
     Ok(())

@@ -83,10 +83,17 @@ impl AgentEvent {
     }
 }
 
+/// Number of events to buffer before flushing to disk.
+const FLUSH_INTERVAL: u32 = 10;
+
 /// Append-only JSONL event log for background agent tasks.
 ///
 /// Each event is serialized to JSON and written as a single line.
 /// The log can be read back to reconstruct agent state.
+///
+/// Events are batched: the log flushes to disk every [`FLUSH_INTERVAL`] events
+/// or immediately on terminal events (TaskStarted, TaskCompleted, Error).
+/// The `Drop` implementation ensures all remaining buffered data is flushed.
 pub struct EventLog {
     writer: BufWriter<std::fs::File>,
     mirror_writer: Option<BufWriter<std::fs::File>>,
@@ -96,6 +103,7 @@ pub struct EventLog {
     task_id: String,
     #[allow(dead_code)]
     run_id: Option<String>,
+    unflushed_count: u32,
 }
 
 impl Drop for EventLog {
@@ -161,12 +169,15 @@ impl EventLog {
         let path = Self::legacy_log_path(task_id, log_dir);
         let writer = Self::open_writer(&path)?;
 
+        Self::set_file_permissions(&path);
+
         Ok(Self {
             writer,
             mirror_writer: None,
             path: path.to_string_lossy().to_string(),
             task_id: task_id.to_string(),
             run_id: None,
+            unflushed_count: 0,
         })
     }
 
@@ -185,12 +196,16 @@ impl EventLog {
         let legacy_path = Self::legacy_log_path(task_id, log_dir);
         let mirror_writer = Some(Self::open_writer(&legacy_path)?);
 
+        Self::set_file_permissions(&run_path);
+        Self::set_file_permissions(&legacy_path);
+
         Ok(Self {
             writer,
             mirror_writer,
             path: run_path.to_string_lossy().to_string(),
             task_id: task_id.to_string(),
             run_id: Some(run_id.to_string()),
+            unflushed_count: 0,
         })
     }
 
@@ -214,19 +229,49 @@ impl EventLog {
             .with_context(|| format!("Failed to serialize event: {:?}", event))?;
 
         writeln!(self.writer, "{}", json).with_context(|| "Failed to write event to log")?;
-        self.writer
-            .flush()
-            .with_context(|| "Failed to flush event log")?;
 
         if let Some(mirror) = self.mirror_writer.as_mut() {
             writeln!(mirror, "{}", json)
                 .with_context(|| "Failed to write event to mirrored task log")?;
+        }
+
+        self.unflushed_count += 1;
+
+        // Flush on interval or terminal events
+        let is_terminal = matches!(
+            event,
+            AgentEvent::TaskStarted { .. }
+                | AgentEvent::TaskCompleted { .. }
+                | AgentEvent::Error { .. }
+        );
+        if is_terminal || self.unflushed_count >= FLUSH_INTERVAL {
+            self.flush_all()?;
+        }
+
+        Ok(())
+    }
+
+    /// Flush all buffered data to disk.
+    pub fn flush_all(&mut self) -> Result<()> {
+        self.writer
+            .flush()
+            .with_context(|| "Failed to flush event log")?;
+        if let Some(mirror) = self.mirror_writer.as_mut() {
             mirror
                 .flush()
                 .with_context(|| "Failed to flush mirrored task log")?;
         }
-
+        self.unflushed_count = 0;
         Ok(())
+    }
+
+    /// Set restrictive file permissions (owner read/write only) on Unix.
+    fn set_file_permissions(_path: &Path) {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(_path, std::fs::Permissions::from_mode(0o600));
+        }
     }
 
     /// Read all events from a log file.
@@ -259,6 +304,65 @@ impl EventLog {
         }
 
         Ok(events)
+    }
+
+    /// Read the last N events from a log file.
+    ///
+    /// Streams through the file line-by-line, keeping only the last N events
+    /// in memory. Returns an empty vector if the file doesn't exist.
+    pub fn read_last_n(path: &Path, n: usize) -> Result<Vec<AgentEvent>> {
+        use std::collections::VecDeque;
+        use std::io::BufRead;
+
+        if n == 0 {
+            return Ok(Vec::new());
+        }
+
+        let file = match std::fs::File::open(path) {
+            Ok(f) => f,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(e) => {
+                return Err(e)
+                    .with_context(|| format!("Failed to open log file: {}", path.display()));
+            }
+        };
+
+        let reader = std::io::BufReader::new(file);
+        let mut ring: VecDeque<AgentEvent> = VecDeque::with_capacity(n);
+
+        for (line_num, line_result) in reader.lines().enumerate() {
+            let line = line_result
+                .with_context(|| format!("Failed to read line {} from log", line_num + 1))?;
+            if line.trim().is_empty() {
+                continue;
+            }
+
+            let event: AgentEvent = serde_json::from_str(&line).with_context(|| {
+                format!("Failed to parse event on line {}: {}", line_num + 1, line)
+            })?;
+
+            if ring.len() == n {
+                ring.pop_front();
+            }
+            ring.push_back(event);
+        }
+
+        Ok(ring.into())
+    }
+
+    /// Read events with pagination.
+    ///
+    /// Returns `(events, total_count)` where `events` is the slice at the given
+    /// offset and limit, and `total_count` is the total number of events in the file.
+    pub fn read_paginated(
+        path: &Path,
+        offset: usize,
+        limit: usize,
+    ) -> Result<(Vec<AgentEvent>, usize)> {
+        let all = Self::read_all(path)?;
+        let total = all.len();
+        let page: Vec<AgentEvent> = all.into_iter().skip(offset).take(limit).collect();
+        Ok((page, total))
     }
 }
 
@@ -429,6 +533,157 @@ mod tests {
         // read_all should return Ok(Vec::new()) as documented
         let events = EventLog::read_all(&non_existent_path).unwrap();
         assert!(events.is_empty());
+    }
+
+    #[test]
+    fn test_batched_flush_data_survives_drop() {
+        let temp_dir = TempDir::new().unwrap();
+        let task_id = "batch-test";
+
+        let mut log = EventLog::new(task_id, temp_dir.path()).unwrap();
+
+        // Write 9 events (below FLUSH_INTERVAL of 10)
+        for i in 0..9 {
+            log.append(&AgentEvent::LlmGeneration {
+                timestamp: i,
+                step: i as u32,
+                tokens_in: 10,
+                tokens_out: 5,
+                model: "test".to_string(),
+            })
+            .unwrap();
+        }
+
+        // Drop flushes remaining buffered data
+        drop(log);
+
+        let log_path = temp_dir.path().join(format!("{}.jsonl", task_id));
+        let events = EventLog::read_all(&log_path).unwrap();
+        assert_eq!(events.len(), 9, "all 9 events should survive drop");
+    }
+
+    #[test]
+    fn test_terminal_event_triggers_immediate_flush() {
+        let temp_dir = TempDir::new().unwrap();
+        let task_id = "terminal-flush";
+
+        let mut log = EventLog::new(task_id, temp_dir.path()).unwrap();
+
+        // TaskStarted is a terminal event → immediate flush
+        log.append(&AgentEvent::TaskStarted {
+            timestamp: 1000,
+            task_id: task_id.to_string(),
+            agent_id: "agent-1".to_string(),
+        })
+        .unwrap();
+
+        // Read without dropping — data should already be on disk
+        let log_path = temp_dir.path().join(format!("{}.jsonl", task_id));
+        let events = EventLog::read_all(&log_path).unwrap();
+        assert_eq!(events.len(), 1, "terminal event should be flushed immediately");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_event_log_file_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp_dir = TempDir::new().unwrap();
+        let task_id = "perm-test";
+
+        let _log = EventLog::new(task_id, temp_dir.path()).unwrap();
+
+        let log_path = temp_dir.path().join(format!("{}.jsonl", task_id));
+        let metadata = fs::metadata(&log_path).unwrap();
+        let mode = metadata.permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600, "log file should have 0o600 permissions");
+    }
+
+    #[test]
+    fn test_read_last_n_basic() {
+        let temp_dir = TempDir::new().unwrap();
+        let task_id = "last-n-test";
+
+        let mut log = EventLog::new(task_id, temp_dir.path()).unwrap();
+        for i in 0..20 {
+            log.append(&AgentEvent::LlmGeneration {
+                timestamp: i,
+                step: i as u32,
+                tokens_in: 10,
+                tokens_out: 5,
+                model: "test".to_string(),
+            })
+            .unwrap();
+        }
+        drop(log);
+
+        let log_path = temp_dir.path().join(format!("{}.jsonl", task_id));
+        let events = EventLog::read_last_n(&log_path, 5).unwrap();
+        assert_eq!(events.len(), 5);
+        // Should be timestamps 15..20
+        assert_eq!(events[0].timestamp(), 15);
+        assert_eq!(events[4].timestamp(), 19);
+    }
+
+    #[test]
+    fn test_read_last_n_more_than_available() {
+        let temp_dir = TempDir::new().unwrap();
+        let task_id = "last-n-overflow";
+
+        let mut log = EventLog::new(task_id, temp_dir.path()).unwrap();
+        log.append(&AgentEvent::Resumed { timestamp: 42 })
+            .unwrap();
+        drop(log);
+
+        let log_path = temp_dir.path().join(format!("{}.jsonl", task_id));
+        let events = EventLog::read_last_n(&log_path, 100).unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].timestamp(), 42);
+    }
+
+    #[test]
+    fn test_read_last_n_empty_file() {
+        let temp_dir = TempDir::new().unwrap();
+        let log_path = temp_dir.path().join("empty.jsonl");
+        fs::write(&log_path, "").unwrap();
+
+        let events = EventLog::read_last_n(&log_path, 10).unwrap();
+        assert!(events.is_empty());
+    }
+
+    #[test]
+    fn test_read_last_n_missing_file() {
+        let temp_dir = TempDir::new().unwrap();
+        let log_path = temp_dir.path().join("nonexistent.jsonl");
+
+        let events = EventLog::read_last_n(&log_path, 10).unwrap();
+        assert!(events.is_empty());
+    }
+
+    #[test]
+    fn test_read_paginated() {
+        let temp_dir = TempDir::new().unwrap();
+        let task_id = "paginate-test";
+
+        let mut log = EventLog::new(task_id, temp_dir.path()).unwrap();
+        for i in 0..15 {
+            log.append(&AgentEvent::LlmGeneration {
+                timestamp: i,
+                step: i as u32,
+                tokens_in: 10,
+                tokens_out: 5,
+                model: "test".to_string(),
+            })
+            .unwrap();
+        }
+        drop(log);
+
+        let log_path = temp_dir.path().join(format!("{}.jsonl", task_id));
+        let (page, total) = EventLog::read_paginated(&log_path, 5, 3).unwrap();
+        assert_eq!(total, 15);
+        assert_eq!(page.len(), 3);
+        assert_eq!(page[0].timestamp(), 5);
+        assert_eq!(page[2].timestamp(), 7);
     }
 
     #[test]
