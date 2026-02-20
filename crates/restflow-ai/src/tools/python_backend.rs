@@ -1,31 +1,6 @@
 //! Python execution backend for AI agents
 //!
-//! Provides Python code execution with:
-//! - Multiple runtime support (Monty, CPython)
-//! - Configurable timeout
-//! - Execution limits (partial support)
-//!
-//! # Timeout Architecture
-//!
-//! This backend has an **internal timeout** for code execution. When used within
-//! an agent executor, there are **two layers of timeout**:
-//!
-//! 1. **Backend-internal timeout** (this file): Controls how long the Python
-//!    code can run before being terminated. Configurable via `timeout_seconds`
-//!    in `PythonExecutionRequest`. Can be further limited by `limits.max_time_ms`.
-//!
-//! 2. **Agent wrapper timeout** (`executor.rs`): Controls how long the entire
-//!    tool execution can take, including process spawn overhead.
-//!
-//! **Important**: To avoid confusing timeout errors, ensure the agent wrapper
-//! timeout (`tool_timeout_secs`) is **greater than or equal to** the Python
-//! timeout (`python_timeout_secs`). If the wrapper timeout fires first, you'll
-//! get a generic "Tool python timed out" error instead of the more specific
-//! internal timeout message.
-//!
-//! **Recommended configuration**:
-//! - `agent.tool_timeout_secs` >= `agent.python_timeout_secs` + 5s buffer
-//! - Example: `tool_timeout_secs=320`, `python_timeout_secs=300`
+//! Provides Python code execution via the Monty sandbox runtime.
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -34,21 +9,18 @@ use tokio::process::Command;
 use tokio::time::{Duration, timeout};
 
 const MONTY_EXECUTABLE_ENV: &str = "RESTFLOW_MONTY_EXECUTABLE";
-const CPYTHON_EXECUTABLE_ENV: &str = "RESTFLOW_CPYTHON_EXECUTABLE";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum PythonRuntime {
     #[default]
     Monty,
-    Cpython,
 }
 
 impl PythonRuntime {
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Monty => "monty",
-            Self::Cpython => "cpython",
         }
     }
 }
@@ -90,36 +62,19 @@ pub trait PythonExecutionBackend: Send + Sync {
 }
 
 #[derive(Clone)]
-pub struct ProcessPythonBackend {
-    runtime: PythonRuntime,
-}
+pub struct ProcessPythonBackend;
 
 impl ProcessPythonBackend {
     pub fn monty() -> Self {
-        Self {
-            runtime: PythonRuntime::Monty,
-        }
-    }
-
-    pub fn cpython() -> Self {
-        Self {
-            runtime: PythonRuntime::Cpython,
-        }
+        Self
     }
 
     fn resolve_python_executable(&self) -> String {
-        match self.runtime {
-            PythonRuntime::Monty => std::env::var(MONTY_EXECUTABLE_ENV)
-                .ok()
-                .map(|value| value.trim().to_string())
-                .filter(|value| !value.is_empty())
-                .unwrap_or_else(|| "monty".to_string()),
-            PythonRuntime::Cpython => std::env::var(CPYTHON_EXECUTABLE_ENV)
-                .ok()
-                .map(|value| value.trim().to_string())
-                .filter(|value| !value.is_empty())
-                .unwrap_or_else(|| "python3".to_string()),
-        }
+        std::env::var(MONTY_EXECUTABLE_ENV)
+            .ok()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| "monty".to_string())
     }
 
     fn validate_limits(request: &PythonExecutionRequest) -> std::result::Result<(), String> {
@@ -182,10 +137,8 @@ impl PythonExecutionBackend for ProcessPythonBackend {
                 })
             }
             Ok(Err(err)) => Err(format!(
-                "{} runtime execution failed ({}): {}",
-                self.runtime.as_str(),
-                executable,
-                err
+                "monty runtime execution failed ({}): {}",
+                executable, err
             )),
             Err(_) => Ok(PythonExecutionResult {
                 stdout: String::new(),

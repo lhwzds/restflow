@@ -77,7 +77,7 @@ pub use memory_store::{
 pub use monty_python::{PythonTool, RunPythonTool};
 pub use patch::PatchTool;
 pub use process::{ProcessLog, ProcessManager, ProcessPollResult, ProcessSessionInfo, ProcessTool};
-pub use python_backend::{PythonExecutionBackend, PythonExecutionLimits, PythonRuntime};
+pub use python_backend::{PythonExecutionBackend, PythonExecutionLimits};
 pub use registry::ToolRegistry;
 pub use reply::{ReplySender, ReplyTool};
 pub use save_deliverable::{DeliverableStore, SaveDeliverableTool};

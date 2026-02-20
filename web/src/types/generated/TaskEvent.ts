@@ -40,4 +40,9 @@ cost_usd: number | null,
 /**
  * Duration of execution in milliseconds (for completion events)
  */
-duration_ms: number | null, };
+duration_ms: number | null, 
+/**
+ * Subflow execution path - identifies position in nested agent call tree.
+ * Empty for top-level tasks. Contains tool_call_ids when spawned by parent agent.
+ */
+subflow_path: string[], };

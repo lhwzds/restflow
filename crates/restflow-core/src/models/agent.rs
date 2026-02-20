@@ -30,16 +30,6 @@ impl CodexCliExecutionMode {
     }
 }
 
-/// Python runtime policy used by python tools.
-#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq, Eq, Default)]
-#[ts(export)]
-#[serde(rename_all = "snake_case")]
-pub enum PythonRuntimePolicy {
-    #[default]
-    Monty,
-    Cpython,
-}
-
 /// Model routing configuration for automatic tier-based model selection.
 #[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq, Eq)]
 #[ts(export)]
@@ -125,10 +115,6 @@ pub struct AgentNode {
     #[ts(optional)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub skill_variables: Option<HashMap<String, String>>,
-    /// Python runtime policy for python tools.
-    #[ts(optional)]
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub python_runtime_policy: Option<PythonRuntimePolicy>,
     /// Optional tier-based model routing policy.
     #[ts(optional)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -198,12 +184,6 @@ impl AgentNode {
     /// Set skill variables for prompt substitution
     pub fn with_skill_variables(mut self, variables: HashMap<String, String>) -> Self {
         self.skill_variables = Some(variables);
-        self
-    }
-
-    /// Set python runtime policy.
-    pub fn with_python_runtime_policy(mut self, policy: PythonRuntimePolicy) -> Self {
-        self.python_runtime_policy = Some(policy);
         self
     }
 
@@ -475,12 +455,6 @@ mod tests {
             node.codex_cli_execution_mode,
             Some(CodexCliExecutionMode::Bypass)
         );
-    }
-
-    #[test]
-    fn with_python_runtime_policy_sets_value() {
-        let node = AgentNode::new().with_python_runtime_policy(PythonRuntimePolicy::Monty);
-        assert_eq!(node.python_runtime_policy, Some(PythonRuntimePolicy::Monty));
     }
 
     #[test]
