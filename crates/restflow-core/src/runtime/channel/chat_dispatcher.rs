@@ -5,6 +5,7 @@
 
 use anyhow::{Result, anyhow};
 use std::sync::Arc;
+use parking_lot::Mutex;
 use tracing::{debug, error, info, warn};
 
 use crate::auth::AuthProfileManager;
@@ -135,6 +136,10 @@ pub struct ChatSessionManager {
     storage: Arc<Storage>,
     default_agent_id: Option<String>,
     max_history: usize,
+    /// Mutex to serialize append_exchange operations per session.
+    /// This prevents lost update races when concurrent messages are appended
+    /// to the same session (e.g., from multiple Telegram updates or parallel handlers).
+    append_locks: Arc<Mutex<std::collections::HashMap<String, Arc<Mutex<()>>>>>,
 }
 
 impl ChatSessionManager {
@@ -144,6 +149,7 @@ impl ChatSessionManager {
             storage,
             default_agent_id: None,
             max_history,
+            append_locks: Arc::new(Mutex::new(std::collections::HashMap::new())),
         }
     }
 
@@ -188,6 +194,9 @@ impl ChatSessionManager {
     }
 
     /// Append a user-assistant exchange to a session.
+    ///
+    /// This method is thread-safe: concurrent calls for the same session are serialized
+    /// using a per-session lock to prevent lost updates.
     pub fn append_exchange(
         &self,
         session_id: &str,
@@ -195,6 +204,20 @@ impl ChatSessionManager {
         assistant_message: &str,
         active_model: Option<&str>,
     ) -> Result<()> {
+        // Get or create a per-session lock to serialize append operations.
+        // This ensures atomic read-modify-write for each session.
+        let session_lock = {
+            let mut locks = self.append_locks.lock();
+            locks
+                .entry(session_id.to_string())
+                .or_insert_with(|| Arc::new(Mutex::new(())))
+                .clone()
+        };
+
+        // Lock this specific session for the duration of read-modify-write
+        let _guard = session_lock.lock();
+
+        // Re-fetch the session inside the lock to get the latest state
         let mut session = self
             .storage
             .chat_sessions
