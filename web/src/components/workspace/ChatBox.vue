@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, nextTick } from 'vue'
+import { ref, watch, nextTick, useTemplateRef } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Send, Square, X, Cpu } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
@@ -34,6 +34,7 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 const inputMessage = ref('')
+const textareaRef = useTemplateRef<InstanceType<typeof Textarea>>('chatTextarea')
 
 // Track IME composition state manually (WebKit's e.isComposing is unreliable)
 const composing = ref(false)
@@ -72,10 +73,9 @@ const handleInput = (e: Event) => {
 watch(inputMessage, async (newVal) => {
   if (!newVal) {
     await nextTick()
-    // Find the textarea in the DOM and reset its height
-    const textarea = document.querySelector('.chat-textarea') as HTMLTextAreaElement | null
-    if (textarea) {
-      textarea.style.height = 'auto'
+    const el = textareaRef.value?.$el as HTMLTextAreaElement | undefined
+    if (el) {
+      el.style.height = 'auto'
     }
   }
 })
@@ -107,6 +107,7 @@ watch(inputMessage, async (newVal) => {
     >
       <!-- Textarea -->
       <Textarea
+        ref="chatTextarea"
         v-model="inputMessage"
         :placeholder="t('workspace.askAgent')"
         class="chat-textarea min-h-[40px] max-h-[120px] resize-none border-0 bg-transparent p-0 text-sm shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"

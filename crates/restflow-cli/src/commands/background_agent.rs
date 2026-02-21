@@ -354,9 +354,9 @@ async fn show_run_log(
 
     if let Some(run_id) = run_id {
         let path = if run_id == "legacy" {
-            EventLog::legacy_log_path(task_id, &log_dir)
+            EventLog::legacy_log_path(task_id, &log_dir)?
         } else {
-            EventLog::run_log_path(task_id, run_id, &log_dir)
+            EventLog::run_log_path(task_id, run_id, &log_dir)?
         };
         let events = EventLog::read_all(&path)?;
         let total = events.len();
@@ -385,7 +385,7 @@ async fn show_run_log(
     }
 
     let runs = EventLog::list_run_ids(task_id, &log_dir)?;
-    let legacy_path = EventLog::legacy_log_path(task_id, &log_dir);
+    let legacy_path = EventLog::legacy_log_path(task_id, &log_dir)?;
     let legacy_exists = legacy_path.exists();
 
     if format.is_json() {

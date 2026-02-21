@@ -319,22 +319,62 @@ fn compare_versions(current: &str, latest: &str) -> VersionRelation {
     }
 }
 
-fn parse_semver_triplet(version: &str) -> Option<(u64, u64, u64)> {
-    let without_prerelease = version
-        .split_once('-')
-        .map(|(left, _)| left)
-        .unwrap_or(version);
-    let core = without_prerelease
+/// Parsed semver with optional prerelease tag.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SemVer {
+    major: u64,
+    minor: u64,
+    patch: u64,
+    prerelease: Option<String>,
+}
+
+impl Ord for SemVer {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        let triplet_cmp = (self.major, self.minor, self.patch)
+            .cmp(&(other.major, other.minor, other.patch));
+        if triplet_cmp != std::cmp::Ordering::Equal {
+            return triplet_cmp;
+        }
+        // Per semver spec: prerelease < release for same triplet
+        match (&self.prerelease, &other.prerelease) {
+            (None, None) => std::cmp::Ordering::Equal,
+            (Some(_), None) => std::cmp::Ordering::Less,
+            (None, Some(_)) => std::cmp::Ordering::Greater,
+            (Some(a), Some(b)) => a.cmp(b),
+        }
+    }
+}
+
+impl PartialOrd for SemVer {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+fn parse_semver_triplet(version: &str) -> Option<SemVer> {
+    // Split off build metadata first
+    let without_build = version
         .split_once('+')
         .map(|(left, _)| left)
-        .unwrap_or(without_prerelease);
+        .unwrap_or(version);
+
+    // Split prerelease from core
+    let (core, prerelease) = match without_build.split_once('-') {
+        Some((c, p)) => (c, Some(p.to_string())),
+        None => (without_build, None),
+    };
 
     let mut parts = core.split('.');
     let major = parts.next()?.parse::<u64>().ok()?;
     let minor = parts.next()?.parse::<u64>().ok()?;
     let patch = parts.next()?.parse::<u64>().ok()?;
 
-    Some((major, minor, patch))
+    Some(SemVer {
+        major,
+        minor,
+        patch,
+        prerelease,
+    })
 }
 
 fn install_path() -> Result<PathBuf> {
@@ -526,9 +566,34 @@ mod tests {
 
     #[test]
     fn parses_semver_triplets() {
-        assert_eq!(parse_semver_triplet("1.2.3"), Some((1, 2, 3)));
-        assert_eq!(parse_semver_triplet("1.2.3-beta.1"), Some((1, 2, 3)));
-        assert_eq!(parse_semver_triplet("1.2"), None);
+        let v = parse_semver_triplet("1.2.3").unwrap();
+        assert_eq!((v.major, v.minor, v.patch), (1, 2, 3));
+        assert_eq!(v.prerelease, None);
+
+        let v = parse_semver_triplet("1.2.3-beta.1").unwrap();
+        assert_eq!((v.major, v.minor, v.patch), (1, 2, 3));
+        assert_eq!(v.prerelease, Some("beta.1".to_string()));
+
+        assert!(parse_semver_triplet("1.2").is_none());
+    }
+
+    #[test]
+    fn prerelease_compares_correctly() {
+        // prerelease < release for same triplet
+        assert_eq!(
+            compare_versions("1.0.0-rc.1", "1.0.0"),
+            VersionRelation::LatestNewer
+        );
+        // alpha < beta (lexicographic)
+        assert_eq!(
+            compare_versions("1.0.0-alpha", "1.0.0-beta"),
+            VersionRelation::LatestNewer
+        );
+        // same release version
+        assert_eq!(
+            compare_versions("1.0.0", "1.0.0"),
+            VersionRelation::Equal
+        );
     }
 
     #[test]

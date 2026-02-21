@@ -3,13 +3,11 @@
 use crate::runtime::agent::tools::ToolResult;
 use async_trait::async_trait;
 use restflow_ai::error::{AiError, Result};
-use restflow_ai::security::validate_url;
+use restflow_ai::security::resolve_and_validate_url;
 use restflow_ai::tools::{Tool, ToolErrorCategory};
 use serde_json::{Value, json};
 
-pub struct HttpTool {
-    client: reqwest::Client,
-}
+pub struct HttpTool {}
 
 impl Default for HttpTool {
     fn default() -> Self {
@@ -19,9 +17,7 @@ impl Default for HttpTool {
 
 impl HttpTool {
     pub fn new() -> Self {
-        Self {
-            client: reqwest::Client::new(),
-        }
+        Self {}
     }
 }
 
@@ -72,26 +68,37 @@ impl Tool for HttpTool {
             .and_then(|v| v.as_str())
             .ok_or_else(|| AiError::Tool("Missing 'url' argument".to_string()))?;
 
-        // Validate URL to prevent SSRF attacks
-        if let Err(e) = validate_url(url) {
-            return Ok(ToolResult {
-                success: false,
-                result: json!(null),
-                error: Some(format!("URL validation failed: {}", e)),
-                error_category: Some(ToolErrorCategory::Config),
-                retryable: Some(false),
-                retry_after_ms: None,
-            });
-        }
+        // Resolve DNS and validate all IPs to prevent SSRF
+        let (parsed_url, pinned_addr) = match resolve_and_validate_url(url).await {
+            Ok(v) => v,
+            Err(e) => {
+                return Ok(ToolResult {
+                    success: false,
+                    result: json!(null),
+                    error: Some(format!("URL validation failed: {}", e)),
+                    error_category: Some(ToolErrorCategory::Config),
+                    retryable: Some(false),
+                    retry_after_ms: None,
+                });
+            }
+        };
 
         let headers = args.get("headers").and_then(|v| v.as_object());
         let body = args.get("body").and_then(|v| v.as_str());
 
+        // Build SSRF-safe client with DNS pinning and no auto-redirects
+        let host = parsed_url.host_str().unwrap_or_default();
+        let client = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .resolve(host, pinned_addr)
+            .build()
+            .map_err(|e| AiError::Tool(format!("Failed to build HTTP client: {}", e)))?;
+
         let mut request = match method {
-            "GET" => self.client.get(url),
-            "POST" => self.client.post(url),
-            "PUT" => self.client.put(url),
-            "DELETE" => self.client.delete(url),
+            "GET" => client.get(url),
+            "POST" => client.post(url),
+            "PUT" => client.put(url),
+            "DELETE" => client.delete(url),
             _ => return Ok(ToolResult::error(format!("Unknown method: {}", method))),
         };
 

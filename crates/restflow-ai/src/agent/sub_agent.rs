@@ -158,6 +158,9 @@ pub struct SubagentTracker {
 
     /// Completion notification receiver
     completion_rx: Mutex<mpsc::Receiver<SubagentCompletion>>,
+
+    /// Lock to prevent TOCTOU race between running_count() check and register()
+    spawn_lock: std::sync::Mutex<()>,
 }
 
 impl SubagentTracker {
@@ -172,6 +175,7 @@ impl SubagentTracker {
             completion_waiters: DashMap::new(),
             completion_tx,
             completion_rx: Mutex::new(completion_rx),
+            spawn_lock: std::sync::Mutex::new(()),
         }
     }
 
@@ -233,6 +237,35 @@ impl SubagentTracker {
                 }
             }
         });
+    }
+
+    /// Atomically check the running count and register a new sub-agent.
+    /// Returns Err if the parallel limit is reached.
+    /// This prevents the TOCTOU race between running_count() and register().
+    pub fn try_register(
+        self: &Arc<Self>,
+        max_parallel: usize,
+        id: String,
+        agent_name: String,
+        task: String,
+        handle: JoinHandle<SubagentResult>,
+        completion_rx: oneshot::Receiver<SubagentResult>,
+    ) -> std::result::Result<(), AiError> {
+        let _guard = self
+            .spawn_lock
+            .lock()
+            .map_err(|_| AiError::Agent("spawn lock poisoned".to_string()))?;
+
+        let running = self.running_count();
+        if running >= max_parallel {
+            return Err(AiError::Agent(format!(
+                "Max parallel agents ({}) reached",
+                max_parallel
+            )));
+        }
+
+        self.register(id, agent_name, task, handle, completion_rx);
+        Ok(())
     }
 
     /// Get state of a specific sub-agent
@@ -522,14 +555,6 @@ pub fn spawn_subagent(
     config: SubagentConfig,
     request: SpawnRequest,
 ) -> Result<SpawnHandle> {
-    let running_count = tracker.running_count();
-    if running_count >= config.max_parallel_agents {
-        return Err(AiError::Agent(format!(
-            "Max parallel agents ({}) reached",
-            config.max_parallel_agents
-        )));
-    }
-
     let agent_def = definitions
         .get(&request.agent_id)
         .ok_or_else(|| AiError::Agent(format!("Unknown agent type: {}", request.agent_id)))?
@@ -627,13 +652,14 @@ pub fn spawn_subagent(
         subagent_result
     });
 
-    tracker.register(
+    tracker.try_register(
+        config.max_parallel_agents,
         task_id.clone(),
         agent_name_for_register,
         task_for_register,
         handle,
         completion_rx,
-    );
+    )?;
 
     let _ = start_tx.send(());
 

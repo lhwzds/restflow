@@ -76,4 +76,6 @@ pub trait SecurityGate: Send + Sync {
 }
 
 // Re-export network types
-pub use network::{NetworkAllowlist, NetworkEcosystem, is_restricted_ip, validate_url};
+pub use network::{
+    NetworkAllowlist, NetworkEcosystem, is_restricted_ip, resolve_and_validate_url, validate_url,
+};

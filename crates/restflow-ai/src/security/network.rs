@@ -1,7 +1,7 @@
 // Network ecosystem allowlist for tool security
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
-use std::net::{IpAddr, Ipv6Addr};
+use std::net::{IpAddr, Ipv6Addr, SocketAddr};
 
 /// Validate URL to prevent SSRF attacks.
 /// Blocks access to internal/private network resources.
@@ -58,6 +58,49 @@ pub fn validate_url(url: &str) -> std::result::Result<(), String> {
     }
 
     Ok(())
+}
+
+/// Resolve DNS and validate all resolved IPs against SSRF restrictions.
+///
+/// Performs both string-level validation (scheme, literal IP checks) and
+/// DNS resolution to catch domain names that resolve to private addresses.
+/// Returns the parsed URL and a validated SocketAddr for IP pinning.
+pub async fn resolve_and_validate_url(
+    url_str: &str,
+) -> std::result::Result<(url::Url, SocketAddr), String> {
+    // First pass: scheme + literal IP checks
+    validate_url(url_str)?;
+
+    let parsed = url::Url::parse(url_str).map_err(|e| format!("Invalid URL: {}", e))?;
+    let host = parsed
+        .host_str()
+        .ok_or_else(|| "URL must have a host".to_string())?;
+    let port = parsed.port_or_known_default().unwrap_or(443);
+
+    // Resolve DNS and check ALL resolved IPs
+    let addr_str = format!("{}:{}", host, port);
+    let addrs: Vec<SocketAddr> = tokio::net::lookup_host(&addr_str)
+        .await
+        .map_err(|e| format!("DNS resolution failed for '{}': {}", host, e))?
+        .collect();
+
+    if addrs.is_empty() {
+        return Err(format!("DNS resolved zero addresses for '{}'", host));
+    }
+
+    // Every resolved IP must pass the restricted check
+    for addr in &addrs {
+        if is_restricted_ip(&addr.ip()) {
+            return Err(format!(
+                "DNS for '{}' resolved to restricted IP {} (private/internal/metadata)",
+                host,
+                addr.ip()
+            ));
+        }
+    }
+
+    // Return first valid address for IP pinning
+    Ok((parsed, addrs[0]))
 }
 
 /// Check if an IP address is in a restricted range.
@@ -219,7 +262,7 @@ impl NetworkAllowlist {
         // Check exact match or subdomain match
         allowed.contains(host)
             || allowed.iter().any(|domain| {
-                host.ends_with(&format!(".{}", domain)) || domain.ends_with(&format!(".{}", host))
+                host.ends_with(&format!(".{}", domain))
             })
     }
 
@@ -297,6 +340,11 @@ mod tests {
         // Not allowed
         assert!(!allowlist.is_host_allowed("npmjs.com"));
         assert!(!allowlist.is_host_allowed("crates.io"));
+
+        // Public suffix bypass: bare TLDs must not match
+        assert!(!allowlist.is_host_allowed("io"));
+        assert!(!allowlist.is_host_allowed("com"));
+        assert!(!allowlist.is_host_allowed("org"));
     }
 
     #[test]
@@ -345,5 +393,41 @@ mod tests {
     #[test]
     fn test_validate_url_multicast_blocked() {
         assert!(validate_url("http://224.0.0.1/").is_err());
+    }
+
+    #[tokio::test]
+    async fn test_resolve_and_validate_rejects_localhost() {
+        // Literal IP should be caught by validate_url first pass
+        assert!(resolve_and_validate_url("http://127.0.0.1/").await.is_err());
+        assert!(resolve_and_validate_url("http://[::1]/").await.is_err());
+        assert!(resolve_and_validate_url("http://0.0.0.0/").await.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_resolve_and_validate_rejects_private_ip() {
+        assert!(resolve_and_validate_url("http://10.0.0.1/").await.is_err());
+        assert!(resolve_and_validate_url("http://192.168.1.1/").await.is_err());
+        assert!(resolve_and_validate_url("http://169.254.169.254/").await.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_resolve_and_validate_rejects_bad_scheme() {
+        assert!(resolve_and_validate_url("ftp://example.com/").await.is_err());
+        assert!(resolve_and_validate_url("file:///etc/passwd").await.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_resolve_and_validate_returns_socket_addr() {
+        // Public URL should resolve successfully and return a valid SocketAddr
+        let result = resolve_and_validate_url("https://example.com/").await;
+        match result {
+            Ok((url, addr)) => {
+                assert_eq!(url.host_str(), Some("example.com"));
+                assert!(!is_restricted_ip(&addr.ip()));
+            }
+            Err(_) => {
+                // DNS may fail in CI/offline environments — that's acceptable
+            }
+        }
     }
 }

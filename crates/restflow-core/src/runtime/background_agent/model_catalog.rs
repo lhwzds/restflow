@@ -159,10 +159,12 @@ impl ModelCatalog {
                     }
                     Err(err) => {
                         warn!(error = %err, "Failed to parse models.dev payload");
+                        self.state.write().await.last_refresh = None;
                     }
                 },
                 Err(err) => {
                     warn!(error = %err, "Failed to read models.dev response body");
+                    self.state.write().await.last_refresh = None;
                 }
             },
             Ok(response) => {
@@ -170,9 +172,11 @@ impl ModelCatalog {
                     status = response.status().as_u16(),
                     "models.dev returned non-success status"
                 );
+                self.state.write().await.last_refresh = None;
             }
             Err(err) => {
                 debug!(error = %err, "Skipping models.dev refresh due to request error");
+                self.state.write().await.last_refresh = None;
             }
         }
     }
