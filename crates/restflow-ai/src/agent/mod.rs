@@ -16,7 +16,6 @@ mod executor;
 mod history;
 pub mod model_router;
 mod prompt_flags;
-pub mod react;
 mod resource;
 mod scratchpad;
 mod state;
