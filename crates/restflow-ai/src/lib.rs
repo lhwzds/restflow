@@ -20,6 +20,7 @@ pub mod lsp;
 pub mod memory;
 pub mod security;
 pub mod steer;
+pub mod text_utils;
 pub mod tools;
 
 // Re-export commonly used types

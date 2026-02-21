@@ -177,7 +177,7 @@ impl CredentialDiscoverer for CodexCliDiscoverer {
     }
 
     async fn discover(&self) -> DiscoveryResult {
-        let content = match std::fs::read_to_string(&self.credentials_path) {
+        let content = match tokio::fs::read_to_string(&self.credentials_path).await {
             Ok(content) => content,
             Err(err) => {
                 return DiscoveryResult::error(

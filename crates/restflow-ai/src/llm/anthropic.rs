@@ -74,30 +74,7 @@ impl AnthropicClient {
     }
 
     fn build_auth_headers(&self) -> HeaderMap {
-        let mut headers = HeaderMap::new();
-
-        match self.auth_type {
-            AnthropicAuthType::OAuth => {
-                headers.insert(
-                    AUTHORIZATION,
-                    HeaderValue::from_str(&format!("Bearer {}", self.api_key)).unwrap(),
-                );
-            }
-            AnthropicAuthType::ApiKey => {
-                headers.insert(
-                    HeaderName::from_static("x-api-key"),
-                    HeaderValue::from_str(&self.api_key).unwrap(),
-                );
-            }
-        }
-
-        headers.insert(
-            HeaderName::from_static("anthropic-version"),
-            HeaderValue::from_static("2023-06-01"),
-        );
-        headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
-
-        headers
+        build_auth_headers(&self.api_key, self.auth_type)
     }
 }
 
@@ -281,6 +258,96 @@ struct ErrorPayload {
     message: String,
 }
 
+/// Convert a CompletionRequest into Anthropic API request parts.
+fn prepare_request_parts(
+    request: &CompletionRequest,
+) -> (
+    Option<String>,
+    Vec<AnthropicMessage>,
+    Option<Vec<AnthropicTool>>,
+) {
+    // Extract system message
+    let system = request
+        .messages
+        .iter()
+        .find(|m| m.role == Role::System)
+        .map(|m| m.content.clone());
+
+    // Convert messages (excluding system)
+    let messages: Vec<AnthropicMessage> = request
+        .messages
+        .iter()
+        .filter(|m| m.role != Role::System)
+        .map(|m| {
+            let role = match m.role {
+                Role::User | Role::Tool => "user",
+                Role::Assistant => "assistant",
+                _ => "user",
+            }
+            .to_string();
+
+            let content = if m.role == Role::Tool {
+                AnthropicContent::Blocks(vec![AnthropicContentBlock {
+                    r#type: "tool_result".to_string(),
+                    tool_use_id: m.tool_call_id.clone(),
+                    content: Some(m.content.clone()),
+                    text: None,
+                    id: None,
+                    name: None,
+                    input: None,
+                }])
+            } else if let Some(tool_calls) = &m.tool_calls {
+                let mut blocks = Vec::new();
+                if !m.content.is_empty() {
+                    blocks.push(AnthropicContentBlock {
+                        r#type: "text".to_string(),
+                        text: Some(m.content.clone()),
+                        tool_use_id: None,
+                        content: None,
+                        id: None,
+                        name: None,
+                        input: None,
+                    });
+                }
+                for tc in tool_calls {
+                    blocks.push(AnthropicContentBlock {
+                        r#type: "tool_use".to_string(),
+                        text: None,
+                        tool_use_id: None,
+                        content: None,
+                        id: Some(tc.id.clone()),
+                        name: Some(tc.name.clone()),
+                        input: Some(tc.arguments.clone()),
+                    });
+                }
+                AnthropicContent::Blocks(blocks)
+            } else {
+                AnthropicContent::Text(m.content.clone())
+            };
+
+            AnthropicMessage { role, content }
+        })
+        .collect();
+
+    let tools: Option<Vec<AnthropicTool>> = if request.tools.is_empty() {
+        None
+    } else {
+        Some(
+            request
+                .tools
+                .iter()
+                .map(|t| AnthropicTool {
+                    name: t.name.clone(),
+                    description: t.description.clone(),
+                    input_schema: t.parameters.clone(),
+                })
+                .collect(),
+        )
+    };
+
+    (system, messages, tools)
+}
+
 #[async_trait]
 impl LlmClient for AnthropicClient {
     fn provider(&self) -> &str {
@@ -292,92 +359,7 @@ impl LlmClient for AnthropicClient {
     }
 
     async fn complete(&self, request: CompletionRequest) -> Result<CompletionResponse> {
-        // Extract system message
-        let system = request
-            .messages
-            .iter()
-            .find(|m| m.role == Role::System)
-            .map(|m| m.content.clone());
-
-        // Convert messages (excluding system)
-        let messages: Vec<AnthropicMessage> = request
-            .messages
-            .iter()
-            .filter(|m| m.role != Role::System)
-            .map(|m| {
-                let role = match m.role {
-                    Role::User | Role::Tool => "user",
-                    Role::Assistant => "assistant",
-                    _ => "user",
-                }
-                .to_string();
-
-                let content = if m.role == Role::Tool {
-                    // Tool result message
-                    AnthropicContent::Blocks(vec![AnthropicContentBlock {
-                        r#type: "tool_result".to_string(),
-                        tool_use_id: m.tool_call_id.clone(),
-                        content: Some(m.content.clone()),
-                        text: None,
-                        id: None,
-                        name: None,
-                        input: None,
-                    }])
-                } else if let Some(tool_calls) = &m.tool_calls {
-                    // Assistant message with tool calls
-                    let mut blocks = Vec::new();
-
-                    // Add text block if there's content
-                    if !m.content.is_empty() {
-                        blocks.push(AnthropicContentBlock {
-                            r#type: "text".to_string(),
-                            text: Some(m.content.clone()),
-                            tool_use_id: None,
-                            content: None,
-                            id: None,
-                            name: None,
-                            input: None,
-                        });
-                    }
-
-                    // Add tool_use blocks
-                    for tc in tool_calls {
-                        blocks.push(AnthropicContentBlock {
-                            r#type: "tool_use".to_string(),
-                            text: None,
-                            tool_use_id: None,
-                            content: None,
-                            id: Some(tc.id.clone()),
-                            name: Some(tc.name.clone()),
-                            input: Some(tc.arguments.clone()),
-                        });
-                    }
-
-                    AnthropicContent::Blocks(blocks)
-                } else {
-                    // Regular text message
-                    AnthropicContent::Text(m.content.clone())
-                };
-
-                AnthropicMessage { role, content }
-            })
-            .collect();
-
-        let tools: Option<Vec<AnthropicTool>> = if request.tools.is_empty() {
-            None
-        } else {
-            Some(
-                request
-                    .tools
-                    .iter()
-                    .map(|t| AnthropicTool {
-                        name: t.name.clone(),
-                        description: t.description.clone(),
-                        input_schema: t.parameters.clone(),
-                    })
-                    .collect(),
-            )
-        };
+        let (system, messages, tools) = prepare_request_parts(&request);
 
         let body = AnthropicRequest {
             model: self.model.clone(),
@@ -464,84 +446,7 @@ impl LlmClient for AnthropicClient {
                 return;
             }
 
-            // Extract system message
-            let system = request
-                .messages
-                .iter()
-                .find(|m| m.role == Role::System)
-                .map(|m| m.content.clone());
-
-            // Convert messages (excluding system)
-            let messages: Vec<AnthropicMessage> = request
-                .messages
-                .iter()
-                .filter(|m| m.role != Role::System)
-                .map(|m| {
-                    let role = match m.role {
-                        Role::User | Role::Tool => "user",
-                        Role::Assistant => "assistant",
-                        _ => "user",
-                    }
-                    .to_string();
-
-                    let content = if m.role == Role::Tool {
-                        AnthropicContent::Blocks(vec![AnthropicContentBlock {
-                            r#type: "tool_result".to_string(),
-                            tool_use_id: m.tool_call_id.clone(),
-                            content: Some(m.content.clone()),
-                            text: None,
-                            id: None,
-                            name: None,
-                            input: None,
-                        }])
-                    } else if let Some(tool_calls) = &m.tool_calls {
-                        let mut blocks = Vec::new();
-                        if !m.content.is_empty() {
-                            blocks.push(AnthropicContentBlock {
-                                r#type: "text".to_string(),
-                                text: Some(m.content.clone()),
-                                tool_use_id: None,
-                                content: None,
-                                id: None,
-                                name: None,
-                                input: None,
-                            });
-                        }
-                        for tc in tool_calls {
-                            blocks.push(AnthropicContentBlock {
-                                r#type: "tool_use".to_string(),
-                                text: None,
-                                tool_use_id: None,
-                                content: None,
-                                id: Some(tc.id.clone()),
-                                name: Some(tc.name.clone()),
-                                input: Some(tc.arguments.clone()),
-                            });
-                        }
-                        AnthropicContent::Blocks(blocks)
-                    } else {
-                        AnthropicContent::Text(m.content.clone())
-                    };
-
-                    AnthropicMessage { role, content }
-                })
-                .collect();
-
-            let tools: Option<Vec<AnthropicTool>> = if request.tools.is_empty() {
-                None
-            } else {
-                Some(
-                    request
-                        .tools
-                        .iter()
-                        .map(|t| AnthropicTool {
-                            name: t.name.clone(),
-                            description: t.description.clone(),
-                            input_schema: t.parameters.clone(),
-                        })
-                        .collect(),
-                )
-            };
+            let (system, messages, tools) = prepare_request_parts(&request);
 
             // Build streaming request body
             let body = serde_json::json!({

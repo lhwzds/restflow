@@ -13,21 +13,10 @@ use crate::{
     models::{BackgroundAgent, NotificationConfig},
     storage::SecretStorage,
 };
+use restflow_ai::text_utils::floor_char_boundary;
 use restflow_ai::tools::send_telegram_notification;
 
 use super::runner::NotificationSender;
-
-/// Find the largest byte index <= `index` that is a valid char boundary.
-fn floor_char_boundary(s: &str, index: usize) -> usize {
-    if index >= s.len() {
-        return s.len();
-    }
-    let mut i = index;
-    while i > 0 && !s.is_char_boundary(i) {
-        i -= 1;
-    }
-    i
-}
 
 /// Well-known secret name for system-level Telegram bot token.
 const TELEGRAM_BOT_TOKEN_SECRET: &str = "TELEGRAM_BOT_TOKEN";

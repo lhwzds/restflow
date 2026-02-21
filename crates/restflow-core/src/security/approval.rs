@@ -88,6 +88,9 @@ impl ApprovalManager {
         agent_id: impl Into<String>,
         workdir: Option<String>,
     ) -> anyhow::Result<String> {
+        // Opportunistic cleanup of expired approvals
+        self.cleanup_expired().await;
+
         let command = command.into();
         let task_id = task_id.into();
 

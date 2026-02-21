@@ -52,7 +52,7 @@ pub async fn restart_background(mcp_port: Option<u16>) -> Result<()> {
 
     sync_mcp_configs(mcp_port).await;
 
-    let pid = start_daemon_with_config(config)?;
+    let pid = tokio::task::spawn_blocking(move || start_daemon_with_config(config)).await??;
     if was_running {
         println!("Daemon restarted (PID: {})", pid);
     } else {
@@ -127,7 +127,7 @@ async fn start_background(mcp_port: Option<u16>) -> Result<()> {
     if !report.is_clean() {
         println!("{}", report);
     }
-    let pid = start_daemon_with_config(config)?;
+    let pid = tokio::task::spawn_blocking(move || start_daemon_with_config(config)).await??;
     println!("Daemon started (PID: {})", pid);
     sync_mcp_configs(mcp_port).await;
     Ok(())
@@ -159,7 +159,7 @@ async fn start(core: Arc<AppCore>, foreground: bool, mcp_port: Option<u16>) -> R
             if !report.is_clean() {
                 println!("{}", report);
             }
-            let pid = start_daemon_with_config(config)?;
+            let pid = tokio::task::spawn_blocking(move || start_daemon_with_config(config)).await??;
             println!("Daemon started (PID: {})", pid);
             Ok(())
         }

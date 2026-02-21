@@ -1,15 +1,16 @@
 //! Gemini CLI LLM provider
 
 use async_trait::async_trait;
-use serde_json::Value;
 use std::process::Stdio;
 use tokio::process::Command;
 use tracing::{debug, info};
 
 use crate::error::{AiError, Result};
 use crate::llm::client::{
-    CompletionRequest, CompletionResponse, FinishReason, LlmClient, Role, StreamResult,
+    CompletionRequest, CompletionResponse, FinishReason, LlmClient, StreamResult,
 };
+
+use super::cli_utils;
 
 const DEFAULT_MODEL: &str = "gemini-2.5-pro";
 
@@ -40,35 +41,8 @@ impl GeminiCliClient {
         self
     }
 
-    fn build_prompt(messages: &[crate::llm::Message]) -> String {
-        messages
-            .iter()
-            .filter(|m| m.role != Role::System)
-            .map(|m| m.content.as_str())
-            .collect::<Vec<_>>()
-            .join("\n\n")
-    }
-
     fn parse_json_output(output: &str) -> Result<String> {
-        let value: Value = serde_json::from_str(output.trim())
-            .map_err(|e| AiError::Llm(format!("Failed to parse Gemini CLI output: {e}")))?;
-
-        if let Some(err) = value.get("error").and_then(|v| v.as_str()) {
-            return Err(AiError::Llm(format!("Gemini CLI error: {err}")));
-        }
-
-        let response = value
-            .get("response")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| {
-                AiError::Llm("Gemini CLI output missing 'response' field".to_string())
-            })?;
-
-        if response.trim().is_empty() {
-            return Err(AiError::Llm("Gemini CLI returned empty output".to_string()));
-        }
-
-        Ok(response.to_string())
+        cli_utils::parse_json_response(output, "Gemini")
     }
 }
 
@@ -91,7 +65,7 @@ impl LlmClient for GeminiCliClient {
     async fn complete(&self, request: CompletionRequest) -> Result<CompletionResponse> {
         info!("GeminiCliClient: executing via CLI");
 
-        let prompt = Self::build_prompt(&request.messages);
+        let prompt = cli_utils::build_prompt(&request.messages);
         let mut cmd = Command::new("gemini");
         cmd.arg("-p")
             .arg(&prompt)
@@ -133,11 +107,7 @@ impl LlmClient for GeminiCliClient {
     }
 
     fn complete_stream(&self, _request: CompletionRequest) -> StreamResult {
-        Box::pin(async_stream::stream! {
-            yield Err(AiError::Llm(
-                "Streaming not supported with Gemini CLI".to_string()
-            ));
-        })
+        cli_utils::unsupported_stream("Gemini CLI")
     }
 
     fn supports_streaming(&self) -> bool {
