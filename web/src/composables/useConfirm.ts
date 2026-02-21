@@ -17,7 +17,9 @@ const options = ref<ConfirmOptions>({
   cancelText: 'Cancel',
   variant: 'default',
 })
-let resolvePromise: ((value: boolean) => void) | null = null
+
+// Queue of pending promise resolvers - allows multiple confirm() calls
+const resolverQueue: Array<(value: boolean) => void> = []
 
 /**
  * Confirm dialog composable
@@ -34,20 +36,24 @@ export function useConfirm() {
     isOpen.value = true
 
     return new Promise((resolve) => {
-      resolvePromise = resolve
+      resolverQueue.push(resolve)
     })
   }
 
   function handleConfirm() {
     isOpen.value = false
-    resolvePromise?.(true)
-    resolvePromise = null
+    const resolve = resolverQueue.shift()
+    if (resolve) {
+      resolve(true)
+    }
   }
 
   function handleCancel() {
     isOpen.value = false
-    resolvePromise?.(false)
-    resolvePromise = null
+    const resolve = resolverQueue.shift()
+    if (resolve) {
+      resolve(false)
+    }
   }
 
   return {
