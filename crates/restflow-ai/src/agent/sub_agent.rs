@@ -184,6 +184,9 @@ impl SubagentTracker {
         handle: JoinHandle<SubagentResult>,
         completion_rx: oneshot::Receiver<SubagentResult>,
     ) {
+        // Opportunistic cleanup of completed entries older than 5 minutes
+        self.cleanup_completed(300_000);
+
         let state = SubagentState {
             id: id.clone(),
             agent_name,

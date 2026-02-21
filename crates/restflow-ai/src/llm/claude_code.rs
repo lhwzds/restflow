@@ -1,14 +1,15 @@
 //! Claude Code CLI LLM provider
 
 use async_trait::async_trait;
-use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use tokio::process::Command;
 use tracing::{debug, info};
 
+use super::cli_utils;
+
 use crate::error::{AiError, Result};
 use crate::llm::client::{
-    CompletionRequest, CompletionResponse, FinishReason, LlmClient, Role, StreamResult,
+    CompletionRequest, CompletionResponse, FinishReason, LlmClient, StreamResult,
 };
 
 /// Claude Code CLI client (OAuth via CLAUDE_CODE_OAUTH_TOKEN)
@@ -32,17 +33,9 @@ impl ClaudeCodeClient {
         self
     }
 
-    fn build_prompt(messages: &[crate::llm::Message]) -> String {
-        messages
-            .iter()
-            .filter(|m| m.role != Role::System)
-            .map(|m| m.content.as_str())
-            .collect::<Vec<_>>()
-            .join("\n\n")
-    }
-
     fn build_cli_command(&self, prompt: &str) -> Result<Command> {
-        let executable = resolve_executable("claude", "RESTFLOW_CLAUDE_BIN", &claude_fallbacks())?;
+        let executable =
+            cli_utils::resolve_executable("claude", "RESTFLOW_CLAUDE_BIN", &cli_utils::standard_fallbacks("claude"))?;
         let mut cmd = Command::new(executable);
         cmd.env("CLAUDE_CODE_OAUTH_TOKEN", &self.oauth_token)
             .env_remove("CLAUDECODE")
@@ -73,7 +66,7 @@ impl LlmClient for ClaudeCodeClient {
     async fn complete(&self, request: CompletionRequest) -> Result<CompletionResponse> {
         info!("ClaudeCodeClient: executing via CLI");
 
-        let prompt = Self::build_prompt(&request.messages);
+        let prompt = cli_utils::build_prompt(&request.messages);
 
         let mut cmd = self.build_cli_command(&prompt)?;
         let output = cmd.output().await.map_err(|e| {
@@ -100,87 +93,11 @@ impl LlmClient for ClaudeCodeClient {
     }
 
     fn complete_stream(&self, _request: CompletionRequest) -> StreamResult {
-        Box::pin(async_stream::stream! {
-            yield Err(AiError::Llm(
-                "Streaming not supported with Claude Code CLI".to_string()
-            ));
-        })
+        cli_utils::unsupported_stream("Claude Code CLI")
     }
 
     fn supports_streaming(&self) -> bool {
         false
-    }
-}
-
-fn claude_fallbacks() -> Vec<PathBuf> {
-    let mut paths = vec![
-        PathBuf::from("/opt/homebrew/bin/claude"),
-        PathBuf::from("/usr/local/bin/claude"),
-        PathBuf::from("/usr/bin/claude"),
-    ];
-    if let Some(home) = dirs::home_dir() {
-        paths.push(home.join(".local").join("bin").join("claude"));
-    }
-    paths
-}
-
-fn resolve_executable(name: &str, override_env: &str, fallbacks: &[PathBuf]) -> Result<PathBuf> {
-    if let Ok(raw) = std::env::var(override_env)
-        && !raw.trim().is_empty()
-    {
-        let path = PathBuf::from(raw);
-        if is_executable(&path) {
-            return Ok(path);
-        }
-        return Err(AiError::Llm(format!(
-            "{} points to non-executable path: {}",
-            override_env,
-            path.display()
-        )));
-    }
-
-    if let Some(path) = resolve_from_path(name) {
-        return Ok(path);
-    }
-
-    for fallback in fallbacks {
-        if is_executable(fallback) {
-            return Ok(fallback.clone());
-        }
-    }
-
-    Err(AiError::Llm(format!(
-        "Failed to locate '{}' executable in PATH or fallback locations",
-        name
-    )))
-}
-
-fn resolve_from_path(name: &str) -> Option<PathBuf> {
-    let path_value = std::env::var_os("PATH")?;
-    for entry in std::env::split_paths(&path_value) {
-        let candidate = entry.join(name);
-        if is_executable(&candidate) {
-            return Some(candidate);
-        }
-    }
-    None
-}
-
-fn is_executable(path: &Path) -> bool {
-    if !path.exists() || !path.is_file() {
-        return false;
-    }
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        if let Ok(metadata) = std::fs::metadata(path) {
-            return metadata.permissions().mode() & 0o111 != 0;
-        }
-        false
-    }
-    #[cfg(not(unix))]
-    {
-        true
     }
 }
 

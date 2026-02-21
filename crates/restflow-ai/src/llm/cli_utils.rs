@@ -63,6 +63,58 @@ pub fn resolve_from_path(name: &str) -> Option<PathBuf> {
     None
 }
 
+/// Standard fallback paths for a CLI executable name.
+///
+/// Checks `/opt/homebrew/bin/{name}`, `/usr/local/bin/{name}`,
+/// `/usr/bin/{name}`, and `~/.local/bin/{name}`.
+pub fn standard_fallbacks(name: &str) -> Vec<PathBuf> {
+    let mut paths = vec![
+        PathBuf::from(format!("/opt/homebrew/bin/{name}")),
+        PathBuf::from(format!("/usr/local/bin/{name}")),
+        PathBuf::from(format!("/usr/bin/{name}")),
+    ];
+    if let Some(home) = dirs::home_dir() {
+        paths.push(home.join(".local").join("bin").join(name));
+    }
+    paths
+}
+
+/// Parse a JSON response that has a `"response"` field and an optional `"error"` field.
+///
+/// Used by Gemini CLI and OpenCode CLI which share the same output format.
+pub fn parse_json_response(output: &str, provider: &str) -> Result<String> {
+    let value: serde_json::Value = serde_json::from_str(output.trim())
+        .map_err(|e| AiError::Llm(format!("Failed to parse {} CLI output: {e}", provider)))?;
+
+    if let Some(err) = value.get("error").and_then(|v| v.as_str()) {
+        return Err(AiError::Llm(format!("{} CLI error: {err}", provider)));
+    }
+
+    let response = value
+        .get("response")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| {
+            AiError::Llm(format!("{} CLI output missing 'response' field", provider))
+        })?;
+
+    if response.trim().is_empty() {
+        return Err(AiError::Llm(format!(
+            "{} CLI returned empty output",
+            provider
+        )));
+    }
+
+    Ok(response.to_string())
+}
+
+/// Return a stream that immediately yields an "unsupported" error.
+pub fn unsupported_stream(provider: &str) -> crate::llm::StreamResult {
+    let msg = format!("Streaming not supported with {}", provider);
+    Box::pin(async_stream::stream! {
+        yield Err(AiError::Llm(msg));
+    })
+}
+
 /// Check whether a path points to an executable file.
 pub fn is_executable(path: &Path) -> bool {
     if !path.exists() || !path.is_file() {
@@ -121,5 +173,32 @@ mod tests {
     #[test]
     fn test_is_executable_nonexistent() {
         assert!(!is_executable(Path::new("/nonexistent/path/to/binary")));
+    }
+
+    #[test]
+    fn test_standard_fallbacks_contains_homebrew() {
+        let paths = standard_fallbacks("claude");
+        assert!(paths.iter().any(|p| p.to_str().unwrap().contains("/opt/homebrew/bin/claude")));
+    }
+
+    #[test]
+    fn test_parse_json_response_success() {
+        let output = r#"{"response":"Hello"}"#;
+        let result = parse_json_response(output, "TestCLI").unwrap();
+        assert_eq!(result, "Hello");
+    }
+
+    #[test]
+    fn test_parse_json_response_error() {
+        let output = r#"{"error":"auth failed"}"#;
+        let err = parse_json_response(output, "TestCLI").unwrap_err();
+        assert!(err.to_string().contains("TestCLI CLI error"));
+    }
+
+    #[test]
+    fn test_parse_json_response_missing_field() {
+        let output = r#"{"data":"hello"}"#;
+        let err = parse_json_response(output, "TestCLI").unwrap_err();
+        assert!(err.to_string().contains("missing 'response' field"));
     }
 }

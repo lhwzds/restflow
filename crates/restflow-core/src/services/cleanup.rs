@@ -63,10 +63,19 @@ pub async fn run_cleanup(core: &Arc<AppCore>) -> Result<CleanupReport> {
     // M3: Clean up vector orphans if threshold exceeded
     let vector_orphans = cleanup_vectors_if_needed(core)?;
 
-    // L1: Clean up old log files
+    // L1: Clean up old log files (blocking I/O, offload to spawn_blocking)
     let retention_days = config.log_file_retention_days;
-    let daemon_log_files = cleanup_daemon_log_files(retention_days).unwrap_or(0);
-    let event_log_files = cleanup_event_log_files(retention_days).unwrap_or(0);
+    let daemon_log_files = tokio::task::spawn_blocking(move || {
+        cleanup_daemon_log_files(retention_days).unwrap_or(0)
+    })
+    .await
+    .unwrap_or(0);
+    let event_retention = config.log_file_retention_days;
+    let event_log_files = tokio::task::spawn_blocking(move || {
+        cleanup_event_log_files(event_retention).unwrap_or(0)
+    })
+    .await
+    .unwrap_or(0);
 
     Ok(CleanupReport {
         chat_sessions,

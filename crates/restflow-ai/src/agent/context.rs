@@ -8,17 +8,7 @@ use std::path::{Path, PathBuf};
 use tokio::fs;
 use tracing::{debug, warn};
 
-/// Find the largest byte index <= `index` that is a valid char boundary.
-fn floor_char_boundary(s: &str, index: usize) -> usize {
-    if index >= s.len() {
-        return s.len();
-    }
-    let mut i = index;
-    while i > 0 && !s.is_char_boundary(i) {
-        i -= 1;
-    }
-    i
-}
+use crate::text_utils::floor_char_boundary;
 
 /// Skill summary for prompt injection.
 #[derive(Debug, Clone)]
