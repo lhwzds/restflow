@@ -26,11 +26,11 @@ task_id: string,
  */
 agent_id: string, 
 /**
- * Unix timestamp when the request was created
+ * Unix timestamp (seconds) when the request was created
  */
 created_at: bigint, 
 /**
- * Unix timestamp when the request expires
+ * Unix timestamp (seconds) when the request expires
  */
 expires_at: bigint, 
 /**
