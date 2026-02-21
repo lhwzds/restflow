@@ -742,7 +742,13 @@ impl AuthProfileManager {
         let entries = storage.list_raw()?;
         let mut profiles = self.profiles.write().await;
         for (_, bytes) in entries {
-            let profile: AuthProfile = serde_json::from_slice(&bytes)?;
+            let profile: AuthProfile = match serde_json::from_slice(&bytes) {
+                Ok(p) => p,
+                Err(e) => {
+                    tracing::warn!(error = %e, "Skipping corrupt auth profile entry");
+                    continue;
+                }
+            };
             if profile.source == CredentialSource::Manual {
                 profiles.insert(profile.id.clone(), profile);
             }

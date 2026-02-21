@@ -749,6 +749,7 @@ impl IpcClient {
                     StreamFrame::Error { code, message } => {
                         bail!("Background event stream error {}: {}", code, message);
                     }
+                    StreamFrame::Done { .. } => break Ok(()),
                     _ => {}
                 }
                 continue;

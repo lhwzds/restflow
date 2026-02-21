@@ -140,7 +140,7 @@ impl BashSecurityChecker {
         let regex = DANGEROUS_META.get_or_init(|| {
             // Patterns that enable command chaining, substitution, or injection
             Regex::new(
-                r";\s*\w|\|\s*\w|\|\|[^|]|&&[^&]|\$\(|\$\{|\n\s*\w|\r\s*\w|>\s*/dev/(sd|hd|nvme)|\bexec\s|\beval\s",
+                r";\s*[/\w]|\|\s*[/\w]|\|\|[^|]|&&[^&]|\$\(|\$\{|\n\s*[/\w]|\r\s*[/\w]|>\s*/dev/(sd|hd|nvme)|\bexec\s|\beval\s",
             ).expect("Invalid regex for dangerous metacharacters")
         });
 
@@ -540,5 +540,19 @@ mod tests {
         let checker = BashSecurityChecker::new(&config);
         let result = checker.is_command_blocked("echo data > /dev/sda");
         assert!(!result.allowed);
+    }
+
+    #[test]
+    fn test_detects_pipe_to_absolute_path() {
+        assert!(BashSecurityChecker::contains_dangerous_metacharacters(
+            "echo test | /bin/sh"
+        ));
+    }
+
+    #[test]
+    fn test_detects_semicolon_absolute_path() {
+        assert!(BashSecurityChecker::contains_dangerous_metacharacters(
+            "echo test; /usr/bin/rm -rf /"
+        ));
     }
 }

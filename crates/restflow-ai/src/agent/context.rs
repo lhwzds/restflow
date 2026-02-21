@@ -8,6 +8,18 @@ use std::path::{Path, PathBuf};
 use tokio::fs;
 use tracing::{debug, warn};
 
+/// Find the largest byte index <= `index` that is a valid char boundary.
+fn floor_char_boundary(s: &str, index: usize) -> usize {
+    if index >= s.len() {
+        return s.len();
+    }
+    let mut i = index;
+    while i > 0 && !s.is_char_boundary(i) {
+        i -= 1;
+    }
+    i
+}
+
 /// Skill summary for prompt injection.
 #[derive(Debug, Clone)]
 pub struct SkillSummary {
@@ -81,7 +93,8 @@ impl AgentContext {
             memory_section.push_str("From previous conversations and saved memories:\n\n");
             for mem in &self.memories {
                 let content = if mem.content.len() > 500 {
-                    format!("{}...", &mem.content[..500])
+                    let end = floor_char_boundary(&mem.content, 500);
+                    format!("{}...", &mem.content[..end])
                 } else {
                     mem.content.clone()
                 };
@@ -93,7 +106,8 @@ impl AgentContext {
         if let Some(ref ws_context) = self.workspace_context {
             let mut ws_section = String::from("## Workspace Instructions\n\n");
             let content = if ws_context.len() > 2000 {
-                format!("{}...\n[truncated]", &ws_context[..2000])
+                let end = floor_char_boundary(ws_context, 2000);
+                format!("{}...\n[truncated]", &ws_context[..end])
             } else {
                 ws_context.clone()
             };
@@ -329,6 +343,70 @@ impl ContextLoader {
             seen.insert(key);
             false
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_floor_char_boundary_ascii() {
+        let s = "hello world";
+        assert_eq!(floor_char_boundary(s, 5), 5);
+    }
+
+    #[test]
+    fn test_floor_char_boundary_multibyte() {
+        // CJK char '你' is 3 bytes in UTF-8
+        let s = "你好世界";
+        // byte index 1 is mid-char, should back up to 0
+        assert_eq!(floor_char_boundary(s, 1), 0);
+        // byte index 4 is mid-char of '好', should back up to 3
+        assert_eq!(floor_char_boundary(s, 4), 3);
+    }
+
+    #[test]
+    fn test_floor_char_boundary_at_len() {
+        let s = "hello";
+        assert_eq!(floor_char_boundary(s, 100), s.len());
+        assert_eq!(floor_char_boundary(s, s.len()), s.len());
+    }
+
+    #[test]
+    fn test_format_for_prompt_truncates_long_memory() {
+        let long_content = "a".repeat(600);
+        let ctx = AgentContext::new().with_memories(vec![MemoryContext {
+            content: long_content,
+            score: 1.0,
+        }]);
+        let result = ctx.format_for_prompt();
+        // The memory section should contain "..." indicating truncation
+        assert!(result.contains("..."));
+        // Should not contain the full 600-char string
+        assert!(!result.contains(&"a".repeat(600)));
+    }
+
+    #[test]
+    fn test_format_for_prompt_truncates_long_workspace() {
+        let long_content = "b".repeat(3000);
+        let ctx = AgentContext::new().with_workspace_context(long_content);
+        let result = ctx.format_for_prompt();
+        assert!(result.contains("[truncated]"));
+        assert!(!result.contains(&"b".repeat(3000)));
+    }
+
+    #[test]
+    fn test_format_for_prompt_multibyte_safe() {
+        // Create content with CJK chars that exceeds 500 bytes
+        let long_cjk = "你".repeat(200); // 200 * 3 = 600 bytes
+        let ctx = AgentContext::new().with_memories(vec![MemoryContext {
+            content: long_cjk,
+            score: 1.0,
+        }]);
+        // Should not panic
+        let result = ctx.format_for_prompt();
+        assert!(result.contains("..."));
     }
 }
 

@@ -788,11 +788,13 @@ impl AIModel {
             "claude-opus-4-6-20260205" | "claude-opus-4-6-20250514" => Some(Self::ClaudeOpus4_6),
             "claude-haiku-4-5-20250514" | "claude-haiku-4-20250514" => Some(Self::ClaudeHaiku4_5),
             _ => {
-                if name.starts_with("claude-sonnet-4") {
+                if normalized.starts_with("claude-sonnet-4") {
                     Some(Self::ClaudeSonnet4_5)
-                } else if name.starts_with("claude-opus-4-6") || name.starts_with("claude-opus-4") {
+                } else if normalized.starts_with("claude-opus-4-6")
+                    || normalized.starts_with("claude-opus-4")
+                {
                     Some(Self::ClaudeOpus4_6)
-                } else if name.starts_with("claude-haiku-4") {
+                } else if normalized.starts_with("claude-haiku-4") {
                     Some(Self::ClaudeHaiku4_5)
                 } else {
                     None
@@ -953,7 +955,7 @@ impl AIModel {
 
             // MiniMax
             Self::MiniMaxM21 => "minimax-m2-1",
-            Self::MiniMaxM25 => "MiniMax-M2.5",
+            Self::MiniMaxM25 => "minimax-m2-5",
             Self::MiniMaxM21CodingPlan => "minimax-coding-plan-m2-1",
             Self::MiniMaxM25CodingPlan => "minimax-coding-plan-m2-5",
 
@@ -1511,6 +1513,23 @@ mod tests {
         assert_eq!(
             Provider::OpenRouter.flagship_model(),
             AIModel::OrClaudeOpus4_6
+        );
+    }
+
+    #[test]
+    fn test_minimax_m25_serialization_consistency() {
+        // as_serialized_str() must match the serde rename
+        let json_str = serde_json::to_string(&AIModel::MiniMaxM25).unwrap();
+        let expected = format!("\"{}\"", AIModel::MiniMaxM25.as_serialized_str());
+        assert_eq!(json_str, expected);
+    }
+
+    #[test]
+    fn test_from_api_name_trimmed_input() {
+        // Whitespace around model name should still resolve
+        assert_eq!(
+            AIModel::from_api_name("  Claude-Sonnet-4-5-20250514  "),
+            Some(AIModel::ClaudeSonnet4_5)
         );
     }
 }

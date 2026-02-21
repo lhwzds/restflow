@@ -413,7 +413,7 @@ impl SecurityChecker {
         };
 
         let config = self.config_store.get_default_config().await;
-        if analysis.has_chain {
+        if analysis.has_chain && !config.allow_chain {
             return SecurityAction::Block;
         }
         if analysis.has_pipe && !config.allow_pipeline {
@@ -1008,6 +1008,35 @@ mod tests {
             checker.would_allow("cargo publish").await,
             SecurityAction::RequireApproval
         );
+    }
+
+    #[tokio::test]
+    async fn test_would_allow_respects_allow_chain_config() {
+        let checker = create_test_checker();
+
+        // By default, chain commands should be blocked
+        let action = checker.would_allow("echo one && echo two").await;
+        assert_eq!(action, SecurityAction::Block);
+
+        // When allow_chain is enabled via agent config, check_command_with_workdir
+        // should allow it (would_allow uses default config only)
+        let config = AgentSecurityConfig {
+            allow_chain: true,
+            ..Default::default()
+        };
+        checker.set_agent_config("agent-chain", config);
+
+        let result = checker
+            .check_command_with_workdir("echo one && echo two", "task-1", "agent-chain", None)
+            .await
+            .unwrap();
+
+        // Should not be blocked for chain reason when allow_chain is true
+        let is_chain_blocked = result
+            .reason
+            .as_deref()
+            .map_or(false, |r| r.contains("chaining"));
+        assert!(!is_chain_blocked);
     }
 
     #[tokio::test]
