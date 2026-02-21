@@ -5,13 +5,12 @@
 //! For JavaScript-rendered pages (SPAs), use jina_reader instead.
 
 use async_trait::async_trait;
-use reqwest::Client;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::error::Result;
-use crate::http_client::build_http_client;
-use crate::security::validate_url;
+use crate::http_client::build_ssrf_safe_client;
+use crate::security::resolve_and_validate_url;
 use crate::tools::traits::{Tool, ToolOutput};
 
 const MAX_CONTENT_LENGTH: usize = 12000;
@@ -25,9 +24,7 @@ struct WebFetchInput {
 ///
 /// Uses reqwest to fetch HTML and scraper to extract text,
 /// stripping navigation, scripts, and styling.
-pub struct WebFetchTool {
-    client: Client,
-}
+pub struct WebFetchTool {}
 
 impl Default for WebFetchTool {
     fn default() -> Self {
@@ -37,9 +34,7 @@ impl Default for WebFetchTool {
 
 impl WebFetchTool {
     pub fn new() -> Self {
-        Self {
-            client: build_http_client(),
-        }
+        Self {}
     }
 }
 
@@ -210,13 +205,18 @@ impl Tool for WebFetchTool {
     async fn execute(&self, input: Value) -> Result<ToolOutput> {
         let params: WebFetchInput = serde_json::from_value(input)?;
 
-        // Validate URL to prevent SSRF attacks
-        if let Err(e) = validate_url(&params.url) {
-            return Ok(ToolOutput::error(format!("URL validation failed: {}", e)));
-        }
+        // Resolve DNS and validate all IPs to prevent SSRF
+        let (parsed_url, pinned_addr) = match resolve_and_validate_url(&params.url).await {
+            Ok(v) => v,
+            Err(e) => {
+                return Ok(ToolOutput::error(format!("URL validation failed: {}", e)));
+            }
+        };
 
-        let response = self
-            .client
+        let host = parsed_url.host_str().unwrap_or_default();
+        let client = build_ssrf_safe_client(host, pinned_addr);
+
+        let response = client
             .get(&params.url)
             .header(
                 "User-Agent",
@@ -279,7 +279,7 @@ impl Tool for WebFetchTool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::security::validate_url;
+    use crate::security::network::validate_url;
 
     #[test]
     fn test_web_fetch_tool_schema() {

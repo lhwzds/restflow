@@ -52,6 +52,9 @@ impl FileContentCache {
         if content.len() > self.max_file_size {
             return;
         }
+        if self.max_entries == 0 {
+            return;
+        }
 
         let mut cache = self.cache.write().await;
         if cache.len() >= self.max_entries
@@ -102,4 +105,27 @@ impl FileContentCache {
 pub struct CacheStats {
     pub entries: usize,
     pub total_bytes: usize,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::NamedTempFile;
+
+    #[tokio::test]
+    async fn test_zero_capacity_cache_never_stores() {
+        let cache = FileContentCache::new(0, 1024 * 1024);
+
+        let tmp = NamedTempFile::new().unwrap();
+        std::fs::write(tmp.path(), "hello").unwrap();
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+
+        cache.put(tmp.path(), "hello".to_string(), &meta).await;
+
+        let stats = cache.stats().await;
+        assert_eq!(
+            stats.entries, 0,
+            "zero-capacity cache should never store entries"
+        );
+    }
 }

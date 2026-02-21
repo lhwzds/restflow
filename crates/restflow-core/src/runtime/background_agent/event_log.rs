@@ -84,7 +84,7 @@ impl AgentEvent {
 }
 
 /// Number of events to buffer before flushing to disk.
-const FLUSH_INTERVAL: u32 = 10;
+const FLUSH_INTERVAL: u32 = 1;
 
 /// Append-only JSONL event log for background agent tasks.
 ///
@@ -117,15 +117,31 @@ impl Drop for EventLog {
 }
 
 impl EventLog {
-    pub fn legacy_log_path(task_id: &str, log_dir: &Path) -> PathBuf {
-        log_dir.join(format!("{}.jsonl", task_id))
+    /// Validate a path component to prevent directory traversal.
+    fn sanitize_path_id(id: &str, label: &str) -> Result<()> {
+        if id.contains("..") || id.contains('/') || id.contains('\\') || id.contains('\0') {
+            anyhow::bail!(
+                "Invalid {}: '{}' contains path traversal characters",
+                label,
+                id
+            );
+        }
+        Ok(())
     }
 
-    pub fn run_log_path(task_id: &str, run_id: &str, log_dir: &Path) -> PathBuf {
-        log_dir.join(task_id).join(format!("{}.jsonl", run_id))
+    pub fn legacy_log_path(task_id: &str, log_dir: &Path) -> Result<PathBuf> {
+        Self::sanitize_path_id(task_id, "task_id")?;
+        Ok(log_dir.join(format!("{}.jsonl", task_id)))
+    }
+
+    pub fn run_log_path(task_id: &str, run_id: &str, log_dir: &Path) -> Result<PathBuf> {
+        Self::sanitize_path_id(task_id, "task_id")?;
+        Self::sanitize_path_id(run_id, "run_id")?;
+        Ok(log_dir.join(task_id).join(format!("{}.jsonl", run_id)))
     }
 
     pub fn list_run_ids(task_id: &str, log_dir: &Path) -> Result<Vec<String>> {
+        Self::sanitize_path_id(task_id, "task_id")?;
         let task_dir = log_dir.join(task_id);
         if !task_dir.exists() {
             return Ok(Vec::new());
@@ -166,7 +182,7 @@ impl EventLog {
         std::fs::create_dir_all(log_dir)
             .with_context(|| format!("Failed to create log directory: {}", log_dir.display()))?;
 
-        let path = Self::legacy_log_path(task_id, log_dir);
+        let path = Self::legacy_log_path(task_id, log_dir)?;
         let writer = Self::open_writer(&path)?;
 
         Self::set_file_permissions(&path);
@@ -186,14 +202,14 @@ impl EventLog {
         std::fs::create_dir_all(log_dir)
             .with_context(|| format!("Failed to create log directory: {}", log_dir.display()))?;
 
-        let run_path = Self::run_log_path(task_id, run_id, log_dir);
+        let run_path = Self::run_log_path(task_id, run_id, log_dir)?;
         if let Some(parent) = run_path.parent() {
             std::fs::create_dir_all(parent)
                 .with_context(|| format!("Failed to create run log directory: {}", parent.display()))?;
         }
 
         let writer = Self::open_writer(&run_path)?;
-        let legacy_path = Self::legacy_log_path(task_id, log_dir);
+        let legacy_path = Self::legacy_log_path(task_id, log_dir)?;
         let mirror_writer = Some(Self::open_writer(&legacy_path)?);
 
         Self::set_file_permissions(&run_path);
@@ -422,8 +438,8 @@ mod tests {
         log.append(&event).unwrap();
         drop(log);
 
-        let run_path = EventLog::run_log_path(task_id, run_id, temp_dir.path());
-        let legacy_path = EventLog::legacy_log_path(task_id, temp_dir.path());
+        let run_path = EventLog::run_log_path(task_id, run_id, temp_dir.path()).unwrap();
+        let legacy_path = EventLog::legacy_log_path(task_id, temp_dir.path()).unwrap();
         assert!(run_path.exists());
         assert!(legacy_path.exists());
 
@@ -542,7 +558,7 @@ mod tests {
 
         let mut log = EventLog::new(task_id, temp_dir.path()).unwrap();
 
-        // Write 9 events (below FLUSH_INTERVAL of 10)
+        // Write 9 events (flushed immediately with FLUSH_INTERVAL of 1)
         for i in 0..9 {
             log.append(&AgentEvent::LlmGeneration {
                 timestamp: i,
@@ -756,5 +772,24 @@ mod tests {
                 _ => panic!("Event type mismatch"),
             }
         }
+    }
+
+    #[test]
+    fn test_sanitize_rejects_path_traversal() {
+        let tmp = TempDir::new().unwrap();
+        assert!(EventLog::legacy_log_path("../../../etc", tmp.path()).is_err());
+        assert!(EventLog::legacy_log_path("foo/bar", tmp.path()).is_err());
+        assert!(EventLog::legacy_log_path("foo\\bar", tmp.path()).is_err());
+        assert!(EventLog::legacy_log_path("foo\0bar", tmp.path()).is_err());
+        assert!(EventLog::run_log_path("task", "../etc", tmp.path()).is_err());
+        assert!(EventLog::new("../escape", tmp.path()).is_err());
+        assert!(EventLog::new_for_run("task", "../escape", tmp.path()).is_err());
+    }
+
+    #[test]
+    fn test_sanitize_accepts_uuid() {
+        let tmp = TempDir::new().unwrap();
+        assert!(EventLog::legacy_log_path("550e8400-e29b-41d4-a716-446655440000", tmp.path()).is_ok());
+        assert!(EventLog::run_log_path("task-1", "1771471846966-abcd", tmp.path()).is_ok());
     }
 }

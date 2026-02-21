@@ -422,9 +422,14 @@ impl AuthProfileManager {
 
     /// Get the best API key for a provider
     pub async fn get_api_key(&self, provider: AuthProvider) -> Option<String> {
-        self.select_profile(provider)
-            .await
-            .and_then(|s| s.profile.get_api_key(&self.resolver).ok())
+        let selected = self.select_profile(provider).await?;
+        match selected.profile.get_api_key(&self.resolver) {
+            Ok(key) => Some(key),
+            Err(error) => {
+                warn!(%error, "Failed to retrieve API key");
+                None
+            }
+        }
     }
 
     /// Mark a profile as successfully used

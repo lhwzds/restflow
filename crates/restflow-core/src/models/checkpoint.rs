@@ -90,7 +90,8 @@ impl AgentCheckpoint {
 
     /// Set a custom TTL (in milliseconds from now).
     pub fn with_ttl_ms(mut self, ttl_ms: i64) -> Self {
-        self.expired_at = Some(self.created_at + ttl_ms);
+        let clamped = ttl_ms.clamp(1, 30 * 24 * 3600 * 1000);
+        self.expired_at = Some(self.created_at.saturating_add(clamped));
         self
     }
 
@@ -203,6 +204,33 @@ mod tests {
         assert_eq!(deserialized.version, 5);
         assert_eq!(deserialized.iteration, 3);
         assert_eq!(deserialized.interrupt_reason, "approval needed");
+    }
+
+    #[test]
+    fn test_with_ttl_ms_clamps_negative() {
+        let cp = AgentCheckpoint::new("exec-1".into(), None, 1, 0, b"{}".to_vec(), "test".into());
+        let created = cp.created_at;
+        let cp = cp.with_ttl_ms(-999);
+        // Negative TTL is clamped to 1ms
+        assert_eq!(cp.expired_at, Some(created.saturating_add(1)));
+    }
+
+    #[test]
+    fn test_with_ttl_ms_clamps_huge_value() {
+        let cp = AgentCheckpoint::new("exec-1".into(), None, 1, 0, b"{}".to_vec(), "test".into());
+        let created = cp.created_at;
+        let max_ttl = 30 * 24 * 3600 * 1000; // 30 days in ms
+        let cp = cp.with_ttl_ms(i64::MAX);
+        // Huge TTL is clamped to 30 days
+        assert_eq!(cp.expired_at, Some(created.saturating_add(max_ttl)));
+    }
+
+    #[test]
+    fn test_with_ttl_ms_normal_value() {
+        let cp = AgentCheckpoint::new("exec-1".into(), None, 1, 0, b"{}".to_vec(), "test".into());
+        let created = cp.created_at;
+        let cp = cp.with_ttl_ms(3600_000); // 1 hour
+        assert_eq!(cp.expired_at, Some(created + 3600_000));
     }
 
     #[test]

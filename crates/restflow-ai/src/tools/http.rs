@@ -10,9 +10,9 @@ use crate::SecurityGate;
 use crate::ToolAction;
 use crate::error::AiError;
 use crate::error::Result;
-use crate::http_client::build_http_client;
+use crate::http_client::{build_http_client, build_ssrf_safe_client};
 use crate::security::NetworkAllowlist;
-use crate::security::validate_url;
+use crate::security::resolve_and_validate_url;
 use crate::tools::traits::check_security;
 use crate::tools::traits::{Tool, ToolErrorCategory, ToolOutput};
 
@@ -171,13 +171,16 @@ impl Tool for HttpTool {
             }
         };
 
-        // Validate URL to prevent SSRF attacks
-        if let Err(e) = validate_url(&params.url) {
-            return Ok(ToolOutput::non_retryable_error(
-                format!("URL validation failed: {}", e),
-                ToolErrorCategory::Config,
-            ));
-        }
+        // Resolve DNS and validate all IPs to prevent SSRF (DNS rebinding, bypass)
+        let (parsed_url, pinned_addr) = match resolve_and_validate_url(&params.url).await {
+            Ok(v) => v,
+            Err(e) => {
+                return Ok(ToolOutput::non_retryable_error(
+                    format!("URL validation failed: {}", e),
+                    ToolErrorCategory::Config,
+                ));
+            }
+        };
 
         let action = ToolAction {
             tool_name: "http".to_string(),
@@ -208,89 +211,158 @@ impl Tool for HttpTool {
             ));
         }
 
-        let mut request = match params.method.to_uppercase().as_str() {
-            "GET" => self.client.get(&params.url),
-            "POST" => self.client.post(&params.url),
-            "PUT" => self.client.put(&params.url),
-            "DELETE" => self.client.delete(&params.url),
-            _ => {
-                return Ok(ToolOutput::non_retryable_error(
-                    format!("Unknown method: {}", params.method),
-                    ToolErrorCategory::Config,
-                ));
-            }
-        };
+        // Build SSRF-safe client with DNS pinning and no auto-redirects
+        let host = parsed_url.host_str().unwrap_or_default();
+        let client = build_ssrf_safe_client(host, pinned_addr);
 
-        // Add headers (block sensitive headers that could leak credentials)
-        const BLOCKED_HEADERS: &[&str] = &[
-            "authorization",
-            "proxy-authorization",
-            "cookie",
-            "set-cookie",
-        ];
-        if let Some(headers) = params.headers
-            && let Some(obj) = headers.as_object()
-        {
-            for (key, value) in obj {
-                if BLOCKED_HEADERS.contains(&key.to_ascii_lowercase().as_str()) {
-                    tracing::warn!(header = %key, "Blocked sensitive header in HTTP tool");
-                    continue;
+        // Manual redirect loop (max 5 hops)
+        let max_redirects = 5;
+        let mut current_url = params.url.clone();
+        let mut current_client = client;
+
+        for hop in 0..=max_redirects {
+            let mut request = match params.method.to_uppercase().as_str() {
+                "GET" => current_client.get(&current_url),
+                "POST" => current_client.post(&current_url),
+                "PUT" => current_client.put(&current_url),
+                "DELETE" => current_client.delete(&current_url),
+                _ => {
+                    return Ok(ToolOutput::non_retryable_error(
+                        format!("Unknown method: {}", params.method),
+                        ToolErrorCategory::Config,
+                    ));
                 }
-                if let Some(v) = value.as_str() {
-                    request = request.header(key, v);
+            };
+
+            // Add headers (block sensitive headers that could leak credentials)
+            const BLOCKED_HEADERS: &[&str] = &[
+                "authorization",
+                "proxy-authorization",
+                "cookie",
+                "set-cookie",
+            ];
+            if let Some(ref headers) = params.headers
+                && let Some(obj) = headers.as_object()
+            {
+                for (key, value) in obj {
+                    if BLOCKED_HEADERS.contains(&key.to_ascii_lowercase().as_str()) {
+                        tracing::warn!(header = %key, "Blocked sensitive header in HTTP tool");
+                        continue;
+                    }
+                    if let Some(v) = value.as_str() {
+                        request = request.header(key, v);
+                    }
+                }
+            }
+
+            // Add body (only on first request)
+            if hop == 0
+                && let Some(ref body) = params.body
+            {
+                request = request.json(body);
+            }
+
+            match request.send().await {
+                Ok(response) => {
+                    let status = response.status().as_u16();
+
+                    // Handle redirects manually to re-validate each hop
+                    if (301..=308).contains(&status) {
+                        if hop >= max_redirects {
+                            return Ok(ToolOutput::non_retryable_error(
+                                format!("Too many redirects (max {})", max_redirects),
+                                ToolErrorCategory::Network,
+                            ));
+                        }
+
+                        let location = match response.headers().get("location") {
+                            Some(loc) => loc.to_str().unwrap_or_default().to_string(),
+                            None => {
+                                return Ok(ToolOutput::non_retryable_error(
+                                    "Redirect without Location header".to_string(),
+                                    ToolErrorCategory::Network,
+                                ));
+                            }
+                        };
+
+                        // Resolve absolute URL from relative Location
+                        let redirect_url = match url::Url::parse(&location) {
+                            Ok(u) => u.to_string(),
+                            Err(_) => {
+                                let base = url::Url::parse(&current_url).unwrap();
+                                match base.join(&location) {
+                                    Ok(u) => u.to_string(),
+                                    Err(_) => location.clone(),
+                                }
+                            }
+                        };
+
+                        // Re-validate the redirect target
+                        let (new_parsed, new_addr) =
+                            match resolve_and_validate_url(&redirect_url).await {
+                                Ok(v) => v,
+                                Err(e) => {
+                                    return Ok(ToolOutput::non_retryable_error(
+                                        format!("Redirect target validation failed: {}", e),
+                                        ToolErrorCategory::Config,
+                                    ));
+                                }
+                            };
+
+                        let new_host = new_parsed.host_str().unwrap_or_default();
+                        current_client = build_ssrf_safe_client(new_host, new_addr);
+                        current_url = redirect_url;
+                        continue;
+                    }
+
+                    let headers = response.headers().clone();
+                    let body = response.text().await.unwrap_or_default();
+
+                    // Try to parse as JSON, fallback to string
+                    let result = serde_json::from_str::<Value>(&body)
+                        .unwrap_or_else(|_| json!({ "text": body }));
+
+                    if status >= 400 {
+                        let (category, retryable) = Self::classify_status(status);
+                        let retry_after_ms = if status == 429 {
+                            Self::parse_retry_after_ms(&headers)
+                        } else {
+                            None
+                        };
+                        return Ok(ToolOutput {
+                            success: false,
+                            result: json!({
+                                "status": status,
+                                "body": result
+                            }),
+                            error: Some(format!("HTTP request failed with status {}", status)),
+                            error_category: Some(category),
+                            retryable: Some(retryable),
+                            retry_after_ms,
+                        });
+                    }
+
+                    return Ok(ToolOutput::success(json!({
+                        "status": status,
+                        "body": result
+                    })));
+                }
+                Err(e) => {
+                    return Ok(ToolOutput::retryable_error(
+                        format!(
+                            "HTTP request failed: {}. Check that the URL is correct and the server is reachable. For HTTPS issues, verify the certificate is valid.",
+                            e
+                        ),
+                        ToolErrorCategory::Network,
+                    ));
                 }
             }
         }
 
-        // Add body
-        if let Some(body) = params.body {
-            request = request.json(&body);
-        }
-
-        // Execute request
-        match request.send().await {
-            Ok(response) => {
-                let status = response.status().as_u16();
-                let headers = response.headers().clone();
-                let body = response.text().await.unwrap_or_default();
-
-                // Try to parse as JSON, fallback to string
-                let result = serde_json::from_str::<Value>(&body)
-                    .unwrap_or_else(|_| json!({ "text": body }));
-
-                if status >= 400 {
-                    let (category, retryable) = Self::classify_status(status);
-                    let retry_after_ms = if status == 429 {
-                        Self::parse_retry_after_ms(&headers)
-                    } else {
-                        None
-                    };
-                    return Ok(ToolOutput {
-                        success: false,
-                        result: json!({
-                            "status": status,
-                            "body": result
-                        }),
-                        error: Some(format!("HTTP request failed with status {}", status)),
-                        error_category: Some(category),
-                        retryable: Some(retryable),
-                        retry_after_ms,
-                    });
-                }
-
-                Ok(ToolOutput::success(json!({
-                    "status": status,
-                    "body": result
-                })))
-            }
-            Err(e) => Ok(ToolOutput::retryable_error(
-                format!(
-                    "HTTP request failed: {}. Check that the URL is correct and the server is reachable. For HTTPS issues, verify the certificate is valid.",
-                    e
-                ),
-                ToolErrorCategory::Network,
-            )),
-        }
+        Ok(ToolOutput::non_retryable_error(
+            format!("Too many redirects (max {})", max_redirects),
+            ToolErrorCategory::Network,
+        ))
     }
 }
 

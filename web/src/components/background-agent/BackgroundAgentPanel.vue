@@ -580,7 +580,7 @@ onMounted(() => {
     </div>
 
     <!-- Steer Input (only visible when agent is actively running/streaming) -->
-    <div v-if="canSteer" class="shrink-0 px-4 pb-4">
+    <div v-show="canSteer" class="shrink-0 px-4 pb-4">
       <div class="max-w-[48rem] mx-auto">
         <div
           class="flex items-end gap-2 rounded-xl border border-input bg-background px-3 py-2 focus-within:ring-1 focus-within:ring-ring"

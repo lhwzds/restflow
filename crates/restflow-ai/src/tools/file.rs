@@ -1174,7 +1174,7 @@ impl FileTool {
         ToolOutput::success(serde_json::json!({
             "pattern": params.pattern,
             "total_matches": total_matches,
-            "locations_searched": params.locations.len(),
+            "locations_searched": results.len(),
             "truncated": total_matches >= params.max_matches,
             "results": results,
         }))
