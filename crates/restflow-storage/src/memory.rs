@@ -499,30 +499,85 @@ impl MemoryStorage {
         Ok(count)
     }
 
-    /// Delete all chunks for an agent
+    /// Delete all chunks for an agent with full index cleanup.
     pub fn delete_all_chunks_for_agent(&self, agent_id: &str) -> Result<u32> {
-        // First collect all chunk IDs for this agent
-        let chunks = self.list_chunks_by_agent_raw(agent_id)?;
-        let count = chunks.len() as u32;
+        // Collect chunk IDs via agent index
+        let read_txn = self.db.begin_read()?;
+        let agent_idx = read_txn.open_table(AGENT_INDEX_TABLE)?;
 
-        if count == 0 {
-            return Ok(0);
+        let prefix = format!("{}:", agent_id);
+        let (start, end) = prefix_range(&prefix);
+        let mut chunk_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+        for item in agent_idx.range(start.as_str()..end.as_str())? {
+            let (_, value) = item?;
+            chunk_ids.insert(value.value().to_string());
         }
 
-        // We need to deserialize chunks to get their metadata for index cleanup.
-        // This is a limitation of the byte-level API - the typed layer handles this better.
-        // For now, we'll just delete from the primary table and agent index.
-        // Full index cleanup requires the typed layer.
+        if chunk_ids.is_empty() {
+            return Ok(0);
+        }
+        let count = chunk_ids.len() as u32;
 
+        // Scan secondary indexes for entries referencing deleted chunk IDs
+        let mut hash_keys: Vec<String> = Vec::new();
+        let hash_idx = read_txn.open_table(HASH_INDEX_TABLE)?;
+        for item in hash_idx.iter()? {
+            let (key, value) = item?;
+            if chunk_ids.contains(value.value()) {
+                hash_keys.push(key.value().to_string());
+            }
+        }
+
+        let mut session_keys: Vec<String> = Vec::new();
+        let session_idx = read_txn.open_table(SESSION_INDEX_TABLE)?;
+        for item in session_idx.iter()? {
+            let (key, value) = item?;
+            if chunk_ids.contains(value.value()) {
+                session_keys.push(key.value().to_string());
+            }
+        }
+
+        let mut tag_keys: Vec<String> = Vec::new();
+        let tag_idx = read_txn.open_table(TAG_INDEX_TABLE)?;
+        for item in tag_idx.iter()? {
+            let (key, value) = item?;
+            if chunk_ids.contains(value.value()) {
+                tag_keys.push(key.value().to_string());
+            }
+        }
+
+        drop(tag_idx);
+        drop(session_idx);
+        drop(hash_idx);
+        drop(agent_idx);
+        drop(read_txn);
+
+        // Delete everything in a single write transaction
         let write_txn = self.db.begin_write()?;
         {
             let mut chunk_table = write_txn.open_table(MEMORY_CHUNK_TABLE)?;
             let mut agent_index = write_txn.open_table(AGENT_INDEX_TABLE)?;
 
-            for (chunk_id, _) in &chunks {
+            for chunk_id in &chunk_ids {
                 chunk_table.remove(chunk_id.as_str())?;
                 let agent_key = format!("{}:{}", agent_id, chunk_id);
                 agent_index.remove(agent_key.as_str())?;
+            }
+
+            let mut hash_index = write_txn.open_table(HASH_INDEX_TABLE)?;
+            for key in &hash_keys {
+                hash_index.remove(key.as_str())?;
+            }
+
+            let mut session_index = write_txn.open_table(SESSION_INDEX_TABLE)?;
+            for key in &session_keys {
+                session_index.remove(key.as_str())?;
+            }
+
+            let mut tag_index = write_txn.open_table(TAG_INDEX_TABLE)?;
+            for key in &tag_keys {
+                tag_index.remove(key.as_str())?;
             }
         }
         write_txn.commit()?;
@@ -932,24 +987,66 @@ mod tests {
         let storage = create_test_storage();
 
         storage
-            .put_chunk_raw("chunk-001", "agent-001", None, "hash1", &[], b"data1")
+            .put_chunk_raw(
+                "chunk-001",
+                "agent-001",
+                Some("session-001"),
+                "hash1",
+                &["rust".to_string(), "async".to_string()],
+                b"data1",
+            )
             .unwrap();
         storage
-            .put_chunk_raw("chunk-002", "agent-001", None, "hash2", &[], b"data2")
+            .put_chunk_raw(
+                "chunk-002",
+                "agent-001",
+                Some("session-002"),
+                "hash2",
+                &["rust".to_string()],
+                b"data2",
+            )
             .unwrap();
         storage
-            .put_chunk_raw("chunk-003", "agent-002", None, "hash3", &[], b"data3")
+            .put_chunk_raw(
+                "chunk-003",
+                "agent-002",
+                Some("session-002"),
+                "hash3",
+                &["python".to_string()],
+                b"data3",
+            )
             .unwrap();
 
         let deleted = storage.delete_all_chunks_for_agent("agent-001").unwrap();
         assert_eq!(deleted, 2);
 
+        // Primary + agent index cleaned
         let chunks_agent1 = storage.list_chunks_by_agent_raw("agent-001").unwrap();
         assert!(chunks_agent1.is_empty());
 
-        // agent-002 chunks should still exist
+        // Hash index cleaned
+        assert!(storage.find_by_hash("hash1").unwrap().is_none());
+        assert!(storage.find_by_hash("hash2").unwrap().is_none());
+
+        // Session index cleaned
+        let session1 = storage.list_chunks_by_session_raw("session-001").unwrap();
+        assert!(session1.is_empty());
+        // session-002 should only have agent-002's chunk
+        let session2 = storage.list_chunks_by_session_raw("session-002").unwrap();
+        assert_eq!(session2.len(), 1);
+
+        // Tag index cleaned
+        let rust_chunks = storage.list_chunks_by_tag_raw("rust").unwrap();
+        assert!(rust_chunks.is_empty());
+        let async_chunks = storage.list_chunks_by_tag_raw("async").unwrap();
+        assert!(async_chunks.is_empty());
+
+        // agent-002 data untouched
         let chunks_agent2 = storage.list_chunks_by_agent_raw("agent-002").unwrap();
         assert_eq!(chunks_agent2.len(), 1);
+        assert!(storage.find_by_hash("hash3").unwrap().is_some());
+        let python_chunks = storage.list_chunks_by_tag_raw("python").unwrap();
+        assert_eq!(python_chunks.len(), 1);
     }
 
     #[test]

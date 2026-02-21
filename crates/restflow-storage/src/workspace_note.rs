@@ -4,6 +4,8 @@ use anyhow::{Result, anyhow};
 use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
 use std::sync::Arc;
 
+use crate::range_utils::prefix_range;
+
 const NOTES_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("workspace_notes");
 const FOLDER_INDEX_TABLE: TableDefinition<&str, &str> =
     TableDefinition::new("workspace_note_folder_index");
@@ -151,13 +153,11 @@ impl WorkspaceNoteStorage {
         let index = read_txn.open_table(index_table)?;
         let notes = read_txn.open_table(NOTES_TABLE)?;
         let prefix = prefix_fn(key);
+        let (start, end) = prefix_range(&prefix);
 
         let mut items = Vec::new();
-        for row in index.iter()? {
-            let (index_key, note_id) = row?;
-            if !index_key.value().starts_with(&prefix) {
-                continue;
-            }
+        for row in index.range(start.as_str()..end.as_str())? {
+            let (_index_key, note_id) = row?;
             if let Some(value) = notes.get(note_id.value())? {
                 items.push((note_id.value().to_string(), value.value().to_vec()));
             }
