@@ -358,10 +358,10 @@ pub struct PendingApproval {
     /// ID of the agent requesting execution
     pub agent_id: String,
 
-    /// Unix timestamp when the request was created
+    /// Unix timestamp (seconds) when the request was created
     pub created_at: i64,
 
-    /// Unix timestamp when the request expires
+    /// Unix timestamp (seconds) when the request expires
     pub expires_at: i64,
 
     /// Current status of the approval request

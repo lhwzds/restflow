@@ -15,11 +15,13 @@ pub fn analyze_command(command: &str) -> Result<ShellAnalysis, String> {
         return Err("Command contains newlines".to_string());
     }
 
-    if command.contains("$(") || command.contains('`') {
+    // Tokenize first (shell_words handles quoting)
+    let tokens = shell_words::split(command).map_err(|e| format!("Invalid shell syntax: {e}"))?;
+
+    // Check for unquoted subshell patterns in the raw command
+    if has_unquoted_subshell(command) {
         return Err("Command contains subshell".to_string());
     }
-
-    let tokens = shell_words::split(command).map_err(|e| format!("Invalid shell syntax: {e}"))?;
 
     let mut analysis = ShellAnalysis::default();
     for token in &tokens {
@@ -38,6 +40,28 @@ pub fn analyze_command(command: &str) -> Result<ShellAnalysis, String> {
     }
 
     Ok(analysis)
+}
+
+/// Check if a command contains unquoted subshell patterns ($(...) or backticks).
+fn has_unquoted_subshell(command: &str) -> bool {
+    let mut in_single_quote = false;
+    let mut in_double_quote = false;
+    let mut prev_char = '\0';
+    let chars: Vec<char> = command.chars().collect();
+
+    for i in 0..chars.len() {
+        let c = chars[i];
+        match c {
+            '\'' if !in_double_quote && prev_char != '\\' => in_single_quote = !in_single_quote,
+            '"' if !in_single_quote && prev_char != '\\' => in_double_quote = !in_double_quote,
+            '$' if !in_single_quote && i + 1 < chars.len() && chars[i + 1] == '(' => return true,
+            // Backticks expand even inside double quotes, only single quotes suppress them
+            '`' if !in_single_quote => return true,
+            _ => {}
+        }
+        prev_char = c;
+    }
+    false
 }
 
 #[cfg(test)]
@@ -76,5 +100,34 @@ mod tests {
     fn test_blocks_subshell() {
         let result = analyze_command("$(whoami)");
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_subshell_in_single_quotes_allowed() {
+        // Single-quoted $(...) is literal, not a subshell
+        let result = analyze_command("echo '$(date)'");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_unquoted_subshell_blocked() {
+        let result = analyze_command("echo $(date)");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("subshell"));
+    }
+
+    #[test]
+    fn test_backtick_in_double_quotes_blocked() {
+        // Backticks expand inside double quotes
+        let result = analyze_command("echo \"`date`\"");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("subshell"));
+    }
+
+    #[test]
+    fn test_backtick_in_single_quotes_allowed() {
+        // Backticks in single quotes are literal
+        let result = analyze_command("echo '`date`'");
+        assert!(result.is_ok());
     }
 }

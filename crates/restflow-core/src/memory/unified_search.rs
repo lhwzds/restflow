@@ -151,7 +151,7 @@ impl UnifiedSearchEngine {
         });
 
         let total_count = all_results.len() as u32;
-        let has_more = total_count > query.base.offset + query.base.limit;
+        let has_more = total_count > query.base.offset.saturating_add(query.base.limit);
 
         let offset = query.base.offset as usize;
         let limit = query.base.limit as usize;

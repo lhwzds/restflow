@@ -22,7 +22,10 @@ pub struct FileConfig {
 impl Default for FileConfig {
     fn default() -> Self {
         Self {
-            allowed_paths: vec![std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))],
+            allowed_paths: vec![
+                std::env::current_dir()
+                    .unwrap_or_else(|_| PathBuf::from("/nonexistent")),
+            ],
             allow_write: true,
             max_read_bytes: 1_000_000,
         }
@@ -39,10 +42,27 @@ impl FileTool {
     }
 
     fn is_path_allowed(&self, path: &Path) -> bool {
-        self.config
-            .allowed_paths
-            .iter()
-            .any(|allowed| path.starts_with(allowed))
+        // For existing paths, canonicalize to resolve symlinks and ".." components
+        if let Ok(canonical) = path.canonicalize() {
+            return self.config.allowed_paths.iter().any(|allowed| {
+                allowed
+                    .canonicalize()
+                    .map(|a| canonical.starts_with(a))
+                    .unwrap_or(false)
+            });
+        }
+        // For non-existent paths (e.g. write targets), check the parent directory
+        if let Some(parent) = path.parent()
+            && let Ok(canonical_parent) = parent.canonicalize()
+        {
+            return self.config.allowed_paths.iter().any(|allowed| {
+                allowed
+                    .canonicalize()
+                    .map(|a| canonical_parent.starts_with(a))
+                    .unwrap_or(false)
+            });
+        }
+        false
     }
 }
 

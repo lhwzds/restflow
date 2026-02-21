@@ -45,8 +45,10 @@ pub struct ActiveTrigger {
     pub id: String,
     pub workflow_id: String,
     pub trigger_config: TriggerConfig,
+    /// Unix timestamp (seconds) when the trigger was activated
     #[ts(type = "number")]
     pub activated_at: i64,
+    /// Unix timestamp (seconds) of the last trigger fire
     #[ts(type = "number | null")]
     pub last_triggered_at: Option<i64>,
     #[ts(type = "number")]

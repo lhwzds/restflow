@@ -190,7 +190,9 @@ impl TelegramChannel {
         if response.status().is_success() {
             let api_response: TelegramResponse<TelegramMessageResponse> = response.json().await?;
             if api_response.ok {
-                Ok(api_response.result.unwrap())
+                Ok(api_response
+                    .result
+                    .ok_or_else(|| anyhow!("Telegram returned ok but no result"))?)
             } else {
                 Err(anyhow!(
                     "Telegram API error: {}",
@@ -464,7 +466,9 @@ impl TelegramChannel {
         let body: TelegramResponse<TelegramUser> = response.json().await?;
 
         if body.ok {
-            Ok(body.result.unwrap())
+            Ok(body
+                .result
+                .ok_or_else(|| anyhow!("Telegram returned ok but no result"))?)
         } else {
             Err(anyhow!(
                 "Telegram API error: {}",

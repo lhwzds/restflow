@@ -385,6 +385,7 @@ impl ChatSession {
         if self.messages.len() > Self::MAX_STORED_MESSAGES {
             let excess = self.messages.len() - Self::MAX_STORED_MESSAGES;
             self.messages.drain(..excess);
+            self.metadata.message_count = self.messages.len() as u32;
         }
 
         self.updated_at = chrono::Utc::now().timestamp_millis();
@@ -734,5 +735,21 @@ mod tests {
         session.add_message(ChatMessage::user("hello"));
         session.add_message(ChatMessage::assistant("hi"));
         assert_eq!(session.messages.len(), 2);
+    }
+
+    #[test]
+    fn test_message_count_matches_after_drain() {
+        let mut session = ChatSession::new("agent-1".to_string(), "model".to_string());
+        let total = ChatSession::MAX_STORED_MESSAGES + 50;
+
+        for i in 0..total {
+            session.add_message(ChatMessage::user(format!("msg {}", i)));
+        }
+
+        assert_eq!(session.messages.len(), ChatSession::MAX_STORED_MESSAGES);
+        assert_eq!(
+            session.metadata.message_count,
+            session.messages.len() as u32
+        );
     }
 }

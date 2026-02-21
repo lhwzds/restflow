@@ -17,6 +17,18 @@ use restflow_ai::tools::send_telegram_notification;
 
 use super::runner::NotificationSender;
 
+/// Find the largest byte index <= `index` that is a valid char boundary.
+fn floor_char_boundary(s: &str, index: usize) -> usize {
+    if index >= s.len() {
+        return s.len();
+    }
+    let mut i = index;
+    while i > 0 && !s.is_char_boundary(i) {
+        i -= 1;
+    }
+    i
+}
+
 /// Well-known secret name for system-level Telegram bot token.
 const TELEGRAM_BOT_TOKEN_SECRET: &str = "TELEGRAM_BOT_TOKEN";
 /// Well-known secret names for default Telegram destination.
@@ -91,7 +103,8 @@ impl TelegramNotifier {
         };
 
         if content.len() > 3500 {
-            format!("{}...\n\n(truncated)", &content[..3500])
+            let end = floor_char_boundary(content, 3500);
+            format!("{}...\n\n(truncated)", &content[..end])
         } else {
             content.to_string()
         }
@@ -428,6 +441,22 @@ mod tests {
         let result = notifier.send(&config, &task, true, "output").await;
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("chat id"));
+    }
+
+    #[test]
+    fn test_truncate_notification_multibyte() {
+        let (secrets, _temp_dir) = create_test_secrets();
+        let notifier = TelegramNotifier::new(secrets);
+        let task = create_test_task();
+
+        // Create content where byte 3500 falls mid-CJK character
+        // Each CJK char is 3 bytes, so 1167 chars = 3501 bytes
+        let emoji_content = "你".repeat(1167);
+        assert!(emoji_content.len() > 3500);
+
+        // Should not panic
+        let message = notifier.format_message(&task, true, &emoji_content);
+        assert!(message.contains("truncated"));
     }
 
     #[tokio::test]

@@ -208,7 +208,7 @@ impl SearchEngine {
         // Apply pagination
         let offset = query.offset as usize;
         let limit = query.limit as usize;
-        let has_more = total_count > query.offset + query.limit;
+        let has_more = total_count > query.offset.saturating_add(query.limit);
 
         let paginated: Vec<_> = scored_chunks.into_iter().skip(offset).take(limit).collect();
 
@@ -792,5 +792,21 @@ mod tests {
         let score = engine.calculate_tag_score(&chunk.tags, &query_tags);
 
         assert!((score - 100.0).abs() < f64::EPSILON); // Case-insensitive match
+    }
+
+    #[test]
+    fn test_has_more_no_overflow_at_u32_max() {
+        let engine = create_test_engine();
+
+        let chunk = MemoryChunk::new("agent-001".to_string(), "Test content".to_string())
+            .with_created_at(now_ms());
+        engine.storage().store_chunk(&chunk).unwrap();
+
+        // Use extreme offset + limit that would overflow u32
+        let query = MemorySearchQuery::new("agent-001".to_string()).paginate(2, u32::MAX - 1);
+
+        // Should not panic due to overflow
+        let results = engine.search_ranked(&query).unwrap();
+        assert!(!results.has_more);
     }
 }
