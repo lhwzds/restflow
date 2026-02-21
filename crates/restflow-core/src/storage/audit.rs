@@ -78,32 +78,32 @@ impl AuditStorage {
             let (_, value) = entry.context("Failed to read entry")?;
             let value_str = value.value();
             
-            if let Ok(event) = serde_json::from_str::<AuditEvent>(&value_str) {
+            if let Ok(event) = serde_json::from_str::<AuditEvent>(value_str) {
                 // Apply filters
-                if let Some(ref task_id) = query.task_id {
-                    if &event.task_id != task_id {
-                        continue;
-                    }
+                if let Some(ref task_id) = query.task_id
+                    && event.task_id != *task_id
+                {
+                    continue;
                 }
-                if let Some(ref agent_id) = query.agent_id {
-                    if &event.agent_id != agent_id {
-                        continue;
-                    }
+                if let Some(ref agent_id) = query.agent_id
+                    && event.agent_id != *agent_id
+                {
+                    continue;
                 }
-                if let Some(ref category) = query.category {
-                    if event.category != *category {
-                        continue;
-                    }
+                if let Some(ref category) = query.category
+                    && event.category != *category
+                {
+                    continue;
                 }
-                if let Some(from) = query.from_timestamp {
-                    if event.timestamp < from {
-                        continue;
-                    }
+                if let Some(from) = query.from_timestamp
+                    && event.timestamp < from
+                {
+                    continue;
                 }
-                if let Some(to) = query.to_timestamp {
-                    if event.timestamp > to {
-                        continue;
-                    }
+                if let Some(to) = query.to_timestamp
+                    && event.timestamp > to
+                {
+                    continue;
                 }
                 
                 events.push(event);
@@ -141,12 +141,12 @@ impl AuditStorage {
             let (_, value) = entry.context("Failed to read entry")?;
             let value_str = value.value();
             
-            if let Ok(event) = serde_json::from_str::<AuditEvent>(&value_str) {
+            if let Ok(event) = serde_json::from_str::<AuditEvent>(value_str) {
                 // Filter by task_id if specified
-                if let Some(tid) = task_id {
-                    if &event.task_id != tid {
-                        continue;
-                    }
+                if let Some(tid) = task_id
+                    && event.task_id != tid
+                {
+                    continue;
                 }
                 
                 total_events += 1;
