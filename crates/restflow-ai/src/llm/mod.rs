@@ -2,6 +2,7 @@
 
 mod anthropic;
 mod claude_code;
+pub(crate) mod cli_utils;
 mod client;
 mod codex;
 mod factory;
