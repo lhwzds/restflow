@@ -12,7 +12,7 @@
 //! - Efficient storage with indexed lookups
 //! - Rich context for debugging and analytics
 
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
