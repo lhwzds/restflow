@@ -48,8 +48,10 @@ use crate::llm::{CompletionRequest, FinishReason, LlmClient, Message, Role, Tool
 use crate::memory::{CompactionConfig, CompactionResult, DEFAULT_MAX_MESSAGES, WorkingMemory};
 use crate::steer::SteerMessage;
 use crate::tools::{ToolErrorCategory, ToolRegistry};
+use futures::stream::FuturesOrdered;
 use futures::{Stream, StreamExt};
 use tokio::sync::{Mutex, mpsc};
+use tokio::task::JoinHandle;
 use tokio::time::sleep;
 use tracing::debug;
 
@@ -1238,6 +1240,72 @@ impl AgentExecutor {
         self.tools.execute_safe(name, args).await
     }
 
+    /// Execute a tool with retry logic and timeout.
+    /// Static version that accepts `Arc<ToolRegistry>` for use inside `tokio::spawn`.
+    async fn execute_tool_with_retry(
+        tools: Arc<ToolRegistry>,
+        name: String,
+        mut args: Value,
+        tool_timeout: Duration,
+        yolo_mode: bool,
+    ) -> Result<crate::tools::ToolOutput> {
+        if yolo_mode
+            && name == "bash"
+            && let Some(map) = args.as_object_mut()
+        {
+            map.insert("yolo_mode".to_string(), Value::Bool(true));
+        }
+
+        let mut retry_count = 0usize;
+        loop {
+            let output = tokio::time::timeout(
+                tool_timeout,
+                tools.execute_safe(&name, args.clone()),
+            )
+            .await
+            .map_err(|_| AiError::Tool(format!("Tool {} timed out", name)))
+            .and_then(|r| r)?;
+
+            if output.success {
+                return Ok(output);
+            }
+
+            if output
+                .result
+                .get("pending_approval")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+            {
+                return Ok(output);
+            }
+
+            let retryable = output.retryable.unwrap_or(false);
+            if retryable && retry_count < MAX_TOOL_RETRIES {
+                retry_count += 1;
+                if let Some(wait_ms) = output.retry_after_ms {
+                    sleep(Duration::from_millis(wait_ms)).await;
+                }
+                continue;
+            }
+
+            if matches!(
+                output.error_category,
+                Some(ToolErrorCategory::Auth | ToolErrorCategory::Config)
+            ) {
+                let detail = output
+                    .error
+                    .clone()
+                    .unwrap_or_else(|| "Unknown error".to_string());
+                return Ok(output.with_error_message(format!(
+                    "Non-retryable error: {}. Try a different approach.",
+                    detail
+                )));
+            }
+
+            return Ok(output);
+        }
+    }
+
     async fn execute_tools_sequential(
         &self,
         tool_calls: &[ToolCall],
@@ -1290,6 +1358,7 @@ impl AgentExecutor {
         tool_timeout: Duration,
         yolo_mode: bool,
     ) -> Vec<(String, Result<crate::tools::ToolOutput>)> {
+        // 1. Emit start events for all tool calls upfront
         for call in tool_calls {
             let arguments = serde_json::to_string(&call.arguments).unwrap_or_default();
             emitter
@@ -1297,43 +1366,43 @@ impl AgentExecutor {
                 .await;
         }
 
-        let executor = self;
-        let futures: Vec<_> = tool_calls
-            .iter()
-            .map(|call| {
-                let name = call.name.clone();
-                let args = call.arguments.clone();
-                let id = call.id.clone();
-                let timeout_dur = tool_timeout;
-                async move {
-                    let result = tokio::time::timeout(
-                        timeout_dur,
-                        executor.execute_tool_call(&name, args, yolo_mode),
-                    )
+        // 2. Spawn each tool as an independent Tokio task, collect into FuturesOrdered
+        let mut ordered = FuturesOrdered::new();
+
+        for call in tool_calls {
+            let tools = Arc::clone(&self.tools);
+            let name = call.name.clone();
+            let args = call.arguments.clone();
+            let tool_call_id = call.id.clone();
+            let tool_name = call.name.clone();
+
+            let handle: JoinHandle<Result<crate::tools::ToolOutput>> = tokio::spawn(
+                Self::execute_tool_with_retry(tools, name, args, tool_timeout, yolo_mode),
+            );
+
+            ordered.push_back(async move {
+                let result = handle
                     .await
-                    .map_err(|_| AiError::Tool(format!("Tool {} timed out", name)))
+                    .map_err(|e| AiError::Tool(format!("Tool task panicked: {}", e)))
                     .and_then(|r| r);
-                    (id, name, result)
-                }
-            })
-            .collect();
+                (tool_call_id, tool_name, result)
+            });
+        }
 
-        let results = futures::future::join_all(futures).await;
-        let mut output = Vec::new();
-
-        for (id, name, result) in results {
+        // 3. Drain results in submission order, emitting events as each completes
+        let mut output = Vec::with_capacity(tool_calls.len());
+        while let Some((id, name, result)) = ordered.next().await {
             let (result_str, success) = match &result {
-                Ok(output) if output.success => (
-                    serde_json::to_string(&output.result).unwrap_or_default(),
+                Ok(o) if o.success => (
+                    serde_json::to_string(&o.result).unwrap_or_default(),
                     true,
                 ),
-                Ok(output) => (
-                    format!("Error: {}", output.error.clone().unwrap_or_default()),
+                Ok(o) => (
+                    format!("Error: {}", o.error.clone().unwrap_or_default()),
                     false,
                 ),
                 Err(error) => (format!("Error: {}", error), false),
             };
-
             emitter
                 .emit_tool_call_result(&id, &name, &result_str, success)
                 .await;
@@ -2488,5 +2557,305 @@ mod tests {
         assert!(prompt.contains("helpful AI assistant"));
         assert!(prompt.contains("Available Tools"));
         assert!(prompt.contains("echo"));
+    }
+
+    // ── Parallel execution tests ──
+
+    /// A tool that sleeps for a configurable duration then returns its name.
+    /// Used to verify ordering and true parallelism.
+    struct DelayTool {
+        tool_name: String,
+        delay_ms: u64,
+    }
+
+    #[async_trait]
+    impl Tool for DelayTool {
+        fn name(&self) -> &str {
+            &self.tool_name
+        }
+
+        fn description(&self) -> &str {
+            "Sleeps then returns its name"
+        }
+
+        fn parameters_schema(&self) -> Value {
+            serde_json::json!({"type": "object"})
+        }
+
+        fn supports_parallel(&self) -> bool {
+            true
+        }
+
+        async fn execute(&self, _input: Value) -> Result<ToolOutput> {
+            tokio::time::sleep(Duration::from_millis(self.delay_ms)).await;
+            Ok(ToolOutput::success(
+                serde_json::json!({"tool": self.tool_name}),
+            ))
+        }
+    }
+
+    /// A tool that panics inside execute.
+    struct PanicTool;
+
+    #[async_trait]
+    impl Tool for PanicTool {
+        fn name(&self) -> &str {
+            "panic_tool"
+        }
+
+        fn description(&self) -> &str {
+            "Always panics"
+        }
+
+        fn parameters_schema(&self) -> Value {
+            serde_json::json!({"type": "object"})
+        }
+
+        fn supports_parallel(&self) -> bool {
+            true
+        }
+
+        async fn execute(&self, _input: Value) -> Result<ToolOutput> {
+            panic!("intentional panic for testing");
+        }
+    }
+
+    /// A tool that sleeps forever (for timeout testing).
+    struct HangTool;
+
+    #[async_trait]
+    impl Tool for HangTool {
+        fn name(&self) -> &str {
+            "hang_tool"
+        }
+
+        fn description(&self) -> &str {
+            "Sleeps forever"
+        }
+
+        fn parameters_schema(&self) -> Value {
+            serde_json::json!({"type": "object"})
+        }
+
+        fn supports_parallel(&self) -> bool {
+            true
+        }
+
+        async fn execute(&self, _input: Value) -> Result<ToolOutput> {
+            // Sleep long enough that the timeout will fire
+            tokio::time::sleep(Duration::from_secs(3600)).await;
+            Ok(ToolOutput::success(serde_json::json!({})))
+        }
+    }
+
+    #[tokio::test]
+    async fn test_parallel_tools_returns_results_in_submission_order() {
+        // Tool A sleeps 100ms, Tool B sleeps 10ms, Tool C sleeps 50ms.
+        // Despite different completion times, results must come back in A, B, C order.
+        let mut tools = ToolRegistry::new();
+        tools.register(DelayTool {
+            tool_name: "tool_a".to_string(),
+            delay_ms: 100,
+        });
+        tools.register(DelayTool {
+            tool_name: "tool_b".to_string(),
+            delay_ms: 10,
+        });
+        tools.register(DelayTool {
+            tool_name: "tool_c".to_string(),
+            delay_ms: 50,
+        });
+
+        let llm = Arc::new(MockLlmClient::new(vec![]));
+        let executor = AgentExecutor::new(llm, Arc::new(tools));
+
+        let calls = vec![
+            ToolCall {
+                id: "call_a".to_string(),
+                name: "tool_a".to_string(),
+                arguments: serde_json::json!({}),
+            },
+            ToolCall {
+                id: "call_b".to_string(),
+                name: "tool_b".to_string(),
+                arguments: serde_json::json!({}),
+            },
+            ToolCall {
+                id: "call_c".to_string(),
+                name: "tool_c".to_string(),
+                arguments: serde_json::json!({}),
+            },
+        ];
+
+        let mut emitter = NullEmitter;
+        let timeout = Duration::from_secs(10);
+        let results = executor
+            .execute_tools_parallel(&calls, &mut emitter, timeout, false)
+            .await;
+
+        // Verify submission order preserved
+        assert_eq!(results.len(), 3);
+        assert_eq!(results[0].0, "call_a");
+        assert_eq!(results[1].0, "call_b");
+        assert_eq!(results[2].0, "call_c");
+
+        // Verify all succeeded
+        for (id, result) in &results {
+            let output = result.as_ref().unwrap_or_else(|e| panic!("{id} failed: {e}"));
+            assert!(output.success, "{id} should succeed");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_parallel_tools_true_concurrency() {
+        // Two tools each sleep 50ms. If truly parallel, total time should be
+        // well under 100ms (the sequential sum). We allow generous headroom.
+        let mut tools = ToolRegistry::new();
+        tools.register(DelayTool {
+            tool_name: "slow_a".to_string(),
+            delay_ms: 50,
+        });
+        tools.register(DelayTool {
+            tool_name: "slow_b".to_string(),
+            delay_ms: 50,
+        });
+
+        let llm = Arc::new(MockLlmClient::new(vec![]));
+        let executor = AgentExecutor::new(llm, Arc::new(tools));
+
+        let calls = vec![
+            ToolCall {
+                id: "a".to_string(),
+                name: "slow_a".to_string(),
+                arguments: serde_json::json!({}),
+            },
+            ToolCall {
+                id: "b".to_string(),
+                name: "slow_b".to_string(),
+                arguments: serde_json::json!({}),
+            },
+        ];
+
+        let mut emitter = NullEmitter;
+        let start = std::time::Instant::now();
+        let results = executor
+            .execute_tools_parallel(&calls, &mut emitter, Duration::from_secs(10), false)
+            .await;
+        let elapsed = start.elapsed();
+
+        assert_eq!(results.len(), 2);
+        // If sequential, would take >= 100ms. Parallel should be ~50ms.
+        assert!(
+            elapsed < Duration::from_millis(90),
+            "Expected parallel execution under 90ms, took {:?}",
+            elapsed,
+        );
+    }
+
+    #[tokio::test]
+    async fn test_parallel_tools_panic_recovery() {
+        // One tool panics, other succeeds. The panic should be captured
+        // without crashing the executor.
+        let mut tools = ToolRegistry::new();
+        tools.register(PanicTool);
+        tools.register(DelayTool {
+            tool_name: "good_tool".to_string(),
+            delay_ms: 10,
+        });
+
+        let llm = Arc::new(MockLlmClient::new(vec![]));
+        let executor = AgentExecutor::new(llm, Arc::new(tools));
+
+        let calls = vec![
+            ToolCall {
+                id: "panic_call".to_string(),
+                name: "panic_tool".to_string(),
+                arguments: serde_json::json!({}),
+            },
+            ToolCall {
+                id: "good_call".to_string(),
+                name: "good_tool".to_string(),
+                arguments: serde_json::json!({}),
+            },
+        ];
+
+        let mut emitter = NullEmitter;
+        let results = executor
+            .execute_tools_parallel(&calls, &mut emitter, Duration::from_secs(10), false)
+            .await;
+
+        assert_eq!(results.len(), 2);
+
+        // Panicked tool should return an error containing "panicked"
+        let (id, result) = &results[0];
+        assert_eq!(id, "panic_call");
+        assert!(result.is_err());
+        let err_msg = format!("{}", result.as_ref().unwrap_err());
+        assert!(
+            err_msg.contains("panicked"),
+            "Expected panic error, got: {err_msg}",
+        );
+
+        // Good tool should succeed normally
+        let (id, result) = &results[1];
+        assert_eq!(id, "good_call");
+        assert!(result.is_ok());
+        assert!(result.as_ref().unwrap().success);
+    }
+
+    #[tokio::test]
+    async fn test_parallel_tools_timeout_in_spawned_task() {
+        // A hanging tool should be caught by the timeout inside the spawned task.
+        let mut tools = ToolRegistry::new();
+        tools.register(HangTool);
+        tools.register(DelayTool {
+            tool_name: "fast_tool".to_string(),
+            delay_ms: 10,
+        });
+
+        let llm = Arc::new(MockLlmClient::new(vec![]));
+        let executor = AgentExecutor::new(llm, Arc::new(tools));
+
+        let calls = vec![
+            ToolCall {
+                id: "hang_call".to_string(),
+                name: "hang_tool".to_string(),
+                arguments: serde_json::json!({}),
+            },
+            ToolCall {
+                id: "fast_call".to_string(),
+                name: "fast_tool".to_string(),
+                arguments: serde_json::json!({}),
+            },
+        ];
+
+        let mut emitter = NullEmitter;
+        // Short timeout to trigger quickly
+        let results = executor
+            .execute_tools_parallel(
+                &calls,
+                &mut emitter,
+                Duration::from_millis(200),
+                false,
+            )
+            .await;
+
+        assert_eq!(results.len(), 2);
+
+        // Hanging tool should error with timeout message
+        let (id, result) = &results[0];
+        assert_eq!(id, "hang_call");
+        assert!(result.is_err());
+        let err_msg = format!("{}", result.as_ref().unwrap_err());
+        assert!(
+            err_msg.contains("timed out"),
+            "Expected timeout error, got: {err_msg}",
+        );
+
+        // Fast tool should succeed despite the other timing out
+        let (id, result) = &results[1];
+        assert_eq!(id, "fast_call");
+        assert!(result.is_ok());
+        assert!(result.as_ref().unwrap().success);
     }
 }
