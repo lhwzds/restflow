@@ -25,3 +25,83 @@ pub fn setup_discord_channel(
 
     Ok(Some((channel, default_channel_id)))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use redb::Database;
+    use std::sync::Arc;
+    use tempfile::tempdir;
+
+    #[test]
+    fn test_setup_discord_without_token() {
+        let temp_dir = tempdir().unwrap();
+        let db = Arc::new(Database::create(temp_dir.path().join("test.db")).unwrap());
+        let secrets = SecretStorage::new(db).unwrap();
+
+        let result = setup_discord_channel(&secrets).unwrap();
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_setup_discord_with_token() {
+        let temp_dir = tempdir().unwrap();
+        let db = Arc::new(Database::create(temp_dir.path().join("test.db")).unwrap());
+        let secrets = SecretStorage::new(db).unwrap();
+
+        secrets
+            .set_secret("DISCORD_BOT_TOKEN", "bot-token", None)
+            .unwrap();
+
+        let result = setup_discord_channel(&secrets).unwrap();
+        assert!(result.is_some());
+    }
+
+    #[test]
+    fn test_setup_discord_with_default_channel() {
+        let temp_dir = tempdir().unwrap();
+        let db = Arc::new(Database::create(temp_dir.path().join("test.db")).unwrap());
+        let secrets = SecretStorage::new(db).unwrap();
+
+        secrets
+            .set_secret("DISCORD_BOT_TOKEN", "bot-token", None)
+            .unwrap();
+        secrets
+            .set_secret("DISCORD_CHANNEL_ID", "123456789", None)
+            .unwrap();
+
+        let (_, default_channel_id) = setup_discord_channel(&secrets).unwrap().unwrap();
+        assert_eq!(default_channel_id, Some("123456789".to_string()));
+    }
+
+    #[test]
+    fn test_setup_discord_ignores_empty_token() {
+        let temp_dir = tempdir().unwrap();
+        let db = Arc::new(Database::create(temp_dir.path().join("test.db")).unwrap());
+        let secrets = SecretStorage::new(db).unwrap();
+
+        secrets
+            .set_secret("DISCORD_BOT_TOKEN", "  ", None)
+            .unwrap();
+
+        let result = setup_discord_channel(&secrets).unwrap();
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_setup_discord_ignores_whitespace_channel() {
+        let temp_dir = tempdir().unwrap();
+        let db = Arc::new(Database::create(temp_dir.path().join("test.db")).unwrap());
+        let secrets = SecretStorage::new(db).unwrap();
+
+        secrets
+            .set_secret("DISCORD_BOT_TOKEN", "bot-token", None)
+            .unwrap();
+        secrets
+            .set_secret("DISCORD_CHANNEL_ID", "  ", None)
+            .unwrap();
+
+        let (_, default_channel_id) = setup_discord_channel(&secrets).unwrap().unwrap();
+        assert!(default_channel_id.is_none());
+    }
+}

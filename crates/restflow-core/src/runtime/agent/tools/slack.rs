@@ -116,3 +116,108 @@ impl Tool for SlackTool {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use restflow_ai::tools::Tool;
+    use serde_json::json;
+
+    #[test]
+    fn test_tool_name() {
+        let tool = SlackTool::new();
+        assert_eq!(tool.name(), "slack");
+    }
+
+    #[test]
+    fn test_schema_required_fields() {
+        let tool = SlackTool::new();
+        let schema = tool.parameters_schema();
+        let required = schema["required"].as_array().unwrap();
+        let required_strs: Vec<&str> = required.iter().map(|v| v.as_str().unwrap()).collect();
+        assert!(required_strs.contains(&"bot_token"));
+        assert!(required_strs.contains(&"channel"));
+        assert!(required_strs.contains(&"message"));
+    }
+
+    #[test]
+    fn test_supports_parallel_is_false() {
+        let tool = SlackTool::new();
+        assert!(!tool.supports_parallel());
+    }
+
+    #[tokio::test]
+    async fn test_empty_bot_token_rejected() {
+        let tool = SlackTool::new();
+        let result = tool
+            .execute(json!({
+                "bot_token": "",
+                "channel": "C123",
+                "message": "hi"
+            }))
+            .await
+            .unwrap();
+        assert!(!result.success);
+        assert!(result.error.unwrap().contains("bot_token"));
+    }
+
+    #[tokio::test]
+    async fn test_empty_channel_rejected() {
+        let tool = SlackTool::new();
+        let result = tool
+            .execute(json!({
+                "bot_token": "token",
+                "channel": "",
+                "message": "hi"
+            }))
+            .await
+            .unwrap();
+        assert!(!result.success);
+        assert!(result.error.unwrap().contains("channel"));
+    }
+
+    #[tokio::test]
+    async fn test_empty_message_rejected() {
+        let tool = SlackTool::new();
+        let result = tool
+            .execute(json!({
+                "bot_token": "token",
+                "channel": "C123",
+                "message": ""
+            }))
+            .await
+            .unwrap();
+        assert!(!result.success);
+        assert!(result.error.unwrap().contains("message"));
+    }
+
+    #[tokio::test]
+    async fn test_missing_fields_rejected() {
+        let tool = SlackTool::new();
+        let result = tool.execute(json!({"bot_token": "token"})).await;
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_optional_thread_ts() {
+        let input: SlackInput = serde_json::from_value(json!({
+            "bot_token": "token",
+            "channel": "C123",
+            "message": "hello"
+        }))
+        .unwrap();
+        assert!(input.thread_ts.is_none());
+    }
+
+    #[test]
+    fn test_input_with_thread_ts() {
+        let input: SlackInput = serde_json::from_value(json!({
+            "bot_token": "token",
+            "channel": "C123",
+            "message": "hello",
+            "thread_ts": "1234567890.123456"
+        }))
+        .unwrap();
+        assert_eq!(input.thread_ts, Some("1234567890.123456".to_string()));
+    }
+}

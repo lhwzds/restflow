@@ -28,3 +28,86 @@ pub fn setup_slack_channel(
 
     Ok(Some((channel, default_channel_id)))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use redb::Database;
+    use std::sync::Arc;
+    use tempfile::tempdir;
+
+    #[test]
+    fn test_setup_slack_without_tokens() {
+        let temp_dir = tempdir().unwrap();
+        let db = Arc::new(Database::create(temp_dir.path().join("test.db")).unwrap());
+        let secrets = SecretStorage::new(db).unwrap();
+
+        let result = setup_slack_channel(&secrets).unwrap();
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_setup_slack_with_both_tokens() {
+        let temp_dir = tempdir().unwrap();
+        let db = Arc::new(Database::create(temp_dir.path().join("test.db")).unwrap());
+        let secrets = SecretStorage::new(db).unwrap();
+
+        secrets
+            .set_secret("SLACK_BOT_TOKEN", "xoxb-bot", None)
+            .unwrap();
+        secrets
+            .set_secret("SLACK_APP_TOKEN", "xapp-app", None)
+            .unwrap();
+
+        let result = setup_slack_channel(&secrets).unwrap();
+        assert!(result.is_some());
+    }
+
+    #[test]
+    fn test_setup_slack_without_app_token() {
+        let temp_dir = tempdir().unwrap();
+        let db = Arc::new(Database::create(temp_dir.path().join("test.db")).unwrap());
+        let secrets = SecretStorage::new(db).unwrap();
+
+        secrets
+            .set_secret("SLACK_BOT_TOKEN", "xoxb-bot", None)
+            .unwrap();
+
+        let result = setup_slack_channel(&secrets).unwrap();
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_setup_slack_without_bot_token() {
+        let temp_dir = tempdir().unwrap();
+        let db = Arc::new(Database::create(temp_dir.path().join("test.db")).unwrap());
+        let secrets = SecretStorage::new(db).unwrap();
+
+        secrets
+            .set_secret("SLACK_APP_TOKEN", "xapp-app", None)
+            .unwrap();
+
+        let result = setup_slack_channel(&secrets).unwrap();
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_setup_slack_with_default_channel() {
+        let temp_dir = tempdir().unwrap();
+        let db = Arc::new(Database::create(temp_dir.path().join("test.db")).unwrap());
+        let secrets = SecretStorage::new(db).unwrap();
+
+        secrets
+            .set_secret("SLACK_BOT_TOKEN", "xoxb-bot", None)
+            .unwrap();
+        secrets
+            .set_secret("SLACK_APP_TOKEN", "xapp-app", None)
+            .unwrap();
+        secrets
+            .set_secret("SLACK_CHANNEL_ID", "C123456", None)
+            .unwrap();
+
+        let (_, default_channel_id) = setup_slack_channel(&secrets).unwrap().unwrap();
+        assert_eq!(default_channel_id, Some("C123456".to_string()));
+    }
+}
