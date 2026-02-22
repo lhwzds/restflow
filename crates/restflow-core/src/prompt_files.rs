@@ -286,7 +286,7 @@ fn apply_task_id_placeholder(content: &str, background_task_id: Option<&str>) ->
         ("{{task_id}}", task_id),
         ("{{background_task_id}}", task_id),
     ]);
-    crate::utils::template::render_template_single_pass(content, &replacements)
+    crate::template::render_template_single_pass(content, &replacements)
 }
 
 fn resolve_agents_dir() -> Result<PathBuf> {

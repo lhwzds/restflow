@@ -10,6 +10,15 @@ use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+/// Build a standard ops response envelope.
+fn build_ops_response(operation: &str, evidence: Value, verification: Value) -> Value {
+    json!({
+        "operation": operation,
+        "evidence": evidence,
+        "verification": verification
+    })
+}
+
 pub struct OpsProviderAdapter {
     background_storage: BackgroundAgentStorage,
     chat_storage: ChatSessionStorage,
@@ -144,11 +153,7 @@ impl OpsProvider for OpsProviderAdapter {
             "source": "daemon_pid_file",
             "checked_at": Utc::now().timestamp_millis()
         });
-        Ok(crate::ops::build_response(
-            crate::ops::ManageOpsOperation::DaemonStatus,
-            evidence,
-            verification,
-        ))
+        Ok(build_ops_response("daemon_status", evidence, verification))
     }
 
     fn daemon_health(
@@ -167,11 +172,7 @@ impl OpsProvider for OpsProviderAdapter {
                 "ipc_checked": true,
                 "http_checked": false
             });
-            Ok(crate::ops::build_response(
-                crate::ops::ManageOpsOperation::DaemonHealth,
-                evidence,
-                verification,
-            ))
+            Ok(build_ops_response("daemon_health", evidence, verification))
         })
     }
 
@@ -220,11 +221,7 @@ impl OpsProvider for OpsProviderAdapter {
             "sample_limit": limit,
             "derived_from": "background_agent_storage"
         });
-        Ok(crate::ops::build_response(
-            crate::ops::ManageOpsOperation::BackgroundSummary,
-            evidence,
-            verification,
-        ))
+        Ok(build_ops_response("background_summary", evidence, verification))
     }
 
     fn session_summary(&self, limit: usize) -> restflow_tools::Result<Value> {
@@ -256,11 +253,7 @@ impl OpsProvider for OpsProviderAdapter {
             "sample_limit": limit,
             "derived_from": "chat_session_storage"
         });
-        Ok(crate::ops::build_response(
-            crate::ops::ManageOpsOperation::SessionSummary,
-            evidence,
-            verification,
-        ))
+        Ok(build_ops_response("session_summary", evidence, verification))
     }
 
     fn log_tail(&self, lines: usize, path: Option<&str>) -> restflow_tools::Result<Value> {
@@ -275,11 +268,7 @@ impl OpsProvider for OpsProviderAdapter {
                 "path_exists": false,
                 "requested_lines": lines
             });
-            return Ok(crate::ops::build_response(
-                crate::ops::ManageOpsOperation::LogTail,
-                evidence,
-                verification,
-            ));
+            return Ok(build_ops_response("log_tail", evidence, verification));
         }
 
         let (tail, truncated) = Self::read_log_tail(&resolved, lines)
@@ -294,11 +283,7 @@ impl OpsProvider for OpsProviderAdapter {
             "requested_lines": lines,
             "truncated": truncated
         });
-        Ok(crate::ops::build_response(
-            crate::ops::ManageOpsOperation::LogTail,
-            evidence,
-            verification,
-        ))
+        Ok(build_ops_response("log_tail", evidence, verification))
     }
 }
 

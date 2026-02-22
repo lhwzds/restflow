@@ -125,3 +125,105 @@ impl SkillProvider for SkillStorageProvider {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+    use tempfile::tempdir;
+
+    fn setup() -> (SkillStorageProvider, tempfile::TempDir) {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test.db");
+        let db = Arc::new(redb::Database::create(db_path).unwrap());
+        let storage = SkillStorage::new(db).unwrap();
+        (SkillStorageProvider::new(storage), temp_dir)
+    }
+
+    fn sample_record(id: &str) -> SkillRecord {
+        SkillRecord {
+            id: id.to_string(),
+            name: format!("Skill {}", id),
+            description: Some("A test skill".to_string()),
+            tags: Some(vec!["test".to_string()]),
+            content: "# Test\nDo something.".to_string(),
+        }
+    }
+
+    #[test]
+    fn test_create_and_get_skill() {
+        let (provider, _dir) = setup();
+        let record = sample_record("skill-1");
+        provider.create_skill(record.clone()).unwrap();
+
+        let content = provider.get_skill("skill-1").unwrap();
+        assert_eq!(content.name, "Skill skill-1");
+        assert_eq!(content.id, "skill-1");
+    }
+
+    #[test]
+    fn test_list_skills() {
+        let (provider, _dir) = setup();
+        provider.create_skill(sample_record("a")).unwrap();
+        provider.create_skill(sample_record("b")).unwrap();
+
+        let skills = provider.list_skills();
+        assert_eq!(skills.len(), 2);
+    }
+
+    #[test]
+    fn test_update_skill() {
+        let (provider, _dir) = setup();
+        provider.create_skill(sample_record("upd")).unwrap();
+
+        let update = SkillUpdate {
+            name: Some("Updated Name".to_string()),
+            description: None,
+            tags: None,
+            content: None,
+        };
+        let updated = provider.update_skill("upd", update).unwrap();
+        assert_eq!(updated.name, "Updated Name");
+    }
+
+    #[test]
+    fn test_delete_skill() {
+        let (provider, _dir) = setup();
+        provider.create_skill(sample_record("del")).unwrap();
+        assert!(provider.delete_skill("del").unwrap());
+        assert!(!provider.delete_skill("del").unwrap());
+    }
+
+    #[test]
+    fn test_get_nonexistent_skill() {
+        let (provider, _dir) = setup();
+        assert!(provider.get_skill("nonexistent").is_none());
+    }
+
+    #[test]
+    fn test_export_skill() {
+        let (provider, _dir) = setup();
+        provider.create_skill(sample_record("exp")).unwrap();
+        let markdown = provider.export_skill("exp").unwrap();
+        assert!(!markdown.is_empty());
+    }
+
+    #[test]
+    fn test_import_skill_no_overwrite() {
+        let (provider, _dir) = setup();
+        let markdown = "---\nname: Imported\ndescription: A skill\n---\n# Content";
+        provider.import_skill("imp", markdown, false).unwrap();
+
+        let result = provider.import_skill("imp", markdown, false);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_import_skill_with_overwrite() {
+        let (provider, _dir) = setup();
+        let markdown = "---\nname: Imported\ndescription: A skill\n---\n# Content";
+        provider.import_skill("imp2", markdown, false).unwrap();
+        let result = provider.import_skill("imp2", markdown, true);
+        assert!(result.is_ok());
+    }
+}

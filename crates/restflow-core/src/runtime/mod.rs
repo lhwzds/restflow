@@ -1,6 +1,7 @@
 pub mod agent;
 pub mod background_agent;
 pub mod channel;
+mod output;
 pub mod subagent;
 
 pub use agent::{

@@ -77,7 +77,7 @@ impl BackgroundAgentStorage {
             ("{{task.input}}", input_value),
             ("{{input}}", input_value),
         ]);
-        crate::utils::template::render_template_single_pass(template, &replacements)
+        crate::template::render_template_single_pass(template, &replacements)
     }
 
     /// Create a new BackgroundAgentStorage instance

@@ -12,7 +12,7 @@ use tracing::{debug, error, info, warn};
 use crate::auth::AuthProfileManager;
 use crate::channel::{ChannelReplySender, ChannelRouter, InboundMessage, OutboundMessage};
 use crate::models::{ChatMessage, ChatSession};
-use crate::output::{ensure_success_output, format_error_output};
+use crate::runtime::output::{ensure_success_output, format_error_output};
 use crate::process::ProcessRegistry;
 use crate::runtime::background_agent::{AgentRuntimeExecutor, SessionInputMode};
 use crate::storage::Storage;
